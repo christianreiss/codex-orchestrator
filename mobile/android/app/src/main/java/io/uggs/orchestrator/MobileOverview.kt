@@ -43,7 +43,7 @@ fun liveWindow(window: JSONObject, now: Long) =
 fun liveFleetWindow(window: JSONObject?, now: Long) =
     window?.let { it.optBoolean("open", false) && liveWindow(it, now) } ?: false
 
-fun agentTitle(agent: JSONObject): String {
+internal fun agentTitle(t: Texts, agent: JSONObject): String {
     val name = compactSummary(agent.identityText("launch_name"))
     val title = compactSummary(agent.identityText("session_name"))
     if (name != null) {
@@ -56,9 +56,9 @@ fun agentTitle(agent: JSONObject): String {
         })!!
     }
     return title
-        ?: agent.identityText("upstream_session_id")?.let { "Session ${it.take(8)}" }
-        ?: agent.identityText("id")?.let { "Session ${it.take(8)}" }
-        ?: "Unnamed session"
+        ?: agent.identityText("upstream_session_id")?.let { t.string(R.string.agent_session_short, it.take(8)) }
+        ?: agent.identityText("id")?.let { t.string(R.string.agent_session_short, it.take(8)) }
+        ?: t.string(R.string.agent_unnamed_session)
 }
 
 private fun JSONObject.identityText(key: String): String? =
@@ -73,12 +73,12 @@ fun compactSummary(value: String?): String? {
     return if (text.codePointCount(0, text.length) > 160) text.substring(0, text.offsetByCodePoints(0, 159)).trimEnd() + "…" else text
 }
 
-fun agentSummary(agent: JSONObject): String? = compactSummary(agent.optJSONObject("preview")?.optString("summary"))
-    ?: if (agent.optJSONObject("pending_prompt") != null) "Your reply is needed."
-    else if (agent.optJSONObject("attention") != null) compactSummary(agent.getJSONObject("attention").optString("summary")) ?: "The agent needs your attention."
+internal fun agentSummary(t: Texts, agent: JSONObject): String? = compactSummary(agent.optJSONObject("preview")?.optString("summary"))
+    ?: if (agent.optJSONObject("pending_prompt") != null) t.string(R.string.agent_summary_reply_needed)
+    else if (agent.optJSONObject("attention") != null) compactSummary(agent.getJSONObject("attention").optString("summary")) ?: t.string(R.string.agent_summary_attention)
     else null
 
-fun durationLabel(minutes: Int) = if (minutes >= 60 && minutes % 60 == 0) "${minutes / 60}h" else "${minutes}m"
+internal fun durationLabel(t: Texts, minutes: Int) = if (minutes >= 60 && minutes % 60 == 0) t.string(R.string.duration_h, minutes / 60) else t.string(R.string.duration_m, minutes)
 
 internal fun messageText(event: JSONObject): String {
     val payload = event.optJSONObject("payload") ?: return ""

@@ -13,10 +13,10 @@ class HostsTest {
     }
     @Test fun explainsUnavailableHostsAndUnknownExecutions() {
         val host = JSONObject("""{"engines":["codex"],"free_slots":0,"health":{"reasons":["heartbeat_expired"]}}""")
-        assertEquals("Host is offline", hostReason(host))
+        assertEquals("Host is offline", hostReason(TestTexts, host))
         host.getJSONObject("health").put("reasons", org.json.JSONArray())
-        assertEquals("All slots are occupied", hostReason(host))
-        assertTrue(remoteStatus("unknown").contains("Outcome unknown"))
-        assertTrue(remoteStatus("queued").contains("queued"))
+        assertEquals("All slots are occupied", hostReason(TestTexts, host))
+        assertTrue(remoteStatus(TestTexts, "unknown").contains("Outcome unknown"))
+        assertTrue(remoteStatus(TestTexts, "queued").contains("queued"))
     }
 }

@@ -9,7 +9,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -33,6 +35,8 @@ import androidx.compose.ui.unit.dp
     mediaActions: @Composable RowScope.() -> Unit = {},
     onSend: () -> Unit,
 ) {
+    val sendDescription = stringResource(R.string.chat_send)
+    val sendingDescription = stringResource(R.string.chat_sending)
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Surface(modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
@@ -54,10 +58,10 @@ import androidx.compose.ui.unit.dp
         if (sendLabel != null) Button(onClick = onSend, enabled = canSend, modifier = Modifier.heightIn(min = 48.dp).then(if (sendTag != null) Modifier.testTag(sendTag) else Modifier)) {
             Text(sendLabel)
         } else FilledIconButton(
-            onClick = onSend, enabled = canSend, modifier = Modifier.size(48.dp).semantics { contentDescription = "Send" }.then(if (sendTag != null) Modifier.testTag(sendTag) else Modifier),
+            onClick = onSend, enabled = canSend, modifier = Modifier.size(48.dp).semantics { contentDescription = sendDescription }.then(if (sendTag != null) Modifier.testTag(sendTag) else Modifier),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
         ) {
-            if (sending) CircularProgressIndicator(Modifier.size(20.dp).semantics { contentDescription = "Sending" }, strokeWidth = 2.dp)
+            if (sending) CircularProgressIndicator(Modifier.size(20.dp).semantics { contentDescription = sendingDescription }, strokeWidth = 2.dp)
             else CompanionIcon(CompanionSymbol.Send)
         }
     }

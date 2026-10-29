@@ -12,7 +12,7 @@ class ChatPresentationTest {
         .put("cursor", cursor).put("type", type).put("created_at", time)
         .put("payload", JSONObject().put("text", "Message " + cursor))
     private fun bubbles(events: List<JSONObject>, notices: List<JSONObject> = emptyList()) =
-        buildTimeline(portalTimelineEntries(events, notices), zone).filterIsInstance<TimelineItem.Bubble>()
+        buildTimeline(portalTimelineEntries(TestTexts, events, notices), zone).filterIsInstance<TimelineItem.Bubble>()
     private fun messagesGrouped(first: JSONObject, second: JSONObject, @Suppress("UNUSED_PARAMETER") zone: ZoneId) =
         bubbles(listOf(first, second)).let { it.size == 2 && !it[1].startsGroup }
 
@@ -29,7 +29,7 @@ class ChatPresentationTest {
         assertEquals("Review the result", messageText(messages[1].source))
         assertEquals("important", noticeSeverity(messages[1].source.optJSONObject("payload")))
         assertTrue(messages[0].endsGroup)
-        assertEquals(ReplyPreview("Agent", "Review the result"), replyPreview(events, 2, "Agent"))
+        assertEquals(ReplyPreview("Agent", "Review the result"), replyPreview(TestTexts, events, 2, "Agent"))
 
         val outsideTail = bubbles(listOf(events.first(), events.last()), listOf(notice, notice))
         assertEquals(listOf("message:1", "notice:notice-id", "message:4"), outsideTail.map { it.key })
@@ -65,7 +65,7 @@ class ChatPresentationTest {
         val second = message(2, "assistant_message", "not-a-date")
         assertNull(eventTime(first)); assertNull(eventTime(second))
         assertFalse(messagesGrouped(first, second, zone))
-        assertTrue(buildTimeline(portalTimelineEntries(listOf(first, second)), zone).all { it is TimelineItem.Bubble })
+        assertTrue(buildTimeline(portalTimelineEntries(TestTexts, listOf(first, second)), zone).all { it is TimelineItem.Bubble })
     }
 
     @Test fun transcriptKeepsCursorOrderAndAddsLocalDaysWithSystemNoiseCollapsed() {
@@ -75,7 +75,7 @@ class ChatPresentationTest {
             message(3, "assistant_message", "2026-10-07T21:59:30Z"),
             message(4, "user_message", "2026-10-07T22:00:00Z"),
         )
-        val rows = buildTimeline(portalTimelineEntries(events), zone)
+        val rows = buildTimeline(portalTimelineEntries(TestTexts, events), zone)
         assertEquals(listOf(LocalDate.parse("2026-10-07"), LocalDate.parse("2026-10-08")), rows.filterIsInstance<TimelineItem.Day>().map { it.date })
         val messages = rows.filterIsInstance<TimelineItem.Bubble>()
         assertEquals(listOf(1L, 3L, 4L), messages.map { it.source.getLong("cursor") })
@@ -88,27 +88,27 @@ class ChatPresentationTest {
         val attachment=JSONObject().put("cursor",9).put("type","assistant_message").put("payload",JSONObject().put("text","").put("attachments",org.json.JSONArray().put("file-id")))
         assertEquals(1,bubbles(listOf(attachment)).size)
         attachment.put("type","message_accepted")
-        assertTrue(portalTimelineEntries(listOf(attachment)).isEmpty())
+        assertTrue(portalTimelineEntries(TestTexts, listOf(attachment)).isEmpty())
     }
 
     @Test fun replyPreviewUsesTheExactRetainedMessageAndHandlesMediaOrExpiredHistory() {
         val own = message(4, "user_message", null)
         val media = message(5, "assistant_message", null).put("payload", JSONObject().put("attachments", org.json.JSONArray().put("photo")))
         val events = listOf(own, media, message(6, "message_read", null))
-        assertEquals(ReplyPreview("You", "Message 4"), replyPreview(events, 4, "Claudia"))
-        assertEquals(ReplyPreview("Claudia", "Attachment"), replyPreview(events, 5, "Claudia"))
-        assertEquals(ReplyPreview("Earlier message", "Message is no longer in this history"), replyPreview(events, 3, "Claudia"))
-        assertEquals(ReplyPreview("Earlier message", "Message is no longer in this history"), replyPreview(events, 6, "Claudia"))
+        assertEquals(ReplyPreview("You", "Message 4"), replyPreview(TestTexts, events, 4, "Claudia"))
+        assertEquals(ReplyPreview("Claudia", "Attachment"), replyPreview(TestTexts, events, 5, "Claudia"))
+        assertEquals(ReplyPreview("Earlier message", "Message is no longer in this history"), replyPreview(TestTexts, events, 3, "Claudia"))
+        assertEquals(ReplyPreview("Earlier message", "Message is no longer in this history"), replyPreview(TestTexts, events, 6, "Claudia"))
     }
 
     @Test fun changingClockDoesNotCreateDuplicateListKeys() {
-        val rows = buildTimeline(portalTimelineEntries(listOf(
+        val rows = buildTimeline(portalTimelineEntries(TestTexts, listOf(
             message(1, "assistant_message", "2026-10-07T21:59:00Z"),
             message(2, "assistant_message", "2026-10-07T22:01:00Z"),
             message(3, "assistant_message", "2026-10-07T21:59:59Z"),
         )), zone)
         assertEquals(rows.size, rows.map { it.key }.toSet().size)
-        assertEquals("Today", dayLabel(LocalDate.parse("2026-10-07"), LocalDate.parse("2026-10-07")))
-        assertEquals("Yesterday", dayLabel(LocalDate.parse("2026-10-06"), LocalDate.parse("2026-10-07")))
+        assertEquals("Today", dayLabel(TestTexts, LocalDate.parse("2026-10-07"), LocalDate.parse("2026-10-07")))
+        assertEquals("Yesterday", dayLabel(TestTexts, LocalDate.parse("2026-10-06"), LocalDate.parse("2026-10-07")))
     }
 }

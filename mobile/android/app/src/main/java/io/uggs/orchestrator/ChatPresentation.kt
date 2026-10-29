@@ -5,18 +5,18 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 internal fun eventTime(event: JSONObject): Instant? = runCatching { Instant.parse(event.optString("created_at")) }.getOrNull()
 
-internal fun dayLabel(date: LocalDate, today: LocalDate = LocalDate.now()): String = when (date) {
-    today -> "Today"
-    today.minusDays(1) -> "Yesterday"
-    else -> date.format(DateTimeFormatter.ofPattern(if (date.year == today.year) "EEE, d MMM" else "d MMM yyyy", Locale.ENGLISH))
+internal fun dayLabel(t: Texts, date: LocalDate, today: LocalDate = LocalDate.now()): String = when (date) {
+    today -> t.string(R.string.time_today)
+    today.minusDays(1) -> t.string(R.string.time_yesterday)
+    else -> date.format(DateTimeFormatter.ofPattern(
+        if (date.year == today.year) t.pattern("EEEdMMM", "EEE, d MMM") else t.pattern("dMMMy", "d MMM yyyy"), t.locale))
 }
 
-internal fun timeLabel(instant: Instant, use24Hour: Boolean, zone: ZoneId = ZoneId.systemDefault()): String =
-    instant.atZone(zone).format(DateTimeFormatter.ofPattern(if (use24Hour) "HH:mm" else "h:mm a", Locale.getDefault()))
+internal fun timeLabel(t: Texts, instant: Instant, use24Hour: Boolean, zone: ZoneId = ZoneId.systemDefault()): String =
+    instant.atZone(zone).format(DateTimeFormatter.ofPattern(if (use24Hour) t.pattern("Hm", "HH:mm") else t.pattern("hm", "h:mm a"), t.locale))
 
 /** Receipts are keyed to the instruction, never inferred from a later unrelated reply. */
 internal fun deliveryIndex(events: List<JSONObject>): Map<String, String> {
@@ -41,21 +41,21 @@ internal fun deliveryIndex(events: List<JSONObject>): Map<String, String> {
     return result
 }
 
-internal fun deliveryLabel(event: JSONObject, receipts: Map<String, String>, agent: JSONObject?, fresh: Boolean): String? {
+internal fun deliveryLabel(t: Texts, event: JSONObject, receipts: Map<String, String>, agent: JSONObject?, fresh: Boolean): String? {
     if (event.optString("type") != "user_message") return null
     val id = event.optJSONObject("payload")?.receiptString("message_id") ?: return null
     return when (receipts[id]) {
-        "delivered" -> "Delivered to agent"
-        "read" -> "Read by AI"
-        "processing" -> if (fresh && agent?.optString("presence") == "working" && agent.receiptString("active_turn_id") == id) "AI is working…" else "Read by AI"
-        "replied" -> "Replied"
-        "canceled" -> "Not delivered — the agent never picked this up"
-        "failed" -> "Not delivered"
+        "delivered" -> t.string(R.string.delivery_delivered)
+        "read" -> t.string(R.string.delivery_read)
+        "processing" -> if (fresh && agent?.optString("presence") == "working" && agent.receiptString("active_turn_id") == id) t.string(R.string.delivery_working) else t.string(R.string.delivery_read)
+        "replied" -> t.string(R.string.delivery_replied)
+        "canceled" -> t.string(R.string.delivery_canceled)
+        "failed" -> t.string(R.string.chat_send_failed)
         else -> when (event.optJSONObject("payload")?.optString("delivery_status")) {
-            "sending" -> "Sending…"
-            "unconfirmed" -> "Not confirmed"
-            "failed" -> "Not delivered"
-            else -> "Queued"
+            "sending" -> t.string(R.string.chat_send_sending)
+            "unconfirmed" -> t.string(R.string.chat_send_unconfirmed)
+            "failed" -> t.string(R.string.chat_send_failed)
+            else -> t.string(R.string.delivery_queued)
         }
     }
 }
@@ -65,12 +65,12 @@ private fun JSONObject.receiptString(key: String): String? = (opt(key) as? Strin
 internal data class ReplyPreview(val author: String, val text: String)
 
 /** Quote only retained message content; an expired reference must not quote a different event. */
-internal fun replyPreview(events: List<JSONObject>, cursor: Long, agentName: String): ReplyPreview {
+internal fun replyPreview(t: Texts, events: List<JSONObject>, cursor: Long, agentName: String): ReplyPreview {
     val event = conversationEvents(events).firstOrNull { it.optLong("cursor") == cursor }
-        ?: return ReplyPreview("Earlier message", "Message is no longer in this history")
+        ?: return ReplyPreview(t.string(R.string.reply_earlier), t.string(R.string.reply_unavailable))
     val payload = event.optJSONObject("payload")
     val text = messageText(event).trim()
     val attachments = payload?.optJSONArray("attachments")?.length() ?: 0
-    return ReplyPreview(if (event.optString("type") == "user_message") "You" else agentName,
-        text.ifBlank { if (attachments == 1) "Attachment" else if (attachments > 1) "$attachments attachments" else "Message" })
+    return ReplyPreview(if (event.optString("type") == "user_message") t.string(R.string.reply_you) else agentName,
+        text.ifBlank { if (attachments == 1) t.string(R.string.reply_attachment) else if (attachments > 1) t.plural(R.plurals.reply_attachments, attachments, attachments) else t.string(R.string.reply_message) })
 }

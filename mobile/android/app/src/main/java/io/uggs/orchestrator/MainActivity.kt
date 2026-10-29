@@ -86,6 +86,7 @@ class MainActivity : ComponentActivity() {
 @Composable private fun CompanionContent(model: CompanionModel) {
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val haptic = LocalHapticFeedback.current
+    val t = rememberTexts()
     val navController = rememberNavController()
     val backEntry by navController.currentBackStackEntryAsState()
     val route = backEntry?.destination?.route
@@ -156,29 +157,29 @@ class MainActivity : ComponentActivity() {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (model.selected != null) EngineIcon(current, Modifier.size(24.dp))
-                        Text(if (model.roomChats.selected != null) shared?.optString("title") ?: "Conversation" else if (model.selected != null) current?.let(::agentTitle) ?: "Agent" else "Orchestrator",
+                        Text(if (model.roomChats.selected != null) shared?.optString("title") ?: stringResource(R.string.title_conversation) else if (model.selected != null) current?.let { agentTitle(t, it) } ?: stringResource(R.string.chat_agent_default) else stringResource(R.string.app_name),
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = if (!inConversation && model.connection != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                             style = MaterialTheme.typography.titleLarge)
                     }
                     if (model.selected != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         HostBadge(current)
-                        current?.let { Text(activityDetail(it, activityClock), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        current?.let { Text(activityDetail(t, it, activityClock), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     }
                 }
             },
-            navigationIcon = { if (inConversation) IconButton(onClick = ::back, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, "Back") } },
-            actions = { if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, "More") } },
+            navigationIcon = { if (inConversation) IconButton(onClick = ::back, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) } },
+            actions = { if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, stringResource(R.string.cd_more)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background),
         )
     }, bottomBar = {
         if (model.connection != null && (!inConversation || wide)) NavigationBar {
-            NavigationBarItem(selected = homeTab == Routes.CHATS, onClick = { goTab(Routes.CHATS) }, icon = { CompanionIcon(CompanionSymbol.Chat) }, label = { Text("Chats") }, modifier = Modifier.testTag("tab-chats"))
-            if (model.can("admin.read") && model.can("auth.read_metadata")) NavigationBarItem(selected = homeTab == Routes.QUOTAS, onClick = { goTab(Routes.QUOTAS) }, icon = { CompanionIcon(CompanionSymbol.Quotas) }, label = { Text("Quotas") }, modifier = Modifier.testTag("tab-quotas"))
-            if (model.can("admin.read")) NavigationBarItem(selected = homeTab == Routes.HOSTS, onClick = { goTab(Routes.HOSTS) }, icon = { CompanionIcon(CompanionSymbol.Computer) }, label = { Text("Hosts") }, modifier = Modifier.testTag("tab-hosts"))
+            NavigationBarItem(selected = homeTab == Routes.CHATS, onClick = { goTab(Routes.CHATS) }, icon = { CompanionIcon(CompanionSymbol.Chat) }, label = { Text(stringResource(R.string.nav_chats)) }, modifier = Modifier.testTag("tab-chats"))
+            if (model.can("admin.read") && model.can("auth.read_metadata")) NavigationBarItem(selected = homeTab == Routes.QUOTAS, onClick = { goTab(Routes.QUOTAS) }, icon = { CompanionIcon(CompanionSymbol.Quotas) }, label = { Text(stringResource(R.string.nav_quotas)) }, modifier = Modifier.testTag("tab-quotas"))
+            if (model.can("admin.read")) NavigationBarItem(selected = homeTab == Routes.HOSTS, onClick = { goTab(Routes.HOSTS) }, icon = { CompanionIcon(CompanionSymbol.Computer) }, label = { Text(stringResource(R.string.nav_hosts)) }, modifier = Modifier.testTag("tab-hosts"))
             if (model.can("hosts.activate_insecure")) NavigationBarItem(selected = homeTab == Routes.AUTHORIZATIONS, onClick = { goTab(Routes.AUTHORIZATIONS) },
                 icon = { BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text(requests.size.toString()) } }) { CompanionIcon(CompanionSymbol.Shield) } },
-                label = { Text("Authorizations") }, modifier = Modifier.testTag("tab-authorizations"))
+                label = { Text(stringResource(R.string.nav_authorizations)) }, modifier = Modifier.testTag("tab-authorizations"))
         }
     }, snackbarHost = { SnackbarHost(snackbar) }, floatingActionButton = {
         if (model.connection != null && !inConversation && homeTab != Routes.AUTHORIZATIONS && total > 0) {
@@ -190,7 +191,7 @@ class MainActivity : ComponentActivity() {
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp)) {
                 CompanionIcon(CompanionSymbol.Shield)
                 Spacer(Modifier.width(8.dp))
-                Text("Review next · $total", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.main_review_next, total), style = MaterialTheme.typography.labelLarge)
             }
         }
     }) { padding ->
@@ -252,9 +253,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable internal fun ServerConnectionStatus(connected: Boolean, connecting: Boolean, color: Color? = null) {
     val label = when {
-        connected -> "Server · Connected"
-        connecting -> "Server · Connecting…"
-        else -> "Server · Disconnected · Reconnecting…"
+        connected -> stringResource(R.string.server_connected)
+        connecting -> stringResource(R.string.server_connecting)
+        else -> stringResource(R.string.server_disconnected)
     }
     Text(label, modifier = Modifier.testTag("server-connection-status"),
         style = MaterialTheme.typography.bodySmall,
@@ -268,7 +269,7 @@ class MainActivity : ComponentActivity() {
     Surface(color = container, contentColor = content) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ServerConnectionStatus(false, connecting, color = content)
-            if (savedChats) Text("Saved chats", style = MaterialTheme.typography.bodySmall)
+            if (savedChats) Text(stringResource(R.string.banner_saved_chats), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -277,7 +278,7 @@ class MainActivity : ComponentActivity() {
     Surface(color = MaterialTheme.colorScheme.errorContainer) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(message, style = MaterialTheme.typography.bodyMedium)
-            Row { TextButton(onClick = retry) { Text("Retry") }; TextButton(onClick = dismiss) { Text("Dismiss") } }
+            Row { TextButton(onClick = retry) { Text(stringResource(R.string.action_retry)) }; TextButton(onClick = dismiss) { Text(stringResource(R.string.action_dismiss)) } }
         }
     }
 }
@@ -285,6 +286,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun ApprovalSheet(model: CompanionModel, request: JSONObject, fresh: Boolean, now: Long, onDismiss: () -> Unit) {
     val haptic = LocalHapticFeedback.current
+    val t = rememberTexts()
     var minutes by remember(request.optLong("id")) { mutableIntStateOf(model.defaultMinutes.coerceIn(1, 480)) }
     val current = model.approvals.firstOrNull { it.optLong("id") == request.optLong("id") }
     val active = fresh && current?.let { liveApproval(it, now) } == true
@@ -294,24 +296,24 @@ class MainActivity : ComponentActivity() {
     val remaining = current?.let { runCatching { (Instant.parse(it.optString("expires_at")).toEpochMilli() - now) / 1000 }.getOrDefault(0).coerceAtLeast(0) } ?: 0
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag("approval-sheet"), shape = SheetShape, dragHandle = { BottomSheetDefaults.DragHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Allow host access?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.approval_title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(request.optString("fqdn"), style = MaterialTheme.typography.titleLarge)
-            Text("Requesting IP: ${request.optString("request_ip")}", style = MaterialTheme.typography.bodyMedium)
-            Text(if (!fresh) "Reconnect to review" else if (active) "Expires in ${remaining / 60}m ${remaining % 60}s" else "Already handled or expired", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.auth_requesting_ip, request.optString("request_ip")), style = MaterialTheme.typography.bodyMedium)
+            Text(if (!fresh) stringResource(R.string.approval_reconnect) else if (active) stringResource(R.string.auth_expires_in, stringResource(R.string.duration_m_s, remaining / 60, remaining % 60)) else stringResource(R.string.approval_handled), color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (active) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(15, 60, model.defaultMinutes.coerceIn(1, 480)).distinct().forEach { value ->
                         FilterChip(selected = minutes == value, onClick = { minutes = value }, enabled = !model.busy,
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp), label = { Text(durationLabel(value)) })
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp), label = { Text(durationLabel(t, value)) })
                     }
                 }
             }
             model.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.Reject); model.decide(request.optLong("id"), false, 0, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text("Deny") }
-                Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.Confirm); model.decide(request.optLong("id"), true, minutes, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1.5f).heightIn(min = 52.dp)) { Text("Allow ${durationLabel(minutes)}") }
+                OutlinedButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.Reject); model.decide(request.optLong("id"), false, 0, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1f).heightIn(min = 52.dp)) { Text(stringResource(R.string.approval_deny)) }
+                Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.Confirm); model.decide(request.optLong("id"), true, minutes, onDismiss) }, enabled = active && !model.busy, modifier = Modifier.weight(1.5f).heightIn(min = 52.dp)) { Text(stringResource(R.string.approval_allow, durationLabel(t, minutes))) }
             }
-            if (!active) TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Close") }
+            if (!active) TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_close)) }
         }
     }
 }
@@ -321,24 +323,26 @@ class MainActivity : ComponentActivity() {
     val context = LocalContext.current
     val pushStatus by PushStatus.state.collectAsState()
     var signOut by remember { mutableStateOf(false) }
+    val alertsLabel = stringResource(R.string.more_alerts)
+    val notifyLabel = stringResource(R.string.more_notify_replies)
     ModalBottomSheet(onDismissRequest = onDismiss, shape = SheetShape, dragHandle = { BottomSheetDefaults.DragHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Connection", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.more_title), style = MaterialTheme.typography.titleLarge)
             // Re-evaluate freshness while this sheet is open, including a silent server timeout.
             var connectionClock by remember { mutableLongStateOf(0L) }
             LaunchedEffect(Unit) { while (true) { connectionClock++; kotlinx.coroutines.delay(1000) } }
             key(connectionClock) { ServerConnectionStatus(model.fresh(), model.connecting) }
             Text(model.connection?.server?.removePrefix("https://") ?: "", style = MaterialTheme.typography.bodyMedium)
-            Text(pushStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("Alerts", Modifier.weight(1f)); Switch(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Alerts" }) }
-            model.selected?.let { id -> Row(verticalAlignment = Alignment.CenterVertically) { Text("Notify me of replies", Modifier.weight(1f)); Switch(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = "Notify me of replies" }) } }
-            OutlinedButton(onClick = { model.refreshNow(); onDismiss() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("Refresh") }
-            TextButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }, modifier = Modifier.fillMaxWidth()) { Text("Android notification settings") }
-            TextButton(onClick = { signOut = true }, modifier = Modifier.fillMaxWidth()) { Text("Sign out", color = MaterialTheme.colorScheme.error) }
+            Text(stringResource(pushStatus), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) { Text(alertsLabel, Modifier.weight(1f)); Switch(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = alertsLabel }) }
+            model.selected?.let { id -> Row(verticalAlignment = Alignment.CenterVertically) { Text(notifyLabel, Modifier.weight(1f)); Switch(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = notifyLabel }) } }
+            OutlinedButton(onClick = { model.refreshNow(); onDismiss() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(stringResource(R.string.action_refresh)) }
+            TextButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.more_android_settings)) }
+            TextButton(onClick = { signOut = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_sign_out), color = MaterialTheme.colorScheme.error) }
         }
     }
-    if (signOut) AlertDialog(onDismissRequest = { signOut = false }, title = { Text("Disconnect this phone?") }, text = { Text("You’ll need a new pairing code to reconnect.") },
-        confirmButton = { TextButton(onClick = { model.logout(); onDismiss() }) { Text("Sign out") } }, dismissButton = { TextButton(onClick = { signOut = false }) { Text("Cancel") } })
+    if (signOut) AlertDialog(onDismissRequest = { signOut = false }, title = { Text(stringResource(R.string.sign_out_title)) }, text = { Text(stringResource(R.string.sign_out_body)) },
+        confirmButton = { TextButton(onClick = { model.logout(); onDismiss() }) { Text(stringResource(R.string.action_sign_out)) } }, dismissButton = { TextButton(onClick = { signOut = false }) { Text(stringResource(R.string.action_cancel)) } })
 }
 
 @Composable private fun PairScreen(model: CompanionModel) {
@@ -346,30 +350,32 @@ class MainActivity : ComponentActivity() {
     var error by remember { mutableStateOf<String?>(null) }
     var pasteOpen by remember { mutableStateOf(false) }
     var pastedCode by remember { mutableStateOf("") }
+    val invalidCode = stringResource(R.string.pair_invalid)
+    val scanPrompt = stringResource(R.string.pair_scan_prompt)
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { raw -> try { pairing = Pairing.parse(raw); error = null } catch (_: Exception) { error = "This is not a valid Orchestrator pairing code." } }
+        result.contents?.let { raw -> try { pairing = Pairing.parse(raw); error = null } catch (_: Exception) { error = invalidCode } }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp), verticalArrangement = Arrangement.Center) {
         Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
             Box(Modifier.padding(24.dp)) { CompanionIcon(CompanionSymbol.Chat, tint = MaterialTheme.colorScheme.primary) }
         }
         Spacer(Modifier.height(24.dp))
-        Text("Pair this phone", style = MaterialTheme.typography.headlineLarge)
+        Text(stringResource(R.string.pair_title), style = MaterialTheme.typography.headlineLarge)
         Spacer(Modifier.height(12.dp))
-        Text("In the dashboard, open Account → Android devices → Pair Android device.")
+        Text(stringResource(R.string.pair_instructions))
         Spacer(Modifier.height(12.dp))
-        Button(onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan the pairing code from your dashboard").setBeepEnabled(false).setOrientationLocked(false)) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { CompanionIcon(CompanionSymbol.Scan); Spacer(Modifier.width(8.dp)); Text("Scan QR code") }
-        TextButton(onClick = { pastedCode = ""; pasteOpen = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text("Paste pairing code") }
+        Button(onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(scanPrompt).setBeepEnabled(false).setOrientationLocked(false)) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { CompanionIcon(CompanionSymbol.Scan); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.pair_scan)) }
+        TextButton(onClick = { pastedCode = ""; pasteOpen = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pair_paste)) }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
     if (pasteOpen) AlertDialog(onDismissRequest = { pasteOpen = false; pastedCode = "" },
-        title = { Text("Pairing code") },
-        text = { OutlinedTextField(value = pastedCode, onValueChange = { pastedCode = it.take(4096) }, label = { Text("Pairing JSON") }, maxLines = 5) },
+        title = { Text(stringResource(R.string.pair_code_title)) },
+        text = { OutlinedTextField(value = pastedCode, onValueChange = { pastedCode = it.take(4096) }, label = { Text(stringResource(R.string.pair_json)) }, maxLines = 5) },
         confirmButton = { TextButton(onClick = {
-            try { pairing = Pairing.parse(pastedCode); error = null } catch (_: Exception) { error = "This is not a valid Orchestrator pairing code." }
+            try { pairing = Pairing.parse(pastedCode); error = null } catch (_: Exception) { error = invalidCode }
             pasteOpen = false; pastedCode = ""
-        }, enabled = pastedCode.isNotBlank()) { Text("Continue") } },
-        dismissButton = { TextButton(onClick = { pasteOpen = false; pastedCode = "" }) { Text("Cancel") } })
-    pairing?.let { code -> AlertDialog(onDismissRequest = { pairing = null }, title = { Text("Connect to this server?") },
-        text = { Text(code.server) }, confirmButton = { TextButton(onClick = { pairing = null; model.pair(code) }) { Text("Connect") } }, dismissButton = { TextButton(onClick = { pairing = null }) { Text("Cancel") } }) }
+        }, enabled = pastedCode.isNotBlank()) { Text(stringResource(R.string.action_continue)) } },
+        dismissButton = { TextButton(onClick = { pasteOpen = false; pastedCode = "" }) { Text(stringResource(R.string.action_cancel)) } })
+    pairing?.let { code -> AlertDialog(onDismissRequest = { pairing = null }, title = { Text(stringResource(R.string.pair_connect_title)) },
+        text = { Text(code.server) }, confirmButton = { TextButton(onClick = { pairing = null; model.pair(code) }) { Text(stringResource(R.string.action_connect)) } }, dismissButton = { TextButton(onClick = { pairing = null }) { Text(stringResource(R.string.action_cancel)) } }) }
 }

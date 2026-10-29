@@ -31,13 +31,14 @@ import org.json.JSONObject
     val prompt = agent?.optJSONObject("pending_prompt")
     val chatEvents = model.chatEvents
     val notices = agent?.optJSONArray("notices")?.objects().orEmpty()
-    val rows = remember(chatEvents, agent) { buildTimeline(portalTimelineEntries(chatEvents, notices, prompt)) }
+    val t = rememberTexts()
+    val rows = remember(chatEvents, agent, t) { buildTimeline(portalTimelineEntries(t, chatEvents, notices, prompt)) }
     val activeNoticeIds = notices.map { it.optString("id") }.toSet()
     val receipts = remember(chatEvents) { deliveryIndex(chatEvents) }
     val latestAssistant = rows.filterIsInstance<TimelineItem.Bubble>().lastOrNull { it.message.rawKind == "assistant_message" }
     val latestReplyCursor = (latestAssistant?.message?.key as? MessageKey.PortalEvent)?.cursor ?: 0
     val expectedReplyCursor = agent?.optLong("reply_cursor") ?: 0
-    val agentName = agent?.let(::agentTitle) ?: "Agent"
+    val agentName = agent?.let { agentTitle(t, it) } ?: stringResource(R.string.chat_agent_default)
     val working = fresh && !model.showingCachedTranscript && agent != null && chatAgentStatus(agent, model.activityNow(), fresh) == ChatAgentStatus.WORKING
     val empty = rows.none { it is TimelineItem.Bubble || it is TimelineItem.Decision } && prompt == null
     val list = rememberLazyListState()
@@ -121,7 +122,7 @@ import org.json.JSONObject
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (model.showingCachedTranscript) Text(
-            if (fresh) "Saved messages · Updating from server…" else "Saved messages · Waiting for server…",
+            stringResource(if (fresh) R.string.chat_saved_updating else R.string.chat_saved_waiting),
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(10.dp).testTag("cached-history"),
             style = MaterialTheme.typography.labelMedium,
         )
@@ -133,7 +134,7 @@ import org.json.JSONObject
             ) {
                 timelineItems(rows, expandedRuns, { key -> expandedRuns = if (key in expandedRuns) expandedRuns - key else expandedRuns + key },
                     decision = { DecisionCard(it.prompt, false, history = true) {} }) { item ->
-                    MessageBubble(model, sessionId ?: "", item, deliveryLabel(item.source, receipts, agent, fresh && !model.showingCachedTranscript), agentName, writable,
+                    MessageBubble(model, sessionId ?: "", item, deliveryLabel(t, item.source, receipts, agent, fresh && !model.showingCachedTranscript), agentName, writable,
                         if (fresh && !model.showingCachedTranscript) activeNoticeIds else null, fresh, highlight == item.key, ::jumpTo)
                 }
                 if (prompt != null) item(key = "question:" + prompt.optString("id")) {
@@ -145,8 +146,8 @@ import org.json.JSONObject
                         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                             Box(Modifier.padding(18.dp)) { CompanionIcon(CompanionSymbol.Chat, tint = MaterialTheme.colorScheme.primary) }
                         }
-                        Text("What do you need?", style = MaterialTheme.typography.titleMedium)
-                        Text("Send a message to this agent.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.chat_empty_title), style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.chat_empty_body), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if (working) item(key = "typing") { TypingIndicator(stringResource(R.string.chat_agent_working, agentName)) }
@@ -172,7 +173,7 @@ import org.json.JSONObject
             }
         }
         if (!writable) Text(
-            if (!fresh) (if (model.connecting) "Connecting — draft kept" else "Reconnecting — draft kept") else agent?.takeIf { it.optBoolean("daemon_session") }?.let { remoteStatus(it.optString("remote_status")) } ?: "Agent is no longer reachable",
+            if (!fresh) stringResource(if (model.connecting) R.string.chat_connecting_draft else R.string.chat_reconnecting_draft) else agent?.takeIf { it.optBoolean("daemon_session") }?.let { remoteStatus(t, it.optString("remote_status")) } ?: stringResource(R.string.chat_agent_unreachable),
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -181,20 +182,20 @@ import org.json.JSONObject
             if (!buttonsOnly) {
                 model.replyTargets[sessionId]?.let { cursor ->
                     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 60.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        ReplyQuote(replyPreview(model.events, cursor, agentName), Modifier.weight(1f))
-                        IconButton(onClick = { model.replyTo(null) }) { CompanionIcon(CompanionSymbol.Close, "Cancel reply") }
+                        ReplyQuote(replyPreview(t, model.events, cursor, agentName), Modifier.weight(1f))
+                        IconButton(onClick = { model.replyTo(null) }) { CompanionIcon(CompanionSymbol.Close, stringResource(R.string.chat_cancel_reply)) }
                     }
                 }
             }
             val composer: @Composable (() -> Unit, () -> Unit) -> Unit = { attach, camera ->
                 if (!buttonsOnly) {
                     val hasAttachments = !(model.chatUploads[sessionId].isNullOrEmpty())
-                    ChatComposer(model.draft, { model.draft = it }, if (prompt != null) "Your answer" else "Message",
+                    ChatComposer(model.draft, { model.draft = it }, stringResource(if (prompt != null) R.string.chat_your_answer else R.string.chat_message),
                         canSend = writable && !model.busy && (model.draft.isNotBlank() || hasAttachments), sending = model.busy,
                         mediaActions = {
                             if (sessionId != null && model.can("agent_portal.manage")) {
-                                IconButton(onClick = attach, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Attach, "Attach") }
-                                if (model.draft.isEmpty()) IconButton(onClick = camera, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Camera, "Take photo") }
+                                IconButton(onClick = attach, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Attach, stringResource(R.string.chat_attach)) }
+                                if (model.draft.isEmpty()) IconButton(onClick = camera, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Camera, stringResource(R.string.chat_take_photo)) }
                             }
                         }) {
                         followLatest = true; newMessages = false
@@ -203,8 +204,8 @@ import org.json.JSONObject
                 } else if (sessionId != null && model.can("agent_portal.manage")) {
                     // Button-only answers may still carry media; keep pending uploads reachable.
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.End) {
-                        IconButton(onClick = attach, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Attach, "Attach") }
-                        IconButton(onClick = camera, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Camera, "Take photo") }
+                        IconButton(onClick = attach, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Attach, stringResource(R.string.chat_attach)) }
+                        IconButton(onClick = camera, enabled = writable && !model.busy) { CompanionIcon(CompanionSymbol.Camera, stringResource(R.string.chat_take_photo)) }
                     }
                 }
             }
@@ -219,6 +220,7 @@ import org.json.JSONObject
     model: CompanionModel, session: String, item: TimelineItem.Bubble, delivery: String?, agentName: String, writable: Boolean,
     activeNoticeIds: Set<String>?, fresh: Boolean, highlighted: Boolean, jumpTo: (String) -> Unit,
 ) {
+    val t = rememberTexts()
     val message = item.message
     val payload = item.source.optJSONObject("payload") ?: JSONObject()
     val text = message.text
@@ -236,7 +238,7 @@ import org.json.JSONObject
     val selectLabel = stringResource(R.string.chat_select_text)
     val reply = if (replyable) ({ model.replyTo(cursor) }) else null
     val actions = buildList {
-        if (reply != null) add(BubbleAction("Reply", CompanionSymbol.Reply, reply))
+        if (reply != null) add(BubbleAction(stringResource(R.string.action_reply), CompanionSymbol.Reply, reply))
         if (text.isNotBlank()) {
             add(BubbleAction(copyLabel) { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(copyLabel, text))) } })
             add(BubbleAction(selectLabel) { selecting = true })
@@ -244,31 +246,31 @@ import org.json.JSONObject
     }
     ChatBubble(item, "bubble:$cursor", colors, actions, reply, highlighted) {
         if (severity != null) Text(
-            severity.replaceFirstChar { it.uppercase() } + if (resolved) " · Resolved" else "",
+            severityLabel(t, severity).let { if (resolved) t.string(R.string.notice_resolved, it) else it },
             Modifier.padding(horizontal = 8.dp, vertical = 4.dp).testTag("message-severity:$cursor"),
             style = MaterialTheme.typography.labelLarge, color = colors.content,
         )
         (message.replyTo as? MessageKey.PortalEvent)?.let { target ->
-            ReplyQuote(replyPreview(model.events, target.cursor, agentName), accent = if (item.own) colors.content else MaterialTheme.colorScheme.primary,
+            ReplyQuote(replyPreview(t, model.events, target.cursor, agentName), accent = if (item.own) colors.content else MaterialTheme.colorScheme.primary,
                 onClick = { jumpTo(target.itemKey()) })
         }
         message.attachments.forEach { id -> ChatAttachment(model, session, id) }
         if (text.isNotBlank()) BubbleText(text, markdown = !item.own, colors, selecting) { selecting = false }
         if (message.localStatus == "unconfirmed" && cursor < 0) {
-            TextButton(onClick = { message.localId?.let(model::retryChat) }, enabled = writable && !model.busy) { Text("Retry", color = colors.content) }
+            TextButton(onClick = { message.localId?.let(model::retryChat) }, enabled = writable && !model.busy) { Text(stringResource(R.string.chat_send_retry), color = colors.content) }
         }
         // A definitive rejection is not retried on its own: the operator retries or discards it.
         if (message.localStatus == "failed" && cursor < 0 && model.canRetryChat(message.localId)) Row(Modifier.align(Alignment.End)) {
             TextButton(onClick = { message.localId?.let(model::discardChat) }, enabled = !model.busy, modifier = Modifier.heightIn(min = 48.dp).testTag("discard-send:$cursor")) {
                 Text(stringResource(R.string.chat_discard_send), color = colors.content)
             }
-            TextButton(onClick = { message.localId?.let(model::retryChat) }, enabled = writable && !model.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry", color = colors.content) }
+            TextButton(onClick = { message.localId?.let(model::retryChat) }, enabled = writable && !model.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.chat_send_retry), color = colors.content) }
         }
         if (noticeId != null && !resolved) TextButton(
             onClick = { model.resolveChatNotice(session, noticeId) },
             enabled = fresh && activeNoticeIds?.contains(noticeId) == true && model.can("agent_portal.manage") && !model.busy,
             modifier = Modifier.align(Alignment.End).testTag("resolve-notice:$noticeId"),
-        ) { Text("Resolve", color = colors.content) }
+        ) { Text(stringResource(R.string.action_resolve), color = colors.content) }
         BubbleFooter(item, colors) {
             if (delivery != null) Text(delivery,
                 Modifier.widthIn(max = 180.dp).testTag("delivery:" + payload.optString("message_id")),
@@ -282,7 +284,7 @@ import org.json.JSONObject
     Surface(Modifier.fillMaxWidth().padding(top = if (history) 10.dp else 18.dp, bottom = 8.dp), shape = MaterialTheme.shapes.large,
         color = if (history) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.primaryContainer) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(if (history) stringResource(R.string.chat_earlier_question) else "Your decision", style = MaterialTheme.typography.labelLarge,
+            Text(if (history) stringResource(R.string.chat_earlier_question) else stringResource(R.string.chat_your_decision), style = MaterialTheme.typography.labelLarge,
                 color = if (history) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
             Text(prompt.optString("question"), style = MaterialTheme.typography.titleMedium)
             val choices = prompt.optJSONArray("choices")?.objects()?.takeIf { it.isNotEmpty() } ?: (prompt.optJSONArray("options")?.strings() ?: emptySet()).map { JSONObject().put("label",it).put("value",it) }
@@ -292,4 +294,11 @@ import org.json.JSONObject
             }
         }
     }
+}
+
+internal fun severityLabel(t: Texts, severity: String): String = when (severity) {
+    "important" -> t.string(R.string.notice_important)
+    "critical" -> t.string(R.string.notice_critical)
+    "blocker" -> t.string(R.string.notice_blocker)
+    else -> severity.replaceFirstChar { it.uppercase() }
 }

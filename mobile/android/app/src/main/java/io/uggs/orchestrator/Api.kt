@@ -13,7 +13,9 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class ApiException(val status: Int, message: String, val code: String? = null) : IOException(message)
-class Api(private val server: String, private val token: String? = null) {
+/** [texts] localizes the messages this client raises itself; without it (tests, background pushes) they stay English. */
+class Api(private val server: String, private val token: String? = null, private val texts: Texts? = null) {
+    private fun text(@androidx.annotation.StringRes id: Int, fallback: String, vararg args: Any): String = texts?.string(id, *args) ?: fallback
     companion object {
         internal var client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(25, TimeUnit.SECONDS)
             .followRedirects(false).followSslRedirects(false).build()
@@ -27,22 +29,22 @@ class Api(private val server: String, private val token: String? = null) {
         token?.let { builder.header("Authorization", "Bearer $it") }
         builder.method(method, body?.toRequestBody("application/json".toMediaType()))
         client.newCall(builder.build()).execute().use { response ->
-            val json = runCatching { JSONObject(response.body?.string() ?: "{}") }.getOrElse { throw IOException("Invalid server response") }
-            if (!response.isSuccessful) throw ApiException(response.code, json.optString("message", "Request failed (${response.code})"), json.optString("code"))
+            val json = runCatching { JSONObject(response.body?.string() ?: "{}") }.getOrElse { throw IOException(text(R.string.model_invalid_response, "Invalid server response")) }
+            if (!response.isSuccessful) throw ApiException(response.code, json.optString("message", text(R.string.model_request_failed_code, "Request failed (${response.code})", response.code)), json.optString("code"))
             json.optJSONObject("data") ?: json
         }
     }
     suspend fun download(path: String, output: java.io.File): java.io.File = withContext(Dispatchers.IO) {
         val request = Request.Builder().url("$server/companion/v1$path").header("Authorization", "Bearer $token").build()
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw ApiException(response.code, "Attachment download failed (${response.code})")
+            if (!response.isSuccessful) throw ApiException(response.code, text(R.string.attach_download_failed, "Attachment download failed (${response.code})", response.code))
             val temp = java.io.File(output.parentFile, output.name + ".part")
             try {
                 response.body!!.byteStream().use { input -> temp.outputStream().use { out ->
                     val buffer = ByteArray(64 * 1024); var bytes = 0L
-                    while(true) { val count = input.read(buffer); if(count < 0) break; bytes+=count; require(bytes <= CHAT_FILE_LIMIT) { "Attachment exceeds size limit" }; out.write(buffer,0,count) }
+                    while(true) { val count = input.read(buffer); if(count < 0) break; bytes+=count; require(bytes <= CHAT_FILE_LIMIT) { text(R.string.attach_too_large, "Attachment exceeds size limit") }; out.write(buffer,0,count) }
                 } }
-                check(temp.renameTo(output)) { "Cannot save attachment" }; output
+                check(temp.renameTo(output)) { text(R.string.attach_cannot_save, "Cannot save attachment") }; output
             } catch(e:Exception) { temp.delete(); throw e }
         }
     }

@@ -46,7 +46,7 @@ class RoomOutboxTest {
     private fun accepted(body: String) = MockResponse().setBody(JSONObject().put("id", "stored-" + JSONObject(body).getString("client_request_id"))
         .put("kind", "chat").put("actor", "admin:1").put("content", JSONObject(body).getString("content")).put("created_at", "2026-10-29T10:00:00Z").toString())
     private fun rooms(outbox: ChatOutbox, persisted: (() -> Unit)? = null) = RoomChats(scope, { Api(server.url("/").toString().trimEnd('/'), "test") }, { true },
-        outbox, { savedRooms = if (it.isEmpty) null else it.json() }, { persisted?.invoke() }, { clock }, owner)
+        outbox, { savedRooms = if (it.isEmpty) null else it.json() }, { persisted?.invoke() }, { clock }, owner, TestTexts)
     private suspend fun until(message: String, condition: () -> Boolean) {
         withTimeout(5_000) { while (!condition()) delay(20) }
         assertTrue(message, condition())
@@ -177,7 +177,7 @@ class RoomOutboxTest {
 
         // Cold start offline: the directory and the room's recent events come from the cache.
         val coldOutbox = ChatOutbox(owner, outbox.json())
-        val cold = RoomChats(scope, { Api("http://127.0.0.1:1", "test") }, { false }, coldOutbox, { savedRooms = if (it.isEmpty) null else it.json() }, {}, { clock }, owner)
+        val cold = RoomChats(scope, { Api("http://127.0.0.1:1", "test") }, { false }, coldOutbox, { savedRooms = if (it.isEmpty) null else it.json() }, {}, { clock }, owner, TestTexts)
         cold.restoreCache(RoomHistoryCache(owner, savedRooms))
         cold.open(JSONObject().put("id", roomId).put("status", "open"))
         assertEquals(listOf("server-1"), cold.events.map { it.getString("id") })

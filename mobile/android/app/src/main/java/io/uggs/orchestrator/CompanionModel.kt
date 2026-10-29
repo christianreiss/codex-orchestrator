@@ -35,6 +35,7 @@ import java.util.UUID
  * Live refresh and its generation/revision fencing stay here as one block.
  */
 class CompanionModel(app: Application) : AndroidViewModel(app) {
+    private val texts: Texts = ContextTexts(app)
     private val store = ConnectionStore(app)
     private val unreadStore = UnreadStore(app)
     var connection by mutableStateOf(store.load()); private set
@@ -44,7 +45,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private val roomWriter = ChatCacheWriter(ChatCacheStore(app, RoomHistoryCache.FILE, RoomHistoryCache.MAX_BYTES))
     internal val roomChats = RoomChats(viewModelScope, { api() }, { fresh() && can("agent_messaging.manage") && can("agent_messaging.reveal_content") },
         outbox, { cache -> roomWriter.persistBody(cache.takeUnless { it.isEmpty }?.json()) }, { outboxWriter.flush() },
-        owner = connection?.let(ChatHistoryCache::owner).orEmpty())
+        owner = connection?.let(ChatHistoryCache::owner).orEmpty(), texts = texts)
     private val cacheWriter = ChatCacheWriter(ChatCacheStore(app))
     private var historyCache = ChatHistoryCache(connection?.let(ChatHistoryCache::owner).orEmpty())
     private var cachedOverview by mutableStateOf(false)
@@ -70,7 +71,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var notifications by mutableStateOf(true); private set
     var selected by mutableStateOf<String?>(null); private set
     var lastSync by mutableStateOf(0L); private set
-    private val quotas = QuotaState({ api() }, { foreground && connection != null }, { can("admin.read") && can("auth.read_metadata") }, { connection to generation })
+    private val quotas = QuotaState({ api() }, { foreground && connection != null }, { can("admin.read") && can("auth.read_metadata") }, { connection to generation }, texts)
     val quotaEngines: List<JSONObject> get() = quotas.engines
     val quotaError: String? get() = quotas.error
     val quotaLoading: Boolean get() = quotas.loading
@@ -78,8 +79,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var online by mutableStateOf(false); private set
     var notice by mutableStateOf<String?>(null); private set
     var error by mutableStateOf<String?>(null); private set
-    var status by mutableStateOf("Connecting…"); private set
-    val connecting get() = connection != null && !online && status == "Connecting…" && error == null
+    private enum class LiveStatus { Connecting, Reconnecting, Offline, Live, PortalDisabled }
+    private var status by mutableStateOf(LiveStatus.Connecting)
+    val connecting get() = connection != null && !online && status == LiveStatus.Connecting && error == null
     var busy by mutableStateOf(false); private set
     /** Persisted with the outbox, per conversation, together with the reply target. */
     var draft: String
@@ -176,7 +178,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         selected = null; events = emptyList(); pendingChats = emptyMap(); chatSends.clear()
         eventsLoaded = false; eventCursor = 0; showingCachedTranscript = false; VisibleConversation.session = null
     }
-    private fun api() = connection!!.let { Api(it.server, it.token) }
+    private fun api() = connection!!.let { Api(it.server, it.token, texts) }
     fun can(cap: String) = capabilities.contains(cap)
     fun fresh(now: Long = SystemClock.elapsedRealtime()) = online && lastSync > 0 && now - lastSync in 0..30_000
     fun reachable() = if (fresh() && can("agent_portal.manage") && can("agent_portal.reveal_transcript")) readyAgents(agents).filter { !it.optBoolean("daemon_session") || can("agent_messaging.manage") } else emptyList()
@@ -205,9 +207,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     }
     private fun failure(e: Exception) {
         if (e is CancellationException) throw e
-        error = if (e is ApiException) e.message ?: "Request failed" else "Connection lost. Try again."
-        online = false; status = "Offline"
-        if (e is ApiException && e.status == 401) { clearConnection(); error = "Device access expired or was revoked. Pair again." }
+        error = if (e is ApiException) e.message ?: texts.string(R.string.model_request_failed) else texts.string(R.string.model_connection_lost)
+        online = false; status = LiveStatus.Offline
+        if (e is ApiException && e.status == 401) { clearConnection(); error = texts.string(R.string.model_device_revoked) }
     }
     fun clearError() { error = null }
     fun clearNotice() { notice = null }
@@ -216,7 +218,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             busy = true; error = null
             try {
-                val result = Api(pairing.server).request("/pair", "POST", JSONObject().put("token", pairing.token).put("name", android.os.Build.MODEL))
+                val result = Api(pairing.server, texts = texts).request("/pair", "POST", JSONObject().put("token", pairing.token).put("name", android.os.Build.MODEL))
                 val c = Connection(pairing.server, result.getString("token"), result.getString("device_id"), result.optJSONObject("firebase"))
                 store.save(c); connection = c; unreadStore.activate(c); unread.reset(); permissionsKnown = false
                 discardChatCache(); historyCache = ChatHistoryCache(ChatHistoryCache.owner(c))
@@ -243,7 +245,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private fun startLive() {
         stopLive()
         if (!foreground || connection == null) return
-        status = if (reconnectAttempt > 0 || error != null) "Reconnecting…" else "Connecting…"
+        status = if (reconnectAttempt > 0 || error != null) LiveStatus.Reconnecting else LiveStatus.Connecting
         val current = generation
         lastFrame = SystemClock.elapsedRealtime()
         socket = api().live(liveSocketListener(viewModelScope, { generation == current }, { foreground }, { frame ->
@@ -270,7 +272,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private fun scheduleReconnect() {
         stopLive()
         if (!foreground || connection == null) return
-        status = "Reconnecting…"
+        status = LiveStatus.Reconnecting
         val wait = reconnectDelay(reconnectAttempt)
         reconnectAttempt++
         reconnect = viewModelScope.launch { delay(wait); startLive() }
@@ -367,7 +369,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
         val reconnected = !online
         if (reconnected) error = null
-        status = if (!portalAvailable) "Agent portal is disabled" else "Live"
+        status = if (!portalAvailable) LiveStatus.PortalDisabled else LiveStatus.Live
         online = socketReady; lastSync = SystemClock.elapsedRealtime(); reconnectAttempt = 0
         refreshUnreadState()
         if (reconnected && selected != null) viewModelScope.launch { runCatching { updatePresence() } }
@@ -379,11 +381,11 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         val c = connection ?: return@withLock
         val id = if (foreground && can("agent_portal.reveal_transcript")) selected else null
         VisibleConversation.session = id
-        Api(c.server, c.token).request("/device", "PATCH", JSONObject().put("visible_session_id", id ?: JSONObject.NULL))
+        Api(c.server, c.token, texts).request("/device", "PATCH", JSONObject().put("visible_session_id", id ?: JSONObject.NULL))
     }
     fun refreshNow() { if (socketReady) invalidate() else startLive() }
     fun openSession(id: String) {
-        if (!canReadSession(id)) { notice = "Conversation is no longer available"; return }
+        if (!canReadSession(id)) { notice = texts.string(R.string.model_conversation_unavailable); return }
         roomChats.close()
         revision++
         selected = id; events = historyCache.events(id); eventCursor = historyCache.cursor(id); eventsLoaded = events.isNotEmpty(); showingCachedTranscript = eventsLoaded
@@ -421,20 +423,20 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     suspend fun downloadChatAttachment(session:String,id:String):java.io.File = uploads.download(session, id)
     fun saveChatAttachment(file:java.io.File,uri:android.net.Uri) {
         mutate { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            getApplication<Application>().contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } } ?: error("Cannot save file")
-        };notice="File saved" }
+            getApplication<Application>().contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } } ?: error(texts.string(R.string.model_cannot_save_file))
+        };notice=texts.string(R.string.model_file_saved) }
     }
     fun resolveChatNotice(session:String,id:String) {
         val operation=noticeOperations.getOrPut(id) { UUID.randomUUID().toString() }
-        mutate { api().request("/agents/$session/notices/resolve","POST",JSONObject().put("notice_id",id).put("client_event_id",operation)); notice="Marked resolved" }
+        mutate { api().request("/agents/$session/notices/resolve","POST",JSONObject().put("notice_id",id).put("client_event_id",operation)); notice=texts.string(R.string.model_marked_resolved) }
     }
     fun send(prompt: JSONObject? = null, choiceValue:String? = null) {
         if (busy) return
         val id = selected ?: return
-        if (!canSendSession(id)) { error = "Agent is no longer reachable"; return }
+        if (!canSendSession(id)) { error = texts.string(R.string.chat_agent_unreachable); return }
         val text = draft.trim(); val items=chatUploads[id] ?: emptyList()
         if(text.isEmpty() && items.isEmpty()) return
-        if(items.any { it.state != "ready" }) { error="Finish or remove pending uploads"; return }
+        if(items.any { it.state != "ready" }) { error=texts.string(R.string.model_pending_uploads); return }
         val metadata=JSONObject().put("attachments",JSONArray(items.map { it.id }))
         replyTargets[id]?.let { metadata.put("reply_to",it) }; choiceValue?.let { metadata.put("choice_value",it) }
         submitChat(chatSendIntent(chatSends.values, id, prompt, text, metadata))
@@ -478,14 +480,14 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             if (!manual) updatePendingChat(id, entry.id, "sending")
             outboxWriter.flush()
             val c = connection?.takeIf { it == owner } ?: return
-            val result = deliverOutboxEntry(Api(c.server, c.token), entry)
+            val result = deliverOutboxEntry(Api(c.server, c.token, texts), entry)
             if (connection != owner) return
             val rejection = when (result) {
                 is OutboxResult.Rejected -> result
                 is OutboxResult.Accepted -> {
                     val response = result.response
                     val messageId = (response.opt("message_id") as? String) ?: (response.opt("operation_id") as? String)
-                    if (messageId == null) OutboxResult.Rejected(IllegalStateException("Delivery was not confirmed. Retry this message."), SendFailure.Transient)
+                    if (messageId == null) OutboxResult.Rejected(IllegalStateException(texts.string(R.string.model_delivery_unconfirmed)), SendFailure.Transient)
                     else {
                         outbox.remove(entry.id)
                         val failed = response.optString("status") in setOf("canceled", "dead")
@@ -511,7 +513,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
                 updatePendingChat(id, entry.id, if (rejection.failure == SendFailure.Definitive) "failed" else "unconfirmed")
                 if (manual) throw rejection.error
                 if ((rejection.error as? ApiException)?.status == 401) failure(rejection.error)
-                else if (rejection.failure == SendFailure.Definitive) error = rejection.error.message ?: "Message was not delivered"
+                else if (rejection.failure == SendFailure.Definitive) error = rejection.error.message ?: texts.string(R.string.model_not_delivered)
             }
         } finally { outboxInFlight.remove(entry.id) }
     }
@@ -584,11 +586,11 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             busy = true; error = null; revision++
             try {
-                val result = Api(c.server, c.token).request("/daemon-sessions", "POST", body)
+                val result = Api(c.server, c.token, texts).request("/daemon-sessions", "POST", body)
                 if (connection?.deviceId != c.deviceId) return@launch
                 store.clearPendingStart(); pendingStart = null
                 pendingOpen = result.getString("session_id")
-                notice = "Start queued — waiting for the agent"
+                notice = texts.string(R.string.model_start_queued)
                 onSuccess(); refreshNow()
             } catch (e: Exception) {
                 if (e is ApiException && e.status in setOf(400, 403, 404, 409)) { store.clearPendingStart(); pendingStart = null }
@@ -598,34 +600,34 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     }
     fun decide(id: Long, approve: Boolean, minutes: Int, onSuccess: () -> Unit = {}) {
         if (!fresh() || approvals.none { it.optLong("id") == id && liveApproval(it, System.currentTimeMillis()) }) {
-            error = "Request is no longer available"; refreshNow(); return
+            error = texts.string(R.string.model_request_unavailable); refreshNow(); return
         }
         mutate {
             // The server locks and rechecks pending state and expiry at decision time.
             api().request("/approvals/$id/${if (approve) "approve" else "deny"}", "POST", JSONObject().put("duration_minutes", minutes))
             access.decided(id)
-            notice = if (approve) "Access allowed for ${durationLabel(minutes)}" else "Access denied"
+            notice = if (approve) texts.string(R.string.model_access_allowed, durationLabel(texts, minutes)) else texts.string(R.string.model_access_denied)
             onSuccess()
         }
     }
     fun closeWindow(hostId: Long) {
         if (!can("hosts.activate_insecure") || !fresh() || liveFleetWindow(fleetWindow, System.currentTimeMillis()) ||
             activeWindows.none { it.optLong("host_id") == hostId && liveWindow(it, System.currentTimeMillis()) }) {
-            error = "Window is no longer available to close"; refreshNow(); return
+            error = texts.string(R.string.model_window_unavailable); refreshNow(); return
         }
         mutate {
             api().request("/hosts/$hostId/insecure/disable", "POST", JSONObject())
             access.windowClosed(hostId)
-            notice = "Host window closed"
+            notice = texts.string(R.string.model_host_window_closed)
         }
     }
     fun closeFleetWindow(onSuccess: () -> Unit = {}) {
         if (!can("hosts.activate_insecure") || !fresh() || !liveFleetWindow(fleetWindow, System.currentTimeMillis())) {
-            error = "Fleet window is no longer available to close"; refreshNow(); return
+            error = texts.string(R.string.model_fleet_unavailable); refreshNow(); return
         }
         mutate {
             val result = api().request("/insecure/window/close", "POST", JSONObject())
-            notice = if (result.optBoolean("closed")) "Fleet window closed" else "Window state changed — refreshing"
+            notice = if (result.optBoolean("closed")) texts.string(R.string.model_fleet_closed) else texts.string(R.string.model_window_changed)
             onSuccess()
         }
     }

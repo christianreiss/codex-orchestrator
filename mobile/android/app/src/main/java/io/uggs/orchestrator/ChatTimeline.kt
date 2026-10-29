@@ -91,23 +91,23 @@ private val PORTAL_LIFECYCLE = setOf("started", "resumed", "completed", "failed"
 
 private fun JSONObject.str(key: String): String? = (opt(key) as? String)?.takeIf { it.isNotBlank() }
 
-internal fun portalLifecycleText(event: JSONObject): String {
+internal fun portalLifecycleText(t: Texts, event: JSONObject): String {
     val payload = event.optJSONObject("payload") ?: JSONObject()
     val summary = payload.str("summary") ?: payload.str("text")
     return when (event.optString("type")) {
-        "started" -> summary ?: "Session started"
-        "resumed" -> summary ?: "Session resumed"
-        "completed" -> summary ?: "Session completed"
-        "failed" -> summary ?: "Session failed"
-        "close_requested" -> summary ?: "Close requested"
-        "attention_resolved" -> summary?.let { "Attention resolved — $it" } ?: "Attention resolved"
+        "started" -> summary ?: t.string(R.string.lifecycle_started)
+        "resumed" -> summary ?: t.string(R.string.lifecycle_resumed)
+        "completed" -> summary ?: t.string(R.string.lifecycle_completed)
+        "failed" -> summary ?: t.string(R.string.lifecycle_failed)
+        "close_requested" -> summary ?: t.string(R.string.lifecycle_close_requested)
+        "attention_resolved" -> summary?.let { t.string(R.string.lifecycle_attention_resolved_with, it) } ?: t.string(R.string.lifecycle_attention_resolved)
         else -> summary ?: event.optString("type").replace('_', ' ')
     }
 }
 
-internal fun portalStatusText(event: JSONObject): String {
+internal fun portalStatusText(t: Texts, event: JSONObject): String {
     val payload = event.optJSONObject("payload") ?: JSONObject()
-    return payload.str("text") ?: payload.str("summary") ?: payload.str("question") ?: event.optString("type").replace('_', ' ').ifBlank { "Update" }
+    return payload.str("text") ?: payload.str("summary") ?: payload.str("question") ?: event.optString("type").replace('_', ' ').ifBlank { t.string(R.string.timeline_update) }
 }
 
 /**
@@ -116,7 +116,7 @@ internal fun portalStatusText(event: JSONObject): String {
  * current [prompt] is drawn as the answerable card after the timeline instead.
  * [notices] are unresolved notices the server tail may have dropped; they are kept at their own time.
  */
-internal fun portalTimelineEntries(events: List<JSONObject>, notices: List<JSONObject> = emptyList(), prompt: JSONObject? = null): List<TimelineEntry> {
+internal fun portalTimelineEntries(t: Texts, events: List<JSONObject>, notices: List<JSONObject> = emptyList(), prompt: JSONObject? = null): List<TimelineEntry> {
     val entries = mutableListOf<TimelineEntry>()
     events.forEach { event ->
         val type = event.optString("type")
@@ -135,10 +135,10 @@ internal fun portalTimelineEntries(events: List<JSONObject>, notices: List<JSONO
                 if (!current && (payload.str("question") != null || payload.str("text") != null))
                     entries.add(TimelineEntry.Decision(if (payload.has("question")) payload else JSONObject(payload.toString()).put("question", payload.optString("text")), eventTime(event), "decision:$cursor"))
             }
-            type in PORTAL_LIFECYCLE -> entries.add(TimelineEntry.Lifecycle(StatusLine(portalLifecycleText(event), eventTime(event), when (type) {
+            type in PORTAL_LIFECYCLE -> entries.add(TimelineEntry.Lifecycle(StatusLine(portalLifecycleText(t, event), eventTime(event), when (type) {
                 "completed" -> StatusLine.Tone.Success; "failed" -> StatusLine.Tone.Failure; else -> StatusLine.Tone.Neutral
             }), "lifecycle:$cursor"))
-            else -> entries.add(TimelineEntry.Status(StatusLine(portalStatusText(event), eventTime(event), monospace = type == "terminal_block"), "s:$cursor"))
+            else -> entries.add(TimelineEntry.Status(StatusLine(portalStatusText(t, event), eventTime(event), monospace = type == "terminal_block"), "s:$cursor"))
         }
     }
     // Keep an older unresolved notice the server tail omitted, at its own time,
@@ -160,16 +160,16 @@ internal fun portalTimelineEntries(events: List<JSONObject>, notices: List<JSONO
 }
 
 /** Every room event maps to exactly one item, so "seen" can watch the newest event's row. */
-internal fun roomTimelineEntries(events: List<JSONObject>): List<TimelineEntry> = events.map { event ->
+internal fun roomTimelineEntries(t: Texts, events: List<JSONObject>): List<TimelineEntry> = events.map { event ->
     val message = ChatMessage.fromRoomEvent(event)
     val key = message.key.itemKey()
     when {
         message.kind == ChatItemKind.Membership ->
-            TimelineEntry.Lifecycle(StatusLine(message.text.ifBlank { "Participants changed" }, message.createdAt), key)
+            TimelineEntry.Lifecycle(StatusLine(message.text.ifBlank { t.string(R.string.timeline_participants_changed) }, message.createdAt), key)
         message.text.isNotBlank() || message.attachments.isNotEmpty() ->
             TimelineEntry.Message(message, message.author.role == ChatAuthor.Role.Operator,
                 message.author.role.name + ":" + (message.author.id ?: message.author.name.orEmpty()), event, key)
-        else -> TimelineEntry.Lifecycle(StatusLine(message.rawKind.replace('_', ' ').ifBlank { "Update" }, message.createdAt), key)
+        else -> TimelineEntry.Lifecycle(StatusLine(message.rawKind.replace('_', ' ').ifBlank { t.string(R.string.timeline_update) }, message.createdAt), key)
     }
 }
 
@@ -210,20 +210,21 @@ internal fun roomDeliverySummary(message: ChatMessage, events: List<ChatMessage>
 }
 
 /** "1h 30m" / "45m": a compact remaining-time label. */
-internal fun remainingLabel(minutes: Long): String = when {
-    minutes >= 60 && minutes % 60 == 0L -> "${minutes / 60}h"
-    minutes >= 60 -> "${minutes / 60}h ${minutes % 60}m"
-    else -> "${minutes}m"
+internal fun remainingLabel(t: Texts, minutes: Long): String = when {
+    minutes >= 60 && minutes % 60 == 0L -> t.string(R.string.duration_h, minutes / 60)
+    minutes >= 60 -> t.string(R.string.duration_h_m, minutes / 60, minutes % 60)
+    else -> t.string(R.string.duration_m, minutes)
 }
 
 /** List timestamp, messenger style: clock time today, weekday within the week, a short date beyond. */
-internal fun listTimeLabel(instant: Instant, now: Instant, use24Hour: Boolean, zone: ZoneId = ZoneId.systemDefault()): String {
+internal fun listTimeLabel(t: Texts, instant: Instant, now: Instant, use24Hour: Boolean, zone: ZoneId = ZoneId.systemDefault()): String {
     val date = instant.atZone(zone).toLocalDate()
     val today = now.atZone(zone).toLocalDate()
     return when {
-        date == today -> timeLabel(instant, use24Hour, zone)
-        !date.isBefore(today.minusDays(6)) && date.isBefore(today) -> date.format(java.time.format.DateTimeFormatter.ofPattern("EEE", java.util.Locale.getDefault()))
-        else -> date.format(java.time.format.DateTimeFormatter.ofPattern(if (date.year == today.year) "d MMM" else "d MMM yyyy", java.util.Locale.getDefault()))
+        date == today -> timeLabel(t, instant, use24Hour, zone)
+        !date.isBefore(today.minusDays(6)) && date.isBefore(today) -> date.format(java.time.format.DateTimeFormatter.ofPattern(t.pattern("EEE", "EEE"), t.locale))
+        else -> date.format(java.time.format.DateTimeFormatter.ofPattern(
+            if (date.year == today.year) t.pattern("dMMM", "d MMM") else t.pattern("dMMMy", "d MMM yyyy"), t.locale))
     }
 }
 

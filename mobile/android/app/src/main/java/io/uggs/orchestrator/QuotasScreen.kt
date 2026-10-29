@@ -24,7 +24,6 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 internal fun quotaDataStatus(account: JSONObject, now: Long): String {
     val windows = account.optJSONArray("windows")?.objects().orEmpty()
@@ -33,19 +32,25 @@ internal fun quotaDataStatus(account: JSONObject, now: Long): String {
     val expired = windows.any { runCatching { Instant.parse(it.optString("resets_at")).toEpochMilli() <= now }.getOrDefault(false) }
     return if (account.optBoolean("stale", true) || fetched == null || now - fetched !in 0..600_000 || expired) "Stale" else "Current"
 }
-internal fun quotaWindowLabel(window: JSONObject): String = when (window.optString("kind")) {
-    "weekly" -> "Weekly"
-    "monthly" -> "Monthly"
-    "short" -> window.optLong("limit_seconds").takeIf { it > 0 && it % 3600 == 0L }?.let { "${it / 3600} hours" } ?: "Short window"
-    else -> "Current window"
+internal fun quotaStatusLabel(t: Texts, status: String): String = t.string(when (status) {
+    "Current" -> R.string.quota_status_current
+    "Stale" -> R.string.quota_status_stale
+    else -> R.string.quota_status_unavailable
+})
+internal fun quotaWindowLabel(t: Texts, window: JSONObject): String = when (window.optString("kind")) {
+    "weekly" -> t.string(R.string.quota_window_weekly)
+    "monthly" -> t.string(R.string.quota_window_monthly)
+    "short" -> window.optLong("limit_seconds").takeIf { it > 0 && it % 3600 == 0L }?.let { t.plural(R.plurals.quota_window_hours, (it / 3600).toInt(), (it / 3600).toInt()) } ?: t.string(R.string.quota_window_short)
+    else -> t.string(R.string.quota_window_current)
 }
-private fun quotaTime(raw: String): String? = runCatching {
-    DateTimeFormatter.ofPattern("d MMM, HH:mm", Locale.getDefault()).withZone(ZoneId.systemDefault()).format(Instant.parse(raw))
+private fun quotaTime(t: Texts, raw: String): String? = runCatching {
+    DateTimeFormatter.ofPattern(t.pattern("dMMMHm", "d MMM, HH:mm"), t.locale).withZone(ZoneId.systemDefault()).format(Instant.parse(raw))
 }.getOrNull()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun QuotasScreen(model: CompanionModel) {
     val scope = rememberCoroutineScope()
+    val t = rememberTexts()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(lifecycle) {
@@ -59,14 +64,14 @@ private fun quotaTime(raw: String): String? = runCatching {
         item {
             val haptic = LocalHapticFeedback.current
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Engine quotas", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); scope.launch { model.refreshQuotas() } }, enabled = !model.quotaLoading) { Text("Refresh") }
+                Text(stringResource(R.string.quota_title), Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
+                TextButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); scope.launch { model.refreshQuotas() } }, enabled = !model.quotaLoading) { Text(stringResource(R.string.action_refresh)) }
             }
-            Text("Usage per account · times are local", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.quota_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (model.quotaLoading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
-            if (!model.fresh()) StatusChip("Server disconnected · showing the last quota snapshot", MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer, Modifier.padding(top = 8.dp))
+            if (!model.fresh()) StatusChip(stringResource(R.string.quota_disconnected), MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer, Modifier.padding(top = 8.dp))
             model.quotaError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (model.quotaEngines.isEmpty() && !model.quotaLoading && model.quotaError == null) Text("No quota data available.")
+            if (model.quotaEngines.isEmpty() && !model.quotaLoading && model.quotaError == null) Text(stringResource(R.string.quota_none))
             if (model.quotaEngines.isEmpty() && model.quotaLoading) SkeletonCards(2, Modifier.padding(top = 8.dp))
         }
         model.quotaEngines.forEach { engine ->
@@ -74,9 +79,9 @@ private fun quotaTime(raw: String): String? = runCatching {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     EngineIcon(engine)
                     Text(engine.getString("label"), style = MaterialTheme.typography.titleLarge)
-                    if (!engine.optBoolean("enabled", true)) StatusChip("Suspended", MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer)
+                    if (!engine.optBoolean("enabled", true)) StatusChip(stringResource(R.string.quota_suspended), MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer)
                 }
-                if (engine.optJSONArray("accounts")?.length() == 0) Text("No accounts", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (engine.optJSONArray("accounts")?.length() == 0) Text(stringResource(R.string.quota_no_accounts), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(engine.optJSONArray("accounts")?.objects().orEmpty(), key = { "${engine.getString("engine")}:${it.getInt("id")}" }) { account ->
                 OutlinedCard(Modifier.fillMaxWidth()) {
@@ -86,8 +91,8 @@ private fun quotaTime(raw: String): String? = runCatching {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(account.optString("state"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             when (status) {
-                                "Current" -> StatusChip(status, MaterialTheme.status.successContainer, MaterialTheme.status.onSuccessContainer)
-                                else -> StatusChip(status, MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer)
+                                "Current" -> StatusChip(quotaStatusLabel(t, status), MaterialTheme.status.successContainer, MaterialTheme.status.onSuccessContainer)
+                                else -> StatusChip(quotaStatusLabel(t, status), MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer)
                             }
                         }
                         account.optJSONArray("windows")?.objects()?.forEach { window ->
@@ -96,13 +101,13 @@ private fun quotaTime(raw: String): String? = runCatching {
                             val levelColor = when (level) { QuotaLevel.ERROR -> MaterialTheme.status.error; QuotaLevel.WARNING -> MaterialTheme.status.warning; QuotaLevel.OK -> MaterialTheme.status.success; QuotaLevel.UNKNOWN -> MaterialTheme.colorScheme.outline }
                             val levelText = when (level) { QuotaLevel.ERROR -> stringResource(R.string.quota_level_error); QuotaLevel.WARNING -> stringResource(R.string.quota_level_warning); else -> null }
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("${quotaWindowLabel(window)} · ${if (percent.isFinite()) String.format(androidx.compose.ui.platform.LocalConfiguration.current.locales[0], "%.1f%% used", percent) else "Unavailable"}", Modifier.weight(1f, fill = false))
+                                Text(stringResource(R.string.quota_window_used, quotaWindowLabel(t, window), if (percent.isFinite()) stringResource(R.string.quota_percent_used, String.format(t.locale, "%.1f", percent)) else stringResource(R.string.quota_status_unavailable)), Modifier.weight(1f, fill = false))
                                 if (levelText != null) Text(levelText, style = MaterialTheme.typography.labelMedium, color = levelColor)
                             }
                             if (percent.isFinite()) LinearProgressIndicator(progress = { (percent / 100).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), color = levelColor, trackColor = MaterialTheme.colorScheme.surfaceContainerHighest)
-                            quotaTime(window.optString("resets_at"))?.let { Text("Resets $it", style = MaterialTheme.typography.bodySmall) }
+                            quotaTime(t, window.optString("resets_at"))?.let { Text(stringResource(R.string.quota_resets, it), style = MaterialTheme.typography.bodySmall) }
                         }
-                        quotaTime(account.optString("fetched_at"))?.let { Text("Updated $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        quotaTime(t, account.optString("fetched_at"))?.let { Text(stringResource(R.string.quota_updated, it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
             }

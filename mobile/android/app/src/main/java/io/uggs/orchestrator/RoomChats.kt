@@ -10,14 +10,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-internal fun roomLabel(room: JSONObject): String = when (room.optString("kind")) {
-    "conference" -> "Conference"
-    "project" -> "Project room"
-    "host" -> "Host room"
-    else -> "Group"
-}
-internal fun roomPersonLabel(person: JSONObject): String = listOf("name", "alias", "address").asSequence()
-    .map { person.optString(it) }.firstOrNull { it.isNotBlank() && it != "null" } ?: "Unnamed agent"
+internal fun roomLabel(t: Texts, room: JSONObject): String = t.string(when (room.optString("kind")) {
+    "conference" -> R.string.room_kind_conference
+    "project" -> R.string.room_kind_project
+    "host" -> R.string.room_kind_host
+    else -> R.string.room_kind_group
+})
+internal fun roomPersonLabel(t: Texts, person: JSONObject): String = listOf("name", "alias", "address").asSequence()
+    .map { person.optString(it) }.firstOrNull { it.isNotBlank() && it != "null" } ?: t.string(R.string.room_unnamed_agent)
 /**
  * A room is active when a reachable member is also an online agent by the Chats
  * rules ([isOnlineActiveAgent]); the server's `reachable` only means a fresh
@@ -127,6 +127,7 @@ internal class RoomChats(
     private val now: () -> Long = { android.os.SystemClock.elapsedRealtime() },
     /** Pairing the offline cache belongs to ([ChatHistoryCache.owner]). */
     owner: String = "",
+    private val texts: Texts,
 ) {
     private var cache = RoomHistoryCache(owner)
     /** Counts content wipes, fencing a cache restore that started earlier. */
@@ -171,7 +172,7 @@ internal class RoomChats(
         set(value) { selected?.let { outbox.setDraft(key(it), draft, value) } }
     /** Avatar initials per member, frozen for this room for the session (see [freezeInitials]). */
     fun initials(roomId: String, members: List<JSONObject>): Map<String, String> {
-        val names = members.associate { it.optString("id") to roomPersonLabel(it) }
+        val names = members.associate { it.optString("id") to roomPersonLabel(texts, it) }
         val previous = frozenInitials[roomId].orEmpty()
         if (previous.keys == names.keys) return previous
         return freezeInitials(previous, names).also { frozenInitials[roomId] = it }
@@ -272,7 +273,7 @@ internal class RoomChats(
                     outbox.clearWhere { it == key(id) }
                     cache.forget(id); cacheUpdated()
                 }
-                error = e.message ?: "Cannot load conversation"
+                error = e.message ?: texts.string(R.string.room_error_load)
             }
         } finally { if (epoch == generation && view == selection) loading = false }
     }
@@ -373,7 +374,7 @@ internal class RoomChats(
                     }
                     is OutboxResult.Rejected -> if (epoch == generation) {
                         outbox.update(entry.id) { it.afterFailure(result, now()) }
-                        if (manual) error = result.error.message ?: "Send not confirmed. Retry uses the same message."
+                        if (manual) error = result.error.message ?: texts.string(R.string.room_error_send_unconfirmed)
                     }
                 }
             } finally {
@@ -392,7 +393,7 @@ internal class RoomChats(
     fun operate(path: String, body: JSONObject, done: (JSONObject) -> Unit) {
         if (!allowed() || busy) return
         if (operation != null && (operation!!.optString("_path") != path || operation!!.optString("room_id") != body.optString("room_id") || operation!!.optString("action") != body.optString("action") || operation!!.optString("address_id") != body.optString("address_id"))) {
-            error = "Retry the unconfirmed operation before starting another one."
+            error = texts.string(R.string.room_error_pending_operation)
             return
         }
         val epoch = generation

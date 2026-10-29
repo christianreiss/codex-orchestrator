@@ -257,12 +257,13 @@ class CompanionUiTest {
     }
 
     @Test fun androidJsonNullNamesFallBackToSessionIdentity() {
+        val texts = ContextTexts(InstrumentationRegistry.getInstrumentation().targetContext)
         val unnamed = JSONObject("""{"session_name":null,"upstream_session_id":"33333333-cccc","id":"11111111-aaaa"}""")
-        Assert.assertEquals("Session 33333333", agentTitle(unnamed))
+        Assert.assertEquals("Session 33333333", agentTitle(texts, unnamed))
         unnamed.put("upstream_session_id", JSONObject.NULL)
-        Assert.assertEquals("Session 11111111", agentTitle(unnamed))
+        Assert.assertEquals("Session 11111111", agentTitle(texts, unnamed))
         unnamed.put("id", JSONObject.NULL)
-        Assert.assertEquals("Unnamed session", agentTitle(unnamed))
+        Assert.assertEquals("Unnamed session", agentTitle(texts, unnamed))
     }
 
     @Test fun startsContactOnReachableHostAndOpensQueuedConversation() {

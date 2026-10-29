@@ -17,6 +17,7 @@ internal class QuotaState(
     private val active: () -> Boolean,
     private val permitted: () -> Boolean,
     private val fence: () -> Any?,
+    private val texts: Texts,
 ) {
     var engines by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var error by mutableStateOf<String?>(null); private set
@@ -35,7 +36,7 @@ internal class QuotaState(
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             if (fence() == owner) {
-                error = if (e is ApiException && e.status == 404) "Quotas require a server update." else "Could not refresh quotas. Try again."
+                error = if (e is ApiException && e.status == 404) texts.string(R.string.quota_error_server_update) else texts.string(R.string.quota_error_refresh)
                 if (e is ApiException && e.status in setOf(401, 403)) engines = emptyList()
             }
         } finally { loading = false }

@@ -12,10 +12,10 @@ class PendingChatTest {
         assertEquals("Hello", event.getJSONObject("payload").getString("text"))
         assertEquals("photo", event.getJSONObject("payload").getJSONArray("attachments").getString(0))
         assertEquals(7, event.getJSONObject("payload").getInt("reply_to"))
-        assertEquals("Sending…", deliveryLabel(event, emptyMap(), null, false))
-        assertEquals(1, buildTimeline(portalTimelineEntries(listOf(event))).filterIsInstance<TimelineItem.Bubble>().size)
-        assertEquals("Not confirmed", deliveryLabel(pending.copy(status = "unconfirmed").event(), emptyMap(), null, false))
-        assertEquals("Queued", deliveryLabel(pending.copy(status = "queued", messageId = "server").event(), emptyMap(), null, false))
+        assertEquals("Sending…", deliveryLabel(TestTexts, event, emptyMap(), null, false))
+        assertEquals(1, buildTimeline(portalTimelineEntries(TestTexts, listOf(event))).filterIsInstance<TimelineItem.Bubble>().size)
+        assertEquals("Not confirmed", deliveryLabel(TestTexts, pending.copy(status = "unconfirmed").event(), emptyMap(), null, false))
+        assertEquals("Queued", deliveryLabel(TestTexts, pending.copy(status = "queued", messageId = "server").event(), emptyMap(), null, false))
     }
 
     @Test fun reconciliationUsesConfirmedMessageIdentityNeverTextOrReceiptAlone() {
@@ -28,6 +28,6 @@ class PendingChatTest {
         assertEquals(listOf(pending), pendingChatsAfterRefresh(listOf(pending), listOf(other)))
         other.put("type", "message_accepted")
         assertEquals(listOf(accepted), pendingChatsAfterRefresh(listOf(accepted), listOf(other)))
-        assertEquals("Delivered to agent", deliveryLabel(accepted.event(), deliveryIndex(listOf(other)), null, false))
+        assertEquals("Delivered to agent", deliveryLabel(TestTexts, accepted.event(), deliveryIndex(listOf(other)), null, false))
     }
 }

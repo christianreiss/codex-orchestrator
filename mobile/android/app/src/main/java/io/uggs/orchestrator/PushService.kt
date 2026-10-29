@@ -35,11 +35,11 @@ class CompanionApplication : Application() {
     }
 }
 
-object PushStatus { val state = MutableStateFlow("Push is not configured") }
+object PushStatus { val state = MutableStateFlow(R.string.push_not_configured) }
 
 fun configurePush(context: Context, connection: Connection) {
     val config = connection.firebase ?: return
-    PushStatus.state.value = "Registering notifications…"
+    PushStatus.state.value = R.string.push_registering
     try {
         val existing = FirebaseApp.getApps(context).firstOrNull { it.name == FirebaseApp.DEFAULT_APP_NAME }
         if (existing != null && existing.options.applicationId != config.getString("app_id")) existing.delete()
@@ -49,16 +49,16 @@ fun configurePush(context: Context, connection: Connection) {
         }
         FirebaseMessaging.getInstance().isAutoInitEnabled = true
         FirebaseMessaging.getInstance().token.addOnSuccessListener { token -> registerPushToken(context, token) }
-            .addOnFailureListener { PushStatus.state.value = "Firebase registration failed. Reopen the app to retry." }
-    } catch (_: Exception) { PushStatus.state.value = "Push configuration failed. Check the server settings." }
+            .addOnFailureListener { PushStatus.state.value = R.string.push_firebase_failed }
+    } catch (_: Exception) { PushStatus.state.value = R.string.push_config_failed }
 }
 
 private fun registerPushToken(context: Context, token: String) {
     val connection = ConnectionStore(context).load() ?: return
     CoroutineScope(Dispatchers.IO).launch {
         runCatching { Api(connection.server, connection.token).request("/device", "PATCH", JSONObject().put("fcm_token", token).put("read_sync_protocol", 1)) }
-            .onSuccess { PushStatus.state.value = "Notifications registered" }
-            .onFailure { PushStatus.state.value = "Could not register this device with the server. Reopen to retry." }
+            .onSuccess { PushStatus.state.value = R.string.push_registered }
+            .onFailure { PushStatus.state.value = R.string.push_register_failed }
     }
 }
 
@@ -89,14 +89,14 @@ private val knownReplyTargets = mutableMapOf<String, MutableSet<String>>()
 private fun ensureNotificationChannels(context: Context) {
     val manager = context.getSystemService(NotificationManager::class.java)
     // Existing channels retain the operator's notification preferences.
-    manager.createNotificationChannel(NotificationChannel("approvals", "Host access", NotificationManager.IMPORTANCE_HIGH))
-    manager.createNotificationChannel(NotificationChannel("agents", "Agent conversations", NotificationManager.IMPORTANCE_HIGH))
-    manager.createNotificationChannel(NotificationChannel(REPLY_ALERT_CHANNEL, "Agent replies", NotificationManager.IMPORTANCE_HIGH).apply {
-        description = "New replies in agent conversations"
+    manager.createNotificationChannel(NotificationChannel("approvals", context.getString(R.string.channel_approvals), NotificationManager.IMPORTANCE_HIGH))
+    manager.createNotificationChannel(NotificationChannel("agents", context.getString(R.string.channel_agents), NotificationManager.IMPORTANCE_HIGH))
+    manager.createNotificationChannel(NotificationChannel(REPLY_ALERT_CHANNEL, context.getString(R.string.channel_replies), NotificationManager.IMPORTANCE_HIGH).apply {
+        description = context.getString(R.string.channel_replies_desc)
         setShowBadge(false)
     })
-    manager.createNotificationChannel(NotificationChannel(UNREAD_BADGE_CHANNEL, "Unread conversations", NotificationManager.IMPORTANCE_LOW).apply {
-        description = "A silent count of conversations with unread replies"
+    manager.createNotificationChannel(NotificationChannel(UNREAD_BADGE_CHANNEL, context.getString(R.string.channel_unread), NotificationManager.IMPORTANCE_LOW).apply {
+        description = context.getString(R.string.channel_unread_desc)
         setShowBadge(true)
         setSound(null, null)
         enableVibration(false)
@@ -234,7 +234,7 @@ private fun reconcileUnreadNotifications(context: Context, connection: Connectio
         for (entry in existing.filter { it.tag != replyTag(scope, target) || it.id != REPLY_NOTIFICATION_ID }) manager.cancel(entry.tag, entry.id)
         val text = update.summary
         val notification = NotificationCompat.Builder(context, REPLY_ALERT_CHANNEL)
-            .setSmallIcon(R.drawable.ic_companion).setContentTitle("Agent reply").setContentText(text)
+            .setSmallIcon(R.drawable.ic_companion).setContentTitle(context.getString(R.string.notif_agent_reply)).setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(notificationIntent(context, scope, "agent", target))
             .setGroup(unreadGroup(scope)).setNumber(0).setAutoCancel(false)
@@ -249,9 +249,9 @@ private fun reconcileUnreadNotifications(context: Context, connection: Connectio
     val onlyUnread = currentUnread.singleOrNull()
     if (summary?.notification?.number == currentUnread.size && summary.notification.extras.getString(NOTIFICATION_OPEN_TARGET) == onlyUnread) return
     val count = currentUnread.size
-    val text = if (count == 1) "1 conversation with an unread reply." else "$count conversations with unread replies."
+    val text = context.resources.getQuantityString(R.plurals.notif_unread_text, count, count)
     val notification = NotificationCompat.Builder(context, UNREAD_BADGE_CHANNEL)
-        .setSmallIcon(R.drawable.ic_companion).setContentTitle("Unread agent replies").setContentText(text)
+        .setSmallIcon(R.drawable.ic_companion).setContentTitle(context.getString(R.string.notif_unread_title)).setContentText(text)
         .setContentIntent(notificationIntent(context, scope, "unread", onlyUnread))
         .setNumber(count).setAutoCancel(false)
         .setOnlyAlertOnce(true).setSilent(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -293,7 +293,7 @@ internal fun showCompanionNotification(context: Context, data: Map<String, Strin
             reconcileUnreadNotifications(context, null, emptySet())
             return
         }
-        val update = if (unread && advanced) ReplyPush(target, compactSummary(data["summary"]) ?: "New reply from the agent.",
+        val update = if (unread && advanced) ReplyPush(target, compactSummary(data["summary"]) ?: context.getString(R.string.notif_new_reply),
             id, VisibleConversation.session != target) else null
         reconcileUnreadNotifications(context, connection, store.unreadIds(), update)
         return
@@ -304,9 +304,12 @@ internal fun showCompanionNotification(context: Context, data: Map<String, Strin
     val channel = if (approval) "approvals" else "agents"
     if (!notificationsAllowed(context) || !channelAllowed(context.getSystemService(NotificationManager::class.java), channel)) return
     if (seen.contains(id)) return
-    val summary = if (approval) "Open to review and approve or deny." else compactSummary(data["summary"]) ?: "Agent attention requested."
+    val summary = if (approval) context.getString(R.string.notif_approval_summary) else compactSummary(data["summary"]) ?: context.getString(R.string.notif_attention)
     val severity = data["severity"]?.takeIf { it in setOf("important","critical","blocker") }
-    val title = if(approval) "Host access requested" else if(severity != null) "Needs you · $severity" else "Agent update"
+    val title = if (approval) context.getString(R.string.notif_approval_title)
+        else if (severity != null) context.getString(R.string.notif_needs_you, context.getString(when (severity) {
+            "important" -> R.string.severity_important; "critical" -> R.string.severity_critical; else -> R.string.severity_blocker
+        })) else context.getString(R.string.notif_agent_update)
     val notification = NotificationCompat.Builder(context, channel)
         .setSmallIcon(R.drawable.ic_companion).setContentTitle(title)
         .setContentText(summary).setStyle(NotificationCompat.BigTextStyle().bigText(summary))

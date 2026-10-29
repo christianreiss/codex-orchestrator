@@ -108,7 +108,8 @@ internal fun avatarIdentity(member: JSONObject): String =
  * name and state, so neither colour nor the dot is the only signal.
  */
 @Composable internal fun GroupAvatar(member: JSONObject, initials: String, presence: String?, size: Dp = 40.dp, engineBadge: Boolean = true) {
-    val description = roomPersonLabel(member) + (presence?.let { ": " + roomPresenceLabel(it) } ?: "")
+    val t = rememberTexts()
+    val description = roomPersonLabel(t, member) + (presence?.let { ": " + roomPresenceLabel(t, it) } ?: "")
     val ring = MaterialTheme.colorScheme.surface
     Box(Modifier.size(size).clearAndSetSemantics { contentDescription = description }) {
         Box(Modifier.fillMaxSize().background(Color(avatarColorArgb(avatarIdentity(member))), CircleShape), contentAlignment = Alignment.Center) {

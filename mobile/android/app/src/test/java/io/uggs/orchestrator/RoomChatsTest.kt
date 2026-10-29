@@ -78,7 +78,7 @@ class RoomChatsTest {
         try {
             server.start()
             val client = Api(server.url("/").toString().trimEnd('/'), "test")
-            val rooms = RoomChats(scope, { client }, { true })
+            val rooms = RoomChats(scope, { client }, { true }, texts = TestTexts)
             server.enqueue(MockResponse().setBody("""{"rooms":[{"id":"active"}],"has_more":false,"next_offset":null}"""))
             rooms.refresh(client, setOf("agent_messaging.read")) { true }
             assertTrue(server.takeRequest(2, TimeUnit.SECONDS)!!.path!!.contains("view=active"))
@@ -105,7 +105,7 @@ class RoomChatsTest {
         assertEquals("updated", result[1].getString("content"))
     }
     @Test fun nullNamesNeverBecomeVisibleLabels() {
-        assertEquals("Review agent", roomPersonLabel(JSONObject().put("name", JSONObject.NULL).put("alias", "Review agent")))
+        assertEquals("Review agent", roomPersonLabel(TestTexts, JSONObject().put("name", JSONObject.NULL).put("alias", "Review agent")))
     }
     @Test fun aLateReadCannotRestorePrivateContentAfterClearing() = runBlocking {
         val server = MockWebServer()
@@ -113,7 +113,7 @@ class RoomChatsTest {
         try {
             server.enqueue(MockResponse().setBody("""{"room":{"id":"room"},"events":[{"id":"event","content":"private","created_at":"2026-10-18T09:00:00Z"}],"next_before":null}""").setBodyDelay(400, TimeUnit.MILLISECONDS))
             server.start()
-            val rooms = RoomChats(scope, { Api(server.url("/").toString().trimEnd('/'), "test") }, { true })
+            val rooms = RoomChats(scope, { Api(server.url("/").toString().trimEnd('/'), "test") }, { true }, texts = TestTexts)
             rooms.open(JSONObject().put("id", "room"))
             assertNotNull(server.takeRequest(2, TimeUnit.SECONDS))
             rooms.clear()

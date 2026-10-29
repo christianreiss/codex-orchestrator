@@ -18,7 +18,7 @@ class ChatTimelineTest {
         .apply { actor?.let { put("actor", it) }; kind?.let { put("kind", it) } }
 
     @Test fun consecutiveBubblesFromOneSpeakerGroupWithinFiveMinutesOnTheSameDay() {
-        val items = buildTimeline(portalTimelineEntries(listOf(
+        val items = buildTimeline(portalTimelineEntries(TestTexts, listOf(
             portal(1, "assistant_message", "2026-10-07T10:00:00Z"),
             portal(2, "assistant_message", "2026-10-07T10:05:00Z"),
             portal(3, "assistant_message", "2026-10-07T10:10:01Z"),
@@ -32,7 +32,7 @@ class ChatTimelineTest {
 
     @Test fun daySeparatorsFollowTheLocalDateAndBreakGroups() {
         // 21:59:59Z and 22:00:00Z straddle midnight in Berlin (CEST, UTC+2).
-        val items = buildTimeline(portalTimelineEntries(listOf(
+        val items = buildTimeline(portalTimelineEntries(TestTexts, listOf(
             portal(1, "user_message", "2026-10-07T21:59:59Z"),
             portal(2, "user_message", "2026-10-07T22:00:00Z"),
         )), zone)
@@ -51,7 +51,7 @@ class ChatTimelineTest {
             portal(6, "assistant_message", "2026-10-07T10:01:00Z"),
             portal(7, "progress", "2026-10-07T10:01:10Z", "Tail"),
         )
-        val items = buildTimeline(portalTimelineEntries(events), zone)
+        val items = buildTimeline(portalTimelineEntries(TestTexts, events), zone)
         val runs = items.filterIsInstance<TimelineItem.StatusRun>()
         assertEquals(listOf(3, 1), runs.map { it.lines.size })
         assertEquals(listOf("INTERNAL_LIFECYCLE", "Running tests", "Still running"), runs[0].lines.map { it.text })
@@ -61,7 +61,7 @@ class ChatTimelineTest {
     }
 
     @Test fun lifecycleEventsAreMarkersAndDeliveryFailuresStayReceipts() {
-        val items = buildTimeline(portalTimelineEntries(listOf(
+        val items = buildTimeline(portalTimelineEntries(TestTexts, listOf(
             portal(1, "started", "2026-10-07T10:00:00Z", ""),
             portal(2, "failed", "2026-10-07T10:00:01Z", "") { put("message_id", "m1") },
             portal(3, "completed", "2026-10-07T10:00:02Z", "") { put("summary", "All done") },
@@ -76,21 +76,21 @@ class ChatTimelineTest {
             portal(1, "waiting_input", "2026-10-07T10:00:00Z", "") { put("question", "Which target?").put("prompt_id", "q1").put("options", JSONArray().put("A")) },
             portal(2, "waiting_input", "2026-10-07T10:01:00Z", "") { put("question", "Deploy now?").put("prompt_id", "q2").put("prompt_version", 1) },
         )
-        val decisions = buildTimeline(portalTimelineEntries(events, prompt = prompt), zone).filterIsInstance<TimelineItem.Decision>()
+        val decisions = buildTimeline(portalTimelineEntries(TestTexts, events, prompt = prompt), zone).filterIsInstance<TimelineItem.Decision>()
         assertEquals(listOf("Which target?"), decisions.map { it.prompt.getString("question") })
-        assertEquals(2, buildTimeline(portalTimelineEntries(events), zone).filterIsInstance<TimelineItem.Decision>().size)
+        assertEquals(2, buildTimeline(portalTimelineEntries(TestTexts, events), zone).filterIsInstance<TimelineItem.Decision>().size)
     }
 
     @Test fun omittedNoticesAreInsertedOnceByTimeWithANoticeKey() {
         val notice = JSONObject().put("id", "n1").put("severity", "important").put("summary", "Review").put("since", "2026-10-07T10:01:00Z")
         val events = listOf(portal(1, "assistant_message", "2026-10-07T10:00:00Z"), portal(2, "assistant_message", "2026-10-07T10:02:00Z"))
-        val bubbles = buildTimeline(portalTimelineEntries(events, listOf(notice, notice)), zone).filterIsInstance<TimelineItem.Bubble>()
+        val bubbles = buildTimeline(portalTimelineEntries(TestTexts, events, listOf(notice, notice)), zone).filterIsInstance<TimelineItem.Bubble>()
         assertEquals(listOf("message:1", "notice:n1", "message:2"), bubbles.map { it.key })
         assertEquals(MessageKey.Notice("n1"), bubbles[1].message.key)
         assertEquals("important", bubbles[1].message.severity)
         // A retained notice event wins over the preview.
         val retained = portal(3, "attention", "2026-10-07T10:01:00Z", "") { put("notice_id", "n1").put("severity", "important").put("summary", "Review") }
-        assertEquals(1, portalTimelineEntries(events + retained, listOf(notice)).count { (it as? TimelineEntry.Message)?.message?.noticeId == "n1" })
+        assertEquals(1, portalTimelineEntries(TestTexts, events + retained, listOf(notice)).count { (it as? TimelineEntry.Message)?.message?.noticeId == "n1" })
     }
 
     @Test fun roomEventsMapOneToOneAndGroupByActor() {
@@ -103,7 +103,7 @@ class ChatTimelineTest {
             room("f", null, "2026-10-07T10:05:00Z", "Fixture without kind", null),
             room("g", null, "2026-10-07T10:06:00Z", "", "workflow"),
         )
-        val entries = roomTimelineEntries(events)
+        val entries = roomTimelineEntries(TestTexts, events)
         assertEquals(events.size, entries.size)
         assertEquals(events.map { "event:" + it.getString("id") }, entries.map { it.key })
         val items = buildTimeline(entries, zone)
@@ -115,7 +115,7 @@ class ChatTimelineTest {
     }
 
     @Test fun unseenCountsOnlyOthersAfterTheAnchorAndPointsAtTheFirst() {
-        val items = buildTimeline(portalTimelineEntries(listOf(
+        val items = buildTimeline(portalTimelineEntries(TestTexts, listOf(
             portal(1, "assistant_message", "2026-10-07T10:00:00Z"),
             portal(2, "user_message", "2026-10-07T10:00:30Z"),
             portal(3, "assistant_message", "2026-10-07T10:01:00Z"),
@@ -153,8 +153,8 @@ class ChatTimelineTest {
         assertEquals(0L, minutesUntil("2026-10-07T09:59:00Z", now))
         assertNull(minutesUntil(null, now))
         assertNull(minutesUntil("soon", now))
-        assertEquals("1h 30m", remainingLabel(90))
-        assertEquals("2h", remainingLabel(120))
-        assertEquals("45m", remainingLabel(45))
+        assertEquals("1h 30m", remainingLabel(TestTexts, 90))
+        assertEquals("2h", remainingLabel(TestTexts, 120))
+        assertEquals("45m", remainingLabel(TestTexts, 45))
     }
 }

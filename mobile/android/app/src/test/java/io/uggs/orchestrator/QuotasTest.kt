@@ -17,8 +17,8 @@ class QuotasTest {
         assertEquals("Stale", quotaDataStatus(account().put("fetched_at", "invalid"), now))
     }
     @Test fun preservesProviderWindowMeaning() {
-        assertEquals("Monthly", quotaWindowLabel(JSONObject("""{"kind":"monthly"}""")))
-        assertEquals("Weekly", quotaWindowLabel(JSONObject("""{"kind":"weekly"}""")))
-        assertEquals("5 hours", quotaWindowLabel(JSONObject("""{"kind":"short","limit_seconds":18000}""")))
+        assertEquals("Monthly", quotaWindowLabel(TestTexts, JSONObject("""{"kind":"monthly"}""")))
+        assertEquals("Weekly", quotaWindowLabel(TestTexts, JSONObject("""{"kind":"weekly"}""")))
+        assertEquals("5 hours", quotaWindowLabel(TestTexts, JSONObject("""{"kind":"short","limit_seconds":18000}""")))
     }
 }

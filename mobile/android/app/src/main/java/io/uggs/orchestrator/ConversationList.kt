@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -39,6 +40,7 @@ import org.json.JSONObject
 import java.time.Instant
 
 @Composable internal fun NowScreen(model: CompanionModel, agents: List<JSONObject>, fresh: Boolean, now: Long = System.currentTimeMillis()) {
+    val t = rememberTexts()
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("chats") }
     var createRoom by rememberSaveable { mutableStateOf(false) }
@@ -55,17 +57,21 @@ import java.time.Instant
     val rooms = model.roomChats.rooms.filter { model.roomChats.history || it.optString("kind") != "conference" || roomHasActiveAgent(it, agents.takeIf { model.overviewAvailable() }) }
     val projectsLabel = stringResource(R.string.chat_filter_projects)
     val hostsLabel = stringResource(R.string.chat_filter_hosts)
+    val chatsLabel = stringResource(R.string.chat_filter_chats)
+    val groupsLabel = stringResource(R.string.chat_filter_groups)
+    val conferencesLabel = stringResource(R.string.chat_filter_conferences)
+    val searchLabel = stringResource(R.string.chat_search)
     val categories = buildList {
-        if (activeAgents.isNotEmpty() || recentAgents.isNotEmpty()) add("chats" to "Chats")
-        if (rooms.any { roomCategory(it) == "group" }) add("group" to "Groups")
-        if (rooms.any { roomCategory(it) == "conference" }) add("conference" to "Conferences")
+        if (activeAgents.isNotEmpty() || recentAgents.isNotEmpty()) add("chats" to chatsLabel)
+        if (rooms.any { roomCategory(it) == "group" }) add("group" to groupsLabel)
+        if (rooms.any { roomCategory(it) == "conference" }) add("conference" to conferencesLabel)
         if (rooms.any { roomCategory(it) == "project" }) add("project" to projectsLabel)
         if (rooms.any { roomCategory(it) == "host" }) add("host" to hostsLabel)
     }
     val selected = filter.takeIf { id -> categories.any { it.first == id } } ?: categories.firstOrNull()?.first
     LaunchedEffect(selected) { selected?.let { filter = it } }
-    fun matches(agent: JSONObject) = search.isEmpty() || listOf(agentTitle(agent), agent.optString("cwd"),
-        agentHost(agent).orEmpty(), agentSummary(agent).orEmpty(), agent.optString("engine"))
+    fun matches(agent: JSONObject) = search.isEmpty() || listOf(agentTitle(t, agent), agent.optString("cwd"),
+        agentHost(agent).orEmpty(), agentSummary(t, agent).orEmpty(), agent.optString("engine"))
         .any { it.contains(search, ignoreCase = true) }
     val visible = if (selected != "chats") emptyList() else activeAgents.filter(::matches)
     val recent = if (selected != "chats") emptyList() else recentAgents.filter(::matches)
@@ -77,20 +83,20 @@ import java.time.Instant
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 // The top app bar names the screen; only the history view needs its own heading.
-                if (model.roomChats.history) Text("Conference history", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                if (model.roomChats.history) Text(stringResource(R.string.chat_conference_history), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                 else Spacer(Modifier.weight(1f))
                 if (model.can("agent_messaging.read") && model.roomChats.supported && model.roomChats.enabled)
-                    TextButton(onClick = { model.roomChats.showHistory(!model.roomChats.history); model.refreshNow() }, enabled = fresh, modifier = Modifier.testTag("conference-history-toggle")) { Text(if (model.roomChats.history) "Active" else "History") }
+                    TextButton(onClick = { model.roomChats.showHistory(!model.roomChats.history); model.refreshNow() }, enabled = fresh, modifier = Modifier.testTag("conference-history-toggle")) { Text(stringResource(if (model.roomChats.history) R.string.chat_history_active else R.string.chat_history)) }
                 if (model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content") && model.roomChats.supported && model.roomChats.enabled)
-                    TextButton(onClick = { createRoom = true; model.roomChats.loadCandidates() }, enabled = fresh) { Text("New") }
+                    TextButton(onClick = { createRoom = true; model.roomChats.loadCandidates() }, enabled = fresh) { Text(stringResource(R.string.chat_new)) }
             }
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("chat-search").semantics { contentDescription = "Search chats" },
-                placeholder = { Text("Search chats") },
+                modifier = Modifier.fillMaxWidth().testTag("chat-search").semantics { contentDescription = searchLabel },
+                placeholder = { Text(searchLabel) },
                 leadingIcon = { CompanionIcon(CompanionSymbol.Search, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
                 trailingIcon = if (query.isNotEmpty()) { {
-                    IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Close, "Clear search") }
+                    IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Close, stringResource(R.string.chat_clear_search)) }
                 } } else null,
                 shape = MaterialTheme.shapes.medium,
                 colors = searchFieldColors(),
@@ -125,12 +131,12 @@ import java.time.Instant
         }
         LazyColumn(Modifier.fillMaxSize().testTag("chat-list"), contentPadding = PaddingValues(bottom = 96.dp)) {
             if (!model.roomChats.supported || !model.roomChats.enabled) item(key = "rooms-unavailable") {
-                Text(if (!model.roomChats.supported) "Shared conversations require a server update." else "Shared conversations are disabled on this server.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(if (!model.roomChats.supported) R.string.chat_rooms_need_update else R.string.chat_rooms_disabled), Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!fresh && !model.connecting) item(key = "reconnect") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Text("Checking what needs you…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = model::refreshNow, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry connection") }
+                    Text(stringResource(R.string.chat_checking), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = model::refreshNow, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.action_retry_connection)) }
                 }
             }
             itemsIndexed(visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
@@ -139,20 +145,20 @@ import java.time.Instant
             itemsIndexed(shared, key = { _, room -> "room:" + room.getString("id") }) { index, room ->
                 RoomRow(room, model.canOpenRoom(room), Instant.ofEpochMilli(now), model.roomChats.previews[room.getString("id")], index < shared.lastIndex) { model.openRoom(room) }
             }
-            if (model.roomChats.nextOffset != null) item { TextButton(onClick = model.roomChats::more, enabled = fresh && !model.roomChats.loading) { Text("More conversations") } }
+            if (model.roomChats.nextOffset != null) item { TextButton(onClick = model.roomChats::more, enabled = fresh && !model.roomChats.loading) { Text(stringResource(R.string.chat_more_conversations)) } }
             if (visible.isEmpty() && shared.isEmpty()) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val empty = when {
-                        model.connecting -> "Loading your chats…"
-                        search.isNotEmpty() -> "No chats found"
-                        fresh && model.roomChats.history -> "No closed conferences"
-                        fresh -> "All caught up"
-                        else -> "Waiting for chats"
+                        model.connecting -> stringResource(R.string.chat_loading_chats)
+                        search.isNotEmpty() -> stringResource(R.string.chat_none_found)
+                        fresh && model.roomChats.history -> stringResource(R.string.chat_no_closed_conferences)
+                        fresh -> stringResource(R.string.chat_all_caught_up)
+                        else -> stringResource(R.string.chat_waiting_for_chats)
                     }
                     if (model.connecting) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                     Text(empty, style = MaterialTheme.typography.titleMedium)
-                    if (!model.connecting && search.isNotEmpty()) TextButton(onClick = { query = "" }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Clear search") }
-                    else if (fresh && !model.roomChats.history) Text("No active agents online.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!model.connecting && search.isNotEmpty()) TextButton(onClick = { query = "" }, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.chat_clear_search)) }
+                    else if (fresh && !model.roomChats.history) Text(stringResource(R.string.chat_no_active_agents), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (recent.isNotEmpty()) {
@@ -182,6 +188,7 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
 }
 
 @Composable private fun AgentRow(agent: JSONObject, now: Long, fresh: Boolean, attention: Boolean, unreadCount: Int, divider: Boolean, tagPrefix: String = "agent:", onClick: () -> Unit) {
+    val t = rememberTexts()
     val important = hasUrgentNotice(agent)
     val badgeColor = if (important) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     val badgeContentColor = if (important) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
@@ -189,19 +196,22 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
     val host = agentHost(agent)
     val shortHost = host?.let { if (it.contains(':') || it.all { char -> char.isDigit() || char == '.' }) it else it.substringBefore('.') }
     val directory = agent.optString("cwd").trim().takeIf(String::isNotBlank)
-    val summary = agentSummary(agent)
+    val summary = agentSummary(t, agent)
+    val unreadState = if (unreadCount == 0) stringResource(R.string.chat_read) else pluralStringResource(R.plurals.chat_unread_replies, unreadCount, unreadCount)
+    val hostDescription = host?.let { stringResource(R.string.host_description, it) }.orEmpty()
+    val unreadBadge = stringResource(if (important) R.string.chat_unread_important_badge else R.string.chat_unread_badge)
     Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag(tagPrefix + agent.optString("id")).semantics {
-        stateDescription = when (unreadCount) { 0 -> "Read"; 1 -> "1 unread reply"; else -> "$unreadCount unread replies" }
+        stateDescription = unreadState
     }, shape = RectangleShape, color = MaterialTheme.colorScheme.background) {
         Column {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 AgentAvatar(agent)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(agentTitle(agent), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
+                    Text(agentTitle(t, agent), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
                         maxLines = if (LocalDensity.current.fontScale > 1.1f) 2 else 1, overflow = TextOverflow.Ellipsis)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (host != null) {
-                            Text(shortHost.orEmpty(), modifier = Modifier.widthIn(max = 104.dp).clearAndSetSemantics { contentDescription = "Host: $host" },
+                            Text(shortHost.orEmpty(), modifier = Modifier.widthIn(max = 104.dp).clearAndSetSemantics { contentDescription = hostDescription },
                                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (directory != null) Text(" · ", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
                         }
@@ -209,16 +219,16 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
                     }
                     AgentStatusIndicator(agent, now, fresh)
                     if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (agent.optBoolean("daemon_session") && summary == null) Text(remoteStatus(agent.optString("remote_status")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (attention || important) Text(agent.optJSONObject("attention")?.optString("severity")?.takeIf { it.isNotBlank() } ?: if (important) "Important" else "Reply needed", style = MaterialTheme.typography.labelSmall, color = badgeColor)
+                    if (agent.optBoolean("daemon_session") && summary == null) Text(remoteStatus(t, agent.optString("remote_status")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (attention || important) Text(agent.optJSONObject("attention")?.optString("severity")?.takeIf { it.isNotBlank() } ?.let { severityRaw(t, it) } ?: stringResource(if (important) R.string.chat_important else R.string.chat_reply_needed), style = MaterialTheme.typography.labelSmall, color = badgeColor)
                 }
                 Column(Modifier.align(Alignment.Top).padding(top = 2.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Box(Modifier.heightIn(min = 18.dp)) {
-                        timestamp?.let { Text(timeLabel(it, DateFormat.is24HourFormat(LocalContext.current)), style = MaterialTheme.typography.labelSmall,
+                        timestamp?.let { Text(timeLabel(t, it, DateFormat.is24HourFormat(LocalContext.current)), style = MaterialTheme.typography.labelSmall,
                             color = if (unreadCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
                     }
                     if (unreadCount > 0) Surface(Modifier.testTag(if (tagPrefix == "agent:") "unread-badge:" + agent.optString("id") else "recent-unread-badge:" + agent.optString("id")).semantics {
-                        contentDescription = if (important) "Important unread replies" else "Unread replies"
+                        contentDescription = unreadBadge
                     }.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp), shape = CircleShape, color = badgeColor) {
                         Box(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
                             Text(if (unreadCount > 99) "99+" else unreadCount.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = badgeContentColor)
@@ -232,6 +242,7 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
 }
 
 @Composable internal fun AgentStatusIndicator(agent: JSONObject, now: Long, fresh: Boolean) {
+    val t = rememberTexts()
     val status = chatAgentStatus(agent, now, fresh)
     val color = when (status) {
         ChatAgentStatus.ONLINE -> Color(0xFF2E9E5B)
@@ -239,16 +250,24 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
         ChatAgentStatus.OFFLINE, ChatAgentStatus.UNKNOWN -> MaterialTheme.colorScheme.outline
     }
     val detail = when {
-        !fresh -> "Reconnect to update"
-        status == ChatAgentStatus.ONLINE && nativeActivity(agent, now) == "waiting" -> "Waiting for you"
+        !fresh -> t.string(R.string.chat_reconnect_to_update)
+        status == ChatAgentStatus.ONLINE && nativeActivity(agent, now) == "waiting" -> t.string(R.string.status_waiting_you)
         status in setOf(ChatAgentStatus.ONLINE, ChatAgentStatus.WORKING) ->
-            if (isReachable(agent)) "Can receive messages" else "Receiver unavailable"
+            if (isReachable(agent)) t.string(R.string.status_can_receive) else t.string(R.string.status_receiver_unavailable)
         else -> null
     }
     Row(Modifier.testTag("agent-status:" + agent.optString("id")),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.size(8.dp).background(color, CircleShape))
-        Text(listOfNotNull(status.label, detail).joinToString(" · "),
+        Text(listOfNotNull(t.string(status.label), detail).joinToString(" · "),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+/** The server's severity word, localized; unknown words pass through unchanged. */
+internal fun severityRaw(t: Texts, severity: String): String = when (severity) {
+    "important" -> t.string(R.string.severity_important)
+    "critical" -> t.string(R.string.severity_critical)
+    "blocker" -> t.string(R.string.severity_blocker)
+    else -> severity
 }

@@ -1,12 +1,13 @@
 package io.uggs.orchestrator
 
+import androidx.annotation.StringRes
 import org.json.JSONObject
 import java.time.Instant
 
 private fun instant(value: String): Long? = runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
 
-internal enum class ChatAgentStatus(val label: String) {
-    ONLINE("Online"), WORKING("Working"), OFFLINE("Offline"), UNKNOWN("Unknown")
+internal enum class ChatAgentStatus(@StringRes val label: Int) {
+    ONLINE(R.string.status_online), WORKING(R.string.status_working), OFFLINE(R.string.status_offline), UNKNOWN(R.string.status_unknown)
 }
 
 /** Connection freshness gates live claims; receiver readiness only gates delivery. */
@@ -33,21 +34,21 @@ fun nativeActivity(agent: JSONObject, now: Long): String? {
     return a.optString("state").takeIf { it in setOf("working", "idle", "waiting", "unknown") } ?: "unknown"
 }
 
-fun activityLabel(agent: JSONObject, now: Long): String {
-    if (isClosedAgent(agent)) return "Ended"
-    if (agent.optString("presence") == "offline") return "Offline"
+internal fun activityLabel(t: Texts, agent: JSONObject, now: Long): String {
+    if (isClosedAgent(agent)) return t.string(R.string.status_ended)
+    if (agent.optString("presence") == "offline") return t.string(R.string.status_offline)
     return when (nativeActivity(agent, now)) {
-        "working" -> "Working"
-        "idle" -> "Idle"
-        "waiting" -> "Waiting for you"
-        "unknown" -> "Unknown"
-        else -> when (agent.optString("presence")) { "working" -> "Working"; "listening" -> "Listening"; else -> "Not listening" }
+        "working" -> t.string(R.string.status_working)
+        "idle" -> t.string(R.string.status_idle)
+        "waiting" -> t.string(R.string.status_waiting_you)
+        "unknown" -> t.string(R.string.status_unknown)
+        else -> when (agent.optString("presence")) { "working" -> t.string(R.string.status_working); "listening" -> t.string(R.string.status_listening); else -> t.string(R.string.status_not_listening) }
     }
 }
 
-fun activityDetail(agent: JSONObject, now: Long): String {
-    val label = activityLabel(agent, now)
-    if (label in setOf("Ended", "Offline")) return label
-    val connection = if (isReachable(agent)) "Can receive messages" else "Receiver unavailable"
-    return "$label · $connection"
+internal fun activityDetail(t: Texts, agent: JSONObject, now: Long): String {
+    val label = activityLabel(t, agent, now)
+    if (label in setOf(t.string(R.string.status_ended), t.string(R.string.status_offline))) return label
+    val connection = if (isReachable(agent)) t.string(R.string.status_can_receive) else t.string(R.string.status_receiver_unavailable)
+    return t.string(R.string.status_with_connection, label, connection)
 }

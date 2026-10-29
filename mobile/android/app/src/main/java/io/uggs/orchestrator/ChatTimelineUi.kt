@@ -86,7 +86,7 @@ internal fun LazyListScope.timelineItems(
     items(items, key = { it.key }) { item ->
         Column(Modifier.fillMaxWidth()) {
             when (item) {
-                is TimelineItem.Day -> DaySeparator(dayLabel(item.date))
+                is TimelineItem.Day -> DaySeparator(dayLabel(rememberTexts(), item.date))
                 is TimelineItem.StatusRun -> StatusRunRow(item, item.key in expandedRuns) { toggleRun(item.key) }
                 is TimelineItem.Lifecycle -> LifecycleRow(item.line)
                 is TimelineItem.Decision -> decision(item)
@@ -107,7 +107,8 @@ internal fun LazyListScope.timelineItems(
 
 @Composable private fun clockLabel(time: java.time.Instant?): String? {
     val use24 = DateFormat.is24HourFormat(LocalContext.current)
-    return time?.let { timeLabel(it, use24) }
+    val t = rememberTexts()
+    return time?.let { timeLabel(t, it, use24) }
 }
 
 @Composable internal fun StatusRunRow(run: TimelineItem.StatusRun, expanded: Boolean, toggle: () -> Unit) {
@@ -204,7 +205,7 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
         bottomEnd = 16.dp, bottomStart = 16.dp,
     )
     var menu by remember(item.key) { mutableStateOf(false) }
-    val actionsLabel = "Message actions"
+    val actionsLabel = stringResource(R.string.chat_message_actions)
     BoxWithConstraints(Modifier.fillMaxWidth().padding(top = if (item.startsGroup) 10.dp else 2.dp)) {
         val avatarSlot = 36.dp
         val bubbleWidth = maxWidth * .86f - if (avatar != null) avatarSlot else 0.dp
@@ -294,7 +295,7 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
     FilledTonalButton(onClick = onClick, modifier = modifier.heightIn(min = 48.dp).then(if (description != null) Modifier.semantics { stateDescription = description } else Modifier),
         elevation = ButtonDefaults.filledTonalButtonElevation(defaultElevation = 3.dp)) {
         CompanionIcon(CompanionSymbol.Down)
-        Spacer(Modifier.width(8.dp)); Text("New messages")
+        Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.chat_new_messages))
         if (count != null && count > 0) {
             Spacer(Modifier.width(8.dp))
             Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) { Text(if (count > 99) "99+" else count.toString()) }

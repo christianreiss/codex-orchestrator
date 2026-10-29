@@ -34,11 +34,11 @@ internal class ChatUploads(
     private val jobs = mutableMapOf<String, Job>()
 
     fun addFile(session: String, uri: android.net.Uri) {
-        scope.launch { try { val (file, name, mime) = copyChatFile(app, uri); addCaptured(session, file, name, mime) } catch (e: Exception) { onError(e.message ?: "Cannot read file") } }
+        scope.launch { try { val (file, name, mime) = copyChatFile(app, uri); addCaptured(session, file, name, mime) } catch (e: Exception) { onError(e.message ?: app.getString(R.string.attach_cannot_read_file)) } }
     }
     fun addCaptured(session: String, file: java.io.File, name: String, mime: String) {
         val current = items[session] ?: emptyList()
-        if (current.size >= 10 || file.length() !in 1..CHAT_FILE_LIMIT || current.sumOf { it.file.length() } + file.length() > CHAT_TOTAL_LIMIT) { file.delete(); onError("Attachment limit exceeded"); return }
+        if (current.size >= 10 || file.length() !in 1..CHAT_FILE_LIMIT || current.sumOf { it.file.length() } + file.length() > CHAT_TOTAL_LIMIT) { file.delete(); onError(app.getString(R.string.attach_limit)); return }
         val item = ChatUpload(UUID.randomUUID().toString(), file, name, mime)
         items = items + (session to (current + item)); retry(session, item)
     }
@@ -60,7 +60,7 @@ internal class ChatUploads(
                 }
                 client.request("$base/${item.id}/seal", "POST"); update(1f, "ready")
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { update(item.progress, "failed", e.message ?: "Upload failed") }
+            catch (e: Exception) { update(item.progress, "failed", e.message ?: app.getString(R.string.attach_upload_failed)) }
         }
     }
     fun remove(session: String, id: String) {
@@ -81,7 +81,7 @@ internal class ChatUploads(
         val info = info(session, id)
         api().download("${attachmentBase(session)}/$id/content", file)
         val actual = sha256Hex(file)
-        if (actual != info.optString("sha256")) { file.delete(); error("Attachment checksum mismatch") }
+        if (actual != info.optString("sha256")) { file.delete(); error(app.getString(R.string.attach_checksum)) }
         return file
     }
     /** Cancels uploads, deletes local copies and downloaded files. */

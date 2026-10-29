@@ -47,32 +47,32 @@ class NativeActivityTest {
     }
     @Test fun activityIsIndependentOfDelivery() {
         val row = agent()
-        assertEquals("Working", activityLabel(row, now))
+        assertEquals("Working", activityLabel(TestTexts, row, now))
         row.put("relay_ready", false)
-        assertEquals("Working", activityLabel(row, now))
+        assertEquals("Working", activityLabel(TestTexts, row, now))
         assertFalse(isReachable(row))
         assertEquals("unknown", nativeActivity(row, now + 45000))
     }
     @Test fun lifecycleAndLegacyRemainSupported() {
         val row = agent().put("presence", "ended")
-        assertEquals("Ended", activityLabel(row, now))
+        assertEquals("Ended", activityLabel(TestTexts, row, now))
         row.put("presence", "listening").remove("activity")
-        assertEquals("Listening", activityLabel(row, now))
+        assertEquals("Listening", activityLabel(TestTexts, row, now))
     }
     @Test fun explicitQuestionsAndUnknownValues() {
         val row = agent()
         row.getJSONObject("activity").put("state", "future")
-        assertEquals("Unknown", activityLabel(row, now))
+        assertEquals("Unknown", activityLabel(TestTexts, row, now))
         row.getJSONObject("activity").put("source", "portal-question").remove("expires_at")
         row.put("pending_prompt", JSONObject().put("id", "question"))
-        assertEquals("Waiting for you", activityLabel(row, now))
+        assertEquals("Waiting for you", activityLabel(TestTexts, row, now))
     }
     @Test fun evidenceExpiryDoesNotInventASessionLifecycle() {
         val row = agent().put("receiver", JSONObject().put("failure", JSONObject.NULL)
             .put("heartbeat_at", Instant.ofEpochMilli(now).toString()))
-        assertEquals("Working · Can receive messages", activityDetail(row, now))
-        assertEquals("Unknown · Can receive messages", activityDetail(row, now + 45000))
+        assertEquals("Working · Can receive messages", activityDetail(TestTexts, row, now))
+        assertEquals("Unknown · Can receive messages", activityDetail(TestTexts, row, now + 45000))
         row.put("presence", "offline")
-        assertEquals("Offline", activityDetail(row, now + 45000))
+        assertEquals("Offline", activityDetail(TestTexts, row, now + 45000))
     }
 }
