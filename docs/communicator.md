@@ -863,6 +863,38 @@ the identity fields can only ever produce candidates. Every
 control requires `agent_portal.manage` (or `agent_messaging.manage` for the daemon
 stop), which stay enforced under `compatible` authorization.
 
+## API level and minimum
+
+The communicator has an integer API level of its own, separate from the cxx
+release number. The server states two integers, named exactly `api_version`
+(the level it speaks) and `min_api` (the effective minimum), at the top level of
+`GET /wrapper/v2/meta`, the unauthenticated `GET /versions`, the `ready` frame of
+the control socket and its `pong` and `heartbeat` replies. Absent fields mean an
+older server and are harmless. Wire shape and operator control are in
+`docs/interface-api.md` (Communicator API level).
+
+A client compares its own built-in level with what it reads:
+
+| Client level | Meaning | Client action |
+| --- | --- | --- |
+| below `min_api` | too old to be served well | update immediately |
+| at least `min_api`, below `api_version` | works, but a newer level exists | update queued until no agents are online |
+| at or above `api_version` | current | nothing |
+
+The server only advertises. It never rejects, delays or blocks a client for being
+below the minimum, and authentication is unchanged; the client self-updates
+through its normal signed-binary path. The client states its own level with
+`X-Cxx-Api: <integer>` on every wrapper and communicator request and as
+`api_version` in the `hello` frame. The server keeps these in process memory (per
+host and per live connection) so `GET /admin/communicator/api-version` and
+Settings > Host agent rollout can show how many hosts are below the minimum and below
+the current level. This applies identically to the Codex, Claude and Grok
+personas, since they share one binary. An operator can raise the minimum without a
+deploy (`POST /admin/communicator/api-version`, `1 <= min_api <= api_version`);
+the change publishes `settings.changed`, which already sends connected
+communicators a policy invalidation (and the payload-free `update_available`
+trigger when push updates are enabled).
+
 ## Emergency bypass (cxx 0.9.141)
 
 `cxx emergency <engine>` never touches the communicator. It is intercepted

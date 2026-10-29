@@ -16,6 +16,7 @@ import { SettingsService } from './settings.js';
 import { assertReverseDnsMatch } from './reverse-dns.js';
 import type { Env } from '../env.js';
 import { assertHostNotExpired, pruneHosts, recordHostContact } from './host-lifecycle.js';
+import { observeRequestApiLevel } from './communicator-api-version.js';
 
 /**
  * Host authentication helpers. Foundation already provides
@@ -102,6 +103,7 @@ export function createHostAuthService(deps: HostAuthDeps): HostAuthService {
       if (req.method !== 'DELETE') host = await recordHostContact(deps.db, host, new Date(), true);
       if (ownerRuntimeFor(deps.db)) bindOwnerHostPrincipal(deps.db, host);
       req.authHost = host;
+      observeRequestApiLevel(host.id, req.headers);
       return host;
     },
 

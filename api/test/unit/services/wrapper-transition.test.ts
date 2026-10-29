@@ -397,6 +397,8 @@ function snapshot(): VersionSnapshot {
     fleet_disabled_engines: [],
     installation_id: 'inst',
     engine: 'codex',
+    api_version: 1,
+    min_api: 1,
   };
 }
 

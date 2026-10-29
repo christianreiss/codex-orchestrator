@@ -1183,6 +1183,31 @@ describe('wrapper-v2 routes', () => {
       );
     }
 
+    it.each(['/wrapper/v2/meta', '/wrapper'])(
+      'GET %s carries the communicator api_version and min_api as top-level integers for every engine',
+      async (url) => {
+        const host = fakeHost();
+        const app = await productionApp(host);
+        try {
+          for (const engine of ['codex', 'claude', 'grok']) {
+            const r = await app.inject({ method: 'GET', url: `${url}?engine=${engine}` });
+            // fakeHost only assigns codex; an unassigned engine is refused before the body exists.
+            if (r.statusCode !== 200) continue;
+            const body = JSON.parse(r.payload) as Record<string, unknown>;
+            expect(body.api_version).toBe(1);
+            expect(body.min_api).toBe(1);
+            expect(body.platforms).toBeDefined();
+            expect(body.signing_fingerprint).toBeDefined();
+          }
+          const codex = await app.inject({ method: 'GET', url });
+          expect(codex.statusCode).toBe(200);
+          expect(JSON.parse(codex.payload)).toMatchObject({ engine: 'codex', api_version: 1, min_api: 1 });
+        } finally {
+          await app.close();
+        }
+      },
+    );
+
     it('GET /wrapper/v2/config binds ETag and x-sha256 to the payload digest', async () => {
       const host = fakeHost();
       const app = await productionApp(host);

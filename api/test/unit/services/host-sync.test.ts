@@ -41,6 +41,8 @@ const SNAPSHOT: VersionSnapshot = {
   fleet_disabled_engines: [],
   installation_id: 'inst-42',
   engine: ENGINE_CODEX,
+  api_version: 1,
+  min_api: 1,
 };
 
 interface VersionsStub extends VersionSnapshotService {

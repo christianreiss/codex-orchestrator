@@ -305,6 +305,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/theme': cap('settings.manage'),
   'POST /admin/toasts': cap('settings.manage'),
   'POST /admin/versions/check': cap('settings.manage'),
+  'GET /admin/communicator/api-version': cap('settings.read'),
+  'POST /admin/communicator/api-version': cap('settings.manage'),
   'POST /admin/chatgpt/usage/refresh': cap('settings.manage'),
 
   // ── Authored content ─────────────────────────────────────────────────────

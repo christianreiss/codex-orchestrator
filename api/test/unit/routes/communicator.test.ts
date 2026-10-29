@@ -4,7 +4,8 @@ import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
 import { ControlStateStreams } from '../../../src/control-plane/protocol.js';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { communicatorRegistry } from '../../../src/services/topology/communicator-registry.js';
+import { communicatorRegistry, connections } from '../../../src/services/topology/communicator-registry.js';
+import { apiLevelTracker } from '../../../src/services/communicator-api-version.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -92,7 +93,7 @@ async function open(realSocket = false, control = ['terminate', 'owner_identity'
     ws.once('message', (data: unknown) => resolve(String(data))),
   );
   ws.send(JSON.stringify({ type: 'hello', protocol: 1, username: 'tester', version: '0.9.71' }));
-  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, control });
+  expect(JSON.parse(await ready)).toEqual({ type: 'ready', protocol: 1, api_version: 1, min_api: 1, control });
   return ws;
 }
 describe('communicator transport', () => {
@@ -800,7 +801,7 @@ describe('negotiated resident owner reports', () => {
       if (fault === 'no_identity') ws.send(JSON.stringify(caps));
       let response = next();
       ws.send(JSON.stringify({ type: 'heartbeat', sessions: 0 }));
-      expect(await response).toEqual({ type: 'heartbeat' });
+      expect(await response).toEqual({ type: 'heartbeat', api_version: 1, min_api: 1 });
       expect(communicatorRegistry.get(id)?.resident).toBeNull();
       expect(communicatorRegistry.get(id)?.capabilities.instance_id).toBe(owner);
       response = next();
@@ -836,7 +837,7 @@ describe('negotiated resident owner reports', () => {
     for (const primed of [true, false]) {
       const response = new Promise<Record<string, unknown>>((resolve) => ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))));
       ws.send(JSON.stringify({ ...heartbeat, sync_scopes: [{ ...heartbeat.sync_scopes[0], primed }] }));
-      expect(await response).toEqual({ type: 'heartbeat' });
+      expect(await response).toEqual({ type: 'heartbeat', api_version: 1, min_api: 1 });
     }
     expect(closed).toBe(false);
     ws.close();
@@ -857,5 +858,88 @@ describe('negotiated resident owner reports', () => {
     const revoked = new Promise<number>(resolve => ws.once('close', resolve));
     ws.send(JSON.stringify({ type: 'heartbeat', sessions: 0 }));
     expect(await revoked).toBe(1008);
+  });
+});
+
+describe('communicator API level', () => {
+  async function hello(payload: Record<string, unknown>) {
+    const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
+    const ready = new Promise<Record<string, unknown>>((resolve) =>
+      ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))),
+    );
+    const username = `api-level-${randomUUID()}`;
+    ws.send(JSON.stringify({ type: 'hello', protocol: 1, username, version: '0.9.145', ...payload }));
+    const frame = await ready;
+    return { ws, ready: frame, view: () => [...connections.values()].find((c) => c.username === username) };
+  }
+
+  it('advertises api_version and min_api on ready, and records the level the owner states', async () => {
+    apiLevelTracker.clear();
+    await setup();
+    const { ws, ready, view } = await hello({ api_version: 1 });
+    expect(ready).toMatchObject({ type: 'ready', protocol: 1, api_version: 1, min_api: 1 });
+    expect(Number.isInteger(ready.api_version) && Number.isInteger(ready.min_api)).toBe(true);
+    expect(view()?.api_version).toBe(1);
+    expect(apiLevelTracker.levelOf(1)).toBe(1);
+    apiLevelTracker.clear();
+    ws.close();
+  });
+
+  it('still greets an old owner that states no level, and records it as unstated', async () => {
+    await setup();
+    const { ws, ready, view } = await hello({});
+    expect(ready).toMatchObject({ type: 'ready', api_version: 1, min_api: 1 });
+    expect(view()?.api_version).toBeNull();
+    ws.close();
+  });
+
+  it.each([['abc'], [0], [-4], [1.5], [{ x: 1 }], [null], [true], [10_000_000]])(
+    'never refuses a handshake over an unreadable level %j',
+    async (value) => {
+      await setup();
+      const { ws, ready, view } = await hello({ api_version: value });
+      expect(ready).toMatchObject({ type: 'ready', api_version: 1, min_api: 1 });
+      expect(view()?.api_version).toBeNull();
+      ws.close();
+    },
+  );
+
+  it('carries both integers on pong and heartbeat replies and accepts a repeated level', async () => {
+    await setup();
+    const { ws } = await hello({ api_version: 1 });
+    const next = () =>
+      new Promise<Record<string, unknown>>((resolve) =>
+        ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))),
+      );
+    let reply = next();
+    ws.send(JSON.stringify({ type: 'ping' }));
+    expect(await reply).toEqual({ type: 'pong', api_version: 1, min_api: 1 });
+    reply = next();
+    ws.send(JSON.stringify({ type: 'heartbeat', sessions: 0, api_version: 1 }));
+    expect(await reply).toEqual({ type: 'heartbeat', api_version: 1, min_api: 1 });
+    ws.close();
+  });
+
+  it('forwards X-Cxx-Api on tunnelled requests so the host-auth path can record it', async () => {
+    await setup();
+    const { ws } = await hello({ api_version: 1 });
+    const reply = new Promise<Record<string, unknown>>((resolve) =>
+      ws.once('message', (data: unknown) => resolve(JSON.parse(String(data)))),
+    );
+    ws.send(
+      JSON.stringify({
+        id: randomUUID(),
+        type: 'request',
+        method: 'POST',
+        path: '/host/echo',
+        headers: { 'X-Cxx-Api': '1' },
+        body: '',
+      }),
+    );
+    const frame = await reply;
+    expect(frame.status).toBe(200);
+    const body = JSON.parse(Buffer.from(String(frame.body), 'base64').toString()) as { headers: Record<string, string> };
+    expect(body.headers['x-cxx-api']).toBe('1');
+    ws.close();
   });
 });

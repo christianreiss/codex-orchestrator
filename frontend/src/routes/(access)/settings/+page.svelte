@@ -8,6 +8,7 @@
   import SessionHousekeeping from "$lib/components/policies/SessionHousekeeping.svelte";
   import ServerRetention from "$lib/components/policies/ServerRetention.svelte";
   import WrapperRolloutSection from "$lib/components/settings/WrapperRolloutSection.svelte";
+  import CommunicatorApiSection from "$lib/components/settings/CommunicatorApiSection.svelte";
   import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
   import AgentSupervisorSettings from "$lib/components/settings/AgentSupervisorSettings.svelte";
   import AgentCoordinationSettings from "$lib/components/settings/AgentCoordinationSettings.svelte";
@@ -45,6 +46,7 @@
 
     <Section id="cxx-rollout" title="Host agent rollout" description="Try new host-agent versions early: a few hosts get each new cxx release first, the rest follow in stages.">
       <WrapperRolloutSection headingLevel={3} />
+      <CommunicatorApiSection headingLevel={3} />
     </Section>
 
     <ChattySettings />
