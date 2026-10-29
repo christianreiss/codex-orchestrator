@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reaction_action">React</string>
+    <string name="reaction_picker_title">Choose a reaction</string>
+    <string name="reaction_picker_item">React with %1$s</string>
+    <plurals name="reaction_chip_cd">
+        <item quantity="one">%1$s, %2$d reaction</item>
+        <item quantity="other">%1$s, %2$d reactions</item>
+    </plurals>
+    <string name="reaction_mine">You reacted</string>
+    <string name="reaction_limit">This message has reached the reaction limit.</string>
+    <string name="reaction_failed">The reaction could not be saved.</string>
+    <plurals name="annotation_rate_limited">
+        <item quantity="one">Too many changes. Try again in %d second.</item>
+        <item quantity="other">Too many changes. Try again in %d seconds.</item>
+    </plurals>
+    <string name="annotation_rate_limited_soon">Too many changes. Try again in a moment.</string>
+    <string name="pin_action">Pin message</string>
+    <string name="unpin_action">Unpin message</string>
+    <string name="pin_badge">Pinned</string>
+    <string name="pin_limit">This room already has the maximum of 20 pinned messages.</string>
+    <string name="pin_failed">The pin could not be saved.</string>
+    <string name="pins_strip_label">Pinned</string>
+    <plurals name="pins_strip_count">
+        <item quantity="one">%d pinned message</item>
+        <item quantity="other">%d pinned messages</item>
+    </plurals>
+    <string name="pins_strip_open">Show pinned messages</string>
+    <string name="pins_sheet_title">Pinned messages</string>
+    <string name="pins_empty">No pinned messages.</string>
+    <string name="pins_show">Show in conversation</string>
+    <string name="pins_unpin">Unpin</string>
+    <string name="pins_unavailable">This message is no longer available.</string>
+    <string name="pins_load_failed">Pinned messages could not be loaded.</string>
+    <string name="pins_close">Close</string>
+    <string name="search_messages">Search messages</string>
+    <string name="search_messages_for">Search messages for “%1$s”</string>
+    <string name="search_title">Message search</string>
+    <string name="search_hint">Search in all messages</string>
+    <string name="search_scope_all">All</string>
+    <string name="search_scope_rooms">Rooms</string>
+    <string name="search_scope_direct">Direct</string>
+    <string name="search_min_chars">Type at least 2 characters.</string>
+    <string name="search_no_results">No messages found.</string>
+    <string name="search_older">Search older messages</string>
+    <string name="search_truncated">Only the newest messages were searched. Search older messages to continue.</string>
+    <string name="search_failed">The search failed.</string>
+    <plurals name="search_rate_limited">
+        <item quantity="one">Too many searches. Try again in %d second.</item>
+        <item quantity="other">Too many searches. Try again in %d seconds.</item>
+    </plurals>
+    <string name="search_rate_limited_soon">Too many searches. Try again in a moment.</string>
+    <string name="search_result_cd">%1$s, from %2$s, %3$s: %4$s</string>
+    <string name="search_unavailable">That conversation is not available.</string>
+    <string name="search_unknown_author">Unknown</string>
+</resources>

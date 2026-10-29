@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class ApiException(val status: Int, message: String, val code: String? = null) : IOException(message)
+class ApiException(val status: Int, message: String, val code: String? = null, val retryAfterSeconds: Int? = null) : IOException(message)
 /**
  * [texts] localizes the messages this client raises itself; without it (tests, background pushes) they stay English.
  * [callTimeoutMs] bounds a whole call, for work that must finish inside a broadcast (notification actions).
@@ -34,7 +34,8 @@ class Api(private val server: String, private val token: String? = null, private
         val http = callTimeoutMs?.let { client.newBuilder().callTimeout(it, TimeUnit.MILLISECONDS).build() } ?: client
         http.newCall(builder.build()).execute().use { response ->
             val json = runCatching { JSONObject(response.body?.string() ?: "{}") }.getOrElse { throw IOException(text(R.string.model_invalid_response, "Invalid server response")) }
-            if (!response.isSuccessful) throw ApiException(response.code, json.optString("message", text(R.string.model_request_failed_code, "Request failed (${response.code})", response.code)), json.optString("code"))
+            if (!response.isSuccessful) throw ApiException(response.code, json.optString("message", text(R.string.model_request_failed_code, "Request failed (${response.code})", response.code)), json.optString("code"),
+                (response.header("Retry-After")?.trim()?.toIntOrNull() ?: json.optInt("retry_after_seconds", 0)).takeIf { it > 0 })
             json.optJSONObject("data") ?: json
         }
     }

@@ -91,7 +91,7 @@ class MainActivity : ComponentActivity() {
     val backEntry by navController.currentBackStackEntryAsState()
     val route = backEntry?.destination?.route
     val onChatRoute = Routes.isChat(route)
-    val homeTab = if (onChatRoute || route == null) Routes.CHATS else route
+    val homeTab = if (onChatRoute || route == null || route == Routes.SEARCH) Routes.CHATS else route
     val wide = isWideWindow(LocalConfiguration.current.screenWidthDp)
     var more by remember { mutableStateOf(false) }
     var review by remember { mutableStateOf<JSONObject?>(null) }
@@ -158,7 +158,7 @@ class MainActivity : ComponentActivity() {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (model.selected != null) EngineIcon(current, Modifier.size(24.dp))
-                        Text(if (model.roomChats.selected != null) shared?.optString("title") ?: stringResource(R.string.title_conversation) else if (model.selected != null) current?.let { agentTitle(t, it) } ?: stringResource(R.string.chat_agent_default) else stringResource(R.string.app_name),
+                        Text(if (route == Routes.SEARCH && !inConversation) stringResource(R.string.search_title) else if (model.roomChats.selected != null) shared?.optString("title") ?: stringResource(R.string.title_conversation) else if (model.selected != null) current?.let { agentTitle(t, it) } ?: stringResource(R.string.chat_agent_default) else stringResource(R.string.app_name),
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = if (!inConversation && model.connection != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
                             style = MaterialTheme.typography.titleLarge)
@@ -169,7 +169,10 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             },
-            navigationIcon = { if (inConversation) IconButton(onClick = ::back, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) } },
+            navigationIcon = {
+                if (inConversation) IconButton(onClick = ::back, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) }
+                else if (route == Routes.SEARCH) IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.size(48.dp).testTag("search-back")) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) }
+            },
             actions = { if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, stringResource(R.string.cd_more)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background),
         )
@@ -210,6 +213,9 @@ class MainActivity : ComponentActivity() {
                 composable(Routes.CHATS) { ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = false, overviewState = overviewState) }
                 composable(Routes.CHAT_PATTERN, arguments = listOf(navArgument("key") { type = NavType.StringType })) {
                     ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = true, overviewState = overviewState)
+                }
+                composable(Routes.SEARCH) {
+                    if (model.roomChats.protocols.search && model.can("agent_messaging.reveal_content")) SearchScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
                 }
                 composable(Routes.QUOTAS) {
                     if (model.can("admin.read") && model.can("auth.read_metadata")) QuotasScreen(model) else NowScreen(model, agents, fresh, activityClock)

@@ -201,6 +201,22 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
         if (index < 0) transient = notLoaded
         else scope.launch { autoScroll(header + index); highlight = "event:$eventId" }
     }
+    // A search hit asked to scroll here: wait for the first read after opening, then jump or say it is not loaded.
+    val jump = state.jumpTarget
+    LaunchedEffect(jump, items, state.syncs, positioned) {
+        if (jump == null) return@LaunchedEffect
+        val index = items.indexOfFirst { it.key == "event:$jump" }
+        if (index >= 0 && positioned) { state.jumpHandled(); autoScroll(header + index); highlight = "event:$jump" }
+        else if (index < 0 && (state.syncs > state.jumpAfterSyncs || state.error != null)) { state.jumpHandled(); transient = notLoaded }
+    }
+    LaunchedEffect(state.annotationNotice) { state.annotationNotice?.let { transient = it; state.clearAnnotationNotice() } }
+    var pinsOpen by rememberSaveable(id) { mutableStateOf(false) }
+    val pinsOn = state.protocols.pins && state.pinned.isNotEmpty()
+    val newestPin = state.pinned.firstOrNull()
+    val newestPinText = newestPin?.let { pin -> state.events.firstOrNull { it.optString("id") == pin }?.optString("content") ?: state.pinEntries.firstOrNull { it.eventId == pin }?.snippet }
+    // The strip shows the newest pin's text; when that event is not loaded the pin list supplies it.
+    LaunchedEffect(newestPin, state.protocols.pins, fresh) { if (state.protocols.pins && newestPin != null && fresh && newestPinText == null) state.loadPins() }
+    LaunchedEffect(pinsOpen, state.pinsLoaded) { if (pinsOpen && !state.pinsLoaded) state.loadPins() }
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -223,6 +239,7 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
             }
         }
         HorizontalDivider()
+        if (pinsOn) PinnedStrip(state.pinned.size, newestPinText, open = { pinsOpen = true })
         state.error?.let { message ->
             Surface(color = MaterialTheme.colorScheme.errorContainer) {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -243,7 +260,7 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
                 }
                 timelineItems(items, expandedRuns, { key -> expandedRuns = if (key in expandedRuns) expandedRuns - key else expandedRuns + key },
                     after = { item -> item.key.removePrefix("event:").let { readMarkers[it] }?.let { ReadByRow(it, initials, members.size) } }) { item ->
-                    RoomBubble(model, id, item, messages, members, initials, presences, writable && state.pendingSend == null, highlight == item.key, unavailable, ::jumpTo)
+                    RoomBubble(model, id, item, messages, members, initials, presences, writable && state.pendingSend == null, writable, highlight == item.key, unavailable, ::jumpTo)
                 }
                 if (working.isNotEmpty() || strangers.isNotEmpty()) item(key = "typing") {
                     val names = (working.map { roomPersonLabel(t, it) } + strangers).joinToString(", ")
@@ -288,11 +305,13 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
         }
     }
     if (details && room != null) RoomDetails(model, room, writable) { details = false }
+    if (pinsOpen && state.protocols.pins) PinsSheet(state.pinned, state.pinEntries, state.pinsLoaded, canUnpin = writable,
+        show = { eventId -> pinsOpen = false; jumpTo(eventId) }, unpin = { eventId -> state.pin(eventId, false) }, dismiss = { pinsOpen = false })
 }
 
 @Composable private fun RoomBubble(
     model: CompanionModel, roomId: String, item: TimelineItem.Bubble, messages: List<ChatMessage>, members: List<JSONObject>,
-    initials: Map<String, String>, presences: Map<String, String>, replyable: Boolean, highlighted: Boolean, unavailable: String, jumpTo: (String) -> Unit,
+    initials: Map<String, String>, presences: Map<String, String>, replyable: Boolean, annotatable: Boolean, highlighted: Boolean, unavailable: String, jumpTo: (String) -> Unit,
 ) {
     val t = rememberTexts()
     val message = item.message
@@ -305,8 +324,19 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
     val eventId = (message.key as? MessageKey.RoomEvent)?.id
     val localStatus = message.localStatus
     val reply = if (replyable && eventId != null && localStatus == null) ({ model.roomChats.replyTo = eventId }) else null
+    // Reactions and pins exist on canonical events only: an adapted legacy event has no `reactions` field.
+    val state = model.roomChats
+    val reactions = if (localStatus == null && eventId != null && state.protocols.reactions) roomReactions(item.source) else null
+    val pinnable = localStatus == null && eventId != null && state.protocols.pins && item.source.has("reactions")
+    val isPinned = eventId != null && eventId in state.pinned
+    var picker by remember(item.key) { mutableStateOf(false) }
     val actions = buildList {
         if (reply != null) add(BubbleAction(stringResource(R.string.action_reply), CompanionSymbol.Reply, reply))
+        if (reactions != null && annotatable) add(BubbleAction(stringResource(R.string.reaction_action)) { picker = true })
+        if (pinnable && annotatable) {
+            val pin = !isPinned
+            add(BubbleAction(stringResource(if (pin) R.string.pin_action else R.string.unpin_action)) { state.pin(eventId!!, pin) })
+        }
         if (message.text.isNotBlank()) {
             add(BubbleAction(copyLabel) { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(copyLabel, message.text))) } })
             add(BubbleAction(selectLabel) { selecting = true })
@@ -323,7 +353,10 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
             }
         }
     }
-    ChatBubble(item, "room-message:${eventId.orEmpty()}", colors, actions, reply, highlighted, author = name, avatar = avatar) {
+    val chips: (@Composable ColumnScope.() -> Unit)? = if (reactions.isNullOrEmpty()) null else {
+        { ReactionChips("reaction:$eventId", reactions, annotatable) { emoji -> state.react(eventId!!, emoji) } }
+    }
+    ChatBubble(item, "room-message:${eventId.orEmpty()}", colors, actions, reply, highlighted, author = name, avatar = avatar, below = chips) {
         (message.replyTo as? MessageKey.RoomEvent)?.let { target ->
             ReplyQuote(roomQuote(t, messages, target.id, unavailable), accent = if (item.own) colors.content else MaterialTheme.colorScheme.primary, onClick = { jumpTo(target.id) })
         }
@@ -332,6 +365,7 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
         roomDeliverySummary(message, messages)?.let { DeliveryPills(it, members, colors) }
         if (localStatus != null && eventId != null) LocalSendActions(model, eventId, localStatus, colors)
         BubbleFooter(item, colors) {
+            if (isPinned) Text(stringResource(R.string.pin_badge), Modifier.testTag("room-pinned-badge:$eventId"), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, color = colors.secondary)
             if (localStatus != null) Text(stringResource(when (localStatus) {
                 "sending" -> R.string.chat_send_sending
                 "failed" -> R.string.chat_send_failed
@@ -339,6 +373,7 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
             }), Modifier.testTag("room-send-status:$eventId"), style = MaterialTheme.typography.labelSmall, color = colors.secondary)
         }
     }
+    if (picker && eventId != null) ReactionPicker(reactions.orEmpty().filter { it.mine }.map { it.emoji }.toSet(), { emoji -> picker = false; state.react(eventId, emoji) }, { picker = false })
 }
 
 /** Retry for an unconfirmed or failed local room send; a definitive failure can also be discarded. */

@@ -81,6 +81,22 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     /** R4 mobile tools: each section hides unless `/me` advertises it, the operator may use it and the server answers it. */
     internal val tools = ToolsState({ api() }, viewModelScope, { foreground && connection != null }, { connection to generation }, texts, { notice = it }, { capabilities })
     private val planApprovals = PlanApprovals()
+    /** R5 message search (`search_protocol` 1); the screen is a Navigation route. */
+    internal val search = MessageSearch(viewModelScope, { api() }, texts)
+    /** Opens the search screen; [prefill] is the text typed in the Chats search field (kept out of any log). */
+    fun openSearch(prefill: String? = null) {
+        if (prefill != null) search.update(prefill, search.searchScope)
+        pendingRoute = Routes.SEARCH
+    }
+    /** Opens the conversation of a search hit; rooms then scroll to the hit when it is loaded. */
+    internal fun openSearchHit(hit: SearchHit) {
+        if (hit.isRoom) {
+            if (!can("agent_messaging.reveal_content")) { notice = texts.string(R.string.search_unavailable); return }
+            val room = roomChats.rooms.firstOrNull { it.optString("id") == hit.conversationId } ?: JSONObject().put("id", hit.conversationId).put("title", hit.title)
+            openRoom(room)
+            if (hit.eventId.isNotBlank()) roomChats.requestJump(hit.eventId)
+        } else openSession(hit.conversationId)
+    }
     /** A destination a notification asked for (`quota`); the shell consumes it. */
     var pendingRoute by mutableStateOf<String?>(null); private set
     fun clearRoute() { pendingRoute = null }
@@ -705,7 +721,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     } }
     fun logout() { mutate { api().request("/device", "DELETE"); clearConnection() } }
     private fun clearConnection() {
-        roomChats.clear()
+        roomChats.clear(); search.reset()
         discardChatCache()
         showingCachedTranscript = false; eventCursor = 0; eventsLoaded = false
         uploads.clear(); outbox.clear(); replyTargets=emptyMap(); chatSends.clear(); outboxInFlight.clear(); noticeOperations.clear()

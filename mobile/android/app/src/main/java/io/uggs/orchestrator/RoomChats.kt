@@ -165,6 +165,25 @@ internal class RoomChats(
         generation++; history = value; rooms = emptyList(); nextOffset = null; loading = false; error = null
     }
     var candidates by mutableStateOf<List<JSONObject>>(emptyList()); private set
+    /** Pinned event ids of the open room, newest pin first (R5). */
+    var pinned by mutableStateOf<List<String>>(emptyList()); private set
+    /** Entries of `GET /rooms/:roomId/pins` of the open room, newest first; empty until loaded. */
+    var pinEntries by mutableStateOf<List<RoomPin>>(emptyList()); private set
+    var pinsLoaded by mutableStateOf(false); private set
+    /** One-shot message about a failed reaction or pin toggle; the room screen shows and clears it. */
+    var annotationNotice by mutableStateOf<String?>(null); private set
+    fun clearAnnotationNotice() { annotationNotice = null }
+    /** Completed reads of the open room; a pending jump is declared "not loaded" only after one finished. */
+    var syncs by mutableStateOf(0); private set
+    /** Room event a search hit asked to scroll to once the room is shown. */
+    var jumpTarget by mutableStateOf<String?>(null); private set
+    var jumpAfterSyncs = 0; private set
+    fun requestJump(eventId: String) { jumpTarget = eventId; jumpAfterSyncs = syncs }
+    fun jumpHandled() { jumpTarget = null }
+    private val reactionsBusy = mutableSetOf<String>()
+    private val pinsBusy = mutableSetOf<String>()
+    /** Stable ids of unconfirmed toggles, so a retry repeats the same request. */
+    private val toggleRequests = mutableMapOf<String, String>()
     private var targets by mutableStateOf<Map<String, RoomRecipients>>(emptyMap())
     /** Newest chat event seen per room this session; the directory has no message preview. */
     var previews by mutableStateOf<Map<String, JSONObject>>(emptyMap()); private set
@@ -208,7 +227,7 @@ internal class RoomChats(
     fun clear() {
         generation++; selection++; rooms = emptyList(); selected = null; current = null
         events = emptyList(); targets = emptyMap(); previews = emptyMap(); frozenInitials.clear(); sending = emptySet()
-        activity = emptyMap(); notificationMode = null
+        activity = emptyMap(); notificationMode = null; resetAnnotations()
         outbox.clearWhere(match = ::isRoomKey)
         cacheWipes++; cache.clear(); cacheUpdated()
         candidates = emptyList(); nextBefore = null; nextOffset = null; error = null
@@ -231,7 +250,8 @@ internal class RoomChats(
         }.toMap() + previews
         selected?.let { id -> if (events.isEmpty()) events = restored.events(id) }
     }
-    fun close() { selection++; selected = null; current = null; events = emptyList(); nextBefore = null; error = null; loading = false; notificationMode = null }
+    fun close() { selection++; selected = null; current = null; events = emptyList(); nextBefore = null; error = null; loading = false; notificationMode = null; resetAnnotations() }
+    private fun resetAnnotations() { pinned = emptyList(); pinEntries = emptyList(); pinsLoaded = false; jumpTarget = null; syncs = 0; annotationNotice = null }
     /**
      * Reloads the directory and the open room. With delta sync `/rooms/changes` says which rooms
      * changed, and the open room is only read (as a delta) when it did. The directory is always
@@ -325,12 +345,14 @@ internal class RoomChats(
             val earlier = nextBefore != null
             var merged = events
             var room: JSONObject? = null
+            var latestPinned: List<String>? = null
             var pages = 0
             while (true) {
                 val page = client.request("/rooms/read", "POST", JSONObject().put("room_id", id).put("after", after))
                 if (epoch != generation || view != selection || id != selected || !valid()) return
                 if (page.optBoolean("resync")) { read(client, id, valid = valid); return }
                 room = page.optJSONObject("room") ?: room
+                roomPinned(page)?.let { latestPinned = it }
                 merged = mergeRoomDelta(merged, page.optJSONArray("events")?.objects().orEmpty(), earlier)
                 after = maxOf(after, page.optLong("next_after", after))
                 if (!page.optBoolean("has_more")) break
@@ -338,17 +360,18 @@ internal class RoomChats(
             }
             room?.let { current = it; patchRow(it) }
             events = merged
-            cache.rememberEvents(id, events, after, earlier); cacheUpdated()
+            latestPinned?.let { pinned = it }
+            cache.rememberEvents(id, events, after, earlier); cache.rememberPinned(id, pinned); cacheUpdated()
             events.lastOrNull { it.optString("kind", "chat") == "chat" && it.optString("content").isNotBlank() }?.let { previews = previews + (id to it) }
             error = null
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { readFailed(e, id, epoch, view, valid) }
-        finally { if (epoch == generation && view == selection) loading = false }
+        finally { if (epoch == generation && view == selection) { loading = false; syncs++ } }
     }
     private fun readFailed(e: Exception, id: String, epoch: Int, view: Int, valid: () -> Boolean) {
         if (epoch == generation && view == selection && valid()) {
             if (e is ApiException && e.status in setOf(401, 403, 404, 410)) {
-                events = emptyList(); current = null; previews = previews - id
+                events = emptyList(); current = null; previews = previews - id; pinned = emptyList(); pinEntries = emptyList()
                 outbox.clearWhere { it == key(id) }
                 cache.forget(id); cacheUpdated()
             }
@@ -359,6 +382,7 @@ internal class RoomChats(
         // Saved events render at once (also offline); the read below replaces them.
         selection++; selected = room.getString("id"); current = room; events = cache.events(room.getString("id")); nextBefore = null; error = null; notificationMode = null
         val id = selected!!
+        pinned = cache.pinned(id); pinEntries = emptyList(); pinsLoaded = false; jumpTarget = null; syncs = 0
         // A delta-synced cache has no server history cursor; the oldest cached event gives it.
         if (protocols.delta && cache.after(id) != null && cache.hasEarlier(id)) events.firstOrNull()?.let { nextBefore = roomHistoryCursor(it) }
         scope.launch { sync(api(), id) }
@@ -378,12 +402,13 @@ internal class RoomChats(
             // A newest-page read carries the change head taken with it; an older page keeps the
             // cursor the newer events are current to.
             val after = if (!protocols.delta) null else if (before == null) page.optLong("next_after", -1).takeIf { it >= 0 && page.has("next_after") } else cache.after(id)
-            cache.rememberEvents(id, events, after, nextBefore != null); cacheUpdated()
+            roomPinned(page)?.let { pinned = it }
+            cache.rememberEvents(id, events, after, nextBefore != null); cache.rememberPinned(id, pinned); cacheUpdated()
             events.lastOrNull { it.optString("kind", "chat") == "chat" && it.optString("content").isNotBlank() }?.let { previews = previews + (id to it) }
             error = null
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { readFailed(e, id, epoch, view, valid) }
-        finally { if (epoch == generation && view == selection) loading = false }
+        finally { if (epoch == generation && view == selection) { loading = false; syncs++ } }
     }
     fun older() { val id = selected ?: return; val before = nextBefore ?: return; if (!loading) scope.launch { read(api(), id, before) } }
     fun retryRead() { val id = selected ?: return; if (!loading) scope.launch { sync(api(), id) } }
@@ -522,6 +547,100 @@ internal class RoomChats(
             }
         }
     }
+    /** Replaces one event of the open room (by id) and keeps the offline copy in step. */
+    private fun replaceEvent(roomId: String, event: JSONObject) {
+        val id = event.optString("id")
+        if (selected != roomId || events.none { it.optString("id") == id }) return
+        events = events.map { if (it.optString("id") == id) event else it }
+        cache.rememberEvents(roomId, events, cache.after(roomId), cache.hasEarlier(roomId) || nextBefore != null)
+        cache.rememberPinned(roomId, pinned)
+        cacheUpdated()
+    }
+
+    /**
+     * Toggles this operator's [emoji] on a room event. The chip changes at once; the answer's
+     * reactions then replace it, and a failure takes the change back. The request id of an
+     * unconfirmed toggle is kept, so a retry repeats the same set-semantics request.
+     */
+    fun react(eventId: String, emoji: String) {
+        val roomId = selected ?: return
+        if (!allowed() || !protocols.reactions) return
+        val before = events.firstOrNull { it.optString("id") == eventId } ?: return
+        val reactions = roomReactions(before) ?: return
+        val on = reactions.firstOrNull { it.emoji == emoji }?.mine != true
+        val slot = "$eventId|$emoji"
+        if (!reactionsBusy.add(slot)) return
+        replaceEvent(roomId, withReactions(before, toggleReaction(reactions, emoji, on)))
+        val requestKey = "react|$slot|$on"
+        val requestId = toggleRequests.getOrPut(requestKey) { UUID.randomUUID().toString() }
+        val epoch = generation; val view = selection
+        scope.launch {
+            try {
+                val answer = api().request("/rooms/$roomId/events/$eventId/reactions", "POST",
+                    JSONObject().put("emoji", emoji).put("on", on).put("client_request_id", requestId))
+                toggleRequests.remove(requestKey)
+                if (epoch == generation && view == selection) answer.optJSONArray("reactions")?.let { server ->
+                    events.firstOrNull { it.optString("id") == eventId }?.let { replaceEvent(roomId, JSONObject(it.toString()).put("reactions", server)) }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (e is ApiException) toggleRequests.remove(requestKey)
+                if (epoch == generation && view == selection) {
+                    events.firstOrNull { it.optString("id") == eventId }?.let { now ->
+                        roomReactions(now)?.let { replaceEvent(roomId, withReactions(now, toggleReaction(it, emoji, !on))) }
+                    }
+                    annotationNotice = annotationError(texts, e, pin = false)
+                }
+            } finally { reactionsBusy.remove(slot) }
+        }
+    }
+
+    /** Pins or unpins a room event: the strip changes at once, the answer's `pinned` replaces it, a failure restores it. */
+    fun pin(eventId: String, on: Boolean) {
+        val roomId = selected ?: return
+        if (!allowed() || !protocols.pins || !pinsBusy.add(eventId)) return
+        val previous = pinned
+        val optimistic = togglePinned(previous, eventId, on)
+        pinned = optimistic
+        if (!on) pinEntries = pinEntries.filter { it.eventId != eventId }
+        val requestKey = "pin|$eventId|$on"
+        val requestId = toggleRequests.getOrPut(requestKey) { UUID.randomUUID().toString() }
+        val epoch = generation; val view = selection
+        scope.launch {
+            try {
+                val answer = api().request("/rooms/$roomId/events/$eventId/pin", "POST", JSONObject().put("on", on).put("client_request_id", requestId))
+                toggleRequests.remove(requestKey)
+                if (epoch == generation && view == selection) {
+                    roomPinned(answer)?.let { pinned = it }
+                    cache.rememberPinned(roomId, pinned); cacheUpdated()
+                    pinsLoaded = false
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                if (e is ApiException) toggleRequests.remove(requestKey)
+                if (epoch == generation && view == selection) {
+                    if (pinned == optimistic) pinned = previous
+                    pinsLoaded = false
+                    annotationNotice = annotationError(texts, e, pin = true)
+                }
+            } finally { pinsBusy.remove(eventId) }
+        }
+    }
+
+    /** Loads the pin list (with snippets) of the open room. */
+    fun loadPins() {
+        val roomId = selected ?: return
+        if (!protocols.pins) return
+        val epoch = generation; val view = selection
+        scope.launch {
+            try {
+                val entries = parseRoomPins(api().request("/rooms/$roomId/pins"))
+                if (epoch == generation && view == selection) { pinEntries = entries; pinsLoaded = true }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (epoch == generation && view == selection) annotationNotice = texts.string(R.string.pins_load_failed) }
+        }
+    }
+
     fun loadCandidates() {
         val epoch = generation
         scope.launch { try {

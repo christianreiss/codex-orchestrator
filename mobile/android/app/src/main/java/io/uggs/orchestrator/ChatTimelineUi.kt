@@ -196,6 +196,8 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
     highlighted: Boolean = false,
     author: String? = null,
     avatar: (@Composable () -> Unit)? = null,
+    /** Drawn under the bubble (reaction chips), outside its surface. */
+    below: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val own = item.own
@@ -231,6 +233,7 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
                         }
                     }
                 }
+                below?.invoke(this)
             }
         }
     }

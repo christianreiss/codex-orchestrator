@@ -37,6 +37,8 @@ internal class RoomHistoryCache(private val owner: String, saved: String? = null
     private val cursors = mutableMapOf<String, Long>()
     /** Timelines that may have events older than their first cached event. */
     private val earlier = mutableSetOf<String>()
+    /** Pinned event ids (newest first) per cached timeline; dropped with the timeline. */
+    private val pins = mutableMapOf<String, List<String>>()
     /** `/rooms/changes` cursor; null until the first change listing. */
     var changesAfter: Long? = null
 
@@ -54,12 +56,13 @@ internal class RoomHistoryCache(private val owner: String, saved: String? = null
                         timelines[id] = events.takeLast(MAX_EVENTS)
                         entry.optLong("after", -1).takeIf { it >= 0 && entry.has("after") }?.let { cursors[id] = it }
                         if (entry.optBoolean("earlier") || events.size > MAX_EVENTS) earlier.add(id)
+                        entry.optJSONArray("pinned")?.let { p -> pins[id] = (0 until p.length()).mapNotNull { (p.opt(it) as? String)?.takeIf(String::isNotBlank) } }
                     }
                 }
                 changesAfter = document.optLong("changes_after", -1).takeIf { it >= 0 && document.has("changes_after") }
                 trim()
             }
-        }.onFailure { directory = emptyList(); timelines.clear(); cursors.clear(); earlier.clear(); changesAfter = null }
+        }.onFailure { directory = emptyList(); timelines.clear(); cursors.clear(); earlier.clear(); pins.clear(); changesAfter = null }
     }
 
     val isEmpty get() = directory.isEmpty() && timelines.isEmpty()
@@ -88,16 +91,19 @@ internal class RoomHistoryCache(private val owner: String, saved: String? = null
     }
     fun after(roomId: String): Long? = cursors[roomId]?.takeIf { roomId in timelines }
     fun hasEarlier(roomId: String): Boolean = roomId in earlier
+    /** Remembers the room's pinned event ids; only for a room whose timeline is cached. */
+    fun rememberPinned(roomId: String, pinned: List<String>) { if (roomId in timelines) pins[roomId] = pinned }
+    fun pinned(roomId: String): List<String> = if (roomId in timelines) pins[roomId].orEmpty() else emptyList()
 
-    fun forget(roomId: String) { timelines.remove(roomId); cursors.remove(roomId); earlier.remove(roomId) }
+    fun forget(roomId: String) { timelines.remove(roomId); cursors.remove(roomId); earlier.remove(roomId); pins.remove(roomId) }
     /** Drops every room's content, keeping only the directory (and the directory's change cursor). */
-    fun stripContent() { timelines.clear(); cursors.clear(); earlier.clear() }
-    fun clear() { directory = emptyList(); timelines.clear(); cursors.clear(); earlier.clear(); changesAfter = null }
+    fun stripContent() { timelines.clear(); cursors.clear(); earlier.clear(); pins.clear() }
+    fun clear() { directory = emptyList(); timelines.clear(); cursors.clear(); earlier.clear(); pins.clear(); changesAfter = null }
 
     fun json(): String = JSONObject().put("version", VERSION).put("owner", owner)
         .put("rooms", JSONArray(directory))
         .put("timelines", JSONArray(timelines.map { (id, events) -> JSONObject().put("room_id", id).put("events", JSONArray(events))
-            .apply { cursors[id]?.let { put("after", it) }; if (id in earlier) put("earlier", true) } }))
+            .apply { cursors[id]?.let { put("after", it) }; if (id in earlier) put("earlier", true); pins[id]?.takeIf { it.isNotEmpty() }?.let { put("pinned", JSONArray(it)) } } }))
         .apply { changesAfter?.let { put("changes_after", it) } }
         .toString()
 

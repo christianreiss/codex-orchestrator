@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="reaction_action">Reagieren</string>
+    <string name="reaction_picker_title">Reaktion wählen</string>
+    <string name="reaction_picker_item">Mit %1$s reagieren</string>
+    <plurals name="reaction_chip_cd">
+        <item quantity="one">%1$s, %2$d Reaktion</item>
+        <item quantity="other">%1$s, %2$d Reaktionen</item>
+    </plurals>
+    <string name="reaction_mine">Du hast reagiert</string>
+    <string name="reaction_limit">Diese Nachricht hat das Reaktionslimit erreicht.</string>
+    <string name="reaction_failed">Die Reaktion konnte nicht gespeichert werden.</string>
+    <plurals name="annotation_rate_limited">
+        <item quantity="one">Zu viele Änderungen. Versuche es in %d Sekunde erneut.</item>
+        <item quantity="other">Zu viele Änderungen. Versuche es in %d Sekunden erneut.</item>
+    </plurals>
+    <string name="annotation_rate_limited_soon">Zu viele Änderungen. Versuche es gleich noch einmal.</string>
+    <string name="pin_action">Nachricht anheften</string>
+    <string name="unpin_action">Nachricht lösen</string>
+    <string name="pin_badge">Angeheftet</string>
+    <string name="pin_limit">Dieser Raum hat bereits die maximal 20 angehefteten Nachrichten.</string>
+    <string name="pin_failed">Das Anheften konnte nicht gespeichert werden.</string>
+    <string name="pins_strip_label">Angeheftet</string>
+    <plurals name="pins_strip_count">
+        <item quantity="one">%d angeheftete Nachricht</item>
+        <item quantity="other">%d angeheftete Nachrichten</item>
+    </plurals>
+    <string name="pins_strip_open">Angeheftete Nachrichten anzeigen</string>
+    <string name="pins_sheet_title">Angeheftete Nachrichten</string>
+    <string name="pins_empty">Keine angehefteten Nachrichten.</string>
+    <string name="pins_show">In der Unterhaltung anzeigen</string>
+    <string name="pins_unpin">Lösen</string>
+    <string name="pins_unavailable">Diese Nachricht ist nicht mehr verfügbar.</string>
+    <string name="pins_load_failed">Angeheftete Nachrichten konnten nicht geladen werden.</string>
+    <string name="pins_close">Schließen</string>
+    <string name="search_messages">Nachrichten durchsuchen</string>
+    <string name="search_messages_for">Nachrichten nach „%1$s“ durchsuchen</string>
+    <string name="search_title">Nachrichtensuche</string>
+    <string name="search_hint">In allen Nachrichten suchen</string>
+    <string name="search_scope_all">Alle</string>
+    <string name="search_scope_rooms">Räume</string>
+    <string name="search_scope_direct">Direkt</string>
+    <string name="search_min_chars">Gib mindestens 2 Zeichen ein.</string>
+    <string name="search_no_results">Keine Nachrichten gefunden.</string>
+    <string name="search_older">Ältere Nachrichten durchsuchen</string>
+    <string name="search_truncated">Es wurden nur die neuesten Nachrichten durchsucht. Durchsuche ältere Nachrichten, um fortzufahren.</string>
+    <string name="search_failed">Die Suche ist fehlgeschlagen.</string>
+    <plurals name="search_rate_limited">
+        <item quantity="one">Zu viele Suchanfragen. Versuche es in %d Sekunde erneut.</item>
+        <item quantity="other">Zu viele Suchanfragen. Versuche es in %d Sekunden erneut.</item>
+    </plurals>
+    <string name="search_rate_limited_soon">Zu viele Suchanfragen. Versuche es gleich noch einmal.</string>
+    <string name="search_result_cd">%1$s, von %2$s, %3$s: %4$s</string>
+    <string name="search_unavailable">Diese Unterhaltung ist nicht verfügbar.</string>
+    <string name="search_unknown_author">Unbekannt</string>
+</resources>

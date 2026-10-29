@@ -11,6 +11,7 @@ internal object Routes {
     const val HOSTS = "hosts"
     const val AUTHORIZATIONS = "authorizations"
     const val TOOLS = "tools"
+    const val SEARCH = "search"
     const val CHAT_PATTERN = "chat/{key}"
     const val DEEP_LINK_SCHEME = "orchestrator"
     const val DEEP_LINK_HOST = "chat"

@@ -103,6 +103,15 @@ import java.time.Instant
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             )
+            // Message search (R5) is a separate screen; the field above keeps filtering the list by title.
+            if (model.roomChats.protocols.search && model.can("agent_messaging.reveal_content") && model.can("agent_messaging.read")) {
+                val query = normalizedQuery(search)
+                TextButton(onClick = { model.openSearch(query) }, enabled = fresh, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("chat-search-messages")) {
+                    CompanionIcon(CompanionSymbol.Search)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (query != null) stringResource(R.string.search_messages_for, query) else stringResource(R.string.search_messages), Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
             if (categories.isNotEmpty()) Row(
                 Modifier.fillMaxWidth().padding(top = 10.dp)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp))

@@ -14,12 +14,17 @@ internal const val ROOM_DELTA_MAX_PAGES = 10
 internal const val ROOM_CHANGES_MAX_PAGES = 10
 
 /** Server protocol flags from `/me`; all off (today's behavior) for servers that omit them. */
-internal data class RoomProtocols(val delta: Boolean = false, val notifications: Boolean = false, val actor: String? = null) {
+internal data class RoomProtocols(val delta: Boolean = false, val notifications: Boolean = false, val actor: String? = null,
+    /** R5: room reactions, pins and bounded message search (`reactions_protocol`, `pins_protocol`, `search_protocol`). */
+    val reactions: Boolean = false, val pins: Boolean = false, val search: Boolean = false) {
     companion object {
         fun from(me: JSONObject) = RoomProtocols(
             delta = me.optInt("room_delta_protocol", 0) == 1,
             notifications = me.optInt("room_notifications_protocol", 0) == 1,
             actor = (me.opt("actor") as? String)?.takeIf { it.startsWith("admin:") && it.length in 7..128 },
+            reactions = me.optInt("reactions_protocol", 0) == 1,
+            pins = me.optInt("pins_protocol", 0) == 1,
+            search = me.optInt("search_protocol", 0) == 1,
         )
     }
 }
