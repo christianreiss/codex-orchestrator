@@ -2,28 +2,22 @@ import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { setOwnedModelEnabled } from './model-availability.js';
 import { SettingsService } from './settings.js';
 /**
- * Official Grok Build 1.0.46's subscription catalog, re-verified 2026-10-03 against the
- * live `cli-chat-proxy.grok.com/v1/models` listing and its `default_model` setting.
- * API-key catalog IDs are separate.
+ * Grok Build subscription catalog service. The model list itself lives in the
+ * fleet model registry with its evidence; API-key catalog IDs are separate.
  */
 import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { versions } from '../db/schema.js';
 import { ApiError } from '../http/errors.js';
+import { MODEL_REGISTRY, modelTable, offeredModelIds, type GrokModel } from './model-registry/index.js';
 
 export { GROK_MIN_CLIENT_VERSION } from './client-versions.js';
-export const GROK_DEFAULT_MODEL = 'grok-4.7';
-export const GROK_SUPPORTED_MODELS = ['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-4.5'] as const;
-export type GrokModel = (typeof GROK_SUPPORTED_MODELS)[number];
-export const GROK_MODEL_REASONING_EFFORTS: Record<GrokModel, readonly string[]> = {
-  'grok-4.7': ['low', 'medium', 'high', 'xhigh'],
-  'grok-4.7-build-fast': ['low', 'medium', 'high', 'xhigh'],
-  'grok-4.6': ['low', 'medium', 'high', 'xhigh'],
-  'grok-4.5': ['low', 'medium', 'high'],
-};
-export const GROK_MODEL_DEFAULT_REASONING_EFFORTS: Record<GrokModel, string> = {
-  'grok-4.7': 'high', 'grok-4.7-build-fast': 'high', 'grok-4.6': 'high', 'grok-4.5': 'high',
-};
+/** Defaults, ids and efforts come from the fleet model registry (`model-registry/data.ts`). */
+export const GROK_DEFAULT_MODEL = MODEL_REGISTRY.grok.defaultModel as GrokModel;
+export const GROK_SUPPORTED_MODELS = offeredModelIds('grok') as readonly GrokModel[];
+export type { GrokModel } from './model-registry/index.js';
+export const GROK_MODEL_REASONING_EFFORTS = modelTable('grok', (entry) => entry.efforts) as Record<GrokModel, readonly string[]>;
+export const GROK_MODEL_DEFAULT_REASONING_EFFORTS = modelTable('grok', (entry) => entry.defaultEffort ?? undefined) as Record<GrokModel, string>;
 export const GROK_MODEL_CONTEXT_TOKENS = 500_000;
 /** Native subscription catalog windows (Grok Build 1.0.46, 2026-10-03). */
 export const GROK_CONTEXT_WINDOWS = [256_000, 500_000] as const;

@@ -6,6 +6,7 @@ import { SettingsService } from './settings.js';
 import { SUPPORTED_MODELS, LEGACY_MODEL_UPGRADES } from './config-normalizer.js';
 import { CLAUDE_SUPPORTED_MODELS, CLAUDE_LEGACY_MODEL_UPGRADES } from './claude-models.js';
 import { GROK_SUPPORTED_MODELS } from './grok-models.js';
+import { registryEntry } from './model-registry/index.js';
 
 export interface ModelPolicy {
   engine: Engine;
@@ -17,14 +18,16 @@ export interface ModelPolicy {
 
 export function modelPolicyKey(engine: Engine): string { return `${engine}_models_latest_only`; }
 
+/** Family from the registry; the version ordering within it is parsed from the id. */
 function familyVersion(engine: Engine, model: string): { family: string; version: number[] } {
+  const family = registryEntry(engine, model)?.family;
   const match = engine === 'codex' ? /^gpt-(\d+(?:\.\d+)*?)-(.+)$/.exec(model)
     : engine === 'claude' ? /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(model)
     : /^grok-(\d+(?:\.\d+)*)(.*)$/.exec(model);
-  if (!match) throw new Error(`Missing model family metadata: ${engine}/${model}`);
+  if (!match || !family) throw new Error(`Missing model family metadata: ${engine}/${model}`);
   return engine === 'claude'
-    ? { family: match[1]!, version: [Number(match[2]), Number(match[3] ?? 0)] }
-    : { family: match[2]!, version: match[1]!.split('.').map(Number) };
+    ? { family, version: [Number(match[2]), Number(match[3] ?? 0)] }
+    : { family, version: match[1]!.split('.').map(Number) };
 }
 
 export function buildModelPolicy(engine: Engine, latest_only = false): ModelPolicy {

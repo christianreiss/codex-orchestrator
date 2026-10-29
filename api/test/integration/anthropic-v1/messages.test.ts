@@ -114,7 +114,7 @@ function stubModels(): ClaudeModelsService {
     modelsResponse: async () => ({
       data: CLAUDE_SUPPORTED_MODELS.map(stubModelObject),
       has_more: false,
-      first_id: CLAUDE_SUPPORTED_MODELS[0],
+      first_id: CLAUDE_SUPPORTED_MODELS[0]!,
       last_id: CLAUDE_SUPPORTED_MODELS[CLAUDE_SUPPORTED_MODELS.length - 1]!,
       object: 'list' as const,
     }),

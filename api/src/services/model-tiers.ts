@@ -1,30 +1,39 @@
 /**
  * Cross-engine model classes for the managed "Model Class Check" guidance.
  *
- * Tiers rank capability across providers, so they are one table rather than a
- * field per engine catalog. Codex and Claude rank by model family so a new
- * version inherits its family's tier; Grok families do not separate 4.6 from
- * 4.7, so Grok ranks by exact id. Every supported catalog id must resolve
- * (pinned by model-tiers.test.ts): a new model without a tier fails CI instead
- * of silently vanishing from the guidance. The engine-maintenance prompt
- * (docs/prompts/engine-maintenance.md) owns keeping this table current.
+ * Tiers rank capability across providers. Each registry entry carries its tier
+ * (`model-registry/data.ts`, operator ruling in docs/model-tiers.md); an exact
+ * id or alias resolves to it. Unknown Codex and Claude ids (dated ids, `[1m]`
+ * variants, the CLI's bare aliases, a new version) fall back to their family's
+ * tier; Grok families do not separate 4.6 from 4.7, so Grok ranks by exact id.
+ * The engine-maintenance prompt (docs/prompts/engine-maintenance.md) owns
+ * keeping the registry current.
  */
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINES, type Engine } from '../util/engine.js';
+import { familyTiers, registryModels, type ModelTier } from './model-registry/index.js';
 
-export type ModelTier = 1 | 2 | 3 | 4 | 5;
+export type { ModelTier } from './model-registry/index.js';
 
 export const MODEL_TIER_CHECK_ENABLED_KEY = 'model_tier_check_enabled';
 
-const CODEX_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { luna: 1, terra: 2, sol: 3, astra: 5 };
-// Operator ruling 2026-10-28 (docs/model-tiers.md): Sonnet and Sol are the daily drivers at 3,
-// Opus alone at 4, Fable and Astra at 5. No benchmark backs the ordering.
-const CLAUDE_FAMILY_TIERS: Readonly<Record<string, ModelTier>> = { haiku: 1, sonnet: 3, opus: 4, fable: 5 };
-const GROK_MODEL_TIERS: Readonly<Record<string, ModelTier>> = {
-  'grok-4.7': 2,
-  'grok-4.7-build-fast': 2,
-  'grok-4.6': 2,
-  'grok-4.5': 1,
+const FAMILY_TIERS: Readonly<Record<Engine, Readonly<Record<string, ModelTier>>>> = {
+  codex: familyTiers('codex'),
+  claude: familyTiers('claude'),
+  grok: {},
 };
+
+/** Exact ids and active aliases (not retired ids) -> tier. */
+const EXACT_TIERS: Readonly<Record<Engine, ReadonlyMap<string, ModelTier>>> = Object.fromEntries(
+  ENGINES.map((engine) => {
+    const tiers = new Map<string, ModelTier>();
+    for (const entry of registryModels(engine)) {
+      if (entry.status === 'retired') continue;
+      tiers.set(entry.id.toLowerCase(), entry.tier);
+      for (const alias of entry.aliases ?? []) tiers.set(alias.toLowerCase(), entry.tier);
+    }
+    return [engine, tiers];
+  }),
+) as unknown as Record<Engine, ReadonlyMap<string, ModelTier>>;
 
 export const MODEL_TIER_WORK: Readonly<Record<ModelTier, string>> = {
   1: 'Lookups, renames, single-file edits, formatting',
@@ -39,16 +48,18 @@ export function modelTier(engine: Engine, model: string | null | undefined): Mod
   if (typeof model !== 'string') return null;
   const id = model.trim().toLowerCase();
   if (id === '') return null;
+  const exact = EXACT_TIERS[engine].get(id);
+  if (exact !== undefined) return exact;
   if (engine === ENGINE_CODEX) {
     const family = /^gpt-\d+(?:\.\d+)*-([a-z]+)$/.exec(id)?.[1];
-    return family ? CODEX_FAMILY_TIERS[family] ?? null : null;
+    return family ? FAMILY_TIERS.codex[family] ?? null : null;
   }
   if (engine === ENGINE_CLAUDE) {
-    // Accepts full ids, dated ids, `[1m]` variants and the CLI's bare aliases.
+    // Accepts dated ids, `[1m]` variants and the CLI's bare aliases.
     const family = /^(?:claude-)?(haiku|sonnet|opus|fable)\b/.exec(id)?.[1];
-    return family ? CLAUDE_FAMILY_TIERS[family] ?? null : null;
+    return family ? FAMILY_TIERS.claude[family] ?? null : null;
   }
-  return GROK_MODEL_TIERS[id] ?? null;
+  return null;
 }
 
 export interface ModelTierEntry {
