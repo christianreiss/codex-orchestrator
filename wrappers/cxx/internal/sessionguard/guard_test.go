@@ -35,3 +35,24 @@ func TestManagedClaudeUsesDefaultHomeDespiteForeignConfigDir(t *testing.T) {
 		t.Fatal("launch escaped recovery fence")
 	}
 }
+
+func TestGrokSessionActiveProbesWithoutCreatingTheLeaseFile(t *testing.T) {
+	root := t.TempDir()
+	if active, err := GrokSessionActive(root); active || err != nil {
+		t.Fatalf("no lease file = %v, %v", active, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, GrokSessionsLockName)); !os.IsNotExist(err) {
+		t.Fatalf("probe created the lease file: %v", err)
+	}
+	lease, err := ipc.TryAcquireSharedPath(filepath.Join(root, GrokSessionsLockName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active, err := GrokSessionActive(root); !active || err != nil {
+		t.Fatalf("held lease = %v, %v", active, err)
+	}
+	lease.Release()
+	if active, err := GrokSessionActive(root); active || err != nil {
+		t.Fatalf("released lease = %v, %v", active, err)
+	}
+}

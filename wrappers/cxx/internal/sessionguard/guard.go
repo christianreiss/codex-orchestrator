@@ -49,3 +49,31 @@ func LaunchAt(root string) (*ipc.Lock, error) {
 func Maintenance(root string) (*ipc.Lock, error) {
 	return ipc.TryAcquireExclusivePath(filepath.Join(root, ".cxx-housekeeping.lock"))
 }
+
+// GrokSessionsLockName is the lifetime lease of a managed Grok session in the
+// native home. grok.NewRuntime holds the launch guard (LaunchAt) only while it
+// builds the private runtime and then releases it; this lease, held shared and
+// duplicated into the native child by AttachChild, is what lasts for the
+// session.
+const GrokSessionsLockName = ".cgx-sessions.lock"
+
+// GrokSessionActive reports whether any managed Grok session (or `cgx login`)
+// still holds the lifetime lease under root. Only a held flock counts: the
+// lock file's presence or age proves nothing, and a missing file means no
+// session has ever run there, so the probe never creates it. An error is an
+// unproven answer and must be treated as busy.
+func GrokSessionActive(root string) (bool, error) {
+	path := filepath.Join(root, GrokSessionsLockName)
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	lock, err := ipc.TryAcquireExclusivePath(path)
+	if errors.Is(err, ipc.ErrHeld) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_ = lock.Release()
+	return false, nil
+}

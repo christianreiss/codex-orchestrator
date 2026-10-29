@@ -486,7 +486,7 @@ and start the installed binary; a request refused while draining is a definitive
 "not sent". Residents are replaced by the root handoff instead.
 
 The quiet gate is per OS user, not per owner: `agentquiet.Busy` probes the
-`.cxx-housekeeping.lock` of all three engines. On a workstation where some managed
+`.cxx-housekeeping.lock` of all three engines, plus `.cgx-sessions.lock` for Grok. On a workstation where some managed
 Codex or Claude session is always running, a replaced on-demand owner therefore never
 retires; it keeps serving its clients and starts its workers from the installed path,
 that is from the newer binary (observed 2026-10-28 on biest.eulie.de: a 0.9.127 owner,
@@ -494,11 +494,23 @@ three days old, `executable_replaced: true` with five leased sessions, while a r
 `clx` session held the Claude lock). This is deliberate and unchanged: retiring under live sessions would force
 them onto a newer binary mid-session. Remedy: let those sessions end, or use the
 targeted terminate from the console after verifying no in-flight work. Grok sessions
-hold that lock only while cgx sets up the private runtime (`grok.NewRuntime` releases
-it); their lifetime lease is `~/.grok/.cgx-sessions.lock`, which the gate does not
-probe, so the gate does not see a running Grok session. Orphaned Grok leaders hold
-neither lock and never close the gate; they are removed by the Grok orphan reaper
-(`docs/interface-cgx.md` → Orphan reaper).
+hold the housekeeping lock only while cgx sets up the private runtime
+(`grok.NewRuntime` releases it); their lifetime lease is `~/.grok/.cgx-sessions.lock`
+(shared, duplicated into the native child). Before this was fixed the gate did not
+probe it and reported Grok as quiet under a running session (orchestrator feedback
+a7f31331); `agentquiet.Busy` now also takes an exclusive, non-creating probe of that
+lease (`sessionguard.GrokSessionActive`) and lists `grok` while it is held. `cgx login`
+holds the same lease while it runs and therefore also counts as busy. Only a held
+flock counts: a leftover lease file of any age, a runtime directory or a dead
+session never blocks the gate. Orphaned Grok leaders hold neither lock after a clean
+cgx exit (cgx unlocks the shared open file description) and never close the gate;
+they are removed by the Grok orphan reaper (`docs/interface-cgx.md` → Orphan
+reaper), which runs from the maintenance tick and is not itself deferred by the
+gate. A wrapper killed without unlocking leaves the lease held for as long as a
+child that inherited it lives: that is a live holder by design, and it clears when
+the process exits. The gate cannot import the reaper's process-identity checks
+(`internal/grokreap` depends on `agentquiet` through `internal/grok`), so it
+deliberately decides by the lock alone.
 
 From cxx 0.9.77, reconnect and owner replacement are independent of the engine
 whose config first started the owner. If that file is missing, invalid, suspended

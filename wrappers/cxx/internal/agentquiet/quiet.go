@@ -1,8 +1,12 @@
 // Package agentquiet answers "is any agent running for this OS user?" for the
-// updater's quiet gate. Every managed native launch (local, remote-daemon or
-// legacy) holds its engine's shared housekeeping lock for the native child's
-// whole life (sessionguard.Launch), so an exclusive probe that succeeds proves
-// no native session of that engine is running.
+// updater's quiet gate. Codex and Claude hold their engine's shared
+// housekeeping lock for the native child's whole life (sessionguard.Launch), so
+// an exclusive probe that succeeds proves no native session of that engine is
+// running. Grok does not: grok.NewRuntime releases that guard once the private
+// runtime is built, and a Grok session lives on its lifetime lease
+// (.cgx-sessions.lock, sessionguard.GrokSessionActive), which the gate probes
+// as well. Only held flocks count; stale lock files and orphaned processes
+// that kept a descriptor after cgx unlocked it never block the gate.
 package agentquiet
 
 import (
@@ -35,6 +39,12 @@ func Busy() []string {
 			continue
 		}
 		_ = lock.Release()
+		if engine != "grok" {
+			continue
+		}
+		if active, err := sessionguard.GrokSessionActive(root); active || err != nil {
+			busy = append(busy, engine)
+		}
 	}
 	return busy
 }
