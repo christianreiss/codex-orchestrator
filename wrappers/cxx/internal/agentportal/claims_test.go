@@ -162,3 +162,26 @@ func TestSlowClaimRenewalDoesNotStarveSiblings(t *testing.T) {
 		t.Fatalf("timed-out renewal dropped a live claim: %v", s.activeClaims)
 	}
 }
+
+// Claim clients may retry only this rejection because it is guaranteed to occur
+// before upstream dispatch. Keep that guarantee true for every engine/operation.
+func TestClaimAttachmentRejectionNeverDispatches(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			var upstream atomic.Int32
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { upstream.Add(1) }))
+			defer remote.Close()
+			b := &Broker{ctx: context.Background(), requests: make(map[uint64]context.CancelFunc), session: &Session{ID: "ours", Engine: engine, BridgeToken: "fixture", BaseURL: remote.URL, http: remote.Client(), stateUsed: true}}
+			for _, operation := range []string{"acquire", "status", "release"} {
+				w := httptest.NewRecorder()
+				b.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/host/agent-sessions/ours/agent-messaging/claims/"+operation, strings.NewReader(`{}`)))
+				if w.Code != 503 || !strings.Contains(w.Body.String(), `"native_attachment_unavailable"`) {
+					t.Fatalf("unexpected rejection: %d %s", w.Code, w.Body.String())
+				}
+			}
+			if upstream.Load() != 0 {
+				t.Fatalf("rejected claims reached upstream: %d", upstream.Load())
+			}
+		})
+	}
+}
