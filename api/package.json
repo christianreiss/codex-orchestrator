@@ -26,7 +26,8 @@
     "drizzle:generate": "drizzle-kit generate",
     "drizzle:push": "drizzle-kit push",
     "drizzle:studio": "drizzle-kit studio",
-    "docs:capabilities": "tsx scripts/render-capability-docs.ts"
+    "docs:capabilities": "tsx scripts/render-capability-docs.ts",
+    "models:generate": "tsx scripts/generate-model-views.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

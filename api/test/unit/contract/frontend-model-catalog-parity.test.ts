@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js';
 import { GROK_SUPPORTED_MODELS } from '../../../src/services/grok-models.js';
+import { CLAUDE_ADVISOR_ALIASES, offeredModelIds, registryEntry } from '../../../src/services/model-registry/index.js';
+import type { Engine } from '../../../src/util/engine.js';
 import {
   ADVISOR_MODEL_ALIASES,
   CLAUDE_PERMISSION_MODES,
@@ -28,6 +30,9 @@ import {
 
 const MODELS_FILE = 'frontend/src/lib/constants/models.ts';
 const MODELS_PATH = resolve(import.meta.dirname, '../../../..', MODELS_FILE);
+/** The model lists themselves are generated from the registry into this file. */
+const GENERATED_FILE = 'frontend/src/lib/constants/models.generated.ts';
+const GENERATED_PATH = resolve(import.meta.dirname, '../../../..', GENERATED_FILE);
 
 /**
  * Ids one side of a list carries on purpose without the other, keyed
@@ -50,7 +55,9 @@ const blankComments = (source: string): string =>
     .map((line) => (/^\s*(\/\/|\*|\/\*)/.test(line) ? ' '.repeat(line.length) : line))
     .join('\n');
 
-const source = blankComments(readFileSync(MODELS_PATH, 'utf8'));
+// Both files parse as one source: models.ts keeps the sentinels and spreads
+// the generated lists into its pickers.
+const source = `${blankComments(readFileSync(MODELS_PATH, 'utf8'))}\n${blankComments(readFileSync(GENERATED_PATH, 'utf8'))}`;
 
 /** Index of the `]`/`}`/`)` closing the bracket at `open`, or -1. */
 function matchingBracket(text: string, open: number): number {
@@ -117,17 +124,19 @@ function stringConst(name: string): string {
 }
 
 const VALUE_KEY = /^\s*value\s*:/;
+const LABEL_KEY = /^\s*label\s*:/;
 
-/** The `value` expression of one `{ label, value }` option literal. */
-function optionValue(entry: string): string {
+/** The `<key>` expression of one `{ label, value }` option literal. */
+function optionField(entry: string, field: 'value' | 'label'): string {
   const trimmed = entry.trim();
   const close = trimmed.startsWith('{') ? matchingBracket(trimmed, 0) : -1;
   if (close === -1) throw new Error(`option is not an object literal in ${MODELS_FILE}: ${trimmed}`);
+  const pattern = field === 'value' ? VALUE_KEY : LABEL_KEY;
   for (const property of splitTopLevel(trimmed.slice(1, close))) {
-    const key = VALUE_KEY.exec(property);
+    const key = pattern.exec(property);
     if (key) return property.slice(key[0].length).trim();
   }
-  throw new Error(`option without a value in ${MODELS_FILE}: ${trimmed}`);
+  throw new Error(`option without a ${field} in ${MODELS_FILE}: ${trimmed}`);
 }
 
 const STRING_LITERAL = /^(['"])(.*)\1$/s;
@@ -138,10 +147,21 @@ const STRING_LITERAL = /^(['"])(.*)\1$/s;
  * literal so a sentinel that stops being a sentinel is still compared.
  */
 const optionValues = (name: string): string[] =>
-  splitTopLevel(arrayBody(name)).map((entry) => {
-    const expression = optionValue(entry);
+  splitTopLevel(arrayBody(name)).flatMap((entry) => {
+    // `...OTHER_LIST` splices a generated list into a picker.
+    const spread = /^\s*\.\.\.([A-Za-z_$][\w$]*)\s*$/.exec(entry);
+    if (spread) return optionValues(spread[1]!);
+    const expression = optionField(entry, 'value');
     const quoted = STRING_LITERAL.exec(expression);
-    return quoted ? quoted[2]! : stringConst(expression);
+    return [quoted ? quoted[2]! : stringConst(expression)];
+  });
+
+/** `label` of every option literal of an array (no spreads). */
+const optionLabels = (name: string): string[] =>
+  splitTopLevel(arrayBody(name)).map((entry) => {
+    const quoted = STRING_LITERAL.exec(optionField(entry, 'label'));
+    if (!quoted) throw new Error(`label of ${name} is not a string literal`);
+    return quoted[2]!;
   });
 
 const ADVISOR_OFF = stringConst('ADVISOR_OFF');
@@ -171,15 +191,15 @@ interface Catalog {
 const CATALOGS: Catalog[] = [
   {
     constant: 'CLAUDE_MODEL_OPTIONS',
-    api: 'CLAUDE_SUPPORTED_MODELS (api/src/services/claude-models.ts)',
+    api: 'the registry\'s offered Claude models (api/src/services/model-registry/data.ts)',
     frontend: catalogValues('CLAUDE_MODEL_OPTIONS'),
-    server: CLAUDE_SUPPORTED_MODELS,
+    server: offeredModelIds('claude'),
   },
   {
     constant: 'CODEX_MODELS',
-    api: 'SUPPORTED_MODELS (api/src/services/config-normalizer.ts)',
+    api: 'the registry\'s offered Codex models (api/src/services/model-registry/data.ts)',
     frontend: catalogValues('CODEX_MODELS'),
-    server: SUPPORTED_MODELS,
+    server: offeredModelIds('codex'),
   },
   {
     constant: 'ADVISOR_MODELS',
@@ -189,9 +209,9 @@ const CATALOGS: Catalog[] = [
   },
   {
     constant: 'GROK_MODEL_OPTIONS',
-    api: 'GROK_SUPPORTED_MODELS (api/src/services/grok-models.ts)',
+    api: 'the registry\'s offered Grok models (api/src/services/model-registry/data.ts)',
     frontend: catalogValues('GROK_MODEL_OPTIONS'),
-    server: GROK_SUPPORTED_MODELS,
+    server: offeredModelIds('grok'),
   },
   {
     constant: 'CLAUDE_PERMISSION_MODES',
@@ -256,6 +276,22 @@ describe('frontend model catalog parity', () => {
     ).toBe(DEFAULT_CLAUDE_PERMISSION_MODE);
     // The default has to be an offered choice, or the form opens on a dead item.
     expect(catalogValues('CLAUDE_PERMISSION_MODES')).toContain(FRONTEND_DEFAULT_PERMISSION_MODE);
+  });
+
+  it('derives every model list from the registry, in registry order and with registry labels', () => {
+    // The API gates still accept exactly what the registry offers.
+    expect(CLAUDE_SUPPORTED_MODELS).toEqual(offeredModelIds('claude'));
+    expect(GROK_SUPPORTED_MODELS).toEqual(offeredModelIds('grok'));
+    expect(SUPPORTED_MODELS.filter((id) => offeredModelIds('codex').includes(id))).toEqual(offeredModelIds('codex'));
+    expect(ADVISOR_MODEL_ALIASES).toEqual(Object.keys(CLAUDE_ADVISOR_ALIASES));
+    const lists: Array<[string, Engine]> = [['CLAUDE_MODEL_OPTIONS', 'claude'], ['CODEX_MODELS', 'codex'], ['GROK_MODEL_OPTIONS', 'grok']];
+    for (const [constant, engine] of lists) {
+      expect(optionValues(constant), constant).toEqual(offeredModelIds(engine));
+      expect(optionLabels(constant), constant).toEqual(offeredModelIds(engine).map((id) => {
+        const entry = registryEntry(engine, id)!;
+        return entry.liveCatalogRequired ? `${entry.label} (unverified)` : entry.label;
+      }));
+    }
   });
 
   it('keeps the allowlist to deltas that still exist', () => {

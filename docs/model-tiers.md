@@ -2,13 +2,20 @@
 
 ## Current table — operator ruling 2026-10-28 (five tiers)
 
+<!-- BEGIN GENERATED: model tier table (npm run models:generate) -->
 | Tier | Models | Class |
 | --- | --- | --- |
 | 5 | Astra, Fable | Frontier reasoning, exceptional complexity |
 | 4 | Opus | Advanced reasoning, architecture, complex engineering |
-| 3 | Sonnet, Sol | Strong autonomous engineering, complex implementation |
-| 2 | Terra, Grok 4.6, Grok 4.7, Grok 4.7 Fast | Routine to moderately complex tasks |
-| 1 | Haiku, Luna, Grok 4.5 | Simple, bounded tasks |
+| 3 | Sol, Sonnet | Strong autonomous engineering, complex implementation |
+| 2 | Terra, Grok 4.7, Grok 4.7 Fast, Grok 4.6 | Routine to moderately complex tasks |
+| 1 | Luna, Haiku, Grok 4.5 | Simple, bounded tasks |
+<!-- END GENERATED: model tier table -->
+
+The table is rendered from the fleet model registry
+(`api/src/services/model-registry/data.ts`, see `docs/model-registry.md`): each
+model's `tier` is the single source, and `npm run models:generate` rewrites the
+block above. Codex and Claude rows name families, Grok rows exact models.
 
 The operator set this table after a seven-agent fleet review (4 Codex, 3 Claude) had first put Sonnet,
 Opus and Sol together in Tier 3: that flattened three models nobody considers equal. It is a judgment
@@ -94,7 +101,8 @@ Haiku for latency-sensitive volume, Sonnet for balanced speed and intelligence,
 Opus for sustained agentic coding, and Fable for demanding long-horizon reasoning.
 
 
-The source table in `api/src/services/model-tiers.ts` drives managed Agents
-previews, available-model recommendations and launch sorting. Tests require every
-supported catalog entry to resolve to a class, preserve all four task definitions,
-and render the updated shared table through each engine's actual preview service.
+The registry tiers (`api/src/services/model-registry/data.ts`, read through
+`api/src/services/model-tiers.ts`) drive managed Agents previews, available-model
+recommendations and launch sorting. Tests require every registered model to
+resolve to its class, preserve the task definitions, and render the shared table
+through each engine's actual preview service.

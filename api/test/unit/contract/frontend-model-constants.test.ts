@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js';
+import { CLAUDE_ADVISOR_ALIASES, offeredModelIds } from '../../../src/services/model-registry/index.js';
 import {
   ADVISOR_MODEL_ALIASES,
   CLAUDE_PERMISSION_MODES,
   DEFAULT_CLAUDE_PERMISSION_MODE,
-  SUPPORTED_MODELS,
 } from '../../../src/services/config-normalizer.js';
 
 /**
@@ -25,6 +25,8 @@ import {
 
 const MODELS_FILE = 'frontend/src/lib/constants/models.ts';
 const MODELS_PATH = resolve(import.meta.dirname, '../../../..', MODELS_FILE);
+/** The registry-generated lists that models.ts re-exports and spreads. */
+const GENERATED_PATH = resolve(import.meta.dirname, '../../../..', 'frontend/src/lib/constants/models.generated.ts');
 
 /**
  * Ids one side carries on purpose without the other, keyed `<constant>.<id>`
@@ -41,7 +43,7 @@ const blankComments = (source: string): string =>
     .map((line) => (/^\s*(\/\/|\*|\/\*)/.test(line) ? ' '.repeat(line.length) : line))
     .join('\n');
 
-const source = blankComments(readFileSync(MODELS_PATH, 'utf8'));
+const source = `${blankComments(readFileSync(MODELS_PATH, 'utf8'))}\n${blankComments(readFileSync(GENERATED_PATH, 'utf8'))}`;
 
 /**
  * Body of the array literal `export const <name>` is assigned. Brackets are
@@ -75,10 +77,15 @@ const OPTION_VALUE = /\bvalue\s*:\s*(?:'([^']*)'|"([^"]*)"|([A-Za-z_$][\w$]*))/g
  * is a sentinel const of the same file (`value: ADVISOR_OFF`), resolved to its
  * literal so a sentinel that stops being a sentinel is still compared.
  */
-const optionValues = (name: string): string[] =>
-  [...arrayBody(name).matchAll(OPTION_VALUE)].map(
-    (option) => option[1] ?? option[2] ?? stringConst(option[3]!),
-  );
+const optionValues = (name: string): string[] => {
+  const body = arrayBody(name);
+  // `...OTHER_LIST` splices a generated list into a picker, in place.
+  const spreads = [...body.matchAll(/\.\.\.([A-Za-z_$][\w$]*)/g)].flatMap((spread) => optionValues(spread[1]!));
+  return [
+    ...[...body.matchAll(OPTION_VALUE)].map((option) => option[1] ?? option[2] ?? stringConst(option[3]!)),
+    ...spreads,
+  ];
+};
 
 const ADVISOR_OFF = stringConst('ADVISOR_OFF');
 
@@ -101,10 +108,16 @@ const CHECKS: Check[] = [
     server: CLAUDE_SUPPORTED_MODELS,
   },
   {
+    constant: 'CLAUDE_MODEL_OPTIONS',
+    api: 'offered Claude models in api/src/services/model-registry/data.ts',
+    frontend: optionValues('CLAUDE_MODEL_OPTIONS'),
+    server: offeredModelIds('claude'),
+  },
+  {
     constant: 'CODEX_MODELS',
-    api: 'SUPPORTED_MODELS (api/src/services/config-normalizer.ts)',
+    api: 'offered Codex models in api/src/services/model-registry/data.ts',
     frontend: optionValues('CODEX_MODELS'),
-    server: SUPPORTED_MODELS,
+    server: offeredModelIds('codex'),
   },
   {
     constant: 'ADVISOR_MODELS',
@@ -112,6 +125,18 @@ const CHECKS: Check[] = [
     // The "off" sentinel means "omit advisorModel on save"; it is never stored.
     frontend: optionValues('ADVISOR_MODELS').filter((value) => value !== ADVISOR_OFF),
     server: ADVISOR_MODEL_ALIASES,
+  },
+  {
+    constant: 'ADVISOR_MODELS',
+    api: 'CLAUDE_ADVISOR_ALIASES (api/src/services/model-registry/data.ts)',
+    frontend: optionValues('ADVISOR_MODELS').filter((value) => value !== ADVISOR_OFF),
+    server: Object.keys(CLAUDE_ADVISOR_ALIASES),
+  },
+  {
+    constant: 'GROK_MODEL_OPTIONS',
+    api: 'offered Grok models in api/src/services/model-registry/data.ts',
+    frontend: optionValues('GROK_MODEL_OPTIONS'),
+    server: offeredModelIds('grok'),
   },
   {
     constant: 'CLAUDE_PERMISSION_MODES',

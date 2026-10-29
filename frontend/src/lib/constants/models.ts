@@ -1,12 +1,24 @@
 /**
- * Claude model choices for fleet-managed authoring (subagents, commands,
- * settings). Values are the model ids the server stores; the empty-value
- * sentinel means "inherit" (omit the field on save).
+ * Model choices for fleet-managed authoring and the host/engine pickers. The
+ * model lists, labels, efforts and CLI floors are GENERATED from the API's
+ * model registry (api/src/services/model-registry/data.ts) into
+ * models.generated.ts; edit the registry and run `cd api && npm run
+ * models:generate`, never the lists. This file keeps the picker sentinels and
+ * the non-model choice lists.
  */
-export interface ModelOption {
-  label: string;
-  value: string;
-}
+import { ADVISOR_MODEL_OPTIONS, CLAUDE_MODEL_OPTIONS, type ModelOption } from "./models.generated";
+
+export {
+  ADVISOR_MODEL_OPTIONS,
+  CLAUDE_MODEL_OPTIONS,
+  CODEX_MODELS,
+  DEFAULT_MODELS,
+  GROK_MODEL_OPTIONS,
+  MODEL_EFFORTS,
+  MODEL_MIN_CLI_VERSIONS,
+  type ModelEngine,
+  type ModelOption,
+} from "./models.generated";
 
 /**
  * Sentinel value representing "inherit from the caller" (no explicit model).
@@ -15,44 +27,10 @@ export interface ModelOption {
  */
 export const INHERIT_MODEL = "inherit";
 
-// Keep in lock-step with CLAUDE_SUPPORTED_MODELS in
-// api/src/services/claude-models.ts — the Anthropic-compatible inference gate
-// (resolveRequestedModel 400s anything not in that list). Offering an id the
-// gate rejects pins a host to a model that fails at inference time.
-export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
-  { label: "Fable 5.1", value: "claude-fable-5-1" },
-  { label: "Fable 5", value: "claude-fable-5" },
-  { label: "Opus 5.5", value: "claude-opus-5-5" },
-  { label: "Opus 5", value: "claude-opus-5" },
-  { label: "Opus 4.8", value: "claude-opus-4-8" },
-  { label: "Sonnet 5.5", value: "claude-sonnet-5-5" },
-  { label: "Sonnet 5", value: "claude-sonnet-5" },
-  { label: "Opus 4.7", value: "claude-opus-4-7" },
-  { label: "Sonnet 4.6", value: "claude-sonnet-4-6" },
-  { label: "Haiku 5.5", value: "claude-haiku-5-5" },
-  { label: "Opus 4.6", value: "claude-opus-4-6" },
-  { label: "Opus 4.5", value: "claude-opus-4-5-20251101" },
-  { label: "Haiku 4.5", value: "claude-haiku-4-5-20251001" },
-];
-
 /** Authoring picker list: the model options prefixed with the inherit sentinel. */
 export const CLAUDE_MODELS: ModelOption[] = [
   { label: "Inherit", value: INHERIT_MODEL },
   ...CLAUDE_MODEL_OPTIONS,
-];
-
-// Codex model choices. Keep in lock-step with SUPPORTED_MODELS in
-// api/src/services/config-normalizer.ts. No "inherit" sentinel here: the
-// per-host override picker injects its own "Standard (global)" clear option.
-export const CODEX_MODELS: ModelOption[] = [
-  { label: "GPT-6.1 Sol", value: "gpt-6.1-sol" },
-  { label: "GPT-6.1 Terra", value: "gpt-6.1-terra" },
-  { label: "GPT-6 Astra", value: "gpt-6-astra" },
-  { label: "GPT-6 Sol", value: "gpt-6-sol" },
-  { label: "GPT-6 Luna", value: "gpt-6-luna" },
-  { label: "GPT-5.6 Sol", value: "gpt-5.6-sol" },
-  { label: "GPT-5.6 Terra", value: "gpt-5.6-terra" },
-  { label: "GPT-5.6 Luna", value: "gpt-5.6-luna" },
 ];
 
 /**
@@ -65,15 +43,12 @@ export const ADVISOR_OFF = "off";
 /**
  * Choices for the experimental Claude `advisorModel` settings.json key. The
  * ADVISOR_OFF sentinel means "off" (omit the field on save). The other values
- * are the short tier aliases Claude Code resolves to the current model version;
- * keep in lock-step with ADVISOR_MODEL_ALIASES in
- * api/src/services/config-normalizer.ts.
+ * are the native tier aliases Claude Code resolves to the current model version,
+ * generated from the registry's advisor aliases.
  */
 export const ADVISOR_MODELS: ModelOption[] = [
   { label: "Off", value: ADVISOR_OFF },
-  { label: "Opus", value: "opus" },
-  { label: "Sonnet", value: "sonnet" },
-  { label: "Fable", value: "fable" },
+  ...ADVISOR_MODEL_OPTIONS,
 ];
 
 /**
@@ -152,11 +127,3 @@ export const HOOK_EVENTS = [
   "ConfigChange",
   "Setup",
 ] as const;
-
-/** Grok Build subscription catalog (live `/v1/models`, 2026-10-03); keep in lock-step with api grok-models.ts. */
-export const GROK_MODEL_OPTIONS = [
-  { label: "Grok 4.7", value: "grok-4.7" },
-  { label: "Grok 4.7 Fast", value: "grok-4.7-build-fast" },
-  { label: "Grok 4.6", value: "grok-4.6" },
-  { label: "Grok 4.5", value: "grok-4.5" },
-];

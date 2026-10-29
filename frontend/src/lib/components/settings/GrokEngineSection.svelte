@@ -4,7 +4,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Label } from "$lib/components/ui/label";
   import { ModelSelect } from "$lib/components/ui/model-select";
-  import { GROK_MODEL_OPTIONS } from "$lib/constants/models";
+  import { DEFAULT_MODELS, GROK_MODEL_OPTIONS } from "$lib/constants/models";
   import SectionCard from "./SectionCard.svelte";
   import SwitchRow from "./SwitchRow.svelte";
   import { grokSettingsQuery, grokSettingsMutation, grokModelsQuery, grokModelToggleMutation } from "$lib/api/settings";
@@ -24,7 +24,7 @@
 <SectionCard id="grok-engine" title="Grok API gateway" description="Applies to every API routed to Grok." error={$settings.error?.message ?? $models.error?.message ?? $save.error?.message ?? $modelToggle.error?.message}>
   <div class="grid gap-2">
     <Label for="grok-proxy-model">Gateway default model</Label>
-    <ModelSelect id="grok-proxy-model" bind:value={model} options={enabledOptions} label="Gateway default model" placeholder="grok-4.7" />
+    <ModelSelect id="grok-proxy-model" bind:value={model} options={enabledOptions} label="Gateway default model" placeholder={DEFAULT_MODELS.grok} />
     {#if modelDisabled}<p class="text-xs text-destructive">{modelLabel(model)} is disabled; requests without a model fail until the default is an enabled model.</p>{/if}
     <p class="text-xs text-muted-foreground">Supports text messages and system instructions. Streaming, tools, images, sampling controls, and token limits are unavailable.</p>
     <div><Button size="sm" disabled={$save.isPending || $settings.isPending || !model || modelDisabled} onclick={() => $save.mutate({ default_model: model })}>Save gateway default</Button></div>

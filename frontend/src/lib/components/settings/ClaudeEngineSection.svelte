@@ -5,7 +5,7 @@
   import { Label } from "$lib/components/ui/label";
   import SectionCard from "./SectionCard.svelte";
   import { ModelSelect } from "$lib/components/ui/model-select";
-  import { CLAUDE_MODEL_OPTIONS } from "$lib/constants/models";
+  import { CLAUDE_MODEL_OPTIONS, DEFAULT_MODELS } from "$lib/constants/models";
   import { claudeSettingsMutation, claudeSettingsQuery } from "$lib/api/settings";
 
   let lastSavedAt = $state<Date | null>(null);
@@ -67,7 +67,7 @@
           bind:value={modelInput}
           options={CLAUDE_MODEL_OPTIONS}
           label="Proxy default model"
-          placeholder="claude-sonnet-5"
+          placeholder={DEFAULT_MODELS.claude}
           class="w-full"
         />
       </div>
