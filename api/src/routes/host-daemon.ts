@@ -15,6 +15,7 @@ import { AdvisorService } from '../services/advisor.js';
 import { internalHostIds, isInternalHost } from '../services/internal-hosts.js';
 import { daemonSettingsSchema, daemonStartSchema, daemonAccepting, daemonExecutionEnabled } from '../services/host-daemon/policy.js';
 import { createHostAuthService } from '../services/host-auth.js';
+import { DAEMON_PERMISSION_MODES, PLAN_APPROVED_PROMPT } from '../services/host-daemon/permission-mode.js';
 import { createAgentMessagingService } from '../services/agent-messaging.js';
 import { createAdminEventsService } from '../services/admin-events.js';
 import { InsecureWindowAdminService } from '../services/insecure-window-admin.js';
@@ -72,9 +73,32 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
     return result;
   });
   app.post('/admin/daemon-sessions', { preHandler: app.requireAdmin }, async (req, reply) => {
-    const result = await service.start(daemonStartSchema.parse(req.body), `admin:${req.admin!.user.id}`);
+    const result = await service.start(
+      daemonStartSchema.extend({ permission_mode: z.enum(DAEMON_PERMISSION_MODES).optional() }).strict().parse(req.body),
+      `admin:${req.admin!.user.id}`,
+    );
     reply.code(202);
     return result;
+  });
+  // Plan approval and mode switch from the console. With client_message_id
+  // (mode default) it also resumes the session with the execution instruction.
+  app.post('/admin/daemon-sessions/:id/permission-mode', { preHandler: app.requireAdmin }, async (req, reply) => {
+    const body = z
+      .object({ mode: z.enum(DAEMON_PERMISSION_MODES), client_message_id: z.string().uuid().optional() })
+      .strict()
+      .refine((value) => value.mode === 'default' || !value.client_message_id, {
+        path: ['client_message_id'],
+        message: 'Only approval (mode default) resumes the session',
+      })
+      .parse(req.body ?? {});
+    const actor = `admin:${req.admin!.user.id}`;
+    const result = await service.setPermissionMode(sessionId(req), body.mode, undefined, actor);
+    let operation: { operation_id: string } | null = null;
+    if (body.client_message_id) {
+      operation = await service.turn(sessionId(req), PLAN_APPROVED_PROMPT, body.client_message_id);
+      reply.code(202);
+    }
+    return { ...result, operation_id: operation?.operation_id ?? null };
   });
   app.get('/admin/daemon-sessions/:id', { preHandler: app.requireAdmin }, (req) =>
     service.session(sessionId(req)),
@@ -330,6 +354,8 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
                     version: z.string().max(64),
                     engines: z.array(z.enum(['codex', 'claude', 'grok'])),
                     error: z.string().max(200).nullable().default(null),
+                    // cxx 0.9.146+: per-session --permission-mode support.
+                    permission_mode_version: z.number().int().min(0).max(1000).optional(),
                   })
                   .strict()
                   .parse(msg.payload);

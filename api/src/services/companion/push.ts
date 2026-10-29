@@ -1,7 +1,7 @@
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { OwnerCompanionPush } from './push-owner.js';
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, gt, isNull, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, like, lt, lte, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../routes/index.js';
 import {
@@ -21,7 +21,17 @@ import {
   companionNotifications,
   companionPairings,
   insecureAuthRequests,
+  providerAccounts,
 } from '../../db/schema.js';
+import {
+  QUOTA_PUSH_PREFIX,
+  coversQuotaWindow,
+  quotaAlerts,
+  quotaJobExpiresAt,
+  quotaPushAllowed,
+  quotaPushData,
+  quotaSourceKey,
+} from './quota-push.js';
 import { roleHasCapability } from '../../security/capabilities.js';
 import { decrypt } from '../../security/secret-box.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
@@ -43,6 +53,7 @@ class RoomJobGone extends Error {}
 export class CompanionPush {
   readonly transport: FcmTransport;
   private cleanedAt = 0;
+  private quotaAt = 0;
   constructor(private readonly ctx: RouteContext) {
     this.transport = new FcmTransport(ctx.env);
   }
@@ -53,6 +64,10 @@ export class CompanionPush {
       this.cleanedAt = Date.now();
     }
     if (!this.transport.configured) return;
+    if (Date.now() - this.quotaAt >= 60_000) {
+      this.quotaAt = Date.now();
+      await this.quotaScan();
+    }
     const { db, env, keyring } = this.ctx;
     // Durable cursors/outbox are the wake source. An empty tick must not build
     // the whole agent roster or lock every device just to find no new events.
@@ -251,6 +266,8 @@ export class CompanionPush {
             !!request &&
             request.status === 'pending' &&
             !stalePendingReason(request, Date.now());
+        } else if (job.kind === 'quota') {
+          eligible = quotaPushAllowed(row.user.accessLevel);
         } else if (job.kind === 'room' || job.kind === 'room_read') {
           eligible = roomPushAllowed(row.user.accessLevel) && (await bus.isEnabled());
           if (job.kind === 'room_read') {
@@ -322,7 +339,12 @@ export class CompanionPush {
           kind: job.kind,
           target_id: job.targetId,
         };
-        if (job.kind === 'room') {
+        if (job.kind === 'quota') {
+          const [account] = await db.select().from(providerAccounts).where(eq(providerAccounts.id, Number(job.targetId)));
+          const quota = await quotaPushData(db, job, account);
+          if (!quota) throw new RoomJobGone();
+          Object.assign(data, quota);
+        } else if (job.kind === 'room') {
           const room = await roomJobData(db, keyring, rooms, job);
           if (!room) throw new RoomJobGone();
           Object.assign(data, room);
@@ -407,6 +429,48 @@ export class CompanionPush {
             nextAttemptAt: isoOffsetSeconds(Math.min(300, 5 * 2 ** job.attempts)),
           })
           .where(eq(companionNotifications.id, job.id));
+      }
+    }
+  }
+  /** Quota warnings: enqueue once per device and account window (see quota-push.ts). */
+  async quotaScan() {
+    const { db } = this.ctx;
+    const accounts = await db
+      .select({ id: providerAccounts.id, engine: providerAccounts.engine, state: providerAccounts.state })
+      .from(providerAccounts)
+      .where(isNull(providerAccounts.mergedIntoAccountId));
+    const alerts = await quotaAlerts(db, accounts);
+    if (!alerts.length) return;
+    const devices = await db
+      .select({ device: companionDevices, user: adminUsers })
+      .from(companionDevices)
+      .innerJoin(adminUsers, eq(companionDevices.userId, adminUsers.id))
+      .where(and(isNull(companionDevices.revokedAt), gt(companionDevices.expiresAt, nowIso())));
+    for (const { device, user } of devices) {
+      if (!user.active || !device.notifications || !device.fcmTokenEnc || !quotaPushAllowed(user.accessLevel)) continue;
+      const existing = (
+        await db
+          .select({ sourceKey: companionNotifications.sourceKey })
+          .from(companionNotifications)
+          .where(and(eq(companionNotifications.deviceId, device.id), like(companionNotifications.sourceKey, `${QUOTA_PUSH_PREFIX}%`)))
+      ).map((row) => row.sourceKey);
+      for (const alert of alerts) {
+        if (existing.some((key) => coversQuotaWindow(key, alert))) continue;
+        const sourceKey = quotaSourceKey(alert);
+        await db
+          .insert(companionNotifications)
+          .values({
+            id: randomUUID(),
+            deviceId: device.id,
+            sourceKey,
+            kind: 'quota',
+            targetId: String(alert.accountId),
+            createdAt: nowIso(),
+            nextAttemptAt: nowIso(),
+            expiresAt: quotaJobExpiresAt(alert.resetsAt),
+          })
+          .onDuplicateKeyUpdate({ set: { sourceKey } });
+        existing.push(sourceKey);
       }
     }
   }

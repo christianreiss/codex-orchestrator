@@ -27,6 +27,8 @@ export interface RemoteSession {
   status: string;
   sessionId: string | null;
   addressId: string | null;
+  /** `plan` while the session awaits plan approval; null runs with the host posture. */
+  permissionMode?: "plan" | null;
   operations?: {
     id: string;
     status: string;
@@ -51,6 +53,8 @@ export interface DaemonHost extends DaemonSettings {
     max_slots: number;
   };
   engines?: Engine[];
+  /** 1 when the host daemon (cxx 0.9.146+) can run Claude/Grok turns in plan mode. */
+  permission_mode_version?: number;
   sessions: RemoteSession[];
 }
 export const daemonDefaults: DaemonSettings = {

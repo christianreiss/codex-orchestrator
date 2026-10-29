@@ -35,6 +35,7 @@ import { advisorSessionStopped, advisorTurnCompleted } from '../advisor-delivery
 import { isInternalHost } from '../internal-hosts.js';
 
 import { daemonAccess, renewDaemonWindow, type DaemonDb } from './access.js';
+import { assertPermissionMode, planModePrompt, storedPermissionMode, type DaemonPermissionMode } from './permission-mode.js';
 export interface PortalDaemonInput {
   deviceId: string;
   content: string;
@@ -140,6 +141,7 @@ export class HostDaemonService {
       health,
       access,
       engines: runtime?.engines ?? [],
+      permission_mode_version: row.runtime?.permission_mode_version ?? 0,
       sessions: work,
     };
   }
@@ -440,11 +442,17 @@ export class HostDaemonService {
       title: string;
       prompt: string;
       client_message_id: string;
+      permission_mode?: DaemonPermissionMode;
     },
     owner: string,
     portalInput?: PortalDaemonInput,
     options: { internal?: boolean; model?: string } = {},
   ) {
+    // `default` and absence are one request: both pass no native flag.
+    if (input.permission_mode !== 'plan') {
+      const { permission_mode: _default, ...rest } = input;
+      input = rest;
+    }
     if(this.owned)return this.owned.start(input,owner,portalInput,options);
     // Server-owned hosts (the Fleet Advisor) take work only from their facade.
     if (isInternalHost(await this.host(input.host_id)) !== Boolean(options.internal))
@@ -475,6 +483,7 @@ export class HostDaemonService {
         return { operation_id: existing.id, session_id: existing.sessionId };
       }
       if (portalInput) await this.assertMobileReady(tx, input.host_id, input.engine, locked);
+      assertPermissionMode(input.engine, input.permission_mode, locked.runtime);
       const id = randomUUID(),
         opId = randomUUID();
       await tx.insert(sessions).values({
@@ -486,6 +495,7 @@ export class HostDaemonService {
         cwd,
         title: input.title,
         model: options.model ?? null,
+        permissionMode: storedPermissionMode(input.permission_mode),
         status: 'queued',
         lastActivityAt: now(),
         createdAt: now(),
@@ -661,6 +671,32 @@ export class HostDaemonService {
     this.changed(row.hostId);
     return this.session(id, owner);
   }
+  /**
+   * Switch a session's native permission mode for its next turn. The plan
+   * approval path stores `default`; a running turn keeps the mode it started with.
+   */
+  async setPermissionMode(id: string, mode: DaemonPermissionMode, owner?: string, actor = owner ?? 'operator') {
+    if(this.owned)return this.owned.setPermissionMode(id,mode,owner,actor);
+    const row = await this.session(id, owner);
+    const changed = await this.db.transaction(async (tx) => {
+      const [config] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, row.hostId)).for('update');
+      const [current] = await tx.select().from(sessions).where(eq(sessions.id, id)).for('update');
+      if (!current || ['closed', 'failed', 'unknown'].includes(current.status))
+        throw new ConflictError('Session has ended', 'daemon_session_unavailable');
+      if ((current.permissionMode ?? 'default') === mode) return false;
+      assertPermissionMode(current.engine, mode, config?.runtime);
+      await tx.update(sessions).set({ permissionMode: storedPermissionMode(mode) }).where(eq(sessions.id, id));
+      await tx.insert(adminEvents).values({
+        type: 'host.daemon.permission_mode_changed',
+        hostId: row.hostId,
+        payload: { session_id: id, permission_mode: mode, actor },
+        createdAt: now(),
+      });
+      return true;
+    });
+    if (changed) this.changed(row.hostId);
+    return { session_id: id, permission_mode: mode, changed };
+  }
   /** Empty transport ticks do not mutate state and need no admission locks. */
   async hasPendingOffer(id: number): Promise<boolean> {
     if(this.owned){this.owned.owner.assertOwner();return this.owned.owner.state.snapshot().table('hostDaemonOperations').by('hostId',id).some(o=>['queued','offered'].includes(o.status));}
@@ -702,6 +738,8 @@ export class HostDaemonService {
         return null;
       assertHostEngineEnabled(host, session.engine as Engine, await readFleetEngineState(tx));
       if (!config.runtime?.engines.includes(session.engine)) return null;
+      // An older wrapper would ignore the mode and run at the host's level.
+      if (session.permissionMode === 'plan' && (config.runtime.permission_mode_version ?? 0) < 1) return null;
       const claimId = op.claimId ?? randomUUID();
       await tx
         .update(operations)
@@ -718,7 +756,8 @@ export class HostDaemonService {
         cwd: session.cwd,
         title: session.title,
         model: session.model ?? '',
-        prompt: decrypt(op.promptEnc, this.ctx.keyring),
+        permission_mode: session.permissionMode ?? '',
+        prompt: planModePrompt(decrypt(op.promptEnc, this.ctx.keyring), session.permissionMode),
         address: address ? `agent:${address.id}` : '',
         binding_generation: address?.bindingGeneration ?? 0,
         upstream_session_id: address?.lastUpstreamSessionId ?? '',

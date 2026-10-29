@@ -19,6 +19,7 @@ import { readFleetEngineState } from '../engine-switch.js';
 import type { Engine } from '../../util/engine.js';
 import { ForbiddenError } from '../../http/errors.js';
 import { decrypt } from '../../security/secret-box.js';
+import { DAEMON_PERMISSION_MODES, permissionModesFor } from '../host-daemon/permission-mode.js';
 
 export const companionStartSchema = z
   .object({
@@ -28,8 +29,14 @@ export const companionStartSchema = z
     title: z.string().trim().max(160).default(''),
     task: z.string().trim().max(32768).default(''),
     client_message_id: z.string().uuid(),
+    // C7: `plan` runs every turn in native plan mode until the plan is approved.
+    permission_mode: z.enum(DAEMON_PERMISSION_MODES).optional(),
   })
-  .strict();
+  .strict()
+  .refine((body) => body.permission_mode !== 'plan' || body.task.length > 0, {
+    path: ['task'],
+    message: 'Plan mode needs a task to plan',
+  });
 
 export function contactPrompt(task: string): string {
   return `This session was started by the operator from the Android companion. Confirm your managed identity with agent_self and use agent_session_name for a concise task title. Send a real greeting to the operator through cxx portal say --text with your current name and readiness, and include --summary (one sentence, at most 160 characters). ${task ? 'Then handle the operator task below. Send your result or question through cxx portal say or cxx portal ask, including --summary.' : 'Only establish contact. Do not inspect or change project files and do not begin any other work. After the greeting, end this turn; the host daemon can resume this same native transcript when the operator sends an instruction.'}${task ? `\n\nOperator task:\n${task}` : ''}`;
@@ -70,6 +77,10 @@ export class CompanionRemote {
             default_cwd: view.default_cwd,
             access: view.access,
             engines: view.engines,
+            // Per engine: the permission modes a start on this host accepts.
+            permission_modes: Object.fromEntries(
+              view.engines.map((engine) => [engine, permissionModesFor(engine, view.permission_mode_version)]),
+            ),
             health: {
               ...view.health,
               used_slots: used,
@@ -177,6 +188,7 @@ export class CompanionRemote {
         host: host?.fqdn ?? bound?.host,
         cwd: row.cwd,
         engine: row.engine,
+        permission_mode: row.permissionMode ?? 'default',
         session_name: bound?.session_name ?? row.title,
         task_title: row.title,
         upstream_session_id: bound?.upstream_session_id ?? null,

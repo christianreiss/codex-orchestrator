@@ -2091,6 +2091,18 @@ replayed, and a lost process-local receipt still requires inspection of retained
 server state. Server `ready` remains transport evidence, not proof of delivery
 or a model reply.
 
+### Daemon permission mode
+
+From cxx 0.9.146 the daemon `hello` carries `permission_mode_version: 1`; a
+server that rejects that field gets the hello again without it. Each offered
+operation may carry `permission_mode`; the server never offers a `plan`
+operation to a daemon without the capability. For Claude, `plan` appends
+`--permission-mode plan` to the native `run -p` / `resume` argv on every turn
+of a plan-mode session (including peer deliveries to it). An empty or
+`default` mode, or any other value, adds no flag, so the host's posture
+(`settings.json` `permissions.defaultMode`) applies unchanged. Approving the
+plan switches the session to `default` before its next turn.
+
 ### Daemon working directory
 
 Remote starts use an explicitly supplied `cwd`, then the host daemon's configured

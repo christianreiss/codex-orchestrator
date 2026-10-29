@@ -30,6 +30,7 @@ import { stageAttachmentLink } from './attachments.js';
 import { ChatAttachments } from '../../services/agent-chat/attachments.js';
 import { validAnswer } from '../../services/agent-chat/contracts.js';
 import { daemonExecutionEnabled } from '../../services/host-daemon/policy.js';
+import { assertPermissionMode, planModePrompt, storedPermissionMode, type DaemonPermissionMode } from '../../services/host-daemon/permission-mode.js';
 const now = () => new Date().toISOString();
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -116,6 +117,7 @@ export class DaemonOperations extends DaemonState {
       title: string;
       prompt: string;
       client_message_id: string;
+      permission_mode?: DaemonPermissionMode;
     },
     actor: string,
     portalInput?: PortalDaemonInput,
@@ -139,6 +141,7 @@ export class DaemonOperations extends DaemonState {
       title: string;
       prompt: string;
       client_message_id: string;
+      permission_mode?: DaemonPermissionMode;
     },
     actor: string,
     portalInput?: PortalDaemonInput,
@@ -165,6 +168,7 @@ export class DaemonOperations extends DaemonState {
       return { operation_id: existing.id, session_id: existing.sessionId };
     }
     if (portalInput) this.mobile(c, input.host_id, input.engine, locked);
+    assertPermissionMode(input.engine, input.permission_mode, locked.runtime);
     const id = randomUUID(),
       opId = randomUUID(),
       at = now();
@@ -177,6 +181,7 @@ export class DaemonOperations extends DaemonState {
       cwd,
       title: input.title,
       model: options.model ?? null,
+      permissionMode: storedPermissionMode(input.permission_mode),
       status: 'queued',
       lastActivityAt: at,
       createdAt: at,
@@ -284,6 +289,8 @@ export class DaemonOperations extends DaemonState {
           return null;
         assertEngine(c.snapshot, host, session.engine);
         if (!config.runtime?.engines.includes(session.engine)) return null;
+        // An older wrapper would ignore the mode and run at the host's level.
+        if (session.permissionMode === 'plan' && (config.runtime.permission_mode_version ?? 0) < 1) return null;
         const claimId = row.claimId ?? randomUUID();
         if (row.status !== 'offered' || !row.claimId)
           stageUpdate(c, 'hostDaemonOperations', row.id, { status: 'offered', claimId, updatedAt: now() });
@@ -296,7 +303,8 @@ export class DaemonOperations extends DaemonState {
           cwd: session.cwd,
           title: session.title,
           model: session.model ?? '',
-          prompt: decrypt(cold.promptEnc, this.ctx.keyring),
+          permission_mode: session.permissionMode ?? '',
+          prompt: planModePrompt(decrypt(cold.promptEnc, this.ctx.keyring), session.permissionMode),
           address: address ? `agent:${address.id}` : '',
           binding_generation: address?.bindingGeneration ?? 0,
           upstream_session_id: address?.lastUpstreamSessionId ?? '',
@@ -310,6 +318,7 @@ export class DaemonOperations extends DaemonState {
       cwd: string;
       title: string;
       model: string;
+      permission_mode: string;
       prompt: string;
       address: string;
       binding_generation: number;
@@ -492,6 +501,35 @@ export class DaemonOperations extends DaemonState {
     });
     this.changed(hostId);
     return this.session(id, actorOwner);
+  }
+  async setPermissionMode(id: string, mode: DaemonPermissionMode, actorOwner?: string, actor = actorOwner ?? 'operator') {
+    let hostId = 0;
+    const changed = (await mutateOwnerState(this.owner, {
+      kind: 'daemon.session.permission_mode',
+      payload: { id, mode, actorOwner: actorOwner ?? null, actor },
+      prepare: (c) => {
+        const current = c.snapshot.table('hostDaemonSessions').get(id);
+        if (!current) throw new NotFoundError('Remote session not found');
+        if (actorOwner && current.owner !== actorOwner) throw new ForbiddenError('Only the creating agent may control this helper');
+        hostId = current.hostId;
+        if (['closed', 'failed', 'unknown'].includes(current.status))
+          throw new ConflictError('Session has ended', 'daemon_session_unavailable');
+        if ((current.permissionMode ?? 'default') === mode) return false;
+        assertPermissionMode(current.engine, mode, c.snapshot.daemons.get(current.hostId)?.runtime);
+        stageUpdate(c, 'hostDaemonSessions', id, { permissionMode: storedPermissionMode(mode) });
+        c.write((tx) =>
+          tx.insert(adminEvents).values({
+            type: 'host.daemon.permission_mode_changed',
+            hostId: current.hostId,
+            payload: { session_id: id, permission_mode: mode, actor },
+            createdAt: now(),
+          }),
+        );
+        return true;
+      },
+    })) as boolean;
+    if (changed) this.changed(hostId);
+    return { session_id: id, permission_mode: mode, changed };
   }
   stageStop(
     c: OwnerMutationContext,

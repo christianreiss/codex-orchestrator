@@ -78,6 +78,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/daemon-sessions/:id': cap('agent_portal.reveal_transcript'),
   'POST /admin/daemon-sessions/:id/stop': cap('agent_messaging.manage'),
   'POST /admin/daemon-sessions/:id/messages': cap('agent_messaging.manage'),
+  'POST /admin/daemon-sessions/:id/permission-mode': cap('agent_messaging.manage'),
 
   // ── Pre-authentication surface ───────────────────────────────────────────
   // The caller is by definition not yet authenticated on any of these. Each

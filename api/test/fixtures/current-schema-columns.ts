@@ -99,5 +99,10 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   )
     throw new Error('Migration 0117 room sync inventory changed; cannot project the bootstrap schema');
   tables.get('companion_devices')!.add('room_change_cursor');
+  // Migration 0118 pins a native permission mode per host daemon session.
+  const permissionMode = readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0118_daemon_permission_mode.sql'), 'utf8');
+  if (!/ADD COLUMN permission_mode VARCHAR\(16\) NULL/i.test(permissionMode))
+    throw new Error('Migration 0118 must declare host_daemon_sessions.permission_mode; cannot project the bootstrap schema');
+  tables.get('host_daemon_sessions')!.add('permission_mode');
   return tables;
 }

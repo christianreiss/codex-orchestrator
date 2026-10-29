@@ -34,6 +34,7 @@
   let title = $state("");
   let cwd = $state("");
   let prompt = $state("");
+  let planFirst = $state(false);
   let drafts = $state<Record<string, string>>({});
   let detailsOpen = $state(false);
   let heading = $state<HTMLHeadingElement | null>(null);
@@ -56,6 +57,11 @@
   const host = $derived(hosts.find(row => row.host_id === hostId));
   const startReason = $derived(!canManage ? "Remote session management is required." : error || stale ? "Refresh host status before starting work." : hostBlockReason(host) || (host?.engines?.includes(engine) ? "" : "This engine is not ready on the host."));
   const resumeReason = $derived(!canManage || !canRead ? "Conversation access and remote session management are required." : error || stale || $detail.isError ? "Refresh session status before continuing." : native?.pending_prompt ? "Answer the pending question when the agent is reachable." : selected ? continuationBlockReason(selected, selectedHost) : "Select a session.");
+  // Plan mode is a native Claude/Grok permission mode; Codex has none, and a
+  // daemon older than cxx 0.9.146 would ignore it, so the server refuses both.
+  const planReason = $derived(engine === "codex" ? "Codex has no plan mode; its sessions always run with the host's security posture." : (host?.permission_mode_version ?? 0) < 1 ? "This host's daemon predates plan mode. Update cxx to 0.9.146 or newer." : "");
+  const inPlan = $derived(selected?.permissionMode === "plan");
+  const approveReason = $derived(!canManage || !canRead ? "Conversation access and remote session management are required." : error || stale || $detail.isError ? "Refresh session status before approving." : selected && ["running", "queued", "stopping"].includes(selected.status) ? "Wait until the agent has finished presenting its plan." : selected ? continuationBlockReason(selected, selectedHost) : "Select a session.");
   const live = $derived(selected?.status === "running" || Boolean(selected?.status === "waiting" && native?.pending_prompt && !native.read_only));
   $effect(() => {
     if (fixedHost) hostId = fixedHost;
@@ -76,13 +82,13 @@
     if (!key) { key = crypto.randomUUID(); keys.set(signature, key); }
     return { signature, key };
   }
-  type StartBody = { host_id: number; engine: Engine; title: string; cwd: string; prompt: string };
+  type StartBody = { host_id: number; engine: Engine; title: string; cwd: string; prompt: string; permission_mode?: "plan" };
   const start = createMutation({
     mutationFn: ({ body, key }: { body: StartBody; key: string }) => api.post<{ session_id: string }>("/admin/daemon-sessions", { ...body, client_message_id: key }),
   });
   async function submitStart() {
     if (startReason || !title.trim() || !prompt.trim() || $start.isPending) return;
-    const body = { host_id: hostId, engine, title: title.trim(), cwd: cwd.trim() || host?.default_cwd || "", prompt: prompt.trim() };
+    const body: StartBody = { host_id: hostId, engine, title: title.trim(), cwd: cwd.trim() || host?.default_cwd || "", prompt: prompt.trim(), ...(planFirst && !planReason ? { permission_mode: "plan" as const } : {}) };
     const { key, signature } = requestKey("start", body);
     try {
       const result = await $start.mutateAsync({ body, key });
@@ -103,8 +109,18 @@
       refresh();
     } catch { /* Keep the request key and draft for an explicit retry. */ }
   }
+  const approve = createMutation({ mutationFn: ({ id, key }: { id: string; key: string }) => api.post(`/admin/daemon-sessions/${id}/permission-mode`, { mode: "default", client_message_id: key }) });
+  async function approvePlan() {
+    if (!selected || !inPlan || approveReason || $approve.isPending || $turn.isPending || $stop.isPending) return;
+    const id = selected.id;
+    const { key, signature } = requestKey("approve-plan", { id });
+    try {
+      await $approve.mutateAsync({ id, key }); keys.delete(signature);
+      refresh(); void $detail.refetch();
+    } catch { /* Keep the request key so a retry cannot resume the session twice. */ }
+  }
   const stop = createMutation({ mutationFn: (id: string) => api.post(`/admin/daemon-sessions/${id}/stop`, {}), onSuccess: () => refresh() });
-  async function select(id: string) { selectedId = id; detailsOpen = false; if (!$turn.isPending) $turn.reset(); if (!$stop.isPending) $stop.reset(); await tick(); heading?.focus(); }
+  async function select(id: string) { selectedId = id; detailsOpen = false; if (!$turn.isPending) $turn.reset(); if (!$stop.isPending) $stop.reset(); if (!$approve.isPending) $approve.reset(); await tick(); heading?.focus(); }
   async function back() { const id = selectedId; selectedId = null; await tick(); document.getElementById(`remote-${id}`)?.focus(); }
 </script>
 <DraftGuard dirty={Object.values(drafts).some((draft) => draft.trim().length > 0)} />
@@ -138,7 +154,7 @@
       {#if selectedId}
         <header class="flex items-center gap-2 border-b px-3 py-2">
           <Button variant="ghost" size="icon" class="shrink-0 lg:hidden" aria-label="Back to remote sessions" onclick={back}><ChevronLeftIcon class="h-5 w-5" /></Button>
-          <div class="min-w-0 flex-1"><h2 bind:this={heading} tabindex="-1" class="truncate text-body-sm font-semibold outline-none">{selected?.title ?? 'Remote session'}</h2><p class="truncate text-caption text-muted-foreground">{selectedHost?.fqdn ?? 'Host'} · {remoteState(selected?.status ?? 'queued').label}</p></div>
+          <div class="min-w-0 flex-1"><h2 bind:this={heading} tabindex="-1" class="truncate text-body-sm font-semibold outline-none">{selected?.title ?? 'Remote session'}</h2><p class="truncate text-caption text-muted-foreground">{selectedHost?.fqdn ?? 'Host'} · {remoteState(selected?.status ?? 'queued').label}{inPlan ? ' · Plan mode' : ''}</p></div>
           <Button variant="ghost" size="sm" aria-expanded={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>Details</Button>
         </header>
         {#if detailsOpen && selected}<div class="max-h-[40%] shrink-0 space-y-2 overflow-y-auto border-b bg-muted/20 p-4 text-caption">
@@ -148,6 +164,12 @@
           {#if canManage && !['closed', 'stopping'].includes(selected.status)}<Button variant="outline" size="sm" disabled={$stop.isPending || $turn.isPending || !!error || stale} onclick={() => $stop.mutate(selected!.id)}>End session</Button>{/if}
         </div>{/if}
         {#if $detail.error}<p role="alert" class="px-4 py-2 text-body-sm text-destructive">{$detail.error.message} <button class="underline" onclick={() => $detail.refetch()}>Retry session</button></p>{/if}
+        {#if inPlan && selected && !['closed', 'failed', 'unknown'].includes(selected.status)}<div class="flex shrink-0 flex-wrap items-center gap-2 border-b bg-muted/20 px-4 py-2 text-body-sm">
+          <p class="min-w-0 flex-1 text-muted-foreground">Plan mode: the agent proposes a plan and changes nothing. Approving switches it to the host's normal permissions and tells it to execute the plan.</p>
+          {#if canRead && canManage}<Button size="sm" disabled={!!approveReason || $approve.isPending || $turn.isPending || $stop.isPending} onclick={() => void approvePlan()}>{$approve.isPending ? 'Approving…' : 'Approve plan & execute'}</Button>{/if}
+          {#if approveReason && canRead && canManage}<p class="w-full text-caption text-muted-foreground">{approveReason}</p>{/if}
+          {#if $approve.error && $approve.variables?.id === selected.id}<p role="alert" class="w-full text-body-sm text-destructive">{$approve.error.message} Retry sends the same request.</p>{/if}
+        </div>{/if}
         {#if $stop.error && $stop.variables === selectedId}<p role="alert" class="px-4 py-2 text-body-sm text-destructive">{$stop.error.message}</p>{/if}
         {#if native}{@render conversation(native.id, controls, live)}
         {:else}<div class="grid flex-1 place-content-center p-6 text-center"><BotIcon class="mx-auto h-8 w-8 text-muted-foreground/60" /><h3 class="mt-3 text-body-sm font-medium">{selected ? remoteState(selected.status).label : 'Loading session…'}</h3><p class="mt-1 max-w-sm text-body-sm text-muted-foreground">{selected ? remoteState(selected.status).detail : 'Waiting for session details.'}</p></div>{@render controls()}{/if}
@@ -178,6 +200,11 @@
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-title">Title</label><Input id="remote-title" bind:value={title} maxlength={160} required placeholder="What should this session accomplish?" /></div>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-prompt">Instruction</label><Textarea id="remote-prompt" bind:value={prompt} maxlength={100000} required rows={5} placeholder="Describe the task…" /></div>
       <details class="rounded-md border p-3"><summary class="cursor-pointer text-body-sm font-medium">Working directory</summary><div class="mt-3 space-y-1.5"><label class="text-body-sm" for="remote-cwd">Working directory</label><Input id="remote-cwd" bind:value={cwd} maxlength={1024} placeholder={host?.default_cwd || 'Service account home directory'} /></div></details>
+      <fieldset class="space-y-1.5 rounded-md border p-3">
+        <legend class="px-1 text-body-sm font-medium">Permission mode</legend>
+        <label class="flex items-start gap-2 text-body-sm"><input type="checkbox" class="mt-1" bind:checked={planFirst} disabled={!!planReason} aria-describedby="remote-plan-help" /><span>Plan first, then wait for my approval</span></label>
+        <p id="remote-plan-help" class="text-caption text-muted-foreground">{planReason || "The agent runs in native plan mode, proposes a plan and asks you to approve, reject or revise it before it changes anything."}</p>
+      </fieldset>
       {#if startReason}<p role="status" class="text-body-sm text-muted-foreground">{startReason}</p>{/if}
       {#if $start.error}<p role="alert" class="text-body-sm text-destructive">{$start.error.message} Your instruction is kept. Retry sends the same request.</p>{/if}
       <Button type="submit" class="w-full" disabled={!!startReason || !title.trim() || !prompt.trim() || $start.isPending}>{$start.isPending ? 'Starting…' : 'Start session'}</Button>

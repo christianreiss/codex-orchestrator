@@ -66,6 +66,9 @@ type daemonOperation struct {
 	Upstream   string `json:"upstream_session_id"`
 	// Model is pinned per daemon session (Fleet Advisor); empty uses the host's.
 	Model string `json:"model,omitempty"`
+	// PermissionMode "plan" runs every turn in native plan mode (Claude, Grok);
+	// empty or "default" passes no flag, so the host's rendered mode applies.
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 type daemonResult struct {
 	Status   string `json:"status"`
@@ -123,6 +126,13 @@ func (c *daemonConnection) rpc(ctx context.Context, kind string, payload any, ou
 	case <-time.After(30 * time.Second):
 		return errors.New("daemon request timed out")
 	}
+}
+
+// helloRejectsCapability reports a server-side rejection naming the
+// permission_mode_version hello field (a server older than cxx 0.9.146).
+func helloRejectsCapability(err error) bool {
+	var rejection *daemonRejection
+	return errors.As(err, &rejection) && strings.Contains(rejection.message, "permission_mode_version")
 }
 
 // daemonVersion is the running binary's version, for the resident update's
@@ -568,7 +578,14 @@ func runHostExecution(parent context.Context, version string, stdout, stderr io.
 		var hello struct {
 			Settings daemonSettings `json:"settings"`
 		}
-		err = c.rpc(ctx, "hello", map[string]any{"instance_id": instance, "username": settings.Username, "version": version, "engines": engines, "error": nil}, &hello)
+		helloBody := map[string]any{"instance_id": instance, "username": settings.Username, "version": version, "engines": engines, "error": nil, "permission_mode_version": daemonPermissionModeVersion}
+		err = c.rpc(ctx, "hello", helloBody, &hello)
+		if helloRejectsCapability(err) {
+			// A server older than this wrapper rejects the unknown capability
+			// (strict hello schema); register without it rather than go offline.
+			delete(helloBody, "permission_mode_version")
+			err = c.rpc(ctx, "hello", helloBody, &hello)
+		}
 		if err != nil {
 			fmt.Fprintln(stderr, "daemon registration rejected:", err)
 			ws.Close()
@@ -883,7 +900,7 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 	if err != nil {
 		return daemonResult{Status: "failed", Reply: err.Error()}
 	}
-	args := nativeArgs(op.Engine, op.Upstream, op.Model)
+	args := nativeArgsWithPermissionMode(op.Engine, op.Upstream, op.Model, op.PermissionMode)
 	prompt := op.Prompt + "\n\nSession title: " + op.Title
 	if op.Engine == config.EngineGrok {
 		file, err := os.CreateTemp("", "cxx-daemon-prompt-*")
