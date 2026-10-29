@@ -57,7 +57,8 @@ class CompanionUiTest {
             compose.onAllNodesWithTag("agent:live-new-agent").fetchSemanticsNodes().isEmpty()
         }
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
-        compose.onNodeWithText("Server · Connected").assertIsDisplayed()
+        // The healthy connection is no longer announced in the app bar; only a degraded link shows a banner.
+        compose.onNodeWithText("Server · Connected").assertDoesNotExist()
     }
 
     @Test fun chatStatusTracksOnlineAndWorkingWithoutRequiringAReceiver() {
@@ -86,9 +87,9 @@ class CompanionUiTest {
         compose.onNodeWithText("Claude").assertIsDisplayed()
     }
 
-    @Test fun connectedServerStatusRemainsVisibleInChatsAndConnectionDetails() {
+    @Test fun connectedServerStatusIsOnlyInConnectionDetails() {
         waitForAgentRows(session)
-        compose.onNodeWithText("Server · Connected").assertIsDisplayed()
+        compose.onNodeWithText("Server · Connected").assertDoesNotExist()
         compose.onNodeWithContentDescription("More").performClick()
         compose.onAllNodesWithText("Server · Connected").onLast().assertIsDisplayed()
     }

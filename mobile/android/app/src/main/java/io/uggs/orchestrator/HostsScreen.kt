@@ -6,11 +6,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.delay
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
@@ -47,7 +56,11 @@ internal fun hostReason(host: JSONObject): String {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun HostsScreen(model: CompanionModel, fresh: Boolean) {
+    val haptic = LocalHapticFeedback.current
+    var refreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshing) { if (refreshing) { delay(900); refreshing = false } }
     var query by rememberSaveable { mutableStateOf("") }
     var start by rememberSaveable { mutableStateOf<Long?>(null) }
     val hosts = model.hosts.filter { it.optString("fqdn").contains(query.trim(), ignoreCase = true) }
@@ -66,27 +79,32 @@ internal fun hostReason(host: JSONObject): String {
         }
         if (!fresh) Text("Reconnect to start an agent", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         else if (!model.canSpawn()) Text("Remote starts need messaging and portal permissions", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshing = true; model.refreshNow() }, modifier = Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize().testTag("host-list"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (hosts.isEmpty()) item { EmptyState(if (query.isBlank()) "No hosts with remote starts enabled" else "No matching hosts") }
+            if (hosts.isEmpty() && model.hosts.isEmpty() && !fresh) item { SkeletonCards(3) }
+            else if (hosts.isEmpty()) item { EmptyState(if (query.isBlank()) "No hosts with remote starts enabled" else "No matching hosts") }
             items(hosts, key = { it.optLong("host_id") }) { host ->
                 val startable = host.optBoolean("startable")
-                Card(Modifier.fillMaxWidth(), colors = companionCardColors(), border = companionCardBorder()) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val hostName = host.optString("fqdn")
+                Card(Modifier.fillMaxWidth().animateContentSize(), colors = companionCardColors(), border = companionCardBorder()) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).semantics(mergeDescendants = true) { }.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Box(contentAlignment = Alignment.BottomEnd) {
                             CompanionIcon(CompanionSymbol.Computer, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            StatusDot(startable, Modifier.size(9.dp).offset(x = 3.dp, y = 3.dp))
+                            StatusDot(startable, Modifier.size(9.dp).offset(x = 3.dp, y = 3.dp).clearAndSetSemantics { })
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(host.optString("fqdn"), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(hostName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             Text(hostReason(host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         val canStart = fresh && model.canSpawn() && startable && !model.busy && model.pendingStart == null
                         val startModifier = Modifier.heightIn(min = 48.dp).testTag("spawn:${host.optLong("host_id")}")
-                        if (canStart) FilledTonalButton(onClick = { start = host.optLong("host_id") }, modifier = startModifier) { Text("Start") }
-                        else OutlinedButton(onClick = { start = host.optLong("host_id") }, enabled = false, modifier = startModifier) { Text("Start") }
+                        val startDescription = stringResource(R.string.start_host_description, hostName)
+                        if (canStart) FilledTonalButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); start = host.optLong("host_id") }, modifier = startModifier.semantics { contentDescription = startDescription }) { Text("Start") }
+                        else OutlinedButton(onClick = { }, enabled = false, modifier = startModifier.semantics { contentDescription = startDescription }) { Text("Start") }
                     }
                 }
             }
+        }
         }
     }
     start?.let { id -> model.hosts.firstOrNull { it.optLong("host_id") == id }?.let { host -> StartAgentSheet(model, host, onDismiss = { start = null }) } }
