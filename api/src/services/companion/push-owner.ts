@@ -27,6 +27,16 @@ import { stalePendingReason } from '../insecure-window.js';
 import { companionVisible } from './presence.js';
 import { FcmTransport, FcmSendError } from './fcm.js';
 import { decodeSummaryPayload, eventSummary, notificationKind } from './summary.js';
+import { dependencyRevision } from '../../ops/schedule-obligations.js';
+import {
+  QUOTA_PUSH_PREFIX,
+  coversQuotaWindow,
+  quotaAlerts,
+  quotaJobExpiresAt,
+  quotaPushAllowed,
+  quotaPushData,
+  quotaSourceKey,
+} from './quota-push.js';
 
 const TABLES = [
   'companionDevices',
@@ -45,7 +55,13 @@ const TABLES = [
   'hostDaemonSessions',
   'hosts',
   'versions',
+  'providerAccounts',
+  'chatgptUsageSnapshots',
+  'claudeUsageSnapshots',
+  'grokUsageSnapshots',
 ] as const;
+/** Quota obligations re-run when an account or a usage snapshot changes (not on every setting write). */
+const QUOTA_TABLES = ['providerAccounts', 'chatgptUsageSnapshots', 'claudeUsageSnapshots', 'grokUsageSnapshots'] as const;
 type Device = Readonly<StateRow<'companionDevices'>>;
 type Job = Readonly<StateRow<'companionNotifications'>>;
 
@@ -94,6 +110,13 @@ export class OwnerCompanionPush {
     const d = this.device(snapshot, job.deviceId);
     if (!d || Date.parse(job.expiresAt) <= Date.now()) return;
     const user = snapshot.table('adminUsers').get(d.userId)!;
+    if (job.kind === 'quota') {
+      const account = snapshot.table('providerAccounts').get(Number(job.targetId));
+      return quotaPushAllowed(user.accessLevel) && account && account.state !== 'removed' &&
+        !isTruthyFlagValue(snapshot.setting(`${account.engine}_engine_disabled`))
+        ? d
+        : undefined;
+    }
     if (job.kind === 'room' || job.kind === 'room_read') {
       if (!roomPushAllowed(user.accessLevel) || snapshot.setting('agent_messaging_enabled') !== '1') return;
       if (job.kind === 'room_read')
@@ -157,6 +180,7 @@ export class OwnerCompanionPush {
     if (!this.transport.configured) return work;
     const head = Number(snapshot.setting('owner_portal_event_id') ?? 0);
     const roomHead = Number(snapshot.setting(ROOM_CHANGE_HEAD_SETTING) ?? 0);
+    const hasAccounts = snapshot.table('providerAccounts').all().some((a) => a.state !== 'removed' && !a.mergedIntoAccountId);
     for (const d of snapshot.table('companionDevices').all())
       if (this.device(snapshot, d.id)) {
         if (d.eventCursor < head)
@@ -165,6 +189,8 @@ export class OwnerCompanionPush {
         if (roomCursor < roomHead)
           work.push({ key: `rooms:${d.id}`, dueAt: 0, revision: `${roomCursor}:${roomHead}` });
         const user = snapshot.table('adminUsers').get(d.userId)!;
+        if (quotaPushAllowed(user.accessLevel) && hasAccounts)
+          work.push({ key: `quota:${d.id}`, dueAt: 0, revision: dependencyRevision(snapshot, QUOTA_TABLES) });
         if (roleHasCapability(user.accessLevel, 'hosts.activate_insecure'))
           for (const raw of snapshot.table('insecureAuthRequests').all()) {
             const r = pendingWithInterest(this.owner, raw);
@@ -264,6 +290,22 @@ export class OwnerCompanionPush {
                 String(r.id),
                 new Date(Date.parse(r.requestedAt) + 300_000).toISOString(),
               );
+          }
+          return null;
+        }
+        if (kind === 'quota') {
+          const user = c.snapshot.table('adminUsers').get(d.userId)!;
+          if (!quotaPushAllowed(user.accessLevel)) return null;
+          const accounts = c.snapshot.table('providerAccounts').all().filter((a) => !a.mergedIntoAccountId);
+          const existing = c.draft
+            .table('companionNotifications')
+            .all()
+            .filter((j) => j.deviceId === d.id && j.sourceKey.startsWith(QUOTA_PUSH_PREFIX))
+            .map((j) => j.sourceKey);
+          for (const alert of await quotaAlerts(this.ctx.db, accounts)) {
+            if (existing.some((key) => coversQuotaWindow(key, alert))) continue;
+            this.enqueue(c, d, quotaSourceKey(alert), 'quota', String(alert.accountId), quotaJobExpiresAt(alert.resetsAt));
+            existing.push(quotaSourceKey(alert));
           }
           return null;
         }
@@ -405,7 +447,14 @@ export class OwnerCompanionPush {
       kind: job.kind,
       target_id: job.targetId,
     };
-    if (job.kind === 'room') {
+    if (job.kind === 'quota') {
+      const quota = await quotaPushData(this.ctx.db, job, snapshot.table('providerAccounts').get(Number(job.targetId)));
+      if (!quota) {
+        await finish('canceled');
+        return { status: 'delivered' };
+      }
+      Object.assign(data, quota);
+    } else if (job.kind === 'room') {
       const room = await roomJobData(this.ctx.db, this.ctx.keyring, this.rooms, job);
       if (!room) {
         await finish('canceled');

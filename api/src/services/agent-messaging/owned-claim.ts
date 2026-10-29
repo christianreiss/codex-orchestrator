@@ -159,6 +159,8 @@ function decorate(
   const remote = snapshot.table('hostDaemonSessions').by('addressId', message.targetAddressId)[0];
   if (remote) delivery.target.daemon_session_id = remote.id;
   if (remote?.model) delivery.target.daemon_model = remote.model;
+  // A plan-mode session stays in plan mode for peer-delivered turns too.
+  if (remote?.permissionMode === 'plan') delivery.target.daemon_permission_mode = 'plan';
   if (ownedFreshStartAllowed(snapshot, message)) delivery.target.fresh_start_approved = true;
   if (message.kind === 'schedule') {
     const run = snapshot.table('agentScheduleRuns').by('messageId', message.id)[0];

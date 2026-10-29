@@ -35,6 +35,8 @@ export interface DaemonRuntime {
   connected: boolean;
   engines: string[];
   error: string | null;
+  /** Hello capability (cxx 0.9.146+): the wrapper passes per-session permission modes. */
+  permission_mode_version?: number;
 }
 export interface DaemonHealth {
   state: 'disabled' | 'green' | 'yellow' | 'red';

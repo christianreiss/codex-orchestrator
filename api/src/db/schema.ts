@@ -2430,6 +2430,8 @@ export const hostDaemonSessions = mysqlTable('host_daemon_sessions', {
   activeMessageId: char('active_message_id', { length: 36 }),
   /** Native model pinned for every turn of this session (migration 0077). */
   model: varchar('model', { length: 128 }),
+  /** Native permission mode pinned per session (0118): 'plan' | 'default'; NULL = default. */
+  permissionMode: varchar('permission_mode', { length: 16 }),
   status: varchar('status', { length: 24 }).notNull(),
   lastActivityAt: varchar('last_activity_at', { length: 100 }).notNull(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),

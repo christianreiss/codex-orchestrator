@@ -70,6 +70,114 @@ debug build and androidTest compilation passed; emulator UI tests were not run.
 Two androidTest expectations changed with the design (connection status only in
 More; quiet groups stay listed).
 
+## Mobile tools and plan mode (server)
+
+API-side groundwork for R4; the APK adopts it separately. Every route is additive and
+uses the paired device bearer credential with the operator's existing capability.
+`GET /companion/v1/me` advertises one flag per feature: `remote_stop_protocol`,
+`permission_mode_protocol`, `workflows_protocol`, `schedules_protocol`,
+`quota_push_protocol`, `git_director_protocol`, `project_board_protocol` and
+`feedback_protocol`, each `1`. A missing flag means the server predates the route:
+hide the feature, and treat a `404` from an older server the same way. Errors use
+the standard envelope (`{status:"error", message, code}`); validation is `422
+validation_failed`.
+
+**Stop an own remote session.** `POST /companion/v1/daemon-sessions/:id/stop` `{}`
+(`agent_messaging.manage`) stops a host daemon session this operator started from
+the app or the console and returns `{session_id, status}` (`stopping` while a turn is
+running, otherwise `closed`). Another operator's session is `403`, an unknown one
+`404`. Repeating the call on an ended session returns its current status.
+
+**Workflow runs.** `GET /companion/v1/workflow-runs?limit=25&cursor=0&status=`
+(`workflows.read`; `status` is one of `pending|running|paused|blocked|evaluating|completed`)
+returns `{enabled, runs:[{run_id, workflow_id, workflow_version, title, status,
+outcome, summary, report_url, open_items, cancel_requested, awaiting_decision,
+created_at, updated_at, started_at, finished_at}], next_cursor}`. `awaiting_decision`
+is `evaluation` while the run waits for its evaluation, `blocked` while it is
+blocked, otherwise `null`. It is read-only: evaluations are written by agents
+(`agent_workflow_run_evaluate`), and no console route answers them, so the app opens
+`report_url` instead of answering.
+
+**Schedules.** `GET /companion/v1/schedules` (`agent_messaging.read`) returns
+`{schedules:[{id, name, target, kind, at, cron, interval_minutes, timezone, enabled,
+paused, pause_reason, persistent, next_run_at, version, last_run:{status, due_at,
+last_error, updated_at}|null, last_error, updated_at}]}`. Prompts never leave the
+server. `POST /companion/v1/schedules/:id/pause` and `/resume` with `{version}`
+(`agent_messaging.manage`) return `{schedule, changed}`. A schedule already in the
+requested state answers `changed:false` without writing. A stale `version` is `409
+schedule_version_conflict`: reload and retry. Watchdog-managed schedules are not
+listed and answer `403 watchdog_schedule_managed`.
+
+**Quota warning push.** When a provider account window reaches its effective warn
+threshold (`quota_policy` `short_warn_percent` / `long_warn_percent`, default 85), every
+device whose operator holds `admin.read` and `auth.read_metadata` (the
+`/companion/v1/quotas` capabilities) gets one push per account window. The FCM data
+(all strings): `kind:"quota"`, `notification_id`, `device_id`, `target_id` (the
+account id), `engine`, `account_id`, `account_label`, `window` (`short`, `weekly` or,
+for Grok monthly subscriptions, `monthly`, as `/companion/v1/quotas` names them),
+`used_percent`, `threshold`, `resets_at`, `conversation_key:"quota:<engine>"` and a
+neutral `summary`. `used_percent` is read again at send time. The dedupe key is the
+window's reset time, so a reset drifting by seconds between samples never pushes
+again. A new window pushes once more. Unlimited policies, stale samples, removed or
+merged accounts and suspended engines never push. The outbox table already provides
+this dedupe, so there is no new table.
+
+**Git Director pending merges.** `GET /companion/v1/git-director/merges`
+(`git_director.read`) returns `{enabled, merges:[{request_id, verdict, status
+(waiting|allowed), decided_by, reason, repo, repo_root, host, target_branch, branch,
+agent:{engine, username, task}|null, requested_at, age_seconds, lease_expires_at}]}`,
+oldest first. It is read-only and shows `{enabled:false, merges:[]}` while the
+module is off.
+
+**Project board.** `GET /companion/v1/projects` (`projects.read`) returns
+`{board_enabled, projects:[{slug, title, description, updated_at}]}` without
+archived projects. `GET /companion/v1/projects/:slug/board` returns `{project,
+columns:[{id, key, title, card_count, wip_limit, over_wip, truncated, cards:[{id,
+number, title, labels, priority, due_at, status, blocked_reason,
+assignee:{username, host, role}|null, updated_at}]}]}`. `status` is `blocked`,
+`claimed`, `waiting` (dependencies open) or `open`. Card details stay on the console.
+A disabled board is `409 project_board_disabled`.
+
+**Feedback.** `POST /companion/v1/feedback` (`feedback.manage`) takes `{client_request_id
+(UUID), type (bug|feature|feedback), title, description, component? (default
+other), priority? (low|normal|high|critical)}` and files it through the same service
+as MCP `feedback_submit`, attributed to the operator with `surface:"companion"`.
+`201` returns `{feedback:{id, status, title, component, created_at}, replayed:false}`.
+A retry with the same `client_request_id` and body is `200` with `replayed:true`, and a
+different body is `409`. It accepts text only, because feedback has no attachment
+mechanism. Operators can submit while feedback is switched off, as in the console.
+
+**Plan mode.** `POST /companion/v1/daemon-sessions` accepts `permission_mode:
+"plan"|"default"` (default when omitted). `plan` needs a non-empty `task`. A plan
+session runs every turn in the native plan mode: `--permission-mode plan` for Claude
+and for Grok, whose CLI accepts the same flag. This includes peer-delivered turns.
+`default` passes no flag, so the host's posture-clamped mode applies and a session
+can never exceed the posture. Plan is the most restrictive mode and is allowed under
+every posture, root hosts included. Codex has no plan mode and answers `422
+permission_mode_engine_unsupported`. A host whose wrapper predates cxx 0.9.146 answers
+`409 permission_mode_unsupported`. `GET /companion/v1/hosts` lists, per host,
+`permission_modes:{<engine>:["default","plan"]|["default"]}`. Offer the choice only
+where `plan` is listed. Remote sessions in `/companion/v1/agents` carry
+`permission_mode`.
+
+**Plan approval.** Native plan approval (ExitPlanMode) never reaches the Portal,
+because daemon turns run in print mode. Each plan-mode turn therefore tells the agent
+to finish by asking through `cxx portal ask` with the choices Approve, Reject and
+Revise, with the plan in the question. If that is not available in plan mode, the
+plan arrives as the turn's reply. The app shows "Approve plan & execute" whenever a
+remote session has `permission_mode:"plan"` and is not working. It then calls
+`POST /companion/v1/daemon-sessions/:id/permission-mode` `{mode:"default",
+client_message_id, prompt_id?, version?}` (`agent_messaging.manage`,
+`agent_portal.manage`, `agent_portal.reveal_transcript`). The route stores `default`,
+then resumes the session with the execution instruction. With `prompt_id` the turn
+also answers that open question as `approve` (choice value). `202` returns
+`{session_id, permission_mode, changed, operation_id}`. A retry with the same
+`client_message_id` is safe: the mode switch is a no-op and the turn is idempotent.
+`{mode:"plan"}` or `{mode:"default"}` without `client_message_id` only switches the
+mode for the next turn (`200`, `operation_id:null`). Reject and Revise are ordinary
+answers on the question. The explicit route is the marker; no answer text switches
+the mode. A turn already running keeps the mode it started with.
+
 ## Room push and delta sync (server)
 
 API-side groundwork for the chat redesign (R3); the APK adopts it separately.

@@ -7,6 +7,8 @@ import { ownerPresence } from '../../control-plane/presence.js';
 import { attachCompanion } from '../../services/companion/presence.js';
 import { chatMetadataSchema } from '../../services/agent-chat/contracts.js';
 import { registerCompanionRooms } from './rooms.js';
+import { registerCompanionTools } from './tools.js';
+import { companionToolsDeps } from '../../services/companion/tools.js';
 import { AgentRoomChat } from '../../services/agent-room-chat/index.js';
 import { createAgentMessagingService } from '../../services/agent-messaging.js';
 import { eq } from 'drizzle-orm';
@@ -190,6 +192,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       read: () => companionQuotas(ctx),
     });
     registerCompanionRooms(app, ctx);
+    registerCompanionTools(app, companionToolsDeps(ctx, devices, remote.daemon));
     app.get(
       '/companion/v1/ws',
       {
@@ -217,6 +220,15 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         read_sync_protocol: 1,
         room_notifications_protocol: 1,
         room_delta_protocol: 1,
+        // R4 mobile tools; a missing flag means the server predates the route.
+        remote_stop_protocol: 1,
+        permission_mode_protocol: 1,
+        workflows_protocol: 1,
+        schedules_protocol: 1,
+        quota_push_protocol: 1,
+        git_director_protocol: 1,
+        project_board_protocol: 1,
+        feedback_protocol: 1,
         // The operator's room actor key: room events with this `actor` are the operator's own.
         actor: `admin:${user.id}`,
         name: user.name,
@@ -452,6 +464,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           title: body.title || (body.task ? body.task.slice(0, 160) : 'Kontakt herstellen'),
           prompt: contactPrompt(body.task),
           client_message_id: body.client_message_id,
+          ...(body.permission_mode ? { permission_mode: body.permission_mode } : {}),
         },
         `admin:${user.id}`,
         { deviceId: device.id, content: body.task || 'Kontakt herstellen', author: user.name },

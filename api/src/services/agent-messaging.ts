@@ -1786,6 +1786,8 @@ export class AgentMessagingService {
     if (remote) delivery.target.daemon_session_id = remote.id;
     // A pinned model (Fleet Advisor) must survive peer-delivered turns too.
     if (remote?.model) delivery.target.daemon_model = remote.model;
+    // A plan-mode session stays in plan mode for peer-delivered turns too.
+    if (remote?.permissionMode === 'plan') delivery.target.daemon_permission_mode = 'plan';
     if (await freshStartAllowed(this.db, result.message, result.target)) delivery.target.fresh_start_approved = true;
     if (result.message.kind === 'schedule') {
       const [run] = await this.db.select().from(agentScheduleRuns).where(eq(agentScheduleRuns.messageId, result.message.id)).limit(1);

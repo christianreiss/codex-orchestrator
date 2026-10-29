@@ -391,6 +391,7 @@ describe('migrations against the test baseline', () => {
       'companion_devices.read_sync_protocol',
       'agent_bus_conferences.rendezvous_key',
       'companion_devices.room_change_cursor',
+      'host_daemon_sessions.permission_mode',
     ]);
   });
 

@@ -578,7 +578,7 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 			return result
 		}
 	}
-	args := nativeArgs(engine, upstream, stringArg(delivery.Target, "daemon_model"))
+	args := nativeArgsWithPermissionMode(engine, upstream, stringArg(delivery.Target, "daemon_model"), stringArg(delivery.Target, "daemon_permission_mode"))
 	prompt := peerPrompt(delivery)
 	if delivery.WorkKind != "" {
 		prompt += "\n" + taskOutputInstruction
@@ -771,6 +771,22 @@ func nativeArgs(engine, upstream string, model ...string) []string {
 		args = append(args, "--model", pinned)
 	}
 	return args
+}
+
+// daemonPermissionModeVersion is the hello capability: this wrapper passes a
+// daemon session's permission mode on every turn (server gates plan on it).
+const daemonPermissionModeVersion = 1
+
+// nativeArgsWithPermissionMode adds a session-pinned native permission mode.
+// Only "plan" emits a flag, for engines whose CLI accepts it per invocation
+// (Claude, Grok); "default" relies on the host's posture-clamped settings, and
+// Codex has no per-invocation plan mode, so it never gets the flag.
+func nativeArgsWithPermissionMode(engine, upstream, model, mode string) []string {
+	args := nativeArgs(engine, upstream, model)
+	if strings.TrimSpace(mode) != "plan" || (engine != config.EngineClaude && engine != config.EngineGrok) {
+		return args
+	}
+	return append(args, "--permission-mode", "plan")
 }
 
 func (c *relayClient) relayPost(ctx context.Context, suffix string, body any, out any) error {
