@@ -322,13 +322,19 @@ describe('connection-owned daemon commands', () => {
   });
   async function vanishedRelayFixture() {
     vi.useFakeTimers();
-    const h = harness();
-    trackSessionActivity(h.runtime);
-    const host = h.fake.tables.get(schema.hosts)![0] as typeof schema.hosts.$inferSelect;
     const instance = randomUUID(),
       address = randomUUID(),
       accepted = randomUUID(),
-      leased = randomUUID();
+      leased = randomUUID(),
+      daemonSession = randomUUID();
+    // A host-daemon slot that was running the accepted delivery.
+    const h = harness({
+      hostDaemonSessions: [
+        { id: daemonSession, hostId: 1, addressId: address, status: 'running', activeMessageId: accepted },
+      ],
+    });
+    trackSessionActivity(h.runtime);
+    const host = h.fake.tables.get(schema.hosts)![0] as typeof schema.hosts.$inferSelect;
     const registration = await registerOwnedRelay(h.runtime, host, {
       username: 'user',
       instanceId: instance,
@@ -374,7 +380,7 @@ describe('connection-owned daemon commands', () => {
         wrapperVersion: 'test',
         capabilities: { control_state_protocol: 1 },
       });
-    return { h, host, id, instance, generation, scope, attachment, accepted, leased, successor };
+    return { h, host, id, instance, generation, scope, attachment, accepted, leased, daemonSession, successor };
   }
   it('settles a vanished relay instance\'s held work after the reconnect grace so a successor registers (feedback 068b9f9b)', async () => {
     const f = await vanishedRelayFixture();
@@ -415,6 +421,11 @@ describe('connection-owned daemon commands', () => {
         claimId: null,
         ownerInstanceId: null,
       });
+      // The daemon slot is released as peer_finished would for an ambiguous end.
+      expect(f.h.state.snapshot().table('hostDaemonSessions').get(f.daemonSession)).toMatchObject({
+        status: 'unknown',
+        activeMessageId: null,
+      });
       const next = await f.successor();
       expect(next.generation).toBe(f.generation + 1);
     } finally {
@@ -436,6 +447,7 @@ describe('connection-owned daemon commands', () => {
       await vi.advanceTimersByTimeAsync(OWNER_RECONNECT_GRACE_MS - 1000);
       await maintainOwnedMessaging(f.h.runtime);
       expect(f.h.state.snapshot().messages.get(f.accepted)?.status).toBe('accepted');
+      expect(f.h.state.snapshot().table('hostDaemonSessions').get(f.daemonSession)?.status).toBe('running');
       await expect(f.successor()).rejects.toThrow('unresolved');
     } finally {
       stopSessionActivity(f.h.runtime);
