@@ -27,6 +27,7 @@ import {
   stageConferenceCharge,
   stageConferenceSettlement,
   stageOwnedTaskResult,
+  ownedTaskResultReceipt,
   type OwnedMessage,
 } from './owned-delivery.js';
 import {
@@ -189,8 +190,12 @@ export async function replyOwnedMessage(
           'agent_task_result_not_accepted',
         );
       const now = nowIso();
+      // The work's recorded outcome. The reply row never carries one, so its
+      // message.task_result_status stays null (feedback 706ceff7).
+      let recorded: Json | undefined;
       if (parent.workKind && !progress) {
         const report = stageOwnedTaskResult(ctx, parent, input.taskResult ?? unknownTaskResult, keyring, now);
+        recorded = ownedTaskResultReceipt(ctx, parent, report, now);
         if (parent.status !== 'completed')
           stageUpdate(ctx, 'agentBusMessages', parent.id, {
             status: canceledAccepted ? parent.status : 'completed',
@@ -209,6 +214,7 @@ export async function replyOwnedMessage(
             json({
               message: messageMetadata(ctx.draft.table('agentBusMessages').get(parent!.id)!, sender, target),
               result_recorded: true,
+              task_result: recorded!,
               delivery_suppressed: 'conversation_canceled',
             });
         }
@@ -241,7 +247,10 @@ export async function replyOwnedMessage(
             'Client message ID was already used with different content',
             'agent_messaging_idempotency_conflict',
           );
-        return json({ message: messageForParticipant(existing, content, sender, target) });
+        return json({
+          message: messageForParticipant(existing, content, sender, target),
+          ...(recorded ? { task_result: recorded } : {}),
+        });
       }
       ownedAddress(snapshot, target.id);
       targetForValidation = target.id;
@@ -374,7 +383,11 @@ export async function replyOwnedMessage(
         }
       }
       created = true;
-      return () => json({ message: messageForParticipant(message(), content, sender, target) });
+      return () =>
+        json({
+          message: messageForParticipant(message(), content, sender, target),
+          ...(recorded ? { task_result: recorded } : {}),
+        });
     },
   })) as { message: Record<string, unknown> };
   const current = runtime.state.snapshot(),

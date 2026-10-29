@@ -216,6 +216,29 @@ export function stageDigestPresented(ctx: OwnerMutationContext, root: OwnedMessa
           updatedAt: now,
         });
 }
+/**
+ * The recorded outcome of one execution, echoed beside a reply or ack receipt.
+ * A reply's own `message.task_result_status` describes the reply row, which
+ * never carries one (feedback 706ceff7).
+ */
+export function ownedTaskResultReceipt(
+  ctx: OwnerMutationContext,
+  message: OwnedMessage,
+  result: TaskResult,
+  now: string,
+): Json {
+  const row = ctx.draft
+    .table('agentTaskResults')
+    .by('messageId', message.id)
+    .find((r) => r.claimId === message.claimId);
+  return json({
+    message_id: message.id,
+    claim_id: message.claimId,
+    status: row?.status ?? result.status,
+    summary: result.summary,
+    stored_at: row?.createdAt ?? now,
+  });
+}
 export function stageOwnedTaskResult(
   ctx: OwnerMutationContext,
   message: OwnedMessage,
@@ -442,6 +465,7 @@ export async function acknowledgeOwnedDelivery(
       if (input.taskResult && (!message.workKind || input.outcome !== 'completed'))
         throw new ValidationError('Only completed work deliveries accept a task result');
       if (TERMINAL_MESSAGE_STATUSES.includes(message.status as (typeof TERMINAL_MESSAGE_STATUSES)[number])) {
+        let recorded: Json | undefined;
         if (message.cancelRequestedAt && snapshot.messages.has(message.id)) {
           const now = nowIso();
           // Revocation cannot erase a late fact from the exact original offer.
@@ -462,14 +486,23 @@ export async function acknowledgeOwnedDelivery(
                 completedAt: message.completedAt ?? now,
                 updatedAt: now,
               });
+              if (input.taskResult) recorded = ownedTaskResultReceipt(ctx, message, report, now);
             } else
               message = stageUpdate(ctx, 'agentBusMessages', message.id, {
                 completedAt: message.completedAt ?? now,
                 updatedAt: now,
               });
           }
-        } else if (input.taskResult) stageOwnedTaskResult(ctx, message, input.taskResult, keyring, nowIso());
-        return json({ message: messageMetadata(message) });
+        } else if (input.taskResult) {
+          const now = nowIso();
+          recorded = ownedTaskResultReceipt(
+            ctx,
+            message,
+            stageOwnedTaskResult(ctx, message, input.taskResult, keyring, now),
+            now,
+          );
+        }
+        return json({ message: messageMetadata(message), ...(recorded ? { task_result: recorded } : {}) });
       }
       const now = nowIso(),
         target = snapshot.addresses.get(message.targetAddressId)!;
@@ -566,6 +599,7 @@ export async function acknowledgeOwnedDelivery(
                 };
           break;
       }
+      let recorded: Json | undefined;
       if (input.outcome === 'completed' && message.workKind) {
         const report = stageOwnedTaskResult(
           ctx,
@@ -574,6 +608,7 @@ export async function acknowledgeOwnedDelivery(
           keyring,
           now,
         );
+        recorded = ownedTaskResultReceipt(ctx, message, report, now);
         patch.taskResultStatus = report.status;
         if (input.taskResult) await stageResultReply(db, ctx, message, report, keyring, now);
         stageConferenceSettlement(ctx, message.id, now);
@@ -608,7 +643,7 @@ export async function acknowledgeOwnedDelivery(
           createdAt: now,
         });
       });
-      return json({ message: messageMetadata(changed) });
+      return json({ message: messageMetadata(changed), ...(recorded ? { task_result: recorded } : {}) });
     },
   });
   wsPublisher.publish('agent_messaging.message.changed', { message_id: id });

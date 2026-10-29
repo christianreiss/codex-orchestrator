@@ -237,3 +237,75 @@ func TestPlainReplyWithoutResultStillFinishesWork(t *testing.T) {
 		t.Fatalf("a non-progress reply remains the terminal answer: %v", posted)
 	}
 }
+
+// Feedback 706ceff7 (2026-10-29): agent_reply with task_result finished the
+// work, then agent_task_result on the same message failed with "this process
+// does not hold that delivery". The reply receipt carries the server's echo,
+// and a follow-up result is an idempotent retry or a named conflict.
+func TestTaskResultAfterFinishingReplyNamesTheStoredOutcome(t *testing.T) {
+	var posted []string
+	echo := map[string]any{"message_id": "work-1", "claim_id": "claim-work", "status": "succeeded", "summary": "deployed", "stored_at": "2026-10-29T06:50:00.000Z"}
+	c := &sessionClient{id: "session", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		path := strings.TrimPrefix(req.URL.Path, "/host/agent-sessions/session/agent-messaging/")
+		posted = append(posted, path)
+		body := `{}`
+		if path == "reply" {
+			raw, _ := json.Marshal(map[string]any{"message": map[string]any{"id": "reply-1", "task_result_status": nil}, "task_result": echo})
+			body = string(raw)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+	})}}
+	tracker := newChannelTracker(c)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tracker.track(ctx, "work-1", "claim-work", map[string]any{"work_kind": "request"})
+	result := map[string]any{"status": "succeeded", "summary": "deployed"}
+	out, err := callMCPTool(ctx, c, tracker, "agent_reply", map[string]any{"message_id": "work-1", "content": "done", "task_result": result})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := out["task_result"].(map[string]any); got["status"] != "succeeded" {
+		t.Fatalf("reply receipt must show the recorded outcome: %v", out)
+	}
+	calls := len(posted)
+
+	again, err := callMCPTool(ctx, c, tracker, "agent_task_result", map[string]any{"message_id": "work-1", "task_result": map[string]any{"status": "succeeded", "summary": " deployed "}})
+	if err != nil {
+		t.Fatalf("same result after a finishing reply must be idempotent: %v", err)
+	}
+	if again["already_recorded"] != true || again["recorded_by"] != "agent_reply" {
+		t.Fatalf("receipt = %v", again)
+	}
+	if got, _ := again["task_result"].(map[string]any); got["stored_at"] != echo["stored_at"] {
+		t.Fatalf("receipt must carry the server's recorded outcome: %v", again)
+	}
+	_, err = callMCPTool(ctx, c, tracker, "agent_task_result", map[string]any{"message_id": "work-1", "task_result": map[string]any{"status": "failed", "summary": "rolled back"}})
+	if err == nil || !strings.Contains(err.Error(), "agent_task_result_conflict") || !strings.Contains(err.Error(), `"succeeded"`) {
+		t.Fatalf("a different result must name the stored outcome: %v", err)
+	}
+	if len(posted) != calls {
+		t.Fatalf("finished work must not be acknowledged again: %v", posted[calls:])
+	}
+}
+
+// A plain reply stores unknown; a later explicit result must say so, not
+// pretend the delivery was never held.
+func TestTaskResultAfterPlainReplyNamesUnknown(t *testing.T) {
+	var posted []string
+	var bodies []map[string]any
+	c := heldWorkClient(t, &posted, &bodies)
+	tracker := newChannelTracker(c)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tracker.track(ctx, "work-1", "claim-work", map[string]any{"work_kind": "request"})
+	if _, err := callMCPTool(ctx, c, tracker, "agent_reply", map[string]any{"message_id": "work-1", "content": "answer"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := callMCPTool(ctx, c, tracker, "agent_task_result", map[string]any{"message_id": "work-1", "task_result": map[string]any{"status": "succeeded", "summary": "done"}})
+	if err == nil || !strings.Contains(err.Error(), `"unknown"`) {
+		t.Fatalf("expected the stored unknown outcome to be named: %v", err)
+	}
+	if _, err := callMCPTool(ctx, c, tracker, "agent_task_result", map[string]any{"message_id": "never-held", "task_result": map[string]any{"status": "succeeded", "summary": "done"}}); err == nil || !strings.Contains(err.Error(), "does not hold") {
+		t.Fatalf("unknown deliveries still fail plainly: %v", err)
+	}
+}

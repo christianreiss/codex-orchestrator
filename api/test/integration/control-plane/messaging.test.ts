@@ -266,8 +266,18 @@ describe.skipIf(!handle)('owned messaging lifecycle on MySQL', () => {
           outcome: 'completed' as const,
           taskResult: { status: 'succeeded' as const, summary: 'One verified fixture action' },
         };
-        await bus.acknowledgeSessionDelivery(peerId, peerToken, messageId, completion);
-        await bus.acknowledgeSessionDelivery(peerId, peerToken, messageId, completion);
+        // Feedback 706ceff7: the receipt names the recorded outcome, also on a retry.
+        const recorded = {
+          message_id: messageId,
+          claim_id: claimId,
+          status: 'succeeded',
+          summary: 'One verified fixture action',
+          stored_at: expect.any(String),
+        };
+        const firstAck = await bus.acknowledgeSessionDelivery(peerId, peerToken, messageId, completion);
+        expect(firstAck.task_result).toEqual(recorded);
+        expect((await bus.acknowledgeSessionDelivery(peerId, peerToken, messageId, completion)).task_result)
+          .toEqual(firstAck.task_result);
         expect(store.snapshot().messages.get(messageId)).toMatchObject({
           status: 'completed',
           taskResultStatus: 'succeeded',
@@ -327,13 +337,42 @@ describe.skipIf(!handle)('owned messaging lifecycle on MySQL', () => {
           content: 'Finished with evidence',
           taskResult: { status: 'succeeded' as const, summary: 'Verified final result' },
         };
-        expect((await bus.replyMessage(peerId, peerToken, nextId, finalReply)).created).toBe(true);
-        expect((await bus.replyMessage(peerId, peerToken, nextId, finalReply)).created).toBe(false);
+        // Feedback 706ceff7: message.task_result_status describes the reply row
+        // itself; the work's recorded outcome is echoed beside it.
+        const finished = await bus.replyMessage(peerId, peerToken, nextId, finalReply);
+        expect(finished.created).toBe(true);
+        expect(finished.task_result).toEqual({
+          message_id: nextId,
+          claim_id: nextClaim,
+          status: 'succeeded',
+          summary: 'Verified final result',
+          stored_at: expect.any(String),
+        });
+        const replayed = await bus.replyMessage(peerId, peerToken, nextId, finalReply);
+        expect(replayed.created).toBe(false);
+        expect(replayed.task_result).toEqual(finished.task_result);
         expect(store.snapshot().messages.get(nextId)).toMatchObject({
           status: 'completed',
           taskResultStatus: 'succeeded',
         });
         expect(store.snapshot().table('agentTaskResults').by('messageId', nextId)).toHaveLength(1);
+        // A final reply without task_result finishes the work as unknown and says so.
+        const plainSend = await bus.sendMessage(id, token, {
+            ...send,
+            clientMessageId: randomUUID(),
+            content: 'Answer without an explicit result',
+          }),
+          plainId = (plainSend.message as { id: string }).id,
+          plainClaim = randomUUID();
+        expect((await bus.claimForSession(peerId, peerToken, plainClaim))?.message_id).toBe(plainId);
+        await bus.acknowledgeSessionDelivery(peerId, peerToken, plainId, { claimId: plainClaim, outcome: 'accepted' });
+        const plain = await bus.replyMessage(peerId, peerToken, plainId, {
+          claimId: plainClaim,
+          clientMessageId: randomUUID(),
+          content: 'Plain answer',
+        });
+        expect(plain.task_result).toMatchObject({ message_id: plainId, status: 'unknown' });
+        expect(store.snapshot().messages.get(plainId)?.taskResultStatus).toBe('unknown');
         const informationalIds: string[] = [];
         for (const content of ['First informational original', 'Second informational original']) {
           const information = await bus.sendMessage(id, token, {

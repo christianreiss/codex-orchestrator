@@ -118,6 +118,95 @@ type channelTracker struct {
 	// channelActive records that the Claude Channel pump owns the adapter
 	// identity, so a listen bind must not overwrite adapter_protocol.
 	channelActive bool
+	// finished remembers the outcome stored for work this process already
+	// finished, so a follow-up agent_task_result can name it instead of
+	// claiming the delivery was never held (feedback 706ceff7). Bounded.
+	finished      map[string]finishedWork
+	finishedOrder []string
+}
+
+type finishedWork struct {
+	sent     *taskResult    // the body this process stored, nil for none (unknown)
+	recorded map[string]any // the server's task_result echo, when it returned one
+	by       string
+}
+
+const finishedWorkMemo = 64
+
+func (t *channelTracker) rememberFinished(messageID, by string, sent any, out map[string]any) {
+	if t == nil || messageID == "" {
+		return
+	}
+	entry := finishedWork{by: by}
+	if sent != nil {
+		entry.sent = decodeTaskResult(sent)
+	}
+	if recorded, ok := out["task_result"].(map[string]any); ok {
+		entry.recorded = recorded
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished == nil {
+		t.finished = make(map[string]finishedWork)
+	}
+	if _, ok := t.finished[messageID]; !ok {
+		t.finishedOrder = append(t.finishedOrder, messageID)
+	}
+	t.finished[messageID] = entry
+	for len(t.finishedOrder) > finishedWorkMemo {
+		delete(t.finished, t.finishedOrder[0])
+		t.finishedOrder = t.finishedOrder[1:]
+	}
+}
+
+func (t *channelTracker) finishedResult(messageID string) (finishedWork, bool) {
+	if t == nil {
+		return finishedWork{}, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entry, ok := t.finished[messageID]
+	return entry, ok
+}
+
+func decodeTaskResult(raw any) *taskResult {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var r taskResult
+	if json.Unmarshal(data, &r) != nil {
+		return nil
+	}
+	r.Summary = strings.TrimSpace(r.Summary)
+	for i := range r.Evidence {
+		r.Evidence[i].Description = strings.TrimSpace(r.Evidence[i].Description)
+		r.Evidence[i].Reference = strings.TrimSpace(r.Evidence[i].Reference)
+	}
+	return &r
+}
+
+// alreadyFinished answers agent_task_result for work this process finished
+// earlier. The same result is an idempotent retry; any other result cannot
+// replace the stored one, which the server would refuse as well.
+func alreadyFinished(messageID string, entry finishedWork, requested any) (map[string]any, error) {
+	stored := entry.sent
+	if stored == nil {
+		stored = unknownResult()
+	}
+	recorded := entry.recorded
+	if recorded == nil {
+		recorded = map[string]any{"message_id": messageID, "status": stored.Status, "summary": stored.Summary}
+	}
+	if want := decodeTaskResult(requested); want == nil || !reflect.DeepEqual(want, stored) {
+		return nil, fmt.Errorf("agent_task_result_conflict: %s already finished this work with outcome %q; a different result cannot replace it. Send any correction to the requester with agent_send in the same conversation, naming message %s", entry.by, stored.Status, messageID)
+	}
+	return map[string]any{
+		"already_recorded": true,
+		"recorded_by":      entry.by,
+		"task_result":      recorded,
+		"message":          "This outcome was already stored by " + entry.by + "; nothing was sent again.",
+	}, nil
 }
 
 func newChannelTracker(client *sessionClient) *channelTracker {
@@ -1075,11 +1164,14 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	case "agent_task_result":
 		messageID := stringArg(args, "message_id")
 		pending := channelState.get(messageID)
-		if pending == nil {
-			return nil, errors.New("this process does not hold that delivery")
-		}
 		if _, ok := args["task_result"]; !ok {
 			return nil, errors.New("task_result is required")
+		}
+		if pending == nil {
+			if entry, ok := channelState.finishedResult(messageID); ok {
+				return alreadyFinished(messageID, entry, args["task_result"])
+			}
+			return nil, errors.New("this process does not hold that delivery")
 		}
 		pending.opMu.Lock()
 		defer pending.opMu.Unlock()
@@ -1094,6 +1186,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			return nil, err
 		}
 		channelState.drop(messageID, pending)
+		channelState.rememberFinished(messageID, "agent_task_result", args["task_result"], out)
 		return out, nil
 	case "agent_reply":
 		messageID, content := stringArg(args, "message_id"), stringArg(args, "content")
@@ -1162,6 +1255,9 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 				return nil, fmt.Errorf("reply stored but delivery completion is uncertain: %w", err)
 			}
 			channelState.drop(messageID, pending)
+			if pending.workKind != "" {
+				channelState.rememberFinished(messageID, "agent_reply", args["task_result"], out)
+			}
 		}
 		return out, nil
 	case "agent_digest_get":

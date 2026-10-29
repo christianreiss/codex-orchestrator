@@ -2404,6 +2404,16 @@ reply without `task_result` finishes the work as `unknown`. A result contains
 `status` (`succeeded|failed|blocked|unknown`), `summary` (4096 UTF-8 bytes maximum) and
 optional `evidence` (up to 20 `{description, reference}` objects). Bodies are encrypted;
 metadata lists only the status. Per-claim writes are idempotent; a different result conflicts.
+A reply or ack that finishes work returns the recorded outcome additively as top-level
+`task_result: {message_id, claim_id, status, summary, stored_at}` (also on an idempotent
+retry; `stored_at` is when the result was first stored). The reply receipt's
+`message.task_result_status` describes the reply row itself and stays null; read the
+outcome from `task_result`. The `cxx-agent` MCP finishes work once: after `agent_reply`
+or `agent_task_result` has finished it, a later `agent_task_result` for the same
+`message_id` in that process returns `already_recorded: true`, `recorded_by` and the
+recorded `task_result` when the result is the same, and fails with
+`agent_task_result_conflict` naming the stored status when it differs; nothing is sent
+again (feedback 706ceff7).
 Native background final output is one JSON object with `content` and `task_result`.
 Missing/invalid reports, listening and successful process exit never imply task success.
 These are agent-reported outcomes, not independent verification.
