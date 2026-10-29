@@ -124,11 +124,15 @@ private fun roomQuote(messages: List<ChatMessage>, id: String, unavailable: Stri
     val last = state.events.lastOrNull()
     val readMarkers = remember(state.events, room) { roomReadMarkers(state.events, members) }
     val messages = remember(state.events) { state.events.map { ChatMessage.fromRoomEvent(it) } }
-    val items = remember(state.events) { buildTimeline(roomTimelineEntries(state.events)) }
+    // Unconfirmed sends follow the confirmed events as local bubbles; they never join state.events.
+    val outgoing = state.outgoing
+    val sendStates = outgoing.map(state::sendStatus)
+    val local = remember(outgoing, sendStates) { state.localEvents }
+    val items = remember(state.events, local) { buildTimeline(roomTimelineEntries(state.events) + roomTimelineEntries(local)) }
     val currentItems by rememberUpdatedState(items)
     val working = if (fresh) members.filter { presences[it.optString("id")] == "working" } else emptyList()
     val header = if (state.nextBefore != null) 1 else 0
-    val empty = state.events.isEmpty() && !state.loading && state.error == null
+    val empty = state.events.isEmpty() && local.isEmpty() && !state.loading && state.error == null
     val endIndex = header + (if (empty) 1 else 0) + items.size + (if (working.isNotEmpty()) 1 else 0)
     // Following drops only when the reader moves the list, never during our own scrolls,
     // so an arriving message does not flash "New messages" while the follow animation runs.
@@ -248,14 +252,15 @@ private fun roomQuote(messages: List<ChatMessage>, id: String, unavailable: Stri
                 state.replyTo?.let { target ->
                     Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         ReplyQuote(roomQuote(messages, target, unavailable), Modifier.weight(1f), onClick = { jumpTo(target) })
-                        IconButton(onClick = { state.replyTo = null }, enabled = state.pendingSend == null) { CompanionIcon(CompanionSymbol.Close, "Cancel reply") }
+                        IconButton(onClick = { state.replyTo = null }) { CompanionIcon(CompanionSymbol.Close, "Cancel reply") }
                     }
                 }
                 RecipientChips(state.recipients, members, writable && state.pendingSend == null) { state.recipients = it }
                 ChatUploadControls(model, "room:$id", writable && !state.busy && state.pendingSend == null) { attach, camera ->
+                    // An unconfirmed send is retried before anything new goes out, keeping the room's order.
                     ChatComposer(state.draft, { state.draft = it }, "Message the room",
                         canSend = writable && !state.busy && uploads.all { it.state == "ready" } && (state.draft.isNotBlank() || uploads.isNotEmpty() || state.pendingSend != null),
-                        sending = state.busy, fieldEnabled = true, readOnly = state.pendingSend != null,
+                        sending = state.busy, fieldEnabled = true,
                         fieldTag = "room-composer", sendTag = "room-send",
                         sendLabel = if (state.busy) "Sending…" else if (state.pendingSend != null) "Retry send" else "Send",
                         mediaActions = {
@@ -281,7 +286,8 @@ private fun roomQuote(messages: List<ChatMessage>, id: String, unavailable: Stri
     val copyLabel = stringResource(R.string.chat_copy)
     val selectLabel = stringResource(R.string.chat_select_text)
     val eventId = (message.key as? MessageKey.RoomEvent)?.id
-    val reply = if (replyable && eventId != null) ({ model.roomChats.replyTo = eventId }) else null
+    val localStatus = message.localStatus
+    val reply = if (replyable && eventId != null && localStatus == null) ({ model.roomChats.replyTo = eventId }) else null
     val actions = buildList {
         if (reply != null) add(BubbleAction("Reply", CompanionSymbol.Reply, reply))
         if (message.text.isNotBlank()) {
@@ -307,7 +313,27 @@ private fun roomQuote(messages: List<ChatMessage>, id: String, unavailable: Stri
         message.attachments.forEach { ChatAttachment(model, "room:$roomId", it) }
         if (message.text.isNotBlank()) BubbleText(message.text, markdown = !item.own, colors, selecting) { selecting = false }
         roomDeliverySummary(message, messages)?.let { DeliveryPills(it, members, colors) }
-        BubbleFooter(item, colors)
+        if (localStatus != null && eventId != null) LocalSendActions(model, eventId, localStatus, colors)
+        BubbleFooter(item, colors) {
+            if (localStatus != null) Text(stringResource(when (localStatus) {
+                "sending" -> R.string.chat_send_sending
+                "failed" -> R.string.chat_send_failed
+                else -> R.string.chat_send_unconfirmed
+            }), Modifier.testTag("room-send-status:$eventId"), style = MaterialTheme.typography.labelSmall, color = colors.secondary)
+        }
+    }
+}
+
+/** Retry for an unconfirmed or failed local room send; a definitive failure can also be discarded. */
+@Composable private fun LocalSendActions(model: CompanionModel, entryId: String, status: String, colors: BubbleColors) {
+    if (status == "sending") return
+    val state = model.roomChats
+    val writable = model.fresh() && model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content")
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        if (status == "failed") TextButton(onClick = { state.discard(entryId) }, enabled = !state.busy,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("room-discard:$entryId")) { Text(stringResource(R.string.chat_discard_send), color = colors.content) }
+        TextButton(onClick = { state.retry(entryId, model::roomSent) }, enabled = writable && !state.busy,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("room-retry:$entryId")) { Text(stringResource(R.string.chat_send_retry), color = colors.content) }
     }
 }
 

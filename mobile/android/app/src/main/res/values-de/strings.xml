@@ -6,4 +6,9 @@
     <string name="quota_level_error">Kritische Auslastung</string>
     <string name="start_host_description">Agent auf %1$s starten</string>
     <string name="review_request_description">Zugriffsanfrage von %1$s prüfen</string>
+    <string name="chat_discard_send">Verwerfen</string>
+    <string name="chat_send_sending">Wird gesendet…</string>
+    <string name="chat_send_unconfirmed">Nicht bestätigt</string>
+    <string name="chat_send_failed">Nicht zugestellt</string>
+    <string name="chat_send_retry">Erneut senden</string>
 </resources>

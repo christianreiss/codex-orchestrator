@@ -95,12 +95,45 @@ internal fun RoomRecipients.forMembers(members: List<JSONObject>): RoomRecipient
 internal fun mergeRoomEvents(old: List<JSONObject>, fresh: List<JSONObject>): List<JSONObject> =
     (old + fresh).associateBy { it.getString("id") }.values.sortedWith(compareBy({ it.optString("created_at") }, { it.optString("id") }))
 
+/**
+ * The local bubble of an unconfirmed room send, shaped like a server room event of
+ * this operator (`admin:` actor). It is drawn after the server events and never
+ * joins `events`, so read markers and "seen" only ever see confirmed rows.
+ * [status] is `sending`, `unconfirmed` or `failed`.
+ */
+internal fun roomLocalEvent(entry: OutboxEntry, status: String): JSONObject {
+    val body = runCatching { JSONObject(entry.body) }.getOrDefault(JSONObject())
+    return JSONObject().put("id", entry.id).put("room_id", body.optString("room_id")).put("kind", "chat").put("actor", "admin:local")
+        .put("content", body.optString("content")).put("attachments", body.optJSONArray("attachments") ?: JSONArray())
+        .put("created_at", entry.createdAt).put("local_send_id", entry.id).put("delivery_status", status)
+        .apply { body.optString("reply_to").takeIf { it.isNotBlank() && body.has("reply_to") }?.let { put("reply_to", it) } }
+}
+
+/** A `/rooms/send` answer that is the stored room event itself (the server returns it, also for a deduplicated retry). */
+private fun acceptedRoomEvent(response: JSONObject, roomId: String): JSONObject? =
+    response.takeIf { it.optString("id").isNotBlank() && it.optString("created_at").isNotBlank() && it.has("kind") && (!it.has("room_id") || it.optString("room_id") == roomId) }
+
 /** Shared room state stays separate from private Portal cursors and device follows. */
 internal class RoomChats(
     private val scope: CoroutineScope,
     private val api: () -> Api,
     private val allowed: () -> Boolean,
+    /** Unconfirmed sends and drafts, shared with direct chats; room entries use `room:<id>` keys. */
+    private val outbox: ChatOutbox = ChatOutbox(),
+    /** Called whenever the offline room cache changes; persist it. */
+    private val cacheChanged: (RoomHistoryCache) -> Unit = {},
+    /** Waits until the outbox is on disk; runs before every send attempt. */
+    private val beforeSend: suspend () -> Unit = {},
+    private val now: () -> Long = { android.os.SystemClock.elapsedRealtime() },
+    /** Pairing the offline cache belongs to ([ChatHistoryCache.owner]). */
+    owner: String = "",
 ) {
+    private var cache = RoomHistoryCache(owner)
+    /** Counts content wipes, fencing a cache restore that started earlier. */
+    var cacheWipes = 0L; private set
+    private fun cacheUpdated() = cacheChanged(cache)
+    private fun key(roomId: String) = ConversationKey.Room(roomId).storageKey
+    private fun isRoomKey(key: String) = key.startsWith(ConversationKey.ROOM_PREFIX)
     var rooms by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var selected by mutableStateOf<String?>(null); private set
     var current by mutableStateOf<JSONObject?>(null); private set
@@ -119,23 +152,23 @@ internal class RoomChats(
         generation++; history = value; rooms = emptyList(); nextOffset = null; loading = false; error = null
     }
     var candidates by mutableStateOf<List<JSONObject>>(emptyList()); private set
-    private var drafts by mutableStateOf<Map<String, String>>(emptyMap())
     private var targets by mutableStateOf<Map<String, RoomRecipients>>(emptyMap())
-    private var replies by mutableStateOf<Map<String, String>>(emptyMap())
     /** Newest chat event seen per room this session; the directory has no message preview. */
     var previews by mutableStateOf<Map<String, JSONObject>>(emptyMap()); private set
     private val frozenInitials = mutableMapOf<String, Map<String, String>>()
-    private var pending by mutableStateOf<Map<String, JSONObject>>(emptyMap())
+    /** Ids of sends with a request in flight. */
+    private var sending by mutableStateOf<Set<String>>(emptySet())
+    /** Persisted with the outbox, per room. */
     var draft: String
-        get() = drafts[selected].orEmpty()
-        set(value) { selected?.let { drafts = drafts + (it to value) } }
+        get() = outbox.draft(selected?.let(::key))?.text.orEmpty()
+        set(value) { selected?.let { outbox.setDraft(key(it), value, replyTo) } }
     var recipients: RoomRecipients
         get() = targets[selected] ?: RoomRecipients.Share
         set(value) { selected?.let { targets = targets + (it to value) } }
-    /** Room event UUID the next message answers, kept per room in memory like the draft. */
+    /** Room event UUID the next message answers, persisted per room with the draft. */
     var replyTo: String?
-        get() = replies[selected]
-        set(value) { selected?.let { replies = if (value == null) replies - it else replies + (it to value) } }
+        get() = outbox.draft(selected?.let(::key))?.replyTo
+        set(value) { selected?.let { outbox.setDraft(key(it), draft, value) } }
     /** Avatar initials per member, frozen for this room for the session (see [freezeInitials]). */
     fun initials(roomId: String, members: List<JSONObject>): Map<String, String> {
         val names = members.associate { it.optString("id") to roomPersonLabel(it) }
@@ -143,22 +176,55 @@ internal class RoomChats(
         if (previous.keys == names.keys) return previous
         return freezeInitials(previous, names).also { frozenInitials[roomId] = it }
     }
-    val pendingSend get() = pending[selected]
+    /** Unconfirmed sends of the open room, oldest first. */
+    val outgoing: List<OutboxEntry> get() = selected?.let { outbox.entries(key(it)) }.orEmpty()
+    /** The oldest unconfirmed send of the open room: the composer retries it before sending anything new. */
+    val pendingSend: OutboxEntry? get() = outgoing.firstOrNull()
+    fun sendStatus(entry: OutboxEntry) = when {
+        entry.id in sending -> "sending"
+        entry.failed -> "failed"
+        else -> "unconfirmed"
+    }
+    /** Local bubbles of [outgoing], drawn after the server events. */
+    val localEvents: List<JSONObject> get() = outgoing.map { roomLocalEvent(it, sendStatus(it)) }
     private var generation = 0
     private var selection = 0
     private var operation by mutableStateOf<JSONObject?>(null)
     val pendingOperation get() = operation
+    /** Sign-out, revocation or loss of room access: wipes the offline cache and room sends and drafts too. */
     fun clear() {
         generation++; selection++; rooms = emptyList(); selected = null; current = null
-        events = emptyList(); drafts = emptyMap(); targets = emptyMap(); replies = emptyMap(); pending = emptyMap(); previews = emptyMap(); frozenInitials.clear()
+        events = emptyList(); targets = emptyMap(); previews = emptyMap(); frozenInitials.clear(); sending = emptySet()
+        outbox.clearWhere(match = ::isRoomKey)
+        cacheWipes++; cache.clear(); cacheUpdated()
         candidates = emptyList(); nextBefore = null; nextOffset = null; error = null
         loading = false; busy = false; operation = null; supported = true; enabled = true; history = false
+    }
+    /** A new pairing: nothing of the previous account's cache survives. */
+    fun resetCache(owner: String) { cacheWipes++; cache = RoomHistoryCache(owner); cacheUpdated() }
+    /**
+     * Adopts the cache read from disk at cold start: rooms render before the
+     * server answers. Live data loaded meanwhile wins.
+     */
+    fun restoreCache(restored: RoomHistoryCache) {
+        if (!cache.isEmpty) return
+        cache = restored
+        cacheUpdated()
+        if (rooms.isEmpty() && !history) rooms = restored.rooms()
+        previews = rooms.mapNotNull { room ->
+            val id = room.optString("id")
+            restored.events(id).lastOrNull { it.optString("kind", "chat") == "chat" && it.optString("content").isNotBlank() }?.let { id to it }
+        }.toMap() + previews
+        selected?.let { id -> if (events.isEmpty()) events = restored.events(id) }
     }
     fun close() { selection++; selected = null; current = null; events = emptyList(); nextBefore = null; error = null; loading = false }
     suspend fun refresh(client: Api, caps: Set<String>, valid: () -> Boolean) {
         if ("agent_messaging.read" !in caps) { if (valid()) clear(); return }
         if ("agent_messaging.reveal_content" !in caps && valid()) {
-            close(); drafts = emptyMap(); pending = emptyMap(); replies = emptyMap(); previews = emptyMap()
+            close(); previews = emptyMap()
+            outbox.clearWhere(match = ::isRoomKey)
+            cacheWipes++
+            if (!cache.isEmpty) { cache.stripContent(); cacheUpdated() }
         }
         val epoch = generation
         val page = try { client.request(directoryPath()) } catch (e: ApiException) {
@@ -173,12 +239,14 @@ internal class RoomChats(
         val batch = page.optJSONArray("rooms")?.objects() ?: emptyList()
         rooms = if (page.optBoolean("has_more")) (batch + rooms.filter { old -> batch.none { it.optString("id") == old.optString("id") } }) else batch
         nextOffset = if (page.isNull("next_offset")) null else maxOf(nextOffset ?: 0, page.optInt("next_offset"))
+        if (!history) { cache.rememberRooms(rooms); cacheUpdated() }
         selected?.let { id ->
             if ("agent_messaging.reveal_content" in caps) read(client, id, valid = valid)
         }
     }
     fun open(room: JSONObject) {
-        selection++; selected = room.getString("id"); current = room; events = emptyList(); nextBefore = null; error = null
+        // Saved events render at once (also offline); the read below replaces them.
+        selection++; selected = room.getString("id"); current = room; events = cache.events(room.getString("id")); nextBefore = null; error = null
         val id = selected!!
         scope.launch { read(api(), id) }
     }
@@ -192,13 +260,18 @@ internal class RoomChats(
             if (epoch != generation || view != selection || id != selected || !valid()) return
             current = page.getJSONObject("room")
             events = mergeRoomEvents(events, page.getJSONArray("events").objects())
+            cache.rememberEvents(id, events); cacheUpdated()
             events.lastOrNull { it.optString("kind", "chat") == "chat" && it.optString("content").isNotBlank() }?.let { previews = previews + (id to it) }
             if (before != null || nextBefore == null) nextBefore = page.optString("next_before").takeUnless { it.isBlank() || it == "null" }
             error = null
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             if (epoch == generation && view == selection && valid()) {
-                if (e is ApiException && e.status in setOf(401, 403, 404, 410)) { events = emptyList(); current = null; drafts = drafts - id; pending = pending - id; replies = replies - id; previews = previews - id }
+                if (e is ApiException && e.status in setOf(401, 403, 404, 410)) {
+                    events = emptyList(); current = null; previews = previews - id
+                    outbox.clearWhere { it == key(id) }
+                    cache.forget(id); cacheUpdated()
+                }
                 error = e.message ?: "Cannot load conversation"
             }
         } finally { if (epoch == generation && view == selection) loading = false }
@@ -229,29 +302,84 @@ internal class RoomChats(
             } catch (_: Exception) { /* Reading can be retried after reconnect. */ }
         }
     }
+    /**
+     * Sends the composer, or retries the open room's oldest unconfirmed send. A new send is
+     * persisted (frozen body, new `client_request_id`) before its request; the draft and reply
+     * move into its local bubble at once.
+     */
     fun send(attachments: List<String>, sent: (String, List<String>) -> Unit) {
         val id = selected ?: return
         if (!allowed() || busy || current?.optString("status") != "open") return
-        val members = current?.optJSONArray("members")?.objects().orEmpty()
-        val body = pending[id] ?: roomSendBody(id, UUID.randomUUID().toString(), draft, attachments, recipients.forMembers(members), replyTo)
-        if (body.optString("content").isBlank() && body.getJSONArray("attachments").length() == 0) return
-        pending = pending + (id to body)
+        val entry = pendingSend ?: run {
+            val members = current?.optJSONArray("members")?.objects().orEmpty()
+            val body = roomSendBody(id, UUID.randomUUID().toString(), draft, attachments, recipients.forMembers(members), replyTo)
+            if (body.optString("content").isBlank() && body.getJSONArray("attachments").length() == 0) return
+            OutboxEntry(body.getString("client_request_id"), key(id), "/rooms/send", body.toString(), java.time.Instant.now().toString()).also {
+                outbox.enqueue(it)
+                outbox.setDraft(key(id), "", null)
+            }
+        }
+        deliver(entry, manual = true, sent)
+    }
+    /** Explicit retry from a bubble; also re-arms a definitively failed send. */
+    fun retry(entryId: String, sent: (String, List<String>) -> Unit) {
+        val entry = outbox.entry(entryId)?.takeIf { it.room } ?: return
+        if (!allowed() || busy) return
+        deliver(entry, manual = true, sent)
+    }
+    /** Drops a definitively failed send; its text returns to an empty composer. */
+    fun discard(entryId: String) {
+        val entry = outbox.entry(entryId)?.takeIf { it.room && it.failed && it.id !in sending } ?: return
+        outbox.remove(entry.id)
+        val body = runCatching { JSONObject(entry.body) }.getOrNull() ?: return
+        if (outbox.draft(entry.conversation) == null) outbox.setDraft(entry.conversation, body.optString("content"),
+            body.optString("reply_to").takeIf { it.isNotBlank() && body.has("reply_to") })
+    }
+    /**
+     * Automatic retries: per room the oldest send that is due, in order, while rooms are
+     * writable. Returns when the next backoff step is due (null when nothing waits).
+     */
+    fun pump(sent: (String, List<String>) -> Unit): Long? {
+        if (!allowed()) return null
+        val time = now()
+        var next: Long? = null
+        outbox.entries.filter { it.room && !it.failed }.groupBy { it.conversation }.values.forEach { queue ->
+            val entry = queue.first()
+            if (entry.id in sending) return@forEach
+            if (entry.nextAttemptAt > time) { next = minOf(next ?: Long.MAX_VALUE, entry.nextAttemptAt); return@forEach }
+            if (!busy) deliver(entry, manual = false, sent)
+        }
+        return next
+    }
+    private fun deliver(entry: OutboxEntry, manual: Boolean, sent: (String, List<String>) -> Unit) {
+        if (entry.id in sending) return
+        val roomId = entry.conversation.removePrefix(ConversationKey.ROOM_PREFIX)
         val epoch = generation
+        sending = sending + entry.id
+        if (manual) { busy = true; error = null }
+        if (entry.failed) outbox.update(entry.id) { it.copy(failed = false, error = null) }
         scope.launch {
-            busy = true; error = null
             try {
-                api().request("/rooms/send", "POST", body)
-                if (epoch != generation) return@launch
-                pending = pending - id
-                if (drafts[id] == body.optString("content")) drafts = drafts + (id to "")
-                if (replies[id] != null && replies[id] == body.optString("reply_to")) replies = replies - id
-                sent(id, body.getJSONArray("attachments").strings().toList())
-                if (selected == id) read(api(), id)
-            } catch (e: Exception) { if (epoch == generation) {
-                if (e is ApiException && e.status in setOf(400, 403, 404, 413)) pending = pending - id
-                error = e.message ?: "Send not confirmed. Retry uses the same message."
-            } }
-            finally { if (epoch == generation) busy = false }
+                beforeSend()
+                when (val result = deliverOutboxEntry(api(), entry)) {
+                    is OutboxResult.Accepted -> {
+                        if (epoch != generation) return@launch
+                        outbox.remove(entry.id)
+                        val attachments = runCatching { JSONObject(entry.body).getJSONArray("attachments").strings().toList() }.getOrDefault(emptyList())
+                        // The answer is the stored event: it replaces the local bubble without a gap.
+                        acceptedRoomEvent(result.response, roomId)?.let { event -> if (selected == roomId) events = mergeRoomEvents(events, listOf(event)) }
+                        sent(roomId, attachments)
+                        if (selected == roomId) read(api(), roomId)
+                    }
+                    is OutboxResult.Rejected -> if (epoch == generation) {
+                        outbox.update(entry.id) { it.afterFailure(result, now()) }
+                        if (manual) error = result.error.message ?: "Send not confirmed. Retry uses the same message."
+                    }
+                }
+            } finally {
+                sending = sending - entry.id
+                if (manual && epoch == generation) busy = false
+            }
         }
     }
     fun loadCandidates() {

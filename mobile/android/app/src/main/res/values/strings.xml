@@ -6,4 +6,9 @@
     <string name="quota_level_error">Critical usage</string>
     <string name="start_host_description">Start an agent on %1$s</string>
     <string name="review_request_description">Review access request from %1$s</string>
+    <string name="chat_discard_send">Discard</string>
+    <string name="chat_send_sending">Sending…</string>
+    <string name="chat_send_unconfirmed">Not confirmed</string>
+    <string name="chat_send_failed">Not delivered</string>
+    <string name="chat_send_retry">Retry</string>
 </resources>

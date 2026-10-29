@@ -18,10 +18,14 @@ class Api(private val server: String, private val token: String? = null) {
         internal var client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(25, TimeUnit.SECONDS)
             .followRedirects(false).followSslRedirects(false).build()
     }
-    suspend fun request(path: String, method: String = "GET", body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
+    suspend fun request(path: String, method: String = "GET", body: JSONObject? = null): JSONObject =
+        call(path, method, if (method in listOf("POST", "PATCH", "PUT")) (body ?: JSONObject()).toString() else null)
+    /** POSTs [body] byte for byte: an outbox retry must repeat the frozen request exactly. */
+    suspend fun post(path: String, body: String): JSONObject = call(path, "POST", body)
+    private suspend fun call(path: String, method: String, body: String?): JSONObject = withContext(Dispatchers.IO) {
         val builder = Request.Builder().url("$server/companion/v1$path").header("Accept", "application/json")
         token?.let { builder.header("Authorization", "Bearer $it") }
-        builder.method(method, if (method in listOf("POST", "PATCH", "PUT")) (body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()) else null)
+        builder.method(method, body?.toRequestBody("application/json".toMediaType()))
         client.newCall(builder.build()).execute().use { response ->
             val json = runCatching { JSONObject(response.body?.string() ?: "{}") }.getOrElse { throw IOException("Invalid server response") }
             if (!response.isSuccessful) throw ApiException(response.code, json.optString("message", "Request failed (${response.code})"), json.optString("code"))

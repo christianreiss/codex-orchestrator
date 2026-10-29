@@ -72,9 +72,9 @@ data class ChatMessage(
     val createdAtRaw: String,
     /** Portal receipt correlation id (`payload.message_id`); null for rooms. */
     val messageId: String? = null,
-    /** Client id of an unconfirmed local Portal send. */
+    /** Client id of an unconfirmed local send (Portal or room). */
     val localId: String? = null,
-    /** Local Portal send state (`sending`, `queued`, `unconfirmed`, `failed`) before server receipts exist. */
+    /** Local send state (`sending`, `queued`, `unconfirmed`, `failed`) before the server confirmed it. */
     val localStatus: String? = null,
     val deliveries: List<ChatDelivery> = emptyList(),
     /** Notice severity for Portal `attention` / `waiting_input` items. */
@@ -144,6 +144,9 @@ fun ChatMessage.Companion.fromRoomEvent(event: JSONObject): ChatMessage {
         deliveries = event.optJSONArray("deliveries")?.objects()?.mapNotNull { delivery ->
             delivery.text("status")?.let { ChatDelivery(delivery.text("address_id"), it) }
         } ?: emptyList(),
+        // Local bubbles of unconfirmed sends (see roomLocalEvent); server events have neither.
+        localId = event.text("local_send_id"),
+        localStatus = event.text("delivery_status"),
     )
 }
 

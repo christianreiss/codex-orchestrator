@@ -257,6 +257,13 @@ import org.json.JSONObject
         if (message.localStatus == "unconfirmed" && cursor < 0) {
             TextButton(onClick = { message.localId?.let(model::retryChat) }, enabled = writable && !model.busy) { Text("Retry", color = colors.content) }
         }
+        // A definitive rejection is not retried on its own: the operator retries or discards it.
+        if (message.localStatus == "failed" && cursor < 0 && model.canRetryChat(message.localId)) Row(Modifier.align(Alignment.End)) {
+            TextButton(onClick = { message.localId?.let(model::discardChat) }, enabled = !model.busy, modifier = Modifier.heightIn(min = 48.dp).testTag("discard-send:$cursor")) {
+                Text(stringResource(R.string.chat_discard_send), color = colors.content)
+            }
+            TextButton(onClick = { message.localId?.let(model::retryChat) }, enabled = writable && !model.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retry", color = colors.content) }
+        }
         if (noticeId != null && !resolved) TextButton(
             onClick = { model.resolveChatNotice(session, noticeId) },
             enabled = fresh && activeNoticeIds?.contains(noticeId) == true && model.can("agent_portal.manage") && !model.busy,

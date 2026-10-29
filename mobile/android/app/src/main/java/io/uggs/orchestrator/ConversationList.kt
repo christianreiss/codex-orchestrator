@@ -76,7 +76,9 @@ import java.time.Instant
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (model.roomChats.history) "Conference history" else "Conversations", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                // The top app bar names the screen; only the history view needs its own heading.
+                if (model.roomChats.history) Text("Conference history", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                else Spacer(Modifier.weight(1f))
                 if (model.can("agent_messaging.read") && model.roomChats.supported && model.roomChats.enabled)
                     TextButton(onClick = { model.roomChats.showHistory(!model.roomChats.history); model.refreshNow() }, enabled = fresh, modifier = Modifier.testTag("conference-history-toggle")) { Text(if (model.roomChats.history) "Active" else "History") }
                 if (model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content") && model.roomChats.supported && model.roomChats.enabled)
@@ -135,7 +137,7 @@ import java.time.Instant
                 AgentRow(agent, now, fresh, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
             }
             itemsIndexed(shared, key = { _, room -> "room:" + room.getString("id") }) { index, room ->
-                RoomRow(room, model.can("agent_messaging.reveal_content"), Instant.ofEpochMilli(now), model.roomChats.previews[room.getString("id")], index < shared.lastIndex) { model.openRoom(room) }
+                RoomRow(room, model.canOpenRoom(room), Instant.ofEpochMilli(now), model.roomChats.previews[room.getString("id")], index < shared.lastIndex) { model.openRoom(room) }
             }
             if (model.roomChats.nextOffset != null) item { TextButton(onClick = model.roomChats::more, enabled = fresh && !model.roomChats.loading) { Text("More conversations") } }
             if (visible.isEmpty() && shared.isEmpty()) item(key = "empty") {

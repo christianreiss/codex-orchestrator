@@ -3,6 +3,8 @@ package io.uggs.orchestrator
 import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,15 +29,22 @@ import java.util.UUID
  * Facade over the companion's state. Cohesive slices live beside it:
  * [RoomChats] (rooms), [ChatUploads] (attachments), [UnreadState] (unread +
  * notifications), [QuotaState], [AccessRequests] (approvals/windows),
- * [ChatCacheWriter] (encrypted cache), `CompanionLive.kt` (socket frames),
+ * [ChatCacheWriter] (encrypted cache), [ChatOutbox] (persisted sends and
+ * drafts), [RoomHistoryCache] (offline rooms), `CompanionLive.kt` (socket frames),
  * `DirectHistory.kt` / `DirectChatSend.kt` (direct transcript and sends).
  * Live refresh and its generation/revision fencing stay here as one block.
  */
 class CompanionModel(app: Application) : AndroidViewModel(app) {
-    internal val roomChats = RoomChats(viewModelScope, { api() }, { fresh() && can("agent_messaging.manage") && can("agent_messaging.reveal_content") })
     private val store = ConnectionStore(app)
     private val unreadStore = UnreadStore(app)
     var connection by mutableStateOf(store.load()); private set
+    /** Unconfirmed sends and drafts of direct chats and rooms, one encrypted blob. */
+    private val outbox = ChatOutbox(connection?.let(ChatHistoryCache::owner).orEmpty())
+    private val outboxWriter = ChatCacheWriter(ChatCacheStore(app, ChatOutbox.FILE, ChatOutbox.MAX_BYTES))
+    private val roomWriter = ChatCacheWriter(ChatCacheStore(app, RoomHistoryCache.FILE, RoomHistoryCache.MAX_BYTES))
+    internal val roomChats = RoomChats(viewModelScope, { api() }, { fresh() && can("agent_messaging.manage") && can("agent_messaging.reveal_content") },
+        outbox, { cache -> roomWriter.persistBody(cache.takeUnless { it.isEmpty }?.json()) }, { outboxWriter.flush() },
+        owner = connection?.let(ChatHistoryCache::owner).orEmpty())
     private val cacheWriter = ChatCacheWriter(ChatCacheStore(app))
     private var historyCache = ChatHistoryCache(connection?.let(ChatHistoryCache::owner).orEmpty())
     private var cachedOverview by mutableStateOf(false)
@@ -72,14 +81,20 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var status by mutableStateOf("Connecting…"); private set
     val connecting get() = connection != null && !online && status == "Connecting…" && error == null
     var busy by mutableStateOf(false); private set
-    private var chatDrafts by mutableStateOf<Map<String,String>>(emptyMap())
+    /** Persisted with the outbox, per conversation, together with the reply target. */
     var draft: String
-        get() = chatDrafts[selected] ?: ""
-        set(value) { selected?.let { chatDrafts = chatDrafts + (it to value) } }
+        get() = outbox.draft(selected)?.text.orEmpty()
+        set(value) { selected?.let { outbox.setDraft(it, value, replyTargets[it]?.toString()) } }
     private val uploads = ChatUploads(app, viewModelScope, { api() }, { connection!!.deviceId }, ::chatError)
     val chatUploads: Map<String, List<ChatUpload>> get() = uploads.items
     var replyTargets by mutableStateOf<Map<String,Long>>(emptyMap()); private set
     private val chatSends = mutableMapOf<String,ChatSend>()
+    private val outboxInFlight = mutableSetOf<String>()
+    private var outboxTimer: Job? = null
+    private var outboxTimerAt = 0L
+    private val network = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) { viewModelScope.launch { connectivityReturned() } }
+    }
     private val noticeOperations = mutableMapOf<String,String>()
     val defaultMinutes: Int get() = access.defaultMinutes
     var highlightApproval by mutableStateOf<String?>(null); private set
@@ -113,12 +128,29 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     init {
         connection?.let(unreadStore::activate) ?: unreadStore.clear()
         unreadPreferences.registerOnSharedPreferenceChangeListener(unreadListener)
+        // Every failed attempt lands here with its next backoff step, so the timer re-arms itself.
+        outbox.onChange = { outboxWriter.persistBody(outbox.json()); armOutboxTimer() }
+        runCatching { app.getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(network) }
         val initial = connection
         val initialCacheEpoch = cacheWriter.epoch
+        val initialOutboxWipes = outbox.wipes
+        val initialRoomWipes = roomChats.cacheWipes
         viewModelScope.launch(Dispatchers.IO) {
             val saved = cacheWriter.read()
+            val savedOutbox = outboxWriter.read()
+            val savedRooms = roomWriter.read()
+            // Start the other writers only after their blobs were read.
+            launch { outboxWriter.drain() }
+            launch { roomWriter.drain() }
             val restored = initial?.let { ChatHistoryCache(ChatHistoryCache.owner(it), saved) }
+            val restoredRooms = initial?.let { RoomHistoryCache(ChatHistoryCache.owner(it), savedRooms) }
             withContext(Dispatchers.Main) {
+                val owner = initial?.let(ChatHistoryCache::owner)
+                if (owner != null && connection?.let(ChatHistoryCache::owner) == owner) {
+                    if (outbox.wipes == initialOutboxWipes) { outbox.restore(owner, savedOutbox); restoreDirectOutbox() }
+                    if (roomChats.cacheWipes == initialRoomWipes && restoredRooms != null) roomChats.restoreCache(restoredRooms)
+                    pumpOutbox()
+                } else if (connection == null) { outboxWriter.delete(); roomWriter.delete() }
                 if (initial != null && restored != null && connection?.let(ChatHistoryCache::owner) == ChatHistoryCache.owner(initial) && cacheWriter.epoch == initialCacheEpoch) {
                     if (!permissionsKnown && agents.isEmpty()) {
                         historyCache = restored; agents = historyCache.agents(); cachedOverview = agents.isNotEmpty()
@@ -138,7 +170,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         historyCache.clear(); cachedOverview = false
         cacheWriter.discard()
     }
+    /** Also drops direct sends from the outbox, like the bubbles they back. */
     private fun clearTranscript() {
+        outbox.clearWhere(drafts = false) { !it.startsWith(ConversationKey.ROOM_PREFIX) }
         selected = null; events = emptyList(); pendingChats = emptyMap(); chatSends.clear()
         eventsLoaded = false; eventCursor = 0; showingCachedTranscript = false; VisibleConversation.session = null
     }
@@ -146,6 +180,8 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun can(cap: String) = capabilities.contains(cap)
     fun fresh(now: Long = SystemClock.elapsedRealtime()) = online && lastSync > 0 && now - lastSync in 0..30_000
     fun reachable() = if (fresh() && can("agent_portal.manage") && can("agent_portal.reveal_transcript")) readyAgents(agents).filter { !it.optBoolean("daemon_session") || can("agent_messaging.manage") } else emptyList()
+    /** Before the server answered, saved rooms open read-only from the offline cache. */
+    internal fun canOpenRoom(room: JSONObject) = can("agent_messaging.reveal_content") || (!permissionsKnown && room.optBoolean("cached"))
     fun canReadSession(id: String) = connection != null && portalAvailable &&
         ((can("agent_portal.read") && can("agent_portal.reveal_transcript")) || showingSavedChats) && agents.any { it.optString("id") == id }
     fun overviewAvailable(): Boolean = !((!can("agent_portal.read") || !can("agent_portal.reveal_transcript")) && !showingSavedChats || !portalAvailable)
@@ -184,6 +220,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
                 val c = Connection(pairing.server, result.getString("token"), result.getString("device_id"), result.optJSONObject("firebase"))
                 store.save(c); connection = c; unreadStore.activate(c); unread.reset(); permissionsKnown = false
                 discardChatCache(); historyCache = ChatHistoryCache(ChatHistoryCache.owner(c))
+                outbox.reset(ChatHistoryCache.owner(c)); roomChats.resetCache(ChatHistoryCache.owner(c)); replyTargets = emptyMap()
                 configurePush(getApplication(), c); startLive()
             } catch (e: Exception) { failure(e) } finally { busy = false }
         }
@@ -191,7 +228,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun setForeground(value: Boolean) {
         if (foreground == value) return
         foreground = value
-        if (value) { connection?.let { configurePush(getApplication(), it) }; startLive() }
+        if (value) { connection?.let { configurePush(getApplication(), it) }; outbox.retryNow(); startLive() }
         else {
             stopLive()
             viewModelScope.launch { runCatching { updatePresence() } }
@@ -200,7 +237,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     private fun stopLive() {
         generation++; revision++; socketReady = false; online = false
         socket?.cancel(); socket = null
-        maintenance?.cancel(); refreshJob?.cancel(); refreshJob = null; reconnect?.cancel()
+        maintenance?.cancel(); refreshJob?.cancel(); refreshJob = null; reconnect?.cancel(); outboxTimer?.cancel(); outboxTimer = null
         pendingScopes.clear(); VisibleConversation.session = null
     }
     private fun startLive() {
@@ -270,7 +307,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
         if (me != null && !("agent_portal.read" in caps && "agent_portal.reveal_transcript" in caps)) {
             capabilities = caps; permissionsKnown = true; agents = emptyList()
-            discardChatCache(); clearTranscript()
+            discardChatCache(); clearTranscript(); clearDirectDrafts()
             refreshUnreadState()
         }
         val loadApprovals = "approvals" in scopes || me != null
@@ -280,7 +317,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         val snapshot = if (loadAgents && "agent_portal.read" in caps) {
             try { client.request("/agents", "POST", JSONObject().put("read_cursors", unreadStore.readCursors(pendingOnly = serverReadSync)).apply { if (serverReadSync) put("sync_reads", true) }) }
             catch (e: ApiException) {
-                if (e.status == 403 && current == generation && epoch == revision) { discardChatCache(); clearTranscript(); agents = emptyList() }
+                if (e.status == 403 && current == generation && epoch == revision) { discardChatCache(); clearTranscript(); clearDirectDrafts(); agents = emptyList() }
                 if (e.status == 503 && e.code == "agent_portal_disabled") { portalDisabled = true; null } else throw e
             }
         } else null
@@ -335,6 +372,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         refreshUnreadState()
         if (reconnected && selected != null) viewModelScope.launch { runCatching { updatePresence() } }
         pendingOpen?.let { if (loadAgents) { pendingOpen = null; openSession(it) } }
+        pumpOutbox()
         return true
     }
     private suspend fun updatePresence() = presenceMutex.withLock {
@@ -362,7 +400,11 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (foreground && connection != null) viewModelScope.launch { runCatching { updatePresence() } }
     }
     fun follow(id: String, value: Boolean) { mutate { api().request("/agents/$id/follow", "PUT", JSONObject().put("followed", value)); follows = if (value) follows + id else follows - id } }
-    fun replyTo(cursor: Long?) { val id=selected ?: return; replyTargets = if(cursor == null) replyTargets - id else replyTargets + (id to cursor) }
+    fun replyTo(cursor: Long?) {
+        val id = selected ?: return
+        replyTargets = if (cursor == null) replyTargets - id else replyTargets + (id to cursor)
+        outbox.setDraft(id, draft, cursor?.toString())
+    }
     fun chatError(message:String) { error=message }
     internal fun openRoom(room: JSONObject) { closeSession(); roomChats.open(room) }
     internal fun roomSent(id: String, attachments: List<String>) {
@@ -402,38 +444,125 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (busy || selected != intent.session || !canSendSession(intent.session)) return
         submitChat(intent)
     }
+    /** Retry and discard apply to sends this device still holds in its outbox. */
+    fun canRetryChat(clientId: String?) = clientId != null && chatSends.containsKey(clientId)
+    /** Drops a definitively failed send; its text returns to an empty composer. */
+    fun discardChat(clientId: String) {
+        val entry = outbox.entry(clientId)?.takeIf { it.failed && it.id !in outboxInFlight } ?: return
+        val intent = chatSends.remove(clientId)
+        outbox.remove(clientId)
+        pendingChats = pendingChats + (entry.conversation to (pendingChats[entry.conversation] ?: emptyList()).filterNot { it.clientId == clientId })
+        if (intent != null && outbox.draft(entry.conversation) == null) outbox.setDraft(entry.conversation, intent.text, null)
+    }
     private fun submitChat(intent: ChatSend) {
         val id = intent.session
-        val items = chatUploads[id] ?: emptyList()
         val previous = pendingChats[id] ?: emptyList()
         val bubble = previous.firstOrNull { it.clientId == intent.uuid }?.copy(status = "sending")
             ?: PendingChat(intent.uuid, --localChatCursor, intent.text, intent.metadata, java.time.Instant.now().toString())
         pendingChats = pendingChats + (id to (previous.filterNot { it.clientId == intent.uuid } + bubble))
         chatSends[intent.uuid] = intent
+        // Persisted before the request: a restart resends exactly this body and id.
+        val entry = outbox.entry(intent.uuid)?.copy(failed = false, error = null)?.also { retry -> outbox.update(retry.id) { retry } }
+            ?: intent.outboxEntry(bubble.createdAt).also(outbox::enqueue)
         val owner = connection
-        mutate {
-            try {
-                val body=JSONObject().put("client_message_id",intent.uuid).put(if(intent.version != null) "answer" else "content",intent.text).put("metadata",JSONObject(intent.metadata))
-                intent.version?.let { body.put("version",it) }
-                val result = api().request(intent.target,"POST",body)
-                if (connection != owner) return@mutate
-                val messageId = (result.opt("message_id") as? String) ?: (result.opt("operation_id") as? String)
-                    ?: error("Delivery was not confirmed. Retry this message.")
-                val failed = result.optString("status") in setOf("canceled", "dead")
-                updatePendingChat(id, intent.uuid, if (failed) "failed" else "queued", messageId)
-                chatSends.remove(intent.uuid)
-                if (!failed) {
-                    if(chatDrafts[id]?.trim() == intent.text) chatDrafts = chatDrafts + (id to "")
-                    val sentIds = JSONObject(intent.metadata).optJSONArray("attachments")?.strings() ?: emptySet()
-                    uploads.drop(id, sentIds)
-                    replyTargets=replyTargets - id
-                    items.filter { it.id in sentIds }.forEach { it.file.delete() }; follows=follows + id
+        mutate { deliverDirect(entry, owner, manual = true) }
+    }
+    /**
+     * One attempt of a persisted direct send. A manual attempt rethrows failures
+     * for [mutate] to report; an automatic one stays quiet unless access is gone.
+     */
+    private suspend fun deliverDirect(entry: OutboxEntry, owner: Connection?, manual: Boolean) {
+        if (!outboxInFlight.add(entry.id)) return
+        val id = entry.conversation
+        try {
+            if (!manual) updatePendingChat(id, entry.id, "sending")
+            outboxWriter.flush()
+            val c = connection?.takeIf { it == owner } ?: return
+            val result = deliverOutboxEntry(Api(c.server, c.token), entry)
+            if (connection != owner) return
+            val rejection = when (result) {
+                is OutboxResult.Rejected -> result
+                is OutboxResult.Accepted -> {
+                    val response = result.response
+                    val messageId = (response.opt("message_id") as? String) ?: (response.opt("operation_id") as? String)
+                    if (messageId == null) OutboxResult.Rejected(IllegalStateException("Delivery was not confirmed. Retry this message."), SendFailure.Transient)
+                    else {
+                        outbox.remove(entry.id)
+                        val failed = response.optString("status") in setOf("canceled", "dead")
+                        updatePendingChat(id, entry.id, if (failed) "failed" else "queued", messageId)
+                        val intent = chatSends.remove(entry.id) ?: chatSendFromOutbox(entry)
+                        if (!failed && intent != null) {
+                            val draftNow = outbox.draft(id)
+                            if (draftNow?.text?.trim() == intent.text) outbox.setDraft(id, "", null)
+                            else if (draftNow != null) outbox.setDraft(id, draftNow.text, null)
+                            val items = chatUploads[id] ?: emptyList()
+                            val sentIds = JSONObject(intent.metadata).optJSONArray("attachments")?.strings() ?: emptySet()
+                            uploads.drop(id, sentIds)
+                            replyTargets = replyTargets - id
+                            items.filter { it.id in sentIds }.forEach { it.file.delete() }; follows = follows + id
+                        }
+                        if (!manual) refreshNow()
+                        null
+                    }
                 }
-            } catch (e: Exception) {
-                if (connection == owner) updatePendingChat(id, intent.uuid, "unconfirmed")
-                throw e
             }
+            if (rejection != null) {
+                outbox.update(entry.id) { it.afterFailure(rejection, SystemClock.elapsedRealtime()) }
+                updatePendingChat(id, entry.id, if (rejection.failure == SendFailure.Definitive) "failed" else "unconfirmed")
+                if (manual) throw rejection.error
+                if ((rejection.error as? ApiException)?.status == 401) failure(rejection.error)
+                else if (rejection.failure == SendFailure.Definitive) error = rejection.error.message ?: "Message was not delivered"
+            }
+        } finally { outboxInFlight.remove(entry.id) }
+    }
+    /** Rebuilds bubbles, retry intents and reply targets of persisted direct sends after a restart. */
+    private fun restoreDirectOutbox() {
+        outbox.entries.filter { !it.room && !chatSends.containsKey(it.id) }.forEach { entry ->
+            val intent = chatSendFromOutbox(entry) ?: return@forEach
+            chatSends[entry.id] = intent
+            val bubble = PendingChat(entry.id, --localChatCursor, intent.text, intent.metadata, entry.createdAt, if (entry.failed) "failed" else "unconfirmed")
+            pendingChats = pendingChats + (entry.conversation to ((pendingChats[entry.conversation] ?: emptyList()) + bubble))
         }
+        outbox.drafts.forEach { (key, draft) ->
+            if (!key.startsWith(ConversationKey.ROOM_PREFIX) && key !in replyTargets) draft.replyTo?.toLongOrNull()?.let { replyTargets = replyTargets + (key to it) }
+        }
+    }
+    private fun clearDirectDrafts() {
+        outbox.clearWhere { !it.startsWith(ConversationKey.ROOM_PREFIX) }
+        replyTargets = emptyMap()
+    }
+    /**
+     * Automatic resends while in the foreground and live: per conversation the oldest
+     * unconfirmed send whose backoff is due, then a timer for the next due one.
+     */
+    private fun pumpOutbox() {
+        outboxTimer?.cancel(); outboxTimer = null
+        val owner = connection
+        if (!foreground || owner == null) return
+        val now = SystemClock.elapsedRealtime()
+        if (fresh()) outbox.entries.filter { !it.room && !it.failed }.groupBy { it.conversation }.forEach { (session, queue) ->
+            val entry = queue.first()
+            if (entry.id in outboxInFlight || entry.nextAttemptAt > now || busy || !canSendSession(session)) return@forEach
+            viewModelScope.launch { deliverDirect(entry, owner, manual = false) }
+        }
+        roomChats.pump(::roomSent)
+        armOutboxTimer()
+    }
+    /** Schedules [pumpOutbox] for the earliest pending backoff step, unless an earlier timer is armed. */
+    private fun armOutboxTimer() {
+        if (!foreground || connection == null) return
+        val now = SystemClock.elapsedRealtime()
+        val due = outbox.entries.filter { !it.failed && it.nextAttemptAt > now }.minOfOrNull { it.nextAttemptAt } ?: return
+        if (outboxTimer?.isActive == true && outboxTimerAt <= due) return
+        outboxTimer?.cancel()
+        outboxTimerAt = due
+        outboxTimer = viewModelScope.launch { delay(due - now); outboxTimer = null; pumpOutbox() }
+    }
+    /** The default network is back: unconfirmed sends retry now instead of waiting for their backoff. */
+    private fun connectivityReturned() {
+        if (connection == null || outbox.entries.none { !it.failed }) return
+        outbox.retryNow()
+        if (foreground && reconnect?.isActive == true) { reconnectAttempt = 0; startLive() } else pumpOutbox()
     }
     private fun updatePendingChat(session: String, clientId: String, status: String, messageId: String? = null) {
         val pending = (pendingChats[session] ?: emptyList()).map {
@@ -509,7 +638,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         roomChats.clear()
         discardChatCache()
         showingCachedTranscript = false; eventCursor = 0; eventsLoaded = false
-        uploads.clear(); chatDrafts=emptyMap(); replyTargets=emptyMap(); chatSends.clear(); noticeOperations.clear()
+        uploads.clear(); outbox.clear(); replyTargets=emptyMap(); chatSends.clear(); outboxInFlight.clear(); noticeOperations.clear()
         quotas.clear()
         store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; access.clear(); capabilities = emptySet()
         serverReadSync = false; unreadStore.clear(); unread.reset(); permissionsKnown = false
@@ -547,5 +676,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (kind == "approval") { closeSession(); highlightApproval = target }
         else if (runCatching { UUID.fromString(target) }.isSuccess) { closeSession(); pendingOpen = target; refreshNow() }
     }
-    override fun onCleared() { unreadPreferences.unregisterOnSharedPreferenceChangeListener(unreadListener); cacheWriter.close(); stopLive(); super.onCleared() }
+    override fun onCleared() {
+        unreadPreferences.unregisterOnSharedPreferenceChangeListener(unreadListener)
+        runCatching { getApplication<Application>().getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(network) }
+        cacheWriter.close(); outboxWriter.close(); roomWriter.close(); stopLive(); super.onCleared()
+    }
 }
