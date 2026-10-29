@@ -19,6 +19,13 @@ type fakeUpdaterEnv struct {
 	resident bool
 	reports  []communicator.UpdateStatus
 	retired  int
+
+	// API floor fakes: the declared levels, the published backoffs and the
+	// forced (below-minimum) retirements.
+	mu         sync.Mutex
+	levels     communicator.APILevels
+	backoffs   []communicator.APIBackoff
+	retiredNow int
 }
 
 func (f *fakeUpdaterEnv) Trigger() <-chan struct{}            { return f.trigger }
@@ -28,6 +35,34 @@ func (f *fakeUpdaterEnv) Busy() int                           { return 0 }
 func (f *fakeUpdaterEnv) Resident() bool                      { return f.resident }
 func (f *fakeUpdaterEnv) Report(st communicator.UpdateStatus) { f.reports = append(f.reports, st) }
 func (f *fakeUpdaterEnv) Retire()                             { f.retired++ }
+func (f *fakeUpdaterEnv) API() communicator.APILevels {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.levels
+}
+func (f *fakeUpdaterEnv) setAPI(l communicator.APILevels) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.levels = l
+}
+func (f *fakeUpdaterEnv) ReportAPIBackoff(b communicator.APIBackoff) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backoffs = append(f.backoffs, b)
+}
+func (f *fakeUpdaterEnv) lastBackoff() communicator.APIBackoff {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.backoffs) == 0 {
+		return communicator.APIBackoff{}
+	}
+	return f.backoffs[len(f.backoffs)-1]
+}
+func (f *fakeUpdaterEnv) RetireNow(string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retiredNow++
+}
 
 var testSHA = strings.Repeat("ab", 32)
 
@@ -35,6 +70,7 @@ func fixtureUpdater(env *fakeUpdaterEnv, signedVersion, signedSHA string, offer 
 	applied := 0
 	cfg := &config.Config{Engine: "codex", Orchestrator: config.Orchestrator{CommunicatorUpdateProtocol: communicator.UpdateProtocol}, Wrapper: config.Wrapper{Version: signedVersion, BinarySHA256: signedSHA, BinaryURL: "https://o.example/bin"}}
 	u := &commUpdater{env: env, running: env.Version(), backstop: time.Hour, quietPoll: 10 * time.Millisecond, now: time.Now, retryDelay: time.Minute,
+		apiVersion: communicator.APIVersion, apiBase: time.Minute, apiCap: time.Hour, logf: func(string, ...any) {},
 		load:  func(string) (*config.Config, error) { return cfg, nil },
 		fetch: func(context.Context, *config.Config) (*config.Config, error) { return cfg, nil },
 		check: func(context.Context, *config.Config) (*orchestrator.CronCheckResponse, error) {

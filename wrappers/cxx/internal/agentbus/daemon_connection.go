@@ -31,6 +31,7 @@ func dialDirectDaemonConnection(parent context.Context, client *relayClient) (*w
 		return nil, err
 	}
 	wc.Header.Set("X-API-Key", client.apiKey)
+	communicator.SetAPIHeader(wc.Header)
 	transport, ok := communicator.Direct(client.http.Transport)
 	if !ok || transport.DialContext == nil {
 		return nil, errors.New("daemon relay transport has no dialer")

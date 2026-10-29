@@ -1,0 +1,54 @@
+{
+  "_comment": "Server-declared cxx API levels (api_version = server's current level, min_api = effective minimum). Top-level integers, additive, absent on older servers. Hand-authored from the contract; replace with captured production bodies once the server emits them.",
+  "cases": [
+    {
+      "name": "communicator ready frame",
+      "frame": true,
+      "body": {"type": "ready", "protocol": 1, "control": ["terminate", "owner_identity", "resident_runtime", "wrapper_update"], "api_version": 2, "min_api": 1},
+      "want": {"api_version": 2, "min_api": 1}
+    },
+    {
+      "name": "communicator heartbeat acknowledgement",
+      "frame": true,
+      "body": {"type": "heartbeat", "api_version": 2, "min_api": 2},
+      "want": {"api_version": 2, "min_api": 2}
+    },
+    {
+      "name": "GET /versions (standard envelope, top level plus data mirror)",
+      "body": {"status": "ok", "data": {"wrapper_version": "0.9.145", "api_version": 3, "min_api": 2}, "wrapper_version": "0.9.145", "api_version": 3, "min_api": 2},
+      "want": {"api_version": 3, "min_api": 2}
+    },
+    {
+      "name": "GET /versions with the levels only in the data mirror",
+      "body": {"status": "ok", "data": {"wrapper_version": "0.9.145", "api_version": 3, "min_api": 1}},
+      "want": {"api_version": 3, "min_api": 1}
+    },
+    {
+      "name": "GET /wrapper/v2/meta",
+      "body": {"version": "0.9.145", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "api_version": 1, "min_api": 1},
+      "want": {"api_version": 1, "min_api": 1}
+    },
+    {
+      "name": "legacy server: fields absent",
+      "frame": true,
+      "body": {"type": "ready", "protocol": 1, "control": ["terminate"]},
+      "want": {}
+    },
+    {
+      "name": "malformed values are ignored",
+      "frame": true,
+      "body": {"api_version": "2", "min_api": 1.5},
+      "want": {}
+    },
+    {
+      "name": "negative, zero, null and oversize are ignored",
+      "body": {"api_version": -1, "min_api": null, "data": {"api_version": 0}},
+      "want": {}
+    },
+    {
+      "name": "one valid field survives a malformed sibling",
+      "body": {"api_version": 4, "min_api": "x"},
+      "want": {"api_version": 4}
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
@@ -345,6 +346,14 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
 			apiTone = ui.ToneOK
 			apiValue = fmt.Sprintf("reachable (http %d)", resp.StatusCode)
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+			levels := communicator.ParseAPILevels(body)
+			if note := communicator.APINote(levels); note != "" {
+				apiValue += " · " + note
+				if communicator.APIPolicy(communicator.APIVersion, levels) == communicator.APIStateUpdateRequired {
+					apiTone = ui.ToneWarn
+				}
+			}
 		} else {
 			apiValue = fmt.Sprintf("unhealthy response (http %d)", resp.StatusCode)
 		}

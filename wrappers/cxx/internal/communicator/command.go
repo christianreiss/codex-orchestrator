@@ -496,6 +496,12 @@ func statusReport(out io.Writer, version string) bool {
 		if update, ok := status["update"].(map[string]any); ok && update["state"] == "failed" {
 			failed = true
 		}
+		// Below the server's minimum API level with the immediate update stuck
+		// in backoff needs an operator; update_required (in progress) and
+		// update_queued (waiting for no agents online) only inform.
+		if api, ok := status["api"].(map[string]any); ok && api["state"] == APIStateBackoff {
+			failed = true
+		}
 		if scopes, ok := status["sync_scopes"].([]any); ok {
 			for _, raw := range scopes {
 				scope, _ := raw.(map[string]any)

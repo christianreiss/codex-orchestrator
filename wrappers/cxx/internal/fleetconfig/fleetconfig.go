@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -67,6 +68,7 @@ func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubke
 		return nil, err
 	}
 	req.Header.Set("X-API-Key", seed.Orchestrator.APIKey)
+	communicator.SetAPIHeader(req.Header)
 	req.Header.Set("X-Wrapper-Platform", runtime.GOOS+"-"+runtime.GOARCH)
 	client, err := coreupdate.HTTPClient(seed)
 	if err != nil {

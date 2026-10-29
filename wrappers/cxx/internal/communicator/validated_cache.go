@@ -611,6 +611,7 @@ func cacheHTTPS(ctx context.Context, cfg *config.Config, f frame) (frame, bool, 
 		return frame{}, false, err
 	}
 	req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+	SetAPIHeader(req.Header)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := (&http.Client{Transport: transport, Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
 	if err != nil {

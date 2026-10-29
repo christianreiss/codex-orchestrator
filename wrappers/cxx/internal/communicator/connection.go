@@ -48,6 +48,10 @@ type frame struct {
 	Reason        string   `json:"reason,omitempty"`
 	// OwnerInstanceID names the owner process a `terminate` is meant for.
 	OwnerInstanceID string `json:"owner_instance_id,omitempty"`
+	// APIVersion/MinAPI are the server's optional protocol declaration. Raw so
+	// a malformed value can never fail the frame decode and drop the connection.
+	APIVersion json.RawMessage `json:"api_version,omitempty"`
+	MinAPI     json.RawMessage `json:"min_api,omitempty"`
 }
 
 type connection struct {
@@ -71,7 +75,10 @@ type connection struct {
 	// server offered the wrapper_update trigger.
 	updateAvailable func()
 	updateAnnounced bool
-	authChanged     func(string, int64)
+	// apiObserved receives the server's api_version/min_api; authoritative is
+	// true for the handshake's ready frame.
+	apiObserved func(levels APILevels, authoritative bool)
+	authChanged func(string, int64)
 	// onTerminate is set when this owner can be stopped remotely; control is
 	// true once the server announced that it may ask.
 	onTerminate  func(reason string, acked <-chan struct{})
@@ -116,6 +123,7 @@ func dial(ctx context.Context, cfg *config.Config, transport *http.Transport) (*
 		return nil, err
 	}
 	wc.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+	SetAPIHeader(wc.Header)
 	port := wc.Location.Port()
 	if port == "" {
 		port = "80"
@@ -196,6 +204,9 @@ func (c *connection) receive() {
 				return
 			}
 			if !ready {
+				if c.apiObserved != nil {
+					c.apiObserved(f.apiLevels(), true)
+				}
 				c.mu.Lock()
 				c.stateEnabled = announces(f.Control, StateCapability)
 				c.stateLivenessOffered = c.stateEnabled && announces(f.Control, StateLivenessCapability)
@@ -269,6 +280,11 @@ func (c *connection) receive() {
 				c.cacheInvalidated(f.CacheScopes)
 			} else if c.invalidated != nil {
 				c.invalidated()
+			}
+		case "heartbeat", "pong":
+			// Periodic acknowledgements may refresh the server's declaration.
+			if c.apiObserved != nil {
+				c.apiObserved(f.apiLevels(), false)
 			}
 		case "update_available":
 			// Only from a server that announced the trigger; it carries no target.
@@ -360,6 +376,10 @@ func (c *connection) request(ctx context.Context, f frame) (frame, bool, error) 
 		return frame{}, true, ctx.Err()
 	}
 }
+func (f frame) apiLevels() APILevels {
+	return APILevels{Server: ParseAPILevel(f.APIVersion), Min: ParseAPILevel(f.MinAPI)}
+}
+
 func headers(h http.Header) map[string]string {
 	out := map[string]string{}
 	for k := range h {
@@ -382,6 +402,7 @@ func handshakeRejection(ctx context.Context, cfg *config.Config, transport *http
 		return generic
 	}
 	req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+	SetAPIHeader(req.Header)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Sec-WebSocket-Version", "13")

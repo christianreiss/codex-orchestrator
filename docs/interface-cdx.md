@@ -2221,6 +2221,20 @@ adapter never replays a call. From cxx 0.9.91 the data also carries `retryable`,
 only for a local `503 communicator_unavailable` (the request provably never reached the
 orchestrator, e.g. while the control connection redials), so the caller may simply retry.
 
+Pending release: every request carries `X-Cxx-Api` (the binary's integer protocol level,
+independent of the release number). When the server declares `api_version` (S) and
+`min_api` (M), the communicator's updater acts on them; absent fields change nothing:
+
+| cdx's level (C) | Behaviour |
+| --- | --- |
+| C < M | Update immediately and replace the owner, even with agents online (logged as the operator exception; backs off up to 1 h if no published cxx raises the level). |
+| M <= C < S | Update queued until no agents are online. |
+| C >= S | Nothing. |
+
+`cxx communicator status` shows the `api` block; `doctor` fails on `api.state: backoff`, and
+the cdx doctor's API row shows the declared levels from `/versions`. See
+[API level and server minimum](communicator.md#api-level-and-server-minimum-pending-release).
+
 
 ### Communicator sync ownership
 

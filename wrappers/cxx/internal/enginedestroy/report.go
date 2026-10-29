@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
 )
@@ -31,6 +32,7 @@ func Report(ctx context.Context, cfg *config.Config, engine, requestID, status s
 		return err
 	}
 	req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+	communicator.SetAPIHeader(req.Header)
 	req.Header.Set("Content-Type", "application/json")
 	client, err := update.HTTPClient(cfg)
 	if err != nil {

@@ -108,6 +108,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 		req.Header.Set("X-Wrapper-Platform", runtime.GOOS+"-"+runtime.GOARCH)
 	}
 	req.Header.Set("X-Wrapper-Version", buildinfo.Version)
+	communicator.SetAPIHeader(req.Header)
 
 	return httpguard.Do(ctx, c.HTTP, req, retries, func(resp *http.Response, raw []byte) error {
 		return &HTTPError{
