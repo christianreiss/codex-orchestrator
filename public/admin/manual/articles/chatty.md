@@ -1,8 +1,8 @@
 ---
 title: Chatty administration assistant
 section: Admin workspace
-verified: 2026-10-28
-sources: api/src/services/chatty/tools.ts, api/src/services/chatty/contracts.ts, api/src/services/chatty/coordinator.ts, api/src/services/chatty/owner-actions.ts, api/src/services/chatty/workflow-tools.ts, api/src/services/chatty/role-retention-tools.ts, api/src/services/chatty/quota-tools.ts, api/src/services/chatty/supervisor-tools.ts, api/src/services/chatty/handoff-tools.ts, api/src/services/chatty/elements.ts, api/src/services/chatty/surface-inventory.json, api/src/services/chatty/knowledge.ts
+verified: 2026-10-29
+sources: api/src/services/chatty/actions.ts, api/src/services/chatty/tools.ts, api/src/services/chatty/contracts.ts, api/src/services/chatty/coordinator.ts, api/src/services/chatty/owner-actions.ts, api/src/services/chatty/workflow-tools.ts, api/src/services/chatty/role-retention-tools.ts, api/src/services/chatty/quota-tools.ts, api/src/services/chatty/supervisor-tools.ts, api/src/services/chatty/handoff-tools.ts, api/src/services/chatty/elements.ts, api/src/services/chatty/surface-inventory.json, api/src/services/chatty/knowledge.ts
 ---
 
 # Chatty administration assistant
@@ -51,8 +51,12 @@ Chatty names the target, and the server checks that it exists and that your role
 may read it before it builds the button and its label. She cannot produce external
 links. When a reference cannot be verified, the button is left out and the answer
 notes it. On a phone the panel minimizes after you follow a link; reopen it to
-continue the same conversation. Buttons only navigate: changes still require the
-confirmation card.
+continue the same conversation. Besides links, an answer can offer up to three
+action buttons (for example "Claude auf example.com aktivieren"). Filter buttons only
+navigate. Any change opens a confirmation dialog that names the target and the effect;
+dangerous ones require typing the host name. Confirming calls the same function as the
+page button, with your permissions; Chatty does not run it. Proposals expire after
+15 minutes or on a new login or Clear.
 
 ## Application administration boundary
 
