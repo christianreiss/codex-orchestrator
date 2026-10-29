@@ -32,6 +32,8 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
         ],
         ['agent_schedule_runs', 'message_id VARCHAR(36),status VARCHAR(40)', second],
         ['agent_watchdogs', 'message_id VARCHAR(36),status VARCHAR(40)', second],
+        ['agent_work_dependencies', 'message_id VARCHAR(36),status VARCHAR(40)', second],
+        ['agent_work_states', 'waiting_for_message_id VARCHAR(36),state VARCHAR(40)', second],
         ['agent_sessions', 'id VARCHAR(36) PRIMARY KEY,ended_at VARCHAR(40)', second],
         ['agent_room_deliveries', 'message_id VARCHAR(36),event_id VARCHAR(36)', second],
         ['agent_room_events', 'id VARCHAR(36) PRIMARY KEY,room_id VARCHAR(36)', first],
@@ -87,6 +89,24 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
           await add(name, 'completed');
           await connection.query(`INSERT INTO ${table} VALUES (?,?),(NULL,?)`, [id(name), status, status]);
         }
+      for (const status of ['waiting', 'attention', 'satisfied', 'cancelled', null]) {
+        const name = `agent_work_dependencies-${status}`;
+        await add(name, 'completed');
+        await connection.query('INSERT INTO agent_work_dependencies VALUES (?,?),(NULL,?)', [
+          id(name),
+          status,
+          status,
+        ]);
+      }
+      for (const state of ['waiting_agent', 'working', 'idle', null]) {
+        const name = `agent_work_states-${state}`;
+        await add(name, 'completed');
+        await connection.query('INSERT INTO agent_work_states VALUES (?,?),(NULL,?)', [
+          id(name),
+          state,
+          state,
+        ]);
+      }
       await connection.query('INSERT INTO agent_sessions VALUES (?,NULL),(?,NULL),(?,?)', [
         id('recipient'),
         id('sender'),
@@ -147,6 +167,8 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
         OR EXISTS (SELECT 1 FROM agent_bus_messages reply WHERE BINARY reply.reply_to_message_id=BINARY m.id AND reply.status NOT IN ${terminal})
         OR EXISTS (SELECT 1 FROM agent_bus_messages dependent WHERE BINARY dependent.related_work_id=BINARY m.id AND dependent.status IN ('queued','leased','accepted','batched','reboot_hold'))
         OR EXISTS (SELECT 1 FROM agent_schedule_runs r WHERE BINARY r.message_id=BINARY m.id AND r.status IN ('waiting','queued','leased','accepted','recovering','capacity_wait'))
+        OR EXISTS (SELECT 1 FROM agent_work_dependencies edge WHERE BINARY edge.message_id=BINARY m.id AND edge.status IN ('waiting','attention'))
+        OR EXISTS (SELECT 1 FROM agent_work_states ws WHERE BINARY ws.waiting_for_message_id=BINARY m.id AND ws.state='waiting_agent')
         OR EXISTS (SELECT 1 FROM agent_watchdogs w WHERE BINARY w.message_id=BINARY m.id AND w.status IN ('watching','recovering','capacity_wait'))
         OR (m.presence_notice_key IS NOT NULL AND EXISTS (SELECT 1 FROM agent_sessions recipient WHERE BINARY recipient.id=BINARY SUBSTRING_INDEX(m.presence_notice_key,':',1) AND recipient.ended_at IS NULL) AND EXISTS (SELECT 1 FROM agent_sessions sender WHERE BINARY sender.id=BINARY m.target_session_id AND sender.ended_at IS NULL))
         OR m.status NOT IN ${terminal}
@@ -168,6 +190,9 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
             'digest-parent',
             'reply-parent',
             ...['queued', 'leased', 'accepted', 'batched', 'reboot_hold'].map(status => `related-work-${status}`),
+            'agent_work_dependencies-waiting',
+            'agent_work_dependencies-attention',
+            'agent_work_states-waiting_agent',
             'notice-live',
             'notice-no-colon',
             'conference-open-room-delivered',
@@ -175,6 +200,8 @@ describe.skipIf(!handle)('materialized message working set across legacy collati
           ].map(id),
         ),
       );
+      for (const settled of ['agent_work_dependencies-satisfied', 'agent_work_dependencies-null', 'agent_work_states-working', 'agent_work_states-null'])
+        expect(next.map((row) => row.id)).not.toContain(id(settled));
       expect(next.map((row) => row.id)).not.toContain(id('related-work-completed'));
       expect(next.map((row) => row.id)).not.toContain(id('related-work-null'));
       const compiled = query.toSQL();
