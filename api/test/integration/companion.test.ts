@@ -175,9 +175,14 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
         })
       ).statusCode,
     ).toBe(403);
-    expect(
-      (await app.inject({ url: '/companion/v1/me', headers: { authorization: authorization() } })).statusCode,
-    ).toBe(200);
+    const me = await app.inject({ url: '/companion/v1/me', headers: { authorization: authorization() } });
+    expect(me.statusCode).toBe(200);
+    expect(me.json()).toMatchObject({
+      read_sync_protocol: 1,
+      room_notifications_protocol: 1,
+      room_delta_protocol: 1,
+      actor: `admin:${userId}`,
+    });
     await db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));
     expect(
       (await app.inject({ url: '/companion/v1/approvals', headers: { authorization: authorization() } }))

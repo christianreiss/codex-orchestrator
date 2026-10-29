@@ -1,4 +1,5 @@
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
+import { recordRoomChange } from '../agent-room-chat/changes.js';
 import { OwnedConferences } from './owned-conference.js';
 import type { MessagingHost } from './types.js';
 /**
@@ -1139,6 +1140,7 @@ export class ConferenceCoordinator {
       }
       const eventId = randomUUID();
       await tx.insert(agentRoomEvents).values({ id:eventId,roomId:conferenceId,actor:`agent:${selfId}`,requestId:eventId,payloadHash:sha256(body),bodyEnc:encrypt(JSON.stringify({name:authenticated.session.launchName??'Conference participant',content:body,attachments:[],kind:'chat'}),this.core.keyring),createdAt:now });
+      await recordRoomChange(tx, conferenceId, 'event', eventId, now);
       if (me.role !== 'owner') return { chairOnly: true, conference, eventId };
       const roster = await this.rosterRowsLocked(tx, conferenceId);
       const targets = roster

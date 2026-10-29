@@ -12,6 +12,7 @@ import {
   agentBusGroups,
   agentBusMessages,
   agentBusSubscriptions,
+  agentRoomChanges,
   agentRoomDeliveries,
   agentRoomEvents,
   agentRoomAgentReads,
@@ -42,6 +43,9 @@ import {
   MAX_AGENT_SUBSCRIPTIONS,
 } from '../agent-messaging/groups.js';
 import type { AgentMessagingDb } from '../agent-messaging/types.js';
+import { recordRoomChange, roomChangeBounds, roomChangesAfter, roomCursorExpired, roomHeadsAfter } from './changes.js';
+import { enqueueRoomReadSync } from '../companion/room-reads.js';
+import { ROOM_CHANGE_HEAD_SETTING, roomHead } from '../../control-plane/state/room-heads.js';
 import {
   roomCreateSchema,
   roomManageSchema,
@@ -58,6 +62,8 @@ export interface RoomActor {
   token?: string;
   adminId?: number;
   name?: string;
+  /** Companion device that acted; its siblings receive room read-sync jobs. */
+  deviceId?: string;
 }
 const actorKey = (a: RoomActor, s: AgentSession | null) =>
   s ? `agent:${s.agentBusAddressId}` : `admin:${a.adminId}`;
@@ -287,6 +293,7 @@ export class AgentRoomChat {
         rooms.push({
           ...room,
           unread: Number(unread?.n ?? 0),
+          read_at: read?.readAt ?? null,
           last_activity_at: last?.createdAt ?? room.created_at,
         });
       }
@@ -306,8 +313,211 @@ export class AgentRoomChat {
       created_at: row.createdAt,
     };
   }
+  /** Operator read position and unread count of one room (both storage modes). */
+  private async readState(tx: AgentMessagingDb, actor: RoomActor, session: AgentSession | null, roomId: string) {
+    if (!actor.adminId) return { read_at: null, unread: undefined };
+    const owned = this.owned();
+    if (owned) {
+      const snapshot = owned.snapshot(),
+        read = snapshot.table('agentRoomReads').get([roomId, actor.adminId]),
+        head = roomHead(snapshot, roomId);
+      return {
+        read_at: read?.readAt ?? null,
+        unread:
+          read?.unreadCount ??
+          Math.max(0, (head?.eventCount ?? 0) - (head?.actorCounts[actorKey(actor, session)] ?? 0)),
+      };
+    }
+    const [read] = await tx
+      .select()
+      .from(agentRoomReads)
+      .where(and(eq(agentRoomReads.roomId, roomId), eq(agentRoomReads.adminId, actor.adminId)));
+    const [unread] = await tx
+      .select({ n: sql<number>`count(*)` })
+      .from(agentRoomEvents)
+      .where(
+        and(
+          eq(agentRoomEvents.roomId, roomId),
+          gt(agentRoomEvents.createdAt, read?.readAt ?? ''),
+          sql`${agentRoomEvents.actor} <> ${actorKey(actor, session)}`,
+        ),
+      );
+    return { read_at: read?.readAt ?? null, unread: Number(unread?.n ?? 0) };
+  }
+  private async deliveries(tx: AgentMessagingDb, events: RoomEvent[]) {
+    if (!events.length) return;
+    const receipts = await tx
+      .select({ delivery: agentRoomDeliveries, status: agentBusMessages.status })
+      .from(agentRoomDeliveries)
+      .leftJoin(agentBusMessages, eq(agentBusMessages.id, agentRoomDeliveries.messageId))
+      .where(
+        inArray(
+          agentRoomDeliveries.eventId,
+          events.map((e) => e.id),
+        ),
+      );
+    for (const event of events)
+      event.deliveries = receipts
+        .filter((r) => r.delivery.eventId === event.id)
+        .map((r) => ({
+          address_id: r.delivery.addressId,
+          status: r.delivery.reason ?? r.status ?? 'unknown',
+        }));
+  }
+  /**
+   * Delta read: room changes after `after` (agent_room_changes.seq). Returns the changed
+   * events (new ones, and parents whose receipts changed), the current room with members and
+   * read positions, and `next_after`. `resync: true` means the cursor predates retention: read
+   * the room in full, then continue from that read's `next_after`. Never moves read positions.
+   */
+  async readDelta(actor: RoomActor, input: unknown) {
+    const parsed = roomReadSchema.parse(input);
+    if (parsed.after === undefined) throw new ValidationError('Delta cursor required');
+    const body = { room_id: parsed.room_id, after: parsed.after };
+    return this.run(actor, async (tx, session) => {
+      const owned = this.owned();
+      const room = owned ? owned.access(actor, body.room_id).room : await this.room(tx, body.room_id, session);
+      const bounds = await roomChangeBounds(tx, room.id);
+      if (roomCursorExpired(body.after, bounds))
+        return { room_id: room.id, resync: true as const, next_after: bounds.roomMax, has_more: false };
+      const { rows, hasMore } = await roomChangesAfter(tx, room.id, body.after);
+      const refs = [...new Set(rows.flatMap((r) => (r.refId && r.kind !== 'member' ? [r.refId] : [])))];
+      const found = refs.length
+        ? await tx
+            .select()
+            .from(agentRoomEvents)
+            .where(and(eq(agentRoomEvents.roomId, room.id), inArray(agentRoomEvents.id, refs)))
+        : [];
+      const events = found
+        .map((r) => this.decode(r))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+      await this.deliveries(tx, events);
+      const marks = await tx.select().from(agentRoomAgentReads).where(eq(agentRoomAgentReads.roomId, room.id));
+      if (owned) owned.access(actor, body.room_id);
+      return {
+        room: {
+          ...room,
+          ...(await this.readState(tx, actor, session, room.id)),
+          members: room.members.map((m) => ({
+            ...m,
+            read_through: marks.find((x) => x.addressId === m.id)?.readThrough ?? null,
+          })),
+        },
+        resync: false as const,
+        events,
+        changes: rows.map((r) => ({ seq: r.seq, kind: r.kind, ref_id: r.refId })),
+        next_after: rows.at(-1)?.seq ?? body.after,
+        has_more: hasMore,
+      };
+    });
+  }
+  /** Rooms changed after the cursor, with each room's newest change sequence. */
+  async changes(actor: RoomActor, after: number) {
+    const owned = this.owned();
+    if (owned ? owned.snapshot().setting('agent_messaging_enabled') !== '1' : !(await this.bus.isEnabled()))
+      return { enabled: false, rooms: [], next_after: after, resync: false, has_more: false };
+    return this.run(actor, async (tx, session) => {
+      const bounds = await roomChangeBounds(tx);
+      if (roomCursorExpired(after, bounds))
+        return { enabled: true, rooms: [], next_after: bounds.max, resync: true, has_more: false };
+      const heads = await roomHeadsAfter(tx, after);
+      const page = heads.slice(0, 500);
+      const rooms: { room_id: string; seq: number }[] = [];
+      for (const head of page) {
+        try {
+          if (owned) owned.room(owned.snapshot(), head.roomId, session);
+          else await this.room(tx, head.roomId, session);
+        } catch (e) {
+          if (e instanceof ForbiddenError || e instanceof NotFoundError) continue;
+          throw e;
+        }
+        rooms.push({ room_id: head.roomId, seq: head.seq });
+      }
+      const hasMore = heads.length > page.length;
+      return {
+        enabled: true,
+        rooms,
+        // With more than one page, continue from the last returned head, not the global one.
+        next_after: hasMore ? (page.at(-1)?.seq ?? after) : Math.max(after, bounds.max),
+        resync: false,
+        has_more: hasMore,
+      };
+    });
+  }
+  /**
+   * Rooms with a member whose current session is in `working` (agent activity state
+   * `working`). Ephemeral presence only: no content, nothing persisted. Closed rooms excluded.
+   */
+  async activity(working: ReadonlySet<string>): Promise<Array<{ room_id: string; actors: Array<{ address_id: string; name: string; state: 'working' }> }>> {
+    if (!working.size) return [];
+    const owned = this.owned();
+    const candidates: Room[] = [];
+    if (owned) {
+      const snapshot = owned.snapshot();
+      if (snapshot.setting('agent_messaging_enabled') !== '1') return [];
+      const ids = [
+        ...snapshot.table('agentBusGroups').all(),
+        ...snapshot.table('agentBusConferences').all(),
+        ...snapshot.table('agentScopes').all(),
+      ].map((r) => r.id);
+      for (const id of ids) {
+        try {
+          candidates.push(owned.room(snapshot, id));
+        } catch {
+          /* vanished or unauthorized: no activity */
+        }
+      }
+    } else {
+      if (!(await this.bus.isEnabled())) return [];
+      const sessions = await this.db
+        .select({ id: agentSessions.id, addressId: agentSessions.agentBusAddressId })
+        .from(agentSessions)
+        .where(inArray(agentSessions.id, [...working]));
+      const addresses = sessions.flatMap((s) => (s.addressId ? [s.addressId] : []));
+      if (!addresses.length) return [];
+      const ids = new Set<string>();
+      const topics = await this.db
+        .select({ topic: agentBusSubscriptions.topic })
+        .from(agentBusSubscriptions)
+        .where(inArray(agentBusSubscriptions.subscriberAddressId, addresses));
+      const slugs = topics.flatMap((t) => (t.topic.startsWith('group:') ? [t.topic.slice(6)] : []));
+      if (slugs.length)
+        for (const g of await this.db
+          .select({ id: agentBusGroups.id })
+          .from(agentBusGroups)
+          .where(inArray(agentBusGroups.slug, slugs)))
+          ids.add(g.id);
+      for (const c of await this.db
+        .select({ id: agentBusConferenceMembers.conferenceId })
+        .from(agentBusConferenceMembers)
+        .where(and(inArray(agentBusConferenceMembers.addressId, addresses), isNull(agentBusConferenceMembers.leftAt))))
+        ids.add(c.id);
+      for (const m of await this.db
+        .select({ id: agentScopeMembers.scopeId })
+        .from(agentScopeMembers)
+        .where(and(inArray(agentScopeMembers.sessionId, [...working]), eq(agentScopeMembers.state, 'active'))))
+        ids.add(m.id);
+      for (const id of ids) {
+        try {
+          candidates.push(await this.room(this.db, id));
+        } catch {
+          /* vanished: no activity */
+        }
+      }
+    }
+    return candidates
+      .filter((room) => room.status === 'open' || room.status === 'adjourning')
+      .map((room) => ({
+        room_id: room.id,
+        actors: room.members
+          .filter((m) => m.session_id && working.has(m.session_id))
+          .map((m) => ({ address_id: m.id, name: m.name, state: 'working' as const })),
+      }))
+      .filter((room) => room.actors.length > 0);
+  }
   async read(actor: RoomActor, input: unknown) {
     const body = roomReadSchema.parse(input);
+    if (body.after !== undefined) throw new ValidationError('Delta reads use readDelta');
     let cursor: { time: string; id: string } | undefined;
     if (body.before) {
       try {
@@ -325,6 +535,9 @@ export class AgentRoomChat {
     const result = await this.run(actor, async (tx, session) => {
       const owned = this.owned();
       const room = owned ? owned.access(actor, body.room_id).room : await this.room(tx, body.room_id, session);
+      // Owner mode takes the RAM head before the page: a change committed meanwhile is
+      // re-delivered, never skipped. The plain path reads it in the same transaction snapshot.
+      const ownerChangeHead = owned ? Number(owned.snapshot().setting(ROOM_CHANGE_HEAD_SETTING) ?? 0) : 0;
       const rows = await tx
         .select()
         .from(agentRoomEvents)
@@ -396,25 +609,7 @@ export class AgentRoomChat {
       }
       events.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
       const candidates = events.slice(0, body.limit);
-      if (candidates.length) {
-        const receipts = await tx
-          .select({ delivery: agentRoomDeliveries, status: agentBusMessages.status })
-          .from(agentRoomDeliveries)
-          .leftJoin(agentBusMessages, eq(agentBusMessages.id, agentRoomDeliveries.messageId))
-          .where(
-            inArray(
-              agentRoomDeliveries.eventId,
-              candidates.map((e) => e.id),
-            ),
-          );
-        for (const event of candidates)
-          event.deliveries = receipts
-            .filter((r) => r.delivery.eventId === event.id)
-            .map((r) => ({
-              address_id: r.delivery.addressId,
-              status: r.delivery.reason ?? r.status ?? 'unknown',
-            }));
-      }
+      await this.deliveries(tx, candidates);
       // Include delivery metadata in the byte budget; never truncate an event
       // or advance the cursor past an event omitted from this response.
       const page = readMessagePage(candidates, (event) => event, { room, next_before: null }).messages.reverse();
@@ -434,6 +629,7 @@ export class AgentRoomChat {
               .insert(agentRoomAgentReads)
               .values({ roomId: room.id, addressId: session.agentBusAddressId, readThrough: newest, updatedAt: nowIso() })
               .onDuplicateKeyUpdate({ set: { readThrough: sql`GREATEST(read_through, ${newest})`, updatedAt: nowIso() } });
+          if (!owned) await recordRoomChange(tx, room.id, 'receipt', session.agentBusAddressId);
           // Owner mode reports the new position only once its command has stored it.
           if (!owned) {
             if (mine) mine.readThrough = newest;
@@ -445,12 +641,14 @@ export class AgentRoomChat {
       return {
         room: {
           ...room,
+          ...(await this.readState(tx, actor, session, room.id)),
           members: room.members.map((m) => ({
             ...m,
             read_through: marks.find((x) => x.addressId === m.id)?.readThrough ?? null,
           })),
         },
         events: page,
+        next_after: owned ? ownerChangeHead : (await roomChangeBounds(tx)).max,
         next_before:
           events.length > page.length && page[0]
             ? Buffer.from(JSON.stringify({ time: page[0].created_at, id: page[0].id })).toString('base64url')
@@ -486,6 +684,8 @@ export class AgentRoomChat {
         .insert(agentRoomReads)
         .values({ roomId, adminId: actor.adminId!, readAt })
         .onDuplicateKeyUpdate({ set: { readAt: sql`GREATEST(read_at, ${readAt})` } });
+      await recordRoomChange(tx, roomId, 'receipt', null);
+      await enqueueRoomReadSync(tx, actor, roomId, readAt);
       return { read_at: readAt };
     });
     if (advanced) wsPublisher.publish('agent_room_chat.changed', { room_id: roomId });
@@ -617,6 +817,9 @@ export class AgentRoomChat {
         bodyEnc: encrypt(JSON.stringify(event), this.keyring),
         createdAt: now,
       });
+      await recordRoomChange(tx, room.id, 'event', id, now);
+      // An answer changes the parent's delivery status: refresh that event's receipts.
+      if (body.reply_to) await recordRoomChange(tx, room.id, 'receipt', body.reply_to, now);
       for (const member of room.members.filter((m) => body.ask_all || body.recipients.includes(m.id))) {
         const [target] = member.session_id
           ? await tx.select().from(agentSessions).where(eq(agentSessions.id, member.session_id))
@@ -712,6 +915,7 @@ export class AgentRoomChat {
         })
         .onDuplicateKeyUpdate({ set: { state: 'seated', leftAt: null, joinedAt: now, updatedAt: now } });
     }
+    await recordRoomChange(tx, room.id, 'member', addressId, now);
     room.members.push(...(await this.members(tx, [{ id: addressId, role: 'member' }])));
   }
   async create(actor: RoomActor, input: unknown) {
@@ -742,6 +946,7 @@ export class AgentRoomChat {
           updatedAt: now,
         });
       const room = await this.room(tx, id);
+      await recordRoomChange(tx, id, 'status', null, now);
       for (const member of new Set(body.members)) await this.addMember(tx, room, member);
       return { room_id: id };
     });
@@ -787,6 +992,7 @@ export class AgentRoomChat {
             updatedAt: nowIso(),
           })
           .where(eq(agentBusConferences.id, room.id));
+        await recordRoomChange(tx, room.id, 'status', null);
       } else if (body.action === 'invite') {
         await this.addMember(tx, room, body.address_id!);
       } else if (room.kind === 'group') {
@@ -799,6 +1005,7 @@ export class AgentRoomChat {
               eq(agentBusSubscriptions.subscriberAddressId, body.address_id!),
             ),
           );
+        await recordRoomChange(tx, room.id, 'member', body.address_id!);
       } else {
         if (room.members.find((m) => m.id === body.address_id)?.role === 'owner')
           throw new ForbiddenError('Cannot remove the chair');
@@ -811,6 +1018,7 @@ export class AgentRoomChat {
               eq(agentBusConferenceMembers.addressId, body.address_id!),
             ),
           );
+        await recordRoomChange(tx, room.id, 'member', body.address_id!);
       }
       const eventId = randomUUID(),
         time = nowIso();
@@ -834,6 +1042,7 @@ export class AgentRoomChat {
         ),
         createdAt: time,
       });
+      await recordRoomChange(tx, room.id, 'event', eventId, time);
       return { room_id: room.id, action: body.action };
     });
     wsPublisher.publish('agent_room_chat.changed', result);
@@ -869,6 +1078,7 @@ export class AgentRoomChat {
             .update(agentBusConferences)
             .set({ status: 'adjourned', adjournedAt: nowIso(), updatedAt: nowIso() })
             .where(eq(agentBusConferences.id, room.id));
+          await recordRoomChange(tx, room.id, 'status', null);
         }
       }
       // A deleted source room cannot leave private conversation data behind.
@@ -884,6 +1094,12 @@ export class AgentRoomChat {
         await tx.delete(agentRoomEvents).where(
           inArray(
             agentRoomEvents.id,
+            rows.map((r) => r.id),
+          ),
+        );
+        await tx.delete(agentRoomChanges).where(
+          inArray(
+            agentRoomChanges.refId,
             rows.map((r) => r.id),
           ),
         );

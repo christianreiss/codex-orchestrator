@@ -7,7 +7,11 @@ import type { RouteContext } from '../../routes/index.js';
 import {
   adminUsers,
   agentEvents,
+  agentRoomChanges,
+  agentRoomReads,
+  agentSessions,
   agentChatNotices,
+  companionRoomPrefs,
   companionDevices,
   companionReads,
   companionFollows,
@@ -27,8 +31,13 @@ import { readFleetEngineState } from '../engine-switch.js';
 import { isEngine } from '../../util/engine.js';
 import { FcmTransport } from './fcm.js';
 import { decodeSummaryPayload, eventSummary, notificationKind } from './summary.js';
+import { agentPushData, roomJobData, roomPushAllowed, roomPushCandidates, type RoomPushMode } from './room-push.js';
+import { createAgentMessagingService } from '../agent-messaging.js';
+import { AgentRoomChat } from '../agent-room-chat/index.js';
 
 export { notificationKind } from './summary.js';
+/** A room job whose event or room is gone is canceled, never retried. */
+class RoomJobGone extends Error {}
 
 /** Replay durable source rows into a unique per-device outbox. No WS dependency. */
 export class CompanionPush {
@@ -55,12 +64,16 @@ export class CompanionPush {
         WHERE ${companionDevices.revokedAt} IS NULL AND ${companionDevices.expiresAt} > ${nowIso()}
           AND ${companionDevices.notifications} = 1 AND ${companionDevices.fcmTokenEnc} IS NOT NULL
           AND (${companionDevices.eventCursor} < (SELECT MAX(${agentEvents.id}) FROM ${agentEvents})
+            OR ${companionDevices.roomChangeCursor} < (SELECT COALESCE(MAX(${agentRoomChanges.seq}), 0) FROM ${agentRoomChanges})
             OR EXISTS (SELECT 1 FROM ${insecureAuthRequests}
               WHERE ${insecureAuthRequests.status} = 'pending')))` })
       .from(sql`(SELECT 1) AS push_work`).limit(1);
     if (!work?.needed) return;
     const portal = createAgentPortalService(db, env, keyring);
     const enabled = await portal.isEnabled();
+    const bus = createAgentMessagingService(db, env, keyring);
+    const rooms = new AgentRoomChat(db, env, keyring, bus);
+    const roomsEnabled = await bus.isEnabled();
     const fleet = await readFleetEngineState(db);
     const visible = enabled
       ? new Set(
@@ -166,6 +179,32 @@ export class CompanionPush {
             .update(companionDevices)
             .set({ eventCursor: events.at(-1)!.id })
             .where(eq(companionDevices.id, fresh.id));
+        // Room pushes: the cursor advances over every change kind, only events notify.
+        const changes = await tx
+          .select()
+          .from(agentRoomChanges)
+          .where(gt(agentRoomChanges.seq, fresh.roomChangeCursor))
+          .orderBy(asc(agentRoomChanges.seq))
+          .limit(250);
+        if (changes.length) {
+          if (roomsEnabled && roomPushAllowed(user.accessLevel)) {
+            const prefs = new Map(
+              (await tx.select().from(companionRoomPrefs).where(eq(companionRoomPrefs.deviceId, fresh.id))).map(
+                (p) => [p.roomId, p.mode as RoomPushMode],
+              ),
+            );
+            for (const candidate of await roomPushCandidates(tx, keyring, changes, {
+              operator: { key: `admin:${user.id}`, name: user.name },
+              mode: (roomId) => prefs.get(roomId) ?? 'default',
+              suppressed: (roomId) => fresh.visibleSessionId === roomId && (fresh.visibleUntil ?? '') > nowIso(),
+            }))
+              await enqueue(candidate.sourceKey, 'room', candidate.roomId, candidate.expiresAt);
+          }
+          await tx
+            .update(companionDevices)
+            .set({ roomChangeCursor: changes.at(-1)!.seq })
+            .where(eq(companionDevices.id, fresh.id));
+        }
       });
     }
     const jobs = await db
@@ -212,6 +251,23 @@ export class CompanionPush {
             !!request &&
             request.status === 'pending' &&
             !stalePendingReason(request, Date.now());
+        } else if (job.kind === 'room' || job.kind === 'room_read') {
+          eligible = roomPushAllowed(row.user.accessLevel) && (await bus.isEnabled());
+          if (job.kind === 'room_read') {
+            const [read] = await db
+              .select()
+              .from(agentRoomReads)
+              .where(and(eq(agentRoomReads.roomId, job.targetId), eq(agentRoomReads.adminId, row.user.id)));
+            eligible = eligible && row.device.readSyncProtocol === 1 && !!read;
+          } else {
+            const [pref] = await db
+              .select()
+              .from(companionRoomPrefs)
+              .where(and(eq(companionRoomPrefs.deviceId, job.deviceId), eq(companionRoomPrefs.roomId, job.targetId)));
+            if (pref?.mode === 'mute') eligible = false;
+            if (row.device.visibleSessionId === job.targetId && (row.device.visibleUntil ?? '') > nowIso())
+              eligible = false;
+          }
         } else {
           eligible =
             (await portal.isEnabled()) &&
@@ -266,7 +322,17 @@ export class CompanionPush {
           kind: job.kind,
           target_id: job.targetId,
         };
-        if (job.kind === 'read') {
+        if (job.kind === 'room') {
+          const room = await roomJobData(db, keyring, rooms, job);
+          if (!room) throw new RoomJobGone();
+          Object.assign(data, room);
+        } else if (job.kind === 'room_read') {
+          const [read] = await db
+            .select()
+            .from(agentRoomReads)
+            .where(and(eq(agentRoomReads.roomId, job.targetId), eq(agentRoomReads.adminId, row.user.id)));
+          Object.assign(data, { room_id: job.targetId, conversation_key: `room:${job.targetId}`, read_at: read?.readAt ?? '' });
+        } else if (job.kind === 'read') {
           const [read] = await db.select().from(companionReads).where(and(eq(companionReads.userId, row.user.id), eq(companionReads.sessionId, job.targetId)));
           data.event_cursor = String(read?.readCursor ?? 0);
         } else if (job.kind !== 'approval') {
@@ -289,7 +355,25 @@ export class CompanionPush {
             event?.eventType ?? 'assistant_message',
             event ? decodeSummaryPayload(event.payloadEnc, this.ctx) : {},
           );
-          if (event) data.event_cursor = String(event.id);
+          if (event) {
+            data.event_cursor = String(event.id);
+            const [session] = await db
+              .select({ launchName: agentSessions.launchName, engine: agentSessions.engine })
+              .from(agentSessions)
+              .where(eq(agentSessions.id, event.sessionId));
+            Object.assign(
+              data,
+              agentPushData({
+                targetId: job.targetId,
+                agentName: session?.launchName ?? null,
+                engine: session?.engine ?? null,
+                eventId: event.id,
+                createdAt: event.createdAt,
+                eventType: event.eventType,
+                payload: decodeSummaryPayload(event.payloadEnc, this.ctx),
+              }),
+            );
+          }
           if (sourceNotice) { data.notice_id = sourceNotice.id; data.severity = sourceNotice.severity; }
         }
         const outcome = await this.transport.send(
@@ -311,7 +395,11 @@ export class CompanionPush {
           .update(companionNotifications)
           .set({ state: outcome === 'sent' ? 'sent' : 'canceled' })
           .where(eq(companionNotifications.id, job.id));
-      } catch {
+      } catch (error) {
+        if (error instanceof RoomJobGone) {
+          await db.update(companionNotifications).set({ state: 'canceled' }).where(eq(companionNotifications.id, job.id));
+          continue;
+        }
         await db
           .update(companionNotifications)
           .set({

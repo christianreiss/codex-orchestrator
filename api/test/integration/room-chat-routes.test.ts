@@ -75,7 +75,7 @@ describe('shared room HTTP access', () => {
   it('audits operator reads without storing plaintext in audit data', async () => {
     const read = vi
       .spyOn(AgentRoomChat.prototype, 'read')
-      .mockResolvedValue({ room: { id: ID } as never, events: [], next_before: null });
+      .mockResolvedValue({ room: { id: ID } as never, events: [], next_before: null, next_after: 0 });
     const app = await appFor('owner', 'strict');
     const r = await app.inject({
       method: 'POST',

@@ -44,7 +44,7 @@ describe('Companion shared rooms', () => {
         })
       ).statusCode,
     ).toBe(200);
-    expect(list).toHaveBeenCalledWith({ adminId: 7, name: 'Operator' }, 50, 'history');
+    expect(list).toHaveBeenCalledWith({ adminId: 7, name: 'Operator', deviceId: ID }, 50, 'history');
   });
   it('does not accept admin cookies in place of a device credential', async () => {
     const app = await fixture('owner');
@@ -77,7 +77,7 @@ describe('Companion shared rooms', () => {
     const app = await fixture('owner');
     const read = vi
       .spyOn(AgentRoomChat.prototype, 'read')
-      .mockResolvedValue({ room: { id: ID } as never, events: [], next_before: 'opaque-history-cursor' });
+      .mockResolvedValue({ room: { id: ID } as never, events: [], next_before: 'opaque-history-cursor', next_after: 0 });
     const response = await app.inject({
       method: 'POST',
       url: '/companion/v1/rooms/read',
@@ -86,10 +86,56 @@ describe('Companion shared rooms', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(read).toHaveBeenCalledWith(
-      { adminId: 7, name: 'Operator' },
+      { adminId: 7, name: 'Operator', deviceId: ID },
       { room_id: ID, before: 'opaque-history-cursor' },
     );
     expect(response.json().next_before).toBe('opaque-history-cursor');
+  });
+  it('routes delta reads by cursor and lists changed rooms', async () => {
+    const app = await fixture('owner');
+    const delta = vi.spyOn(AgentRoomChat.prototype, 'readDelta').mockResolvedValue({
+      room_id: ID,
+      resync: true,
+      next_after: 9,
+      has_more: false,
+    });
+    const full = vi.spyOn(AgentRoomChat.prototype, 'read');
+    const response = await app.inject({
+      method: 'POST',
+      url: '/companion/v1/rooms/read',
+      headers: { authorization: 'Bearer device' },
+      payload: { room_id: ID, after: 3 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ resync: true, next_after: 9 });
+    expect(delta).toHaveBeenCalledWith({ adminId: 7, name: 'Operator', deviceId: ID }, { room_id: ID, after: 3 });
+    expect(full).not.toHaveBeenCalled();
+    const changes = vi
+      .spyOn(AgentRoomChat.prototype, 'changes')
+      .mockResolvedValue({ enabled: true, rooms: [{ room_id: ID, seq: 12 }], next_after: 12, resync: false, has_more: false });
+    const listed = await app.inject({ url: '/companion/v1/rooms/changes?after=4', headers: { authorization: 'Bearer device' } });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().rooms).toEqual([{ room_id: ID, seq: 12 }]);
+    expect(changes).toHaveBeenCalledWith({ adminId: 7, name: 'Operator', deviceId: ID }, 4);
+  });
+  it('reads and stores the per-device room notification mode for a visible room', async () => {
+    const app = await fixture('owner');
+    const access = vi.spyOn(AgentRoomChat.prototype, 'access').mockResolvedValue({} as never);
+    vi.spyOn(CompanionDevices.prototype, 'roomPreference').mockResolvedValue('default');
+    const store = vi.spyOn(CompanionDevices.prototype, 'setRoomPreference').mockImplementation(async (_d, _r, mode) => mode);
+    const url = `/companion/v1/rooms/${ID}/notifications`;
+    const headers = { authorization: 'Bearer device' };
+    expect((await app.inject({ url, headers })).json()).toEqual({ room_id: ID, mode: 'default' });
+    const put = await app.inject({ method: 'PUT', url, headers, payload: { mode: 'follow' } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toEqual({ room_id: ID, mode: 'follow' });
+    expect(store).toHaveBeenCalledWith(ID, ID, 'follow');
+    expect(access).toHaveBeenCalledWith({ adminId: 7, name: 'Operator', deviceId: ID }, ID);
+    // Schema rejection (400 behind the production envelope plugin, which this fixture omits).
+    expect((await app.inject({ method: 'PUT', url, headers, payload: { mode: 'loud' } })).statusCode).not.toBe(200);
+    access.mockRejectedValue(new ForbiddenError('Room membership required'));
+    expect((await app.inject({ method: 'PUT', url, headers, payload: { mode: 'mute' } })).statusCode).toBe(403);
+    expect(store).toHaveBeenCalledTimes(1);
   });
   it('rejects browser origins before accessing a room attachment', async () => {
     const app = await fixture('owner');

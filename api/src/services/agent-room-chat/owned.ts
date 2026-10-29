@@ -14,7 +14,8 @@ import {
 } from '../../control-plane/state/runtime.js';
 import { ownedAddress, ownedBridge, requireOwnedMessaging } from '../../control-plane/state/messaging.js';
 import type { OwnerStateSnapshot } from '../../control-plane/state/store.js';
-import { roomHead, stageRoomEvent } from '../../control-plane/state/room-heads.js';
+import { roomHead, stageRoomChange, stageRoomEvent } from '../../control-plane/state/room-heads.js';
+import { stageRoomReadSync } from '../companion/room-reads.js';
 import { stageUpdate, stageDelete } from '../../control-plane/state/rows.js';
 import { stageServerAddress } from '../../control-plane/state/messages.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../http/errors.js';
@@ -298,6 +299,7 @@ export class OwnedRoomChat {
         unread:
           read?.unreadCount ??
           Math.max(0, (head?.eventCount ?? 0) - (head?.actorCounts[authorKey(actor, session)] ?? 0)),
+        read_at: read?.readAt ?? null,
         last_activity_at: head?.lastAt ?? room.created_at,
       });
     }
@@ -342,6 +344,8 @@ export class OwnedRoomChat {
           .values({ roomId, adminId: actor.adminId!, readAt })
           .onDuplicateKeyUpdate({ set: { readAt } }),
       );
+      stageRoomChange(ctx, roomId, 'receipt', null);
+      stageRoomReadSync(ctx, actor, roomId, readAt);
       return { read_at: readAt };
     });
     if (advanced) wsPublisher.publish('agent_room_chat.changed', { room_id: roomId });
@@ -365,6 +369,7 @@ export class OwnedRoomChat {
           .values({ roomId, addressId, readThrough: through, updatedAt })
           .onDuplicateKeyUpdate({ set: { readThrough: sql`GREATEST(read_through, ${through})`, updatedAt } }),
       );
+      stageRoomChange(ctx, roomId, 'receipt', addressId, updatedAt);
       return true;
     });
   }
@@ -448,6 +453,7 @@ export class OwnedRoomChat {
         ctx.write(async (tx) => tx.insert(schema.agentBusConferenceMembers).values(row));
       }
     }
+    stageRoomChange(ctx, room.id, 'member', addressId, now);
     room.members.push(...this.members(ctx.draft.view(), [{ id: addressId, role: 'member' }]));
   }
   private operation(
@@ -512,6 +518,7 @@ export class OwnedRoomChat {
         ctx.write(async (tx) => tx.insert(schema.agentBusConferences).values(row));
       }
       const room = this.room(ctx.draft.view(), id);
+      stageRoomChange(ctx, id, 'status', null, now);
       for (const member of new Set(body.members)) this.addMember(ctx, room, member);
       return { room_id: id };
     });
@@ -541,12 +548,14 @@ export class OwnedRoomChat {
           adjournedAt: status === 'adjourned' ? nowIso() : null,
           updatedAt: nowIso(),
         });
+        stageRoomChange(ctx, room.id, 'status', null);
       } else if (body.action === 'invite') this.addMember(ctx, room, body.address_id!);
       else if (room.kind === 'group') {
         const group = ctx.draft.table('agentBusGroups').get(room.id)!;
         for (const row of ctx.draft.table('agentBusSubscriptions').all())
           if (row.topic === 'group:' + group.slug && row.subscriberAddressId === body.address_id)
             stageDelete(ctx, 'agentBusSubscriptions', row.id);
+        stageRoomChange(ctx, room.id, 'member', body.address_id!);
       } else {
         if (room.members.find((m) => m.id === body.address_id)?.role === 'owner')
           throw new ForbiddenError('Cannot remove the chair');
@@ -557,6 +566,7 @@ export class OwnedRoomChat {
               leftAt: nowIso(),
               updatedAt: nowIso(),
             });
+        stageRoomChange(ctx, room.id, 'member', body.address_id!);
       }
       stageRoomEvent(ctx, {
         id: randomUUID(),
@@ -721,6 +731,8 @@ export class OwnedRoomChat {
         bodyEnc: encrypt(JSON.stringify(event), this.core.keyring),
         createdAt: now,
       });
+      // An answer changes the parent's delivery status: refresh that event's receipts.
+      if (body.reply_to) stageRoomChange(ctx, room.id, 'receipt', body.reply_to, now);
       for (const member of room.members.filter((m) => body.ask_all || body.recipients.includes(m.id))) {
         const target = member.session_id
           ? ctx.draft.table('agentSessions').get(member.session_id)
