@@ -11,6 +11,10 @@ class ChatPresentationTest {
     private fun message(cursor: Long, type: String, time: String?) = JSONObject()
         .put("cursor", cursor).put("type", type).put("created_at", time)
         .put("payload", JSONObject().put("text", "Message " + cursor))
+    private fun bubbles(events: List<JSONObject>, notices: List<JSONObject> = emptyList()) =
+        buildTimeline(portalTimelineEntries(events, notices), zone).filterIsInstance<TimelineItem.Bubble>()
+    private fun messagesGrouped(first: JSONObject, second: JSONObject, @Suppress("UNUSED_PARAMETER") zone: ZoneId) =
+        bubbles(listOf(first, second)).let { it.size == 2 && !it[1].startsGroup }
 
     @Test fun importantNoticesAppearBetweenMessagesWithoutLifecycleNoiseOrDuplicatePreviews() {
         val notice = JSONObject().put("id", "notice-id").put("severity", "important")
@@ -20,16 +24,16 @@ class ChatPresentationTest {
         val events = listOf(message(1, "assistant_message", "2026-10-07T10:00:00Z"), event,
             message(3, "receiver_ready", "2026-10-07T10:01:30Z"),
             message(4, "assistant_message", "2026-10-07T10:02:00Z"))
-        val messages = chatRows(events, zone, listOf(notice)).filterIsInstance<ChatRow.Message>()
-        assertEquals(listOf(1L, 2L, 4L), messages.map { it.event.getLong("cursor") })
-        assertEquals("Review the result", messageText(messages[1].event))
-        assertEquals("important", noticeSeverity(messages[1].event.optJSONObject("payload")))
-        assertFalse(messages[0].joinsNext)
+        val messages = bubbles(events, listOf(notice))
+        assertEquals(listOf(1L, 2L, 4L), messages.map { it.source.getLong("cursor") })
+        assertEquals("Review the result", messageText(messages[1].source))
+        assertEquals("important", noticeSeverity(messages[1].source.optJSONObject("payload")))
+        assertTrue(messages[0].endsGroup)
         assertEquals(ReplyPreview("Agent", "Review the result"), replyPreview(events, 2, "Agent"))
 
-        val outsideTail = chatRows(listOf(events.first(), events.last()), zone, listOf(notice, notice)).filterIsInstance<ChatRow.Message>()
+        val outsideTail = bubbles(listOf(events.first(), events.last()), listOf(notice, notice))
         assertEquals(listOf("message:1", "notice:notice-id", "message:4"), outsideTail.map { it.key })
-        assertEquals(0, outsideTail[1].event.optLong("cursor"))
+        assertEquals(0, outsideTail[1].source.optLong("cursor"))
     }
 
     @Test fun importantRepliesAndQuestionsKeepTheirContentAndClassification() {
@@ -61,29 +65,30 @@ class ChatPresentationTest {
         val second = message(2, "assistant_message", "not-a-date")
         assertNull(eventTime(first)); assertNull(eventTime(second))
         assertFalse(messagesGrouped(first, second, zone))
-        assertTrue(chatRows(listOf(first, second), zone).all { it is ChatRow.Message })
+        assertTrue(buildTimeline(portalTimelineEntries(listOf(first, second)), zone).all { it is TimelineItem.Bubble })
     }
 
-    @Test fun transcriptKeepsCursorOrderAndAddsLocalDaysWithoutSystemNoise() {
+    @Test fun transcriptKeepsCursorOrderAndAddsLocalDaysWithSystemNoiseCollapsed() {
         val events = listOf(
             message(1, "assistant_message", "2026-10-07T21:59:00Z"),
             message(2, "receiver_ready", "2026-10-07T21:59:10Z"),
             message(3, "assistant_message", "2026-10-07T21:59:30Z"),
             message(4, "user_message", "2026-10-07T22:00:00Z"),
         )
-        val rows = chatRows(events, zone)
-        assertEquals(listOf(LocalDate.parse("2026-10-07"), LocalDate.parse("2026-10-08")), rows.filterIsInstance<ChatRow.Day>().map { it.date })
-        val messages = rows.filterIsInstance<ChatRow.Message>()
-        assertEquals(listOf(1L, 3L, 4L), messages.map { it.event.getLong("cursor") })
-        assertTrue(messages[0].joinsNext); assertTrue(messages[1].joinsPrevious)
-        assertFalse(messages[1].joinsNext); assertFalse(messages[2].joinsPrevious)
+        val rows = buildTimeline(portalTimelineEntries(events), zone)
+        assertEquals(listOf(LocalDate.parse("2026-10-07"), LocalDate.parse("2026-10-08")), rows.filterIsInstance<TimelineItem.Day>().map { it.date })
+        val messages = rows.filterIsInstance<TimelineItem.Bubble>()
+        assertEquals(listOf(1L, 3L, 4L), messages.map { it.source.getLong("cursor") })
+        // The status row between two replies is visible, so it ends the first group.
+        assertEquals(listOf("Message 2"), rows.filterIsInstance<TimelineItem.StatusRun>().flatMap { run -> run.lines.map { it.text } })
+        assertTrue(messages.all { it.startsGroup && it.endsGroup })
     }
 
     @Test fun attachmentOnlyMessagesRemainVisibleWithoutTurningTransportEventsIntoMessages() {
         val attachment=JSONObject().put("cursor",9).put("type","assistant_message").put("payload",JSONObject().put("text","").put("attachments",org.json.JSONArray().put("file-id")))
-        assertEquals(1,chatRows(listOf(attachment)).filterIsInstance<ChatRow.Message>().size)
+        assertEquals(1,bubbles(listOf(attachment)).size)
         attachment.put("type","message_accepted")
-        assertTrue(chatRows(listOf(attachment)).isEmpty())
+        assertTrue(portalTimelineEntries(listOf(attachment)).isEmpty())
     }
 
     @Test fun replyPreviewUsesTheExactRetainedMessageAndHandlesMediaOrExpiredHistory() {
@@ -97,11 +102,11 @@ class ChatPresentationTest {
     }
 
     @Test fun changingClockDoesNotCreateDuplicateListKeys() {
-        val rows = chatRows(listOf(
+        val rows = buildTimeline(portalTimelineEntries(listOf(
             message(1, "assistant_message", "2026-10-07T21:59:00Z"),
             message(2, "assistant_message", "2026-10-07T22:01:00Z"),
             message(3, "assistant_message", "2026-10-07T21:59:59Z"),
-        ), zone)
+        )), zone)
         assertEquals(rows.size, rows.map { it.key }.toSet().size)
         assertEquals("Today", dayLabel(LocalDate.parse("2026-10-07"), LocalDate.parse("2026-10-07")))
         assertEquals("Yesterday", dayLabel(LocalDate.parse("2026-10-06"), LocalDate.parse("2026-10-07")))

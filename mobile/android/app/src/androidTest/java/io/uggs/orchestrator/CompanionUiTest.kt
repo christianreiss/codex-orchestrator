@@ -93,16 +93,17 @@ class CompanionUiTest {
         compose.onAllNodesWithText("Server · Connected").onLast().assertIsDisplayed()
     }
 
-    @Test fun roomsDisappearWhenTheirLastActiveMemberLeaves() {
+    @Test fun quietGroupsStayWhileConferencesLeaveWithTheirLastActiveMember() {
         waitForAgentRows(session)
         sharedRooms.set(true); changed("rooms")
         compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("chat-filter:group").performClick()
         compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
         roomMemberActive.set(false); changed("rooms")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("room:$roomId").assertDoesNotExist()
-        compose.onNodeWithTag("chat-filter:chats").assertIsSelected()
+        compose.waitForIdle()
+        compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
+        compose.onNodeWithTag("chat-filter:group").assertIsSelected()
+        compose.onNodeWithTag("chat-filter:chats").performClick()
         roomCreated.set(JSONObject().put("kind", "conference")); roomMemberActive.set(true); changed("rooms")
         compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:conference").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("chat-filter:conference").performClick()

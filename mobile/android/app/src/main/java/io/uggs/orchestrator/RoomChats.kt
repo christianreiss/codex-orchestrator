@@ -56,6 +56,42 @@ internal fun roomReadMarkers(events: List<JSONObject>, members: List<JSONObject>
     }
     return out
 }
+/**
+ * Who a room message asks. [Share] requests no answer; [AskAll] starts one
+ * answer round with every participant; [Members] asks the chosen members.
+ */
+internal sealed interface RoomRecipients {
+    data object Share : RoomRecipients
+    data object AskAll : RoomRecipients
+    data class Members(val ids: Set<String>) : RoomRecipients
+
+    /** Toggling a member chip: the last removed member falls back to sharing. */
+    fun toggle(id: String): RoomRecipients {
+        val current = (this as? Members)?.ids.orEmpty()
+        val next = if (id in current) current - id else current + id
+        return if (next.isEmpty()) Share else Members(next)
+    }
+}
+
+/** The `/rooms/send` body (strict server schema): `ask_all` and `recipients` never appear together. */
+internal fun roomSendBody(roomId: String, requestId: String, content: String, attachments: List<String>, recipients: RoomRecipients, replyTo: String?): JSONObject =
+    JSONObject().put("room_id", roomId).put("client_request_id", requestId).put("content", content).put("attachments", JSONArray(attachments)).apply {
+        when (recipients) {
+            RoomRecipients.Share -> Unit
+            RoomRecipients.AskAll -> put("ask_all", true)
+            is RoomRecipients.Members -> put("recipients", JSONArray(recipients.ids.sorted()))
+        }
+        replyTo?.takeIf { it.isNotBlank() }?.let { put("reply_to", it) }
+    }
+
+/** Recipients the operator can still ask: a chosen member who left or cannot answer is dropped. */
+internal fun RoomRecipients.forMembers(members: List<JSONObject>): RoomRecipients {
+    if (this !is RoomRecipients.Members) return this
+    val askable = members.filter { it.optBoolean("reachable") && it.optBoolean("chat_capable") }.map { it.optString("id") }.toSet()
+    val kept = ids.intersect(askable)
+    return if (kept.isEmpty()) RoomRecipients.Share else RoomRecipients.Members(kept)
+}
+
 internal fun mergeRoomEvents(old: List<JSONObject>, fresh: List<JSONObject>): List<JSONObject> =
     (old + fresh).associateBy { it.getString("id") }.values.sortedWith(compareBy({ it.optString("created_at") }, { it.optString("id") }))
 
@@ -84,14 +120,29 @@ internal class RoomChats(
     }
     var candidates by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var drafts by mutableStateOf<Map<String, String>>(emptyMap())
-    private var targets by mutableStateOf<Map<String, String>>(emptyMap())
+    private var targets by mutableStateOf<Map<String, RoomRecipients>>(emptyMap())
+    private var replies by mutableStateOf<Map<String, String>>(emptyMap())
+    /** Newest chat event seen per room this session; the directory has no message preview. */
+    var previews by mutableStateOf<Map<String, JSONObject>>(emptyMap()); private set
+    private val frozenInitials = mutableMapOf<String, Map<String, String>>()
     private var pending by mutableStateOf<Map<String, JSONObject>>(emptyMap())
     var draft: String
         get() = drafts[selected].orEmpty()
         set(value) { selected?.let { drafts = drafts + (it to value) } }
-    var target: String
-        get() = targets[selected].orEmpty()
+    var recipients: RoomRecipients
+        get() = targets[selected] ?: RoomRecipients.Share
         set(value) { selected?.let { targets = targets + (it to value) } }
+    /** Room event UUID the next message answers, kept per room in memory like the draft. */
+    var replyTo: String?
+        get() = replies[selected]
+        set(value) { selected?.let { replies = if (value == null) replies - it else replies + (it to value) } }
+    /** Avatar initials per member, frozen for this room for the session (see [freezeInitials]). */
+    fun initials(roomId: String, members: List<JSONObject>): Map<String, String> {
+        val names = members.associate { it.optString("id") to roomPersonLabel(it) }
+        val previous = frozenInitials[roomId].orEmpty()
+        if (previous.keys == names.keys) return previous
+        return freezeInitials(previous, names).also { frozenInitials[roomId] = it }
+    }
     val pendingSend get() = pending[selected]
     private var generation = 0
     private var selection = 0
@@ -99,7 +150,7 @@ internal class RoomChats(
     val pendingOperation get() = operation
     fun clear() {
         generation++; selection++; rooms = emptyList(); selected = null; current = null
-        events = emptyList(); drafts = emptyMap(); targets = emptyMap(); pending = emptyMap()
+        events = emptyList(); drafts = emptyMap(); targets = emptyMap(); replies = emptyMap(); pending = emptyMap(); previews = emptyMap(); frozenInitials.clear()
         candidates = emptyList(); nextBefore = null; nextOffset = null; error = null
         loading = false; busy = false; operation = null; supported = true; enabled = true; history = false
     }
@@ -107,7 +158,7 @@ internal class RoomChats(
     suspend fun refresh(client: Api, caps: Set<String>, valid: () -> Boolean) {
         if ("agent_messaging.read" !in caps) { if (valid()) clear(); return }
         if ("agent_messaging.reveal_content" !in caps && valid()) {
-            close(); drafts = emptyMap(); pending = emptyMap()
+            close(); drafts = emptyMap(); pending = emptyMap(); replies = emptyMap(); previews = emptyMap()
         }
         val epoch = generation
         val page = try { client.request(directoryPath()) } catch (e: ApiException) {
@@ -141,12 +192,13 @@ internal class RoomChats(
             if (epoch != generation || view != selection || id != selected || !valid()) return
             current = page.getJSONObject("room")
             events = mergeRoomEvents(events, page.getJSONArray("events").objects())
+            events.lastOrNull { it.optString("kind", "chat") == "chat" && it.optString("content").isNotBlank() }?.let { previews = previews + (id to it) }
             if (before != null || nextBefore == null) nextBefore = page.optString("next_before").takeUnless { it.isBlank() || it == "null" }
             error = null
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             if (epoch == generation && view == selection && valid()) {
-                if (e is ApiException && e.status in setOf(401, 403, 404, 410)) { events = emptyList(); current = null; drafts = drafts - id; pending = pending - id }
+                if (e is ApiException && e.status in setOf(401, 403, 404, 410)) { events = emptyList(); current = null; drafts = drafts - id; pending = pending - id; replies = replies - id; previews = previews - id }
                 error = e.message ?: "Cannot load conversation"
             }
         } finally { if (epoch == generation && view == selection) loading = false }
@@ -180,10 +232,8 @@ internal class RoomChats(
     fun send(attachments: List<String>, sent: (String, List<String>) -> Unit) {
         val id = selected ?: return
         if (!allowed() || busy || current?.optString("status") != "open") return
-        val body = pending[id] ?: JSONObject().put("room_id", id).put("client_request_id", UUID.randomUUID().toString())
-            .put("content", draft).put("attachments", JSONArray(attachments)).apply {
-                if (target == "all") put("ask_all", true) else if (target.isNotBlank()) put("recipients", JSONArray(listOf(target)))
-            }
+        val members = current?.optJSONArray("members")?.objects().orEmpty()
+        val body = pending[id] ?: roomSendBody(id, UUID.randomUUID().toString(), draft, attachments, recipients.forMembers(members), replyTo)
         if (body.optString("content").isBlank() && body.getJSONArray("attachments").length() == 0) return
         pending = pending + (id to body)
         val epoch = generation
@@ -194,6 +244,7 @@ internal class RoomChats(
                 if (epoch != generation) return@launch
                 pending = pending - id
                 if (drafts[id] == body.optString("content")) drafts = drafts + (id to "")
+                if (replies[id] != null && replies[id] == body.optString("reply_to")) replies = replies - id
                 sent(id, body.getJSONArray("attachments").strings().toList())
                 if (selected == id) read(api(), id)
             } catch (e: Exception) { if (epoch == generation) {

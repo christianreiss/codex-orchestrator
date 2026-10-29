@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_copy_code">Code kopieren</string>
+    <string name="chat_copied">Kopiert</string>
+    <string name="chat_copy">Kopieren</string>
+    <string name="chat_select_text">Text auswählen</string>
+    <string name="chat_done_selecting">Fertig</string>
+    <string name="chat_show_quoted">Zitierte Nachricht anzeigen</string>
+    <string name="chat_quote_unavailable">Zitierte Nachricht nicht verfügbar</string>
+    <string name="chat_quote_not_loaded">Die zitierte Nachricht ist nicht geladen.</string>
+    <plurals name="chat_status_updates">
+        <item quantity="one">%d Statusmeldung</item>
+        <item quantity="other">%d Statusmeldungen</item>
+    </plurals>
+    <string name="chat_hide_updates">Meldungen ausblenden</string>
+    <string name="chat_expanded">Ausgeklappt</string>
+    <string name="chat_collapsed">Eingeklappt</string>
+    <string name="chat_agent_working">%s arbeitet</string>
+    <plurals name="chat_new_count">
+        <item quantity="one">%d neue Nachricht</item>
+        <item quantity="other">%d neue Nachrichten</item>
+    </plurals>
+    <string name="chat_earlier_question">Frühere Frage</string>
+    <string name="chat_recent">Zuletzt</string>
+    <string name="chat_filter_projects">Projekte</string>
+    <string name="chat_filter_hosts">Hosts</string>
+    <string name="room_no_participants">Keine Teilnehmenden</string>
+    <string name="room_preview">%1$s: %2$s</string>
+    <string name="room_recipient_share">Teilen</string>
+    <string name="room_recipient_ask_all">Raum fragen</string>
+    <string name="room_recipient_hint_share">Mit dem Raum geteilt. Es wird keine Antwort angefordert.</string>
+    <string name="room_recipient_hint_ask_all">Alle Teilnehmenden werden um eine Antwort gebeten.</string>
+    <string name="room_recipient_hint_members">Bittet %s um eine Antwort.</string>
+    <string name="room_recipient_unavailable">%s kann gerade nicht antworten</string>
+    <string name="room_recipients">Empfänger</string>
+    <string name="room_delivery_asked">%d gefragt</string>
+    <plurals name="room_delivery_answered">
+        <item quantity="one">%d beantwortet</item>
+        <item quantity="other">%d beantwortet</item>
+    </plurals>
+    <plurals name="room_delivery_waiting">
+        <item quantity="one">%d ausstehend</item>
+        <item quantity="other">%d ausstehend</item>
+    </plurals>
+    <plurals name="room_delivery_unreachable">
+        <item quantity="one">%d nicht erreicht</item>
+        <item quantity="other">%d nicht erreicht</item>
+    </plurals>
+    <plurals name="room_delivery_no_answer">
+        <item quantity="one">%d ohne Antwort</item>
+        <item quantity="other">%d ohne Antwort</item>
+    </plurals>
+    <string name="room_answer_answered">Beantwortet</string>
+    <string name="room_answer_waiting">Antwort ausstehend</string>
+    <string name="room_answer_unreachable">Nicht erreicht</string>
+    <string name="room_answer_no_answer">Ohne Antwort beendet</string>
+    <string name="room_former_member">Ehemalige Teilnehmende</string>
+    <string name="room_ends_in">Endet in %s</string>
+    <string name="room_deadline_reached">Frist erreicht</string>
+    <string name="room_duration">Dauer: %s</string>
+    <string name="room_conference_hint">Eine fokussierte Diskussion, die nach %s endet.</string>
+</resources>

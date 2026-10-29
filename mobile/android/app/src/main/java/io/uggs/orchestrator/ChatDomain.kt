@@ -7,10 +7,9 @@ import java.time.Instant
 /*
  * Engine-neutral chat model shared by direct Portal chats and rooms.
  *
- * These types are a read-only projection of the server JSON the screens use
- * today. Nothing in the UI or the live layer reads them yet; they exist so the
- * shared timeline and outbox can be built on one shape. The mappers must agree
- * with the current presentation rules (for Portal, [conversationEvents]).
+ * These types are a read-only projection of the server JSON. The shared chat
+ * timeline (ChatTimeline.kt) is built on them for direct chats and rooms. The
+ * mappers must agree with the presentation rules (for Portal, [conversationEvents]).
  */
 
 /** Which conversation a message, draft or upload belongs to. */
@@ -42,6 +41,9 @@ sealed interface MessageKey {
 
     /** Room event UUID. */
     data class RoomEvent(val id: String) : MessageKey
+
+    /** An unresolved Portal notice kept in view although the transcript tail no longer holds its event. */
+    data class Notice(val id: String) : MessageKey
 }
 
 enum class ChatItemKind { Message, Notice, Membership, Other }

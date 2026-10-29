@@ -2,6 +2,9 @@ package io.uggs.orchestrator
 
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.semantics.Role
@@ -23,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -38,28 +42,35 @@ import java.time.Instant
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("chats") }
     var createRoom by rememberSaveable { mutableStateOf(false) }
+    // Recent (offline or ended) chats stay one tap away but start collapsed, so the live list stays live.
+    var showRecent by rememberSaveable { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val search = query.trim()
     fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && (hasUrgentNotice(agent) || isReachable(agent))
     // Filter only the already-authorized overview. Searching never fetches a
     // transcript or changes a read marker.
     val activeAgents = if (model.roomChats.history) emptyList() else agents.filter(::isOnlineActiveAgent)
-    val rooms = model.roomChats.rooms.filter { model.roomChats.history || roomHasActiveAgent(it, agents.takeIf { model.overviewAvailable() }) }
+    val recentAgents = if (model.roomChats.history) emptyList() else recentChats(agents)
+    // Quiet groups and project/host rooms stay listed; a conference without an active member has nobody left to answer.
+    val rooms = model.roomChats.rooms.filter { model.roomChats.history || it.optString("kind") != "conference" || roomHasActiveAgent(it, agents.takeIf { model.overviewAvailable() }) }
+    val projectsLabel = stringResource(R.string.chat_filter_projects)
+    val hostsLabel = stringResource(R.string.chat_filter_hosts)
     val categories = buildList {
-        if (activeAgents.isNotEmpty()) add("chats" to "Chats")
-        if (rooms.any { it.optString("kind") != "conference" }) add("group" to "Groups")
-        if (rooms.any { it.optString("kind") == "conference" }) add("conference" to "Conferences")
+        if (activeAgents.isNotEmpty() || recentAgents.isNotEmpty()) add("chats" to "Chats")
+        if (rooms.any { roomCategory(it) == "group" }) add("group" to "Groups")
+        if (rooms.any { roomCategory(it) == "conference" }) add("conference" to "Conferences")
+        if (rooms.any { roomCategory(it) == "project" }) add("project" to projectsLabel)
+        if (rooms.any { roomCategory(it) == "host" }) add("host" to hostsLabel)
     }
     val selected = filter.takeIf { id -> categories.any { it.first == id } } ?: categories.firstOrNull()?.first
     LaunchedEffect(selected) { selected?.let { filter = it } }
-    val visible = if (selected != "chats") emptyList() else activeAgents.filter { agent ->
-        search.isEmpty() || listOf(agentTitle(agent), agent.optString("cwd"),
-            agentHost(agent).orEmpty(), agentSummary(agent).orEmpty(), agent.optString("engine"))
-            .any { it.contains(search, ignoreCase = true) }
-    }
+    fun matches(agent: JSONObject) = search.isEmpty() || listOf(agentTitle(agent), agent.optString("cwd"),
+        agentHost(agent).orEmpty(), agentSummary(agent).orEmpty(), agent.optString("engine"))
+        .any { it.contains(search, ignoreCase = true) }
+    val visible = if (selected != "chats") emptyList() else activeAgents.filter(::matches)
+    val recent = if (selected != "chats") emptyList() else recentAgents.filter(::matches)
     val shared = rooms.filter { room ->
-        (selected == "conference" && room.optString("kind") == "conference" ||
-            selected == "group" && room.optString("kind") != "conference") &&
+        roomCategory(room) == selected &&
             (search.isBlank() || room.optString("title").contains(search, true) || room.optString("description").contains(search, true))
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -85,21 +96,23 @@ import java.time.Instant
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             )
             if (categories.isNotEmpty()) Row(
-                Modifier.fillMaxWidth().padding(top = 10.dp).selectableGroup()
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp)).padding(3.dp),
+                Modifier.fillMaxWidth().padding(top = 10.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp))
+                    .then(if (categories.size > 3) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
+                    .selectableGroup().padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 categories.forEach { (id, label) ->
                     val active = selected == id
                     Surface(
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        modifier = (if (categories.size > 3) Modifier.widthIn(min = 84.dp) else Modifier.weight(1f)).heightIn(min = 48.dp)
                             .testTag("chat-filter:$id")
                             .selectable(selected = active, role = Role.Tab, onClick = { filter = id }),
                         shape = RoundedCornerShape(8.dp),
                         color = if (active) MaterialTheme.colorScheme.surface else Color.Transparent,
                         shadowElevation = if (active) 1.dp else 0.dp,
                     ) {
-                        Box(Modifier.padding(horizontal = 4.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.padding(horizontal = if (categories.size > 3) 12.dp else 4.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
                             Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                                 color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -121,8 +134,8 @@ import java.time.Instant
             itemsIndexed(visible, key = { _, agent -> "agent:" + agent.getString("id") }) { index, agent ->
                 AgentRow(agent, now, fresh, attention(agent), model.unreadReplyCount(agent.getString("id")), index < visible.lastIndex) { model.openSession(agent.getString("id")) }
             }
-            itemsIndexed(shared, key = { _, room -> "room:" + room.getString("id") }) { _, room ->
-                RoomRow(room, model.can("agent_messaging.reveal_content")) { model.openRoom(room) }
+            itemsIndexed(shared, key = { _, room -> "room:" + room.getString("id") }) { index, room ->
+                RoomRow(room, model.can("agent_messaging.reveal_content"), model.roomChats.previews[room.getString("id")], index < shared.lastIndex) { model.openRoom(room) }
             }
             if (model.roomChats.nextOffset != null) item { TextButton(onClick = model.roomChats::more, enabled = fresh && !model.roomChats.loading) { Text("More conversations") } }
             if (visible.isEmpty() && shared.isEmpty()) item(key = "empty") {
@@ -140,12 +153,33 @@ import java.time.Instant
                     else if (fresh && !model.roomChats.history) Text("No active agents online.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            if (recent.isNotEmpty()) {
+                item(key = "recent-header") { RecentHeader(recent.size, showRecent) { showRecent = !showRecent } }
+                // Distinct tags: a recent chat is not a live "agent:" row.
+                if (showRecent) itemsIndexed(recent, key = { _, agent -> "recent:" + agent.getString("id") }) { index, agent ->
+                    AgentRow(agent, now, fresh, false, model.unreadReplyCount(agent.getString("id")), index < recent.lastIndex, "recent:") { model.openSession(agent.getString("id")) }
+                }
+            }
         }
     }
     if (createRoom) NewRoomSheet(model) { createRoom = false }
 }
 
-@Composable private fun AgentRow(agent: JSONObject, now: Long, fresh: Boolean, attention: Boolean, unreadCount: Int, divider: Boolean, onClick: () -> Unit) {
+internal fun roomCategory(room: JSONObject): String = when (room.optString("kind")) {
+    "conference" -> "conference"; "project" -> "project"; "host" -> "host"; else -> "group"
+}
+
+@Composable private fun RecentHeader(count: Int, expanded: Boolean, toggle: () -> Unit) {
+    val state = stringResource(if (expanded) R.string.chat_expanded else R.string.chat_collapsed)
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = toggle).testTag("recent-toggle")
+        .semantics { stateDescription = state }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.chat_recent), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(count.toString(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        CompanionIcon(if (expanded) CompanionSymbol.Up else CompanionSymbol.Down, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 6.dp))
+    }
+}
+
+@Composable private fun AgentRow(agent: JSONObject, now: Long, fresh: Boolean, attention: Boolean, unreadCount: Int, divider: Boolean, tagPrefix: String = "agent:", onClick: () -> Unit) {
     val important = hasUrgentNotice(agent)
     val badgeColor = if (important) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     val badgeContentColor = if (important) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
@@ -154,7 +188,7 @@ import java.time.Instant
     val shortHost = host?.let { if (it.contains(':') || it.all { char -> char.isDigit() || char == '.' }) it else it.substringBefore('.') }
     val directory = agent.optString("cwd").trim().takeIf(String::isNotBlank)
     val summary = agentSummary(agent)
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag("agent:" + agent.optString("id")).semantics {
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag(tagPrefix + agent.optString("id")).semantics {
         stateDescription = when (unreadCount) { 0 -> "Read"; 1 -> "1 unread reply"; else -> "$unreadCount unread replies" }
     }, shape = RectangleShape, color = MaterialTheme.colorScheme.background) {
         Column {
@@ -181,7 +215,7 @@ import java.time.Instant
                         timestamp?.let { Text(timeLabel(it, DateFormat.is24HourFormat(LocalContext.current)), style = MaterialTheme.typography.labelSmall,
                             color = if (unreadCount > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
                     }
-                    if (unreadCount > 0) Surface(Modifier.testTag("unread-badge:" + agent.optString("id")).semantics {
+                    if (unreadCount > 0) Surface(Modifier.testTag(if (tagPrefix == "agent:") "unread-badge:" + agent.optString("id") else "recent-unread-badge:" + agent.optString("id")).semantics {
                         contentDescription = if (important) "Important unread replies" else "Unread replies"
                     }.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp), shape = CircleShape, color = badgeColor) {
                         Box(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {

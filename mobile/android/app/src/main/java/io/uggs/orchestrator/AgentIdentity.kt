@@ -1,14 +1,11 @@
 package io.uggs.orchestrator
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -58,18 +55,10 @@ internal fun roomPresenceLabel(presence: String) = when (presence) {
 /** Engine icon with a presence badge; the state is also spoken and written next to it, never colour alone. */
 @Composable internal fun MemberAvatar(member: JSONObject, presence: String, size: Dp = 40.dp) {
     val description = "${roomPersonLabel(member)}: ${roomPresenceLabel(presence)}"
-    val ring = MaterialTheme.colorScheme.surface
-    val outline = MaterialTheme.colorScheme.outline
     Box(Modifier.size(size).clearAndSetSemantics { contentDescription = description }) {
         Surface(Modifier.fillMaxSize(), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainer) {
-            Box(contentAlignment = Alignment.Center) { EngineIcon(member) }
+            Box(contentAlignment = Alignment.Center) { EngineIcon(member, Modifier.size(minOf(28.dp, size * .7f))) }
         }
-        val dot = Modifier.align(Alignment.BottomEnd).size(14.dp).background(ring, CircleShape).padding(2.dp)
-        when (presence) {
-            "working" -> Box(dot.background(Color(0xFFE0A100), CircleShape))
-            "listening", "available" -> Box(dot.background(Color(0xFF2E9E5B), CircleShape))
-            "idle" -> Box(dot.background(MaterialTheme.colorScheme.primary, CircleShape))
-            else -> Box(dot.border(1.5.dp, outline, CircleShape))
-        }
+        PresenceDot(presence, Modifier.align(Alignment.BottomEnd).size(minOf(14.dp, size * .35f)))
     }
 }
