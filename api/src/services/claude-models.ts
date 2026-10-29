@@ -12,78 +12,25 @@ import { eq } from 'drizzle-orm';
 import { versions } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { ApiError } from '../http/errors.js';
+import { MODEL_REGISTRY, modelTable, offeredModelIds, registryModels, upgradeMap, type ClaudeModel, type ClaudeModelLine } from './model-registry/index.js';
 
-export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
-
-/**
- * Public, non-deprecated Claude models verified 2026-10-28 against the vendor
- * lifecycle table and Claude Code 2.1.312's first-party native catalog.
- * Restricted-access Mythos models are not general fleet choices. Account and
- * provider restrictions still apply; catalog membership does not grant access.
- */
-export const CLAUDE_SUPPORTED_MODELS = [
-  'claude-fable-5-1',
-  'claude-fable-5',
-  'claude-opus-5-5',
-  'claude-opus-5',
-  'claude-opus-4-8',
-  'claude-sonnet-5-5',
-  'claude-sonnet-5',
-  'claude-opus-4-7',
-  'claude-sonnet-4-6',
-  'claude-haiku-5-5',
-  'claude-opus-4-6',
-  'claude-opus-4-5-20251101',
-  'claude-haiku-4-5-20251001',
-] as const;
-
-export type ClaudeModel = (typeof CLAUDE_SUPPORTED_MODELS)[number];
+export const CLAUDE_DEFAULT_MODEL = MODEL_REGISTRY.claude.defaultModel as ClaudeModel;
 
 /**
- * Legacy / vendor-public-id aliases that map onto our short ids. Keeps the
- * Anthropic SDK's "current generation" model names working out of the box.
- * Successors follow the "Recommended replacement" column of
- * https://platform.claude.com/docs/en/about-claude/model-deprecations (checked
- * 2026-10-28): every retired or deprecated Sonnet maps to `claude-sonnet-5-5`,
- * Opus to `claude-opus-4-8`, Haiku and Claude 1/Instant to Haiku 4.5. Active
- * models (including an already stored `claude-sonnet-5`) are never rewritten.
+ * Claude models the fleet offers, in picker order, from the fleet model
+ * registry (`model-registry/data.ts` records the vendor/native evidence).
+ * Account and provider restrictions still apply; membership grants no access.
  */
-export const CLAUDE_LEGACY_MODEL_UPGRADES: Record<string, ClaudeModel> = {
-  'claude-3-opus-20240229': 'claude-opus-4-8',
-  'claude-3-5-sonnet-20240620': 'claude-sonnet-5-5',
-  'claude-3-5-sonnet-20241022': 'claude-sonnet-5-5',
-  'claude-3-5-sonnet-latest': 'claude-sonnet-5-5',
-  'claude-3-haiku-20240307': 'claude-haiku-4-5-20251001',
-  'claude-3-5-haiku-latest': 'claude-haiku-4-5-20251001',
-  'claude-opus-4-20250514': 'claude-opus-4-8',
-  'claude-sonnet-4-20250514': 'claude-sonnet-5-5',
-  'claude-sonnet-4-5': 'claude-sonnet-5-5',
-  'claude-sonnet-4-5-20250929': 'claude-sonnet-5-5',
-  'claude-sonnet-4-5-latest': 'claude-sonnet-5-5',
-  'claude-opus-4-1-20250805': 'claude-opus-4-8',
-  'claude-opus-4-1': 'claude-opus-4-8',
-  'claude-opus-4-0': 'claude-opus-4-8',
-  'claude-sonnet-4-0': 'claude-sonnet-5-5',
-  'claude-3-7-sonnet-20250219': 'claude-sonnet-5-5',
-  'claude-3-7-sonnet': 'claude-sonnet-5-5',
-  'claude-3-5-sonnet': 'claude-sonnet-5-5',
-  'claude-3-5-haiku': 'claude-haiku-4-5-20251001',
-  'claude-3-7-sonnet-latest': 'claude-sonnet-5-5',
-  'claude-3-sonnet-20240229': 'claude-sonnet-5-5',
-  'claude-3-5-haiku-20241022': 'claude-haiku-4-5-20251001',
-  'claude-2.0': 'claude-opus-4-8',
-  'claude-2.1': 'claude-opus-4-8',
-  'claude-1.0': 'claude-haiku-4-5-20251001',
-  'claude-1.1': 'claude-haiku-4-5-20251001',
-  'claude-1.2': 'claude-haiku-4-5-20251001',
-  'claude-1.3': 'claude-haiku-4-5-20251001',
-  'claude-instant-1.0': 'claude-haiku-4-5-20251001',
-  'claude-instant-1.1': 'claude-haiku-4-5-20251001',
-  'claude-instant-1.2': 'claude-haiku-4-5-20251001',
-  // Active short aliases canonicalize without upgrading to a different model.
-  'claude-opus-4-5': 'claude-opus-4-5-20251101',
-  'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
-};
+export const CLAUDE_SUPPORTED_MODELS = offeredModelIds('claude') as readonly ClaudeModel[];
+
+export type { ClaudeModel, ClaudeModelLine } from './model-registry/index.js';
+
+/**
+ * Legacy / vendor-public-id aliases that map onto our short ids: each registry
+ * entry's `upgradesFrom` (the vendor's "Recommended replacement") plus its
+ * active short `aliases`. Active models are never rewritten.
+ */
+export const CLAUDE_LEGACY_MODEL_UPGRADES = upgradeMap('claude') as Record<string, ClaudeModel>;
 
 export const CLAUDE_MODEL_ENV_KEYS: readonly string[] = ['ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'];
 
@@ -101,104 +48,31 @@ export function normalizeClaudeModelReference(value: string): string {
 
 /**
  * Per-model metadata surfaced by the Models API: human-readable name, context
- * window (`max_input_tokens`) and output cap (`max_tokens`). Values track the
- * published vendor catalog. The `capabilities` tree the upstream API also
- * returns is deliberately not synthesised here — see docs/API.md.
+ * window (`max_input_tokens`) and output cap (`max_tokens`), from the registry.
+ * The `capabilities` tree the upstream API also returns is deliberately not
+ * synthesised here — see docs/API.md.
  */
-export const CLAUDE_MODEL_METADATA: Record<
-  ClaudeModel,
-  { displayName: string; maxInputTokens: number; maxTokens: number }
-> = {
-  'claude-fable-5-1': { displayName: 'Claude Fable 5.1', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-fable-5': { displayName: 'Claude Fable 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-opus-5-5': { displayName: 'Claude Opus 5.5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-opus-5': { displayName: 'Claude Opus 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-opus-4-8': { displayName: 'Claude Opus 4.8', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-sonnet-5-5': { displayName: 'Claude Sonnet 5.5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-sonnet-5': { displayName: 'Claude Sonnet 5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-opus-4-7': { displayName: 'Claude Opus 4.7', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-sonnet-4-6': { displayName: 'Claude Sonnet 4.6', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-haiku-5-5': { displayName: 'Claude Haiku 5.5', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-opus-4-6': { displayName: 'Claude Opus 4.6', maxInputTokens: 1_000_000, maxTokens: 128_000 },
-  'claude-opus-4-5-20251101': { displayName: 'Claude Opus 4.5', maxInputTokens: 200_000, maxTokens: 64_000 },
-  'claude-haiku-4-5-20251001': { displayName: 'Claude Haiku 4.5', maxInputTokens: 200_000, maxTokens: 64_000 },
-};
-
-/** Model lines the Anthropic Models API documents for its nullable `line` field. */
-export type ClaudeModelLine = 'haiku' | 'sonnet' | 'opus' | 'fable' | 'mythos';
+export const CLAUDE_MODEL_METADATA = Object.fromEntries(registryModels('claude').flatMap((entry) =>
+  entry.api ? [[entry.id, { displayName: `Claude ${entry.label}`, maxInputTokens: entry.api.maxInputTokens, maxTokens: entry.api.maxTokens }]] : [],
+)) as Record<ClaudeModel, { displayName: string; maxInputTokens: number; maxTokens: number }>;
 
 /**
- * Models API `line` per catalog model. Explicit catalog data, never parsed
+ * Models API `line` per catalog model. Explicit registry data, never parsed
  * from the id: platform.claude.com/docs/en/api/models/list (fetched
- * 2026-10-28) says clients must not infer a line from the `id`. Exhaustive by
- * type, so a new catalog model cannot ship without one.
+ * 2026-10-28) says clients must not infer a line from the `id`.
  */
-export const CLAUDE_MODEL_LINES: Readonly<Record<ClaudeModel, ClaudeModelLine>> = {
-  'claude-fable-5-1': 'fable',
-  'claude-fable-5': 'fable',
-  'claude-opus-5-5': 'opus',
-  'claude-opus-5': 'opus',
-  'claude-opus-4-8': 'opus',
-  'claude-sonnet-5-5': 'sonnet',
-  'claude-sonnet-5': 'sonnet',
-  'claude-opus-4-7': 'opus',
-  'claude-sonnet-4-6': 'sonnet',
-  'claude-haiku-5-5': 'haiku',
-  'claude-opus-4-6': 'opus',
-  'claude-opus-4-5-20251101': 'opus',
-  'claude-haiku-4-5-20251001': 'haiku',
-};
+export const CLAUDE_MODEL_LINES = Object.fromEntries(registryModels('claude').flatMap((entry) =>
+  entry.api ? [[entry.id, entry.api.line]] : [],
+)) as Readonly<Record<ClaudeModel, ClaudeModelLine>>;
 
-/**
- * Persisted native effort levels, verified against Claude Code 2.1.312 and
- * code.claude.com/docs/en/model-config on 2026-10-28. `max` is session-only.
- * API effort support is not a CLI capability: Opus 4.5 has no native effort
- * control, and Opus/Sonnet 4.6 stop at `high` for persisted settings.
- */
-export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh'],
-  'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-4-8': ['low', 'medium', 'high', 'xhigh'],
-  'claude-sonnet-5-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-sonnet-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh'],
-  'claude-sonnet-4-6': ['low', 'medium', 'high'],
-  'claude-haiku-5-5': ['low', 'medium', 'high', 'xhigh'],
-  'claude-opus-4-6': ['low', 'medium', 'high'],
-  'claude-opus-4-5-20251101': [],
-  'claude-haiku-4-5-20251001': [],
-};
+/** Persisted native effort levels (registry `efforts`); `max` is session-only. */
+export const CLAUDE_MODEL_REASONING_EFFORTS: Readonly<Record<string, readonly string[]>> = modelTable('claude', (entry) => entry.efforts);
 
-/**
- * Native Claude Code availability, not an API model minimum. Source:
- * https://code.claude.com/docs/en/model-config, checked 2026-10-28. No minimum
- * is invented for other catalog models, aliases or custom provider ids.
- */
-export const CLAUDE_MODEL_MIN_CLI_VERSIONS: Readonly<Record<string, string>> = {
-  'claude-fable-5-1': '2.1.257',
-  'claude-opus-5-5': '2.1.280',
-  'claude-sonnet-5-5': '2.1.284',
-  'claude-haiku-5-5': '2.1.293',
-};
+/** Native Claude Code availability (registry `minCliVersion`), not an API model minimum. */
+export const CLAUDE_MODEL_MIN_CLI_VERSIONS: Readonly<Record<string, string>> = modelTable('claude', (entry) => entry.minCliVersion);
 
 /** Native CLI defaults, independent of API request defaults and account policy. */
-export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = {
-  'claude-fable-5-1': 'high',
-  'claude-fable-5': 'high',
-  'claude-opus-5-5': 'medium',
-  'claude-opus-5': 'high',
-  'claude-opus-4-8': 'high',
-  'claude-sonnet-5-5': 'medium',
-  'claude-sonnet-5': 'high',
-  'claude-opus-4-7': 'xhigh',
-  'claude-sonnet-4-6': 'high',
-  'claude-haiku-5-5': 'medium',
-  'claude-opus-4-6': 'high',
-  'claude-opus-4-5-20251101': null,
-  'claude-haiku-4-5-20251001': null,
-};
+export const CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS: Readonly<Record<string, string | null>> = modelTable('claude', (entry) => entry.defaultEffort);
 
 export interface ClaudeModelInfo {
   id: ClaudeModel;

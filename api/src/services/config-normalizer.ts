@@ -34,38 +34,16 @@ import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REA
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
 import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
+import { acceptedModelIds, CLAUDE_ADVISOR_ALIAS_NAMES, CLAUDE_ADVISOR_ALIASES, claudeAdvisorRanks } from './model-registry/index.js';
 export { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, FORCE_UPGRADE_MODEL, FORCE_UPGRADE_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 
 /**
- * Codex model ids the fleet offers. Derived from the CLI's own catalog
- * (`models_cache.json`): an entry belongs here iff it is `visibility == "list"`
- * and not officially deprecated or retired. `gpt-reserve` and
- * `codex-auto-review` are `visibility: hide` and stay out. A catalog `upgrade`
- * block is only an upgrade nudge, not a deprecation: the GPT-5.6 family carries
- * one (to GPT-6 Sol/Luna) with `retirement_at: null` and remains supported. A
- * model moves to LEGACY_MODEL_UPGRADES only on official deprecation/retirement
- * evidence (models page, changelog or a retirement date).
- *
- * Deliberately NOT filtered on the catalog's `supported_in_api` flag: that
- * describes OpenAI's platform API, and this list also feeds `/v1/models`, which
- * is served by the codex runner shelling out to `codex exec` under ChatGPT
- * auth, so an entry with `supported_in_api: false` would still be servable.
- *
- * Verified against models_cache.json from codex-cli 0.164.0, 2026-10-26, and
- * the bundled 0.165.0 catalog (same listed set plus `gpt-5.5`), 2026-10-28.
- * GPT-5.5 was retired for ChatGPT sign-in on 2026-10-14 (still listed in the
- * bundled catalog for API-key sessions); the fleet migrates it to GPT-6.1 Sol.
+ * Codex model ids the fleet accepts, in picker order, from the fleet model
+ * registry (`model-registry/data.ts` records the catalog rules and evidence). A
+ * model moves to LEGACY_MODEL_UPGRADES (a successor's `upgradesFrom`) only on
+ * official deprecation/retirement evidence.
  */
-export const SUPPORTED_MODELS: readonly string[] = [
-  'gpt-6.1-sol',
-  'gpt-6.1-terra',
-  'gpt-6-astra',
-  'gpt-6-sol',
-  'gpt-6-luna',
-  'gpt-5.6-sol',
-  'gpt-5.6-terra',
-  'gpt-5.6-luna',
-];
+export const SUPPORTED_MODELS: readonly string[] = acceptedModelIds('codex');
 
 // Stored and request-side selections use one migration map so a deprecated ID
 // cannot survive one render path or migrate to a model the gateway rejects.
@@ -531,7 +509,7 @@ export function normalizeSettings(
  * missing here because this list predates the Fable tier. Alias set re-checked
  * on claude-cli 2.1.261, 2026-09-06: still these four.
  */
-export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'fable'] as const;
+export const ADVISOR_MODEL_ALIASES: readonly ('opus' | 'sonnet' | 'fable')[] = CLAUDE_ADVISOR_ALIAS_NAMES;
 
 /**
  * `advisor_rank` exactly as baked into the claude-cli model catalog (read out of
@@ -547,21 +525,7 @@ export const ADVISOR_MODEL_ALIASES = ['opus', 'sonnet', 'fable'] as const;
  * runs with no advisor. Nothing surfaces to the operator, which is why the fleet
  * validates the pair here instead of shipping a setting that quietly does nothing.
  */
-export const CLAUDE_ADVISOR_RANKS: Readonly<Record<string, number>> = {
-  'claude-haiku-5-5': 4,
-  'claude-haiku-4-5': 1,
-  'claude-haiku-4-5-20251001': 1,
-  'claude-sonnet-4-6': 2,
-  'claude-sonnet-5-5': 6,
-  'claude-sonnet-5': 4,
-  'claude-opus-4-6': 3,
-  'claude-opus-4-7': 5,
-  'claude-opus-4-8': 5,
-  'claude-opus-5': 7,
-  'claude-opus-5-5': 7,
-  'claude-fable-5': 8,
-  'claude-fable-5-1': 9,
-};
+export const CLAUDE_ADVISOR_RANKS: Readonly<Record<string, number>> = claudeAdvisorRanks();
 
 /** Minimum `advisor_rank` to be usable as an advisor at all (the CLI's `fZr`). */
 export const CLAUDE_MIN_ADVISOR_RANK = 2;
@@ -573,11 +537,7 @@ export const CLAUDE_MIN_ADVISOR_RANK = 2;
  * now has rank 4, the native advisor picker still offers only
  * `["fable","opus","sonnet"]` in Claude Code 2.1.312.
  */
-export const CLAUDE_ADVISOR_ALIAS_TARGETS: Readonly<Record<string, string>> = {
-  opus: 'claude-opus-5-5',
-  sonnet: 'claude-sonnet-5-5',
-  fable: 'claude-fable-5-1',
-};
+export const CLAUDE_ADVISOR_ALIAS_TARGETS: Readonly<Record<string, string>> = CLAUDE_ADVISOR_ALIASES;
 
 function advisorRank(model: string | null): number | undefined {
   if (model === null) return undefined;

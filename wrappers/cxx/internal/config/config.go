@@ -205,9 +205,17 @@ type EngineOptions struct {
 
 // ModelCatalog lists the models an engine may launch with and the efforts
 // each accepts. SessionEfforts are valid for one launch but never persisted.
+//
+// MinCLIVersions and LiveCatalogModels are additive: configs from older servers
+// omit them. MinCLIVersions carries every known native floor, including models
+// the server left out of Models for an old observed CLI. LiveCatalogModels are
+// unverified models a launcher offers only when the host's native catalog
+// lists them; older wrappers never read the key and so never offer them.
 type ModelCatalog struct {
-	DefaultModel string              `json:"default_model"`
-	Models       []ModelCatalogEntry `json:"models"`
+	DefaultModel      string              `json:"default_model"`
+	Models            []ModelCatalogEntry `json:"models"`
+	MinCLIVersions    map[string]string   `json:"min_cli_versions,omitempty"`
+	LiveCatalogModels []ModelCatalogEntry `json:"live_catalog_models,omitempty"`
 }
 
 type ModelCatalogEntry struct {

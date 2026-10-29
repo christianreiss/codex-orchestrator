@@ -453,6 +453,35 @@ func assertGoldenCatalog(t *testing.T, engine string, catalog *ModelCatalog) {
 	if !defaults[catalog.DefaultModel] {
 		t.Fatalf("%s default model %q is not in the catalog", engine, catalog.DefaultModel)
 	}
+	// Additive registry keys: unverified models travel apart from the menu,
+	// and every known floor survives even when its model was filtered out.
+	live := map[string]bool{}
+	for _, entry := range catalog.LiveCatalogModels {
+		if entry.Model == "" || defaults[entry.Model] {
+			t.Fatalf("%s live catalog entry %+v is empty or duplicates the menu", engine, entry)
+		}
+		if entry.DefaultEffort != nil && !contains(entry.Efforts, *entry.DefaultEffort) {
+			t.Fatalf("%s %s default effort %q not among %v", engine, entry.Model, *entry.DefaultEffort, entry.Efforts)
+		}
+		live[entry.Model] = true
+	}
+	switch engine {
+	case EngineCodex:
+		if !live["gpt-6.1-luna"] || len(live) != 1 {
+			t.Fatalf("codex live catalog = %v, want exactly gpt-6.1-luna", live)
+		}
+		if catalog.MinCLIVersions["gpt-6.1-terra"] != "0.159.0" || defaults["gpt-6.1-terra"] {
+			t.Fatalf("codex Terra floor must be signed while Terra is filtered for the old CLI: %v", catalog.MinCLIVersions)
+		}
+	case EngineClaude:
+		if len(catalog.MinCLIVersions) != 4 || catalog.MinCLIVersions["claude-opus-5-5"] != "2.1.280" || len(live) != 0 {
+			t.Fatalf("claude floors = %v, live = %v", catalog.MinCLIVersions, live)
+		}
+	case EngineGrok:
+		if catalog.MinCLIVersions != nil || len(live) != 0 {
+			t.Fatalf("grok has no floors or unverified models: %v %v", catalog.MinCLIVersions, live)
+		}
+	}
 }
 
 func contains(list []string, value string) bool {

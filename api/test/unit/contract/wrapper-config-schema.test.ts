@@ -282,8 +282,10 @@ describe('baked wrapper config against host-config-v1.json', () => {
     it(`emits only declared keys for engine=${engine}`, async () => {
       const diff = diffAgainstSchema(await bake(engine));
       // Every catalog entry is one closed object; count the shape once.
-      const visited = [...new Set(diff.visited.map((path) => path.replace(/^(engine_options\.model_catalog\.models)\[\d+\]$/, '$1[]')))];
-      expect(visited.sort()).toEqual([...CLOSED].sort());
+      const visited = [...new Set(diff.visited.map((path) => path.replace(/^(engine_options\.model_catalog\.(?:models|live_catalog_models))\[\d+\]$/, '$1[]')))];
+      // Only Codex registers an unverified (live-catalog) model today.
+      const closed = engine === 'codex' ? [...CLOSED, 'engine_options.model_catalog.live_catalog_models[]'] : CLOSED;
+      expect(visited.sort()).toEqual([...closed].sort());
       expect(diff.undeclared).toEqual([]);
       expect(diff.missing).toEqual([]);
     });

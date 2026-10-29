@@ -329,6 +329,15 @@ The config:
       "models": [
         { "model": "gpt-6-astra", "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
           "session_efforts": [], "default_effort": "medium" }
+      ],
+      // additive (model registry): every known native CLI floor, also for
+      // models omitted above for an old observed CLI
+      "min_cli_versions": { "gpt-6.1-terra": "0.159.0" },
+      // additive: unverified models, offered only where the host's own
+      // native catalog lists them; older wrappers ignore the key
+      "live_catalog_models": [
+        { "model": "gpt-6.1-luna", "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "session_efforts": [], "default_effort": "medium" }
       ]
     }
   },
@@ -510,6 +519,10 @@ fleet-authored and code-managed Skills are unaffected.
 
 ## Fleet model defaults
 
+The rows below describe the fleet model registry
+(`api/src/services/model-registry/data.ts`, [docs/model-registry.md](model-registry.md)),
+the single source for these models; change the registry, then this description.
+
 `/admin/engines` and `GET/POST /admin/model-defaults/codex` manage the default
 Codex CLI model and its model-dependent persistent effort. The endpoint writes
 Codex's native top-level `config.toml` keys, `model` and
@@ -523,6 +536,7 @@ editor overrides win.
 |---|---|---|
 | `gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6.1-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
+| `gpt-6.1-luna` (unverified, live-catalog gated) | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
 | `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
@@ -1106,6 +1120,15 @@ behaviour: usage on stderr, exit 2.
   Claude's session-only `max` (`session_efforts`) on models that reach `xhigh`.
   A config signed before the field existed offers only the configured model
   with that engine's generic efforts. The launchpad makes no network call.
+- **Unverified models.** `model_catalog.live_catalog_models` (additive) lists
+  registry models whose provider id is not yet verified (`gpt-6.1-luna` today).
+  The launchpad appends such an entry after the verified menu only when the
+  host's cached native catalog (`$CODEX_HOME/models_cache.json`, `visibility`
+  `list`) lists its id; a missing or unreadable cache hides it. Older wrappers
+  ignore the key and never offer it. `model_catalog.min_cli_versions` (additive)
+  carries every known native floor, so an unavailable selection is explained
+  from signed data; the wrapper's built-in floors remain only for configs that
+  predate the map.
 - **Launch.** The launch goes through the managed native path
   (`cxx native <engine> -- …`; Grok through `cgx run …` to keep its boot card).
   Auth, sync, skills, receiver and hard quota enforcement all still apply. The
@@ -2449,6 +2472,19 @@ Read pages may be shorter than the requested count due to their complete-item
 byte budget; continue the returned cursor. Publication errors preserve generated
 idempotency UUIDs so an uncertain send can be inspected or retried with that same
 UUID instead of creating a second publication.
+
+### GPT-6.1 Luna (unverified, live-catalog gated)
+
+Registered 2026-10-29 on an operator report. The id `gpt-6.1-luna` follows the
+6.1 Sol/Terra pattern but is not yet verified: the codex-cli 0.165.0 account
+catalog fetched 2026-10-29T06:47Z and the 0.165.0 binary do not list it. Efforts
+and default copy GPT-6 Luna; no CLI floor is claimed. Until verified it is
+accepted for explicit fleet, host and profile authoring, but it is not a
+latest-family target (latest-only keeps `gpt-6-luna`), not in `/v1/models`, not
+in the Model Class Check table, and launchpads offer it only where the host's own
+native catalog lists it. Verification is one registry edit (drop
+`liveCatalogRequired`); that promotion makes latest-only fleets resolve
+`gpt-6-luna`/`gpt-5.6-luna` to it, as GPT-6.1 Terra did for its family.
 
 ### GPT-6.1 Terra native availability
 

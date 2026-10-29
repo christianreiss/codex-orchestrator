@@ -11,7 +11,7 @@
     hostEngines,
   } from "$lib/api/hosts";
   import { modelDefaultsQuery } from "$lib/api/settings";
-  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, GROK_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
+  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, DEFAULT_MODELS, GROK_MODEL_OPTIONS, MODEL_EFFORTS, MODEL_MIN_CLI_VERSIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
   import type { HostDetailResponse } from "$lib/api/types";
   import EnginePanel from "../EnginePanel.svelte";
   import InputDialog from "../InputDialog.svelte";
@@ -32,15 +32,15 @@
 
   const engines = $derived(hostEngines(host));
   const digest = (value: string | null | undefined) => (value ? value.slice(0, 16) + "…" : "—");
-  const grokModel = $derived(host.grok_model_override ?? $grokDefaults.data?.model ?? "grok-4.7");
+  const grokModel = $derived(host.grok_model_override ?? $grokDefaults.data?.model ?? DEFAULT_MODELS.grok);
   const grokEfforts = $derived(
     ($grokDefaults.data?.catalog.find((model) => model.model === grokModel)?.persistent_efforts
-      ?? (grokModel === "grok-4.5" ? ["low", "medium", "high"] : ["low", "medium", "high", "xhigh"]))
+      ?? MODEL_EFFORTS.grok[grokModel] ?? ["low", "medium", "high", "xhigh"])
       .map((value) => ({ value, label: REASONING_EFFORT_OPTIONS.find((option) => option.value === value)?.label ?? value })),
   );
   const codexModels = $derived(CODEX_MODELS.map(option => {
     const minimum = $codexDefaults.data?.catalog?.find(entry => entry.model === option.value)?.min_cli_version
-      ?? (option.value === "gpt-6.1-terra" ? "0.159.0" : undefined);
+      ?? MODEL_MIN_CLI_VERSIONS.codex[option.value];
     const observed = host.client_version?.match(/\b(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?/);
     const required = minimum?.split(".").map(Number);
     const supported = !minimum || Boolean(observed && required && (

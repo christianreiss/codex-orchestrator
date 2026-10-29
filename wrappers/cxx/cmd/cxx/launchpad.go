@@ -56,9 +56,10 @@ func runLaunchpad(stdout, stderr io.Writer) (code int, ok bool) {
 			}
 			return codex.Version(ctx)
 		},
-		Local: launchpad.LocalPreferences,
-		Quota: launchpad.LocalWeekly,
-		Last:  last,
+		Local:      launchpad.LocalPreferences,
+		Quota:      launchpad.LocalWeekly,
+		Last:       last,
+		LiveModels: launchpad.LocalLiveModels,
 	})
 	if len(engines) == 0 {
 		return 0, false
