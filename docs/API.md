@@ -1066,6 +1066,7 @@ Chat content is encrypted and never broadcast on global admin WS.
 | `POST /admin/chatty/runs/:id/answer` | generation and text; resumes the user's pending question. |
 | `POST /admin/chatty/runs/:id/cancel` | Stops the user's request; completed changes remain. |
 | `POST /admin/chatty/actions/:id/decision` | generation and approve boolean; applies only to the user's current unexpired action. |
+| `POST /admin/chatty/proposals/verify` | proposal (opaque action-button token). Read-only re-check for the current admin session and conversation generation; returns `{available:false, reason, detail}` or `{available:true, action, risk, label, title, summary, confirm_label, confirm_text, target, plan, params, expires_at}`. Executes nothing. |
 | `DELETE /admin/chatty/session` | Deletes content, cancels work and advances the generation across devices; content-free retry tombstones remain. |
 | `GET /admin/chatty/events` | Cookie-authenticated personal SSE change notifications; reconnect fetches the canonical snapshot. |
 | `GET /admin/chatty/sources/:id` | Authorized read of a source in the build's private knowledge corpus. |

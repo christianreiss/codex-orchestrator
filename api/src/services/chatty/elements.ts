@@ -12,6 +12,7 @@ import { SettingsService } from '../settings.js';
 import { WorkflowsService } from '../workflows.js';
 import { define } from './tool-definition.js';
 import type { ChattyTool, ToolContext } from './tools.js';
+import type { ActionElement } from './actions.js';
 
 /**
  * Rich reply elements.
@@ -88,21 +89,38 @@ export const elementRequestSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('suggestion'), text: z.string().trim().min(1).max(160) }).strict(),
+  // Only the shape is checked here; actions.ts validates the ID and parameters against its registry.
+  z
+    .object({ type: z.literal('action'), action: z.string().min(1).max(64), params: z.record(z.unknown()).optional() })
+    .strict(),
 ]);
 export type ElementRequest = z.infer<typeof elementRequestSchema>;
 export const MAX_ELEMENTS = 8;
 const MAX_LINKS = 6;
 const MAX_SUGGESTIONS = 4;
+const MAX_ACTION_ELEMENTS = 3;
 
 export type ChattyElement =
   | { type: 'link'; kind: LinkKind; label: string; path: string }
-  | { type: 'suggestion'; text: string };
+  | { type: 'suggestion'; text: string }
+  | ActionElement;
 export interface RejectedElement {
   index: number;
   kind?: string;
   ref?: string;
+  action?: string;
   reason: 'invalid' | 'unavailable' | 'limit';
+  detail?: string;
 }
+
+/**
+ * Turns a model action request into a verified, signed element (actions.ts). Without
+ * one, every action element is refused: callers that cannot bind a proposal to an
+ * admin session must not render action buttons.
+ */
+export type ActionElementResolver = (
+  request: { action: string; params: Record<string, unknown> },
+) => Promise<{ ok: true; element: ActionElement } | { ok: false; detail: string }>;
 
 /** Entity lookups; database-backed in production, injected in tests. */
 export interface ElementLookups {
@@ -239,12 +257,14 @@ export async function resolveElements(
   raw: readonly unknown[],
   can: (capability: Capability) => boolean,
   lookups: ElementLookups,
+  resolveAction?: ActionElementResolver,
 ): Promise<{ elements: ChattyElement[]; rejected: RejectedElement[] }> {
   const elements: ChattyElement[] = [];
   const rejected: RejectedElement[] = [];
   const seen = new Set<string>();
   let links = 0;
   let suggestions = 0;
+  let actions = 0;
   for (const [index, value] of raw.slice(0, MAX_ELEMENTS).entries()) {
     const parsed = elementRequestSchema.safeParse(value);
     if (!parsed.success) {
@@ -262,6 +282,29 @@ export async function resolveElements(
       seen.add(`s:${text}`);
       suggestions++;
       elements.push({ type: 'suggestion', text });
+      continue;
+    }
+    if (item.type === 'action') {
+      const action = cleanLabel(item.action, 64);
+      let outcome: Awaited<ReturnType<ActionElementResolver>> = { ok: false, detail: 'Action buttons are unavailable here.' };
+      try {
+        if (resolveAction) outcome = await resolveAction({ action: item.action, params: item.params ?? {} });
+      } catch {
+        outcome = { ok: false, detail: 'The action could not be verified.' };
+      }
+      if (!outcome.ok) {
+        rejected.push({ index, action, reason: 'unavailable', detail: cleanLabel(outcome.detail, 160) });
+        continue;
+      }
+      const key = `a:${outcome.element.action}:${JSON.stringify(outcome.element.params)}`;
+      if (seen.has(key)) continue;
+      if (actions >= MAX_ACTION_ELEMENTS) {
+        rejected.push({ index, action, reason: 'limit' });
+        continue;
+      }
+      seen.add(key);
+      actions++;
+      elements.push(outcome.element);
       continue;
     }
     let link: { label: string; path: string } | null = null;

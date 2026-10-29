@@ -408,6 +408,7 @@
       "POST /admin/auth/upload",
       "POST /admin/chatty/actions/:id/decision",
       "POST /admin/chatty/messages",
+      "POST /admin/chatty/proposals/verify",
       "POST /admin/chatty/runs/:id/answer",
       "POST /admin/chatty/runs/:id/cancel",
       "POST /admin/communicators/:id/disconnect",

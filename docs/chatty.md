@@ -131,8 +131,84 @@ The panel navigates with the SvelteKit router (`paths.base` added on the client;
 modified clicks open a new tab). The desktop panel stays open; the full-screen
 phone panel minimizes so the destination is visible, and reopening shows the same
 conversation. Only the latest answer offers its suggestions; a suggestion is sent
-as an ordinary user message and cannot approve an action. Mutations still go
-through the confirmation card below; there are no action buttons in answers.
+as an ordinary user message and cannot approve an action. Mutations Chatty itself
+performs still go through the confirmation card below; action buttons (next
+section) are executed by the console through the ordinary admin endpoints.
+
+## Action buttons
+
+An answer can also offer up to three action buttons, for example "Habe ich einen
+Host example.com?" → [Host example.com öffnen] plus [Claude auf example.com
+aktivieren]. The model writes only `{"type":"action","action":"host.engine.enable",
+"params":{"host":"example.com","engine":"claude"}}`; it never writes a URL, request
+body, label or risk. It can check proposals first with the read-only
+`ui_actions_check` tool.
+
+`api/src/services/chatty/actions.ts` holds the closed registry:
+
+| Action | Parameters | Risk | Existing endpoint the console calls | Capability |
+| --- | --- | --- | --- | --- |
+| `hosts.filter` | `status` online/offline/attention and/or `flag` vip/roaming/secure/insecure/unprovisioned | safe | navigation to `/hosts?status=…&flag=…` | `hosts.read` |
+| `activity.host` | `host`, optional `window` 1h/24h/7d | safe | navigation to `/activity?host=<id>&window=…` | `audit.read` |
+| `host.engine.enable` | `host`, `engine` | confirm | `POST /admin/hosts/:id/engines` (current list plus the engine) | `hosts.security_transition` |
+| `host.engine.disable` | `host`, `engine` | danger | `POST /admin/hosts/:id/engines` (current list minus the engine) | `hosts.security_transition` |
+| `host.auto_update` | `host`, `enabled` | confirm | `POST /admin/hosts/:id/auto-update` | `hosts.manage` |
+| `host.insecure.close` | `host` | confirm | `POST /admin/hosts/:id/insecure/disable` | `hosts.activate_insecure` |
+| `account.verify` | `account` | confirm | `POST /admin/accounts/:id/verify` | `auth.manage` |
+| `versions.check` | none | confirm | `POST /admin/versions/check` | `settings.manage` |
+
+For each proposal the server checks the parameters, that the entity exists (internal
+hosts and accounts being removed never resolve), that the acting admin's role holds
+the capability of the existing route (a unit test pins it to the route inventory),
+the engine master switch where the action is engine-scoped, and that the operation
+is not a no-op or bound to fail: an engine already assigned, the last engine of a
+host, a host without an open insecure window or with the fleet window open, an
+unchanged auto-update override. Adding an engine that is switched off fleet-wide is
+refused; removing one is allowed, matching the host service. `account.verify`
+requires the account's engine to be switched on. The label and the dialog text come
+from templates in that file and the stored entity name (control and bidirectional
+characters removed); model prose never becomes button text.
+
+A resolved element carries an opaque proposal token: an HMAC with the active
+encryption key over action, canonical parameters and expiry, bound to the admin
+user, the admin session and the conversation generation. It is valid for 15
+minutes. Another login, another user, Clear (new generation) or a changed key makes
+it invalid. Tokens are stateless; within their lifetime a button can be used more
+than once, exactly like the page button it mirrors.
+
+The console has its own allowlist (`frontend/src/lib/components/chatty/actions.ts`):
+it fixes each action's risk, so a tampered payload cannot downgrade a mutation to a
+direct click, builds navigation paths only from enumerated filter values, and
+accepts a server plan only when it fits the endpoint (for engines: the list after is
+the list before plus or minus the named engine, never empty). Safe actions navigate
+directly. Any other action opens the shared confirmation dialog, which first calls
+`POST /admin/chatty/proposals/verify` and shows the fresh title, target, summary and
+consequences. Danger actions additionally require typing the host name. On confirm
+the console verifies again; if the plan changed, it shows the new description and
+asks for a new confirmation. Then it calls the existing endpoint through the same
+client mutation the page uses, so the route's own capability gate, validation and
+whatever audit record it writes apply unchanged. The outcome appears under the buttons; a refused request says it
+did not run, a transport or server failure says the outcome is unknown. Expired
+buttons are disabled with a note to ask again.
+
+Chatty's server never executes these operations, and they produce no Chatty action
+receipt. The model learns about them only through fresh reads in a later request.
+
+Deliberately excluded, even though admin endpoints exist: deleting anything (hosts,
+accounts, projects, schedules, content), clearing host auth, minting installers
+(the install command embeds the host credential) and host API key rotation, gateway
+or provider key management, secrets, users and admin roles, the API kill switch and
+engine master switches, opening insecure access (host or fleet window), marking
+hosts secure/insecure, releasing IP bindings, workflow runs, schedules, agent
+sessions and messaging. A host "sync now" action does not exist because hosts pull
+their configuration and there is no admin endpoint that pushes a sync; enabling or
+disabling an engine is picked up at the host's next synchronization. ChatGPT usage
+refresh (`POST /admin/chatgpt/usage/refresh`) is Codex-only, with no Claude or Grok
+counterpart, so it is not offered; `account.verify` covers all three engines.
+
+Deviation from the original design note: the token is stateless rather than stored,
+so no migration is needed. The short lifetime, the session and generation binding
+and the re-verification before every execution take the place of single use.
 
 ## Execution and confirmations
 

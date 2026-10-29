@@ -19,6 +19,7 @@ import {
   type ToolContext,
 } from './tools.js';
 import { capabilityChecker, databaseLookups, resolveElements, type ElementLookups } from './elements.js';
+import { actionElementResolver, databaseActionLookups, type ActionLookups } from './actions.js';
 import { loadKnowledge, searchKnowledge, sourceView, type KnowledgeBundle } from './knowledge.js';
 import {
   SYSTEM_PROMPT,
@@ -87,6 +88,7 @@ export class ChattyCoordinator {
   readonly tools: ChattyTool[];
   readonly knowledge: KnowledgeBundle;
   readonly elementLookups: (c: ToolContext) => ElementLookups;
+  readonly actionLookups: (c: ToolContext) => ActionLookups;
   private active = new Map<string, AbortController>();
   private tickRunning = false;
   /** After an empty check, ticks skip the read until this time unless a submit wakes them. */
@@ -98,6 +100,7 @@ export class ChattyCoordinator {
       tools?: ChattyTool[];
       knowledge?: KnowledgeBundle;
       elementLookups?: (c: ToolContext) => ElementLookups;
+      actionLookups?: (c: ToolContext) => ActionLookups;
     } = {},
   ) {
     this.store = new ChattyStore(ctx.db, ctx.keyring, () => this.wake());
@@ -105,6 +108,7 @@ export class ChattyCoordinator {
     this.tools = options.tools ?? administrationTools();
     this.knowledge = options.knowledge ?? loadKnowledge();
     this.elementLookups = options.elementLookups ?? ((c) => databaseLookups(c));
+    this.actionLookups = options.actionLookups ?? ((c) => databaseActionLookups(c));
   }
   stop(id?: string) {
     for (const [key, signal] of this.active) if (!id || key === id) signal.abort();
@@ -400,10 +404,19 @@ export class ChattyCoordinator {
         const response = result.response;
         if (response.kind === 'answer') {
           const user = await this.store.authorize({ userId: run.userId, sessionId: run.adminSessionId });
+          const can = capabilityChecker(user.accessLevel);
+          const context = this.toolContext(run);
+          // Action buttons are signed for this admin session and conversation generation only.
           const { elements, rejected } = await resolveElements(
             response.elements ?? [],
-            capabilityChecker(user.accessLevel),
-            this.elementLookups(this.toolContext(run)),
+            can,
+            this.elementLookups(context),
+            actionElementResolver(
+              this.ctx.keyring,
+              { userId: run.userId, sessionId: run.adminSessionId, generation: run.generation },
+              can,
+              this.actionLookups(context),
+            ),
           );
           // One correction turn: an answer must not promise a button the server refused.
           if (rejected.length && !state.elementsRetried) {
@@ -412,7 +425,7 @@ export class ChattyCoordinator {
               role: 'tool',
               content: {
                 error:
-                  'These answer elements could not be verified and were removed. Answer again without them and do not mention them as links or buttons.',
+                  'These answer elements could not be verified and were removed. Answer again without them and do not mention them as links, buttons or actions.',
                 rejected,
               },
             });
