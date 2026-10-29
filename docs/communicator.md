@@ -70,7 +70,15 @@ sibling request cancellation retains the terminal cause. Watcher overflow also
 wakes local lease observers so a signed sync revocation can hand auth back.
 An explicit `agent_messaging_relay_uncertain` refusal uses the existing
 30-second, cancelable shut-door retry/reconnect delay. It never transfers or
-releases the protected predecessor's accepted work.
+releases the protected predecessor's accepted work. The refusal is bounded:
+every worker process registers with a new instance id, so a predecessor that
+died uncleanly can never report its held work again. Once that exact relay
+incarnation has been detached for the owner reconnect grace (5 minutes, as for
+resource claims and Git registrations), owner maintenance settles its work
+with `relay_instance_lost` (`accepted` becomes `ambiguous`, never replayed;
+`leased` work, which was never started, is requeued) and the next 30-second
+retry registers. The refusal names `relay_id`, `generation` and
+`settles_after`.
 
 cxx 0.9.130 advertises `cache.native_scope_protocol:1` and preserves the paired
 `X-Agent-Session-Id` / `X-Agent-Bridge-Token` through cache proofs and scope keys.

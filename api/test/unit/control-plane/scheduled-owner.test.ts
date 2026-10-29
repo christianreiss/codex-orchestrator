@@ -143,6 +143,7 @@ describe('owned scheduled recovery', () => {
     expect(
       messagingMaintenanceObligations(snapshot, {
         relayConnected: () => false,
+        relayHeldWorkGoneAt: () => null,
         sessionConnected: () => false,
         receiverConnected: () => false,
         revision: () => '1',

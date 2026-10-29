@@ -1,5 +1,6 @@
 import { ownerPresence } from '../presence.js';
 import { ownedCredentialDeadline } from '../credentials.js';
+import { legacyDrainFor } from '../legacy-drain.js';
 import type { OwnerRuntime } from './runtime.js';
 import type { OwnerStateSnapshot } from './store.js';
 
@@ -28,36 +29,50 @@ export const LAST_SEEN_STAMP_MS = 10 * 60_000;
 interface Tracker {
   readonly bootAt: number;
   readonly lastAttached: Map<string, number>;
+  /** Relay id -> last moment any of its attachments connected or detached. */
+  readonly lastRelayAttached: Map<string, number>;
   readonly stop: () => void;
 }
 const trackers = new WeakMap<OwnerRuntime, Tracker>();
 
 /**
- * Records when each session was last attached. Timestamps only: a presence
- * listener must never stage a mutation (presence.close() detaches everything
- * during teardown). Started at boot next to trackHostActivity; the lazy start
- * in tracker() only serves owners built without bootstrap (tests).
+ * Records when each session and relay was last attached. Timestamps only: a
+ * presence listener must never stage a mutation (presence.close() detaches
+ * everything during teardown). Started at boot next to trackHostActivity; the
+ * lazy start in tracker() only serves owners built without bootstrap (tests).
  */
 export function trackSessionActivity(owner: OwnerRuntime): void {
   if (trackers.has(owner)) return;
-  const lastAttached = new Map<string, number>();
+  const lastAttached = new Map<string, number>(),
+    lastRelayAttached = new Map<string, number>();
   const presence = ownerPresence(owner);
-  for (const attachment of presence.all())
+  const relayOf = (scope: { topic: string; relay_id?: string | null }) =>
+    scope.topic === 'relay' && scope.relay_id ? scope.relay_id : undefined;
+  for (const attachment of presence.all()) {
     if (attachment.scope.session_id) lastAttached.set(attachment.scope.session_id, Date.now());
+    const relay = relayOf(attachment.scope);
+    if (relay) lastRelayAttached.set(relay, Date.now());
+  }
   const stopPresence = presence.subscribe((change) => {
     const id = change.attachment.scope.session_id;
     if (id) lastAttached.set(id, Date.now());
+    const relay = relayOf(change.attachment.scope);
+    if (relay) lastRelayAttached.set(relay, Date.now());
   });
   const stopState = owner.state.subscribe((snapshot) => {
     for (const id of lastAttached.keys()) if (!snapshot.sessions.has(id)) lastAttached.delete(id);
+    const relays = snapshot.table('agentBusRelays');
+    for (const id of lastRelayAttached.keys()) if (!relays.get(id)) lastRelayAttached.delete(id);
   });
   trackers.set(owner, {
     bootAt: Date.now(),
     lastAttached,
+    lastRelayAttached,
     stop: () => {
       stopPresence();
       stopState();
       lastAttached.clear();
+      lastRelayAttached.clear();
       trackers.delete(owner);
     },
   });
@@ -100,6 +115,49 @@ export function holderGoneAt(owner: OwnerRuntime, snapshot: OwnerStateSnapshot, 
   const seen = sessionLastSeen(owner, snapshot, sessionId);
   if (seen === null) return null;
   return Math.max(seen, tracker(owner).bootAt) + OWNER_RECONNECT_GRACE_MS;
+}
+
+/**
+ * When work held by relay lease `relay:<id>:<generation>` stops having an owner
+ * that could ever report it: at once when that relay row, generation or
+ * instance no longer exists, otherwise once the exact relay incarnation has
+ * been detached for the reconnect grace and the owner has been up at least as
+ * long. Null while that incarnation is attached. Only the same process (same
+ * per-process instance id) can reattach; a new worker process never can.
+ */
+export function relayHolderGoneAt(
+  owner: OwnerRuntime,
+  snapshot: OwnerStateSnapshot,
+  leaseOwner: string,
+  ownerInstanceId: string | null,
+  claimId: string | null = null,
+): number | null {
+  const [kind, id, generation] = leaseOwner.split(':');
+  if (kind !== 'relay' || !id) return null;
+  // A captured pre-cutover relay process reports over the explicit legacy
+  // drain, never over presence. Its accepted claims stay protected while the
+  // drain proof for that exact claim is live.
+  if (claimId && legacyDrainFor(owner)?.existingClaim('relay', id, claimId)) return null;
+  const relay = snapshot.table('agentBusRelays').get(id);
+  if (
+    !relay ||
+    relay.status !== 'active' ||
+    String(relay.generation) !== generation ||
+    (ownerInstanceId !== null && ownerInstanceId !== relay.instanceId)
+  )
+    return -Infinity;
+  const attached = ownerPresence(owner)
+    .all()
+    .some(
+      (a) =>
+        a.scope.topic === 'relay' &&
+        a.scope.relay_id === relay.id &&
+        a.scope.binding_generation === relay.generation &&
+        a.scope.native_instance_id === relay.instanceId,
+    );
+  if (attached) return null;
+  const state = tracker(owner);
+  return Math.max(state.lastRelayAttached.get(id) ?? -Infinity, state.bootAt) + OWNER_RECONNECT_GRACE_MS;
 }
 
 /**

@@ -7,7 +7,35 @@ import {
 import { stageUpdate } from '../../control-plane/state/rows.js';
 import { stageEndNames } from '../../control-plane/state/names.js';
 import { wsPublisher } from '../../ws/publisher.js';
+import { relayHolderGoneAt } from '../../control-plane/state/owner-liveness.js';
+import { daemonExecutionEnabled } from '../host-daemon/policy.js';
 import { SERVER_ADDRESS_ID } from './groups.js';
+import { AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS } from './constants.js';
+
+type OwnedBusMessage = ReturnType<OwnerStateSnapshot['messages']['all']>[number];
+/**
+ * Offered (`leased`) or `accepted` work whose relay incarnation can never
+ * report it again: the relay row/generation/instance moved on, or the exact
+ * relay process has been detached past the reconnect grace. A new worker
+ * process always has a new instance id, so without this the predecessor's
+ * work would refuse every successor registration forever.
+ */
+export function relayHeldWorkGoneAt(
+  runtime: OwnerRuntime,
+  snapshot: OwnerStateSnapshot,
+  message: OwnedBusMessage,
+): number | null {
+  if (!['leased', 'accepted'].includes(message.status) || !message.leaseOwner?.startsWith('relay:')) return null;
+  return relayHolderGoneAt(runtime, snapshot, message.leaseOwner, message.ownerInstanceId, message.claimId);
+}
+function relayHeldWorkDue(runtime: OwnerRuntime, snapshot: OwnerStateSnapshot, now: number): boolean {
+  return ['leased', 'accepted'].some((status) =>
+    snapshot.messages.by('status', status).some((message) => {
+      const gone = relayHeldWorkGoneAt(runtime, snapshot, message);
+      return gone !== null && gone <= now;
+    }),
+  );
+}
 
 export function conferenceHasOwnedDeliveries(snapshot: OwnerStateSnapshot, id: string): boolean {
   return snapshot
@@ -119,6 +147,86 @@ export function stageExpiredReboots(ctx: OwnerMutationContext, now: string): voi
     });
   }
 }
+/**
+ * Settle work a vanished relay incarnation held. The relay acknowledges
+ * `accepted` before it starts the native process, so `leased` work never ran
+ * and returns to the queue (or expires/dies like any other retry). `accepted`
+ * work may have run: it becomes `ambiguous` and keeps its lease identity, as a
+ * revoked conversation does. Neither transfers the work to the successor.
+ */
+function stageRelayLost(
+  ctx: OwnerMutationContext,
+  message: OwnedBusMessage,
+  now: string,
+  counts: { expired: number; retried: number; dead: number; ambiguous: number },
+): void {
+  let status: string;
+  if (message.status === 'accepted') {
+    status = 'ambiguous';
+    stageUpdate(ctx, 'agentBusMessages', message.id, {
+      status,
+      ambiguousAt: now,
+      leaseUntil: null,
+      lastErrorCode: 'relay_instance_lost',
+      updatedAt: now,
+    });
+    counts.ambiguous++;
+  } else if (message.expiresAt <= now) {
+    status = 'expired';
+    stageUpdate(ctx, 'agentBusMessages', message.id, {
+      status,
+      expiredAt: now,
+      leaseOwner: null,
+      leaseUntil: null,
+      claimId: null,
+      relayGeneration: null,
+      ownerInstanceId: null,
+      lastErrorCode: 'relay_instance_lost',
+      updatedAt: now,
+    });
+    counts.expired++;
+  } else if (message.attempts >= AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS) {
+    status = 'dead';
+    stageUpdate(ctx, 'agentBusMessages', message.id, {
+      status,
+      deadAt: now,
+      leaseUntil: null,
+      lastErrorCode: 'delivery_attempts_exhausted',
+      updatedAt: now,
+    });
+    counts.dead++;
+  } else {
+    status = 'queued';
+    stageUpdate(ctx, 'agentBusMessages', message.id, {
+      status,
+      nextAttemptAt: now,
+      leaseOwner: null,
+      leaseUntil: null,
+      claimId: null,
+      relayGeneration: null,
+      ownerInstanceId: null,
+      lastErrorCode: 'relay_instance_lost',
+      updatedAt: now,
+    });
+    counts.retried++;
+  }
+  // A host daemon slot running this delivery is released the way peerFinished
+  // would release it, so the address can be offered again.
+  for (const session of ctx.draft.table('hostDaemonSessions').by('addressId', message.targetAddressId)) {
+    if (session.activeMessageId !== message.id) continue;
+    const daemon = ctx.snapshot.daemons.get(session.hostId);
+    stageUpdate(ctx, 'hostDaemonSessions', session.id, {
+      status:
+        session.status === 'stopping' || !daemon || !daemonExecutionEnabled(daemon.settings)
+          ? 'closed'
+          : status === 'ambiguous'
+            ? 'unknown'
+            : 'idle',
+      activeMessageId: null,
+      lastActivityAt: now,
+    });
+  }
+}
 /** Only real queue, rendezvous and recovery deadlines. No liveness SQL sweep. */
 export async function maintainOwnedMessaging(runtime: OwnerRuntime): Promise<Record<string, number>> {
   runtime.assertOwner();
@@ -131,7 +239,8 @@ export async function maintainOwnedMessaging(runtime: OwnerRuntime): Promise<Rec
     conferences_adjourned: 0,
     dispatches_expired: 0,
   };
-  if (!due(runtime.state.snapshot(), new Date().toISOString())) return empty;
+  const initial = runtime.state.snapshot();
+  if (!due(initial, new Date().toISOString()) && !relayHeldWorkDue(runtime, initial, Date.now())) return empty;
   const result = (await mutateOwnerState(runtime, {
     kind: 'messaging.maintenance',
     payload: {},
@@ -139,6 +248,13 @@ export async function maintainOwnedMessaging(runtime: OwnerRuntime): Promise<Rec
       const now = new Date().toISOString(),
         counts = { ...empty };
       stageExpiredReboots(ctx, now);
+      const nowMs = Date.parse(now);
+      for (const status of ['leased', 'accepted'])
+        for (const message of ctx.snapshot.messages.by('status', status)) {
+          const gone = relayHeldWorkGoneAt(runtime, ctx.snapshot, message);
+          if (gone === null || gone > nowMs) continue;
+          stageRelayLost(ctx, message, now, counts);
+        }
       for (const message of ctx.draft.table('agentBusMessages').all()) {
         if (['queued', 'batched'].includes(message.status) && message.expiresAt <= now) {
           stageUpdate(ctx, 'agentBusMessages', message.id, {
@@ -276,7 +392,7 @@ export async function maintainOwnedMessaging(runtime: OwnerRuntime): Promise<Rec
       return counts;
     },
   })) as Record<string, number>;
-  if (result.expired || result.released_bindings)
+  if (result.expired || result.retried || result.dead || result.ambiguous || result.released_bindings)
     wsPublisher.publish('agent_messaging.queue.changed', result);
   if (result.conferences_adjourned || result.dispatches_expired)
     wsPublisher.publish('agent_messaging.conference.changed', {

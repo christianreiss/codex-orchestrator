@@ -17,6 +17,7 @@ import { AgentMessagingService } from '../services/agent-messaging.js';
 import {
   conferenceHasOwnedDeliveries,
   maintainOwnedMessaging,
+  relayHeldWorkGoneAt,
 } from '../services/agent-messaging/owned-maintenance.js';
 import { createCompanionEffectHandlers } from '../services/companion/push-owner.js';
 import { bindOwnerMaintenanceCommands, type OwnerMaintenanceOperation } from './owner-maintenance.js';
@@ -117,6 +118,7 @@ export async function composeOwnerServices(
     retention: plane.retention,
     facts: {
       relayConnected: (id) => presence.hasRelay(id),
+      relayHeldWorkGoneAt: (snapshot, message) => relayHeldWorkGoneAt(runtime, snapshot, message),
       sessionConnected: (id, generation) =>
         presence.hasSession(id, generation) || legacyDrain.session(id, generation),
       receiverConnected: (id, generation, receiver) =>

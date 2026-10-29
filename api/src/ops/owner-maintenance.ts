@@ -1,6 +1,9 @@
 import type { RetentionDeadlineIndex } from '../services/server-retention/deadlines.js';
 import type { Database } from '../db/client.js';
 import type { OwnerWorkObligation, OwnerWorkResult } from './owner-worker.js';
+import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
+
+type OwnedBusMessage = ReturnType<OwnerStateSnapshot['messages']['all']>[number];
 
 export type OwnerMaintenanceOperation =
   | 'messaging'
@@ -21,6 +24,11 @@ export type OwnerMaintenanceOperation =
   | 'portal-retention';
 export interface MessagingMaintenanceFacts {
   relayConnected(relayId: string): boolean;
+  /**
+   * When relay-held (`leased`/`accepted`) work loses any owner that could report it;
+   * null while its exact relay incarnation is attached or the work is not relay-held.
+   */
+  relayHeldWorkGoneAt(snapshot: OwnerStateSnapshot, message: OwnedBusMessage): number | null;
   sessionConnected(sessionId: string, binding: number): boolean;
   receiverConnected(sessionId: string, binding: number, receiverGeneration: string): boolean;
   /** Changes on every connection/registry transition relevant to maintenance. */
