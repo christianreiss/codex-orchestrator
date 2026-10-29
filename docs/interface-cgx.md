@@ -921,6 +921,10 @@ reply without `task_result` finishes the work as `unknown`. A result contains
 `status` (`succeeded|failed|blocked|unknown`), `summary` (4096 UTF-8 bytes maximum) and
 optional `evidence` (up to 20 `{description, reference}` objects). Bodies are encrypted;
 metadata lists only the status. Per-claim writes are idempotent; a different result conflicts.
+Both tools' receipts echo the recorded outcome as top-level `task_result` (`status`, `summary`,
+`stored_at`); a reply's `message.task_result_status` is the reply row's and stays null. A later
+`agent_task_result` for work this process already finished returns `already_recorded` for the same
+result and `agent_task_result_conflict` for a different one (see `interface-api.md`).
 Native background final output is one JSON object with `content` and `task_result`.
 Missing/invalid reports, listening and successful process exit never imply task success.
 These are agent-reported outcomes, not independent verification.
