@@ -11,7 +11,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -19,39 +18,40 @@ import kotlinx.coroutines.yield
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okhttp3.Response
 import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-fun JSONArray.objects() = (0 until length()).map { getJSONObject(it) }
-fun JSONArray.strings() = (0 until length()).map { getString(it) }.toSet()
-
+/**
+ * Facade over the companion's state. Cohesive slices live beside it:
+ * [RoomChats] (rooms), [ChatUploads] (attachments), [UnreadState] (unread +
+ * notifications), [QuotaState], [AccessRequests] (approvals/windows),
+ * [ChatCacheWriter] (encrypted cache), `CompanionLive.kt` (socket frames),
+ * `DirectHistory.kt` / `DirectChatSend.kt` (direct transcript and sends).
+ * Live refresh and its generation/revision fencing stay here as one block.
+ */
 class CompanionModel(app: Application) : AndroidViewModel(app) {
     internal val roomChats = RoomChats(viewModelScope, { api() }, { fresh() && can("agent_messaging.manage") && can("agent_messaging.reveal_content") })
     private val store = ConnectionStore(app)
     private val unreadStore = UnreadStore(app)
     var connection by mutableStateOf(store.load()); private set
-    private val cacheStore = ChatCacheStore(app)
+    private val cacheWriter = ChatCacheWriter(ChatCacheStore(app))
     private var historyCache = ChatHistoryCache(connection?.let(ChatHistoryCache::owner).orEmpty())
-    private val cacheWrites = Channel<String?>(Channel.CONFLATED)
-    private var lastCacheBody: String? = null
-    private var cacheEpoch = 0L
     private var cachedOverview by mutableStateOf(false)
     val showingSavedChats get() = cachedOverview && !permissionsKnown
     var showingCachedTranscript by mutableStateOf(false); private set
-    var unreadSessions by mutableStateOf<Set<String>>(emptySet()); private set
-    private var unreadReplyCounts by mutableStateOf<Map<String, Int>>(emptyMap())
+    private val unread = UnreadState(app, unreadStore)
+    val unreadSessions: Set<String> get() = unread.sessions
     val unreadCount get() = unreadSessions.size
-    fun unreadReplyCount(id: String) = unreadReplyCounts[id] ?: 0
+    fun unreadReplyCount(id: String) = unread.replyCount(id)
     var agents by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var hosts by mutableStateOf<List<JSONObject>>(emptyList()); private set
     var pendingStart by mutableStateOf(connection?.let { store.loadPendingStart(it.deviceId) }); private set
-    var approvals by mutableStateOf<List<JSONObject>>(emptyList()); private set
-    var activeWindows by mutableStateOf<List<JSONObject>>(emptyList()); private set
-    var fleetWindow by mutableStateOf<JSONObject?>(null); private set
+    private val access = AccessRequests()
+    val approvals: List<JSONObject> get() = access.approvals
+    val activeWindows: List<JSONObject> get() = access.activeWindows
+    val fleetWindow: JSONObject? get() = access.fleetWindow
     var events by mutableStateOf<List<JSONObject>>(emptyList()); private set
     private var pendingChats by mutableStateOf<Map<String, List<PendingChat>>>(emptyMap())
     val chatEvents: List<JSONObject> get() = events + (pendingChats[selected] ?: emptyList()).map { it.event() }
@@ -61,28 +61,11 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var notifications by mutableStateOf(true); private set
     var selected by mutableStateOf<String?>(null); private set
     var lastSync by mutableStateOf(0L); private set
-    var quotaEngines by mutableStateOf<List<JSONObject>>(emptyList()); private set
-    var quotaError by mutableStateOf<String?>(null); private set
-    var quotaLoading by mutableStateOf(false); private set
-    private val quotaMutex = Mutex()
-    suspend fun refreshQuotas() = quotaMutex.withLock {
-        if (!foreground || connection == null || (!can("admin.read") || !can("auth.read_metadata"))) return
-        val owner = connection
-        val current = generation
-        quotaLoading = true
-        try {
-            val snapshot = api().request("/quotas")
-            if (connection == owner && generation == current && can("admin.read") && can("auth.read_metadata")) {
-                quotaEngines = snapshot.getJSONArray("engines").objects(); quotaError = null
-            }
-        } catch (e: CancellationException) { throw e }
-        catch (e: Exception) {
-            if (connection == owner && generation == current) {
-                quotaError = if (e is ApiException && e.status == 404) "Quotas require a server update." else "Could not refresh quotas. Try again."
-                if (e is ApiException && e.status in setOf(401, 403)) quotaEngines = emptyList()
-            }
-        } finally { quotaLoading = false }
-    }
+    private val quotas = QuotaState({ api() }, { foreground && connection != null }, { can("admin.read") && can("auth.read_metadata") }, { connection to generation })
+    val quotaEngines: List<JSONObject> get() = quotas.engines
+    val quotaError: String? get() = quotas.error
+    val quotaLoading: Boolean get() = quotas.loading
+    suspend fun refreshQuotas() = quotas.refresh()
     var online by mutableStateOf(false); private set
     var notice by mutableStateOf<String?>(null); private set
     var error by mutableStateOf<String?>(null); private set
@@ -93,13 +76,12 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     var draft: String
         get() = chatDrafts[selected] ?: ""
         set(value) { selected?.let { chatDrafts = chatDrafts + (it to value) } }
-    var chatUploads by mutableStateOf<Map<String,List<ChatUpload>>>(emptyMap()); private set
+    private val uploads = ChatUploads(app, viewModelScope, { api() }, { connection!!.deviceId }, ::chatError)
+    val chatUploads: Map<String, List<ChatUpload>> get() = uploads.items
     var replyTargets by mutableStateOf<Map<String,Long>>(emptyMap()); private set
-    private val uploadJobs = mutableMapOf<String,Job>()
-    private data class ChatSend(val session:String,val target:String,val text:String,val metadata:String,val uuid:String,val version:Int?)
     private val chatSends = mutableMapOf<String,ChatSend>()
     private val noticeOperations = mutableMapOf<String,String>()
-    var defaultMinutes by mutableStateOf(480); private set
+    val defaultMinutes: Int get() = access.defaultMinutes
     var highlightApproval by mutableStateOf<String?>(null); private set
     private var foreground = false
     private var socket: WebSocket? = null
@@ -132,12 +114,12 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         connection?.let(unreadStore::activate) ?: unreadStore.clear()
         unreadPreferences.registerOnSharedPreferenceChangeListener(unreadListener)
         val initial = connection
-        val initialCacheEpoch = cacheEpoch
+        val initialCacheEpoch = cacheWriter.epoch
         viewModelScope.launch(Dispatchers.IO) {
-            val saved = cacheStore.read()
+            val saved = cacheWriter.read()
             val restored = initial?.let { ChatHistoryCache(ChatHistoryCache.owner(it), saved) }
             withContext(Dispatchers.Main) {
-                if (initial != null && restored != null && connection?.let(ChatHistoryCache::owner) == ChatHistoryCache.owner(initial) && cacheEpoch == initialCacheEpoch) {
+                if (initial != null && restored != null && connection?.let(ChatHistoryCache::owner) == ChatHistoryCache.owner(initial) && cacheWriter.epoch == initialCacheEpoch) {
                     if (!permissionsKnown && agents.isEmpty()) {
                         historyCache = restored; agents = historyCache.agents(); cachedOverview = agents.isNotEmpty()
                     } else if (can("agent_portal.read") && can("agent_portal.reveal_transcript") && portalAvailable) {
@@ -146,19 +128,15 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
                         historyCache = restored
                     }
                     persistChatCache(force = true)
-                } else if (connection == null) cacheWrites.trySend(null)
+                } else if (connection == null) cacheWriter.delete()
             }
-            // A single writer preserves order across refresh, revocation and re-pairing.
-            for (body in cacheWrites) runCatching { cacheStore.write(body) }
+            cacheWriter.drain()
         }
     }
-    private fun persistChatCache(force: Boolean = false) {
-        val body = historyCache.takeIf { it.agents().isNotEmpty() }?.json()
-        if (force || body != lastCacheBody) { lastCacheBody = body; cacheWrites.trySend(body) }
-    }
+    private fun persistChatCache(force: Boolean = false) = cacheWriter.persist(historyCache, force)
     private fun discardChatCache() {
-        cacheEpoch++; historyCache.clear(); lastCacheBody = null; cachedOverview = false
-        cacheWrites.trySend(null)
+        historyCache.clear(); cachedOverview = false
+        cacheWriter.discard()
     }
     private fun clearTranscript() {
         selected = null; events = emptyList(); pendingChats = emptyMap(); chatSends.clear()
@@ -176,12 +154,9 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun canSpawn() = fresh() && portalAvailable && can("agent_messaging.manage") && can("agent_portal.manage") && can("agent_portal.read") && can("agent_portal.reveal_transcript")
     fun canSendSession(id: String?) = id != null && !(selected == id && showingCachedTranscript) && reachable().any { it.optString("id") == id }
     private fun refreshUnreadState() {
-        unreadSessions = if (!permissionsKnown || !can("agent_portal.read") || !can("agent_portal.reveal_transcript") || !portalAvailable) emptySet() else unreadStore.unreadIds()
-        unreadReplyCounts = unreadSessions.associateWith(unreadStore::unreadReplyCount)
-        if (permissionsKnown) {
-            val allowed = notifications && portalAvailable && can("agent_portal.read") && can("agent_portal.reveal_transcript")
-            syncUnreadNotifications(getApplication(), if (allowed) connection else null, if (allowed) unreadSessions else emptySet())
-        }
+        val visible = permissionsKnown && can("agent_portal.read") && can("agent_portal.reveal_transcript") && portalAvailable
+        val notify = if (permissionsKnown) notifications && portalAvailable && can("agent_portal.read") && can("agent_portal.reveal_transcript") else null
+        unread.refresh(visible, notify, connection)
     }
     fun markConversationRead(id: String, replyCursor: Long) {
         if (!foreground || !fresh() || showingCachedTranscript || selected != id || !canReadSession(id) || replyCursor <= 0) return
@@ -207,7 +182,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             try {
                 val result = Api(pairing.server).request("/pair", "POST", JSONObject().put("token", pairing.token).put("name", android.os.Build.MODEL))
                 val c = Connection(pairing.server, result.getString("token"), result.getString("device_id"), result.optJSONObject("firebase"))
-                store.save(c); connection = c; unreadStore.activate(c); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
+                store.save(c); connection = c; unreadStore.activate(c); unread.reset(); permissionsKnown = false
                 discardChatCache(); historyCache = ChatHistoryCache(ChatHistoryCache.owner(c))
                 configurePush(getApplication(), c); startLive()
             } catch (e: Exception) { failure(e) } finally { busy = false }
@@ -234,28 +209,14 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         status = if (reconnectAttempt > 0 || error != null) "Reconnecting…" else "Connecting…"
         val current = generation
         lastFrame = SystemClock.elapsedRealtime()
-        socket = api().live(object : WebSocketListener() {
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                viewModelScope.launch {
-                    if (generation != current || !foreground) return@launch
-                    val frame = runCatching { JSONObject(text) }.getOrNull() ?: return@launch
-                    when (frame.optString("type")) {
-                        "hello" -> { socketReady = true; invalidate() }
-                        "changed" -> invalidate(frame.optJSONArray("scopes")?.strings() ?: emptySet())
-                        "ping" -> if (online && pendingScopes.isEmpty() && refreshJob?.isActive != true) lastSync = SystemClock.elapsedRealtime()
-                        else -> return@launch
-                    }
-                    lastFrame = SystemClock.elapsedRealtime()
-                }
+        socket = api().live(liveSocketListener(viewModelScope, { generation == current }, { foreground }, { frame ->
+            when (frame) {
+                LiveFrame.Hello -> { socketReady = true; invalidate() }
+                is LiveFrame.Changed -> invalidate(frame.scopes)
+                LiveFrame.Ping -> if (online && pendingScopes.isEmpty() && refreshJob?.isActive != true) lastSync = SystemClock.elapsedRealtime()
             }
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                viewModelScope.launch { if (generation == current) { if (code == 4001) failure(ApiException(401, "Device revoked")) else scheduleReconnect() } }
-            }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                viewModelScope.launch { if (generation == current) { if (response?.code == 401) failure(ApiException(401, "Device revoked")) else scheduleReconnect() } }
-            }
-        })
+            lastFrame = SystemClock.elapsedRealtime()
+        }) { revoked -> if (revoked) failure(ApiException(401, "Device revoked")) else scheduleReconnect() })
         maintenance = viewModelScope.launch {
             var presenceAt = 0L
             while (foreground && generation == current) {
@@ -273,7 +234,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         stopLive()
         if (!foreground || connection == null) return
         status = "Reconnecting…"
-        val wait = (1000L shl reconnectAttempt.coerceAtMost(5)).coerceAtMost(30_000L)
+        val wait = reconnectDelay(reconnectAttempt)
         reconnectAttempt++
         reconnect = viewModelScope.launch { delay(wait); startLive() }
     }
@@ -328,14 +289,14 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         var transcriptAllowed = "agent_portal.read" in caps && "agent_portal.reveal_transcript" in caps && !portalDisabled
         val nextEvents = if (loadAgents && id != null && transcriptAllowed) {
             val expectedReply = snapshot?.optJSONArray("agents")?.objects()?.firstOrNull { it.optString("id") == id }?.optLong("reply_cursor") ?: 0
-            try { loadEvents(client, id, expectedReply) }
+            try { loadDirectHistory(client, id, expectedReply, events, eventCursor, eventsLoaded) }
             catch (e: ApiException) {
                 if (e.status in setOf(403, 404, 410)) { transcriptAllowed = false; null } else throw e
             }
         } else null
         if (current != generation || epoch != revision || !foreground) return false
         capabilities = caps
-        if ("admin.read" !in caps || "auth.read_metadata" !in caps) { quotaEngines = emptyList(); quotaError = null }
+        if ("admin.read" !in caps || "auth.read_metadata" !in caps) quotas.clear()
         if ("hosts" in scopes || me != null) hosts = hostSnapshot?.optJSONArray("hosts")?.objects() ?: emptyList()
         permissionsKnown = true
         if (loadAgents) portalAvailable = !portalDisabled
@@ -347,12 +308,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
                 connection = c.copy(firebase = me.optJSONObject("firebase")); store.save(connection!!); configurePush(getApplication(), connection!!)
             }
         }
-        if (loadApprovals) {
-            approvals = requests?.getJSONArray("requests")?.objects()?.filter { it.optBoolean("live") } ?: emptyList()
-            activeWindows = requests?.optJSONArray("active_windows")?.objects() ?: emptyList()
-            fleetWindow = requests?.optJSONObject("fleet_window")
-            defaultMinutes = requests?.optInt("default_duration_minutes", 480) ?: 480
-        }
+        if (loadApprovals) access.apply(requests)
         if (loadAgents) {
             agents = snapshot?.getJSONArray("agents")?.objects() ?: emptyList()
             activityServerAt = runCatching { java.time.Instant.parse(snapshot?.optString("generated_at")).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
@@ -380,35 +336,6 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (reconnected && selected != null) viewModelScope.launch { runCatching { updatePresence() } }
         pendingOpen?.let { if (loadAgents) { pendingOpen = null; openSession(it) } }
         return true
-    }
-    private data class LoadedHistory(val events: List<JSONObject>, val cursor: Long)
-    private suspend fun loadEvents(client: Api, id: String, expectedReply: Long): LoadedHistory {
-        var result = events
-        var cursor = maxOf(eventCursor, result.maxOfOrNull { it.optLong("cursor") } ?: 0)
-        var tail = !eventsLoaded
-        // Retention or a restored server may have removed previously cached replies.
-        if (expectedReply < (result.filter { it.optString("type") == "assistant_message" }.maxOfOrNull { it.optLong("cursor") } ?: 0)) {
-            result = emptyList(); cursor = 0; tail = true
-        }
-        do {
-            val page = client.request("/agents/$id/events?${if (tail) "tail=1" else "after=$cursor"}")
-            val batch = page.getJSONArray("events").objects()
-            result = mergeChatEvents(result, batch)
-            val next = page.optLong("next_cursor", cursor)
-            val advanced = next > cursor
-            cursor = maxOf(cursor, next, batch.maxOfOrNull { it.optLong("cursor") } ?: 0)
-            if (!advanced || batch.size < 250) break
-            tail = false
-        } while (true)
-        // Progress can fill the tail without any visible chat message. Load
-        // the exact last reply advertised by the authorized overview in that
-        // case, rather than acknowledging a cursor whose text was never seen.
-        if (expectedReply > 0 && result.none { it.optString("type") == "assistant_message" && it.optLong("cursor") >= expectedReply }) {
-            val replyPage = client.request("/agents/$id/events?after=${expectedReply - 1}")
-            result = mergeChatEvents(result, replyPage.getJSONArray("events").objects())
-            cursor = maxOf(cursor, replyPage.optLong("next_cursor"), result.maxOfOrNull { it.optLong("cursor") } ?: 0)
-        }
-        return LoadedHistory(result, cursor)
     }
     private suspend fun updatePresence() = presenceMutex.withLock {
         val c = connection ?: return@withLock
@@ -441,57 +368,15 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     internal fun roomSent(id: String, attachments: List<String>) {
         val key = "room:$id"
         chatUploads[key]?.filter { it.id in attachments }?.forEach { it.file.delete() }
-        chatUploads = chatUploads + (key to (chatUploads[key] ?: emptyList()).filter { it.id !in attachments })
+        uploads.drop(key, attachments)
         refreshNow()
     }
-    private fun attachmentBase(session: String) = if (session.startsWith("room:")) "/rooms/${session.removePrefix("room:")}/attachments" else "/agents/$session/attachments"
-    fun addChatFile(session:String, uri:android.net.Uri) {
-        viewModelScope.launch { try { val (file,name,mime) = copyChatFile(getApplication(),uri); addCapturedFile(session,file,name,mime) } catch(e:Exception) { chatError(e.message ?: "Cannot read file") } }
-    }
-    fun addCapturedFile(session:String,file:java.io.File,name:String,mime:String) {
-        val current=chatUploads[session] ?: emptyList()
-        if(current.size >= 10 || file.length() !in 1..CHAT_FILE_LIMIT || current.sumOf { it.file.length() } + file.length() > CHAT_TOTAL_LIMIT) { file.delete(); chatError("Attachment limit exceeded"); return }
-        val item=ChatUpload(UUID.randomUUID().toString(),file,name,mime)
-        chatUploads=chatUploads + (session to (current + item)); retryChatUpload(session,item)
-    }
-    fun retryChatUpload(session:String,item:ChatUpload) {
-        if(uploadJobs[item.id]?.isActive == true) return
-        val client=api()
-        fun update(progress:Float,state:String,error:String?=null) { chatUploads=chatUploads + (session to (chatUploads[session] ?: emptyList()).map { if(it.id == item.id) it.copy(progress=progress,state=state,error=error) else it }) }
-        uploadJobs[item.id]=viewModelScope.launch {
-            update(item.progress,"uploading")
-            try {
-                val base=attachmentBase(session)
-                val digest=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val hash=java.security.MessageDigest.getInstance("SHA-256"); item.file.inputStream().use { input -> val buffer=ByteArray(65536); while(true) { val count=input.read(buffer); if(count<0) break; hash.update(buffer,0,count) } }; hash.digest().joinToString("") { "%02x".format(it) } }
-                val created=client.request(base,"POST",JSONObject().put("id",item.id).put("name",item.name).put("mime_type",item.mime).put("size_bytes",item.file.length()).put("sha256",digest))
-                var offset=created.optLong("uploaded_bytes")
-                while(offset < item.file.length()) {
-                    val bytes=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { java.io.RandomAccessFile(item.file,"r").use { input -> input.seek(offset); ByteArray(minOf(4*1024*1024L,item.file.length()-offset).toInt()).also { input.readFully(it) } } }
-                    val next=client.request("$base/${item.id}/chunks","POST",JSONObject().put("offset",offset).put("content_b64",android.util.Base64.encodeToString(bytes,android.util.Base64.NO_WRAP)))
-                    offset=next.getLong("uploaded_bytes"); update(offset.toFloat()/item.file.length(),"uploading")
-                }
-                client.request("$base/${item.id}/seal","POST"); update(1f,"ready")
-            } catch(e:CancellationException) { throw e }
-            catch(e:Exception) { update(item.progress,"failed",e.message ?: "Upload failed") }
-        }
-    }
-    fun removeChatUpload(session:String,id:String) {
-        uploadJobs.remove(id)?.cancel()
-        val item=chatUploads[session]?.find { it.id == id }
-        chatUploads=chatUploads + (session to (chatUploads[session] ?: emptyList()).filter { it.id != id })
-        viewModelScope.launch { runCatching { api().request("${attachmentBase(session)}/$id","DELETE") }; item?.file?.delete() }
-    }
-    suspend fun chatAttachmentInfo(session:String,id:String) = api().request("${attachmentBase(session)}/$id")
-    suspend fun downloadChatAttachment(session:String,id:String):java.io.File {
-        val dir=java.io.File(getApplication<Application>().cacheDir,"chat-downloads").apply { mkdirs() }
-        val file=java.io.File(dir,"${connection!!.deviceId}-$id")
-        if(file.exists()) return file
-        val info=chatAttachmentInfo(session,id)
-        api().download("${attachmentBase(session)}/$id/content",file)
-        val actual=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val hash=java.security.MessageDigest.getInstance("SHA-256"); file.inputStream().use { input -> val buf=ByteArray(65536);while(true){val n=input.read(buf);if(n<0)break;hash.update(buf,0,n)} }; hash.digest().joinToString("") { "%02x".format(it) } }
-        if(actual != info.optString("sha256")) { file.delete(); error("Attachment checksum mismatch") }
-        return file
-    }
+    fun addChatFile(session:String, uri:android.net.Uri) = uploads.addFile(session, uri)
+    fun addCapturedFile(session:String,file:java.io.File,name:String,mime:String) = uploads.addCaptured(session, file, name, mime)
+    fun retryChatUpload(session:String,item:ChatUpload) = uploads.retry(session, item)
+    fun removeChatUpload(session:String,id:String) = uploads.remove(session, id)
+    suspend fun chatAttachmentInfo(session:String,id:String) = uploads.info(session, id)
+    suspend fun downloadChatAttachment(session:String,id:String):java.io.File = uploads.download(session, id)
     fun saveChatAttachment(file:java.io.File,uri:android.net.Uri) {
         mutate { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             getApplication<Application>().contentResolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } } ?: error("Cannot save file")
@@ -510,10 +395,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if(items.any { it.state != "ready" }) { error="Finish or remove pending uploads"; return }
         val metadata=JSONObject().put("attachments",JSONArray(items.map { it.id }))
         replyTargets[id]?.let { metadata.put("reply_to",it) }; choiceValue?.let { metadata.put("choice_value",it) }
-        val previous=chatSends.values.lastOrNull { it.session == id && it.text == text && it.metadata == metadata.toString() }
-        val intent=if(previous != null && (prompt == null || previous.target.contains("/${prompt.optString("id")}/")) && previous.text == text && previous.metadata == metadata.toString()) previous else ChatSend(
-            id, if(prompt != null) "/agents/$id/prompts/${prompt.getString("id")}/answer" else "/agents/$id/messages", text,metadata.toString(),UUID.randomUUID().toString(),prompt?.optInt("version",1))
-        submitChat(intent)
+        submitChat(chatSendIntent(chatSends.values, id, prompt, text, metadata))
     }
     fun retryChat(clientId: String) {
         val intent = chatSends[clientId] ?: return
@@ -543,7 +425,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
                 if (!failed) {
                     if(chatDrafts[id]?.trim() == intent.text) chatDrafts = chatDrafts + (id to "")
                     val sentIds = JSONObject(intent.metadata).optJSONArray("attachments")?.strings() ?: emptySet()
-                    chatUploads = chatUploads + (id to (chatUploads[id] ?: emptyList()).filterNot { it.id in sentIds })
+                    uploads.drop(id, sentIds)
                     replyTargets=replyTargets - id
                     items.filter { it.id in sentIds }.forEach { it.file.delete() }; follows=follows + id
                 }
@@ -592,7 +474,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         mutate {
             // The server locks and rechecks pending state and expiry at decision time.
             api().request("/approvals/$id/${if (approve) "approve" else "deny"}", "POST", JSONObject().put("duration_minutes", minutes))
-            approvals = approvals.filterNot { it.optLong("id") == id }
+            access.decided(id)
             notice = if (approve) "Access allowed for ${durationLabel(minutes)}" else "Access denied"
             onSuccess()
         }
@@ -604,7 +486,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
         mutate {
             api().request("/hosts/$hostId/insecure/disable", "POST", JSONObject())
-            activeWindows = activeWindows.filterNot { it.optLong("host_id") == hostId }
+            access.windowClosed(hostId)
             notice = "Host window closed"
         }
     }
@@ -627,13 +509,10 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         roomChats.clear()
         discardChatCache()
         showingCachedTranscript = false; eventCursor = 0; eventsLoaded = false
-        uploadJobs.values.forEach { it.cancel() }; uploadJobs.clear()
-        chatUploads.values.flatten().forEach { it.file.delete() }; chatUploads=emptyMap(); chatDrafts=emptyMap(); replyTargets=emptyMap(); chatSends.clear(); noticeOperations.clear()
-        java.io.File(getApplication<Application>().cacheDir,"chat-downloads").deleteRecursively()
-        quotaEngines = emptyList(); quotaError = null
-        store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; approvals = emptyList(); capabilities = emptySet()
-        activeWindows = emptyList(); fleetWindow = null
-        serverReadSync = false; unreadStore.clear(); unreadSessions = emptySet(); unreadReplyCounts = emptyMap(); permissionsKnown = false
+        uploads.clear(); chatDrafts=emptyMap(); replyTargets=emptyMap(); chatSends.clear(); noticeOperations.clear()
+        quotas.clear()
+        store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; access.clear(); capabilities = emptySet()
+        serverReadSync = false; unreadStore.clear(); unread.reset(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
         online = false; lastSync = 0; reconnectAttempt = 0; pendingOpen = null; highlightApproval = null
         stopLive()
@@ -658,5 +537,5 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (kind == "approval") { closeSession(); highlightApproval = target }
         else if (runCatching { UUID.fromString(target) }.isSuccess) { closeSession(); pendingOpen = target; refreshNow() }
     }
-    override fun onCleared() { unreadPreferences.unregisterOnSharedPreferenceChangeListener(unreadListener); cacheWrites.close(); stopLive(); super.onCleared() }
+    override fun onCleared() { unreadPreferences.unregisterOnSharedPreferenceChangeListener(unreadListener); cacheWriter.close(); stopLive(); super.onCleared() }
 }

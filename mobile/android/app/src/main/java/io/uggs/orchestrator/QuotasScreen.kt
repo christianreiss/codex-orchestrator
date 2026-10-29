@@ -77,7 +77,7 @@ private fun quotaTime(raw: String): String? = runCatching {
                             color = if (status == "Current") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
                         account.optJSONArray("windows")?.objects()?.forEach { window ->
                             val percent = window.optDouble("used_percent", Double.NaN)
-                            Text("${quotaWindowLabel(window)} · ${if (percent.isFinite()) String.format(Locale.getDefault(), "%.1f%% used", percent) else "Unavailable"}")
+                            Text("${quotaWindowLabel(window)} · ${if (percent.isFinite()) String.format(androidx.compose.ui.platform.LocalConfiguration.current.locales[0], "%.1f%% used", percent) else "Unavailable"}")
                             if (percent.isFinite()) LinearProgressIndicator(progress = { (percent / 100).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                             quotaTime(window.optString("resets_at"))?.let { Text("Resets $it", style = MaterialTheme.typography.bodySmall) }
                         }

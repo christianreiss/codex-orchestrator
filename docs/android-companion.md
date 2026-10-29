@@ -1,5 +1,19 @@
 # Android companion
 
+## Foundation (Android 0.5.12)
+
+Internal release preparing the chat redesign. `CompanionModel` remains the facade
+screens and tests use; its state now lives in slices (`CompanionLive`,
+`DirectHistory`, `DirectChatSend`, `ChatUploads`, `ChatCacheWriter`, `UnreadState`,
+`QuotaState`, `AccessRequests`). `ChatDomain.kt` defines `ConversationKey`
+(`Direct` | `Room`), `MessageKey` (`PortalEvent` cursor | `RoomEvent` UUID) and a
+`ChatMessage` shared by direct chats and rooms, with mappers from both wire formats.
+Libraries: Compose BOM 2026.06.01 (newer BOMs require compileSdk 37),
+navigation-compose 2.9.8 and core-splashscreen 1.2.0 are dependencies but not yet
+wired. Test tags and behavior are unchanged. APK-only; no API rollout required.
+Verification: 82 JVM tests, lint, debug build and androidTest compilation passed;
+emulator UI tests were not run.
+
 ## Chat agent indicators (Android 0.5.11)
 
 Direct-chat rows show a green **Online**, amber **Working**, or gray **Offline**
