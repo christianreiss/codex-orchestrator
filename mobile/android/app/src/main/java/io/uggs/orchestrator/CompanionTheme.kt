@@ -7,12 +7,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,17 +61,40 @@ private val CompanionTypography = Typography(
     bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
     labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
     labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium),
+    labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
 )
 
+/** Semantic status colors that the Material scheme lacks; always paired with text or an icon, never color alone. */
+@Immutable internal data class StatusColors(
+    val success: Color, val onSuccess: Color, val successContainer: Color, val onSuccessContainer: Color,
+    val warning: Color, val onWarning: Color, val warningContainer: Color, val onWarningContainer: Color,
+    val error: Color, val onError: Color, val errorContainer: Color, val onErrorContainer: Color,
+    val info: Color, val onInfo: Color, val infoContainer: Color, val onInfoContainer: Color,
+)
+internal val LightStatusColors = StatusColors(
+    success = Color(0xFF1E7D45), onSuccess = Color.White, successContainer = Color(0xFFDDF3E4), onSuccessContainer = Color(0xFF0B3D20),
+    warning = Color(0xFF8A5A00), onWarning = Color.White, warningContainer = Color(0xFFFFEFCC), onWarningContainer = Color(0xFF4A3000),
+    error = Color(0xFFB3261E), onError = Color.White, errorContainer = Color(0xFFF9DEDC), onErrorContainer = Color(0xFF410E0B),
+    info = Color(0xFF0063E8), onInfo = Color.White, infoContainer = Color(0xFFE8F0FF), onInfoContainer = Color(0xFF173A72),
+)
+internal val DarkStatusColors = StatusColors(
+    success = Color(0xFF7FD8A0), onSuccess = Color(0xFF00391B), successContainer = Color(0xFF12361F), onSuccessContainer = Color(0xFFC4EFD3),
+    warning = Color(0xFFFFC857), onWarning = Color(0xFF3F2A00), warningContainer = Color(0xFF3F2E0A), onWarningContainer = Color(0xFFFFE3A8),
+    error = Color(0xFFFFB4AB), onError = Color(0xFF690005), errorContainer = Color(0xFF5A1A17), onErrorContainer = Color(0xFFFFDAD6),
+    info = Color(0xFF9EC5FF), onInfo = Color(0xFF102D55), infoContainer = Color(0xFF192E4C), onInfoContainer = Color(0xFFD4E4FF),
+)
+internal val LocalStatusColors = staticCompositionLocalOf { LightStatusColors }
+internal val MaterialTheme.status: StatusColors @Composable @ReadOnlyComposable get() = LocalStatusColors.current
+
 @Composable fun CompanionTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    MaterialTheme(
+    CompositionLocalProvider(LocalStatusColors provides if (dark) DarkStatusColors else LightStatusColors) { MaterialTheme(
         colorScheme = if (dark) DarkColors else LightColors,
         typography = CompanionTypography,
         shapes = Shapes(
             extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(8.dp),
             medium = RoundedCornerShape(12.dp), large = RoundedCornerShape(16.dp), extraLarge = RoundedCornerShape(20.dp),
         ), content = content,
-    )
+    ) }
 }
 
 // Shared building blocks so Chats, Hosts, Authorizations and the sheets read as one app.
@@ -99,5 +130,35 @@ internal val SheetShape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)
 
 /** A quiet status dot: true is healthy, false is unavailable. */
 @Composable internal fun StatusDot(ok: Boolean, modifier: Modifier = Modifier) {
-    Box(modifier.size(10.dp).background(if (ok) Color(0xFF2E9E5B) else MaterialTheme.colorScheme.outline, CircleShape))
+    Box(modifier.size(10.dp).background(if (ok) MaterialTheme.status.success else MaterialTheme.colorScheme.outline, CircleShape))
+}
+
+/** Slim status chip (icon-free, text carries the meaning) in a status container. */
+@Composable internal fun StatusChip(text: String, container: Color, content: Color, modifier: Modifier = Modifier) {
+    Surface(modifier, shape = CircleShape, color = container, contentColor = content) {
+        Text(text, Modifier.padding(horizontal = 10.dp, vertical = 3.dp), style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+/** Placeholder block for first-load skeletons; pulses subtly. */
+@Composable internal fun SkeletonBlock(modifier: Modifier = Modifier) {
+    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "skeleton")
+    val alpha by transition.animateFloat(0.35f, 0.8f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(900), androidx.compose.animation.core.RepeatMode.Reverse), label = "alpha")
+    Box(modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = alpha), MaterialTheme.shapes.small))
+}
+
+/** Card-shaped skeleton list shown while the first snapshot loads. */
+@Composable internal fun SkeletonCards(count: Int = 3, modifier: Modifier = Modifier) {
+    val loading = androidx.compose.ui.res.stringResource(R.string.loading)
+    Column(modifier.fillMaxWidth().semantics { contentDescription = loading }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        repeat(count) {
+            Card(Modifier.fillMaxWidth(), colors = companionCardColors(), border = companionCardBorder()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SkeletonBlock(Modifier.fillMaxWidth(0.55f).height(16.dp))
+                    SkeletonBlock(Modifier.fillMaxWidth(0.85f).height(12.dp))
+                    SkeletonBlock(Modifier.fillMaxWidth(0.4f).height(12.dp))
+                }
+            }
+        }
+    }
 }

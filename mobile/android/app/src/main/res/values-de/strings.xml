@@ -1,0 +1,9 @@
+<resources>
+    <string name="loading">Wird geladen</string>
+    <string name="select_conversation">Unterhaltung auswählen</string>
+    <string name="select_conversation_detail">Wähle links einen Chat, um zu lesen und zu antworten.</string>
+    <string name="quota_level_warning">Hohe Auslastung</string>
+    <string name="quota_level_error">Kritische Auslastung</string>
+    <string name="start_host_description">Agent auf %1$s starten</string>
+    <string name="review_request_description">Zugriffsanfrage von %1$s prüfen</string>
+</resources>

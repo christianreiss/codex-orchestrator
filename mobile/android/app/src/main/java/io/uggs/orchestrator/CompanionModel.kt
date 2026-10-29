@@ -514,7 +514,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; access.clear(); capabilities = emptySet()
         serverReadSync = false; unreadStore.clear(); unread.reset(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
-        online = false; lastSync = 0; reconnectAttempt = 0; pendingOpen = null; highlightApproval = null
+        online = false; lastSync = 0; reconnectAttempt = 0; pendingOpen = null; highlightApproval = null; pendingRoomLink = null
         stopLive()
         android.app.NotificationManager::class.java.let { getApplication<Application>().getSystemService(it).cancelAll() }
         runCatching { com.google.firebase.messaging.FirebaseMessaging.getInstance().isAutoInitEnabled = false }
@@ -529,9 +529,19 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun clearApprovalHighlight() { highlightApproval = null }
+    /** `orchestrator://chat/room:<id>`: opened by the shell once the room list contains it. */
+    var pendingRoomLink by mutableStateOf<String?>(null); private set
+    fun openRoomLink(roomId: String) { if (connection != null) { pendingRoomLink = roomId; refreshNow() } }
+    fun clearRoomLink() { pendingRoomLink = null }
     fun notification(kind: String?, target: String?) {
         if (connection == null) return
-        if (kind == "unread") { closeSession(); refreshNow(); return }
+        if (kind == "unread") {
+            // A single unread chat opens directly; several fall back to the list.
+            val only = target?.takeIf { runCatching { UUID.fromString(it) }.isSuccess } ?: unreadSessions.singleOrNull()
+            closeSession()
+            if (only != null) { online = false; pendingOpen = only }
+            refreshNow(); return
+        }
         if (target == null) return
         online = false
         if (kind == "approval") { closeSession(); highlightApproval = target }

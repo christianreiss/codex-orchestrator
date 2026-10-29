@@ -74,6 +74,8 @@ internal const val UNREAD_BADGE_CHANNEL = "unread-replies"
 internal const val NOTIFICATION_KIND = "io.uggs.orchestrator.kind"
 internal const val NOTIFICATION_SCOPE = "io.uggs.orchestrator.scope"
 internal const val NOTIFICATION_TARGET = "io.uggs.orchestrator.target"
+/** Where the unread summary opens when exactly one chat is unread; kept apart from [NOTIFICATION_TARGET], which marks per-chat reply alerts. */
+private const val NOTIFICATION_OPEN_TARGET = "io.uggs.orchestrator.open_target"
 internal const val NOTIFICATION_CURSOR = "io.uggs.orchestrator.cursor"
 internal const val NOTIFICATION_PUSH_ID = "io.uggs.orchestrator.push_id"
 private const val REPLY_NOTIFICATION_ID = 1
@@ -244,15 +246,16 @@ private fun reconcileUnreadNotifications(context: Context, connection: Connectio
     }
     if (!channelAllowed(manager, UNREAD_BADGE_CHANNEL)) return
     val summary = active.firstOrNull { it.tag == unreadTag(scope) && it.id == UNREAD_NOTIFICATION_ID }
-    if (summary?.notification?.number == currentUnread.size) return
+    val onlyUnread = currentUnread.singleOrNull()
+    if (summary?.notification?.number == currentUnread.size && summary.notification.extras.getString(NOTIFICATION_OPEN_TARGET) == onlyUnread) return
     val count = currentUnread.size
     val text = if (count == 1) "1 conversation with an unread reply." else "$count conversations with unread replies."
     val notification = NotificationCompat.Builder(context, UNREAD_BADGE_CHANNEL)
         .setSmallIcon(R.drawable.ic_companion).setContentTitle("Unread agent replies").setContentText(text)
-        .setContentIntent(notificationIntent(context, scope, "unread"))
+        .setContentIntent(notificationIntent(context, scope, "unread", onlyUnread))
         .setNumber(count).setAutoCancel(false)
         .setOnlyAlertOnce(true).setSilent(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-        .addExtras(notificationMetadata(scope, "unread")).build()
+        .addExtras(notificationMetadata(scope, "unread")).addExtras(Bundle().apply { if (onlyUnread != null) putString(NOTIFICATION_OPEN_TARGET, onlyUnread) }).build()
     if (!postNotification(context, unreadTag(scope), UNREAD_NOTIFICATION_ID, notification)) return
     knownReplyTargets.getOrPut(scope) { mutableSetOf() }
 }

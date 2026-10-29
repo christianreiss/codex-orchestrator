@@ -4,34 +4,50 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.delay
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 import java.time.Instant
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun AuthorizationsScreen(model: CompanionModel, fresh: Boolean, now: Long, onReview: (JSONObject) -> Unit) {
     var confirmFleetClose by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(refreshing) { if (refreshing) { delay(900); refreshing = false } }
+    val haptic = LocalHapticFeedback.current
     val requests = model.approvals.filter { liveApproval(it, now) }
     val windows = model.activeWindows.filter { liveWindow(it, now) }
     val fleetOpen = liveFleetWindow(model.fleetWindow, now)
     val actionable = fresh && model.can("hosts.activate_insecure") && !model.busy
 
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshing = true; model.refreshNow() }, modifier = Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize().testTag("authorizations-list"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!fresh) item {
-            Text("Reconnect to manage authorizations. Displayed windows may have changed.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            StatusChip("Reconnect to manage authorizations. Displayed windows may have changed.", MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer)
             TextButton(onClick = model::refreshNow) { Text("Retry connection") }
         }
         item { SectionHeader("Waiting authorizations", requests.size) }
         if (requests.isEmpty()) item { EmptyState(if (fresh) "No waiting authorizations" else "Waiting for current authorizations", modifier = Modifier.padding(vertical = 0.dp)) }
         items(requests, key = { "approval:${it.optLong("id")}" }) { request ->
-            Card(colors = companionCardColors(), border = companionCardBorder(), modifier = Modifier.fillMaxWidth().testTag("approval:${request.optLong("id")}")) {
+            Card(colors = companionCardColors(), border = companionCardBorder(), modifier = Modifier.fillMaxWidth().animateContentSize().testTag("approval:${request.optLong("id")}")) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(request.optString("fqdn"), style = MaterialTheme.typography.titleMedium)
-                    Text("Requesting IP: ${request.optString("request_ip")}")
-                    Text("Expires in ${remainingWindowTime(request.optString("expires_at"), now)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick = { onReview(request) }, enabled = actionable, modifier = Modifier.heightIn(min = 48.dp)) { Text("Review") }
+                    Column(Modifier.semantics(mergeDescendants = true) { }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(request.optString("fqdn"), style = MaterialTheme.typography.titleMedium)
+                        Text("Requesting IP: ${request.optString("request_ip")}")
+                        Text("Expires in ${remainingWindowTime(request.optString("expires_at"), now)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    val reviewDescription = stringResource(R.string.review_request_description, request.optString("fqdn"))
+                    Button(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); onReview(request) }, enabled = actionable, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = reviewDescription }) { Text("Review") }
                 }
             }
         }
@@ -60,6 +76,7 @@ import java.time.Instant
         }
         if (windows.isEmpty() && !fleetOpen) item { EmptyState(if (fresh) "No active windows" else "Waiting for current windows") }
     }
+    }
     if (confirmFleetClose) AlertDialog(
         modifier = Modifier.testTag("fleet-close-dialog"),
         onDismissRequest = { if (!model.busy) confirmFleetClose = false },
@@ -82,7 +99,9 @@ import java.time.Instant
         val date = java.util.Date.from(Instant.parse(deadline))
         "${android.text.format.DateFormat.getDateFormat(context).format(date)} ${android.text.format.DateFormat.getTimeFormat(context).format(date)}"
     }.getOrDefault(deadline)
-    Text("Until $local · ${remainingWindowTime(deadline, now)} remaining", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val remaining = remainingWindowTime(deadline, now)
+    val soon = runCatching { Instant.parse(deadline).toEpochMilli() - now < 5 * 60_000 }.getOrDefault(false)
+    Text("Until $local · $remaining remaining", color = if (soon) MaterialTheme.status.warning else MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 internal fun remainingWindowTime(deadline: String, now: Long): String {
