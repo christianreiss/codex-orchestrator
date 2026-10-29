@@ -1,5 +1,32 @@
 # Android companion
 
+## Room push, notification actions and delta sync (Android 0.7.0)
+
+Requires the R3 server (migration 0117); every part switches on only when
+`/companion/v1/me` reports `room_notifications_protocol`, `room_delta_protocol` or
+`read_sync_protocol`, so the APK keeps working against older servers.
+
+- `kind:room` pushes become one MessagingStyle notification per room on the
+  "Group conversations" channel. An open room reports its id as
+  `visible_session_id`, which suppresses pushes for it; opening it clears its
+  notification. The room details sheet sets Follow all / Default / Mute.
+- Reply (RemoteInput), Mark read and up to three option buttons are added to agent
+  reply/question and room notifications; approvals only open the app. Replies and
+  answers enter the process-wide outbox (`OutboxHub`, `chat-outbox.bin`) before the
+  request, with ids derived from the notification, and get one ≤ 5 s attempt in
+  the receiver; otherwise they wait for the app to open. A room reply quotes the
+  notified event. Mark read on agent pushes is local until the next refresh.
+- Each cached room stores its `next_after` cursor in `room-cache.bin`. Opening a
+  cached room or a change to the open room reads only the delta (up to 10
+  `has_more` pages); `resync` or the cap triggers a full read. The room directory
+  is still reloaded on `rooms` scope changes because presence-only changes are not
+  in the change log. `room_activity` frames drive the working indicator.
+- Own room messages match the `/me` `actor` exactly; without it the older
+  "any admin" rule applies.
+
+Verification: 151 JVM tests, lint (0 errors), debug build and androidTest
+compilation passed; emulator UI tests and on-device push were not run.
+
 ## Chat redesign (Android 0.6.0)
 
 Direct chats and rooms render through one timeline (`ChatTimeline.kt` logic,
