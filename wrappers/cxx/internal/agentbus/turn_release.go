@@ -163,13 +163,16 @@ type turnEnd struct {
 // pushesPending reports that the receiver will deliver pending mail on its own,
 // so ringing it would only send the model to agent_listen for nothing.
 //
-// After a release on a ready receiver that holds nothing read, reception has
-// just reopened. And with turn-gated delivery a Stop is exactly the boundary the
-// receiver waits for: blocking it keeps the turn running, which keeps the claim
-// gate shut and pushes delivery a full turn later (feedback b0f9361b). A held
-// delivery the model has not read yet is still in Claude Code's queue and starts
-// the next turn by itself; only a read one whose release failed, or held work,
-// keeps reception shut past Stop.
+// A ready receiver that holds nothing the model has read and no work or Portal
+// instruction is about to claim whatever is queued: after a release reception
+// has just reopened, and at a Stop the turn that blocked it is the only thing
+// keeping a turn-gated claim shut (feedback b0f9361b). Without negotiated turn
+// gating the receiver claims as soon as its gate is open, which it is when
+// nothing is held, so blocking Stop gains nothing there either (feedback
+// 43fe5d65). A held delivery the model has not read yet is still in Claude
+// Code's queue and starts the next turn by itself; only a read one whose
+// release failed, or held work, keeps reception shut past Stop. An owner that
+// reports no readiness (older or unreachable) keeps the ring.
 func (e *turnEnd) pushesPending(event string) bool {
 	if e == nil || !e.receiverReady || len(e.stillHeld) > 0 {
 		return false
@@ -177,7 +180,7 @@ func (e *turnEnd) pushesPending(event string) bool {
 	if e.released > 0 {
 		return true
 	}
-	return event == hookEventStop && e.afterTurn && !e.blocked
+	return event == hookEventStop && !e.blocked
 }
 
 // releaseAtTurnEnd runs in the hook process. It asks the launch's receiver owner

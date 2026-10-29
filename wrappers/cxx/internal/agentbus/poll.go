@@ -47,6 +47,10 @@ const (
 	// enough that the file stays a cheap read at every turn boundary.
 	ringLedgerLimit = 256
 	ringLedgerTTL   = 24 * time.Hour
+	// A run of Stop blocks closer together than this counts as one chain, and a
+	// chain longer than maxStopChain stops blocking (feedback 43fe5d65).
+	stopChainWindow = 5 * time.Minute
+	maxStopChain    = 3
 )
 
 type mailboxPeer struct {
@@ -57,17 +61,37 @@ type mailboxPeer struct {
 }
 
 type mailboxEntry struct {
-	MessageID      string      `json:"message_id"`
-	ConversationID string      `json:"conversation_id"`
-	Kind           string      `json:"kind"`
-	From           mailboxPeer `json:"from"`
-	ExpiresAt      string      `json:"expires_at"`
-	ExpiredAt      string      `json:"expired_at"`
+	MessageID      string `json:"message_id"`
+	ConversationID string `json:"conversation_id"`
+	Kind           string `json:"kind"`
+	// DeliveryClass is absent from an older server; an entry without one is
+	// treated as needing an answer, the ring's conservative default.
+	DeliveryClass string      `json:"delivery_class"`
+	From          mailboxPeer `json:"from"`
+	ExpiresAt     string      `json:"expires_at"`
+	ExpiredAt     string      `json:"expired_at"`
 }
 
 type mailbox struct {
 	Pending []mailboxEntry `json:"pending"`
 	Missed  []mailboxEntry `json:"missed"`
+}
+
+// needsAnswer reports whether a queued message is something a Stop block can be
+// justified for. Presence notices, publications and digests are informational by
+// definition (the server's own relay never treats them as urgent), and the
+// progress and notice delivery classes say the sender expects no answer. The
+// receiver still delivers all of them; they just never hold a turn open.
+func (e mailboxEntry) needsAnswer() bool {
+	switch e.Kind {
+	case "presence_notice", "publication", "digest":
+		return false
+	}
+	switch e.DeliveryClass {
+	case "progress", "notice":
+		return false
+	}
+	return true
 }
 
 // name is what a human should recognise: the alias if the fleet gave it one,
@@ -160,6 +184,9 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 		// or block a Stop the receiver is waiting for (see pushesPending).
 		box = &mailbox{Missed: box.Missed}
 	}
+	if event == hookEventStop {
+		box = answerable(box)
+	}
 	fresh, ledger := unrung(event, box)
 	var heldText string
 	if end != nil {
@@ -219,6 +246,16 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 	// Only commit the ledger once the ring is certain to be emitted, so a write
 	// that fails here cannot silently swallow a call. A Stop ring that could not
 	// be recorded is dropped instead: it would block every later turn end too.
+	if event == hookEventStop {
+		// Distinct messages each ring once, so a conference whose peers answer in
+		// quick succession would still block one turn end per peer. Past the chain
+		// cap the Stop lets the turn end; the ring stays unrecorded for Stop, so
+		// UserPromptSubmit still announces it.
+		if ledger.stopChainFull(time.Now()) {
+			return nil
+		}
+		ledger.recordStopBlock(time.Now())
+	}
 	if !ledger.commit() && event == hookEventStop {
 		return nil
 	}
@@ -323,7 +360,7 @@ func ringSummary(fresh []mailboxEntry, mode ringMode) ringText {
 					"you were holding, and the next one is pushed into this conversation (after the current turn " +
 					"ends when delivery is turn-gated); otherwise it claims the message and binds this session " +
 					"receive-capable. Calling it repeatedly does not help. To decline, say so and carry on; " +
-					"it will not ring again.\n")
+					"this message will not ring again.\n")
 		}
 		fmt.Fprintf(&human, "☎ %s waiting from %s", plural(len(pending), "call", "calls"), pending[0].From.name())
 		if len(pending) > 1 {
@@ -347,6 +384,19 @@ func ringSummary(fresh []mailboxEntry, mode ringMode) ringText {
 		}
 	}
 	return ringText{context: agent.String(), human: human.String()}
+}
+
+// answerable drops the informational entries a Stop must never block for.
+// Expired (missed) entries stay: they are a courtesy line, not a block reason on
+// their own, and the ledger rings each one once.
+func answerable(box *mailbox) *mailbox {
+	out := &mailbox{Missed: box.Missed, Pending: make([]mailboxEntry, 0, len(box.Pending))}
+	for _, entry := range box.Pending {
+		if entry.needsAnswer() {
+			out.Pending = append(out.Pending, entry)
+		}
+	}
+	return out
 }
 
 func plural(n int, one, many string) string {
@@ -459,6 +509,31 @@ func (l *ringLedger) commit() bool {
 	}
 	pruneRingLedgers(filepath.Dir(l.path))
 	return true
+}
+
+const stopBlockKey = "stopblock "
+
+// stopChainFull reports that this session has already been blocked at Stop
+// maxStopChain times within stopChainWindow.
+func (l *ringLedger) stopChainFull(now time.Time) bool {
+	cutoff := now.Add(-stopChainWindow).Unix()
+	count := 0
+	for _, key := range l.order {
+		rest, ok := strings.CutPrefix(key, stopBlockKey)
+		if !ok {
+			continue
+		}
+		var at int64
+		if _, err := fmt.Sscanf(rest, "%d", &at); err == nil && at > cutoff {
+			count++
+		}
+	}
+	return count >= maxStopChain
+}
+
+func (l *ringLedger) recordStopBlock(now time.Time) {
+	// A unique key per block; mark stages it so the same commit persists it.
+	l.mark(fmt.Sprintf("%s%d %d", stopBlockKey, now.Unix(), len(l.order)))
 }
 
 func ringLedgerPath() (string, error) {

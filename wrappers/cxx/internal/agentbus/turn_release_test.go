@@ -168,13 +168,22 @@ func TestStopDoesNotBlockMailTheReceiverPushesAfterTheTurn(t *testing.T) {
 	if fresh, _ := unrung(hookEventPrompt, box); len(fresh) != 1 {
 		t.Fatalf("a suppressed Stop must not consume the prompt ring, fresh=%d", len(fresh))
 	}
-	// Without turn-gated delivery (an older owner or server) the ring stays.
+	// Without negotiated turn gating a ready receiver holding nothing still claims
+	// on its next tick, so the block gains nothing (feedback 43fe5d65).
+	var ungated bytes.Buffer
+	if err := emitHook(&ungated, hookEventStop, box, &turnEnd{receiverReady: true}); err != nil {
+		t.Fatal(err)
+	}
+	if ungated.Len() != 0 {
+		t.Fatalf("a ready receiver delivers without turn gating too: %s", ungated.String())
+	}
+	// An owner that reports no readiness (older, or not ready) keeps the ring.
 	var out bytes.Buffer
-	if err := emitHook(&out, hookEventStop, box, &turnEnd{receiverReady: true}); err != nil {
+	if err := emitHook(&out, hookEventStop, box, &turnEnd{afterTurn: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `"decision":"block"`) {
-		t.Fatalf("an older owner must keep the Stop ring: %s", out.String())
+		t.Fatalf("an unready owner must keep the Stop ring: %s", out.String())
 	}
 }
 

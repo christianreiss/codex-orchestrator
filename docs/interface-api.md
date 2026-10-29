@@ -1738,7 +1738,10 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   last 30 minutes. Strictly read-only (no lease, no status transition, no
   attempt burned) and, unlike `deliveries/claim`, it does **not** require
   receive-capability — an agent that has never called `agent_listen` is exactly
-  who needs it. Carries sender identity and `expires_at`, never message bodies.
+  who needs it. Carries sender identity, `kind`, `delivery_class` and `expires_at`, never
+  message bodies. The Claude Stop ringer uses `kind`/`delivery_class` to skip
+  `presence_notice`, `publication`, `digest` and `progress`/`notice` mail (a client that
+  sees no `delivery_class` treats the entry as needing an answer).
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/open` — open a conference
   (`ttl_seconds` 300..21600 default 3600, `max_members` 2..8 default 8), mint a
   room PIN valid to the room's deadline, and return the caller's address as
