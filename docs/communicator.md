@@ -1176,3 +1176,11 @@ Unknown native submission is never repeated. No additional idle network poll or
 background SQL loop is introduced; reconciliation runs only for pending admission.
 Process loss retains the server's unknown/ambiguous outcome rather than inventing
 completion or resubmitting the work.
+
+## Resource claim reconnect waiting (cxx 0.9.147)
+
+The MCP claim client bridges a temporary native-attachment reconnect gap by
+retrying only the private broker's explicit pre-dispatch rejection, for at most
+two minutes. It never bypasses the live proof fence or replays an unknown write.
+This does not remove API cutover downtime or hot-update running MCP clients.
+See [scope coordination](agent-coordination.md#claim-reconnect-waiting-cxx-09147).

@@ -88,6 +88,12 @@ func (c *sessionClient) path(suffix string) string {
 
 func (c *sessionClient) post(ctx context.Context, suffix string, body any, out any) error {
 	err := doJSON(ctx, c.http, "http://agent-messaging.local", http.MethodPost, c.path(suffix), body, nil, out)
+	// This exact broker rejection happens before bridgeJSON: nothing has been
+	// dispatched, even for acquire/release or an owner's status response. Wait
+	// for the same native attachment, preserving the operation body and IDs.
+	if suffix == "claims/acquire" || suffix == "claims/status" || suffix == "claims/release" {
+		err = c.waitClaimAttachment(ctx, suffix, body, out, err)
+	}
 	args, _ := body.(map[string]any)
 	// Status/renewal is retry-safe; owner responses and work mutations are not
 	// replayed here. A bounded reconnect gap must not strand a healthy claim.
@@ -108,6 +114,32 @@ func (c *sessionClient) post(ctx context.Context, suffix string, body any, out a
 		err = doJSON(ctx, c.http, "http://agent-messaging.local", http.MethodPost, c.path(suffix), body, nil, out)
 	}
 	return err
+}
+
+// Do not broaden this to transport errors: a lost response can hide a
+// committed mutation. Only the broker's explicit pre-dispatch rejection is safe.
+func (c *sessionClient) waitClaimAttachment(ctx context.Context, suffix string, body, out any, err error) error {
+	var api *APIError
+	if !errors.As(err, &api) || api.Status != http.StatusServiceUnavailable || api.Code != "native_attachment_unavailable" {
+		return err
+	}
+	reconnectCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	delay := 250 * time.Millisecond
+	for {
+		timer := time.NewTimer(delay)
+		select {
+		case <-reconnectCtx.Done():
+			timer.Stop()
+			return errors.Join(err, reconnectCtx.Err())
+		case <-timer.C:
+		}
+		err = doJSON(reconnectCtx, c.http, "http://agent-messaging.local", http.MethodPost, c.path(suffix), body, nil, out)
+		if !errors.As(err, &api) || api.Status != http.StatusServiceUnavailable || api.Code != "native_attachment_unavailable" {
+			return err
+		}
+		delay = min(2*time.Second, delay*2)
+	}
 }
 
 func doJSON(

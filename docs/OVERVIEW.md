@@ -291,6 +291,12 @@ server endpoint or database migration is required.
 
 ## Contract guardrails
 
+From cxx 0.9.147 the shared MCP client waits up to two minutes for explicitly
+rejected, undispatched claim operations during native attachment reconnects.
+Request IDs and live-proof requirements are preserved; generic mutation errors
+are not replayed. Already running MCP clients require an updated client process.
+See [scope coordination](agent-coordination.md#claim-reconnect-waiting-cxx-09147).
+
 Transfer appends and shared-memory replacements serialize competing writers.
 Transfer retries repair only uncommitted tail bytes; a shared-memory expected
 SHA is checked under the same lock as its replacement. Git Director and project

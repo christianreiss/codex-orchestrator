@@ -1,5 +1,7 @@
 # 2026-10-29
 
+- **cxx 0.9.147: claim calls survive native attachment reconnects:** Codex, Claude and Grok wait up to two minutes when their session broker explicitly rejects a resource-claim operation before dispatch during reconnection. The same operation and request IDs are retained; cancellation and deadlines stop the wait. Authentication failures, unknown mutation outcomes and generic transport errors do not gain mutation retries. Existing native sessions need an updated MCP client to adopt this behavior; replacing the shared communicator alone does not update them.
+
 - **Android companion 0.8.0 + server: mobile tools and plan mode (migration 0118, cxx 0.9.146):**
   - **Tools (More → Tools):** workflow runs with status, summary, report link and an awaiting-decision badge (read-only); schedules with next run and last error, pause/resume; pending Git Director merges; projects and their boards (read-only); feedback submission. New device routes under `/companion/v1/` (`workflow-runs`, `schedules`, `git-director/merges`, `projects`, `feedback`), each advertised by a `/me` protocol flag; older servers hide the section.
   - **Stop a remote session** the operator started (`POST /companion/v1/daemon-sessions/:id/stop`, chat More sheet).

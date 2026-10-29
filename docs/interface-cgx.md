@@ -1763,3 +1763,11 @@ UUID instead of creating a second publication.
 See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
 switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
 Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
+
+### Resource claim reconnect waiting (cxx 0.9.147)
+
+The shared MCP client waits up to two minutes for the broker's explicit
+pre-dispatch `503 native_attachment_unavailable` rejection of claim operations,
+retaining request IDs and respecting cancellation. No generic mutation replay
+is added. Existing MCP processes require an updated client to adopt the change.
+See [claim reconnect waiting](agent-coordination.md#claim-reconnect-waiting-cxx-09147).

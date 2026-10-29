@@ -276,3 +276,24 @@ Git registration without proven native broker scope now names
 A checkout/workspace mismatch instead names `agent_context_update`, including
 the actual absolute root/common directory for a nested repository. None of
 these diagnostics bypasses a registration, claim or merge exclusion.
+
+## Claim reconnect waiting (cxx 0.9.147)
+
+The shared Codex, Claude and Grok MCP client waits up to two minutes after a
+`503 native_attachment_unavailable` response from the private session broker on
+claim acquire, status or release. The broker rejects this request before
+upstream dispatch while the exact native process attachment reconnects. Retries
+retain the original operation body, request UUID and claim ID, with delays from
+250 ms to two seconds. Every attempt must pass the broker's live proof check;
+waiting neither grants a claim nor restores an uncertain claim.
+
+The caller's cancellation/deadline takes precedence. A different response ends
+this reconnect wait immediately. Generic transport failures, authorization
+failures and unknown mutation outcomes are not eligible for this retry; existing
+bounded retries for pure status/renewal remain separate. A longer outage still
+returns a failure and requires fresh claim verification before any mutation.
+
+This is client behavior: an already running MCP process retains its binary.
+Installing cxx or restarting only the shared communicator does not update that
+process. Adopt through a managed MCP client restart or a new managed launch of
+the same native conversation; preserve its transcript and existing work receipts.
