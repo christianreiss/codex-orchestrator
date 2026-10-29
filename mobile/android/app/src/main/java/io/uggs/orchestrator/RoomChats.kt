@@ -92,6 +92,9 @@ internal fun RoomRecipients.forMembers(members: List<JSONObject>): RoomRecipient
     return if (kept.isEmpty()) RoomRecipients.Share else RoomRecipients.Members(kept)
 }
 
+/** Per-device room push modes, in the order the details sheet offers them. */
+internal val ROOM_NOTIFICATION_MODES = listOf("follow", "default", "mute")
+
 internal fun mergeRoomEvents(old: List<JSONObject>, fresh: List<JSONObject>): List<JSONObject> =
     (old + fresh).associateBy { it.getString("id") }.values.sortedWith(compareBy({ it.optString("created_at") }, { it.optString("id") }))
 
@@ -147,6 +150,15 @@ internal class RoomChats(
     var supported by mutableStateOf(true); private set
     var enabled by mutableStateOf(true); private set
     var history by mutableStateOf(false); private set
+    /** Server protocol flags from `/me` (delta sync, per-room notifications, own actor). They describe the server, so [clear] keeps them. */
+    var protocols by mutableStateOf(RoomProtocols()); private set
+    fun applyProtocols(value: RoomProtocols) { if (value != protocols) protocols = value }
+    /** Ephemeral `room_activity` per room; never persisted. */
+    var activity by mutableStateOf<Map<String, RoomActivity>>(emptyMap()); private set
+    fun activity(frame: LiveFrame.RoomActivity) { activity = applyRoomActivity(activity, frame.roomId, frame.actors, frame.ttlSeconds, now()) }
+    fun activeActors(roomId: String, at: Long = now()) = activeRoomActors(activity, roomId, at)
+    /** This device's push mode (`follow`, `default`, `mute`) of the open room, once loaded. */
+    var notificationMode by mutableStateOf<String?>(null); private set
     private fun directoryPath(offset: Int = 0) = "/rooms?view=${if (history) "history" else "active"}&offset=$offset"
     fun showHistory(value: Boolean) {
         if (history == value) return
@@ -196,6 +208,7 @@ internal class RoomChats(
     fun clear() {
         generation++; selection++; rooms = emptyList(); selected = null; current = null
         events = emptyList(); targets = emptyMap(); previews = emptyMap(); frozenInitials.clear(); sending = emptySet()
+        activity = emptyMap(); notificationMode = null
         outbox.clearWhere(match = ::isRoomKey)
         cacheWipes++; cache.clear(); cacheUpdated()
         candidates = emptyList(); nextBefore = null; nextOffset = null; error = null
@@ -218,8 +231,13 @@ internal class RoomChats(
         }.toMap() + previews
         selected?.let { id -> if (events.isEmpty()) events = restored.events(id) }
     }
-    fun close() { selection++; selected = null; current = null; events = emptyList(); nextBefore = null; error = null; loading = false }
-    suspend fun refresh(client: Api, caps: Set<String>, valid: () -> Boolean) {
+    fun close() { selection++; selected = null; current = null; events = emptyList(); nextBefore = null; error = null; loading = false; notificationMode = null }
+    /**
+     * Reloads the directory and the open room. With delta sync a [full] = false refresh (a `rooms`
+     * change) first asks `/rooms/changes` and keeps everything when no room changed; the open room
+     * is then only read when it changed.
+     */
+    suspend fun refresh(client: Api, caps: Set<String>, full: Boolean = true, valid: () -> Boolean) {
         if ("agent_messaging.read" !in caps) { if (valid()) clear(); return }
         if ("agent_messaging.reveal_content" !in caps && valid()) {
             close(); previews = emptyMap()
@@ -228,6 +246,21 @@ internal class RoomChats(
             if (!cache.isEmpty) { cache.stripContent(); cacheUpdated() }
         }
         val epoch = generation
+        // Rooms changed since the stored cursor; null when every room must be assumed changed.
+        var changed: Set<String>? = null
+        var nextChanges: Long? = null
+        if (protocols.delta) {
+            val listing = changedRooms(client, cache.changesAfter)
+            if (!valid() || epoch != generation) return
+            if (listing != null && listing.enabled) {
+                nextChanges = listing.next
+                if (!listing.resync && cache.changesAfter != null) changed = listing.rooms
+            }
+            if (!full && changed != null && changed.isEmpty() && !history && rooms.isNotEmpty()) {
+                if (nextChanges != cache.changesAfter) { cache.changesAfter = nextChanges; cacheUpdated() }
+                return
+            }
+        }
         val page = try { client.request(directoryPath()) } catch (e: ApiException) {
             if (e.status == 404) { if (valid() && epoch == generation) { clear(); supported = false }; return }
             throw e
@@ -240,16 +273,98 @@ internal class RoomChats(
         val batch = page.optJSONArray("rooms")?.objects() ?: emptyList()
         rooms = if (page.optBoolean("has_more")) (batch + rooms.filter { old -> batch.none { it.optString("id") == old.optString("id") } }) else batch
         nextOffset = if (page.isNull("next_offset")) null else maxOf(nextOffset ?: 0, page.optInt("next_offset"))
-        if (!history) { cache.rememberRooms(rooms); cacheUpdated() }
+        if (!history) cache.rememberRooms(rooms)
+        // Stored only once the directory it covers is loaded.
+        nextChanges?.let { cache.changesAfter = it }
+        if (!history || nextChanges != null) cacheUpdated()
         selected?.let { id ->
-            if ("agent_messaging.reveal_content" in caps) read(client, id, valid = valid)
+            if ("agent_messaging.reveal_content" in caps && (changed == null || id in changed)) sync(client, id, valid)
+        }
+    }
+    private data class RoomChanges(val rooms: Set<String>, val next: Long, val resync: Boolean, val enabled: Boolean)
+    /** `/rooms/changes` from [after] (0 at first), following `has_more` up to [ROOM_CHANGES_MAX_PAGES]; null if unsupported. */
+    private suspend fun changedRooms(client: Api, after: Long?): RoomChanges? {
+        var cursor = after ?: 0
+        val changed = linkedSetOf<String>()
+        repeat(ROOM_CHANGES_MAX_PAGES) {
+            val page = try { client.request("/rooms/changes?after=$cursor") } catch (e: ApiException) {
+                if (e.status == 404 || e.status == 400) return null
+                throw e
+            }
+            if (!page.optBoolean("enabled", true)) return RoomChanges(emptySet(), cursor, resync = false, enabled = false)
+            val next = page.optLong("next_after", cursor).coerceAtLeast(0)
+            if (page.optBoolean("resync")) return RoomChanges(emptySet(), next, resync = true, enabled = true)
+            page.optJSONArray("rooms")?.let { list -> (0 until list.length()).mapNotNull { list.optJSONObject(it)?.optString("room_id")?.takeIf(String::isNotBlank) }.forEach(changed::add) }
+            cursor = maxOf(cursor, next)
+            if (!page.optBoolean("has_more")) return RoomChanges(changed, cursor, resync = false, enabled = true)
+        }
+        // Too many pages: continue from here next time, and read everything now.
+        return RoomChanges(emptySet(), cursor, resync = true, enabled = true)
+    }
+    /** Brings the open room up to date: a delta read from its cached cursor, else a full read. */
+    private suspend fun sync(client: Api, id: String, valid: () -> Boolean = { true }) {
+        if (protocols.delta && cache.after(id) != null) readDelta(client, id, valid) else read(client, id, valid = valid)
+    }
+    /** Server `unread` / `read_at` of a read response onto the directory row. */
+    private fun patchRow(room: JSONObject) {
+        val id = room.optString("id").takeIf { it.isNotBlank() } ?: return
+        if (!room.has("unread") && !room.has("read_at")) return
+        rooms = rooms.map { row ->
+            if (row.optString("id") != id) row else JSONObject(row.toString()).apply {
+                if (room.has("unread") && !room.isNull("unread")) put("unread", room.optInt("unread"))
+                if (room.has("read_at")) put("read_at", room.opt("read_at"))
+            }
+        }
+    }
+    /**
+     * Delta read (`after`): new events and receipt updates merge into the timeline, members and
+     * status replace the room. `resync`, or more than [ROOM_DELTA_MAX_PAGES] pages, reads in full.
+     */
+    private suspend fun readDelta(client: Api, id: String, valid: () -> Boolean) {
+        val epoch = generation; val view = selection
+        var after = cache.after(id) ?: return read(client, id, valid = valid)
+        loading = true
+        try {
+            val earlier = nextBefore != null
+            var merged = events
+            var room: JSONObject? = null
+            var pages = 0
+            while (true) {
+                val page = client.request("/rooms/read", "POST", JSONObject().put("room_id", id).put("after", after))
+                if (epoch != generation || view != selection || id != selected || !valid()) return
+                if (page.optBoolean("resync")) { read(client, id, valid = valid); return }
+                room = page.optJSONObject("room") ?: room
+                merged = mergeRoomDelta(merged, page.optJSONArray("events")?.objects().orEmpty(), earlier)
+                after = maxOf(after, page.optLong("next_after", after))
+                if (!page.optBoolean("has_more")) break
+                if (++pages >= ROOM_DELTA_MAX_PAGES) { read(client, id, valid = valid); return }
+            }
+            room?.let { current = it; patchRow(it) }
+            events = merged
+            cache.rememberEvents(id, events, after, earlier); cacheUpdated()
+            events.lastOrNull { it.optString("kind", "chat") == "chat" && it.optString("content").isNotBlank() }?.let { previews = previews + (id to it) }
+            error = null
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { readFailed(e, id, epoch, view, valid) }
+        finally { if (epoch == generation && view == selection) loading = false }
+    }
+    private fun readFailed(e: Exception, id: String, epoch: Int, view: Int, valid: () -> Boolean) {
+        if (epoch == generation && view == selection && valid()) {
+            if (e is ApiException && e.status in setOf(401, 403, 404, 410)) {
+                events = emptyList(); current = null; previews = previews - id
+                outbox.clearWhere { it == key(id) }
+                cache.forget(id); cacheUpdated()
+            }
+            error = e.message ?: texts.string(R.string.room_error_load)
         }
     }
     fun open(room: JSONObject) {
         // Saved events render at once (also offline); the read below replaces them.
-        selection++; selected = room.getString("id"); current = room; events = cache.events(room.getString("id")); nextBefore = null; error = null
+        selection++; selected = room.getString("id"); current = room; events = cache.events(room.getString("id")); nextBefore = null; error = null; notificationMode = null
         val id = selected!!
-        scope.launch { read(api(), id) }
+        // A delta-synced cache has no server history cursor; the oldest cached event gives it.
+        if (protocols.delta && cache.after(id) != null && cache.hasEarlier(id)) events.firstOrNull()?.let { nextBefore = roomHistoryCursor(it) }
+        scope.launch { sync(api(), id) }
     }
     private suspend fun read(client: Api, id: String, before: String? = null, valid: () -> Boolean = { true }) {
         val epoch = generation; val view = selection
@@ -260,25 +375,21 @@ internal class RoomChats(
             val page = client.request("/rooms/read", "POST", body)
             if (epoch != generation || view != selection || id != selected || !valid()) return
             current = page.getJSONObject("room")
+            patchRow(current!!)
             events = mergeRoomEvents(events, page.getJSONArray("events").objects())
-            cache.rememberEvents(id, events); cacheUpdated()
-            events.lastOrNull { it.optString("kind", "chat") == "chat" && it.optString("content").isNotBlank() }?.let { previews = previews + (id to it) }
             if (before != null || nextBefore == null) nextBefore = page.optString("next_before").takeUnless { it.isBlank() || it == "null" }
+            // A newest-page read carries the change head taken with it; an older page keeps the
+            // cursor the newer events are current to.
+            val after = if (!protocols.delta) null else if (before == null) page.optLong("next_after", -1).takeIf { it >= 0 && page.has("next_after") } else cache.after(id)
+            cache.rememberEvents(id, events, after, nextBefore != null); cacheUpdated()
+            events.lastOrNull { it.optString("kind", "chat") == "chat" && it.optString("content").isNotBlank() }?.let { previews = previews + (id to it) }
             error = null
         } catch (e: CancellationException) { throw e }
-        catch (e: Exception) {
-            if (epoch == generation && view == selection && valid()) {
-                if (e is ApiException && e.status in setOf(401, 403, 404, 410)) {
-                    events = emptyList(); current = null; previews = previews - id
-                    outbox.clearWhere { it == key(id) }
-                    cache.forget(id); cacheUpdated()
-                }
-                error = e.message ?: texts.string(R.string.room_error_load)
-            }
-        } finally { if (epoch == generation && view == selection) loading = false }
+        catch (e: Exception) { readFailed(e, id, epoch, view, valid) }
+        finally { if (epoch == generation && view == selection) loading = false }
     }
     fun older() { val id = selected ?: return; val before = nextBefore ?: return; if (!loading) scope.launch { read(api(), id, before) } }
-    fun retryRead() { val id = selected ?: return; if (!loading) scope.launch { read(api(), id) } }
+    fun retryRead() { val id = selected ?: return; if (!loading) scope.launch { sync(api(), id) } }
     fun more() {
         val offset = nextOffset ?: return
         if (loading) return
@@ -299,8 +410,39 @@ internal class RoomChats(
         scope.launch {
             try {
                 api().request("/rooms/seen", "POST", JSONObject().put("room_id", id).put("through", through))
-                if (epoch == generation) rooms = rooms.map { if (it.optString("id") == id) JSONObject(it.toString()).put("unread", 0) else it }
+                if (epoch == generation) readElsewhere(id, through)
             } catch (_: Exception) { /* Reading can be retried after reconnect. */ }
+        }
+    }
+    /** The operator read [roomId] (here, on another device, or from a notification): its row is read. */
+    fun readElsewhere(roomId: String, readAt: String?) {
+        rooms = rooms.map { if (it.optString("id") == roomId) JSONObject(it.toString()).put("unread", 0).apply { readAt?.takeIf { at -> at.isNotBlank() }?.let { at -> put("read_at", at) } } else it }
+    }
+    /** Loads this device's push mode for the open room (`room_notifications_protocol` 1 only). */
+    fun loadNotificationMode() {
+        val id = selected ?: return
+        if (!protocols.notifications) return
+        val epoch = generation; val view = selection
+        scope.launch {
+            try {
+                val mode = api().request("/rooms/$id/notifications").optString("mode")
+                if (epoch == generation && view == selection && mode in ROOM_NOTIFICATION_MODES) notificationMode = mode
+            } catch (e: CancellationException) { throw e } catch (_: Exception) { /* The sheet offers the choice again next time. */ }
+        }
+    }
+    /** Sets the push mode; an idempotent PUT, so a lost answer is simply repeated by choosing again. */
+    fun changeNotificationMode(mode: String) {
+        val id = selected ?: return
+        if (!protocols.notifications || mode !in ROOM_NOTIFICATION_MODES) return
+        val previous = notificationMode
+        val epoch = generation; val view = selection
+        notificationMode = mode
+        scope.launch {
+            try {
+                val saved = api().request("/rooms/$id/notifications", "PUT", JSONObject().put("mode", mode)).optString("mode")
+                if (epoch == generation && view == selection && saved in ROOM_NOTIFICATION_MODES) notificationMode = saved
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { if (epoch == generation && view == selection) { notificationMode = previous; error = e.message ?: texts.string(R.string.room_notifications_failed) } }
         }
     }
     /**
@@ -370,7 +512,7 @@ internal class RoomChats(
                         // The answer is the stored event: it replaces the local bubble without a gap.
                         acceptedRoomEvent(result.response, roomId)?.let { event -> if (selected == roomId) events = mergeRoomEvents(events, listOf(event)) }
                         sent(roomId, attachments)
-                        if (selected == roomId) read(api(), roomId)
+                        if (selected == roomId) sync(api(), roomId)
                     }
                     is OutboxResult.Rejected -> if (epoch == generation) {
                         outbox.update(entry.id) { it.afterFailure(result, now()) }

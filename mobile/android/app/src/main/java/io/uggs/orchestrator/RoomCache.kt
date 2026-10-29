@@ -10,6 +10,10 @@ import org.json.JSONObject
  * rows only: cached rows confer no live presence (members restore as not
  * reachable) and are marked `cached`. Room content is only kept while
  * `agent_messaging.reveal_content` is granted ([stripContent] otherwise).
+ *
+ * Delta sync (`room_delta_protocol` 1) keeps each timeline's `next_after` change cursor and
+ * whether older history exists beside its events, plus the `/rooms/changes` cursor. All are
+ * optional fields of version 1: a cache written before them simply has no cursor (full read).
  */
 internal class RoomHistoryCache(private val owner: String, saved: String? = null) {
     companion object {
@@ -29,6 +33,12 @@ internal class RoomHistoryCache(private val owner: String, saved: String? = null
 
     private var directory: List<JSONObject> = emptyList()
     private val timelines = linkedMapOf<String, List<JSONObject>>()
+    /** Delta cursor (`next_after`) per cached timeline; dropped with the timeline. */
+    private val cursors = mutableMapOf<String, Long>()
+    /** Timelines that may have events older than their first cached event. */
+    private val earlier = mutableSetOf<String>()
+    /** `/rooms/changes` cursor; null until the first change listing. */
+    var changesAfter: Long? = null
 
     init {
         runCatching {
@@ -39,11 +49,17 @@ internal class RoomHistoryCache(private val owner: String, saved: String? = null
                 for (i in 0 until stored.length()) {
                     val entry = stored.getJSONObject(i)
                     val events = entry.getJSONArray("events").objects().filter { it.optString("id").isNotBlank() }
-                    if (events.isNotEmpty()) timelines[entry.getString("room_id")] = events.takeLast(MAX_EVENTS)
+                    val id = entry.getString("room_id")
+                    if (events.isNotEmpty()) {
+                        timelines[id] = events.takeLast(MAX_EVENTS)
+                        entry.optLong("after", -1).takeIf { it >= 0 && entry.has("after") }?.let { cursors[id] = it }
+                        if (entry.optBoolean("earlier") || events.size > MAX_EVENTS) earlier.add(id)
+                    }
                 }
+                changesAfter = document.optLong("changes_after", -1).takeIf { it >= 0 && document.has("changes_after") }
                 trim()
             }
-        }.onFailure { directory = emptyList(); timelines.clear() }
+        }.onFailure { directory = emptyList(); timelines.clear(); cursors.clear(); earlier.clear(); changesAfter = null }
     }
 
     val isEmpty get() = directory.isEmpty() && timelines.isEmpty()
@@ -55,33 +71,45 @@ internal class RoomHistoryCache(private val owner: String, saved: String? = null
         trim()
     }
 
-    /** Keeps the newest events of [roomId]; it becomes the most recently used room. */
-    fun rememberEvents(roomId: String, events: List<JSONObject>) {
-        timelines.remove(roomId)
+    /**
+     * Keeps the newest events of [roomId]; it becomes the most recently used room. [after] is the
+     * delta cursor these events are current to (null keeps none); [hasEarlier] whether older
+     * history exists before them (also true when the tail was cut here).
+     */
+    fun rememberEvents(roomId: String, events: List<JSONObject>, after: Long? = null, hasEarlier: Boolean = false) {
+        timelines.remove(roomId); cursors.remove(roomId); earlier.remove(roomId)
         val tail = events.takeLast(MAX_EVENTS).map { JSONObject(it.toString()) }
-        if (tail.isNotEmpty()) timelines[roomId] = tail
+        if (tail.isNotEmpty()) {
+            timelines[roomId] = tail
+            after?.let { cursors[roomId] = it }
+            if (hasEarlier || events.size > tail.size) earlier.add(roomId)
+        }
         trim()
     }
+    fun after(roomId: String): Long? = cursors[roomId]?.takeIf { roomId in timelines }
+    fun hasEarlier(roomId: String): Boolean = roomId in earlier
 
-    fun forget(roomId: String) { timelines.remove(roomId) }
-    /** Drops every room's content, keeping only the directory. */
-    fun stripContent() { timelines.clear() }
-    fun clear() { directory = emptyList(); timelines.clear() }
+    fun forget(roomId: String) { timelines.remove(roomId); cursors.remove(roomId); earlier.remove(roomId) }
+    /** Drops every room's content, keeping only the directory (and the directory's change cursor). */
+    fun stripContent() { timelines.clear(); cursors.clear(); earlier.clear() }
+    fun clear() { directory = emptyList(); timelines.clear(); cursors.clear(); earlier.clear(); changesAfter = null }
 
     fun json(): String = JSONObject().put("version", VERSION).put("owner", owner)
         .put("rooms", JSONArray(directory))
-        .put("timelines", JSONArray(timelines.map { (id, events) -> JSONObject().put("room_id", id).put("events", JSONArray(events)) }))
+        .put("timelines", JSONArray(timelines.map { (id, events) -> JSONObject().put("room_id", id).put("events", JSONArray(events))
+            .apply { cursors[id]?.let { put("after", it) }; if (id in earlier) put("earlier", true) } }))
+        .apply { changesAfter?.let { put("changes_after", it) } }
         .toString()
 
     /** Over budget, the least recently read room loses half its events, then whole rooms go, then directory rows. */
     private fun trim() {
-        while (timelines.size > MAX_TIMELINES) timelines.remove(timelines.keys.first())
+        while (timelines.size > MAX_TIMELINES) forget(timelines.keys.first())
         while (!isEmpty && json().toByteArray(Charsets.UTF_8).size > MAX_BYTES) {
             if (timelines.isNotEmpty()) {
                 val oldest = timelines.keys.first()
                 val events = timelines.getValue(oldest)
-                if (timelines.size > 1 || events.size <= 1) timelines.remove(oldest)
-                else timelines[oldest] = events.drop(events.size / 2)
+                if (timelines.size > 1 || events.size <= 1) forget(oldest)
+                else { timelines[oldest] = events.drop(events.size / 2); earlier.add(oldest) }
             } else directory = directory.dropLast(maxOf(1, directory.size / 2))
         }
     }

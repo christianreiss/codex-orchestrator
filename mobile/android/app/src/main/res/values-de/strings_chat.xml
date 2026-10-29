@@ -223,4 +223,12 @@
     <string name="media_audio_unavailable">Audio nicht verfügbar</string>
     <string name="media_pause_audio">Audio pausieren</string>
     <string name="media_play_audio">Audio abspielen</string>
+    <string name="room_notifications_title">Benachrichtigungen auf diesem Gerät</string>
+    <string name="room_notifications_follow">Alle</string>
+    <string name="room_notifications_default">Standard</string>
+    <string name="room_notifications_mute">Stumm</string>
+    <string name="room_notifications_follow_desc">Jede Nachricht von anderen</string>
+    <string name="room_notifications_default_desc">Erwähnungen und Antworten auf eigene Nachrichten</string>
+    <string name="room_notifications_mute_desc">Keine Benachrichtigungen</string>
+    <string name="room_notifications_failed">Die Benachrichtigungseinstellung wurde nicht gespeichert</string>
 </resources>

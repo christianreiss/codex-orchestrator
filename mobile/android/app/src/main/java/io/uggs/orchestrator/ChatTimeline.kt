@@ -159,15 +159,18 @@ internal fun portalTimelineEntries(t: Texts, events: List<JSONObject>, notices: 
     return entries
 }
 
-/** Every room event maps to exactly one item, so "seen" can watch the newest event's row. */
-internal fun roomTimelineEntries(t: Texts, events: List<JSONObject>): List<TimelineEntry> = events.map { event ->
+/**
+ * Every room event maps to exactly one item, so "seen" can watch the newest event's row.
+ * Own bubbles follow [isOwnRoomActor]: with the `/me` [selfActor] only this operator's messages.
+ */
+internal fun roomTimelineEntries(t: Texts, events: List<JSONObject>, selfActor: String? = null): List<TimelineEntry> = events.map { event ->
     val message = ChatMessage.fromRoomEvent(event)
     val key = message.key.itemKey()
     when {
         message.kind == ChatItemKind.Membership ->
             TimelineEntry.Lifecycle(StatusLine(message.text.ifBlank { t.string(R.string.timeline_participants_changed) }, message.createdAt), key)
         message.text.isNotBlank() || message.attachments.isNotEmpty() ->
-            TimelineEntry.Message(message, message.author.role == ChatAuthor.Role.Operator,
+            TimelineEntry.Message(message, isOwnRoomActor(message.author.id, selfActor),
                 message.author.role.name + ":" + (message.author.id ?: message.author.name.orEmpty()), event, key)
         else -> TimelineEntry.Lifecycle(StatusLine(message.rawKind.replace('_', ' ').ifBlank { t.string(R.string.timeline_update) }, message.createdAt), key)
     }

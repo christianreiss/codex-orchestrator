@@ -70,6 +70,7 @@ class PushService : FirebaseMessagingService() {
 }
 
 internal const val REPLY_ALERT_CHANNEL = "agent-replies"
+internal const val ROOM_CHANNEL = "rooms"
 internal const val UNREAD_BADGE_CHANNEL = "unread-replies"
 internal const val NOTIFICATION_KIND = "io.uggs.orchestrator.kind"
 internal const val NOTIFICATION_SCOPE = "io.uggs.orchestrator.scope"
@@ -80,13 +81,16 @@ internal const val NOTIFICATION_CURSOR = "io.uggs.orchestrator.cursor"
 internal const val NOTIFICATION_PUSH_ID = "io.uggs.orchestrator.push_id"
 private const val REPLY_NOTIFICATION_ID = 1
 private const val UNREAD_NOTIFICATION_ID = 2
+internal const val ROOM_NOTIFICATION_ID = 3
+/** Newest room event time a room notification covers: "Mark read" sends it as `through`. */
+private const val NOTIFICATION_ROOM_THROUGH = "io.uggs.orchestrator.room_through"
 private const val REPLY_POLICY_PREFERENCES = "reply-notification-policy"
 private const val REPLY_CURSOR_PREFIX = "reply-cursor:"
 // Android enqueues notify() asynchronously. Track IDs until activeNotifications catches up,
 // so a read immediately following a push can also cancel an in-flight notification.
 private val knownReplyTargets = mutableMapOf<String, MutableSet<String>>()
 
-private fun ensureNotificationChannels(context: Context) {
+internal fun ensureNotificationChannels(context: Context) {
     val manager = context.getSystemService(NotificationManager::class.java)
     // Existing channels retain the operator's notification preferences.
     manager.createNotificationChannel(NotificationChannel("approvals", context.getString(R.string.channel_approvals), NotificationManager.IMPORTANCE_HIGH))
@@ -101,15 +105,18 @@ private fun ensureNotificationChannels(context: Context) {
         setSound(null, null)
         enableVibration(false)
     })
+    manager.createNotificationChannel(NotificationChannel(ROOM_CHANNEL, context.getString(R.string.channel_rooms), NotificationManager.IMPORTANCE_HIGH).apply {
+        description = context.getString(R.string.channel_rooms_desc)
+    })
 }
 
-private fun notificationsAllowed(context: Context): Boolean = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+internal fun notificationsAllowed(context: Context): Boolean = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
     (android.os.Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
 
-private fun channelAllowed(manager: NotificationManager, channel: String): Boolean =
+internal fun channelAllowed(manager: NotificationManager, channel: String): Boolean =
     manager.getNotificationChannel(channel)?.importance != NotificationManager.IMPORTANCE_NONE
 
-private fun postNotification(context: Context, tag: String?, id: Int, notification: Notification): Boolean {
+internal fun postNotification(context: Context, tag: String?, id: Int, notification: Notification): Boolean {
     if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
     return try {
         NotificationManagerCompat.from(context).notify(tag, id, notification)
@@ -134,7 +141,7 @@ private fun saveReplyNotificationPolicy(context: Context, connection: Connection
     }
 }
 
-private fun replyNotificationsEnabled(context: Context, scope: String): Boolean {
+internal fun replyNotificationsEnabled(context: Context, scope: String): Boolean {
     val prefs = context.getSharedPreferences(REPLY_POLICY_PREFERENCES, Context.MODE_PRIVATE)
     return prefs.getString("scope", null) != scope || prefs.getBoolean("enabled", true)
 }
@@ -156,7 +163,8 @@ private fun rememberPush(seen: SharedPreferences, scope: String, id: String, tar
     editor.putBoolean(id, true).apply()
 }
 
-private fun replyTag(scope: String, target: String) = "reply:$scope:$target"
+internal fun replyTag(scope: String, target: String) = "reply:$scope:$target"
+internal fun roomTag(scope: String, roomId: String) = "room:$scope:$roomId"
 private fun unreadTag(scope: String) = "unread:$scope"
 private fun unreadGroup(scope: String) = "agent-unread:$scope"
 
@@ -178,7 +186,7 @@ private fun notificationMetadata(scope: String, kind: String, target: String? = 
 
 private fun StatusBarNotification.isReplyNotification(): Boolean = notification.extras.getString(NOTIFICATION_KIND) in setOf("reply", "unread")
 
-private data class ReplyPush(val target: String, val summary: String, val id: String, val alert: Boolean)
+private data class ReplyPush(val target: String, val summary: String, val id: String, val alert: Boolean, val push: ConversationPush? = null)
 
 /** An ordinary silent notification counts conversations; launchers exclude group summaries. */
 @Synchronized
@@ -233,14 +241,18 @@ private fun reconcileUnreadNotifications(context: Context, connection: Connectio
         // Migrate explicitly marked numeric notifications, preserving unrelated attention/approval messages.
         for (entry in existing.filter { it.tag != replyTag(scope, target) || it.id != REPLY_NOTIFICATION_ID }) manager.cancel(entry.tag, entry.id)
         val text = update.summary
-        val notification = NotificationCompat.Builder(context, REPLY_ALERT_CHANNEL)
+        val sender = update.push?.sender ?: update.push?.title ?: context.getString(R.string.notif_agent_reply)
+        val builder = NotificationCompat.Builder(context, REPLY_ALERT_CHANNEL)
             .setSmallIcon(R.drawable.ic_companion).setContentTitle(context.getString(R.string.notif_agent_reply)).setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setContentIntent(notificationIntent(context, scope, "agent", target))
+            .setStyle(conversationStyle(context, null, false, listOf(NotificationLine(sender, text, update.push?.time?.toEpochMilli() ?: System.currentTimeMillis()))))
+            .setContentIntent(conversationIntent(context, ConversationKey.Direct(target)))
             .setGroup(unreadGroup(scope)).setNumber(0).setAutoCancel(false)
             .setOnlyAlertOnce(!update.alert).setSilent(!update.alert)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .addExtras(notificationMetadata(scope, "reply", target, store?.latestCursor(target), update.id)).build()
+            .addExtras(notificationMetadata(scope, "reply", target, store?.latestCursor(target), update.id))
+        update.push?.let { addConversationActions(context, builder, scope, replyTag(scope, target), REPLY_NOTIFICATION_ID, it) }
+        val notification = builder.build()
         if (!postNotification(context, replyTag(scope, target), REPLY_NOTIFICATION_ID, notification)) return
         knownReplyTargets.getOrPut(scope) { mutableSetOf() }.add(target)
     }
@@ -275,6 +287,18 @@ internal fun showCompanionNotification(context: Context, data: Map<String, Strin
         reconcileUnreadNotifications(context, if (replyNotificationsEnabled(context, scope)) connection else null, store.unreadIds())
         return
     }
+    if (data["kind"] == "room_read") {
+        // Read on another device: this room's alert and its unread badge go.
+        val room = data["room_id"]?.takeIf { it.isNotBlank() && it.length <= 256 } ?: target
+        context.getSystemService(NotificationManager::class.java).cancel(roomTag(scope, room), ROOM_NOTIFICATION_ID)
+        CompanionSignals.roomRead.tryEmit(room to data["read_at"]?.takeIf { it.isNotBlank() })
+        return
+    }
+    if (data["kind"] == "room") {
+        val push = parseConversationPush(data) ?: return
+        showRoomNotification(context, scope, push, seen)
+        return
+    }
     if (data["kind"] == "reply") {
         val store = UnreadStore(context).apply { activate(connection) }
         val cursor = data["event_cursor"]?.toLongOrNull()?.takeIf { it > 0 }
@@ -294,7 +318,7 @@ internal fun showCompanionNotification(context: Context, data: Map<String, Strin
             return
         }
         val update = if (unread && advanced) ReplyPush(target, compactSummary(data["summary"]) ?: context.getString(R.string.notif_new_reply),
-            id, VisibleConversation.session != target) else null
+            id, VisibleConversation.session != target, parseConversationPush(data)) else null
         reconcileUnreadNotifications(context, connection, store.unreadIds(), update)
         return
     }
@@ -310,10 +334,58 @@ internal fun showCompanionNotification(context: Context, data: Map<String, Strin
         else if (severity != null) context.getString(R.string.notif_needs_you, context.getString(when (severity) {
             "important" -> R.string.severity_important; "critical" -> R.string.severity_critical; else -> R.string.severity_blocker
         })) else context.getString(R.string.notif_agent_update)
-    val notification = NotificationCompat.Builder(context, channel)
+    val builder = NotificationCompat.Builder(context, channel)
         .setSmallIcon(R.drawable.ic_companion).setContentTitle(title)
         .setContentText(summary).setStyle(NotificationCompat.BigTextStyle().bigText(summary))
-        .setContentIntent(notificationIntent(context, scope, if (approval) "approval" else "agent", target))
-        .setAutoCancel(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()
-    if (postNotification(context, null, id.hashCode(), notification)) rememberPush(seen, scope, id)
+        .setContentIntent(if (approval) notificationIntent(context, scope, "approval", target) else conversationIntent(context, ConversationKey.Direct(target)))
+        .setAutoCancel(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+    // Approvals only open the app: nothing is allowed from the lock screen.
+    if (!approval) parseConversationPush(data)?.let { addConversationActions(context, builder, scope, null, id.hashCode(), it) }
+    if (postNotification(context, null, id.hashCode(), builder.build())) rememberPush(seen, scope, id)
+}
+
+/**
+ * One conversation notification per room (MessagingStyle, newest [ROOM_NOTIFICATION_HISTORY]
+ * pushes). Suppressed while the room is on screen; the server also skips visible rooms.
+ */
+private fun showRoomNotification(context: Context, scope: String, push: ConversationPush, seen: SharedPreferences) {
+    val roomId = push.targetId
+    val seenKey = "$scope:${push.notificationId}"
+    if (seen.contains(seenKey)) return
+    if (VisibleConversation.session == roomId || !replyNotificationsEnabled(context, scope)) { rememberPush(seen, scope, seenKey); return }
+    ensureNotificationChannels(context)
+    val manager = context.getSystemService(NotificationManager::class.java)
+    if (!notificationsAllowed(context) || !channelAllowed(manager, ROOM_CHANNEL)) return
+    val tag = roomTag(scope, roomId)
+    val existing = manager.activeNotifications.firstOrNull { it.tag == tag && it.id == ROOM_NOTIFICATION_ID }?.notification
+    val history = existing?.let { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(it) }?.messages.orEmpty()
+        .map { NotificationLine(it.person?.name?.toString(), it.text?.toString().orEmpty(), it.timestamp) }
+    val time = push.time?.toEpochMilli() ?: System.currentTimeMillis()
+    val lines = appendNotificationLine(history, NotificationLine(push.sender ?: context.getString(R.string.chat_agent_default), push.summary ?: context.getString(R.string.notif_room_message), time))
+    // Mark read covers the newest event any of the merged pushes named.
+    val through = listOfNotNull(existing?.extras?.getString(NOTIFICATION_ROOM_THROUGH), push.ts).maxOrNull()
+    val covered = push.copy(ts = through)
+    val builder = NotificationCompat.Builder(context, ROOM_CHANNEL)
+        .setSmallIcon(R.drawable.ic_companion).setContentTitle(push.title ?: context.getString(R.string.title_conversation))
+        .setContentText(lines.last().text)
+        .setStyle(conversationStyle(context, push.title, true, lines))
+        .setContentIntent(conversationIntent(context, push.key))
+        .setCategory(NotificationCompat.CATEGORY_MESSAGE).setAutoCancel(true)
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        .addExtras(notificationMetadata(scope, "room", roomId, pushId = push.notificationId))
+        .addExtras(Bundle().apply { through?.let { putString(NOTIFICATION_ROOM_THROUGH, it) } })
+    addConversationActions(context, builder, scope, tag, ROOM_NOTIFICATION_ID, covered)
+    if (postNotification(context, tag, ROOM_NOTIFICATION_ID, builder.build())) rememberPush(seen, scope, seenKey)
+}
+
+/** A room left on screen or read elsewhere has no reason to keep its notification. */
+internal fun cancelRoomNotification(context: Context, connection: Connection, roomId: String) {
+    context.getSystemService(NotificationManager::class.java).cancel(roomTag(unreadScope(connection.server, connection.deviceId), roomId), ROOM_NOTIFICATION_ID)
+}
+
+/** Re-applies the unread ledger to reply alerts, e.g. after "Mark read" from a notification. */
+@Synchronized
+internal fun refreshReplyNotifications(context: Context, connection: Connection) {
+    val scope = unreadScope(connection.server, connection.deviceId)
+    reconcileUnreadNotifications(context, if (replyNotificationsEnabled(context, scope)) connection else null, UnreadStore(context).unreadIds())
 }

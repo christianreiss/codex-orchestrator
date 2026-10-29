@@ -18,6 +18,7 @@
         <data android:scheme="orchestrator" android:host="chat" />
       </intent-filter>
     </activity>
+    <receiver android:name=".NotificationActionReceiver" android:exported="false" />
     <service android:name=".PushService" android:exported="false">
       <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
     </service>

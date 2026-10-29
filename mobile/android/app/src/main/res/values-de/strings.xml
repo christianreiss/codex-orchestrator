@@ -189,6 +189,14 @@
     <string name="notif_approval_title">Host-Zugriff angefragt</string>
     <string name="notif_needs_you">Braucht Aufmerksamkeit · %s</string>
     <string name="notif_agent_update">Agent-Update</string>
+    <string name="channel_rooms">Gruppenunterhaltungen</string>
+    <string name="channel_rooms_desc">Neue Nachrichten in Gruppen und Konferenzen</string>
+    <string name="notif_you">Du</string>
+    <string name="notif_room_message">Neue Nachricht</string>
+    <string name="notif_action_reply">Antworten</string>
+    <string name="notif_action_reply_hint">Nachricht</string>
+    <string name="notif_action_mark_read">Als gelesen markieren</string>
+    <string name="notif_reply_not_sent">Noch nicht gesendet. Im Chat erneut versuchen.</string>
     <string name="severity_important">wichtig</string>
     <string name="severity_critical">kritisch</string>
     <string name="severity_blocker">blockierend</string>

@@ -133,12 +133,23 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
     val outgoing = state.outgoing
     val sendStates = outgoing.map(state::sendStatus)
     val local = remember(outgoing, sendStates) { state.localEvents }
-    val items = remember(state.events, local, t) { buildTimeline(roomTimelineEntries(t, state.events) + roomTimelineEntries(t, local)) }
+    val self = state.protocols.actor
+    val items = remember(state.events, local, t, self) { buildTimeline(roomTimelineEntries(t, state.events, self) + roomTimelineEntries(t, local, self)) }
     val currentItems by rememberUpdatedState(items)
-    val working = if (fresh) members.filter { presences[it.optString("id")] == "working" } else emptyList()
+    // Live `room_activity` frames expire on their own TTL; re-evaluate when the current one runs out.
+    val activity = state.activity[id]
+    var activityExpired by remember(activity) { mutableStateOf(false) }
+    LaunchedEffect(activity) {
+        val wait = (activity ?: return@LaunchedEffect).expiresAt - android.os.SystemClock.elapsedRealtime()
+        if (wait > 0) delay(wait)
+        activityExpired = true
+    }
+    val actors = if (activityExpired) emptyList() else state.activeActors(id)
+    val working = if (fresh) members.filter { presences[it.optString("id")] == "working" || actors.any { actor -> actor.addressId == it.optString("id") } } else emptyList()
+    val strangers = if (fresh) actors.filter { actor -> members.none { it.optString("id") == actor.addressId } && actor.name.isNotBlank() }.map { it.name } else emptyList()
     val header = if (state.nextBefore != null) 1 else 0
     val empty = state.events.isEmpty() && local.isEmpty() && !state.loading && state.error == null
-    val endIndex = header + (if (empty) 1 else 0) + items.size + (if (working.isNotEmpty()) 1 else 0)
+    val endIndex = header + (if (empty) 1 else 0) + items.size + (if (working.isNotEmpty() || strangers.isNotEmpty()) 1 else 0)
     // Following drops only when the reader moves the list, never during our own scrolls,
     // so an arriving message does not flash "New messages" while the follow animation runs.
     var following by remember(id) { mutableStateOf(true) }
@@ -178,7 +189,7 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
         }
     }
     // Follow new messages while the reader is at the end; otherwise offer the "New messages" jump.
-    LaunchedEffect(items.lastOrNull()?.key, working.size) { if (positioned && following) autoScroll(endIndex) }
+    LaunchedEffect(items.lastOrNull()?.key, working.size + strangers.size) { if (positioned && following) autoScroll(endIndex) }
     LaunchedEffect(id, last?.optString("id"), fresh) {
         snapshotFlow {
             val visible = scroll.layoutInfo.visibleItemsInfo.any { it.key == last?.optString("id")?.let { event -> "event:$event" } }
@@ -234,9 +245,9 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
                     after = { item -> item.key.removePrefix("event:").let { readMarkers[it] }?.let { ReadByRow(it, initials, members.size) } }) { item ->
                     RoomBubble(model, id, item, messages, members, initials, presences, writable && state.pendingSend == null, highlight == item.key, unavailable, ::jumpTo)
                 }
-                if (working.isNotEmpty()) item(key = "typing") {
-                    val names = working.joinToString(", ") { roomPersonLabel(t, it) }
-                    TypingIndicator(stringResource(R.string.chat_agent_working, names)) { RoomMemberAvatar(working.first(), initials, null, 28.dp, members.size) }
+                if (working.isNotEmpty() || strangers.isNotEmpty()) item(key = "typing") {
+                    val names = (working.map { roomPersonLabel(t, it) } + strangers).joinToString(", ")
+                    TypingIndicator(stringResource(R.string.chat_agent_working, names), working.firstOrNull()?.let { first -> { RoomMemberAvatar(first, initials, null, 28.dp, members.size) } })
                 }
                 item(key = "end") { Spacer(Modifier.height(1.dp)) }
             }
@@ -487,6 +498,7 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(room.optString("title"), style = MaterialTheme.typography.titleLarge)
             if (room.optString("description").isNotBlank()) Text(room.optString("description"))
+            if (state.protocols.notifications) RoomNotificationChoice(state)
             Text(stringResource(R.string.room_participants_title), style = MaterialTheme.typography.titleMedium)
             members.forEach { member ->
                 val presence = roomMemberPresence(member, model.agents.takeIf { model.overviewAvailable() })
@@ -518,6 +530,28 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
     if (confirm) AlertDialog(onDismissRequest = { if (!state.busy) confirm = false }, title = { Text(stringResource(R.string.room_end_title)) }, text = { Text(stringResource(R.string.room_end_body)) }, confirmButton = {
         TextButton(modifier = Modifier.testTag("confirm-close-room"), enabled = !state.busy, onClick = { state.operate("/rooms/manage", JSONObject().put("room_id", room.getString("id")).put("action", "close")) { confirm = false; dismiss(); model.refreshNow() } }) { Text(stringResource(R.string.room_end_conference)) }
     }, dismissButton = { TextButton(onClick = { confirm = false }) { Text(stringResource(R.string.room_keep_open)) } })
+}
+
+/** This device's push mode for the room: Follow all, Default (mentions and replies) or Mute. */
+@Composable private fun RoomNotificationChoice(state: RoomChats) {
+    LaunchedEffect(state.selected) { state.loadNotificationMode() }
+    val mode = state.notificationMode
+    val labels = mapOf("follow" to R.string.room_notifications_follow, "default" to R.string.room_notifications_default, "mute" to R.string.room_notifications_mute)
+    val descriptions = mapOf("follow" to R.string.room_notifications_follow_desc, "default" to R.string.room_notifications_default_desc, "mute" to R.string.room_notifications_mute_desc)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(stringResource(R.string.room_notifications_title), style = MaterialTheme.typography.titleMedium)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            ROOM_NOTIFICATION_MODES.forEachIndexed { index, value ->
+                val description = stringResource(descriptions.getValue(value))
+                SegmentedButton(selected = mode == value, onClick = { state.changeNotificationMode(value) }, enabled = mode != null,
+                    shape = SegmentedButtonDefaults.itemShape(index, ROOM_NOTIFICATION_MODES.size),
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("room-notifications:$value").semantics { stateDescription = description }) {
+                    Text(stringResource(labels.getValue(value)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        if (mode != null) Text(stringResource(descriptions.getValue(mode)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 /** Small avatars plus the names, so the marker is never an icon alone. */

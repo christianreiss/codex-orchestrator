@@ -190,6 +190,14 @@
     <string name="notif_approval_title">Host access requested</string>
     <string name="notif_needs_you">Needs you · %s</string>
     <string name="notif_agent_update">Agent update</string>
+    <string name="channel_rooms">Group conversations</string>
+    <string name="channel_rooms_desc">New messages in groups and conferences</string>
+    <string name="notif_you">You</string>
+    <string name="notif_room_message">New message</string>
+    <string name="notif_action_reply">Reply</string>
+    <string name="notif_action_reply_hint">Message</string>
+    <string name="notif_action_mark_read">Mark read</string>
+    <string name="notif_reply_not_sent">Not sent yet. Open the chat to retry.</string>
     <string name="severity_important">important</string>
     <string name="severity_critical">critical</string>
     <string name="severity_blocker">blocker</string>

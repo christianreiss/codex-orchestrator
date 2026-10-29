@@ -12,6 +12,8 @@ internal sealed interface LiveFrame {
     data object Hello : LiveFrame
     data class Changed(val scopes: Set<String>) : LiveFrame
     data object Ping : LiveFrame
+    /** Ephemeral `room_activity`: who is working in a room, for [ttlSeconds] unless renewed (0 or no actors clears). */
+    data class RoomActivity(val roomId: String, val actors: List<RoomActivityActor>, val ttlSeconds: Int) : LiveFrame
 }
 
 /** Returns null for malformed or unknown frames; those do not count as liveness. */
@@ -21,6 +23,14 @@ internal fun parseLiveFrame(text: String): LiveFrame? {
         "hello" -> LiveFrame.Hello
         "changed" -> LiveFrame.Changed(frame.optJSONArray("scopes")?.strings() ?: emptySet())
         "ping" -> LiveFrame.Ping
+        "room_activity" -> {
+            val room = (frame.opt("room_id") as? String)?.takeIf { it.isNotBlank() && it.length <= 64 } ?: return null
+            val actors = runCatching { frame.optJSONArray("actors")?.objects() }.getOrNull()?.mapNotNull { actor ->
+                val id = (actor.opt("address_id") as? String)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                RoomActivityActor(id, (actor.opt("name") as? String)?.takeIf { it.isNotBlank() }.orEmpty(), actor.optString("state", "working"))
+            }?.distinctBy { it.addressId }?.take(20).orEmpty()
+            LiveFrame.RoomActivity(room, actors, frame.optInt("ttl_s", 0))
+        }
         else -> null
     }
 }

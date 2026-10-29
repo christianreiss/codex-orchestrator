@@ -224,4 +224,12 @@
     <string name="media_audio_unavailable">Audio unavailable</string>
     <string name="media_pause_audio">Pause audio</string>
     <string name="media_play_audio">Play audio</string>
+    <string name="room_notifications_title">Notifications on this device</string>
+    <string name="room_notifications_follow">Follow all</string>
+    <string name="room_notifications_default">Default</string>
+    <string name="room_notifications_mute">Mute</string>
+    <string name="room_notifications_follow_desc">Every message from others</string>
+    <string name="room_notifications_default_desc">Mentions and replies to your messages</string>
+    <string name="room_notifications_mute_desc">No notifications</string>
+    <string name="room_notifications_failed">The notification setting was not saved</string>
 </resources>
