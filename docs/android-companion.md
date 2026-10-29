@@ -1,5 +1,29 @@
 # Android companion
 
+## Reactions, pins and search (Android 0.9.0)
+
+Requires the R5 server (migration 0119); gated on `reactions_protocol`,
+`pins_protocol` and `search_protocol`.
+
+- Room bubbles show reaction chips (filled when `mine`); tap toggles, the
+  long-press menu offers React (the web console's eight emoji), Pin/Unpin. Toggles
+  are optimistic, replaced by the server's `reactions`, and rolled back with a
+  message on `reaction_limit`, `room_pin_limit` or `rate_limited` (Retry-After). A
+  toggle without an answer keeps its `client_request_id` for the retry. Legacy
+  events without `reactions` show no controls.
+- A pinned strip (newest snippet + count) opens the pin list from
+  `GET /rooms/:roomId/pins`; "Show in conversation" jumps only within the loaded
+  timeline. Reactions and `pinned` are cached in `room-cache.bin` and merged from
+  read and delta pages by event id.
+- "Search messages" (`chat-search-messages`) under the Chats search field opens
+  the `search` route: debounced query (≥ 2 characters), All / Rooms / Direct,
+  highlighted snippets (UTF-16 offsets), "Search older messages", truncation hint.
+  Room hits open the room and jump when the event is loaded; direct hits open the
+  chat. Query text is never logged.
+
+Verification: 197 JVM tests, lint (0 errors), debug build and androidTest
+compilation passed; emulator UI tests were not run.
+
 ## Tools, remote stop, plan mode and quota push (Android 0.8.0)
 
 Requires the R4 server (migration 0118) and, for plan mode, cxx 0.9.146 on the
