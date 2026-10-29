@@ -6,7 +6,7 @@ import { SettingsService } from './settings.js';
 import { SUPPORTED_MODELS, LEGACY_MODEL_UPGRADES } from './config-normalizer.js';
 import { CLAUDE_SUPPORTED_MODELS, CLAUDE_LEGACY_MODEL_UPGRADES } from './claude-models.js';
 import { GROK_SUPPORTED_MODELS } from './grok-models.js';
-import { registryEntry } from './model-registry/index.js';
+import { liveCatalogRequired, registryEntry } from './model-registry/index.js';
 
 export interface ModelPolicy {
   engine: Engine;
@@ -33,19 +33,22 @@ function familyVersion(engine: Engine, model: string): { family: string; version
 export function buildModelPolicy(engine: Engine, latest_only = false): ModelPolicy {
   const models: readonly string[] = engine === 'codex' ? SUPPORTED_MODELS : engine === 'claude' ? CLAUDE_SUPPORTED_MODELS : GROK_SUPPORTED_MODELS;
   const latest = new Map<string, { model: string; version: number[] }>();
-  for (const model of models) {
+  // An unverified (live-catalog-gated) model is never a family-latest target:
+  // latest-only must not rewrite working selections to an id an account may lack.
+  for (const model of models.filter(model => !liveCatalogRequired(engine, model))) {
     const { family, version } = familyVersion(engine, model);
     const previous = latest.get(family);
     const order = previous ? version.reduce((result, part, i) => result || part - (previous.version[i] ?? 0), 0) : 1;
     if (order > 0) latest.set(family, { model, version });
   }
-  const replacements = Object.fromEntries(models.map(model => [model, latest.get(familyVersion(engine, model).family)!.model]));
+  const replacements = Object.fromEntries(models.map(model => [model,
+    liveCatalogRequired(engine, model) ? model : latest.get(familyVersion(engine, model).family)!.model]));
   // Preserve the existing engine canonicalization for retired IDs as well.
   const legacy = engine === 'codex' ? LEGACY_MODEL_UPGRADES : engine === 'claude' ? CLAUDE_LEGACY_MODEL_UPGRADES : {};
   for (const [alias, canonical] of Object.entries(legacy)) {
     if (Object.hasOwn(replacements, canonical)) replacements[alias] = replacements[canonical]!;
   }
-  return { engine, latest_only, latest_models: models.filter(model => replacements[model] === model), replacements };
+  return { engine, latest_only, latest_models: models.filter(model => replacements[model] === model && !liveCatalogRequired(engine, model)), replacements };
 }
 
 export async function readModelPolicy(db: Database, engine: Engine): Promise<ModelPolicy> {

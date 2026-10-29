@@ -5,6 +5,7 @@
 package launchpad
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,6 +73,10 @@ type Sources struct {
 	Quota func(engine string, cfg *config.Config) *accountpool.WeeklyUsage
 	// Last is the previous launchpad selection, if any.
 	Last *Selection
+	// LiveModels lists the ids the host's own native model catalog offers, or
+	// nil when unknown. Signed live_catalog_models entries (unverified models)
+	// are offered only when listed here; nil hides them.
+	LiveModels func(engine string) map[string]bool
 }
 
 // Discover lists the engines this host may launch, in screen order. An engine
@@ -145,15 +150,22 @@ func menu(engine string, cfg *config.Config, src Sources) []Model {
 			if strings.TrimSpace(entry.Model) == "" {
 				continue
 			}
-			m := Model{ID: entry.Model}
-			if err := config.CheckModelVersion(engine, entry.Model, observed, catalog); err != nil {
-				m.Unavailable = err.Error()
+			models = append(models, catalogModel(engine, entry, observed, catalog))
+		}
+		// Unverified models follow the verified menu, and only where this
+		// host's native catalog already lists them: offering one the account
+		// lacks would launch a model the provider rejects.
+		var live map[string]bool
+		if len(catalog.LiveCatalogModels) > 0 && src.LiveModels != nil {
+			live = src.LiveModels(engine)
+		}
+		for _, entry := range catalog.LiveCatalogModels {
+			if id := strings.TrimSpace(entry.Model); id == "" || !live[id] {
+				continue
 			}
-			m.Efforts = append(append(m.Efforts, entry.Efforts...), entry.SessionEfforts...)
-			if entry.DefaultEffort != nil {
-				m.DefaultEffort = *entry.DefaultEffort
+			if _, exists := findModel(models, entry.Model); !exists {
+				models = append(models, catalogModel(engine, entry, observed, catalog))
 			}
-			models = append(models, m)
 		}
 		// A missing incompatible entry must not turn an explicit/default/local
 		// selection into the first available model on older signed catalogs.
@@ -204,6 +216,56 @@ func menu(engine string, cfg *config.Config, src Sources) []Model {
 	}
 	// An empty ID means "whatever the native config selects": no --model flag.
 	return []Model{{ID: model, Efforts: fallbackEfforts[engine], DefaultEffort: effort, Unavailable: unavailable}}
+}
+
+func catalogModel(engine string, entry config.ModelCatalogEntry, observed string, catalog *config.ModelCatalog) Model {
+	m := Model{ID: entry.Model}
+	if err := config.CheckModelVersion(engine, entry.Model, observed, catalog); err != nil {
+		m.Unavailable = err.Error()
+	}
+	m.Efforts = append(append(m.Efforts, entry.Efforts...), entry.SessionEfforts...)
+	if entry.DefaultEffort != nil {
+		m.DefaultEffort = *entry.DefaultEffort
+	}
+	return m
+}
+
+// LocalLiveModels reads the ids the native CLI's own cached account catalog
+// lists for picking. Only Codex keeps such a cache ($CODEX_HOME/models_cache.json,
+// entries with visibility "list"); every other engine, and a missing or
+// unreadable cache, yields nil, which keeps unverified models hidden.
+func LocalLiveModels(engine string) map[string]bool {
+	if engine != config.EngineCodex {
+		return nil
+	}
+	root, err := sessionguard.Root(engine)
+	if err != nil {
+		return nil
+	}
+	return codexCatalogModels(filepath.Join(root, "models_cache.json"))
+}
+
+func codexCatalogModels(path string) map[string]bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var cache struct {
+		Models []struct {
+			Slug       string `json:"slug"`
+			Visibility string `json:"visibility"`
+		} `json:"models"`
+	}
+	if json.Unmarshal(raw, &cache) != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, model := range cache.Models {
+		if slug := strings.TrimSpace(model.Slug); slug != "" && model.Visibility == "list" {
+			out[slug] = true
+		}
+	}
+	return out
 }
 
 // start picks the cursor: the last launchpad choice for this engine, then the

@@ -27,6 +27,12 @@ export const CODEX_MODELS = [
   { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', family: 'sol', tier: 3, status: 'active', efforts: CODEX_FULL, defaultEffort: 'low', upgradesFrom: ['gpt-5.5'] },
   // Native availability from CLI 0.159.0 (official models reference, 2026-10-26).
   { id: 'gpt-6.1-terra', label: 'GPT-6.1 Terra', family: 'terra', tier: 2, status: 'active', efforts: CODEX_FULL, defaultEffort: 'low', minCliVersion: '0.159.0' },
+  // UNVERIFIED (2026-10-29): operator report that Luna 6.1 is released. The id
+  // follows the 6.1 Sol/Terra pattern, but the codex-cli 0.165.0 account catalog
+  // fetched 2026-10-29T06:47Z and the 0.165.0 binary do not list it. Efforts and
+  // default copy GPT-6 Luna; no CLI floor is invented. Gated until an account
+  // catalog shows it: then drop `liveCatalogRequired` and confirm the efforts.
+  { id: 'gpt-6.1-luna', label: 'GPT-6.1 Luna', family: 'luna', tier: 1, status: 'active', efforts: CODEX_NO_ULTRA, defaultEffort: 'medium', liveCatalogRequired: true },
   // Native catalog default is `medium`; `low` by operator decision 2026-10-28,
   // matching the 0.165.0 bundled catalog. Per-host and fleet overrides still win.
   { id: 'gpt-6-astra', label: 'GPT-6 Astra', family: 'astra', tier: 5, status: 'active', efforts: CODEX_FULL, defaultEffort: 'low' },

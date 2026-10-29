@@ -80,3 +80,43 @@ func TestKnownNativeModelMinimum(t *testing.T) {
 		t.Fatal("ignored signed stronger minimum")
 	}
 }
+
+func TestSignedMinCLIVersionsReplaceLegacyFloors(t *testing.T) {
+	// A catalog carrying min_cli_versions is authoritative, also for models it
+	// omitted from Models; the frozen literals apply only to older catalogs.
+	signed := &ModelCatalog{MinCLIVersions: map[string]string{"gpt-6.1-terra": "0.160.0", "gpt-7-nova": "0.170.0"}}
+	if got := ModelMinimum(EngineCodex, "gpt-6.1-terra", signed); got != "0.160.0" {
+		t.Fatalf("signed floor ignored: %q", got)
+	}
+	if got := ModelMinimum(EngineCodex, " gpt-7-nova ", signed); got != "0.170.0" {
+		t.Fatalf("model unknown to the wrapper lost its signed floor: %q", got)
+	}
+	if err := CheckModelVersion(EngineCodex, "gpt-7-nova", "0.169.9", signed); err == nil || !strings.Contains(err.Error(), "cdx update") {
+		t.Fatalf("old CLI accepted: %v", err)
+	}
+	empty := &ModelCatalog{MinCLIVersions: map[string]string{}}
+	if got := ModelMinimum(EngineClaude, "claude-haiku-5-5", empty); got != "" {
+		t.Fatalf("legacy floor overrode an authoritative empty map: %q", got)
+	}
+	// Entry floors still only raise the signed value, and gated entries count.
+	raised := &ModelCatalog{MinCLIVersions: map[string]string{"gpt-6.1-luna": "0.165.0"},
+		LiveCatalogModels: []ModelCatalogEntry{{Model: "gpt-6.1-luna", MinCLIVersion: "0.166.0"}}}
+	if got := ModelMinimum(EngineCodex, "gpt-6.1-luna", raised); got != "0.166.0" {
+		t.Fatalf("entry floor ignored: %q", got)
+	}
+	// Older catalog (no map): the frozen fallback still applies.
+	if got := ModelMinimum(EngineCodex, "gpt-6.1-terra", &ModelCatalog{}); got != "0.159.0" {
+		t.Fatalf("legacy fallback lost: %q", got)
+	}
+}
+
+func TestModelCatalogDecodesAdditiveKeys(t *testing.T) {
+	var catalog ModelCatalog
+	raw := `{"default_model":"gpt-6-astra","models":[],"min_cli_versions":{"gpt-6.1-terra":"0.159.0"},"live_catalog_models":[{"model":"gpt-6.1-luna","efforts":["low"],"session_efforts":[],"default_effort":"low"}]}`
+	if err := json.Unmarshal([]byte(raw), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if catalog.MinCLIVersions["gpt-6.1-terra"] != "0.159.0" || len(catalog.LiveCatalogModels) != 1 || catalog.LiveCatalogModels[0].Model != "gpt-6.1-luna" {
+		t.Fatalf("additive keys not decoded: %#v", catalog)
+	}
+}

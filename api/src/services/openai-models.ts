@@ -10,8 +10,13 @@ import {
   SUPPORTED_MODELS,
   normalizeStoredModel,
 } from './config-normalizer.js';
+import { liveCatalogRequired } from './model-registry/index.js';
 
-export const OPENAI_MODELS = SUPPORTED_MODELS;
+/**
+ * Unverified (live-catalog-gated) models stay out: the runner's account may
+ * lack them, and the gateway cannot check per account.
+ */
+export const OPENAI_MODELS: readonly string[] = SUPPORTED_MODELS.filter((model) => !liveCatalogRequired('codex', model));
 
 export const OPENAI_DEFAULT_MODEL = DEFAULT_CODEX_MODEL;
 

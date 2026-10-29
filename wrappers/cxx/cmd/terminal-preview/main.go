@@ -43,7 +43,10 @@ func main() {
 }
 
 // previewLaunchpad runs the real picker over sample menus and prints the
-// selection instead of launching anything.
+// selection instead of launching anything. The menus are illustrative layout
+// samples, not the fleet catalog: real menus come from the signed
+// model_catalog, which the server derives from api/src/services/model-registry.
+// Do not keep these ids in step with the registry.
 func previewLaunchpad(list string, minimal bool) {
 	efforts := []string{"low", "medium", "high", "xhigh"}
 	samples := map[string]launchpad.Engine{

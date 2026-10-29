@@ -106,6 +106,12 @@ describe('ModelDefaultsService', () => {
         default_effort: 'low',
       },
       {
+        model: 'gpt-6.1-luna',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        default_effort: 'medium',
+        live_catalog_required: true,
+      },
+      {
         model: 'gpt-6-astra',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
         default_effort: 'low',
@@ -311,8 +317,12 @@ describe('ModelDefaultsService', () => {
 describe('modelLaunchCatalog', () => {
   it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK] as Engine[])('preserves the %s catalog capabilities in descending tier order', (engine) => {
     const launch = modelLaunchCatalog(engine);
-    const catalog = modelDefaultsCatalog(engine);
+    // Unverified (live-catalog) models travel in their own additive list.
+    const catalog = modelDefaultsCatalog(engine).filter((entry) => !entry.live_catalog_required);
     expect(launch.models.map((entry) => entry.model).sort()).toEqual(catalog.map((entry) => entry.model).sort());
+    expect((launch.live_catalog_models ?? []).map((entry) => entry.model)).toEqual(
+      modelDefaultsCatalog(engine).filter((entry) => entry.live_catalog_required).map((entry) => entry.model),
+    );
     const tiers = launch.models.map(entry => modelTier(engine, entry.model) ?? 0);
     expect(tiers).toEqual([...tiers].sort((a, b) => b - a));
     for (const tier of new Set(tiers)) {

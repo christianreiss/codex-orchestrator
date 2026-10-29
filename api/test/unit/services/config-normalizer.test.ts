@@ -43,6 +43,8 @@ describe('config-normalizer constants', () => {
     expect(SUPPORTED_MODELS).toEqual([
       'gpt-6.1-sol',
       'gpt-6.1-terra',
+      // Accepted for explicit authoring but live-catalog gated (unverified id).
+      'gpt-6.1-luna',
       'gpt-6-astra',
       'gpt-6-sol',
       'gpt-6-luna',
@@ -61,6 +63,8 @@ describe('config-normalizer constants', () => {
     expect(MODEL_REASONING_EFFORTS).toEqual({
       'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6.1-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+      // Unverified: copies GPT-6 Luna until an account catalog shows it.
+      'gpt-6.1-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
       'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -71,6 +75,7 @@ describe('config-normalizer constants', () => {
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
       'gpt-6.1-sol': 'low',
       'gpt-6.1-terra': 'low',
+      'gpt-6.1-luna': 'medium',
       'gpt-6-astra': 'low',
       'gpt-6-sol': 'medium',
       'gpt-6-luna': 'medium',

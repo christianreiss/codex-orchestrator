@@ -28,13 +28,18 @@ func NativeVersionAtLeast(observed, minimum string) bool {
 	return a[4] == "" || b[4] != ""
 }
 
-// claudeModelMinimums are the documented native Claude Code floors
-// (code.claude.com/docs/en/model-config, checked 2026-10-28).
-var claudeModelMinimums = map[string]string{
-	"claude-fable-5-1":  "2.1.257",
-	"claude-opus-5-5":   "2.1.280",
-	"claude-sonnet-5-5": "2.1.284",
-	"claude-haiku-5-5":  "2.1.293",
+// legacyModelMinimums are frozen fallbacks for signed configs that predate
+// model_catalog.min_cli_versions (servers before the fleet model registry).
+// Never add a model here: new floors travel only in the signed catalog.
+var legacyModelMinimums = map[string]map[string]string{
+	EngineCodex: {"gpt-6.1-terra": "0.159.0"},
+	// code.claude.com/docs/en/model-config, checked 2026-10-28.
+	EngineClaude: {
+		"claude-fable-5-1":  "2.1.257",
+		"claude-opus-5-5":   "2.1.280",
+		"claude-sonnet-5-5": "2.1.284",
+		"claude-haiku-5-5":  "2.1.293",
+	},
 }
 
 // claudeCatalogModel strips Claude's case-insensitive `[1m]` context modifier;
@@ -44,22 +49,27 @@ func claudeCatalogModel(model string) string {
 	return strings.TrimSuffix(model, "[1m]")
 }
 
-// ModelMinimum preserves the known Terra and Claude floors even with an older
-// signed JSON catalog. No minimum is invented for other models, aliases or
-// custom provider IDs.
+// ModelMinimum is the native CLI floor for model. A signed catalog carrying
+// min_cli_versions is authoritative, including for models it omitted; older
+// catalogs fall back to the frozen legacy floors. Entry floors only ever raise
+// the result. No minimum is invented for other models, aliases or custom IDs.
 func ModelMinimum(engine, model string, catalog *ModelCatalog) string {
-	minimum := ""
-	if engine == EngineCodex && strings.TrimSpace(model) == "gpt-6.1-terra" {
-		minimum = "0.159.0"
-	}
+	model = strings.TrimSpace(model)
 	if engine == EngineClaude {
 		model = claudeCatalogModel(model)
-		minimum = claudeModelMinimums[model]
+	}
+	minimum := ""
+	if catalog != nil && catalog.MinCLIVersions != nil {
+		minimum = catalog.MinCLIVersions[model]
+	} else {
+		minimum = legacyModelMinimums[engine][model]
 	}
 	if catalog != nil {
-		for _, entry := range catalog.Models {
-			if entry.Model == model && entry.MinCLIVersion != "" && (minimum == "" || !NativeVersionAtLeast(minimum, entry.MinCLIVersion)) {
-				minimum = entry.MinCLIVersion
+		for _, entries := range [][]ModelCatalogEntry{catalog.Models, catalog.LiveCatalogModels} {
+			for _, entry := range entries {
+				if entry.Model == model && entry.MinCLIVersion != "" && (minimum == "" || !NativeVersionAtLeast(minimum, entry.MinCLIVersion)) {
+					minimum = entry.MinCLIVersion
+				}
 			}
 		}
 	}

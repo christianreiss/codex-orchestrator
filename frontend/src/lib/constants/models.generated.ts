@@ -31,6 +31,7 @@ export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
 export const CODEX_MODELS: ModelOption[] = [
   { label: "GPT-6.1 Sol", value: "gpt-6.1-sol" },
   { label: "GPT-6.1 Terra", value: "gpt-6.1-terra" },
+  { label: "GPT-6.1 Luna (unverified)", value: "gpt-6.1-luna" },
   { label: "GPT-6 Astra", value: "gpt-6-astra" },
   { label: "GPT-6 Sol", value: "gpt-6-sol" },
   { label: "GPT-6 Luna", value: "gpt-6-luna" },
@@ -66,6 +67,7 @@ export const MODEL_EFFORTS: Record<ModelEngine, Record<string, string[]>> = {
   codex: {
     "gpt-6.1-sol": ["low","medium","high","xhigh","max","ultra"],
     "gpt-6.1-terra": ["low","medium","high","xhigh","max","ultra"],
+    "gpt-6.1-luna": ["low","medium","high","xhigh","max"],
     "gpt-6-astra": ["low","medium","high","xhigh","max","ultra"],
     "gpt-6-sol": ["low","medium","high","xhigh","max","ultra"],
     "gpt-6-luna": ["low","medium","high","xhigh","max"],

@@ -3,6 +3,7 @@ import { ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/sta
 import { versionCompare } from './wrapper-bin-registry.js';
 import { CODEX_MODEL_MIN_CLI_VERSIONS } from './codex-model-capabilities.js';
 import { modelTier } from './model-tiers.js';
+import { liveCatalogRequired } from './model-registry/index.js';
 import { readModelPolicy, applyModelPolicy, type ModelPolicy } from './model-policy.js';
 import type { Database } from '../db/client.js';
 import { ValidationError } from '../http/errors.js';
@@ -28,6 +29,8 @@ export interface ModelDefaultsCatalogEntry {
   min_cli_version?: string;
   context_windows?: number[];
   default_context_window?: number;
+  /** Unverified provider id: launch menus offer it only where the host's native catalog lists it. */
+  live_catalog_required?: true;
 }
 
 export interface ModelDefaultsResponse {
@@ -57,6 +60,7 @@ const CODEX_CATALOG: readonly ModelDefaultsCatalogEntry[] = SUPPORTED_MODELS.map
       persistent_efforts: [...efforts],
       default_effort: defaultEffort,
       ...(CODEX_MODEL_MIN_CLI_VERSIONS[model] ? { min_cli_version: CODEX_MODEL_MIN_CLI_VERSIONS[model] } : {}),
+      ...(liveCatalogRequired('codex', model) ? { live_catalog_required: true as const } : {}),
     };
   },
 );
@@ -73,6 +77,7 @@ const CLAUDE_CATALOG: readonly ModelDefaultsCatalogEntry[] = CLAUDE_SUPPORTED_MO
     persistent_efforts: [...efforts],
     default_effort: defaultEffort,
     ...(CLAUDE_MODEL_MIN_CLI_VERSIONS[model] ? { min_cli_version: CLAUDE_MODEL_MIN_CLI_VERSIONS[model] } : {}),
+    ...(liveCatalogRequired('claude', model) ? { live_catalog_required: true as const } : {}),
   };
 });
 
@@ -93,6 +98,7 @@ export function modelDefaultsCatalog(engine: Engine): ModelDefaultsCatalogEntry[
     default_effort: GROK_MODEL_DEFAULT_REASONING_EFFORTS[model],
     context_windows: [...GROK_CONTEXT_WINDOWS],
     default_context_window: GROK_DEFAULT_CONTEXT_WINDOW,
+    ...(liveCatalogRequired('grok', model) ? { live_catalog_required: true as const } : {}),
   }));
   return copyCatalog(engine === ENGINE_CLAUDE ? CLAUDE_CATALOG : CODEX_CATALOG);
 }
@@ -114,6 +120,20 @@ export interface LaunchCatalogModel {
 export interface LaunchCatalog {
   default_model: string;
   models: LaunchCatalogModel[];
+  /**
+   * Every known native CLI floor, including models omitted from `models` for an
+   * old observed CLI, so the wrapper can explain an unavailable selection
+   * without carrying model names. Additive; absent when no model has a floor.
+   * Caveat: an absent map makes cxx fall back to its frozen legacy floors (Codex
+   * Terra, four Claude models), so dropping an engine's last floor would revive them.
+   */
+  min_cli_versions?: Record<string, string>;
+  /**
+   * Unverified models (`liveCatalogRequired`). Additive: older wrappers ignore
+   * it and never offer them; newer launchpads offer an entry only when the
+   * host's native model catalog lists its id. Absent when empty.
+   */
+  live_catalog_models?: LaunchCatalogModel[];
 }
 
 /**
@@ -123,10 +143,28 @@ export interface LaunchCatalog {
  * Claude Opus 4.6 / Sonnet 4.6 `max` despite their persistent ceiling of `high`.
  */
 export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy, observedVersion?: string | null): LaunchCatalog {
+  const catalog = modelDefaultsCatalog(engine);
+  const offered = launchEntries(engine, catalog.filter(entry => !entry.live_catalog_required), policy, observedVersion);
+  const gated = launchEntries(engine, catalog.filter(entry => entry.live_catalog_required), policy, observedVersion, true);
+  const floors = Object.fromEntries(catalog.flatMap(entry => entry.min_cli_version ? [[entry.model, entry.min_cli_version]] : []));
   return {
     default_model: policy?.latest_only ? policy.replacements[defaultModel(engine)]! : defaultModel(engine),
-    models: modelDefaultsCatalog(engine)
-      .filter(entry => !policy?.latest_only || (policy.latest_models.includes(entry.model) && !policy.disabled_models?.includes(entry.model)))
+    models: offered,
+    ...(Object.keys(floors).length > 0 ? { min_cli_versions: floors } : {}),
+    ...(gated.length > 0 ? { live_catalog_models: gated } : {}),
+  };
+}
+
+function launchEntries(
+  engine: Engine,
+  entries: ModelDefaultsCatalogEntry[],
+  policy: ModelPolicy | undefined,
+  observedVersion: string | null | undefined,
+  gated = false,
+): LaunchCatalogModel[] {
+  return entries
+      // Gated models are never family-latest targets; only an admin disable hides them.
+      .filter(entry => !policy?.latest_only || ((gated || policy.latest_models.includes(entry.model)) && !policy.disabled_models?.includes(entry.model)))
       .filter(entry => {
         if (observedVersion === undefined || !entry.min_cli_version) return true;
         const observed = observedVersion?.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0];
@@ -141,8 +179,7 @@ export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy, observe
           engine === ENGINE_CLAUDE ? claudeSessionEfforts(entry.model) : [],
         default_effort: entry.default_effort,
         ...(entry.min_cli_version ? { min_cli_version: entry.min_cli_version } : {}),
-      })),
-  };
+      }));
 }
 
 function selectedCatalogEntry(

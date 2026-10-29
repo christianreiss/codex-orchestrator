@@ -95,7 +95,29 @@
                   "model": { "type": "string", "minLength": 1 },
                   "efforts": { "type": "array", "items": { "type": "string" } },
                   "session_efforts": { "type": "array", "items": { "type": "string" } },
-                  "default_effort": { "type": ["string", "null"] }
+                  "default_effort": { "type": ["string", "null"] },
+                  "min_cli_version": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            "min_cli_versions": {
+              "type": "object",
+              "description": "Native CLI floor per known model id, including ids omitted from models for an old observed CLI. Additive; absent when no model has a floor.",
+              "additionalProperties": { "type": "string", "minLength": 1 }
+            },
+            "live_catalog_models": {
+              "type": "array",
+              "description": "Unverified models, offered only when the host's native model catalog lists the id. Additive; older wrappers ignore it.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["model", "efforts", "session_efforts", "default_effort"],
+                "properties": {
+                  "model": { "type": "string", "minLength": 1 },
+                  "efforts": { "type": "array", "items": { "type": "string" } },
+                  "session_efforts": { "type": "array", "items": { "type": "string" } },
+                  "default_effort": { "type": ["string", "null"] },
+                  "min_cli_version": { "type": "string", "minLength": 1 }
                 }
               }
             }

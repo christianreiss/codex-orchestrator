@@ -60,6 +60,7 @@ exports[`registry snapshot > records every model change for review 1`] = `
     "models": [
       "gpt-6.1-sol active tier 3 low|medium|high|xhigh|max|ultra low",
       "gpt-6.1-terra active tier 2 low|medium|high|xhigh|max|ultra low cli>=0.159.0",
+      "gpt-6.1-luna active tier 1 low|medium|high|xhigh|max medium live-catalog",
       "gpt-6-astra active tier 5 low|medium|high|xhigh|max|ultra low",
       "gpt-6-sol active tier 3 low|medium|high|xhigh|max|ultra medium",
       "gpt-6-luna active tier 1 low|medium|high|xhigh|max medium",
