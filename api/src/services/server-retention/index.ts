@@ -496,6 +496,8 @@ export class ServerRetentionService {
           sql`,`,
         );
         await tx.execute(sql`DELETE FROM agent_room_deliveries WHERE event_id IN (${ids})`);
+        await tx.execute(sql`DELETE FROM agent_room_reactions WHERE event_id IN (${ids})`);
+        await tx.execute(sql`DELETE FROM agent_room_pins WHERE event_id IN (${ids})`);
         await tx.execute(sql`DELETE FROM agent_room_events WHERE id IN (${ids})`);
         const removed = new Set(events.map((row) => String(row.id)));
         this.projection?.removeWhere('agentRoomDeliveries', (row) => removed.has(String(row.eventId)));
@@ -571,6 +573,8 @@ export class ServerRetentionService {
         await tx.execute(sql`UPDATE agent_chat_attachments SET status = 'retired' WHERE session_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_room_reads WHERE room_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_room_agent_reads WHERE room_id = ${id}`);
+        await tx.execute(sql`DELETE FROM agent_room_reactions WHERE room_id = ${id}`);
+        await tx.execute(sql`DELETE FROM agent_room_pins WHERE room_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_room_changes WHERE room_id = ${id}`);
         await tx.execute(sql`DELETE FROM agent_bus_conference_members WHERE conference_id = ${id}`);
         purgedConferences += await remove(tx, sql`DELETE FROM agent_bus_conferences WHERE id = ${id}`);

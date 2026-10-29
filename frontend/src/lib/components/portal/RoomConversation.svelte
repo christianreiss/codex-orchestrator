@@ -2,10 +2,20 @@
   import { base } from "$app/paths";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { tick, onDestroy } from "svelte";
+  import { tick, onDestroy, untrack } from "svelte";
   import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import Users from "@lucide/svelte/icons/users";
   import Info from "@lucide/svelte/icons/info";
+  import PinIcon from "@lucide/svelte/icons/pin";
+  import SmilePlus from "@lucide/svelte/icons/smile-plus";
+  import * as Popover from "$lib/components/ui/popover";
+  import {
+    MAX_ROOM_PINS,
+    QUICK_REACTIONS,
+    reactionLabel,
+    type PinnedEntry,
+    type ReactionSummary,
+  } from "$lib/portal/room-annotations";
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Sheet from "$lib/components/ui/sheet";
@@ -46,6 +56,34 @@
     })),
   );
   const room = $derived($history.data?.room);
+  // Reactions and pins (servers with migration 0119). A confirmed toggle result overrides
+  // the last read until the history refreshes; events on older pages keep their copy.
+  let confirmedReactions = $state<Record<string, ReactionSummary[]>>({}),
+    confirmedPins = $state<string[] | null>(null),
+    annotating = $state<string | null>(null),
+    pinsOpen = $state(false),
+    pickerFor = $state<string | null>(null);
+  $effect(() => {
+    void $history.dataUpdatedAt;
+    const fresh = new Set(($history.data?.events ?? []).map((e) => e.id));
+    confirmedPins = null;
+    confirmedReactions = Object.fromEntries(
+      Object.entries(untrack(() => confirmedReactions)).filter(([eventId]) => !fresh.has(eventId)),
+    );
+  });
+  const pinned = $derived(confirmedPins ?? $history.data?.pinned ?? []);
+  const annotationsSupported = $derived(Array.isArray($history.data?.pinned));
+  const pins = createQuery(
+    reactiveOptions(() => ({
+      queryKey: [...roomKeys, id, "pins"],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        api.get<{ room_id: string; pins: PinnedEntry[] }>(
+          `${roomRoot}/${encodeURIComponent(id)}/pins`,
+          { signal },
+        ),
+      enabled: canRead && pinsOpen,
+    })),
+  );
   let older = $state<RoomEvent[]>([]),
     before = $state<string | null | undefined>(undefined),
     busy = $state(false),
@@ -207,6 +245,55 @@
       busy = false;
     }
   }
+  const reactionsOf = (event: RoomEvent) =>
+    confirmedReactions[event.id] ?? event.reactions ?? [];
+  const pinnedPreview = $derived(events.find((e) => e.id === pinned[0])?.content ?? "");
+  async function react(event: RoomEvent, emoji: string, on: boolean) {
+    if (annotating || !writable) return;
+    annotating = `${event.id}:${emoji}`;
+    error = "";
+    try {
+      // Set semantics on the server: a retry after an unconfirmed response is harmless.
+      const result = await api.post<{ reactions: ReactionSummary[] }>(
+        `${roomRoot}/${encodeURIComponent(id)}/events/${encodeURIComponent(event.id)}/reactions`,
+        { emoji, on, client_request_id: crypto.randomUUID() },
+      );
+      confirmedReactions = { ...confirmedReactions, [event.id]: result.reactions };
+      pickerFor = null;
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Reaction could not be confirmed";
+    } finally {
+      annotating = null;
+    }
+  }
+  async function pin(eventId: string, on: boolean) {
+    if (annotating || !writable) return;
+    annotating = `${eventId}:pin`;
+    error = "";
+    try {
+      const result = await api.post<{ pinned: string[] }>(
+        `${roomRoot}/${encodeURIComponent(id)}/events/${encodeURIComponent(eventId)}/pin`,
+        { on, client_request_id: crypto.randomUUID() },
+      );
+      confirmedPins = result.pinned;
+      await client.invalidateQueries({ queryKey: [...roomKeys, id, "pins"] });
+    } catch (e) {
+      error = e instanceof Error ? e.message : "Pin could not be confirmed";
+    } finally {
+      annotating = null;
+    }
+  }
+  async function jumpTo(eventId: string) {
+    pinsOpen = false;
+    await tick();
+    const target = document.getElementById(`room-event-${eventId}`);
+    if (target) {
+      target.scrollIntoView({ block: "center" });
+      target.focus({ preventScroll: true });
+    } else
+      error =
+        "That message is older than the loaded history. Use Earlier messages to load it.";
+  }
   onDestroy(() => {
     if (scroller) draft.scrollTop = scroller.scrollTop;
   });
@@ -259,6 +346,20 @@
     >
   </header>
   {#if room?.workflow_run_id}<div class="flex flex-wrap items-center justify-between gap-2 border-b bg-muted px-4 py-2 text-body-sm"><p>{room.status === "closed" ? "Completed run group · retained history" : "Workflow run group · membership follows the run"}</p><a class="underline" href={`${base}/workflows/runs/${encodeURIComponent(room.workflow_run_id)}`}>Run report and controls</a></div>{/if}
+  {#if canRead && pinned.length}<div
+      class="flex shrink-0 items-center gap-2 border-b px-4 py-1.5 text-body-sm"
+    >
+      <PinIcon class="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <button
+        type="button"
+        class="min-h-8 min-w-0 flex-1 truncate text-left underline-offset-4 hover:underline focus-visible:underline pointer-coarse:min-h-11"
+        aria-haspopup="dialog"
+        onclick={() => (pinsOpen = true)}
+        >{pinned.length} pinned {pinned.length === 1 ? "message" : "messages"}{#if pinnedPreview}<span
+            class="text-muted-foreground"> · {pinnedPreview.slice(0, 80)}</span
+          >{/if}</button
+      >
+    </div>{/if}
   <div class="relative flex min-h-0 flex-1">
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       {#if !canRead}<p class="p-6 text-body-sm">
@@ -322,7 +423,9 @@
                   })}
                 </p>{/if}
               <article
-                class="group min-w-0"
+                id={`room-event-${event.id}`}
+                tabindex="-1"
+                class="group min-w-0 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`Message from ${event.name}`}
               >
                 <div class="mb-1 flex flex-wrap items-baseline gap-x-2">
@@ -337,7 +440,10 @@
                       hour: "2-digit",
                       minute: "2-digit",
                     })}</time
-                  >
+                  >{#if pinned.includes(event.id)}<span
+                      class="inline-flex items-center gap-1 text-caption text-muted-foreground"
+                      ><PinIcon class="h-3 w-3" aria-hidden="true" />Pinned</span
+                    >{/if}
                 </div>
                 {#if event.reply_to}<p
                     class="mb-2 border-l-2 pl-2 text-caption text-muted-foreground"
@@ -352,6 +458,25 @@
                     session={`room:${id}`}
                     ids={event.attachments}
                   />{/if}
+                {#if reactionsOf(event).length}<div
+                    class="mt-2 flex flex-wrap gap-1.5"
+                    role="group"
+                    aria-label="Reactions"
+                  >
+                    {#each reactionsOf(event) as reaction (reaction.emoji)}<button
+                        type="button"
+                        class="inline-flex min-h-8 items-center gap-1 rounded border px-2 text-caption tabular-nums transition-colors pointer-coarse:min-h-11 {reaction.mine
+                          ? 'border-primary bg-primary/10 text-foreground'
+                          : 'bg-background text-muted-foreground hover:bg-muted'}"
+                        aria-pressed={reaction.mine}
+                        aria-label={reactionLabel(reaction)}
+                        disabled={!writable || !!annotating}
+                        onclick={() => react(event, reaction.emoji, !reaction.mine)}
+                        ><span aria-hidden="true">{reaction.emoji}</span><span
+                          aria-hidden="true">{reaction.count}</span
+                        ></button
+                      >{/each}
+                  </div>{/if}
                 <div
                   class="mt-1 flex flex-wrap items-center gap-3 text-caption text-muted-foreground"
                 >
@@ -362,6 +487,56 @@
                         draft.replyTo = event.id;
                         input?.focus();
                       }}>Reply</button
+                    >{/if}
+                  {#if writable && annotationsSupported && event.reactions}<Popover.Root
+                      open={pickerFor === event.id}
+                      onOpenChange={(open) => (pickerFor = open ? event.id : null)}
+                      ><Popover.Trigger>
+                        {#snippet child({ props })}<button
+                            {...props}
+                            type="button"
+                            class="inline-flex min-h-8 items-center gap-1 underline-offset-4 hover:underline focus-visible:underline pointer-coarse:min-h-11"
+                            disabled={!!annotating}
+                            ><SmilePlus class="h-3.5 w-3.5" aria-hidden="true" />React</button
+                          >{/snippet}
+                      </Popover.Trigger>
+                      <Popover.Content class="w-auto p-2" align="start">
+                        <div
+                          class="flex flex-wrap gap-1"
+                          role="group"
+                          aria-label="Choose a reaction"
+                        >
+                          {#each QUICK_REACTIONS as emoji (emoji)}<button
+                              type="button"
+                              class="grid h-9 w-9 place-content-center rounded text-body hover:bg-muted focus-visible:bg-muted pointer-coarse:h-11 pointer-coarse:w-11"
+                              aria-label={`React with ${emoji}`}
+                              aria-pressed={reactionsOf(event).some(
+                                (r) => r.emoji === emoji && r.mine,
+                              )}
+                              disabled={!!annotating}
+                              onclick={() =>
+                                react(
+                                  event,
+                                  emoji,
+                                  !reactionsOf(event).some(
+                                    (r) => r.emoji === emoji && r.mine,
+                                  ),
+                                )}>{emoji}</button
+                            >{/each}
+                        </div>
+                      </Popover.Content></Popover.Root
+                    ><button
+                      type="button"
+                      class="min-h-8 underline-offset-4 hover:underline focus-visible:underline pointer-coarse:min-h-11"
+                      disabled={!!annotating ||
+                        (!pinned.includes(event.id) &&
+                          pinned.length >= MAX_ROOM_PINS)}
+                      title={!pinned.includes(event.id) &&
+                      pinned.length >= MAX_ROOM_PINS
+                        ? `A conversation keeps at most ${MAX_ROOM_PINS} pinned messages`
+                        : undefined}
+                      onclick={() => pin(event.id, !pinned.includes(event.id))}
+                      >{pinned.includes(event.id) ? "Unpin" : "Pin"}</button
                     >{/if}
                   {#if event.deliveries?.length}<details>
                       <summary class="cursor-pointer py-1"
@@ -608,6 +783,68 @@
     >
   </div>
 </div>
+<Sheet.Root bind:open={pinsOpen}
+  ><Sheet.Content class="w-full overflow-y-auto sm:max-w-sm"
+    ><Sheet.Header
+      ><Sheet.Title>Pinned messages</Sheet.Title><Sheet.Description
+        >{room?.title ?? "Conversation"} · {pinned.length} of {MAX_ROOM_PINS}</Sheet.Description
+      ></Sheet.Header
+    >
+    {#if $pins.isPending}<p role="status" class="text-body-sm text-muted-foreground">
+        Loading pinned messages…
+      </p>
+    {:else if $pins.isError}<div role="alert" class="text-body-sm">
+        <p>Pinned messages could not be loaded.</p>
+        <Button
+          variant="outline"
+          size="sm"
+          class="mt-2"
+          onclick={() => $pins.refetch()}>Retry</Button
+        >
+      </div>
+    {:else if !$pins.data?.pins.length}<p class="text-body-sm text-muted-foreground">
+        No pinned messages. Pin a message from its actions to keep it here.
+      </p>
+    {:else}<ul class="divide-y">
+        {#each $pins.data.pins as entry (entry.event_id)}<li class="py-3">
+            <p class="text-body-sm font-medium">
+              {entry.event?.name ?? "Message no longer retained"}
+            </p>
+            {#if entry.event}<p
+                class="mt-1 break-words text-body-sm text-muted-foreground"
+              >
+                {entry.event.snippet || (entry.event.attachments ? "Attachment" : "")}
+              </p>
+              <p class="mt-1 text-caption text-muted-foreground">
+                <time
+                  datetime={entry.event.created_at}
+                  title={new Date(entry.event.created_at).toLocaleString()}
+                  >{new Date(entry.event.created_at).toLocaleString(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}</time
+                >
+              </p>{/if}
+            <div class="mt-1 flex gap-3 text-caption">
+              {#if entry.event}<button
+                  type="button"
+                  class="min-h-8 underline pointer-coarse:min-h-11"
+                  onclick={() => jumpTo(entry.event_id)}>Show in conversation</button
+                >{/if}
+              {#if writable}<button
+                  type="button"
+                  class="min-h-8 underline pointer-coarse:min-h-11"
+                  disabled={!!annotating}
+                  onclick={() => pin(entry.event_id, false)}>Unpin</button
+                >{/if}
+            </div>
+          </li>{/each}
+      </ul>{/if}
+    {#if error && pinsOpen}<p role="alert" class="mt-3 text-body-sm text-destructive">
+        {error}
+      </p>{/if}
+  </Sheet.Content></Sheet.Root
+>
 <Dialog.Root bind:open={closeOpen}
   ><Dialog.Content
     ><Dialog.Header

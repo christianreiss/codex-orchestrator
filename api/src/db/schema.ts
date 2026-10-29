@@ -2756,6 +2756,22 @@ export const agentRoomChanges = mysqlTable('agent_room_changes', {
   refId: char('ref_id', { length: 36 }),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
 }, t => ({ roomIdx: index('idx_room_changes_room').on(t.roomId, t.seq), timeIdx: index('idx_room_changes_time').on(t.createdAt) }));
+/** Operator reactions on canonical room events (0119): one row per event, actor and emoji. */
+export const agentRoomReactions = mysqlTable('agent_room_reactions', {
+  roomId: char('room_id', { length: 36 }).notNull(),
+  eventId: char('event_id', { length: 36 }).notNull(),
+  actor: varchar('actor', { length: 80 }).notNull(),
+  /** Byte-exact (utf8mb4_bin): one emoji grapheme, at most 16 UTF-8 bytes. */
+  emoji: varchar('emoji', { length: 16 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.eventId, t.actor, t.emoji] }), roomIdx: index('idx_room_reactions_room').on(t.roomId) }));
+/** Pinned canonical room events (0119): at most 20 per room. */
+export const agentRoomPins = mysqlTable('agent_room_pins', {
+  roomId: char('room_id', { length: 36 }).notNull(),
+  eventId: char('event_id', { length: 36 }).notNull(),
+  pinnedBy: varchar('pinned_by', { length: 80 }).notNull(),
+  pinnedAt: varchar('pinned_at', { length: 100 }).notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.roomId, t.eventId] }), eventIdx: index('idx_room_pins_event').on(t.eventId) }));
 export const agentRoomReads = mysqlTable('agent_room_reads', {
   roomId: char('room_id', { length: 36 }).notNull(),
   adminId: int('admin_id', { unsigned: true }).notNull(),

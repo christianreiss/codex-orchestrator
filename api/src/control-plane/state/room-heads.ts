@@ -30,7 +30,8 @@ function changeHead(
 }
 /** RAM head of the cold agent_room_changes log; the owner room-push wake source. */
 export const ROOM_CHANGE_HEAD_SETTING = 'owner_room_change_seq';
-export type RoomChangeKind = 'event' | 'receipt' | 'member' | 'status';
+/** `reaction` and `pin` (0119) carry the annotated event id as ref, like `event`. */
+export type RoomChangeKind = 'event' | 'receipt' | 'member' | 'status' | 'reaction' | 'pin';
 /** Append one metadata-only change row in the same owner persistence transaction. */
 export function stageRoomChange(
   ctx: Pick<OwnerMutationContext, 'draft' | 'write'>,

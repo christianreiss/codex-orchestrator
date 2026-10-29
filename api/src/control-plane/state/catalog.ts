@@ -143,6 +143,8 @@ export const TABLE_POLICY = {
   agentRoomReads: 'owned',
   agentRoomChanges: 'cold',
   agentRoomAgentReads: 'cold',
+  agentRoomReactions: 'cold',
+  agentRoomPins: 'cold',
   agentRoomOperations: 'owned',
   agentRoomDeliveries: 'owned',
   agentRoles: 'owned',

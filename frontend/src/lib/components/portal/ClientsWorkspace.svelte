@@ -8,6 +8,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import RoomConversation from './RoomConversation.svelte';
   import NewRoom from './NewRoom.svelte';
+  import MessageSearch from './MessageSearch.svelte';
   import { roomOptions, emptyRoomDraft, matchingRooms, roomKindLabel, type RoomDraft, type ChatRoom } from '$lib/api/roomChats';
   import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { engineLabel } from "$lib/constants/engines";
@@ -86,7 +87,7 @@
   const roomData = $derived($sharedRooms.data ? {enabled:$sharedRooms.data.pages[0]?.enabled, rooms:$sharedRooms.data.pages.flatMap(p=>p.rooms ?? []), has_more:$sharedRooms.hasNextPage} : undefined);
   const selectedRoom = $derived(embedded ? null : page.url.searchParams.get('room'));
   $effect(()=>{if(selectedRoom&&!roomDrafts[selectedRoom])roomDrafts[selectedRoom]=emptyRoomDraft();});
-  let newRoomOpen = $state(false);
+  let newRoomOpen = $state(false), messageSearchOpen = $state(false);
   let roomDrafts = $state<Record<string,RoomDraft>>({});
   async function selectRoom(id: string | null) {
     selectedId = null;
@@ -330,6 +331,7 @@
         <div class="flex items-center justify-between border-b px-3 py-2 text-caption text-muted-foreground">
           <h2 id="shared-room-heading" tabindex="-1" class="font-medium text-foreground">{roomView === 'history' ? 'History' : 'Conversations'}</h2>
           <Button variant="ghost" size="sm" aria-pressed={roomView === 'history'} onclick={()=>roomView=roomView === 'history' ? 'active' : 'history'}>{roomView === 'history' ? 'Active' : 'History'}</Button>
+          {#if $authStore.can('agent_messaging.reveal_content')}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="Search messages" aria-haspopup="dialog" onclick={()=>messageSearchOpen=true}><SearchIcon class="h-4 w-4"/></Button>{/if}
           {#if canRemoteManage}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="New conversation" onclick={()=>newRoomOpen=true}><PlusIcon class="h-4 w-4"/></Button>{/if}
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -491,4 +493,5 @@
   <Dialog.Content class="sm:max-w-md"><Dialog.Header><Dialog.Title>Force close this session?</Dialog.Title><Dialog.Description>End the portal session for {forceTarget?.username} on {forceTarget?.host}. This works when the relay cannot accept a close request. The local client may take time to observe it.</Dialog.Description></Dialog.Header><Dialog.Footer><Button variant="ghost" onclick={() => (forceOpen = false)} disabled={$force.isPending}>Cancel</Button><Button variant="destructive" disabled={!canManage || !enabled || $force.isPending || !forceTarget} onclick={() => { if (forceTarget && canManage && enabled) $force.mutate({ id: forceTarget.id }); }}>{$force.isPending ? "Ending…" : "Force close session"}</Button></Dialog.Footer></Dialog.Content>
 </Dialog.Root>
 
+{#if !embedded&&$authStore.can('agent_messaging.reveal_content')}<MessageSearch bind:open={messageSearchOpen} onroom={id=>selectRoom(id)} onclient={id=>selectClient(id)}/>{/if}
 {#if !embedded&&canRemoteManage}<NewRoom bind:open={newRoomOpen} oncreated={id=>selectRoom(id)}/>{/if}

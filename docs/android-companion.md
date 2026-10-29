@@ -1,5 +1,78 @@
 # Android companion
 
+## Reactions, pins and search (server)
+
+Migration 0119 adds `agent_room_reactions` and `agent_room_pins`. Room events stay
+immutable: there is no edit or delete, so the room record remains an audit trail.
+`/companion/v1/me` reports `reactions_protocol: 1`, `pins_protocol: 1` and
+`search_protocol: 1`; a client hides each control when its flag is absent.
+
+**Reactions.** `POST /companion/v1/rooms/:roomId/events/:eventId/reactions` with
+`{emoji, on, client_request_id}` (needs `agent_messaging.manage` and
+`agent_messaging.reveal_content`). `emoji` is exactly one emoji grapheme of at most 16
+UTF-8 bytes (skin tones, ZWJ sequences, flags and keycaps are accepted; text is `422`).
+The call has set semantics: `on:true` ensures the operator's reaction, `on:false`
+removes it, and a repeat returns `changed:false`, so an unconfirmed toggle is safely
+retried with the same body. The response is `{room_id, event_id, emoji, on, changed,
+reactions:[{emoji, count, mine}]}`, which the client applies to the event in place.
+Limits: 10 own and 20 distinct emoji per event (`409 reaction_limit`).
+
+**Pins.** `POST /companion/v1/rooms/:roomId/events/:eventId/pin` with `{on,
+client_request_id}` (same capabilities) returns `{room_id, event_id, on, changed,
+pinned:[event_id…]}`, newest pin first. A room keeps at most 20 pins (`409
+room_pin_limit`). A retry with the same `client_request_id` replays the first result;
+a different body under the same id is `409`. `GET /companion/v1/rooms/:roomId/pins`
+(`agent_messaging.reveal_content`) returns `{room_id, pins:[{event_id, pinned_by,
+pinned_at, event:{id, created_at, actor, name, kind, snippet, attachments}|null}]}`;
+`snippet` is at most 200 characters and `event` is `null` once retention removed it.
+
+Both toggles apply to canonical events of open rooms only. Adapted legacy history
+(retained scope events and old conference transcripts) carries no `reactions` field;
+the client shows no reaction or pin controls on such an event. An unknown event is
+`404 room_event_not_found`, a closed room `409`. Toggles share 60 per minute per device
+(`429 rate_limited` with `Retry-After`).
+
+**Sync.** Every change writes an `agent_room_changes` row of kind `reaction` or `pin`
+whose `ref_id` is the event id, and publishes the usual room push and
+`agent_room_chat.changed`. Room reads and delta reads add `reactions` to each canonical
+event and a top-level `pinned` array. A delta that carries a `reaction` or `pin` change
+also carries the referenced event with its current reactions, so the client upserts
+events by id and replaces its pin list with `pinned`; no separate refetch is needed.
+
+**Search.** `GET /companion/v1/search?q=&scope=all|rooms|direct&room_id=&cursor=&limit=`
+(`agent_messaging.reveal_content`; direct chats also need
+`agent_portal.reveal_transcript`). `q` is 2–200 characters after whitespace collapsing
+and matches as a case-insensitive literal substring. `limit` is 1–50 (default 20);
+`room_id` narrows to one room and is invalid with `scope=direct`. The server scans at
+most the newest 2000 readable events, newest first, for at most 2 seconds and decrypts
+in memory; there is no search index. `scope=all` silently skips a source the device may
+not read or whose module is off; naming it explicitly is `403` or `503`. The response:
+
+```json
+{"results":[{"scope":"room","conversation_key":"room:<uuid>","conversation_id":"<uuid>",
+  "title":"…","event_id":"<uuid>","created_at":"…","actor":"…","author":"…",
+  "snippet":"…match…","highlights":[{"start":12,"length":5}]}],
+ "next_cursor":"<opaque>|null","truncated":false,"scanned":412,"scopes":["rooms","direct"]}
+```
+
+Direct hits use `scope:"direct"`, `conversation_key:"agent:<id>"`, `actor` `operator` or
+`agent`, and an `event_cursor` for the Portal event. Own remote sessions use their
+remote conversation id, as in `/companion/v1/agents`. `snippet` is ±60 characters
+around the first match with `…` where cut; `highlights` are UTF-16 code-unit offsets
+into it (Kotlin `String` indices). `truncated:true` means the scan bound or time budget
+ended the page; `next_cursor` resumes where the scan stopped and is `null` when nothing
+older remains. The cursor is opaque and bound to `scope` and `room_id` (`422`
+otherwise). Searches are limited to 20 per minute per device. Query text and content
+are never stored, logged or audited; the audit event `conversation_search.performed`
+holds only scope and counts. Because `q` is a GET parameter, a reverse proxy access log
+in front of the API can still record it; operators who log query strings should mask
+`/companion/v1/search` and `/admin/agent-messaging/search`.
+
+**Deviations.** Reactions and pins exist for shared rooms only; direct Portal chats
+have neither (their events live in a separate store with numeric ids). Rate limits are
+per API process and reset on restart. The admin web console offers the same reactions,
+pins and search through the `/admin/agent-messaging/…` routes.
+
 ## Mobile tools and plan mode (server)
 
 API-side groundwork for R4; the APK adopts it separately. Every route is additive and

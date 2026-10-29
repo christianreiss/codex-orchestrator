@@ -31,6 +31,16 @@ import {
 import { AGENT_MESSAGING_CONFERENCE_MEMBER_MESSAGE_CAP } from '../agent-messaging/constants.js';
 import type { AgentRoomChat, RoomActor } from './index.js';
 import {
+  eventReactions,
+  pinRows,
+  planPin,
+  planReaction,
+  requireRoomEvent,
+  summarizeReactions,
+  type RoomPinInput,
+  type RoomReactionInput,
+} from './annotations.js';
+import {
   roomCreateSchema,
   roomManageSchema,
   roomSendSchema,
@@ -476,6 +486,71 @@ export class OwnedRoomChat {
       ctx.draft.upsert('agentRoomOperations', row);
       ctx.write(async (tx) => tx.insert(schema.agentRoomOperations).values(row));
       return result;
+    });
+  }
+  /** Reactions are a cold table: read from MySQL in the command, written by its persistence. */
+  react(actor: RoomActor, body: RoomReactionInput) {
+    const key = 'admin:' + actor.adminId;
+    return this.command(actor, 'room.reaction', body as unknown as Json, async (ctx) => {
+      const room = this.room(ctx.draft.view(), body.room_id, null, true);
+      if (room.status !== 'open') throw new ConflictError('This conversation is closed or disabled');
+      await requireRoomEvent(this.core.db, room.id, body.event_id);
+      const now = nowIso(),
+        plan = planReaction(await eventReactions(this.core.db, body.event_id), key, body, now);
+      if ('insert' in plan && plan.insert) {
+        const row = plan.insert;
+        ctx.write(async (tx) =>
+          tx.insert(schema.agentRoomReactions).values(row).onDuplicateKeyUpdate({ set: { createdAt: sql`created_at` } }),
+        );
+      }
+      if ('remove' in plan && plan.remove)
+        ctx.write(async (tx) =>
+          tx
+            .delete(schema.agentRoomReactions)
+            .where(
+              and(
+                eq(schema.agentRoomReactions.eventId, body.event_id),
+                eq(schema.agentRoomReactions.actor, key),
+                eq(schema.agentRoomReactions.emoji, body.emoji),
+              ),
+            ),
+        );
+      if (plan.changed) stageRoomChange(ctx, room.id, 'reaction', body.event_id, now);
+      return {
+        room_id: room.id,
+        event_id: body.event_id,
+        emoji: body.emoji,
+        on: body.on,
+        changed: plan.changed,
+        reactions: summarizeReactions(plan.after, key),
+      };
+    });
+  }
+  pin(actor: RoomActor, body: RoomPinInput) {
+    return this.operation(actor, body, async (ctx) => {
+      const room = this.room(ctx.draft.view(), body.room_id, null, true);
+      if (room.status !== 'open') throw new ConflictError('This conversation is closed or disabled');
+      await requireRoomEvent(this.core.db, room.id, body.event_id);
+      const now = nowIso(),
+        plan = planPin(await pinRows(this.core.db, room.id), 'admin:' + actor.adminId, body, now);
+      if ('insert' in plan && plan.insert) {
+        const row = plan.insert;
+        ctx.write(async (tx) => tx.insert(schema.agentRoomPins).values(row));
+      }
+      if ('remove' in plan && plan.remove)
+        ctx.write(async (tx) =>
+          tx
+            .delete(schema.agentRoomPins)
+            .where(and(eq(schema.agentRoomPins.roomId, room.id), eq(schema.agentRoomPins.eventId, body.event_id))),
+        );
+      if (plan.changed) stageRoomChange(ctx, room.id, 'pin', body.event_id, now);
+      return {
+        room_id: room.id,
+        event_id: body.event_id,
+        on: body.on,
+        changed: plan.changed,
+        pinned: plan.after.map((p) => p.eventId),
+      };
     });
   }
   create(actor: RoomActor, input: unknown) {
