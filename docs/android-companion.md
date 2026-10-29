@@ -1,5 +1,30 @@
 # Android companion
 
+## Tools, remote stop, plan mode and quota push (Android 0.8.0)
+
+Requires the R4 server (migration 0118) and, for plan mode, cxx 0.9.146 on the
+host. Every part is gated on its `/me` flag and a 404 hides it.
+
+- **Tools** is a route (`tools`) opened from the More sheet; the bottom tabs are
+  unchanged. Sections: workflow runs (read-only; "Open report" opens only http(s)
+  links), schedules (pause/resume sends the row `version`, optimistic with rollback,
+  409 reloads), Git merges, projects and boards (read-only), and feedback (the
+  `client_request_id` is reused while the draft is unchanged after a network or 5xx
+  failure). Tools data is not cached offline.
+- **Stop session** appears in the chat More sheet for a live remote session this
+  operator started (`daemon_session` agents, whose id is the session id).
+- **Plan first** in the start sheet is enabled when the host's `permission_modes`
+  for the engine include `plan`; Codex and old daemons show why it is disabled.
+  It requires a task. Plan sessions show a banner; "Approve plan & execute" posts
+  `permission-mode` `{mode:"default", client_message_id}` (stable per tap) and
+  passes `prompt_id` only when the open question offers an `approve` choice, which
+  the server answers. Answering the plan question by hand keeps plan mode.
+- **Quota push** (`kind:quota`) uses the "Quota warnings" channel; one notification
+  per account window replaces the previous one and opens Quotas.
+
+Verification: 173 JVM tests, lint (0 errors), debug build and androidTest
+compilation passed; emulator UI tests were not run.
+
 ## Room push, notification actions and delta sync (Android 0.7.0)
 
 Requires the R3 server (migration 0117); every part switches on only when
