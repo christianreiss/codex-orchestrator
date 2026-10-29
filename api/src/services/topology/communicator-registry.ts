@@ -29,6 +29,12 @@ export interface CommunicatorView {
   requests: number;
   synced_at: string | null;
   sync_scopes?: unknown[];
+  /**
+   * Communicator API level the owner stated in its handshake (`hello.api_version`),
+   * null when it stated none (a client that predates the contract). Self-reported
+   * diagnostics only; it never gates anything. See communicator-api-version.ts.
+   */
+  api_version?: number | null;
 }
 
 /** What the route lends the registry so an admin action can end one socket. */

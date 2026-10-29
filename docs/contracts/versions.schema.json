@@ -29,7 +29,9 @@
         "agent_messaging_enabled",
         "fleet_disabled_engines",
         "installation_id",
-        "engine"
+        "engine",
+        "api_version",
+        "min_api"
       ],
       "properties": {
         "client_version": {
@@ -114,6 +116,14 @@
         },
         "cgx_silent": {
           "type": "boolean"
+        },
+        "api_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "min_api": {
+          "type": "integer",
+          "minimum": 1
         }
       },
       "additionalProperties": true

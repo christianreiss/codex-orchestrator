@@ -7,6 +7,7 @@ import { hosts as hostsTable } from '../../db/schema.js';
 import type { Database } from '../../db/client.js';
 import type { Host } from '../../db/schema.js';
 import { UnauthorizedError } from '../errors.js';
+import { observeRequestApiLevel } from '../../services/communicator-api-version.js';
 import { extractApiKey, hashApiKey } from '../../util/api-key-helpers.js';
 
 declare module 'fastify' {
@@ -52,6 +53,7 @@ export function makeAuthHostPlugin(db: Database) {
         }
         req.authHost = req.method === 'DELETE' ? host : await recordHostContact(db, host, new Date(), true);
         if (ownerRuntimeFor(db)) bindOwnerHostPrincipal(db, req.authHost);
+        observeRequestApiLevel(req.authHost.id, req.headers);
       });
     },
     { name: 'auth-host' },

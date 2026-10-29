@@ -22,6 +22,17 @@ import {
   isSupportedGrokVersion,
   normalizeVersion,
 } from '../../../services/client-versions.js';
+import {
+  COMMUNICATOR_API_VERSION,
+  COMMUNICATOR_MIN_API,
+  COMMUNICATOR_MIN_API_KEY,
+  apiLevelTracker,
+  communicatorApiLevels,
+  parseStoredMinApi,
+  tallyApiLevels,
+  validateMinApiInput,
+} from '../../../services/communicator-api-version.js';
+import { connections as communicatorConnections } from '../../../services/topology/communicator-registry.js';
 import { UsageScalingService } from '../../../services/usage-scaling.js';
 import { readModelPolicy, modelPolicyKey } from '../../../services/model-policy.js';
 import { ModelDefaultsService } from '../../../services/model-defaults.js';
@@ -438,6 +449,57 @@ export async function registerAdminSettingsRoutes(
     }
     await recordLog(ctx, 'admin.scaling', { saved: true });
     return ok(await scaling.currentStatus());
+  });
+
+  // ── communicator/api-version ──────────────────────────────────────────────
+  // The wrapper <-> server protocol level and its operator-raisable minimum
+  // (services/communicator-api-version.ts). The minimum only advertises; the
+  // server never blocks a client below it. Counts are the clients that stated a
+  // level recently (process-local; a restart refills them within one poll).
+  async function communicatorApiState() {
+    const stored = await settings.getWithMeta(COMMUNICATOR_MIN_API_KEY);
+    const levels = communicatorApiLevels(stored.value);
+    return {
+      ...levels,
+      default_min_api: COMMUNICATOR_MIN_API,
+      override_min_api: parseStoredMinApi(stored.value),
+      override_updated_at: stored.updatedAt,
+      clients: {
+        hosts: apiLevelTracker.counts(levels),
+        communicators: tallyApiLevels(
+          [...communicatorConnections.values()].map((c) => c.api_version),
+          levels,
+        ),
+      },
+    };
+  }
+  app.get('/admin/communicator/api-version', { preHandler: app.requireAdmin }, async () => {
+    return ok(await communicatorApiState());
+  });
+  app.post('/admin/communicator/api-version', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { min_api?: unknown };
+    const previous = communicatorApiLevels(await settings.getRaw(COMMUNICATOR_MIN_API_KEY)).min_api;
+    if (body.min_api === null) {
+      await settings.delete(COMMUNICATOR_MIN_API_KEY);
+    } else {
+      let min: number;
+      try {
+        min = validateMinApiInput(body.min_api);
+      } catch (err) {
+        throw new ValidationError(
+          `${(err as Error).message} (current API version ${COMMUNICATOR_API_VERSION}); send null to clear the override`,
+          { param: 'min_api' },
+        );
+      }
+      await settings.set(COMMUNICATOR_MIN_API_KEY, String(min));
+    }
+    const state = await communicatorApiState();
+    await recordLog(ctx, 'admin.communicator_min_api', {
+      min_api: state.min_api,
+      previous,
+      override_min_api: state.override_min_api,
+    });
+    return ok(state);
   });
 
   // ── versions/check ────────────────────────────────────────────────────────

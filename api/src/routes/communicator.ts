@@ -28,6 +28,12 @@ import type { RouteContext } from './index.js';
 import { join, resolve } from 'node:path';
 import { createWrapperBinRegistry } from '../services/wrapper-bin-registry.js';
 import { startWrapperPublishWatch } from '../services/wrapper-publish-watch.js';
+import { SettingsService } from '../services/settings.js';
+import {
+  apiLevelTracker,
+  parseClientApiLevel,
+  readCommunicatorApiLevels,
+} from '../services/communicator-api-version.js';
 
 export type { CommunicatorView };
 
@@ -142,6 +148,7 @@ const allowedHeaders = new Set([
   'x-wrapper-platform',
   'x-wrapper-version',
   'x-cxx-version',
+  'x-cxx-api',
   'if-none-match',
   'mcp-session-id',
   'mcp-protocol-version',
@@ -168,6 +175,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
     app.addHook('onClose', async () => stopWatch());
   }
   const auth = createHostAuthService(ctx);
+  const apiSettings = new SettingsService(ctx.db);
   const mcpSessions = new McpSessionService(ctx.db);
   const authorize = async (req: FastifyRequest) => {
     if (!ctx.env.CXX_COMMUNICATOR_ENABLED)
@@ -423,11 +431,17 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 protocol: z.literal(1),
                 username: z.string().min(1).max(128),
                 version: z.string().max(64),
+                // Communicator API level of the owner. Lenient on purpose: a value
+                // this server cannot read is "unstated", never a refused handshake.
+                api_version: z.unknown().optional(),
               })
               .strict()
               .parse(parsed);
             if (greeted) throw new Error('Duplicate communicator handshake');
             const host = await authorize(req);
+            // Read with the other awaits: nothing may yield between registration,
+            // `greeted` and `ready`.
+            const apiLevels = await readCommunicatorApiLevels(apiSettings);
             hostId = host.id;
             if (owner) {
               stateAuthorization = new StreamAuthorization(owner, host.id, host);
@@ -442,6 +456,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               stopAuthorization = owner.state.subscribe(watchAuthorization);
               watchAuthorization();
             }
+            const clientApi = parseClientApiLevel(hello.api_version);
+            if (clientApi !== null) apiLevelTracker.observe(host.id, clientApi);
             communicatorRegistry.register(
               {
                 id: connectionID,
@@ -452,6 +468,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 sessions: 0,
                 requests: 0,
                 synced_at: null,
+                api_version: clientApi,
               },
               {
                 close: (code, reason) => socket.close(code, reason),
@@ -471,6 +488,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             send({
               type: 'ready',
               protocol: 1,
+              // Additive: owners that do not know the fields ignore them.
+              ...apiLevels,
               control: [
                 'terminate',
                 'owner_identity',
@@ -491,7 +510,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           }
           if (parsed.type === 'ping') {
             await checkAuthorization();
-            send({ type: 'pong' });
+            send({ type: 'pong', ...(await readCommunicatorApiLevels(apiSettings)) });
             return;
           }
           communicatorRegistry.touch(connectionID);
@@ -510,6 +529,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 instance_id: z.string().max(64).optional(),
                 runtime_id: z.string().max(64).optional(),
                 state_liveness: z.literal('communicator').optional(),
+                api_version: z.unknown().optional(),
               })
               .strict()
               .parse(parsed);
@@ -520,6 +540,12 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               instance_id: caps.instance_id ?? null,
               runtime_id: caps.runtime_id ?? null,
             });
+            const capsApi = parseClientApiLevel(caps.api_version);
+            if (capsApi !== null) {
+              const view = connections.get(connectionID);
+              if (view) view.api_version = capsApi;
+              apiLevelTracker.observe(hostId, capsApi);
+            }
             if (caps.state_liveness === 'communicator' && stateStreams) {
               stateStreams.delegateTransportLiveness();
               send({ type: 'state_liveness_ready', protocol: 1 });
@@ -624,6 +650,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 type: z.literal('heartbeat'),
                 sessions: z.number().int().min(0).max(10000),
                 synced_at: z.string().datetime().nullable().default(null),
+                api_version: z.unknown().optional(),
                 sync_scopes: z
                   .array(
                     z
@@ -664,10 +691,15 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             const view = connections.get(connectionID)!;
             view.sessions = heartbeat.sessions;
             view.synced_at = heartbeat.synced_at;
+            const heartbeatApi = parseClientApiLevel(heartbeat.api_version);
+            if (heartbeatApi !== null) {
+              view.api_version = heartbeatApi;
+              apiLevelTracker.observe(view.host_id, heartbeatApi);
+            }
             view.sync_scopes = heartbeat.sync_scopes;
             communicatorRegistry.heartbeat(connectionID);
             wsPublisher.publish('communicator.updated', { host_id: view.host_id });
-            send({ type: 'heartbeat' });
+            send({ type: 'heartbeat', ...(await readCommunicatorApiLevels(apiSettings)) });
             return;
           }
           if (parsed.type === 'request' && z.string().uuid().safeParse(parsed.id).success)

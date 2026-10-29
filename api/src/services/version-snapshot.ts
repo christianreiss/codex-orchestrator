@@ -5,6 +5,7 @@ import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../util/engine.js';
 import { ENGINE_DISABLED_FLAGS } from './engine-switch.js';
+import { COMMUNICATOR_MIN_API_KEY, communicatorApiLevels } from './communicator-api-version.js';
 import {
   coerceGrokVersionToMinimum,
   GROK_MIN_CLIENT_VERSION,
@@ -52,6 +53,10 @@ export interface VersionSnapshot {
   fleet_disabled_engines: Engine[];
   installation_id: string | null;
   engine: Engine;
+  /** Communicator API level this server speaks (`communicator-api-version.ts`). */
+  api_version: number;
+  /** Effective minimum level: below it a client updates immediately. Never above `api_version`. */
+  min_api: number;
 }
 
 export interface VersionSnapshotService {
@@ -248,6 +253,7 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
         fleet_disabled_engines: ENGINES.filter((e) => flagValue(get(ENGINE_DISABLED_FLAGS[e]), false)),
         installation_id: installationId,
         engine,
+        ...communicatorApiLevels(get(COMMUNICATOR_MIN_API_KEY)),
       };
     },
 

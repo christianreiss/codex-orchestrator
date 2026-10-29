@@ -246,7 +246,7 @@ describe('owner control negotiation and POST /admin/communicators/:id/terminate'
   it('offers control in `ready` and shows what the owner says about its own process', async () => {
     const app = await build('owner', true);
     const { ws, frames } = await owner(app, 'acks-and-exits');
-    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, control: ['terminate', 'owner_identity', 'resident_runtime'] });
+    expect(frames[0]).toEqual({ type: 'ready', protocol: 1, api_version: 1, min_api: 1, control: ['terminate', 'owner_identity', 'resident_runtime'] });
     const { body } = await topology(app);
     expect(body.communicators[0]).toMatchObject({ can_terminate: true, process: { pid: 4242, started_at: '2026-10-13T17:00:00Z', runtime_id: null } });
     expect(body.communicators[0]!.process).toMatchObject({ instance_id: expect.stringMatching(/^proc-/) });

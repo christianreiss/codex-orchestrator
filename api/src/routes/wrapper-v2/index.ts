@@ -25,6 +25,8 @@ import {
   type ConfigSignerSignature,
 } from '../../services/wrapper-config.js';
 import { createWrapperMetaService } from '../../services/wrapper-meta.js';
+import { readCommunicatorApiLevels } from '../../services/communicator-api-version.js';
+import { SettingsService } from '../../services/settings.js';
 import { createWrapperDownloadService } from '../../services/wrapper-download.js';
 import {
   buildLegacyWrapperTransitionScript,
@@ -151,8 +153,11 @@ export async function registerWrapperV2Routes(
     // `signing_kid` is the primary key's DB row id; the fingerprint is the
     // sha256 of its raw Ed25519 public key, which is what a client can compare
     // against the key its binary embeds.
+    // `api_version` / `min_api`: the communicator API level and its effective
+    // floor (communicator-api-version.ts). Unsigned, additive, top level.
     return {
       ...data,
+      ...(await readCommunicatorApiLevels(new SettingsService(ctx.db))),
       signing_kid: signer?.kid ?? null,
       signing_fingerprint: signer?.fingerprint ?? null,
     };

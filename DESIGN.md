@@ -92,7 +92,7 @@ owning components when moving a setting; update this table in the same change.
 | Engine switches, model/effort/version defaults and native engine configuration | `/admin/engines` |
 | Quota enforcement, quota warnings and usage-based scaling | `/admin/limits` |
 | Host-specific access, engine assignments and overrides | `/admin/hosts/[id]` |
-| Fleet host policy, host-agent rollout, agent-session controls, Chatty and retention | `/admin/settings` |
+| Fleet host policy, host-agent rollout and communicator API level (read-only), agent-session controls, Chatty and retention | `/admin/settings` |
 | Fleet-wide agent coordination: project/host rooms and resource claims | `/admin/settings#agent-coordination` (Graph shows status and links here) |
 | Agent messaging service and coordination data | `/admin/agent-messaging` |
 | Workflow module switch and reusable instructions | `/admin/workflows` and selected definition |
