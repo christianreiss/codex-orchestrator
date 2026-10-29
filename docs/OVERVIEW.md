@@ -224,7 +224,10 @@ On an attended terminal, `cxx` with no arguments opens a keyboard picker:
 
 The cursor remembers the last choice, so `cxx` followed by `enter` relaunches it.
 The menu comes from `engine_options.model_catalog` in the signed host config,
-and the launch uses the managed native path. Pipes and scripts still get the
+which the server derives from the fleet model registry
+(`api/src/services/model-registry/data.ts`, `docs/model-registry.md`); unverified
+models such as `gpt-6.1-luna` appear only where the host's own native catalog
+lists them. The launch uses the managed native path. Pipes and scripts still get the
 usage text with exit 2. Details are in `docs/interface-cdx.md`.
 
 ## Managed native starts (cxx 0.9.24)
