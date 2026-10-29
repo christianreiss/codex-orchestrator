@@ -1,5 +1,48 @@
 # Android companion
 
+## Chat redesign (Android 0.6.0)
+
+Direct chats and rooms render through one timeline (`ChatTimeline.kt` logic,
+`ChatTimelineUi.kt` UI) and one composer (`ChatComposer.kt`), keyed by
+`ConversationKey` / `MessageKey` (`PortalEvent`, `RoomEvent`, `Notice`).
+Consecutive messages group with the author shown once; status/progress/lifecycle
+events collapse into a single expandable row; a working indicator follows agent
+activity. Rooms send `reply_to` (room event UUID) and recipient lists from the
+composer chips; a quoted message outside the loaded history shows as unavailable.
+Delivery state comes from `deliveries[]` as pills. Conference creation takes
+`duration_minutes` 5–360 (default 60) and the header counts down to `deadline_at`.
+Group avatars use the shortest unique name prefix (1–3 characters) frozen per room,
+a colour derived from the agent UUID with 4.5:1 text contrast, an engine badge and
+the presence dot. Markdown is an in-house renderer (no dependency).
+
+Offline/ended direct chats are listed under a collapsed **Recent** section with
+tags `recent:<id>` (live rows keep `agent:<id>`). Groups and project/host rooms stay
+listed without online members; conferences still leave with their last active member.
+
+Persistence extends the Keystore AES-GCM store (no database): `chat-outbox.bin`
+(1 MiB, unsent messages and drafts) and `room-cache.bin` (2 MiB, room list and the
+last 100 events of the 20 most recently read rooms), versioned and bound to the
+pairing. A send is persisted with its exact body before the request and replayed
+byte-identically with the same `client_message_id` / `client_request_id`; the
+server deduplicates. 4xx other than 408/429 is definitive (Retry/Discard), other
+failures retry in the foreground with 30 s–5 min backoff and on reconnect.
+Sign-out, revocation and re-pairing wipe both blobs; losing transcript access
+drops direct items, losing `reveal_content` drops room content, losing
+`agent_messaging.read` drops all room data. Requires `ACCESS_NETWORK_STATE`.
+
+The shell is a single TopAppBar with a degraded-only connection banner,
+Navigation-Compose routes `chats`, `quotas`, `hosts`, `authorizations`,
+`chat/{key}` (key = agent id or `room:<id>`, URL-encoded), predictive back and the
+deep link `orchestrator://chat/{key}`. A unread summary notification for exactly one
+chat opens it (`open_target` extra). Wide windows (≥ 840 dp) show list and chat
+side by side; chat content is capped at 720 dp. Strings live in `values` and
+`values-de`; dates and times follow the device locale.
+
+APK-only; no API rollout required. Verification: 126 JVM tests, lint (0 errors),
+debug build and androidTest compilation passed; emulator UI tests were not run.
+Two androidTest expectations changed with the design (connection status only in
+More; quiet groups stay listed).
+
 ## Foundation (Android 0.5.12)
 
 Internal release preparing the chat redesign. `CompanionModel` remains the facade
