@@ -19,6 +19,9 @@ fun isOnlineActiveAgent(agent: JSONObject): Boolean =
 fun retainedChats(agents: List<JSONObject>): List<JSONObject> =
     agents.sortedByDescending { it.optString("last_event_at") }
 
+/** Retained chats that are no longer live (offline, ended, read-only): listed under "Recent", newest first. */
+fun recentChats(agents: List<JSONObject>): List<JSONObject> = retainedChats(agents).filterNot(::isOnlineActiveAgent)
+
 internal fun noticeSeverity(payload: JSONObject?): String? = payload?.optString("severity")
     ?.takeIf { it in setOf("important", "critical", "blocker") }
 

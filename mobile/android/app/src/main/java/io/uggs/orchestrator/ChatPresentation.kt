@@ -1,7 +1,6 @@
 package io.uggs.orchestrator
 
 import org.json.JSONObject
-import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -9,45 +8,6 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 internal fun eventTime(event: JSONObject): Instant? = runCatching { Instant.parse(event.optString("created_at")) }.getOrNull()
-
-internal fun messagesGrouped(first: JSONObject?, second: JSONObject?, zone: ZoneId = ZoneId.systemDefault()): Boolean {
-    if (first == null || second == null || first.optString("type") != second.optString("type")) return false
-    if (noticeSeverity(first.optJSONObject("payload")) != noticeSeverity(second.optJSONObject("payload"))) return false
-    val start = eventTime(first) ?: return false
-    val end = eventTime(second) ?: return false
-    return Duration.between(start, end).seconds in 0..300 && start.atZone(zone).toLocalDate() == end.atZone(zone).toLocalDate()
-}
-
-internal sealed interface ChatRow {
-    val key: String
-    data class Day(val date: LocalDate, val cursor: Long) : ChatRow { override val key = "day:" + date + ":" + cursor }
-    data class Message(val event: JSONObject, val joinsPrevious: Boolean, val joinsNext: Boolean) : ChatRow {
-        override val key = if (event.optBoolean("notice_preview")) "notice:" + event.getJSONObject("payload").optString("notice_id") else "message:" + event.optLong("cursor")
-    }
-}
-
-internal fun chatRows(events: List<JSONObject>, zone: ZoneId = ZoneId.systemDefault(), notices: List<JSONObject> = emptyList()): List<ChatRow> = buildList {
-    val messages = conversationEvents(events).toMutableList()
-    // The server tail can omit an older unresolved notice. Keep it in the chat
-    // using its timestamp, without inventing a transcript cursor or duplicating it.
-    val retainedNotices = messages.mapNotNull { it.optJSONObject("payload")?.receiptString("notice_id") }.toMutableSet()
-    notices.forEach { notice ->
-        val id = notice.receiptString("id") ?: return@forEach
-        if (noticeSeverity(notice) == null || !retainedNotices.add(id)) return@forEach
-        val event = JSONObject().put("type", "attention").put("notice_preview", true)
-            .put("created_at", notice.optString("since"))
-            .put("payload", JSONObject().put("notice_id", id).put("severity", notice.optString("severity")).put("summary", notice.optString("summary")))
-        val time = eventTime(event)
-        val index = if (time == null) -1 else messages.indexOfFirst { eventTime(it)?.isAfter(time) == true }
-        messages.add(if (index < 0) messages.size else index, event)
-    }
-    var priorDay: LocalDate? = null
-    messages.forEachIndexed { index, event ->
-        val date = eventTime(event)?.atZone(zone)?.toLocalDate()
-        if (date != null && date != priorDay) { add(ChatRow.Day(date, event.optLong("cursor"))); priorDay = date }
-        add(ChatRow.Message(event, messagesGrouped(messages.getOrNull(index - 1), event, zone), messagesGrouped(event, messages.getOrNull(index + 1), zone)))
-    }
-}
 
 internal fun dayLabel(date: LocalDate, today: LocalDate = LocalDate.now()): String = when (date) {
     today -> "Today"
