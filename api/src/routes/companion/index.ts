@@ -7,6 +7,8 @@ import { ownerPresence } from '../../control-plane/presence.js';
 import { attachCompanion } from '../../services/companion/presence.js';
 import { chatMetadataSchema } from '../../services/agent-chat/contracts.js';
 import { registerCompanionRooms } from './rooms.js';
+import { AgentRoomChat } from '../../services/agent-room-chat/index.js';
+import { createAgentMessagingService } from '../../services/agent-messaging.js';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -68,6 +70,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
   const settings = new SettingsService(ctx.db);
   const remote = new CompanionRemote(ctx);
   const portal = createAgentPortalService(ctx.db, ctx.env, ctx.keyring);
+  const rooms = new AgentRoomChat(ctx.db, ctx.env, ctx.keyring, createAgentMessagingService(ctx.db, ctx.env, ctx.keyring));
   const insecure = new InsecureWindowAdminService({
     db: ctx.db,
     env: ctx.env,
@@ -104,6 +107,16 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       let previous = owner.state.snapshot();
       const state = owner.state.subscribe(next => { const changed = tables.some(table => next.table(table) !== previous.table(table)); previous = next; if (changed) listener(); });
       const presence = ownerPresence(owner).subscribe(listener); return () => { state(); presence(); };
+    },
+    // Room typing/working indicator: room members whose agent activity is `working`.
+    roomActivity: async () => {
+      if (!(await portal.isEnabled())) return [];
+      const working = new Set(
+        (await portal.listAgentsSnapshot()).sessions
+          .filter((s) => (s.activity as { state?: string } | null)?.state === 'working')
+          .map((s) => String(s.id)),
+      );
+      return rooms.activity(working);
     },
     revisions: async () => {
       const owner = ownerRuntimeFor(ctx.db);
@@ -202,6 +215,10 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       return {
         device_id: device.id,
         read_sync_protocol: 1,
+        room_notifications_protocol: 1,
+        room_delta_protocol: 1,
+        // The operator's room actor key: room events with this `actor` are the operator's own.
+        actor: `admin:${user.id}`,
         name: user.name,
         capabilities: capabilitiesForRole(user.accessLevel),
         firebase: devices.firebase(),

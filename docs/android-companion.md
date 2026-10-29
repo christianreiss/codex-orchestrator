@@ -1,5 +1,82 @@
 # Android companion
 
+## Room push and delta sync (server)
+
+API-side groundwork for the chat redesign (R3); the APK adopts it separately.
+`GET /companion/v1/me` advertises `room_notifications_protocol: 1`,
+`room_delta_protocol: 1` and `actor: "admin:<id>"`, the operator's room actor key:
+room events whose `actor` equals it are the operator's own messages. Older servers
+omit all three; the app then keeps today's behavior. Migration 0117 adds the tables.
+
+**Room change log.** Every room mutation appends one metadata-only row to
+`agent_room_changes` in the same transaction, in both storage modes: `event` (new
+room event), `receipt` (an answer changed a parent's delivery status, an agent read
+position moved, or the operator's read position moved), `member` (invite or remove
+through the room API) and `status` (create, close, adjourn). Its `seq` is the
+durable cursor. Agent-protocol membership and conference lifecycle changes
+(`agent_subscribe`, `conf_join`, agent-chaired adjournment) are not logged; every
+delta response carries the current member list and status, so they appear with the
+next logged change.
+
+**Delta read.** `POST /companion/v1/rooms/read` with `{room_id, after}` (a previous
+`next_after`; number or decimal string, never together with `before`) returns
+`{room, resync:false, events, changes:[{seq,kind,ref_id}], next_after, has_more}`.
+`events` holds new events and the parents whose receipts changed, with their current
+`deliveries`. `room` includes the members with `read_through`, plus `read_at` and
+`unread`. Continue while `has_more`. `{room_id, resync:true, next_after}` means the
+cursor predates retention: read the room in full and continue from that read's
+`next_after`. A full read (without `after`) also returns `next_after`. Delta reads
+never move read positions. `GET /companion/v1/rooms/changes?after=<seq>` lists
+`{rooms:[{room_id,seq}], next_after, resync, has_more, enabled}` so the app
+refetches only the rooms that changed. Change rows follow room history retention.
+
+**Room push.** A per-device mode is read with `GET /companion/v1/rooms/:roomId/notifications`
+and set with `PUT` `{mode:"follow"|"default"|"mute"}` (`agent_messaging.read`; the
+room must be visible to the operator). `default` notifies for replies to the
+operator's messages and for word-boundary mentions of the operator's name or
+`@operator`; `follow` notifies for every message by someone else; `mute` never
+notifies. The operator's own messages, membership notes and events older than one
+hour never notify. Enqueue and send both require `agent_messaging.read` and
+`agent_messaging.reveal_content` and enabled agent messaging, and send rechecks the mode.
+While a room is open on screen, the app sets `PATCH /companion/v1/device`
+`{visible_session_id:"<room id>"}`, the same 45-second visibility used for direct
+chats. That suppresses pushes for the room. A new device's room cursor starts at the
+current change head, so pairing never replays history.
+
+The FCM data of a room push (all strings): `kind:"room"`, `notification_id`,
+`device_id`, `target_id` and `room_id`, `event_id`, `conversation_key:"room:<id>"`,
+`room_title`, `sender_name`, `engine` (empty for the operator), `reason`
+(`mention` | `reply` | `follow`; `request` is reserved), `summary` and `ts` (the
+event's `created_at`). Room events have no explicit summary today, so `summary` is
+neutral text such as "Builder mentioned you in Release room", at most 160
+characters. Message content is never sent.
+
+**Agent push additions (C2).** Agent pushes also carry `conversation_key:"agent:<id>"`,
+`agent_id`, `agent_name`, `sender_name`, `engine`, `event_id` (same as
+`event_cursor`) and `ts`. A question push (`waiting_input`) adds `prompt_id`, and
+`answer_mode` when the agent set one. It also adds `options`, a JSON string of at
+most six `{id,label}` objects (labels at most 60 characters). Answer a button with
+`POST /companion/v1/agents/:id/prompts/:promptId/answer` and the body
+`{client_message_id, answer:<id>, metadata:{choice_value:<id>}}`. Approval pushes are
+unchanged.
+
+**Unified unread (C4).** Room list and read responses include `read_at` and `unread`.
+`POST /companion/v1/rooms/seen` takes the newest seen event's exact `created_at` as
+`through` (millisecond precision). The stored position only moves forward and never
+past the server clock. Each advance sends sibling devices that registered
+`read_sync_protocol:1` a silent push `{kind:"room_read", room_id, target_id,
+conversation_key, read_at}`, so a second device clears its badge. The reading
+device does not get one. The kind differs from direct chats' `read`, which older APKs
+would apply to a session.
+
+**Working indicator.** `/companion/v1/ws` sends `{type:"room_activity", room_id,
+actors:[{address_id,name,state:"working"}], ttl_s:8, ts}` to clients with
+`agent_messaging.read` while a room member's agent activity is `working`. The
+source is the same native activity as the direct-chat indicator. The frame is
+renewed every four seconds while the member keeps working. `actors:[]` with
+`ttl_s:0` clears the room early. The app expires a frame after `ttl_s` without a
+renewal. The server never persists it.
+
 ## Foundation (Android 0.5.12)
 
 Internal release preparing the chat redesign. `CompanionModel` remains the facade

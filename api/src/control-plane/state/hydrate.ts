@@ -6,7 +6,7 @@ import {
   type CompanionEventIndex,
 } from './companion-index.js';
 import { hydrateMessagingTotals } from './messaging-totals.js';
-import { emptyRoomHead, type RoomHead } from './room-heads.js';
+import { emptyRoomHead, ROOM_CHANGE_HEAD_SETTING, type RoomHead } from './room-heads.js';
 import { parseRoleManifest } from '../../services/roles/contract.js';
 import { boundedProjectEvents, type ProjectEventMetadata } from './project-history.js';
 import type { Keyring } from '../../security/keyring.js';
@@ -372,6 +372,26 @@ export async function hydrateOwnerState(
       name: 'owner_portal_event_id',
       version: String(portalHead.id),
       updatedAt: portalHead.createdAt,
+    };
+    seed.versions = [
+      ...(seed.versions ?? []).filter((row) => (row as { name: string }).name !== pointer.name),
+      pointer,
+    ];
+    totalRows++;
+    metadataBytes += Buffer.byteLength(JSON.stringify(pointer));
+    counts.versions = (counts.versions ?? 0) + 1;
+  }
+  // The room change log is cold; its head is the RAM wake source for room push.
+  const [roomChangeHead] = await transaction
+    .select({ seq: schema.agentRoomChanges.seq, createdAt: schema.agentRoomChanges.createdAt })
+    .from(schema.agentRoomChanges)
+    .orderBy(desc(schema.agentRoomChanges.seq))
+    .limit(1);
+  if (roomChangeHead) {
+    const pointer = {
+      name: ROOM_CHANGE_HEAD_SETTING,
+      version: String(roomChangeHead.seq),
+      updatedAt: roomChangeHead.createdAt,
     };
     seed.versions = [
       ...(seed.versions ?? []).filter((row) => (row as { name: string }).name !== pointer.name),

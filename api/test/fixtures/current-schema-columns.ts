@@ -81,5 +81,23 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   if (!/ADD COLUMN rendezvous_key CHAR\(64\) NULL/i.test(rendezvous))
     throw new Error('Migration 0116 must declare agent_bus_conferences.rendezvous_key; cannot project the bootstrap schema');
   tables.get('agent_bus_conferences')!.add('rendezvous_key');
+  // Migration 0117 adds the room change log, per-device room push prefs and the room cursor.
+  const roomSync = splitSqlStatements(
+    readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0117_companion_room_sync.sql'), 'utf8'),
+  );
+  const roomTables = roomSync.flatMap((statement) => {
+    const name = /^CREATE TABLE IF NOT EXISTS ([a-z_]+)/i.exec(statement)?.[1];
+    if (!name) return [];
+    tables.set(name, new Set([...statement.matchAll(/^\s+([a-z_]+)\s+(?:bigint|char|varchar)\b/gim)].map((m) => m[1]!)));
+    return [name];
+  });
+  if (
+    roomTables.join() !== 'agent_room_changes,companion_room_prefs' ||
+    [...tables.get('agent_room_changes')!].join() !== 'seq,room_id,kind,ref_id,created_at' ||
+    [...tables.get('companion_room_prefs')!].join() !== 'device_id,room_id,mode,updated_at' ||
+    !roomSync.some((statement) => /ADD COLUMN room_change_cursor BIGINT UNSIGNED NOT NULL DEFAULT 0/i.test(statement))
+  )
+    throw new Error('Migration 0117 room sync inventory changed; cannot project the bootstrap schema');
+  tables.get('companion_devices')!.add('room_change_cursor');
   return tables;
 }

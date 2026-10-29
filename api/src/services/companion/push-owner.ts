@@ -15,7 +15,11 @@ import {
 } from '../../control-plane/state/admission-interest.js';
 import type { EffectHandler } from '../../control-plane/outbox.js';
 import { createOwnerWorker, type OwnerWorkObligation } from '../../ops/owner-worker.js';
-import { agentEvents, companionDevices, companionNotifications } from '../../db/schema.js';
+import { agentEvents, agentRoomChanges, companionDevices, companionNotifications } from '../../db/schema.js';
+import { ROOM_CHANGE_HEAD_SETTING } from '../../control-plane/state/room-heads.js';
+import { createAgentMessagingService } from '../agent-messaging.js';
+import { AgentRoomChat } from '../agent-room-chat/index.js';
+import { agentPushData, roomJobData, roomPushAllowed, roomPushCandidates, type RoomPushMode } from './room-push.js';
 import { roleHasCapability } from '../../security/capabilities.js';
 import { decrypt } from '../../security/secret-box.js';
 import { isTruthyFlagValue } from '../settings.js';
@@ -31,6 +35,8 @@ const TABLES = [
   'companionNotifications',
   'companionFollows',
   'companionDaemonFollows',
+  'companionRoomPrefs',
+  'agentRoomReads',
   'adminUsers',
   'insecureAuthRequests',
   'agentSessions',
@@ -47,12 +53,14 @@ type Job = Readonly<StateRow<'companionNotifications'>>;
 export class OwnerCompanionPush {
   readonly owner;
   readonly transport;
+  private readonly rooms: AgentRoomChat;
   constructor(
     private readonly ctx: RouteContext,
     transport = new FcmTransport(ctx.env),
   ) {
     this.owner = requireOwnerRuntime(ctx.db);
     this.transport = transport;
+    this.rooms = new AgentRoomChat(ctx.db, ctx.env, ctx.keyring, createAgentMessagingService(ctx.db, ctx.env, ctx.keyring));
   }
   private device(snapshot: OwnerStateSnapshot, id: string): Device | undefined {
     const d = snapshot.table('companionDevices').get(id);
@@ -86,6 +94,13 @@ export class OwnerCompanionPush {
     const d = this.device(snapshot, job.deviceId);
     if (!d || Date.parse(job.expiresAt) <= Date.now()) return;
     const user = snapshot.table('adminUsers').get(d.userId)!;
+    if (job.kind === 'room' || job.kind === 'room_read') {
+      if (!roomPushAllowed(user.accessLevel) || snapshot.setting('agent_messaging_enabled') !== '1') return;
+      if (job.kind === 'room_read')
+        return d.readSyncProtocol === 1 && snapshot.table('agentRoomReads').get([job.targetId, d.userId]) ? d : undefined;
+      if (snapshot.table('companionRoomPrefs').get([d.id, job.targetId])?.mode === 'mute') return;
+      return companionVisible(this.owner, d.id, job.targetId) ? undefined : d;
+    }
     if (job.kind === 'approval') {
       const r = snapshot.table('insecureAuthRequests').get(Number(job.targetId));
       return roleHasCapability(user.accessLevel, 'hosts.activate_insecure') &&
@@ -141,10 +156,14 @@ export class OwnerCompanionPush {
     }
     if (!this.transport.configured) return work;
     const head = Number(snapshot.setting('owner_portal_event_id') ?? 0);
+    const roomHead = Number(snapshot.setting(ROOM_CHANGE_HEAD_SETTING) ?? 0);
     for (const d of snapshot.table('companionDevices').all())
       if (this.device(snapshot, d.id)) {
         if (d.eventCursor < head)
           work.push({ key: `events:${d.id}`, dueAt: 0, revision: `${d.eventCursor}:${head}` });
+        const roomCursor = Number(d.roomChangeCursor ?? 0);
+        if (roomCursor < roomHead)
+          work.push({ key: `rooms:${d.id}`, dueAt: 0, revision: `${roomCursor}:${roomHead}` });
         const user = snapshot.table('adminUsers').get(d.userId)!;
         if (roleHasCapability(user.accessLevel, 'hosts.activate_insecure'))
           for (const raw of snapshot.table('insecureAuthRequests').all()) {
@@ -246,6 +265,32 @@ export class OwnerCompanionPush {
                 new Date(Date.parse(r.requestedAt) + 300_000).toISOString(),
               );
           }
+          return null;
+        }
+        if (kind === 'rooms') {
+          const cursor = Number(d.roomChangeCursor ?? 0);
+          const changes = await this.ctx.db
+            .select()
+            .from(agentRoomChanges)
+            .where(gt(agentRoomChanges.seq, cursor))
+            .orderBy(asc(agentRoomChanges.seq))
+            .limit(250);
+          if (!changes.length) {
+            const head = Number(c.snapshot.setting(ROOM_CHANGE_HEAD_SETTING) ?? cursor);
+            if (head > cursor) stageUpdate(c, 'companionDevices', d.id, { roomChangeCursor: head });
+            return null;
+          }
+          const user = c.snapshot.table('adminUsers').get(d.userId)!;
+          if (roomPushAllowed(user.accessLevel) && c.snapshot.setting('agent_messaging_enabled') === '1')
+            for (const candidate of await roomPushCandidates(this.ctx.db, this.ctx.keyring, changes, {
+              operator: { key: `admin:${user.id}`, name: user.name },
+              mode: (roomId) =>
+                (c.snapshot.table('companionRoomPrefs').get([d.id, roomId])?.mode as RoomPushMode | undefined) ??
+                'default',
+              suppressed: (roomId) => companionVisible(this.owner, d.id, roomId),
+            }))
+              this.enqueue(c, d, candidate.sourceKey, 'room', candidate.roomId, candidate.expiresAt);
+          stageUpdate(c, 'companionDevices', d.id, { roomChangeCursor: changes.at(-1)!.seq });
           return null;
         }
         const events = await this.ctx.db
@@ -360,7 +405,20 @@ export class OwnerCompanionPush {
       kind: job.kind,
       target_id: job.targetId,
     };
-    if (job.kind === 'read') {
+    if (job.kind === 'room') {
+      const room = await roomJobData(this.ctx.db, this.ctx.keyring, this.rooms, job);
+      if (!room) {
+        await finish('canceled');
+        return { status: 'delivered' };
+      }
+      Object.assign(data, room);
+    } else if (job.kind === 'room_read') {
+      Object.assign(data, {
+        room_id: job.targetId,
+        conversation_key: `room:${job.targetId}`,
+        read_at: snapshot.table('agentRoomReads').get([job.targetId, device.userId])?.readAt ?? '',
+      });
+    } else if (job.kind === 'read') {
       data.event_cursor = String(snapshot.table('companionReads').get([device.userId, job.targetId])?.readCursor ?? 0);
     } else if (job.kind !== 'approval') {
       const source = /^notice:([0-9a-f-]{36}):/.exec(job.sourceKey),
@@ -380,8 +438,22 @@ export class OwnerCompanionPush {
         await finish('canceled');
         return { status: 'delivered' };
       }
-      data.summary = eventSummary(event.eventType, decodeSummaryPayload(event.payloadEnc, this.ctx));
+      const payload = decodeSummaryPayload(event.payloadEnc, this.ctx);
+      data.summary = eventSummary(event.eventType, payload);
       data.event_cursor = String(event.id);
+      const session = snapshot.table('agentSessions').get(event.sessionId);
+      Object.assign(
+        data,
+        agentPushData({
+          targetId: job.targetId,
+          agentName: session?.launchName ?? null,
+          engine: session?.engine ?? null,
+          eventId: event.id,
+          createdAt: event.createdAt,
+          eventType: event.eventType,
+          payload,
+        }),
+      );
       if (notice) {
         data.notice_id = notice.id;
         data.severity = notice.severity;

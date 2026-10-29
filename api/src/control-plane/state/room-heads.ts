@@ -1,4 +1,4 @@
-import { agentRoomEvents } from '../../db/schema.js';
+import { agentRoomChanges, agentRoomEvents } from '../../db/schema.js';
 import type { OwnerMutationContext } from './runtime.js';
 import type { OwnerStateSnapshot, OwnerStateDraft } from './store.js';
 export interface RoomHead {
@@ -28,9 +28,29 @@ function changeHead(
   }
   throw new Error('Room event parent is absent from owner state');
 }
+/** RAM head of the cold agent_room_changes log; the owner room-push wake source. */
+export const ROOM_CHANGE_HEAD_SETTING = 'owner_room_change_seq';
+export type RoomChangeKind = 'event' | 'receipt' | 'member' | 'status';
+/** Append one metadata-only change row in the same owner persistence transaction. */
+export function stageRoomChange(
+  ctx: Pick<OwnerMutationContext, 'draft' | 'write'>,
+  roomId: string,
+  kind: RoomChangeKind,
+  refId: string | null,
+  createdAt = new Date().toISOString(),
+): void {
+  ctx.write(async (tx) => {
+    const [inserted] = await tx.insert(agentRoomChanges).values({ roomId, kind, refId, createdAt });
+    const seq = Number(inserted.insertId);
+    if (!Number.isSafeInteger(seq) || seq < 1) throw new Error('Invalid room change cursor');
+    if (seq > Number(ctx.draft.view().setting(ROOM_CHANGE_HEAD_SETTING) ?? 0))
+      ctx.draft.upsert('versions', { name: ROOM_CHANGE_HEAD_SETTING, version: String(seq), updatedAt: createdAt });
+  });
+}
 export function stageRoomEvent(ctx: OwnerMutationContext, row: typeof agentRoomEvents.$inferSelect): void {
   ctx.draft.upsert('agentRoomEvents', row);
   ctx.write(async (tx) => tx.insert(agentRoomEvents).values(row));
+  stageRoomChange(ctx, row.roomId, 'event', row.id, row.createdAt);
   changeHead(ctx, row.roomId, (head) => ({
     eventCount: head.eventCount + 1,
     lastAt: !head.lastAt || row.createdAt > head.lastAt ? row.createdAt : head.lastAt,

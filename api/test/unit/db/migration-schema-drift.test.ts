@@ -248,6 +248,8 @@ describe('migrations against the test baseline', () => {
       'companion_reads',
       'agent_work_states',
       'agent_work_dependencies',
+      'agent_room_changes',
+      'companion_room_prefs',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -388,6 +390,7 @@ describe('migrations against the test baseline', () => {
       'companion_pairings.device_id',
       'companion_devices.read_sync_protocol',
       'agent_bus_conferences.rendezvous_key',
+      'companion_devices.room_change_cursor',
     ]);
   });
 

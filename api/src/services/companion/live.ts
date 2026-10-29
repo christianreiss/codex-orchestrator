@@ -8,11 +8,20 @@ export interface CompanionSocket {
   close(code?: number): void;
   on(event: 'close' | 'error', listener: () => void): unknown;
 }
+export interface RoomActivity {
+  room_id: string;
+  actors: ReadonlyArray<{ address_id: string; name: string; state: string }>;
+}
 export interface CompanionLiveSources {
   authorize(token: string | undefined): Promise<readonly string[] | { capabilities: readonly string[]; expiresAt: string }>;
   subscribe?(listener: () => void): () => void;
   revisions(): Promise<{ agents: string; approvals: string; hosts?: string }>;
+  /** Rooms whose members are currently working; ephemeral, never persisted. */
+  roomActivity?(): Promise<readonly RoomActivity[]>;
 }
+/** A `room_activity` frame is valid for this long unless renewed; clients expire it themselves. */
+export const ROOM_ACTIVITY_TTL_S = 8;
+const ROOM_ACTIVITY_RENEW_MS = 4_000;
 
 interface Client {
   socket: CompanionSocket;
@@ -48,9 +57,19 @@ export class CompanionLive {
   private pending = new Set<CompanionScope>();
   private previous?: { agents: string; approvals: string; hosts?: string };
   private stopped = false;
+  /** room id -> signature of the last frame sent; renewed while the room stays active. */
+  private activeRooms = new Map<string, string>();
+  private activity?: ReturnType<typeof setInterval>;
+  private activityRunning?: Promise<void>;
 
   constructor(private readonly sources: CompanionLiveSources) {
     this.interval = setInterval(() => { for (const client of this.clients) this.send(client, { type: 'ping' }); }, 15_000);
+    if (this.sources.roomActivity) {
+      this.activity = setInterval(() => {
+        if (this.activeRooms.size) void this.refreshActivity();
+      }, ROOM_ACTIVITY_RENEW_MS);
+      this.activity.unref();
+    }
     this.unsubscribeState = this.sources.subscribe?.(() => this.schedule('me', 'agents', 'approvals', 'hosts', 'rooms'));
     this.interval.unref();
     this.unsubscribe = wsPublisher.subscribe(({ type }) => {
@@ -167,14 +186,54 @@ export class CompanionLive {
         if (allowed.length) this.send(client, { type: 'changed', scopes: allowed, ...wsPublisher.cursor() });
 
       }
+      if (scopes.has('agents') || scopes.has('rooms')) await this.refreshActivity();
     } catch {
       for (const client of this.clients) this.close(client, 1013);
     }
   }
 
+  /**
+   * Send `room_activity` frames to clients holding `agent_messaging.read`: one per active
+   * room (renewed every few seconds while it stays active, TTL 8 s) and one with an empty
+   * actor list when a room stops being active. Outside the revision path; never persisted.
+   */
+  private refreshActivity(): Promise<void> {
+    if (!this.sources.roomActivity || this.stopped) return Promise.resolve();
+    if (this.activityRunning) return this.activityRunning;
+    this.activityRunning = (async () => {
+      const readers = [...this.clients].filter((c) => c.capabilities.includes('agent_messaging.read'));
+      if (!readers.length) {
+        this.activeRooms.clear();
+        return;
+      }
+      let rooms: readonly RoomActivity[];
+      try {
+        rooms = await bounded(this.sources.roomActivity!());
+      } catch {
+        return;
+      }
+      const next = new Map<string, string>();
+      const frames: Record<string, unknown>[] = [];
+      for (const room of rooms) {
+        const actors = room.actors.map((a) => ({ address_id: a.address_id, name: a.name, state: a.state }));
+        next.set(room.room_id, JSON.stringify(actors));
+        frames.push({ type: 'room_activity', room_id: room.room_id, actors, ttl_s: ROOM_ACTIVITY_TTL_S });
+      }
+      for (const id of this.activeRooms.keys())
+        if (!next.has(id)) frames.push({ type: 'room_activity', room_id: id, actors: [], ttl_s: 0 });
+      this.activeRooms = next;
+      for (const client of this.clients)
+        if (client.capabilities.includes('agent_messaging.read')) for (const frame of frames) this.send(client, frame);
+    })().finally(() => {
+      this.activityRunning = undefined;
+    });
+    return this.activityRunning;
+  }
+
   async stop(): Promise<void> {
     this.stopped = true;
     clearInterval(this.interval);
+    clearInterval(this.activity);
     clearTimeout(this.scheduled);
     this.pending.clear();
     this.unsubscribe(); this.unsubscribeState?.();

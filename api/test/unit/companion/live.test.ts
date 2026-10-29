@@ -200,3 +200,55 @@ describe('companion live invalidations', () => {
     expect(socket.frames).toHaveLength(count);
   });
 });
+
+describe('companion room activity frames', () => {
+  const ROOM = '22222222-2222-4222-8222-222222222222';
+  let hub: CompanionLive;
+  let active: Array<{ room_id: string; actors: Array<{ address_id: string; name: string; state: string }> }>;
+  let caps: string[];
+  let wake: () => void;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    active = [{ room_id: ROOM, actors: [{ address_id: 'a1', name: 'Builder', state: 'working' }] }];
+    caps = ['agent_messaging.read'];
+    hub = new CompanionLive({
+      subscribe: (listener) => { wake = listener; return () => {}; },
+      authorize: vi.fn(async () => caps),
+      revisions: vi.fn().mockResolvedValue({ agents: 'a', approvals: 'a' }),
+      roomActivity: vi.fn(async () => active),
+    });
+  });
+  afterEach(async () => {
+    await hub.stop();
+    vi.useRealTimers();
+  });
+  const activity = (socket: Socket) =>
+    socket.frames.filter((f) => f.type === 'room_activity') as unknown as Array<Record<string, unknown>>;
+  it('renews an 8 second working frame while active and clears the room when work ends', async () => {
+    const socket = new Socket();
+    hub.attach(socket, 'device');
+    await vi.advanceTimersByTimeAsync(60);
+    expect(activity(socket)).toEqual([
+      expect.objectContaining({ room_id: ROOM, ttl_s: 8, actors: [{ address_id: 'a1', name: 'Builder', state: 'working' }] }),
+    ]);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(activity(socket)).toHaveLength(2);
+    active = [];
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(activity(socket).at(-1)).toMatchObject({ room_id: ROOM, actors: [], ttl_s: 0 });
+    const count = activity(socket).length;
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(activity(socket)).toHaveLength(count);
+    active = [{ room_id: ROOM, actors: [{ address_id: 'a1', name: 'Builder', state: 'working' }] }];
+    wake();
+    await vi.advanceTimersByTimeAsync(60);
+    expect(activity(socket).at(-1)).toMatchObject({ room_id: ROOM, ttl_s: 8 });
+  });
+  it('never sends room activity without agent_messaging.read', async () => {
+    caps = ['agent_portal.read'];
+    const socket = new Socket();
+    hub.attach(socket, 'device');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(activity(socket)).toEqual([]);
+  });
+});

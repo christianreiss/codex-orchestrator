@@ -7,7 +7,9 @@ import { firebaseClientConfig } from './firebase-config.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 import type { RouteContext } from '../../routes/index.js';
-import { adminUsers, agentEvents, companionDevices, companionPairings, companionFollows } from '../../db/schema.js';
+import { adminUsers, agentEvents, agentRoomChanges, companionDevices, companionPairings, companionFollows, companionRoomPrefs } from '../../db/schema.js';
+import type { RoomPushMode } from './room-push.js';
+import { ROOM_CHANGE_HEAD_SETTING } from '../../control-plane/state/room-heads.js';
 import { sha256 } from '../../security/hash.js';
 import { capabilitiesForRole, roleHasCapability, type Capability } from '../../security/capabilities.js';
 import { ForbiddenError, UnauthorizedError, ValidationError } from '../../http/errors.js';
@@ -87,7 +89,9 @@ export class CompanionDevices {
         const user = context.draft.table('adminUsers').get(pairing.userId);
         if (!user?.active) throw new UnauthorizedError('Account disabled', 'admin_disabled');
         const latest = Number(context.snapshot.setting('owner_portal_event_id') ?? 0);
-        const row = { id, userId: user.id, name, tokenHash: sha256(credential), eventCursor: latest, createdAt: nowIso(), lastSeenAt: nowIso(), expiresAt: isoOffsetSeconds(365 * 86400), fcmTokenEnc: null, readSyncProtocol: 0, notifications: 1, visibleSessionId: null, visibleUntil: null, revokedAt: null };
+        // Room push starts at the current change head: pairing never replays room history.
+        const roomHead = Number(context.snapshot.setting(ROOM_CHANGE_HEAD_SETTING) ?? 0);
+        const row = { id, userId: user.id, name, tokenHash: sha256(credential), eventCursor: latest, roomChangeCursor: roomHead, createdAt: nowIso(), lastSeenAt: nowIso(), expiresAt: isoOffsetSeconds(365 * 86400), fcmTokenEnc: null, readSyncProtocol: 0, notifications: 1, visibleSessionId: null, visibleUntil: null, revokedAt: null };
         context.draft.upsert('companionDevices', row); context.write(async tx => { await tx.insert(companionDevices).values(row); });
         stageDelete(context, 'companionPairings', pairing.tokenHash); adminAudit(context, 'companion.device.paired', { device_id: id, admin_user_id: user.id });
         capabilities = capabilitiesForRole(user.accessLevel); return null;
@@ -109,6 +113,11 @@ export class CompanionDevices {
         .from(agentEvents)
         .orderBy(desc(agentEvents.id))
         .limit(1);
+      const [roomHead] = await tx
+        .select({ seq: agentRoomChanges.seq })
+        .from(agentRoomChanges)
+        .orderBy(desc(agentRoomChanges.seq))
+        .limit(1);
       const credential = randomBytes(32).toString('hex');
       const id = pairing.deviceId ?? randomUUID();
       await tx.insert(companionDevices).values({
@@ -117,6 +126,7 @@ export class CompanionDevices {
         name,
         tokenHash: sha256(credential),
         eventCursor: latest?.id ?? 0,
+        roomChangeCursor: roomHead?.seq ?? 0,
         createdAt: nowIso(),
         lastSeenAt: nowIso(),
         expiresAt: isoOffsetSeconds(365 * 86400),
@@ -212,6 +222,60 @@ export class CompanionDevices {
       else stageDelete(context, 'companionFollows', [deviceId, sessionId]); return null;
     } });
     wsPublisher.publish('companion.devices.changed', {});
+  }
+  /** Per-device room push preference; a missing row is `default`. */
+  async roomPreference(deviceId: string, roomId: string): Promise<RoomPushMode> {
+    const owner = ownerRuntimeFor(this.ctx.db);
+    if (owner) {
+      owner.assertOwner();
+      return (owner.state.snapshot().table('companionRoomPrefs').get([deviceId, roomId])?.mode as RoomPushMode) ?? 'default';
+    }
+    const [row] = await this.ctx.db
+      .select()
+      .from(companionRoomPrefs)
+      .where(and(eq(companionRoomPrefs.deviceId, deviceId), eq(companionRoomPrefs.roomId, roomId)));
+    return (row?.mode as RoomPushMode) ?? 'default';
+  }
+  async setRoomPreference(deviceId: string, roomId: string, mode: RoomPushMode): Promise<RoomPushMode> {
+    const owner = ownerRuntimeFor(this.ctx.db);
+    const row = { deviceId, roomId, mode, updatedAt: nowIso() };
+    if (!owner) {
+      if (mode === 'default')
+        await this.ctx.db
+          .delete(companionRoomPrefs)
+          .where(and(eq(companionRoomPrefs.deviceId, deviceId), eq(companionRoomPrefs.roomId, roomId)));
+      else
+        await this.ctx.db
+          .insert(companionRoomPrefs)
+          .values(row)
+          .onDuplicateKeyUpdate({ set: { mode, updatedAt: row.updatedAt } });
+    } else {
+      const previous = owner.state.snapshot().table('companionRoomPrefs').get([deviceId, roomId]);
+      if ((previous?.mode ?? 'default') !== mode)
+        await mutateOwnerState(owner, {
+          kind: 'companion.room-preference',
+          payload: { deviceId, roomId, mode },
+          prepare(context) {
+            const device = context.draft.table('companionDevices').get(deviceId);
+            if (!device || device.revokedAt) throw new UnauthorizedError('Device revoked', 'device_revoked');
+            if (mode === 'default') {
+              if (context.draft.table('companionRoomPrefs').get([deviceId, roomId]))
+                stageDelete(context, 'companionRoomPrefs', [deviceId, roomId]);
+            } else {
+              context.draft.upsert('companionRoomPrefs', row);
+              context.write(async (tx) => {
+                await tx
+                  .insert(companionRoomPrefs)
+                  .values(row)
+                  .onDuplicateKeyUpdate({ set: { mode, updatedAt: row.updatedAt } });
+              });
+            }
+            return null;
+          },
+        });
+    }
+    wsPublisher.publish('companion.devices.changed', {});
+    return mode;
   }
   async revoke(userId: number, id: string) {
     const owner = ownerRuntimeFor(this.ctx.db);

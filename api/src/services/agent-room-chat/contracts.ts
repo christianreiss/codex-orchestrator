@@ -40,9 +40,14 @@ export const roomReadSchema = z
   .object({
     room_id: z.string().uuid(),
     before: z.string().max(250).optional(),
+    /** Delta cursor: agent_room_changes.seq from a previous read's `next_after`. */
+    after: z
+      .union([z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER), z.string().regex(/^\d{1,16}$/u).transform(Number)])
+      .optional(),
     limit: z.number().int().min(1).max(100).default(50),
   })
-  .strict();
+  .strict()
+  .refine((b) => !(b.before && b.after !== undefined), 'Use either a history cursor or a delta cursor');
 export type RoomKind = 'group' | 'conference' | 'project' | 'host';
 export interface RoomMember {
   id: string;
@@ -70,6 +75,8 @@ export interface Room {
   owner_admin_id?: number | null;
   deadline_at?: string;
   unread?: number;
+  /** The operator's own read position (agent_room_reads.read_at); null if never read. */
+  read_at?: string | null;
   last_activity_at?: string;
 }
 export interface RoomEvent {

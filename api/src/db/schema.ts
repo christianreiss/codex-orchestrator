@@ -2237,6 +2237,8 @@ export const companionDevices = mysqlTable('companion_devices', {
   fcmTokenEnc: longtext('fcm_token_enc'),
   notifications: tinyint('notifications').notNull().default(1),
   eventCursor: bigint('event_cursor', { mode: 'number', unsigned: true }).notNull().default(0),
+  /** Room push cursor into agent_room_changes.seq (0117). */
+  roomChangeCursor: bigint('room_change_cursor', { mode: 'number', unsigned: true }).notNull().default(0),
   visibleSessionId: char('visible_session_id', { length: 36 }),
   visibleUntil: varchar('visible_until', { length: 100 }),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
@@ -2249,6 +2251,14 @@ export const companionFollows = mysqlTable('companion_follows', {
   deviceId: char('device_id', { length: 36 }).notNull(),
   sessionId: char('session_id', { length: 36 }).notNull(),
 }, (t) => ({ pk: primaryKey({ columns: [t.deviceId, t.sessionId] }) }));
+
+/** Per-device room push preference (0117): follow | default | mute; no row means default. */
+export const companionRoomPrefs = mysqlTable('companion_room_prefs', {
+  deviceId: char('device_id', { length: 36 }).notNull(),
+  roomId: char('room_id', { length: 36 }).notNull(),
+  mode: varchar('mode', { length: 8 }).notNull().default('default'),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+}, (t) => ({ pk: primaryKey({ columns: [t.deviceId, t.roomId] }) }));
 
 export const companionReads = mysqlTable('companion_reads', {
   userId: bigint('user_id', { mode: 'number', unsigned: true }).notNull().references(() => adminUsers.id, { onDelete: 'cascade' }),
@@ -2736,6 +2746,14 @@ export const agentRoomEvents = mysqlTable('agent_room_events', {
   bodyEnc: longtext('body_enc').notNull(),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
 }, t => ({ requestUnique: uniqueIndex('uq_room_event_request').on(t.roomId, t.actor, t.requestId), roomIdx: index('idx_room_event_time').on(t.roomId, t.createdAt, t.id) }));
+/** Metadata-only room change log (0117): the durable delta and room push cursor. */
+export const agentRoomChanges = mysqlTable('agent_room_changes', {
+  seq: bigint('seq', { mode: 'number', unsigned: true }).autoincrement().primaryKey(),
+  roomId: char('room_id', { length: 36 }).notNull(),
+  kind: varchar('kind', { length: 16 }).notNull(),
+  refId: char('ref_id', { length: 36 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({ roomIdx: index('idx_room_changes_room').on(t.roomId, t.seq), timeIdx: index('idx_room_changes_time').on(t.createdAt) }));
 export const agentRoomReads = mysqlTable('agent_room_reads', {
   roomId: char('room_id', { length: 36 }).notNull(),
   adminId: int('admin_id', { unsigned: true }).notNull(),

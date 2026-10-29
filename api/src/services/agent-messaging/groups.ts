@@ -1,4 +1,5 @@
 import { stageRoomEvent } from '../../control-plane/state/room-heads.js';
+import { recordRoomChange } from '../agent-room-chat/changes.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ownerRuntimeFor,mutateOwnerState,addOwnerResponseProof,bindOwnerResponseRuntime,type OwnerMutationContext } from '../../control-plane/state/runtime.js';
 import { ownedBridge,ownedAddress,requireOwnedMessaging } from '../../control-plane/state/messaging.js';
@@ -649,7 +650,7 @@ export class AgentMessagingGroups {
     }
     if (topic.startsWith('group:')) {
       const group=await this.group(tx,topic.slice(6));
-      if(group){const event={id:publicationId,roomId:group.id,actor:`agent:${sender.id}`,requestId:clientId,payloadHash:digest,bodyEnc:encrypt(JSON.stringify({name:sender.launchName??sender.displayAlias??sender.username,content,attachments:[],kind:'publication'}),this.core.keyring),createdAt:now},ctx=groupCommand.getStore();if(ctx){stageRoomEvent(ctx,event);}else await tx.insert(agentRoomEvents).values(event);}
+      if(group){const event={id:publicationId,roomId:group.id,actor:`agent:${sender.id}`,requestId:clientId,payloadHash:digest,bodyEnc:encrypt(JSON.stringify({name:sender.launchName??sender.displayAlias??sender.username,content,attachments:[],kind:'publication'}),this.core.keyring),createdAt:now},ctx=groupCommand.getStore();if(ctx){stageRoomEvent(ctx,event);}else{await tx.insert(agentRoomEvents).values(event);await recordRoomChange(tx,group.id,'event',publicationId,now);}}
     }
     const publication={
       id: publicationId,
