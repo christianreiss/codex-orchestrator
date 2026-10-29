@@ -58,6 +58,7 @@ export const PLAN_MODE_ADDENDUM =
   '--answer-mode both and --choices \'[{"label":"Approve","value":"approve"},{"label":"Reject","value":"reject"},{"label":"Revise","value":"revise"}]\'. ' +
   'If that tool is unavailable in plan mode, end the turn with the plan as your reply. Do not begin implementation. ' +
   'The operator approves with "Approve plan & execute", which switches this session to normal permissions and resumes it with an execution instruction. ' +
+  'On Approve, execute the plan; if this session is still in plan mode, say that the operator must use "Approve plan & execute" instead. ' +
   'On Revise, update the plan and ask again; on Reject, stop.';
 
 /** Sent as the resumed turn after the operator approves the plan. */

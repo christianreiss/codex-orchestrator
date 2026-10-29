@@ -109,13 +109,27 @@
       refresh();
     } catch { /* Keep the request key and draft for an explicit retry. */ }
   }
-  const approve = createMutation({ mutationFn: ({ id, key }: { id: string; key: string }) => api.post(`/admin/daemon-sessions/${id}/permission-mode`, { mode: "default", client_message_id: key }) });
+  // With the plan question still open, approval must answer that question
+  // (the portal answer resumes the agent) after switching the mode without a
+  // resume of its own; otherwise the session resumes with the execution turn.
+  // Both steps are idempotent, so a retry after a lost response is safe.
+  const approve = createMutation({
+    mutationFn: async ({ id, key, agent, prompt }: { id: string; key: string; agent?: string; prompt?: { id: string; version: number; choice: boolean } }) => {
+      if (!agent || !prompt) return api.post(`/admin/daemon-sessions/${id}/permission-mode`, { mode: "default", client_message_id: key });
+      await api.post(`/admin/daemon-sessions/${id}/permission-mode`, { mode: "default" });
+      return api.post(`/admin/agent-sessions/${encodeURIComponent(agent)}/prompts/${encodeURIComponent(prompt.id)}/answer`, {
+        client_message_id: key, version: prompt.version,
+        ...(prompt.choice ? { answer: "approve", metadata: { choice_value: "approve" } } : { answer: "Approve plan & execute" }),
+      });
+    },
+  });
   async function approvePlan() {
     if (!selected || !inPlan || approveReason || $approve.isPending || $turn.isPending || $stop.isPending) return;
-    const id = selected.id;
-    const { key, signature } = requestKey("approve-plan", { id });
+    const id = selected.id, open = native?.pending_prompt;
+    const prompt = native && open ? { id: open.id, version: open.version, choice: open.answer_mode !== "text" && Boolean(open.choices?.some(choice => choice.value === "approve")) } : undefined;
+    const { key, signature } = requestKey("approve-plan", { id, prompt: prompt?.id ?? null });
     try {
-      await $approve.mutateAsync({ id, key }); keys.delete(signature);
+      await $approve.mutateAsync({ id, key, agent: prompt ? native!.id : undefined, prompt }); keys.delete(signature);
       refresh(); void $detail.refetch();
     } catch { /* Keep the request key so a retry cannot resume the session twice. */ }
   }
@@ -165,7 +179,7 @@
         </div>{/if}
         {#if $detail.error}<p role="alert" class="px-4 py-2 text-body-sm text-destructive">{$detail.error.message} <button class="underline" onclick={() => $detail.refetch()}>Retry session</button></p>{/if}
         {#if inPlan && selected && !['closed', 'failed', 'unknown'].includes(selected.status)}<div class="flex shrink-0 flex-wrap items-center gap-2 border-b bg-muted/20 px-4 py-2 text-body-sm">
-          <p class="min-w-0 flex-1 text-muted-foreground">Plan mode: the agent proposes a plan and changes nothing. Approving switches it to the host's normal permissions and tells it to execute the plan.</p>
+          <p class="min-w-0 flex-1 text-muted-foreground">Plan mode: the agent proposes a plan and changes nothing. Approving switches it to the host's normal permissions and tells it to execute the plan; answering its plan question directly keeps plan mode.</p>
           {#if canRead && canManage}<Button size="sm" disabled={!!approveReason || $approve.isPending || $turn.isPending || $stop.isPending} onclick={() => void approvePlan()}>{$approve.isPending ? 'Approving…' : 'Approve plan & execute'}</Button>{/if}
           {#if approveReason && canRead && canManage}<p class="w-full text-caption text-muted-foreground">{approveReason}</p>{/if}
           {#if $approve.error && $approve.variables?.id === selected.id}<p role="alert" class="w-full text-body-sm text-destructive">{$approve.error.message} Retry sends the same request.</p>{/if}
