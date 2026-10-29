@@ -115,6 +115,7 @@ class MainActivity : ComponentActivity() {
             launchSingleTop = true; restoreState = true
         }
     }
+    LaunchedEffect(model.pendingRoute) { model.pendingRoute?.let { goTab(it); model.clearRoute() } }
     LaunchedEffect(model.notice) { model.notice?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Short); model.clearNotice() } }
     LaunchedEffect(model.connection?.deviceId) { if (model.connection != null && Build.VERSION.SDK_INT >= 33) permission.launch(Manifest.permission.POST_NOTIFICATIONS) }
     LaunchedEffect(model.highlightApproval, requests) {
@@ -216,6 +217,9 @@ class MainActivity : ComponentActivity() {
                 composable(Routes.HOSTS) {
                     if (model.can("admin.read")) HostsScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
                 }
+                composable(Routes.TOOLS) {
+                    if (model.tools.sections().isNotEmpty()) ToolsScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
+                }
                 composable(Routes.AUTHORIZATIONS) {
                     if (model.can("hosts.activate_insecure")) AuthorizationsScreen(model, fresh, clock, onReview = { review = it }) else NowScreen(model, agents, fresh, activityClock)
                 }
@@ -223,7 +227,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     review?.let { request -> ApprovalSheet(model, request, fresh, clock, onDismiss = { review = null }) }
-    if (more) MoreSheet(model, onDismiss = { more = false })
+    if (more) MoreSheet(model, onTools = { more = false; goTab(Routes.TOOLS) }, onDismiss = { more = false })
 }
 
 /**
@@ -319,8 +323,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable private fun MoreSheet(model: CompanionModel, onDismiss: () -> Unit) {
+@Composable private fun MoreSheet(model: CompanionModel, onTools: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    var stop by remember { mutableStateOf(false) }
+    val stoppable = model.selected?.let { id -> model.agents.firstOrNull { it.optString("id") == id } }
+        ?.takeIf { canStopSession(it, model.tools.flags, model.capabilities, model.fresh()) }
     val pushStatus by PushStatus.state.collectAsState()
     var signOut by remember { mutableStateOf(false) }
     val alertsLabel = stringResource(R.string.more_alerts)
@@ -336,11 +343,16 @@ class MainActivity : ComponentActivity() {
             Text(stringResource(pushStatus), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically) { Text(alertsLabel, Modifier.weight(1f)); Switch(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = alertsLabel }) }
             model.selected?.let { id -> Row(verticalAlignment = Alignment.CenterVertically) { Text(notifyLabel, Modifier.weight(1f)); Switch(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = notifyLabel }) } }
+            if (model.tools.sections().isNotEmpty()) ToolsEntry(onTools)
+            if (stoppable != null) OutlinedButton(onClick = { stop = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("stop-session")) { Text(stringResource(R.string.stop_session)) }
             OutlinedButton(onClick = { model.refreshNow(); onDismiss() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(stringResource(R.string.action_refresh)) }
             TextButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.more_android_settings)) }
             TextButton(onClick = { signOut = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_sign_out), color = MaterialTheme.colorScheme.error) }
         }
     }
+    if (stop && stoppable != null) AlertDialog(onDismissRequest = { stop = false }, title = { Text(stringResource(R.string.stop_session_title)) }, text = { Text(stringResource(R.string.stop_session_body)) },
+        confirmButton = { TextButton(onClick = { model.stopSession(stoppable.optString("id")); stop = false; onDismiss() }, modifier = Modifier.testTag("confirm-stop-session")) { Text(stringResource(R.string.stop_session_confirm), color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = { stop = false }) { Text(stringResource(R.string.action_cancel)) } })
     if (signOut) AlertDialog(onDismissRequest = { signOut = false }, title = { Text(stringResource(R.string.sign_out_title)) }, text = { Text(stringResource(R.string.sign_out_body)) },
         confirmButton = { TextButton(onClick = { model.logout(); onDismiss() }) { Text(stringResource(R.string.action_sign_out)) } }, dismissButton = { TextButton(onClick = { signOut = false }) { Text(stringResource(R.string.action_cancel)) } })
 }

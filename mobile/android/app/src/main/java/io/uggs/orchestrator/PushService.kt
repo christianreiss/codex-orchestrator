@@ -71,6 +71,8 @@ class PushService : FirebaseMessagingService() {
 
 internal const val REPLY_ALERT_CHANNEL = "agent-replies"
 internal const val ROOM_CHANNEL = "rooms"
+internal const val QUOTA_CHANNEL = "quota-warnings"
+private const val QUOTA_NOTIFICATION_ID = 4
 internal const val UNREAD_BADGE_CHANNEL = "unread-replies"
 internal const val NOTIFICATION_KIND = "io.uggs.orchestrator.kind"
 internal const val NOTIFICATION_SCOPE = "io.uggs.orchestrator.scope"
@@ -104,6 +106,9 @@ internal fun ensureNotificationChannels(context: Context) {
         setShowBadge(true)
         setSound(null, null)
         enableVibration(false)
+    })
+    manager.createNotificationChannel(NotificationChannel(QUOTA_CHANNEL, context.getString(R.string.channel_quota), NotificationManager.IMPORTANCE_DEFAULT).apply {
+        description = context.getString(R.string.channel_quota_desc)
     })
     manager.createNotificationChannel(NotificationChannel(ROOM_CHANNEL, context.getString(R.string.channel_rooms), NotificationManager.IMPORTANCE_HIGH).apply {
         description = context.getString(R.string.channel_rooms_desc)
@@ -294,6 +299,11 @@ internal fun showCompanionNotification(context: Context, data: Map<String, Strin
         CompanionSignals.roomRead.tryEmit(room to data["read_at"]?.takeIf { it.isNotBlank() })
         return
     }
+    if (data["kind"] == "quota") {
+        val push = parseQuotaPush(data) ?: return
+        showQuotaNotification(context, scope, push, seen)
+        return
+    }
     if (data["kind"] == "room") {
         val push = parseConversationPush(data) ?: return
         showRoomNotification(context, scope, push, seen)
@@ -376,6 +386,25 @@ private fun showRoomNotification(context: Context, scope: String, push: Conversa
         .addExtras(Bundle().apply { through?.let { putString(NOTIFICATION_ROOM_THROUGH, it) } })
     addConversationActions(context, builder, scope, tag, ROOM_NOTIFICATION_ID, covered)
     if (postNotification(context, tag, ROOM_NOTIFICATION_ID, builder.build())) rememberPush(seen, scope, seenKey)
+}
+
+/** One quota warning per account window (Quota warnings channel); tapping opens the Quotas tab. */
+private fun showQuotaNotification(context: Context, scope: String, push: QuotaPush, seen: SharedPreferences) {
+    val seenKey = "$scope:${push.notificationId}"
+    if (seen.contains(seenKey)) return
+    ensureNotificationChannels(context)
+    val manager = context.getSystemService(NotificationManager::class.java)
+    if (!notificationsAllowed(context) || !channelAllowed(manager, QUOTA_CHANNEL)) return
+    val t = ContextTexts(context)
+    val text = quotaPushText(t, push)
+    val builder = NotificationCompat.Builder(context, QUOTA_CHANNEL)
+        .setSmallIcon(R.drawable.ic_companion).setContentTitle(quotaPushTitle(t, push)).setContentText(text)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        .setContentIntent(notificationIntent(context, scope, "quota", push.accountId))
+        .setCategory(NotificationCompat.CATEGORY_STATUS).setAutoCancel(true).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        .addExtras(notificationMetadata(scope, "quota", push.accountId, pushId = push.notificationId))
+    push.accountLabel?.let { builder.setSubText(it) }
+    if (postNotification(context, quotaNotificationTag(scope, push), QUOTA_NOTIFICATION_ID, builder.build())) rememberPush(seen, scope, seenKey)
 }
 
 /** A room left on screen or read elsewhere has no reason to keep its notification. */

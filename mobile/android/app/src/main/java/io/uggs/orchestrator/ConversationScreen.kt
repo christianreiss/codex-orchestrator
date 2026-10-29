@@ -126,6 +126,7 @@ import org.json.JSONObject
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer).padding(10.dp).testTag("cached-history"),
             style = MaterialTheme.typography.labelMedium,
         )
+        PlanBannerRow(model, sessionId, agent, fresh)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 Modifier.fillMaxSize().testTag("conversation"), state = list,
@@ -301,4 +302,17 @@ internal fun severityLabel(t: Texts, severity: String): String = when (severity)
     "critical" -> t.string(R.string.notice_critical)
     "blocker" -> t.string(R.string.notice_blocker)
     else -> severity.replaceFirstChar { it.uppercase() }
+}
+
+/** Plan mode: the agent proposes a plan first; the operator approves it to let the session execute. */
+@Composable private fun PlanBannerRow(model: CompanionModel, sessionId: String?, agent: JSONObject?, fresh: Boolean) {
+    val banner = planBanner(agent, model.capabilities, fresh && !model.showingCachedTranscript, model.busy)
+    if (banner == PlanBanner.HIDDEN || sessionId == null) return
+    Surface(Modifier.fillMaxWidth().testTag("plan-banner"), color = MaterialTheme.status.infoContainer, contentColor = MaterialTheme.status.onInfoContainer) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(stringResource(R.string.plan_banner_title), style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(if (banner == PlanBanner.READY) R.string.plan_banner_ready else R.string.plan_banner_working), style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { model.approvePlan(sessionId) }, enabled = banner == PlanBanner.READY, modifier = Modifier.heightIn(min = 48.dp).testTag("approve-plan")) { Text(stringResource(R.string.plan_approve)) }
+        }
+    }
 }

@@ -78,6 +78,12 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     val quotaError: String? get() = quotas.error
     val quotaLoading: Boolean get() = quotas.loading
     suspend fun refreshQuotas() = quotas.refresh()
+    /** R4 mobile tools: each section hides unless `/me` advertises it, the operator may use it and the server answers it. */
+    internal val tools = ToolsState({ api() }, viewModelScope, { foreground && connection != null }, { connection to generation }, texts, { notice = it }, { capabilities })
+    private val planApprovals = PlanApprovals()
+    /** A destination a notification asked for (`quota`); the shell consumes it. */
+    var pendingRoute by mutableStateOf<String?>(null); private set
+    fun clearRoute() { pendingRoute = null }
     var online by mutableStateOf(false); private set
     var notice by mutableStateOf<String?>(null); private set
     var error by mutableStateOf<String?>(null); private set
@@ -305,7 +311,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         val me = if ("me" in scopes) client.request("/me") else null
         val caps = me?.optJSONArray("capabilities")?.strings() ?: capabilities
         if (current != generation || epoch != revision || !foreground) return false
-        if (me != null) { serverReadSync = me.optInt("read_sync_protocol", 0) >= 1; roomChats.applyProtocols(RoomProtocols.from(me)) }
+        if (me != null) { serverReadSync = me.optInt("read_sync_protocol", 0) >= 1; roomChats.applyProtocols(RoomProtocols.from(me)); tools.applyMe(me) }
         if ("rooms" in scopes || me != null) {
             roomChats.refresh(client, caps) { current == generation && epoch == revision && foreground }
             if (current != generation || epoch != revision || !foreground) return false
@@ -595,10 +601,13 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         }
         pendingChats = pendingChats + (session to if (selected == session) pendingChatsAfterRefresh(pending, events) else pending)
     }
-    fun startHost(hostId: Long, engine: String, task: String, title: String, cwd: String, onSuccess: () -> Unit) {
-        if (pendingStart != null || busy || !canSpawn() || hosts.none { it.optLong("host_id") == hostId && it.optBoolean("startable") && engine in (it.optJSONArray("engines")?.strings() ?: emptySet()) }) return
-        val body = JSONObject().put("host_id", hostId).put("engine", engine).put("task", task.trim()).put("title", title.trim()).put("client_message_id", UUID.randomUUID().toString())
-        if (cwd.isNotBlank()) body.put("cwd", cwd.trim())
+    /** Whether the start sheet may offer "Plan first": the server advertises permission modes. */
+    fun planModeOffered() = tools.flags.permissionMode
+    fun startHost(hostId: Long, engine: String, task: String, title: String, cwd: String, onSuccess: () -> Unit, plan: Boolean = false) {
+        val host = hosts.firstOrNull { it.optLong("host_id") == hostId && it.optBoolean("startable") && engine in (it.optJSONArray("engines")?.strings() ?: emptySet()) }
+        if (pendingStart != null || busy || !canSpawn() || host == null) return
+        if (plan && (!planModeOffered() || planStartProblem(true, task) != null || planAvailability(host, engine) != PlanAvailability.OFFERED)) return
+        val body = startBody(hostId, engine, task, title, cwd, plan, UUID.randomUUID().toString())
         store.savePendingStart(connection!!.deviceId, body); pendingStart = body
         retryStart(onSuccess)
     }
@@ -616,9 +625,45 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
                 notice = texts.string(R.string.model_start_queued)
                 onSuccess(); refreshNow()
             } catch (e: Exception) {
-                if (e is ApiException && e.status in setOf(400, 403, 404, 409)) { store.clearPendingStart(); pendingStart = null }
-                failure(e); if (connection != null) refreshNow()
+                val planError = (e as? ApiException)?.let { planStartErrorRes(it.status, it.code) }
+                if (e is ApiException && (e.status in setOf(400, 403, 404, 409) || planError != null)) { store.clearPendingStart(); pendingStart = null }
+                if (planError != null) error = texts.string(planError) else failure(e)
+                if (connection != null) refreshNow()
             } finally { busy = false }
+        }
+    }
+    /** Stops a remote session this operator started (`POST /daemon-sessions/:id/stop`). */
+    fun stopSession(id: String) {
+        if (busy || !fresh() || !canStopSession(agents.firstOrNull { it.optString("id") == id }, tools.flags, capabilities, true)) return
+        viewModelScope.launch {
+            busy = true; error = null; revision++
+            try {
+                val result = api().request("/daemon-sessions/$id/stop", "POST")
+                notice = texts.string(if (result.optString("status") == "closed") R.string.stop_session_closed else R.string.stop_session_stopping)
+            } catch (e: CancellationException) { throw e }
+            catch (e: ApiException) { if (e.status == 401) failure(e) else error = e.message }
+            catch (e: Exception) { failure(e) }
+            finally { busy = false; if (connection != null) refreshNow() }
+        }
+    }
+    /** "Approve plan & execute": switches the session to the default mode and resumes it; answers the open plan question server-side. */
+    fun approvePlan(id: String) {
+        val agent = agents.firstOrNull { it.optString("id") == id }
+        if (busy || planBanner(agent, capabilities, fresh()) != PlanBanner.READY) return
+        val body = planApprovalBody(planApprovals.idFor(id), planPromptId(agent))
+        viewModelScope.launch {
+            busy = true; error = null; revision++
+            try {
+                api().request("/daemon-sessions/$id/permission-mode", "POST", body)
+                planApprovals.done(id)
+                notice = texts.string(R.string.plan_approve_started)
+            } catch (e: CancellationException) { throw e }
+            catch (e: ApiException) {
+                planApprovals.settle(id, e.status)
+                if (e.status == 401) failure(e) else error = planApprovalErrorRes(e.status, e.code)?.let { texts.string(it) } ?: e.message
+            }
+            catch (e: Exception) { failure(e) }
+            finally { busy = false; if (connection != null) refreshNow() }
         }
     }
     fun decide(id: Long, approve: Boolean, minutes: Int, onSuccess: () -> Unit = {}) {
@@ -664,7 +709,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         discardChatCache()
         showingCachedTranscript = false; eventCursor = 0; eventsLoaded = false
         uploads.clear(); outbox.clear(); replyTargets=emptyMap(); chatSends.clear(); outboxInFlight.clear(); noticeOperations.clear()
-        quotas.clear()
+        quotas.clear(); tools.clear()
         store.clear(); connection = null; selected = null; events = emptyList(); pendingChats = emptyMap(); agents = emptyList(); hosts = emptyList(); pendingStart = null; access.clear(); capabilities = emptySet()
         serverReadSync = false; unreadStore.clear(); unread.reset(); permissionsKnown = false
         syncUnreadNotifications(getApplication(), null, emptySet())
@@ -689,6 +734,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun clearRoomLink() { pendingRoomLink = null }
     fun notification(kind: String?, target: String?) {
         if (connection == null) return
+        if (kind == "quota") { closeSession(); pendingRoute = Routes.QUOTAS; return }
         if (kind == "unread") {
             // A single unread chat opens directly; several fall back to the list.
             val only = target?.takeIf { runCatching { UUID.fromString(it) }.isSuccess } ?: unreadSessions.singleOrNull()
