@@ -356,6 +356,62 @@ deferred.
 Resident replacement is described in
 [runtime, migration and acceptance](communicator-resident-runtime.md#unprivileged-update-handoff).
 
+## API level and server minimum (pending release)
+
+Every cxx binary carries a compile-time protocol level, `communicator.APIVersion`
+(currently `1`). It is an integer independent of the cxx release number and rises only
+when the wire contract between cxx and the orchestrator changes incompatibly. The binary
+sends it as `X-Cxx-Api: <int>` on every request to the orchestrator (persona clients,
+signed-config refresh, artifact downloads, the communicator's WebSocket upgrade and its
+direct reads, the agent daemon, portal, transfers, housekeeping). The `hello` frame adds
+`api_version` only once the server declared a level on an earlier `ready` of the same
+owner: older servers parse `hello` strictly and would refuse the unknown key. A refused
+handshake drops the field again, so a rolled-back server reconnects on the next attempt.
+
+The server may declare two top-level integers, `api_version` (its current level, S) and
+`min_api` (the effective minimum, M), in `/wrapper/v2/meta`, `/versions`, the
+communicator `ready` frame and its `heartbeat`/`pong` acknowledgements. They are
+additive: an absent field means nothing happens (fail open). Values are parsed
+tolerantly; strings, fractions, negatives, `null` and values above 2^20 count as absent,
+and a malformed value never fails a frame or drops the control connection. `ready`
+replaces the owner's view (a server without the fields clears a stale minimum);
+acknowledgements only refine it. Any change wakes the updater.
+
+| This binary (C) | Behaviour |
+| --- | --- |
+| C < M | **Immediate.** The updater checks right away, installs the newest cxx the host's `/cron/check` offers and the signed config names (same digest verification, staging and `cxx update` as above) and replaces the owner without waiting for agents to go offline. |
+| M <= C < S | **Queued.** The ordinary check runs; the update is staged and applied only once no agent is online, through the same quiet gate as every pushed update. |
+| C >= S | Nothing. |
+
+The immediate replacement is the one deliberate exception to "a version mismatch alone
+never stops sessions": it is logged to `serve.log` as an operator-requested exception
+with the number of agents online. It stays graceful: an on-demand owner closes admission,
+grants in-flight finite work the bounded terminate drain and exits; lease holders redial
+and start the installed binary. A resident owner requests the existing root handoff. A
+shared or root-owned install still reports `requires_root`.
+
+An immediate attempt that cannot raise the level backs off exponentially (1 minute,
+doubling, capped at 1 hour) and logs one actionable line per period: nothing newer is
+offered (`no_newer_release`, the server demands a level no published binary has), the
+check, prefetch, install or handoff failed, the install is shared (`requires_root`), or
+an earlier owner on the same binary already installed and retired without changing it
+(`update_did_not_take_effect`). The attempt is recorded in `~/.cxx/api-update.json`
+(0600) before it is applied, so owners restarted on the same binary (idle exit, the
+replacement itself) start inside the backoff instead of re-applying; a different binary,
+config or minimum starts fresh, and a satisfied minimum deletes the record. Nothing is
+downloaded without a strictly newer signed target.
+
+`status` carries `api`: `version` (C), `server_version` (S), `min_api` (M), `state`
+(`unknown` while the server declares nothing, `current`, `update_queued`,
+`update_required`, `backoff`) and, in `backoff`, `next_attempt`, `reason` and `remedy`.
+`doctor` fails only on `backoff`; `update_required` (being handled) and `update_queued`
+inform. The Codex and Claude engine doctors append the declared levels from `/versions`
+to their API row and warn below the minimum.
+
+The policy runs inside the push-triggered updater, so it is enforced only where the
+signed `orchestrator.communicator_update_protocol: 1` is present; without it the owner
+still reports `api`, and the scheduled cron update path is unchanged.
+
 ## Resident owner reporting (cxx 0.9.80)
 
 With the default-off signed `orchestrator.communicator_runtime_protocol: 1`,
@@ -419,7 +475,8 @@ signed-config repair read can run before an owner exists, but subsequent auth
 and control requests use the communicator whenever the recovered config enables it.
 
 `cxx communicator status` reports protocol, version, PID, connected clients,
-forwarded/coalesced requests, last sync and connection error. `connected` is
+forwarded/coalesced requests, last sync, connection error and the `api` level block
+(see API level and server minimum above). `connected` is
 the control transport (authenticated with the signed host key) and
 `sync_scopes[].auth.state` is provider-auth synchronization; neither proves that
 managed MCP calls are accepted, because each forwarded `/mcp` frame carries the

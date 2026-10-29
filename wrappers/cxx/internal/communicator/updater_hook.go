@@ -39,6 +39,17 @@ type UpdaterEnv interface {
 	// the next managed call starts the new binary. Residents are replaced by
 	// the root handoff instead and ignore it.
 	Retire()
+	// API is the server's newest api_version/min_api declaration (zero when
+	// absent: fail open).
+	API() APILevels
+	// ReportAPIBackoff publishes the below-minimum backoff for status/doctor;
+	// a zero value clears it.
+	ReportAPIBackoff(APIBackoff)
+	// RetireNow ends an on-demand owner after a below-minimum update without
+	// waiting for native agents: admission closes, in-flight finite work gets
+	// the bounded terminate drain, lease holders redial the installed binary.
+	// Residents are replaced by the root handoff instead and ignore it.
+	RetireNow(reason string)
 }
 
 // Updater runs for the life of an owner whose signed config carries
@@ -83,6 +94,18 @@ func (e ownerUpdaterEnv) Retire() {
 	}
 	e.s.draining.Store(true)
 	e.s.stop()
+}
+func (e ownerUpdaterEnv) API() APILevels { return e.s.apiSnapshot() }
+func (e ownerUpdaterEnv) ReportAPIBackoff(b APIBackoff) {
+	e.s.mu.Lock()
+	e.s.apiBackoff = b
+	e.s.mu.Unlock()
+}
+func (e ownerUpdaterEnv) RetireNow(reason string) {
+	if e.s.resident.Load() {
+		return
+	}
+	e.s.terminate(reason, nil)
 }
 func (e ownerUpdaterEnv) Busy() int {
 	busy := 0

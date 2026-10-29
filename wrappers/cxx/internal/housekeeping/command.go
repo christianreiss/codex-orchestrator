@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grokreap"
@@ -35,6 +36,7 @@ func (s remoteServer) call(ctx context.Context, action, token string, report *Re
 		return Protection{}, err
 	}
 	req.Header.Set("X-API-Key", s.cfg.Orchestrator.APIKey)
+	communicator.SetAPIHeader(req.Header)
 	req.Header.Set("Content-Type", "application/json")
 	client, err := update.HTTPClient(s.cfg)
 	if err != nil {

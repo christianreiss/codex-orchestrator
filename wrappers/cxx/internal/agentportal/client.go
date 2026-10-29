@@ -740,6 +740,7 @@ func doJSON(ctx context.Context, client *http.Client, baseURL, method, path stri
 	}
 	if hostAPIKey != "" {
 		req.Header.Set("X-API-Key", hostAPIKey)
+		communicator.SetAPIHeader(req.Header)
 	}
 	if bridgeToken != "" {
 		req.Header.Set("X-Agent-Bridge-Token", bridgeToken)

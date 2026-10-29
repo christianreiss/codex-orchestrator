@@ -78,6 +78,7 @@ func (c *Client) request(ctx context.Context, method, path string, body io.Reade
 		return nil, func() {}, err
 	}
 	req.Header.Set("X-API-Key", c.APIKey)
+	communicator.SetAPIHeader(req.Header)
 	if body != nil {
 		req.ContentLength = length
 		if binary {

@@ -61,6 +61,19 @@ type commUpdater struct {
 	writable func(path string) bool
 	apply    func(ctx context.Context, exe string) error
 	handoff  func(t updateTarget, exe string) error
+
+	// apiVersion is this binary's protocol level (communicator.APIVersion; a
+	// field so tests can model older binaries). apiStatePath persists the
+	// below-minimum attempt/backoff across owner restarts; apiBase/apiCap
+	// bound its exponential backoff. logf writes operator lines to serve.log.
+	apiVersion   int
+	apiStatePath string
+	apiBase      time.Duration
+	apiCap       time.Duration
+	logf         func(format string, args ...any)
+	// apiReplacing is set once this owner applied a below-minimum update and
+	// is being replaced.
+	apiReplacing bool
 }
 
 func newCommUpdater(env communicator.UpdaterEnv) *commUpdater {
@@ -101,7 +114,14 @@ func newCommUpdater(env communicator.UpdaterEnv) *commUpdater {
 			cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 			return cmd.Run()
 		},
-		handoff: requestResidentHandoff,
+		handoff:      requestResidentHandoff,
+		apiVersion:   communicator.APIVersion,
+		apiStatePath: defaultAPIStatePath(),
+		apiBase:      time.Minute,
+		apiCap:       time.Hour,
+		logf: func(format string, args ...any) {
+			fmt.Fprintf(os.Stderr, "communicator: "+format+"\n", args...)
+		},
 	}
 }
 
@@ -164,20 +184,23 @@ func (u *commUpdater) detect(ctx context.Context) (*updateTarget, string) {
 	return &updateTarget{Version: w.TargetVersion, SHA256: strings.ToLower(strings.TrimSpace(w.SHA256)), URL: url}, ""
 }
 
+// prefetchConfig is the signed config the artifact download authenticates
+// with; an expired but verified one still serves.
+func (u *commUpdater) prefetchConfig() *config.Config {
+	cfg, err := u.load(u.env.ConfigPath())
+	var expired *config.ExpiredError
+	if errors.As(err, &expired) {
+		return expired.Config
+	}
+	return cfg
+}
+
 func (u *commUpdater) run(ctx context.Context) {
 	backstop := time.NewTicker(u.backstop)
 	defer backstop.Stop()
 	poll := time.NewTicker(u.quietPoll)
 	defer poll.Stop()
 	var pending *updateTarget
-	cfgForPrefetch := func() *config.Config {
-		cfg, err := u.load(u.env.ConfigPath())
-		var expired *config.ExpiredError
-		if errors.As(err, &expired) {
-			return expired.Config
-		}
-		return cfg
-	}
 	for {
 		checkNow := false
 		select {
@@ -188,6 +211,12 @@ func (u *commUpdater) run(ctx context.Context) {
 		case <-backstop.C:
 			checkNow = true
 		case <-poll.C:
+		}
+		// Below the server's minimum the update is immediate and owns this
+		// pass; the quiet-gated path below serves every other case (including
+		// M <= C < S, whose level change fires the same trigger).
+		if u.enforceMinimum(ctx) {
+			continue
 		}
 		if checkNow {
 			target, reason := u.detect(ctx)
@@ -206,7 +235,7 @@ func (u *commUpdater) run(ctx context.Context) {
 				}
 				continue
 			}
-			if cfg := cfgForPrefetch(); cfg == nil {
+			if cfg := u.prefetchConfig(); cfg == nil {
 				u.report("failed", target, 0, "config_unavailable")
 				continue
 			} else if err := u.prefetch(ctx, cfg, *target); err != nil {

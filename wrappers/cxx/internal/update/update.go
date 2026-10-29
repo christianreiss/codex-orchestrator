@@ -78,6 +78,7 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 	}
 	if cfg.Orchestrator.APIKey != "" && sameHost(binaryURL, cfg.Orchestrator.BaseURL) {
 		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+		communicator.SetAPIHeader(req.Header)
 	}
 	req.Header.Set("User-Agent", "cxx-update/"+targetVersion)
 	client, err := HTTPClient(cfg)
@@ -183,6 +184,7 @@ func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, t
 	}
 	if cfg.Orchestrator.APIKey != "" && sameHost(binaryURL, cfg.Orchestrator.BaseURL) {
 		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+		communicator.SetAPIHeader(req.Header)
 	}
 	req.Header.Set("User-Agent", "cxx-update/"+targetVersion)
 	client, err := HTTPClient(cfg)

@@ -319,6 +319,7 @@ func (s *server) residentLoop(ctx context.Context) {
 		client := &http.Client{Transport: transport, Timeout: 10 * time.Second, CheckRedirect: httpguard.Redirect}
 		req, _ := http.NewRequestWithContext(work, "GET", strings.TrimRight(cfg.Orchestrator.BaseURL, "/")+"/host/daemon/config", nil)
 		req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+		SetAPIHeader(req.Header)
 		res, err := client.Do(req)
 		var policy residentPolicy
 		if err == nil {

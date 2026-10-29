@@ -106,6 +106,7 @@ func (s *server) refreshPolicy(ctx context.Context) {
 		return
 	}
 	req.Header.Set("X-API-Key", cfg.Orchestrator.APIKey)
+	SetAPIHeader(req.Header)
 	res, err := (&http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
 	if err != nil {
 		return

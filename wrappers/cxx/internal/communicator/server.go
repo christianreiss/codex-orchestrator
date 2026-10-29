@@ -85,6 +85,13 @@ type server struct {
 	// updateTrigger wakes the injected updater; updateStatus is its report.
 	updateTrigger chan struct{}
 	updateStatus  *UpdateStatus
+	// apiLevels is the newest server declaration of api_version/min_api (see
+	// apiversion.go); apiBackoff is the updater's below-minimum backoff.
+	// apiHello says the server declared a level, so it parses api_version in
+	// hello; it is cleared again by a handshake that is refused.
+	apiLevels  APILevels
+	apiBackoff APIBackoff
+	apiHello   atomic.Bool
 	// stop ends the owner (set by serve); terminating makes a remote terminate
 	// request single-shot.
 	stop        context.CancelFunc
@@ -337,13 +344,25 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, cacheInvalidated: s.invalidateContent, updateAvailable: s.triggerUpdate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport, residentChanged: s.signalResidentPolicy}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, cacheInvalidated: s.invalidateContent, updateAvailable: s.triggerUpdate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport, residentChanged: s.signalResidentPolicy, apiObserved: s.observeAPI}
 					go c.receive()
-					err = c.send(map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version})
+					hello := map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version}
+					// Older servers parse hello strictly and refuse unknown keys,
+					// so api_version is added only once this server declared a
+					// level itself; the X-Cxx-Api upgrade header always carries it.
+					apiHello := s.apiHello.Load()
+					if apiHello {
+						hello["api_version"] = APIVersion
+					}
+					err = c.send(hello)
 					if err == nil {
 						select {
 						case <-c.ready:
 						case <-c.done:
+							if apiHello {
+								// A rolled-back server: retry with the legacy hello.
+								s.apiHello.Store(false)
+							}
 							err = fmt.Errorf("communicator handshake rejected")
 						case <-ctx.Done():
 							err = ctx.Err()
@@ -492,6 +511,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if s.updateStatus != nil {
 			status["update"] = *s.updateStatus
 		}
+		status["api"] = apiView(s.apiLevels, s.apiBackoff)
 		if s.exeReplaced.Load() {
 			status["executable_replaced"] = true
 		}
