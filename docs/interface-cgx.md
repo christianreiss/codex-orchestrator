@@ -756,6 +756,15 @@ Active runtimes hold the original home's shared session guard. Owned native
 children inherit it, so an orphaned leader or TUI still prevents uninstall from
 removing local or remote state until those processes exit.
 
+The communicator updater's quiet gate (`agentquiet.Busy`, used by owner retirement
+and by scheduled-update deferral) lists `grok` while `~/.grok/.cgx-sessions.lock`
+(the session's lifetime lease, also held by `cgx login`) is held; the
+`.cxx-housekeeping.lock` guard alone would miss it, because `NewRuntime` releases that
+guard once the private runtime is built. The probe is an exclusive non-creating
+flock attempt: a stale lease file, however old, or a detached leader left after a
+clean cgx exit (the shared lock was unlocked) never blocks it. See
+`docs/communicator.md`.
+
 The native external-auth command is internal `cxx grok-auth`. It returns only
 `{access_token, expires_in, issuer:"https://auth.x.ai"}` and completes within the
 native seven-second timeout. It bypasses normal wrapper sync/lease acquisition
