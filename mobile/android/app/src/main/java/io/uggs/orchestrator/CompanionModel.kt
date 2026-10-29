@@ -151,7 +151,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.Main) {
                 val owner = initial?.let(ChatHistoryCache::owner)
                 if (owner != null && connection?.let(ChatHistoryCache::owner) == owner) {
-                    outboxReady.await(); restoreDirectOutbox()
+                    runCatching { outboxReady.await() }; restoreDirectOutbox()
                     if (roomChats.cacheWipes == initialRoomWipes && restoredRooms != null) roomChats.restoreCache(restoredRooms)
                     pumpOutbox()
                 } else if (connection == null) roomWriter.delete()
@@ -307,7 +307,7 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
         if (current != generation || epoch != revision || !foreground) return false
         if (me != null) { serverReadSync = me.optInt("read_sync_protocol", 0) >= 1; roomChats.applyProtocols(RoomProtocols.from(me)) }
         if ("rooms" in scopes || me != null) {
-            roomChats.refresh(client, caps, full = me != null) { current == generation && epoch == revision && foreground }
+            roomChats.refresh(client, caps) { current == generation && epoch == revision && foreground }
             if (current != generation || epoch != revision || !foreground) return false
         }
         if (me != null && !("agent_portal.read" in caps && "agent_portal.reveal_transcript" in caps)) {

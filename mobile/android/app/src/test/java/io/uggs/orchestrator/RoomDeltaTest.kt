@@ -121,7 +121,7 @@ class RoomDeltaTest {
         assertEquals(500L, savedCache().after(roomId))
     }
 
-    @Test fun refreshAsksForChangesAndSkipsTheDirectoryWhenNothingChanged() = runBlocking {
+    @Test fun refreshAsksForChangesAndReadsTheOpenRoomOnlyWhenItChanged() = runBlocking {
         val state = state()
         var changed = JSONArray()
         handler = { path, body ->
@@ -143,11 +143,11 @@ class RoomDeltaTest {
         state.open(state.rooms.single())
         until("opened") { reads().size == 1 && !state.loading }
         requests.clear()
-        state.refresh(client(), caps, full = false) { true }
-        assertEquals("nothing changed: no directory and no room read", listOf("/rooms/changes?after=50"), requests.map { it.first })
+        state.refresh(client(), caps) { true }
+        assertEquals("nothing changed: the directory (reachability) but no room read", listOf("/rooms/changes?after=50", "/rooms?view=active&offset=0"), requests.map { it.first })
         changed = JSONArray().put(JSONObject().put("room_id", roomId).put("seq", 60))
         requests.clear()
-        state.refresh(client(), caps, full = false) { true }
+        state.refresh(client(), caps) { true }
         assertEquals(listOf("/rooms/changes?after=50", "/rooms?view=active&offset=0", "/rooms/read"), requests.map { it.first })
         assertEquals(50L, reads().single().getLong("after"))
         assertEquals(listOf("e1", "e2"), state.events.map { it.getString("id") })
@@ -168,7 +168,7 @@ class RoomDeltaTest {
         val caps = setOf("agent_messaging.read")
         state.refresh(client(), caps) { true }
         requests.clear()
-        state.refresh(client(), caps, full = false) { true }
+        state.refresh(client(), caps) { true }
         assertEquals(listOf("/rooms/changes?after=5", "/rooms?view=active&offset=0"), requests.map { it.first })
         assertEquals(90L, savedCache().changesAfter)
     }
@@ -185,7 +185,7 @@ class RoomDeltaTest {
         state.refresh(client(), setOf("agent_messaging.read", "agent_messaging.reveal_content")) { true }
         state.open(state.rooms.single())
         until("read") { reads().size == 1 && !state.loading }
-        state.refresh(client(), setOf("agent_messaging.read", "agent_messaging.reveal_content"), full = false) { true }
+        state.refresh(client(), setOf("agent_messaging.read", "agent_messaging.reveal_content")) { true }
         assertFalse(requests.any { it.first.startsWith("/rooms/changes") })
         assertTrue(reads().none { it.has("after") })
         assertEquals(2, reads().size)

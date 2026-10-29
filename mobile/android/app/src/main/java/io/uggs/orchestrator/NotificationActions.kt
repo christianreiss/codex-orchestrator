@@ -26,7 +26,7 @@ internal object CompanionSignals {
 
 private const val REMOTE_INPUT_REPLY = "io.uggs.orchestrator.reply_text"
 /** One notification action must finish inside its broadcast. */
-private const val ACTION_CALL_TIMEOUT_MS = 7_000L
+private const val ACTION_CALL_TIMEOUT_MS = 5_000L
 private const val ACTION_BUDGET_MS = 9_000L
 
 /** MessagingStyle with the operator as the device user; each line names its sender. */
@@ -53,6 +53,7 @@ internal fun addConversationActions(context: Context, builder: NotificationCompa
         val request = NotificationActionRequest(action.kind, scope, tag, id, push, action.option)
         val identity = "$tag:$id:${action.kind}:$index"
         val intent = Intent(context, NotificationActionReceiver::class.java).setAction("io.uggs.orchestrator.NOTIFICATION_${action.kind.name.uppercase()}")
+            .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
             .setData(Uri.Builder().scheme("orchestrator").authority("action").appendPath(identity.hashCode().toString()).build())
         request.extras().forEach { (key, value) -> intent.putExtra(key, value) }
         // RemoteInput writes the typed text into the intent, so only Reply is mutable (explicit component).

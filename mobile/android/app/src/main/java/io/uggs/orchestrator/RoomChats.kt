@@ -233,11 +233,12 @@ internal class RoomChats(
     }
     fun close() { selection++; selected = null; current = null; events = emptyList(); nextBefore = null; error = null; loading = false; notificationMode = null }
     /**
-     * Reloads the directory and the open room. With delta sync a [full] = false refresh (a `rooms`
-     * change) first asks `/rooms/changes` and keeps everything when no room changed; the open room
-     * is then only read when it changed.
+     * Reloads the directory and the open room. With delta sync `/rooms/changes` says which rooms
+     * changed, and the open room is only read (as a delta) when it did. The directory is always
+     * reloaded: member reachability and agent-protocol membership are not change-logged, and
+     * the Active filter depends on them.
      */
-    suspend fun refresh(client: Api, caps: Set<String>, full: Boolean = true, valid: () -> Boolean) {
+    suspend fun refresh(client: Api, caps: Set<String>, valid: () -> Boolean) {
         if ("agent_messaging.read" !in caps) { if (valid()) clear(); return }
         if ("agent_messaging.reveal_content" !in caps && valid()) {
             close(); previews = emptyMap()
@@ -255,10 +256,6 @@ internal class RoomChats(
             if (listing != null && listing.enabled) {
                 nextChanges = listing.next
                 if (!listing.resync && cache.changesAfter != null) changed = listing.rooms
-            }
-            if (!full && changed != null && changed.isEmpty() && !history && rooms.isNotEmpty()) {
-                if (nextChanges != cache.changesAfter) { cache.changesAfter = nextChanges; cacheUpdated() }
-                return
             }
         }
         val page = try { client.request(directoryPath()) } catch (e: ApiException) {
