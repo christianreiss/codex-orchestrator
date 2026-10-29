@@ -99,7 +99,9 @@ class CompanionUiTest {
         compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("chat-filter:group").performClick()
         compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
+        val beforeQuiet = roomsRequested.get()
         roomMemberActive.set(false); changed("rooms")
+        compose.waitUntil(10000) { roomsRequested.get() > beforeQuiet }
         compose.waitForIdle()
         compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
         compose.onNodeWithTag("chat-filter:group").assertIsSelected()
@@ -468,6 +470,7 @@ class CompanionUiTest {
     private val transcriptRequested = AtomicBoolean(false)
     private val invalidateDuringRead = AtomicBoolean(false)
     private val agentsRequested = AtomicLong(0)
+    private val roomsRequested = AtomicLong(0)
     private val answered = AtomicReference<String?>(null)
     private var expiresAt = Instant.now().plusSeconds(120)
     private val spawned = AtomicReference<JSONObject?>(null)
@@ -532,7 +535,7 @@ class CompanionUiTest {
                     path == "/rooms/create" -> { roomCreated.set(JSONObject(request.body.readUtf8())); sharedRooms.set(true); JSONObject().put("room_id", roomId).toString() }
                     path == "/rooms/manage" -> { roomClosed.set(true); "{}" }
                     path == "/rooms/candidates" -> """{"addresses":[]}"""
-                    path == "/rooms" -> JSONObject().put("rooms", org.json.JSONArray(if (sharedRooms.get() && (request.requestUrl?.queryParameter("view") == "history") == roomClosed.get()) listOf(roomFixture()) else emptyList<JSONObject>())).put("next_offset", JSONObject.NULL).toString()
+                    path == "/rooms" -> { roomsRequested.incrementAndGet(); JSONObject().put("rooms", org.json.JSONArray(if (sharedRooms.get() && (request.requestUrl?.queryParameter("view") == "history") == roomClosed.get()) listOf(roomFixture()) else emptyList<JSONObject>())).put("next_offset", JSONObject.NULL).toString() }
                     path == "/rooms/read" -> {
                         if (roomEvents.isEmpty()) roomEvents.add(JSONObject().put("id", "55555555-5555-4555-8555-555555555555").put("name", "Liliana").put("content", "Release review is ready").put("created_at", "2026-10-18T08:00:00Z"))
                         JSONObject().put("room", roomFixture()).put("events", org.json.JSONArray(roomEvents)).put("next_before", JSONObject.NULL).toString()

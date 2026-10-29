@@ -146,8 +146,11 @@ internal fun LazyListScope.timelineItems(
     }
 }
 
-/** Drag a bubble sideways past the threshold to reply; one haptic tick marks the point of no return. */
-@Composable internal fun SwipeToReply(enabled: Boolean, onReply: () -> Unit, content: @Composable () -> Unit) {
+/**
+ * Drag a bubble towards the middle past the threshold to reply (others' bubbles
+ * to the right, own bubbles to the left); one haptic tick marks the threshold.
+ */
+@Composable internal fun SwipeToReply(enabled: Boolean, onReply: () -> Unit, reverse: Boolean = false, content: @Composable () -> Unit) {
     if (!enabled) { content(); return }
     val haptic = LocalHapticFeedback.current
     val offset = remember { Animatable(0f) }
@@ -155,18 +158,20 @@ internal fun LazyListScope.timelineItems(
     val threshold = with(LocalDensity.current) { 64.dp.toPx() }
     val reply by rememberUpdatedState(onReply)
     var armed by remember { mutableStateOf(false) }
-    Box(contentAlignment = Alignment.CenterStart) {
-        if (offset.value > 4f) CompanionIcon(CompanionSymbol.Reply, tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(start = 8.dp).alpha((offset.value / threshold).coerceIn(0f, 1f)))
+    val sign = if (reverse) -1f else 1f
+    Box(contentAlignment = if (reverse) Alignment.CenterEnd else Alignment.CenterStart) {
+        val pulled = offset.value * sign
+        if (pulled > 4f) CompanionIcon(CompanionSymbol.Reply, tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 8.dp).alpha((pulled / threshold).coerceIn(0f, 1f)))
         Box(Modifier.offset { IntOffset(offset.value.roundToInt(), 0) }.pointerInput(Unit) {
             detectHorizontalDragGestures(
                 onDragEnd = { if (armed) reply(); armed = false; scope.launch { offset.animateTo(0f) } },
                 onDragCancel = { armed = false; scope.launch { offset.animateTo(0f) } },
             ) { change, amount ->
-                val next = (offset.value + amount).coerceIn(0f, threshold * 1.3f)
-                scope.launch { offset.snapTo(next) }
-                if (!armed && next >= threshold) { armed = true; haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate) }
-                else if (armed && next < threshold) armed = false
+                val pulled = ((offset.value + amount) * sign).coerceIn(0f, threshold * 1.3f)
+                scope.launch { offset.snapTo(pulled * sign) }
+                if (!armed && pulled >= threshold) { armed = true; haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate) }
+                else if (armed && pulled < threshold) armed = false
                 change.consume()
             }
         }) { content() }
@@ -208,7 +213,7 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
             Column(horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
                 if (author != null && item.startsGroup) Text(author, Modifier.padding(horizontal = 10.dp, vertical = 2.dp).widthIn(max = bubbleWidth),
                     style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                SwipeToReply(onReply != null, { onReply?.invoke() }) {
+                SwipeToReply(onReply != null, { onReply?.invoke() }, reverse = own) {
                     Box(Modifier.widthIn(max = bubbleWidth)) {
                         Surface(
                             modifier = Modifier.testTag(tag)

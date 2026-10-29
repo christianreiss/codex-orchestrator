@@ -61,10 +61,9 @@ private fun roomSymbol(room: JSONObject) = when (room.optString("kind")) {
 }
 
 /** Room rows read like agent rows: what was said last, when, and how much is unread. */
-@Composable internal fun RoomRow(room: JSONObject, enabled: Boolean, preview: JSONObject? = null, divider: Boolean = false, open: () -> Unit) {
+@Composable internal fun RoomRow(room: JSONObject, enabled: Boolean, now: Instant, preview: JSONObject? = null, divider: Boolean = false, open: () -> Unit) {
     val unread = room.optInt("unread")
     val members = room.optJSONArray("members")?.objects().orEmpty()
-    val now = rememberMinuteClock()
     val time = runCatching { Instant.parse(room.optString("last_activity_at").ifBlank { room.optString("created_at") }) }.getOrNull()
     val use24 = DateFormat.is24HourFormat(LocalContext.current)
     val names = members.map(::roomPersonLabel)
@@ -131,7 +130,14 @@ private fun roomQuote(messages: List<ChatMessage>, id: String, unavailable: Stri
     val header = if (state.nextBefore != null) 1 else 0
     val empty = state.events.isEmpty() && !state.loading && state.error == null
     val endIndex = header + (if (empty) 1 else 0) + items.size + (if (working.isNotEmpty()) 1 else 0)
-    var atEnd by remember(id) { mutableStateOf(true) }
+    // Following drops only when the reader moves the list, never during our own scrolls,
+    // so an arriving message does not flash "New messages" while the follow animation runs.
+    var following by remember(id) { mutableStateOf(true) }
+    var autoScrolling by remember { mutableStateOf(false) }
+    suspend fun autoScroll(index: Int, animate: Boolean = true) {
+        autoScrolling = true
+        try { if (animate) scroll.animateScrollToItem(index) else scroll.scrollToItem(index) } finally { autoScrolling = false }
+    }
     var anchorKey by remember(id) { mutableStateOf<String?>(null) }
     var expandedRuns by remember(id) { mutableStateOf(emptySet<String>()) }
     var highlight by remember { mutableStateOf<String?>(null) }
@@ -143,15 +149,27 @@ private fun roomQuote(messages: List<ChatMessage>, id: String, unavailable: Stri
     LaunchedEffect(transient) { if (transient != null) { delay(2500); transient = null } }
     LaunchedEffect(id, state.events.size) {
         if (!positioned && state.events.isNotEmpty()) {
-            scroll.scrollToItem(endIndex)
+            autoScroll(endIndex, animate = false)
             positioned = true
         }
     }
     LaunchedEffect(scroll, id) {
-        snapshotFlow { !scroll.canScrollForward }.distinctUntilChanged().collect { end -> atEnd = end; if (end) anchorKey = currentItems.lastOrNull()?.key }
+        var previous: Pair<Int, Int>? = null
+        var previousHeight: Int? = null
+        snapshotFlow { scroll.layoutInfo }.collect { layout ->
+            val last = layout.visibleItemsInfo.lastOrNull()
+            val end = last == null || (last.index == layout.totalItemsCount - 1 && last.offset + last.size <= layout.viewportEndOffset)
+            val position = layout.visibleItemsInfo.firstOrNull()?.let { it.index to it.offset }
+            val resized = previousHeight != layout.viewportSize.height
+            val moved = previous != null && position != previous
+            previous = position; previousHeight = layout.viewportSize.height
+            if (end) { following = true; anchorKey = currentItems.lastOrNull()?.key }
+            else if (resized && following) scroll.requestScrollToItem(layout.totalItemsCount - 1)
+            else if (!resized && moved && !autoScrolling) following = false
+        }
     }
     // Follow new messages while the reader is at the end; otherwise offer the "New messages" jump.
-    LaunchedEffect(items.lastOrNull()?.key, working.size) { if (positioned && atEnd) scroll.animateScrollToItem(endIndex) }
+    LaunchedEffect(items.lastOrNull()?.key, working.size) { if (positioned && following) autoScroll(endIndex) }
     LaunchedEffect(id, last?.optString("id"), fresh) {
         snapshotFlow {
             val visible = scroll.layoutInfo.visibleItemsInfo.any { it.key == last?.optString("id")?.let { event -> "event:$event" } }
@@ -161,7 +179,7 @@ private fun roomQuote(messages: List<ChatMessage>, id: String, unavailable: Stri
     fun jumpTo(eventId: String) {
         val index = items.indexOfFirst { it.key == "event:$eventId" }
         if (index < 0) transient = notLoaded
-        else scope.launch { scroll.animateScrollToItem(header + index); highlight = "event:$eventId" }
+        else scope.launch { autoScroll(header + index); highlight = "event:$eventId" }
     }
     Column(Modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -218,10 +236,10 @@ private fun roomQuote(messages: List<ChatMessage>, id: String, unavailable: Stri
                     Text(message, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            val unseen = if (!atEnd && positioned) unseenSince(items, anchorKey) else null
+            val unseen = if (!following && positioned) unseenSince(items, anchorKey) else null
             if (unseen != null) NewMessagesPill(unseen.count, onClick = {
                 anchorKey = items.lastOrNull()?.key
-                scope.launch { scroll.animateScrollToItem(header + unseen.firstIndex) }
+                scope.launch { autoScroll(header + unseen.firstIndex) }
             }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
         }
         Surface(tonalElevation = 1.dp) {
