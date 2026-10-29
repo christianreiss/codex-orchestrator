@@ -126,8 +126,10 @@ func (u *commUpdater) enforceMinimum(ctx context.Context) bool {
 	backoff := func(t *updateTarget, reason string) bool {
 		if !counted {
 			rec.Attempts++
-			rec.Until = now.Add(u.apiDelay(rec.Attempts))
 		}
+		// The period starts when this attempt ended: an install (with its
+		// engine updates) can outlast the first delay.
+		rec.Until = u.now().Add(u.apiDelay(rec.Attempts))
 		rec.Reason = reason
 		if t != nil {
 			rec.Target = t.Version
@@ -177,6 +179,10 @@ func (u *commUpdater) enforceMinimum(ctx context.Context) bool {
 		u.report("failed", target, 0, "apply_failed")
 		return backoff(target, "apply_failed")
 	}
+	// Restart the period from the end of the install so a successor on the
+	// same binary (the install did not take effect) cannot find it expired.
+	rec.Until = u.now().Add(u.apiDelay(rec.Attempts))
+	u.saveAPIAttempt(rec)
 	u.apiReplacing = true
 	u.env.ReportAPIBackoff(communicator.APIBackoff{})
 	if u.env.Resident() {

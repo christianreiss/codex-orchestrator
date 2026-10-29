@@ -184,6 +184,40 @@ func TestAPIFloorInstallThatDidNotTakeEffectDoesNotLoop(t *testing.T) {
 	}
 }
 
+// The period is measured from the end of a slow install (cxx update also runs
+// the engine updates), so neither a successor on the same binary nor a
+// failed install retries right away.
+func TestAPIFloorBackoffStartsAfterASlowInstall(t *testing.T) {
+	levels := communicator.APILevels{Server: 2, Min: 2}
+	first := newAPIFixture(t, 1, levels, offer82)
+	first.u.apply = func(context.Context, string) error {
+		first.applied++
+		first.clock = first.clock.Add(5 * time.Minute)
+		return nil
+	}
+	first.u.enforceMinimum(context.Background())
+	again := newAPIFixture(t, 1, levels, offer82)
+	again.u.apiStatePath = first.u.apiStatePath
+	again.clock = first.clock.Add(5 * time.Second)
+	again.u.enforceMinimum(context.Background())
+	if again.applied != 0 || again.env.lastBackoff().Reason != "update_did_not_take_effect" {
+		t.Fatalf("successor re-applied after a slow install: applied=%d backoff=%+v", again.applied, again.env.lastBackoff())
+	}
+
+	failing := newAPIFixture(t, 1, levels, offer82)
+	failing.u.apply = func(context.Context, string) error {
+		failing.applied++
+		failing.clock = failing.clock.Add(12 * time.Minute)
+		return errors.New("timed out")
+	}
+	failing.u.enforceMinimum(context.Background())
+	failing.clock = failing.clock.Add(10 * time.Second)
+	failing.u.enforceMinimum(context.Background())
+	if failing.applied != 1 || !failing.env.lastBackoff().Until.After(failing.clock) {
+		t.Fatalf("a slow failed install retried at once: applied=%d backoff=%+v", failing.applied, failing.env.lastBackoff())
+	}
+}
+
 func TestAPIFloorFailedApplyBacksOff(t *testing.T) {
 	f := newAPIFixture(t, 1, communicator.APILevels{Server: 2, Min: 2}, offer82)
 	f.u.apply = func(context.Context, string) error { f.applied++; return errors.New("broken") }
