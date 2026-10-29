@@ -261,7 +261,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | Unknown route / unexpected page error | Catch-all throws 404; current `+error.svelte` uses `PageShell` and `StateBlock` with retry and Overview recovery | Check title, recovery and keyboard path in the surrounding frame |
 | Sidebar, top bar (incl. live-updates, temporary-access and unhandled-reports indicators), mobile menu, hub/project navigation | App shell, registry, `HubTabs`, `ProjectTabsNav` | All destinations reachable at touch widths; no contradictory active locations; indicators hidden at zero and without the read capability |
 | Cmd/Ctrl-K, global search, shortcuts help | Command palette, search modal, shortcuts components | Focus entry/exit, no results, accessible selection; shortcuts do not intercept typing |
-| Chatty assistant | Shared shell assistant and chatty components | Availability/role gates, drafts, errors and confirmation of concrete changes; server-verified answer links (navigate in place, phone panel minimizes) and latest-answer suggestion chips |
+| Chatty assistant | Shared shell assistant and chatty components | Availability/role gates, drafts, errors and confirmation of concrete changes; server-verified answer links (navigate in place, phone panel minimizes), latest-answer suggestion chips and action buttons (safe navigation, or the shared `ConfirmDialog` with typed name for danger, then the existing admin endpoint) |
 | Client/session detail and attachments | Portal components inside Agents | Directory, retained chats, attention, timeline, composer, uploads, remote sessions, close/reconnect states |
 | Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One auth upload UI; focus return, pending/error, safety consequences |
 | Project About/settings, card editor, report creation/detail | Project and report sheets/dialogs | Preserve originating selection and draft; destructive scope clear |
@@ -419,6 +419,25 @@ references produce a muted inline note rather than a silent gap. Applicable rule
 NAV-1, VIS-1/3/4, INT-5/6/8 and ACC-1/3/4. No exception. Playwright covers desktop
 and 390 px layout, keyboard activation, an Axe scan of the panel and tampered
 payloads; manual screen-reader and independent usability review remain separate.
+
+### Chatty action buttons slice (2026-10-29)
+
+Chatty answers may offer up to three server-verified action buttons in a separate
+named group below the links. Safe navigation actions (filtered hosts or activity)
+are outline anchors like links. Mutating actions are secondary buttons with a risk
+icon (danger also uses a destructive border and an accessible "gefährlich" hint, so
+risk is not conveyed by color alone); expired proposals render disabled with a muted
+note. A click opens the shared `ConfirmDialog`, now extended with optional details,
+an inline error and a typed-name field, nested inside the Chatty panel. This stacks
+a confirmation over the panel deliberately: INT-4's "do not stack routine dialogs"
+does not cover an explicit mutation confirmation, Escape closes only the
+confirmation and focus returns to the panel. The dialog title and confirm label name
+the object and the change; the description lists consequences; danger requires the
+host name. Outcomes stay beside the buttons (INT-5) and distinguish refused from
+unknown results (INT-6). Applicable rules: NAV-3, VIS-1/4, INT-4/5/6/8 and ACC-1/2/3/4.
+No exception. Playwright covers desktop and 390 px, Escape, typed confirmation, a
+changed target, tampered payloads and Axe on the panel and the settled dialog. Dark
+mode, manual screen-reader and independent usability review were not performed.
 
 ### Task-supervision slice (2026-10-27)
 

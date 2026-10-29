@@ -9,6 +9,8 @@ import { SettingsService } from '../../../services/settings.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
 import { ChattyCoordinator } from '../../../services/chatty/coordinator.js';
 import { messageSchema, selectionSchema, settingsSchema } from '../../../services/chatty/contracts.js';
+import { capabilityChecker } from '../../../services/chatty/elements.js';
+import { verifyProposal } from '../../../services/chatty/actions.js';
 
 function parse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
   const result = schema.safeParse(value);
@@ -79,6 +81,25 @@ export async function registerAdminChattyRoutes(app: FastifyInstance, ctx: Route
     );
     await chatty.decide(actor(req), runId(req), input.approve, input.generation);
     return ok({ accepted: true });
+  });
+  // Read-only: re-checks a Chatty action button for this admin session and returns the
+  // fresh confirmation copy and request plan. The console then calls the existing admin
+  // endpoint for the operation itself; nothing is executed here.
+  app.post('/admin/chatty/proposals/verify', { preHandler: app.requireAdmin }, async (req) => {
+    const { proposal } = parse(z.object({ proposal: z.string().min(1).max(2048) }).strict(), req.body);
+    const owner = actor(req);
+    const user = await chatty.store.authorize(owner);
+    const session = await chatty.store.session(owner.userId);
+    const result = await verifyProposal(
+      proposal,
+      { ...owner, generation: session.generation },
+      ctx.keyring,
+      capabilityChecker(user.accessLevel),
+      chatty.actionLookups({ ...ctx, actor: owner }),
+    );
+    if (!result.ok) return ok({ available: false, reason: result.reason, detail: result.detail });
+    const { ok: _ok, ...action } = result;
+    return ok({ available: true, ...action });
   });
   app.delete('/admin/chatty/session', { preHandler: app.requireAdmin }, async (req) => {
     await chatty.store.session(actor(req).userId);

@@ -13,7 +13,9 @@
   import MarkdownBody from '$lib/components/portal/MarkdownBody.svelte';
   import { Button } from '$lib/components/ui/button';
   import { chattyPath, isPlainClick, latestAnswerId } from './elements';
-  import { ArrowRight, BookOpen, FolderKanban, Library, MessageSquarePlus, Minus, Send, Server, Square, Trash2, UserRoundCog, Waypoints } from '@lucide/svelte';
+  import { actionPath, chattyAction, isExpired, type ChattyActionElement } from './actions';
+  import ChattyActionDialog from './ChattyActionDialog.svelte';
+  import { ArrowRight, BookOpen, Check, CircleAlert, FolderKanban, Library, ListFilter, MessageSquarePlus, Minus, Play, Send, Server, Square, Trash2, TriangleAlert, UserRoundCog, Waypoints } from '@lucide/svelte';
 
   const qc = useQueryClient();
   let open = $state(false);
@@ -38,6 +40,20 @@
   type LinkElement = Extract<ChattyElement, { type: 'link' }>;
   const links = (event: ChattyEvent) => (event.body.elements ?? []).filter((e): e is LinkElement => e?.type === 'link' && typeof e.label === 'string' && !!chattyPath(e.path));
   const suggestions = (event: ChattyEvent) => (event.body.elements ?? []).flatMap((e) => (e?.type === 'suggestion' && typeof e.text === 'string' && e.text.trim() ? [e.text] : []));
+  const actions = (event: ChattyEvent) => (event.body.elements ?? []).flatMap((e) => { const action = chattyAction(e); return action && (action.risk !== 'safe' || actionPath(action)) ? [action] : []; });
+  const riskIcons = { safe: ListFilter, confirm: Play, danger: TriangleAlert } as const;
+  const riskHint = { safe: '', confirm: ' (mit Bestätigung)', danger: ' (gefährlich, mit Namenseingabe)' } as const;
+  /** Proposals expire server-side; the clock only greys out buttons that would be refused anyway. */
+  let clock = $state(Date.now());
+  let pendingAction = $state<ChattyActionElement | null>(null);
+  let actionOpen = $state(false);
+  let outcomes = $state<Record<string, { ok: boolean; text: string }>>({});
+  function runAction(event: MouseEvent, action: ChattyActionElement) {
+    const path = action.risk === 'safe' ? actionPath(action) : null;
+    if (path) return void navigate(event, path);
+    if (action.risk === 'safe' || isExpired(action)) return;
+    pendingAction = action; actionOpen = true;
+  }
   const linkIcons: Record<string, typeof ArrowRight> = { host: Server, project: FolderKanban, skill: Library, subagent: Library, command: Library, 'output-style': Library, workflow: Waypoints, workflow_run: Waypoints, account: UserRoundCog, manual: BookOpen };
   /** Client-side navigation keeps the shell, and with it this conversation; the full-screen phone panel minimizes so the destination is visible. */
   async function navigate(event: MouseEvent, path: string) {
@@ -85,6 +101,12 @@
   $effect(() => {
     const count = $session.data?.events.length;
     if (open && count) void tick().then(() => bottom?.scrollIntoView({ block: 'end', behavior: 'instant' }));
+  });
+  $effect(() => {
+    if (!open) return;
+    clock = Date.now();
+    const timer = setInterval(() => { clock = Date.now(); }, 30_000);
+    return () => clearInterval(timer);
   });
   $effect(() => {
     if (!open || !$authStore.can('chatty.use')) return;
@@ -161,6 +183,30 @@
                       {/each}
                     </div>
                   {/if}
+                  {@const eventActions = actions(event)}
+                  {#if eventActions.length}
+                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Aktionen aus Chattys Antwort">
+                      {#each eventActions as action (action.proposal)}
+                        {@const Icon = riskIcons[action.risk]}
+                        {@const path = action.risk === 'safe' ? actionPath(action) : null}
+                        {#if path}
+                          <Button href={`${base}${path}`} variant="outline" class="chatty-element max-w-full justify-start text-left" onclick={(e: MouseEvent) => runAction(e, action)}>
+                            <Icon size={16} aria-hidden="true" class="shrink-0"/><span class="min-w-0 break-words">{action.label}</span>
+                          </Button>
+                        {:else}
+                          {@const expired = isExpired(action, clock)}
+                          <Button variant="secondary" class="chatty-element max-w-full justify-start text-left {action.risk === 'danger' ? 'chatty-action-danger' : ''}" disabled={expired} onclick={(e: MouseEvent) => runAction(e, action)}>
+                            <Icon size={16} aria-hidden="true" class="shrink-0"/><span class="min-w-0 break-words">{action.label}<span class="sr-only">{riskHint[action.risk]}{expired ? ', abgelaufen' : ''}</span></span>
+                          </Button>
+                        {/if}
+                      {/each}
+                    </div>
+                    {#if eventActions.some((a) => a.risk !== 'safe' && isExpired(a, clock))}<p class="mt-2 text-body-sm text-muted-foreground">Aktionsvorschläge gelten 15 Minuten in dieser Anmeldung. Frag Chatty erneut, um sie neu prüfen zu lassen.</p>{/if}
+                    {#each eventActions as action (action.proposal)}
+                      {@const outcome = outcomes[action.proposal]}
+                      {#if outcome}<p class="mt-2 flex items-start gap-1.5 text-body-sm {outcome.ok ? 'text-success' : 'text-destructive'}">{#if outcome.ok}<Check size={16} aria-hidden="true" class="mt-0.5 shrink-0"/>{:else}<CircleAlert size={16} aria-hidden="true" class="mt-0.5 shrink-0"/>{/if}<span class="min-w-0 break-words">{outcome.text}</span></p>{/if}
+                    {/each}
+                  {/if}
                   {#if eventSuggestions.length}
                     <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Vorgeschlagene Rückfragen">
                       {#each eventSuggestions as suggestion (suggestion)}
@@ -187,6 +233,7 @@
           {/each}
           <div bind:this={bottom}></div>
         </div>
+        <ChattyActionDialog element={pendingAction} bind:open={actionOpen} onOutcome={(proposal, outcome) => { outcomes = { ...outcomes, [proposal]: outcome }; }}/>
         <div class="border-t p-3">
           {#if !$status.data.ready}<p class="mb-2 text-body-sm text-muted-foreground">Chatty ist gerade nicht verfügbar. Prüfe aktivierte Engines, verifizierte Konten, Kontingent und Runner unter <a class="underline" href="/admin/settings">Einstellungen</a>.</p>{/if}
           {#if error || $session.error}<p class="mb-2 text-body text-destructive" role="alert">{error || $session.error?.message}</p>{/if}
@@ -211,6 +258,7 @@
   .chatty-suggestion:hover:not(:disabled) { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
   .chatty-suggestion:disabled { cursor: not-allowed; opacity: .5; }
   .chatty-suggestion:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+  :global(.chatty-action-danger) { border: 1px solid hsl(var(--destructive)); color: hsl(var(--destructive)); }
   @media (any-pointer: coarse) { :global(.chatty-element) { min-height: 44px; } }
   :global(.chatty-launcher) { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 40; width: 52px; height: 52px; border-radius: var(--radius); color: hsl(var(--primary)); background: hsl(var(--background)); border: 1px solid hsl(var(--border)); box-shadow: var(--shadow-pop); padding: 4px; }
   :global(.chatty-launcher:focus-visible), :global(.icon-button:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: 3px; }

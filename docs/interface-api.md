@@ -2826,6 +2826,7 @@ Chat content is encrypted and never broadcast on global admin WS.
 | `POST /admin/chatty/runs/:id/answer` | generation and text; resumes the user's pending question. |
 | `POST /admin/chatty/runs/:id/cancel` | Stops the user's request; completed changes remain. |
 | `POST /admin/chatty/actions/:id/decision` | generation and approve boolean; applies only to the user's current unexpired action. |
+| `POST /admin/chatty/proposals/verify` | proposal (opaque action-button token). Read-only re-check for the current admin session and conversation generation; returns `{available:false, reason, detail}` or `{available:true, action, risk, label, title, summary, confirm_label, confirm_text, target, plan, params, expires_at}`. Executes nothing. |
 | `DELETE /admin/chatty/session` | Deletes content, cancels work and advances the generation across devices; content-free retry tombstones remain. |
 | `GET /admin/chatty/events` | Cookie-authenticated personal SSE change notifications; reconnect fetches the canonical snapshot. |
 | `GET /admin/chatty/sources/:id` | Authorized read of a source in the build's private knowledge corpus. |
@@ -2849,6 +2850,25 @@ not internal and the caller's role holds its read capability. Elements are store
 encrypted with the event, follow reload/multi-tab snapshots and are deleted by
 `DELETE /admin/chatty/session`. A suggestion is sent as an ordinary user message;
 it never approves an action.
+
+An element may also be an action button:
+`{type:"action", action, risk, label, params, proposal, expires_at}` (at most three per
+answer). `action` is one of `hosts.filter`, `activity.host`, `host.engine.enable`,
+`host.engine.disable`, `host.auto_update`, `host.insecure.close`, `account.verify` or
+`versions.check`; `risk` is fixed per action (`safe` navigation, `confirm`, or
+`danger`); `params` are canonical entity IDs. The model proposes only
+`{type:"action", action, params}`; the server validates the registry entry, the
+entity, the role capability of the existing admin route, the engine master switch
+and that the change is not a no-op, then writes the label and signs `proposal`
+(HMAC with the active encryption key, bound to admin user, admin session and
+conversation generation; valid 15 minutes). The console runs `safe` actions as
+navigation. For any other action it calls `POST /admin/chatty/proposals/verify`,
+shows the returned description in a confirmation dialog (typing `confirm_text` for
+`danger`), re-verifies on confirm and then calls the existing endpoint for the
+operation: `POST /admin/hosts/:id/engines`, `POST /admin/hosts/:id/auto-update`,
+`POST /admin/hosts/:id/insecure/disable`, `POST /admin/accounts/:id/verify` or
+`POST /admin/versions/check`. Chatty's own server never executes these operations
+and records no Chatty receipt for them.
 
 The typed administration registry includes confirmed mutations for workflow
 definitions, roles/proposals, quota policies/scaling, server retention and fleet

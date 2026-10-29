@@ -1,4 +1,5 @@
 import { api } from './client';
+import type { ChattyActionElement } from '$lib/components/chatty/actions';
 export type Engine = 'codex' | 'claude' | 'grok';
 export interface Selection { engine: Engine | null; model: string | null }
 export interface ChattyStatus {
@@ -8,7 +9,17 @@ export interface ChattyStatus {
 /** Server-resolved reply elements; `path` is base-relative and built from an allowlisted template. */
 export type ChattyElement =
   | { type: 'link'; kind: string; label: string; path: string }
-  | { type: 'suggestion'; text: string };
+  | { type: 'suggestion'; text: string }
+  | ChattyActionElement;
+/** Fresh server re-check of an action button for this admin session; nothing is executed. */
+export type ChattyProposalCheck =
+  | { available: false; reason: string; detail: string }
+  | {
+      available: true; action: string; risk: 'safe' | 'confirm' | 'danger'; label: string; title: string; summary: string[];
+      confirm_label: string; confirm_text: string | null; target: { kind: string; id: number; name: string } | null;
+      plan: unknown; params: Record<string, unknown>; expires_at: string;
+    };
+export const verifyChattyProposal = (proposal: string) => api.post<ChattyProposalCheck>('/admin/chatty/proposals/verify', { proposal });
 export interface ChattyEvent {
   id: number; kind: string; runId: string | null; createdAt: string;
   body: { text?: string; id?: string; tool?: string; description?: string; arguments?: unknown; before?: unknown; result?: unknown; href?: string; status?: string; engine?: string; model?: string; options?: string[]; sources?: Array<{ id: string; title: string; heading: string; href: string; body: string }>; elements?: ChattyElement[]; elements_omitted?: number };

@@ -316,6 +316,7 @@ describe('the exceptions are exceptions, not holes', () => {
       'GET /admin/chatty/status',
       'POST /admin/chatty/actions/:id/decision',
       'POST /admin/chatty/messages',
+      'POST /admin/chatty/proposals/verify',
       'POST /admin/chatty/runs/:id/answer',
       'POST /admin/chatty/runs/:id/cancel',
       'PUT /admin/chatty/selection',

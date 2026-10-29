@@ -53,6 +53,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/chatty/runs/:id/answer': cap('chatty.use'),
   'POST /admin/chatty/runs/:id/cancel': cap('chatty.use'),
   'POST /admin/chatty/actions/:id/decision': cap('chatty.use'),
+  // Read-only re-check of an action button; the operation itself runs through its own route.
+  'POST /admin/chatty/proposals/verify': cap('chatty.use'),
   'DELETE /admin/chatty/session': cap('chatty.use'),
   'GET /admin/chatty/sources/:id': cap('chatty.use'),
   'GET /admin/chatty/events': cap('chatty.use'),
