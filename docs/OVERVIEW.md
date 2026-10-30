@@ -990,6 +990,13 @@ From cxx 0.9.118, negotiated heartbeat snapshots expose the local claim gate in
 `agent_list`, distinguishing a ready receiver waiting for an idle native turn
 from transport failure without changing delivery scheduling.
 
+For transient Codex model-capacity failures, the signed
+`agent_messaging.capacity_continue_enabled` grant enables bounded automatic
+continuation in the same conversation (15s to 5min backoff, at most eight attempts).
+From cxx 0.9.148 this also handles Codex's terminal `systemError` thread state;
+user stops, newer turns and active threads prevent the retry. See
+[Capacity auto-continue](interface-cdx.md#capacity-auto-continue-cxx-09140).
+
 For opt-in native verification, build `make -C wrappers cxx` and run
 `python3 wrappers/scripts/receiver-canary.py --engine codex --cxx "$PWD/wrappers/bin/cxx"`
 (or `--engine claude`). Pass `--native-cli /absolute/path/to/native-cli` to test

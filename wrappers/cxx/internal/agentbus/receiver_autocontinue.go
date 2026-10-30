@@ -124,7 +124,7 @@ func (q *nativeQueue) latestTurnID() (string, string, error) {
 
 // fireCapacityContinue queues the continue once it is due. It acts only while
 // the failed turn is still the newest one (the user has not typed anything and
-// nothing else started) and the thread is idle.
+// nothing else started) and the thread is idle or in its terminal error state.
 func (r *autoReceiver) fireCapacityContinue(ctx context.Context, now time.Time) error {
 	turnID, ready := r.aed.pending(now)
 	if !ready || ctx.Err() != nil {
@@ -144,7 +144,10 @@ func (r *autoReceiver) fireCapacityContinue(ctx context.Context, now time.Time) 
 		r.aed.cancel()
 		return nil
 	}
-	if state, err := r.queue.status(); err != nil || state != "idle" {
+	// Codex marks a provider-failed thread systemError rather than idle. The
+	// matching failed turn above is still required; active/unloaded threads
+	// must never receive an automatic continuation.
+	if state, err := r.queue.status(); err != nil || (state != "idle" && state != "systemError") {
 		return nil
 	}
 	// A failed admission still spends an attempt, so a broken queue cannot

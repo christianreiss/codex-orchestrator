@@ -1480,7 +1480,11 @@ never starts a turn itself. The signed file is re-read on every use.
   honored; one more than 15 minutes out ends auto-continue. Detection runs on the 15 second
   receiver tick, so the first continue lands about 15-30 seconds after the failure.
 - **Guards:** fires only while the failed turn is still the newest one (the user has not
-  typed anything), the thread is `idle`, and the toggle is on.
+  typed anything), the thread is `idle` or `systemError`, and the toggle is on.
+  From cxx 0.9.148, `systemError` is accepted because Codex 0.166.0 leaves a
+  provider-failed thread in that terminal state; the original `idle`-only check
+  prevented the continuation despite detecting the capacity error. Active,
+  unloaded and unknown states remain blocked.
 - **Watchdog:** while retrying, a live watchdog gets progress pings only, so the server does
   not terminate/resume the child underneath. On exhaustion `failure=capacity` is reported as before.
 - **Scope:** interactive Codex launches with a receiver only (TTY, `--remote` not supplied).

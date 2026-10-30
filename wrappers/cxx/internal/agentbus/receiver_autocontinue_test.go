@@ -83,10 +83,15 @@ func TestFireCapacityContinueGuards(t *testing.T) {
 		enabled bool
 		want    int
 	}{
-		"idle failed turn":   {aedQueue{turnID: "t", turnStatus: "failed", state: "idle"}, true, 1},
-		"user typed instead": {aedQueue{turnID: "newer", turnStatus: "inProgress", state: "active"}, true, 0},
-		"thread busy":        {aedQueue{turnID: "t", turnStatus: "failed", state: "active"}, true, 0},
-		"toggle off":         {aedQueue{turnID: "t", turnStatus: "failed", state: "idle"}, false, 0},
+		"idle failed turn":      {aedQueue{turnID: "t", turnStatus: "failed", state: "idle"}, true, 1},
+		"capacity system error": {aedQueue{turnID: "t", turnStatus: "failed", state: "systemError"}, true, 1},
+		"user typed instead":    {aedQueue{turnID: "newer", turnStatus: "inProgress", state: "active"}, true, 0},
+		"newer failed turn":     {aedQueue{turnID: "newer", turnStatus: "failed", state: "systemError"}, true, 0},
+		"user stopped":          {aedQueue{turnID: "t", turnStatus: "interrupted", state: "idle"}, true, 0},
+		"thread unloaded":       {aedQueue{turnID: "t", turnStatus: "failed", state: "notLoaded"}, true, 0},
+		"unknown thread state":  {aedQueue{turnID: "t", turnStatus: "failed", state: "future"}, true, 0},
+		"thread busy":           {aedQueue{turnID: "t", turnStatus: "failed", state: "active"}, true, 0},
+		"toggle off":            {aedQueue{turnID: "t", turnStatus: "failed", state: "idle"}, false, 0},
 	} {
 		q := tc.queue
 		r := &autoReceiver{queue: &q, capacityContinueEnabled: func() bool { return tc.enabled }}

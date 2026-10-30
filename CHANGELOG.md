@@ -1,3 +1,7 @@
+# 2026-10-30
+
+- **cxx 0.9.148 — repair Codex capacity auto-continue:** Codex 0.166.0 leaves a model-capacity failure in thread state `systemError`, so the original `idle`-only retry guard silently prevented automatic continuation even when enabled. Accept that terminal state only while the same capacity-failed turn is still newest. Active/unloaded/unknown threads, user stops and newer turns remain blocked. Includes a regression test and reproduction against the installed native CLI with a local 503 provider; no provider credentials or fleet messages are used.
+
 # 2026-10-29
 
 - **Android companion 0.9.0 + server: reactions, pins and message search (migration 0119):**
