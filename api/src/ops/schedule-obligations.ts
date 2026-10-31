@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { EntityView, OwnerStateSnapshot } from '../control-plane/state/store.js';
-import type { OwnedTableName } from '../control-plane/state/catalog.js';
+import type { OwnedTableName, StateRow } from '../control-plane/state/catalog.js';
 import type { OwnerWorkObligation } from './owner-worker.js';
 import { SCHEDULE_TARGET_GRACE_SECONDS } from '../services/schedules/staleness.js';
 
@@ -54,12 +54,17 @@ export function scheduleObligations(
     const dueAt = value ? Date.parse(value) + delay : NaN;
     if (Number.isFinite(dueAt)) result.push({ key, dueAt, revision });
   };
+  // One pass per table, not one per schedule: this runs on every owner-state change.
+  const runsBySchedule = new Map<string, Array<Readonly<StateRow<'agentScheduleRuns'>>>>();
+  for (const run of snapshot.table('agentScheduleRuns').all()) {
+    const group = runsBySchedule.get(run.scheduleId);
+    if (group) group.push(run);
+    else runsBySchedule.set(run.scheduleId, [run]);
+  }
+  const watchedSchedules = new Set(snapshot.table('agentWatchdogs').all().map((row) => row.scheduleId));
   for (const schedule of snapshot.table('agentSchedules').all()) {
     if (schedule.deletedAt) continue;
-    const runs = snapshot
-      .table('agentScheduleRuns')
-      .all()
-      .filter((run) => run.scheduleId === schedule.id);
+    const runs = runsBySchedule.get(schedule.id) ?? [];
     const liveRuns = runs.filter((run) => active.has(run.status));
     if (schedule.enabled || liveRuns.length) result.push({ key: `input:${schedule.id}`, dueAt: 0, revision });
     if (schedule.enabled && !liveRuns.length) add(`due:${schedule.id}`, schedule.nextDueAt);
@@ -67,13 +72,7 @@ export function scheduleObligations(
       if (['waiting', 'recovering', 'capacity_wait'].includes(run.status))
         add(`retry:${run.id}`, run.nextAttemptAt);
     }
-    if (
-      snapshot
-        .table('agentWatchdogs')
-        .all()
-        .some((row) => row.scheduleId === schedule.id)
-    )
-      continue;
+    if (watchedSchedules.has(schedule.id)) continue;
     const grace = SCHEDULE_TARGET_GRACE_SECONDS * 1000;
     if (schedule.kind === 'once' && schedule.nextDueAt === null && !liveRuns.length) {
       const last =

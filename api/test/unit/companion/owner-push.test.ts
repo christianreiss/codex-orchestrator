@@ -68,4 +68,45 @@ describe('owner companion notification obligations', () => {
     expect(f.runtime.execute).not.toHaveBeenCalled();
     await f.close();
   });
+  it('observes a quota obligation instead of failing and retrying it every 30 seconds', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-10-24T10:00:00Z');
+    const seed = {
+      adminUsers: [{ id: 1, active: 1, accessLevel: 'owner' }],
+      providerAccounts: [{ id: 1, engine: 'claude', state: 'enabled', mergedIntoAccountId: null, label: 'a' }],
+      companionDevices: [
+        {
+          id: 'device',
+          userId: 1,
+          eventCursor: 11,
+          notifications: 1,
+          revokedAt: null,
+          expiresAt: '2026-10-25T00:00:00Z',
+          pushTokenDigest: 'digest',
+        },
+      ],
+      versions: [{ name: 'owner_portal_event_id', version: '11', updatedAt: new Date().toISOString() }],
+    } as unknown as StateSeed;
+    const f = await ownerWorkerFixture(seed);
+    const push = new OwnerCompanionPush({
+      db: f.db,
+      env: {
+        ...loadTestEnv(),
+        COMPANION_FIREBASE_PROJECT_ID: 'test',
+        COMPANION_FIREBASE_CREDENTIAL_FILE: '/not-read',
+      },
+      keyring: testKeyring(),
+    } as RouteContext);
+    const obligation = push.obligations(f.state.snapshot());
+    expect(obligation.map((o) => o.key)).toEqual(['quota:device']);
+    // Running the work stages nothing in this fixture (execute is a stub): the obligation's
+    // revision cannot change, so the only correct completion is "observed".
+    await expect(push.run(obligation[0]!)).resolves.toEqual({ observed: true });
+    const worker = push.start(f.error);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(f.error).not.toHaveBeenCalled();
+    expect(f.runtime.execute).toHaveBeenCalledTimes(2);
+    await worker.close();
+    await f.close();
+  });
 });

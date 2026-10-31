@@ -310,8 +310,17 @@ export class EntityView<K extends OwnedTableName> {
   has(key: Key): boolean {
     return this.#rows.has(keyOf(key));
   }
+  /** Views are immutable. When every row is a shared immutable read row, the frozen result is
+   * itself shareable, so owner workers that scan a table per event pay for it once per view. */
+  #allCache: readonly Readonly<StateRow<K>>[] | undefined;
   all(): readonly Readonly<StateRow<K>>[] {
-    return Object.freeze([...this.#rows.values()].map(readRow));
+    if (this.#allCache) return this.#allCache;
+    const rows = [...this.#rows.values()];
+    const read = rows.map(readRow);
+    const result = Object.freeze(read);
+    // A copied row is a defensive clone the caller may keep; only cache pure shared results.
+    if (read.every((row, i) => row === rows[i])) this.#allCache = result;
+    return result;
   }
   by<F extends keyof StateRow<K> & string>(
     field: F,

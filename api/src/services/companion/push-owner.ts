@@ -14,7 +14,7 @@ import {
   subscribeAdmissionInterest,
 } from '../../control-plane/state/admission-interest.js';
 import type { EffectHandler } from '../../control-plane/outbox.js';
-import { createOwnerWorker, type OwnerWorkObligation } from '../../ops/owner-worker.js';
+import { createOwnerWorker, type OwnerWorkObligation, type OwnerWorkResult } from '../../ops/owner-worker.js';
 import { agentEvents, agentRoomChanges, companionDevices, companionNotifications } from '../../db/schema.js';
 import { ROOM_CHANGE_HEAD_SETTING } from '../../control-plane/state/room-heads.js';
 import { createAgentMessagingService } from '../agent-messaging.js';
@@ -239,7 +239,7 @@ export class OwnerCompanionPush {
     c.draft.upsert('companionNotifications', job);
     c.write((tx) => tx.insert(companionNotifications).values(job));
   }
-  async run(work: OwnerWorkObligation): Promise<void> {
+  async run(work: OwnerWorkObligation): Promise<OwnerWorkResult> {
     await mutateOwnerState(this.owner, {
       kind: 'companion.push.prepare',
       payload: { key: work.key },
@@ -392,6 +392,10 @@ export class OwnerCompanionPush {
         return null;
       },
     });
+    // A quota obligation is keyed by the quota-table revision, which running it never changes (a
+    // new alert only enqueues a notification), so it can only be observed. Returning void made the
+    // worker throw "completed without retiring" and retry every 30 s for every device, forever.
+    if (work.key.startsWith('quota:')) return { observed: true };
   }
   effect: EffectHandler = async ({ target }) => {
     let snapshot = this.owner.state.snapshot();

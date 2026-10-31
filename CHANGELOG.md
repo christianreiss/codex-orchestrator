@@ -1,3 +1,11 @@
+# 2026-10-31
+
+- **API: stop the owner workers from saturating the event loop (clx/cgx launch and exit stalls):** production profiling showed the API main thread 50–100% busy with `GET /versions` stalling 1–5 s every ~30–45 s, which every managed launch, hook and `finish` call inherited. Three changes, server only (no wrapper release):
+  - `scheduleObligations` now reads the run and watchdog tables once per call instead of once per schedule (it was O(schedules × (runs + watchdogs)) on every owner-state change); its output is unchanged.
+  - `EntityView.all()` returns one cached frozen array per immutable view when every row is a shared immutable row; views that hand out defensive copies are never cached.
+  - The companion-push `quota:<device>` obligation is now *observed* instead of returning void. It is keyed by the quota-table revision, which running it cannot change, so the worker used to throw "completed without retiring its due owner-state obligation" and retry every 30 s per device forever. It re-runs when the quota tables change.
+  Not changed: each schedule's `input:*` obligation revision still embeds every schedule table and the presence counter, so a presence change still re-runs all of them; and the wrapper's Stop/UserPromptSubmit hook budgets (3 s + 5 s) and 4 s portal `finish` budget are untouched.
+
 # 2026-10-30
 
 - **cxx 0.9.148 — repair Codex capacity auto-continue:** Codex 0.166.0 leaves a model-capacity failure in thread state `systemError`, so the original `idle`-only retry guard silently prevented automatic continuation even when enabled. Accept that terminal state only while the same capacity-failed turn is still newest. Active/unloaded/unknown threads, user stops and newer turns remain blocked. Includes a regression test and reproduction against the installed native CLI with a local 503 provider; no provider credentials or fleet messages are used.
