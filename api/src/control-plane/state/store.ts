@@ -473,10 +473,16 @@ export class OwnerStateDraft {
   #contents: Map<string, string | null> | undefined;
   #contentsPublished = false;
   readonly #changed = new Map<OwnedTableName, Map<string, RecordRow>>();
+  /** Reads between two writes see identical state. Reconciliation commands call view()/table()
+   * once per row inside loops that mostly stage nothing; rebuilding every touched table each
+   * time made one command block the event loop for seconds. Any mutation drops these. */
+  readonly #tableViews = new Map<OwnedTableName, EntityView<OwnedTableName>>();
+  #viewCache: OwnerStateSnapshot | undefined;
   #sealed = false;
   #messagingTotals: MessagingTotals | undefined;
   adjustMessagingTotals(delta: MessagingTotalsDelta): void {
     this.#assertOpen();
+    this.#viewCache = undefined;
     this.#messagingTotals = updateMessagingTotals(this.#messagingTotals ?? this.base.messagingTotals, delta);
   }
   constructor(readonly base: OwnerStateSnapshot) {}
@@ -488,6 +494,8 @@ export class OwnerStateDraft {
   }
   #rows<K extends OwnedTableName>(name: K): Map<string, RecordRow> {
     this.#assertOpen();
+    this.#viewCache = undefined;
+    this.#tableViews.delete(name);
     let rows = this.#changed.get(name);
     if (!rows) {
       const view = this.base.table(name);
@@ -498,9 +506,13 @@ export class OwnerStateDraft {
   }
   table<K extends OwnedTableName>(name: K): EntityView<K> {
     const rows = this.#changed.get(name);
-    return rows
-      ? new EntityView(name, rows.values() as Iterable<StateRow<K>>, projectedRows)
-      : this.base.table(name);
+    if (!rows) return this.base.table(name);
+    let view = this.#tableViews.get(name) as EntityView<K> | undefined;
+    if (!view) {
+      view = new EntityView(name, rows.values() as Iterable<StateRow<K>>, projectedRows);
+      this.#tableViews.set(name, view as unknown as EntityView<OwnedTableName>);
+    }
+    return view;
   }
   upsert<K extends OwnedTableName>(name: K, row: StateRow<K> | Row<K>): void {
     const view = new EntityView(name, [row]);
@@ -528,6 +540,7 @@ export class OwnerStateDraft {
     for (const field of fields) contents.delete(coreContentKey(name, key, field));
   }
   #writableContents(): Map<string, string | null> {
+    this.#viewCache = undefined;
     if (!this.#contents) this.#contents = this.base.copyContents();
     else if (this.#contentsPublished) this.#contents = new Map(this.#contents);
     this.#contentsPublished = false;
@@ -536,19 +549,20 @@ export class OwnerStateDraft {
   /** Read the command's composed changes without sealing or publishing them. */
   view(): OwnerStateSnapshot {
     this.#assertOpen();
+    if (this.#viewCache) return this.#viewCache;
     this.#contentsPublished = true;
     const seed = Object.fromEntries(
       [...this.#changed].map(([name, rows]) => [name, [...rows.values()]]),
     ) as StateSeed;
     projectedSeeds.add(seed);
-    return new OwnerStateSnapshot(
+    return (this.#viewCache = new OwnerStateSnapshot(
       this.base.revision,
       seed,
       this.base,
       new Set(this.#changed.keys()),
       this.#messagingTotals,
       this.#contents ?? privateContents.get(this.base)!,
-    );
+    ));
   }
   seal(next: StateRevision): PreparedOwnerState {
     this.#assertOpen();

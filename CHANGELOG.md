@@ -1,10 +1,11 @@
 # 2026-10-31
 
-- **API: stop the owner workers from saturating the event loop (clx/cgx launch and exit stalls):** production profiling showed the API main thread 50–100% busy with `GET /versions` stalling 1–5 s every ~30–45 s, which every managed launch, hook and `finish` call inherited. Three changes, server only (no wrapper release):
-  - `scheduleObligations` now reads the run and watchdog tables once per call instead of once per schedule (it was O(schedules × (runs + watchdogs)) on every owner-state change); its output is unchanged.
+- **API: stop owner commands and workers blocking the event loop (clx/cgx launch and exit stalls):** production profiling showed `GET /versions` stalling 1–9 s several times a minute, which every managed launch, hook and `finish` call inherited. The longest stalls were single 5–6 s synchronous CPU blocks inside `coordination.reconcile`. Server only (no wrapper release):
+  - **Root cause — `OwnerStateDraft.view()` / `table()` were rebuilt on every call.** `stageClaimReconciliation` (every claim) and `stageOwnerLiveness` (every session) call `ctx.draft.view()` inside their loops, and each call rebuilt a full `OwnerStateSnapshot` of every touched table (row projection, metadata sizing, indexes). A draft now memoizes its `view()` and per-table `table()` until the next write to it (rows, content or messaging totals), so a loop that stages nothing costs one rebuild instead of one per row. Earlier reads stay immutable snapshots of their moment.
+  - `scheduleObligations` reads the run and watchdog tables once per call instead of once per schedule (it was O(schedules × (runs + watchdogs)) on every owner-state change); its output is unchanged, proved against the old algorithm.
   - `EntityView.all()` returns one cached frozen array per immutable view when every row is a shared immutable row; views that hand out defensive copies are never cached.
   - The companion-push `quota:<device>` obligation is now *observed* instead of returning void. It is keyed by the quota-table revision, which running it cannot change, so the worker used to throw "completed without retiring its due owner-state obligation" and retry every 30 s per device forever. It re-runs when the quota tables change.
-  Not changed: each schedule's `input:*` obligation revision still embeds every schedule table and the presence counter, so a presence change still re-runs all of them; and the wrapper's Stop/UserPromptSubmit hook budgets (3 s + 5 s) and 4 s portal `finish` budget are untouched.
+  Not changed: each schedule's `input:*` obligation revision still embeds every schedule table and the presence counter, so a presence change still re-runs all of them; other `ctx.draft.view()`-in-a-loop call sites that stage changes every iteration still rebuild per write; and the wrapper's Stop/UserPromptSubmit hook budgets (3 s + 5 s) and 4 s portal `finish` budget are untouched.
 
 # 2026-10-30
 
