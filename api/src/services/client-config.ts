@@ -65,6 +65,8 @@ import {
   normalizeSettings,
   validateCodexFeatureAuthoring,
   validateClaudeAdvisorAuthoring,
+  validateClaudeFastModeAuthoring,
+  claudeFastModeDeprecated,
   claudeAdvisorProblem,
   claudeAdvisorRankProblem,
   normalizeStoredModel,
@@ -1092,6 +1094,9 @@ function buildClaudeMcpServers(settings: NormalizedSettings): Record<string, unk
  */
 function withClaudeModelEffort(settings: NormalizedSettings): Record<string, unknown> {
   const result: Record<string, unknown> = { ...settings.native_settings };
+  // Explicit false is owned even when the template omits fastMode: omitting it
+  // would allow a foreign local true to reactivate the deprecated combination.
+  if (claudeFastModeDeprecated(settings.model)) result['fastMode'] = false;
   if (settings.model && settings.effortLevel) {
     const models = { ...asRecord(result['modelSettings']) };
     models[settings.model] = { ...asRecord(models[settings.model]), effortLevel: settings.effortLevel };
@@ -1651,7 +1656,10 @@ export class ClientConfigService {
 
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
     if (engine === ENGINE_CODEX) validateCodexFeatureAuthoring(settingsInput);
-    if (engine === ENGINE_CLAUDE) validateClaudeAdvisorAuthoring(settingsInput);
+    if (engine === ENGINE_CLAUDE) {
+      validateClaudeAdvisorAuthoring(settingsInput);
+      validateClaudeFastModeAuthoring(settingsInput);
+    }
     const normalized =
       engine === ENGINE_GROK
         ? normalizeGrokSettings(settingsInput)
