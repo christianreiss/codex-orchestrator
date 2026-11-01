@@ -1080,6 +1080,9 @@ func TestStatusWithUnreadableConfigIsBlocked(t *testing.T) {
 }
 
 func TestUnreadableConfigCommandsAreStructuredActionableAndSanitized(t *testing.T) {
+	// This fixture checks complete guidance and sanitization, not wrapping.
+	// Keep terminal width independent of inherited COLUMNS and temp-path length.
+	t.Setenv("COLUMNS", "240")
 	t.Setenv("CLAUDE_WRAPPER_RESTART_DEPTH", "")
 	missing := filepath.Join(t.TempDir(), "missing\x1b]2;owned\a\nFORGED\x1b[31m.json")
 
