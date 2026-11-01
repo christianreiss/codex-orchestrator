@@ -68,9 +68,11 @@ type Runtime struct {
 	issued                                []issuance
 	server                                *http.Server
 	listener                              net.Listener
-	effective                             string
-	sessionLease                          *ipc.Lock
-	privateDirectory                      *PrivateDirectory
+	// Keep process overlays out of config.toml: native filters this layer and
+	// deliberately reads several security gates from the disk layers only.
+	overlay          string
+	sessionLease     *ipc.Lock
+	privateDirectory *PrivateDirectory
 	// Warnings are launch notices for degraded but working private homes.
 	Warnings []string
 }
@@ -629,28 +631,10 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 		}
 		m = tree.ToMap()
 	}
-	// Preserve user process overlays before applying the owned auth boundary.
-	if inline := os.Getenv("GROK_CONFIG"); strings.TrimSpace(inline) != "" {
-		var overlay map[string]any
-		if json.Unmarshal([]byte(inline), &overlay) != nil {
-			return errors.New("invalid GROK_CONFIG JSON overlay")
-		}
-		mergeMap(m, overlay)
-	} else if path := os.Getenv("GROK_CONFIG_PATH"); strings.TrimSpace(path) != "" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return errors.New("GROK_CONFIG_PATH overlay unavailable")
-		}
-		var overlay map[string]any
-		if json.Unmarshal(data, &overlay) != nil {
-			tree, err := toml.LoadBytes(data)
-			if err != nil {
-				return errors.New("invalid GROK_CONFIG_PATH overlay")
-			}
-			overlay = tree.ToMap()
-		}
-		mergeMap(m, overlay)
-	}
+	// GROK_CONFIG is a soft, native-filtered layer, not authored disk config.
+	// In particular, copying even an allowlisted feature to disk can change a
+	// gate which native intentionally evaluates without environmental overlays.
+	overlay := r.processOverlay()
 	// The native alias merges auth into grok_com_config. Remove either custom
 	// IdP before pinning the one canonical subscription scope.
 	delete(m, "auth")
@@ -673,15 +657,22 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 	mergeMap(m, managed)
 	if cfg.EngineOptions.ModelOverride != nil {
 		mergeMap(m, map[string]any{"models": map[string]any{"default": *cfg.EngineOptions.ModelOverride}})
+		mergeMap(overlay, map[string]any{"models": map[string]any{"default": *cfg.EngineOptions.ModelOverride}})
 	}
 	if cfg.EngineOptions.ReasoningEffortOverride != nil {
 		mergeMap(m, map[string]any{"models": map[string]any{"default_reasoning_effort": *cfg.EngineOptions.ReasoningEffortOverride}})
+		mergeMap(overlay, map[string]any{"models": map[string]any{"default_reasoning_effort": *cfg.EngineOptions.ReasoningEffortOverride}})
 	}
 	// Model-keyed context windows must follow the selected model's upgrade in
 	// this private runtime, without migrating the original user configuration.
 	if policy := cfg.EngineOptions.ModelPolicy; policy != nil && policy.LatestOnly {
 		models, _ := m["models"].(map[string]any)
 		selected, _ := models["default"].(string)
+		if models, ok := overlay["models"].(map[string]any); ok {
+			if value, ok := models["default"].(string); ok {
+				selected = value
+			}
+		}
 		if len(launchArgs) > 0 {
 			if explicit := nativeargs.Value("grok", launchArgs[0], "--model"); explicit != "" {
 				selected = explicit
@@ -702,11 +693,11 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 			}
 		}
 	}
-	effective, err := json.Marshal(m)
+	effective, err := json.Marshal(overlay)
 	if err != nil {
 		return err
 	}
-	r.effective = string(effective)
+	r.overlay = string(effective)
 	tree, err := toml.TreeFromMap(m)
 	if err != nil {
 		return err
@@ -926,8 +917,8 @@ func (r *Runtime) Environment(env []string) []string {
 	out = SetEnv(out, "CXX_GROK_BASE_HOME", r.BaseHome)
 	out = SetEnv(out, "GROK_AUTH_PATH", r.AuthPath)
 	out = SetEnv(out, AuthSocketEnv, r.Socket)
-	if r.effective != "" {
-		out = SetEnv(out, "GROK_CONFIG", r.effective)
+	if r.overlay != "" {
+		out = SetEnv(out, "GROK_CONFIG", r.overlay)
 	}
 	out = SetEnv(out, "GROK_DISABLE_API_KEY_AUTH", "1")
 	// Compatibility environment cells outrank config and remote defaults.

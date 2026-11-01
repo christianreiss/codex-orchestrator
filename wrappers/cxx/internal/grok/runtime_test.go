@@ -222,16 +222,29 @@ func TestRuntimePreservesUserOverlayAndPinsBrokerScope(t *testing.T) {
 	if effective["models"].(map[string]any)["default"] != "grok-user" {
 		t.Fatal("user overlay lost")
 	}
-	if _, exists := effective["auth"]; exists {
-		t.Fatal("custom auth alias survived managed pin")
+	// Native, rather than the wrapper, filters untrusted overlay tables.
+	if effective["auth"] == nil || effective["mcp_servers"] == nil {
+		t.Fatal("original process overlay was not retained for native filtering")
 	}
-	gcc := effective["grok_com_config"].(map[string]any)
+	raw, err := os.ReadFile(filepath.Join(r.Home, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := toml.LoadBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disk := tree.ToMap()
+	if disk["auth"] != nil || tree.Get("models.default") != nil {
+		t.Fatal("process overlay was promoted to disk")
+	}
+	gcc := disk["grok_com_config"].(map[string]any)
 	if gcc["preferred_method"] != "oidc" || gcc["disable_api_key_auth"] != true || gcc["oauth2"].(map[string]any)["client_id"] != OfficialClientID {
 		t.Fatal("managed native auth is not pinned")
 	}
-	servers := effective["mcp_servers"].(map[string]any)
-	if servers["mine"] == nil || servers["cxx-agent"] == nil {
-		t.Fatal("MCP merge lost user or managed server")
+	servers := disk["mcp_servers"].(map[string]any)
+	if servers["mine"] != nil || servers["cxx-agent"] == nil {
+		t.Fatal("overlay MCP was activated or managed server was lost")
 	}
 }
 func TestRuntimeDisablesVendorMCPImportsAndPreservesNativeConfiguration(t *testing.T) {
@@ -240,7 +253,10 @@ func TestRuntimeDisablesVendorMCPImportsAndPreservesNativeConfiguration(t *testi
 			r, _ := runtimeFixture(t)
 			// A previously enabled compatibility cell must not pull another
 			// engine's fleet MCP or a stale local endpoint into a managed run.
-			t.Setenv("GROK_CONFIG", `{"compat":{"claude":{"mcps":true,"skills":false,"hooks":true},"cursor":{"mcps":true,"rules":false}},"mcp_servers":{"mine":{"command":"my-tool"},"browseros":{"url":"http://127.0.0.1:9000/mcp"}}}`)
+			if err := os.WriteFile(filepath.Join(r.Home, "config.toml"), []byte("[compat.claude]\nmcps = true\nskills = false\nhooks = true\n[compat.cursor]\nmcps = true\nrules = false\n[mcp_servers.mine]\ncommand = \"my-tool\"\n[mcp_servers.browseros]\nurl = \"http://127.0.0.1:9000/mcp\"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("GROK_CONFIG", `{"compat":{"claude":{"mcps":true,"skills":true},"cursor":{"mcps":true}},"mcp_servers":{"overlay":{"command":"overlay-tool"}}}`)
 			if err := r.Configure("/fixture/cxx", &config.Config{}, portal); err != nil {
 				t.Fatal(err)
 			}
@@ -276,6 +292,9 @@ func TestRuntimeDisablesVendorMCPImportsAndPreservesNativeConfiguration(t *testi
 			}
 			if tree.Get("mcp_servers.mine.command") != "my-tool" || tree.Get("mcp_servers.browseros.url") != "http://127.0.0.1:9000/mcp" {
 				t.Fatal("explicit native Grok MCP servers changed")
+			}
+			if tree.Get("mcp_servers.overlay") != nil {
+				t.Fatal("overlay MCP was promoted to disk")
 			}
 			if _, err := os.Stat(filepath.Join(r.BaseHome, "config.toml")); !os.IsNotExist(err) {
 				t.Fatal("unwrapped native config changed")
@@ -493,17 +512,23 @@ func TestCommunicatorUnknownOutcomeDoesNotEndGrokSession(t *testing.T) {
 
 func TestCurrentModelsKeepsTheSelectedContextWindowInThePrivateRuntime(t *testing.T) {
 	r, _ := runtimeFixture(t)
-	t.Setenv("GROK_CONFIG", `{"models":{"default":"grok-4.5"},"model":{"grok-4.5":{"context_window":500000}}}`)
+	t.Setenv("GROK_CONFIG", `{"models":{"default":"grok-4.5"},"model":{"grok-4.5":{"context_window":256000}}}`)
+	if err := os.WriteFile(filepath.Join(r.Home, "config.toml"), []byte("[model.\"grok-4.5\"]\ncontext_window = 500000\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &config.Config{Engine: "grok", EngineOptions: config.EngineOptions{ModelPolicy: &config.ModelPolicy{LatestOnly: true, Replacements: map[string]string{"grok-4.5": "grok-4.7"}}}}
 	if err := r.Configure("/fixture/cxx", cfg, false); err != nil {
 		t.Fatal(err)
 	}
-	var effective map[string]any
-	if err := json.Unmarshal([]byte(r.effective), &effective); err != nil {
+	raw, err := os.ReadFile(filepath.Join(r.Home, "config.toml"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	models := effective["model"].(map[string]any)
-	if got := models["grok-4.7"].(map[string]any)["context_window"]; got != float64(500000) {
+	tree, err := toml.LoadBytes(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tree.GetPath([]string{"model", "grok-4.7", "context_window"}); got != int64(500000) {
 		t.Fatalf("context window=%v", got)
 	}
 }
