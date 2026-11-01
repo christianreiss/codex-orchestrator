@@ -175,12 +175,23 @@ export function createGrokAuthOwner(deps: GrokAuthOwnerDeps) {
           throw loginRequired('Grok subscription refresh token is missing');
         }
         const endpoint = await discoverEndpoint(request, deadline);
+        if (Date.now() >= deadline) throw unavailable('grok_refresh_transient');
         const attempt = { attemptId: randomUUID(), basePayloadId: base.id, baseGeneration: base.generation };
         await setState('refreshing', { ...attempt, pendingPayloadId: null, responseEnc: null, errorCode: null, nextAttemptAt: null, startedAt: nowIso() });
         await audit('grok.auth.refresh.started');
+        // Persistence/owner queueing can consume the caller's whole budget.
+        // Nothing has been sent yet: leave the grant retryable, not uncertain.
+        if (Date.now() >= deadline) {
+          await setState('idle', { attemptId: null, basePayloadId: null, baseGeneration: null, errorCode: 'deadline_before_send' });
+          await audit('grok.auth.refresh.deferred', { error_code: 'deadline_before_send' });
+          throw unavailable('grok_refresh_transient');
+        }
         let response: Response;
         try {
-          response = await request(endpoint, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: credential.refresh, client_id: credential.clientId }), signal: AbortSignal.timeout(Math.max(1, Math.min(3500, deadline - Date.now()))) });
+          // Once sent, conserve the rotating response independently of the
+          // caller's admission/verification deadline. A tiny remaining caller
+          // budget must never manufacture an ambiguous spend.
+          response = await request(endpoint, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: credential.refresh, client_id: credential.clientId }), signal: AbortSignal.timeout(15000) });
           body = await response.text();
         } catch {
           await setState('uncertain', { errorCode: 'transport_outcome_unknown' });

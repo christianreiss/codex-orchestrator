@@ -113,14 +113,14 @@ async function grokRefreshFixture() {
   runner.verifyGrok.mockClear();
   const base = (await validation.resolveCanonicalPayload('grok', 1))!;
   const replacement = { access_token: 'fixture-grok-successor-access-token', refresh_token: 'fixture-grok-successor-refresh-token', expires_in: 7200 };
-  let refresh = async () => new Response(JSON.stringify(replacement), { status: 200 });
+  let refresh = async (_signal?: AbortSignal | null) => new Response(JSON.stringify(replacement), { status: 200 });
   const spend = vi.fn();
-  const request: typeof fetch = async url => {
+  const request: typeof fetch = async (url, init) => {
     if (String(url).endsWith('/.well-known/openid-configuration'))
       return new Response(JSON.stringify({ issuer: GROK_OIDC_ISSUER, token_endpoint: `${GROK_OIDC_ISSUER}/oauth/token` }));
     expect(String(url)).toBe(`${GROK_OIDC_ISSUER}/oauth/token`);
     spend();
-    return refresh();
+    return refresh(init?.signal);
   };
   const owner = createGrokAuthOwner({ db, keyring, runner, fetchImpl: request });
   const ledger = async () => (await db.select().from(schema.grokAuthRefreshState).where(eq(schema.grokAuthRefreshState.accountId, 1)))[0]!;
@@ -129,6 +129,39 @@ async function grokRefreshFixture() {
 }
 
 describe('canonical credentials under one owner', () => {
+  it('does not spend or poison the account when intent persistence exhausts the caller deadline', async () => {
+    const h = await grokRefreshFixture();
+    const execute = h.runtime.execute.bind(h.runtime);
+    const now = Date.now();
+    let clock: ReturnType<typeof vi.spyOn> | undefined;
+    h.runtime.execute = async command => {
+      const result = await execute(command);
+      if (command.kind === 'auth.grok.audit' && !clock) clock = vi.spyOn(Date, 'now').mockReturnValue(now + 7000);
+      return result;
+    };
+    try {
+      await expect(h.owner.ensureFresh({ accountId: 1 })).rejects.toMatchObject({ code: 'grok_refresh_transient' });
+      expect(h.spend).not.toHaveBeenCalled();
+      expect(await h.ledger()).toMatchObject({ state: 'idle', errorCode: 'deadline_before_send' });
+      clock?.mockRestore();
+      h.runtime.execute = execute;
+      await expect(h.owner.ensureFresh({ accountId: 1 })).resolves.toMatchObject({ refresh_state: 'idle' });
+      expect(h.spend).toHaveBeenCalledTimes(1);
+    } finally { clock?.mockRestore(); h.close(); }
+  });
+
+  it('gives a started provider spend its own transport budget instead of the remaining caller deadline', async () => {
+    const h = await grokRefreshFixture();
+    h.setRefresh(signal => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve(new Response(JSON.stringify(h.replacement))), 3700);
+      signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+    }));
+    try {
+      await expect(h.owner.ensureFresh({ accountId: 1 })).resolves.toMatchObject({ refresh_state: 'idle' });
+      expect(h.spend).toHaveBeenCalledTimes(1);
+    } finally { h.close(); }
+  });
+
   it('captures an owned Grok rotation before verification and promotes it without replay', async () => {
     const h = await grokRefreshFixture();
     try {

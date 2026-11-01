@@ -649,6 +649,16 @@ remain `uncertain`; invalid grants require login. A verified distinct login can
 recover the account. OAuth discovery is constrained to `https://auth.x.ai`;
 uploaded issuer URLs cannot redirect credentials to another endpoint.
 
+The caller's admission/static-verification budget is at most six seconds.
+If discovery or durable intent/audit persistence consumes that budget before
+the token POST, the owner defers without sending a grant (`grok_refresh_transient`);
+a recorded but unsent intent returns to `idle` with `deadline_before_send`.
+A started token POST has its own 15-second transport budget, including reading
+the response body. Successful material is captured even if the caller budget
+expires; subsequent static verification resumes from that capture without
+another spend. Transport failures after sending remain `uncertain` and require
+a distinct login; a timeout never authorizes replay of a rotating refresh token.
+
 Opening a refresh attempt requires the current canonical head. Capturing a
 successful reply instead matches that exact recorded attempt and predecessor,
 with a write-once SQL condition; a later head change cannot discard known
