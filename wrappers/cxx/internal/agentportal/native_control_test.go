@@ -155,3 +155,78 @@ func TestNativeControlStatePushStopsWithoutPolling(t *testing.T) {
 		t.Fatalf("durable exit receipts=%d", exits.Load())
 	}
 }
+
+func TestNativeControlShutdownCancelsInitialSnapshotForEveryEngine(t *testing.T) {
+	oldDial, oldAvailable := dialPortalState, portalStateAvailable
+	defer func() { dialPortalState, portalStateAvailable = oldDial, oldAvailable }()
+	portalStateAvailable = func(context.Context, string) bool { return true }
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			defer close(release)
+			socket := filepath.Join(t.TempDir(), "s")
+			ln, err := net.Listen("unix", socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream := &http.Server{Handler: websocket.Handler(func(ws *websocket.Conn) {
+				defer ws.Close()
+				var open communicator.StateFrame
+				if websocket.JSON.Receive(ws, &open) != nil {
+					return
+				}
+				close(entered)
+				<-release // never provide the initial snapshot
+			})}
+			go stream.Serve(ln)
+			defer stream.Close()
+			dialPortalState = func(ctx context.Context, _ string, scope communicator.StateScope, auth communicator.StateAuth) (*communicator.StateClient, error) {
+				return communicator.DialStateSocket(ctx, socket, "/state", scope, auth)
+			}
+			var finalizations atomic.Int32
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				if r.URL.Path == "/host/agent-sessions/fixture/finish" {
+					finalizations.Add(1)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"instance_id": body["instance_id"]})
+			}))
+			defer api.Close()
+			session := &Session{ID: "fixture", Engine: engine, BridgeToken: "fixture", BaseURL: api.URL, http: api.Client()}
+			ctx, cancel := context.WithCancel(session.withNativeControl(context.Background()))
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "true")
+			supervisor := nativeprocess.Prepare(ctx, cmd, true)
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			supervisor.StartControl()
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("state handshake missing")
+			}
+			if err := cmd.Wait(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() {
+				supervisor.Close()
+				connection := &ConnectionRuntime{session: session, stopHeartbeat: func() {}, restore: func() {}}
+				done <- connection.Close("completed", "normal exit")
+			}()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("already-reaped engine still blocked in shutdown")
+			}
+			if finalizations.Load() != 1 {
+				t.Fatalf("finish calls = %d", finalizations.Load())
+			}
+		})
+	}
+}

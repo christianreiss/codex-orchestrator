@@ -1,3 +1,4 @@
+import { SettingsService } from '../../../src/services/settings.js';
 import { AdvisorService } from '../../../src/services/advisor.js';
 import { touchHostAuthFields, touchHostAuthState } from '../../../src/services/canonical-auth-store.js';
 import { ENGINE_HOST_FIELDS } from '../../../src/util/engine.js';
@@ -758,6 +759,81 @@ describe('owner provider observation writes', () => {
 });
 
 describe('owned advisor composition', () => {
+  it('does not observe a transient messaging flag absent from its policy snapshot', async () => {
+    const h = harness({
+      hosts: [{ id: 1, fqdn: 'advisor.internal', secure: 1, status: 'active',
+        internalRole: 'advisor', engines: 'codex,claude,grok', expiresAt: null }],
+      versions: [],
+    });
+    const proof = h.state.snapshot();
+    await new SettingsService(h.ctx.db).set('agent_messaging_enabled', '1', { publish: false });
+    const result = await new AdvisorService(h.ctx).availability(proof);
+    await mutateOwnerState(h.runtime, {
+      kind: 'fixture.remove-setting', payload: {}, prepare({ draft }) {
+        draft.remove('versions', 'agent_messaging_enabled');
+        return null;
+      },
+    });
+    expect(h.state.snapshot().settings.get('agent_messaging_enabled')).toBeUndefined();
+    expect(proof.settings.get('agent_messaging_enabled')).toBeUndefined();
+    expect(result).toMatchObject({ enabled: false, reason: 'agent_messaging_disabled' });
+  });
+  it.each([
+    ['wrapper_version_codex', '0.9.153', false, false],
+    ['runner_last_check', '2026-11-01T20:00:00Z', false, false],
+    ['agent_messaging_enabled', '0', true, false],
+    ['agent_messaging_enabled', '0', true, true],
+    ...(['codex', 'claude', 'grok'] as const).flatMap(
+      (engine) =>
+        [
+          [`${engine}_engine_disabled`, '1', true, false],
+          [`${engine}_models_latest_only`, '1', true, false],
+          [`${engine}_models_disabled`, 'model', true, false],
+        ] as const,
+    ),
+  ] as const)('fences advisor policy changes, not unrelated %s writes', async (key, value, conflicts, revert) => {
+    const callerId = randomUUID();
+    const h = harness({
+      hosts: [
+        {
+          id: 1,
+          fqdn: 'advisor.internal',
+          secure: 1,
+          status: 'active',
+          internalRole: 'advisor',
+          engines: 'codex,claude,grok',
+          expiresAt: null,
+        },
+      ],
+      agentBusAddresses: [{ id: callerId, launchName: 'Caller', engine: 'codex' }],
+    });
+    const service = new AdvisorService(h.ctx);
+    vi.spyOn(service, 'availability').mockImplementation(async () => {
+      // A normal owner mutation lands while availability is awaited.
+      await new SettingsService(h.ctx.db).set(key, value, { publish: false });
+      if (revert) await new SettingsService(h.ctx.db).set(key, '1', { publish: false });
+      return {
+        enabled: true,
+        reason: 'ok',
+        host_id: 1,
+        engines: ['codex'],
+        models: [{ engine: 'codex', model: 'model', tier: 4 }],
+        default: { engine: 'codex', model: 'model' },
+      };
+    });
+    const caller = { session: { agentBusAddressId: callerId }, host: { fqdn: 'caller.test' } } as never;
+    const request = { question: 'Review', client_message_id: randomUUID() };
+    if (conflicts) {
+      await expect(service.ask(caller, request)).rejects.toMatchObject({ code: 'advisor_policy_changed' });
+      expect(h.state.snapshot().table('advisorSessions').all()).toHaveLength(0);
+      expect(h.state.snapshot().table('hostDaemonSessions').all()).toHaveLength(0);
+    } else {
+      const opened = await service.ask(caller, request);
+      expect(await service.ask(caller, request)).toEqual(opened);
+      expect(h.state.snapshot().table('advisorSessions').all()).toHaveLength(1);
+      expect(h.state.snapshot().table('hostDaemonSessions').all()).toHaveLength(1);
+    }
+  });
   it.each(['codex', 'claude', 'grok'] as const)(
     '%s creates advisor and daemon atomically and closes without nested commands',
     async (engine) => {

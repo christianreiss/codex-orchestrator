@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
+from release_hashes import publication_lock
 import hashlib
 import os
 from pathlib import Path
@@ -91,7 +93,7 @@ def file_sha256(path: Path) -> str:
 
 
 def validate_existing(
-    path: Path, existing: object, engine: str, os_name: str, arch: str
+    path: Path, existing: object, engine: str, os_name: str, arch: str, *, hash_file=None
 ) -> list[dict[str, object]]:
     if not isinstance(existing, dict) or set(existing) != MANIFEST_KEYS:
         raise ValueError(f"invalid existing manifest {path}")
@@ -106,16 +108,25 @@ def validate_existing(
     versions = [str(candidate["version"]) for candidate in builds]
     if len(set(versions)) != len(versions) or current not in versions:
         raise ValueError(f"invalid existing manifest version set {path}")
+    hash_file = hash_file or file_sha256
     for candidate in builds:
         binary = path.parent / f"v{candidate['version']}" / "cxx"
         if not binary.is_file():
             raise ValueError(f"historical payload missing for {candidate['version']} in {path}")
-        if binary.stat().st_size != candidate["size_bytes"] or file_sha256(binary) != candidate["sha256"]:
+        if binary.stat().st_size != candidate["size_bytes"] or hash_file(binary) != candidate["sha256"]:
             raise ValueError(f"historical payload mismatch for {candidate['version']} in {path}")
     return builds
 
 
-def merge(path: Path, engine: str, os_name: str, arch: str, version: str, sha: str, size: int, published: str) -> None:
+def merge(path: Path, engine: str, os_name: str, arch: str, version: str, sha: str, size: int, published: str, *, hash_file=None, lock_held=False) -> None:
+    # Canonical manifests share the store lock with matrix publication. Legacy
+    # standalone fixtures outside a cxx/platform tree lock their own directory.
+    root = path.parent.parent.parent if path.parent.parent.name == "cxx" else path.parent
+    with nullcontext() if lock_held else publication_lock(root):
+        _merge(path, engine, os_name, arch, version, sha, size, published, hash_file=hash_file)
+
+
+def _merge(path: Path, engine: str, os_name: str, arch: str, version: str, sha: str, size: int, published: str, *, hash_file=None) -> None:
     if engine != "cxx" or (os_name, arch) not in {
         ("linux", "amd64"),
         ("linux", "arm64"),
@@ -129,14 +140,15 @@ def merge(path: Path, engine: str, os_name: str, arch: str, version: str, sha: s
     if size <= 0:
         raise ValueError("size_bytes must be positive")
     validate_rfc3339(published)
+    hash_file = hash_file or file_sha256
     new_binary = path.parent / f"v{version}" / "cxx"
-    if not new_binary.is_file() or new_binary.stat().st_size != size or file_sha256(new_binary) != sha:
+    if not new_binary.is_file() or new_binary.stat().st_size != size or hash_file(new_binary) != sha:
         raise ValueError(f"new payload does not match publication metadata: {new_binary}")
 
     builds: list[dict[str, object]] = []
     if path.exists():
         existing = json.loads(path.read_text(encoding="utf-8"))
-        builds = validate_existing(path, existing, engine, os_name, arch)
+        builds = validate_existing(path, existing, engine, os_name, arch, hash_file=hash_file)
 
     retained: list[dict[str, object]] = []
     already_published = False

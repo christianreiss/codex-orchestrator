@@ -472,12 +472,24 @@ overwrites a published version: a `VERSION` that is already `current` is a no-op
 and one that is published but not `current` (a manual rollback) is left alone.
 The manual procedure below is for rollbacks, key rotation and recovery.
 
+Deployment verifies the staged matrix and all rollback bytes **before** stopping
+the API, using `publish-release.py --prepare RECEIPT`. At cutover, `--prepared
+RECEIPT` re-parses every manifest, binds the unchanged source manifests and keeps
+every previously verified destination build. New builds are allowed only after
+normal validation. A private, publisher-owned receipt binds roots/version and
+SHA256 results to device/inode, mode/owner, size, nanosecond mtime and ctime.
+Only unchanged payloads reuse hashes; changed/new files are fully hashed again.
+Both phases serialize cooperating publishers with the same store lock. The
+receipt is a local optimization inside the trusted deployment boundary, not an
+authenticity proof for downloaded data. Standalone publication needs no receipt.
+Phase/platform timings and hashed/reused counts are printed to the deploy log.
+
 Build into a staging directory outside the served `bin/cxx` root; a tag's CI
 archive is a single-version release fragment, not a replacement store. After
 extracting it to a stage root, publish with
 `(cd wrappers && make publish-release OUTROOT=/path/to/stage PUBLISH_ROOT=/path/to/served/wrapper/v2/bin)`.
 The target validates the complete incoming matrix and all existing rollback
-payloads before its first destination write, publishes immutable version
+payloads before its first release mutation, publishes immutable version
 directories by atomic rename, and atomically replaces each platform manifest
 while retaining its history. A multi-platform filesystem has no single
 cross-directory rename: during those four manifest replacements the common

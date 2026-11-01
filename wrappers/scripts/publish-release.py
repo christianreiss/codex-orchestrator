@@ -3,15 +3,22 @@
 
 from __future__ import annotations
 
-import hashlib
+import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
 from datetime import datetime
+import time
+
+from release_hashes import VerifiedHashes, publication_lock
+
+_spec = importlib.util.spec_from_file_location("merge_manifest", Path(__file__).with_name("merge-manifest.py"))
+merger = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(merger)
 
 
 EXPECTED_PLATFORMS = {
@@ -36,15 +43,7 @@ def valid_published_at(value: object) -> bool:
     return "T" in value and parsed.tzinfo is not None
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def load_platform(source: Path, platform: str, version: str) -> dict[str, object]:
+def load_platform(source: Path, platform: str, version: str, hashes: VerifiedHashes) -> dict[str, object]:
     os_name, arch = EXPECTED_PLATFORMS[platform]
     platform_dir = source / "cxx" / platform
     manifest_path = platform_dir / "manifest.json"
@@ -69,7 +68,7 @@ def load_platform(source: Path, platform: str, version: str) -> dict[str, object
     sidecar = binary.with_name("cxx.sha256")
     if not binary.is_file() or not sidecar.is_file():
         raise ReleaseError(f"staged cxx payload incomplete: {binary.parent}")
-    actual_sha = sha256(binary)
+    actual_sha = hashes.sha256(binary)
     actual_size = binary.stat().st_size
     sidecar_fields = sidecar.read_text(encoding="utf-8").split()
     if (
@@ -90,7 +89,7 @@ def load_platform(source: Path, platform: str, version: str) -> dict[str, object
     }
 
 
-def publish_payload(destination: Path, item: dict[str, object], version: str) -> None:
+def publish_payload(destination: Path, item: dict[str, object], version: str, hashes: VerifiedHashes) -> None:
     platform_dir = destination / "cxx" / str(item["platform"])
     target = platform_dir / f"v{version}"
     platform_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +98,7 @@ def publish_payload(destination: Path, item: dict[str, object], version: str) ->
     platform_dir.chmod(0o755)
     if target.exists():
         target_binary = target / "cxx"
-        if not target.is_dir() or not target_binary.is_file() or sha256(target_binary) != item["sha256"]:
+        if not target.is_dir() or not target_binary.is_file() or hashes.sha256(target_binary) != item["sha256"]:
             raise ReleaseError(f"immutable release conflict at {target}")
         if target_binary.stat().st_size != item["size"]:
             raise ReleaseError(f"immutable release size conflict at {target}")
@@ -116,7 +115,7 @@ def publish_payload(destination: Path, item: dict[str, object], version: str) ->
         temporary.chmod(0o755)
         target_binary = temporary / "cxx"
         shutil.copyfile(Path(item["binary"]), target_binary)
-        if target_binary.stat().st_size != item["size"] or sha256(target_binary) != item["sha256"]:
+        if target_binary.stat().st_size != item["size"] or hashes.sha256(target_binary) != item["sha256"]:
             raise ReleaseError(f"staged payload changed while publishing: {item['binary']}")
         target_binary.chmod(0o755)
         sidecar = temporary / "cxx.sha256"
@@ -130,74 +129,104 @@ def publish_payload(destination: Path, item: dict[str, object], version: str) ->
         shutil.rmtree(temporary, ignore_errors=True)
 
 
-def validate_manifests(root: Path, items: list[dict[str, object]]) -> None:
-    """Validate complete manifest history and every payload before publication."""
-    merger = Path(__file__).with_name("merge-manifest.py")
-    for item in items:
-        manifest = root / "cxx" / str(item["platform"]) / "manifest.json"
-        subprocess.run(
-            [
-                sys.executable,
-                str(merger),
-                "--validate",
-                str(manifest),
-                "cxx",
-                str(item["os"]),
-                str(item["arch"]),
-            ],
-            check=True,
-        )
+def log(message: str) -> None:
+    print(f"[wrapper-publication] {message}", file=sys.stderr, flush=True)
 
 
-def validate_destination(destination: Path, items: list[dict[str, object]], version: str) -> None:
-    validate_manifests(destination, items)
+def validate_manifests(root: Path, items: list[dict[str, object]], hashes: VerifiedHashes) -> dict:
+    """Always parse manifests; only unchanged, previously hashed bytes are reused."""
+    manifests = {}
     for item in items:
-        platform_dir = destination / "cxx" / str(item["platform"])
-        target = platform_dir / f"v{version}"
+        platform = str(item["platform"])
+        manifest = root / "cxx" / platform / "manifest.json"
+        started = time.monotonic()
+        if manifest.exists():
+            existing = json.loads(manifest.read_text(encoding="utf-8"))
+            merger.validate_existing(manifest, existing, "cxx", str(item["os"]),
+                                     str(item["arch"]), hash_file=hashes.sha256)
+            manifests[platform] = existing
+        else:
+            manifests[platform] = None
+        log(f"verified {root.name}/{platform} in {time.monotonic()-started:.3f}s")
+    return manifests
+
+
+def validate_destination(destination: Path, items: list[dict[str, object]], version: str,
+                         hashes: VerifiedHashes) -> dict:
+    manifests = validate_manifests(destination, items, hashes)
+    for item in items:
+        target = destination / "cxx" / str(item["platform"]) / f"v{version}"
         if not target.exists():
             continue
         target_binary = target / "cxx"
-        if not target.is_dir() or not target_binary.is_file() or sha256(target_binary) != item["sha256"]:
+        if not target.is_dir() or not target_binary.is_file() or hashes.sha256(target_binary) != item["sha256"]:
             raise ReleaseError(f"immutable release conflict at {target}")
         if target_binary.stat().st_size != item["size"]:
             raise ReleaseError(f"immutable release size conflict at {target}")
+    return manifests
 
 
-def publish(source: Path, destination: Path, version: str) -> None:
-    # Validate the complete matrix before the first destination mutation.
-    items = [load_platform(source, platform, version) for platform in sorted(EXPECTED_PLATFORMS)]
-    validate_manifests(source, items)
-    validate_destination(destination, items, version)
-    for item in items:
-        publish_payload(destination, item, version)
+def validate_prepared_manifests(prepared: dict, current: dict) -> None:
+    if set(prepared) != {"source", "destination"} or prepared["source"] != current["source"]:
+        raise ReleaseError("staged manifests changed since verification")
+    if not isinstance(prepared["destination"], dict) or set(prepared["destination"]) != set(EXPECTED_PLATFORMS):
+        raise ReleaseError("invalid prepared destination inventory")
+    for platform, old in prepared["destination"].items():
+        if old is None:
+            continue
+        now = current["destination"][platform]
+        if not isinstance(old, dict) or not isinstance(old.get("builds"), list):
+            raise ReleaseError("invalid prepared destination manifest")
+        current_builds = {entry["version"]: entry for entry in now["builds"]} if now else {}
+        # A legitimate intervening publication may append builds or move current;
+        # it may not remove or rewrite history verified before the outage.
+        if any(current_builds.get(entry["version"]) != entry for entry in old["builds"]):
+            raise ReleaseError(f"verified destination history changed: {platform}")
 
-    merger = Path(__file__).with_name("merge-manifest.py")
-    for item in items:
-        manifest = destination / "cxx" / str(item["platform"]) / "manifest.json"
-        subprocess.run(
-            [
-                sys.executable,
-                str(merger),
-                str(manifest),
-                "cxx",
-                str(item["os"]),
-                str(item["arch"]),
-                version,
-                str(item["sha256"]),
-                str(item["size"]),
-                str(item["published_at"]),
-            ],
-            check=True,
-        )
+
+def publish(source: Path, destination: Path, version: str, *, prepare: Path | None = None,
+            prepared: Path | None = None) -> None:
+    source, destination = source.resolve(), destination.resolve()
+    binding = {"source": str(source), "destination": str(destination), "version": version}
+    hashes, baseline = VerifiedHashes.read(prepared, binding) if prepared else (VerifiedHashes(), None)
+    # Serialize preparation and activation with standalone manifest writers too.
+    with publication_lock(destination):
+        started = time.monotonic()
+        log("preflight verification" if prepare else "publication verification")
+        items = [load_platform(source, platform, version, hashes) for platform in sorted(EXPECTED_PLATFORMS)]
+        manifests = {
+            "source": validate_manifests(source, items, hashes),
+            "destination": validate_destination(destination, items, version, hashes),
+        }
+        if baseline is not None:
+            validate_prepared_manifests(baseline, manifests)
+        if prepare:
+            hashes.write(prepare, binding, manifests)
+        else:
+            # Complete all-platform validation before the first release mutation.
+            for item in items:
+                publish_payload(destination, item, version, hashes)
+            for item in items:
+                manifest = destination / "cxx" / str(item["platform"]) / "manifest.json"
+                merger.merge(manifest, "cxx", str(item["os"]), str(item["arch"]), version,
+                             str(item["sha256"]), int(item["size"]), str(item["published_at"]),
+                             hash_file=hashes.sha256, lock_held=True)
+        log(f"{'preflight' if prepare else 'publication'} complete in {time.monotonic()-started:.3f}s; "
+            f"hashed {hashes.files_hashed} files/{hashes.bytes_hashed} bytes; reused {hashes.hits} checks")
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 4:
-        print("usage: publish-release.py STAGE_ROOT DESTINATION_ROOT VERSION", file=sys.stderr)
-        return 2
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", type=Path)
+    parser.add_argument("destination", type=Path)
+    parser.add_argument("version")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--prepare", type=Path, help="verify while API is online and write a private receipt; do not publish")
+    mode.add_argument("--prepared", type=Path, help="reuse unchanged verified payloads, rechecking manifests and changed files")
+    args = parser.parse_args(argv[1:])
     try:
-        publish(Path(argv[1]), Path(argv[2]), argv[3].removeprefix("v"))
-    except (OSError, ReleaseError, subprocess.CalledProcessError) as exc:
+        publish(args.source, args.destination, args.version.removeprefix("v"), prepare=args.prepare, prepared=args.prepared)
+    except (OSError, ValueError) as exc:
         print(f"publish-release: {exc}", file=sys.stderr)
         return 1
     return 0

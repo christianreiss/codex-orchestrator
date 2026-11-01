@@ -3,6 +3,7 @@ package communicator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -13,6 +14,64 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/net/websocket"
 )
+
+// Shutdown must interrupt both the HTTP upgrade and the initial snapshot,
+// before the established stream's cancellation watcher exists.
+func TestStateHandshakeCancellation(t *testing.T) {
+	for _, phase := range []string{"upgrade", "snapshot", "snapshot-race"} {
+		t.Run(phase, func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			defer close(release)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var socket string
+			if phase == "upgrade" {
+				socket = filepath.Join(t.TempDir(), "s")
+				ln, err := net.Listen("unix", socket)
+				if err != nil {
+					t.Fatal(err)
+				}
+				srv := &http.Server{Handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+					close(entered)
+					<-release
+				})}
+				go srv.Serve(ln)
+				defer srv.Close()
+			} else {
+				socket = stateTestSocket(t, func(ws *websocket.Conn, open StateFrame) {
+					close(entered)
+					if phase == "snapshot-race" {
+						<-ctx.Done()
+						_ = websocket.JSON.Send(ws, stateTestSnapshot(open))
+					}
+					<-release
+				})
+			}
+			done := make(chan error, 1)
+			go func() {
+				client, err := DialStateSocket(ctx, socket, "/state", StateScope{Topic: "session"}, StateAuth{})
+				if client != nil {
+					client.Close()
+				}
+				done <- err
+			}()
+			select {
+			case <-entered:
+			case <-time.After(time.Second):
+				t.Fatal("handshake did not start")
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("cancel error: %v", err)
+				}
+			case <-time.After(500 * time.Millisecond):
+				t.Fatal("canceled handshake blocked shutdown")
+			}
+		})
+	}
+}
 
 func TestRequestFrameOmitsStateStreamID(t *testing.T) {
 	raw, err := json.Marshal(frame{Type: "request"})

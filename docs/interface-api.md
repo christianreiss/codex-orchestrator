@@ -2828,6 +2828,14 @@ same `<native-user>:daemon` relay namespace as registration.
 
 ### Fleet Advisor
 
+Owner availability reads the messaging switch, engine switches and model-policy
+rows from one immutable snapshot. Admission checks those row identities;
+unrelated wrapper, runner or quota writes do not cause `advisor_policy_changed`.
+Changed existing policy rows require an identical-ID retry even if their values
+were restored. An absent row added and removed during the request is harmless:
+availability never reads its transient value. Daemon and host authorization are
+rechecked at the atomic start.
+
 Any agent can consult a server-hosted senior reviewer when in doubt: to verify a fix, rate a task's
 tier, classify a failure or ask a general question. Each advisor is a host daemon session in the
 stack's own `advisor` container, so parallelism is that daemon's `max_parallel`, idle close is its

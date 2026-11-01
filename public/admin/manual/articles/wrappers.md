@@ -22,6 +22,14 @@ installer does **not** itself `exec` the wrapper. A separate, shorter
 pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
 `exec`s `cxx <engine>` with the original argv.
 
+## Returning to the shell
+
+From cxx 0.9.153, exiting Codex, Claude or Grok cancels pending control
+connections immediately instead of waiting for their 15-second timeout. The
+final session report can still take up to four seconds if the server is slow.
+Run `cxx update` to install the published wrapper; existing sessions keep the
+version they started with, so the change applies to your next launch.
+
 ## Quick launch with `cxx`
 
 Run `cxx` without arguments in a terminal to choose an engine, model and reasoning

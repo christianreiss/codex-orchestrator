@@ -1,5 +1,13 @@
 # Overview
 
+cxx 0.9.153 cancels pending control-state handshakes promptly during shutdown
+for all engines. Advisor admission tolerates unrelated version metadata writes.
+Wrapper deployment verifies immutable history before API quiescence and reuses
+only unchanged verified payloads during cutover; changed files remain fully
+checked. See [shutdown](interface-cdx.md#native-shutdown),
+[Advisor](interface-api.md#fleet-advisor) and
+[wrapper publication](wrapper-v2-architecture.md).
+
 Codex native defaults and profile sidecars support 0.166.0 configuration, including
 scoped MITM signing/body substitution, Vertex project/ADC references and the
 first-party OpenAI model-catalog URL. Exact new fields require an observed 0.166.0

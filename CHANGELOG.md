@@ -1,5 +1,9 @@
 # 2026-11-01
 
+- **cxx 0.9.153 — engine exit:** cancel control-state setup during HTTP upgrade and initial snapshot, preventing a 15-second shutdown join after Codex, Claude or Grok has exited. The separate four-second final-report budget remains.
+- **Fleet Advisor:** unrelated version metadata writes no longer reject new requests as `advisor_policy_changed`; actual messaging, engine and model-policy changes remain fenced.
+- **Deployment:** verify the complete wrapper history before API quiescence, then reuse unchanged verified bytes under the publication lock. Recheck manifests and changed payloads at cutover; retain immutable rollback history and report phase timings.
+
 - **cxx 0.9.152 — Codex session names:** after a native conversation switch, the receiver follows the single replacement root on its private app-server socket instead of remaining pinned to the unloaded thread. The current TUI regains `(Name) task`; old deliveries and pending portal replies are fenced before the new binding registers. Missing or ambiguous roots remain unavailable.
 - **Grok subscription renewal:** exhausted request budgets now defer an unsent refresh instead of starting a token POST with a 1 ms timeout and permanently requiring another login. Started refreshes have an independent 15-second transport budget; successful responses remain durably conserved, and genuinely ambiguous spends are never replayed.
 - **Grok native settings:** reject out-of-range batch-Dream budgets, suggestion tokens, reasoning reminders, per-model compaction percentages and subagent retry attempts before preview/save, including supported version layers. Errors name the field and native range; existing invalid snapshots remain readable for explicit correction without rewriting their historical content.

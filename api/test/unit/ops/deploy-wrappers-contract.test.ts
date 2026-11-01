@@ -33,6 +33,14 @@ describe('deploy.sh wrapper publishing contract', () => {
     expect(deploy).not.toContain('recreate_args=(up -d --force-recreate)');
   });
 
+  it('verifies rollback history before quiescence and rechecks the receipt at activation', () => {
+    const prepare = indexOf('--prepare "$stage/verified-history.json"');
+    const activate = indexOf('--prepared "$staged_wrapper_dir/verified-history.json"');
+    expect(prepare).toBeLessThan(indexOf('activate_wrappers()'));
+    expect(activate).toBeGreaterThan(indexOf('activate_wrappers()'));
+    expect(deploy).toContain('running API was not stopped');
+  });
+
   it('never rebuilds a version that is already published', () => {
     expect(deploy).toContain('log "wrappers current (cxx ${version})"');
     expect(deploy).toContain('leaving wrappers untouched');

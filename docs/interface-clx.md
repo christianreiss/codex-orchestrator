@@ -78,6 +78,12 @@ settings and remote-session controls are available in Active Clients.
 
 ## Native shutdown
 
+From cxx 0.9.153, cancellation interrupts control-state socket setup, including
+the HTTP upgrade and initial snapshot. Native-control and account-worker joins
+therefore do not wait for the 15-second handshake deadline after native exit.
+Remote session finalization retains its separate four-second retry budget; this
+is not a promise that all shutdown work completes within four seconds.
+
 Native launches and help forward SIGINT, SIGTERM and SIGHUP as catchable
 signals, allowing ten seconds for cleanup before forced termination. Exit
 status uses the shell convention `128 + signal`. Headless children, the Codex

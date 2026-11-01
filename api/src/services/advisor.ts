@@ -4,6 +4,7 @@ import {
   type OwnerMutationContext,
 } from '../control-plane/state/runtime.js';
 import type { StateRow } from '../control-plane/state/catalog.js';
+import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
 import { DaemonOperations } from '../control-plane/streams/daemon-operations.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -34,15 +35,15 @@ import {
 import { ApiError, ConflictError, ForbiddenError, NotFoundError } from '../http/errors.js';
 import { decrypt } from '../security/secret-box.js';
 import { ENGINES, type Engine } from '../util/engine.js';
-import { SettingsService } from './settings.js';
+import { SettingsService, isTruthyFlagValue } from './settings.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging/constants.js';
 import { HostDaemonService } from './host-daemon/service.js';
 import { daemonAccepting } from './host-daemon/policy.js';
 import { activeHostEngines } from './host-engine-policy.js';
-import { readFleetEngineState } from './engine-switch.js';
+import { ENGINE_DISABLED_FLAGS, readFleetEngineState, type FleetEngineState } from './engine-switch.js';
 import type { Database } from '../db/client.js';
 import { advisorHost } from './internal-hosts.js';
-import { readModelPolicy } from './model-policy.js';
+import { buildModelPolicy, modelPolicyKey, readModelPolicy } from './model-policy.js';
 import { buildModelTierTable, modelTier } from './model-tiers.js';
 import { ADVISOR_KINDS, advisorFailureDiagnostic, type AdvisorKind } from './advisor-delivery.js';
 import { compareWrapperVersions, highestVersion } from './wrapper-rollout.js';
@@ -59,6 +60,25 @@ export const advisorAskSchema = z
   })
   .strict();
 export type AdvisorAsk = z.infer<typeof advisorAskSchema>;
+
+// Read owned policy from one immutable snapshot, then fence its relevant rows.
+// Unrelated wrapper/runner writes do not change those row identities. A missing
+// row added and removed during awaits is safe: availability never read it.
+const ADVISOR_POLICY_KEYS = [
+  AGENT_MESSAGING_ENABLED_KEY,
+  ...ENGINES.flatMap((engine) => [
+    ENGINE_DISABLED_FLAGS[engine],
+    modelPolicyKey(engine),
+    `${engine}_models_disabled`,
+  ]),
+];
+
+function ownedModelPolicy(snapshot: OwnerStateSnapshot, engine: Engine) {
+  const policy = buildModelPolicy(engine, isTruthyFlagValue(snapshot.setting(modelPolicyKey(engine))));
+  if (policy.latest_only && engine !== 'codex')
+    policy.disabled_models = (snapshot.setting(`${engine}_models_disabled`) ?? '').split(',').filter(Boolean);
+  return policy;
+}
 
 export interface AdvisorAvailability {
   enabled: boolean;
@@ -193,7 +213,9 @@ export class AdvisorService {
    * by its daemon; models are each engine's policy-allowed latest models, the
    * same list the managed Model Class Check offers.
    */
-  async availability(): Promise<AdvisorAvailability & { host_id: number | null }> {
+  async availability(
+    policySnapshot = ownerRuntimeFor(this.ctx.db)?.state.snapshot(),
+  ): Promise<AdvisorAvailability & { host_id: number | null }> {
     const result = (
       enabled: boolean,
       reason: string,
@@ -210,18 +232,32 @@ export class AdvisorService {
     });
     const host = await advisorHost(this.ctx.db);
     if (!host) return result(false, 'advisor_host_missing');
-    if (!(await this.settingsStore.getFlag(AGENT_MESSAGING_ENABLED_KEY, false)))
+    if (
+      !(policySnapshot
+        ? isTruthyFlagValue(policySnapshot.setting(AGENT_MESSAGING_ENABLED_KEY))
+        : await this.settingsStore.getFlag(AGENT_MESSAGING_ENABLED_KEY, false))
+    )
       return result(false, 'agent_messaging_disabled', {}, host.id);
     const view = await this.daemon.view(host.id);
     if (!view.enabled) return result(false, 'advisor_daemon_disabled', {}, host.id);
     if (view.health.state === 'red') return result(false, 'advisor_daemon_unhealthy', {}, host.id);
-    const active = activeHostEngines(host.engines, await readFleetEngineState(this.ctx.db));
+    const fleetState = policySnapshot
+      ? (Object.fromEntries(
+          ENGINES.map((engine) => [
+            engine,
+            !isTruthyFlagValue(policySnapshot.setting(ENGINE_DISABLED_FLAGS[engine])),
+          ]),
+        ) as FleetEngineState)
+      : await readFleetEngineState(this.ctx.db);
+    const active = activeHostEngines(host.engines, fleetState);
     const engines = ENGINES.filter((engine) => active.includes(engine) && view.engines.includes(engine));
     if (!engines.length) return result(false, 'advisor_engine_unavailable', {}, host.id);
     const models: AdvisorAvailability['models'] = [];
     const byEngine: Partial<Record<Engine, string[]>> = {};
     for (const engine of engines) {
-      const policy = await readModelPolicy(this.ctx.db, engine);
+      const policy = policySnapshot
+        ? ownedModelPolicy(policySnapshot, engine)
+        : await readModelPolicy(this.ctx.db, engine);
       byEngine[engine] = policy.latest_models.filter(
         (model) => !(policy.disabled_models ?? []).includes(model),
       );
@@ -372,7 +408,7 @@ export class AdvisorService {
       .find((row) => row.clientKey === clientKey);
     if (prior) return this.view(prior);
     const proof = owner.state.snapshot(),
-      availability = await this.availability();
+      availability = await this.availability(proof);
     if (!availability.enabled)
       throw new ForbiddenError(
         `Fleet Advisor is unavailable (${availability.reason})`,
@@ -389,7 +425,7 @@ export class AdvisorService {
           .all()
           .find((row) => row.clientKey === clientKey);
         if (existing) return { id: existing.id };
-        if (c.snapshot.table('versions') !== proof.table('versions'))
+        if (ADVISOR_POLICY_KEYS.some((key) => c.snapshot.settings.get(key) !== proof.settings.get(key)))
           throw new ConflictError('Advisor policy changed; retry the same request', 'advisor_policy_changed');
         const sessions = c.draft.table('hostDaemonSessions').by('hostId', hostId),
           daemon = c.snapshot.daemons.get(hostId);

@@ -74,11 +74,20 @@ func DialState(ctx context.Context, base string, scope StateScope, auth StateAut
 }
 
 // DialStateSocket is also used by the credential-free per-launch broker client.
-func DialStateSocket(ctx context.Context, socket, path string, scope StateScope, auth StateAuth) (*StateClient, error) {
+func DialStateSocket(ctx context.Context, socket, path string, scope StateScope, auth StateAuth) (client *StateClient, err error) {
 	raw, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return nil, err
 	}
+	// DialContext covers only connect. Keep cancellation effective through the
+	// HTTP upgrade, first snapshot and ack, until the live stream takes over.
+	stopHandshakeCancel := context.AfterFunc(ctx, func() { _ = raw.Close() })
+	defer stopHandshakeCancel()
+	defer func() {
+		if err != nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
 	raw.SetDeadline(time.Now().Add(15 * time.Second))
 	cfg, err := websocket.NewConfig("ws://communicator.local"+path, "http://communicator.local")
 	if err != nil {
@@ -116,6 +125,11 @@ func DialStateSocket(ctx context.Context, socket, path string, scope StateScope,
 	c.live = true
 	raw.SetDeadline(time.Time{})
 	if err = c.send(StateFrame{Type: "state_ack", Protocol: 1, StreamID: first.StreamID, OwnerEpoch: first.OwnerEpoch, Revision: first.Revision}); err != nil {
+		ws.Close()
+		cancel()
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
 		ws.Close()
 		cancel()
 		return nil, err

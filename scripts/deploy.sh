@@ -344,6 +344,9 @@ publish_wrappers() {
   done
 
   staged_wrapper_root="$root"
+  log "verifying cxx ${version} and served rollback history before API quiescence"
+  python3 "${repo_root}/wrappers/scripts/publish-release.py" "$stage/out" "$root" "$version" \
+    --prepare "$stage/verified-history.json" || fail "wrapper preflight verification failed; running API was not stopped"
   log "staged cxx ${version}; publication waits for quiescent cutover"
 }
 
@@ -353,7 +356,8 @@ activate_wrappers() {
   active_pem="$(wrapper_signing_pem)"
   [[ "$(printf '%s\n' "$active_pem" | pem_body)" == "$(pem_body < "$staged_wrapper_dir/keys/signing.pub")" ]] || fail "active signing key changed during the build; rebuild before publishing"
   mkdir -p "$staged_wrapper_root"
-  python3 "${repo_root}/wrappers/scripts/publish-release.py" "$staged_wrapper_dir/out" "$staged_wrapper_root" "$wrapper_version" || fail "wrapper publication failed; restore the quiescent bundle before starting an owner"
+  python3 "${repo_root}/wrappers/scripts/publish-release.py" "$staged_wrapper_dir/out" "$staged_wrapper_root" "$wrapper_version" \
+    --prepared "$staged_wrapper_dir/verified-history.json" || fail "wrapper publication failed; inspect the cutover recovery instructions before starting an owner"
   chmod -R a+rX "$staged_wrapper_root"
   rm -rf -- "$staged_wrapper_dir"
   staged_wrapper_dir=""
