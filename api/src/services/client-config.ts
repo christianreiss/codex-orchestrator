@@ -40,6 +40,7 @@ import type { Json } from '../control-plane/commands.js';
  *   …
  */
 import { createHash } from 'node:crypto';
+import { claudeSettingsFastModeDeprecated } from './claude-fast-mode.js';
 import {
   codexMcpServers,
   mergeNativeSettings,
@@ -66,7 +67,6 @@ import {
   validateCodexFeatureAuthoring,
   validateClaudeAdvisorAuthoring,
   validateClaudeFastModeAuthoring,
-  claudeFastModeDeprecated,
   claudeAdvisorProblem,
   claudeAdvisorRankProblem,
   normalizeStoredModel,
@@ -1096,7 +1096,7 @@ function withClaudeModelEffort(settings: NormalizedSettings): Record<string, unk
   const result: Record<string, unknown> = { ...settings.native_settings };
   // Explicit false is owned even when the template omits fastMode: omitting it
   // would allow a foreign local true to reactivate the deprecated combination.
-  if (claudeFastModeDeprecated(settings.model)) result['fastMode'] = false;
+  if (claudeSettingsFastModeDeprecated(settings)) result['fastMode'] = false;
   if (settings.model && settings.effortLevel) {
     const models = { ...asRecord(result['modelSettings']) };
     models[settings.model] = { ...asRecord(models[settings.model]), effortLevel: settings.effortLevel };
