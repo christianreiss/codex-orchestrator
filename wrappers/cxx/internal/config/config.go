@@ -229,14 +229,14 @@ type ModelCatalogEntry struct {
 // AgentMessaging is optional for backward compatibility. A missing block
 // decodes to Enabled=false, keeping old signed configs dormant.
 type AgentMessaging struct {
-	ReceiverEnabled       bool `json:"receiver_enabled,omitempty"`
+	ReceiverEnabled bool `json:"receiver_enabled,omitempty"`
 	// CapacityContinueEnabled lets the Codex receiver queue a "continue" after a
 	// turn fails with a transient model-capacity error. Codex only.
 	CapacityContinueEnabled bool `json:"capacity_continue_enabled,omitempty"`
-	Enabled             bool `json:"enabled"`
-	RelayPollSeconds      int  `json:"relay_poll_seconds,omitempty"`
-	QueuedTTLSeconds      int  `json:"queued_ttl_seconds,omitempty"`
-	ChannelPreviewEnabled bool `json:"channel_preview_enabled,omitempty"`
+	Enabled                 bool `json:"enabled"`
+	RelayPollSeconds        int  `json:"relay_poll_seconds,omitempty"`
+	QueuedTTLSeconds        int  `json:"queued_ttl_seconds,omitempty"`
+	ChannelPreviewEnabled   bool `json:"channel_preview_enabled,omitempty"`
 	// ListenEnabled gates the model-initiated receive plane: `agent_listen` and
 	// the receive-capable bind it needs. Engine-neutral on purpose, unlike
 	// ChannelPreviewEnabled, which stays Claude-only because it governs
