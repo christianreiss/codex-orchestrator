@@ -1020,14 +1020,23 @@ store/fetch and both settings renders. Examples include `modelSettings`,
 `ultracode`, `worktree`, `voice`, `attribution`, and plugin configuration. These
 are opt-in; an absent extension adds no native defaults or features.
 
-`native_settings.fastMode: true` with the known model `claude-opus-4-8`
+`native_settings.fastMode: true` with the effective known model `claude-opus-4-8`
 (also its `[1m]` form) is rejected with HTTP 422 and
 `param: native_settings.fastMode`. Claude Code [2.1.316 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.316)
 deprecate this combination as of 2026-10-30 and remove it on 2026-11-30;
 after removal native requests fail rather than falling back to standard speed.
 Set `fastMode` to `false` to retain Opus 4.8, or choose Opus 5.5 for fast mode.
 Opus 4.8 itself remains active, and other/custom model IDs retain their mode.
-Migration 0122 changes only stored known-model boolean `true` to `false`,
+The check follows [native model precedence](https://code.claude.com/docs/en/model-config):
+authored `ANTHROPIC_MODEL` overrides `model` (including a host override);
+`ANTHROPIC_DEFAULT_MODEL` applies when no model is selected or the Default option
+is selected. Structured `env` overlays `native_settings.env` leaf by leaf,
+exactly as both renderers do. Known family aliases follow the matching
+`ANTHROPIC_DEFAULT_*_MODEL` pin; `opusplan` also checks its Opus plan phase.
+Specific model IDs do not follow family pins, and custom provider IDs are opaque.
+Existing known retired-ID upgrades run before this check, so an old reference
+that upgrades to Opus 4.8 cannot silently author the deprecated combination.
+Migration 0122 changes only stored effective known-model boolean `true` to `false`,
 preserving model, siblings, and historical body/hash/timestamps. Stored reads
 also normalize this combination to `false`, so operators can fetch and correct
 an unmigrated document. Both settings renderers explicitly emit and own the

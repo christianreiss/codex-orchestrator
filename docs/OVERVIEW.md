@@ -1649,7 +1649,8 @@ managed sessions; see [communicator status](communicator.md).
 Opus 4.8 remains selectable, but its deprecated fast-mode combination is no
 longer accepted in new fleet settings. Set `native_settings.fastMode` to `false`
 or select Opus 5.5 for fast mode. Migration 0122 disables the mode only for
-stored known Opus 4.8 references; host rendering also explicitly disables it
+stored effective known Opus 4.8 references (including authored model environment
+variables and pinned aliases); host rendering also explicitly disables it
 for effective Opus 4.8 overrides. Other/custom models and historical snapshots
 are preserved. Native CLI flags and process environment overrides remain outside
 the managed settings guarantee. See [the Claude contract](interface-clx.md#additional-native-user-settings).

@@ -31,6 +31,7 @@ import { ValidationError } from '../http/errors.js';
 import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, normalizeStoredCodexNativeSettings, validateCodexFeatureDocument, validateCodexMcpOAuthSemantics, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, CLAUDE_SUPPORTED_MODELS, normalizeClaudeModelReference } from './claude-models.js';
+import { claudeSettingsFastModeDeprecated } from './claude-fast-mode.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
 import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
@@ -212,16 +213,9 @@ export function normalizeClaudeModel(value: unknown): string | null {
   return normalizeClaudeModelReference(s);
 }
 
-/** Only this public model/mode combination is deprecated; custom IDs stay opaque.
- * Claude Code 2.1.316 release notes, 2026-10-30 deprecation / 2026-11-30 removal.
- */
-export function claudeFastModeDeprecated(model: unknown): boolean {
-  return typeof model === 'string' && /^claude-opus-4-8(?:\[1m\])?$/i.test(model.trim());
-}
-
 export function validateClaudeFastModeAuthoring(raw: unknown): void {
   const settings = asRecord(raw);
-  if (claudeFastModeDeprecated(normalizeClaudeModel(settings.model))
+  if (claudeSettingsFastModeDeprecated(settings)
     && asRecord(settings.native_settings).fastMode === true) {
     throw new ValidationError(
       'native_settings.fastMode: fast mode on Opus 4.8 is deprecated since 2026-10-30 and is removed on 2026-11-30; set fastMode to false or select Opus 5.5 to keep fast mode',
@@ -501,7 +495,7 @@ export function normalizeSettings(
     const native = normalizeClaudeNativeSettings(settings.native_settings);
     // Historical reads and effective host overrides retain the active model,
     // but never serve its deprecated mode. New raw input is rejected separately.
-    if (claudeFastModeDeprecated(model) && native.fastMode === true) native.fastMode = false;
+    if (claudeSettingsFastModeDeprecated({ ...settings, model, native_settings: native }) && native.fastMode === true) native.fastMode = false;
     if (Object.keys(native).length > 0) out.native_settings = native;
   }
 
