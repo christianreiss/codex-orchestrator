@@ -2026,6 +2026,53 @@ This is agent-executed guidance shared by all three engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
+## Native configuration maintenance (Codex 0.166.0)
+
+The Engines native JSON editor, root configuration and profile sidecars accept the
+published 0.166.0 schema (audited 2026-11-01, SHA-256
+`211bec2282459fcd70e4905af948721177b6ec7a03e0df84cd8b7c131006a6ca`).
+The following additions conditionally require an **observed** native CLI 0.166.0;
+existing settings keep their earlier floors. Explicit false, empty or profile-only
+values count as configured; arbitrary map names containing these words do not.
+
+- Features: `critical_path_timing`, `guardian_native_multi_agent_history`,
+  `mcp_connection_sharing`, `omit_skill_descriptions`, `plugin_discovery_prefetch`,
+  `simplified_selection_hints`, `skill_catalog_deltas`, `untrusted_as_tool_output`.
+- `features.rollout_budget.enforce_limit`, `memories.consolidation_service_tier`
+  and `tui.keymap.global.select_transcript` (native example `ctrl-s`).
+- Provider `project_id`, `location`, `credential_file` and the built-in OpenAI
+  `model_catalog_url` override. Built-in GCP accepts project/location and an absolute
+  host ADC path alongside its existing endpoint/auth/header overrides. The native
+  provider identity `Google Cloud Vertex AI` also requires an absolute ADC path.
+- MITM actions `aws_sigv4` and `body_secret_substitution`, including actions with
+  only one of these operations. They require `mitm.version = 2`; each hook may
+  select at most one signing action and one body substitution action, including
+  repeated references. Referenced operations enforce native port/body limits,
+  signing identifiers, secret-source shape and marker constraints. Body bindings
+  use 1–32 non-overlapping ASCII markers of 16–256 bytes. Body limits may be zero
+  and cannot exceed 16 MiB. Native defaults remain 443 and 8 MiB when omitted.
+
+`model_providers.openai` accepts **only** a `model_catalog_url`: HTTPS on
+`chatgpt.com`, `chat.openai.com`, `chatgpt-staging.com` or subdomains of the first
+and third hosts, without user information. Other OpenAI provider fields are
+rejected because native Codex would ignore them; custom provider IDs retain their
+own catalog routing. The reserved `ollama` and `lmstudio` IDs remain rejected.
+This updates the older 0.165 provider restrictions below. Existing host overrides,
+posture, managed MCP and the fleet updater retain their existing ownership.
+
+The editor authors references to files and environment names; validation never
+opens ADC/secret files, reads secret environment variables or distributes those
+files. Native proxy startup must still resolve the references, validate actual
+secret values and enforce request-time origin/framing constraints. Parser and
+schema checks do not prove a live alternate-provider or proxy operation.
+No optional feature is enabled by this support update.
+
+Sources: [versioned schema](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/config.schema.json),
+[provider loader](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/model-provider-info/src/lib.rs),
+[MITM declarations](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/config/src/permissions_toml.rs),
+[signing validation](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/network-proxy/src/aws_sigv4.rs),
+[body substitution](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/network-proxy/src/secret_substitution.rs).
+
 ## Native configuration maintenance (Codex 0.165.0)
 
 Audited on 2026-10-28 against release `rust-v0.165.0`, commit

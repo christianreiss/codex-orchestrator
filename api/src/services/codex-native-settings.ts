@@ -1,12 +1,12 @@
 /**
- * Codex 0.165.0 native configuration, audited 2026-10-28.
- * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.165.0/codex-rs/core/config.schema.json
- * (byte-identical to https://learn.chatgpt.com/docs/config-schema.json on that date).
- * Original SHA-256: bc14a890a74c7f9a4eb83d772550fe8813c7f389f44c1f18499f0ce24a8e4a60.
+ * Codex 0.166.0 native configuration, audited 2026-11-01.
+ * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/core/config.schema.json
+ * Original SHA-256: 211bec2282459fcd70e4905af948721177b6ec7a03e0df84cd8b7c131006a6ca.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
 import { Ajv } from 'ajv';
+import { posix, win32 } from 'node:path';
 import { validateCodexMitmSettings } from './codex-native-mitm.js';
 import schema from './codex-config-schema.json' with { type: 'json' };
 import { ValidationError } from '../http/errors.js';
@@ -195,7 +195,7 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
   }
 }
 
-const reservedProviderIds = new Set(['openai', 'ollama', 'lmstudio']);
+const reservedProviderIds = new Set(['ollama', 'lmstudio']);
 const bedrockProviderIds = new Set(['amazon-bedrock', 'amazon-bedrock-runtime']);
 /** Serde defaults of `ModelProviderInfo`; every other field is an Option. */
 const providerFieldDefaults: Readonly<Record<string, unknown>> = {
@@ -205,7 +205,7 @@ const providerFieldDefaults: Readonly<Record<string, unknown>> = {
 
 /**
  * Built-in provider rules from `merge_configured_model_providers` in
- * codex-rs/model-provider-info (rust-v0.165.0) and the config loader. Each
+ * codex-rs/model-provider-info (rust-v0.166.0) and the config loader. Each
  * violation stops every native launch at config load. Exact-case IDs only;
  * other (custom) IDs keep their native meaning and are never renamed.
  */
@@ -213,20 +213,47 @@ function validateCodexModelProviders(providers: NativeSettings, path: string): v
   for (const [id, value] of Object.entries(providers)) {
     const field = `${path}.model_providers.${id}`;
     if (reservedProviderIds.has(id)) {
-      throw new ValidationError(`${field}: built-in provider ${id} cannot be overridden; Codex refuses to load reserved model_providers IDs (openai, ollama, lmstudio). Use a custom provider ID such as ${id}-custom and select it with model_provider`, { param: field });
+      throw new ValidationError(`${field}: built-in provider ${id} cannot be overridden; Codex refuses to load reserved model_providers IDs (ollama, lmstudio). Use a custom provider ID such as ${id}-custom and select it with model_provider`, { param: field });
     }
     const provider = nativeRecord(value);
+    if (id === 'openai') {
+      if (!Object.hasOwn(provider, 'model_catalog_url')) {
+        throw new ValidationError(`${field}: built-in provider openai cannot be overridden except for model_catalog_url; other fields are ignored by native Codex`, { param: field });
+      }
+      for (const key of Object.keys(provider)) if (key !== 'model_catalog_url') {
+        throw new ValidationError(`${field}.${key}: built-in openai only consumes model_catalog_url; other fields have no effect`, { param: `${field}.${key}` });
+      }
+      const rawUrl = String(provider.model_catalog_url);
+      const authority = /^https:\/\/([^/?#]*)/i.exec(rawUrl)?.[1];
+      let url: URL | undefined;
+      try { url = new URL(rawUrl); } catch { /* report the field, never its value */ }
+      const host = url?.hostname.toLowerCase();
+      const invalidUriCharacter = [...rawUrl].some(char => char.codePointAt(0)! <= 32 || char === '\u007f' || char === '\\');
+      if (!url || !authority || /[@%\\\s\u0080-\uffff]/.test(authority) || invalidUriCharacter
+        || url.protocol !== 'https:' || url.username || url.password || !host
+        || !(['chatgpt.com', 'chat.openai.com', 'chatgpt-staging.com'].includes(host)
+          || host.endsWith('.chatgpt.com') || host.endsWith('.chatgpt-staging.com'))) {
+        throw new ValidationError(`${field}.model_catalog_url: expected HTTPS on an allowed ChatGPT host without user information; use a custom provider for third-party catalogs`, { param: `${field}.model_catalog_url` });
+      }
+      continue;
+    }
+    if ((id === 'gcp' || provider.name === 'Google Cloud Vertex AI') && Object.hasOwn(provider, 'credential_file')) {
+      const source = String(provider.credential_file);
+      if (!posix.isAbsolute(source) && !(win32.isAbsolute(source) && win32.parse(source).root.length > 1)) {
+        throw new ValidationError(`${field}.credential_file: expected an absolute ADC path on the native host`, { param: `${field}.credential_file` });
+      }
+    }
     const bedrock = bedrockProviderIds.has(id);
     if (Object.hasOwn(provider, 'aws') && !bedrock) {
       throw new ValidationError(`${field}.aws: provider aws is only supported for amazon-bedrock or amazon-bedrock-runtime`, { param: `${field}.aws` });
     }
     if (!bedrock && id !== 'gcp') continue;
-    const allowed = bedrock ? ['base_url', 'auth', 'http_headers', 'aws'] : ['base_url', 'auth', 'http_headers'];
+    const allowed = bedrock ? ['base_url', 'auth', 'http_headers', 'aws'] : ['base_url', 'auth', 'http_headers', 'project_id', 'location', 'credential_file'];
     for (const key of Object.keys(provider)) {
       if (allowed.includes(key) || (Object.hasOwn(providerFieldDefaults, key) && provider[key] === providerFieldDefaults[key])) continue;
       throw new ValidationError(`${field}.${key}: the built-in ${id} provider only supports changing ${bedrock
         ? 'base_url, auth, http_headers, aws.profile, aws.region, aws.credential_export and aws.auth_refresh'
-        : 'base_url, auth and http_headers'}; use a custom provider ID for other provider fields`, { param: `${field}.${key}` });
+        : 'base_url, auth and http_headers, project_id, location and credential_file'}; use a custom provider ID for other provider fields`, { param: `${field}.${key}` });
     }
   }
 }

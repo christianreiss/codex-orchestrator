@@ -1,5 +1,7 @@
 # 2026-11-01
 
+- **Codex 0.166 native settings:** the existing Engines JSON editor and profile sidecars support new feature, rollout-budget, memory-tier, transcript-selection, GCP project/ADC and MITM signing/body-substitution fields. Exact additions require a reported CLI 0.166.0; OpenAI catalog routing accepts only native first-party HTTPS hosts, inert built-in overrides remain rejected, and native proxy constraints are validated without reading credentials. Existing defaults and update/sync recovery remain unchanged.
+
 - **Claude native settings:** support `permissions.blockWritesOutsideWorkingDirectories` through the Engines JSON editor, previews and host settings. Both boolean values require an observed Claude Code 2.1.314 or newer; removal withdraws only that setting. The option stays unset by default and existing local siblings are preserved.
 
 - **Task supervision:** abandoned native sessions no longer start crash recovery merely because their connection expired. Confirmed idle automatic tasks and stale abandonment incidents are cleaned up while unresolved accepted work and explicit watchdogs retain their recovery evidence. Includes Codex, Claude and Grok regressions and a real-MySQL check for direct operator `agent_work_state` reports.

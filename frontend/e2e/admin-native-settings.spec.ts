@@ -76,6 +76,7 @@ test("Codex compaction defaults off and saves the toggle without losing concurre
   const toggle = page.getByRole("switch", { name: "Async compaction", exact: true });
   await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled();
   shared.configs.codex.settings.model = "newer-model";
+  shared.configs.codex.revision = "2";
   shared.configs.codex.settings.profiles = [{ name: "off", native_settings: { features: { async_compaction: false } } }];
   shared.configs.codex.settings.native_settings = { language: "en", features: { hooks: false, async_compaction: { enabled: false, model_async_compact_threshold_percent: 73 } } };
   shared.configs.codex.revision = "3";
@@ -145,6 +146,24 @@ test("native JSON validates, previews and saves each engine without losing separ
     await expect.poll(() => shared.configs[engine].settings.native_settings).toEqual({});
   }
   await page.reload(); await openAdvanced(page, ["codex"]); await expect(page.locator("#codex-native-settings textarea")).toHaveValue("{}");
+});
+
+test("Codex 0.166 native options preview, save and remove through the existing editor", async ({ page }) => {
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["codex"]);
+  const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");
+  await expect(card).toContainText("0.166.0");
+  const native = { features: { plugin_discovery_prefetch: false, rollout_budget: { enforce_limit: false } },
+    memories: { consolidation_service_tier: "priority" }, tui: { keymap: { global: { select_transcript: "ctrl-s" } } } };
+  await editor.fill(JSON.stringify(native));
+  await card.getByRole("button", { name: "Validate and preview" }).click();
+  await expect(card).toContainText("codex validated configuration");
+  shared.configs.codex.settings.model = "newer-model";
+  shared.configs.codex.revision = "2";
+  await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.configs.codex.settings.native_settings).toEqual(native);
+  expect(shared.configs.codex.settings.model).toBe("newer-model");
+  await editor.fill("{}"); await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.configs.codex.settings.native_settings).toEqual({});
 });
 
 test("Claude nested namespaces stay opt-in and can be previewed, changed and removed", async ({ page }) => {
