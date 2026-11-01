@@ -1032,7 +1032,11 @@ authored `ANTHROPIC_MODEL` overrides `model` (including a host override);
 `ANTHROPIC_DEFAULT_MODEL` applies when no model is selected or the Default option
 is selected. Structured `env` overlays `native_settings.env` leaf by leaf,
 exactly as both renderers do. Known family aliases follow the matching
-`ANTHROPIC_DEFAULT_*_MODEL` pin; `opusplan` also checks its Opus plan phase.
+`ANTHROPIC_DEFAULT_*_MODEL` pin, with the optional `[1m]` suffix. Both
+`opusplan` and `opusplan[1m]` check their Opus planning and Sonnet execution
+phase pins. Native `ANTHROPIC_DEFAULT_MODEL` ignores both forms of `opusplan`
+and `haiku`; those values do not select a pinned model through that variable.
+Dynamic `best` resolution depends on account access and remains unknown here.
 Specific model IDs do not follow family pins, and custom provider IDs are opaque.
 Existing known retired-ID upgrades run before this check, so an old reference
 that upgrades to Opus 4.8 cannot silently author the deprecated combination.

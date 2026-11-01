@@ -88,18 +88,18 @@ UPDATE opus48_fast_mode_candidates SET
     ELSE fable_model END;
 
 -- The default option resolves through DEFAULT_MODEL. Native ignores its
--- opusplan value; it must not become a plan-phase selection here.
+-- plan/haiku values after stripping [1m]; they must not become selections here.
 UPDATE opus48_fast_mode_candidates
-SET selected_model = CASE WHEN default_model = 'opusplan' THEN NULL ELSE default_model END
+SET selected_model = CASE WHEN default_model IN ('opusplan','opusplan[1m]','haiku','haiku[1m]') THEN NULL ELSE default_model END
 WHERE selected_model IS NULL OR selected_model = 'default';
 
 UPDATE client_config_documents AS d
 JOIN opus48_fast_mode_candidates AS c ON c.id = d.id
 SET d.settings = JSON_SET(d.settings, '$.native_settings.fastMode', CAST('false' AS JSON))
 WHERE c.selected_model IN ('claude-opus-4-8', 'claude-opus-4-8[1m]')
-  OR (c.selected_model IN ('opus', 'opus[1m]', 'opusplan')
+  OR (c.selected_model IN ('opus', 'opus[1m]', 'opusplan', 'opusplan[1m]')
     AND c.opus_model IN ('claude-opus-4-8', 'claude-opus-4-8[1m]'))
-  OR (c.selected_model IN ('sonnet', 'sonnet[1m]')
+  OR (c.selected_model IN ('sonnet', 'sonnet[1m]', 'opusplan', 'opusplan[1m]')
     AND c.sonnet_model IN ('claude-opus-4-8', 'claude-opus-4-8[1m]'))
   OR (c.selected_model IN ('haiku', 'haiku[1m]')
     AND c.haiku_model IN ('claude-opus-4-8', 'claude-opus-4-8[1m]'))
