@@ -1,5 +1,11 @@
 # Overview
 
+Claude native user settings include the opt-in
+`permissions.blockWritesOutsideWorkingDirectories` boolean. The existing Engines
+JSON editor supports preview, save and removal; configured values require a
+reported Claude Code 2.1.314 or newer, while other settings retain their existing
+version requirements. See the [Claude settings contract](interface-clx.md#additional-native-user-settings).
+
 The 2026-10-27 [WebUI review](ui-review-2026-10-27.md) improves touch controls,
 narrow-screen navigation and reading, filter recovery and truthful account counts.
 It records rendered coverage separately from remaining manual accessibility and

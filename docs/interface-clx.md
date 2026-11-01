@@ -1035,12 +1035,20 @@ project settings cannot enable it, and `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`
 ignores a true value from every scope. Removing it withdraws only that owned leaf.
 No value is inserted by the fleet.
 
+`permissions.blockWritesOutsideWorkingDirectories` is an optional boolean introduced
+in Claude Code 2.1.314. Either explicit value requires a reported CLI version of
+at least 2.1.314. With `true`, native Write, Edit and NotebookEdit refuse writes
+outside the working directories in every permission mode. The existing Engines
+JSON editor can preview, save, change and remove it; removing the key withdraws
+only that owned leaf and preserves read restrictions and other local siblings.
+It is not enabled by default. See the [native release](https://github.com/anthropics/claude-code/releases/tag/v2.1.314).
+
 `sshHostCommands` is rejected with a Desktop-scope explanation: only Claude
 Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.312 on 2026-10-28. Validation rejects unknown
+checked against Claude Code 2.1.316 on 2026-11-01. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys

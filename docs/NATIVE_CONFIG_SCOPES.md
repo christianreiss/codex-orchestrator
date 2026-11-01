@@ -5,7 +5,7 @@ profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed against Codex 0.165.0
-(2026-10-28), Claude Code 2.1.312 (2026-10-28) and Grok Build 1.0.70 (2026-10-26).
+(2026-10-28), Claude Code 2.1.316 (2026-11-01) and Grok Build 1.0.70 (2026-10-26).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -68,6 +68,10 @@ built-in field limits are enforced for every version (see
 is present (including `false`). This opt-in boolean defaults to false; true
 allows sandbox escape and disables the sandbox as a security boundary. Only
 user/managed settings can enable it; subprocess environment scrubbing overrides true.
+`native_settings.permissions.blockWritesOutsideWorkingDirectories` requires
+2.1.314 whenever present, including `false`. With `true`, native Write, Edit and
+NotebookEdit refuse writes outside the working directories in every permission
+mode; it stays unset unless authored. Removing it withdraws that leaf only.
 Claude Desktop 3.6556.0+ owns `sshHostCommands`; CLI defaults reject it with a scope explanation.
 Older or unreported versions receive an actionable config validation
 error with observed and required versions. Empty extensions and existing
