@@ -743,6 +743,28 @@ folder trust. Earlier runtimes copied a hyphenated
 Direct credential overrides and metered-key fallbacks are removed from managed
 subprocess environments.
 
+`GROK_CONFIG` and `GROK_CONFIG_PATH` remain native process overlays, separate
+from the private `config.toml` snapshot. The wrapper never promotes their
+contents into disk configuration: Grok applies its own soft-settings allowlist
+and evaluates its disk-only security gates without the overlay. Consequently,
+an overlay cannot add MCP/plugin discovery, hooks, authentication or endpoint
+policy, sandbox/trust configuration, arbitrary tools or shell environment
+values through the wrapper. The native allowlisted model/feature tuning,
+narrow toolset controls and shell environment filters keep their native scope.
+An existing disk/project MCP definition remains an explicitly authored source.
+
+Inline JSON takes precedence over a file overlay. Empty inline input falls
+through; malformed inline JSON produces a content-free warning and falls
+through to the file. A `.json` file uses JSON; other extensions use TOML.
+Unreadable or malformed files produce a content-free warning and are ignored,
+matching native fallback. Explicit fleet model/effort overrides are applied
+to both the disk projection and the soft model overlay, so an inherited process
+overlay cannot reverse those overrides. Auth, managed MCP, compatibility import
+suppression and receiver hooks retain their separate wrapper-owned projection;
+the wrapper does not encode them as user environment overlays. This boundary
+is verified against the Grok Build 1.0.70 bundled configuration guide and
+`inspect --json` in disposable homes, without login or inference.
+
 Managed runtimes disable Grok's implicit Claude and Cursor MCP imports through
 their private config and process environment. This prevents another engine's
 fleet headers or obsolete local MCP endpoints from entering Grok. Explicit

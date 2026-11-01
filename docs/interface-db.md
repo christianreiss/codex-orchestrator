@@ -64,6 +64,11 @@ does not make a connection-owned row a timed lease.
 
 ## Native configuration data repairs (0071/0072)
 
+Migration `0122_claude_opus48_fast_mode.sql` changes only Claude config rows with
+known `claude-opus-4-8` / `[1m]` root model references and an actual boolean
+`native_settings.fastMode: true` to `false`. Model, JSON siblings, other engines,
+body, hash and timestamps are preserved; no schema shape changes.
+
 These idempotent data migrations change `client_config_documents.settings`, with
 no table or column change. `0071` removes Codex's retired `shell_zsh_fork` only
 at structured/native root and profile feature paths. `0072` removes corroborated

@@ -10,6 +10,10 @@ Claude native user settings include the opt-in
 JSON editor supports preview, save and removal; configured values require a
 reported Claude Code 2.1.314 or newer, while other settings retain their existing
 version requirements. See the [Claude settings contract](interface-clx.md#additional-native-user-settings).
+Grok process overlays retain their native soft-settings boundary. Managed
+launches keep `GROK_CONFIG` / `GROK_CONFIG_PATH` out of disk configuration,
+leaving discovery and trust filtering to Grok while preserving explicit fleet
+model/effort overrides. See the [private runtime contract](interface-cgx.md#isolated-managed-lifecycle).
 
 The 2026-10-27 [WebUI review](ui-review-2026-10-27.md) improves touch controls,
 narrow-screen navigation and reading, filter recovery and truthful account counts.
@@ -1633,3 +1637,13 @@ uses existing project-file authorization and limits and verifies the server's
 size/SHA-256 receipt; see [the CLI contract](interface-cdx.md#local-durable-project-files-and-bootstrap-reconciliation).
 Communicator diagnostics distinguish transport leases from authenticated observed
 managed sessions; see [communicator status](communicator.md).
+
+## Claude Opus 4.8 fast mode
+
+Opus 4.8 remains selectable, but its deprecated fast-mode combination is no
+longer accepted in new fleet settings. Set `native_settings.fastMode` to `false`
+or select Opus 5.5 for fast mode. Migration 0122 disables the mode only for
+stored known Opus 4.8 references; host rendering also explicitly disables it
+for effective Opus 4.8 overrides. Other/custom models and historical snapshots
+are preserved. Native CLI flags and process environment overrides remain outside
+the managed settings guarantee. See [the Claude contract](interface-clx.md#additional-native-user-settings).

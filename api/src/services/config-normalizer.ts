@@ -212,6 +212,24 @@ export function normalizeClaudeModel(value: unknown): string | null {
   return normalizeClaudeModelReference(s);
 }
 
+/** Only this public model/mode combination is deprecated; custom IDs stay opaque.
+ * Claude Code 2.1.316 release notes, 2026-10-30 deprecation / 2026-11-30 removal.
+ */
+export function claudeFastModeDeprecated(model: unknown): boolean {
+  return typeof model === 'string' && /^claude-opus-4-8(?:\[1m\])?$/i.test(model.trim());
+}
+
+export function validateClaudeFastModeAuthoring(raw: unknown): void {
+  const settings = asRecord(raw);
+  if (claudeFastModeDeprecated(normalizeClaudeModel(settings.model))
+    && asRecord(settings.native_settings).fastMode === true) {
+    throw new ValidationError(
+      'native_settings.fastMode: fast mode on Opus 4.8 is deprecated since 2026-10-30 and is removed on 2026-11-30; set fastMode to false or select Opus 5.5 to keep fast mode',
+      { param: 'native_settings.fastMode' },
+    );
+  }
+}
+
 export function normalizeReasoningEffort(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
@@ -473,6 +491,9 @@ export function normalizeSettings(
 
   if (engine === 'claude') {
     const native = normalizeClaudeNativeSettings(settings.native_settings);
+    // Historical reads and effective host overrides retain the active model,
+    // but never serve its deprecated mode. New raw input is rejected separately.
+    if (claudeFastModeDeprecated(model) && native.fastMode === true) native.fastMode = false;
     if (Object.keys(native).length > 0) out.native_settings = native;
   }
 
