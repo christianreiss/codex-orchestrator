@@ -1,5 +1,7 @@
 # 2026-11-01
 
+- **Grok native settings:** reject out-of-range batch-Dream budgets, suggestion tokens, reasoning reminders, per-model compaction percentages and subagent retry attempts before preview/save, including supported version layers. Errors name the field and native range; existing invalid snapshots remain readable for explicit correction without rewriting their historical content.
+
 - **Claude native settings:** support `permissions.blockWritesOutsideWorkingDirectories` through the Engines JSON editor, previews and host settings. Both boolean values require an observed Claude Code 2.1.314 or newer; removal withdraws only that setting. The option stays unset by default and existing local siblings are preserved.
 
 - **Task supervision:** abandoned native sessions no longer start crash recovery merely because their connection expired. Confirmed idle automatic tasks and stale abandonment incidents are cleaned up while unresolved accepted work and explicit watchdogs retain their recovery evidence. Includes Codex, Claude and Grok regressions and a real-MySQL check for direct operator `agent_work_state` reports.

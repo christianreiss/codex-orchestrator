@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { ClientConfigService, normalizeGrokSettings, renderGrokSettings, renderTomlForHost } from '../../../src/services/client-config.js';
 import { normalizeGrokNativeSettings, renderGrokNativeToml } from '../../../src/services/grok-native-settings.js';
@@ -28,7 +29,93 @@ const native = {
   mcp_servers: { 'docs.with.dot': { url: 'https://example.invalid/mcp', bearer_token_file: '~/token', tool_timeouts: { search: 45 } } },
 };
 
+const boundedFields = [
+  { path: ['memory_v2', 'batch_dream_max_run_secs'], min: 60, max: 3600 },
+  { path: ['memory_v2', 'batch_dream_max_calls_per_batch'], min: 2, max: 16 },
+  { path: ['memory_v2', 'batch_dream_max_batch_note_bytes'], min: 16384, max: 262144 },
+  { path: ['prompt_suggestions', 'max_output_tokens'], min: 16, max: 256 },
+  { path: ['long_reasoning_reminder', 'tokens'], min: 100, max: 200000, integer: true },
+  { path: ['long_reasoning_reminder', 'delay'], min: 0, max: 10, integer: true },
+  { path: ['models', 'subagent_rate_limit_max_attempts'], min: 0, max: 32 },
+  { path: ['model', 'custom.with.dots', 'auto_compact_threshold_percent'], min: 0, max: 100, integer: true },
+  { path: ['model', 'custom.with.dots', 'subagent_rate_limit_max_attempts'], min: 0, max: 32 },
+];
+
+function settingAt(path: string[], value: unknown): Record<string, unknown> {
+  let nested = value;
+  for (const key of [...path].reverse()) nested = { [key]: nested };
+  return nested as Record<string, unknown>;
+}
+
 describe('Grok native settings', () => {
+  it.each(boundedFields)('preserves documented bounds and types for $path', ({ path, min, max, integer }) => {
+    for (const value of [min, max]) {
+      const input = settingAt(path, value);
+      expect(normalizeGrokNativeSettings(input)).toEqual(input);
+    }
+    const fractional = settingAt(path, min + 0.5);
+    if (integer) expect(() => normalizeGrokNativeSettings(fractional)).toThrow('expected integer');
+    else expect(normalizeGrokNativeSettings(fractional)).toEqual(fractional);
+    for (const value of [min - 1, max + 1]) {
+      expect(() => normalizeGrokNativeSettings(settingAt(path, value)))
+        .toThrow(`native_settings.${path.join('.')}: expected ${min}–${max}`);
+    }
+    for (const value of [String(min), false]) {
+      expect(() => normalizeGrokNativeSettings(settingAt(path, value))).toThrow(`native_settings.${path.join('.')}: expected`);
+    }
+  });
+
+  it.each(boundedFields.filter(({ path }) => path[0] !== 'model'))('validates $path in version layers without injecting defaults', ({ path, min, max }) => {
+    const layer = { minimum_version: '1.0.70', ...settingAt(path, min) };
+    expect(normalizeGrokNativeSettings({ version_overrides: [layer] })).toEqual({ version_overrides: [layer] });
+    expect(() => normalizeGrokNativeSettings({ version_overrides: [{ ...layer, ...settingAt(path, max + 1) }] }))
+      .toThrow(`native_settings.${path.join('.')}: expected ${min}–${max}`);
+    expect(normalizeGrokNativeSettings({})).toEqual({});
+  });
+
+  it.each(boundedFields)('rejects out-of-range $path before rendering or writing', async ({ path, min, max }) => {
+    const db = createDbFake(), configs = new ClientConfigService(db as never);
+    const settings = { native_settings: settingAt(path, max + 1) };
+    const error = `native_settings.${path.join('.')}: expected ${min}–${max}`;
+    expect(() => configs.render(settings, 'grok')).toThrow(error);
+    await expect(configs.store({ settings }, null, 'grok')).rejects.toThrow(error);
+    expect(db.tables.get(clientConfigDocuments)).toBeUndefined();
+  });
+
+  it('preserves bounded tuning through add, edit and removal without changing custom model IDs', async () => {
+    const db = createDbFake(), configs = new ClientConfigService(db as never);
+    const first = { memory_v2: { batch_dream_max_run_secs: 60 }, model: { 'custom.with.dots': { auto_compact_threshold_percent: 0, subagent_rate_limit_max_attempts: 32 } } };
+    const next = { ...first, memory_v2: { batch_dream_max_run_secs: 3600 } };
+    let revision: string | null = null;
+    for (const native_settings of [first, next, {}]) {
+      const saved = await configs.store({ settings: { native_settings }, expected_revision: revision }, null, 'grok');
+      revision = saved.revision;
+      db.tables.get(clientConfigDocuments)!.sort((a, b) => Number(b.id) - Number(a.id));
+      const fetched = await configs.adminFetch('grok');
+      expect(fetched.settings?.native_settings ?? {}).toEqual(native_settings);
+      expect(configs.render(fetched.settings, 'grok').content).toBe(saved.content);
+      if ('model' in native_settings) {
+        expect(saved.content).toContain('[model."custom.with.dots"]');
+        expect(saved.content).toContain('subagent_rate_limit_max_attempts = 32');
+      } else expect(saved.content).not.toContain('custom.with.dots');
+    }
+  });
+
+  it('keeps an invalid historical snapshot readable and requires explicit correction', async () => {
+    const settings = { native_settings: { memory_v2: { batch_dream_max_run_secs: -1 }, ui: { theme: 'kept' } } };
+    const body = '# original invalid snapshot\n', sha256 = createHash('sha256').update(body).digest('hex');
+    const historical = { id: 1, engine: 'grok', body, sha256, settings };
+    const db = createDbFake(new Map([[clientConfigDocuments, [historical]]]));
+    const configs = new ClientConfigService(db as never);
+    const current = await configs.adminFetch('grok');
+    expect(current).toMatchObject({ revision: '1', content: body, sha256, settings,
+      validation_error: { code: 'validation_failed', param: 'settings.native_settings.memory_v2.batch_dream_max_run_secs' } });
+    await expect(configs.store({ settings: current.settings, expected_revision: current.revision }, null, 'grok')).rejects.toMatchObject({ status: 422 });
+    const corrected = await configs.store({ settings: { native_settings: { memory_v2: { batch_dream_max_run_secs: 60 }, ui: { theme: 'kept' } } }, expected_revision: '1', sha256 }, null, 'grok');
+    expect(corrected.settings.native_settings).toEqual({ memory_v2: { batch_dream_max_run_secs: 60 }, ui: { theme: 'kept' } });
+    expect(historical).toEqual({ id: 1, engine: 'grok', body, sha256, settings });
+  });
+
   it('keeps native configuration through save, read, normalization and host rendering', async () => {
     const configs = new ClientConfigService(createDbFake() as never);
     const saved = await configs.store({ settings: { model: 'grok-4.5', reasoning_effort: 'low', native_settings: native } }, null, 'grok');

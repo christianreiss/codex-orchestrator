@@ -193,7 +193,22 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
     [['ui', 'status_line', 'padding'], 0, 16],
     [['ui', 'status_line', 'refresh_interval'], 1, 86400],
     [['memory_v2', 'daily_token_cap'], 1000000, Number.MAX_SAFE_INTEGER],
+    // Stable 1.0.70's bundled reference explicitly documents these clamps.
+    // Reject the authored value instead of promising a preview the CLI changes.
+    [['memory_v2', 'batch_dream_max_run_secs'], 60, 3600],
+    [['memory_v2', 'batch_dream_max_calls_per_batch'], 2, 16],
+    [['memory_v2', 'batch_dream_max_batch_note_bytes'], 16384, 262144],
+    [['prompt_suggestions', 'max_output_tokens'], 16, 256],
+    [['long_reasoning_reminder', 'tokens'], 100, 200000],
+    [['long_reasoning_reminder', 'delay'], 0, 10],
+    [['models', 'subagent_rate_limit_max_attempts'], 0, 32],
   ];
+  for (const name of Object.keys(grokRecord(value.model))) {
+    ranges.push(
+      [['model', name, 'auto_compact_threshold_percent'], 0, 100],
+      [['model', name, 'subagent_rate_limit_max_attempts'], 0, 32],
+    );
+  }
   for (const [path, min, max] of ranges) {
     const item = path.reduce<unknown>((v, key) => grokRecord(v)[key], value);
     if (item !== undefined && (typeof item !== 'number' || item < min || item > max)) fail(path, `expected ${min}–${max}`);

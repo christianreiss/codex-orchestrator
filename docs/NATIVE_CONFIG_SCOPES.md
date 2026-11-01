@@ -25,6 +25,15 @@ user-settings editors with that reason: Claude `autoUpdatesChannel` and
 `cli.required_maximum_version`, `cli.npm_registry` and `cli.installer` (root and
 `version_overrides`). Migration 0115 removed previously stored values.
 
+Grok user defaults and supported version layers reject numeric values outside
+the stable 1.0.70 reference's documented bounds, rather than let the native CLI
+silently clamp them. This covers batch-Dream budgets, prompt suggestions,
+long-reasoning reminders, per-model compaction percentages and subagent retry
+attempts; [the exact ranges](interface-cgx.md#native-configuration-maintenance-2026-10-26)
+retain native number-versus-integer types. Invalid historical snapshots remain
+available for explicit correction with their original body/hash and a validation
+error; this validation change performs no data migration.
+
 Use the official native mechanisms for the separate scopes:
 
 - [Codex configuration and requirements reference](https://learn.chatgpt.com/docs/config-file/config-reference#requirementstoml).
