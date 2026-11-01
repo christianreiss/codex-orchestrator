@@ -1,4 +1,4 @@
-import { needsCodex164, needsCodex165 } from './codex-native-capabilities.js';
+import { needsCodex164, needsCodex165, needsCodex166 } from './codex-native-capabilities.js';
 import type { Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
 import type { Engine } from '../util/engine.js';
@@ -112,14 +112,15 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
   const codex163 = engine === 'codex' && scopes.some(needsCodex163);
   const codex164 = engine === 'codex' && scopes.some(needsCodex164);
   const codex165 = engine === 'codex' && scopes.some(needsCodex165);
-  if (!root && !profile && !codex163 && !codex164 && !codex165) return;
+  const codex166 = engine === 'codex' && scopes.some(needsCodex166);
+  if (!root && !profile && !codex163 && !codex164 && !codex165 && !codex166) return;
   const raw = engine === 'codex' ? host.clientVersion : host.claudeClientVersion;
   const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
   const claudeNestedNamespaces = engine === 'claude'
     && Object.hasOwn(record(record(value.native_settings).sandbox), 'allowNestedUserNamespaces');
   const claudeWriteBoundary = engine === 'claude'
     && Object.hasOwn(record(record(value.native_settings).permissions), 'blockWritesOutsideWorkingDirectories');
-  const minimum = codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
+  const minimum = codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
   if (!observed || versionCompare(observed, minimum) < 0) {
     throw new ValidationError(`${engine} native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run ${engine === 'codex' ? 'cdx' : 'clx'} update (or cron run to report an already installed version), then retry sync.`, {
       param: root ? 'settings.native_settings' : profile ? 'settings.profiles' : 'settings',

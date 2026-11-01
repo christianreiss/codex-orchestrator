@@ -1,5 +1,10 @@
 # Overview
 
+Codex native defaults and profile sidecars support 0.166.0 configuration, including
+scoped MITM signing/body substitution, Vertex project/ADC references and the
+first-party OpenAI model-catalog URL. Exact new fields require an observed 0.166.0
+CLI; existing settings retain their older floors. Optional switches keep their native defaults. See [the Codex contract](interface-cdx.md#native-configuration-maintenance-codex-01660).
+
 Claude native user settings include the opt-in
 `permissions.blockWritesOutsideWorkingDirectories` boolean. The existing Engines
 JSON editor supports preview, save and removal; configured values require a

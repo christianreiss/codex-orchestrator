@@ -1,4 +1,4 @@
-/** Exact 0.164.0/0.165.0 field paths; map identifiers are never interpreted as paths. */
+/** Exact 0.164.0/0.165.0/0.166.0 field paths; map identifiers are never interpreted as paths. */
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -36,4 +36,21 @@ export function needsCodex164(value: Record<string, unknown>): boolean {
         return Array.isArray(headers) && headers.some(header => Object.hasOwn(record(header), 'placeholder'));
       });
   });
+}
+
+/** New 0.166 fields only; provider/action identifiers remain opaque segments. */
+export function needsCodex166(value: Record<string, unknown>): boolean {
+  const features = record(value.features);
+  return ['critical_path_timing', 'guardian_native_multi_agent_history', 'mcp_connection_sharing',
+    'omit_skill_descriptions', 'plugin_discovery_prefetch', 'simplified_selection_hints',
+    'skill_catalog_deltas', 'untrusted_as_tool_output'].some(key => Object.hasOwn(features, key))
+    || Object.hasOwn(record(features.rollout_budget), 'enforce_limit')
+    || Object.hasOwn(record(value.memories), 'consolidation_service_tier')
+    || Object.hasOwn(record(record(record(value.tui).keymap).global), 'select_transcript')
+    || Object.entries(record(value.model_providers)).some(([id, provider]) =>
+      ['project_id', 'location', 'credential_file'].some(key => Object.hasOwn(record(provider), key))
+      || (id === 'openai' && Object.hasOwn(record(provider), 'model_catalog_url')))
+    || Object.values(record(value.permissions)).some(profile =>
+      Object.values(record(record(record(record(profile).network).mitm).actions))
+        .some(action => ['aws_sigv4', 'body_secret_substitution'].some(key => Object.hasOwn(record(action), key))));
 }

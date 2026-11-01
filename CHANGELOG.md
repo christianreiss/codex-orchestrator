@@ -1,8 +1,10 @@
 # 2026-11-01
 
 - **Grok native settings:** reject out-of-range batch-Dream budgets, suggestion tokens, reasoning reminders, per-model compaction percentages and subagent retry attempts before preview/save, including supported version layers. Errors name the field and native range; existing invalid snapshots remain readable for explicit correction without rewriting their historical content.
+- **Codex 0.166 native settings:** the existing Engines JSON editor and profile sidecars support new feature, rollout-budget, memory-tier, transcript-selection, GCP project/ADC and MITM signing/body-substitution fields. Exact additions require a reported CLI 0.166.0; OpenAI catalog routing accepts only native first-party HTTPS hosts, inert built-in overrides remain rejected, and native proxy constraints are validated without reading credentials. Existing defaults and update/sync recovery remain unchanged.
 
 - **Claude native settings:** support `permissions.blockWritesOutsideWorkingDirectories` through the Engines JSON editor, previews and host settings. Both boolean values require an observed Claude Code 2.1.314 or newer; removal withdraws only that setting. The option stays unset by default and existing local siblings are preserved.
+
 - **Auth runner:** pin Codex 0.166.0 and Claude Code 2.1.316 to the stable/latest-normal releases reviewed on 2026-11-01, with verified Codex Linux amd64/arm64 archive checksums. Grok Build stays at 1.0.70; these source pins do not change host version policy or deploy a runner image.
 
 - **Grok process overlays:** managed launches preserve the native overlay layer instead of copying `GROK_CONFIG` or `GROK_CONFIG_PATH` into `config.toml`. Soft settings retain native filtering; ignored discovery, hook, trust, sandbox and environment-injection settings can no longer become active disk settings through the wrapper. Fleet model/effort and managed auth/MCP keep their existing ownership. Malformed overlays follow native fallback with sanitized warnings.

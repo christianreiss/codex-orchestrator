@@ -4,8 +4,8 @@ The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed against Codex 0.165.0
-(2026-10-28), Claude Code 2.1.316 (2026-11-01) and Grok Build 1.0.70 (2026-10-26).
+can be authored centrally. Coverage was reviewed against Codex 0.166.0
+(2026-11-01), Claude Code 2.1.316 (2026-11-01) and Grok Build 1.0.70 (2026-10-26).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -71,8 +71,15 @@ fields require 0.165.0 only when configured: the `guardianv3`,
 `tui_multi_backend` feature switches, `auto_review.timeout_ms`, and
 `model_provider = "gcp"`. Both root and profile fields are checked; map names
 remain opaque, so a `model_providers.gcp` entry is not gated, but its native
-built-in field limits are enforced for every version (see
-[Codex 0.165 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01650)). Claude native settings require
+built-in field limits are validated during authoring (see
+[Codex 0.165 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01650)).
+New 0.166.0 fields require 0.166.0 only when configured: eight new feature switches,
+rollout-budget enforcement, memory consolidation service tier, transcript-selection
+binding, provider project/location/ADC fields, OpenAI catalog routing and scoped
+MITM signing/body substitutions. The editor validates native provider and proxy
+constraints without reading referenced credentials. See
+[Codex 0.166 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01660).
+Claude native settings require
 2.1.296, or 2.1.305 when `native_settings.sandbox.allowNestedUserNamespaces`
 is present (including `false`). This opt-in boolean defaults to false; true
 allows sandbox escape and disables the sandbox as a security boundary. Only
