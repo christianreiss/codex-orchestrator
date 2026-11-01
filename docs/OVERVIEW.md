@@ -1,5 +1,10 @@
 # Overview
 
+Grok process overlays retain their native soft-settings boundary. Managed
+launches keep `GROK_CONFIG` / `GROK_CONFIG_PATH` out of disk configuration,
+leaving discovery and trust filtering to Grok while preserving explicit fleet
+model/effort overrides. See the [private runtime contract](interface-cgx.md#isolated-managed-lifecycle).
+
 The 2026-10-27 [WebUI review](ui-review-2026-10-27.md) improves touch controls,
 narrow-screen navigation and reading, filter recovery and truthful account counts.
 It records rendered coverage separately from remaining manual accessibility and
