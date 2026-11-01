@@ -56,7 +56,7 @@ func TestNativeDiagnosticsUseVendorWithoutFleetConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CDX_CODEX_BIN", cli)
-	for _, args := range [][]string{{"--version"}, {"-V"}, {"--help"}, {"--config", "model=fixture", "--help"}, {"agents", "--help"}, {"help", "agents"}, {"--model", "fixture", "agents", "--help"}} {
+	for _, args := range [][]string{{"queue", "--resume", "--help"}, {"help", "queue"}, {"queue", "--thread", "fixture", "--help"}, {"archive", "--help"}, {"unarchive", "--help"}, {"help", "delete"}, {"--version"}, {"-V"}, {"--help"}, {"--config", "model=fixture", "--help"}, {"agents", "--help"}, {"help", "agents"}, {"--model", "fixture", "agents", "--help"}} {
 		var out, errOut bytes.Buffer
 		if code := RunNative(args, &out, &errOut); code != 7 || out.String() != strings.Join(args, "\n")+"\n" {
 			t.Fatalf("native %v: code %d output %q stderr %q", args, code, out.String(), errOut.String())
@@ -119,7 +119,7 @@ func TestVariadicImagesAreNeverManagedCommands(t *testing.T) {
 
 func TestUnsupportedNativeServicesFailBeforeConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	for _, args := range [][]string{{"agents"}, {"--model", "fixture", "agents"}, {"prompt", "agents"}, {"--image=a.png", "agents"}, {"remote-control"}, {"--model", "fixture", "exec-server"}, {"app-server", "--listen", "unix:///tmp/unmanaged.sock"}, {"--remote", "unix:///tmp/unmanaged.sock"}} {
+	for _, args := range [][]string{{"queue"}, {"queue", "--resume", "--thread", "fixture", "--message", "text"}, {"queue", "--thread", "fixture", "--message", "--help"}, {"queue", "--thread", "fixture", "--message", "--resume"}, {"archive"}, {"unarchive"}, {"delete"}, {"agents"}, {"--model", "fixture", "agents"}, {"prompt", "agents"}, {"--image=a.png", "agents"}, {"remote-control"}, {"--model", "fixture", "exec-server"}, {"app-server", "--listen", "unix:///tmp/unmanaged.sock"}, {"--remote", "unix:///tmp/unmanaged.sock"}} {
 		var out, stderr bytes.Buffer
 		if code := RunNative(args, &out, &stderr); code != 2 || !strings.Contains(stderr.String(), "separate managed auth/session lifecycle") {
 			t.Fatalf("%q: %d %s", args, code, stderr.String())

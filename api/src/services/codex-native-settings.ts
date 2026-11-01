@@ -1,12 +1,13 @@
 /**
- * Codex 0.165.0 native configuration, audited 2026-10-28.
- * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.165.0/codex-rs/core/config.schema.json
- * (byte-identical to https://learn.chatgpt.com/docs/config-schema.json on that date).
- * Original SHA-256: bc14a890a74c7f9a4eb83d772550fe8813c7f389f44c1f18499f0ce24a8e4a60.
+ * Codex 0.166.0 native configuration, audited 2026-11-01.
+ * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/core/config.schema.json
+ * Original SHA-256: 211bec2282459fcd70e4905af948721177b6ec7a03e0df84cd8b7c131006a6ca.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
 import { Ajv } from 'ajv';
+import { posix, win32 } from 'node:path';
+import { validateCodexKeymapSettings } from './codex-native-keymap.js';
 import { validateCodexMitmSettings } from './codex-native-mitm.js';
 import schema from './codex-config-schema.json' with { type: 'json' };
 import { ValidationError } from '../http/errors.js';
@@ -18,6 +19,7 @@ export const CODEX_RETIRED_FEATURE_KEYS: readonly string[] = [
   "apply_patch_preserve_line_endings",
   "apps_mcp_path_override",
   "code_mode_buffered_exec",
+  "code_mode_tool_description_first",
   "codex_git_commit",
   "collaboration_modes",
   "elevated_windows_sandbox",
@@ -86,6 +88,24 @@ export function nativeRecord(value: unknown): NativeSettings {
     ? value as NativeSettings : {};
 }
 
+/** Stored compatibility only; authoring must use the strict normalizer first. */
+export function normalizeStoredCodexNativeSettings(value: unknown): NativeSettings | undefined {
+  const input = nativeRecord(value);
+  const features = nativeRecord(input.features);
+  if (!Object.hasOwn(features, 'code_mode_tool_description_first')
+    && !Object.hasOwn(nativeRecord(features.guardianv2), 'async_classifier_mode')) {
+    return normalizeCodexNativeSettings(value);
+  }
+  const healed = { ...features };
+  delete healed.code_mode_tool_description_first;
+  if (Object.hasOwn(nativeRecord(features.guardianv2), 'async_classifier_mode')) {
+    const guardian = { ...nativeRecord(features.guardianv2) };
+    delete guardian.async_classifier_mode;
+    healed.guardianv2 = guardian;
+  }
+  return normalizeCodexNativeSettings({ ...input, features: healed });
+}
+
 function cloneJson(value: unknown, path: string): unknown {
   if (value === null) throw new ValidationError(`${path}: TOML has no null value; omit the key instead`, { param: path });
   if (typeof value === 'string' || typeof value === 'boolean') return value;
@@ -120,11 +140,9 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
   }
   const features = nativeRecord(out.features);
   for (const key of Object.keys(features)) {
-    if (CODEX_RETIRED_FEATURE_KEYS.includes(key)) throw new ValidationError(`native_settings.features.${key} is removed or deprecated`, { param: `native_settings.features.${key}` });
+    if (CODEX_RETIRED_FEATURE_KEYS.includes(key)) throw new ValidationError(`native_settings.features.${key} is removed or deprecated; omit it`, { param: `native_settings.features.${key}` });
   }
-  if (Object.hasOwn(nativeRecord(features.guardianv2), 'thread_context')) {
-    throw new ValidationError('native_settings.features.guardianv2.thread_context is removed', { param: 'native_settings.features.guardianv2.thread_context' });
-  }
+  validateCodexRetiredGuardianSettings(features, 'native_settings.features');
   // Model ids live in several native scopes, including profile sidecars. Migrate
   // known deprecated choices only; provider-specific and future ids pass through.
   const agents = nativeRecord(out.agents);
@@ -181,6 +199,7 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
   }
   validateCodexMcpOAuthSemantics(nativeRecord(out.mcp_servers), path);
   validateCodexModelProviders(nativeRecord(out.model_providers), path);
+  validateCodexKeymapSettings(nativeRecord(out.tui).keymap, `${path}.tui.keymap`);
   for (const [name, value] of Object.entries(nativeRecord(out.permissions))) {
     const network = nativeRecord(nativeRecord(value).network);
     if (Object.hasOwn(network, 'mitm')) {
@@ -195,7 +214,7 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
   }
 }
 
-const reservedProviderIds = new Set(['openai', 'ollama', 'lmstudio']);
+const reservedProviderIds = new Set(['ollama', 'lmstudio']);
 const bedrockProviderIds = new Set(['amazon-bedrock', 'amazon-bedrock-runtime']);
 /** Serde defaults of `ModelProviderInfo`; every other field is an Option. */
 const providerFieldDefaults: Readonly<Record<string, unknown>> = {
@@ -205,7 +224,7 @@ const providerFieldDefaults: Readonly<Record<string, unknown>> = {
 
 /**
  * Built-in provider rules from `merge_configured_model_providers` in
- * codex-rs/model-provider-info (rust-v0.165.0) and the config loader. Each
+ * codex-rs/model-provider-info (rust-v0.166.0) and the config loader. Each
  * violation stops every native launch at config load. Exact-case IDs only;
  * other (custom) IDs keep their native meaning and are never renamed.
  */
@@ -213,20 +232,47 @@ function validateCodexModelProviders(providers: NativeSettings, path: string): v
   for (const [id, value] of Object.entries(providers)) {
     const field = `${path}.model_providers.${id}`;
     if (reservedProviderIds.has(id)) {
-      throw new ValidationError(`${field}: built-in provider ${id} cannot be overridden; Codex refuses to load reserved model_providers IDs (openai, ollama, lmstudio). Use a custom provider ID such as ${id}-custom and select it with model_provider`, { param: field });
+      throw new ValidationError(`${field}: built-in provider ${id} cannot be overridden; Codex refuses to load reserved model_providers IDs (ollama, lmstudio). Use a custom provider ID such as ${id}-custom and select it with model_provider`, { param: field });
     }
     const provider = nativeRecord(value);
+    if (id === 'openai') {
+      if (!Object.hasOwn(provider, 'model_catalog_url')) {
+        throw new ValidationError(`${field}: built-in provider openai cannot be overridden except for model_catalog_url; other fields are ignored by native Codex`, { param: field });
+      }
+      for (const key of Object.keys(provider)) if (key !== 'model_catalog_url') {
+        throw new ValidationError(`${field}.${key}: built-in openai only consumes model_catalog_url; other fields have no effect`, { param: `${field}.${key}` });
+      }
+      const rawUrl = String(provider.model_catalog_url);
+      const authority = /^https:\/\/([^/?#]*)/i.exec(rawUrl)?.[1];
+      let url: URL | undefined;
+      try { url = new URL(rawUrl); } catch { /* report the field, never its value */ }
+      const host = url?.hostname.toLowerCase();
+      const invalidUriCharacter = [...rawUrl].some(char => char.codePointAt(0)! <= 32 || char === '\u007f' || char === '\\');
+      if (!url || !authority || /[@%\\\s\u0080-\uffff]/.test(authority) || invalidUriCharacter
+        || url.protocol !== 'https:' || url.username || url.password || !host
+        || !(['chatgpt.com', 'chat.openai.com', 'chatgpt-staging.com'].includes(host)
+          || host.endsWith('.chatgpt.com') || host.endsWith('.chatgpt-staging.com'))) {
+        throw new ValidationError(`${field}.model_catalog_url: expected HTTPS on an allowed ChatGPT host without user information; use a custom provider for third-party catalogs`, { param: `${field}.model_catalog_url` });
+      }
+      continue;
+    }
+    if ((id === 'gcp' || provider.name === 'Google Cloud Vertex AI') && Object.hasOwn(provider, 'credential_file')) {
+      const source = String(provider.credential_file);
+      if (!posix.isAbsolute(source) && !(win32.isAbsolute(source) && win32.parse(source).root.length > 1)) {
+        throw new ValidationError(`${field}.credential_file: expected an absolute ADC path on the native host`, { param: `${field}.credential_file` });
+      }
+    }
     const bedrock = bedrockProviderIds.has(id);
     if (Object.hasOwn(provider, 'aws') && !bedrock) {
       throw new ValidationError(`${field}.aws: provider aws is only supported for amazon-bedrock or amazon-bedrock-runtime`, { param: `${field}.aws` });
     }
     if (!bedrock && id !== 'gcp') continue;
-    const allowed = bedrock ? ['base_url', 'auth', 'http_headers', 'aws'] : ['base_url', 'auth', 'http_headers'];
+    const allowed = bedrock ? ['base_url', 'auth', 'http_headers', 'aws'] : ['base_url', 'auth', 'http_headers', 'project_id', 'location', 'credential_file'];
     for (const key of Object.keys(provider)) {
       if (allowed.includes(key) || (Object.hasOwn(providerFieldDefaults, key) && provider[key] === providerFieldDefaults[key])) continue;
       throw new ValidationError(`${field}.${key}: the built-in ${id} provider only supports changing ${bedrock
         ? 'base_url, auth, http_headers, aws.profile, aws.region, aws.credential_export and aws.auth_refresh'
-        : 'base_url, auth and http_headers'}; use a custom provider ID for other provider fields`, { param: `${field}.${key}` });
+        : 'base_url, auth and http_headers, project_id, location and credential_file'}; use a custom provider ID for other provider fields`, { param: `${field}.${key}` });
     }
   }
 }
@@ -286,8 +332,19 @@ export function validateCodexMcpOAuthSemantics(servers: NativeSettings, path = '
  * Nested nulls remain invalid because TOML cannot represent them.
  */
 export function validateCodexFeatureDocument(features: NativeSettings, path: string, partialFeatures = false): void {
+  validateCodexRetiredGuardianSettings(features, `${path}.features`);
   const checked = Object.fromEntries(Object.entries(features).map(([key, value]) => [key, value === null ? false : value]));
   validateCodexConfigDocument({ features: cloneJson(checked, `${path}.features`) }, { path, partialFeatures });
+}
+
+/** Upstream retains these compatibility keys in its schema but ignores them. */
+function validateCodexRetiredGuardianSettings(features: NativeSettings, path: string): void {
+  for (const key of ['thread_context', 'async_classifier_mode']) {
+    if (Object.hasOwn(nativeRecord(features.guardianv2), key)) {
+      const field = `${path}.guardianv2.${key}`;
+      throw new ValidationError(`${field} is removed or deprecated and ignored; omit it${key === 'async_classifier_mode' ? ' (asynchronous classification always uses conversations)' : ''}`, { param: field });
+    }
+  }
 }
 
 /** Deep merge with explicit values winning. No array concatenation or mutation. */

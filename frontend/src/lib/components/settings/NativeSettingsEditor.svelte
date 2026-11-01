@@ -23,8 +23,8 @@
     : settings && Object.hasOwn(settings, "native_settings") ? settings.native_settings : nativeSettingsOf(settings);
   const parse = (text: string) => profiles ? parseNativeProfiles(text) : parseNativeSettings(text);
   const references = {
-    codex: { version: "0.165.0", url: "https://developers.openai.com/codex/config-reference/" },
-    claude: { version: "2.1.312", url: "https://code.claude.com/docs/en/settings-reference" },
+    codex: { version: "0.166.0", url: "https://developers.openai.com/codex/config-reference/" },
+    claude: { version: "2.1.316", url: "https://code.claude.com/docs/en/settings-reference" },
     grok: { version: "1.0.70", url: "https://docs.x.ai/build/settings/reference" },
   };
   const qc = useQueryClient();
@@ -118,6 +118,8 @@
     <p class="mt-2 max-w-3xl text-body-sm text-muted-foreground">
       sandbox.allowNestedUserNamespaces requires Claude Code 2.1.305 or newer. It defaults to false.
       Setting it to true lets sandboxed commands escape the sandbox; protected paths and credentials are no longer a security boundary.
+      permissions.blockWritesOutsideWorkingDirectories requires Claude Code 2.1.314 or newer, including an explicit false.
+      Set true to block Write, Edit and NotebookEdit outside working directories in every permission mode.
       Desktop-only sshHostCommands is configured in Claude Desktop.
     </p>
   {/if}

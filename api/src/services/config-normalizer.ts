@@ -28,9 +28,10 @@
 
 import { createHash } from 'node:crypto';
 import { ValidationError } from '../http/errors.js';
-import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, validateCodexFeatureDocument, validateCodexMcpOAuthSemantics, type CodexApprovalPolicy } from './codex-native-settings.js';
+import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, normalizeStoredCodexNativeSettings, validateCodexFeatureDocument, validateCodexMcpOAuthSemantics, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, CLAUDE_SUPPORTED_MODELS, normalizeClaudeModelReference } from './claude-models.js';
+import { claudeSettingsFastModeDeprecated } from './claude-fast-mode.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
 import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
@@ -212,6 +213,17 @@ export function normalizeClaudeModel(value: unknown): string | null {
   return normalizeClaudeModelReference(s);
 }
 
+export function validateClaudeFastModeAuthoring(raw: unknown): void {
+  const settings = asRecord(raw);
+  if (claudeSettingsFastModeDeprecated(settings)
+    && asRecord(settings.native_settings).fastMode === true) {
+    throw new ValidationError(
+      'native_settings.fastMode: fast mode on Opus 4.8 is deprecated since 2026-10-30 and is removed on 2026-11-30; set fastMode to false or select Opus 5.5 to keep fast mode',
+      { param: 'native_settings.fastMode' },
+    );
+  }
+}
+
 export function normalizeReasoningEffort(value: unknown): string | null {
   const s = normalizeString(value);
   if (s === null) return null;
@@ -321,6 +333,7 @@ function normalizeFeatures(value: unknown): Record<string, unknown> {
   }
   const guardian = asRecord(cleaned.guardianv2);
   if (Object.hasOwn(guardian, 'thread_context')) delete guardian.thread_context;
+  if (Object.hasOwn(guardian, 'async_classifier_mode')) delete guardian.async_classifier_mode;
   return cleaned;
 }
 
@@ -332,6 +345,13 @@ export function validateCodexFeatureAuthoring(raw: unknown): void {
     input.profiles.forEach((profile, i) => scopes.push([asRecord(profile), `settings.profiles[${i}]`]));
   }
   for (const [scope, path] of scopes) {
+    // Validate native authoring before stored compatibility healing can remove
+    // obsolete values. Profile errors identify the sidecar that needs editing.
+    try { normalizeCodexNativeSettings(scope.native_settings); }
+    catch (error) {
+      if (!(error instanceof ValidationError) || path === 'settings') throw error;
+      throw new ValidationError(`${path}.${error.message}`, { param: `${path}.${error.param ?? 'native_settings'}` });
+    }
     if (scope.features === undefined || scope.features === null) continue;
     if (typeof scope.features !== 'object' || Array.isArray(scope.features)) {
       throw new ValidationError(`${path}.features must be an object or null to clear it`, { param: `${path}.features` });
@@ -363,7 +383,7 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
   for (const entry of value) {
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
       const input = entry as Record<string, unknown>;
-      const native = normalizeCodexNativeSettings(input.native_settings);
+      const native = normalizeStoredCodexNativeSettings(input.native_settings);
       if (native && Object.keys(native).length > 0 && (typeof input.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(input.name))) {
         throw new ValidationError('A native profile needs a file-safe name of 1–64 letters, digits, underscores or hyphens', { param: 'profiles.name' });
       }
@@ -424,7 +444,7 @@ export function normalizeSettings(
       }
     }
   }
-  const native = isCodex ? normalizeCodexNativeSettings(asRecord(raw).native_settings) : undefined;
+  const native = isCodex ? normalizeStoredCodexNativeSettings(asRecord(raw).native_settings) : undefined;
   const settings = asRecord(raw);
   const rawModel = settings.model ?? (applyCodexDefaults ? DEFAULT_CODEX_MODEL : undefined);
   const model = engine === 'claude' ? normalizeClaudeModel(rawModel) : normalizeStoredModel(rawModel);
@@ -473,6 +493,9 @@ export function normalizeSettings(
 
   if (engine === 'claude') {
     const native = normalizeClaudeNativeSettings(settings.native_settings);
+    // Historical reads and effective host overrides retain the active model,
+    // but never serve its deprecated mode. New raw input is rejected separately.
+    if (claudeSettingsFastModeDeprecated({ ...settings, model, native_settings: native }) && native.fastMode === true) native.fastMode = false;
     if (Object.keys(native).length > 0) out.native_settings = native;
   }
 

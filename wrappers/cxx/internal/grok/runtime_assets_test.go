@@ -160,7 +160,7 @@ func TestRuntimeCopiesBundleCachesWhenASandboxProfileIsSelected(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if scenario == "off" {
+				if scenario == "off" || scenario == "overlay" {
 					if info.Mode()&os.ModeSymlink == 0 {
 						t.Fatalf("%s copied although no sandbox profile is selected", name)
 					}
@@ -170,7 +170,7 @@ func TestRuntimeCopiesBundleCachesWhenASandboxProfileIsSelected(t *testing.T) {
 					t.Fatalf("%s is not a real directory under a sandbox profile", name)
 				}
 			}
-			if scenario == "off" {
+			if scenario == "off" || scenario == "overlay" {
 				return
 			}
 			script, err := os.Stat(filepath.Join(r.Home, "bundled", "skills", "tool", "run.sh"))

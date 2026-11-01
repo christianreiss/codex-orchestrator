@@ -55,7 +55,7 @@ describe('Codex 0.163 conditional capability floor', () => {
     host: { clientVersion: version } as never, baseUrl: null, apiKey: null });
   const fields = [
     { include_environment_context_time: false },
-    ...['async_compaction', 'code_mode_host_grpc', 'code_mode_tool_description_first', 'credential_masking',
+    ...['async_compaction', 'code_mode_host_grpc', 'credential_masking',
       'guardian_trust_orchestrator_connectors', 'output_token_replay', 'retain_client_tool_outputs',
       'subagent_default_context_limits'].map(key => ({ features: { [key]: false } })),
     { features: { multi_agent_v2: { disable_native_tools: false } } },
@@ -113,5 +113,31 @@ describe('Claude nested user namespaces conditional capability floor', () => {
     } })).not.toThrow();
     expect(() => render(null, { native_settings: {} })).not.toThrow();
     expect(() => render('2.1.296', { native_settings: { sandbox: {} } })).not.toThrow();
+  });
+});
+
+describe('Claude write boundary conditional capability floor', () => {
+  const render = (version: string | null, settings: unknown) => renderClaudeSettingsPartialForHost({
+    settings, host: { claudeClientVersion: version, claudeWrapperVersion: '0.9.66' } as never, baseUrl: null, apiKey: null,
+  });
+  it.each([false, true])('requires 2.1.314 for blockWritesOutsideWorkingDirectories=%s', blockWritesOutsideWorkingDirectories => {
+    const settings = { native_settings: { permissions: { blockWritesOutsideWorkingDirectories }, sandbox: { allowNestedUserNamespaces: false } } };
+    for (const version of ['2.1.296', '2.1.305', '2.1.313', null]) {
+      expect(() => render(version, settings)).toThrow(/2\.1\.314.*observed.*clx update/);
+    }
+    expect(render('2.1.314 (Claude Code)', settings).partial.permissions)
+      .toMatchObject({ blockWritesOutsideWorkingDirectories });
+    expect(() => render('2.1.316', settings)).not.toThrow();
+    expect(JSON.parse(new ClientConfigService({} as never).render(settings, 'claude').content).permissions)
+      .toMatchObject({ blockWritesOutsideWorkingDirectories });
+  });
+  it('does not interpret opaque map keys as settings and withdraws the new floor on removal', () => {
+    expect(() => render('2.1.296', { native_settings: {
+      permissions: { blockReadsOutsideWorkingDirectories: true },
+      env: { 'permissions.blockWritesOutsideWorkingDirectories': 'opaque' },
+      modelSettings: { blockWritesOutsideWorkingDirectories: { effortLevel: 'high' } },
+    } })).not.toThrow();
+    expect(() => render('2.1.305', { native_settings: { sandbox: { allowNestedUserNamespaces: false } } })).not.toThrow();
+    expect(() => render(null, { native_settings: {} })).not.toThrow();
   });
 });

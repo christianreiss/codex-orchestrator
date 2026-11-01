@@ -181,7 +181,7 @@ const native163 = {
   include_environment_context_time: false,
   features: {
     async_compaction: { enabled: true, model_async_compact_threshold_percent: 65 },
-    code_mode_host_grpc: false, code_mode_tool_description_first: true,
+    code_mode_host_grpc: false,
     credential_masking: true, guardian_trust_orchestrator_connectors: false,
     output_token_replay: false, retain_client_tool_outputs: true,
     subagent_default_context_limits: true,

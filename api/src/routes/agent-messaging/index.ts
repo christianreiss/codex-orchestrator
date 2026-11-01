@@ -1,3 +1,4 @@
+import { retryEmulatedWork } from '../../services/quota-emulation-work.js';
 import { registerCoordinationRoutes } from './coordination.js';
 import { createWorkflowsService, registerWorkflowBridgeRoutes } from './workflows.js';
 import { registerRoleRoutes } from './roles.js';
@@ -206,6 +207,12 @@ export async function registerAgentMessagingRoutes(
       return result;
     },
   );
+  app.post('/admin/agent-messaging/messages/:id/quota-retry', { preHandler: app.requireAdmin }, async req => {
+    z.object({}).strict().parse(req.body);
+    const result = await retryEmulatedWork(ctx.db, z.string().uuid().parse(stringParam(req.params, 'id')), `admin:${actor(req)}`);
+    await events.record({ type: 'agent_messaging.message.changed', payload: result }, { broadcast: false });
+    return result;
+  });
   app.post('/admin/agent-messaging/messages/:id/fresh-start', { preHandler: app.requireAdmin }, async req => {
     const body = z.object({ version: z.number().int().positive(), reason: z.string().trim().min(1).max(500) }).strict().parse(req.body);
     return messaging.approveMessageFreshStart(stringParam(req.params, 'id'), body.version, body.reason, `admin:${actor(req)}`);

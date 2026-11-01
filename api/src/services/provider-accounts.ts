@@ -1,3 +1,5 @@
+import { quotaSnapshot } from './quota-observation.js';
+import { emulationBlocks, emulationLimitError } from './quota-emulation.js';
 import {persistAuditLog} from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders } from '../control-plane/streams/provider-leases.js';
@@ -308,6 +310,7 @@ export class ProviderAccountsService {
             updated_at: a.updatedAt,
             last_selected_at: a.lastSelectedAt,
             usage,
+            quota_snapshot: await quotaSnapshot(this.db, a.id, a.engine as Engine),
             quota_policy: (await readQuotaPolicy(this.db, a.engine as Engine, a.id)).effective,
             plan,
             sessions: sessions
@@ -458,6 +461,8 @@ export class ProviderAccountsService {
           `No verified ${PROVIDER_LABELS[engine]} account available`,
           'account_unavailable',
         );
+      const quota = await quotaSnapshot(tx, account.id, engine);
+      if (!quota?.unlimited && emulationBlocks(quota?.short)) throw emulationLimitError(quota!.short!.resets_at!);
       const expiresAt = new Date(Date.now() + 300_000).toISOString();
       await tx
         .insert(providerAccountSessions)

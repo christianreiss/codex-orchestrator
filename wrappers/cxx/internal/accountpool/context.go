@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -139,19 +140,20 @@ func (c *Context) saveLocked() error {
 }
 
 type LeaseResponse struct {
-	QuotaUnlimited      *bool           `json:"quota_unlimited"`
-	AccountID           int64           `json:"account_id"`
-	AccountLabel        string          `json:"account_label"`
-	SessionID           string          `json:"session_id"`
-	Auth                json.RawMessage `json:"auth"`
-	CanonicalDigest     string          `json:"canonical_digest"`
-	VerificationState   string          `json:"verification_state"`
-	CanonicalGeneration int64           `json:"canonical_generation"`
-	AccessTokenDigest   string          `json:"access_token_digest"`
-	AccessExpiresAt     string          `json:"access_expires_at"`
-	QuotaHardFail       *bool           `json:"quota_hard_fail"`
-	QuotaLimitPercent   *int            `json:"quota_limit_percent"`
-	QuotaWeekPartition  *int            `json:"quota_week_partition"`
+	QuotaSnapshot       *quotaemulation.Snapshot `json:"quota_snapshot,omitempty"`
+	QuotaUnlimited      *bool                    `json:"quota_unlimited"`
+	AccountID           int64                    `json:"account_id"`
+	AccountLabel        string                   `json:"account_label"`
+	SessionID           string                   `json:"session_id"`
+	Auth                json.RawMessage          `json:"auth"`
+	CanonicalDigest     string                   `json:"canonical_digest"`
+	VerificationState   string                   `json:"verification_state"`
+	CanonicalGeneration int64                    `json:"canonical_generation"`
+	AccessTokenDigest   string                   `json:"access_token_digest"`
+	AccessExpiresAt     string                   `json:"access_expires_at"`
+	QuotaHardFail       *bool                    `json:"quota_hard_fail"`
+	QuotaLimitPercent   *int                     `json:"quota_limit_percent"`
+	QuotaWeekPartition  *int                     `json:"quota_week_partition"`
 }
 
 // acquireLease retries only transient gateway failures. Reusing the original

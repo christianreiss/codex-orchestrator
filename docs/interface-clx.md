@@ -1020,6 +1020,37 @@ store/fetch and both settings renders. Examples include `modelSettings`,
 `ultracode`, `worktree`, `voice`, `attribution`, and plugin configuration. These
 are opt-in; an absent extension adds no native defaults or features.
 
+`native_settings.fastMode: true` with the effective known model `claude-opus-4-8`
+(also its `[1m]` form) is rejected with HTTP 422 and
+`param: native_settings.fastMode`. Claude Code [2.1.316 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.316)
+deprecate this combination as of 2026-10-30 and remove it on 2026-11-30;
+after removal native requests fail rather than falling back to standard speed.
+Set `fastMode` to `false` to retain Opus 4.8, or choose Opus 5.5 for fast mode.
+Opus 4.8 itself remains active, and other/custom model IDs retain their mode.
+The check follows [native model precedence](https://code.claude.com/docs/en/model-config):
+authored `ANTHROPIC_MODEL` overrides `model` (including a host override);
+`ANTHROPIC_DEFAULT_MODEL` applies when no model is selected or the Default option
+is selected. Structured `env` overlays `native_settings.env` leaf by leaf,
+exactly as both renderers do. Known family aliases follow the matching
+`ANTHROPIC_DEFAULT_*_MODEL` pin, with the optional `[1m]` suffix. Both
+`opusplan` and `opusplan[1m]` check their Opus planning and Sonnet execution
+phase pins. Native `ANTHROPIC_DEFAULT_MODEL` ignores both forms of `opusplan`
+and `haiku`; those values do not select a pinned model through that variable.
+Dynamic `best` resolution depends on account access and remains unknown here.
+Specific model IDs do not follow family pins, and custom provider IDs are opaque.
+Existing known retired-ID upgrades run before this check, so an old reference
+that upgrades to Opus 4.8 cannot silently author the deprecated combination.
+Migration 0122 changes only stored effective known-model boolean `true` to `false`,
+preserving model, siblings, and historical body/hash/timestamps. Stored reads
+also normalize this combination to `false`, so operators can fetch and correct
+an unmigrated document. Both settings renderers explicitly emit and own the
+`fastMode: false` leaf whenever the effective model is known Opus 4.8, including
+host overrides and omitted template modes; a foreign local `true` cannot survive
+that projection. On other models, removing the mode withdraws its exact owned
+leaf, and no mode is enabled automatically. Native command-line flags or process
+environment overrides outside the managed settings document remain outside
+this guarantee.
+
 `idleCompaction` is an optional boolean: `false` stops idle conversation
 compaction; `true` leaves native eligibility in control and does not force it
 on. Removing the key withdraws fleet ownership without changing local sibling
@@ -1035,12 +1066,20 @@ project settings cannot enable it, and `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`
 ignores a true value from every scope. Removing it withdraws only that owned leaf.
 No value is inserted by the fleet.
 
+`permissions.blockWritesOutsideWorkingDirectories` is an optional boolean introduced
+in Claude Code 2.1.314. Either explicit value requires a reported CLI version of
+at least 2.1.314. With `true`, native Write, Edit and NotebookEdit refuse writes
+outside the working directories in every permission mode. The existing Engines
+JSON editor can preview, save, change and remove it; removing the key withdraws
+only that owned leaf and preserves read restrictions and other local siblings.
+It is not enabled by default. See the [native release](https://github.com/anthropics/claude-code/releases/tag/v2.1.314).
+
 `sshHostCommands` is rejected with a Desktop-scope explanation: only Claude
 Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.312 on 2026-10-28. Validation rejects unknown
+checked against Claude Code 2.1.316 on 2026-11-01. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys
@@ -2553,3 +2592,19 @@ bootstrap likewise probes/reports its installed CLI version only after a specifi
 422 unreported-version refusal, then retries once. A remaining validation refusal
 stays a policy error. Session finish reconciles a lost communicator ACK only by
 repeating the same terminal receipt within its existing budget.
+
+
+## Optional emulated short quota (cxx 0.9.150)
+
+Providers → Usage limits offers an engine-specific emulation switch, 5h/8h fixed
+windows, pause/continue advice or hard stop, and a separate server-resume switch.
+Both switches default off. The budget is the proportional share of weekly allowance
+per provider account across hosts, only when native short quota is absent. No
+weekly evidence means unavailable; stale data permits work. Native windows retain
+priority. The wrapper labels synthetic rows `emulated 5h`/`emulated 8h` and retains
+server observation freshness. Hard stop is enforced by server admission, including
+VIP hosts, while current turns finish. Server resume offers only held follow-up
+work in the original native session, using the existing receiver/relay. With resume
+off use Retry held work in delivery history. See the
+[API contract](interface-api.md#emulated-short-quotas-cxx-09150) for settings,
+failure behavior and exact-session safeguards.

@@ -1,9 +1,9 @@
 package grok
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,8 +14,10 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/pelletier/go-toml"
 )
@@ -23,6 +25,7 @@ import (
 // The runtime consumes Projection only. Presentation metadata never becomes
 // part of the native credential file or an auth upload.
 type startupAuth struct {
+	QuotaSnapshot *quotaemulation.Snapshot `json:"quota_snapshot,omitempty"`
 	native.Projection
 	// PoolVerifiedAccounts counts accounts a launch could lease (metadata_only
 	// answers only; older servers omit it). Status/verification describe one head.
@@ -74,6 +77,7 @@ type startupInput struct {
 	WrapperVersion string
 	Home           string
 	EffectiveHome  bool
+	Overlay        native.ModelPreferences
 	LaunchArgs     []string
 	Sync           managedSyncSummary
 	StatusOnly     bool
@@ -148,6 +152,14 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 			ui.QuotaRows, ui.QuotaNote = []terminalui.QuotaRow{row}, ""
 		} else {
 			ui.QuotaNote = grokQuotaNote(in.Auth.GrokUsage, time.Now())
+		}
+		extraRows, emulationNotice := quotaemulation.Display(in.Auth.QuotaSnapshot, time.Now())
+		ui.QuotaRows = append(ui.QuotaRows, extraRows...)
+		if emulationNotice != "" {
+			if ui.QuotaNote != "" {
+				ui.QuotaNote += "; "
+			}
+			ui.QuotaNote += emulationNotice
 		}
 		if in.Auth.Host != nil {
 			ui.APICalls = in.Auth.Host.APICalls
@@ -270,6 +282,7 @@ func authUsable(auth *startupAuth, err error) bool {
 func leasedStartupAuth(initial startupAuth, lease *accountpool.LeaseResponse) startupAuth {
 	if lease != nil {
 		initial.Projection = native.Projection{Status: "valid", Auth: lease.Auth, AccountID: lease.AccountID, VerificationState: lease.VerificationState, AccountPool: true}
+		initial.QuotaSnapshot = lease.QuotaSnapshot
 		// The concrete grant now decides; pool availability must not paper over
 		// an unexpected unverified lease.
 		initial.PoolVerifiedAccounts = 0
@@ -308,32 +321,19 @@ func startupPreferences(in startupInput) (string, string, error) {
 		}
 		settings = tree.ToMap()
 	}
-	if !in.EffectiveHome {
-		if inline := strings.TrimSpace(os.Getenv("GROK_CONFIG")); inline != "" {
-			var overlay map[string]any
-			if err := json.Unmarshal([]byte(inline), &overlay); err != nil {
-				return "", "", errors.New("invalid Grok config overlay")
-			}
-			merge(settings, overlay)
-		} else if path := strings.TrimSpace(os.Getenv("GROK_CONFIG_PATH")); path != "" {
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				return "", "", errors.New("Grok config overlay unavailable")
-			}
-			var overlay map[string]any
-			if json.Unmarshal(raw, &overlay) != nil {
-				tree, err := toml.LoadBytes(raw)
-				if err != nil {
-					return "", "", errors.New("invalid Grok config overlay")
-				}
-				overlay = tree.ToMap()
-			}
-			merge(settings, overlay)
-		}
-	}
 	models, _ := settings["models"].(map[string]any)
 	model, _ := models["default"].(string)
 	effort, _ := models["default_reasoning_effort"].(string)
+	overlay := in.Overlay
+	if !in.EffectiveHome {
+		overlay = native.ProcessModelPreferences()
+	}
+	if overlay.Model != "" {
+		model = overlay.Model
+	}
+	if overlay.Effort != "" {
+		effort = overlay.Effort
+	}
 	if !in.EffectiveHome && in.Config != nil {
 		if in.Config.EngineOptions.ModelOverride != nil {
 			model = *in.Config.EngineOptions.ModelOverride
@@ -364,6 +364,11 @@ func startupPreferences(in startupInput) (string, string, error) {
 		effort = "high"
 	}
 	return model, effort, nil
+}
+
+func applyRuntimeModelPolicy(cfg *config.Config, args []string, rt *native.Runtime, stderr io.Writer) ([]string, error) {
+	prefs := rt.ModelPreferences()
+	return modelpolicy.ApplyWithPreferences(cfg, args, rt.Home, nil, stderr, modelpolicy.Preferences{Model: prefs.Model, Effort: prefs.Effort})
 }
 
 // Inspect only native options; prompt bodies and tokens after -- are data.

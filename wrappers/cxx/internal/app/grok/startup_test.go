@@ -19,6 +19,7 @@ import (
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 )
 
@@ -441,6 +442,17 @@ func TestLeasedGrantSupersedesPoolAvailability(t *testing.T) {
 		in.Auth = &leased
 		if ok := startupScreen(in).Dots[1].Tone != terminalui.ToneFail; ok != tc.ok {
 			t.Fatalf("%s lease rendered auth ok=%v, want %v", tc.verification, ok, tc.ok)
+		}
+	}
+}
+
+func TestLeasedQuotaSnapshotNeverRetainsAnotherAccountReading(t *testing.T) {
+	old := &quotaemulation.Snapshot{Unlimited: true}
+	for _, selected := range []*quotaemulation.Snapshot{nil, {Unlimited: false}} {
+		initial := startupAuth{QuotaSnapshot: old}
+		got := leasedStartupAuth(initial, &accountpool.LeaseResponse{AccountID: 7, QuotaSnapshot: selected})
+		if got.QuotaSnapshot != selected || initial.QuotaSnapshot != old {
+			t.Fatal("selected account did not own the quota display")
 		}
 	}
 }

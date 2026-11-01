@@ -12,6 +12,33 @@ const normalize = (native: Record<string, unknown>, structured: Record<string, u
   normalizeSettings({ native_settings: native, ...structured }, { applyCodexDefaults: false, engine: 'claude' });
 
 describe('Claude native user settings', () => {
+  it.each([false, true])('preserves blockWritesOutsideWorkingDirectories=%s with exact leaf ownership', blockWritesOutsideWorkingDirectories => {
+    const native = {
+      permissions: { blockWritesOutsideWorkingDirectories, blockReadsOutsideWorkingDirectories: true },
+      env: { 'permissions.blockWritesOutsideWorkingDirectories': 'opaque' },
+    };
+    const settings = normalize(native);
+    expect(settings.native_settings).toEqual(native);
+    expect(JSON.parse(new ClientConfigService({} as never).render(settings, 'claude').content)).toMatchObject(native);
+    const rendered = renderClaudeSettingsPartialForHost({
+      host: { claudeClientVersion: '2.1.314', claudeWrapperVersion: '0.9.66' } as never,
+      settings, baseUrl: null, apiKey: null,
+    });
+    expect(rendered.partial).toMatchObject(native);
+    expect(rendered.owned_paths).toContain('permissions.blockWritesOutsideWorkingDirectories');
+    expect(rendered.owned_paths).not.toContain('permissions');
+    expect(rendered.owned_paths).toContain('json:["env","permissions.blockWritesOutsideWorkingDirectories"]');
+    const removed = renderClaudeSettingsPartial(normalize({ permissions: { blockReadsOutsideWorkingDirectories: true } }));
+    expect(removed.partial.permissions).toMatchObject({ blockReadsOutsideWorkingDirectories: true });
+    expect(removed.partial.permissions).not.toHaveProperty('blockWritesOutsideWorkingDirectories');
+    expect(removed.owned_paths).not.toContain('permissions.blockWritesOutsideWorkingDirectories');
+  });
+
+  it.each(['false', 0, null, {}, []])('rejects non-boolean blockWritesOutsideWorkingDirectories=%j', blockWritesOutsideWorkingDirectories => {
+    expect(() => normalize({ permissions: { blockWritesOutsideWorkingDirectories } }))
+      .toThrow('native_settings.permissions.blockWritesOutsideWorkingDirectories');
+  });
+
   it.each([false, true])('preserves allowNestedUserNamespaces=%s without claiming sibling settings', allowNestedUserNamespaces => {
     const native = { sandbox: { allowNestedUserNamespaces, enabled: true }, env: { 'sandbox.allowNestedUserNamespaces': 'opaque' } };
     const settings = normalize(native);
@@ -64,6 +91,7 @@ describe('Claude native user settings', () => {
   it.each([
     [{ voice: { enabld: true } }, 'voice.enabld'],
     [{ permissions: { additionalDirectory: ['/tmp'] } }, 'permissions.additionalDirectory'],
+    [{ permissions: { blockWriteOutsideWorkingDirectories: true } }, 'permissions.blockWriteOutsideWorkingDirectories'],
     [{ sandbox: { filesystem: { denyReads: ['/tmp'] } } }, 'sandbox.filesystem.denyReads'],
     [{ sandbox: { credentials: { files: [{ path: '/tmp/key', mode: 'mask', injectHost: ['example.com'] }] } } }, 'sandbox.credentials.files.0.injectHost'],
     [{ sandbox: { credentials: { envVars: [{ name: 'KEY', mode: 'secret' }] } } }, 'sandbox.credentials.envVars.0.mode'],
@@ -307,9 +335,10 @@ describe('Claude native user settings', () => {
       hard_deny: ['Never delete production data'],
       classifyAllShell: true,
     };
-    await service.store({ settings: { native_settings: { autoMode, env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan' }, idleCompaction: false, sandbox: { allowNestedUserNamespaces: false, enabled: true } } } }, null, 'claude');
+    await service.store({ settings: { native_settings: { autoMode, env: { CUSTOM: 'first' }, permissions: { defaultMode: 'plan', blockWritesOutsideWorkingDirectories: false, blockReadsOutsideWorkingDirectories: true }, idleCompaction: false, sandbox: { allowNestedUserNamespaces: false, enabled: true } } } }, null, 'claude');
     const first = await service.adminFetch('claude');
     expect(first.settings?.native_settings?.idleCompaction).toBe(false);
+    expect(first.settings?.native_settings?.permissions).toMatchObject({ blockWritesOutsideWorkingDirectories: false, blockReadsOutsideWorkingDirectories: true });
     expect(first.settings?.native_settings?.sandbox).toEqual({ allowNestedUserNamespaces: false, enabled: true });
     expect(first.settings?.native_settings?.autoMode).toEqual(autoMode);
     expect(JSON.parse(first.content!).autoMode).toEqual(autoMode);
@@ -321,14 +350,22 @@ describe('Claude native user settings', () => {
     await expect(service.store({ settings: { native_settings: { idleCompaction: 'false' } } }, null, 'claude'))
       .rejects.toThrow('native_settings.idleCompaction');
     expect(row).toEqual(beforeInvalid);
+    await expect(service.store({ settings: { native_settings: { permissions: { blockWritesOutsideWorkingDirectories: 'false' } } } }, null, 'claude'))
+      .rejects.toThrow('native_settings.permissions.blockWritesOutsideWorkingDirectories');
+    expect(row).toEqual(beforeInvalid);
     expect(first.settings?.env).toBeUndefined();
     expect(first.settings?.permissionMode).toBeUndefined();
-    const changed = await service.store({ settings: { ...first.settings, native_settings: { autoMode: { ...autoMode, soft_deny: ['Replacement rule without defaults'] }, env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' }, idleCompaction: true, sandbox: { allowNestedUserNamespaces: true, enabled: true } } } }, null, 'claude');
-    expect(JSON.parse(changed.content)).toMatchObject({ env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual' }, idleCompaction: true });
+    const changed = await service.store({ settings: { ...first.settings, native_settings: { autoMode: { ...autoMode, soft_deny: ['Replacement rule without defaults'] }, env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual', blockWritesOutsideWorkingDirectories: true, blockReadsOutsideWorkingDirectories: true }, idleCompaction: true, sandbox: { allowNestedUserNamespaces: true, enabled: true } } } }, null, 'claude');
+    expect(JSON.parse(changed.content)).toMatchObject({ env: { CUSTOM: 'second' }, permissions: { defaultMode: 'manual', blockWritesOutsideWorkingDirectories: true, blockReadsOutsideWorkingDirectories: true }, idleCompaction: true });
     const second = await service.adminFetch('claude');
     expect(second.settings?.native_settings?.idleCompaction).toBe(true);
+    expect(second.settings?.native_settings?.permissions).toMatchObject({ blockWritesOutsideWorkingDirectories: true, blockReadsOutsideWorkingDirectories: true });
     expect(second.settings?.native_settings?.sandbox).toEqual({ allowNestedUserNamespaces: true, enabled: true });
     expect(second.settings?.native_settings?.autoMode).toEqual({ ...autoMode, soft_deny: ['Replacement rule without defaults'] });
+    await service.store({ settings: { native_settings: { permissions: { blockReadsOutsideWorkingDirectories: true } } } }, null, 'claude');
+    const afterRemoval = await service.adminFetch('claude');
+    expect(afterRemoval.settings?.native_settings?.permissions).toEqual({ blockReadsOutsideWorkingDirectories: true });
+    expect(JSON.parse(afterRemoval.content!).permissions).not.toHaveProperty('blockWritesOutsideWorkingDirectories');
     await service.store({ settings: { ...second.settings, native_settings: {} } }, null, 'claude');
     const cleared = await service.adminFetch('claude');
     expect(cleared.settings?.native_settings).toBeUndefined();

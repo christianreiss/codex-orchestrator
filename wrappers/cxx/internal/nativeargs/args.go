@@ -18,7 +18,7 @@ type spec struct {
 	arity arity
 }
 
-// Sources: Codex rust-v0.165.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
+// Sources: Codex rust-v0.166.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
 // help/PagerArgs. Comma-delimited vectors take one argv value unless num_args
 // explicitly says otherwise. An attached/equal value ends a variadic occurrence.
 var codex = map[string]spec{}
@@ -49,7 +49,7 @@ func init() {
 		{"--experimental_client-id"},
 		{"--listen"}, {"--staging-dir"},
 		{"--thread-source"}, {"--cyber-access-program"}, {"--color"}, {"--base"}, {"--commit"}, {"--title"},
-		// Codex 0.165.0 queue/migrate-rollouts and utility or refused commands.
+		// Codex 0.166.0 queue/migrate-rollouts and utility or refused commands.
 		// Readers stop interpreting semantics there, but values stay opaque.
 		{"--thread"}, {"--message"}, {"--max-mib-per-second"},
 		{"--permission-profile", "-P"}, {"--sandbox-state-json"}, {"--sandbox-state-readable-root"},
@@ -104,6 +104,11 @@ func init() {
 		{"--local-workspace-cwd"},
 		{"--name"}, {"--worker-dir"}, {"--max-agents"}, {"--pool-name"}, {"--label"}, {"--labels-file"},
 		{"--api-key"}, {"--auth-token-file"}, {"--on-session-start"}, {"--on-session-end"}, {"--management-addr"}, {"--idle-release-timeout"},
+		{"--cursor-worker-name"}, {"--cursor-worker-dir"}, {"--cursor-worker-max-agents"},
+		{"--pid"}, {"--spawn"}, {"--repository"}, {"--identity-audience"}, {"--endpoint"},
+		{"--redirect-dir"}, {"--repo"}, {"--type"}, {"--max-age"}, {"--out"},
+		{"--transport", "-t"}, {"--scope"}, {"--env", "-e"}, {"--header", "-H"},
+		{"--branch", "-b"}, {"--limit", "-n"}, {"--output", "-o"},
 		{"--agent-profile"}, {"--plugin-dir"}, {"--grok-ws-origin"}, {"--grok-ws-url"}, {"--cli-chat-proxy-base-url"}, {"--xai-api-base-url"}, {"--bind"}, {"--secret"}, {"--remote"},
 	} {
 		add(grok, required, names...)
@@ -136,10 +141,13 @@ func Option(engine string, args []string, at int) (name, value string, end int) 
 	if at < 0 || at >= len(args) || args[at] == "--" {
 		return "", "", end
 	}
-	table := codex
-	if engine == "grok" {
-		table = grok
-	}
+	return optionFromTable(engine, args, at, optionTable(engine, args, at))
+}
+
+// optionFromTable reads one token using an already selected command scope.
+// Grok prefix discovery calls this directly, avoiding recursive Option scans.
+func optionFromTable(engine string, args []string, at int, table map[string]spec) (name, value string, end int) {
+	end = at
 	raw := args[at]
 	flag, inline, equal := strings.Cut(raw, "=")
 	s, ok := table[flag]
@@ -228,10 +236,7 @@ func Value(engine string, args []string, names ...string) string {
 func Has(engine string, args []string, names ...string) bool {
 	for i := 0; i < len(args) && args[i] != "--"; i++ {
 		name, _, end := Option(engine, args, i)
-		table := codex
-		if engine == "grok" {
-			table = grok
-		}
+		table := optionTable(engine, args, i)
 		candidates := []string{name}
 		raw := args[i]
 		if strings.HasPrefix(raw, "-") && !strings.HasPrefix(raw, "--") && len(raw) > 2 {
@@ -247,7 +252,10 @@ func Has(engine string, args []string, names ...string) bool {
 			}
 		}
 		for _, want := range names {
-			canonical, _, _ := Option(engine, []string{want}, 0)
+			canonical := want
+			if s, ok := table[want]; ok {
+				canonical = s.name
+			}
 			for _, candidate := range candidates {
 				if candidate == canonical {
 					return true
@@ -301,7 +309,8 @@ func Command(engine string, args []string) (string, int) {
 func UnsupportedService(engine string, args []string) string {
 	command, at := Command(engine, args)
 	if engine == "codex" {
-		if command == "app-server" || command == "exec-server" || command == "remote-control" || command == "agents" || command == "migrate-nfs-db" {
+		switch command {
+		case "app-server", "exec-server", "remote-control", "agents", "migrate-nfs-db", "queue", "archive", "unarchive", "delete":
 			return command
 		}
 		if Has(engine, args, "--remote") {

@@ -76,6 +76,7 @@ test("Codex compaction defaults off and saves the toggle without losing concurre
   const toggle = page.getByRole("switch", { name: "Async compaction", exact: true });
   await expect(toggle).not.toBeChecked(); await expect(toggle).toBeEnabled();
   shared.configs.codex.settings.model = "newer-model";
+  shared.configs.codex.revision = "2";
   shared.configs.codex.settings.profiles = [{ name: "off", native_settings: { features: { async_compaction: false } } }];
   shared.configs.codex.settings.native_settings = { language: "en", features: { hooks: false, async_compaction: { enabled: false, model_async_compact_threshold_percent: 73 } } };
   shared.configs.codex.revision = "3";
@@ -147,13 +148,31 @@ test("native JSON validates, previews and saves each engine without losing separ
   await page.reload(); await openAdvanced(page, ["codex"]); await expect(page.locator("#codex-native-settings textarea")).toHaveValue("{}");
 });
 
+test("Codex 0.166 native options preview, save and remove through the existing editor", async ({ page }) => {
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["codex"]);
+  const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");
+  await expect(card).toContainText("0.166.0");
+  const native = { features: { plugin_discovery_prefetch: false, rollout_budget: { enforce_limit: false } },
+    memories: { consolidation_service_tier: "priority" }, tui: { keymap: { global: { select_transcript: "ctrl-s" } } } };
+  await editor.fill(JSON.stringify(native));
+  await card.getByRole("button", { name: "Validate and preview" }).click();
+  await expect(card).toContainText("codex validated configuration");
+  shared.configs.codex.settings.model = "newer-model";
+  shared.configs.codex.revision = "2";
+  await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.configs.codex.settings.native_settings).toEqual(native);
+  expect(shared.configs.codex.settings.model).toBe("newer-model");
+  await editor.fill("{}"); await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.configs.codex.settings.native_settings).toEqual({});
+});
+
 test("Claude nested namespaces stay opt-in and can be previewed, changed and removed", async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["claude"]);
   const card = page.locator("#claude-native-settings"), editor = card.getByRole("textbox");
   await expect(card).toContainText("It defaults to false");
   await expect(card).toContainText("escape the sandbox");
   await expect(card).toContainText("Desktop-only sshHostCommands");
-  await expect(card.getByRole("link", { name: "Claude 2.1.312 settings" })).toBeVisible();
+  await expect(card.getByRole("link", { name: "Claude 2.1.316 settings" })).toBeVisible();
   expect(shared.configs.claude.settings.native_settings).not.toHaveProperty("sandbox");
   for (const allowNestedUserNamespaces of [false, true]) {
     const native = { sandbox: { enabled: true, allowNestedUserNamespaces }, env: { LOCAL_SIBLING: "kept" } };
@@ -169,6 +188,29 @@ test("Claude nested namespaces stay opt-in and can be previewed, changed and rem
   await expect.poll(() => shared.configs.claude.settings.native_settings).toEqual({ sandbox: { enabled: true }, env: { LOCAL_SIBLING: "kept" } });
   await page.reload(); await openAdvanced(page, ["claude"]);
   await expect(editor).not.toHaveValue(/allowNestedUserNamespaces/);
+});
+
+test("Claude write boundaries preview, save and remove without dropping read restrictions", async ({ page }) => {
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["claude"]);
+  const card = page.locator("#claude-native-settings"), editor = card.getByRole("textbox");
+  await expect(card).toContainText("permissions.blockWritesOutsideWorkingDirectories requires Claude Code 2.1.314");
+  expect(shared.configs.claude.settings.native_settings).not.toHaveProperty("permissions");
+  for (const blockWritesOutsideWorkingDirectories of [false, true]) {
+    const native = { permissions: { blockWritesOutsideWorkingDirectories, blockReadsOutsideWorkingDirectories: true }, env: { LOCAL_SIBLING: "kept" } };
+    await editor.fill(JSON.stringify(native));
+    await card.getByRole("button", { name: "Validate and preview" }).click();
+    await expect(card).toContainText("claude validated configuration");
+    await card.getByRole("button", { name: "Save native settings" }).click();
+    await expect.poll(() => shared.configs.claude.settings.native_settings).toEqual(native);
+    await expect(card.getByRole("button", { name: "Save native settings" })).toBeDisabled();
+  }
+  const remaining = { permissions: { blockReadsOutsideWorkingDirectories: true }, env: { LOCAL_SIBLING: "kept" } };
+  await editor.fill(JSON.stringify(remaining));
+  await card.getByRole("button", { name: "Save native settings" }).click();
+  await expect.poll(() => shared.configs.claude.settings.native_settings).toEqual(remaining);
+  await page.reload(); await openAdvanced(page, ["claude"]);
+  await expect(editor).not.toHaveValue(/blockWritesOutsideWorkingDirectories/);
+  await expect(editor).toHaveValue(/blockReadsOutsideWorkingDirectories/);
 });
 
 test("dirty drafts survive remote changes, validation failure and a store revision race", async ({ page }) => {

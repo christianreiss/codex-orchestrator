@@ -567,7 +567,7 @@ Suspending an engine keeps everything; *destroy* removes it from every host.
 - `GET /host/lane` — returns Codex-only lane steering metadata for the calling host. Explicit Claude hints return `422`; a host without Codex enabled returns `403 engine_disabled`. Requires host API key + IP binding and applies insecure-window checks. Response includes `lane_preference` (`normal`/`null`) and `effective_lane:"normal"`; a stored legacy `spark` preference reads as `null`.
 - `POST /host/lane` — Codex-only; rejects Claude hints and Codex-disabled hosts before changing lane or insecure-window state. Set/clear host lane preference with body `{ lane: "normal" | null }` (use `null` to clear; the retired `"spark"` sent by wrapper <= 0.9.5 is accepted and stored as `null`). Requires host API key + IP binding and applies insecure-window checks. Changes affect wrapper lane steering on the next `cdx` run.
 - OpenAI-compatible API:
-  - Native execution failures return `502 runner_failed`; the runner retains the last 500 characters of its diagnostic so a CLI banner cannot hide the provider error. The bundled Codex 0.165.0 runner must be rebuilt/recreated when upgrading from 0.154.0 to serve `gpt-6.1-sol` with ChatGPT credentials; successful key validation and model listing alone do not verify generation.
+  - Native execution failures return `502 runner_failed`; the runner retains the last 500 characters of its diagnostic so a CLI banner cannot hide the provider error. Runner source now pins Codex 0.166.0; an older 0.154.0 runner must be rebuilt/recreated to serve `gpt-6.1-sol` with ChatGPT credentials; successful key validation and model listing alone do not verify generation.
   - Gateway execution uses `AUTH_RUNNER_EXEC_TIMEOUT` (default 600 seconds), independently of the 8-second `AUTH_RUNNER_TIMEOUT` credential-probe budget. The runner enforces a 600-second maximum.
   - `POST /v1/chat/completions` — OpenAI-compatible chat completions. `messages[].content` may be a plain string or an OpenAI-style content-part array. Text parts plus `image_url` / `input_image` parts are normalized and forwarded to the runner, which materializes image URLs or base64 `data:` URLs into real `codex exec --image` attachments. Non-streaming returns a standard `chat.completion` object. Streaming now emits SDK-compatible `chat.completion.chunk` SSE payloads with `choices[].delta.content` and a final `[DONE]`. `model` must be one of the shared supported Codex models returned by `/v1/models`; when omitted, the API resolves the default from the saved main config model and falls back to `versions.cdx_model`.
   - `POST /v1/responses` — minimal OpenAI-compatible Responses API compatibility adapter for non-streaming clients. Accepts `input` as a string, a bare content-part array, or a message-style array plus optional `instructions`, maps the request onto the backend chat flow, and returns a `response` object with `output[0].content[0].type="output_text"`. Text parts plus `image_url` / `input_image` parts are supported, including base64 `data:` URLs. `stream:true` is currently rejected on this endpoint. `model` uses the same strict allowlist and default-resolution behavior as chat completions.
@@ -844,7 +844,9 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `POST /admin/config/render` — validate and render a `settings` payload into TOML without persisting it. Returns `content`, `sha256`, `size_bytes`, normalized `settings` and separate profile previews. Unknown, removed or invalid authored feature values receive HTTP 422 with a field path before normalization can discard them; explicit supported legacy aliases migrate to canonical fields.
 - `POST /admin/config/store` — persist validated canonical Codex configuration built from `settings`. Optional `expected_revision` atomically guards the full saved document (see below). Optional `sha256` retains its legacy saved-content check. Returns `status:ok`, `change` (`created` | `updated` | `unchanged`), `revision`, `sha256`, `updated_at`, `size_bytes`, `content`, and normalized `settings`.
 
-All three Engines editors accept engine-specific `settings.native_settings`, with server validation/preview and exact ownership on host sync. Current coverage is Codex 0.165.0, Claude Code 2.1.312 and Grok Build 1.0.70 (runner pins match). Codex options introduced in 0.163.0, 0.164.0 or 0.165.0 conditionally require that native version, including profile-only values; built-in model provider overrides that the native loader refuses (reserved `openai`/`ollama`/`lmstudio`, unsupported Bedrock/GCP fields, `aws` outside Bedrock) are rejected with HTTP 422 naming the field; existing extensions retain their 0.162.1 floor. Claude's extension floor remains 2.1.296, including `idleCompaction` (introduced earlier), or 2.1.305 when `sandbox.allowNestedUserNamespaces` is set. Update/report routes remain usable before a gated sync. See [configuration scopes](NATIVE_CONFIG_SCOPES.md) and the engine interfaces for precise types and native policy boundaries. Migrations 0071/0072/0110/0115 repair confirmed obsolete, invalid or fleet-owned (native updater) saved settings; saved `content`/`sha256` remain historical snapshots until the next normal save, while host configurations and previews render the repaired settings.
+All three Engines editors accept engine-specific `settings.native_settings`, with server validation/preview and exact ownership on host sync. Current coverage is Codex 0.166.0, Claude Code 2.1.316 and Grok Build 1.0.70 (runner source pins match). Codex additions conditionally require their actual introduction version, including profile-only values and explicit false. The 0.166.0 provider/MITM additions follow native consumer semantics: first-party OpenAI catalog routing uses an HTTPS host allowlist, supported GCP fields remain host-local credential references, inert built-in overrides and invalid operation/signing/body-substitution combinations receive HTTP 422 naming the field. Existing Codex extensions retain their older floors. Claude settings keep their field-specific floors, including 2.1.305 for `sandbox.allowNestedUserNamespaces` and 2.1.314 for either boolean value of `permissions.blockWritesOutsideWorkingDirectories`. Grok bounded values are rejected before preview/save rather than relying on native clamping. Update/report routes remain usable before a gated sync. See [configuration scopes](NATIVE_CONFIG_SCOPES.md) and the engine interfaces for exact types, version gates and native policy boundaries.
+
+Migrations 0071/0072/0110/0115/0121/0122 repair confirmed obsolete, invalid or fleet-owned saved settings. Codex 0121 removes only the two newly retired/ignored controls from structured/native roots and profiles. Claude 0122 disables the deprecated Opus 4.8 fast-mode combination while retaining the active model. New authoring receives corrective errors; tolerant historical reads and host rendering use repaired settings. Saved `content`/`sha256` remain historical snapshots until the next normal save.
 
 All three engine config GET/store routes share the revision contract: `revision` identifies the latest immutable `client_config_documents` row, independently of the rendered-content `sha256`. Send `expected_revision` with the value read by the editor; explicit `null` requires that no config exists. An omitted guard preserves legacy callers. A mismatch returns HTTP 409 `config_revision_conflict` with `expected_revision` and `current_revision`; reload and review before retrying. Invalid revision values return 422. Settings-only edits allocate a new revision even when `sha256` stays the same; unchanged saves retain the revision. The engine-specific range lock covers read, comparison and insertion, including an empty head; model-default updates use the same lock for their full read/merge/write operation. `settings.changed` is published only after a successful commit.
 
@@ -3775,11 +3777,11 @@ Responses include canonical IDs, versions and an authenticated `report_url`; cla
 - `GET /admin/accounts/:id/quota-policy` and `PUT /admin/accounts/:id/quota-policy` read/write a complete account override. PUT accepts `{policy: {...}}`; `policy: null` restores inheritance. GET returns `defaults`, nullable `override` and `effective`.
 - Policy fields: `unlimited` boolean; `short_warn_percent` and `long_warn_percent` (integer 1–100 or null to disable warnings); `short_auto_resume` and `long_auto_resume` booleans. Defaults: false, 85, 85, true, false respectively. PayG is an explicit account setting, not provider detection. Unlimited bypasses warnings, quota startup blocks and quota-triggered resume; provider billing remains separately configured.
 - `POST /host/agent-sessions/:id/agent-messaging/quota/get` accepts `{}` and the session bridge token. The `cxx-agent` MCP tool `quota_get` uses this route without an account parameter. Account identity comes from `provider_session_id` supplied at lifecycle registration, validated against the authenticated host/engine's live provider lease. Older unbound sessions report `account_binding_unknown`.
-- Readings include account, engine, policy, status, short/long windows with percentage, actual duration, source, observation timestamp and reset. Missing is not zero; readings older than ten minutes or past reset are stale. Codex/Grok refreshes retain existing throttles; Claude reads only native statusline reports. Grok can report weekly or monthly usage and has no fabricated short window.
+- Readings include account, engine, policy, status, short/long windows with percentage, actual duration, source, observation timestamp and reset. Missing is not zero; readings older than ten minutes or past reset are stale. Codex/Grok refreshes retain existing throttles; Claude reads only native statusline reports. Grok can report weekly or monthly usage; short-window emulation is opt-in and requires weekly evidence.
 - Fresh threshold crossings notify active sessions of the same account once per session/window/reset/severity. QUOTA/1 notices are informational, bound to the current lifecycle, and never wake an offline session.
 - A native capacity failure plus a fresh exhausted quota window arms reset recovery when enabled. Overload alone and usage without a failed turn cannot arm it. A known long blocker takes precedence. Unknown scope is left for the operator.
 - Recovery reuses the Watchdog schedule and native-session executor. It waits at least 60 seconds beyond all known blocking resets, rechecks effective policy and attempts, and stops on task completion, cancel, manual stop, changed native binding or missing transcript. PayG or a disabled policy cancels queued quota recovery. Initial attempt plus at most three retries (5, 15, 30 minutes when no newer reset exists); only persistent hosts start automatically. Stale post-reset readings permit a bounded probe. No replacement session or independent replacement subagent is created.
-- `agent_watchdogs` exposes nullable `quota` metadata (account, window, reset, attempts and last attempt). Engine defaults live in Engines, account overrides in Accounts, and recovery state in the existing Watchdog panel. Warning thresholds do not force a pause. Managed instructions require quota_get before heavy work/delegation.
+- `agent_watchdogs` exposes nullable `quota` metadata (account, window, reset, attempts and last attempt). Engine quota defaults live in Usage limits, account overrides in Accounts, and recovery state in the existing Watchdog panel. Warning thresholds do not force a pause. Managed instructions require quota_get before heavy work/delegation.
 
 ## Feedback sweep additions (2026-10-24)
 
@@ -3957,3 +3959,57 @@ task result. Session abandonment never constitutes a crash receipt. The supervis
 also retires old abandonment-induced incidents and their matching deadline notices
 when the durable abandonment marker and incident timestamp match and no outstanding
 execution remains; other notices, explicit watchdogs and uncertain work are preserved.
+
+
+## Emulated short quotas (cxx 0.9.150)
+
+`GET /admin/quota-policy/:engine` and the account policy GET return an additive
+`emulation` object: `{enabled, window_hours: 5|8, action:
+"suggest_pause"|"suggest_ignore"|"hard_stop", auto_resume}`. The engine PUT accepts
+this object alongside `policy`; omitting it preserves the saved emulation settings.
+Account PUTs reject `emulation`: the settings are engine-wide, independently of
+complete account policy overrides. Both switches default false, duration 5h, action
+suggest_pause. Enabling/disabling starts a new observation baseline; duration edits
+apply to the next window. Existing native warning/recovery settings retain their meaning.
+
+A valid weekly observation without a native short reading enables accumulation of
+positive percentage-point changes per canonical account, across hosts. Budget is
+`100 * hours / 168` percentage points of weekly allowance. The first observation
+sets a baseline; first subsequent consumption starts a fixed window and is counted.
+No rollover of unused allowance. A weekly reset ends the local window; unexplained
+same-period decreases invalidate emulation until the next provider period. Real zero
+short readings retain native priority. Failed fetches and unsupported/missing periods
+are unavailable, never evidence of an absent native limit. Monthly periods are not
+converted to fictional weekly budgets. Provider sampling and integer rounding limit
+precision. PayG/unlimited accounts clear and bypass their emulated accumulators.
+
+`quota_get` includes `emulation`, `emulation_status` (`off|unlimited|native|fresh|stale|unavailable`)
+and the effective synthetic short window when available. Its `source` is `emulated`;
+metadata includes `started_at`, `budget_weekly_percent`, `consumed_weekly_percent`
+and `action`. Native windows keep their provider sources. `/auth` and account lease
+responses expose the same account snapshot as `quota_snapshot`; account metadata
+lists also include it. Companion quota lists label synthetic windows `emulated_short`.
+
+Only fresh, proven usage at 100% blocks hard-stop admission. It returns HTTP 429
+`quota_emulation_limit` with `retry_not_before` and `Retry-After`; VIP status does not
+bypass this opt-in rule. Selection does not silently move to a different account to
+avoid it. Missing/stale data allows work and is identified as unavailable/stale.
+Warnings use the effective short warning threshold and carry pause/continue advice.
+They never arm provider-error recovery or a new wake by themselves.
+
+The ordinary durable delivery queue holds unaccepted follow-up work with
+`quota_emulation_wait: {account_id, native_session_id, reset_at, manual_resume?}`.
+At reset, the server offers only these held deliveries when emulation hard stop and
+auto_resume remain enabled. Existing resident relay/native resume machinery executes
+them once in the original transcript; expiry, cancellation, explicit user stop,
+changed identity, unavailable account, missing transcript and engine suspension retain
+their normal guards. Current turns are not terminated. A held delivery is not an
+accepted execution, and lease replay does not authorize a second execution.
+
+`POST /admin/agent-messaging/messages/:id/quota-retry` with `{}` requires
+`agent_messaging.manage`. It explicitly retries a queued held delivery even with
+auto_resume off, after checking the current limit and original native identity.
+The hold retains its account/native fence until claimed. Disabling automatic resume
+leaves held work awaiting explicit retry/cancellation; disabling emulation releases
+admission for new work and disables automatic release of previous holds. No new
+work is invented and no replacement transcript is authorized.

@@ -1,3 +1,4 @@
+import { assertEmulationAdmission } from '../../services/quota-emulation.js';
 import { eq, inArray } from 'drizzle-orm';
 import {
   providerAccountSessions,
@@ -126,6 +127,7 @@ export async function acquireOwnedProvider(
       }
       if (!account)
         throw new ServiceUnavailableError('No verified provider account available', 'account_unavailable');
+      assertEmulationAdmission(s, engine, account.id);
       // A previously timed grant is never silently upgraded by a connection.
       // A new acquire after expiration is an ordinary new durable grant.
       const mode = previous?.ownershipMode ?? ownershipMode;

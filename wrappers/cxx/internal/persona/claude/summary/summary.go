@@ -4,6 +4,7 @@ package summary
 import (
 	"context"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"strings"
 	"time"
 
@@ -138,6 +139,14 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		}
 		dots = buildDots(auth, in)
 		quotaRows, quotaWarning = buildQuota(auth, time.Now())
+		extraRows, emulationNotice := quotaemulation.Display(auth.QuotaSnapshot, time.Now())
+		quotaRows = append(quotaRows, extraRows...)
+		if emulationNotice != "" {
+			if quotaWarning != "" {
+				quotaWarning += "; "
+			}
+			quotaWarning += emulationNotice
+		}
 	} else {
 		dots = []ui.HealthDot{
 			{Name: "api", Tone: ui.ToneFail},

@@ -5,6 +5,7 @@ package summary
 import (
 	"context"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"strings"
 	"time"
 
@@ -161,6 +162,14 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 
 		dots = buildDots(auth, in)
 		quotaRows, warnText, blockText = buildQuota(auth)
+		extraRows, emulationNotice := quotaemulation.Display(auth.QuotaSnapshot, time.Now())
+		quotaRows = append(quotaRows, extraRows...)
+		if emulationNotice != "" {
+			if warnText != "" {
+				warnText += "; "
+			}
+			warnText += emulationNotice
+		}
 		forecastTone = activeQuotaProjectionTone(quotaRows, effectiveQuotaLane(auth))
 		// No synthesized forecast warn line here: a Warn/Fail forecast tone is
 		// only ever set alongside a non-empty row Projection, so the lane's own

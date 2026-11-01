@@ -212,6 +212,19 @@ An explicit resume UUID may follow global options; a title, picker or fork does
 not prove continuity with an existing native session. Native help and version
 requests bypass signed config, account leasing, sync and private-runtime starts.
 
+cxx 0.9.151 completes the 1.0.70 utility/service value grammar, including
+agent-leader Cursor-worker settings, worker PID/controller fields, clone redirect
+and branch, worktree list/GC and `salvage --out`, MCP
+transport/scope/environment/header, session list limits and trace output. Aliases use their command scope: MCP `-s` is scope while
+root `-s` remains session identity; export `-c` is clipboard while root `-c`
+continues a session. Controller `--pool` and update `--version` require values;
+worker/start `--pool` remains optional. Required values that look like `--help`,
+`--version`, `--resume`, auth or service commands remain data, so they cannot
+bypass signed config or the existing service refusal. Attached/equal forms and
+`--` preserve these boundaries. The versioned 84-command native help corpus and
+opt-in `NATIVE_GROK_ORACLE` check cover value declarations; oracle probes use only
+`--help`, without starting a leader, worker, login or inference request.
+
 Before central auth routing removes root session options, native login/logout
 checks structural option names/value boundaries and the command's trailing
 arguments. Unknown leading flags and unsupported logout arguments are refused,
@@ -421,6 +434,31 @@ command-hook argument arrays, and program-status notification strings/tables.
 `compactions_remaining` integers are 0–255; `daily_token_cap` is at least 1,000,000.
 These settings remain absent until an operator configures them. Literal model
 names do not affect feature-version detection.
+
+The 2026-11-01 stable-reference review also validates numeric values that Grok
+would otherwise silently clamp. New input receives HTTP 422 with the setting
+path and inclusive range instead of saving a different effective value:
+
+| Native setting | Accepted range |
+| --- | --- |
+| `memory_v2.batch_dream_max_run_secs` | 60–3600 |
+| `memory_v2.batch_dream_max_calls_per_batch` | 2–16 |
+| `memory_v2.batch_dream_max_batch_note_bytes` | 16384–262144 |
+| `prompt_suggestions.max_output_tokens` | 16–256 |
+| `long_reasoning_reminder.tokens` | integer 100–200000 |
+| `long_reasoning_reminder.delay` | integer 0–10 |
+| `models.subagent_rate_limit_max_attempts` | 0–32 |
+| `model.<id>.subagent_rate_limit_max_attempts` | 0–32 |
+| `model.<id>.auto_compact_threshold_percent` | integer 0–100 |
+
+The same checks apply inside supported `version_overrides` layers. Native
+number fields retain their documented numeric type; integer-only fields reject
+fractions. No default is inserted and opaque custom model IDs remain unchanged.
+Existing out-of-range snapshots are not rewritten: the config GET returns their
+authored settings and historical body/hash with `validation_error`, so the
+operator can correct them through the existing JSON editor and revision guard.
+Preview and store reject the invalid value until corrected. Source: the
+SHA-pinned Grok 1.0.70 bundled `26-config-reference.md` listed above.
 
 New input rejects ineffective `ui.simple_mode` and `memory_v2.compact_index_enabled`,
 and directs retired Vim/density keys to `keys.vim` / `ui.tool_call_density`.
@@ -752,6 +790,35 @@ folder trust. Earlier runtimes copied a hyphenated
 
 Direct credential overrides and metered-key fallbacks are removed from managed
 subprocess environments.
+
+`GROK_CONFIG` and `GROK_CONFIG_PATH` remain native process overlays, separate
+from the private `config.toml` snapshot. The wrapper never promotes their
+contents into disk configuration: Grok applies its own soft-settings allowlist
+and evaluates its disk-only security gates without the overlay. Consequently,
+an overlay cannot add MCP/plugin discovery, hooks, authentication or endpoint
+policy, sandbox/trust configuration, arbitrary tools or shell environment
+values through the wrapper. The native allowlisted model/feature tuning,
+narrow toolset controls and shell environment filters keep their native scope.
+An existing disk/project MCP definition remains an explicitly authored source.
+Boot model/effort presentation and the current-models policy consume only the
+runtime's model/effort snapshot from this separate overlay. CLI selections win,
+then explicit signed fleet overrides, then valid process-overlay selections,
+then disk defaults. An unknown overlay model is evaluated by the existing model
+policy and cannot silently fall back to the disk model. Changes to ambient
+environment or overlay files after runtime configuration do not alter this
+snapshot or the overlay passed to native.
+
+Inline JSON takes precedence over a file overlay. Empty inline input falls
+through; malformed inline JSON produces a content-free warning and falls
+through to the file. A `.json` file uses JSON; other extensions use TOML.
+Unreadable or malformed files produce a content-free warning and are ignored,
+matching native fallback. Explicit fleet model/effort overrides are applied
+to both the disk projection and the soft model overlay, so an inherited process
+overlay cannot reverse those overrides. Auth, managed MCP, compatibility import
+suppression and receiver hooks retain their separate wrapper-owned projection;
+the wrapper does not encode them as user environment overlays. This boundary
+is verified against the Grok Build 1.0.70 bundled configuration guide and
+`inspect --json` in disposable homes, without login or inference.
 
 Managed runtimes disable Grok's implicit Claude and Cursor MCP imports through
 their private config and process environment. This prevents another engine's
@@ -1791,3 +1858,19 @@ for options, same-name replacement and uncertain-receipt handling. Grok's bootst
 probes/reports its installed CLI only after a specific 422 unreported-version
 refusal, then retries once. Session finish reconciles a lost communicator ACK only
 by repeating the same terminal receipt within its existing budget.
+
+
+## Optional emulated short quota (cxx 0.9.150)
+
+Providers → Usage limits offers an engine-specific emulation switch, 5h/8h fixed
+windows, pause/continue advice or hard stop, and a separate server-resume switch.
+Both switches default off. The budget is the proportional share of weekly allowance
+per provider account across hosts, only when native short quota is absent. No
+weekly evidence means unavailable; stale data permits work. Native windows retain
+priority. The wrapper labels synthetic rows `emulated 5h`/`emulated 8h` and retains
+server observation freshness. Hard stop is enforced by server admission, including
+VIP hosts, while current turns finish. Server resume offers only held follow-up
+work in the original native session, using the existing receiver/relay. With resume
+off use Retry held work in delivery history. See the
+[API contract](interface-api.md#emulated-short-quotas-cxx-09150) for settings,
+failure behavior and exact-session safeguards.

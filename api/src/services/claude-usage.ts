@@ -1,3 +1,4 @@
+import { stageEmulation, recordEmulation } from './quota-emulation.js';
 import { sameQuotaObservation } from '../control-plane/state/quota.js';
 /**
  * Claude usage service — dashboard-parity counterpart to `chatgpt-usage.ts`,
@@ -138,6 +139,7 @@ export class ClaudeUsageService {
           at: now,
         },
         prepare(ctx) {
+          stageEmulation(ctx, 'claude', values);
           const prior = ctx.snapshot
             .table('claudeUsageSnapshots')
             .by('accountId', values.accountId ?? null)
@@ -190,7 +192,7 @@ export class ClaudeUsageService {
         .from(claudeUsageSnapshots)
         .where(eq(claudeUsageSnapshots.id, insertId))
         .limit(1);
-      if (rows[0]) return rows[0];
+      if (rows[0]) { await recordEmulation(this.db, 'claude', rows[0]); return rows[0]; }
     }
     return this.latest();
   }

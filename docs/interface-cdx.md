@@ -199,8 +199,8 @@ so `resume -i a.png UUID` and `exec -i a.png resume UUID` still read `UUID` (and
 also covers `queue --thread/--message`, `migrate-rollouts --thread`, and the
 value options of the utility and refused commands (`sandbox`, `mcp add|login`,
 `app-server`, `exec-server`, `cloud`, `plugin add`); a unit test pins it to the
-0.165.0 help corpus and an opt-in `NATIVE_CODEX_ORACLE` test compares it with a
-live binary. Readers do not interpret those utility commands' semantics; the
+0.166.0 help corpus (the value declarations remain unchanged). An opt-in
+`NATIVE_CODEX_ORACLE` test compares it with a live binary. Readers do not interpret those utility commands' semantics; the
 table only keeps their values (including command- or flag-shaped ones) opaque.
 
 Direct public `app-server`, `exec-server`, `remote-control`, `agents` and `--remote`
@@ -209,6 +209,19 @@ external processes do not inherit the wrapper's private account/auth broker,
 receiver and teardown lifecycle. Their native `--help` remains available. This
 does not affect the wrapper-owned private app-server used by normal managed
 interactive launches; help acceptance alone is not remote lifecycle support.
+
+From cxx 0.9.151, `queue`, `archive`, `unarchive` and `delete` are also
+refused before signed config, auth, account leasing or session setup. Codex
+0.166.0 routes all four through `start_app_server_for_session_command`, which
+can start or reuse the independent shared daemon. The new `queue --resume`
+additionally calls `ThreadResume`; neither that daemon nor its resumed thread
+has the wrapper's managed broker/receiver ownership. This intentionally withdraws
+these native utility entrypoints until a managed lifecycle adapter exists,
+including plain queue/archive operations and explicit `--no-daemon` variants.
+`help queue`, `queue --resume --help` and the other utilities' native help remain
+available. A message such as `queue --message '--help'` is a value, not a help
+request; `--message '--resume'` does not become a resume flag. Ordinary option,
+image and prompt values named after these commands do not trigger this refusal.
 
 The `agents` overview explicitly starts the native shared daemon when no remote
 endpoint is supplied (Codex 0.163.0). A disabled receiver or failed private
@@ -2026,6 +2039,73 @@ This is agent-executed guidance shared by all three engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
+## Native configuration maintenance (Codex 0.166.0)
+
+New native and structured root/profile authoring rejects
+`features.code_mode_tool_description_first` (removed by the native feature registry)
+and `features.guardianv2.async_classifier_mode` (schema-compatible but ignored;
+asynchronous classification always uses conversations), including explicit false.
+Stored normalization and migration 0121 remove only these exact feature paths,
+preserving Guardian siblings, literal map names and historical TOML/hash snapshots.
+See the [versioned native feature registry](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/features/src/lib.rs).
+
+The Engines native JSON editor, root configuration and profile sidecars accept the
+published 0.166.0 schema (audited 2026-11-01, SHA-256
+`211bec2282459fcd70e4905af948721177b6ec7a03e0df84cd8b7c131006a6ca`).
+The following additions conditionally require an **observed** native CLI 0.166.0;
+existing settings keep their earlier floors. Explicit false, empty or profile-only
+values count as configured; arbitrary map names containing these words do not.
+
+- Features: `critical_path_timing`, `guardian_native_multi_agent_history`,
+  `mcp_connection_sharing`, `omit_skill_descriptions`, `plugin_discovery_prefetch`,
+  `simplified_selection_hints`, `skill_catalog_deltas`, `untrusted_as_tool_output`.
+- `features.rollout_budget.enforce_limit`, `memories.consolidation_service_tier`
+  and `tui.keymap.global.select_transcript` (native example `ctrl-s`).
+- Provider `project_id`, `location`, `credential_file` and the built-in OpenAI
+  `model_catalog_url` override. Built-in GCP accepts project/location and an absolute
+  host ADC path alongside its existing endpoint/auth/header overrides. The native
+  provider identity `Google Cloud Vertex AI` also requires an absolute ADC path.
+- MITM actions `aws_sigv4` and `body_secret_substitution`, including actions with
+  only one of these operations. They require `mitm.version = 2`; each hook may
+  select at most one signing action and one body substitution action, including
+  repeated references. Referenced operations enforce native port/body limits,
+  signing identifiers, secret-source shape and marker constraints. Body bindings
+  use 1–32 non-overlapping ASCII markers of 16–256 bytes. Body limits may be zero
+  and cannot exceed 16 MiB. Native defaults remain 443 and 8 MiB when omitted.
+
+`model_providers.openai` accepts **only** a `model_catalog_url`: HTTPS on
+`chatgpt.com`, `chat.openai.com`, `chatgpt-staging.com` or subdomains of the first
+and third hosts, without user information. Other OpenAI provider fields are
+rejected because native Codex would ignore them; custom provider IDs retain their
+own catalog routing. The reserved `ollama` and `lmstudio` IDs remain rejected.
+This updates the older 0.165 provider restrictions below. Existing host overrides,
+posture, managed MCP and the fleet updater retain their existing ownership.
+
+All `tui.keymap.<context>.<action>` values are checked against the native
+`KeybindingsSpec` grammar before preview/render/store, including profile sidecars.
+Use a string such as `ctrl-s`, a two-stroke chord such as `ctrl-x ctrl-s` or
+`leader s`, or an array of alternative strings. `[]` explicitly unbinds an action.
+`ctrl+s`, unknown keys, duplicate modifiers, modifiers after the key and chords
+longer than two strokes return a field-scoped 422. Native aliases, ASCII case,
+Unicode whitespace and function-key parsing are accepted without rewriting the
+authored value. New `select_transcript = []` still requires observed CLI 0.166.0;
+older actions retain their existing version floor. Runtime dispatch precedence
+and binding conflicts remain native-owned.
+
+The editor authors references to files and environment names; validation never
+opens ADC/secret files, reads secret environment variables or distributes those
+files. Native proxy startup must still resolve the references, validate actual
+secret values and enforce request-time origin/framing constraints. Parser and
+schema checks do not prove a live alternate-provider or proxy operation.
+No optional feature is enabled by this support update.
+
+Sources: [versioned schema](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/config.schema.json),
+[provider loader](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/model-provider-info/src/lib.rs),
+[keybinding parser](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/config/src/tui_keymap.rs),
+[MITM declarations](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/config/src/permissions_toml.rs),
+[signing validation](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/network-proxy/src/aws_sigv4.rs),
+[body substitution](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/network-proxy/src/secret_substitution.rs).
+
 ## Native configuration maintenance (Codex 0.165.0)
 
 Audited on 2026-10-28 against release `rust-v0.165.0`, commit
@@ -2538,3 +2618,19 @@ retry. Healthy hidden boots retain their probe-free path. Unresolved validation
 refusals retain the server explanation and do not become an offline launch fallback.
 Idempotent session `/finish` receipts may retry a communicator unknown-outcome once
 within the existing shutdown budget; native execution and other writes are not replayed.
+
+
+## Optional emulated short quota (cxx 0.9.150)
+
+Providers → Usage limits offers an engine-specific emulation switch, 5h/8h fixed
+windows, pause/continue advice or hard stop, and a separate server-resume switch.
+Both switches default off. The budget is the proportional share of weekly allowance
+per provider account across hosts, only when native short quota is absent. No
+weekly evidence means unavailable; stale data permits work. Native windows retain
+priority. The wrapper labels synthetic rows `emulated 5h`/`emulated 8h` and retains
+server observation freshness. Hard stop is enforced by server admission, including
+VIP hosts, while current turns finish. Server resume offers only held follow-up
+work in the original native session, using the existing receiver/relay. With resume
+off use Retry held work in delivery history. See the
+[API contract](interface-api.md#emulated-short-quotas-cxx-09150) for settings,
+failure behavior and exact-session safeguards.

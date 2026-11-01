@@ -1,5 +1,28 @@
 # Overview
 
+Codex native defaults and profile sidecars support 0.166.0 configuration, including
+scoped MITM signing/body substitution, Vertex project/ADC references and the
+first-party OpenAI model-catalog URL. Exact new fields require an observed 0.166.0
+CLI; existing settings retain their older floors. Optional switches keep their native defaults. Native keymap
+authoring validates keys, modifiers and chords while preserving authored spelling
+and explicit `[]` unbinding at root and profile scope. See [the Codex contract](interface-cdx.md#native-configuration-maintenance-codex-01660).
+
+cxx 0.9.151 completes command-scoped Grok Build 1.0.70 argument boundaries and
+keeps native flag-looking values opaque. Codex 0.166.0 queue/archive utilities
+are refused until their shared daemon has a managed lifecycle adapter; native
+help stays available. See the [Codex](interface-cdx.md#native-command-maintenance-cxx-0966)
+and [Grok](interface-cgx.md#native-argument-boundaries-grok-build-1070) contracts.
+
+Claude native user settings include the opt-in
+`permissions.blockWritesOutsideWorkingDirectories` boolean. The existing Engines
+JSON editor supports preview, save and removal; configured values require a
+reported Claude Code 2.1.314 or newer, while other settings retain their existing
+version requirements. See the [Claude settings contract](interface-clx.md#additional-native-user-settings).
+Grok process overlays retain their native soft-settings boundary. Managed
+launches keep `GROK_CONFIG` / `GROK_CONFIG_PATH` out of disk configuration,
+leaving discovery and trust filtering to Grok while preserving explicit fleet
+model/effort overrides. See the [private runtime contract](interface-cgx.md#isolated-managed-lifecycle).
+
 The 2026-10-27 [WebUI review](ui-review-2026-10-27.md) improves touch controls,
 narrow-screen navigation and reading, filter recovery and truthful account counts.
 It records rendered coverage separately from remaining manual accessibility and
@@ -1622,3 +1645,25 @@ uses existing project-file authorization and limits and verifies the server's
 size/SHA-256 receipt; see [the CLI contract](interface-cdx.md#local-durable-project-files-and-bootstrap-reconciliation).
 Communicator diagnostics distinguish transport leases from authenticated observed
 managed sessions; see [communicator status](communicator.md).
+
+## Claude Opus 4.8 fast mode
+
+Opus 4.8 remains selectable, but its deprecated fast-mode combination is no
+longer accepted in new fleet settings. Set `native_settings.fastMode` to `false`
+or select Opus 5.5 for fast mode. Migration 0122 disables the mode only for
+stored effective known Opus 4.8 references (including authored model environment
+variables and pinned aliases); host rendering also explicitly disables it
+for effective Opus 4.8 overrides. Other/custom models and historical snapshots
+are preserved. Native CLI flags and process environment overrides remain outside
+the managed settings guarantee. See [the Claude contract](interface-clx.md#additional-native-user-settings).
+
+
+### Optional short quota emulation
+
+Under **Providers → Usage limits**, each engine can emulate a fixed 5h/8h budget
+from its accounts' weekly provider usage when no native short window exists.
+Choose pause advice, continue advice or a hard stop for new work; server resume
+after reset has its own switch. Both switches start off. Accounts and Overview
+label synthetic readings explicitly. Held work appears in Messages → Delivery log
+with Retry held work for manual continuation. See the
+[API contract](interface-api.md#emulated-short-quotas-cxx-09150).

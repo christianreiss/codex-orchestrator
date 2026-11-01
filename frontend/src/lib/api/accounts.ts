@@ -3,6 +3,10 @@ import { api } from "./client";
 import type { AuthEngine } from "./auth";
 
 export interface ProviderAccount {
+  quota_snapshot?: {
+    emulation: { enabled: boolean; window_hours: 5 | 8; action: string; auto_resume: boolean };
+    short: { source: string; used_percent: number; limit_seconds: number | null; resets_at: string | null; status: string } | null;
+  } | null;
   quota_policy?: import("$lib/components/settings/QuotaPolicyEditor.svelte").QuotaPolicy;
   id: number;
   engine: AuthEngine;

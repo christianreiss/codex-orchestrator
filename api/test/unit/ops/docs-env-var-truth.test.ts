@@ -58,6 +58,8 @@ const NON_API_VARS: Record<string, string> = {
   CXX_REDUCED_MOTION: 'wrappers/cxx/internal/launchpad/model.go (wrapper animation opt-out)',
   CODEX_HOME: 'wrappers/cxx/internal/codex/auth_writer.go',
   CODEX_INSTALL_CURL_INSECURE: 'api/src/services/wrapper-transition.ts (generated installer)',
+  GROK_CONFIG: 'wrappers/cxx/internal/grok/runtime_overlay.go (native process overlay)',
+  GROK_CONFIG_PATH: 'wrappers/cxx/internal/grok/runtime_overlay.go (native process overlay file)',
   GROK_HOME: 'wrappers/cxx/internal/grok/native.go (Home)',
   GROK_SEED_AUTH_PATH: 'api/src/services/install-token.ts (generated Grok seed script)',
   NO_COLOR: 'wrappers/cxx/internal/terminalui/ansi.go (wrapper colour opt-out)',
@@ -166,5 +168,13 @@ describe('operator docs environment reference', () => {
     expect(composeVars().has('DB_ROOT_PASSWORD')).toBe(true);
     expect(composeVars().has('MYSQL_USER')).toBe(true); // A service-level env key.
     expect(runnerVars().has('RUNNER_SHARED_SECRET')).toBe(true);
+
+    // Wrapper overlays are not API settings. Pin their concrete consumer so
+    // these entries cannot hide documentation for an unimplemented variable.
+    const overlay = readFileSync(resolve(ROOT, 'wrappers/cxx/internal/grok/runtime_overlay.go'), 'utf8');
+    for (const name of ['GROK_CONFIG', 'GROK_CONFIG_PATH']) {
+      expect(documented.get(name)).toContain('docs/OVERVIEW.md');
+      expect(overlay).toContain(`os.Getenv("${name}")`);
+    }
   });
 });

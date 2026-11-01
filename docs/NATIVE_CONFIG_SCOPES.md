@@ -1,11 +1,17 @@
 # Native configuration scopes
 
+Codex 0.166 rejects newly authored `features.code_mode_tool_description_first`
+(removed) and `features.guardianv2.async_classifier_mode` (ignored) in both
+structured/native root settings and profile sidecars. Stored normalization and
+migration 0121 strip those exact paths while retaining sibling Guardian controls,
+literal map names and historical TOML/hash snapshots.
+
 The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed against Codex 0.165.0
-(2026-10-28), Claude Code 2.1.312 (2026-10-28) and Grok Build 1.0.70 (2026-10-26).
+can be authored centrally. Coverage was reviewed against Codex 0.166.0
+(2026-11-01), Claude Code 2.1.316 (2026-11-01) and Grok Build 1.0.70 (2026-10-26).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -24,6 +30,15 @@ user-settings editors with that reason: Claude `autoUpdatesChannel` and
 `cli.minimum_version`, `cli.maximum_version`, `cli.required_minimum_version`,
 `cli.required_maximum_version`, `cli.npm_registry` and `cli.installer` (root and
 `version_overrides`). Migration 0115 removed previously stored values.
+
+Grok user defaults and supported version layers reject numeric values outside
+the stable 1.0.70 reference's documented bounds, rather than let the native CLI
+silently clamp them. This covers batch-Dream budgets, prompt suggestions,
+long-reasoning reminders, per-model compaction percentages and subagent retry
+attempts; [the exact ranges](interface-cgx.md#native-configuration-maintenance-2026-10-26)
+retain native number-versus-integer types. Invalid historical snapshots remain
+available for explicit correction with their original body/hash and a validation
+error; this validation change performs no data migration.
 
 Use the official native mechanisms for the separate scopes:
 
@@ -62,12 +77,25 @@ fields require 0.165.0 only when configured: the `guardianv3`,
 `tui_multi_backend` feature switches, `auto_review.timeout_ms`, and
 `model_provider = "gcp"`. Both root and profile fields are checked; map names
 remain opaque, so a `model_providers.gcp` entry is not gated, but its native
-built-in field limits are enforced for every version (see
-[Codex 0.165 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01650)). Claude native settings require
+built-in field limits are validated during authoring (see
+[Codex 0.165 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01650)).
+New 0.166.0 fields require 0.166.0 only when configured: eight new feature switches,
+rollout-budget enforcement, memory consolidation service tier, transcript-selection
+binding, provider project/location/ADC fields, OpenAI catalog routing and scoped
+MITM signing/body substitutions. The editor validates native provider and proxy
+constraints without reading referenced credentials. All keybinding actions also
+validate the exact native string/chord grammar; alternatives and explicit `[]`
+unbinding preserve authored values. Older binding actions keep their older floor. See
+[Codex 0.166 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01660).
+Claude native settings require
 2.1.296, or 2.1.305 when `native_settings.sandbox.allowNestedUserNamespaces`
 is present (including `false`). This opt-in boolean defaults to false; true
 allows sandbox escape and disables the sandbox as a security boundary. Only
 user/managed settings can enable it; subprocess environment scrubbing overrides true.
+`native_settings.permissions.blockWritesOutsideWorkingDirectories` requires
+2.1.314 whenever present, including `false`. With `true`, native Write, Edit and
+NotebookEdit refuse writes outside the working directories in every permission
+mode; it stays unset unless authored. Removing it withdraws that leaf only.
 Claude Desktop 3.6556.0+ owns `sshHostCommands`; CLI defaults reject it with a scope explanation.
 Older or unreported versions receive an actionable config validation
 error with observed and required versions. Empty extensions and existing
