@@ -7,6 +7,15 @@ const normalize = (settings: unknown) => normalizeSettings(settings, { engine: '
 const service = new ClientConfigService({} as never);
 
 describe('Opus 4.8 fast-mode retirement', () => {
+  it.each(['opusplan', 'opusplan[1m]'])('disables the effective %s host override without changing fleet input', model => {
+    const settings = { model: 'claude-opus-5-5', native_settings: { fastMode: true, env: { ANTHROPIC_DEFAULT_OPUS_MODEL: 'claude-opus-4-8' } } };
+    const host = { claudeModelOverride: model, claudeClientVersion: '2.1.316', claudeWrapperVersion: '0.9.66' } as never;
+    const partial = renderClaudeSettingsPartialForHost({ settings, host, baseUrl: null, apiKey: null });
+    expect(partial.partial.fastMode).toBe(false);
+    expect(partial.owned_paths).toContain('fastMode');
+    expect(JSON.parse(renderTomlForHost({ settings, host, engine: 'claude', baseUrl: null, apiKey: null }).content).fastMode).toBe(false);
+    expect(settings.native_settings.fastMode).toBe(true);
+  });
   it('owns omitted modes for old authored env selection and withdraws only that leaf when selection changes', () => {
     const before = renderClaudeSettingsPartial(normalize({ model: 'claude-opus-5-5', native_settings: { env: { ANTHROPIC_MODEL: 'claude-opus-4-8' }, language: 'de' } }));
     expect(before.partial.fastMode).toBe(false);
