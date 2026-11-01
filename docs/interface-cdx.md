@@ -97,6 +97,16 @@ Managed AGENTS.md carries the fleet's short/long commit preference and AI attrib
 
 ## Native names in Android (cxx 0.9.32)
 
+From cxx 0.9.152, native conversation switches also refresh the receiver binding.
+When the bound root unloads, the receiver accepts only a single eligible replacement
+on the same launch-private app-server socket. A heartbeat detecting a different
+root closes the old receiver connection before naming, failure observation or
+delivery; reconnection fences outstanding old work and pending portal replies
+before registering the new native ID. The existing title reporter then restores
+`(Name) task` in the current TUI. A still-loaded binding wins; incomplete rosters
+and zero or multiple replacement roots are unavailable, never selected by cwd, transcript recency or
+title. This changes no Claude or Grok native identity discovery rules.
+
 From cxx 0.9.116, normal and managed-native Codex startup prints
 `cdx session: (Name) registered` after server confirmation and before starting
 the native input prompt, including launches without an initial user message.

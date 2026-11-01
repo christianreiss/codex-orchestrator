@@ -70,6 +70,11 @@ admission stays live; idle communicators do not poll daemon policy. WebUI
 invalidates affected query families rather than refreshing every view on a
 bookkeeping revision. See [communicator.md](communicator.md) for compatibility.
 
+cxx 0.9.152 follows a uniquely identified Codex replacement root after a native
+conversation switch. It fences old work before re-registering and restores the
+fleet name in the current TUI; ambiguous roots remain unavailable. See
+[native session names](interface-cdx.md#native-names-in-android-cxx-0932).
+
 cxx 0.9.130 preserves paired native MCP identity through cache confirmations
 and negotiates older-owner support before dispatch. Native-attributed reads
 retain fresh identity checks; host-only content retains local reuse. Agent

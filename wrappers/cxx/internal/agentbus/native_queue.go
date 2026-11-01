@@ -102,10 +102,14 @@ func (q *nativeQueue) call(method string, params any, result any) error {
 
 func (q *nativeQueue) identity() (string, error) {
 	var list struct {
-		Data []string `json:"data"`
+		Data       []string `json:"data"`
+		NextCursor string   `json:"nextCursor"`
 	}
 	if err := q.call("thread/loaded/list", map[string]any{}, &list); err != nil {
 		return "", err
+	}
+	if list.NextCursor != "" {
+		return "", errors.New("native thread identity list is incomplete")
 	}
 	var roots []string
 	var sources []any
@@ -130,8 +134,10 @@ func (q *nativeQueue) identity() (string, error) {
 				return q.thread, nil
 			}
 		}
-		return "", errors.New("bound native thread unloaded")
 	}
+	// /new and /resume can replace the root on this launch-private socket.
+	// Keep a loaded binding; replace an unloaded one only with a unique root.
+	// The receiver fences old work and re-registers before using the new ID.
 	if len(roots) != 1 {
 		return "", fmt.Errorf("native thread identity is not unique yet (%d loaded, sources %v)", len(list.Data), sources)
 	}

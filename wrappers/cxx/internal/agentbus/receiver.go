@@ -308,7 +308,6 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		for {
 			nativeID, err = q.identity()
 			if err == nil {
-				r.boundNativeID = nativeID
 				break
 			}
 			if time.Now().After(identityDeadline) {
@@ -332,7 +331,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		return errors.New("native session identity missing")
 	}
 	if r.boundNativeID != "" && r.boundNativeID != nativeID {
-		// Claude SessionStart also reports /clear. That is a new conversation,
+		// Native /new, /resume and Claude /clear change the conversation,
 		// not a reconnect to the old one: revoke its local ownership explicitly.
 		r.tracker.mu.Lock()
 		pending := make(map[string]*channelPending, len(r.tracker.items))
@@ -444,8 +443,12 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	for ctx.Err() == nil {
 		if time.Since(lastBeat) >= 15*time.Second {
 			if r.queue != nil {
-				if _, err := r.queue.identity(); err != nil {
+				current, err := r.queue.identity()
+				if err != nil {
 					return err
+				}
+				if current != nativeID {
+					return errors.New("native session changed")
 				}
 				if err := r.observeFailure(ctx, nativeID); err != nil {
 					return err
