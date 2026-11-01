@@ -210,7 +210,7 @@ receiver and teardown lifecycle. Their native `--help` remains available. This
 does not affect the wrapper-owned private app-server used by normal managed
 interactive launches; help acceptance alone is not remote lifecycle support.
 
-From cxx 0.9.150, `queue`, `archive`, `unarchive` and `delete` are also
+From cxx 0.9.151, `queue`, `archive`, `unarchive` and `delete` are also
 refused before signed config, auth, account leasing or session setup. Codex
 0.166.0 routes all four through `start_app_server_for_session_command`, which
 can start or reuse the independent shared daemon. The new `queue --resume`

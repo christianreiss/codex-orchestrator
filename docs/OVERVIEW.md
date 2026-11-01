@@ -7,7 +7,7 @@ CLI; existing settings retain their older floors. Optional switches keep their n
 authoring validates keys, modifiers and chords while preserving authored spelling
 and explicit `[]` unbinding at root and profile scope. See [the Codex contract](interface-cdx.md#native-configuration-maintenance-codex-01660).
 
-cxx 0.9.150 completes command-scoped Grok Build 1.0.70 argument boundaries and
+cxx 0.9.151 completes command-scoped Grok Build 1.0.70 argument boundaries and
 keeps native flag-looking values opaque. Codex 0.166.0 queue/archive utilities
 are refused until their shared daemon has a managed lifecycle adapter; native
 help stays available. See the [Codex](interface-cdx.md#native-command-maintenance-cxx-0966)

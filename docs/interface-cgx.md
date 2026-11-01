@@ -212,7 +212,7 @@ An explicit resume UUID may follow global options; a title, picker or fork does
 not prove continuity with an existing native session. Native help and version
 requests bypass signed config, account leasing, sync and private-runtime starts.
 
-cxx 0.9.150 completes the 1.0.70 utility/service value grammar, including
+cxx 0.9.151 completes the 1.0.70 utility/service value grammar, including
 agent-leader Cursor-worker settings, worker PID/controller fields, clone redirect
 and branch, worktree list/GC and `salvage --out`, MCP
 transport/scope/environment/header, session list limits and trace output. Aliases use their command scope: MCP `-s` is scope while
