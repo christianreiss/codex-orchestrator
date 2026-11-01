@@ -7,6 +7,7 @@
  */
 import { Ajv } from 'ajv';
 import { posix, win32 } from 'node:path';
+import { validateCodexKeymapSettings } from './codex-native-keymap.js';
 import { validateCodexMitmSettings } from './codex-native-mitm.js';
 import schema from './codex-config-schema.json' with { type: 'json' };
 import { ValidationError } from '../http/errors.js';
@@ -198,6 +199,7 @@ function validateCodexNativeSemantics(out: NativeSettings, path: string): void {
   }
   validateCodexMcpOAuthSemantics(nativeRecord(out.mcp_servers), path);
   validateCodexModelProviders(nativeRecord(out.model_providers), path);
+  validateCodexKeymapSettings(nativeRecord(out.tui).keymap, `${path}.tui.keymap`);
   for (const [name, value] of Object.entries(nativeRecord(out.permissions))) {
     const network = nativeRecord(nativeRecord(value).network);
     if (Object.hasOwn(network, 'mitm')) {
