@@ -18,9 +18,22 @@ import (
 
 type OptionEnd func([]string, int) int
 
+// Preferences carries native process-layer model selection without copying a
+// process overlay into an authored settings file. Empty values leave disk
+// defaults in effect; explicit signed and CLI overrides still take precedence.
+type Preferences struct {
+	Model, Effort string
+}
+
 // Apply reads native preferences before applying CLI overrides. optionEnd is
 // provided by Claude's native parser; Codex/Grok use the shared grammar.
 func Apply(cfg *config.Config, args []string, home string, optionEnd OptionEnd, stderr io.Writer) ([]string, error) {
+	return ApplyWithPreferences(cfg, args, home, optionEnd, stderr, Preferences{})
+}
+
+// ApplyWithPreferences additionally considers the native process overlay.
+// Callers with a finalized runtime pass its snapshot rather than ambient env.
+func ApplyWithPreferences(cfg *config.Config, args []string, home string, optionEnd OptionEnd, stderr io.Writer, overlay Preferences) ([]string, error) {
 	if cfg == nil || cfg.EngineOptions.ModelPolicy == nil || !cfg.EngineOptions.ModelPolicy.LatestOnly {
 		return args, nil
 	}
@@ -48,6 +61,12 @@ func Apply(cfg *config.Config, args []string, home string, optionEnd OptionEnd, 
 		return nil, err
 	}
 	model, effort := text(prefs["model"]), text(prefs["effort"])
+	if strings.TrimSpace(overlay.Model) != "" {
+		model = overlay.Model
+	}
+	if strings.TrimSpace(overlay.Effort) != "" {
+		effort = overlay.Effort
+	}
 	explicitEffort := false
 	opts := cfg.EngineOptions
 	if opts.ModelOverride != nil && prefs["profile"] != true {
