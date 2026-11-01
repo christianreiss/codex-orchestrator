@@ -1,3 +1,4 @@
+import { quotaSnapshot } from '../../services/quota-observation.js';
 import { persistAuditLog } from '../../services/audit-log.js';
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { recordAuthCall, flushAuthCalls, uninstallOwnedHost } from './owner.js';
@@ -1482,6 +1483,7 @@ export async function readQuotaControls(
 ): Promise<{
   quota_hard_fail: boolean;
   quota_unlimited: boolean;
+  quota_snapshot: Awaited<ReturnType<typeof quotaSnapshot>> | null;
   quota_limit_percent: number;
   quota_week_partition: 0 | 5 | 7;
 }> {
@@ -1490,6 +1492,7 @@ export async function readQuotaControls(
   const unlimited = engine ? (await readQuotaPolicy(ctx.db, engine, accountId)).effective.unlimited : false;
   return {
     quota_unlimited: unlimited,
+    quota_snapshot: engine && accountId ? await quotaSnapshot(ctx.db, accountId, engine) : null,
     quota_hard_fail: vip || unlimited ? false : await settings.getFlag('quota_hard_fail', true),
     quota_limit_percent: Math.max(50, Math.min(100, await settings.getInt('quota_limit_percent', 95))),
     quota_week_partition: rawPartition === '5' ? 5 : rawPartition === '7' ? 7 : 0,

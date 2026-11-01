@@ -24,6 +24,21 @@ describe('quota policy API', () => {
       expect((await app.inject({ method: 'PUT', url: '/admin/accounts/1/quota-policy', payload: { policy: null } })).json()).toMatchObject({ effective: policy, override: null });
     } finally { await app.close(); }
   });
+  it('keeps emulation engine-scoped, validates settings and preserves it for legacy writes', async () => {
+    const { app } = await build();
+    try {
+      const off = { enabled: false, window_hours: 5, action: 'suggest_pause', auto_resume: false };
+      expect((await app.inject({ method: 'GET', url: '/admin/quota-policy/claude' })).json()).toMatchObject({ emulation: off });
+      const emulation = { ...off, enabled: true, window_hours: 8, action: 'hard_stop', auto_resume: true };
+      const response = await app.inject({ method: 'PUT', url: '/admin/quota-policy/claude', payload: { policy: DEFAULT_QUOTA_POLICY, emulation } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ emulation });
+      expect((await app.inject({ method: 'PUT', url: '/admin/quota-policy/claude', payload: { policy: DEFAULT_QUOTA_POLICY } })).json()).toMatchObject({ emulation });
+      expect((await app.inject({ method: 'GET', url: '/admin/quota-policy/codex' })).json()).toMatchObject({ emulation: off });
+      expect((await app.inject({ method: 'PUT', url: '/admin/accounts/1/quota-policy', payload: { policy: DEFAULT_QUOTA_POLICY, emulation } })).statusCode).toBe(422);
+      expect((await app.inject({ method: 'PUT', url: '/admin/quota-policy/claude', payload: { policy: DEFAULT_QUOTA_POLICY, emulation: { ...emulation, window_hours: 7 } } })).statusCode).toBeGreaterThanOrEqual(400);
+    } finally { await app.close(); }
+  });
   it('rejects malformed policy, engine, unknown account and missing session bridge', async () => {
     const { app } = await build();
     try {

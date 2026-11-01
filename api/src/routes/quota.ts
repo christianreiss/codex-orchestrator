@@ -1,3 +1,4 @@
+import { readEmulation, emulationSettingsSchema, emulationKey, parseEmulation } from '../services/quota-emulation.js';
 import {persistAuditLog} from '../services/audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { stageDelete } from '../control-plane/state/rows.js';
@@ -14,9 +15,10 @@ import { SettingsService } from '../services/settings.js';
 import { quotaPolicySchema, quotaPolicyKey, readQuotaPolicy } from '../services/quota-policy.js';
 import { quotaSnapshot } from '../services/quota-observation.js';
 import { ProviderAccountsService } from '../services/provider-accounts.js';
+import { ValidationError } from '../http/errors.js';
 import { WatchdogsService } from '../services/watchdogs.js';
 import { parseEngine, type Engine } from '../util/engine.js';
-import { versions } from '../db/schema.js';
+import { versions, quotaEmulationStates } from '../db/schema.js';
 
 export async function registerQuotaRoutes(app: FastifyInstance, ctx: RouteContext) {
   const settings = new SettingsService(ctx.db);
@@ -28,29 +30,50 @@ export async function registerQuotaRoutes(app: FastifyInstance, ctx: RouteContex
   };
   const getPolicy = async (req: FastifyRequest) => {
     const { engine, id } = await resolve(req.params);
-    return readQuotaPolicy(ctx.db, engine, id);
+    return { ...await readQuotaPolicy(ctx.db, engine, id), emulation: await readEmulation(ctx.db, engine) };
   };
   const putPolicy = async (req: FastifyRequest) => {
     const { engine, id } = await resolve(req.params);
-    const input = z.object({ policy: quotaPolicySchema.nullable() }).strict().parse(req.body);
+    const input = z.object({ policy: quotaPolicySchema.nullable(), emulation: emulationSettingsSchema.optional() }).strict().parse(req.body);
+    if (id && input.emulation) throw new ValidationError('Emulation is configured per engine');
     const key = quotaPolicyKey(engine, id);
     const owner=ownerRuntimeFor(ctx.db);
     if(owner){
-      await mutateOwnerState(owner,{kind:'quota.policy.update',payload:{engine,accountId:id??null,policy:input.policy},prepare(command){
+      await mutateOwnerState(owner,{kind:'quota.policy.update',payload:{engine,accountId:id??null,policy:input.policy,emulation:input.emulation??null},prepare(command){
         if(id&&command.snapshot.table('providerAccounts').get(id)?.engine!==engine)throw new Error('Quota account changed');
         const now=new Date().toISOString();
         if(input.policy===null)stageDelete(command,'versions',key);
         else{const row={name:key,version:JSON.stringify(input.policy),updatedAt:now};command.draft.upsert('versions',row);command.write(tx=>tx.insert(versions).values(row).onDuplicateKeyUpdate({set:{version:row.version,updatedAt:now}}));}
-        command.write(tx=>persistAuditLog(tx, {action:'quota.policy.updated',details:JSON.stringify({engine,account_id:id??null,policy:input.policy}),createdAt:now}));return null;
+        if (input.policy?.unlimited) {
+          for (const state of command.snapshot.table('quotaEmulationStates').all().filter(r => r.engine === engine && (!id || r.accountId === id))) command.draft.remove('quotaEmulationStates', state.accountId);
+          command.write(tx => tx.delete(quotaEmulationStates).where(id ? eq(quotaEmulationStates.accountId, id) : eq(quotaEmulationStates.engine, engine)));
+        }
+        if (input.emulation) {
+          const before = parseEmulation(command.snapshot.setting(emulationKey(engine)));
+          const row = { name: emulationKey(engine), version: JSON.stringify(input.emulation), updatedAt: now };
+          command.draft.upsert('versions', row);
+          command.write(tx => tx.insert(versions).values(row).onDuplicateKeyUpdate({ set: row }));
+          if (before.enabled !== input.emulation.enabled) {
+            for (const state of command.snapshot.table('quotaEmulationStates').all().filter(r => r.engine === engine)) command.draft.remove('quotaEmulationStates', state.accountId);
+            command.write(tx => tx.delete(quotaEmulationStates).where(eq(quotaEmulationStates.engine, engine)));
+          }
+        }
+        command.write(tx=>persistAuditLog(tx, {action:'quota.policy.updated',details:JSON.stringify({engine,account_id:id??null,...input}),createdAt:now}));return null;
       }});
       wsPublisher.publish('quota.policy.updated',{engine,account_id:id??null});
-      return readQuotaPolicy(ctx.db,engine,id);
+      return { ...await readQuotaPolicy(ctx.db,engine,id), emulation: await readEmulation(ctx.db,engine) };
     }
     if (input.policy === null) await ctx.db.delete(versions).where(eq(versions.name, key));
     else await settings.set(key, JSON.stringify(input.policy));
-    await persistAuditLog(ctx.db, { action: 'quota.policy.updated', details: JSON.stringify({ engine, account_id: id ?? null, policy: input.policy }), createdAt: new Date().toISOString() });
+    if (input.policy?.unlimited) await ctx.db.delete(quotaEmulationStates).where(id ? eq(quotaEmulationStates.accountId, id) : eq(quotaEmulationStates.engine, engine));
+    if (input.emulation) {
+      const before = await readEmulation(ctx.db, engine);
+      await settings.set(emulationKey(engine), JSON.stringify(input.emulation));
+      if (before.enabled !== input.emulation.enabled) await ctx.db.delete(quotaEmulationStates).where(eq(quotaEmulationStates.engine, engine));
+    }
+    await persistAuditLog(ctx.db, { action: 'quota.policy.updated', details: JSON.stringify({ engine, account_id: id ?? null, ...input }), createdAt: new Date().toISOString() });
     wsPublisher.publish('quota.policy.updated', { engine, account_id: id ?? null });
-    return readQuotaPolicy(ctx.db, engine, id);
+    return { ...await readQuotaPolicy(ctx.db, engine, id), emulation: await readEmulation(ctx.db, engine) };
   };
   app.get('/admin/quota-policy/:engine', { preHandler: app.requireAdmin }, getPolicy);
   app.put('/admin/quota-policy/:engine', { preHandler: app.requireAdmin }, putPolicy);

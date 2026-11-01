@@ -146,4 +146,16 @@ describe('durable provider ownership', () => {
     await releaseOwnedProvider(h.owner, 2, 'codex', id);
     expect(h.state.snapshot().table('providerAccountSessions').get(id)?.hostId).toBe(1);
   });
+  it('blocks the selected account without silently choosing another and preserves active leases', async () => {
+    const now = new Date().toISOString(), reset = new Date(Date.now() + 3600000).toISOString();
+    const h = harness({
+      versions: [{ name: 'quota_emulation_codex', version: JSON.stringify({ enabled: true, window_hours: 5, action: 'hard_stop', auto_resume: true }) }],
+      chatgptUsageSnapshots: [{ id: 1, accountId: 1, status: 'ok', fetchedAt: now, primaryUsedPercent: 24, primaryLimitSeconds: 604800, primaryResetAt: reset }],
+      quotaEmulationStates: [{ accountId: 1, engine: 'codex', periodResetAt: reset, observedAt: now, lastUsedPercent: 24, startedAt: now, resetsAt: reset, windowHours: 5, consumedPercent: 4, valid: 1 }],
+    });
+    await expect(acquireOwnedProvider(h.owner, 1, 'codex', 'scope', 'blocked', 100)).rejects.toMatchObject({ code: 'quota_emulation_limit', status: 429 });
+    expect(h.state.snapshot().table('providerAccountSessions').all()).toHaveLength(0);
+    expect(h.select).not.toHaveBeenCalled();
+  });
+
 });

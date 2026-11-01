@@ -1,3 +1,5 @@
+import { ownedEmulation, assertEmulationAdmission } from '../quota-emulation.js';
+import { isEngine } from '../../util/engine.js';
 import { ownedClaudeTurnIdle } from '../../control-plane/state/receiver-turn-proof.js';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -262,6 +264,39 @@ export async function claimOwnedDelivery(
       } else
         for (const candidate of ownedClaimCandidates(snapshot, options).slice(0, 64)) {
           const target = ownedAddress(snapshot, candidate.targetAddressId);
+          if (isWork(candidate) && isEngine(target.engine)) {
+            const waiting = candidate.quotaEmulationWait;
+            const bound = waiting && candidate.deliverySessionId
+              ? snapshot.sessions.get(candidate.deliverySessionId)
+              : target.currentSessionId ? snapshot.sessions.get(target.currentSessionId)
+                : [...snapshot.sessions.by('agentBusAddressId', target.id)].sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+            if (waiting && Date.parse(waiting.reset_at) > Date.now()) continue;
+            if (waiting && (!target.lastUpstreamSessionId || target.continuity !== 'native' ||
+                target.lastUpstreamSessionId !== waiting.native_session_id || target.archivedAt)) {
+              stageUpdate(ctx, 'agentBusMessages', candidate.id, { status: 'dead', deadAt: now,
+                lastErrorCode: 'quota_native_session_changed', updatedAt: now });
+              continue;
+            }
+            if (bound?.providerAccountId || waiting?.account_id) {
+              const accountId = waiting?.account_id ?? bound!.providerAccountId!;
+              const e = ownedEmulation(snapshot, target.engine, accountId);
+              let blocked = false;
+              try { assertEmulationAdmission(snapshot, target.engine, accountId); }
+              catch (error) { if ((error as { code?: string }).code !== 'quota_emulation_limit') throw error; blocked = true; }
+              if (blocked) {
+                stageUpdate(ctx, 'agentBusMessages', candidate.id, {
+                  lastErrorCode: 'quota_emulation_wait', nextAttemptAt: e.window!.resets_at!,
+                  deliverySessionId: bound?.id ?? candidate.deliverySessionId, deliveryUpstreamSessionId: target.lastUpstreamSessionId,
+                  quotaEmulationWait: { account_id: accountId, native_session_id: target.lastUpstreamSessionId, reset_at: e.window!.resets_at! },
+                  updatedAt: now,
+                });
+                continue;
+              }
+              if (waiting && snapshot.accounts.get(accountId)?.state !== 'enabled') continue;
+              // Holding work does not grant a new native transcript or a generic retry.
+              if (waiting && !waiting.manual_resume && (e.unlimited || !e.settings.enabled || e.settings.action !== 'hard_stop' || !e.settings.auto_resume)) continue;
+            } else if (waiting) continue;
+          }
           if (
             candidate.kind === 'presence_notice' &&
             (options.skipReceiveCapable || candidate.targetSessionId !== options.leaseOwner.slice(8))
@@ -342,7 +377,7 @@ export async function claimOwnedDelivery(
               working.length >= daemon.settings.max_parallel
             )
               continue;
-            if (Date.now() - Date.parse(candidate.createdAt) >= 600_000) {
+            if (!candidate.quotaEmulationWait && Date.now() - Date.parse(candidate.createdAt) >= 600_000) {
               stageUpdate(ctx, 'agentBusMessages', candidate.id, {
                 status: 'expired',
                 expiredAt: now,
@@ -358,6 +393,8 @@ export async function claimOwnedDelivery(
           }
           selected = stageUpdate(ctx, 'agentBusMessages', candidate.id, {
             status: 'leased',
+            lastErrorCode: candidate.quotaEmulationWait ? null : candidate.lastErrorCode,
+            quotaEmulationWait: null,
             attempts: candidate.attempts + 1,
             leaseOwner: options.leaseOwner,
             leaseUntil: null,

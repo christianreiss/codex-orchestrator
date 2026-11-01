@@ -93,6 +93,16 @@
         {:else}
           <span class="text-body-sm text-muted-foreground">{account.usage.fetched_at ? "No quota windows reported" : "Waiting for usage data"}</span>
         {/if}
+        {#if account.quota_snapshot?.emulation.enabled && !account.quota_policy?.unlimited}
+          {#if account.quota_snapshot.short?.source === 'emulated'}
+            {#if account.engine === 'grok'}
+              <UsageMeter inline label={`Emulated ${Math.round((account.quota_snapshot.short.limit_seconds ?? 18000) / 3600)}-hour window`} usedPercent={account.quota_snapshot.short.used_percent} />
+            {/if}
+            {#if account.quota_snapshot.short.status !== 'fresh'}<p class="text-caption text-muted-foreground">Emulated quota stale — work allowed</p>{/if}
+          {:else if typeof account.usage.short_used_percent !== "number"}
+            <p class="text-caption text-muted-foreground">Emulated quota unavailable — work allowed</p>
+          {/if}
+        {/if}
       </Table.Cell>
       <Table.Cell class={cn("whitespace-nowrap text-body-sm", account.usage.stale && account.usage.fetched_at ? "text-warning" : "text-muted-foreground")}
         title={account.usage.stale && account.usage.fetched_at ? "Last known reading; the latest update did not succeed" : undefined}>

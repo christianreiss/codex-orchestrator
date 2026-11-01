@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"net/http"
 	"strings"
 )
@@ -15,10 +16,11 @@ import (
 // ~30 side-channel fields here — they're now strongly typed so the boot
 // banner, health dots, and quota panel can read them without re-parsing JSON.
 type AuthRetrieveResponse struct {
-	QuotaUnlimited bool                    `json:"quota_unlimited,omitempty"`
-	AccountID      int64                   `json:"account_id,omitempty"`
-	AccountPool    bool                    `json:"account_pool,omitempty"`
-	QuotaAdvice    *quotaadvice.Comparison `json:"quota_advice,omitempty"`
+	QuotaSnapshot  *quotaemulation.Snapshot `json:"quota_snapshot,omitempty"`
+	QuotaUnlimited bool                     `json:"quota_unlimited,omitempty"`
+	AccountID      int64                    `json:"account_id,omitempty"`
+	AccountPool    bool                     `json:"account_pool,omitempty"`
+	QuotaAdvice    *quotaadvice.Comparison  `json:"quota_advice,omitempty"`
 
 	Status               string          `json:"status"`
 	Action               string          `json:"action,omitempty"`

@@ -252,6 +252,7 @@ describe('migrations against the test baseline', () => {
       'companion_room_prefs',
       'agent_room_reactions',
       'agent_room_pins',
+      'quota_emulation_states',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -394,6 +395,7 @@ describe('migrations against the test baseline', () => {
       'agent_bus_conferences.rendezvous_key',
       'companion_devices.room_change_cursor',
       'host_daemon_sessions.permission_mode',
+      'agent_bus_messages.quota_emulation_wait',
     ]);
   });
 

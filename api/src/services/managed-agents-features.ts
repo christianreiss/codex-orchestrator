@@ -415,10 +415,10 @@ function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSec
     context.agentMessaging,
     `## Quotas
 
-Before heavy work or large delegation call \`quota_get\` for account limits, reset,
-freshness and policy. Unknown is not zero; checkpoint on warning. Unlimited bypasses
-quota actions. Recover only unfinished authorized work in the same session; finish
-its watchdog. Keep native subagents with their parent. If older catalogs lack it, report unavailable and continue authorized work; tools refresh next launch.
+Before heavy work or large delegation call \`quota_get\`. Unknown is not zero.
+Unlimited bypasses quotas. Emulated advice recommends pause or continue; hard stop
+blocks new work after the current turn. Resume needs its switch and held work.
+Recover unfinished work in its original session; finish its watchdog. Keep subagents there. If absent, report unavailable and continue authorized work; refresh next launch.
 
 ## Agent Messaging
 

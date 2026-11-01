@@ -237,6 +237,7 @@ CREATE TABLE `agent_bus_messages` (
 	`target_binding_generation` int unsigned,
 	`delivery_session_id` char(36),
 	`delivery_upstream_session_id` varchar(255),
+	`quota_emulation_wait` json,
 	`expires_at` varchar(100) NOT NULL,
 	`last_error_code` varchar(64),
 	`last_error_enc` longtext,
@@ -1220,6 +1221,20 @@ CREATE TABLE `schema_migrations` (
 	`applied_at` varchar(100) NOT NULL,
 	`applied_by` varchar(191),
 	CONSTRAINT `schema_migrations_version` PRIMARY KEY(`version`)
+);
+
+CREATE TABLE `quota_emulation_states` (
+	`account_id` bigint unsigned NOT NULL,
+	`engine` varchar(16) NOT NULL,
+	`period_reset_at` varchar(100) NOT NULL,
+	`observed_at` varchar(100) NOT NULL,
+	`last_used_percent` double NOT NULL,
+	`started_at` varchar(100),
+	`resets_at` varchar(100),
+	`window_hours` int NOT NULL,
+	`consumed_percent` double NOT NULL DEFAULT 0,
+	`valid` tinyint NOT NULL DEFAULT 1,
+	CONSTRAINT `quota_emulation_states_account_id` PRIMARY KEY(`account_id`)
 );
 
 CREATE TABLE `secrets` (

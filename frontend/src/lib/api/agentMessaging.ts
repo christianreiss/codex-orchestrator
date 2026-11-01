@@ -155,6 +155,7 @@ export interface AgentMessageMetadata {
   status: AgentMessageStatus;
   attempts: number;
   expires_at: string;
+  quota_emulation_wait?: { account_id: number; native_session_id: string | null; reset_at: string; manual_resume?: boolean } | null;
   last_error_code: string | null;
   accepted_at: string | null;
   completed_at: string | null;

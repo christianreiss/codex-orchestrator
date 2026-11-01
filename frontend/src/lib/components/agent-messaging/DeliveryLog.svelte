@@ -1,11 +1,12 @@
 <script lang="ts">
+  import { api } from "$lib/api/client";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * The delivery log: raw per-message plumbing (status, attempts, errors) with
    * audited content reveal, redrive and one-time fresh-start approval. A
    * secondary view of Messages; most questions are answered by Conversations.
    */
-  import { createQuery, useQueryClient } from "@tanstack/svelte-query";
+  import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -45,6 +46,10 @@
     ),
   );
   const redrive = agentMessageRedriveMutation();
+  const quotaRetry = createMutation({
+    mutationFn: (id: string) => api.post(`/admin/agent-messaging/messages/${id}/quota-retry`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentMessagingKeys.all }),
+  });
   const canMutate = $derived($authStore.can("agent_messaging.manage"));
   const canReveal = $derived($authStore.can("agent_messaging.reveal_content"));
 
@@ -161,6 +166,11 @@
             </div>
           </div>
           {#if message.kind === "presence_notice"}<p class="text-caption text-muted-foreground">Recipient returned · informational · only for the sender’s current session · no reply required</p>{/if}
+          {#if message.quota_emulation_wait && message.status === 'queued'}
+            <p class="text-caption text-muted-foreground">{#if message.quota_emulation_wait.manual_resume}Retry requested — awaiting the original receiver{:else}Held by emulated quota · reset <Timestamp value={message.quota_emulation_wait.reset_at} /> · original session retained{/if}</p>
+            {#if canMutate && !message.quota_emulation_wait.manual_resume}<Button size="sm" variant="outline" disabled={$quotaRetry.isPending || !enabled} onclick={() => $quotaRetry.mutate(message.id)}>Retry held work</Button>{/if}
+            {#if $quotaRetry.isError && $quotaRetry.variables === message.id}<p role="alert" class="text-caption text-destructive">{$quotaRetry.error.message}</p>{/if}
+          {/if}
           {#if message.last_error_code}<p class="text-caption text-destructive">{message.last_error_code}</p>{/if}
           {#if revealed?.messageId === message.id}
             <div class="rounded-md border border-warning/25 bg-warning-muted p-3">

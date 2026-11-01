@@ -1622,3 +1622,14 @@ uses existing project-file authorization and limits and verifies the server's
 size/SHA-256 receipt; see [the CLI contract](interface-cdx.md#local-durable-project-files-and-bootstrap-reconciliation).
 Communicator diagnostics distinguish transport leases from authenticated observed
 managed sessions; see [communicator status](communicator.md).
+
+
+### Optional short quota emulation
+
+Under **Providers → Usage limits**, each engine can emulate a fixed 5h/8h budget
+from its accounts' weekly provider usage when no native short window exists.
+Choose pause advice, continue advice or a hard stop for new work; server resume
+after reset has its own switch. Both switches start off. Accounts and Overview
+label synthetic readings explicitly. Held work appears in Messages → Delivery log
+with Retry held work for manual continuation. See the
+[API contract](interface-api.md#emulated-short-quotas-cxx-09150).

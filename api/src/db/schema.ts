@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+
 import type { WorkflowPreparation } from '../services/workflows/contract.js';
 /**
  * Drizzle schema mirror of the cumulative MySQL schema produced by the legacy
@@ -29,6 +30,20 @@ import {
   uniqueIndex,
   primaryKey,
 } from 'drizzle-orm/mysql-core';
+
+/** One durable observation accumulator per canonical provider account. */
+export const quotaEmulationStates = mysqlTable('quota_emulation_states', {
+  accountId: bigint('account_id', { mode: 'number', unsigned: true }).primaryKey(),
+  engine: varchar('engine', { length: 16 }).notNull(),
+  periodResetAt: varchar('period_reset_at', { length: 100 }).notNull(),
+  observedAt: varchar('observed_at', { length: 100 }).notNull(),
+  lastUsedPercent: double('last_used_percent').notNull(),
+  startedAt: varchar('started_at', { length: 100 }),
+  resetsAt: varchar('resets_at', { length: 100 }),
+  windowHours: int('window_hours').notNull(),
+  consumedPercent: double('consumed_percent').notNull().default(0),
+  valid: tinyint('valid').notNull().default(1),
+});
 
 // ────────────────────────────────────────────────────────────────────────────
 // hosts
@@ -1859,6 +1874,7 @@ export const agentBusMessages = mysqlTable(
     targetBindingGeneration: int('target_binding_generation', { unsigned: true }),
     deliverySessionId: char('delivery_session_id', { length: 36 }),
     deliveryUpstreamSessionId: varchar('delivery_upstream_session_id', { length: 255 }),
+    quotaEmulationWait: json('quota_emulation_wait').$type<{ account_id: number; native_session_id: string | null; reset_at: string; manual_resume?: boolean }>(),
     expiresAt: varchar('expires_at', { length: 100 }).notNull(),
     lastErrorCode: varchar('last_error_code', { length: 64 }),
     lastErrorEnc: longtext('last_error_enc'),

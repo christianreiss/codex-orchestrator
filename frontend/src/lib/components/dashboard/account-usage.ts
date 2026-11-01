@@ -1,11 +1,12 @@
 import type { ProviderAccount } from "../../api/accounts";
 
-/** Only provider readings become meters; zero is a valid reading. */
-export function accountQuotaRows(account: Pick<ProviderAccount, "engine" | "usage">) {
+/** Only supplied readings become meters; zero is a valid reading. */
+export function accountQuotaRows(account: Pick<ProviderAccount, "engine" | "usage" | "quota_snapshot">) {
   const { usage, engine } = account;
   if (engine === "grok" || usage.supported === false) return [];
+  const emulated = account.quota_snapshot?.short?.source === "emulated" ? account.quota_snapshot.short : null;
   const windows = [
-    { key: "short", value: usage.short_used_percent, reset: usage.short_resets_at, seconds: usage.short_limit_seconds, fallback: engine === "claude" ? "5-hour window" : "Short window" },
+    { key: "short", value: emulated?.used_percent ?? usage.short_used_percent, reset: emulated?.resets_at ?? usage.short_resets_at, seconds: emulated?.limit_seconds ?? usage.short_limit_seconds, fallback: engine === "claude" ? "5-hour window" : "Short window" },
     { key: "weekly", value: usage.weekly_used_percent, reset: usage.weekly_resets_at, seconds: usage.weekly_limit_seconds, fallback: "Weekly window" },
   ];
   return windows
@@ -17,6 +18,6 @@ export function accountQuotaRows(account: Pick<ProviderAccount, "engine" | "usag
         : typeof seconds === "number" && seconds > 0 && seconds % 86400 === 0 ? `${seconds / 86400}-day window`
         : typeof seconds === "number" && seconds > 0 && seconds % 3600 === 0 ? `${seconds / 3600}-hour window`
         : window.fallback;
-      return { ...window, label };
+      return { ...window, value: Math.round(window.value * 10) / 10, label: emulated && window.key === "short" ? `Emulated ${label.toLowerCase()}` : label };
     });
 }

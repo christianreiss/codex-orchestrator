@@ -1,3 +1,4 @@
+import { stageEmulation, recordEmulation } from './quota-emulation.js';
 import { sameQuotaObservation } from '../control-plane/state/quota.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 /**
@@ -859,6 +860,7 @@ export class ChatGptUsageService {
             ...values,
             accountId: this.deps.accountId ?? null,
           };
+          stageEmulation(context, 'codex', row);
           const prior = context.snapshot
             .table('chatgptUsageSnapshots')
             .by('accountId', row.accountId)
@@ -904,7 +906,7 @@ export class ChatGptUsageService {
         .from(chatgptUsageSnapshots)
         .where(eq(chatgptUsageSnapshots.id, insertId))
         .limit(1);
-      if (rows[0]) return rows[0];
+      if (rows[0]) { await recordEmulation(this.db, 'codex', rows[0]); return rows[0]; }
     }
     const row = await this.latestAttempt();
     if (!row) throw new Error('Failed to persist ChatGPT usage snapshot');

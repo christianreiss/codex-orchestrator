@@ -51,6 +51,7 @@ export function stageQueuedMessage(
     targetBindingGeneration: null,
     deliverySessionId: null,
     deliveryUpstreamSessionId: null,
+    quotaEmulationWait: null,
     lastErrorCode: null,
     lastErrorEnc: null,
     cancelRequestedAt: null,

@@ -15,7 +15,7 @@ import {
   runAuthVerificationWorkerTick,
   type AuthProbeScheduleMemory,
 } from './auth-verification-worker.js';
-import { quotaNoticeId } from './quota-worker.js';
+import { quotaNoticeId, quotaNoticeContent } from './quota-worker.js';
 import type { OwnerMaintenanceHandler } from './owner-maintenance-handlers.js';
 import { OWNER_WORK_RETRY_MS } from './owner-worker.js';
 
@@ -114,10 +114,10 @@ export function createOwnerProviderMaintenance(
           continue;
         const level = window.used_percent >= 100 ? 'limit' : 'warning';
         const id = quotaNoticeId(
-          [session.agentBusAddressId, q.account_id, window.kind, window.resets_at, level].join(':'),
+          [session.agentBusAddressId, q.account_id, window.kind, window.resets_at, level, ...(window.source === 'emulated' ? [window.action] : [])].join(':'),
         );
         if (runtime.state.snapshot().messages.by('clientMessageId', id).length) continue;
-        const content = `QUOTA/1 ${level}: ${q.engine} account ${q.account_label}; ${window.kind} window ${window.used_percent}% used. Reset ${window.resets_at}; observed ${window.observed_at}. Save a continuation checkpoint and assess remaining work before more delegation. This notice does not pause work. Use quota_get for current policy.`;
+        const content = quotaNoticeContent(q, window);
         await bus.noticeAddresses([session.agentBusAddressId], content, id);
       }
       return { observed: true };

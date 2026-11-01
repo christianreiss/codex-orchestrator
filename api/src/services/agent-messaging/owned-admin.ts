@@ -260,6 +260,7 @@ export class OwnedMessagingAdmin {
           targetBindingGeneration: null,
           deliverySessionId: null,
           deliveryUpstreamSessionId: null,
+    quotaEmulationWait: null,
           expiresAt: isoOffsetSeconds(AGENT_MESSAGING_DEFAULT_TTL_SECONDS),
           lastErrorCode: null,
           lastErrorEnc: null,

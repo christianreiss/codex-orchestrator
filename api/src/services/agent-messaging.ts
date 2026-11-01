@@ -1,3 +1,4 @@
+import { emulationBlocks } from './quota-emulation.js';
 import { conferenceAdmissionOpenSql } from './agent-messaging/conference-protocol.js';
 import { readMessagePage } from './agent-messaging/read-page.js';
 import {persistAuditLog} from './audit-log.js';
@@ -18,7 +19,7 @@ import type { StateRow } from '../control-plane/state/catalog.js';
 import { isEngine } from '../util/engine.js';
 import { ownerRuntimeFor, setOwnerRequestPrincipal, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { ownedBridge, ownedRelay, ownedMessagingHost, requireOwnedMessaging, ownedAddress } from '../control-plane/state/messaging.js';
-import { quotaRecoveryAllowed } from './quota-observation.js';
+import { quotaSnapshot, quotaRecoveryAllowed } from './quota-observation.js';
 import { preparePeerBatch, presentationOrder } from './agent-messaging/peer-batch.js';
 import { ApiError } from '../http/errors.js';
 import { activeRolesForAddresses, roleLabelsForAddress } from './roles/assignments.js';
@@ -1685,6 +1686,30 @@ export class AgentMessagingService {
         if (informationalOnly && (candidate.workKind || ['request', 'task', 'schedule'].includes(candidate.kind))) continue;
         if (candidate.kind === 'presence_notice' && (skipReceiveCapable || candidate.targetSessionId !== sessionIdFromLeaseOwner(leaseOwner))) continue;
         const target = await this.requireAddressLocked(tx, candidate.targetAddressId);
+        if ((candidate.workKind || ['request', 'task', 'schedule'].includes(candidate.kind)) && isEngine(target.engine)) {
+          const waiting = candidate.quotaEmulationWait;
+          const [bound] = candidate.deliverySessionId && waiting
+            ? await tx.select().from(agentSessions).where(eq(agentSessions.id, candidate.deliverySessionId))
+            : target.currentSessionId ? await tx.select().from(agentSessions).where(eq(agentSessions.id, target.currentSessionId))
+              : await tx.select().from(agentSessions).where(eq(agentSessions.agentBusAddressId, target.id)).orderBy(desc(agentSessions.startedAt)).limit(1);
+          if (waiting && Date.parse(waiting.reset_at) > Date.now()) continue;
+          if (waiting && (!target.lastUpstreamSessionId || target.continuity !== 'native' || target.lastUpstreamSessionId !== waiting.native_session_id)) {
+            await tx.update(agentBusMessages).set({ status: 'dead', deadAt: now, lastErrorCode: 'quota_native_session_changed', updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
+            continue;
+          }
+          const accountId = waiting?.account_id ?? bound?.providerAccountId;
+          if (accountId) {
+            const q = await quotaSnapshot(tx, accountId, target.engine);
+            if (!q?.unlimited && emulationBlocks(q?.short)) {
+              await tx.update(agentBusMessages).set({ lastErrorCode: 'quota_emulation_wait', nextAttemptAt: q!.short!.resets_at!,
+                quotaEmulationWait: { account_id: accountId, native_session_id: target.lastUpstreamSessionId, reset_at: q!.short!.resets_at! },
+                deliverySessionId: bound?.id ?? candidate.deliverySessionId, deliveryUpstreamSessionId: target.lastUpstreamSessionId, updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
+              continue;
+            }
+            if (waiting && (!q || q.account_state !== 'enabled' || (!waiting.manual_resume && (q.unlimited || !q.emulation.enabled || q.emulation.action !== 'hard_stop' || !q.emulation.auto_resume)))) continue;
+          } else if (waiting) continue;
+        }
+
         await this.assertAddressEligibleLocked(tx, target);
         // A relay must never write to a native upstream session while its
         // interactive wrapper is still attached. Receive-capable sessions
@@ -1737,7 +1762,7 @@ export class AgentMessagingService {
           const [daemon] = await tx.select().from(hostDaemons).where(eq(hostDaemons.hostId, remote.hostId)).for('update');
           const working = await tx.select().from(hostDaemonSessions).where(and(eq(hostDaemonSessions.hostId, remote.hostId), inArray(hostDaemonSessions.status, ['running', 'stopping'])));
           if ((!daemon || !daemonAccepting(daemon.settings)) || !['idle', 'waiting'].includes(remote.status) || working.length >= daemon.settings.max_parallel) continue;
-          if (Date.now() - Date.parse(candidate.createdAt) >= 600_000) {
+          if (!candidate.quotaEmulationWait && Date.now() - Date.parse(candidate.createdAt) >= 600_000) {
             await tx.update(agentBusMessages).set({ status: 'expired', expiredAt: now, updatedAt: now }).where(eq(agentBusMessages.id, candidate.id));
             continue;
           }
@@ -1748,6 +1773,8 @@ export class AgentMessagingService {
           .update(agentBusMessages)
           .set({
             status: 'leased',
+            quotaEmulationWait: null,
+            lastErrorCode: candidate.quotaEmulationWait ? null : candidate.lastErrorCode,
             attempts,
             leaseOwner,
             leaseUntil,
@@ -1764,6 +1791,8 @@ export class AgentMessagingService {
           message: {
             ...candidate,
             status: 'leased',
+            quotaEmulationWait: null,
+            lastErrorCode: candidate.quotaEmulationWait ? null : candidate.lastErrorCode,
             attempts,
             leaseOwner,
             leaseUntil,
