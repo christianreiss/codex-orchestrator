@@ -1,6 +1,7 @@
 # 2026-11-01
 
 - **Claude native settings:** support `permissions.blockWritesOutsideWorkingDirectories` through the Engines JSON editor, previews and host settings. Both boolean values require an observed Claude Code 2.1.314 or newer; removal withdraws only that setting. The option stays unset by default and existing local siblings are preserved.
+- **Auth runner:** pin Codex 0.166.0 and Claude Code 2.1.316 to the stable/latest-normal releases reviewed on 2026-11-01, with verified Codex Linux amd64/arm64 archive checksums. Grok Build stays at 1.0.70; these source pins do not change host version policy or deploy a runner image.
 
 - **Task supervision:** abandoned native sessions no longer start crash recovery merely because their connection expired. Confirmed idle automatic tasks and stale abandonment incidents are cleaned up while unresolved accepted work and explicit watchdogs retain their recovery evidence. Includes Codex, Claude and Grok regressions and a real-MySQL check for direct operator `agent_work_state` reports.
 - **Coordination feedback sweep:** reconnecting a native session preserves its explicitly selected worktree; remote resource claims accept canonical IP addresses and single-label hostnames; large merge refusals show bounded diagnostics and the checkout-root claim remedy. Content-only Claude Desktop/SDK sessions receive supported native-launch guidance without being granted native ownership.
