@@ -1,5 +1,16 @@
 # Database Interface (Source of Truth)
 
+## Codex 0.166 retired controls (migration 0121)
+
+`0121_codex_166_retired_controls.sql` idempotently removes
+`features.code_mode_tool_description_first` and
+`features.guardianv2.async_classifier_mode` from Codex root/native root and every
+structured/native profile in `client_config_documents.settings`. It preserves
+other engines, sibling values, literal dotted map names, profile order/names,
+`body`, `sha256` and timestamps. No schema shape changes are needed. Apply through
+the migration runner; rollback requires restoring the prior settings JSON from
+a database backup, because ignored/removed values have no modern equivalent.
+
 ## Quiet runtime (2026-10-25)
 
 Read, volatile observation and durable mutation have separate execution paths.

@@ -12,7 +12,7 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 const codex163Features = [
-  'async_compaction', 'code_mode_host_grpc', 'code_mode_tool_description_first',
+  'async_compaction', 'code_mode_host_grpc',
   'credential_masking', 'guardian_trust_orchestrator_connectors', 'output_token_replay',
   'retain_client_tool_outputs', 'subagent_default_context_limits',
 ];

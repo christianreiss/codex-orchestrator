@@ -2041,6 +2041,14 @@ sync/launch, not wrapper-enforced automation. See
 
 ## Native configuration maintenance (Codex 0.166.0)
 
+New native and structured root/profile authoring rejects
+`features.code_mode_tool_description_first` (removed by the native feature registry)
+and `features.guardianv2.async_classifier_mode` (schema-compatible but ignored;
+asynchronous classification always uses conversations), including explicit false.
+Stored normalization and migration 0121 remove only these exact feature paths,
+preserving Guardian siblings, literal map names and historical TOML/hash snapshots.
+See the [versioned native feature registry](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/features/src/lib.rs).
+
 The Engines native JSON editor, root configuration and profile sidecars accept the
 published 0.166.0 schema (audited 2026-11-01, SHA-256
 `211bec2282459fcd70e4905af948721177b6ec7a03e0df84cd8b7c131006a6ca`).

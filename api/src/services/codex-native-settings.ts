@@ -18,6 +18,7 @@ export const CODEX_RETIRED_FEATURE_KEYS: readonly string[] = [
   "apply_patch_preserve_line_endings",
   "apps_mcp_path_override",
   "code_mode_buffered_exec",
+  "code_mode_tool_description_first",
   "codex_git_commit",
   "collaboration_modes",
   "elevated_windows_sandbox",
@@ -86,6 +87,24 @@ export function nativeRecord(value: unknown): NativeSettings {
     ? value as NativeSettings : {};
 }
 
+/** Stored compatibility only; authoring must use the strict normalizer first. */
+export function normalizeStoredCodexNativeSettings(value: unknown): NativeSettings | undefined {
+  const input = nativeRecord(value);
+  const features = nativeRecord(input.features);
+  if (!Object.hasOwn(features, 'code_mode_tool_description_first')
+    && !Object.hasOwn(nativeRecord(features.guardianv2), 'async_classifier_mode')) {
+    return normalizeCodexNativeSettings(value);
+  }
+  const healed = { ...features };
+  delete healed.code_mode_tool_description_first;
+  if (Object.hasOwn(nativeRecord(features.guardianv2), 'async_classifier_mode')) {
+    const guardian = { ...nativeRecord(features.guardianv2) };
+    delete guardian.async_classifier_mode;
+    healed.guardianv2 = guardian;
+  }
+  return normalizeCodexNativeSettings({ ...input, features: healed });
+}
+
 function cloneJson(value: unknown, path: string): unknown {
   if (value === null) throw new ValidationError(`${path}: TOML has no null value; omit the key instead`, { param: path });
   if (typeof value === 'string' || typeof value === 'boolean') return value;
@@ -120,11 +139,9 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
   }
   const features = nativeRecord(out.features);
   for (const key of Object.keys(features)) {
-    if (CODEX_RETIRED_FEATURE_KEYS.includes(key)) throw new ValidationError(`native_settings.features.${key} is removed or deprecated`, { param: `native_settings.features.${key}` });
+    if (CODEX_RETIRED_FEATURE_KEYS.includes(key)) throw new ValidationError(`native_settings.features.${key} is removed or deprecated; omit it`, { param: `native_settings.features.${key}` });
   }
-  if (Object.hasOwn(nativeRecord(features.guardianv2), 'thread_context')) {
-    throw new ValidationError('native_settings.features.guardianv2.thread_context is removed', { param: 'native_settings.features.guardianv2.thread_context' });
-  }
+  validateCodexRetiredGuardianSettings(features, 'native_settings.features');
   // Model ids live in several native scopes, including profile sidecars. Migrate
   // known deprecated choices only; provider-specific and future ids pass through.
   const agents = nativeRecord(out.agents);
@@ -313,8 +330,19 @@ export function validateCodexMcpOAuthSemantics(servers: NativeSettings, path = '
  * Nested nulls remain invalid because TOML cannot represent them.
  */
 export function validateCodexFeatureDocument(features: NativeSettings, path: string, partialFeatures = false): void {
+  validateCodexRetiredGuardianSettings(features, `${path}.features`);
   const checked = Object.fromEntries(Object.entries(features).map(([key, value]) => [key, value === null ? false : value]));
   validateCodexConfigDocument({ features: cloneJson(checked, `${path}.features`) }, { path, partialFeatures });
+}
+
+/** Upstream retains these compatibility keys in its schema but ignores them. */
+function validateCodexRetiredGuardianSettings(features: NativeSettings, path: string): void {
+  for (const key of ['thread_context', 'async_classifier_mode']) {
+    if (Object.hasOwn(nativeRecord(features.guardianv2), key)) {
+      const field = `${path}.guardianv2.${key}`;
+      throw new ValidationError(`${field} is removed or deprecated and ignored; omit it${key === 'async_classifier_mode' ? ' (asynchronous classification always uses conversations)' : ''}`, { param: field });
+    }
+  }
 }
 
 /** Deep merge with explicit values winning. No array concatenation or mutation. */

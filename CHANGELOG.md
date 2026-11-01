@@ -7,6 +7,8 @@
 
 - **cxx 0.9.150 — native CLI compatibility:** complete Grok Build 1.0.70 utility/service option values and command-scoped aliases, keeping help/version/auth/session-looking values opaque. Codex 0.166.0 `queue` (including new `--resume`), `archive`, `unarchive` and `delete` now fail before config/auth because their shared daemon requires a managed lifecycle adapter. Native help stays available. Includes pinned native help corpora and help-only oracle checks; Claude argument behavior is unchanged. This wrapper version also includes the Grok process-overlay correction below.
 
+- **Codex retired controls:** reject the removed `features.code_mode_tool_description_first` and ignored `features.guardianv2.async_classifier_mode` in new root/profile settings. Stored settings heal only those exact paths; migration 0121 preserves profile order, sibling values, other engines and historical TOML/hash snapshots.
+
 - **Claude native settings:** support `permissions.blockWritesOutsideWorkingDirectories` through the Engines JSON editor, previews and host settings. Both boolean values require an observed Claude Code 2.1.314 or newer; removal withdraws only that setting. The option stays unset by default and existing local siblings are preserved.
 
 - **Auth runner:** pin Codex 0.166.0 and Claude Code 2.1.316 to the stable/latest-normal releases reviewed on 2026-11-01, with verified Codex Linux amd64/arm64 archive checksums. Grok Build stays at 1.0.70; these source pins do not change host version policy or deploy a runner image.
