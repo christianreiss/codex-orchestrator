@@ -408,13 +408,14 @@ func (s *server) connectLoop(ctx context.Context) {
 					c.pingLocalStates(time.Now())
 					s.mu.Lock()
 					leases, last := s.leases, s.lastSync
+					counts := s.sessionCountsLocked()
 					syncScopes := s.scopeViewsLocked()
 					s.mu.Unlock()
 					var synced any
 					if last != "" {
 						synced = last
 					}
-					metadata := map[string]any{"type": "heartbeat", "sessions": leases, "synced_at": synced, "sync_scopes": syncScopes}
+					metadata := map[string]any{"type": "heartbeat", "sessions": leases, "transport_leases": counts.TransportLeases, "managed_sessions": counts.ManagedSessions, "anonymous_transport_leases": counts.AnonymousTransportLeases, "synced_at": synced, "sync_scopes": syncScopes}
 					c.mu.Lock()
 					stateEnabled := c.stateEnabled
 					c.mu.Unlock()
@@ -500,7 +501,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/_comm/status":
 		residentView := s.residentView()
 		s.mu.Lock()
-		status := map[string]any{"protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked(), "mcp": s.mcp.view()}
+		counts := s.sessionCountsLocked()
+		status := map[string]any{"transport_leases": counts.TransportLeases, "managed_sessions": counts.ManagedSessions, "anonymous_transport_leases": counts.AnonymousTransportLeases, "protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked(), "mcp": s.mcp.view()}
 		if s.conn != nil {
 			s.conn.mu.Lock()
 			if s.conn.stateEnabled {

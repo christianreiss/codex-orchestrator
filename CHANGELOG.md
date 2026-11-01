@@ -1,3 +1,9 @@
+# 2026-11-01
+
+- **Task supervision:** abandoned native sessions no longer start crash recovery merely because their connection expired. Confirmed idle automatic tasks and stale abandonment incidents are cleaned up while unresolved accepted work and explicit watchdogs retain their recovery evidence. Includes Codex, Claude and Grok regressions and a real-MySQL check for direct operator `agent_work_state` reports.
+- **Coordination feedback sweep:** reconnecting a native session preserves its explicitly selected worktree; remote resource claims accept canonical IP addresses and single-label hostnames; large merge refusals show bounded diagnostics and the checkout-root claim remedy. Content-only Claude Desktop/SDK sessions receive supported native-launch guidance without being granted native ownership.
+- **cxx 0.9.149:** distinguish observed native sessions from transport leases in communicator status and host details, make the settings API-count table keyboard-scrollable, recover installed-version reporting during a version-gated bootstrap, reconcile uncertain terminal finish requests through their idempotent endpoint, and support project file uploads from local files without passing their contents through model context. See the relevant engine interfaces and the [verification record](docs/verification/feedback-sweep-2026-11-01.md).
+
 # 2026-10-31
 
 - **API: stop owner commands and workers blocking the event loop (clx/cgx launch and exit stalls):** production profiling showed `GET /versions` stalling 1–9 s several times a minute, which every managed launch, hook and `finish` call inherited. The longest stalls were single 5–6 s synchronous CPU blocks inside `coordination.reconcile`. Server only (no wrapper release):

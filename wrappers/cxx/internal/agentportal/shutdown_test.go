@@ -98,3 +98,33 @@ func TestSessionEndObservationStaysLocalUntilFinish(t *testing.T) {
 		t.Fatalf("requests=%d", calls.Load())
 	}
 }
+
+func TestFinishRetriesCommunicatorUnknownWithoutReplayingOtherWrites(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if calls.Add(1) == 1 {
+					w.WriteHeader(409)
+					io.WriteString(w, `{"error":{"code":"communicator_outcome_unknown","message":"Local communicator disconnected; request outcome unknown"}}`)
+					return
+				}
+				io.WriteString(w, `{}`)
+			}))
+			defer server.Close()
+			session := &Session{ID: "session", Engine: engine, BridgeToken: "bridge", BaseURL: server.URL, http: server.Client()}
+			if err := session.Finish("completed", "done"); err != nil {
+				t.Fatal(err)
+			}
+			if err := session.Finish("completed", "done"); err != nil {
+				t.Fatal(err)
+			}
+			if calls.Load() != 2 {
+				t.Fatalf("finish requests=%d", calls.Load())
+			}
+			if isRetryableAmbiguous(&PortalError{Status: 409, Code: "communicator_outcome_unknown"}) {
+				t.Fatal("other non-idempotent writes must not gain automatic replay")
+			}
+		})
+	}
+}

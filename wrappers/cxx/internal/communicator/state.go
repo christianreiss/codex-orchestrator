@@ -246,11 +246,12 @@ func (c *StateClient) Done() <-chan struct{} { return c.done }
 func (c *StateClient) Close()                { c.cancel(); c.ws.SetDeadline(time.Now()); c.ws.Close() }
 
 type stateRelay struct {
-	lastPong time.Time
-	stopping bool
-	epoch    string
-	events   chan StateFrame
-	stop     func()
+	sessionID string // diagnostic identity, counted only after an authenticated snapshot
+	lastPong  time.Time
+	stopping  bool
+	epoch     string
+	events    chan StateFrame
+	stop      func()
 }
 
 func (s *server) state(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +279,7 @@ func (s *server) state(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		stop := func() { ws.SetDeadline(time.Now()) }
-		stream := &stateRelay{events: make(chan StateFrame, 64), stop: stop, lastPong: time.Now()}
+		stream := &stateRelay{sessionID: open.Scope.SessionID, events: make(chan StateFrame, 64), stop: stop, lastPong: time.Now()}
 		c.mu.Lock()
 		if c.states == nil {
 			c.states = make(map[string]*stateRelay)

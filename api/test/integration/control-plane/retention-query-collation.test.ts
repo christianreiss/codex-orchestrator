@@ -13,10 +13,22 @@ describe.skipIf(!handle)('actual retention candidate queries on mixed legacy col
     ['utf8mb4_unicode_ci', 'utf8mb4_0900_ai_ci'],
     ['utf8mb4_0900_ai_ci', 'utf8mb4_unicode_ci'],
   ])('prepares all due candidate guards with %s / %s', async (first, second) => {
-    const queries: Array<{ sql:string; params:unknown[] }> = [];
-    const tx = { execute: async (query:SQL) => { queries.push(new MySqlDialect().sqlToQuery(query)); return [[]]; } };
+    const statements: Array<{ sql:string; params:unknown[] }> = [];
+    const tx = { execute: async (query:SQL) => { statements.push(new MySqlDialect().sqlToQuery(query)); return [[]]; } };
     const service = new ServerRetentionService({ transaction: async (run:(value:typeof tx)=>Promise<unknown>) => run(tx) } as unknown as Database);
     for (const family of ['conversations','rooms','daemons','addresses'] as const) await service.purgeFamily(family);
+    // Room cursor housekeeping runs even when no history candidates are returned.
+    // Capture candidate SELECTs separately and reject unexpected writes at this seam.
+    const queries = statements.filter(query => query.sql.trimStart().startsWith('SELECT'));
+    expect(statements.filter(query => !queries.includes(query)).map(query => query.sql)).toEqual([
+      'DELETE FROM agent_room_changes WHERE created_at <= ? ORDER BY seq LIMIT ?',
+    ]);
+    expect(queries.map(query => query.sql.match(/\bFROM\s+([a-z_]+)/i)?.[1]).filter(table => table !== 'versions')).toEqual([
+      'agent_bus_conversations', 'agent_room_events', 'agent_bus_conferences',
+      'agent_chat_attachments', 'agent_scope_events', 'agent_room_reads',
+      'agent_room_operations', 'host_daemon_sessions', 'host_daemon_sessions',
+      'agent_bus_addresses', 'agent_bus_publications',
+    ]);
     const tables = [...new Set(queries.flatMap(query => [...query.sql.matchAll(/\b(?:FROM|JOIN)\s+([a-z_]+)/gi)].map(match => match[1]!)))];
     const connection = await handle!.pool.getConnection();
     const database='retention_queries_'+randomUUID().replaceAll('-','');

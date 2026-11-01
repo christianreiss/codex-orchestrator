@@ -77,7 +77,7 @@ export const GIT_DIRECTOR_ENABLED_FLAG = 'git_director_enabled';
 function nativeRegistrationRequired(message: string, workspaceMismatch = false) {
   const recovery = workspaceMismatch
     ? ' Bind the actual absolute checkout and common directory with agent_context_update before registering a linked worktree or a checkout outside your bound one. A separate repository nested inside your bound checkout (e.g. a submodule) registers directly when you pass its own clone_dir (`git rev-parse --path-format=absolute --git-common-dir` run inside it).'
-    : ' Run cxx communicator status; use the original managed native process and its private MCP broker, then retry. agent_self or naming alone does not establish connection proof.';
+    : ' Run cxx communicator status; use the original managed native process and its private MCP broker, then retry. A Claude Desktop Code-tab / Agent SDK session connected only to the content MCP has no native agent binding: agent_self, agent_session_name and quota_get are intentionally unavailable there. Start the task through cxx native claude (or clx) in a terminal for supported session-bound coordination. Content MCP access, agent_self or naming alone does not establish connection proof.';
   return new ConflictError(message + recovery, 'git_director_owner_required');
 }
 

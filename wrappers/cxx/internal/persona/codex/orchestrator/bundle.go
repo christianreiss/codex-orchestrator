@@ -11,7 +11,9 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
 
@@ -28,14 +30,17 @@ import (
 //     for upload when status is `missing`/`upload_required`.
 //   - Agents/Config — local SHA256 digests for the matching docs.
 type BundleRequest struct {
-	Engine        string          `json:"engine"`
-	IncludeAuth   bool            `json:"include_auth"`
-	AuthDigest    string          `json:"auth_digest,omitempty"`
-	AuthCandidate json.RawMessage `json:"auth_candidate,omitempty"`
-	Agents        string          `json:"agents,omitempty"`
-	Config        string          `json:"config,omitempty"`
-	Home          string          `json:"home,omitempty"`
-	Username      string          `json:"username,omitempty"`
+	// VersionProbe is local-only and runs only after a reachable server rejects
+	// an unreported CLI version. Hidden/warm healthy boots never spawn a probe.
+	VersionProbe  func(context.Context) string `json:"-"`
+	Engine        string                       `json:"engine"`
+	IncludeAuth   bool                         `json:"include_auth"`
+	AuthDigest    string                       `json:"auth_digest,omitempty"`
+	AuthCandidate json.RawMessage              `json:"auth_candidate,omitempty"`
+	Agents        string                       `json:"agents,omitempty"`
+	Config        string                       `json:"config,omitempty"`
+	Home          string                       `json:"home,omitempty"`
+	Username      string                       `json:"username,omitempty"`
 	// Skills carries per-slug digests of the native on-disk skill store (Grok)
 	// so the server can omit unchanged bundles.
 	Skills map[string]string `json:"skills,omitempty"`
@@ -92,7 +97,20 @@ func (c *Client) SyncBootstrap(ctx context.Context, req BundleRequest) (*BundleR
 		req.Engine = "codex"
 	}
 	var raw json.RawMessage
-	if err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", req, &raw, 2); err != nil {
+	err := c.JSON(ctx, http.MethodPost, "/sync/bootstrap", req, &raw, 2)
+	var refusal *HTTPError
+	if errors.As(err, &refusal) && refusal.StatusCode == 422 &&
+		strings.Contains(refusal.Body, "observed unreported") && strings.Contains(refusal.Body, "CLI") && req.VersionProbe != nil {
+		// Reconcile an already installed CLI once. This is not an update/install,
+		// and the identical bootstrap body still passes all server validation.
+		if version := strings.TrimSpace(req.VersionProbe(ctx)); version != "" && version != "unknown" {
+			if reportErr := c.CronReport(ctx, CronReportRequest{Engine: req.Engine, ClientVersion: version}); reportErr != nil {
+				return nil, errors.Join(err, reportErr)
+			}
+			err = c.JSON(ctx, http.MethodPost, "/sync/bootstrap", req, &raw, 2)
+		}
+	}
+	if err != nil {
 		return nil, err
 	}
 	out, err := decodeBundleResponse(raw)

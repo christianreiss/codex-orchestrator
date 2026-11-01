@@ -474,7 +474,15 @@ or custom `--config` selection; Grok already binds at that boundary. The one
 signed-config repair read can run before an owner exists, but subsequent auth
 and control requests use the communicator whenever the recovered config enables it.
 
-`cxx communicator status` reports protocol, version, PID, connected clients,
+`cxx communicator status` reports protocol, version, PID, transport leases,
+known managed sessions and unidentified transport leases. `transport_leases` counts
+local lease streams; legacy `sessions` retains that wire meaning for compatibility.
+`managed_sessions` deduplicates session and receiver state streams by authenticated
+session ID, and is `null` without a connected control-state authority. It counts
+observed managed sessions, not legacy/unmanaged clients. Existing lease streams
+carry no native identity, so `anonymous_transport_leases` reports those unidentified
+transports separately; it never estimates a unique user or agent count. The same
+fields reach the admin communicator view through heartbeat metadata. Status also reports
 forwarded/coalesced requests, last sync, connection error and the `api` level block
 (see API level and server minimum above). `connected` is
 the control transport (authenticated with the signed host key) and

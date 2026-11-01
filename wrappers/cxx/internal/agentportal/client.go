@@ -533,8 +533,12 @@ func (s *Session) FinishContext(ctx context.Context, status, summary string) err
 		body["watchdog_failure"] = failure
 	}
 	path := "/host/agent-sessions/" + url.PathEscape(s.ID) + "/finish"
-	err := retryAmbiguous(ctx, s.attemptTimeout(8*time.Second), func(attemptCtx context.Context) error {
+	// Finish is an idempotent terminal receipt. It alone may reconcile a lost
+	// communicator ACK by repeating the same status/cause, never native execution.
+	err := retryAmbiguousIf(ctx, s.attemptTimeout(8*time.Second), func(attemptCtx context.Context) error {
 		return s.bridgeJSON(attemptCtx, http.MethodPost, path, body, nil)
+	}, func(err error) bool {
+		return isRetryableAmbiguous(err) || portalErrorCode(err, "communicator_outcome_unknown")
 	})
 	if err != nil {
 		return err
@@ -553,6 +557,10 @@ func (s *Session) attemptTimeout(fallback time.Duration) time.Duration {
 }
 
 func retryAmbiguous(parent context.Context, attemptTimeout time.Duration, operation func(context.Context) error) error {
+	return retryAmbiguousIf(parent, attemptTimeout, operation, isRetryableAmbiguous)
+}
+
+func retryAmbiguousIf(parent context.Context, attemptTimeout time.Duration, operation func(context.Context) error, retryable func(error) bool) error {
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
 		if parentErr := parent.Err(); parentErr != nil {
@@ -561,7 +569,7 @@ func retryAmbiguous(parent context.Context, attemptTimeout time.Duration, operat
 		attemptCtx, cancel := context.WithTimeout(parent, attemptTimeout)
 		err = operation(attemptCtx)
 		cancel()
-		if err == nil || !isRetryableAmbiguous(err) {
+		if err == nil || !retryable(err) {
 			return err
 		}
 	}

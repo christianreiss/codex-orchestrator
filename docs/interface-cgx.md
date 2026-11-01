@@ -1771,3 +1771,13 @@ pre-dispatch `503 native_attachment_unavailable` rejection of claim operations,
 retaining request IDs and respecting cancellation. No generic mutation replay
 is added. Existing MCP processes require an updated client to adopt the change.
 See [claim reconnect waiting](agent-coordination.md#claim-reconnect-waiting-cxx-09147).
+
+### Local project file uploads and bootstrap version recovery
+
+`cgx project file put SLUG FILE --json` and the shared `cxx project file put` upload
+local files without model-context byte transfer, with the existing 4 MiB decoded
+limit and server size/SHA-256 verification. See [the shared command contract](interface-cdx.md#local-durable-project-files-and-bootstrap-reconciliation)
+for options, same-name replacement and uncertain-receipt handling. Grok's bootstrap
+probes/reports its installed CLI only after a specific 422 unreported-version
+refusal, then retries once. Session finish reconciles a lost communicator ACK only
+by repeating the same terminal receipt within its existing budget.

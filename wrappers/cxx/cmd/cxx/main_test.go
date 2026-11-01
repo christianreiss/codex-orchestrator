@@ -265,3 +265,12 @@ func TestTransferHelpAllPersonas(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectFileHelpAllPersonas(t *testing.T) {
+	for _, name := range []string{"cxx", "cdx", "clx", "cgx"} {
+		var stdout, stderr bytes.Buffer
+		if code := run(name, []string{"project", "--help"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "project file put") {
+			t.Fatalf("%s: code=%d stdout=%s stderr=%s", name, code, &stdout, &stderr)
+		}
+	}
+}

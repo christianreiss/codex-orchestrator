@@ -9,6 +9,12 @@ import { tickOwnedSchedules } from '../src/services/schedules/owner.js';
 import { recoveryBudget } from '../src/services/agent-supervisor/policy.js';
 import { OwnerStateSnapshot } from '../src/control-plane/state/store.js';
 import { decrypt } from '../src/security/secret-box.js';
+import { stageOwnerLiveness } from '../src/control-plane/state/session-abandonment.js';
+import { stageSessionFinish } from '../src/control-plane/state/session-lifecycle.js';
+import { loadTestEnv } from './helpers/test-keyring.js';
+import { stagePortalEvent } from '../src/control-plane/state/portal-events.js';
+import { stageSupervisorAttention } from '../src/services/agent-supervisor/notices.js';
+import { newQueuedMessage } from '../src/services/agent-messaging/views.js';
 
 const closers: Array<() => void> = [];
 afterEach(() => {
@@ -34,8 +40,142 @@ async function patch(
     },
   });
 }
+async function observe(f: ReturnType<typeof fixture>, state: 'idle' | 'working') {
+  const a = f.agents[0]!, generation = randomUUID();
+  await patch(f, 'agentSessions', a.id, {
+    activeTurnId: null,
+    receiver: { generation, native_session_id: a.native, heartbeat_at: f.now, probes: {}, failure: null },
+    activity: { generation, native_session_id: a.native, binding_generation: 1, state,
+      sequence: 1, received_at: f.now, expires_at: '2099-01-01T00:00:00Z', receiver_bound: true },
+  });
+}
+async function uncertainWork(f: ReturnType<typeof fixture>) {
+  const [a, peer] = f.agents, id = randomUUID();
+  await mutateOwnerState(f.owner, {
+    kind: 'test.accepted', payload: {}, prepare(ctx) {
+      ctx.draft.upsert('agentBusMessages', {
+        ...newQueuedMessage({ id, conversationId: randomUUID(), sequence: 1,
+          sender: ctx.draft.table('agentBusAddresses').get(peer!.addressId)!, senderSessionId: peer!.id,
+          target: ctx.draft.table('agentBusAddresses').get(a!.addressId)!, kind: 'request',
+          content: 'existing work', contentEnc: 'fixture', clientMessageId: randomUUID(),
+          expiresAt: '2099-01-01T00:00:00Z', now: f.now }),
+        dispatchOrder: 1, status: 'ambiguous', acceptedAt: f.now,
+      } as never);
+      return null;
+    },
+  });
+  return id;
+}
 
 describe('external fleet task supervisor', () => {
+  it.each(['codex', 'claude', 'grok'])('retires completed native %s observation at confirmed idle and observes the next working turn', async engine => {
+    const f = fixture(engine), a = f.agents[0]!;
+    await f.service.tick();
+    await observe(f, 'idle');
+    await f.service.tick();
+    expect(f.service.list(`agent:${a.addressId}`).states[0]?.state).toBe('completed');
+    await observe(f, 'working');
+    await f.service.tick();
+    expect(f.service.list(`agent:${a.addressId}`).states[0]?.state).toBe('working');
+  });
+  it('does not treat idle as the result of accepted ambiguous work or an explicit operator task', async () => {
+    const f = fixture(), a = f.agents[0]!;
+    await f.service.tick();
+    const id = await uncertainWork(f);
+    await observe(f, 'idle');
+    await f.service.tick();
+    expect(f.service.list(`agent:${a.addressId}`).states[0]?.state).toBe('working');
+    expect(f.state.snapshot().messages.get(id)?.status).toBe('ambiguous');
+    await f.service.report(a.id, f.token, { state: 'working', task_key: 'explicit-task' });
+    await f.service.tick();
+    expect(f.service.list(`agent:${a.addressId}`).states[0]?.taskKey).toBe('explicit-task');
+    expect(f.service.list(`agent:${a.addressId}`).states[0]?.state).toBe('working');
+  });
+  it.each(['none', 'bus', 'portal', 'question', 'successor', 'paused'])('cleans historical abandonment incidents only without outstanding execution (%s)', async pending => {
+    const f = fixture(), a = f.agents[0]!;
+    await f.service.tick();
+    const work = f.state.snapshot().table('agentWorkStates').get(a.addressId)!;
+    if (pending === 'bus') await uncertainWork(f);
+    await mutateOwnerState(f.owner, {
+      kind: 'test.legacy-abandonment', payload: {}, prepare(ctx) {
+        stageSessionFinish(ctx, ctx.draft.table('agentSessions').get(a.id)!, 'failed', f.now, 'crash');
+        if (pending === 'portal') ctx.draft.upsert('agentMessages', {
+          id: 1, messageId: randomUUID(), sessionId: a.id, kind: 'message', status: 'accepted',
+        } as never);
+        if (pending === 'question') ctx.draft.upsert('agentPrompts', {
+          id: randomUUID(), sessionId: a.id, status: 'open',
+        } as never);
+        if (pending === 'successor') {
+          const id = randomUUID();
+          ctx.draft.upsert('agentSessions', { ...ctx.draft.table('agentSessions').get(a.id)!, id,
+            endedAt: null, status: 'active', activeTurnId: null, bindingGeneration: 2 });
+          stageUpdate(ctx, 'agentBusAddresses', a.addressId, { currentSessionId: id, bindingGeneration: 2 });
+        }
+        stagePortalEvent(ctx, { sessionId: a.id, clientEventId: 'server:abandoned', eventType: 'failed',
+          source: 'bridge', payloadEnc: 'fixture', createdAt: f.now });
+        stageUpdate(ctx, 'agentWorkStates', a.addressId, { escalation: 'recovery_deadline' });
+        if (pending === 'paused') stageUpdate(ctx, 'agentWorkStates', a.addressId, { paused: 1 });
+        stageSupervisorAttention(ctx, f.keyring, { sessionId: a.id, target: `agent:${a.addressId}`,
+          taskKey: work.taskKey, reason: 'recovery_deadline' }, f.now);
+        stageSupervisorAttention(ctx, f.keyring, { sessionId: a.id, target: `agent:${a.addressId}`,
+          taskKey: 'unrelated-work', reason: 'handoff_unanswered' }, f.now);
+        return null;
+      },
+    });
+    await f.service.tick();
+    expect(f.state.snapshot().table('agentWorkStates').get(a.addressId)?.state).toBe(pending !== 'none' ? 'working' : 'canceled');
+    const dog = f.state.snapshot().table('agentWatchdogs').get(work.watchdogId!)!;
+    expect(dog.status).toBe(pending !== 'none' ? 'recovering' : 'disabled');
+    expect(f.state.snapshot().table('agentChatNotices').all()[0]?.resolvedAt === null).toBe(pending !== 'none');
+    expect(f.state.snapshot().table('agentChatNotices').all()[1]?.resolvedAt).toBeNull();
+    const events = f.fake.inserts.length;
+    await f.service.tick();
+    expect(f.fake.inserts).toHaveLength(events);
+  });
+  it.each(['paused', 'escalated', 'incident'])('preserves %s automatic work even when its native session is idle', async condition => {
+    const f = fixture(), a = f.agents[0]!;
+    await f.service.tick();
+    await observe(f, 'idle');
+    await patch(f, 'agentWorkStates', a.addressId, condition === 'paused' ? { paused: 1 }
+      : condition === 'escalated' ? { escalation: 'recovery_deadline' }
+      : { incidentAt: f.now, deadlineAt: new Date(Date.parse(f.now) + 7200000).toISOString() });
+    await f.service.tick();
+    expect(f.service.list(`agent:${a.addressId}`).states[0]?.state).toBe('working');
+  });
+  it.each(['codex', 'claude', 'grok'])(
+    'cleans up abandoned %s observation without starting recovery or generating deadline attention',
+    async (engine) => {
+      const f = fixture(engine), a = f.agents[0]!;
+      await f.service.tick();
+      const work = f.state.snapshot().table('agentWorkStates').get(a.addressId)!;
+      for (const agent of f.agents) await patch(f, 'agentSessions', agent.id, { bridgeExpiresAt: f.now });
+      f.presence.close();
+      const later = Date.parse(f.now) + 25 * 3600000;
+      await mutateOwnerState(f.owner, {
+        kind: 'test.abandon', payload: {},
+        prepare(ctx) { stageOwnerLiveness(ctx, f.owner, f.keyring, loadTestEnv(), later); return null; },
+      });
+      expect(f.state.snapshot().sessions.get(a.id)?.endedAt).not.toBeNull();
+      expect(f.state.snapshot().table('agentWatchdogs').get(work.watchdogId!)?.status).toBe('disabled');
+      expect(f.state.snapshot().table('agentWorkStates').get(a.addressId)).toMatchObject({
+        state: 'canceled', reason: 'session_abandoned', incidentAt: null, deadlineAt: null,
+      });
+      await f.service.tick(new Date(later + 7200001));
+      expect(f.state.snapshot().table('agentChatNotices').all()).toHaveLength(0);
+      expect(f.state.snapshot().table('agentScheduleRuns').all()).toHaveLength(0);
+    },
+  );
+  it('continues to recover an explicitly reported crash', async () => {
+    const f = fixture(), a = f.agents[0]!;
+    await f.service.tick();
+    const work = f.state.snapshot().table('agentWorkStates').get(a.addressId)!;
+    await mutateOwnerState(f.owner, {
+      kind: 'test.crash', payload: {},
+      prepare(ctx) { stageSessionFinish(ctx, ctx.draft.table('agentSessions').get(a.id)!, 'failed', f.now, 'crash'); return null; },
+    });
+    expect(f.state.snapshot().table('agentWatchdogs').get(work.watchdogId!)?.status).toBe('recovering');
+    expect(f.state.snapshot().table('agentWorkStates').get(a.addressId)?.incidentAt).toBe(f.now);
+  });
   it.each(['codex', 'claude', 'grok'])(
     'automatically arms %s once and preserves the launch model',
     async (engine) => {

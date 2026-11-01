@@ -700,6 +700,13 @@ func updateAuthSessionSecurityContext(ctx context.Context, session *claude.AuthS
 
 func decideAuth(resp *orchestrator.AuthRetrieveResponse, authErr error, authPath string, secure bool) orchestrator.AuthDecision {
 	dec := orchestrator.Decide(resp, authPath, secure, localProbe)
+	var validation *orchestrator.HTTPError
+	if errors.As(authErr, &validation) && validation.StatusCode == 422 {
+		dec.Allowed = false
+		dec.LocalUsable = false
+		dec.Reason = "Managed configuration validation failed: " + validation.Error()
+		return dec
+	}
 	logoutHold, logoutErr := claude.LogoutIntentActive()
 	if logoutErr != nil {
 		dec.Allowed = false
@@ -861,6 +868,10 @@ func bootstrapWithProgress(
 			out, err = sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
 		}
 		var auth *orchestrator.AuthRetrieveResponse
+		var refusal *orchestrator.HTTPError
+		if errors.As(err, &refusal) && refusal.StatusCode == 422 {
+			auth = &orchestrator.AuthRetrieveResponse{Status: "error", Message: err.Error()}
+		}
 		var sessions *orchestrator.FleetSessions
 		if len(out.Auth) > 0 {
 			if decodeErr := json.Unmarshal(out.Auth, &auth); decodeErr != nil {
@@ -988,6 +999,7 @@ func bootstrapWithProgress(
 		includeContent = new(bool)
 	}
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
+		VersionProbe:   claude.Version,
 		IncludeContent: includeContent,
 		Engine:         "claude",
 		IncludeAuth:    includeAuth,
@@ -1043,6 +1055,9 @@ func bootstrapWithProgress(
 		}
 		if !includeAuth {
 			return nil, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
+		}
+		if errors.As(berr, &refusal) && refusal.StatusCode == 422 {
+			return &orchestrator.AuthRetrieveResponse{Status: "error", Message: berr.Error()}, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}
 		return offline, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil

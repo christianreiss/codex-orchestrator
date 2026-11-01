@@ -92,6 +92,19 @@ describe.skipIf(!handle)('durable supervisor on isolated MySQL', () => {
       )[0]!.deadlineAt,
     ).toBe(work!.deadlineAt);
   });
+  it('persists an explicit direct-operator task key and reason before automatic discovery', async () => {
+    const a = f.agents[1]!;
+    const input = {
+      state: 'working', task_key: 'dc-upgrade-critical-review',
+      reason: 'Dokumente, Originalangebot, Belege und Herstellerangaben geprüft; priorisiertes Feedback wird abgeschlossen.',
+    };
+    await f.service.report(a.id, f.token, input);
+    await f.service.report(a.id, f.token, input);
+    const [work] = await handle!.db.select().from(schema.agentWorkStates)
+      .where(eq(schema.agentWorkStates.addressId, a.addressId));
+    expect(work).toMatchObject({ taskKey: input.task_key, reason: input.reason, state: input.state, model: 'fixture-model' });
+    expect(work?.version).toBe(1);
+  });
   it('migration can be reapplied without losing state', async () => {
     const before = await handle!.db.select().from(schema.agentWorkStates);
     const sql = await readFile(

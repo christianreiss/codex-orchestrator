@@ -46,6 +46,25 @@ async function fixture(page: Page, overrides = false, manage = true, singleEngin
 const advanced = (page: Page) => page.getByTestId('host-advanced');
 const openAdvanced = (page: Page) => advanced(page).locator(':scope > summary').click();
 
+for (const width of [320, 1440]) for (const managedSessions of [2, null]) {
+  test(`communicator distinguishes transport leases from native sessions (${managedSessions}, ${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await fixture(page);
+    await page.route('**/admin/communicators', route => route.fulfill({ json: { status: 'ok', data: {
+      enabled: true, connections: [{ host_id: 1, username: 'chris', version: '0.9.149', sessions: 9,
+        ...(managedSessions === null ? {} : { transport_leases: 9, managed_sessions: managedSessions }),
+        requests: 42, connected_at: new Date().toISOString(), synced_at: null }],
+    } } }));
+    await page.goto('/admin/hosts/1');
+    await openAdvanced(page);
+    const connection = page.locator('section[aria-labelledby="communicator-heading"]');
+    await expect(connection).toContainText('9 transport leases');
+    await expect(connection).toContainText(managedSessions === null ? 'Native sessions unavailable' : '2 observed native sessions');
+    await expect(connection).not.toContainText('9 clients');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
+
 test('page order: problems first, then engines and access, Advanced collapsed, Delete last, no tabs', async ({ page }) => {
   await fixture(page);
   await page.goto('/admin/hosts/1');

@@ -31,6 +31,18 @@ A handoff unanswered for another five minutes creates operator attention. Explic
 wait cycles create attention and notify the named coordinator. User-input waits,
 open questions and observed idle sessions do not authorize process termination.
 
+An automatically discovered native/turn observation ends at confirmed native idle
+when it has no outstanding accepted or uncertain execution, open question or workflow
+obligation. This retires observation only; it never fabricates a work-result receipt
+or completes an explicitly reported task. A later working native turn can be observed again.
+
+Abandoned-session cleanup is not a crash receipt and never starts recovery. It
+retires an unused automatic observer. Existing false incidents from that cleanup
+are retired only when the durable abandonment event matches the incident's start,
+the native identity is unchanged, and no outstanding execution remains. Only that
+incident's matching recovery-deadline notices are resolved; other attention,
+explicit watchdogs and uncertain accepted work remain intact.
+
 ## Recovery
 
 cxx 0.9.139 advertises `supervisor_protocol_version:1` and captures the native launch

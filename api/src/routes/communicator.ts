@@ -649,6 +649,9 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               .object({
                 type: z.literal('heartbeat'),
                 sessions: z.number().int().min(0).max(10000),
+                transport_leases: z.number().int().min(0).max(10000).optional(),
+                managed_sessions: z.number().int().min(0).max(10000).nullable().optional(),
+                anonymous_transport_leases: z.number().int().min(0).max(10000).optional(),
                 synced_at: z.string().datetime().nullable().default(null),
                 api_version: z.unknown().optional(),
                 sync_scopes: z
@@ -689,7 +692,10 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               .parse(parsed);
             await checkAuthorization();
             const view = connections.get(connectionID)!;
-            view.sessions = heartbeat.sessions;
+            view.sessions = heartbeat.sessions; // Legacy wire field counts transport leases.
+            view.transport_leases = heartbeat.transport_leases;
+            view.managed_sessions = heartbeat.managed_sessions;
+            view.anonymous_transport_leases = heartbeat.anonymous_transport_leases;
             view.synced_at = heartbeat.synced_at;
             const heartbeatApi = parseClientApiLevel(heartbeat.api_version);
             if (heartbeatApi !== null) {

@@ -1615,3 +1615,10 @@ disclosure. Preview, save, host rendering and concurrent-save checks remain stri
 See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
 switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
 Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
+
+Local durable project artifacts can be uploaded with `cxx project file put SLUG FILE`
+(or `cdx`/`clx`/`cgx`) without passing the bytes through model context. The wrapper
+uses existing project-file authorization and limits and verifies the server's
+size/SHA-256 receipt; see [the CLI contract](interface-cdx.md#local-durable-project-files-and-bootstrap-reconciliation).
+Communicator diagnostics distinguish transport leases from authenticated observed
+managed sessions; see [communicator status](communicator.md).

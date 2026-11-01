@@ -2493,6 +2493,13 @@ A result-only peer completion also queues one correlated reply containing its su
 
 Git Director registrations require absolute worktree, repository and common-directory paths (`git rev-parse --path-format=absolute --show-toplevel --git-common-dir`). A correct re-registration supersedes earlier mappings for that host/path and withdraws their queued requests while retaining history. A live lease on an earlier mapping blocks reassignment. Join/list/merge/release never select an arbitrary legacy duplicate: `git_director_worktree_ambiguous` requires explicit re-registration with the correct clone facts. Superseded rows cannot be revived by path lookups.
 
+Missing merge-claim errors name the registered Git common directory and target
+branch, count missing path claims and show at most three path examples. One path
+claim on the actual worktree root (or a parent) covers its changed files. Error
+metadata bounds `missing` to four resource examples, with `missing_total`,
+`missing_path_count`, `missing_omitted` and `covering_path`; callers must not treat
+the example list as an exhaustive resource inventory.
+
 ## German launch names and translation
 
 With Agent Messaging enabled, each new managed Codex, Claude or Grok launch
@@ -3392,6 +3399,12 @@ agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduce
 `agent_context_get/update`, `agent_room_list/read/send`, and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
+Remote resource claims retain the `fqdn` field name but accept canonical DNS
+hostnames (including a single label), IPv4 and unbracketed IPv6 addresses. DNS
+case/trailing-dot and IPv6 textual normalization participate in conflict checks;
+aliases and hostname/IP equivalence are not inferred. Re-registering an existing
+native lifecycle preserves an explicit workspace binding across reconnects;
+`agent_context_update` is the interface for changing that binding.
 Waiting claims queue in arrival order: earlier overlapping waiters appear in
 `blockers` with `state: "waiting"`, and release, operator resolution and
 reconciliation grant waiters server-side in that order. The claimant receives one
@@ -3937,3 +3950,10 @@ Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
 - `POST /admin/agent-supervisor/state` — set `{enabled:boolean}`. Requires `agent_messaging.manage`; disabling stops supervisor-owned future recovery.
 - `POST /admin/agent-supervisor/pause` — pause `{target,version}` with an optimistic work-state version. Requires `agent_messaging.manage`.
 - `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{state,task_key?,message_id?,reason?,waiting_for?,coordinator?,version?}` reports current work (`task_key` or `message_id` required; the key derives as `message:<id>` when omitted). See [the supervisor contract](agent-supervisor.md).
+
+Native idle retires automatic native/turn observation only when no accepted or
+uncertain work, open question or workflow obligation remains. It is not an explicit
+task result. Session abandonment never constitutes a crash receipt. The supervisor
+also retires old abandonment-induced incidents and their matching deadline notices
+when the durable abandonment marker and incident timestamp match and no outstanding
+execution remains; other notices, explicit watchdogs and uncertain work are preserved.

@@ -327,7 +327,10 @@ export class OwnedPortal {
           stageUpdate(ctx, 'agentSessions', id, {
             hostAuthFingerprint: fingerprint,
             bridgeExpiresAt: expiresAt,
-            ...(input.workspace ? { workspace } : {}),
+            // Reconnects replay the wrapper's launch cwd, while context/update
+            // may have explicitly moved this same lifecycle to a worktree.
+            // Only fill a missing check-in; explicit moves own later changes.
+            ...(input.workspace && !old.workspace ? { workspace } : {}),
             updatedAt: now,
           });
         } else {

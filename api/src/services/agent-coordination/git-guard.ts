@@ -125,16 +125,22 @@ export async function guardGitMutation(
         return true;
       });
     const missing = resources.filter((r) => !isCovered(r));
-    if (missing.length)
+    if (missing.length) {
+      const git = missing.find((r) => r.kind === 'git');
+      const paths = missing.filter((r) => r.kind === 'path');
+      const examples = paths.slice(0, 3).map((r) => r.path);
       throw new ConflictError(
         'Acquire live path and target-branch claims before requesting this merge. Missing: ' +
-          missing
-            .map((r) => (r.kind === 'git' ? `git common_dir=${r.common_dir} branch=${r.branch}` : r.kind === 'path' ? `path ${r.path}` : r.kind))
-            .join('; ') +
+          [git?.kind === 'git' ? `git common_dir=${git.common_dir} branch=${git.branch}` : null,
+            paths.length ? `${paths.length} path claim(s), e.g. ${examples.join(', ')}` : null]
+            .filter(Boolean).join('; ') +
+          (paths.length ? `. One path ${worktree.worktreePath} claim (or a parent directory) covers all changed paths` : '') +
           `. The git claim must use this registration's clone_dir (${clone.cloneDir}); if your claim names the real ` +
           '`git rev-parse --git-common-dir` (usually <toplevel>/.git), re-register the worktree with that clone_dir.',
         'resource_claim_required',
-        { missing, registered_clone_dir: clone.cloneDir },
+        { missing: missing.slice(0, 4), missing_total: missing.length, missing_path_count: paths.length,
+          missing_omitted: Math.max(0, missing.length - 4), covering_path: worktree.worktreePath, registered_clone_dir: clone.cloneDir },
       );
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { ownerStream } from "./owner-stream";
+import { fixture as adminFixture } from "./admin-fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import type { AgentSessionRow } from "../src/lib/api/agentSessions";
@@ -33,6 +34,7 @@ async function fixture(page: Page, read = true, manage = true) {
     if (path === "/admin/setup/status") return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: stamp(), dismissed_at: null } });
     if (path === "/admin/ws/info") return json({ enabled: true, url: new URL("/remote-clients-ws", req.url()).href.replace(/^http/, "ws") });
     if (path === "/admin/host-daemons") return json({ hosts: [host] });
+    if (path === "/admin/topology") return json(adminFixture(path));
     if (path === "/admin/agent-sessions") return json({ enabled: true, generated_at: stamp(), timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60 }, sessions: state.agents });
     if (path.endsWith("/events")) return json({ events: [{ cursor: 1, session_id: NATIVE, type: "assistant_message", source: "engine", payload: { text: "The real conversation is here." }, created_at: stamp() }], next_cursor: 1 });
     if (req.method() === "POST") {

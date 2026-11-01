@@ -8,6 +8,7 @@ import { stageUpdate } from './rows.js';
 import type { OwnerMutationContext } from './runtime.js';
 import type { OwnerRuntime } from './runtime.js';
 import { ownerPresence } from '../presence.js';
+import { observedNativeTask, supervisorHasOutstandingWork } from '../../services/agent-supervisor/policy.js';
 
 export function assertOwnedHousekeeping(context: OwnerMutationContext, hostId: number, engine: string): void {
   if (
@@ -165,7 +166,7 @@ export function stageSessionWatchdogs(
   context: OwnerMutationContext,
   session: AgentSession,
   status: 'completed' | 'failed',
-  failure: WatchdogFailure | undefined,
+  failure: WatchdogFailure | 'abandoned' | undefined,
   now: string,
 ): void {
   if (session.invocationKind === 'peer_delivery' || !session.agentBusAddressId || !session.upstreamSessionId)
@@ -181,6 +182,20 @@ export function stageSessionWatchdogs(
   const cause = failure ?? (status === 'completed' ? 'user_stop' : 'crash');
   for (const row of context.draft.table('agentWatchdogs').by('targetAddressId', target.id)) {
     if (row.nativeSessionId !== session.upstreamSessionId || !WATCHDOG_LIVE.includes(row.status)) continue;
+    if (cause === 'abandoned') {
+      const work = context.draft.table('agentWorkStates').get(target.id);
+      if (row.createdBy === 'supervisor' && work?.state === 'working' && observedNativeTask(work) && !work.incidentAt &&
+          !work.paused && !work.escalation &&
+          !supervisorHasOutstandingWork(context.draft.view(), target.id)) {
+        stageStopWatchdog(context, row, 'disabled', 'session_abandoned', now);
+        stageUpdate(context, 'agentWorkStates', work.addressId, {
+          state: 'canceled', reason: 'session_abandoned', version: work.version + 1, updatedAt: now,
+        });
+      }
+      // A lapsed bridge is cleanup evidence, never a crash receipt. Existing
+      // real incidents and unresolved accepted executions retain their evidence.
+      continue;
+    }
     if (row.deadlineAt <= now) stageStopWatchdog(context, row, 'expired', 'deadline', now);
     else if (cause === 'user_stop' || cause === 'blocked')
       stageStopWatchdog(
@@ -216,7 +231,7 @@ export function stageSessionFinish(
   session: AgentSession,
   status: 'completed' | 'failed',
   now: string,
-  failure?: WatchdogFailure,
+  failure?: WatchdogFailure | 'abandoned',
 ): void {
   const { draft } = context;
   if (

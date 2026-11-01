@@ -18,6 +18,7 @@ import { WatchdogsService, WATCHDOG_LIVE } from './watchdogs.js';
 import { stageSupervisorDependencies } from './agent-supervisor/dependencies.js';
 import { stageSupervisorAttention } from './agent-supervisor/notices.js';
 import { stageSupervisorArm } from './agent-supervisor/arm.js';
+import { cleanupAbandonedObservation } from './agent-supervisor/cleanup.js';
 import { isEngine } from '../util/engine.js';
 import { activeHostEngines } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
@@ -31,6 +32,8 @@ import {
   supervisorCanMonitor,
   waitCycle,
   type Work,
+  observedNativeTask,
+  supervisorHasOutstandingWork,
 } from './agent-supervisor/policy.js';
 
 const address = z
@@ -275,6 +278,7 @@ export class AgentSupervisor {
     const owner = requireOwnerRuntime(this.db);
     owner.assertOwner();
     if (!supervisorEnabled(owner.state.snapshot())) return;
+    await cleanupAbandonedObservation(this.db, this.keyring, now.toISOString());
     const before = owner.state.snapshot().table('agentWorkStates');
     const timestamp = now.toISOString(),
       fleet = await readFleetEngineState(this.db);
@@ -304,12 +308,33 @@ export class AgentSupervisor {
         .by('targetAddressId', target.id)
         .filter((m) => m.workKind && m.status === 'accepted' && !m.taskResultStatus && !m.cancelRequestedAt);
       const old = s.table('agentWorkStates').get(target.id);
+      if (old?.state === 'working' && !old.paused && !old.escalation && !old.incidentAt &&
+          observedNativeTask(old) && !session.activeTurnId &&
+          activity.state === 'idle' && !supervisorHasOutstandingWork(s, target.id)) {
+        await mutateOwnerState(owner, {
+          kind: 'supervisor.native-idle', payload: { id: session.id }, prepare(ctx) {
+            const work = ctx.draft.table('agentWorkStates').get(target.id);
+            const current = ctx.draft.table('agentSessions').get(session.id);
+            if (!work || work.version !== old.version || !current || current.activeTurnId ||
+                activityView(current, now.getTime(), false, ownerPresence(owner).hasSession(current.id, current.bindingGeneration)).state !== 'idle' ||
+                supervisorHasOutstandingWork(ctx.draft.view(), target.id)) return null;
+            const dog = work.watchdogId ? ctx.draft.table('agentWatchdogs').get(work.watchdogId) : undefined;
+            if (dog?.createdBy === 'supervisor' && WATCHDOG_LIVE.includes(dog.status))
+              stageStopWatchdog(ctx, dog, 'completed', 'native_idle', timestamp);
+            stageUpdate(ctx, 'agentWorkStates', work.addressId, {
+              state: 'completed', reason: 'native_idle', version: work.version + 1, updatedAt: timestamp,
+            });
+            return null;
+          },
+        });
+        continue;
+      }
       if (
         (!old ||
           old.nativeSessionId !== session.upstreamSessionId ||
           (!WORK_LIVE.includes(old.state) &&
-            !!session.activeTurnId &&
-            old.turnId !== session.activeTurnId)) &&
+            ((!!session.activeTurnId && old.turnId !== session.activeTurnId) ||
+              (old.reason === 'native_idle' && activity.state === 'working')))) &&
         (session.activeTurnId || activity.state === 'working' || requests.length)
       ) {
         await mutateOwnerState(owner, {

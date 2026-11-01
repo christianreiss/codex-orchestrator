@@ -3,7 +3,7 @@
   import { api } from '$lib/api/client';
   let { id }: { id: string | number } = $props();
   interface Scope { scope: string; running: boolean; content_error: string; auth: {engine: string; account_id?: number; state: string; native_adoption: string; error?: string; updated_at?: string} }
-  interface Connection { sync_scopes?: Scope[]; host_id: number; username: string; version: string; sessions: number; requests: number; connected_at: string; synced_at: string | null }
+  interface Connection { sync_scopes?: Scope[]; host_id: number; username: string; version: string; sessions: number; transport_leases?: number; managed_sessions?: number | null; requests: number; connected_at: string; synced_at: string | null }
   const query = createQuery({
     queryKey: ['communicators'],
     queryFn: () => api.get<{ enabled: boolean; connections: Connection[] }>('/admin/communicators'),
@@ -21,7 +21,7 @@
   {:else if connections.length === 0}<p class="text-body text-muted-foreground">No communicator connected. Requires cxx 0.9.71 or newer.</p>
   {:else}
     {#each connections as connection}
-      <div class="text-body"><strong>{connection.username}</strong> · cxx {connection.version} · {connection.sessions} clients · {connection.requests} requests
+      <div class="text-body"><strong>{connection.username}</strong> · cxx {connection.version} · {connection.managed_sessions == null ? 'Native sessions unavailable' : `${connection.managed_sessions} observed native sessions`} · {connection.transport_leases ?? connection.sessions} transport leases · {connection.requests} requests
         <p class="text-body-sm text-muted-foreground">Connected {new Date(connection.connected_at).toLocaleString()} · Last sync: {connection.synced_at ? new Date(connection.synced_at).toLocaleString() : 'Pending'}</p>
         {#each connection.sync_scopes ?? [] as scope (scope.scope)}
           <p class="mt-1 text-body-sm text-muted-foreground">

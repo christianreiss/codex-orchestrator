@@ -466,7 +466,14 @@ func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *or
 	if err != nil {
 		return summary, err
 	}
-	bundle, err := client.SyncBootstrap(ctx, orchestrator.BundleRequest{Engine: "grok", IncludeAuth: false, Home: home, Skills: store.Digests()})
+	bundle, err := client.SyncBootstrap(ctx, orchestrator.BundleRequest{Engine: "grok", IncludeAuth: false, Home: home, Skills: store.Digests(), VersionProbe: func(c context.Context) string {
+		path, e := native.FindCLI()
+		if e != nil {
+			return "unknown"
+		}
+		v, _ := native.ProbeVersion(c, path)
+		return v
+	}})
 	if err != nil {
 		var refusal *orchestrator.HTTPError
 		scope, disabled := orchestrator.EngineDisabledScope(err)

@@ -138,6 +138,13 @@ func portalExit(exitCode int, runErr error) (string, string) {
 
 func decideAuth(resp *orchestrator.AuthRetrieveResponse, authErr error, authPath string, hostSecure bool) orchestrator.AuthDecision {
 	dec := orchestrator.Decide(resp, authPath, hostSecure, localProbe)
+	var validation *orchestrator.HTTPError
+	if errors.As(authErr, &validation) && validation.StatusCode == 422 {
+		dec.Allowed = false
+		dec.LocalUsable = false
+		dec.Reason = "Managed configuration validation failed: " + validation.Error()
+		return dec
+	}
 	logoutHold, logoutErr := codex.LogoutIntentActive()
 	if logoutErr != nil || logoutHold {
 		dec.Allowed = false
@@ -852,6 +859,10 @@ func bootstrapWithProgress(
 			out, err = sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
 		}
 		var auth *orchestrator.AuthRetrieveResponse
+		var refusal *orchestrator.HTTPError
+		if errors.As(err, &refusal) && refusal.StatusCode == 422 {
+			auth = &orchestrator.AuthRetrieveResponse{Status: "error", Message: err.Error()}
+		}
 		var sessions *orchestrator.FleetSessions
 		if len(out.Auth) > 0 {
 			if decodeErr := json.Unmarshal(out.Auth, &auth); decodeErr != nil {
@@ -976,6 +987,7 @@ func bootstrapWithProgress(
 		includeContent = new(bool)
 	}
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
+		VersionProbe:   codex.Version,
 		IncludeContent: includeContent,
 		Engine:         "codex",
 		IncludeAuth:    includeAuth,
@@ -1044,6 +1056,11 @@ func bootstrapWithProgress(
 		}
 		if !includeAuth {
 			return nil, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
+		}
+		// A reachable validation refusal is not an outage and cannot authorize
+		// launching with stale managed content or a cached-auth fallback.
+		if errors.As(berr, &refusal) && refusal.StatusCode == 422 {
+			return &orchestrator.AuthRetrieveResponse{Status: "error", Message: berr.Error()}, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
 		// Treat network/server failure as "offline" for Decide().
 		offline := &orchestrator.AuthRetrieveResponse{Status: "offline", Message: berr.Error()}

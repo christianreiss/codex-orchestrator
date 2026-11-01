@@ -203,3 +203,36 @@ func TestSyncBootstrap_ContentOnlyOmitsAuth(t *testing.T) {
 		}
 	}
 }
+
+func TestBootstrapReportsInstalledVersionAfterUnreportedGate(t *testing.T) {
+	for _, engine := range []string{"claude"} {
+		t.Run(engine, func(t *testing.T) {
+			calls := []string{}
+			c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+				calls = append(calls, r.URL.Path)
+				if len(calls) == 1 {
+					w.WriteHeader(422)
+					io.WriteString(w, `{"message":"model requires CLI 0.163.0 or newer; observed unreported. Run cron run."}`)
+					return
+				}
+				if r.URL.Path == "/cron/report" {
+					var v CronReportRequest
+					json.NewDecoder(r.Body).Decode(&v)
+					if v.Engine != engine || v.ClientVersion != "0.166.0" {
+						t.Errorf("report=%+v", v)
+					}
+					io.WriteString(w, `{}`)
+					return
+				}
+				io.WriteString(w, `{"status":"ok"}`)
+			})
+			_, err := c.SyncBootstrap(context.Background(), BundleRequest{Engine: engine, VersionProbe: func(context.Context) string { return "0.166.0" }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(calls, ",") != "/sync/bootstrap,/cron/report,/sync/bootstrap" {
+				t.Fatalf("calls=%v", calls)
+			}
+		})
+	}
+}

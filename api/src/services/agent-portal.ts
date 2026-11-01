@@ -397,7 +397,7 @@ export class AgentPortalService {
           .update(agentSessions)
           .set({
             hostAuthFingerprint: fingerprint,
-            ...(input.workspace ? { workspace } : {}),
+            ...(input.workspace && !session.workspace ? { workspace } : {}),
             bridgeExpiresAt: expiresAt,
             heartbeatAt: now,
             updatedAt: now,

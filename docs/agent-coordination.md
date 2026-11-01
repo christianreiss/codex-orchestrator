@@ -38,6 +38,10 @@ or sets/clears `project_slug` and answers with a compact acknowledgement: `works
 or by sessions in its non-host (repository/project) rooms, `claims_total` and
 `claims_omitted`. Read `agent_context_get` for every member and all visible claims.
 Changing a subprocess cwd does not change membership.
+An authenticated reconnect of the same launch preserves its stored workspace,
+including an explicit linked-worktree binding made with `agent_context_update`.
+Registration fills a missing initial workspace but does not replay the original
+launch cwd over a later binding. Use `agent_context_update` for subsequent moves.
 
 Each active session joins a host room and a project room. A normalized network
 remote identifies a repository across hosts; a repository without a network remote
@@ -257,7 +261,15 @@ claims for explicit resolution. Production rollout requires its own authorizatio
 
 Legacy timed waiting claims begin with a 180-second expiry and may renew without authorizing a write; new connection-owned claims retain their native attachment fence. Negotiation remains 120 seconds; uncertain claims cannot be taken over; only the proven reconnect/completed-transcript recovery described above may renew them. Blockers include overlapping waiting claims ahead in arrival order (`state: "waiting"`; a legacy timed waiter only until its expiry). Without the owner runtime the legacy path applies that order on acquire and status only: its waiters are granted by their own polling and receive no grant notice. Blockers carry purpose, resources, owner address/name and, for uncertain outcomes, the supported audited operator endpoint `/admin/agent-messaging/scopes/resolve`. Owner metadata is loaded only for overlapping claims. A live same-session Git lease does not block its own claims.
 
-Unmanaged SSH targets use `{kind:"remote",fqdn:"mx1.example.org",service:"mail"}`. FQDN case and one trailing dot normalize. The operator's literal canonical FQDN is the shared key across caller hosts; DNS aliases/IPs are not inferred. `service:"*"` reserves all services of that FQDN. These claims do not create fleet membership or access credentials, and do not permit worktree isolation on a system target.
+Unmanaged SSH targets use `{kind:"remote",fqdn:"mx1.example.org",service:"mail"}`.
+The compatibility field `fqdn` also accepts a single-label hostname such as
+`bhkw-control`, an IPv4 address such as `10.255.230.2`, or an unbracketed IPv6
+address. Hostname case and one trailing dot normalize; IPv6 text is compressed
+and lowercased. The operator-chosen canonical target is the shared key across
+caller hosts; DNS aliases and hostname-to-IP mappings are not inferred.
+`service:"*"` reserves all services of that target. These claims do not create
+fleet membership or access credentials, and do not permit worktree isolation
+on a system target.
 
 An origin-omitting workspace refresh preserves repository identity only when its canonical common directory is unchanged. Explicit null/empty origin clears it. Project discovery without Git includes local descendant directories with path-segment boundaries; missing peer metadata still marks coverage limited.
 

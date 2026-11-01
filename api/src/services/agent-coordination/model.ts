@@ -1,4 +1,5 @@
 import { posix } from 'node:path';
+import { isIP } from 'node:net';
 import { z } from 'zod';
 import { sha256 } from '../../security/hash.js';
 import { readWorkspace } from '../agent-messaging/workspace.js';
@@ -12,21 +13,19 @@ const absolute = z
     'Canonical absolute path required',
   )
   .transform((v) => posix.normalize(v).replace(/\/+$/, '') || '/');
+// `fqdn` is the compatibility field name; a remote target may also be a
+// single-label hostname or IP literal. Canonicalize text only, never resolve
+// DNS aliases (doing so would silently change which resource was reserved).
+const remoteTarget = z.string().trim().toLowerCase().transform(v => v.replace(/\.$/, ''))
+  .pipe(z.string().min(1).max(253).refine(v =>
+    isIP(v) !== 0 || (!/^[\d.]+$/.test(v) && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(v)),
+  'Expected a hostname or an unbracketed IP address'))
+  .transform(v => isIP(v) === 6 ? new URL(`http://[${v}]/`).hostname.slice(1, -1) : v);
 export const resourceSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('remote'),
-      fqdn: z
-        .string()
-        .trim()
-        .toLowerCase()
-        .transform((v) => v.replace(/\.$/, ''))
-        .pipe(
-          z
-            .string()
-            .max(253)
-            .regex(/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
-        ),
+      fqdn: remoteTarget,
       service: z.string().trim().min(1).max(255),
     })
     .strict(),

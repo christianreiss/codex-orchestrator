@@ -51,7 +51,7 @@ export function stageOwnerLiveness(
     const seen = sessionLastSeen(owner, view, session.id);
     const from = seen !== null && Number.isFinite(seen) ? seen : now;
     const expiresAt = new Date(from + historyRetentionHours(view, env.AGENT_PORTAL_RETENTION_HOURS) * 3600_000).toISOString();
-    if (!stagePortalSessionFinish(ctx, session, 'failed', expiresAt, at, keyring)) continue;
+    if (!stagePortalSessionFinish(ctx, session, 'failed', expiresAt, at, keyring, 'abandoned')) continue;
     // The event makes a returning wrapper's agent_session_finished say
     // "abandoned", exactly as the legacy sweep did. No supervisor arm: an
     // offline laptop is not a crash.

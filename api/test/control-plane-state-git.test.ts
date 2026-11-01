@@ -2,6 +2,7 @@ import { resumeNativeFixture } from './helpers/native-resume.js';
 import { mutateOwnerState } from '../src/control-plane/state/runtime.js';
 import { captureLegacyDrainManifest, LegacyDrainRegistry } from '../src/control-plane/legacy-drain.js';
 import { withNativePrincipal } from '../src/control-plane/state/native-principal.js';
+import { requestHost } from '../src/control-plane/state/admission.js';
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '../src/db/schema.js';
@@ -18,6 +19,7 @@ import {
 } from '../src/control-plane/state/store.js';
 import { bindOwnerRuntime, type OwnerRuntime } from '../src/control-plane/state/runtime.js';
 import { GitDirectorService, archivableClones } from '../src/services/git-director.js';
+import { AgentPortalService } from '../src/services/agent-portal.js';
 import { SettingsService } from '../src/services/settings.js';
 import { AgentCoordination } from '../src/services/agent-coordination/index.js';
 import type { AgentMessagingService } from '../src/services/agent-messaging.js';
@@ -164,6 +166,29 @@ function setup(engine: 'codex' | 'claude' | 'grok' = 'codex') {
   };
 }
 describe('connection-owned Git registrations', () => {
+  it.each(['codex', 'claude', 'grok'] as const)('preserves explicitly rebound %s workspace when its launch reconnects', async (engine) => {
+    const h = setup(engine), token = `reconnect-${randomUUID()}`;
+    const launchWorkspace = { cwd: '/repo', git_status: 'repository' as const, git_root: '/repo', git_common_dir: '/repo/.git' };
+    await mutateOwnerState(h.owner, { kind: 'test.portal-reconnect', payload: {}, prepare(ctx) {
+      ctx.draft.upsert('versions', { name: 'agent_portal_enabled', version: '1', updatedAt: new Date().toISOString() });
+      ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(h.sessionId)!, status: 'active', invocationKind: 'interactive', workspace: { ...launchWorkspace, cwd: '/repo-task', git_root: '/repo-task', branch: null, head_sha: null, repository_key: null }, bridgeTokenHash: sha256(token) });
+      return null;
+    } });
+    const portal = new AgentPortalService(h.fake as unknown as Database, loadTestEnv(), testKeyring());
+    const registration = { sessionId: h.sessionId, bridgeToken: token, engine, username: 'root', cwd: '/repo', invocationKind: 'interactive' as const, workspace: launchWorkspace };
+    await portal.registerAgent(requestHost(h.host, 'owner-coordination-host'), registration);
+    expect(h.state.snapshot().sessions.get(h.sessionId)?.workspace).toMatchObject({ cwd: '/repo-task', git_root: '/repo-task' });
+    expect(await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: token }, () => h.git.register({ worktree_path: '/repo-task', clone_dir: '/repo/.git', engine, username: 'root', branch: 'task' }, h.host))).toMatchObject({ registered: true });
+  });
+
+  it('keeps missing-claim diagnostics bounded for a large merge and names a covering root claim', async () => {
+    const h = setup();
+    await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.register({ worktree_path: '/repo', clone_dir: '/repo/.git', engine: 'codex', username: 'root', branch: 'task' }, h.host));
+    const error = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: Array.from({ length: 314 }, (_, i) => `src/changed-file-${i}.ts`) }, h.host)).catch(e => e);
+    expect(error).toMatchObject({ code: 'resource_claim_required', message: expect.stringContaining('path /repo'), extra: { missing_total: 315, missing_path_count: 314 } });
+    expect(error.message).toContain('common_dir=/repo/.git branch=main');
+    expect(JSON.stringify(error).length).toBeLessThan(2500);
+  });
   it('requires the actual native owner to release a connection registration', async () => {
     const h = setup(), args = { worktree_path: '/repo', clone_dir: '/repo/.git', engine: 'codex', username: 'root', branch: 'work' };
     const registered = await withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, () => h.git.register(args, h.host));
@@ -368,6 +393,7 @@ describe('exact transcript Git continuation', () => {
 it.each(['codex','claude','grok'] as const)('%s explains missing native Git proof without creating registrations',async engine=>{
  const h=setup(engine),args={worktree_path:'/repo',clone_dir:'/repo/.git',repo_root:'/repo',engine,username:'root',branch:'work'};
  await expect(h.git.register(args,h.host)).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('cxx communicator status')});
+ await expect(h.git.register(args,h.host)).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('Desktop Code-tab')});
  await expect(withNativePrincipal({sessionId:h.sessionId,bridgeToken:h.token},()=>h.git.register({...args,worktree_path:'/nested'},h.host))).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('agent_context_update')});
  h.live.detach();
  await expect(withNativePrincipal({sessionId:h.sessionId,bridgeToken:h.token},()=>h.git.register(args,h.host))).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('cxx communicator status')});

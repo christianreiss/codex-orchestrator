@@ -207,6 +207,15 @@ export function fixture(pathname: string): Record<string, unknown> {
       return { setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: "2026-09-28T00:00:00Z", dismissed_at: null } };
     case "/admin/ws/info":
       return { enabled: false };
+    case "/admin/communicator/api-version":
+      return {
+        api_version: 1, min_api: 1, default_min_api: 1,
+        override_min_api: null, override_updated_at: null,
+        clients: {
+          hosts: { observed: 0, below_min: 0, below_current: 0, at_current: 0, unreported: 0 },
+          communicators: { observed: 0, below_min: 0, below_current: 0, at_current: 0, unreported: 0 },
+        },
+      };
     case "/admin/topology":
       return {
         generated_at: "2026-08-27T09:00:00Z",

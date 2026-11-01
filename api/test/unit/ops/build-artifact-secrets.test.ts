@@ -15,6 +15,9 @@ const SENTINEL_VALUE = 'sk-sentinel-4f2a9c31d7b84e60a15c8f7e2d0b6a93';
 // This public Compose default is deliberately included in Chatty's bundled
 // installation docs. A custom runner URL remains an operator-config tripwire.
 const PUBLIC_RUNNER_DEFAULT = 'http://auth-runner:8080/verify';
+// Authored Skill documentation uses this public local development endpoint.
+// Exempt this exact key/value pair only; operator-selected URLs remain tripwires.
+const PUBLIC_BASE_DEFAULT = 'http://127.0.0.1:8488';
 
 let createdEnv = false;
 /** Every secret-shaped line the build could have picked up from `../.env`. */
@@ -40,6 +43,7 @@ function envValues(text: string): string[] {
       value: line.slice(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, ''),
     }))
     .filter(({ key, value }) => key !== 'AUTH_RUNNER_URL' || value !== PUBLIC_RUNNER_DEFAULT)
+    .filter(({ key, value }) => key !== 'PUBLIC_BASE_URL' || value !== PUBLIC_BASE_DEFAULT)
     .map(({ value }) => value)
     .filter((value) => value.length >= 12);
 }
@@ -69,10 +73,13 @@ afterAll(() => {
 });
 
 describe('the API build never embeds operator configuration', () => {
-  it('distinguishes the public runner default from custom URLs and secret values', () => {
+  it('distinguishes documented public defaults from custom URLs and secret values', () => {
     expect(envValues(`AUTH_RUNNER_URL=${PUBLIC_RUNNER_DEFAULT}\n`)).toEqual([]);
+    expect(envValues(`PUBLIC_BASE_URL=${PUBLIC_BASE_DEFAULT}\n`)).toEqual([]);
     expect(envValues(`AUTH_RUNNER_URL=https://private-runner.example/verify\nTEST_SECRET=${SENTINEL_VALUE}\n`))
       .toEqual(['https://private-runner.example/verify', SENTINEL_VALUE]);
+    expect(envValues(`PUBLIC_BASE_URL=https://private-console.example\nPUBLIC_BASE_URL=http://127.0.0.1:8489\nPUBLIC_BASE_URL=http://localhost:8488\nTEST_SECRET=${PUBLIC_BASE_DEFAULT}\n`))
+      .toEqual(['https://private-console.example', 'http://127.0.0.1:8489', 'http://localhost:8488', PUBLIC_BASE_DEFAULT]);
   });
 
   it('produces the expected bundle without a .env beside it', () => {

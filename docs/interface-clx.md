@@ -124,6 +124,13 @@ unsupported/custom native endpoints never advertise an inbound receiver merely
 because MCP is configured. Existing Engine/Fleet switches and native permissions
 remain authoritative; queue admission and successful work results are separate.
 
+A Claude Desktop Code-tab or Agent SDK session that connects only to the content
+MCP is not a managed native lifecycle. It can use the content tools but has no
+session-bound `agent_self`, `agent_session_name`, `quota_get` or connection-owned
+Git registration. `git_director_owner_required` explains this boundary and directs
+the operator to start the task with `cxx native claude` (or `clx`) in a terminal.
+Naming or content-MCP access cannot establish native connection proof.
+
 `cxx native-entry install` repairs entries from locally verified signed configs;
 `cxx native-entry remove` removes managed entries and shell blocks for rollback.
 Both refuse, and the automatic post-command reconciliation skips, a home
@@ -2535,3 +2542,14 @@ pre-dispatch `503 native_attachment_unavailable` rejection of claim operations,
 retaining request IDs and respecting cancellation. No generic mutation replay
 is added. Existing MCP processes require an updated client to adopt the change.
 See [claim reconnect waiting](agent-coordination.md#claim-reconnect-waiting-cxx-09147).
+
+### Local project file uploads and bootstrap version recovery
+
+`clx project file put SLUG FILE --json` and the shared `cxx project file put` upload
+local files without model-context byte transfer, with the existing 4 MiB decoded
+limit and server size/SHA-256 verification. See [the shared command contract](interface-cdx.md#local-durable-project-files-and-bootstrap-reconciliation)
+for options, same-name replacement and uncertain-receipt handling. Claude's
+bootstrap likewise probes/reports its installed CLI version only after a specific
+422 unreported-version refusal, then retries once. A remaining validation refusal
+stays a policy error. Session finish reconciles a lost communicator ACK only by
+repeating the same terminal receipt within its existing budget.

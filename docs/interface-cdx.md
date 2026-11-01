@@ -2521,3 +2521,20 @@ pre-dispatch `503 native_attachment_unavailable` rejection of claim operations,
 retaining request IDs and respecting cancellation. No generic mutation replay
 is added. Existing MCP processes require an updated client to adopt the change.
 See [claim reconnect waiting](agent-coordination.md#claim-reconnect-waiting-cxx-09147).
+
+### Local durable project files and bootstrap reconciliation
+
+`cxx project file put SLUG FILE --json` (also `cdx project file put`) reads a regular
+local file directly, uploads through the existing host-authenticated MCP
+`project_file_upsert`, and checks the returned decoded size and SHA-256. Output
+contains metadata only. `--stored-name`, `--description`, `--mime-type` and
+`--engine codex|claude|grok` are optional. The 4 MiB decoded project-file limit
+applies; the same stored name is replaced. An uncertain receipt requires inspecting
+`project_files` before a retry; the command never automatically repeats an overwrite.
+
+A `/sync/bootstrap` 422 that specifically reports an unreported CLI version triggers
+one installed-native-version probe, `/cron/report`, and one identical bootstrap
+retry. Healthy hidden boots retain their probe-free path. Unresolved validation
+refusals retain the server explanation and do not become an offline launch fallback.
+Idempotent session `/finish` receipts may retry a communicator unknown-outcome once
+within the existing shutdown budget; native execution and other writes are not replayed.

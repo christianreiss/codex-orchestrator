@@ -25,7 +25,11 @@ export interface CommunicatorView {
   username: string;
   version: string;
   connected_at: string;
+  /** Legacy transport lease count; never a native session count. */
   sessions: number;
+  transport_leases?: number;
+  managed_sessions?: number | null;
+  anonymous_transport_leases?: number;
   requests: number;
   synced_at: string | null;
   sync_scopes?: unknown[];

@@ -15,6 +15,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/projectfiles"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/transfers"
 
@@ -119,6 +120,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	switch args[0] {
+	case "project":
+		return projectfiles.Command(args[1:], "", stdout, stderr)
 	case "transfer":
 		return transfers.Command(args[1:], "", stdout, stderr)
 	case "housekeeping":
@@ -384,6 +387,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx native-entry status|install|remove")
 	fmt.Fprintln(w, "  cxx update [--minimal]")
 	fmt.Fprintln(w, "  cxx sync")
+	fmt.Fprintln(w, "  cxx project file put SLUG FILE [--stored-name NAME] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx transfer put FILE | get ID --output FILE [--resume] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx housekeeping [status|run [--dry-run]|pin|unpin] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
@@ -399,6 +403,9 @@ func printSelectorHelp(w io.Writer) {
 
 // Dispatch only after the first app returns, including all deferred auth cleanup.
 func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "project" {
+		return projectfiles.Command(args[1:], engine, stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == "transfer" {
 		return transfers.Command(args[1:], engine, stdout, stderr)
 	}

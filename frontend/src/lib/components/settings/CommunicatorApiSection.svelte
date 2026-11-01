@@ -47,7 +47,7 @@
         </dd>
       </div>
     </dl>
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto" role="region" aria-label="Communicator API level counts" tabindex="0">
       <table class="w-full text-body-sm">
         <caption class="pb-1 text-left text-caption text-muted-foreground">
           Clients that stated their level in the last 6 hours (counted by this API process since it started; a restart refills them within one poll).

@@ -93,7 +93,7 @@ export function stagePortalSessionFinish(
   expiresAt: string,
   now: string,
   keyring: Keyring,
-  watchdogFailure?: WatchdogFailure,
+  watchdogFailure?: WatchdogFailure | 'abandoned',
 ): boolean {
   if (
     !session.closeRequestedAt &&
