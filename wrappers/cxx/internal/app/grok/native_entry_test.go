@@ -66,6 +66,46 @@ func TestNativeVersionDoesNotRequireFleetConfig(t *testing.T) {
 	}
 }
 
+func TestNativeScopedValuesCannotBecomeDiagnosticsOrRecovery(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("GROK_HOME", filepath.Join(home, ".grok"))
+	cli := filepath.Join(home, "vendor-grok")
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\nprintf 'unexpected vendor exec'\nexit 7\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CGX_GROK_BIN", cli)
+	for _, tc := range []struct {
+		args []string
+		code int
+	}{
+		{[]string{"worker", "status", "--pid", "--help"}, 2},
+		{[]string{"worker", "stop", "--pid", "--version"}, 2},
+		{[]string{"worker", "controller", "--pool", "--help"}, 2},
+		{[]string{"leader", "worker", "controller", "--endpoint", "--help"}, 2},
+		{[]string{"agent", "leader", "--cursor-worker-name", "--help"}, 2},
+		{[]string{"clone", "--redirect-dir", "--help"}, 1},
+		{[]string{"worktree", "list", "--type", "--help"}, 1},
+		{[]string{"worktree", "gc", "--max-age", "--version"}, 1},
+		{[]string{"worktree", "salvage", "--out", "--help"}, 1},
+		{[]string{"mcp", "add", "-s", "--help", "name"}, 1},
+		{[]string{"mcp", "add", "-t", "--version", "name"}, 1},
+		{[]string{"mcp", "add", "-H", "--resume", "name"}, 1},
+		{[]string{"trace", "-o", "--help"}, 1},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := RunNative(tc.args, &stdout, &stderr); code != tc.code || stdout.Len() != 0 {
+			t.Fatalf("%q => code=%d output=%q stderr=%q", tc.args, code, stdout.String(), stderr.String())
+		}
+		if tc.code == 2 && !strings.Contains(stderr.String(), "separate managed auth/session lifecycle") {
+			t.Fatalf("%q lost lifecycle refusal: %s", tc.args, stderr.String())
+		}
+	}
+	if isHelpPassthrough([]string{"update", "--version", "--help"}) || managedNativeRefusal([]string{"update", "--version", "--help"}) != installRefusal {
+		t.Fatal("update version value became help")
+	}
+}
+
 func TestNativeOptionsProtectPinnedInstallerAndKeepDiagnostics(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	for _, command := range []string{"update", "upgrade", "install"} {

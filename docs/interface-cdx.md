@@ -199,8 +199,8 @@ so `resume -i a.png UUID` and `exec -i a.png resume UUID` still read `UUID` (and
 also covers `queue --thread/--message`, `migrate-rollouts --thread`, and the
 value options of the utility and refused commands (`sandbox`, `mcp add|login`,
 `app-server`, `exec-server`, `cloud`, `plugin add`); a unit test pins it to the
-0.165.0 help corpus and an opt-in `NATIVE_CODEX_ORACLE` test compares it with a
-live binary. Readers do not interpret those utility commands' semantics; the
+0.166.0 help corpus (the value declarations remain unchanged). An opt-in
+`NATIVE_CODEX_ORACLE` test compares it with a live binary. Readers do not interpret those utility commands' semantics; the
 table only keeps their values (including command- or flag-shaped ones) opaque.
 
 Direct public `app-server`, `exec-server`, `remote-control`, `agents` and `--remote`
@@ -209,6 +209,19 @@ external processes do not inherit the wrapper's private account/auth broker,
 receiver and teardown lifecycle. Their native `--help` remains available. This
 does not affect the wrapper-owned private app-server used by normal managed
 interactive launches; help acceptance alone is not remote lifecycle support.
+
+From cxx 0.9.150, `queue`, `archive`, `unarchive` and `delete` are also
+refused before signed config, auth, account leasing or session setup. Codex
+0.166.0 routes all four through `start_app_server_for_session_command`, which
+can start or reuse the independent shared daemon. The new `queue --resume`
+additionally calls `ThreadResume`; neither that daemon nor its resumed thread
+has the wrapper's managed broker/receiver ownership. This intentionally withdraws
+these native utility entrypoints until a managed lifecycle adapter exists,
+including plain queue/archive operations and explicit `--no-daemon` variants.
+`help queue`, `queue --resume --help` and the other utilities' native help remain
+available. A message such as `queue --message '--help'` is a value, not a help
+request; `--message '--resume'` does not become a resume flag. Ordinary option,
+image and prompt values named after these commands do not trigger this refusal.
 
 The `agents` overview explicitly starts the native shared daemon when no remote
 endpoint is supplied (Codex 0.163.0). A disabled receiver or failed private
