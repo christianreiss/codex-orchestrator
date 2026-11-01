@@ -1,5 +1,6 @@
 # 2026-11-01
 
+- **Claude Opus 4.8 fast mode:** reject new authored fast-mode combinations with disable-fast/Opus 5.5 guidance. Migration 0122 disables only the existing known combination while preserving its active model and historical snapshots; effective Opus 4.8 host settings explicitly own `fastMode: false`. Fast mode on other models remains available.
 - **Claude native settings:** support `permissions.blockWritesOutsideWorkingDirectories` through the Engines JSON editor, previews and host settings. Both boolean values require an observed Claude Code 2.1.314 or newer; removal withdraws only that setting. The option stays unset by default and existing local siblings are preserved.
 - **Auth runner:** pin Codex 0.166.0 and Claude Code 2.1.316 to the stable/latest-normal releases reviewed on 2026-11-01, with verified Codex Linux amd64/arm64 archive checksums. Grok Build stays at 1.0.70; these source pins do not change host version policy or deploy a runner image.
 

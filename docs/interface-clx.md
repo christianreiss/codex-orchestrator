@@ -1020,6 +1020,24 @@ store/fetch and both settings renders. Examples include `modelSettings`,
 `ultracode`, `worktree`, `voice`, `attribution`, and plugin configuration. These
 are opt-in; an absent extension adds no native defaults or features.
 
+`native_settings.fastMode: true` with the known model `claude-opus-4-8`
+(also its `[1m]` form) is rejected with HTTP 422 and
+`param: native_settings.fastMode`. Claude Code [2.1.316 release notes](https://github.com/anthropics/claude-code/releases/tag/v2.1.316)
+deprecate this combination as of 2026-10-30 and remove it on 2026-11-30;
+after removal native requests fail rather than falling back to standard speed.
+Set `fastMode` to `false` to retain Opus 4.8, or choose Opus 5.5 for fast mode.
+Opus 4.8 itself remains active, and other/custom model IDs retain their mode.
+Migration 0122 changes only stored known-model boolean `true` to `false`,
+preserving model, siblings, and historical body/hash/timestamps. Stored reads
+also normalize this combination to `false`, so operators can fetch and correct
+an unmigrated document. Both settings renderers explicitly emit and own the
+`fastMode: false` leaf whenever the effective model is known Opus 4.8, including
+host overrides and omitted template modes; a foreign local `true` cannot survive
+that projection. On other models, removing the mode withdraws its exact owned
+leaf, and no mode is enabled automatically. Native command-line flags or process
+environment overrides outside the managed settings document remain outside
+this guarantee.
+
 `idleCompaction` is an optional boolean: `false` stops idle conversation
 compaction; `true` leaves native eligibility in control and does not force it
 on. Removing the key withdraws fleet ownership without changing local sibling
