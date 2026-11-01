@@ -79,18 +79,31 @@ test('numeric validation preserves inactive-host policy and retired retention is
   await expect(page.getByLabel('MCP logs (days)')).toHaveCount(0);
 });
 test('external updates refresh pristine values and protect dirty drafts', async ({ page }) => {
-  const shared = state(); const refresh = await fixture(page, shared); await page.goto('/admin/settings');
+  const shared = state(); shared.readFail = 'auto-update'; const refresh = await fixture(page, shared); await page.goto('/admin/settings');
   const prune = page.locator('#prune-policy'), days = prune.getByLabel('Inactivity window (days)');
   await expect(days).toHaveValue('30'); shared.values['prune-policy'].inactivity_window_days = 20; await refresh(); await expect(days).toHaveValue('20');
   await days.fill('12'); shared.values['prune-policy'].inactivity_window_days = 40; await refresh();
   await expect(prune).toContainText('Saved values changed elsewhere'); await expect(days).toHaveValue('12'); await expect(prune.getByRole('button', { name: 'Save changes' })).toBeDisabled();
   await prune.getByRole('button', { name: 'Reset', exact: true }).click(); await expect(days).toHaveValue('40');
-
+  const autoUpdate = page.locator('#auto-update');
+  await expect(autoUpdate.getByRole('switch')).toBeDisabled(); await expect(autoUpdate.getByRole('button', { name: 'Retry loading' })).toBeVisible();
+  shared.readFail = ''; await refresh();
+  await expect(autoUpdate.getByRole('switch')).toBeEnabled(); await expect(autoUpdate.getByRole('button', { name: 'Retry loading' })).toHaveCount(0);
+  expect(shared.writes).toEqual([]);
 });
 test('failed reads disable writes and offer retry', async ({ page }) => {
-  const shared = state(); shared.readFail = 'auto-update'; await fixture(page, shared); await page.goto('/admin/settings'); const card = page.locator('#auto-update');
+  const shared = state(); shared.readFail = 'auto-update'; await fixture(page, shared);
+  // Control recovery through the explicit retry; owner-stream recovery is covered
+  // by the external-updates test, including its initial resnapshot.
+  await page.route('**/admin/ws/info', route => route.fulfill({ json: { enabled: false } }));
+  await page.goto('/admin/settings'); const card = page.locator('#auto-update');
   await expect(card.getByRole('switch')).toBeDisabled(); await expect(card.getByRole('button', { name: 'Retry loading' })).toBeVisible({ timeout: 15000 });
-  shared.readFail = ''; await card.getByRole('button', { name: 'Retry loading' }).click(); await expect(card.getByRole('switch')).toBeEnabled(); expect(shared.writes).toEqual([]);
+  shared.readFail = '';
+  await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === '/admin/auto-update' && response.request().method() === 'GET' && response.ok()),
+    card.getByRole('button', { name: 'Retry loading' }).click(),
+  ]);
+  await expect(card.getByRole('switch')).toBeEnabled(); expect(shared.writes).toEqual([]);
 });
 for (const width of [390, 1440]) for (const theme of ['light', 'dark']) test(`read-only and accessibility (${width}, ${theme})`, async ({ page }) => {
   const shared = state(); await page.setViewportSize({ width, height: 900 }); await page.addInitScript(theme => localStorage.setItem('codex.theme', theme), theme);
