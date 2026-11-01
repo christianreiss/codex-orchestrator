@@ -1,7 +1,7 @@
 # Engine maintenance — 2026-11-01
 
 Run `betty-961eff1d` follows [the complete maintenance contract](prompts/engine-maintenance.md).
-This report is in progress until the delivery section records verified integration and push.
+All confirmed maintenance findings and final integrated checks are closed; delivery details follow below.
 The operator explicitly accepted the Tier 5 task / Tier 3 Sol mismatch before task execution.
 Deployment, production migrations and service restarts are outside this run.
 
@@ -26,21 +26,36 @@ and integrates; shared grammar and runner changes have one owner each.
 | ID | Engines | Confirmed finding | Owner / branch-worktree | Fix / integration / focused checks |
 | --- | --- | --- | --- | --- |
 | EM-CDX-001 | Codex | 0.166 schema and provider/MITM semantics exceed 0.165 registry | `fix_cdx001` / `em-cdx001-961eff1d` | `6cf07fc3e5fd3aa9ecdc82a84fa3e6088e5cc460` integrated; 442 API tests, native reject probes, built editor 18/18. Followfix `2d593ee838b20d4d09581d029120d939ad6c869a` integrated; 499 tests including 55 real native grammar probes. Independent closing review approved after 148 tests and root/profile store roundtrips. |
-| EM-CDX-002 | Codex | Removed description-first flag and ignored Guardian mode remain accepted | `fix_cdx002` / `em-cdx002-961eff1d` | `d1638ae98ab5d322c301e4a7c65efc1f5a3f0849` integrated; 406 tests, native parser and repeat MySQL migration. Checkpoint `61a9bb532dc33150336d215aed36dd353b7a24e8` and serialized dependency merge preserved. |
+| EM-CDX-002 | Codex | Removed description-first flag and ignored Guardian mode remain accepted | `fix_cdx002` / `em-cdx002-961eff1d` | `d1638ae98ab5d322c301e4a7c65efc1f5a3f0849` integrated; 406 tests, native parser and repeat MySQL migration. Checkpoint `61a9bb532dc33150336d215aed36dd353b7a24e8` and serialized dependency merge preserved; contract follow-up `2ecaabead76340e4d6f6fce46a1e65e0778fb5a5` aligns the exhaustive config-builder list (154 focused tests). |
 | EM-CLX-001 | Claude | New write-boundary boolean rejected | `fix_clx001` / `em-clx001-961eff1d` | `47416377c745bc2e1091b21106bdc79ac4f1670e` integrated; 158 API tests and native doctor type probes; independent review 180 tests. |
 | EM-CLX-002 | Claude | Deprecated Opus 4.8 fast-mode combination remains authorable | `fix_clx002` / `em-clx002-961eff1d` | `4c0a341db842a79ccb79b23db7e9930032284828` integrated; 262 units+2 MySQL tests. Followfixes `4c6afc8f3c0e5e4d32c25930b1f38eaebbea079b` and `11a231580cf397c347779960b667029fb75a75e2` integrated; authored env/legacy/family/hybrid selection covered by a 43-case API/MySQL matrix. Independent closing review approved. |
-| EM-CGX-001 | Grok | Wrapper promotes native-filtered process overlay to active disk settings | `fix_cgx001` / `em-cgx001-961eff1d` | `c597690dcfad78a1a6698544df339ea766c20e95` integrated; actual native inspect differentials, build/vet/tests. Followfix `ba860d864bfa1ffe43ca0614cb919e4aeda00595` integrated in `9f7f0df1f2051a8b8f3273c9df8ff46b673ad824`; model/effort snapshot preserves startup and policy selection. Independent research review approved with 139 API tests plus real inspect/help oracles and four Go package suites. |
+| EM-CGX-001 | Grok | Wrapper promotes native-filtered process overlay to active disk settings | `fix_cgx001` / `em-cgx001-961eff1d` | `c597690dcfad78a1a6698544df339ea766c20e95` integrated; actual native inspect differentials, build/vet/tests. Followfix `ba860d864bfa1ffe43ca0614cb919e4aeda00595` integrated in `9f7f0df1f2051a8b8f3273c9df8ff46b673ad824`; model/effort snapshot preserves startup and policy selection. Independent research review approved with 139 API tests plus real inspect/help oracles and four Go package suites. Doc-consumer follow-up `f3ccbf6bcccdc59769243242d82e03ab94431116` pins both real environment reads (3 tests). |
 | EM-CGX-003 | Grok | Authoring accepts numeric values native silently clamps | `fix_cgx003` / `em-cgx003-961eff1d` | `7bf476839c269d2f9210a37b7b5b8e8d5683e928` integrated; 272 API tests, typecheck/lint. |
-| EM-CLI-001 | All three | Command/value grammar and independent daemon lifecycle gaps | `fix_cli001` / `em-cli001-961eff1d` | `3d4189677945c40d54dbacdd172e56827400dfa5` integrated; five Go package suites, build/vet, actual help-only oracles; 84 Grok pages / 371 value declarations. |
+| EM-CLI-001 | All three | Command/value grammar and independent daemon lifecycle gaps | `fix_cli001` / `em-cli001-961eff1d` | `3d4189677945c40d54dbacdd172e56827400dfa5` integrated; version follow-up `933f442dec9add53dec471ecb4a46233fec3f0f3` advances maintenance to 0.9.151 after the already-landed quota release; five Go package suites, build/vet, actual help-only oracles; 84 Grok pages / 371 value declarations. |
 | EM-RUNNER-001 | Codex, Claude | Runner pins lag stable managed clients | `fix_runner001` / `em-runner001-961eff1d` | `f30a05a9aa70f973d08dd93e2150ab0da25f639b` integrated; 215 runner tests, Ruff, checksums/integrity, full image build/health. |
-
 | EM-VERIFY-001 | Codex, Claude | Semantic diagnostic fixtures inherit width and fail on legitimate wrapping | `fix_verify001` / `em-verify001-961eff1d` | `abb7d09126955e70445be54a87a0000e60fa860f` integrated; exact assertions unchanged, each fixture 100 repetitions, all three app suites. |
 | EM-VERIFY-002 | Shared wrapper | Five pre-existing field alignments fail canonical gofmt | `fix_verify002` / `em-verify002-961eff1d` | `24615797413c9bb0175e050afa7cf7073492d1f7` integrated; whitespace-insensitive diff empty, formatter/config tests/build/vet passed. |
+| EM-VERIFY-003 | Browser fixture | Owner resnapshot can recover a failed read before manual Retry is clicked | `fix_verify003` / `em-verify003-961eff1d` | `7e820dccbe7fb729ad0ee6a00c5856bb527b392b` integrated; deterministic original race, 24 repeated recovery cases and 11 policy tests; runtime source unchanged. |
 
 All issue worktrees are adjacent to the original checkout. Same-cause findings
 from review stay with the responsible owner in that issue's isolated worktree;
 they are not counted as additional issues. Shared normalizer edits are serialized
 through committed dependencies. No implementation agent changes shared `main`.
+
+## Issue evidence, acceptance and affected paths
+
+- **EM-CDX-001:** official versioned schema plus provider/MITM/keymap consumers and actual native reject probes show gaps beyond JSON types. Acceptance is centrally editable root/profile values, strict native semantics, exact introduction gates, safe credential references, preserved spellings and successful native parsing. Paths: `api/src/services/codex-{config-schema.json,native-settings.ts,native-capabilities.ts,native-mitm.ts,native-keymap.ts}`, `native-config-support.ts`, API tests and the shared `NativeSettingsEditor.svelte` reference. The keymap parser source digest is `be7f6c274ef9cc5343ac584884c2807d262f3219873753f9e4c825494c85b8cd`; `ctrl+s` must fail before save, while aliases/chords/alternatives/`[]` survive roundtrips.
+- **EM-CDX-002:** versioned features source marks description-first removed; the retained Guardian schema explicitly documents its ignored mode. Acceptance separates corrective new-authoring rejection from exact-path stored healing without mutating historical bodies/hashes, profile order or custom names. Paths: Codex native settings, `config-normalizer.ts`, migration `0121` and real-MySQL/unit tests.
+- **EM-CLX-001:**2.1.314 release and native doctor accept the new boolean. Acceptance is true/false support, conditional 2.1.314 floor, preview/store/removal and literal segment ownership preserving local siblings/read restrictions. Paths: Claude settings catalog, native-version support, shared editor and API/browser tests.
+- **EM-CLX-002:**2.1.316 release deprecates only the Opus 4.8 fast-mode combination. Official model-priority docs and the exact installed default-model parser establish authored-env and known alias precedence. Acceptance rejects new known combinations, disables historical/effective host combinations with explicit owned false, covers both hybrid phases and 1m suffixes, and preserves other/custom IDs and snapshots. Paths: `claude-fast-mode.ts`, `config-normalizer.ts`, `client-config.ts`, migration `0122` and shared 43-case API/MySQL fixtures. Dynamic account-dependent `best` and external process/session overrides remain outside this deterministic classification.
+- **EM-CGX-001:** native 1.0.70 inspect differentials prove that process-overlay discovery/hook/trust/env-injection tables are filtered instead of authored disk configuration. Acceptance preserves native filtering and malformed fallback, managed auth/MCP ownership, CLI/signed/overlay/disk model-effort precedence, and one stable preference snapshot for actual startup/policy callers. Paths: Grok runtime/overlay, app startup, shared opt-in model-policy adapter and Go/native regressions.
+- **EM-CGX-003:** the complete pinned native reference specifies the nine bounded values. Acceptance rejects out-of-range authoring at roots and version layers, including opaque custom-model names, with an exact field/range; historical invalid rows remain readable for explicit correction and retain body/hash. Paths: `grok-native-settings.ts` and existing admin recovery/range tests.
+- **EM-CLI-001:** current Codex source calls the shared daemon helper for all four refused utilities; 84-page Grok help audit contains 371 value declarations. Acceptance preserves required/optional/variadic values and context aliases before auth/session interpretation, refuses incompatible real service calls before config/auth, and preserves help. Paths: `wrappers/cxx/internal/nativeargs`, Codex main, per-engine app tests and `wrappers/Makefile`. Claude grammar is independently checked and unchanged.
+- **EM-RUNNER-001:** exact official package/release metadata differs from the prior pins. Acceptance is checksum/integrity-verified Codex 0.166 and Claude 2.1.316, unchanged Grok 1.0.70, successful full image/version health and runner tests. Paths: `runner/Dockerfile`, runner defaults/tests and runner interface documentation. Native arm64 execution and authenticated inference are not inferred from package verification.
+- **EM-VERIFY-001:** a final full Go run failed when a random-length temp path legitimately wrapped `clx doctor`; inherited 20-column repro also fails the existing Codex fixture. Acceptance keeps every content/sanitization assertion unchanged under deliberate 240-column semantic fixtures; explicit 39-column and terminal matrix checks retain narrow coverage. Paths: only Codex/Claude `main_test.go`.
+- **EM-VERIFY-002:** the original checkout has the same five spacing failures under canonical gofmt. Acceptance is zero formatter output and an empty whitespace-insensitive source diff. Path: only `wrappers/cxx/internal/config/config.go`; config tests/build/vet verify this necessary baseline repair without runtime changes.
+
+- **EM-VERIFY-003:** trace and controlled owner invalidation show two 503 reads followed by a 200 recovery while the original retry click waits on a disappearing button. Acceptance preserves all manual retry/no-write/disabled assertions, observes its successful GET, and explicitly verifies independent owner-stream recovery. Path: only `frontend/e2e/admin-policies.spec.ts`.
 
 ## Baseline and disposable test environment
 
@@ -254,12 +269,100 @@ built successfully; a network-disabled real FastAPI `/health` probe returned
 chain were removed. This is build/health evidence, not deployed adoption or
 successful authenticated provider inference.
 
-## Delivery and remaining limits
+## Integrated verification and delivery
 
-Pending aggregate delivery. During final verification, original `main` advanced
-to Gloria's quota-emulation commit `f22d07b4f9831638d95f666522c588243676e98f`.
-Its already-landed wrapper0.9.150 requires the maintenance batch to advance to
-0.9.151. The combined source, migration0120 and SPA will be privately integrated
-and checked before the shared merge/push. Earlier serialized coverage attempts
-were deliberately stopped (143) for final review fixes and this target advance;
-neither incomplete run is counted as a pass. No deployment is authorized.
+Original `main` advanced during verification to Gloria's already-landed quota
+commit `f22d07b4f9831638d95f666522c588243676e98f`. It was privately merged with
+full ancestry, both documentation entries and a fresh combined SPA build. Its
+release remains 0.9.150; this maintenance batch is 0.9.151. No quota feature was
+invented or independently enabled by this audit. The existing quota work remains
+attributable to its own commit and [verification](verification/quota-emulation-2026-11-01.md).
+
+The combined runtime source is `933f442dec9add53dec471ecb4a46233fec3f0f3`.
+Later `7e820dcc...`, `2ecaabe...`, `f3ccbf6...` and their integration commit
+`5d3264822e4c915886c487598922605fcf5e69c1` change only test fixtures or docs.
+The final parent commit adds the completed audit; it does not change runtime code.
+
+Fresh final database `maintenance_release_961eff1d` uses the same isolated
+MySQL UUID/socket/port recorded above. Canonical setup applies 347 baseline
+statements, followed by 120 migrations including the pre-existing quota 0120
+and maintenance 0121/0122. The prior fresh combined database also verified a
+second migration run is a no-op. Extended 120-second hook/test limits accommodate
+this full serial V8/MySQL run on the shared development host.
+
+| Final check | Result |
+| --- | --- |
+| API typecheck / lint / build | Passed; 233 existing lint warnings, 0 errors |
+| Full API V8 coverage + real MySQL | Passed: 658 files, 8622 tests; 1 file/3 explicitly gated tests skipped. Coverage statements/lines 85.19%, branches 81.53%, functions 88.92%; all CI floors passed |
+| Frontend Svelte check / unit tests | 0 errors, 1 pre-existing warning; 1016 tests passed |
+| Built combined Chromium | 409/409 passed after isolated retry-fixture repair |
+| Built combined Firefox / WebKit | 218/218 passed (109 per browser), same temporary WebKit libraries |
+| Native Codex / Claude / Grok probes | Passed as detailed per issue; no authenticated inference |
+| Go formatter / build / vet / make test | Passed, including both Python release-metadata scripts |
+| Full Go race / tracing-tag vet+tests | Passed |
+| Staticcheck 2025.1.1 | Passed |
+| Govulncheck normal / tracing tags | 0 called vulnerabilities; two pre-existing module-only findings, below |
+| Real terminal matrix | 451 cases passed across three engines, seven widths and five degraded modes |
+| Wrapper local build matrix | Linux/macOS amd64+arm64 all built; SHA256 manifests verified; Linux binary reports 0.9.151 |
+| Runner Ruff / pytest / image health | Passed: 215 tests, full built image health 200/all engines ready |
+
+The two earlier serial coverage attempts stopped with 143 for final review fixes
+and the advanced target; neither is a passed suite. The next full combined run
+completed with 8620 passes and two documentation-contract failures. Both were
+repaired by their original issue owners, preserving the assertions and adding
+explicit real-consumer proof; the final complete rerun is recorded above.
+The initial combined Chromium run had 408 passes and the owner-stream/test race;
+EM-VERIFY-003 repairs the fixture and preserves both recovery behaviors.
+
+The four local wrapper artifacts were built from runtime commit 933f442de at
+2026-11-01T19:02:33Z; they were not published into the served wrapper store.
+
+| Platform | Verified SHA256 |
+| --- | --- |
+| Linux amd64 | `09b1d428a04201f15cc76fd7ccd71f7c55e21596478acb42cccad5fc0a6cceaa` |
+| Linux arm64 | `525deba071d4d23ad495036dc70dd8cfd9c2313f5d9f38d0021f13f0934fe504` |
+| macOS amd64 | `77abd8a26079e66b72ae5aaaf86ae9f3947e11f0154c3719e9c54ef147a6a08e` |
+| macOS arm64 | `cc0ab62323c736d5702441ee90aee449966de5adc0936034e2ac43a91ecee5ad` |
+
+Nonblocking diagnostics are 233 pre-existing ESLint warnings, the existing Svelte
+scroll-region tabindex warning, old Browserslist metadata, and two runner
+dependency deprecation warnings under host Python 3.14. Govulncheck reports
+[GO-2026-6866](https://pkg.go.dev/vuln/GO-2026-6866) and
+[GO-2026-6860](https://pkg.go.dev/vuln/GO-2026-6860) only in a required
+`golang.org/x/net` module, with no affected imported package or called symbol.
+Both scans exit 0; no unrequested dependency upgrade is folded into maintenance.
+
+The canonical API command intentionally skips the opt-in Docker instance test
+(`TEST_INSTANCE_DOCKER`), wall-clock owner observation (`OWNER_IDLE_SECONDS`)
+and multi-GiB transfer stress (`TEST_BINARY_TRANSFER_LARGE`). These are not
+counted as passed. Linux amd64 runtime probes and four-platform compilation do
+not establish native arm64/macOS execution. Actual provider inference, auth
+refresh/adoption, external enterprise pins, manual screen-reader/usability
+acceptance and account-dependent `best`/Grok catalog access remain unverified.
+The shared editor uses existing design components/rules NAV-1, VIS-1, INT-2/3/5,
+ACC-1; no new layout exception is introduced. Existing sources and native
+consumers support the intended wiring; parser success alone is not presented
+as production feature acceptance.
+
+Commits preserve the configured author and use exactly one Codex assistance
+trailer. The local graphical GPG signer hung, so task commits use a per-command
+`commit.gpgsign=false` override and are unsigned; global Git settings were not
+changed. No production migration, service restart or deployment ran.
+
+Delivery targets the original clean `main` and recorded `origin` remote, using
+separate Director merge/push grants and verified task ancestry. Only clean
+integrated task worktrees/branches and task test resources are removed. The exact
+final commit/target/remote SHA and cleanup outcome are in the operator result.
+
+Rollback source is the retained quota target `f22d07b4f...`, not a reset to the
+older initial checkout: revert only maintenance changes on a new branch while
+preserving quota work and later commits. The new data repairs have not run in
+production. If deployed later, restore intentional config from normal backups
+or historical body/hash snapshots rather than guessing removed settings.
+
+The required [fleet-reflect](skill://fleet-reflect) review reported observed
+repeated advisor-policy conflicts as feedback
+`97a3a1d3-3b35-4745-b4fe-e893205c311e`; unrelated versions-table contention is
+only a suspected cause. Independent engine research reviews supplied the second
+opinion instead. No infrastructure change or additional recovery schedule was
+created by this maintenance task.
