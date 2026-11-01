@@ -422,6 +422,31 @@ command-hook argument arrays, and program-status notification strings/tables.
 These settings remain absent until an operator configures them. Literal model
 names do not affect feature-version detection.
 
+The 2026-11-01 stable-reference review also validates numeric values that Grok
+would otherwise silently clamp. New input receives HTTP 422 with the setting
+path and inclusive range instead of saving a different effective value:
+
+| Native setting | Accepted range |
+| --- | --- |
+| `memory_v2.batch_dream_max_run_secs` | 60–3600 |
+| `memory_v2.batch_dream_max_calls_per_batch` | 2–16 |
+| `memory_v2.batch_dream_max_batch_note_bytes` | 16384–262144 |
+| `prompt_suggestions.max_output_tokens` | 16–256 |
+| `long_reasoning_reminder.tokens` | integer 100–200000 |
+| `long_reasoning_reminder.delay` | integer 0–10 |
+| `models.subagent_rate_limit_max_attempts` | 0–32 |
+| `model.<id>.subagent_rate_limit_max_attempts` | 0–32 |
+| `model.<id>.auto_compact_threshold_percent` | integer 0–100 |
+
+The same checks apply inside supported `version_overrides` layers. Native
+number fields retain their documented numeric type; integer-only fields reject
+fractions. No default is inserted and opaque custom model IDs remain unchanged.
+Existing out-of-range snapshots are not rewritten: the config GET returns their
+authored settings and historical body/hash with `validation_error`, so the
+operator can correct them through the existing JSON editor and revision guard.
+Preview and store reject the invalid value until corrected. Source: the
+SHA-pinned Grok 1.0.70 bundled `26-config-reference.md` listed above.
+
 New input rejects ineffective `ui.simple_mode` and `memory_v2.compact_index_enabled`,
 and directs retired Vim/density keys to `keys.vim` / `ui.tool_call_density`.
 Idempotent migration 0110 updates root and version-override layers: a valid
