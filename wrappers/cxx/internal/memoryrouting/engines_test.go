@@ -1,6 +1,7 @@
 package memoryrouting_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -58,7 +59,8 @@ func TestContentOnlyLifecycleConvergesRemindersWithoutCredentials(t *testing.T) 
 			}))
 			defer server.Close()
 			cfg := &config.Config{Engine: engine, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "fixture"}, Host: config.Host{Secure: true}}
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, nil))
 			custom := filepath.Join(root, "custom-memory")
 			run := func() (int, error) {
 				if engine == "codex" {
@@ -73,6 +75,25 @@ func TestContentOnlyLifecycleConvergesRemindersWithoutCredentials(t *testing.T) 
 			const localNotes = "existing local notes\r\n"
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(localNotes), 0o640); err != nil {
+				t.Fatal(err)
+			}
+			// A native memory rewrite can retain only one marker. Preserve every
+			// byte and warn, without preventing the rest of managed sync.
+			broken := localNotes + memoryrouting.End + "\nmore local notes\n"
+			if err := os.WriteFile(path, []byte(broken), 0o640); err != nil {
+				t.Fatal(err)
+			}
+			if exit, err := run(); err != nil || exit != 0 {
+				t.Fatalf("orphan marker blocked sync: %d %v", exit, err)
+			}
+			preserved, err := os.ReadFile(path)
+			if err != nil || string(preserved) != broken {
+				t.Fatalf("ambiguous memory changed: %q %v", preserved, err)
+			}
+			if !strings.Contains(logs.String(), "memory routing reminder left unchanged") || !strings.Contains(logs.String(), path) {
+				t.Fatalf("missing actionable warning: %s", logs.String())
 			}
 			if err := os.WriteFile(path, []byte(localNotes), 0o640); err != nil {
 				t.Fatal(err)

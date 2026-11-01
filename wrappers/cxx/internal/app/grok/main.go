@@ -515,7 +515,9 @@ func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *or
 		summary.Config.Updated = summary.Config.Updated || before != documentDigest(path)
 	}
 	if bundle.MemoryRouting != nil {
-		updated, err := memoryrouting.Apply("grok", home, bundle.MemoryRouting, nil)
+		updated, err := memoryrouting.ApplyWithWarnings("grok", home, bundle.MemoryRouting, nil, func(err error) {
+			warn(client, "memory routing reminder left unchanged", err)
+		})
 		summary.Config.Checked = true
 		summary.Config.Updated = summary.Config.Updated || updated
 		if err != nil {

@@ -30,6 +30,13 @@ final session report can still take up to four seconds if the server is slow.
 Run `cxx update` to install the published wrapper; existing sessions keep the
 version they started with, so the change applies to your next launch.
 
+## Memory reminder warnings
+
+From cxx 0.9.154, a damaged marker around an optional memory reminder leaves
+that file unchanged and allows the remaining sync to finish. The warning names
+the affected file. Your notes are preserved; do not delete the memory file to
+clear the warning. File-access errors and failed reminder removal still fail sync.
+
 ## Quick launch with `cxx`
 
 Run `cxx` without arguments in a terminal to choose an engine, model and reasoning

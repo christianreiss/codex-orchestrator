@@ -1147,7 +1147,9 @@ func bootstrapWithProgress(
 			if len(launchArgs) > 0 {
 				args = launchArgs[0]
 			}
-			updated, err := memoryrouting.Apply("codex", filepath.Dir(authPath), resp.MemoryRouting, args)
+			updated, err := memoryrouting.ApplyWithWarnings("codex", filepath.Dir(authPath), resp.MemoryRouting, args, func(err error) {
+				logger.Warn("memory routing reminder left unchanged", "err", err)
+			})
 			configSync.Checked = true
 			configSync.Updated = configSync.Updated || updated
 			configSync.Err = errors.Join(configSync.Err, err)

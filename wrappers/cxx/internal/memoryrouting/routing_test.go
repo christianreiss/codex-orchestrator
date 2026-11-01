@@ -102,6 +102,60 @@ func TestStripRepairsDuplicateBlocksAndRejectsBrokenMarkers(t *testing.T) {
 	}
 }
 
+func TestWarningsPreserveMalformedMemoryAndKeepCleanupStrict(t *testing.T) {
+	for _, malformed := range []string{End, Start + "notes", Start + Start + End, Start + "valid" + End + "notes" + End} {
+		t.Run(malformed, func(t *testing.T) {
+			home := t.TempDir()
+			path := filepath.Join(home, "memories", "MEMORY.md")
+			original := []byte("local facts\n" + malformed + "\nother facts\n")
+			write(t, path, original)
+			before, _ := os.Stat(path)
+			warnings := 0
+			warn := func(err error) {
+				warnings++
+				if !strings.Contains(err.Error(), path) {
+					t.Fatalf("warning missing path: %v", err)
+				}
+			}
+			bundle := &Bundle{Enabled: true, Content: "central hint"}
+			for range 2 {
+				if _, err := ApplyWithWarnings("codex", home, bundle, nil, warn); err != nil {
+					t.Fatal(err)
+				}
+			}
+			after, _ := os.Stat(path)
+			if warnings != 2 || !bytes.Equal(read(t, path), original) || !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) {
+				t.Fatal("malformed native memory was changed or not reported")
+			}
+			if !bytes.Contains(read(t, filepath.Join(home, "memories", "memory_summary.md")), []byte("central hint")) {
+				t.Fatal("healthy sibling reminder was not synced")
+			}
+			if _, err := Apply("codex", home, bundle, nil); err == nil {
+				t.Fatal("strict caller silently accepted malformed markers")
+			}
+			if _, err := ApplyWithWarnings("codex", home, &Bundle{}, nil, warn); err == nil {
+				t.Fatal("cleanup incorrectly claimed success")
+			}
+			if !bytes.Contains(read(t, filepath.Join(home, manifestName)), []byte(path)) {
+				t.Fatal("failed cleanup lost ownership")
+			}
+		})
+	}
+}
+
+func TestWarningDoesNotHideUnsafeSibling(t *testing.T) {
+	home := t.TempDir()
+	write(t, filepath.Join(home, "memories", "MEMORY.md"), []byte(End))
+	if err := os.Mkdir(filepath.Join(home, "memories", "memory_summary.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	warnings := 0
+	_, err := ApplyWithWarnings("codex", home, &Bundle{Enabled: true, Content: "hint"}, nil, func(error) { warnings++ })
+	if warnings != 1 || err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("unsafe target hidden by warning: %d %v", warnings, err)
+	}
+}
+
 func TestApplyRefusesSymlinkAndPreservesFailedOwnershipForRetry(t *testing.T) {
 	home := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "MEMORY.md")

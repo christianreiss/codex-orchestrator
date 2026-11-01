@@ -1124,6 +1124,10 @@ and model context, without a guarantee of native title synchronization.
 
 ## Native memory reminders (cxx 0.9.35)
 
+From cxx 0.9.154, malformed markers in an enabled reminder produce a warning
+and leave the entire affected file unchanged; the remaining sync proceeds.
+Cleanup and file-access failures remain errors.
+
 The Grok reminder is maintained in `GROK_HOME/memory/MEMORY.md`,
 `GROK_HOME/memory-v2/global/MEMORY.md`, and existing legacy/v2 workspace indices.
 A dedicated `memory-v2/global/topics/cxx-memory-routing.md` keeps the reminder as

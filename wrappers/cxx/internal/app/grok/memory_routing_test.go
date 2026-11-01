@@ -39,6 +39,23 @@ func TestGrokManagedSyncMemoryRoutingAndTrustLoss(t *testing.T) {
 	}
 	cfg := &config.Config{Engine: "grok"}
 	path := filepath.Join(home, "memory", "MEMORY.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	broken := "local facts\n" + memoryrouting.End + "\n"
+	if err := os.WriteFile(path, []byte(broken), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncMeasuredManaged(context.Background(), cfg, client); err != nil {
+		t.Fatalf("orphan marker blocked Grok sync: %v", err)
+	}
+	preserved, err := os.ReadFile(path)
+	if err != nil || string(preserved) != broken {
+		t.Fatalf("ambiguous memory changed: %q %v", preserved, err)
+	}
+	if err := os.WriteFile(path, []byte("local facts\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
 	for range 2 {
 		if _, err := syncMeasuredManaged(context.Background(), cfg, client); err != nil {
 			t.Fatal(err)

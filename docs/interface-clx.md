@@ -1886,6 +1886,10 @@ and model context, without a guarantee of native title synchronization.
 
 ## Native memory reminders (cxx 0.9.35)
 
+From cxx 0.9.154, malformed markers in an enabled reminder produce a warning
+and leave the entire affected file unchanged; the remaining sync proceeds.
+Cleanup and file-access failures remain errors.
+
 The Claude reminder is maintained in existing `~/.claude/projects/*/memory/MEMORY.md`
 indices and the active project's native index, deriving the canonical Git working-copy
 root across subdirectories and linked worktrees. Long project keys use Claude's native

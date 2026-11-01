@@ -20,6 +20,9 @@ const End = "<!-- cxx:memory-routing:end -->"
 const manifestName = ".cxx-memory-routing.json"
 const topicName = "cxx-memory-routing.md"
 
+var errUnpairedMarker = errors.New("unpaired memory routing marker")
+var errIncompleteBlock = errors.New("incomplete memory routing block")
+
 // Bundle is optional: nil means an older server and must leave files alone.
 type Bundle struct {
 	Enabled bool   `json:"enabled"`
@@ -39,6 +42,14 @@ func TrustLost(code string) bool {
 // Apply converges reminders, including previously owned custom locations.
 // home is the engine's effective native home (before Grok runtime projection).
 func Apply(engine, home string, bundle *Bundle, args []string) (bool, error) {
+	return ApplyWithWarnings(engine, home, bundle, args, nil)
+}
+
+// ApplyWithWarnings leaves an enabled reminder's malformed file untouched and
+// reports it through warn, allowing other content to sync. Cleanup, I/O, unsafe
+// targets and concurrent edits remain errors. A nil callback keeps strict Apply
+// semantics; cleanup targets remain tracked until cleanup actually succeeds.
+func ApplyWithWarnings(engine, home string, bundle *Bundle, args []string, warn func(error)) (bool, error) {
 	if bundle == nil {
 		return false, nil
 	}
@@ -100,6 +111,10 @@ func Apply(engine, home string, bundle *Bundle, args []string) (bool, error) {
 		updated, err := applyFile(path, bundle.Content, all[path])
 		changed = changed || updated
 		if err != nil {
+			if all[path] && warn != nil && (errors.Is(err, errUnpairedMarker) || errors.Is(err, errIncompleteBlock)) {
+				warn(fmt.Errorf("memory routing %s: %w", path, err))
+				continue
+			}
 			applyErr = errors.Join(applyErr, fmt.Errorf("memory routing %s: %w", path, err))
 		}
 	}
@@ -125,14 +140,14 @@ func strip(body []byte) ([]byte, error) {
 		begin := bytes.Index(body, []byte(Start))
 		if begin < 0 {
 			if bytes.Contains(body, []byte(End)) {
-				return nil, errors.New("unpaired memory routing marker")
+				return nil, errUnpairedMarker
 			}
 			return body, nil
 		}
 		tail := body[begin+len(Start):]
 		finish := bytes.Index(tail, []byte(End))
 		if finish < 0 || bytes.Contains(tail[:finish], []byte(Start)) {
-			return nil, errors.New("incomplete memory routing block")
+			return nil, errIncompleteBlock
 		}
 		end := begin + len(Start) + finish + len(End)
 		for n := 0; n < 2 && end < len(body) && body[end] == '\n'; n++ {

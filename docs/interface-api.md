@@ -2638,8 +2638,11 @@ never changed. Older servers omitting the field leave existing reminders alone.
 The wrapper owns only `<!-- cxx:memory-routing:start -->` through
 `<!-- cxx:memory-routing:end -->` and its separator. It prepends or replaces that
 block, retaining all other bytes and existing file permissions. Duplicate managed
-blocks converge to one; malformed markers, nonregular files and detected
-concurrent edits fail the managed sync instead of discarding notes. Writes use
+blocks converge to one. From cxx 0.9.154, malformed markers in an enabled
+reminder leave that file byte-for-byte unchanged and emit a warning; other
+managed content continues syncing. Its path stays tracked for retry. Nonregular
+files, I/O failures, detected concurrent edits and failed reminder cleanup still
+fail managed sync instead of discarding notes. Writes use
 an engine-home lock, temporary file and final re-read before rename; native
 writers do not share the lock, so simultaneous writes cannot be fully serialized.
 No memory facts are copied to MCP or mirrored from it. Claude can read central memories through MCP tools, while its built-in auto-memory continues using files; the reminder does not replace that native storage backend.

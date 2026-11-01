@@ -1,5 +1,7 @@
 # 2026-11-01
 
+- **cxx 0.9.154 — local memory sync:** an orphaned or incomplete marker around an enabled optional memory reminder no longer aborts Codex, Claude or Grok sync. Preserve the entire affected file and report a warning while syncing other content. Cleanup, nonregular files, I/O errors and detected concurrent writes still fail explicitly.
+
 - **cxx 0.9.153 — engine exit:** cancel control-state setup during HTTP upgrade and initial snapshot, preventing a 15-second shutdown join after Codex, Claude or Grok has exited. The separate four-second final-report budget remains.
 - **Fleet Advisor:** unrelated version metadata writes no longer reject new requests as `advisor_policy_changed`; actual messaging, engine and model-policy changes remain fenced.
 - **Deployment:** verify the complete wrapper history before API quiescence, then reuse unchanged verified bytes under the publication lock. Recheck manifests and changed payloads at cutover; retain immutable rollback history and report phase timings.
