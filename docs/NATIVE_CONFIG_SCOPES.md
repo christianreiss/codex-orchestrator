@@ -1,5 +1,11 @@
 # Native configuration scopes
 
+Codex 0.166 rejects newly authored `features.code_mode_tool_description_first`
+(removed) and `features.guardianv2.async_classifier_mode` (ignored) in both
+structured/native root settings and profile sidecars. Stored normalization and
+migration 0121 strip those exact paths while retaining sibling Guardian controls,
+literal map names and historical TOML/hash snapshots.
+
 The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication

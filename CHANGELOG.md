@@ -1,5 +1,7 @@
 # 2026-11-01
 
+- **Codex retired controls:** reject the removed `features.code_mode_tool_description_first` and ignored `features.guardianv2.async_classifier_mode` in new root/profile settings. Stored settings heal only those exact paths; migration 0121 preserves profile order, sibling values, other engines and historical TOML/hash snapshots.
+
 - **Codex 0.166 native settings:** the existing Engines JSON editor and profile sidecars support new feature, rollout-budget, memory-tier, transcript-selection, GCP project/ADC and MITM signing/body-substitution fields. Exact additions require a reported CLI 0.166.0; OpenAI catalog routing accepts only native first-party HTTPS hosts, inert built-in overrides remain rejected, and native proxy constraints are validated without reading credentials. Existing defaults and update/sync recovery remain unchanged.
 
 - **Claude native settings:** support `permissions.blockWritesOutsideWorkingDirectories` through the Engines JSON editor, previews and host settings. Both boolean values require an observed Claude Code 2.1.314 or newer; removal withdraws only that setting. The option stays unset by default and existing local siblings are preserved.
