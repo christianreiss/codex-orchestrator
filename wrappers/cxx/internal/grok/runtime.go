@@ -655,13 +655,21 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 		managed["mcp_servers"] = map[string]any{"cxx-agent": map[string]any{"command": executable, "args": []string{"agent", "mcp", "--auto"}}}
 	}
 	mergeMap(m, managed)
-	if cfg.EngineOptions.ModelOverride != nil {
-		mergeMap(m, map[string]any{"models": map[string]any{"default": *cfg.EngineOptions.ModelOverride}})
-		mergeMap(overlay, map[string]any{"models": map[string]any{"default": *cfg.EngineOptions.ModelOverride}})
+	modelOverride := cfg.EngineOptions.ModelOverride
+	if cfg.EngineOptions.GrokModelOverride != nil {
+		modelOverride = cfg.EngineOptions.GrokModelOverride
 	}
-	if cfg.EngineOptions.ReasoningEffortOverride != nil {
-		mergeMap(m, map[string]any{"models": map[string]any{"default_reasoning_effort": *cfg.EngineOptions.ReasoningEffortOverride}})
-		mergeMap(overlay, map[string]any{"models": map[string]any{"default_reasoning_effort": *cfg.EngineOptions.ReasoningEffortOverride}})
+	effortOverride := cfg.EngineOptions.ReasoningEffortOverride
+	if cfg.EngineOptions.GrokReasoningEffortOverride != nil {
+		effortOverride = cfg.EngineOptions.GrokReasoningEffortOverride
+	}
+	if modelOverride != nil {
+		mergeMap(m, map[string]any{"models": map[string]any{"default": *modelOverride}})
+		mergeMap(overlay, map[string]any{"models": map[string]any{"default": *modelOverride}})
+	}
+	if effortOverride != nil {
+		mergeMap(m, map[string]any{"models": map[string]any{"default_reasoning_effort": *effortOverride}})
+		mergeMap(overlay, map[string]any{"models": map[string]any{"default_reasoning_effort": *effortOverride}})
 	}
 	// Model-keyed context windows must follow the selected model's upgrade in
 	// this private runtime, without migrating the original user configuration.

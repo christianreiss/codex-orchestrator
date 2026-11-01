@@ -35,7 +35,6 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
@@ -571,21 +570,6 @@ func documentDigest(path string) string {
 	digest := sha256.Sum256(raw)
 	return hex.EncodeToString(digest[:])
 }
-func merge(dst, src map[string]any) {
-	for key, value := range src {
-		if child, ok := value.(map[string]any); ok {
-			target, _ := dst[key].(map[string]any)
-			if target == nil {
-				target = map[string]any{}
-			}
-			merge(target, child)
-			dst[key] = target
-		} else {
-			dst[key] = value
-		}
-	}
-}
-
 func reconcilePeers(ctx context.Context, cfg *config.Config) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -974,7 +958,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	} else if headless && !nativeAnyFlag(args, "--no-leader", "--leader-socket", "--leader") {
 		args = append([]string{"--no-leader"}, args...)
 	}
-	args, err = modelpolicy.Apply(cfg, args, rt.Home, nil, stderr)
+	args, err = applyRuntimeModelPolicy(cfg, args, rt, stderr)
 	if err != nil {
 		return 1, err
 	}
@@ -983,7 +967,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	var versionErr error
 	version, versionErr = native.ProbeVersion(ctx, path)
 	if !o.skipBoot {
-		terminalui.PrintBootScreen(stderr, startupScreen(startupInput{Config: cfg, Auth: &initial, EngineVersion: version, VersionErr: versionErr, WrapperVersion: Version, Home: rt.Home, EffectiveHome: true, LaunchArgs: args, Sync: sync, Minimal: minimal}))
+		terminalui.PrintBootScreen(stderr, startupScreen(startupInput{Config: cfg, Auth: &initial, EngineVersion: version, VersionErr: versionErr, WrapperVersion: Version, Home: rt.Home, EffectiveHome: true, Overlay: rt.ModelPreferences(), LaunchArgs: args, Sync: sync, Minimal: minimal}))
 		caps := terminalui.DetectCapsFor(stderr, stringValue(cfg.EngineOptions.AdminThemeHint))
 		if minimal {
 			caps.IsTTY = false

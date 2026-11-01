@@ -1,9 +1,9 @@
 package grok
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -14,6 +14,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
@@ -74,6 +75,7 @@ type startupInput struct {
 	WrapperVersion string
 	Home           string
 	EffectiveHome  bool
+	Overlay        native.ModelPreferences
 	LaunchArgs     []string
 	Sync           managedSyncSummary
 	StatusOnly     bool
@@ -308,32 +310,19 @@ func startupPreferences(in startupInput) (string, string, error) {
 		}
 		settings = tree.ToMap()
 	}
-	if !in.EffectiveHome {
-		if inline := strings.TrimSpace(os.Getenv("GROK_CONFIG")); inline != "" {
-			var overlay map[string]any
-			if err := json.Unmarshal([]byte(inline), &overlay); err != nil {
-				return "", "", errors.New("invalid Grok config overlay")
-			}
-			merge(settings, overlay)
-		} else if path := strings.TrimSpace(os.Getenv("GROK_CONFIG_PATH")); path != "" {
-			raw, err := os.ReadFile(path)
-			if err != nil {
-				return "", "", errors.New("Grok config overlay unavailable")
-			}
-			var overlay map[string]any
-			if json.Unmarshal(raw, &overlay) != nil {
-				tree, err := toml.LoadBytes(raw)
-				if err != nil {
-					return "", "", errors.New("invalid Grok config overlay")
-				}
-				overlay = tree.ToMap()
-			}
-			merge(settings, overlay)
-		}
-	}
 	models, _ := settings["models"].(map[string]any)
 	model, _ := models["default"].(string)
 	effort, _ := models["default_reasoning_effort"].(string)
+	overlay := in.Overlay
+	if !in.EffectiveHome {
+		overlay = native.ProcessModelPreferences()
+	}
+	if overlay.Model != "" {
+		model = overlay.Model
+	}
+	if overlay.Effort != "" {
+		effort = overlay.Effort
+	}
 	if !in.EffectiveHome && in.Config != nil {
 		if in.Config.EngineOptions.ModelOverride != nil {
 			model = *in.Config.EngineOptions.ModelOverride
@@ -364,6 +353,11 @@ func startupPreferences(in startupInput) (string, string, error) {
 		effort = "high"
 	}
 	return model, effort, nil
+}
+
+func applyRuntimeModelPolicy(cfg *config.Config, args []string, rt *native.Runtime, stderr io.Writer) ([]string, error) {
+	prefs := rt.ModelPreferences()
+	return modelpolicy.ApplyWithPreferences(cfg, args, rt.Home, nil, stderr, modelpolicy.Preferences{Model: prefs.Model, Effort: prefs.Effort})
 }
 
 // Inspect only native options; prompt bodies and tokens after -- are data.

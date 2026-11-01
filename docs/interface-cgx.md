@@ -777,6 +777,13 @@ policy, sandbox/trust configuration, arbitrary tools or shell environment
 values through the wrapper. The native allowlisted model/feature tuning,
 narrow toolset controls and shell environment filters keep their native scope.
 An existing disk/project MCP definition remains an explicitly authored source.
+Boot model/effort presentation and the current-models policy consume only the
+runtime's model/effort snapshot from this separate overlay. CLI selections win,
+then explicit signed fleet overrides, then valid process-overlay selections,
+then disk defaults. An unknown overlay model is evaluated by the existing model
+policy and cannot silently fall back to the disk model. Changes to ambient
+environment or overlay files after runtime configuration do not alter this
+snapshot or the overlay passed to native.
 
 Inline JSON takes precedence over a file overlay. Empty inline input falls
 through; malformed inline JSON produces a content-free warning and falls
