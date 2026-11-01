@@ -55,7 +55,7 @@ describe('Codex 0.163 conditional capability floor', () => {
     host: { clientVersion: version } as never, baseUrl: null, apiKey: null });
   const fields = [
     { include_environment_context_time: false },
-    ...['async_compaction', 'code_mode_host_grpc', 'code_mode_tool_description_first', 'credential_masking',
+    ...['async_compaction', 'code_mode_host_grpc', 'credential_masking',
       'guardian_trust_orchestrator_connectors', 'output_token_replay', 'retain_client_tool_outputs',
       'subagent_default_context_limits'].map(key => ({ features: { [key]: false } })),
     { features: { multi_agent_v2: { disable_native_tools: false } } },

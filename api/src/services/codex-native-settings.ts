@@ -139,7 +139,7 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
   }
   const features = nativeRecord(out.features);
   for (const key of Object.keys(features)) {
-    if (CODEX_RETIRED_FEATURE_KEYS.includes(key)) throw new ValidationError(`native_settings.features.${key} is removed or deprecated`, { param: `native_settings.features.${key}` });
+    if (CODEX_RETIRED_FEATURE_KEYS.includes(key)) throw new ValidationError(`native_settings.features.${key} is removed or deprecated; omit it`, { param: `native_settings.features.${key}` });
   }
   validateCodexRetiredGuardianSettings(features, 'native_settings.features');
   // Model ids live in several native scopes, including profile sidecars. Migrate
