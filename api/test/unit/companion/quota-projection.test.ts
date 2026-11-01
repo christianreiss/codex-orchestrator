@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { companionQuotas } from '../../../src/services/companion/quotas.js';
+vi.mock('../../../src/services/quota-observation.js', () => ({ quotaSnapshot: async () => null }));
+
 vi.mock('../../../src/control-plane/state/runtime.js', () => ({ ownerRuntimeFor: () => null }));
 vi.mock('../../../src/services/engine-switch.js', () => ({
   readFleetEngineState: async () => ({ codex: true, claude: true, grok: false }),

@@ -38,7 +38,7 @@ export function ownerStateInvalidations(payload: unknown): QueryKey[] {
     else if (name.startsWith("agentChat")) events=["agent_chat.attachment.changed","agent_portal.sessions.changed"];
     else if (name.startsWith("hostDaemon") || name==="advisorSessions") events=["host.daemon.changed"];
     else if (name.startsWith("host") || name==="engineDestroyHosts") events=["host.updated"];
-    else if (name.startsWith("auth") || name.startsWith("providerAccount") || name==="grokAuthRefreshState" || name.endsWith("UsageSnapshots")) events=["accounts.updated"];
+    else if (name.startsWith("auth") || name.startsWith("providerAccount") || name==="grokAuthRefreshState" || name==="quotaEmulationStates" || name.endsWith("UsageSnapshots")) events=["accounts.updated"];
     else if (name.startsWith("skill")) events=["skill.updated"];
     else if (name==="claudeArtifacts") events=["claude_artifact.updated"];
     else if (name.startsWith("agentsDocument")) events=["agents.stored"];

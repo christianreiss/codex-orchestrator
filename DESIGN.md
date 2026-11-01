@@ -464,3 +464,15 @@ switch reconciles an ambiguous save before permitting retry. Applicable rules:
 NAV-1/3, INT-2/3/5/6/7/8 and ACC-1/3/4. No exception. Automated checks and browser
 evidence are recorded with delivery; manual assistive-technology and independent
 usability acceptance remain separate.
+
+
+### Emulated quota slice (2026-11-01)
+
+Usage limits (`/admin/limits`) extends the existing engine policy editor with an
+emulation switch, duration, reaction and server-resume switch. Settings stay in
+one vertical sequence with persistent labels and explicit save/error status.
+Accounts and Overview identify synthetic readings and unavailable/stale states.
+Messages delivery history shows held work and an explicit retry with inline errors.
+Applicable rules: NAV-1/3, VIS-1/3/4, INT-2/3/5/6/7 and ACC-1/3/4.
+No design exception. Automated/browser evidence and remaining manual acceptance
+are recorded in [verification](docs/verification/quota-emulation-2026-11-01.md).

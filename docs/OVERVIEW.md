@@ -1656,3 +1656,14 @@ variables and pinned aliases); host rendering also explicitly disables it
 for effective Opus 4.8 overrides. Other/custom models and historical snapshots
 are preserved. Native CLI flags and process environment overrides remain outside
 the managed settings guarantee. See [the Claude contract](interface-clx.md#additional-native-user-settings).
+
+
+### Optional short quota emulation
+
+Under **Providers → Usage limits**, each engine can emulate a fixed 5h/8h budget
+from its accounts' weekly provider usage when no native short window exists.
+Choose pause advice, continue advice or a hard stop for new work; server resume
+after reset has its own switch. Both switches start off. Accounts and Overview
+label synthetic readings explicitly. Held work appears in Messages → Delivery log
+with Retry held work for manual continuation. See the
+[API contract](interface-api.md#emulated-short-quotas-cxx-09150).

@@ -233,6 +233,13 @@ export function stageSessionFinish(
   now: string,
   failure?: WatchdogFailure | 'abandoned',
 ): void {
+  if ((failure === 'user_stop' || session.closeRequestedAt) && session.agentBusAddressId) {
+    for (const message of context.draft.table('agentBusMessages').by('targetAddressId', session.agentBusAddressId)) {
+      if (message.status === 'queued' && message.quotaEmulationWait?.native_session_id === session.upstreamSessionId)
+        stageUpdate(context, 'agentBusMessages', message.id, { status: 'canceled', canceledAt: now, lastErrorCode: 'quota_wait_user_stop', updatedAt: now });
+    }
+  }
+
   const { draft } = context;
   if (
     !session.closeRequestedAt &&

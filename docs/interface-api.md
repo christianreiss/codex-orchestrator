@@ -3777,11 +3777,11 @@ Responses include canonical IDs, versions and an authenticated `report_url`; cla
 - `GET /admin/accounts/:id/quota-policy` and `PUT /admin/accounts/:id/quota-policy` read/write a complete account override. PUT accepts `{policy: {...}}`; `policy: null` restores inheritance. GET returns `defaults`, nullable `override` and `effective`.
 - Policy fields: `unlimited` boolean; `short_warn_percent` and `long_warn_percent` (integer 1–100 or null to disable warnings); `short_auto_resume` and `long_auto_resume` booleans. Defaults: false, 85, 85, true, false respectively. PayG is an explicit account setting, not provider detection. Unlimited bypasses warnings, quota startup blocks and quota-triggered resume; provider billing remains separately configured.
 - `POST /host/agent-sessions/:id/agent-messaging/quota/get` accepts `{}` and the session bridge token. The `cxx-agent` MCP tool `quota_get` uses this route without an account parameter. Account identity comes from `provider_session_id` supplied at lifecycle registration, validated against the authenticated host/engine's live provider lease. Older unbound sessions report `account_binding_unknown`.
-- Readings include account, engine, policy, status, short/long windows with percentage, actual duration, source, observation timestamp and reset. Missing is not zero; readings older than ten minutes or past reset are stale. Codex/Grok refreshes retain existing throttles; Claude reads only native statusline reports. Grok can report weekly or monthly usage and has no fabricated short window.
+- Readings include account, engine, policy, status, short/long windows with percentage, actual duration, source, observation timestamp and reset. Missing is not zero; readings older than ten minutes or past reset are stale. Codex/Grok refreshes retain existing throttles; Claude reads only native statusline reports. Grok can report weekly or monthly usage; short-window emulation is opt-in and requires weekly evidence.
 - Fresh threshold crossings notify active sessions of the same account once per session/window/reset/severity. QUOTA/1 notices are informational, bound to the current lifecycle, and never wake an offline session.
 - A native capacity failure plus a fresh exhausted quota window arms reset recovery when enabled. Overload alone and usage without a failed turn cannot arm it. A known long blocker takes precedence. Unknown scope is left for the operator.
 - Recovery reuses the Watchdog schedule and native-session executor. It waits at least 60 seconds beyond all known blocking resets, rechecks effective policy and attempts, and stops on task completion, cancel, manual stop, changed native binding or missing transcript. PayG or a disabled policy cancels queued quota recovery. Initial attempt plus at most three retries (5, 15, 30 minutes when no newer reset exists); only persistent hosts start automatically. Stale post-reset readings permit a bounded probe. No replacement session or independent replacement subagent is created.
-- `agent_watchdogs` exposes nullable `quota` metadata (account, window, reset, attempts and last attempt). Engine defaults live in Engines, account overrides in Accounts, and recovery state in the existing Watchdog panel. Warning thresholds do not force a pause. Managed instructions require quota_get before heavy work/delegation.
+- `agent_watchdogs` exposes nullable `quota` metadata (account, window, reset, attempts and last attempt). Engine quota defaults live in Usage limits, account overrides in Accounts, and recovery state in the existing Watchdog panel. Warning thresholds do not force a pause. Managed instructions require quota_get before heavy work/delegation.
 
 ## Feedback sweep additions (2026-10-24)
 
@@ -3959,3 +3959,57 @@ task result. Session abandonment never constitutes a crash receipt. The supervis
 also retires old abandonment-induced incidents and their matching deadline notices
 when the durable abandonment marker and incident timestamp match and no outstanding
 execution remains; other notices, explicit watchdogs and uncertain work are preserved.
+
+
+## Emulated short quotas (cxx 0.9.150)
+
+`GET /admin/quota-policy/:engine` and the account policy GET return an additive
+`emulation` object: `{enabled, window_hours: 5|8, action:
+"suggest_pause"|"suggest_ignore"|"hard_stop", auto_resume}`. The engine PUT accepts
+this object alongside `policy`; omitting it preserves the saved emulation settings.
+Account PUTs reject `emulation`: the settings are engine-wide, independently of
+complete account policy overrides. Both switches default false, duration 5h, action
+suggest_pause. Enabling/disabling starts a new observation baseline; duration edits
+apply to the next window. Existing native warning/recovery settings retain their meaning.
+
+A valid weekly observation without a native short reading enables accumulation of
+positive percentage-point changes per canonical account, across hosts. Budget is
+`100 * hours / 168` percentage points of weekly allowance. The first observation
+sets a baseline; first subsequent consumption starts a fixed window and is counted.
+No rollover of unused allowance. A weekly reset ends the local window; unexplained
+same-period decreases invalidate emulation until the next provider period. Real zero
+short readings retain native priority. Failed fetches and unsupported/missing periods
+are unavailable, never evidence of an absent native limit. Monthly periods are not
+converted to fictional weekly budgets. Provider sampling and integer rounding limit
+precision. PayG/unlimited accounts clear and bypass their emulated accumulators.
+
+`quota_get` includes `emulation`, `emulation_status` (`off|unlimited|native|fresh|stale|unavailable`)
+and the effective synthetic short window when available. Its `source` is `emulated`;
+metadata includes `started_at`, `budget_weekly_percent`, `consumed_weekly_percent`
+and `action`. Native windows keep their provider sources. `/auth` and account lease
+responses expose the same account snapshot as `quota_snapshot`; account metadata
+lists also include it. Companion quota lists label synthetic windows `emulated_short`.
+
+Only fresh, proven usage at 100% blocks hard-stop admission. It returns HTTP 429
+`quota_emulation_limit` with `retry_not_before` and `Retry-After`; VIP status does not
+bypass this opt-in rule. Selection does not silently move to a different account to
+avoid it. Missing/stale data allows work and is identified as unavailable/stale.
+Warnings use the effective short warning threshold and carry pause/continue advice.
+They never arm provider-error recovery or a new wake by themselves.
+
+The ordinary durable delivery queue holds unaccepted follow-up work with
+`quota_emulation_wait: {account_id, native_session_id, reset_at, manual_resume?}`.
+At reset, the server offers only these held deliveries when emulation hard stop and
+auto_resume remain enabled. Existing resident relay/native resume machinery executes
+them once in the original transcript; expiry, cancellation, explicit user stop,
+changed identity, unavailable account, missing transcript and engine suspension retain
+their normal guards. Current turns are not terminated. A held delivery is not an
+accepted execution, and lease replay does not authorize a second execution.
+
+`POST /admin/agent-messaging/messages/:id/quota-retry` with `{}` requires
+`agent_messaging.manage`. It explicitly retries a queued held delivery even with
+auto_resume off, after checking the current limit and original native identity.
+The hold retains its account/native fence until claimed. Disabling automatic resume
+leaves held work awaiting explicit retry/cancellation; disabling emulation releases
+admission for new work and disables automatic release of previous holds. No new
+work is invented and no replacement transcript is authorized.

@@ -365,9 +365,10 @@ describe('served document byte invariance', () => {
     // 2026-10-21: ordinary Portal updates and explicit actionable attention criteria.
     // 2026-10-25: shared native children, connection-proof recovery and non-interrupting immediate delivery.
     // 2026-10-27: task/wait supervision and compact explicit-result guidance.
-    expect(out.features_sha256).toBe('72b18759dbad4fb1211161f9ac16a18e07badf95eed41968048151b37c0bcd70');
-    expect(out.managed_sha256).toBe('57a84cc7f9eaf446ac563e492e7a2dcf64f92715f9905ad1b7e4d4f714d8819f');
-    expect(sha256(out.body)).toBe('1d94f87f819e31179e94ad440fa67eae19de1776d061d5ff0d946d9154ec7598');
+    // 2026-11-01: emulated-budget actions and opt-in held-work resume.
+    expect(out.features_sha256).toBe('7510fd58236e6e37baf40e2f06ba010d7f99a9312c48354bf13100476450ba59');
+    expect(out.managed_sha256).toBe('3dd70f9ead4cbaa3b67baa0657af35e6f92a65ae7af9395c6327f477c5201adf');
+    expect(sha256(out.body)).toBe('4f084813a10f6a27023ff26f96c1075d13736b7acb0d2f02c4a766ed964898e8');
   });
 });
 

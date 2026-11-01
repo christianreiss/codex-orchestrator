@@ -47,8 +47,35 @@ Migration `0035_provider_accounts.sql` preserves each previous canonical head as
 
 Open an account's **Quota policy** action to override its engine defaults. Set short- and long-window warning percentages independently, or disable a window's warning. **Resume interrupted work after reset** is separate for each window; short-window recovery defaults on and long-window recovery defaults off. The settings apply to the bound provider account, across its managed sessions.
 
-Enable **PayG / unlimited** for an account whose provider billing permits continued use. This disables quota warnings, quota startup blocks and quota-triggered recovery. It does not enable billing at the provider. Use **Use engine defaults** to remove the complete account override. Engine defaults are edited under Engines.
+Enable **PayG / unlimited** for an account whose provider billing permits continued use. This disables quota warnings, quota startup blocks and quota-triggered recovery. It does not enable billing at the provider. Use **Use engine defaults** to remove the complete account override. Engine defaults are edited under Providers → Usage limits.
 
 Agents call **quota_get** before heavy work or large delegations. It returns available short/long readings, reset times, observation age and the effective policy. Missing readings are unknown; a displayed zero is an actual reading. Claude measurements come from its native statusline, so a paused client may have stale data.
 
 A warning asks for a checkpoint and does not force a pause. Confirmed quota interruptions can resume the original native session after reset on persistent hosts. The Watchdog panel shows the window, next wake, attempts and any failure. Manual stop, task completion, changed identity or a missing transcript prevents further recovery. No replacement session or independent replacement subagent is started.
+
+
+## Emulated short quotas
+
+Open **Providers → Usage limits → Quota warnings and resume** and select an engine.
+Enable **Emulated short quota** when you want a local budget for accounts whose
+provider reports a weekly allowance without a native short window. Both emulation
+and **Server resume after reset** start off. Choose 5h (2.98% of weekly allowance)
+or 8h (4.76%), counted across all hosts sharing the account. The first observed
+consumption starts the fixed window. Unused allowance expires; duration edits apply
+to the next window. Provider sampling and rounding make this an estimate.
+
+**Warn only — suggest pause** recommends waiting until reset. **Warn only — suggest
+ignore** recommends continuing. **Hard stop** prevents new managed starts and
+follow-up tasks at 100%, including VIP hosts; the current turn can finish. Existing
+short-window warning thresholds apply. Real provider limits remain in force.
+Native short windows take precedence, PayG/unlimited bypasses emulation, and
+missing/stale weekly data allows work with an explicit unavailable/stale indication.
+
+When enabled, server resume offers only follow-up work held by this hard stop after
+reset, in the original native session through an available managed receiver or
+resident relay. Stopped/canceled/expired work and missing transcripts are not
+replaced. With automatic resume off, open **Messages → Delivery log** and choose
+**Retry held work**, or cancel its conversation. A retry checks the current budget;
+it does not bypass an exhausted limit. Turning emulation off releases new starts
+and stops automatic release of earlier holds, which remain available for an explicit
+retry. Accounts and Overview identify local meters as **Emulated**.

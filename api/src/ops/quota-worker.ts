@@ -5,7 +5,7 @@ import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
 import type { Env } from '../env.js';
 import { agentSessions } from '../db/schema.js';
-import { quotaSnapshot } from '../services/quota-observation.js';
+import { quotaSnapshot, type QuotaSnapshot, type QuotaWindow } from '../services/quota-observation.js';
 import { startOwnerWorker } from './owner-worker.js';
 import { requireOwnerMaintenanceCommands } from './owner-maintenance.js';
 import { dependencyRevision } from './schedule-obligations.js';
@@ -30,15 +30,25 @@ export async function warnQuotaSessions(db: Database, notify: (ids: string[], co
       // A usable reset timestamp identifies a period across samples and restarts.
       if (w.status !== 'fresh' || !w.resets_at || threshold === null || w.used_percent < threshold) continue;
       const level = w.used_percent >= 100 ? 'limit' : 'warning';
-      const id = quotaNoticeId([session.agentBusAddressId, q.account_id, w.kind, w.resets_at, level].join(':'));
-      const content = `QUOTA/1 ${level}: ${q.engine} account ${q.account_label}; ${w.kind} window ${w.used_percent}% used. Reset ${w.resets_at}; observed ${w.observed_at}. Save a continuation checkpoint and assess remaining work before more delegation. This notice does not pause work. Use quota_get for current policy.`;
+      const id = quotaNoticeId([session.agentBusAddressId, q.account_id, w.kind, w.resets_at, level, ...(w.source === 'emulated' ? [w.action] : [])].join(':'));
+      const content = quotaNoticeContent(q, w);
       await notify([session.agentBusAddressId], content, id);
     }
   }
 }
+export function quotaNoticeContent(q: NonNullable<QuotaSnapshot>, w: QuotaWindow) {
+  const level = w.used_percent >= 100 ? 'limit' : 'warning';
+  const recommendation = w.source === 'emulated'
+    ? w.action === 'suggest_ignore' ? 'Continue working; ignore this local budget recommendation.'
+      : w.action === 'hard_stop' ? 'Finish the current turn; new managed work is blocked until reset.'
+      : 'Pause before more work until the reset.'
+    : 'Save a continuation checkpoint and assess remaining work before more delegation.';
+  return `QUOTA/1 ${level}: ${q.engine} account ${q.account_label}; ${w.source === 'emulated' ? 'emulated ' : ''}${w.kind} window ${Math.round(w.used_percent * 10) / 10}% used. Reset ${w.resets_at}; observed ${w.observed_at}. ${recommendation} This notice does not pause work. Use quota_get for current policy.`;
+}
+
 export function startQuotaWorker(app: FastifyInstance, db: Database, _env: Env, _keyring: Keyring) {
   const commands = requireOwnerMaintenanceCommands(db);
-  const tables = ['versions', 'agentSessions', 'agentBusAddresses', 'providerAccounts', 'chatgptUsageSnapshots', 'claudeUsageSnapshots', 'grokUsageSnapshots'] as const;
+  const tables = ['versions', 'agentSessions', 'agentBusAddresses', 'providerAccounts', 'chatgptUsageSnapshots', 'claudeUsageSnapshots', 'grokUsageSnapshots', 'quotaEmulationStates'] as const;
   startOwnerWorker(app, db, {
     name: 'quota-notices', tables,
     subscribe: wake => commands.subscribeFacts(wake),

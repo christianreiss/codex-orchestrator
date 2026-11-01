@@ -21,6 +21,7 @@ func (c *Client) AuthAfterAssignment(ctx context.Context, previous *AuthRetrieve
 	// The lease reads quota policy again at admission. Keep its newer controls
 	// while using the account's usage snapshot already fetched by this launch.
 	out := *previous
+	out.QuotaSnapshot = lease.QuotaSnapshot
 	if lease.QuotaUnlimited != nil {
 		out.QuotaUnlimited = *lease.QuotaUnlimited
 	}

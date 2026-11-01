@@ -1452,3 +1452,5 @@ activation, compatibility, protection and no-backup offline maintenance.
 - `POST /admin/agent-supervisor/state` — set `{enabled:boolean}`. Requires `agent_messaging.manage`; disabling stops supervisor-owned future recovery.
 - `POST /admin/agent-supervisor/pause` — pause `{target,version}` with an optimistic work-state version. Requires `agent_messaging.manage`.
 - `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{state,task_key?,message_id?,reason?,waiting_for?,coordinator?,version?}` reports current work (`task_key` or `message_id` required; the key derives as `message:<id>` when omitted). See [the supervisor contract](agent-supervisor.md).
+
+- `POST /admin/agent-messaging/messages/:id/quota-retry` — explicitly retry work held by an emulated quota, retaining its original account/native identity; checks the current budget. Requires `agent_messaging.manage`. See [emulated quotas](interface-api.md#emulated-short-quotas-cxx-09150).

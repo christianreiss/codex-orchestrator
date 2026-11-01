@@ -17,6 +17,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/pelletier/go-toml"
 )
@@ -24,6 +25,7 @@ import (
 // The runtime consumes Projection only. Presentation metadata never becomes
 // part of the native credential file or an auth upload.
 type startupAuth struct {
+	QuotaSnapshot *quotaemulation.Snapshot `json:"quota_snapshot,omitempty"`
 	native.Projection
 	// PoolVerifiedAccounts counts accounts a launch could lease (metadata_only
 	// answers only; older servers omit it). Status/verification describe one head.
@@ -151,6 +153,14 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 		} else {
 			ui.QuotaNote = grokQuotaNote(in.Auth.GrokUsage, time.Now())
 		}
+		extraRows, emulationNotice := quotaemulation.Display(in.Auth.QuotaSnapshot, time.Now())
+		ui.QuotaRows = append(ui.QuotaRows, extraRows...)
+		if emulationNotice != "" {
+			if ui.QuotaNote != "" {
+				ui.QuotaNote += "; "
+			}
+			ui.QuotaNote += emulationNotice
+		}
 		if in.Auth.Host != nil {
 			ui.APICalls = in.Auth.Host.APICalls
 			ui.Insecure = !in.Auth.Host.Secure
@@ -272,6 +282,7 @@ func authUsable(auth *startupAuth, err error) bool {
 func leasedStartupAuth(initial startupAuth, lease *accountpool.LeaseResponse) startupAuth {
 	if lease != nil {
 		initial.Projection = native.Projection{Status: "valid", Auth: lease.Auth, AccountID: lease.AccountID, VerificationState: lease.VerificationState, AccountPool: true}
+		initial.QuotaSnapshot = lease.QuotaSnapshot
 		// The concrete grant now decides; pool availability must not paper over
 		// an unexpected unverified lease.
 		initial.PoolVerifiedAccounts = 0

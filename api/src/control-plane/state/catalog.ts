@@ -29,6 +29,7 @@ export const TABLE_POLICY = {
   hostUsers: 'owned',
   authPayloads: 'owned',
   providerAccounts: 'owned',
+  quotaEmulationStates: 'owned',
   providerAccountSessions: 'owned',
   grokAuthRefreshState: 'owned',
   authCanonicalHeads: 'owned',

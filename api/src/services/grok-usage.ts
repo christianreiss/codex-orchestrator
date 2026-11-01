@@ -1,3 +1,4 @@
+import { stageEmulation, recordEmulation } from './quota-emulation.js';
 import { sameQuotaObservation } from '../control-plane/state/quota.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { and, eq } from 'drizzle-orm';
@@ -298,6 +299,7 @@ export class GrokUsageService {
             ...old,
             ...values,
           };
+          stageEmulation(context, 'grok', row);
           if (old && sameQuotaObservation(old, row)) {
             changed = false;
             context.draft.upsert('grokUsageSnapshots', row);
@@ -310,11 +312,13 @@ export class GrokUsageService {
           return null;
         },
       });
-    } else
+    } else {
       await db
         .insert(grokUsageSnapshots)
         .values({ accountId, ...values })
         .onDuplicateKeyUpdate({ set: values });
+      await recordEmulation(db, 'grok', { accountId, ...values });
+    }
     if (changed) wsPublisher.publish('accounts.updated', { account_id: accountId });
   }
 }

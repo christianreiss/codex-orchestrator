@@ -1,7 +1,8 @@
+import { readEmulation, emulationObservation, emulatedWindow } from './quota-emulation.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { and, desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { providerAccounts, chatgptUsageSnapshots, claudeUsageSnapshots, grokUsageSnapshots } from '../db/schema.js';
+import { providerAccounts, chatgptUsageSnapshots, claudeUsageSnapshots, grokUsageSnapshots, quotaEmulationStates } from '../db/schema.js';
 import { isEngine, type Engine } from '../util/engine.js';
 import { readQuotaPolicy } from './quota-policy.js';
 
@@ -17,6 +18,10 @@ export interface QuotaWindow {
   kind: 'short' | 'long'; used_percent: number; limit_seconds: number | null;
   resets_at: string | null; observed_at: string; source: string;
   status: 'fresh' | 'stale';
+  action?: 'suggest_pause' | 'suggest_ignore' | 'hard_stop';
+  started_at?: string | null;
+  budget_weekly_percent?: number;
+  consumed_weekly_percent?: number;
 }
 export type QuotaSnapshot = Awaited<ReturnType<typeof quotaSnapshot>>;
 export async function quotaSnapshot(db: Pick<Database, 'select'>, accountId: number, engine: Engine, now = Date.now()) {
@@ -27,6 +32,7 @@ export async function quotaSnapshot(db: Pick<Database, 'select'>, accountId: num
   if (!account || account.engine !== engine || account.mergedIntoAccountId || !isEngine(account.engine)) return null;
   const policy = await readQuotaPolicy(db, engine, accountId);
   const windows: QuotaWindow[] = [];
+  let latest: object | undefined;
   const add = (kind: 'short' | 'long', used: number | null | undefined, reset: string | null | undefined, seconds: number | null, observed: string | undefined, source: string, failed = false) => {
     if (typeof used !== 'number' || !Number.isFinite(used) || !observed) return;
     const resetAt = reset && Number.isFinite(Date.parse(reset)) ? reset : null;
@@ -36,18 +42,29 @@ export async function quotaSnapshot(db: Pick<Database, 'select'>, accountId: num
   if (engine === 'codex') {
     // Include failed refreshes: an older successful row must not hide an outage.
     const r = state ? state.table('chatgptUsageSnapshots').all().filter(row => row.accountId === accountId).sort((a, b) => b.id - a.id)[0] : (await db.select().from(chatgptUsageSnapshots).where(eq(chatgptUsageSnapshots.accountId, accountId)).orderBy(desc(chatgptUsageSnapshots.id)).limit(1))[0];
+    latest = r;
     for (const [used, reset, seconds] of [[r?.primaryUsedPercent, r?.primaryResetAt, r?.primaryLimitSeconds], [r?.secondaryUsedPercent, r?.secondaryResetAt, r?.secondaryLimitSeconds]] as const) {
       if (typeof seconds === 'number' && seconds > 0) add(seconds < 86400 ? 'short' : 'long', used, reset, seconds, r?.fetchedAt, 'chatgpt_usage', r?.status !== 'ok');
     }
   } else if (engine === 'claude') {
     const r = state ? state.table('claudeUsageSnapshots').all().filter(row => row.accountId === accountId).sort((a, b) => b.id - a.id)[0] : (await db.select().from(claudeUsageSnapshots).where(eq(claudeUsageSnapshots.accountId, accountId)).orderBy(desc(claudeUsageSnapshots.id)).limit(1))[0];
+    latest = r;
     add('short', r?.fiveHourUsedPercent, r?.fiveHourResetsAt, 18000, r?.fetchedAt, 'claude_statusline');
     add('long', r?.sevenDayUsedPercent, r?.sevenDayResetsAt, 604800, r?.fetchedAt, 'claude_statusline');
   } else {
     const r = state ? state.table('grokUsageSnapshots').all().find(row => row.accountId === accountId) : (await db.select().from(grokUsageSnapshots).where(eq(grokUsageSnapshots.accountId, accountId)).limit(1))[0];
+    latest = r;
     if (r?.periodType === 'weekly' || r?.periodType === 'monthly') add('long', r.usedPercent, r.periodResetsAt, r.periodType === 'weekly' ? 604800 : null, r.fetchedAt ?? undefined, 'grok_subscription', !!r.errorCode);
   }
-  return { account_id: account.id, account_label: account.label, account_state: account.state, engine,
+  const emulation = await readEmulation(db, engine);
+  if (emulation.enabled && !policy.effective.unlimited && !windows.some(w => w.kind === 'short')) {
+    const row = state ? state.table('quotaEmulationStates').get(accountId) : (await db.select().from(quotaEmulationStates).where(eq(quotaEmulationStates.accountId, accountId)))[0];
+    const w = emulatedWindow(row, emulation, latest ? emulationObservation(engine, latest) : null, now);
+    if (w) windows.push(w);
+  }
+  const short = windows.find(w => w.kind === 'short') ?? null;
+  const emulation_status = !emulation.enabled ? 'off' : policy.effective.unlimited ? 'unlimited' : short?.source === 'emulated' ? short.status : short ? 'native' : 'unavailable';
+  return { emulation, emulation_status, account_id: account.id, account_label: account.label, account_state: account.state, engine,
     unlimited: policy.effective.unlimited, policy: policy.effective,
     status: policy.effective.unlimited ? 'unlimited' : !windows.length ? 'unavailable' : windows.some(w => w.status === 'stale') ? 'stale' : 'fresh',
     windows, short: windows.find(w => w.kind === 'short') ?? null, long: windows.find(w => w.kind === 'long') ?? null,
@@ -58,7 +75,7 @@ export async function quotaSnapshot(db: Pick<Database, 'select'>, accountId: num
 /** A provider error proves interruption; quota observations determine its scope. */
 export function quotaInterruption(snapshot: QuotaSnapshot, explicit: boolean, retry?: string, now = Date.now()) {
   if (!snapshot || snapshot.unlimited || snapshot.account_state !== 'enabled') return null;
-  const blocked = snapshot.windows.filter(w => w.used_percent >= 100 && w.status === 'fresh');
+  const blocked = snapshot.windows.filter(w => w.source !== 'emulated' && w.used_percent >= 100 && w.status === 'fresh');
   if (!explicit && !blocked.length) return null;
   const window = blocked.find(w => w.kind === 'long') ?? blocked[0];
   // Without scope evidence do not guess that a weekly interruption is a short one.
@@ -73,7 +90,7 @@ export function quotaInterruption(snapshot: QuotaSnapshot, explicit: boolean, re
 export function quotaResumeGate(snapshot: QuotaSnapshot, kind: string | null, resetAt: string | null, attempts: number, attemptAt: string | null, now: number) {
   if (!snapshot || snapshot.unlimited || snapshot.account_state !== 'enabled') return { stop: 'quota_policy_disabled' };
   if (!(kind === 'short' ? snapshot.policy.short_auto_resume : snapshot.policy.long_auto_resume)) return { stop: 'quota_auto_resume_disabled' };
-  const blockers = snapshot.windows.filter(w => w.used_percent >= 100 && (w.status === 'fresh' || Date.parse(w.resets_at ?? '') > now));
+  const blockers = snapshot.windows.filter(w => (w.source !== 'emulated' || w.action === 'hard_stop') && w.used_percent >= 100 && (w.status === 'fresh' || Date.parse(w.resets_at ?? '') > now));
   if (blockers.some(w => w.kind === 'long' && !snapshot.policy.long_auto_resume)) return { stop: 'long_quota_limit' };
   const resets = [resetAt, ...blockers.map(w => w.resets_at)].map(v => Date.parse(v ?? '')).filter(Number.isFinite);
   const due = resets.length ? Math.max(...resets) + 60000 : 0;

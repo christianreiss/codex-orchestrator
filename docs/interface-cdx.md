@@ -2618,3 +2618,19 @@ retry. Healthy hidden boots retain their probe-free path. Unresolved validation
 refusals retain the server explanation and do not become an offline launch fallback.
 Idempotent session `/finish` receipts may retry a communicator unknown-outcome once
 within the existing shutdown budget; native execution and other writes are not replayed.
+
+
+## Optional emulated short quota (cxx 0.9.150)
+
+Providers → Usage limits offers an engine-specific emulation switch, 5h/8h fixed
+windows, pause/continue advice or hard stop, and a separate server-resume switch.
+Both switches default off. The budget is the proportional share of weekly allowance
+per provider account across hosts, only when native short quota is absent. No
+weekly evidence means unavailable; stale data permits work. Native windows retain
+priority. The wrapper labels synthetic rows `emulated 5h`/`emulated 8h` and retains
+server observation freshness. Hard stop is enforced by server admission, including
+VIP hosts, while current turns finish. Server resume offers only held follow-up
+work in the original native session, using the existing receiver/relay. With resume
+off use Retry held work in delivery history. See the
+[API contract](interface-api.md#emulated-short-quotas-cxx-09150) for settings,
+failure behavior and exact-session safeguards.

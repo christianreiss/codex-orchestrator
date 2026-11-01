@@ -19,6 +19,7 @@ export const SCHEDULE_TABLES = [
   'chatgptUsageSnapshots',
   'claudeUsageSnapshots',
   'grokUsageSnapshots',
+  'quotaEmulationStates',
 ] as const satisfies readonly OwnedTableName[];
 const active = new Set(['waiting', 'queued', 'leased', 'accepted', 'recovering', 'capacity_wait']);
 const dependencyViewTokens = new WeakMap<EntityView<OwnedTableName>, string>();

@@ -1,3 +1,4 @@
+import { quotaSnapshot } from '../quota-observation.js';
 import { asc } from 'drizzle-orm';
 import { providerAccounts } from '../../db/schema.js';
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
@@ -61,6 +62,8 @@ export async function companionQuotas(ctx: RouteContext) {
                         limit_seconds: 'weekly_limit_seconds' in usage ? usage.weekly_limit_seconds : null,
                       },
                     ].filter((w) => w.used_percent !== null);
+              const q = await quotaSnapshot(ctx.db, a.id, engine);
+              if (q?.short?.source === 'emulated') windows.unshift({ kind: 'emulated_short', used_percent: q.short.used_percent, resets_at: q.short.resets_at, limit_seconds: q.short.limit_seconds });
               return {
                 id: a.id,
                 label: a.label,
