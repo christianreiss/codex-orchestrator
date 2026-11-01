@@ -83,7 +83,9 @@ New 0.166.0 fields require 0.166.0 only when configured: eight new feature switc
 rollout-budget enforcement, memory consolidation service tier, transcript-selection
 binding, provider project/location/ADC fields, OpenAI catalog routing and scoped
 MITM signing/body substitutions. The editor validates native provider and proxy
-constraints without reading referenced credentials. See
+constraints without reading referenced credentials. All keybinding actions also
+validate the exact native string/chord grammar; alternatives and explicit `[]`
+unbinding preserve authored values. Older binding actions keep their older floor. See
 [Codex 0.166 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01660).
 Claude native settings require
 2.1.296, or 2.1.305 when `native_settings.sandbox.allowNestedUserNamespaces`

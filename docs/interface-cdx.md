@@ -2081,6 +2081,17 @@ own catalog routing. The reserved `ollama` and `lmstudio` IDs remain rejected.
 This updates the older 0.165 provider restrictions below. Existing host overrides,
 posture, managed MCP and the fleet updater retain their existing ownership.
 
+All `tui.keymap.<context>.<action>` values are checked against the native
+`KeybindingsSpec` grammar before preview/render/store, including profile sidecars.
+Use a string such as `ctrl-s`, a two-stroke chord such as `ctrl-x ctrl-s` or
+`leader s`, or an array of alternative strings. `[]` explicitly unbinds an action.
+`ctrl+s`, unknown keys, duplicate modifiers, modifiers after the key and chords
+longer than two strokes return a field-scoped 422. Native aliases, ASCII case,
+Unicode whitespace and function-key parsing are accepted without rewriting the
+authored value. New `select_transcript = []` still requires observed CLI 0.166.0;
+older actions retain their existing version floor. Runtime dispatch precedence
+and binding conflicts remain native-owned.
+
 The editor authors references to files and environment names; validation never
 opens ADC/secret files, reads secret environment variables or distributes those
 files. Native proxy startup must still resolve the references, validate actual
@@ -2090,6 +2101,7 @@ No optional feature is enabled by this support update.
 
 Sources: [versioned schema](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/core/config.schema.json),
 [provider loader](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/model-provider-info/src/lib.rs),
+[keybinding parser](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/config/src/tui_keymap.rs),
 [MITM declarations](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/config/src/permissions_toml.rs),
 [signing validation](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/network-proxy/src/aws_sigv4.rs),
 [body substitution](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/network-proxy/src/secret_substitution.rs).
