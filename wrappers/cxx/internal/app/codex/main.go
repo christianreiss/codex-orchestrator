@@ -468,6 +468,10 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		return 2
 	}
 	if service := nativeargs.UnsupportedService("codex", serviceArgs); service != "" {
+		if service == "queue" || service == "archive" || service == "unarchive" || service == "delete" {
+			fmt.Fprintf(stderr, "cdx: %s uses a native shared daemon and requires a separate managed auth/session lifecycle adapter; it is not supported; native --help remains available\n", service)
+			return 2
+		}
 		if service == "migrate-nfs-db" {
 			fmt.Fprintln(stderr, "cdx: migrate-nfs-db replaces SQLite databases and requires all clients on every host to remain stopped through cutover; coordinated maintenance is not integrated. Native --help remains available")
 			return 2

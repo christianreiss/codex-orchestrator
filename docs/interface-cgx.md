@@ -212,6 +212,19 @@ An explicit resume UUID may follow global options; a title, picker or fork does
 not prove continuity with an existing native session. Native help and version
 requests bypass signed config, account leasing, sync and private-runtime starts.
 
+cxx 0.9.150 completes the 1.0.70 utility/service value grammar, including
+agent-leader Cursor-worker settings, worker PID/controller fields, clone redirect
+and branch, worktree list/GC and `salvage --out`, MCP
+transport/scope/environment/header, session list limits and trace output. Aliases use their command scope: MCP `-s` is scope while
+root `-s` remains session identity; export `-c` is clipboard while root `-c`
+continues a session. Controller `--pool` and update `--version` require values;
+worker/start `--pool` remains optional. Required values that look like `--help`,
+`--version`, `--resume`, auth or service commands remain data, so they cannot
+bypass signed config or the existing service refusal. Attached/equal forms and
+`--` preserve these boundaries. The versioned 84-command native help corpus and
+opt-in `NATIVE_GROK_ORACLE` check cover value declarations; oracle probes use only
+`--help`, without starting a leader, worker, login or inference request.
+
 Before central auth routing removes root session options, native login/logout
 checks structural option names/value boundaries and the command's trailing
 arguments. Unknown leading flags and unsupported logout arguments are refused,

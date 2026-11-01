@@ -1,5 +1,11 @@
 # Overview
 
+cxx 0.9.150 completes command-scoped Grok Build 1.0.70 argument boundaries and
+keeps native flag-looking values opaque. Codex 0.166.0 queue/archive utilities
+are refused until their shared daemon has a managed lifecycle adapter; native
+help stays available. See the [Codex](interface-cdx.md#native-command-maintenance-cxx-0966)
+and [Grok](interface-cgx.md#native-argument-boundaries-grok-build-1070) contracts.
+
 Claude native user settings include the opt-in
 `permissions.blockWritesOutsideWorkingDirectories` boolean. The existing Engines
 JSON editor supports preview, save and removal; configured values require a
