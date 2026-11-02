@@ -1,5 +1,10 @@
 # cdx Wrapper Interface (Source of Truth)
 
+From cxx 0.9.155, shared communicator sync deadlines follow the same content-owner
+election as execution, preventing idle scans triggered by private Grok auth
+states. Per-engine auth and watch recovery remain independent. See
+[idle sync scheduling](communicator.md#idle-sync-scheduling-cxx-09155).
+
 From cxx 0.9.138, shared HTTP calls refuse cross-origin authenticated redirects
 and oversized JSON documents. Update downloads send host keys only to the exact
 orchestrator origin and reject HTTPS downgrades. A broken explicit engine config

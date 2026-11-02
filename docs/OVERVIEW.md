@@ -1,5 +1,10 @@
 # Overview
 
+cxx 0.9.155 fixes idle communicator CPU caused by inconsistent content-owner
+selection between sync timers and execution. Private Grok auth deadlines remain
+independent; shared Codex, Claude and Grok contexts stop rescanning when no work
+is due. See [idle sync scheduling](communicator.md#idle-sync-scheduling-cxx-09155).
+
 cxx 0.9.153 cancels pending control-state handshakes promptly during shutdown
 for all engines. Advisor admission tolerates unrelated version metadata writes.
 Wrapper deployment verifies immutable history before API quiescence and reuses

@@ -1,3 +1,7 @@
+# 2026-11-02
+
+- **cxx 0.9.155 — communicator idle CPU:** use the same deduplicated sync jobs and content-owner election for deadline calculation and execution. A shared Grok home with private auth brokers could otherwise keep an unused content deadline immediately due, repeatedly scanning all engines' configuration/auth files while doing no work. Preserve independent broker auth deadlines, watch recovery and handoff fences. Existing communicator processes need to retire or undergo a coordinated safe handoff before they run the fix.
+
 # 2026-11-01
 
 - **cxx 0.9.154 — local memory sync:** an orphaned or incomplete marker around an enabled optional memory reminder no longer aborts Codex, Claude or Grok sync. Preserve the entire affected file and report a warning while syncing other content. Cleanup, nonregular files, I/O errors and detected concurrent writes still fail explicitly.

@@ -1,5 +1,18 @@
 # CoCo Communicator
 
+## Idle sync scheduling (cxx 0.9.155)
+
+The sync timer and dispatcher use one deterministic plan: deduplicate leases by
+native source, retain each private Grok broker's auth state, and select one
+content owner per engine/native home. Only that owner's content deadline can
+wake the scheduler; every broker retains its own auth deadline. Removing a lease
+elects the next live content owner. This prevents an unused private state's zero
+content deadline from repeatedly scanning Codex, Claude and Grok files while idle.
+File-watch fallback, initial-content grace, retry deadlines and draining fences
+retain their existing behavior. The fix applies to the loaded communicator,
+not merely the installed binary; preserve live sessions and accepted work when
+coordinating its retirement or supported handoff.
+
 ## Native session statistics (cxx 0.9.135)
 
 The normal cdx/clx/cgx startup and exit displays include a Communicator line,

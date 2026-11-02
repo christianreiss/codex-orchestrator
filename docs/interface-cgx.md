@@ -1,5 +1,10 @@
 # cgx — Grok Build fleet wrapper
 
+From cxx 0.9.155, shared communicator sync deadlines follow the same content-owner
+election as execution. Each private Grok broker keeps its auth deadline, while
+only the selected live content owner can schedule shared home content. See
+[idle sync scheduling](communicator.md#idle-sync-scheduling-cxx-09155).
+
 From cxx 0.9.138, shared HTTP calls refuse cross-origin authenticated redirects
 and oversized JSON documents. Update downloads send host keys only to the exact
 orchestrator origin and reject HTTPS downgrades. A broken explicit engine config

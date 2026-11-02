@@ -652,25 +652,8 @@ func (s *server) syncLoop(ctx context.Context) {
 			continue
 		}
 		s.mu.Lock()
-		jobs := map[string]syncJob{}
-		// Choose a stable live session for a shared native source. A private Grok
-		// runtime is a separate readiness consumer, never a canonical uploader.
-		keys := make([]string, 0, len(s.jobs))
-		for k := range s.jobs {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			job := s.jobs[k]
-			id := scopeID(job)
-			if job.Engine == "grok" && job.Auth {
-				id += "/" + job.Broker
-			}
-			prev, ok := jobs[id]
-			if !ok || (job.Auth && !prev.Auth) {
-				jobs[id] = job
-			}
-		}
+		plan := s.syncPlanLocked()
+		jobs := plan.jobs
 		live := map[string]bool{}
 		for _, job := range jobs {
 			live[stateID(job)] = true
@@ -707,21 +690,7 @@ func (s *server) syncLoop(ctx context.Context) {
 		if !connected {
 			continue
 		}
-		// Content is per engine and native home. Grok runtime brokers sharing a
-		// home are separate auth consumers but must not each repeat the content
-		// exchange: one deterministic job per home schedules it.
-		order := make([]string, 0, len(jobs))
-		for id := range jobs {
-			order = append(order, id)
-		}
-		sort.Strings(order)
-		contentOwner := map[string]string{}
-		for _, id := range order {
-			if home := scopeID(jobs[id]); contentOwner[home] == "" {
-				contentOwner[home] = id
-			}
-		}
-		for _, id := range order {
+		for _, id := range plan.order {
 			job := jobs[id]
 			if job.Owner && job.Auth && signedSyncDisabled(job) {
 				s.mu.Lock()
@@ -757,7 +726,7 @@ func (s *server) syncLoop(ctx context.Context) {
 				state.nextContent = time.Time{}
 			}
 			authDue := job.Auth && (time.Now().After(state.nextAuth) || digest != state.lastFile)
-			contentDue := time.Now().After(state.nextContent) && contentOwner[scopeID(job)] == id
+			contentDue := time.Now().After(state.nextContent) && plan.contentOwner[scopeID(job)] == id
 			if contentDue && !force && state.nextContent.IsZero() && state.contentFresh.IsZero() && time.Since(state.born) < initialContentGrace {
 				contentDue = false
 			}
@@ -901,6 +870,48 @@ func (s *server) localErrorsLocked() map[string]string {
 	return result
 }
 
+type syncPlan struct {
+	jobs         map[string]syncJob
+	order        []string
+	contentOwner map[string]string
+}
+
+// syncPlanLocked gives the timer and dispatcher the same runnable states and
+// content owner. Raw lease-key order cannot elect content work: a Grok private
+// auth state that never runs content may retain a zero content deadline forever.
+func (s *server) syncPlanLocked() syncPlan {
+	plan := syncPlan{jobs: map[string]syncJob{}, contentOwner: map[string]string{}}
+	keys := make([]string, 0, len(s.jobs))
+	for key := range s.jobs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	// Choose a stable live session for a shared native source. Each private Grok
+	// broker remains a separate readiness consumer, never a canonical uploader.
+	for _, key := range keys {
+		job := s.jobs[key]
+		id := scopeID(job)
+		if job.Engine == "grok" && job.Auth {
+			id += "/" + job.Broker
+		}
+		prev, ok := plan.jobs[id]
+		if !ok || (job.Auth && !prev.Auth) {
+			plan.jobs[id] = job
+		}
+	}
+	for id := range plan.jobs {
+		plan.order = append(plan.order, id)
+	}
+	sort.Strings(plan.order)
+	// Content is per engine and native home, not per private auth broker.
+	for _, id := range plan.order {
+		if home := scopeID(plan.jobs[id]); plan.contentOwner[home] == "" {
+			plan.contentOwner[home] = id
+		}
+	}
+	return plan
+}
+
 // nextSyncWake replaces the fixed scanner with the earliest real retry/deadline.
 // Platforms without a file watcher still inspect local files, without forcing
 // successful auth/content scopes to query the owner again.
@@ -927,17 +938,9 @@ func (s *server) nextSyncWake(watching bool) (time.Duration, bool) {
 	if !watching {
 		consider(time.Now().Add(2 * time.Second))
 	}
-	keys := make([]string, 0, len(s.jobs))
-	for key := range s.jobs {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	seen := map[string]bool{}
-	for _, key := range keys {
-		job := s.jobs[key]
-		home := scopeID(job)
-		content := !seen[home]
-		seen[home] = true
+	plan := s.syncPlanLocked()
+	for _, id := range plan.order {
+		job := plan.jobs[id]
 		state := s.scopes[stateID(job)]
 		if state == nil {
 			consider(time.Now())
@@ -949,7 +952,7 @@ func (s *server) nextSyncWake(watching bool) (time.Duration, bool) {
 		if job.Auth {
 			consider(state.nextAuth)
 		}
-		if content {
+		if plan.contentOwner[scopeID(job)] == id {
 			due := state.nextContent
 			if due.IsZero() && state.contentFresh.IsZero() {
 				due = state.born.Add(initialContentGrace)
