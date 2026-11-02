@@ -1611,7 +1611,7 @@ export class AgentMessagingService {
       const routineScan = await retireRoutineNotices(tx, this.keyring, targetAddressIds, now);
       if (relayGeneration == null && routineScan.complete) {
         const target = await this.requireAddressLocked(tx, targetAddressIds[0]!);
-        if (peerBatch) await preparePeerBatch(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) });
+        if (peerBatch) await preparePeerBatch(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) }, !immediateOnly && deliveryTimingEnabled);
         else if (smartQueue) await prepareSmartDigest(tx, target, { keyring: this.keyring, server: db => this.groups.server(db) });
       }
       const candidateOrder = presentationOrder(sql`${agentBusMessages.id}`, sql`${agentBusMessages.kind}`, sql`${agentBusMessages.dispatchOrder}`, sql`${agentBusMessages.deliveryClass}`);

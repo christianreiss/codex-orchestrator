@@ -17,7 +17,7 @@ import { newQueuedMessage } from './views.js';
 import { SERVER_ADDRESS_ID } from './groups.js';
 import { routineNoticeKind } from './routine-notices.js';
 import { DIGEST_MAX_BYTES, DIGEST_MAX_ENTRIES } from './smart-queue.js';
-import { PEER_BATCH_MAX_BYTES, PEER_BATCH_MAX_ENTRIES } from './peer-batch.js';
+import { PEER_BATCH_MAX_BYTES, PEER_BATCH_MAX_ENTRIES, peerBatchTimingEligible } from './peer-batch.js';
 import type { OwnedMessage } from './owned-delivery.js';
 
 function unpresented(row: OwnedMessage): boolean {
@@ -102,7 +102,7 @@ export async function prepareOwnedPresentations(
   runtime: OwnerRuntime,
   keyring: Keyring,
   targetIds: readonly string[],
-  options: { smart: boolean; peer: boolean; relay: boolean },
+  options: { smart: boolean; peer: boolean; relay: boolean; includeStaleImmediate?: boolean },
 ): Promise<void> {
   runtime.assertOwner();
   const initial = runtime.state.snapshot(),
@@ -127,7 +127,8 @@ export async function prepareOwnedPresentations(
   const information = possible.filter(
     (row) =>
       row.status === 'queued' &&
-      (row.deliveryTiming ?? 'after_turn') === 'after_turn' &&
+      (options.peer ? peerBatchTimingEligible(row, options.includeStaleImmediate, Date.parse(now)) :
+        (row.deliveryTiming ?? 'after_turn') === 'after_turn') &&
       !row.workKind &&
       row.expiresAt > now &&
       ['message', 'reply', 'publication', 'presence_notice'].includes(row.kind),
@@ -270,7 +271,8 @@ export async function prepareOwnedPresentations(
           .filter(
             (row) =>
               row.status === 'queued' &&
-              (row.deliveryTiming ?? 'after_turn') === 'after_turn' &&
+              (options.peer ? peerBatchTimingEligible(row, options.includeStaleImmediate, Date.parse(now)) :
+                (row.deliveryTiming ?? 'after_turn') === 'after_turn') &&
               !row.workKind &&
               row.expiresAt > now &&
               (options.peer
@@ -383,6 +385,7 @@ export async function prepareOwnedPresentations(
                 },
                 created_at: row.createdAt,
                 delivery_class: row.deliveryClass,
+                delivery_timing: row.deliveryTiming,
                 related_work_id: row.relatedWorkId,
                 event_count: row.eventCount,
                 content,

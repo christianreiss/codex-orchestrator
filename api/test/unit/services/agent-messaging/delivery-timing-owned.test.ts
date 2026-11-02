@@ -13,14 +13,15 @@ import type { OwnerRuntime } from '../../../../src/control-plane/state/runtime.j
 import type { PersistenceTransaction } from '../../../../src/control-plane/persistence.js';
 import type { StateSeed } from '../../../../src/control-plane/state/catalog.js';
 import { prepareOwnedPresentations } from '../../../../src/services/agent-messaging/owned-presentations.js';
+import { peerBatchTimingEligible } from '../../../../src/services/agent-messaging/peer-batch.js';
 import { SERVER_ADDRESS_ID } from '../../../../src/services/agent-messaging/groups.js';
 import { claimOwnedDelivery } from '../../../../src/services/agent-messaging/owned-claim.js';
 import { newQueuedMessage } from '../../../../src/services/agent-messaging/views.js';
-import { encrypt } from '../../../../src/security/secret-box.js';
+import { decrypt, encrypt } from '../../../../src/security/secret-box.js';
 import { createDbFake } from '../../../helpers/db-fake.js';
 import { testKeyring } from '../../../helpers/test-keyring.js';
 
-function fixture(engine: string) {
+function fixture(engine: string, count = 2) {
   const sessionId = randomUUID(),
     instance = randomUUID(),
     generation = randomUUID();
@@ -37,7 +38,7 @@ function fixture(engine: string) {
   const sender = { ...target, id: randomUUID(), currentSessionId: null } as schema.AgentBusAddress;
   const now = new Date().toISOString(),
     keyring = testKeyring();
-  const messages = [1, 2].map((order) => ({
+  const messages = Array.from({ length: count }, (_, i) => i + 1).map((order) => ({
     ...newQueuedMessage({
       id: randomUUID(),
       conversationId: randomUUID(),
@@ -75,6 +76,18 @@ function fixture(engine: string) {
   } as unknown as StateSeed;
   const state = new OwnerStateStore(new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, seed));
   const db = createDbFake(new Map<unknown, Record<string, unknown>[]>([[schema.agentBusMessages, messages]]));
+  // Messages have a UUID key but MySQL's insertId is their numeric dispatch order.
+  const insert = db.insert.bind(db);
+  let dispatchOrder = count;
+  vi.spyOn(db, 'insert').mockImplementation(table => {
+    const builder = insert(table) as { values(input: Record<string, unknown> | Record<string, unknown>[]): Promise<unknown> };
+    return table !== schema.agentBusMessages ? builder : {
+      values: async (input: Record<string, unknown> | Record<string, unknown>[]) => {
+        await builder.values(input);
+        return [{ insertId: ++dispatchOrder }];
+      },
+    };
+  });
   const executor = new CommandExecutor<OwnerStateSnapshot, PersistenceTransaction, PreparedOwnerState>({
     state,
     assertOwner() {},
@@ -138,13 +151,14 @@ function fixture(engine: string) {
     smartQueue: false,
     peerBatch: false,
   };
-  const claim = (claimId = randomUUID()) =>
-    claimOwnedDelivery(db as never, runtime, keyring, { ...options, claimId });
+  const claim = (claimId = randomUUID(), overrides: Partial<typeof options> = {}) =>
+    claimOwnedDelivery(db as never, runtime, keyring, { ...options, ...overrides, claimId });
   return {
     state,
     runtime,
     db,
-    messages,
+    keyring,
+    messages: [...messages],
     claim,
     receiver,
     close: async () => {
@@ -154,7 +168,92 @@ function fixture(engine: string) {
   };
 }
 
+it.each([59_999, 60_000, 60_001])('uses the exact stale threshold at %i milliseconds', age => {
+  const now = Date.parse('2026-11-02T13:00:00Z');
+  expect(peerBatchTimingEligible({ deliveryTiming: 'immediate', relatedWorkId: null,
+    createdAt: new Date(now - age).toISOString() }, true, now)).toBe(age >= 60_000);
+});
+
 describe.each(['codex', 'claude', 'grok'])('%s owned immediate admission', (engine) => {
+  it('does not batch old immediate originals without peer-batch negotiation', async () => {
+    const f = fixture(engine);
+    try {
+      const draft = f.state.begin();
+      for (const row of draft.table('agentBusMessages').all()) draft.upsert('agentBusMessages', {
+        ...row, createdAt: '2026-01-01T00:00:00Z',
+      });
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+      await prepareOwnedPresentations(f.db as never, f.runtime, f.keyring,
+        [f.messages[0]!.targetAddressId], { smart: true, peer: false, relay: false, includeStaleImmediate: true });
+      expect(f.state.snapshot().messages.all().filter(row => row.kind === 'digest')).toHaveLength(0);
+    } finally { await f.close(); }
+  });
+  it.each([
+    ['fresh information', { createdAt: new Date().toISOString() }, true],
+    ['missing timing capability', {}, false],
+    ['causal work progress', { relatedWorkId: randomUUID() }, true],
+    ['work requests', { kind: 'request', workKind: 'request' }, true],
+    ['structured results', { taskResultStatus: 'succeeded' }, true],
+    ['attempted originals', { attempts: 1 }, true],
+    ['accepted originals', { status: 'accepted' }, true],
+  ] as const)('does not batch %s', async (_name, changes, includeStaleImmediate) => {
+    const f = fixture(engine);
+    try {
+      const draft = f.state.begin();
+      for (const row of draft.table('agentBusMessages').all()) draft.upsert('agentBusMessages', {
+        ...row, createdAt: '2026-01-01T00:00:00Z', ...changes,
+      });
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+      await prepareOwnedPresentations(f.db as never, f.runtime, f.keyring,
+        [f.messages[0]!.targetAddressId], { smart: true, peer: true, relay: false, includeStaleImmediate });
+      expect(f.state.snapshot().messages.all().filter(row => row.kind === 'digest')).toHaveLength(0);
+      for (const original of f.messages) expect(f.state.snapshot().messages.get(original.id)).toMatchObject({
+        status: 'queued', ...changes,
+      });
+      expect(f.state.snapshot().messages.all().every(row => !row.digestId)).toBe(true);
+    } finally { await f.close(); }
+  });
+
+  it('keeps stale information individually actionable in the active immediate lane', async () => {
+    const f = fixture(engine);
+    try {
+      const draft = f.state.begin();
+      for (const row of draft.table('agentBusMessages').all()) draft.upsert('agentBusMessages', {
+        ...row, createdAt: '2026-01-01T00:00:00Z',
+      });
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+      expect(await f.claim(randomUUID(), { peerBatch: true, smartQueue: true })).toMatchObject({
+        kind: 'message', delivery_timing: 'immediate',
+      });
+      expect(f.state.snapshot().messages.all().filter(row => row.kind === 'digest')).toHaveLength(0);
+    } finally { await f.close(); }
+  });
+
+  it('presents nine stale immediate originals together at an ordinary drain boundary', async () => {
+    const f = fixture(engine, 9);
+    try {
+      const draft = f.state.begin();
+      for (const row of draft.table('agentBusMessages').all()) draft.upsert('agentBusMessages', {
+        ...row, createdAt: '2026-01-01T00:00:00Z',
+      });
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+      await prepareOwnedPresentations(f.db as never, f.runtime, f.keyring,
+        [f.messages[0]!.targetAddressId], { smart: true, peer: true, relay: false, includeStaleImmediate: true });
+      const rows = f.state.snapshot().messages.all();
+      const roots = rows.filter(row => row.kind === 'digest');
+      expect(roots).toHaveLength(1);
+      expect(roots[0]).toMatchObject({ status: 'queued', deliveryTiming: 'after_turn' });
+      for (const original of f.messages) expect(f.state.snapshot().messages.get(original.id)).toMatchObject({
+        status: 'batched', digestId: roots[0]!.id, deliveryTiming: 'immediate', attempts: 0, acceptedAt: null,
+      });
+      const root = (f.db.inserts.find(row => row.table === schema.agentBusMessages)!.values as schema.AgentBusMessage);
+      const body = JSON.parse(decrypt(root.contentEnc, f.keyring));
+      expect(body.presentation).toBe('peer_batch_v1');
+      expect(body.total).toBe(9);
+      expect(body.entries.map((entry: { message_id: string }) => entry.message_id)).toEqual(f.messages.map(row => row.id));
+      expect(body.entries.every((entry: { content: string; delivery_timing: string }) => entry.content === 'immediate information' && entry.delivery_timing === 'immediate')).toBe(true);
+    } finally { await f.close(); }
+  });
   it.each(['batch', 'server_notice'] as const)('does not prepare unsupported immediate %s rows or create empty SQL commands', async kind => {
     const f = fixture(engine);
     try {

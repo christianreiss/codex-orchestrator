@@ -1600,7 +1600,10 @@ their independent housekeeping policy. See `interface-api.md` for the wire and r
 Peer backlog reception from cxx 0.9.110 uses negotiated full-content batches for stale
 non-work mail, including Advisor answers and coordination questions, to reduce repeated
 continuation turns. All originals remain addressable; work/results keep individual
-delivery. See `docs/interface-api.md` (Peer backlog presentations) for limits and rollback.
+delivery. At an ordinary drain boundary, peers also negotiating delivery timing include
+untouched immediate information once it is 60 seconds old; fresh and active immediate
+delivery stays individual. Original content and timing remain intact. See
+`docs/interface-api.md` (Peer backlog presentations) for limits and rollback.
 
 Native acceptance: `python3 wrappers/scripts/receiver-canary.py --engine codex --cxx /absolute/path/to/cxx --native-cli /absolute/path/to/native/codex --peer-batch` verifies 31 originals, one continuation, a paginated actionable question, one presentation completion, and a quiet interval. It uses an isolated native home with access-only credentials and a temporary broker.
 

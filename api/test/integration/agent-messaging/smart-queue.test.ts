@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import mysql from 'mysql2/promise';
 import { drizzle } from 'drizzle-orm/mysql2';
 import { eq, inArray, or } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '../../../src/db/schema.js';
 import { AgentMessagingService, AGENT_MESSAGING_ENABLED_KEY } from '../../../src/services/agent-messaging.js';
 import { advisorTurnCompleted } from '../../../src/services/advisor-delivery.js';
@@ -200,19 +200,139 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
     expect(rows.map(row => row.status)).toEqual(['queued', 'queued']);
     expect(new Set(rows.map(row => row.deliveryTiming))).toEqual(new Set(['after_turn', 'immediate']));
   });
-  it('keeps immediate originals outside after-turn peer digests', async () => {
+  it('keeps fresh immediate originals outside after-turn peer digests', async () => {
     const source = await peer(), target = await peer('codex', true, true, true);
     const deferred = [], immediate = [];
     for (let n = 0; n < 2; n++) {
       deferred.push((await send(source, target, `deferred ${n}`)).message.id);
       immediate.push((await send(source, target, `immediate ${n}`, { queue: { delivery_timing: 'immediate' } })).message.id);
     }
-    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(eq(schema.agentBusMessages.targetAddressId, target.addressId));
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(inArray(schema.agentBusMessages.id, deferred));
     const digest = (await claim(target))!;
     expect(digest).toMatchObject({ kind: 'digest', delivery_timing: 'after_turn' });
     expect(JSON.parse(digest.content).entries.map((entry: { message_id: string }) => entry.message_id)).toEqual(deferred);
     const originals = await db.select().from(schema.agentBusMessages).where(inArray(schema.agentBusMessages.id, immediate));
     expect(originals.every(row => row.status === 'queued' && row.deliveryTiming === 'immediate')).toBe(true);
+  });
+
+  it.each([59_999, 60_000, 60_001])('uses the SQL stale threshold at exactly %i milliseconds', async age => {
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(now);
+    try {
+      const source = await peer(), target = await peer('codex', true, true, true);
+      const ids = [];
+      for (let n = 0; n < 2; n++) ids.push((await send(source, target, `boundary ${n}`, { queue: { delivery_timing: 'immediate' } })).message.id);
+      await db.update(schema.agentBusMessages).set({ createdAt: new Date(now - age).toISOString() }).where(inArray(schema.agentBusMessages.id, ids));
+      expect((await claim(target))?.kind).toBe(age >= 60_000 ? 'digest' : 'message');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['seconds', 'milliseconds'])('uses the SQL stale threshold with %s timestamps', async precision => {
+    const now = Math.floor(Date.now() / 1000) * 1000;
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(now);
+    try {
+      const source = await peer(), target = await peer('codex', true, true, true);
+      const ids = [];
+      for (let n = 0; n < 2; n++) ids.push((await send(source, target, `precision ${n}`, { queue: { delivery_timing: 'immediate' } })).message.id);
+      const timestamp = new Date(now - 60_000).toISOString();
+      await db.update(schema.agentBusMessages).set({ createdAt: precision === 'seconds' ? timestamp.replace('.000Z', 'Z') : timestamp }).where(inArray(schema.agentBusMessages.id, ids));
+      expect((await claim(target))?.kind).toBe('digest');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each([[false, true], [true, false]])('keeps old immediate information unbatched with peer=%s and timing=%s', async (batch, timing) => {
+    const source = await peer(), target = await peer('codex', true, batch, timing);
+    const ids = [];
+    for (let n = 0; n < 2; n++) ids.push((await send(source, target, `capability ${n}`, { queue: { delivery_timing: 'immediate' } })).message.id);
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(inArray(schema.agentBusMessages.id, ids));
+    expect((await claim(target))?.kind).toBe(timing ? 'message' : undefined);
+    const rows = await db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.targetAddressId, target.addressId));
+    expect(rows.some(row => row.kind === 'digest')).toBe(false);
+    expect(rows.every(row => row.deliveryTiming === 'immediate' && !row.digestId)).toBe(true);
+    if (!timing) expect(rows.every(row => row.status === 'queued' && row.attempts === 0)).toBe(true);
+  });
+
+  for (const engine of ENGINES) it(`${engine}: retains a prepared batch across an active turn and resumes its ordinary claim`, async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(Date.now());
+    try {
+      const source = await peer(engine), target = await peer(engine, true, true, true);
+      const ids = [];
+      for (let n = 0; n < 2; n++) ids.push((await send(source, target, `queued original ${n}`, { queue: { delivery_timing: 'immediate' } })).message.id);
+      await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(inArray(schema.agentBusMessages.id, ids));
+      const batch = (await claim(target))!;
+      expect(batch.kind).toBe('digest');
+      await service.acknowledgeSessionDelivery(target.id, target.token, batch.message_id, { claimId: batch.claim_id, outcome: 'retry' });
+      const urgent = await send(source, target, 'fresh approval', { queue: { delivery_timing: 'immediate', delivery_class: 'coordination' } });
+      const active = (await service.claimForSession(target.id, target.token, randomUUID(), target.generation, true, true))!;
+      expect(active.message_id).toBe(urgent.message.id);
+      await ack(target, active, 'accepted'); await ack(target, active, 'completed');
+      expect(await service.claimForSession(target.id, target.token, randomUUID(), target.generation, true, true)).toBeNull();
+      expect(await claim(target)).toBeNull(); // Existing retry backoff still applies at idle.
+      const [retry] = await db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.id, batch.message_id));
+      vi.setSystemTime(Date.parse(retry!.nextAttemptAt));
+      const resumed = (await claim(target))!;
+      expect(resumed.message_id).toBe(batch.message_id);
+      expect(JSON.parse(resumed.content).entries.map((entry: { message_id: string }) => entry.message_id)).toEqual(ids);
+      await ack(target, resumed, 'accepted'); await ack(target, resumed, 'completed');
+    } finally { vi.useRealTimers(); }
+  });
+
+  for (const engine of ENGINES) it(`${engine}: keeps the active immediate lane independent of stale batching`, async () => {
+    const source = await peer(engine), target = await peer(engine, true, true, true);
+    const ids = [];
+    for (let n = 0; n < 2; n++) ids.push((await send(source, target, `active information ${n}`, { queue: { delivery_timing: 'immediate' } })).message.id);
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(inArray(schema.agentBusMessages.id, ids));
+    const delivery = await service.claimForSession(target.id, target.token, randomUUID(), target.generation, true, true);
+    expect(delivery).toMatchObject({ kind: 'message', delivery_timing: 'immediate', message_id: ids[0] });
+    const rows = await db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.targetAddressId, target.addressId));
+    expect(rows.some(row => row.kind === 'digest')).toBe(false);
+  });
+
+  for (const engine of ENGINES) it(`${engine}: drains nine stale immediate non-work originals in one retained presentation`, async () => {
+    const source = await peer(engine), target = await peer(engine, true, true, true);
+    const ids: string[] = [], contents = Array.from({ length: 9 }, (_, i) => i === 4 ? 'Question: which branch should I review?' : `Old review progress ${i}`);
+    for (const content of contents) ids.push((await send(source, target, content, { queue: {
+      delivery_timing: 'immediate', delivery_class: content.startsWith('Question:') ? 'coordination' : 'progress',
+    } })).message.id);
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(inArray(schema.agentBusMessages.id, ids));
+    const d = (await claim(target))!;
+    expect(d).toMatchObject({ kind: 'digest', delivery_timing: 'after_turn', delivery_class: 'coordination' });
+    const body = JSON.parse(d.content);
+    expect(body.entries.map((e: { message_id: string }) => e.message_id)).toEqual(ids);
+    expect(body.entries.map((e: { content: string }) => e.content)).toEqual(contents);
+    expect(body.entries.every((e: { delivery_timing: string }) => e.delivery_timing === 'immediate')).toBe(true);
+    await ack(target, d, 'accepted');
+    await service.replyMessage(target.id, target.token, ids[4]!, { content: 'Review main.', clientMessageId: randomUUID() });
+    await ack(target, d, 'completed');
+    expect((await service.getDigest(target.id, target.token, d.message_id)).messages).toHaveLength(9);
+    expect(await claim(target)).toBeNull();
+    const originals = await db.select().from(schema.agentBusMessages).where(inArray(schema.agentBusMessages.id, ids));
+    expect(originals.every(row => row.status === 'digested' && row.deliveryTiming === 'immediate' && row.attempts === 0 && !row.acceptedAt)).toBe(true);
+  });
+
+  it('retains oversized immediate originals and restores their timing on policy rollback', async () => {
+    const source = await peer(), target = await peer('codex', true, true, true);
+    const large = await send(source, target, 'x'.repeat(13000), { queue: { delivery_timing: 'immediate' } });
+    const queue = { delivery_class: 'coordination' as const, delivery_timing: 'immediate' as const };
+    const one = await send(source, target, 'question one', { queue });
+    const two = await send(source, target, 'question two', { queue });
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(eq(schema.agentBusMessages.targetAddressId, target.addressId));
+    const batch = (await claim(target))!;
+    expect(JSON.parse(batch.content)).toMatchObject({ entries: [], total: 3, next_after: 0 });
+    const retained = await service.getDigest(target.id, target.token, batch.message_id);
+    expect((retained.messages as Array<Record<string, unknown>>)[0]).toMatchObject({ id: large.message.id, content: 'x'.repeat(13000) });
+    await db.update(schema.agentBusMessages).set({ status: 'queued', leaseOwner: null, claimId: null, leaseUntil: null }).where(eq(schema.agentBusMessages.id, batch.message_id));
+    env.CXX_PEER_BATCH_V1_ENABLED = false;
+    try {
+      for (const id of [one.message.id, two.message.id, large.message.id]) {
+        const delivery = (await claim(target))!;
+        expect(delivery).toMatchObject({ kind: 'message', message_id: id, delivery_timing: 'immediate' });
+        await ack(target, delivery, 'accepted'); await ack(target, delivery, 'completed');
+      }
+      expect(await claim(target)).toBeNull();
+      const originals = await db.select().from(schema.agentBusMessages).where(inArray(schema.agentBusMessages.id, [large.message.id, one.message.id, two.message.id]));
+      expect(originals.every(row => row.deliveryTiming === 'immediate' && !row.digestId)).toBe(true);
+    } finally { env.CXX_PEER_BATCH_V1_ENABLED = true; }
   });
 
   it('batches eight actual Advisor completion hooks without dropping any turn', async () => {

@@ -3666,6 +3666,16 @@ truncate answers, or silently acknowledge already-inspected messages. Advisor an
 are coordination and participate with every answer/turn intact. `advisor_status`,
 `agent_wait` and message reads remain read-only.
 
+At an ordinary drain boundary, receivers that also negotiate `delivery_timing_v1`
+include untouched `immediate` information only after it has waited at least 60 seconds.
+This closes the separate-turn backlog left behind a long native turn. The presentation
+itself remains `after_turn`; each original retains its actual `delivery_timing`, both
+in storage and in the inline entries. Fresh immediate information and the active
+`immediate_only` lane remain individual. Work-linked immediate progress, work requests,
+structured results, attempted deliveries and replies to work remain excluded. Clients
+without delivery-timing negotiation keep the previous policy. This server change needs
+no wrapper restart; it does not repair failed MCP receivers or terminal modes.
+
 Questions and coordination in a batch still require handling. Reply to the original
 message ID, never the presentation. Call `agent_listen` once after handling all entries;
 it releases only the presentation and leaves accepted work held. Work requests, wakes,

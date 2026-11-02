@@ -1,7 +1,7 @@
 /** Full-content presentation, never semantic coalescing or work acceptance. */
 import { randomUUID } from 'node:crypto';
-import { and, asc, count, eq, gt, inArray, isNull, sql, type SQL } from 'drizzle-orm';
-import { agentBusConversations, agentBusMessages, type AgentBusAddress } from '../../db/schema.js';
+import { and, asc, count, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { agentBusConversations, agentBusMessages, type AgentBusAddress, type AgentBusMessage } from '../../db/schema.js';
 import { decrypt, encrypt } from '../../security/secret-box.js';
 import { nowIso } from '../../util/timestamp.js';
 import type { AgentMessagingDb } from './types.js';
@@ -10,6 +10,19 @@ import { newQueuedMessage } from './views.js';
 
 export const PEER_BATCH_MAX_BYTES = 12_000;
 export const PEER_BATCH_MAX_ENTRIES = 20;
+export const PEER_BATCH_STALE_MS = 60_000;
+
+/** Only an ordinary negotiated drain may present old immediate information in
+ * a batch. Fresh/causal immediate delivery keeps its independent active lane. */
+export function peerBatchTimingEligible(
+  row: Pick<AgentBusMessage, 'deliveryTiming' | 'createdAt' | 'relatedWorkId'>,
+  includeStaleImmediate = false,
+  now = Date.now(),
+): boolean {
+  return (row.deliveryTiming ?? 'after_turn') === 'after_turn' ||
+    (includeStaleImmediate && row.deliveryTiming === 'immediate' && !row.relatedWorkId &&
+      Date.parse(row.createdAt) <= now - PEER_BATCH_STALE_MS);
+}
 
 /** Retain the first original at the presentation's priority class and FIFO position without rewriting history. */
 export function presentationOrder(id: SQL, kind: SQL, order: SQL, deliveryClass: SQL): SQL {
@@ -18,8 +31,13 @@ export function presentationOrder(id: SQL, kind: SQL, order: SQL, deliveryClass:
     AND (${deliveryClass} <> 'coordination' OR member.delivery_class = 'coordination')), ${order}) ELSE ${order} END`;
 }
 
-export async function preparePeerBatch(tx: AgentMessagingDb, target: AgentBusAddress, core: SmartQueueCore) {
+export async function preparePeerBatch(tx: AgentMessagingDb, target: AgentBusAddress, core: SmartQueueCore, includeStaleImmediate = false) {
   const now = nowIso();
+  const staleBefore = new Date(Date.now() - PEER_BATCH_STALE_MS).toISOString();
+  // Server timestamps use seconds; tests and newer records may include milliseconds.
+  // Compare UTC values as dates rather than ordering the optional fraction as text.
+  const oldEnough = sql`CAST(REPLACE(REPLACE(${agentBusMessages.createdAt}, 'T', ' '), 'Z', '') AS DATETIME(3))
+    <= CAST(${staleBefore.replace('T', ' ').replace('Z', '')} AS DATETIME(3))`;
   const [active] = await tx
     .select({ id: agentBusMessages.id })
     .from(agentBusMessages)
@@ -35,7 +53,10 @@ export async function preparePeerBatch(tx: AgentMessagingDb, target: AgentBusAdd
   const pending = and(
     eq(agentBusMessages.targetAddressId, target.id),
     eq(agentBusMessages.status, 'queued'),
-    eq(agentBusMessages.deliveryTiming, 'after_turn'),
+    or(eq(agentBusMessages.deliveryTiming, 'after_turn'), includeStaleImmediate ? and(
+      eq(agentBusMessages.deliveryTiming, 'immediate'), oldEnough,
+      isNull(agentBusMessages.relatedWorkId),
+    ) : undefined),
     eq(agentBusMessages.attempts, 0),
     isNull(agentBusMessages.workKind),
     isNull(agentBusMessages.taskResultStatus),
@@ -51,7 +72,7 @@ export async function preparePeerBatch(tx: AgentMessagingDb, target: AgentBusAdd
     .orderBy(asc(agentBusMessages.dispatchOrder))
     .limit(PEER_BATCH_MAX_ENTRIES)
     .for('update');
-  if (originals.length < 2 || Date.parse(originals[0]!.createdAt) > Date.now() - 60_000) return;
+  if (originals.length < 2 || Date.parse(originals[0]!.createdAt) > Date.parse(staleBefore)) return;
   const [stats] = await tx
     .select({
       total: count(),
@@ -73,6 +94,7 @@ export async function preparePeerBatch(tx: AgentMessagingDb, target: AgentBusAdd
       sender: { address: `agent:${m.senderAddressId}`, name: m.senderName, engine: m.sourceEngine },
       created_at: m.createdAt,
       delivery_class: m.deliveryClass,
+      delivery_timing: m.deliveryTiming,
       related_work_id: m.relatedWorkId,
       event_count: m.eventCount,
       content: decrypt(m.contentEnc, core.keyring),
