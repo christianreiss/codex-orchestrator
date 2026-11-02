@@ -105,7 +105,7 @@ test("draws the server, communicators and agents and says who carries whom", asy
   const strip = page.locator("dl", { has: page.locator("dt", { hasText: "via a connection" }) });
   await expect(strip).toContainText(/2\s*connections/);
   await expect(strip).toContainText(/2\s*via a connection/);
-  await expect(strip).toContainText(/1\s*direct/);
+  await expect(strip).toContainText(/1\s*parent unknown/);
 
   await page.locator(`[data-node="${C1}"] .hit`).click();
   await expect(page.locator(`[data-node="${C1}"] .node-label--strong`)).toHaveText("web01.office.long-domain.example");
@@ -118,7 +118,7 @@ test("draws the server, communicators and agents and says who carries whom", asy
 
   await page.locator(`[data-node="${A3}"] .hit`).click();
   await details.getByText("Session details", { exact: true }).click();
-  await expect(details.getByText("Direct", { exact: true })).toBeVisible();
+  await expect(details.getByText("Communicator not established", { exact: true })).toBeVisible();
   await page.locator(`[data-node="${A1}"] .hit`).click();
   await expect(details.getByText("Carried by")).toBeVisible();
   await expect(details.getByRole("button", { name: "Stop the process…" })).toBeDisabled();
@@ -216,7 +216,7 @@ test("works from the keyboard and offers the same tree as a list", async ({ page
 
   await page.getByRole("button", { name: "List", exact: true }).click();
   await expect(page.getByRole("region", { name: "Communicator web01.example" })).toContainText("Raffaela");
-  await expect(page.getByRole("region", { name: "Agents with no communicator" })).toContainText("Lisanne");
+  await expect(page.getByRole("region", { name: "Agents with no established communicator" })).toContainText("Lisanne");
   await page.getByLabel("Find a node").fill("britta");
   await expect(page.getByRole("button", { name: /Raffaela/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Britta/ })).toBeVisible();
@@ -477,7 +477,80 @@ test('groups agents by project and host and posts an operator message to the sco
   await page.screenshot({ path: '/tmp/sofia-agent-clouds.png' });
 });
 
- test('preserves the complete graph with a saved project preference and no scope assignments', async ({ page }) => {
+test('clouds omit singletons and avoid unrelated rendered nodes and labels across themes, sizes and zoom', async ({ page }) => {
+  test.setTimeout(90_000);
+  const state = await fixtures(page, ['hosts.read', 'agent_portal.read', 'agent_messaging.read']);
+  state.topology.agents[2] = agent(A3, 'Lisanne', 'grok', C1);
+  state.topology.agents[1].name = 'Unrelated label';
+  state.topology.communicators[0].agent_ids.push(A3);
+  const rooms = [
+    { id: 'pair', key: 'repo:pair', kind: 'project', title: 'Pair', members: [state.topology.agents[0], state.topology.agents[2]] },
+    { id: 'single', key: 'repo:single', kind: 'project', title: 'Singleton', members: [state.topology.agents[1]] },
+  ].map(r => ({ ...r, cursor: 0, member_count: r.members.length, next_member_offset: null,
+    members: r.members.map(a => ({ session_id: a.id, agent_id: a.address, name: a.name, engine: a.engine, host_id: a.host_id, host: a.host, cwd: a.cwd, workspace: null, coordinated: true })) }));
+  await page.route('**/admin/agent-messaging/scopes**', route => route.fulfill({ json: { enabled: true, protocol: 1, rooms, claims: [] } }));
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await open(page);
+  await page.getByLabel('Group clouds', { exact: true }).selectOption('project');
+  const cloud = page.locator('path[data-scope="pair"]');
+  await expect(cloud).toHaveCount(1);
+  await expect(page.locator('[data-scope="single"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open Singleton chat' })).toBeVisible();
+  const checkClearance = async () => {
+    await expect(cloud).toHaveCount(1);
+    const contacts = await cloud.evaluate((outline, memberIds) => {
+      const path = outline as SVGGeometryElement;
+      const inverse = path.getCTM()!.inverse();
+      const contacts: string[] = [];
+      for (const g of document.querySelectorAll<SVGGElement>('[data-node]')) {
+        if (memberIds.includes(g.dataset.node!)) continue;
+        const matrix = inverse.multiply(g.getCTM()!);
+        const rects = [g.querySelector<SVGGraphicsElement>('.halo')!.getBBox(),
+          ...[...g.querySelectorAll<SVGTextElement>('text.node-label')].map(text => text.getBBox())];
+        for (const r of rects) for (let x = r.x - 4; x <= r.x + r.width + 4; x += 3) for (let y = r.y - 4; y <= r.y + r.height + 4; y += 3) {
+          const p = new DOMPoint(x, y).matrixTransform(matrix);
+          if (path.isPointInFill(p) || path.isPointInStroke(p)) { contacts.push(g.dataset.node!); break; }
+        }
+      }
+      return contacts;
+    }, [A1, A3]);
+    expect(contacts).toEqual([]);
+  };
+  for (const theme of ['light', 'dark', 'system']) {
+    await page.evaluate(theme => document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)), theme);
+    for (const width of [1920, 1440, 768, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await checkClearance();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+      if (width === 1440 || width === 390) await page.screenshot({ path: `/tmp/topology-clouds-${theme}-${width}.png`, fullPage: true });
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  for (const direction of ['Zoom in', 'Zoom out']) {
+    await page.getByRole('button', { name: direction, exact: true }).click();
+    await checkClearance();
+  }
+  await page.locator('svg[aria-label="Connection topology: server, communicators and agents"]').screenshot({ path: '/tmp/topology-cloud-contour-detail.png' });
+  await page.locator(`[data-node="${A1}"]`).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('complementary', { name: 'Selection details' })).toContainText('Raffaela');
+  const accessibility = await new AxeBuilder({ page }).include('main').analyze();
+  expect(accessibility.violations).toEqual([]);
+});
+
+test('retained offline sessions are not described as direct active connections', async ({ page }) => {
+  const state = await fixtures(page);
+  Object.assign(state.topology.agents[2], { presence: 'offline', status: 'offline' });
+  await open(page);
+  await page.locator(`[data-node="${A3}"] .hit`).click();
+  const details = page.getByRole('complementary', { name: 'Selection details' });
+  await details.getByText('Session details', { exact: true }).click();
+  await expect(details).toContainText('This does not prove a direct connection.');
+  await expect(details).toContainText('its retained record is not an active server connection');
+  await expect(page.locator(`[data-node="${A3}"]`)).toHaveAttribute('aria-label', /offline, communicator not established/);
+});
+
+test('preserves the complete graph with a saved project preference and no scope assignments', async ({ page }) => {
   await fixtures(page);
   await page.addInitScript(() => localStorage.setItem('topology-view-v1', JSON.stringify({ view: 'radial', grouping: 'project' })));
   await open(page);

@@ -76,13 +76,38 @@ Passed on biest.eulie.de, with broad Go runs limited to `GOMAXPROCS=4`:
   race detector; final verbose runs reported 0/10 idle rescan windows.
 - `git diff --check` and formatting checks.
 
-Not run: staticcheck/govulncheck (not installed), cross-platform release builds,
+At the initial source-verification boundary, not run: staticcheck/govulncheck (not installed), cross-platform release builds,
 API/database/frontend suites (those implementations are unchanged), and live
 rollout acceptance. No temporary production instrumentation was added.
 
 ## Delivery boundary
 
 The source fix and wrapper version bump do not update a loaded owner. Production
-CPU improvement remains unverified until an explicitly authorized installation
+CPU improvement remained unverified until an explicitly authorized installation
 and coordinated retirement/handoff load the corrected binary. Keep live native
 sessions and accepted work intact. No API/database/frontend changes are required.
+
+## Authorized rollout acceptance
+
+On 2026-11-02, `d278484bfd0d0d520b62fb73c03a2addef4d3752` was pushed to
+origin/main and deployed on docker01.uggs.io by detached deployment
+`54aef828-f790-4209-a0a8-880f9d5deb9f` (exit 0; 08:24:09–08:29:59 UTC).
+All four wrapper platforms were built and published. Migration status: 120
+applied, zero pending, zero drifted. API and media worker were recreated; the
+loaded API build identity matches the clean source commit. No extra database or
+store backup was created, following the deployment runbook. Previous API image:
+`codex-orchestrator-api:rollback-20261102-pred278484bf`.
+
+On biest.eulie.de, the signed minimal update and daemon installation loaded cxx
+0.9.155. Acknowledged administrative termination retired owner PID 1696095
+(0.9.154) without signaling its native children. Replacement owner PID 1791237
+reported instance `0cbb9450-baed-4ed1-9da1-0c2ac7e5f2ad`, seven managed sessions
+and four sync scopes. All 15 native processes retained their PID and start ticks.
+Installed binary, daemon copy, loaded owner and worker all matched served SHA-256
+`4c4869594cccdbd58099dd30e179ab223d8be28295f98f1b041ea49c4db38c3c`.
+
+Post-restart CPU samples were 3.20%, 3.00%, 3.20% over five seconds each, versus
+110.3% on the old owner. `stat`/`open` calls fell from 53,542 to 890 over two
+seconds. Active native file events remain real work; this is not a zero-CPU claim.
+The public versions endpoint advertised 0.9.155 with the matching hash. Existing
+native sessions reconnected; no crash/recovery or fresh transcript was needed.

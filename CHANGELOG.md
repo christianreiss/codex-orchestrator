@@ -1,5 +1,7 @@
 # 2026-11-02
 
+- **Agents graph:** hide clouds for singleton groups while keeping their chats accessible. Group contours leave space around unrelated nodes, actual labels and independent groups; obstructed outlines may split, and infeasible outlines are omitted with an explanation. Missing communicator evidence is now described as unknown parentage, including retained offline sessions, rather than as a proven direct connection.
+
 - **cxx 0.9.155 — communicator idle CPU:** use the same deduplicated sync jobs and content-owner election for deadline calculation and execution. A shared Grok home with private auth brokers could otherwise keep an unused content deadline immediately due, repeatedly scanning all engines' configuration/auth files while doing no work. Preserve independent broker auth deadlines, watch recovery and handoff fences. Existing communicator processes need to retire or undergo a coordinated safe handoff before they run the fix.
 
 # 2026-11-01

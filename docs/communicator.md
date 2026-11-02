@@ -906,11 +906,22 @@ A session is shown under a communicator only on evidence: the API answered a
 `/host/agent-sessions/<id>/…` request for it (or its registration) below status 400
 over that socket, which proves the session's bridge token authenticated on that
 host's key through that connection. Evidence older than the presence window (45 s by
-default) marks the link quiet, and a session with none hangs off the server as
-direct. Host, OS user and engine are never used to pick a parent, because one user
+default) marks the link quiet, and a session with none hangs off the server with
+unknown parentage. That edge is not evidence of a direct connection: the graph
+also retains offline, unended session records, and process-local request evidence
+does not survive an API restart. Host, OS user and engine are never used to pick a parent, because one user
 may run several communicators in separate runtime roots and a session may talk to the
 server directly. After a communicator reconnects, its sessions are re-attributed as
-each next speaks to the server (their heartbeats run every 15 s).
+each next sends a qualifying request. An idle or offline session has no guaranteed
+15-second re-attribution deadline.
+
+Project/host clouds are presentation only. Singleton groups keep their chat chip
+without an outline. Multi-agent contours avoid unrelated node bodies, measured SVG
+labels and independent groups; genuinely shared membership can overlap. They are
+hidden during node motion and recalculated after positions and font metrics settle.
+An obstacle can separate an outline into several pieces. If no outline can retain
+every member with clearance, or the sampling budget is exceeded, omit it and show
+an explanation; group chats and the equivalent list remain available.
 
 `POST /admin/communicators/{id}/disconnect` closes exactly one connection (WebSocket
 close code 4001) and answers `closed` once the socket's close handler has run, or

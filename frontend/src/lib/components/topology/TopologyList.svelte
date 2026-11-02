@@ -19,9 +19,9 @@
     }
     return map;
   });
-  const direct = $derived(agentsByParent.get("server") ?? []);
+  const unassigned = $derived(agentsByParent.get("server") ?? []);
   const known = $derived(new Set(model.communicators.map((c) => c.node.id)));
-  // An agent whose communicator has left the list is direct as far as this view goes.
+  // A missing communicator is unknown parentage, not evidence of a direct route.
   const orphans = $derived(model.agents.filter((a) => a.node.association.parent_id !== "server" && !known.has(a.node.association.parent_id)));
   const visible = (node: Parameters<typeof matchesQuery>[0]) => matchesQuery(node, query);
 </script>
@@ -71,10 +71,10 @@
     {/if}
   {/each}
 
-  {#if direct.length + orphans.length > 0}
-    <section class="rounded-md border border-dashed bg-card" aria-label="Agents with no communicator">
-      <h3 class="px-3 py-2 text-body-sm font-semibold">Direct <span class="font-normal text-muted-foreground">· no communicator carried their requests</span></h3>
-      <ul class="border-t p-1">{#each [...direct, ...orphans] as child (child.node.id)}{@render agentRow(child)}{/each}</ul>
+  {#if unassigned.length + orphans.length > 0}
+    <section class="rounded-md border border-dashed bg-card" aria-label="Agents with no established communicator">
+      <h3 class="px-3 py-2 text-body-sm font-semibold">Communicator not established <span class="font-normal text-muted-foreground">· no current parent evidence</span></h3>
+      <ul class="border-t p-1">{#each [...unassigned, ...orphans] as child (child.node.id)}{@render agentRow(child)}{/each}</ul>
     </section>
   {/if}
 

@@ -476,3 +476,17 @@ Messages delivery history shows held work and an explicit retry with inline erro
 Applicable rules: NAV-1/3, VIS-1/3/4, INT-2/3/5/6/7 and ACC-1/3/4.
 No design exception. Automated/browser evidence and remaining manual acceptance
 are recorded in [verification](docs/verification/quota-emulation-2026-11-01.md).
+
+### Topology group outlines and route evidence (2026-11-02)
+
+The `/admin/agents` graph keeps its radial positions, equivalent list, keyboard
+selection and group chat chips. A group needs two visible members for an outline;
+singleton chat access remains. Contours route around unrelated node bodies and
+measured SVG labels, leave a gap between independent groups, and may overlap only
+for genuinely shared membership. Hide outlines during motion. Unsupported geometry
+keeps group access with an explicit status instead of a misleading partial outline.
+The header, list, inspector and spoken node description identify missing parent
+evidence without claiming a direct connection; retained offline records remain
+distinguishable from active traffic. Applicable rules: VIS-1/3/4, INT-5/6/7,
+ACC-1/3/4 and PERF-1. No exception. Automated coverage and the separate manual
+acceptance limits are recorded in [verification](docs/verification/topology-clouds-2026-11-02.md).

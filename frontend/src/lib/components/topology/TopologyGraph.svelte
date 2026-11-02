@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { cloudPath } from "$lib/topology/clouds";
-  import { untrack } from "svelte";
+  import { cloudContours, type Rect } from "$lib/topology/clouds";
+  import { onMount, tick, untrack } from "svelte";
   import ServerIcon from "@lucide/svelte/icons/server";
   import RadioTowerIcon from "@lucide/svelte/icons/radio-tower";
   import ZoomInIcon from "@lucide/svelte/icons/zoom-in";
@@ -253,6 +253,53 @@
     const anchor = ux > 0.3 ? "start" : ux < -0.3 ? "end" : "middle";
     return { x: ux * 22, y: uy * 22 + (anchor === "middle" ? (uy > 0 ? 9 : -2) : 4), anchor };
   }
+  // Measure real SVG labels (including the loaded font), not guessed character
+  // widths. Envelopes are calculated at rest, never on each animation frame.
+  const settled = $derived([...layout.nodes].every(([id, n]) => shown[id] && Math.hypot(shown[id].x - n.x, shown[id].y - n.y) < .01));
+  let fontRevision = $state(0);
+  let labelBoxes = $state<Record<string, Rect[]>>({});
+  let measuredFor = $state("");
+  onMount(() => {
+    let alive = true;
+    const loaded = () => { if (alive) fontRevision++; };
+    void document.fonts.ready.then(loaded);
+    document.fonts.addEventListener("loadingdone", loaded);
+    return () => { alive = false; document.fonts.removeEventListener("loadingdone", loaded); };
+  });
+  const labelLayoutKey = $derived(JSON.stringify([structure, fontRevision, showAgentLabels, scale >= .35,
+    selectedId, hoverId, focusId, query, server?.label, model.agents.map(a => a.node.name),
+    model.communicators.map(c => [communicatorLabel(c.node), c.node.version, Boolean(c.ghost)])]));
+  $effect(() => {
+    const key = labelLayoutKey, host = surface, ready = settled;
+    if (!host || !ready || !clouds.length) return;
+    let canceled = false;
+    void tick().then(() => {
+      if (canceled) return;
+      const boxes: Record<string, Rect[]> = {};
+      for (const element of host.querySelectorAll<SVGGElement>("[data-node]")) {
+        const id = element.dataset.node!, position = layout.nodes.get(id);
+        if (!position) continue;
+        boxes[id] = [...element.querySelectorAll<SVGTextElement>("text.node-label")].map(text => {
+          const b = text.getBBox();
+          return { left: position.x + b.x - 2, right: position.x + b.x + b.width + 2,
+            top: position.y + b.y - 2, bottom: position.y + b.y + b.height + 2 };
+        });
+      }
+      labelBoxes = boxes;
+      measuredFor = key;
+    });
+    return () => { canceled = true; };
+  });
+  const cloudNodes = $derived([...layout.nodes.values()].map(n => {
+    const r = n.kind === "server" ? 48 : n.kind === "communicator" ? 35 : 24;
+    return { id: n.id, x: n.x, y: n.y, obstacles: [
+      { left: n.x - r, right: n.x + r, top: n.y - r, bottom: n.y + r }, ...(labelBoxes[n.id] ?? [])] };
+  }));
+  const cloudGeometryKey = $derived(JSON.stringify([clouds.map(c => [c.id, c.members]), cloudNodes]));
+  const envelopes = $derived.by(() => {
+    void cloudGeometryKey;
+    return untrack(() => new Map(cloudContours(clouds, cloudNodes).map(c => [c.id, c.path])));
+  });
   const flowing = $derived(model.agents.length <= 160);
 
   function describeCommunicator(item: (typeof model.communicators)[number]): string {
@@ -263,7 +310,7 @@
   function describeAgent(item: (typeof model.agents)[number]): string {
     const a = item.node;
     const where =
-      a.association.state === "unattributed" ? "direct, no communicator" : a.association.state === "stale" ? "carried by a communicator, link quiet" : "carried by a communicator";
+      a.association.state === "unattributed" ? "communicator not established" : a.association.state === "stale" ? "carried by a communicator, link quiet" : "carried by a communicator";
     return `Agent ${a.name}, ${a.engine}, ${item.ghost ? "ended" : a.presence}, ${where}`;
   }
   const preview = $derived([...model.communicators, ...model.agents].find(item => item.node.id === (hoverId ?? focusId)));
@@ -302,12 +349,14 @@
       </g>
 
       <g pointer-events="none" aria-hidden="true">
-        {#each clouds as cloud (cloud.id)}
-          {@const members = cloud.members.filter(id => layout.nodes.has(id)).map(id => at(id))}
-          {#if members.length}
-            <path data-scope={cloud.id} d={cloudPath(members)} fill={cloud.color} fill-opacity="0.07" stroke={cloud.color} stroke-opacity="0.55" stroke-width="1.5" vector-effect="non-scaling-stroke"><title>{cloud.title}</title></path>
-          {/if}
-        {/each}
+        {#if settled && measuredFor === labelLayoutKey}
+          {#each clouds as cloud (cloud.id)}
+            {@const path = envelopes.get(cloud.id)}
+            {#if path}
+              <path data-scope={cloud.id} d={path} fill-rule="evenodd" fill={cloud.color} fill-opacity="0.07" stroke={cloud.color} stroke-opacity="0.55" stroke-width="1.5"><title>{cloud.title}</title></path>
+            {/if}
+          {/each}
+        {/if}
       </g>
       <g aria-hidden="true" fill="none">
         {#each model.communicators as item (item.node.id)}
@@ -447,6 +496,9 @@
     <div class="pointer-events-none absolute inset-x-0 bottom-6 mx-auto w-fit max-w-[80%] rounded-md border bg-background/90 px-3 py-2 text-center text-body-sm text-muted-foreground">
       Nothing is connected to this server right now.
     </div>
+  {/if}
+  {#if settled && measuredFor === labelLayoutKey && [...envelopes.values()].some(path => !path)}
+    <p role="status" class="pointer-events-none absolute bottom-12 left-3 max-w-72 rounded-md border bg-background/95 px-3 py-2 text-caption text-muted-foreground">Some groups cannot be outlined with enough space. Their group chats remain available above.</p>
   {/if}
 
   {#if preview && preview.node.id !== selectedId}

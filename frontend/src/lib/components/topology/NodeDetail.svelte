@@ -215,11 +215,11 @@
           <dt class="text-muted-foreground">Agents</dt><dd>{snapshot.counts.agents}{snapshot.server.portal_enabled ? "" : " (agent sessions disabled)"}</dd>
           <dt class="text-muted-foreground">Via a communicator</dt><dd>{snapshot.counts.attributed}</dd>
           {#if snapshot.counts.stale > 0}<dt class="text-muted-foreground">Link gone quiet</dt><dd>{snapshot.counts.stale}</dd>{/if}
-          <dt class="text-muted-foreground">Direct</dt><dd>{snapshot.counts.unattributed}</dd>
+          <dt class="text-muted-foreground">Communicator not established</dt><dd>{snapshot.counts.unattributed}</dd>
         </dl>
         <p class="text-caption text-muted-foreground">
           This is the connection set held by one API process. An agent hangs off a communicator only when the server saw that
-          session's own requests arrive over its socket; otherwise it is shown as direct. Select a node for details and controls.
+          session's own requests arrive over its socket. A server edge means no current parent evidence, including retained offline sessions; it does not prove a direct connection. Select a node for details and controls.
         </p>
       {/if}
     </section>
@@ -248,7 +248,7 @@
         <li>Communicator fill is its reported owner mode; the ring and link are its health.</li>
         <li><span class="legend-dot" style="border-color: hsl(var(--success))"></span> Live link · solid, flowing</li>
         <li><span class="legend-dot" style="border-color: hsl(var(--warning)); border-style: dashed"></span> Quiet or stale · dashed amber</li>
-        <li><span class="legend-dot" style="border-color: hsl(var(--muted-foreground)); border-style: dotted"></span> Direct, no communicator · dotted grey</li>
+        <li><span class="legend-dot" style="border-color: hsl(var(--muted-foreground)); border-style: dotted"></span> Communicator not established · dotted grey</li>
         <li>Agent fill is its engine; the ring is its presence.</li>
       </ul>
     </section>
@@ -382,8 +382,8 @@
       <details><summary class="cursor-pointer text-caption">Session details</summary>
       <div class="rounded-md border p-3 text-body-sm">
         {#if agent.association.state === "unattributed"}
-          <p class="font-medium">Direct</p>
-          <p class="text-muted-foreground">No communicator has carried this session's requests recently, so it is shown on the server. It may talk to the server directly, or its communicator may have just reconnected — sessions reappear under it as they next speak, within about 15 s.</p>
+          <p class="font-medium">Communicator not established</p>
+          <p class="text-muted-foreground">The current connection set has no request evidence linking this session to a communicator. This does not prove a direct connection. {agent.presence === "offline" || agent.presence === "ended" ? "This session is offline; its retained record is not an active server connection." : "After an API restart or communicator reconnect, the link returns when a qualifying session request is observed. There is no guaranteed reconnection time for an idle session."}</p>
         {:else if parent}
           <p class="font-medium">Carried by <button type="button" class="underline underline-offset-2" onclick={() => onselect(parent.id)}>{communicatorLabel(parent)}</button></p>
           <p class="text-muted-foreground">

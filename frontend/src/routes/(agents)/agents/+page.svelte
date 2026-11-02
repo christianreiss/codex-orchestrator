@@ -14,7 +14,7 @@
     { label: "agents", value: summary.agents },
     { label: "via a connection", value: summary.attributed, tone: "success" as const },
     ...(summary.stale > 0 ? [{ label: "link quiet", value: summary.stale, tone: "warning" as const }] : []),
-    { label: "direct", value: summary.unattributed },
+    { label: "parent unknown", value: summary.unattributed, hint: "No current communicator evidence; includes retained offline sessions, not proof of direct connections" },
   ]);
   // On a phone an open conversation takes the whole screen.
   const conversationOpen = $derived(agents.view === "live" && (agents.liveSelectedId !== null || page.url.searchParams.has("room")));

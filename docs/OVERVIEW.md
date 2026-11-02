@@ -1537,6 +1537,8 @@ remain in their existing lifecycles. See [runtime, migration and acceptance](com
 
 ## Live Topology workspace
 
+Project/host group clouds require at least two visible members. Their contours avoid unrelated nodes, measured labels and independent groups; shared membership can overlap. Obstructed or oversized groups retain chat/list access even when no safe complete outline fits. A server-root agent has unknown communicator parentage, including retained offline records; it is not counted as a proven direct connection.
+
 Live Topology combines the live connection graph with a compact inspector, shared Clients chat panel and remote-session start form. Selection never retargets an open conversation; drafts stay with their session. Start on a communicator prefills its host, while the global button offers host selection. Runtime, host, engine and presence filters and the list/radial preference persist locally; conversation content does not. Branches can be collapsed, selections centered and the canvas expanded to fullscreen.
 
 Solid server links mean reported Persistent mode, dashed links On demand, and dotted links Unknown. Health uses color independently. Stale reports are labeled as last reported; daemon attachment does not prove persistence. Native stop uses the wrapper's bound process identity and a TERM/KILL sequence; disconnect, communicator stop and ending a server record remain distinct operations.
