@@ -34,7 +34,7 @@ async function fixtures(page: Page) {
         const p=report.preparation;
         if(body.action==="configure"){report.inputs=(body.inputs as Record<string,unknown>)??report.inputs;report.title=String(body.title??report.title);p.questions=(body.questions as typeof p.questions)??p.questions;p.revision++;p.phase="clarifying";p.summary=null;p.confirmation=null;}
         if(body.action==="present_summary"){p.revision++;p.notes=String(body.notes??"");p.summary={revision:p.revision,title:report.title,goal:document.goal.statement,inputs:structuredClone(report.inputs),questions:structuredClone(p.questions),tasks:structuredClone(document.tasks),notes:p.notes};p.phase="awaiting_confirmation";p.confirmation=null;}
-        if(body.action==="confirm_summary"){p.phase="ready";p.confirmation={summary_revision:Number(body.summary_revision),actor:{kind:"admin",id:"1"},time:report.updated_at,channel:"web",user_confirmation:"Confirmed in the workflow review"};}
+        if(body.action==="confirm_summary"){p.phase="ready";p.confirmation={summary_revision:Number(body.summary_revision),actor:{kind:"admin",id:"1"},time:report.updated_at,channel:"web",user_confirmation:"Confirmed in the workflow review",start_notification:report.coordinator ? {status:"queued",message_id:"start-message",address_id:report.coordinator.address_id} : {status:"not_queued",reason:"no_coordinator"}};}
         report.version++;const result=structuredClone(report);receipts.set(String(body.client_request_id),result);
         if(state.dropConfirm&&body.action==="confirm_summary"){state.dropConfirm=false;return route.abort("failed");}return json(result);
       }
@@ -76,7 +76,7 @@ test("new workflow validates tasks and offers keyboard dependency ordering",asyn
 });
 
 test("typed preparation retries a lost response with the same receipt and no agent start",async({page})=>{
-  const {state}=await fixtures(page);await page.goto("/admin/workflows/definitions/verify-artifacts?mode=run");await page.getByRole("textbox",{name:"Release name",exact:true}).fill("release-42");await page.getByRole("spinbutton",{name:"Copies",exact:true}).fill("3");await page.getByLabel("Dry run",{exact:true}).selectOption("false");await page.getByLabel("Region",{exact:true}).selectOption("east");state.dropPrepare=true;
+  const {state}=await fixtures(page);await page.goto("/admin/workflows/definitions/verify-artifacts?mode=run");await page.getByRole("textbox",{name:"Release name",exact:true}).fill("release-42");await page.getByRole("spinbutton",{name:"Copies",exact:true}).fill("3");await page.getByRole("button",{name:"Dry run",exact:true}).click();await page.getByRole("option",{name:"No",exact:true}).click();await page.getByRole("button",{name:"Region",exact:true}).click();await page.getByRole("option",{name:"east",exact:true}).click();state.dropPrepare=true;
   await page.getByRole("button",{name:"Prepare run",exact:true}).click();await expect(page.getByRole("alert")).toContainText("Save not confirmed");await expect(page.getByRole("textbox",{name:"Release name",exact:true})).toHaveValue("release-42");await page.getByRole("button",{name:"Prepare run",exact:true}).click();await expect(page).toHaveURL(new RegExp(RUN_ID));await expect(page.getByText("Prepared; no agent has started execution.")).toBeVisible();await expect(page.getByRole("button",{name:"Copy assignment"})).toBeVisible();
   const calls=state.calls.filter(c=>c.path==="/admin/workflow-runs");expect(calls).toHaveLength(2);expect(calls[0].body).toEqual(calls[1].body);expect(calls[1].body).toMatchObject({version:2,workflow_id:WORKFLOW_ID,inputs:{release:"release-42",copies:3,dry_run:false,region:"east"}});expect(state.errors).toEqual([]);
 });
@@ -334,4 +334,41 @@ for (const width of [320, 1440]) for (const theme of ["light", "dark"] as const)
   expect(await page.locator("main").evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(2);
   const axe=await new AxeBuilder({page}).withTags(["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"]).analyze(); expect(axe.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)}))).toEqual([]);
   await page.screenshot({path:info.outputPath(`nested-handover-${theme}-${width}.png`), fullPage:true}); expect(state.errors).toEqual([]);
+});
+
+for (const width of [320, 390, 1440]) for (const theme of ["light", "dark"] as const) test(`preparation workspace ${theme} ${width}`, async ({page}, info) => {
+  const {report,state} = await fixtures(page);
+  report.status = "pending"; report.outcome = null; report.summary = ""; report.inputs = {release: "A long description of the release and its acceptance criteria. ".repeat(6), copies: 0, dry_run: false};
+  report.preparation = {phase:"clarifying",revision:1,notes:"",questions:[{id:"scope",question:"Explain the scope and constraints. ".repeat(6),answer:""}],summary:null,confirmation:null};
+  await page.setViewportSize({width,height:900}); await page.emulateMedia({colorScheme:theme});
+  await page.addInitScript(theme => localStorage.setItem("codex.theme",theme),theme);
+  await page.goto(`/admin/workflows/runs/${RUN_ID}`);
+  const answer = page.getByRole("textbox",{name:"Release name",exact:true});
+  expect(await answer.evaluate(el => el.tagName)).toBe("TEXTAREA");
+  await expect(page.getByRole("spinbutton",{name:"Copies",exact:true})).toHaveValue("0");
+  await expect(page.getByRole("button",{name:"Dry run",exact:true})).toHaveText("No");
+  const select = page.getByRole("button",{name:"Region",exact:true});
+  await select.focus(); await page.keyboard.press("Enter");
+  await page.getByRole("option",{name:"east",exact:true}).click();
+  await page.getByRole("button",{name:"Save answers",exact:true}).click();
+  await expect(page.getByText("Saved. Confirmed by the server.",{exact:true})).toBeVisible();
+  expect(report.inputs).toMatchObject({copies:0,dry_run:false,region:"east"});
+  expect(await page.locator("main").evaluate(el=>el.scrollWidth-el.clientWidth)).toBeLessThanOrEqual(2);
+  const axe=await new AxeBuilder({page}).withTags(["wcag2a","wcag2aa","wcag21aa","wcag22aa"]).analyze();
+  expect(axe.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)}))).toEqual([]);
+  await page.getByRole("heading",{name:"Prepare execution",exact:true}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:info.outputPath(`preparation-${theme}-${width}.png`)});
+  expect(state.errors).toEqual([]);
+});
+
+test("web confirmation displays queued handoff without claiming execution started", async ({page}) => {
+  const {report} = await fixtures(page);
+  report.status="pending"; report.outcome=null;
+  report.preparation={phase:"awaiting_confirmation",revision:2,notes:"",questions:[],confirmation:null,
+    summary:{revision:2,title:report.title,goal:document.goal.statement,inputs:report.inputs,questions:[],tasks:document.tasks,notes:""}};
+  await page.goto(`/admin/workflows/runs/${RUN_ID}`);
+  await page.getByRole("button",{name:"Confirm execution summary",exact:true}).click();
+  await expect(page.getByText("Start message queued for the coordinator. Execution has not started yet.",{exact:true})).toBeVisible();
+  await expect(page.getByText("Ready to start",{exact:true})).toBeVisible();
+  expect(report.status).toBe("pending");
 });

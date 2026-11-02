@@ -69,12 +69,18 @@ runs with preparation=null retain their existing execution contract.
    questions belong to this run, not automatically to the reusable definition.
 2. When all required inputs and follow-ups are answered, the coordinator calls
    run_control action present_summary with optional notes and coordinator_generation.
-   Read preparation.summary and show its goal, answers, agreements and planned tasks
-   to the user. Defaults are included for review. The summary is stored server-side.
+   The web report presents the saved goal, answers, agreements and planned tasks.
+   Send one concise link to that review; do not repeat the full summary or a policy
+   explanation in chat and do not ask for a second chat approval.
 3. Wait for explicit user approval of this exact summary. Then call confirm_summary
    with summary_revision, coordinator_generation and user_confirmation containing
    the explicit approval. An authenticated web confirmation also suffices. Never
    infer approval from silence, a workflow request, a default value or elapsed time.
+   Web confirmation queues WORKFLOW-START/1 to the assigned coordinator. On receipt,
+   read the current run, verify the confirmed revision and coordinator generation,
+   then start and continue without asking for the same approval again. Queued is not
+   started. If preparation is already ready, reuse its approval; do not configure or
+   present_summary again merely to restate unchanged answers.
 4. Any configure or present_summary change invalidates earlier approval. Review and
    confirm again. Writes use expected_run_version and a stable client_request_id.
 5. Only preparation.phase=ready allows action start. Coordination for clarification

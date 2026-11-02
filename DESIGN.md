@@ -498,3 +498,20 @@ visible for host rooms with more than one member independently of cloud settings
 and graph filters. Counts describe the full room and the existing `ScopeChat`
 shows its members and handles sending, draft/error states and permissions. No host
 outline is introduced. Applicable rules: VIS-1/3, INT-2/5/6/7, ACC-1/3/4. No exception.
+
+### Workflow preparation workspace (2026-11-02)
+
+Pending runs place preparation before report metadata. A 48rem form uses shared
+controls, multiline string answers and follow-up questions, compact numeric fields,
+and shared selects with explicit unset/false/zero distinctions. Request, answers,
+follow-ups and agreements form one vertical sequence. The step indicator exposes
+its current stage and completed stages without color alone. Summary review keeps
+correction and confirmation distinct. Web approval reports a queued coordinator
+message, never inferred execution; no coordinator and failed enqueue remain explicit.
+Applicable rules: NAV-2/3, VIS-1/2/3/4/5, INT-2/3/5/6/7 and ACC-1/3/4.
+No design exception. Chromium workflow E2E: 48 passing scenarios, including Axe,
+320/390/1440px preparation layouts in light/dark, keyboard selection, retained drafts,
+conflict recovery and queued-start feedback. Desktop/light and phone/dark screenshots
+were visually inspected. Manual screen-reader, 400% browser zoom, virtual keyboard,
+cross-browser review and field performance were not measured. Automated checks do
+not certify usability.

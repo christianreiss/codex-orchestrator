@@ -48,6 +48,10 @@ export interface WorkflowCollaboration {
     tx: WorkflowTx,
     input: { run_id: string; group_id: string | null; members: WorkflowActor[]; closed: boolean },
   ): Promise<{ group_id: string; room_id: string; group_topic: string; communication_url: string } | null>;
+  notifyStart?(tx: WorkflowTx, input: {
+    actor: WorkflowActor; target: WorkflowActor; run_id: string; summary_revision: number;
+    coordinator_generation: number;
+  }): Promise<{ message_id: string }>;
   notifyCancel?(
     tx: WorkflowTx,
     input: {
@@ -237,6 +241,7 @@ export interface WorkflowPreparation {
     time: string;
     channel: 'web' | 'conversation';
     user_confirmation: string;
+    start_notification?: { status: 'queued'; message_id: string; address_id: string } | { status: 'not_queued'; reason: 'no_coordinator' };
   } | null;
 }
 export function requireWorkflowProtocol(actor: WorkflowActor) {

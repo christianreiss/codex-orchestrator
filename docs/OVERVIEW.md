@@ -1693,3 +1693,13 @@ after reset has its own switch. Both switches start off. Accounts and Overview
 label synthetic readings explicitly. Held work appears in Messages → Delivery log
 with Retry held work for manual continuation. See the
 [API contract](interface-api.md#emulated-short-quotas-cxx-09150).
+
+### Workflow preparation and execution handoff
+
+Pending runs prioritize a bounded preparation workspace with wrapping answers,
+shared selectors, explicit save state and a review/confirmation step. Web approval
+queues a start message to the assigned coordinator in the same transaction and
+shows the queued receipt separately from actual execution. A request without a
+coordinator remains confirmed and waiting for assignment. Agents reuse the saved
+approval rather than repeating the approval question in chat; changed answers
+still require a new review. See `interface-api.md` for the receipt and retry contract.

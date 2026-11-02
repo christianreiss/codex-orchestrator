@@ -132,6 +132,35 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
 }
 
 describe('connection-owned workflow state', () => {
+  it('queues web confirmation once, retains the receipt on replay, and rolls back failed notification', async () => {
+    const id = randomUUID(), address = randomUUID();
+    const h = harness({agentSessions: [{id, hostId:1, username:'user', engine:'codex', agentBusAddressId:address, bindingGeneration:1, endedAt:null, adapterCapabilities:{workflow_protocol_version:2}}],
+      agentBusAddresses:[{id:address,currentSessionId:id,bindingGeneration:1,enabled:1,archivedAt:null}], versions:[{name:'workflows_enabled',version:'1'}]});
+    h.presence.attach({connectionId:'start-fixture',hostId:1,username:'user',scope:{topic:'session',session_id:id,binding_generation:1,native_instance_id:randomUUID()}});
+    const actor = {kind:'agent' as const,id:address,address_id:address,session_id:id,binding_generation:1,host_id:1,engine:'codex',protocol_version:2};
+    const admin = {kind:'admin' as const,id:'fixture'};
+    const notifyStart = vi.fn().mockResolvedValue({message_id:randomUUID()});
+    const service = new WorkflowsService({db:h.ctx.db,settings:new SettingsService(h.ctx.db),keyring:h.ctx.keyring,
+      collaboration:{lock:async()=>{},resolveTarget:async()=>actor,invite:async()=>({message_id:randomUUID()}),syncGroup:async()=>null,notifyStart}});
+    const document = {schema_version:1,title:'Prepare',summary:'',goal:{statement:'Finish',success_criteria:[{id:'done',text:'Verified'}]},inputs:[],knowledge:[],tasks:[{id:'one',title:'One',instructions:'Act',acceptance_criteria:['Proof'],depends_on:[],knowledge_ids:[]}]};
+    const definition = await service.mutate('create',{client_request_id:randomUUID(),slug:'fixture-'+randomUUID(),document,reason:'fixture'},admin);
+    let run = await service.mutate('run_create',{client_request_id:randomUUID(),workflow_id:definition.workflow_id,title:'Run'},actor);
+    run = await service.mutate('run_control',{client_request_id:randomUUID(),run_id:run.run_id,expected_run_version:run.version,action:'present_summary'},admin);
+    const revision = (run.preparation as {summary:{revision:number}}).summary.revision;
+    const request = {client_request_id:randomUUID(),run_id:run.run_id,expected_run_version:run.version,action:'confirm_summary',summary_revision:revision};
+    notifyStart.mockRejectedValueOnce(new Error('queue failed'));
+    await expect(service.mutate('run_control',request,admin)).rejects.toThrow('queue failed');
+    expect(h.state.snapshot().table('workflowRuns').get(String(run.run_id))?.preparation?.phase).toBe('awaiting_confirmation');
+    const confirmed = await service.mutate('run_control',request,admin);
+    expect(confirmed).toMatchObject({status:'pending',preparation:{phase:'ready',confirmation:{start_notification:{status:'queued',address_id:address}}}});
+    expect(await service.mutate('run_control',request,admin)).toEqual(confirmed);
+    expect(notifyStart).toHaveBeenCalledTimes(2);
+    expect(notifyStart.mock.calls[1]![1]).toMatchObject({run_id:run.run_id,summary_revision:revision,target:{address_id:address,session_id:id,binding_generation:1}});
+    const fresh = {...request,client_request_id:randomUUID(),expected_run_version:confirmed.version};
+    await expect(service.mutate('run_control',fresh,admin)).rejects.toMatchObject({code:'workflow_summary_revision_conflict'});
+    expect(notifyStart).toHaveBeenCalledTimes(2);
+  });
+
   it.each(['codex', 'claude', 'grok'] as const)(
     'holds %s work across disconnect without renewal SQL or timeout takeover',
     async (engine) => {

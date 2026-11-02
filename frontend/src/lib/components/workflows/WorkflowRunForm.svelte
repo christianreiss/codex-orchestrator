@@ -5,6 +5,7 @@
   import { workflowsApi, workflowRunKeys, type WorkflowDefinition, type WorkflowRun, type WorkflowQuestion } from "$lib/api/workflows";
   import { ApiError } from "$lib/api/client";
   import { FormField } from "$lib/components/ui/form-field";
+  import * as Select from "$lib/components/ui/select";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { Button } from "$lib/components/ui/button";
@@ -33,22 +34,45 @@
   }, onSuccess: async result => { dirty = false; saved = true; request = null; conflictHead = null; await client.invalidateQueries({ queryKey: workflowRunKeys.all }); if (!run) await goto(`${base}/workflows/runs/${result.run_id}`); } });
 </script>
 <DraftGuard {dirty} />
-<form class="space-y-3" oninput={() => dirty = true} onsubmit={e => { e.preventDefault(); $save.mutate(); }}>
-  <p class="text-body-sm text-muted-foreground">{run ? "Answers can be saved while incomplete. Changes require a new summary and confirmation before execution." : `Uses workflow version ${definition.version}. Save the request first, then clarify questions and confirm the summary. Preparation does not start an agent.`} Secret values belong in the Secrets Store.</p>
-  <fieldset disabled={!allowed || $save.isPending} class="min-w-0 space-y-3">
+<form class="max-w-3xl space-y-6" oninput={() => dirty = true} onsubmit={e => { e.preventDefault(); $save.mutate(); }}>
+  <p class="text-body-sm text-muted-foreground">{run ? "Save your answers, then review the execution summary." : `Uses workflow version ${definition.version}. Save the request first, then clarify questions and confirm the summary. Preparation does not start an agent.`} Secret values belong in the Secrets Store.</p>
+  <fieldset disabled={!allowed || $save.isPending} class="min-w-0 space-y-4">
+    <legend class="text-body font-semibold">Request</legend>
     <FormField id="run-title" label="Run title" required><Input id="run-title" bind:value={title} required /></FormField>
+    <fieldset class="min-w-0 space-y-4"><legend class="text-body font-semibold">Workflow answers</legend>
+    <p class="text-body-sm text-muted-foreground">Fields marked * are required before review. You can save incomplete answers.</p>
     {#each definition.document.inputs as input (input.key)}
-      <FormField id={`run-input-${input.key}`} label={input.label} required={input.required} error={errors[`run-input-${input.key}`]} hint={[input.description, input.required ? "Required before confirmation." : ""].filter(Boolean).join(" ")}>
-        {#if input.type === "boolean"}<select id={`run-input-${input.key}`} class="h-9 w-full rounded border border-input bg-background px-2" aria-required={input.required} value={inputs[input.key] === undefined ? "" : String(inputs[input.key])} aria-invalid={!!errors[`run-input-${input.key}`]} aria-describedby={errors[`run-input-${input.key}`] ? `run-input-${input.key}-error` : input.description || input.required ? `run-input-${input.key}-hint` : undefined} onchange={e => { if (!e.currentTarget.value) delete inputs[input.key]; else inputs[input.key] = e.currentTarget.value === "true"; dirty = true; }}><option value="">Not set</option><option value="true">True</option><option value="false">False</option></select>
-        {:else if input.type === "enum"}<select id={`run-input-${input.key}`} class="h-9 w-full rounded border border-input bg-background px-2" aria-required={input.required} value={String(inputs[input.key] ?? "")} aria-invalid={!!errors[`run-input-${input.key}`]} aria-describedby={errors[`run-input-${input.key}`] ? `run-input-${input.key}-error` : input.description || input.required ? `run-input-${input.key}-hint` : undefined} onchange={e => { if (!e.currentTarget.value) delete inputs[input.key]; else inputs[input.key] = e.currentTarget.value; dirty = true; }}><option value="">Choose…</option>{#each input.options ?? [] as option}<option>{option}</option>{/each}</select>
-        {:else}<Input id={`run-input-${input.key}`} type={input.type === "number" ? "number" : "text"} aria-required={input.required} value={String(inputs[input.key] ?? "")} aria-invalid={!!errors[`run-input-${input.key}`]} aria-describedby={errors[`run-input-${input.key}`] ? `run-input-${input.key}-error` : input.description || input.required ? `run-input-${input.key}-hint` : undefined} oninput={e => { if (e.currentTarget.value === "") delete inputs[input.key]; else inputs[input.key] = input.type === "number" ? Number(e.currentTarget.value) : e.currentTarget.value; }} />{/if}
+      <FormField id={`run-input-${input.key}`} label={input.label} required={input.required} error={errors[`run-input-${input.key}`]} hint={input.description} class={input.type === "number" ? "max-w-xs" : ""}>
+        {@const fieldId = `run-input-${input.key}`}
+        {@const describedBy = errors[fieldId] ? `${fieldId}-error` : input.description ? `${fieldId}-hint` : undefined}
+        {#if input.type === "boolean" || input.type === "enum"}
+          <Select.Root type="single" disabled={!allowed || $save.isPending} value={inputs[input.key] === undefined ? "" : String(inputs[input.key])}
+            onValueChange={value => { if (!value) delete inputs[input.key]; else inputs[input.key] = input.type === "boolean" ? value === "true" : value; dirty = true; }}>
+            <Select.Trigger id={fieldId} aria-required={input.required} aria-invalid={!!errors[fieldId]} aria-describedby={describedBy}>
+              <span class="truncate">{inputs[input.key] === undefined ? "Choose…" : input.type === "boolean" ? inputs[input.key] ? "Yes" : "No" : String(inputs[input.key])}</span>
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value="" label="Not set">Not set</Select.Item>
+              {#if input.type === "boolean"}
+                <Select.Item value="true" label="Yes">Yes</Select.Item><Select.Item value="false" label="No">No</Select.Item>
+              {:else}{#each input.options ?? [] as option}<Select.Item value={option} label={option}>{option}</Select.Item>{/each}{/if}
+            </Select.Content>
+          </Select.Root>
+        {:else if input.type === "number"}
+          <Input id={fieldId} type="number" aria-required={input.required} value={String(inputs[input.key] ?? "")} aria-invalid={!!errors[fieldId]} aria-describedby={describedBy}
+            oninput={e => { if (e.currentTarget.value === "") delete inputs[input.key]; else inputs[input.key] = Number(e.currentTarget.value); }} />
+        {:else}
+          <Textarea id={fieldId} rows={2} class="resize-y [field-sizing:content] max-h-80" aria-required={input.required} value={String(inputs[input.key] ?? "")} aria-invalid={!!errors[fieldId]} aria-describedby={describedBy}
+            oninput={e => { if (e.currentTarget.value === "") delete inputs[input.key]; else inputs[input.key] = e.currentTarget.value; }} />
+        {/if}
       </FormField>
     {/each}
+    </fieldset>
     {#if run?.preparation}
-      <fieldset class="min-w-0 space-y-3"><legend class="text-body font-semibold">Additional questions</legend>
+      <fieldset class="min-w-0 space-y-3"><legend class="text-body font-semibold">Follow-up questions</legend>
         {#each questions as question, i (question.id)}
           <div class="space-y-2 border-b pb-3">
-            <FormField id={`followup-question-${question.id}`} label={`Additional question ${i + 1}`}><Input id={`followup-question-${question.id}`} bind:value={question.question} /></FormField>
+            <FormField id={`followup-question-${question.id}`} label={`Additional question ${i + 1}`}><Textarea id={`followup-question-${question.id}`} rows={2} class="resize-y [field-sizing:content] max-h-80" bind:value={question.question} /></FormField>
             <FormField id={`followup-answer-${question.id}`} label={`Answer ${i + 1}`} error={errors[`followup-answer-${question.id}`]}><Textarea id={`followup-answer-${question.id}`} rows={2} aria-invalid={!!errors[`followup-answer-${question.id}`]} aria-describedby={errors[`followup-answer-${question.id}`] ? `followup-answer-${question.id}-error` : undefined} bind:value={question.answer} /></FormField>
             <Button type="button" variant="ghost" size="sm" onclick={() => { questions = questions.filter(q => q.id !== question.id); dirty = true; }}>Remove question {i + 1}</Button>
           </div>
@@ -66,5 +90,5 @@
       {#if conflictHead.status === "pending"}<Button type="button" variant="outline" onclick={() => { expected = conflictHead!.version; request = null; conflictHead = null; }}>I reviewed the saved answers; keep my draft</Button>{:else}<p class="text-body-sm">This run has left preparation. Its answers can no longer be changed.</p>{/if}
     </div>{/if}
   {/if}
-  <Button type="submit" disabled={!allowed || $save.isPending}>{run ? "Save answers" : "Prepare run"}</Button>
+  <Button type="submit" variant={run && !dirty ? "outline" : "default"} disabled={!allowed || $save.isPending}>{run ? "Save answers" : "Prepare run"}</Button>
 </form>

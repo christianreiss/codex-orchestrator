@@ -29,7 +29,8 @@ export interface WorkflowPreparation {
   summary: { revision: number; title: string; goal: string; inputs: Record<string, unknown>;
     questions: WorkflowQuestion[]; tasks: { id: string; title: string; instructions: string; acceptance_criteria: string[] }[]; notes: string } | null;
   confirmation: { summary_revision: number; actor: Record<string, unknown>; time: string;
-    channel: "web" | "conversation"; user_confirmation: string } | null;
+    channel: "web" | "conversation"; user_confirmation: string;
+    start_notification?: { status: "queued"; message_id: string; address_id: string } | { status: "not_queued"; reason: "no_coordinator" } } | null;
 }
 export interface WorkflowRun {
   server_time?: string; enabled: boolean; run_id: string; workflow_id: string; workflow_slug?: string; workflow_version: number; version: number;

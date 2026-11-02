@@ -3736,6 +3736,17 @@ Additional run-control actions, shared by admin HTTP and native MCP:
   `user_confirmation` recording explicit user approval. Agent writes require current
   coordinator generation; an authorized admin may review and confirm without an agent.
   Confirmation records actor, timestamp and web/conversation channel.
+  Web confirmation with an assigned coordinator also queues a `WORKFLOW-START/1`
+  coordination message in the same transaction. The exact active member session and
+  binding must still match and support workflow protocol 2. A queue failure rolls
+  back confirmation; retry the same request ID. The persisted confirmation includes
+  `start_notification: {status: "queued", message_id, address_id}`. Without a coordinator,
+  it includes `{status: "not_queued", reason: "no_coordinator"}`. Conversation approval
+  remains directly actionable by its coordinator and sends no redundant self-message.
+  The run stays pending until the coordinator verifies the current confirmed summary
+  revision and generation and explicitly calls `start`; queued does not mean started.
+  Receipt replay returns the original result without enqueuing a second message.
+
 - `coordinator_acquire` can acquire preparation ownership without execution. `start`
   requires the confirmed current summary and transitions to `running`. Task writes
   cannot bypass this gate. Every action retains version and idempotency fencing.

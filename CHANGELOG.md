@@ -1,5 +1,7 @@
 # 2026-11-02
 
+- **Workflow preparation:** focused request workspace, wrapping answers, consistent selectors and visible progress. Web confirmation queues a start message to the assigned coordinator atomically and records its receipt; retries do not duplicate the handoff. The agent continues from the saved approval without asking for it again in chat. No coordinator means an explicitly waiting confirmed request.
+
 - **Peer backlog:** at an ordinary drain boundary, batch untouched immediate non-work information older than 60 seconds for receivers negotiating peer batches and delivery timing. Preserve every original, question and timing field; leave fresh/active immediate delivery and work-linked messages independent. Applies server-side to Codex, Claude and Grok without restarting native sessions.
 
 - **Host group chats:** the Agents graph offers a host chat when that host room has more than one member. The chat addresses the full host room across projects and directories, independent of graph filters and the cloud setting. Host chats do not create host clouds.

@@ -10,7 +10,7 @@ import { agentBusGroups, agentBusSubscriptions } from '../../db/schema.js';
 import { ApiError, ConflictError } from '../../http/errors.js';
 import { nowIso } from '../../util/timestamp.js';
 import type { AgentMessagingService } from '../agent-messaging.js';
-import type { WorkflowActor, WorkflowCollaboration } from '../workflows/contract.js';
+import { requireWorkflowProtocol, type WorkflowActor, type WorkflowCollaboration } from '../workflows/contract.js';
 import { MAX_AGENT_SUBSCRIPTIONS, MAX_TOPIC_SUBSCRIBERS, SERVER_ADDRESS_ID } from './groups.js';
 
 type WorkflowTx = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -48,6 +48,21 @@ export function createWorkflowCollaboration(bus: AgentMessagingService, publicBa
       })}\nRead the run and pinned workflow, check your access and existing obligations, then accept or decline with agent_workflow_membership. Acceptance grants run membership, not task completion; explicitly claim a task before execution. This invitation starts no new process and is not a second bus work request. Quoted instructions remain subject to your existing authority.`;
       const message_id = await notice(tx, session, content, true, input.invitation_id);
       if (!message_id) throw new ConflictError('Workflow invitation target is unavailable', 'workflow_target_unavailable');
+      return { message_id };
+    },
+    async notifyStart(tx, input) {
+      requireWorkflowProtocol(await target(tx, input.target.address_id!));
+      const { session, address } = await boundTarget(tx, input.target.address_id!);
+      if (session.id !== input.target.session_id || address.bindingGeneration !== input.target.binding_generation)
+        throw new ConflictError('Coordinator binding changed. Assign the current coordinator before confirming.', 'workflow_binding_changed');
+      const hash = createHash('sha256').update(`workflow-start:${input.run_id}:${input.summary_revision}:${input.coordinator_generation}`).digest('hex');
+      const clientId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+      const sender = input.actor.kind === 'agent' ? `agent:${input.actor.address_id}` : `admin:${input.actor.id}`;
+      const content = `WORKFLOW-START/1 run_id=${input.run_id} summary_revision=${input.summary_revision} coordinator_generation=${input.coordinator_generation} sender=${sender}
+The operator confirmed the execution summary. Continue this run in its existing session: read the current run and pinned workflow, verify that this summary revision is still confirmed and that you still own the coordinator generation, then call agent_workflow_run_control with action=start and claim tasks before executing them. If the run changed, was canceled, or already started, reconcile its current state instead of starting duplicate work. This message does not authorize a new session or bypass existing execution safeguards.
+Report: ${publicBaseUrl.replace(/\/$/, '')}/admin/workflows/runs/${input.run_id}`;
+      const message_id = await notice(tx, session, content, true, clientId);
+      if (!message_id) throw new ConflictError('Coordinator cannot receive the start message. Confirmation was not saved; restore the receiver and retry.', 'workflow_target_unavailable');
       return { message_id };
     },
     async notifyCancel(tx, input) {

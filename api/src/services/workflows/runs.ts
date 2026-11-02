@@ -141,10 +141,24 @@ export async function runControl(
         throw new ConflictError('Read and confirm the current summary revision', 'workflow_summary_revision_conflict');
       if (ctx.actor.kind === 'agent' && !input.user_confirmation?.trim())
         throw new ValidationError('Record the explicit user approval of this summary', { param: 'user_confirmation' });
+      let startNotification: NonNullable<typeof preparation.confirmation>['start_notification'] = ctx.actor.kind === 'admin' ? { status: 'not_queued', reason: 'no_coordinator' } : undefined;
+      if (ctx.actor.kind === 'admin' && run.coordinatorAddressId) {
+        if (!collaboration?.notifyStart)
+          throw new ConflictError('Could not queue the start message. Messaging is unavailable; confirmation was not saved. Retry when messaging is available.', 'workflow_collaboration_unavailable');
+        const target = (await members(ctx, run)).find(m => m.agentAddressId === run.coordinatorAddressId && m.status === 'active');
+        if (!target) throw new ConflictError('Assign an active coordinator before confirming.', 'workflow_member_required');
+        const receipt = await collaboration.notifyStart(ctx.tx, {
+          actor: ctx.actor, target: { ...target.actor, kind: 'agent', id: target.agentAddressId,
+            address_id: target.agentAddressId, session_id: target.sessionId, binding_generation: target.bindingGeneration },
+          run_id: run.id, summary_revision: input.summary_revision, coordinator_generation: run.coordinatorGeneration,
+        });
+        startNotification = { status: 'queued', message_id: receipt.message_id, address_id: target.agentAddressId };
+      }
       await patchRun(ctx, run, { preparation: { ...preparation, phase: 'ready', confirmation: {
         summary_revision: input.summary_revision, actor: agentRecord(ctx.actor), time: ctx.now,
         channel: ctx.actor.kind === 'admin' ? 'web' : 'conversation',
         user_confirmation: input.user_confirmation ?? 'Confirmed in the workflow review',
+        ...(startNotification ? { start_notification: startNotification } : {}),
       } } });
     }
   } else if (input.action === 'start' || input.action === 'coordinator_acquire') {

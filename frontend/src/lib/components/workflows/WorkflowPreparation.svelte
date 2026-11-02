@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Check from "@lucide/svelte/icons/check";
   import { tick, untrack } from "svelte";
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { workflowsApi, workflowRunKeys, type WorkflowRun, type WorkflowDefinition } from "$lib/api/workflows";
@@ -13,6 +14,7 @@
   const client = useQueryClient();
   const preparation = $derived(run.preparation!);
   const summary = $derived(preparation.summary);
+  const stage = $derived(["completed", "evaluating"].includes(run.status) ? 3 : run.status !== "pending" || preparation.confirmation ? 2 : preparation.phase === "awaiting_confirmation" ? 1 : 0);
   const editable = $derived(run.status === "pending");
   const definition = $derived({ document: run.document!, workflow_id: run.workflow_id, version: run.workflow_version } as WorkflowDefinition);
   let dirty = $state(false), notes = $state("");
@@ -42,11 +44,15 @@
 </script>
 <DraftGuard dirty={notesDirty} />
 <Section title={editable ? "Prepare execution" : preparation.confirmation ? "Confirmed request" : "Request clarification"}>
-  <ol aria-label="Workflow progress" class="mb-4 flex flex-wrap gap-x-4 gap-y-2 text-body-sm">
-    <li aria-current={editable && preparation.phase === "clarifying" ? "step" : undefined}>1. Clarify questions</li>
-    <li aria-current={editable && preparation.phase === "awaiting_confirmation" ? "step" : undefined}>2. Confirm summary</li>
-    <li aria-current={run.status === "running" ? "step" : undefined}>3. Execute</li>
-    <li aria-current={run.status === "completed" ? "step" : undefined}>4. Final report</li>
+  <div class="max-w-3xl space-y-6">
+  <ol aria-label="Workflow progress" class="grid grid-cols-2 gap-3 border-b pb-6 sm:grid-cols-4">
+    {#each ["Clarify questions", "Confirm summary", editable && preparation.confirmation ? "Ready to start" : "Execute", "Final report"] as label, i}
+      <li aria-current={stage === i ? "step" : undefined} class="flex items-center gap-2 text-body-sm">
+        <span class={["flex size-8 shrink-0 items-center justify-center rounded-full border", stage === i ? "border-primary bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"]}>
+          {#if i < stage}<Check class="size-4" aria-hidden="true" /><span class="sr-only">Complete:</span>{:else}<span aria-hidden="true">{i + 1}</span>{/if}
+        </span><span class={stage === i ? "font-semibold" : "text-muted-foreground"}>{label}</span>
+      </li>
+    {/each}
   </ol>
   {#if editable && preparation.phase === "clarifying"}<p class="mb-3 text-body">Answer the questions here or ask an agent to clarify them with you. Execution waits for your confirmation.</p>{/if}
   {#if Object.keys(errors).length}<div id="workflow-preparation-errors" tabindex="-1" role="alert" class="mb-3 rounded-md border border-destructive/40 bg-destructive-muted p-3 text-body-sm"><p class="font-semibold">Complete these answers before reviewing</p><ul class="mt-2 list-inside list-disc">{#each Object.entries(errors) as [id, error]}<li><a class="underline" href={`#${id}`}>{error}</a></li>{/each}</ul></div>{/if}
@@ -61,7 +67,7 @@
     <div class="mt-4 space-y-4" aria-label="Execution summary">
       <h3 id="execution-summary-heading" tabindex="-1" class="text-body font-semibold">{summary.title}</h3>
       <WorkflowMarkdown text={summary.goal} />
-      <dl class="space-y-3 text-body">
+      <dl class="divide-y text-body [&>div]:py-3 [&_dd]:mt-1 [&_dt]:text-body-sm [&_dt]:text-muted-foreground">
         {#each run.document?.inputs ?? [] as input (input.key)}
           <div><dt class="font-medium">{input.label}</dt><dd class="whitespace-pre-wrap break-words">{summary.inputs[input.key] === undefined ? "Not specified" : displayValue(summary.inputs[input.key])}</dd></div>
         {/each}
@@ -73,18 +79,25 @@
   {/if}
   {#if preparation.confirmation}
     <p role="status" class="mt-4 text-body">Confirmed <Timestamp value={preparation.confirmation.time} /> via {preparation.confirmation.channel === "web" ? "web review" : "conversation"}.{editable ? " Ready for an agent to start execution." : ""}</p>
+    {#if editable && preparation.confirmation.start_notification?.status === "queued"}
+      <p role="status" class="text-body">Start message queued for the coordinator. Execution has not started yet.</p>
+    {:else if editable && preparation.confirmation.start_notification?.status === "not_queued"}
+      <p role="status" class="text-body">No coordinator is assigned, so no start message was sent. Give the agent assignment below to an agent to continue.</p>
+    {/if}
     <p class="mt-1 whitespace-pre-wrap break-words text-body-sm text-muted-foreground">{preparation.confirmation.user_confirmation}</p>
   {:else if editable && allowed}
     {#if preparation.phase === "clarifying"}
-      <div class="mt-4 space-y-3">
+      <div class="space-y-4 border-t pt-6">
+        <h3 class="text-body font-semibold">Additional agreements</h3>
         <FormField id="preparation-notes" label="Additional agreements (optional)"><Textarea id="preparation-notes" rows={2} disabled={$review.isPending} bind:value={notes} /></FormField>
         <Button disabled={dirty || $review.isPending} onclick={presentSummary}>Review execution summary</Button>
       </div>
     {:else}
-      <p class="mt-4 text-body">Review these details before confirming. Confirmation allows an agent to start execution.</p>
+      <p class="mt-4 text-body">Review these details before confirming. Confirmation allows execution and queues a start message for the assigned coordinator. Without a coordinator, the confirmed request waits for an agent.</p>
       <Button class="mt-3" disabled={dirty || $review.isPending} onclick={() => $review.mutate("confirm_summary")}>Confirm execution summary</Button>
     {/if}
     {#if dirty}<p role="status" class="mt-2 text-body-sm">Save your answers before reviewing or confirming the summary.</p>{/if}
   {/if}
   {#if $review.error || $review.isPending}<div class="mt-3"><SaveState pending={$review.isPending} error={$review.error} /><Button class="mt-2" variant="outline" onclick={() => client.invalidateQueries({ queryKey: workflowRunKeys.all })}>Reload current preparation</Button></div>{/if}
+  </div>
 </Section>
