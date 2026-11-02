@@ -926,6 +926,11 @@ An obstacle can separate an outline into several pieces. If no outline can retai
 every member with clearance, or the sampling budget is exceeded, omit it and show
 an explanation; group chats and the equivalent list remain available.
 
+The graph separately offers **Host chats** for host rooms with more than one
+member. Opening one reuses the scope conversation and sends to the complete host
+room across projects/directories, not the filtered graph subset. The shortcuts
+remain available with clouds set to None and do not generate host envelopes.
+
 `POST /admin/communicators/{id}/disconnect` closes exactly one connection (WebSocket
 close code 4001) and answers `closed` once the socket's close handler has run, or
 `requested` when nothing has confirmed it. It is a transport reset, not a process

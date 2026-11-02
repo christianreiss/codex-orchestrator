@@ -476,6 +476,64 @@ test('groups agents by project and directory and posts an operator message to th
   await page.screenshot({ path: '/tmp/sofia-agent-clouds.png' });
 });
 
+test('host group chats reach the full host room independently of filters and clouds', async ({ page }) => {
+  await fixtures(page, ['hosts.read', 'agent_portal.read', 'agent_messaging.read', 'agent_messaging.manage', 'agent_messaging.reveal_content']);
+  const hostId = '22222222-2222-4333-8444-555555555555';
+  const members = tree().agents.map(a => ({ session_id: a.id, agent_id: a.address, name: a.name, engine: a.engine, host_id: a.host_id, host: a.host, cwd: a.cwd, workspace: null, coordinated: true }));
+  const rooms = [{ id: hostId, key: 'host:4', kind: 'host', title: 'web01.example', cursor: 0, member_count: 3, members, next_member_offset: null },
+    { id: 'singleton', key: 'host:5', kind: 'host', title: 'single.example', cursor: 0, member_count: 1, members: members.slice(0, 1), next_member_offset: null }];
+  const messages: Array<Record<string, unknown>> = [];
+  await page.route('**/admin/agent-messaging/scopes**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/send')) {
+      const body = route.request().postDataJSON();
+      expect(body.scope_id).toBe(hostId);
+      expect(body.client_request_id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(Object.keys(body).sort()).toEqual(['client_request_id', 'content', 'scope_id']);
+      messages.push({ id: body.client_request_id, sequence: 1, kind: 'chat', actor: 'operator:1', body: { name: 'Operator', content: body.content }, created_at: new Date().toISOString() });
+      return route.fulfill({ json: { id: body.client_request_id, status: 'stored' } });
+    }
+    if (path.endsWith('/read')) {
+      expect(route.request().postDataJSON().scope_id).toBe(hostId);
+      return route.fulfill({ json: { events: messages, next_before: null, cursor: messages.length, members, member_count: 3 } });
+    }
+    return route.fulfill({ json: { enabled: true, protocol: 1, rooms, claims: [] } });
+  });
+  await open(page);
+  await expect(page.getByLabel('Group clouds')).toHaveValue('connection');
+  const shortcut = page.getByRole('button', { name: 'Open web01.example host chat' });
+  await expect(shortcut).toHaveText(/web01\.example\s*· 3/);
+  await expect(page.getByRole('button', { name: 'Open single.example host chat' })).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Engine', exact: true }).selectOption('claude');
+  await expect(page.locator('.node--agent')).toHaveCount(1);
+  await page.getByRole('textbox', { name: 'Find a node' }).fill('Raffaela');
+  await expect(shortcut).toHaveText(/web01\.example\s*· 3/);
+  await shortcut.click();
+  const chat = page.getByRole('region', { name: 'web01.example scope chat' });
+  await expect(chat).toContainText('host · 3 members');
+  await chat.getByLabel('Message all active members').fill('Please coordinate this host.');
+  await chat.getByRole('button', { name: 'Send as operator' }).click();
+  await expect(chat.getByText('Please coordinate this host.', { exact: true })).toBeVisible();
+  expect(messages).toHaveLength(1);
+  await page.screenshot({ path: '/tmp/cxx-host-chat-1440.png', fullPage: true });
+  await chat.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByLabel('Group clouds').selectOption('project');
+  await expect(page.locator('path[data-scope]')).toHaveCount(0);
+  await expect(shortcut).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await shortcut.click();
+  await expect(chat).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  const accessibility = await new AxeBuilder({ page }).include('main').analyze();
+  expect(accessibility.violations).toEqual([]);
+  await page.screenshot({ path: '/tmp/cxx-host-chat-390.png', fullPage: true });
+  rooms[0].title = 'web01.with-an-extraordinarily-long-name.office.example';
+  await page.setViewportSize({ width: 320, height: 844 });
+  await page.reload();
+  await expect(page.getByRole('button', { name: `Open ${rooms[0].title} host chat` })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+});
+
 test('clouds omit singletons and avoid unrelated rendered nodes and labels across themes, sizes and zoom', async ({ page }) => {
   test.setTimeout(90_000);
   const state = await fixtures(page, ['hosts.read', 'agent_portal.read', 'agent_messaging.read']);

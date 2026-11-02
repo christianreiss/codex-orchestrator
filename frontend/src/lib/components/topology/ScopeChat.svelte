@@ -40,7 +40,7 @@
 </script>
 <DraftGuard dirty={Boolean(draft.trim())} />
 <section class="flex h-full min-h-0 flex-col rounded-md border bg-card" aria-label={`${room.title} scope chat`}>
-  <div class="flex items-center justify-between border-b p-3"><div><h3 class="font-medium">{room.title}</h3><p class="text-caption text-muted-foreground">{room.kind} · {room.member_count} members</p></div><Button variant="ghost" size="sm" onclick={onclose}>Close</Button></div>
+  <div class="flex items-center justify-between border-b p-3"><div><h2 class="font-medium">{room.title}</h2><p class="text-caption text-muted-foreground">{room.kind} · {room.member_count} members</p></div><Button variant="ghost" size="sm" onclick={onclose}>Close</Button></div>
   <details class="border-b p-3"><summary>Members and claims</summary>
     <ul class="my-2 space-y-1">{#each room.members as member (member.session_id)}<li class="text-caption">{member.name ?? member.session_id} · {member.engine} · {member.host} · {member.workspace?.branch ?? member.cwd}{member.coordinated ? '' : ' · limited coordination'}</li>{/each}</ul>
     {#each roomClaims as claim (claim.id)}<div class="my-2 rounded border p-2 text-caption"><strong>{claim.state}</strong> · {claim.purpose}<pre class="overflow-auto whitespace-pre-wrap">{JSON.stringify(claim.resources, null, 2)}</pre>

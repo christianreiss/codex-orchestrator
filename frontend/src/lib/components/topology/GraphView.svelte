@@ -19,6 +19,9 @@
   let roomId = $state<string | null>(null);
   $effect(() => { if (agents.chatOpen) roomId = null; });
   const room = $derived($scopes.data?.rooms.find(r => r.id === roomId));
+  // Host broadcasts use the complete room, independent of graph filters and
+  // cloud grouping. No host membership is passed to the envelope generator.
+  const hostRooms = $derived(!$coordination.data?.enabled || !$scopes.data?.enabled ? [] : $scopes.data.rooms.filter(r => r.kind === 'host' && r.member_count > 1).sort((a, b) => a.title.localeCompare(b.title)));
   const groups = $derived(agents.grouping === 'connection' || !$coordination.data?.enabled || !$scopes.data?.enabled ? [] : scopeGroups(agents.visibleModel.agents.map(a => a.node), $scopes.data.rooms, $scopes.data.claims, 'project').filter(g => g.room));
   const palette = ['hsl(var(--primary))', 'hsl(var(--persona-claude))', 'hsl(var(--success))', 'hsl(var(--warning))', 'hsl(var(--muted-foreground))'];
   const clouds = $derived(projectDirectoryClouds(groups).map(cloud => ({ ...cloud, color: palette[groups.findIndex(g => g.id === cloud.scopeId) % palette.length] })));
@@ -49,6 +52,14 @@
     {#if $coordination.isError}<Button size="sm" variant="outline" onclick={() => void $coordination.refetch()}>Retry coordination status</Button>{/if}
   </div>
   {#if $scopes.error}<StateBlock state="error" message="Project and host rooms could not be loaded. The connection graph remains available; coordination settings are separate." onRetry={() => void $scopes.refetch()} />{/if}
+  {#if hostRooms.length}
+    <div class="mb-2 flex flex-wrap items-center gap-2" role="group" aria-label="Host group chats">
+      <span class="text-caption text-muted-foreground">Host chats</span>
+      {#each hostRooms as host (host.id)}
+        <Button size="sm" variant="outline" class="max-w-full" title={host.title} onclick={() => { roomId = host.id; agents.chatOpen = false; }} aria-label={`Open ${host.title} host chat`}><span class="min-w-0 truncate">{host.title}</span><span class="shrink-0">· {host.member_count}</span></Button>
+      {/each}
+    </div>
+  {/if}
   {#if groups.length}
     <div class="mb-2 flex flex-wrap gap-2" aria-label="Scope groups">
       {#each groups as group, i (group.id)}

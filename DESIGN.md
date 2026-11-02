@@ -492,3 +492,9 @@ evidence without claiming a direct connection; retained offline records remain
 distinguishable from active traffic. Applicable rules: VIS-1/3/4, INT-5/6/7,
 ACC-1/3/4 and PERF-1. No exception. Automated coverage and the separate manual
 acceptance limits are recorded in [verification](docs/verification/topology-clouds-2026-11-02.md).
+
+Host-chat extension: the graph has a separate named Host group chats button group,
+visible for host rooms with more than one member independently of cloud settings
+and graph filters. Counts describe the full room and the existing `ScopeChat`
+shows its members and handles sending, draft/error states and permissions. No host
+outline is introduced. Applicable rules: VIS-1/3, INT-2/5/6/7, ACC-1/3/4. No exception.

@@ -1537,6 +1537,8 @@ remain in their existing lifecycles. See [runtime, migration and acceptance](com
 
 ## Live Topology workspace
 
+Host chats appear separately for host rooms with more than one member. They address the complete host room across projects and working directories, even when graph filters hide some agents or clouds are set to None. Hosts with one member have no group-chat shortcut; host membership does not create a cloud.
+
 Group clouds require at least two visible agents in the same project and exact working directory on the same machine. Sharing only a host or project is insufficient; distinct worktrees remain separate. The selector offers None or Same project + directory. Project chats retain their full membership. Contours avoid unrelated nodes, measured labels and independent groups. Obstructed or oversized groups retain chat/list access even when no safe complete outline fits. A server-root agent has unknown communicator parentage, including retained offline records; it is not counted as a proven direct connection.
 
 Live Topology combines the live connection graph with a compact inspector, shared Clients chat panel and remote-session start form. Selection never retargets an open conversation; drafts stay with their session. Start on a communicator prefills its host, while the global button offers host selection. Runtime, host, engine and presence filters and the list/radial preference persist locally; conversation content does not. Branches can be collapsed, selections centered and the canvas expanded to fullscreen.

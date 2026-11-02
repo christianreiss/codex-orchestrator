@@ -71,3 +71,26 @@ and the equivalent list retain access in every case.
 
 Build, live deployment identity and final topology-suite results are recorded at
 delivery; generated SPA assets are included in the source commit.
+
+## Host-chat extension
+
+Host rooms with more than one member get a separate chat shortcut. Its recipient
+scope and count come from the complete room snapshot, independent of graph search,
+filters and cloud setting. Single-member hosts have no group shortcut. The existing
+scope conversation and host-room send endpoint are reused; no messages are sent
+automatically by displaying the shortcut, and no host outline is generated.
+
+The browser regression opens the host chat with clouds set to None and a search
+showing only one agent, then verifies that the full three-member host scope is
+sent rather than a filtered recipient list. It also covers singleton exclusion,
+project mode without project rooms, 390px layout and Axe on the open conversation.
+Only mocked browser sends are performed; no test message is broadcast to real
+fleet agents.
+
+Final extension checks: `npm run check` passed 1,020 unit tests with the one
+unchanged accessibility warning in `CommunicatorApiSection.svelte`; the complete
+`npm run test:e2e` suite passed 414 tests and rebuilt the committed SPA. The host
+case also checks a long hostname at 320px. Axe initially exposed the existing
+scope conversation's skipped heading level; its title now uses h2 and the scan
+passes. The 390px host-chat screenshot was inspected. Manual screen-reader and
+real fleet delivery acceptance were not performed.
