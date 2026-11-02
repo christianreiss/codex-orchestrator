@@ -480,10 +480,12 @@ are recorded in [verification](docs/verification/quota-emulation-2026-11-01.md).
 ### Topology group outlines and route evidence (2026-11-02)
 
 The `/admin/agents` graph keeps its radial positions, equivalent list, keyboard
-selection and group chat chips. A group needs two visible members for an outline;
-singleton chat access remains. Contours route around unrelated node bodies and
-measured SVG labels, leave a gap between independent groups, and may overlap only
-for genuinely shared membership. Hide outlines during motion. Unsupported geometry
+selection and project chat chips. An outline requires two visible agents in the
+same project and exact local working directory; sharing a host or using different
+worktrees is insufficient. Host grouping controls are removed and old saved modes
+migrate to Same project + directory. Contours route around unrelated node bodies
+and measured SVG labels and leave a gap between independent groups. Hide outlines
+during motion. Unsupported geometry
 keeps group access with an explicit status instead of a misleading partial outline.
 The header, list, inspector and spoken node description identify missing parent
 evidence without claiming a direct connection; retained offline records remain

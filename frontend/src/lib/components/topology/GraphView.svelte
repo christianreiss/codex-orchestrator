@@ -7,7 +7,7 @@
   import { base } from '$app/paths';
   import { coordinationQuery, coordinationStateQuery } from '$lib/api/coordination';
   import { authStore } from '$lib/stores/auth';
-  import { scopeGroups } from '$lib/topology/scope-groups';
+  import { scopeGroups, projectDirectoryClouds } from '$lib/topology/scope-groups';
   import ScopeChat from './ScopeChat.svelte';
   import TopologyGraph from "./TopologyGraph.svelte";
   import TopologyList from "./TopologyList.svelte";
@@ -19,9 +19,9 @@
   let roomId = $state<string | null>(null);
   $effect(() => { if (agents.chatOpen) roomId = null; });
   const room = $derived($scopes.data?.rooms.find(r => r.id === roomId));
-  const groups = $derived(agents.grouping === 'connection' || !$coordination.data?.enabled || !$scopes.data?.enabled ? [] : (agents.grouping === 'scopes' ? ['project', 'host'] as const : [agents.grouping]).flatMap(kind => scopeGroups(agents.visibleModel.agents.map(a => a.node), $scopes.data!.rooms, $scopes.data!.claims, kind)).filter(g => g.room));
+  const groups = $derived(agents.grouping === 'connection' || !$coordination.data?.enabled || !$scopes.data?.enabled ? [] : scopeGroups(agents.visibleModel.agents.map(a => a.node), $scopes.data.rooms, $scopes.data.claims, 'project').filter(g => g.room));
   const palette = ['hsl(var(--primary))', 'hsl(var(--persona-claude))', 'hsl(var(--success))', 'hsl(var(--warning))', 'hsl(var(--muted-foreground))'];
-  const clouds = $derived(groups.map((group, i) => ({ id: group.id, title: group.title, color: palette[i % palette.length], members: group.agents.map(a => a.id) })));
+  const clouds = $derived(projectDirectoryClouds(groups).map(cloud => ({ ...cloud, color: palette[groups.findIndex(g => g.id === cloud.scopeId) % palette.length] })));
   const topology = $derived(agents.topology.current);
   const stale = $derived(topology.isError && Boolean(topology.data));
   const updated = $derived(topology.data ? new Date(topology.data.generated_at).toLocaleTimeString() : "—");
@@ -42,7 +42,7 @@
   <div class="my-2 flex flex-wrap items-center gap-2">
     <label for="scope-grouping" class="text-caption">Group clouds</label>
     <select id="scope-grouping" class="rounded border bg-background px-2 py-1" bind:value={agents.grouping}>
-      <option value="connection">None</option><option value="project">Project</option><option value="host">Host</option><option value="scopes">Project + Host</option>
+      <option value="connection">None</option><option value="project">Same project + directory</option>
     </select>
     <span class="text-body-sm" role="status">Agent coordination: {#if !$authStore.can('agent_messaging.read')}access restricted{:else if $coordination.isPending}loading…{:else if $coordination.isError}{$coordination.data ? `${$coordination.data.enabled ? 'Enabled' : 'Disabled'} (stale)` : 'unavailable'}{:else}{$coordination.data?.enabled ? 'Enabled' : 'Disabled'}{/if}</span>
     <Button href={`${base}/settings#agent-coordination`} size="sm" variant="outline">Agent coordination settings</Button>

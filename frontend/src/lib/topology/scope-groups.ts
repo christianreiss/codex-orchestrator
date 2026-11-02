@@ -19,3 +19,21 @@ export function scopeGroups(agents: TopologyAgent[], rooms: ScopeRoom[], claims:
   }
   return [...grouped.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
+
+/** A shared project is necessary but not sufficient for a cloud: separate
+ * worktrees/directories stay separate. Host identity only disambiguates local
+ * paths on different machines; a host room never creates an envelope. */
+export function projectDirectoryClouds(groups: ReturnType<typeof scopeGroups>) {
+  const clouds = new Map<string, { id: string; scopeId: string; title: string; members: string[] }>();
+  for (const group of groups) {
+    if (group.room?.kind !== 'project') continue;
+    for (const agent of group.agents) {
+      if (!agent.cwd) continue;
+      const id = JSON.stringify([group.id, agent.host_id, agent.cwd]);
+      const cloud = clouds.get(id) ?? { id, scopeId: group.id, title: `${group.title} · ${agent.cwd}`, members: [] };
+      cloud.members.push(agent.id);
+      clouds.set(id, cloud);
+    }
+  }
+  return [...clouds.values()].filter(c => c.members.length > 1).map(c => ({ ...c, members: c.members.sort() })).sort((a, b) => a.id.localeCompare(b.id));
+}

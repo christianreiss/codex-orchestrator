@@ -438,7 +438,7 @@ test("mobile inspector stays within the viewport and closes without losing the g
   await expect(page.locator('[data-node]')).toHaveCount(5);
 });
 
-test('groups agents by project and host and posts an operator message to the scope room', async ({ page }) => {
+test('groups agents by project and directory and posts an operator message to the project room', async ({ page }) => {
   await fixtures(page, ['hosts.read', 'agent_portal.read', 'agent_portal.manage', 'agent_messaging.manage', 'agent_messaging.read', 'agent_messaging.reveal_content']);
   const project = '11111111-2222-4333-8444-555555555555';
   const members = tree().agents.map(a => ({ session_id: a.id, agent_id: a.address, name: a.name, engine: a.engine, host_id: a.host_id, host: a.host, cwd: a.cwd, workspace: { git_root: '/srv/work', git_common_dir: '/srv/work/.git', branch: 'main' }, coordinated: true }));
@@ -466,12 +466,11 @@ test('groups agents by project and host and posts an operator message to the sco
   await page.getByRole('button', { name: 'Send as operator' }).click();
   await expect(page.getByText('Coordinate this deployment first.', { exact: true })).toBeVisible();
   expect(messages).toHaveLength(1);
-  await page.getByLabel('Group clouds', { exact: true }).selectOption('host');
-  await expect(page.locator('[data-node]')).toHaveCount(5);
+  await expect(page.getByLabel('Group clouds').locator('option')).toHaveText(['None', 'Same project + directory']);
+  await page.getByLabel('Group clouds', { exact: true }).selectOption('connection');
+  await expect(page.locator('[data-scope]')).toHaveCount(0);
+  await page.getByLabel('Group clouds', { exact: true }).selectOption('project');
   await expect(page.locator('[data-scope]')).toHaveCount(1);
-  await expect(page.locator(`[data-node="${A1}"]`)).toHaveCount(1);
-  await page.getByLabel('Group clouds', { exact: true }).selectOption('scopes');
-  await expect(page.locator('[data-scope]')).toHaveCount(2);
   await expect(page.locator('[data-node]')).toHaveCount(5);
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.screenshot({ path: '/tmp/sofia-agent-clouds.png' });
@@ -492,9 +491,9 @@ test('clouds omit singletons and avoid unrelated rendered nodes and labels acros
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await open(page);
   await page.getByLabel('Group clouds', { exact: true }).selectOption('project');
-  const cloud = page.locator('path[data-scope="pair"]');
+  const cloud = page.locator('path[data-scope]').filter({ has: page.locator('title', { hasText: /^Pair ·/ }) });
   await expect(cloud).toHaveCount(1);
-  await expect(page.locator('[data-scope="single"]')).toHaveCount(0);
+  await expect(page.locator('path[data-scope]').filter({ has: page.locator('title', { hasText: /^Singleton ·/ }) })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open Singleton chat' })).toBeVisible();
   const checkClearance = async () => {
     await expect(cloud).toHaveCount(1);
@@ -548,6 +547,24 @@ test('retained offline sessions are not described as direct active connections',
   await expect(details).toContainText('This does not prove a direct connection.');
   await expect(details).toContainText('its retained record is not an active server connection');
   await expect(page.locator(`[data-node="${A3}"]`)).toHaveAttribute('aria-label', /offline, communicator not established/);
+});
+
+for (const grouping of ['host', 'scopes']) test(`migrates saved ${grouping} grouping and keeps separate worktrees out of a cloud`, async ({ page }) => {
+  const state = await fixtures(page, ['hosts.read', 'agent_portal.read', 'agent_messaging.read']);
+  state.topology.agents[2].cwd = '/srv/other-worktree';
+  const members = state.topology.agents.map(a => ({ session_id: a.id, agent_id: a.address, name: a.name, engine: a.engine, host_id: a.host_id, host: a.host, cwd: a.cwd, workspace: null, coordinated: true }));
+  const rooms = ['project', 'host'].map(kind => ({ id: kind, kind, key: `${kind}:4`, title: kind, cursor: 0, member_count: 3, members, next_member_offset: null }));
+  await page.route('**/admin/agent-messaging/scopes**', route => route.fulfill({ json: { enabled: true, protocol: 1, rooms, claims: [] } }));
+  await page.addInitScript(grouping => localStorage.setItem('topology-view-v1', JSON.stringify({ view: 'radial', grouping })), grouping);
+  await open(page);
+  await expect(page.getByLabel('Group clouds')).toHaveValue('project');
+  await expect(page.locator('path[data-scope]')).toHaveCount(1);
+  expect(JSON.parse((await page.locator('path[data-scope]').getAttribute('data-scope'))!)).toEqual(['project', 4, '/srv/work']);
+  state.topology.agents[1].cwd = '/srv/third-worktree';
+  await page.reload();
+  await expect(page.locator('[data-node]')).toHaveCount(5);
+  await expect(page.getByRole('button', { name: 'Open project chat' })).toBeVisible();
+  await expect(page.locator('path[data-scope]')).toHaveCount(0);
 });
 
 test('preserves the complete graph with a saved project preference and no scope assignments', async ({ page }) => {

@@ -915,9 +915,12 @@ server directly. After a communicator reconnects, its sessions are re-attributed
 each next sends a qualifying request. An idle or offline session has no guaranteed
 15-second re-attribution deadline.
 
-Project/host clouds are presentation only. Singleton groups keep their chat chip
-without an outline. Multi-agent contours avoid unrelated node bodies, measured SVG
-labels and independent groups; genuinely shared membership can overlap. They are
+Clouds are presentation only and require the same project and exact working
+directory on the same machine. Host membership alone never creates a cloud;
+separate worktrees stay separate even in the same project. Legacy Host or Project
++ Host preferences migrate to Same project + directory. Project chats keep their
+full room membership; singleton directory groups have no outline. Multi-agent
+contours avoid unrelated node bodies, measured SVG labels and independent groups. They are
 hidden during node motion and recalculated after positions and font metrics settle.
 An obstacle can separate an outline into several pieces. If no outline can retain
 every member with clearance, or the sampling budget is exceeded, omit it and show

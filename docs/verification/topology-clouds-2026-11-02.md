@@ -23,6 +23,13 @@ was ended or assigned to a parent merely to make the diagram look connected.
 
 ## Implementation and limits
 
+Cloud membership requires the same project room and exact reported working
+directory on the same host. Host identity disambiguates local filesystem paths;
+it never creates a cloud by itself. Distinct worktrees are separate even when they
+share one project. The selector offers None or Same project + directory, and old
+Host/Project + Host preferences migrate to the latter. Project chat chips retain
+full room membership independently of the narrower outline membership.
+
 Contours connect members with a deterministic minimum spanning tree and route
 obstructed edges through padded obstacle corners. Signed-distance clipping reserves
 space around foreign bodies and actual SVG text bounds. Independent groups partition
@@ -41,15 +48,19 @@ and the equivalent list retain access in every case.
 
 ## Verification
 
-- `npm run check`: zero errors, 1,019 unit tests passed. One existing accessibility
+- `npm run check`: zero errors, 1,020 unit tests passed. One existing accessibility
   warning in the unchanged `CommunicatorApiSection.svelte` remains.
-- `npm run test:e2e`: 411 browser tests passed before the final routing refinement;
-  all 22 affected topology browser tests passed again against the final production
-  build after that refinement. The build copied the deployable SPA to `public/admin`.
+- `npm run test:e2e`: 411 browser tests passed before the final routing and directory
+  refinements; all 24 affected topology browser tests passed against the final
+  production build. The build copied the deployable SPA to `public/admin`.
 - Geometry tests cover singleton/duplicate/missing members, coincidence,
   deterministic permutations, node immutability, an intervening foreign body and
   protruding label, connected routing, independent cloud clearance, shared
   membership, and infeasible/oversized suppression.
+- Membership tests require the same project and exact local directory and exclude
+  separate worktrees, different projects, other hosts and unknown directories.
+  Browser tests migrate both saved host modes, keep project chats available and
+  remove every outline when all project members are in different directories.
 - The topology browser regression samples the actual SVG fill and stroke against
   foreign node halos and text at 1920/1440/768/390/320 px in light/dark/system modes,
   plus zoom in/out. Singleton chats remain accessible. Keyboard selection, reduced
