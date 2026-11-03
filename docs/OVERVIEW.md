@@ -1,5 +1,11 @@
 # Overview
 
+The feedback fixes retain safe advisor registration conflict codes, identify Git
+Director username and workspace mismatches, and accept supported 4 MiB portal
+attachment chunks without a validator stack overflow. Stale presence notices
+now share retained peer backlog batches; active-turn and work-result delivery
+boundaries remain unchanged. See [API contracts](interface-api.md).
+
 cxx 0.9.156 recovers pending launch admission before required state attachment,
 preserves safe registration rejection diagnostics, and replaces ambiguous client
 counts with unique sessions, transport leases and a per-engine connection matrix.
