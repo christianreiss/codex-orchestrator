@@ -151,10 +151,64 @@ func EnsureAliasesForSHA(ctx context.Context, executable string, engines []strin
 			if err := ensureAlias(filepath.Dir(canonical), aliasForEngine(engine)); err != nil {
 				return err
 			}
+			if err := healTransitionShim(canonical, aliasForEngine(engine)); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 	return canonical, err
+}
+
+// Old transition shims embed the key from installation time. Once cxx is
+// published beside one, keeping the shim makes key rotation break only the
+// interactive PATH command while cron continues updating the real binary.
+// Replace only our generated shim, and only where cxx already targets this
+// artifact; never redirect another installation or a user-authored launcher.
+// The caller holds the canonical artifact's layout lock.
+func healTransitionShim(canonical, name string) error {
+	shim, err := exec.LookPath(name)
+	if err != nil || !samePath(filepath.Join(filepath.Dir(shim), "cxx"), canonical) {
+		return nil
+	}
+	info, err := os.Lstat(shim)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 64*1024 {
+		return nil
+	}
+	body, err := os.ReadFile(shim)
+	if err != nil {
+		return err
+	}
+	script := string(body)
+	if !strings.HasPrefix(script, "#!/bin/sh\n# Codex Orchestrator legacy transition shim for "+name+".\n") ||
+		!strings.Contains(script, "\nINSTALL_MODE=shim\n") ||
+		!strings.Contains(script, "\nNAME='"+name+"'\n") {
+		return nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(shim), "."+name+".cxx-migrate-")
+	if err != nil {
+		return err
+	}
+	staged := tmp.Name()
+	defer os.Remove(staged)
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Remove(staged); err != nil {
+		return err
+	}
+	if err := os.Symlink(canonical, staged); err != nil {
+		return err
+	}
+	current, err := os.Lstat(shim)
+	if err != nil || !os.SameFile(info, current) {
+		return fmt.Errorf("transition shim changed during migration: %s", shim)
+	}
+	currentBody, err := os.ReadFile(shim)
+	if err != nil || string(currentBody) != script {
+		return fmt.Errorf("transition shim content changed during migration: %s", shim)
+	}
+	return os.Rename(staged, shim)
 }
 
 // EnsurePathVisible makes the canonical cxx reachable by its bare name from
@@ -170,8 +224,8 @@ func EnsureAliasesForSHA(ctx context.Context, executable string, engines []strin
 //
 // The healing link is absolute and lands beside the PATH-visible shim -- the
 // same directory peerBinaryPath() already treats as the fleet's binary home.
-// Nothing else is touched. The shim keeps working, and a host that already
-// resolves cxx is left exactly as it is.
+// Alias reconciliation can then migrate recognized transition shims. This
+// publication step leaves a host that already resolves cxx exactly as it is.
 func EnsurePathVisible(ctx context.Context, executable string) (string, error) {
 	canonical, err := CanonicalExecutable(executable)
 	if err != nil {
@@ -254,13 +308,15 @@ func pathVisibleLinks(canonical string) []string {
 		if dir == "" {
 			continue
 		}
-		link := filepath.Join(dir, "cxx")
-		if _, ok := seen[link]; ok {
-			continue
-		}
-		seen[link] = struct{}{}
-		if target, err := os.Readlink(link); err == nil && target == canonical {
-			out = append(out, link)
+		for _, name := range []string{"cxx", "cdx", "clx", "cgx"} {
+			link := filepath.Join(dir, name)
+			if _, ok := seen[link]; ok {
+				continue
+			}
+			seen[link] = struct{}{}
+			if target, err := os.Readlink(link); err == nil && target == canonical {
+				out = append(out, link)
+			}
 		}
 	}
 	return out

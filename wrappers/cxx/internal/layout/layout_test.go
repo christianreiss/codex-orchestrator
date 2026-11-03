@@ -484,6 +484,81 @@ func TestEnsurePathVisiblePublishesShimInstall(t *testing.T) {
 	}
 }
 
+func TestEnsureAliasesHealsPublishedTransitionShims(t *testing.T) {
+	for _, engine := range []string{EngineCodex, EngineClaude, EngineGrok} {
+		t.Run(engine, func(t *testing.T) {
+			_, binDir, canonical := newShimInstall(t)
+			name := aliasForEngine(engine)
+			shim := filepath.Join(binDir, name)
+			body := "#!/bin/sh\n# Codex Orchestrator legacy transition shim for " + name + ".\nNAME='" + name + "'\nINSTALL_MODE=shim\nHOST_API_KEY='revoked-test-key'\n"
+			if err := os.WriteFile(shim, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(canonical, filepath.Join(binDir, "cxx")); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 2; i++ {
+				if _, err := EnsureAliases(context.Background(), canonical, []string{engine}); err != nil {
+					t.Fatal(err)
+				}
+				if target, err := os.Readlink(shim); err != nil || target != canonical {
+					t.Fatalf("target=%q err=%v", target, err)
+				}
+			}
+			if err := RemoveShared(context.Background(), canonical); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Lstat(shim); !os.IsNotExist(err) {
+				t.Fatalf("migrated alias survived uninstall: %v", err)
+			}
+		})
+	}
+}
+
+func TestEnsureAliasesPreservesOtherLaunchers(t *testing.T) {
+	for _, kind := range []string{"custom", "other-install", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			_, binDir, canonical := newShimInstall(t)
+			shim := filepath.Join(binDir, "cdx")
+			body := "#!/bin/sh\n# Codex Orchestrator legacy transition shim for cdx.\nNAME='cdx'\nINSTALL_MODE=shim\n"
+			if kind == "custom" {
+				body = "#!/bin/sh\necho user launcher\n"
+			}
+			if err := os.WriteFile(shim, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			target := canonical
+			if kind == "other-install" {
+				target = filepath.Join(t.TempDir(), "cxx")
+				if err := os.WriteFile(target, []byte("other install"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(target, filepath.Join(binDir, "cxx")); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "symlink" {
+				if err := os.Remove(shim); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("cxx", shim); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := EnsureAliases(context.Background(), canonical, []string{EngineCodex}); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "symlink" {
+				if target, err := os.Readlink(shim); err != nil || target != "cxx" {
+					t.Fatalf("symlink changed: %q %v", target, err)
+				}
+			} else if got, err := os.ReadFile(shim); err != nil || string(got) != body {
+				t.Fatalf("launcher changed: %v", err)
+			}
+		})
+	}
+}
+
 func TestEnsurePathVisibleKeepsRealInstall(t *testing.T) {
 	data, binDir, _ := newShimInstall(t)
 	// Another account's real cxx already owns the PATH name.

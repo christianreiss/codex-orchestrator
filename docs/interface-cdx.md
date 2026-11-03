@@ -1,5 +1,12 @@
 # cdx Wrapper Interface (Source of Truth)
 
+From cxx 0.9.158, alias reconciliation replaces a recognized legacy transition
+shim for the selected engine with a link to the current artifact when the sibling
+`cxx` already resolves to that artifact. This removes embedded installation-time
+keys that otherwise cause HTTP 401 after host key rotation. Custom launchers and
+other installations are preserved. A host already blocked in the old shim needs
+a one-time repair through its working `cxx` entrypoint.
+
 Linux `cdx workload run --memory 8GiB [--wait 5m] -- command` shares the same
 cooperative per-user memory pool as `cxx`, `clx` and `cgx`. `workload status|hold|resume`
 and explicit uncertain-reservation release operate locally without native startup.

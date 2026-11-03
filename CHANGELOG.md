@@ -17,6 +17,8 @@
 
 # 2026-11-03
 
+- **cxx 0.9.158 — legacy launcher repair:** replace recognized old transition shims beside the matching published `cxx` during selected-engine alias reconciliation. This prevents stale embedded API keys from breaking interactive commands with HTTP 401 while cron uses the healthy current wrapper. Preserve custom launchers and other installations; remove migrated links on final uninstall.
+
 - **cxx 0.9.157:** add explicit per-user RAM reservations and bounded admission for cooperative local heavy jobs, including holds and conservative descendant accounting, without changing native agents or host resource limits. Keep terminal-started Codex `exec`/`e`/`review` on supported direct transport instead of the TUI-only `--remote` endpoint.
 
 - **Feedback fixes:** preserve safe advisor registration conflict diagnostics; distinguish Git Director OS username mismatches and name mismatched native workspace fields; accept full-size portal attachment chunks without a validation stack overflow. Batch stale presence notices with retained peer progress while preserving every original; active-turn delivery and work-progress boundaries remain unchanged.

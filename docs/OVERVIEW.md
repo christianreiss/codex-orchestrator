@@ -5,6 +5,10 @@ turn: completion hooks recognize native channel attachments as well as user
 entries. Waiting-message hints include IDs and report unconfirmed earlier
 deliveries. See [Claude delivery and turn-end release](interface-clx.md).
 
+Legacy transition launchers can retain revoked installation-time host keys even
+while cron updates the current binary. cxx 0.9.158 heals recognized selected-engine
+shims beside an already published matching `cxx`; see [wrapper migration](interface-cdx.md).
+
 Linux heavy jobs can opt into shared per-user RAM reservations with
 `cxx workload run --memory 8GiB --wait 5m -- command`. This cooperative launcher
 preserves native sessions; commands outside it remain outside its coverage.
