@@ -49,7 +49,7 @@ export function advisorFailureDiagnostic(result: unknown) {
   if (!result || typeof result !== 'object') return null;
   const { status, reply } = result as Record<string, unknown>;
   if (status !== 'failed' || typeof reply !== 'string' || reply.length > 256 || /[\r\n]/.test(reply)) return null;
-  const match = /^Native process exited unsuccessfully; exit_status=(-1|\d{1,3})(?:; startup stage=(registration|connection|identity) code=(failed|api_rejected|agent_messaging_lease_lost|agent_session_finished|agent_identity_conflict)(?: http=([45]\d{2}))?)?$/.exec(reply);
+  const match = /^Native process exited unsuccessfully; exit_status=(-1|\d{1,3})(?:; startup stage=(registration|connection|identity) code=(failed|api_rejected|agent_messaging_lease_lost|agent_session_finished|agent_identity_conflict|agent_name_pool_exhausted|agent_messaging_address_busy|agent_messaging_binding_stale|agent_session_conflict|session_housekeeping_busy)(?: http=([45]\d{2}))?)?$/.exec(reply);
   if (!match || Number(match[1]) > 255) return null;
   return {
     code: 'native_exit',

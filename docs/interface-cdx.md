@@ -1870,6 +1870,9 @@ or an executing host daemon's private copy is older than 0.9.100.
 Terminal advisor status includes nullable bounded `diagnostic` metadata: native
 exit status and vetted startup stage/code/HTTP status. Missing, legacy or ambiguous
 evidence stays null; raw stderr is never forwarded and no verdict is fabricated.
+Known registration conflict codes distinguish exhausted launch names, busy native
+bindings, stale bindings, session conflicts and housekeeping contention. Unknown
+codes remain `api_rejected`; no automatic retry or fresh identity is implied.
 See [interface-api.md](interface-api.md#fleet-advisor).
 
 Hosts show the daemon indicator only when enabled. Green means connected and

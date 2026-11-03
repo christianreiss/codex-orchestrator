@@ -2886,6 +2886,11 @@ Startup fields use only the existing registration/connection/identity and error-
 allowlists; HTTP status is 400–599. Updated daemons include this bounded evidence in
 the existing failure reply, using a private startup file removed after child exit.
 Native stderr, prompts and provider error text are never copied into status diagnostics.
+Known registration conflicts retain the allowlisted `startup_code` values
+`agent_name_pool_exhausted`, `agent_messaging_address_busy`,
+`agent_messaging_binding_stale`, `agent_session_conflict` and
+`session_housekeeping_busy`, alongside HTTP 409. Unknown server codes remain
+`api_rejected`; the diagnostic does not authorize retry or replace a native session.
 Missing, legacy, unrecognized or ambiguously ordered operation evidence returns null;
 the server does not infer turn order from UUIDs when newest timestamps tie. The
 opening-agent authorization and failed-turn `verdict:null` behavior remain unchanged.
