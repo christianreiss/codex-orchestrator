@@ -65,6 +65,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 ### Delivery & Runtime Safety
 
+- **NO BACKUPS.** Container backups and Bareos already cover this system. Never create manual backups, database dumps, storage archives, credential/config backup copies, or extra rollback image tags. Deploy with `scripts/deploy.sh --no-backup`; never use `--backup`.
 - Deploy, publish, restart production services, and run production migrations only when the user’s request explicitly includes that side effect.
 - Update `CHANGELOG.md` (newest date first, grouped under `# YYYY-MM-DD` headers with items listed below each date) for any behavior visible to humans.
 - For an explicitly requested rollout that changes Docker services or baked wrapper binaries, rebuild + restart the stack.
