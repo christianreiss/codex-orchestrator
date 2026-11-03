@@ -1,5 +1,10 @@
 # `clx` Wrapper Interface
 
+From cxx 0.9.156, native startup/exit separates unique managed sessions from
+transport leases and shows an engine by connection-type matrix. Pending launch
+admission recovers before required state attachment, retaining the original
+identity and safe rejection diagnostics. See [statistics and admission](communicator.md#native-session-statistics-cxx-09156).
+
 From cxx 0.9.155, shared communicator sync deadlines follow the same content-owner
 election as execution, preventing idle scans triggered by private Grok auth
 states. Per-engine auth and watch recovery remain independent. See
@@ -14,7 +19,7 @@ and [review findings](wrapper-review-2026-10-26.md).
 
 From cxx 0.9.135, normal native-session startup and exit show Communicator owner
 origin/PID and current client counts, using bounded local-only observations. See
-[session statistics](communicator.md#native-session-statistics-cxx-09135) for count,
+[session statistics](communicator.md#native-session-statistics-cxx-09156) for count,
 unknown, owner-replacement and silent-output semantics shared with cdx/cgx.
 
 ## Sender-selected delivery timing (cxx 0.9.134)

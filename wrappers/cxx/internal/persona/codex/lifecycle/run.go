@@ -590,7 +590,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 				ui.PrintBootScreen(updateprogress.Output(ctx, os.Stderr), state)
 			}
 			if !opts.SyncOnly {
-				ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), ui.Notice{Prefix: "cdx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.Start()})
+				ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), ui.Notice{Prefix: "cdx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.Start(), Details: commStats.Details(), Table: commStats.Table()})
 			}
 		} else if state.QuotaWarn != "" {
 			// Headless path: surface the quota warning so cron/CI logs capture
@@ -768,7 +768,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			EngineName:    "codex",
 			EngineVersion: codex.Version(ctx),
 		})
-		ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), caps, ui.Notice{Prefix: "cdx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.End()})
+		ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), caps, ui.Notice{Prefix: "cdx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.End(), Details: commStats.Details(), Table: commStats.Table()})
 	}
 
 	return exitCode, runErr

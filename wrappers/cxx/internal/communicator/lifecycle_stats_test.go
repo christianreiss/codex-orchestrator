@@ -40,11 +40,11 @@ func TestLifecycleStatsReportActualOwnerAndCurrentClientCounts(t *testing.T) {
 			if tc.started {
 				state = "started for this session"
 			}
-			if got, want := stats.Start(), "start: "+state+" | pid=42 | clients=3"; got != want {
+			if got, want := stats.Start(), "start: "+state+" | pid=42 | sessions=unknown | leases=3"; got != want {
 				t.Fatalf("start=%q, want %q", got, want)
 			}
 			clients.Store(1)
-			if got := stats.End(); got != "end: running | pid=42 | clients=1" {
+			if got := stats.End(); got != "end: running | pid=42 | sessions=unknown | leases=1" {
 				t.Fatal(got)
 			}
 		})
@@ -64,16 +64,16 @@ func TestLifecycleStatsExposeOwnerReplacementAndMissingCounts(t *testing.T) {
 	registry.Store(base, &endpoint{base: base, socket: socket})
 	t.Cleanup(func() { registry.Delete(base) })
 	stats := NewLifecycleStats(base)
-	if got := stats.Start(); !strings.HasSuffix(got, "clients=0") {
+	if got := stats.Start(); !strings.HasSuffix(got, "sessions=unknown | leases=0") {
 		t.Fatal(got)
 	}
 	// Same PID with a different owner instance must still be identified.
 	body.Store(`{"version":"new","pid":42,"owner_instance_id":"two"}`)
-	if got := stats.End(); got != "end: owner changed | pid=42 | clients=unknown" {
+	if got := stats.End(); got != "end: owner changed | pid=42 | sessions=unknown | leases=unknown" {
 		t.Fatal(got)
 	}
 	registry.Store(base, &endpoint{base: base, socket: filepath.Join(dir, "missing.sock")})
-	if got := stats.End(); got != "end: unavailable | clients=unknown" {
+	if got := stats.End(); got != "end: unavailable | sessions=unknown | leases=unknown" {
 		t.Fatal(got)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "missing.sock")); !os.IsNotExist(err) {
@@ -95,7 +95,7 @@ func TestLifecycleStatsBoundAnUnresponsiveOwner(t *testing.T) {
 	registry.Store(base, &endpoint{base: base, socket: socket})
 	t.Cleanup(func() { registry.Delete(base) })
 	started := time.Now()
-	if got := NewLifecycleStats(base).End(); got != "end: unavailable | clients=unknown" {
+	if got := NewLifecycleStats(base).End(); got != "end: unavailable | sessions=unknown | leases=unknown" {
 		t.Fatal(got)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {

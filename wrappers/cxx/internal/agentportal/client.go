@@ -197,7 +197,7 @@ type claimResponse struct {
 // Start registers the current root lifecycle. A disabled portal is a normal
 // no-op. Transient startup failures return both a pending Session and an error:
 // the existing private broker and heartbeat can admit that same identity later
-// while the wrapper logs the outage and starts the local agent normally.
+// but messaging-enabled providers still require confirmed admission before launch.
 func Start(parent context.Context, cfg *config.Config, input StartInput) (*Session, error) {
 	if cfg == nil {
 		return nil, errors.New("agent portal: wrapper config is nil")
@@ -374,6 +374,9 @@ func (s *Session) startHeartbeat(parent context.Context, interval time.Duration)
 			if ctx.Err() != nil {
 				return
 			}
+			s.mu.Lock()
+			wasPending := s.pendingRegistration
+			s.mu.Unlock()
 			_ = s.consumeState(ctx)
 			_, _, _, stateUsed := s.stateView()
 			if stateUsed {
@@ -396,6 +399,11 @@ func (s *Session) startHeartbeat(parent context.Context, interval time.Duration)
 				return
 			}
 			if err == nil {
+				if wasPending {
+					// Open the required control attachment immediately after
+					// recovery, rather than sleeping through the launch gate.
+					continue
+				}
 				delay = interval
 			}
 			timer := time.NewTimer(delay)

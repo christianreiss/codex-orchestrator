@@ -147,3 +147,24 @@ func TestLineConfirmDefaultYes(t *testing.T) {
 		}
 	}
 }
+
+func TestNoticeTableKeepsAlignmentAndUsesNarrowRecords(t *testing.T) {
+	n := Notice{Prefix: "cdx", Topic: "communicator", Message: "running", Table: [][]string{{"ENGINE", "LEASE", "PROVIDER"}, {"codex", "29", "13"}, {"grok", "1", "?"}}}
+	plain := FormatNotice(Caps{}, n)
+	if !strings.Contains(plain, "ENGINE | LEASE | PROVIDER") || !strings.Contains(plain, "codex  | 29    | 13") {
+		t.Fatalf("unaligned table: %s", plain)
+	}
+	narrow := FormatNotice(Caps{IsTTY: true, Dumb: true, Columns: 22}, n)
+	if strings.Contains(narrow, " | ") || !strings.Contains(narrow, "lease=29") || !strings.Contains(narrow, "provider=13") {
+		t.Fatalf("narrow table: %s", narrow)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(narrow, "\n"), "\n") {
+		if VisibleWidth(line) > 22 {
+			t.Fatalf("line too wide: %q", line)
+		}
+	}
+	n.Table = [][]string{{"ENGINE", "COUNT"}, {"\x1b[31mco\ndex\x1b[0m", "2"}}
+	if out := FormatNotice(Caps{}, n); strings.Contains(out, "\x1b") || strings.Contains(out, "co\ndex") {
+		t.Fatalf("unsafe table: %q", out)
+	}
+}

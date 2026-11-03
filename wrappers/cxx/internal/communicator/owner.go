@@ -15,12 +15,14 @@ import (
 
 // Owner is the running local owner as its /_comm/status reports it.
 type Owner struct {
-	ControlStateProtocol int    `json:"control_state_protocol"`
-	Version              string `json:"version"`
-	PID                  int    `json:"pid"`
-	Mode                 string `json:"mode"`
-	InstanceID           string `json:"owner_instance_id"`
-	Clients              *int   `json:"sessions"`
+	Matrix               *ConnectionMatrix `json:"connection_matrix"`
+	ManagedSessions      *int              `json:"managed_sessions"`
+	ControlStateProtocol int               `json:"control_state_protocol"`
+	Version              string            `json:"version"`
+	PID                  int               `json:"pid"`
+	Mode                 string            `json:"mode"`
+	InstanceID           string            `json:"owner_instance_id"`
+	Clients              *int              `json:"sessions"`
 	Cache                struct {
 		Protocol            int `json:"protocol"`
 		LocalProtocol       int `json:"local_content_protocol"`

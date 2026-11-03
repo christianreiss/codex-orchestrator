@@ -42,6 +42,7 @@ type Notice struct {
 	Tone    Tone
 	Message string
 	Details []string
+	Table   [][]string
 }
 
 // Say detects capabilities for w and prints one notice.
@@ -67,9 +68,62 @@ func FormatNotice(caps Caps, n Notice) string {
 	}
 	caps = engineCaps(caps, prefix)
 	if noticePlain(caps) {
-		return formatPlainNotice(caps, prefix, n)
+		return formatPlainNotice(caps, prefix, n) + formatNoticeTable(caps, n.Table)
 	}
-	return formatRichNotice(caps, prefix, n)
+	return formatRichNotice(caps, prefix, n) + formatNoticeTable(caps, n.Table)
+}
+
+// Table cells are sanitized before alignment. Unlike prose details, table
+// padding must survive whitespace normalization; narrow terminals use records.
+func formatNoticeTable(caps Caps, rows [][]string) string {
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		return ""
+	}
+	widths := make([]int, len(rows[0]))
+	clean := make([][]string, len(rows))
+	for i, row := range rows {
+		if len(row) != len(widths) {
+			return ""
+		}
+		clean[i] = make([]string, len(row))
+		for j, cell := range row {
+			clean[i][j] = PlainInline(cell)
+			if w := VisibleWidth(clean[i][j]); w > widths[j] {
+				widths[j] = w
+			}
+		}
+	}
+	width := 3*(len(widths)-1) + 2
+	for _, w := range widths {
+		width += w
+	}
+	var b strings.Builder
+	if caps.IsTTY && caps.Columns > 0 && width > caps.Columns {
+		for _, row := range clean[1:] {
+			parts := []string{row[0] + ":"}
+			for j, cell := range row[1:] {
+				parts = append(parts, strings.ToLower(clean[0][j+1])+"="+cell)
+			}
+			for _, line := range WrapText(strings.Join(parts, " "), caps.Columns-2) {
+				b.WriteString("  " + line + "\n")
+			}
+		}
+		return b.String()
+	}
+	for i, row := range clean {
+		parts := make([]string, len(row))
+		for j, cell := range row {
+			parts[j] = PadRight(cell, widths[j])
+		}
+		b.WriteString("  " + strings.TrimRight(strings.Join(parts, " | "), " ") + "\n")
+		if i == 0 {
+			for j, w := range widths {
+				parts[j] = strings.Repeat("-", w)
+			}
+			b.WriteString("  " + strings.Join(parts, "-+-") + "\n")
+		}
+	}
+	return b.String()
 }
 
 func noticePlain(caps Caps) bool {

@@ -13,30 +13,65 @@ retain their existing behavior. The fix applies to the loaded communicator,
 not merely the installed binary; preserve live sessions and accepted work when
 coordinating its retirement or supported handoff.
 
-## Native session statistics (cxx 0.9.135)
+## Native session statistics (cxx 0.9.156)
 
-The normal cdx/clx/cgx startup and exit displays include a Communicator line,
+Normal cdx/clx/cgx startup and exit displays include a Communicator line,
 also for `cxx codex`, `cxx claude`, `cxx grok` and managed native entrypoints:
 
 ```text
-cdx communicator: start: already running | pid=1234 | clients=3
-cdx communicator: end: running | pid=1234 | clients=2
+cdx communicator: start: already running | pid=1234 | sessions=3 | leases=8
+  Attachments by type; columns overlap per launch. ? = unavailable.
+  ENGINE | LEASE | AUTH | PROVIDER | SESSION | RECEIVER | OTHER
+  -------+-------+------+----------+---------+----------+------
+  codex  | 2     | 2    | 2        | 2       | 2        | 0
+  claude | 1     | 1    | 1        | 1       | 1        | 0
+  grok   | 1     | 1    | 0        | 0       | 0        | 0
 ```
 
+`sessions` is the unique authenticated managed-session
+count, deduplicating session and receiver streams. `leases` counts local transport
+lease streams; neither number is a count of model processes. The matrix counts
+attachments, with no row/grand total across overlapping types. LEASE is a general
+local sync/transport attachment, AUTH is an auth watcher, PROVIDER is a provider
+account state stream, SESSION is a managed lifecycle state stream, RECEIVER is
+its receiver state stream and OTHER covers remaining state topics. A lease with
+multiple engine scopes is counted once in `shared`; missing engine metadata stays
+`unknown`. Engine labels are diagnostic metadata, never an authorization proof.
+Only acknowledged, non-stopping state streams appear in the state columns.
+Without negotiated state authority those cells display `?`, not zero. Narrow
+terminals use named per-engine records instead of wrapping columns. Pipes retain
+an aligned ASCII table without color.
+
 Startup says `started for this session` only when the answering owner's PID
-matches a process this wrapper actually spawned. A concurrent startup candidate
-losing the owner lock does not make an existing owner newly started. Exit reports
-`owner changed` when the PID or owner instance differs from the startup sample.
-These are instantaneous counts of the owner's active client leases, shared across
-engines and MCP clients; they are not counts of model agents. The exit sample is
-taken before the wrapper process exits, so its own lease may still be included.
+matches a process this wrapper actually spawned. Exit reports `owner changed`
+when the PID or owner instance differs from the startup sample. The exit sample
+is taken before the wrapper process exits, so its own leases may still be included.
 
 Each sample reads only the existing local status endpoint with a 200 ms total
 budget. It does not start/stop an owner, join a lease, extend idle lifetime or
-contact the API. A failed sample says `unavailable | clients=unknown`; absent
-configuration says `not configured`, and an old status without the count reports
-`clients=unknown`. Normal silent/skip-boot behavior remains silent. Sync/status,
-helper and machine-protocol commands do not gain session-statistic banners.
+contact the API. Failed samples report unknown counts; absent configuration says
+`not configured`. Older owners retain their known lease count, with unknown
+managed sessions when unavailable and no fabricated matrix. The local status JSON
+adds `connection_matrix: {state_available, rows}`; rows carry `engine`, `lease`,
+`auth`, `provider`, `session`, `receiver` and `other`. The legacy status wire field
+`sessions` still counts transport leases. Heartbeat/API metadata is unchanged.
+Silent/skip-boot behavior remains silent; sync/status, helper and machine-protocol
+commands do not gain session-statistic banners. Installing a new binary alone
+does not upgrade the loaded owner; preserve active sessions during any handoff.
+
+## Pending launch admission (cxx 0.9.156)
+
+The identity gate recovers a pending registration before waiting for control
+state, under a 15-second gate budget and an eight-second recovery attempt limit.
+Recovery shares the existing single-flight gate and original launch UUID/bridge
+credential with heartbeat recovery. Successful heartbeat recovery immediately
+opens state instead of sleeping for the normal 15-second heartbeat interval.
+A provider never starts until required state and authenticated identity agree.
+Permanent registration failures retain their HTTP status and an allowlisted
+machine code; response bodies, arbitrary codes and credential-bearing error
+text are excluded. Known provider-binding rejections are identified explicitly.
+This improves recovery/diagnostics; it does not weaken account binding checks or
+promise that an unavailable/overloaded API can admit a launch.
 
 ## Sender timing (cxx 0.9.134)
 

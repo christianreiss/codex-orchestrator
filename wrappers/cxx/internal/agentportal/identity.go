@@ -3,6 +3,7 @@ package agentportal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -64,9 +65,28 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 		return Identity{}, nil
 	}
 	if r == nil || r.session == nil || r.broker == nil {
+		if r != nil && r.startupErr != nil {
+			return Identity{}, identityStartupError(r.startupErr)
+		}
 		return Identity{}, fmt.Errorf("agent identity: no confirmed connection; native launch refused")
 	}
+	ctx, cancelStartup := context.WithTimeout(ctx, 15*time.Second)
+	defer cancelStartup()
 	s := r.session
+	// Admission recovery precedes control attachment: pending registrations
+	// cannot open a state stream. Reuse the original credentials and the
+	// recovery single-flight gate shared with the heartbeat, never a new launch.
+	s.mu.Lock()
+	pending, generation := s.pendingRegistration, s.registrationGeneration
+	s.mu.Unlock()
+	if pending {
+		recoveryCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		err := s.recoverRegistration(recoveryCtx, generation, false)
+		cancel()
+		if err != nil {
+			return Identity{}, identityStartupError(err)
+		}
+	}
 	if cfg.Orchestrator.CommunicatorStateProtocol == 1 {
 		timer := time.NewTimer(15 * time.Second)
 		defer timer.Stop()
@@ -115,6 +135,33 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 	}
 	s.mu.Unlock()
 	return identity, nil
+}
+
+// Only known machine codes cross this diagnostic boundary. Server bodies,
+// credential-bearing URLs and arbitrary local error text never reach the TUI.
+func identityStartupError(err error) error {
+	var apiErr *PortalError
+	if errors.As(err, &apiErr) {
+		code := "api_rejected"
+		if apiErr.Code == "forbidden" && apiErr.Message == "Provider account binding changed" {
+			code = "provider_account_binding_changed"
+		}
+		if apiErr.Code == "forbidden" && apiErr.Message == "Provider account lease is unavailable" {
+			code = "provider_account_lease_unavailable"
+		}
+		switch apiErr.Code {
+		case "agent_name_pool_exhausted", "agent_messaging_address_busy", "agent_messaging_binding_stale", "agent_identity_conflict", "agent_session_conflict", "agent_session_finished", "agent_messaging_lease_lost", "communicator_outcome_unknown", "agent_bridge_host_auth_changed", "engine_disabled", "session_housekeeping_busy":
+			code = apiErr.Code
+		}
+		return &PortalError{Status: apiErr.Status, Code: code, Message: fmt.Sprintf("agent identity: registration unavailable (HTTP %d); native launch refused", apiErr.Status)}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("agent identity: registration timed out; native launch refused")
+	}
+	if errors.Is(err, context.Canceled) {
+		return fmt.Errorf("agent identity: registration canceled; native launch refused")
+	}
+	return fmt.Errorf("agent identity: connection startup failed; native launch refused; run cxx communicator doctor")
 }
 
 // Context is fixed into the native prompt before the provider starts. A later

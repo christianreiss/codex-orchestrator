@@ -1,5 +1,10 @@
 # Overview
 
+cxx 0.9.156 recovers pending launch admission before required state attachment,
+preserves safe registration rejection diagnostics, and replaces ambiguous client
+counts with unique sessions, transport leases and a per-engine connection matrix.
+See [statistics and admission](communicator.md#native-session-statistics-cxx-09156).
+
 cxx 0.9.155 fixes idle communicator CPU caused by inconsistent content-owner
 selection between sync timers and execution. Private Grok auth deadlines remain
 independent; shared Codex, Claude and Grok contexts stop rescanning when no work
@@ -61,7 +66,7 @@ ownership fences intact. See [Communicator recovery](communicator.md) and
 cxx 0.9.135 includes local Communicator start/exit statistics for all native
 engines: owner startup/reuse, PID and current client count, with bounded probes
 and explicit unknown/unavailable states. See the
-[statistics contract](communicator.md#native-session-statistics-cxx-09135).
+[statistics contract](communicator.md#native-session-statistics-cxx-09156).
 
 Agent messages can select `delivery_timing: "immediate" | "after_turn"` independently
 of their delivery class. The default waits for a native turn boundary; immediate

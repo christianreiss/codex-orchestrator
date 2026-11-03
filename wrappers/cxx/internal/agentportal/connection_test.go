@@ -142,3 +142,25 @@ func TestPendingConnectionRecoversWithoutChangingCapability(t *testing.T) {
 		t.Fatal("close did not restore outer capability")
 	}
 }
+
+func TestIdentityGateRetainsPermanentRegistrationCauseAcrossEngines(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(`{"code":"forbidden","message":"Provider account binding changed"}`))
+			}))
+			defer server.Close()
+			cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL}, AgentMessaging: config.AgentMessaging{Enabled: true}}
+			runtime, startErr := StartConnection(context.Background(), cfg, StartInput{Engine: engine})
+			if startErr == nil {
+				t.Fatal("registration unexpectedly succeeded")
+			}
+			defer runtime.Close("failed", "test")
+			_, err := runtime.RequireIdentity(context.Background(), cfg)
+			if err == nil || !strings.Contains(err.Error(), "HTTP 403") || !strings.Contains(err.Error(), "provider_account_binding_changed") {
+				t.Fatalf("cause lost: %v", err)
+			}
+		})
+	}
+}

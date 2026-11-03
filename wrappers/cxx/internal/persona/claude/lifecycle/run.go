@@ -507,7 +507,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 				ui.PrintBootScreen(updateprogress.Output(ctx, os.Stderr), state)
 			}
 			if !opts.SyncOnly {
-				ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), ui.Notice{Prefix: "clx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.Start()})
+				ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), ui.Notice{Prefix: "clx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.Start(), Details: commStats.Details(), Table: commStats.Table()})
 			}
 		} else if state.QuotaWarn != "" {
 			// Suppressed startup screens still need advisory usage in cron/CI logs.
@@ -677,7 +677,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			EngineName:    "claude",
 			EngineVersion: claude.Version(ctx),
 		})
-		ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), caps, ui.Notice{Prefix: "clx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.End()})
+		ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), caps, ui.Notice{Prefix: "clx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.End(), Details: commStats.Details(), Table: commStats.Table()})
 	}
 
 	return exitCode, runErr

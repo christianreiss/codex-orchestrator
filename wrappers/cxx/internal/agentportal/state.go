@@ -51,7 +51,7 @@ func (s *Session) consumeState(ctx context.Context) error {
 	if pending {
 		return errors.New("registration pending")
 	}
-	c, err := dialPortalState(ctx, s.BaseURL, communicator.StateScope{Topic: "session", SessionID: s.ID}, communicator.StateAuth{BridgeToken: s.BridgeToken})
+	c, err := dialPortalState(ctx, s.BaseURL, communicator.StateScope{Topic: "session", SessionID: s.ID, Engine: s.Engine}, communicator.StateAuth{BridgeToken: s.BridgeToken})
 	if err != nil {
 		return err
 	}
@@ -134,6 +134,7 @@ func (b *Broker) stateStream(w http.ResponseWriter, r *http.Request) {
 		}
 		scope := *open.Scope
 		scope.SessionID = b.session.ID
+		scope.Engine = b.session.Engine
 		scope.RelayID = ""
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()

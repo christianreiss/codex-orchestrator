@@ -45,6 +45,7 @@ type server struct {
 	mu               sync.Mutex
 	conn             *connection
 	leases           int
+	leaseClasses     map[leaseClass]int
 	lastUsed         time.Time
 	requests, shared uint64
 	lastError        string
@@ -502,7 +503,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		residentView := s.residentView()
 		s.mu.Lock()
 		counts := s.sessionCountsLocked()
-		status := map[string]any{"transport_leases": counts.TransportLeases, "managed_sessions": counts.ManagedSessions, "anonymous_transport_leases": counts.AnonymousTransportLeases, "protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked(), "mcp": s.mcp.view()}
+		matrix := s.connectionMatrixLocked()
+		status := map[string]any{"connection_matrix": matrix, "transport_leases": counts.TransportLeases, "managed_sessions": counts.ManagedSessions, "anonymous_transport_leases": counts.AnonymousTransportLeases, "protocol": Protocol, "version": s.version, "pid": os.Getpid(), "connected": s.conn != nil, "https_fallback": s.fallback, "sessions": s.leases, "requests": s.requests, "coalesced": s.shared, "last_error": s.lastError, "synced_at": s.lastSync, "sync_protocol": SyncProtocol, "sync_scopes": s.scopeViewsLocked(), "local_errors": s.localErrorsLocked(), "mcp": s.mcp.view()}
 		if s.conn != nil {
 			s.conn.mu.Lock()
 			if s.conn.stateEnabled {
@@ -544,8 +546,22 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}()
 		s.mu.Lock()
 		s.leases++
+		class := s.classifyLeaseLocked(ids)
+		if s.leaseClasses == nil {
+			s.leaseClasses = map[leaseClass]int{}
+		}
+		s.leaseClasses[class]++
 		s.mu.Unlock()
-		defer func() { s.mu.Lock(); s.leases--; s.lastUsed = time.Now(); s.mu.Unlock() }()
+		defer func() {
+			s.mu.Lock()
+			s.leases--
+			s.leaseClasses[class]--
+			if s.leaseClasses[class] == 0 {
+				delete(s.leaseClasses, class)
+			}
+			s.lastUsed = time.Now()
+			s.mu.Unlock()
+		}()
 		w.WriteHeader(200)
 		w.(http.Flusher).Flush()
 		if fresh {

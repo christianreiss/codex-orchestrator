@@ -1,3 +1,7 @@
+# 2026-11-03
+
+- **cxx 0.9.156 — launch admission and connection counts:** recover pending registration before waiting for its required control attachment, and attach immediately after recovery. Keep the original launch identity and refuse provider execution until confirmation; report known registration rejection codes instead of a generic missing connection. Native startup/exit now separates unique managed sessions from transport leases and displays an engine × connection-type matrix, including shared/unknown attribution and unavailable state evidence. Existing owners need a safe retirement or supported handoff to provide the new matrix.
+
 # 2026-11-02
 
 - **Workflow preparation:** focused request workspace, wrapping answers, consistent selectors and visible progress. Web confirmation queues a start message to the assigned coordinator atomically and records its receipt; retries do not duplicate the handoff. The agent continues from the saved approval without asking for it again in chat. No coordinator means an explicitly waiting confirmed request.

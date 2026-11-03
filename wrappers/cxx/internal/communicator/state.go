@@ -260,6 +260,8 @@ func (c *StateClient) Done() <-chan struct{} { return c.done }
 func (c *StateClient) Close()                { c.cancel(); c.ws.SetDeadline(time.Now()); c.ws.Close() }
 
 type stateRelay struct {
+	engine    string
+	topic     string
 	sessionID string // diagnostic identity, counted only after an authenticated snapshot
 	lastPong  time.Time
 	stopping  bool
@@ -293,7 +295,7 @@ func (s *server) state(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		stop := func() { ws.SetDeadline(time.Now()) }
-		stream := &stateRelay{sessionID: open.Scope.SessionID, events: make(chan StateFrame, 64), stop: stop, lastPong: time.Now()}
+		stream := &stateRelay{engine: matrixEngine(open.Scope.Engine), topic: open.Scope.Topic, sessionID: open.Scope.SessionID, events: make(chan StateFrame, 64), stop: stop, lastPong: time.Now()}
 		c.mu.Lock()
 		if c.states == nil {
 			c.states = make(map[string]*stateRelay)
@@ -375,7 +377,10 @@ func (c *connection) receiveState(f StateFrame) {
 	c.mu.Lock()
 	stream := c.states[f.StreamID]
 	if stream != nil {
-		if f.OwnerEpoch != "" {
+		if f.Type == "state_close" {
+			stream.stopping = true
+		}
+		if (f.Type == "state_snapshot" || f.Type == "state_delta") && f.OwnerEpoch != "" {
 			if stream.epoch == "" {
 				stream.lastPong = time.Now()
 			}

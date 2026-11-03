@@ -20,6 +20,7 @@ type ConnectionRuntime struct {
 	stopHeartbeat func()
 	once          sync.Once
 	closeErr      error
+	startupErr    error
 }
 
 // StartConnection may return both a usable runtime and a startup error: pending
@@ -31,7 +32,7 @@ func StartConnection(ctx context.Context, cfg *config.Config, input StartInput) 
 	session, startErr := Start(ctx, cfg, input)
 	recordStartupFailure("registration", startErr)
 	if session == nil {
-		return &ConnectionRuntime{ctx: ctx, restore: restore, stopHeartbeat: func() {}}, startErr
+		return &ConnectionRuntime{ctx: ctx, restore: restore, stopHeartbeat: func() {}, startupErr: startErr}, startErr
 	}
 	session.watchdog = &watchdogFeed{}
 	runtime := &ConnectionRuntime{session: session, ctx: session.withNativeControl(session.WithScheduleWatch(ctx)), restore: restore}
@@ -39,6 +40,7 @@ func StartConnection(ctx context.Context, cfg *config.Config, input StartInput) 
 	broker, brokerErr := session.StartBroker(runtime.ctx)
 	recordStartupFailure("connection", brokerErr)
 	runtime.broker = broker
+	runtime.startupErr = errors.Join(startErr, brokerErr)
 	if broker != nil {
 		restoreBroker := broker.ActivateEnvironment()
 		runtime.restore = func() { restoreBroker(); restore() }

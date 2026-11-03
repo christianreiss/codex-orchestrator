@@ -741,7 +741,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			authStatus, authTone = "private runtime cleanup failed", terminalui.ToneFail
 		}
 		terminalui.PrintExitFooter(stderr, caps, "cgx", terminalui.ExitFooter{RunDuration: time.Since(started), ExitCode: exitCode, AuthStatus: authStatus, AuthTone: authTone, EngineName: "grok", EngineVersion: version})
-		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.End()})
+		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.End(), Details: commStats.Details(), Table: commStats.Table()})
 	}()
 	rt, err := native.NewRuntime(baseHome, cfg, client, pool, contentLock)
 	if err != nil {
@@ -974,7 +974,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		if minimal {
 			caps.IsTTY = false
 		}
-		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.Start()})
+		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.Start(), Details: commStats.Details(), Table: commStats.Table()})
 	}
 	started = time.Now()
 	code := execute(activityCtx, path, args, env, stdout, stderr, rt)
