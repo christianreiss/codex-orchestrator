@@ -61,7 +61,7 @@ export async function preparePeerBatch(tx: AgentMessagingDb, target: AgentBusAdd
     isNull(agentBusMessages.workKind),
     isNull(agentBusMessages.taskResultStatus),
     gt(agentBusMessages.expiresAt, now),
-    inArray(agentBusMessages.kind, ['message', 'reply', 'publication']),
+    inArray(agentBusMessages.kind, ['message', 'reply', 'publication', 'presence_notice']),
     sql`NOT EXISTS (SELECT 1 FROM agent_bus_messages parent WHERE parent.id = ${agentBusMessages.replyToMessageId}
           AND (parent.work_kind IS NOT NULL OR parent.kind IN ('request','task','schedule')))`,
   );

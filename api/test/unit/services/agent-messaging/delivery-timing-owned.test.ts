@@ -214,6 +214,31 @@ describe.each(['codex', 'claude', 'grok'])('%s owned immediate admission', (engi
     } finally { await f.close(); }
   });
 
+  it('batches stale presence notices losslessly with peer progress at an ordinary drain', async () => {
+    const f = fixture(engine, 9);
+    try {
+      const draft = f.state.begin();
+      for (const [i, row] of draft.table('agentBusMessages').all().entries()) draft.upsert('agentBusMessages', {
+        ...row, createdAt: '2026-01-01T00:00:00Z', deliveryTiming: 'after_turn',
+        ...(i % 2 === 0 ? { kind: 'presence_notice', senderAddressId: SERVER_ADDRESS_ID } : {}),
+      });
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+      await prepareOwnedPresentations(f.db as never, f.runtime, f.keyring,
+        [f.messages[0]!.targetAddressId], { smart: true, peer: true, relay: false, includeStaleImmediate: true });
+      const roots = f.state.snapshot().messages.all().filter(row => row.kind === 'digest');
+      expect(roots).toHaveLength(1);
+      for (const original of f.messages) expect(f.state.snapshot().messages.get(original.id)).toMatchObject({
+        status: 'batched', digestId: roots[0]!.id, attempts: 0, acceptedAt: null,
+      });
+      const root = f.db.inserts.find(row => row.table === schema.agentBusMessages)!.values as schema.AgentBusMessage;
+      const body = JSON.parse(decrypt(root.contentEnc, f.keyring));
+      expect(body.total).toBe(9);
+      expect(body.entries.map((entry: { message_id: string }) => entry.message_id)).toEqual(f.messages.map(row => row.id));
+      expect(body.entries.filter((entry: { kind: string }) => entry.kind === 'presence_notice')).toHaveLength(5);
+      expect(body.entries.every((entry: { content: string }) => entry.content === 'immediate information')).toBe(true);
+    } finally { await f.close(); }
+  });
+
   it('keeps stale information individually actionable in the active immediate lane', async () => {
     const f = fixture(engine);
     try {
