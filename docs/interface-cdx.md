@@ -171,6 +171,13 @@ unsupported/custom native endpoints never advertise an inbound receiver merely
 because MCP is configured. Existing Engine/Fleet switches and native permissions
 remain authoritative; queue admission and successful work results are separate.
 
+Codex `exec`/`e` (including wrapper `--execute`) and `review` use the direct native
+transport even when stdin/stdout are terminals. They retain managed identity,
+account/auth leases and process supervision, but do not start a private TUI
+app-server or receive the TUI-only `--remote` argument. Interactive starts and
+TUI `resume`/`fork` retain their private receiver. Claude and Grok transports are
+unchanged.
+
 `cxx native-entry install` repairs entries from locally verified signed configs;
 `cxx native-entry remove` removes managed entries and shell blocks for rollback.
 Both refuse, and the automatic post-command reconciliation skips, a home
