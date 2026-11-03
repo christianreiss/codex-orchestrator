@@ -18,6 +18,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/projectfiles"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/transfers"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/workload"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
@@ -47,6 +48,11 @@ func main() {
 }
 
 func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
+	// Local cooperative admission must not depend on auth, fleet availability,
+	// communicator startup or native-entry reconciliation. All engines share it.
+	if len(args) > 0 && args[0] == "workload" {
+		return workload.Command(args[1:], os.Stdin, stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == grok.PrivateReaperCommand {
 		return grok.RunPrivateReaper(args[1:])
 	}
@@ -390,6 +396,8 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx project file put SLUG FILE [--stored-name NAME] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx transfer put FILE | get ID --output FILE [--resume] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx housekeeping [status|run [--dry-run]|pin|unpin] [--engine ENGINE] [--json]")
+	fmt.Fprintln(w, "  cxx workload run --memory 8GiB [--wait 5m] -- command [args...]  (Linux, cooperative jobs)")
+	fmt.Fprintln(w, "  cxx workload status|hold|resume | release ID --confirm-finished")
 	fmt.Fprintln(w, "  cxx cron [install|remove|run [--due]]")
 	fmt.Fprintln(w, "  cxx portal [status|notify|resolve|say|ask|wait|accept|leave]")
 	fmt.Fprintln(w, "  cxx agent [list|send|request|wait|reply|message|cancel|status|service]")

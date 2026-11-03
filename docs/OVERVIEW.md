@@ -1,5 +1,10 @@
 # Overview
 
+Linux heavy jobs can opt into shared per-user RAM reservations with
+`cxx workload run --memory 8GiB --wait 5m -- command`. This cooperative launcher
+preserves native sessions; commands outside it remain outside its coverage.
+See [job memory admission](workload-admission.md) for accounting, holds and crash recovery.
+
 The feedback fixes retain safe advisor registration conflict codes, identify Git
 Director username and workspace mismatches, and accept supported 4 MiB portal
 attachment chunks without a validator stack overflow. Stale presence notices
