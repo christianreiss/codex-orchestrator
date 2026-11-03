@@ -310,6 +310,25 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
     expect(originals.every(row => row.status === 'digested' && row.deliveryTiming === 'immediate' && row.attempts === 0 && !row.acceptedAt)).toBe(true);
   });
 
+  for (const engine of ENGINES) it(`${engine}: batches stale presence notices with peer information`, async () => {
+    const source = await peer(engine), target = await peer(engine, true, true, true);
+    const ids: string[] = [];
+    for (let n = 0; n < 9; n++) ids.push((await send(source, target, `Presence or progress ${n}`)).message.id);
+    await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(inArray(schema.agentBusMessages.id, ids));
+    await db.update(schema.agentBusMessages).set({ kind: 'presence_notice' }).where(inArray(schema.agentBusMessages.id, ids.filter((_, i) => i % 2 === 0)));
+    const d = (await claim(target))!;
+    expect(d.kind).toBe('digest');
+    const body = JSON.parse(d.content);
+    expect(body.total).toBe(9);
+    expect(body.entries.map((entry: { message_id: string }) => entry.message_id)).toEqual(ids);
+    expect(body.entries.filter((entry: { kind: string }) => entry.kind === 'presence_notice')).toHaveLength(5);
+    await ack(target, d, 'accepted'); await ack(target, d, 'completed');
+    expect((await service.getDigest(target.id, target.token, d.message_id)).messages).toHaveLength(9);
+    expect(await claim(target)).toBeNull();
+    const originals = await db.select().from(schema.agentBusMessages).where(inArray(schema.agentBusMessages.id, ids));
+    expect(originals.every(row => row.status === 'digested' && row.attempts === 0 && !row.acceptedAt)).toBe(true);
+  });
+
   it('retains oversized immediate originals and restores their timing on policy rollback', async () => {
     const source = await peer(), target = await peer('codex', true, true, true);
     const large = await send(source, target, 'x'.repeat(13000), { queue: { delivery_timing: 'immediate' } });

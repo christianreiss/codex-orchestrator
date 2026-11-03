@@ -3656,13 +3656,15 @@ independently of the opt-in preview digest flag and its host allowlist. Older re
 retain their previous behavior. Set the new flag to `false` and recreate the API to
 roll back this presentation policy.
 
-When at least two untouched non-work messages wait and the oldest is at least 60 seconds
-old, the receiver claims one `kind: digest` presentation with
+When at least two untouched non-work messages (including presence notices) wait
+and the oldest is at least 60 seconds old, the receiver claims one `kind: digest` presentation with
 `content.presentation: peer_batch_v1`. It owns the complete waiting backlog and initially carries up to 20 complete originals
 within 12,000 UTF-8 JSON bytes, including sender, original message/conversation/reply IDs,
 creation time, delivery class and full content. A non-null `next_after` requires reading the remaining originals through paginated
 `agent_digest_get` in the same turn, including oversized entries; no content is truncated. This groups transport turns; it does not infer that a status is obsolete,
-truncate answers, or silently acknowledge already-inspected messages. Advisor answers
+truncate answers, or silently acknowledge already-inspected messages. Presence notices
+retain their original kind and must not receive a peer reply; they share the presentation
+rather than causing separate continuation turns. Advisor answers
 are coordination and participate with every answer/turn intact. `advisor_status`,
 `agent_wait` and message reads remain read-only.
 

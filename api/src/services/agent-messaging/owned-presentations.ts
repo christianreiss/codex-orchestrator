@@ -278,7 +278,7 @@ export async function prepareOwnedPresentations(
               (options.peer
                 ? row.attempts === 0 &&
                   !row.taskResultStatus &&
-                  ['message', 'reply', 'publication'].includes(row.kind)
+                  ['message', 'reply', 'publication', 'presence_notice'].includes(row.kind)
                 : row.deliveryClass !== 'coordination' &&
                   ['message', 'reply', 'publication', 'presence_notice'].includes(row.kind)),
           )
