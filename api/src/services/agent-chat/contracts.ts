@@ -62,3 +62,17 @@ export const CHAT_LIMITS = {
   max_chunk_bytes: 4 * 1024 * 1024,
   max_media_seconds: 900,
 };
+
+export function decodeAttachmentChunk(encoded: string): Buffer {
+  if (encoded.length > 4 * Math.ceil(CHAT_LIMITS.max_chunk_bytes / 3))
+    throw new ValidationError('Invalid upload chunk size');
+  // Repeated four-character regex groups exhaust V8's stack at the supported
+  // 4 MiB chunk size. Check the alphabet and trailing padding in linear space.
+  const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0;
+  if (encoded.length % 4 !== 0 || /[^A-Za-z0-9+/]/.test(encoded.slice(0, encoded.length - padding)))
+    throw new ValidationError('Invalid base64');
+  const bytes = Buffer.from(encoded, 'base64');
+  if (!bytes.length || bytes.length > CHAT_LIMITS.max_chunk_bytes)
+    throw new ValidationError('Invalid upload chunk size');
+  return bytes;
+}

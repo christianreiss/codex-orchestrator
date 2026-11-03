@@ -13,7 +13,7 @@ import { decrypt, encrypt } from '../../security/secret-box.js';
 import type { Keyring } from '../../security/keyring.js';
 import { nowIso } from '../../util/timestamp.js';
 import { ownedWorkflowRunGroup } from '../workflow-run-group.js';
-import { attachmentCreateSchema, CHAT_LIMITS } from './contracts.js';
+import { attachmentCreateSchema, CHAT_LIMITS, decodeAttachmentChunk } from './contracts.js';
 import type { ChatAttachments } from './attachments.js';
 import type { EffectHandler } from '../../control-plane/outbox.js';
 
@@ -136,15 +136,9 @@ export class OwnedChatAttachments {
   }
   async put(sessionId: string, owner: string, id: string, offset: number, encoded: string) {
     const identity = this.identity(sessionId, owner);
-    if (
-      !Number.isSafeInteger(offset) ||
-      offset < 0 ||
-      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)
-    )
+    if (!Number.isSafeInteger(offset) || offset < 0)
       throw new ValidationError('Invalid upload chunk');
-    const bytes = Buffer.from(encoded, 'base64');
-    if (!bytes.length || bytes.length > CHAT_LIMITS.max_chunk_bytes)
-      throw new ValidationError('Invalid upload chunk size');
+    const bytes = decodeAttachmentChunk(encoded);
     await mutateOwnerState(this.runtime, {
       kind: 'attachment.put',
       payload: {

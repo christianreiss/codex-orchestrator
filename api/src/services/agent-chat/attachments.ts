@@ -20,7 +20,7 @@ import type { Keyring } from '../../security/keyring.js';
 import { nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { assertWorkflowAttachmentWrite } from '../workflow-run-group.js';
-import { attachmentCreateSchema, CHAT_LIMITS, type ChatMetadata } from './contracts.js';
+import { attachmentCreateSchema, CHAT_LIMITS, decodeAttachmentChunk, type ChatMetadata } from './contracts.js';
 
 type ChatDb = Pick<Database, 'select' | 'update' | 'insert'>;
 export class ChatAttachments {
@@ -142,11 +142,7 @@ export class ChatAttachments {
     if(ownerRuntimeFor(this.db))return new OwnedChatAttachments(this.db,this.keyring,this).put(sessionId,owner,id,offset,encoded);
     sessionId = await this.conversationKey(sessionId);
     if (owner.startsWith('agent:')) owner = `agent:${sessionId}`;
-    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded))
-      throw new ValidationError('Invalid base64');
-    const bytes = Buffer.from(encoded, 'base64');
-    if (!bytes.length || bytes.length > CHAT_LIMITS.max_chunk_bytes)
-      throw new ValidationError('Invalid upload chunk size');
+    const bytes = decodeAttachmentChunk(encoded);
     await this.db.transaction(async (tx) => {
       await assertWorkflowAttachmentWrite(tx, sessionId, owner);
       const [row] = await tx
