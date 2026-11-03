@@ -74,11 +74,12 @@ import { wsPublisher } from '../ws/publisher.js';
 /** The `versions` row that switches the whole module on. Absent means off. */
 export const GIT_DIRECTOR_ENABLED_FLAG = 'git_director_enabled';
 
-function nativeRegistrationRequired(message: string, workspaceMismatch = false) {
+function nativeRegistrationRequired(message: string, workspaceMismatch = false, mismatchFields: string[] = []) {
   const recovery = workspaceMismatch
     ? ' Bind the actual absolute checkout and common directory with agent_context_update before registering a linked worktree or a checkout outside your bound one. A separate repository nested inside your bound checkout (e.g. a submodule) registers directly when you pass its own clone_dir (`git rev-parse --path-format=absolute --git-common-dir` run inside it).'
     : ' Run cxx communicator status; use the original managed native process and its private MCP broker, then retry. A Claude Desktop Code-tab / Agent SDK session connected only to the content MCP has no native agent binding: agent_self, agent_session_name and quota_get are intentionally unavailable there. Start the task through cxx native claude (or clx) in a terminal for supported session-bound coordination. Content MCP access, agent_self or naming alone does not establish connection proof.';
-  return new ConflictError(message + recovery, 'git_director_owner_required');
+  return new ConflictError(message + recovery, 'git_director_owner_required',
+    mismatchFields.length ? { mismatch_fields: mismatchFields } : undefined);
 }
 
 /**
@@ -2217,7 +2218,18 @@ export class GitDirectorService {
           'git_director_username_mismatch',
         );
       }
-      if(session.hostId!==host.id||session.engine!==engine||(root!==worktreePath&&!nested))throw nativeRegistrationRequired('Registration differs from authenticated native session', true);
+      const mismatchFields = [
+        ...(session.hostId !== host.id ? ['host_id'] : []),
+        ...(session.engine !== engine ? ['engine'] : []),
+        ...(root !== worktreePath && !nested ? ['worktree_path'] : []),
+      ];
+      if (mismatchFields.length) {
+        throw nativeRegistrationRequired(
+          `Registration differs from authenticated native session. Mismatched fields: ${mismatchFields.join(', ')}.`,
+          mismatchFields.includes('worktree_path'),
+          mismatchFields,
+        );
+      }
       const attachment=nativeClaimAttachment(owner,session),address=session.agentBusAddressId?snapshot.addresses.get(session.agentBusAddressId):undefined;
       if((!attachment&&!legacyDrainFor(owner)?.session(session.id,session.bindingGeneration))||address?.currentSessionId!==session.id||address.bindingGeneration!==session.bindingGeneration)return null;
       this.ownedContext.getStore()?.checks.push(current=>{const checked=ownedBridge(current,principal.sessionId,principal.bridgeToken).session;if(checked.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Native binding changed','git_director_owner_uncertain');});

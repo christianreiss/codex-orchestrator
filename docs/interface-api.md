@@ -1036,7 +1036,11 @@ All three engine config GET/store routes share the revision contract: `revision`
   `clone_dir` is passed explicitly and names neither the parent's
   `workspace.git_common_dir` nor the nested toplevel itself; a linked worktree
   of the parent, or any path outside it, still needs `agent_context_update`
-  (`git_director_owner_required`). `clone_dir` must be
+  (`git_director_owner_required`). Native registration refusals identify the
+  differing `host_id`, `engine` or `worktree_path` in `mismatch_fields`; an already
+  matching checked-in workspace requires no additional context update. Field names
+  are diagnostic only: authentication and native attachment requirements remain.
+  `clone_dir` must be
   `git rev-parse --path-format=absolute --git-common-dir`: merge guards match a
   git claim's `common_dir` against it, and a registration whose `clone_dir`
   equals `repo_root` carries `clone_dir_hint`. A `remote_url` whose normalized

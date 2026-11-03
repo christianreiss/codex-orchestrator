@@ -416,6 +416,30 @@ it.each(['codex', 'claude', 'grok'] as const)('%s distinguishes a registration u
   expect(h.state.snapshot().table('gitWorktrees').all()[0]?.username).toBe('root');
 });
 
+it.each(['codex', 'claude', 'grok'] as const)('%s registers its matching checked-in workspace without another context update', async engine => {
+  const h = setup(engine);
+  await mutateOwnerState(h.owner, { kind: 'test.checked-in-workspace', payload: {}, prepare(ctx) {
+    ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(h.sessionId)!, workspace: {
+      cwd: '/repo/src', git_status: 'repository', git_root: '/repo', git_common_dir: '/repo/.git', branch: 'main', head_sha: null, repository_key: null,
+    } });
+    return null;
+  } });
+  const register = (input: Record<string, unknown>) => withNativePrincipal(
+    { sessionId: h.sessionId, bridgeToken: h.token },
+    () => h.git.register({ worktree_path: '/repo', clone_dir: '/repo/.git', engine, ...input }, h.host),
+  );
+  await expect(register({ engine: engine === 'codex' ? 'claude' : 'codex' })).rejects.toMatchObject({
+    code: 'git_director_owner_required', extra: { mismatch_fields: ['engine'] },
+    message: expect.stringContaining('Mismatched fields: engine'),
+  });
+  await expect(register({ worktree_path: '/other' })).rejects.toMatchObject({
+    code: 'git_director_owner_required', extra: { mismatch_fields: ['worktree_path'] },
+    message: expect.stringContaining('agent_context_update'),
+  });
+  expect(h.state.snapshot().table('gitWorktrees').all()).toHaveLength(0);
+  await expect(register({})).resolves.toMatchObject({ registered: true, agent_address_bound: true });
+});
+
 describe('Git Director feedback sweep (registration state, remotes, nesting, list filters)', () => {
   const as = <T>(h: ReturnType<typeof setup>, run: () => Promise<T>) =>
     withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, run);
