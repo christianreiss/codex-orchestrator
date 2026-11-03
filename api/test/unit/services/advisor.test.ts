@@ -105,6 +105,11 @@ describe('Advisor terminal diagnostics', () => {
       diagnostic: { code: 'native_exit', exit_status: 1, startup_stage: 'registration', startup_code: 'agent_messaging_lease_lost', http_status: 409 } });
     await expect(f.status(randomUUID())).rejects.toMatchObject({ status: 403 });
   });
+  it.each(['agent_name_pool_exhausted', 'agent_messaging_address_busy', 'agent_messaging_binding_stale', 'agent_session_conflict', 'session_housekeeping_busy'])('preserves the safe registration refusal %s', async (code) => {
+    const f = fixture(`Native process exited unsuccessfully; exit_status=1; startup stage=registration code=${code} http=409`);
+    expect(await f.status()).toMatchObject({ status: 'failed', verdict: null,
+      diagnostic: { code: 'native_exit', exit_status: 1, startup_stage: 'registration', startup_code: code, http_status: 409 } });
+  });
   it.each([
     'Native process exited unsuccessfully; inspect the native session on the host',
     'Provider refused private-account-data',

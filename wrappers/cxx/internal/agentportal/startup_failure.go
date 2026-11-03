@@ -23,7 +23,9 @@ func validStartupFailure(f startupFailure) bool {
 		return false
 	}
 	switch f.Code {
-	case "failed", "api_rejected", "agent_messaging_lease_lost", "agent_session_finished", "agent_identity_conflict":
+	case "failed", "api_rejected", "agent_messaging_lease_lost", "agent_session_finished", "agent_identity_conflict",
+		"agent_name_pool_exhausted", "agent_messaging_address_busy", "agent_messaging_binding_stale",
+		"agent_session_conflict", "session_housekeeping_busy":
 	default:
 		return false
 	}
@@ -43,7 +45,9 @@ func recordStartupFailure(stage string, err error) {
 	if errors.As(err, &apiErr) {
 		f.Status, f.Code = apiErr.Status, "api_rejected"
 		switch apiErr.Code {
-		case "agent_messaging_lease_lost", "agent_session_finished", "agent_identity_conflict":
+		case "agent_messaging_lease_lost", "agent_session_finished", "agent_identity_conflict",
+			"agent_name_pool_exhausted", "agent_messaging_address_busy", "agent_messaging_binding_stale",
+			"agent_session_conflict", "session_housekeeping_busy":
 			f.Code = apiErr.Code
 		}
 	}

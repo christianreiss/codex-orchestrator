@@ -82,3 +82,20 @@ func TestSuccessfulIdentityClearsTransientStartupFailure(t *testing.T) {
 		t.Fatal("capability survived successful gate")
 	}
 }
+
+func TestStartupFailurePreservesRegistrationConflictCodes(t *testing.T) {
+	for _, code := range []string{"agent_name_pool_exhausted", "agent_messaging_address_busy", "agent_messaging_binding_stale", "agent_session_conflict", "session_housekeeping_busy"} {
+		t.Run(code, func(t *testing.T) {
+			file, err := os.CreateTemp(t.TempDir(), "startup")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			t.Setenv(StartupFailureEnv, file.Name())
+			recordStartupFailure("registration", &PortalError{Status: 409, Code: code, Message: "private-token-and-prompt"})
+			if got, want := ReadStartupFailure(file), "startup stage=registration code="+code+" http=409"; got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
