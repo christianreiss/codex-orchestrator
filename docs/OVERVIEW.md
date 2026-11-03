@@ -1,5 +1,9 @@
 # Overview
 
+Codex noninteractive execution uses the direct native transport even when invoked
+from a terminal, avoiding the TUI-only `--remote` argument while retaining managed
+identity, auth leases and process supervision. See [native entrypoints](interface-cdx.md).
+
 The feedback fixes retain safe advisor registration conflict codes, identify Git
 Director username and workspace mismatches, and accept supported 4 MiB portal
 attachment chunks without a validator stack overflow. Stale presence notices

@@ -4,11 +4,40 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestNonInteractiveCommandsKeepDirectTransportOnATerminal(t *testing.T) {
+	// The caller may have TTY stdin/stdout even for cdx --execute. These
+	// commands cannot attach the TUI's --remote transport or start its server.
+	t.Setenv("CXX_AGENT_PORTAL_SOCKET", "")
+	for _, args := range [][]string{
+		{"exec", "--", "prompt"},
+		{"e", "prompt"},
+		{"review", "--uncommitted"},
+		{"--model", "fixture", "exec", "resume", "native-id", "prompt"},
+		{"--config", "fixture=1", "exec", "fork", "native-id"},
+	} {
+		got, cleanup, err := startReceiverServer(context.Background(), "must-not-start", args, nil, nil, nil)
+		if err != nil || !reflect.DeepEqual(got, args) {
+			t.Fatalf("non-interactive %q acquired TUI transport: args=%q err=%v", args, got, err)
+		}
+		cleanup()
+	}
+	for _, args := range [][]string{
+		nil, {"resume", "native-id"}, {"fork", "native-id"},
+		{"--model", "exec"}, {"--", "exec"}, {"--image", "exec", "resume"},
+	} {
+		_, _, err := startReceiverServer(context.Background(), "must-not-start", args, nil, nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "private broker unavailable") {
+			t.Fatalf("TUI %q did not retain receiver requirements: %v", args, err)
+		}
+	}
+}
 
 func TestReceiverCleanupTerminatesServerAndItsDescendant(t *testing.T) {
 	dir := t.TempDir()
