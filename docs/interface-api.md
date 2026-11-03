@@ -1023,7 +1023,11 @@ All three engine config GET/store routes share the revision contract: `revision`
   owner, admin, or fleet role.
   Registration takes its engine from MCP dispatch. When `username` is omitted,
   a unique fresh live address matching the host, engine and worktree directory
-  supplies it; missing or ambiguous matches remain unbound. The address must also
+  supplies it; missing or ambiguous matches remain unbound. In native session-bound
+  registration, `username` means the authenticated OS account, not the agent's
+  launch/display name. A supplied mismatch is refused with
+  `409 git_director_username_mismatch`; omit it to use the authenticated account.
+  This does not change workspace or native ownership proof requirements. The address must also
   match the worktree directory (session `workspace.git_root`/`cwd`), so an agent
   that launched in the original checkout binds a linked worktree only after
   `agent_context_update` moves its scope there. One exception keeps a parent
