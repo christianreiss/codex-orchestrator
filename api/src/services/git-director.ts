@@ -2211,7 +2211,13 @@ export class GitDirectorService {
       // still refuses below, and claims still guard the merge.
       const nested=Boolean(workspace?.git_root&&workspace.git_common_dir&&root!=='/'&&worktreePath.startsWith(root+'/')&&
         explicitCloneDir&&explicitCloneDir!==normalizePath(workspace.git_common_dir)&&explicitCloneDir!==worktreePath);
-      if(session.hostId!==host.id||session.engine!==engine||username&&session.username!==username||(root!==worktreePath&&!nested))throw nativeRegistrationRequired('Registration differs from authenticated native session', true);
+      if (username && session.username !== username) {
+        throw new ConflictError(
+          'Registration username does not match the authenticated native session OS username; omit username to use that account. The agent launch/display name is not an OS username.',
+          'git_director_username_mismatch',
+        );
+      }
+      if(session.hostId!==host.id||session.engine!==engine||(root!==worktreePath&&!nested))throw nativeRegistrationRequired('Registration differs from authenticated native session', true);
       const attachment=nativeClaimAttachment(owner,session),address=session.agentBusAddressId?snapshot.addresses.get(session.agentBusAddressId):undefined;
       if((!attachment&&!legacyDrainFor(owner)?.session(session.id,session.bindingGeneration))||address?.currentSessionId!==session.id||address.bindingGeneration!==session.bindingGeneration)return null;
       this.ownedContext.getStore()?.checks.push(current=>{const checked=ownedBridge(current,principal.sessionId,principal.bridgeToken).session;if(checked.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Native binding changed','git_director_owner_uncertain');});

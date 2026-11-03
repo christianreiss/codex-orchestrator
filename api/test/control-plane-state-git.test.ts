@@ -400,6 +400,22 @@ it.each(['codex','claude','grok'] as const)('%s explains missing native Git proo
  expect(h.state.snapshot().table('gitWorktrees').all()).toHaveLength(0);
 });
 
+it.each(['codex', 'claude', 'grok'] as const)('%s distinguishes a registration username mismatch from workspace binding', async engine => {
+  const h = setup(engine);
+  const register = (username?: string) => withNativePrincipal(
+    { sessionId: h.sessionId, bridgeToken: h.token },
+    () => h.git.register({ worktree_path: '/repo', clone_dir: '/repo/.git', engine, username }, h.host),
+  );
+  await expect(register('Fixture')).rejects.toMatchObject({
+    code: 'git_director_username_mismatch',
+    message: expect.stringContaining('OS username'),
+  });
+  expect(h.state.snapshot().table('gitWorktrees').all()).toHaveLength(0);
+  await expect(register()).resolves.toMatchObject({ registered: true, agent_address_bound: true });
+  await expect(register('root')).resolves.toMatchObject({ registered: true, agent_address_bound: true });
+  expect(h.state.snapshot().table('gitWorktrees').all()[0]?.username).toBe('root');
+});
+
 describe('Git Director feedback sweep (registration state, remotes, nesting, list filters)', () => {
   const as = <T>(h: ReturnType<typeof setup>, run: () => Promise<T>) =>
     withNativePrincipal({ sessionId: h.sessionId, bridgeToken: h.token }, run);
