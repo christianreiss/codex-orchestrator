@@ -1,5 +1,10 @@
 # cgx — Grok Build fleet wrapper
 
+Linux `cgx workload run --memory 8GiB [--wait 5m] -- command` shares the same
+cooperative per-user memory pool as `cxx`, `cdx` and `clx`. `workload status|hold|resume`
+and explicit uncertain-reservation release operate locally without native startup.
+See [job memory admission](workload-admission.md) for scope, reserve, cgroup and child-lifetime rules.
+
 From cxx 0.9.156, native startup/exit separates unique managed sessions from
 transport leases and shows an engine by connection-type matrix. Pending launch
 admission recovers before required state attachment, retaining the original
