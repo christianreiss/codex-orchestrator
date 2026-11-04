@@ -4,6 +4,10 @@
 - **cxx 0.9.158 — connection table:** the communicator table at native startup/exit is drawn with a dim header, `│┼` rules, accent-coloured engine names, right-aligned numbers and dimmed zeros on colour terminals (plain output is unchanged). Rows whose columns are all zero are omitted. Session and receiver state streams now report their engine, so they no longer show up as a phantom `unknown` row.
 - **Insecure hosts update again:** an insecure host's communicator is no longer disconnected when its window is closed; the window still gates state topics and routes. Since 2026-10-24 the silent disconnect turned every nightly `/cron/check` of an insecure host into a local 503, stranding about 50 hosts on cxx 0.9.123. Their agents then could not obtain resource claims (`claim_connection_required`) and refused every change. The next nightly cron updates them without an operator window.
 - **Claim errors name an outdated cxx:** `claim_connection_required` from a pre-proof wrapper (cxx < 0.9.125) now reports `proof_state: client_too_old` and tells the agent to run `cxx update`, instead of asking it to reconnect a process that can never attach proof.
+- **Feedback sweep (cxx 0.9.158):**
+  - Communicator 1008 closes are logged with code, host_id and connection_id. cxx sends `POST /cron/check` over direct HTTPS when the control channel is unavailable or refused, so a server-side refusal can no longer stall self-updates (wrappers up to 0.9.157 cannot be fixed server-side). The `cxx-agent` MCP keeps structured error details such as `claim_connection.proof_state` as a second content item and `structuredContent`.
+  - cdx writes `config.toml` 0600 and tightens existing group/world-readable copies, because it carries the managed MCP bearer. Native Codex utilities (`codex mcp …`, `completion`, `features`, …) take the raw vendor path without managed sync, boot screen or maintenance request.
+  - `agent_reply` with a `task_result` on a non-work message now says that only `agent_request` messages create work.
 
 # 2026-11-03
 
