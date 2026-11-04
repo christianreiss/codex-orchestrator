@@ -193,7 +193,7 @@ does not authorize adopting an older claim. No credential, native-instance UUID 
 foreign owner's proof is exposed. The session `cxx-agent` MCP (all three engines)
 passes these fields through: an error carrying fields beyond message and code keeps
 its readable text as the first content item and adds `{error:{message,code,...}}`
-as a second text item and as `structuredContent` (cxx 0.9.158+; older wrappers
+as a second text item and as `structuredContent` (cxx 0.9.159+; older wrappers
 showed the message only). Run `cxx communicator status` and the engine's
 `cdx doctor`/`clx doctor`/`cgx doctor` read-only on that host. A stale owner is a
 possible diagnosis, not proof: coordinate any shared-owner restart with its users.
