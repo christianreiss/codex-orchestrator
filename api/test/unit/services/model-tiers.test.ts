@@ -9,6 +9,7 @@ import { buildModelPolicy } from '../../../src/services/model-policy.js';
 import { SUPPORTED_MODELS } from '../../../src/services/config-normalizer.js';
 import { CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js';
 import { GROK_SUPPORTED_MODELS } from '../../../src/services/grok-models.js';
+import { registryModels } from '../../../src/services/model-registry/index.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../../../src/util/engine.js';
 
 describe('modelTier', () => {
@@ -45,6 +46,34 @@ describe('modelTier', () => {
     expect(modelTier(ENGINE_CLAUDE, 'claude-mythos-1')).toBeNull();
     expect(modelTier(ENGINE_GROK, 'grok-9')).toBeNull();
     expect(modelTier(ENGINE_CODEX, null)).toBeNull();
+  });
+});
+
+describe('every registry model identifies itself', () => {
+  // The greeting and the tier check both read the configured model; each
+  // registry id and alias must resolve to its own tier and be named verbatim.
+  it.each(ENGINES.map((engine) => [engine] as const))('%s: ids, aliases and variants resolve to the registry tier', (engine) => {
+    const models = registryModels(engine);
+    expect(models.length).toBeGreaterThan(0);
+    for (const entry of models) {
+      const ids = [entry.id, ...(entry.aliases ?? [])];
+      if (engine === ENGINE_CLAUDE) ids.push(`${entry.id}[1m]`);
+      for (const id of ids) {
+        expect(modelTier(engine, id), `${engine}/${id}`).toBe(entry.tier);
+        const text = renderModelTierGuidance([], { engine, model: id });
+        expect(text).toContain(`configured ${engine} model is \`${id}\` (Tier ${entry.tier})`);
+        expect(text).toContain(`von ${ENGINE_VENDOR[engine]} `);
+      }
+    }
+  });
+
+  it('keeps labels distinct and family names usable for the greeting', () => {
+    for (const engine of ENGINES) {
+      const models = registryModels(engine);
+      expect(new Set(models.map((entry) => entry.id)).size).toBe(models.length);
+      expect(new Set(models.map((entry) => entry.label)).size, `${engine} labels`).toBe(models.length);
+      for (const entry of models) expect(entry.family, `${engine}/${entry.id}`).toMatch(/^[a-z][a-z0-9-]*$/);
+    }
   });
 });
 
