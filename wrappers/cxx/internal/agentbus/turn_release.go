@@ -150,8 +150,10 @@ func (o *receiverOwner) serveTurn(w http.ResponseWriter, r *http.Request, ctx co
 
 // turnEnd is the hook's view after the release attempt.
 type turnEnd struct {
-	released      int
-	stillHeld     []heldDelivery
+	released  int
+	stillHeld []heldDelivery
+	// Submitted to Claude, but not yet recognized as consumed in its transcript.
+	unseenHeld    []heldDelivery
 	receiverReady bool
 	// blocked is set while accepted work or a Portal instruction is still held.
 	// Reception stays paused behind it, and agent_listen cannot change that.
@@ -232,6 +234,8 @@ func releaseAtTurnEnd(transcriptPath string, timeout time.Duration) *turnEnd {
 		}
 		if seen[h.MessageID] {
 			end.stillHeld = append(end.stillHeld, h)
+		} else {
+			end.unseenHeld = append(end.unseenHeld, h)
 		}
 	}
 	return end
@@ -246,9 +250,10 @@ func ownerPost(ctx context.Context, owner *sessionClient, path string, seen []st
 }
 
 // seenInTranscript reports which held message ids were dequeued into the
-// conversation: a `user` entry whose text opens the receiver's channel tag for
-// that id. Claude Code also logs a `queue-operation` entry when it merely
-// queues a notification; that one does not count.
+// conversation: a `user` entry or a native channel `queued_command` attachment
+// whose text opens the receiver's channel tag for that id. Claude 2.1.318 uses
+// the attachment when absorbing a channel during a running turn. Queue entries
+// (including removal) and unreferenced API request blobs are not consumption.
 func seenInTranscript(path string, held []heldDelivery) map[string]bool {
 	seen := map[string]bool{}
 	if strings.TrimSpace(path) == "" || len(held) == 0 {
@@ -298,18 +303,38 @@ func readTranscriptLine(reader *bufio.Reader) ([]byte, error) {
 
 func channelEntryFor(line []byte, id string) bool {
 	var entry struct {
-		Type    string `json:"type"`
+		Type        string `json:"type"`
+		IsSidechain bool   `json:"isSidechain"`
+		Attachment  struct {
+			Type   string `json:"type"`
+			Prompt string `json:"prompt"`
+			Origin struct {
+				Kind string `json:"kind"`
+			} `json:"origin"`
+		} `json:"attachment"`
 		Message struct {
 			Content json.RawMessage `json:"content"`
 		} `json:"message"`
 	}
-	if json.Unmarshal(line, &entry) != nil || entry.Type != "user" {
+	if json.Unmarshal(line, &entry) != nil || entry.IsSidechain {
 		return false
 	}
-	tag := `message_id="` + id + `"`
+	channelTextFor := func(text string) bool {
+		if !strings.HasPrefix(text, "<channel ") {
+			return false
+		}
+		end := strings.IndexByte(text, '>')
+		return end >= 0 && strings.Contains(text[:end], ` message_id="`+id+`"`)
+	}
+	if entry.Type == "attachment" {
+		return entry.Attachment.Type == "queued_command" && entry.Attachment.Origin.Kind == "channel" && channelTextFor(entry.Attachment.Prompt)
+	}
+	if entry.Type != "user" {
+		return false
+	}
 	var text string
 	if json.Unmarshal(entry.Message.Content, &text) == nil {
-		return strings.HasPrefix(text, "<channel ") && strings.Contains(text, tag)
+		return channelTextFor(text)
 	}
 	var blocks []struct {
 		Type string `json:"type"`
@@ -319,7 +344,7 @@ func channelEntryFor(line []byte, id string) bool {
 		return false
 	}
 	for _, block := range blocks {
-		if block.Type == "text" && strings.HasPrefix(block.Text, "<channel ") && strings.Contains(block.Text, tag) {
+		if block.Type == "text" && channelTextFor(block.Text) {
 			return true
 		}
 	}

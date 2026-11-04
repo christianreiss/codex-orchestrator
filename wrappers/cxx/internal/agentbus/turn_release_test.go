@@ -50,6 +50,48 @@ func dequeued(id string) map[string]any {
 	return map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": channelText(id)}}
 }
 
+// Claude 2.1.318 records a channel absorbed during a turn as a native
+// attachment, not a user entry. Queue removal alone is not consumption proof.
+func absorbedChannel(id string) map[string]any {
+	return map[string]any{"type": "attachment", "isSidechain": false, "attachment": map[string]any{
+		"type": "queued_command", "prompt": channelText(id), "commandMode": "prompt",
+		"origin": map[string]any{"kind": "channel", "server": "plugin:cxx-receiver:cxx-agent"},
+	}}
+}
+
+func TestSeenInTranscriptRecognizesAbsorbedChannelAttachments(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		entry map[string]any
+		want  bool
+	}{
+		{"absorbed channel", absorbedChannel("m"), true},
+		{"queued only", queued("m"), false},
+		{"queue removal only", map[string]any{"type": "queue-operation", "operation": "remove", "reason": "absorbed_mid_turn", "content": channelText("m")}, false},
+		{"unreferenced API blob", map[string]any{"type": "api-request-blob", "message": map[string]any{"role": "user", "content": channelText("m")}}, false},
+		{"other attachment", map[string]any{"type": "attachment", "attachment": map[string]any{"type": "hook_additional_context", "prompt": channelText("m")}}, false},
+		{"user queued command", map[string]any{"type": "attachment", "attachment": map[string]any{"type": "queued_command", "prompt": channelText("m"), "origin": map[string]any{"kind": "user"}}}, false},
+		{"ringer mentioning ID", map[string]any{"type": "attachment", "attachment": map[string]any{"type": "hook_additional_context", "content": []string{"message_id=m from Thekla; Outstanding delivery: m"}}}, false},
+		{"ID only in channel body", map[string]any{"type": "user", "message": map[string]any{"content": channelText("other") + channelText("m")}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seen := seenInTranscript(writeTranscript(t, tc.entry), []heldDelivery{{MessageID: "m"}})
+			if seen["m"] != tc.want {
+				t.Fatalf("seen=%v, want %v", seen, tc.want)
+			}
+		})
+	}
+	for _, entry := range []map[string]any{absorbedChannel("m"), dequeued("m")} {
+		entry["isSidechain"] = true
+		if seenInTranscript(writeTranscript(t, entry), []heldDelivery{{MessageID: "m"}})["m"] {
+			t.Fatal("a child transcript entry must not release the parent's receipt")
+		}
+	}
+	if channelEntryFor([]byte(`{"type":"attachment","attachment":{"type":"queued_command","prompt":"<channel message_id=\"m\">`), "m") {
+		t.Fatal("a partially written attachment is not consumption proof")
+	}
+}
+
 func TestSeenInTranscriptCountsOnlyDequeuedChannelEntries(t *testing.T) {
 	file := writeTranscript(t,
 		dequeued("read-string"),
@@ -96,7 +138,7 @@ func TestTurnEndReleasesReadInformationalDeliveryButKeepsWork(t *testing.T) {
 	t.Setenv(envSocket, filepath.Join(dir, "portal.sock"))
 	t.Setenv(envSessionID, owner.client.id)
 
-	end := releaseAtTurnEnd(writeTranscript(t, dequeued("read-reply"), queued("unread-reply"), dequeued("read-work")), 3*time.Second)
+	end := releaseAtTurnEnd(writeTranscript(t, absorbedChannel("read-reply"), queued("unread-reply"), absorbedChannel("read-work")), 3*time.Second)
 	if end == nil {
 		t.Fatal("hook could not reach the receiver owner")
 	}
@@ -113,6 +155,21 @@ func TestTurnEndReleasesReadInformationalDeliveryButKeepsWork(t *testing.T) {
 	}
 	if len(end.stillHeld) != 1 || end.stillHeld[0].MessageID != "read-work" || end.stillHeld[0].Kind != "work" || end.stillHeld[0].Sender != "Thekla" {
 		t.Fatalf("still held = %+v; want only the read work", end.stillHeld)
+	}
+	// A delayed duplicate hook must not complete the next message, accepted
+	// work, or an operator instruction. The owner selects exact held IDs.
+	owner.tracker.mu.Lock()
+	owner.tracker.items["successor"] = &channelPending{claimID: "claim-next", cancel: func() {}}
+	owner.tracker.mu.Unlock()
+	owner.tracker.receiver.mu.Lock()
+	owner.tracker.receiver.pendingPortal = map[string]any{"message_id": "portal"}
+	owner.tracker.receiver.mu.Unlock()
+	end = releaseAtTurnEnd(writeTranscript(t, absorbedChannel("read-reply"), absorbedChannel("read-work"), absorbedChannel("portal")), 3*time.Second)
+	if end == nil || end.released != 0 || len(acks) != 1 {
+		t.Fatalf("duplicate hook changed receipts: %+v, %v", end, acks)
+	}
+	if owner.tracker.get("successor") == nil || owner.tracker.get("read-work") == nil || owner.tracker.receiver.pendingPortal == nil {
+		t.Fatal("duplicate hook released a successor, work or Portal instruction")
 	}
 }
 
@@ -201,7 +258,7 @@ func TestPromptRingSaysMailArrivesAfterTheTurn(t *testing.T) {
 	}
 	specific, _ := hook["hookSpecificOutput"].(map[string]any)
 	context, _ := specific["additionalContext"].(string)
-	for _, want := range []string{"Thekla", "Irmtrud", "after the current turn ends", "delivery_timing", "does not help"} {
+	for _, want := range []string{"Thekla", "Irmtrud", "message_id=m-1", "message_id=m-2", "after the current turn ends", "delivery_timing", "does not help"} {
 		if !strings.Contains(context, want) {
 			t.Fatalf("after-turn ring lacks %q: %q", want, context)
 		}
@@ -211,6 +268,30 @@ func TestPromptRingSaysMailArrivesAfterTheTurn(t *testing.T) {
 	}
 	if human, _ := hook["systemMessage"].(string); !strings.Contains(human, "after this turn") {
 		t.Fatalf("the operator should learn when the call lands: %q", human)
+	}
+}
+
+func TestPromptRingDoesNotPromiseDeliveryPastUnseenReceipt(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(envSessionID, "99999999-9999-4999-8999-999999999999")
+	end := &turnEnd{receiverReady: true, afterTurn: true, unseenHeld: []heldDelivery{{MessageID: "unseen", Kind: "informational"}}}
+	box := &mailbox{Pending: []mailboxEntry{{MessageID: "next", From: mailboxPeer{Alias: "Thekla"}}}}
+	var out bytes.Buffer
+	if err := emitHook(&out, hookEventPrompt, box, end); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"message_id=next", "Outstanding delivery: unseen", "agent_message_get", "not confirmed"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q: %s", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "delivered after this turn") {
+		t.Fatalf("unproven promise: %s", out.String())
+	}
+	// Let the native queue drain: diagnostics must not create another Stop loop.
+	out.Reset()
+	if err := emitHook(&out, hookEventStop, box, end); err != nil || out.Len() != 0 {
+		t.Fatalf("Stop was blocked: %s (%v)", out.String(), err)
 	}
 }
 

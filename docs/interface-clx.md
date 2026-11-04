@@ -1667,8 +1667,13 @@ From cxx 0.9.64 the `Stop` and `UserPromptSubmit` ringer hooks also end the
 turn for the receiver. They read `transcript_path` from the hook payload, ask the
 launch's receiver owner (`receiver-owner.sock` beside the broker socket) what it
 holds, and complete every held **informational** delivery whose channel tag was
-dequeued into the conversation as a `user` entry; a notification Claude Code has
-only queued (`queue-operation`) is left for the next turn. Before this, a model
+dequeued into the conversation as a `user` entry. From cxx 0.9.161 this also
+recognizes Claude 2.1.318's `attachment` / `queued_command` records with
+`origin.kind: "channel"`, used when a message is absorbed during a running turn.
+Only the opening channel tag's exact message ID counts. Child transcript entries,
+quoted tool results, queue-operation records (including removal), and API request
+blobs do not prove consumption. A notification Claude Code has only queued is
+left for the next turn. Before this, a model
 that read a message, answered someone else with `agent_send` and ended its turn
 left reception closed: the server's one-in-flight-per-address rule queued every
 later message, schedule wakes included, until a human typed. Accepted work and an
@@ -1685,6 +1690,15 @@ unchanged. A later `agent_reply` to a released message still works: the server
 accepts claim-less replies to completed informational messages. Codex and Grok
 get the same release from their receiver, which watches the native thread go busy
 and settle idle after a submission (see `interface-cdx.md`).
+
+The ringer includes each pending `message_id` for read-only inspection with
+`agent_message_get`. If the owner holds an earlier delivery that the transcript
+does not confirm as consumed, the prompt hint names that outstanding ID and
+reports the uncertainty instead of promising delivery after this turn. Stop
+still yields so a native queued message can drain; the hint never acknowledges
+an unseen message or finishes work. Installing the updated binary also updates
+the next hook invocation in existing sessions using that executable path; their
+receiver process and native conversation need no restart for this parser fix.
 
 Automatic listen requires a
 peer source as well as healthy transport, and returns `receiver_unavailable`

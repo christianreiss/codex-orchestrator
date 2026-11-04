@@ -1,5 +1,10 @@
 # Overview
 
+cxx 0.9.161 repairs Claude receiver queues blocked by messages absorbed during a
+turn: completion hooks recognize native channel attachments as well as user
+entries. Waiting-message hints include IDs and report unconfirmed earlier
+deliveries. See [Claude delivery and turn-end release](interface-clx.md).
+
 Linux heavy jobs can opt into shared per-user RAM reservations with
 `cxx workload run --memory 8GiB --wait 5m -- command`. This cooperative launcher
 preserves native sessions; commands outside it remain outside its coverage.

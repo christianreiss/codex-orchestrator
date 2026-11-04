@@ -214,6 +214,11 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 		return nil
 	}
 	summary := ringSummary(fresh, end.ringMode())
+	if end != nil && len(fresh) > 0 && end.ringMode() == ringUnconfirmed {
+		for _, held := range end.unseenHeld {
+			summary.context += fmt.Sprintf("Outstanding delivery: %s (%s).\n", held.MessageID, held.Kind)
+		}
+	}
 	if heldText != "" {
 		if summary.context != "" {
 			summary.context += "\n"
@@ -306,6 +311,9 @@ const (
 	// turn ends. agent_listen cannot fetch a body mid-turn; a coordinator that
 	// was told to call it did so repeatedly and got nothing (feedback b0f9361b).
 	ringAfterTurn
+	// A submitted delivery has no recognized consumption record yet. It may
+	// still be in Claude's queue; do not promise that another Stop will clear it.
+	ringUnconfirmed
 )
 
 func (e *turnEnd) ringMode() ringMode {
@@ -314,6 +322,8 @@ func (e *turnEnd) ringMode() ringMode {
 		return ringListen
 	case e.blocked:
 		return ringBlocked
+	case len(e.unseenHeld) > 0:
+		return ringUnconfirmed
 	case e.receiverReady && e.afterTurn && len(e.stillHeld) == 0:
 		return ringAfterTurn
 	}
@@ -333,13 +343,18 @@ func ringSummary(fresh []mailboxEntry, mode ringMode) ringText {
 	if len(pending) > 0 {
 		fmt.Fprintf(&agent, "You have %s waiting on the agent bus:\n", plural(len(pending), "message", "messages"))
 		for _, entry := range pending {
-			fmt.Fprintf(&agent, "  - from %s (%s)", entry.From.name(), entry.From.Engine)
+			fmt.Fprintf(&agent, "  - message_id=%s from %s (%s)", entry.MessageID, entry.From.name(), entry.From.Engine)
 			if window := expiryHint(entry.ExpiresAt); window != "" {
 				fmt.Fprintf(&agent, ", expires %s", window)
 			}
 			agent.WriteString("\n")
 		}
 		switch mode {
+		case ringUnconfirmed:
+			agent.WriteString("\nThe receiver still holds an earlier delivery whose consumption is not confirmed by the native transcript. " +
+				"It may still be queued in Claude; ending this turn alone is not proof that pending mail will arrive. " +
+				"Inspect a listed message with `agent_message_get(message_id)`; this reads it without acknowledging or accepting work. " +
+				"Do not release an unseen delivery just to clear the queue.\n")
 		case ringBlocked:
 			agent.WriteString(
 				"\nThis is a ring, not the message. It is queued behind accepted work or an operator Portal " +
@@ -368,6 +383,8 @@ func ringSummary(fresh []mailboxEntry, mode ringMode) ringText {
 		}
 		if mode == ringAfterTurn {
 			human.WriteString(" (delivered after this turn)")
+		} else if mode == ringUnconfirmed {
+			human.WriteString(" (earlier delivery unconfirmed)")
 		}
 	}
 	if len(missed) > 0 {
