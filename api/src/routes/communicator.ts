@@ -224,7 +224,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       let lastFrameAt = Date.now();
       const checkAuthorization = async () => {
         if (stateAuthorization) {
-          stateAuthorization.host();
+          stateAuthorization.transport();
           return;
         }
         await authorize(req);
@@ -232,7 +232,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       const watchAuthorization = () => {
         clearTimeout(authorizationDeadline);
         try {
-          const result = stateAuthorization?.host();
+          const result = stateAuthorization?.transport();
           if (result?.deadline != null) {
             authorizationDeadline = setTimeout(
               watchAuthorization,
@@ -502,7 +502,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           }
           if (!greeted) throw new Error('Handshake required');
           lastFrameAt = Date.now();
-          if (stateAuthorization) stateAuthorization.host();
+          if (stateAuthorization) stateAuthorization.transport();
           if (typeof parsed.type === 'string' && parsed.type.startsWith('state_')) {
             if (!stateStreams) throw new Error('Connection state is unavailable');
             await stateStreams.receive(parsed);

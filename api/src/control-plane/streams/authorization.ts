@@ -72,7 +72,16 @@ export class StreamAuthorization {
     this.policy = transportPolicy(admitted);
     this.reverseDnsDefault = runtime.state.snapshot().setting('reverse_dns_enabled');
   }
-  host(snapshot = this.runtime.state.snapshot()) {
+  /**
+   * Transport admission only: key fingerprint, status, IP/DNS policy and host
+   * expiry. An insecure host's window deliberately does NOT gate the tunnel:
+   * every tunneled request re-enters its route's own policy (`/cron/*` updates
+   * insecure hosts without a window, operator decision 2026-10-14/15), and every
+   * state topic still applies the window through `host()`. Gating the socket on
+   * the window (2026-10-24 to 2026-11-04) silently refused every insecure host's
+   * nightly update and stranded ~50 hosts on cxx 0.9.123.
+   */
+  transport(snapshot = this.runtime.state.snapshot()) {
     this.runtime.assertOwner();
     const host = snapshot.hosts.get(this.hostId);
     if (
@@ -84,10 +93,15 @@ export class StreamAuthorization {
       (host.reverseDnsMode === null && snapshot.setting('reverse_dns_enabled') !== this.reverseDnsDefault)
     )
       throw new UnauthorizedError('Communicator authorization changed', 'state_host_revoked');
-    const deadline = minimumDeadline(
-      time(host.expiresAt),
-      host.secure === 1 ? null : time(host.insecureEnabledUntil),
-    );
+    const deadline = time(host.expiresAt);
+    if (deadline !== null && deadline <= Date.now())
+      throw new ForbiddenError('Host authorization expired', 'state_host_expired');
+    return { host, deadline };
+  }
+  /** State-topic admission: transport plus the insecure host's active window. */
+  host(snapshot = this.runtime.state.snapshot()) {
+    const { host, deadline: hostDeadline } = this.transport(snapshot);
+    const deadline = minimumDeadline(hostDeadline, host.secure === 1 ? null : time(host.insecureEnabledUntil));
     if ((host.secure !== 1 && !host.insecureEnabledUntil) || (deadline !== null && deadline <= Date.now()))
       throw new ForbiddenError('Host authorization expired', 'state_host_expired');
     return { host, deadline };

@@ -157,6 +157,15 @@ Server response authorization permits ordinary extensions of an already
 admitted insecure-host window, while still rejecting shorter or closed windows
 and changed host credentials or IP policy.
 
+An insecure host's window gates state topics (session, relay, receiver, daemon)
+and each tunneled route's own policy, never the transport itself: the socket is
+admitted and kept on key, status, IP/DNS policy and host expiry alone
+(`StreamAuthorization.transport()`), so `/cron/*` can update an insecure host
+with no window open. Between 2026-10-24 and 2026-11-04 the socket was closed
+silently on a closed window; cxx up to 0.9.123 then answered every cron call
+with a local 503 and never updated, which left about 50 insecure hosts on
+0.9.123 without claim proof.
+
 ## Staged verification and persistent targets
 
 A normal managed launch can reconcile persistent targets from the executable

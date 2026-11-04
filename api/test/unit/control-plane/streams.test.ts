@@ -476,3 +476,50 @@ describe('owner state projections', () => {
     expect(watchdog.terminate_requested).toBe(false);
   });
 });
+
+describe('insecure host transport admission', () => {
+  function insecure(insecureEnabledUntil: string | null) {
+    const host = {
+      id: 7,
+      apiKey: 'fixture',
+      apiKeyHash: null,
+      status: 'active',
+      secure: 0,
+      engines: 'codex',
+      ip4: null,
+      ip6: null,
+      allowRoamingIps: 0,
+      reverseDnsMode: 0,
+      expiresAt: null,
+      insecureEnabledUntil,
+    } as Host;
+    const state = new OwnerStateStore(
+      new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, { hosts: [host] } as StateSeed),
+    );
+    const deadlines = new DeadlineQueue((error) => {
+      throw error;
+    });
+    cleanups.push(() => deadlines.close());
+    const runtime: OwnerRuntime = { state, deadlines, assertOwner() {}, execute: vi.fn() };
+    return new StreamAuthorization(runtime, 7, host);
+  }
+
+  it('keeps the tunnel of an insecure host without a window, so /cron/* can update it', () => {
+    const auth = insecure(null);
+    expect(auth.transport().deadline).toBeNull();
+    expect(() => auth.host()).toThrow(expect.objectContaining({ code: 'state_host_expired' }));
+  });
+
+  it('refuses state topics once the window closed, never the transport', () => {
+    const auth = insecure(new Date(Date.now() - 1000).toISOString());
+    expect(() => auth.transport()).not.toThrow();
+    expect(() => auth.host()).toThrow(expect.objectContaining({ code: 'state_host_expired' }));
+  });
+
+  it('bounds state topics by an open window while the transport has no window deadline', () => {
+    const until = new Date(Date.now() + 60_000).toISOString();
+    const auth = insecure(until);
+    expect(auth.transport().deadline).toBeNull();
+    expect(auth.host().deadline).toBe(Date.parse(until));
+  });
+});

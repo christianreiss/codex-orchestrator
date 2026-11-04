@@ -1,3 +1,8 @@
+# 2026-11-04
+
+- **Insecure hosts update again:** an insecure host's communicator is no longer disconnected when its window is closed; the window still gates state topics and routes. Since 2026-10-24 the silent disconnect turned every nightly `/cron/check` of an insecure host into a local 503, stranding about 50 hosts on cxx 0.9.123. Their agents then could not obtain resource claims (`claim_connection_required`) and refused every change. The next nightly cron updates them without an operator window.
+- **Claim errors name an outdated cxx:** `claim_connection_required` from a pre-proof wrapper (cxx < 0.9.125) now reports `proof_state: client_too_old` and tells the agent to run `cxx update`, instead of asking it to reconnect a process that can never attach proof.
+
 # 2026-11-03
 
 - **cxx 0.9.157:** add explicit per-user RAM reservations and bounded admission for cooperative local heavy jobs, including holds and conservative descendant accounting, without changing native agents or host resource limits. Keep terminal-started Codex `exec`/`e`/`review` on supported direct transport instead of the TUI-only `--remote` endpoint.

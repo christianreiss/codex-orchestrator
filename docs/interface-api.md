@@ -3442,7 +3442,11 @@ transcripts/worktrees do not provide independent identity. Parent coordination o
 global naming/context/binding changes and shared-claim release.
 `claim_connection_required` (409) includes `extra.claim_connection` containing only
 the caller's host ID/FQDN, engine, session/generation, native-session-bound flag,
-proof state and read-only diagnostic/reconnect instructions. It does not disclose
+proof state and read-only diagnostic/reconnect instructions. When no native
+instance is attached and the host user's connected communicator predates claim
+proof (cxx < 0.9.125), `proof_state` is `client_too_old` with
+`communicator_version`/`minimum_version`, and the message says to run `cxx update`
+and start a new managed session instead of reconnecting. It does not disclose
 credentials, native-instance IDs or another owner's proof and does not relax any
 ownership check. See the coordination contract for exact-instance reconnect,
 completed-transcript continuation and operations whose outcome remains unknown.
