@@ -35,6 +35,13 @@ const EXACT_TIERS: Readonly<Record<Engine, ReadonlyMap<string, ModelTier>>> = Ob
   }),
 ) as unknown as Record<Engine, ReadonlyMap<string, ModelTier>>;
 
+/** Provider named in the session greeting; the engine is fixed per host section. */
+export const ENGINE_VENDOR: Readonly<Record<Engine, string>> = {
+  codex: 'OpenAI',
+  claude: 'Anthropic',
+  grok: 'xAI',
+};
+
 export const MODEL_TIER_WORK: Readonly<Record<ModelTier, string>> = {
   1: 'Lookups, renames, single-file edits, formatting',
   2: 'Feature work, multi-file changes, debugging with a clear repro',
@@ -117,6 +124,11 @@ export function renderModelTierGuidance(table: readonly ModelTierRow[], configur
 Preflight before task-specific scouting, planning or execution. ${identity}
 A concrete session model overrides config; generic \`GPT-6\` does not. If genuinely unknown,
 state it and proceed; never abort on a guess.
+
+Greeting: in a new session's first reply (not after resume or in delivered work turns),
+open with one line in the operator's language, e.g.
+\`Hey, ich bin <launch name> von ${ENGINE_VENDOR[configured.engine]} und bin ein <model family> (Tier <n>).\`
+Use your actual model; omit unknown parts, never guess.
 
 | Tier | Typical work | Models available on this host |
 | --- | --- | --- |

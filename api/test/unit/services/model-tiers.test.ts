@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildModelTierTable,
   modelTier,
+  ENGINE_VENDOR,
   renderModelTierGuidance,
 } from '../../../src/services/model-tiers.js';
 import { buildModelPolicy } from '../../../src/services/model-policy.js';
@@ -94,6 +95,16 @@ describe('renderModelTierGuidance', () => {
     expect(text).toContain('selecting a model or assigning the task is not an override');
     expect(text).toContain('never abort on a guess');
   });
+
+  it.each([[ENGINE_CODEX, 'OpenAI'], [ENGINE_CLAUDE, 'Anthropic'], [ENGINE_GROK, 'xAI']])(
+    'greets with the real vendor of %s and no fixed name or model', (engine, vendor) => {
+      const text = renderModelTierGuidance([], { engine, model: null });
+      expect(text).toContain(`Hey, ich bin <launch name> von ${vendor} und bin ein <model family> (Tier <n>).`);
+      expect(text).toContain('not after resume');
+      expect(text).toContain('never guess');
+      expect(text).not.toContain('Lisa');
+      expect(ENGINE_VENDOR[engine]).toBe(vendor);
+    });
 
   it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('keeps all task definitions with only one available %s model', (engine) => {
     const models = { codex: 'gpt-6-luna', claude: 'claude-haiku-5-5', grok: 'grok-4.7' };

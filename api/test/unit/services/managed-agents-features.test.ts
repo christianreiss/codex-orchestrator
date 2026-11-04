@@ -272,7 +272,8 @@ describe('served document size budget', () => {
       // +400 bytes for the required pre-heavy-work quota check and recovery invariant.
       // 2026-10-21: +550 for ordinary proactive Portal updates and explicit attention criteria.
       // 2026-10-25: +1100 for shared-native-child safety and exact-proof recovery.
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(30_000);
+      // 2026-11-04: +500 for the one-line session greeting in the Model Class Check.
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(30_500);
       expect(out.body).toContain('Before heavy work or large delegation call `quota_get`');
       expect(out.body).toContain('report unavailable and continue authorized work');
       expect(out.body).toContain('`#reboot-safe` before `agent_reboot`');
@@ -291,7 +292,7 @@ describe('served document size budget', () => {
       expect(section('Workflows').length).toBeLessThan(500);
       expect(section('Memory').length).toBeLessThan(2_700);
       // Whole-assignment scouting and model-identity safeguards need explicit wording.
-      expect(section('Model Class Check').length).toBeLessThan(1_800);
+      expect(section('Model Class Check').length).toBeLessThan(2_000);
     }
     // All granted: the list collapses to duties instead of restating every grant.
     const open = renderManagedAgentFeatures(base.content, ctx, presetLevels('unrestricted'), base.provenance).body;

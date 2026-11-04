@@ -27,6 +27,12 @@ one above), and Terra and the Grok 2s stop from Tier 4. Read-only scouting takes
 it feeds, and security or irreversibility sets verification and authorization separately from the tier.
 The advisor's "strongest" model is the first model of the highest populated tier.
 
+The same section carries a one-line session greeting rule: a new session's first reply opens with
+`Hey, ich bin <launch name> von <vendor> und bin ein <model family> (Tier <n>).` in the operator's
+language. The vendor is fixed per engine (`ENGINE_VENDOR` in `api/src/services/model-tiers.ts`), name,
+model and tier come from the session's own launch identity and model. It is guidance, not enforcement,
+and it follows the Model Class Check switch.
+
 ---
 
 History. Reviewed **2026-10-26** for the engine-maintenance run. Classes are the fleet's
