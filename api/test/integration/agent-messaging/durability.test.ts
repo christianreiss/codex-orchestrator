@@ -626,6 +626,23 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     expect(repeated.message).toMatchObject({ status: 'dead' });
   });
 
+  it('names agent_request when a task_result answers a plain message', async () => {
+    const source = await register('codex', 'plain-source');
+    const target = await register('codex', 'plain-target');
+    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
+      to: target.address, content: 'not work', clientMessageId: randomUUID(),
+    });
+    const messageId = String((sent.message as Record<string, unknown>).id);
+    const claimId = randomUUID();
+    await service.claimForSession(target.sessionId, target.bridgeToken, claimId);
+    await expect(service.replyMessage(target.sessionId, target.bridgeToken, messageId, {
+      content: 'done', clientMessageId: randomUUID(), claimId,
+      taskResult: { status: 'succeeded', summary: 'ok' },
+    } as never)).rejects.toMatchObject({
+      code: 'validation_failed', message: expect.stringContaining('agent_request'),
+    });
+  });
+
   it.each(ENGINES)('requires an accepted claim before a %s work reply', async engine => {
     const source = await register('codex', 'unclaimed-source');
     const target = await register(engine, 'unclaimed-target');

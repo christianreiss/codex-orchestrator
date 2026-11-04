@@ -2461,7 +2461,11 @@ include the same result and completes work atomically with the reply. A claimed 
 with `delivery_class: progress` and no `task_result` is a non-terminal status update:
 the work stays `accepted` and held, so later progress and the real result still succeed
 (the wrapper sends `progress` even without negotiated `queue_delivery_v1`). Any other
-reply without `task_result` finishes the work as `unknown`. A result contains
+reply without `task_result` finishes the work as `unknown`. Only `agent_request`
+(kind `request`), `task` and schedule messages create work; a plain `agent_send` message
+carries a delivery claim but no work, so `task_result` on its reply answers 422
+`validation_failed` ("Task result requires claimed work ...") and the sender must resend the
+instruction with `agent_request` to receive a structured result. A result contains
 `status` (`succeeded|failed|blocked|unknown`), `summary` (4096 UTF-8 bytes maximum) and
 optional `evidence` (up to 20 `{description, reference}` objects). Bodies are encrypted;
 metadata lists only the status. Per-claim writes are idempotent; a different result conflicts.
