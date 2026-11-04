@@ -123,7 +123,9 @@ func EnsureProjectTrust() error {
 		return err
 	}
 	tmpName := tmp.Name()
-	if err := tmp.Chmod(0o644); err != nil {
+	// Private like the synced copy: the baked config.toml carries the managed
+	// MCP bearer, and this rewrite must not widen it back to 0644.
+	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
 		_ = os.Remove(tmpName)
 		return err

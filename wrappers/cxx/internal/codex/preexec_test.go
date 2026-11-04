@@ -103,3 +103,33 @@ func TestEnsureProjectTrustHonorsCodexHome(t *testing.T) {
 		t.Fatalf("profile config path = %q", got)
 	}
 }
+
+// The trust rewrite replaces config.toml, which carries the managed MCP
+// bearer; it must not widen a private file back to 0644.
+func TestEnsureProjectTrustKeepsConfigPrivate(t *testing.T) {
+	codexHome := t.TempDir()
+	project := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	path := filepath.Join(codexHome, "config.toml")
+	if err := os.WriteFile(path, []byte("[mcp_servers.cdx.env]\nCXX_MCP_BEARER = \"fixture-bearer\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(project); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	if err := EnsureProjectTrust(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("config.toml mode after trust rewrite = %o, want 600", perm)
+	}
+}

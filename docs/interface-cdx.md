@@ -164,6 +164,17 @@ login/logout retains the existing central auth protections; native Claude/Grok
 install/update/upgrade is refused so the fleet pin cannot be bypassed, and
 `clx update` / `cgx update` remains the managed update path.
 
+Native Codex utilities (`codex mcp …`, `completion`, `features`, `sandbox`,
+`debug`, `apply`, `cloud`, `plugin`) take the same raw path as `cdx mcp …`:
+they run the vendor CLI under the auth-session leases without the managed
+bundle sync, boot screen or background maintenance request, like Claude's
+native commands. Only conversations (no subcommand or a prompt, `exec`/`e`,
+`review`, `resume`, `fork`) enter the managed lifecycle. A run with
+`CODEX_HOME` pointing at a scratch directory therefore gets no fleet content
+there (only the usual project-trust stanza) unless it starts a conversation; a
+conversation syncs the
+full managed config (private, `0600`) because its MCP entry needs the bearer.
+
 Native and wrapper starts share account leases, auth lifecycle, session-bound
 MCP tools and one local connection runtime. Interactive delivery uses Codex App
 Server queues, Claude MCP Channels or Grok ACP. Tools-only headless runs and

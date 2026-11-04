@@ -175,3 +175,33 @@ func TestNativeMaintenanceCannotMigrateOrSelfUpdateBeforeConfig(t *testing.T) {
 		t.Fatalf("wrapper migration: %d %s", code, stderr.String())
 	}
 }
+
+// A native utility (`CODEX_HOME=/tmp/x codex mcp add …`) arrives as `run` with
+// the whole argv. It must take the raw path `cdx mcp …` already takes, so no
+// managed bundle sync writes the fleet bearer into that CODEX_HOME and no boot
+// banner is printed; conversations keep the managed lifecycle.
+func TestNativeUtilitiesBypassManagedLifecycle(t *testing.T) {
+	for _, args := range [][]string{
+		{"mcp", "add", "demo", "--url", "http://localhost:1/mcp"}, {"mcp", "list"},
+		{"--config", "model=fixture", "mcp", "list"}, {"completion", "bash"},
+		{"features", "list"}, {"sandbox", "linux", "true"}, {"debug"}, {"plugin"},
+	} {
+		f, positional, passthrough := invocationFlags(args, true)
+		sub, rest := resolveCommand(f, positional)
+		got, conversation := sessionCommandArgs(sub, rest, passthrough)
+		if conversation || !reflect.DeepEqual(got, args) {
+			t.Fatalf("native utility %q entered the managed lifecycle (conversation=%v, args=%q)", args, conversation, got)
+		}
+		if conversationArgs(append(append([]string{}, rest...), passthrough...)) {
+			t.Fatalf("native utility %q would request background maintenance", args)
+		}
+	}
+	for _, args := range [][]string{nil, {"hello"}, {"--model", "fixture"}, {"exec", "prompt"}, {"e", "prompt"}, {"review"}, {"resume", "--last"}, {"fork", "--last"}} {
+		f, positional, passthrough := invocationFlags(args, true)
+		sub, rest := resolveCommand(f, positional)
+		got, conversation := sessionCommandArgs(sub, rest, passthrough)
+		if !conversation || len(got) != len(args) {
+			t.Fatalf("native conversation %q bypassed the managed lifecycle (args=%q)", args, got)
+		}
+	}
+}
