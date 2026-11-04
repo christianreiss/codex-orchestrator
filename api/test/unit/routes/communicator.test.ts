@@ -411,6 +411,29 @@ describe('communicator transport', () => {
     ws.send(JSON.stringify({ type: 'heartbeat', sessions: 1, synced_at: null }));
     expect(await closed).toBe(1008);
   });
+  // 2026-10-24 to 2026-11-04 every refusal closed the socket with no log line.
+  it('logs why it closes a connection with 1008, by code and host id only', async () => {
+    await setup();
+    const warn = vi.spyOn(app.log, 'warn');
+    const ws = await app.injectWS('/host/communicator/connect', { headers: { 'x-api-key': 'host-one' } });
+    const closed = new Promise<number>((resolve) => ws.once('close', resolve));
+    ws.send(JSON.stringify({ type: 'hello', protocol: 2, username: 'tester', version: '0.9.71' }));
+    expect(await closed).toBe(1008);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'invalid_frame', host_id: 1, greeted: false }),
+      'Communicator connection closed (1008): Invalid or unauthorized communicator request',
+    );
+    const revoked = await open();
+    auth.allowed = false;
+    const gone = new Promise<number>((resolve) => revoked.once('close', resolve));
+    revoked.send(JSON.stringify({ type: 'heartbeat', sessions: 1, synced_at: null }));
+    expect(await gone).toBe(1008);
+    expect(warn).toHaveBeenLastCalledWith(
+      expect.objectContaining({ host_id: 1, greeted: true }),
+      expect.stringContaining('Communicator connection closed (1008)'),
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('host-one');
+  });
   it('leaves the legacy API available when the communicator switch is off', async () => {
     await setup(false);
     await expect(

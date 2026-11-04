@@ -848,7 +848,15 @@ or reached, `GET` of the signed `/wrapper/v2/config` (signature-verified) and of
 binary downloads, including the bakery's `/wrapper/v2/bin/...` URLs
 (digest-verified), use direct HTTPS, so a broken owner
 can still learn a capability rollback and install a fixed release. HTTPS
-transfers never wait for the control connection to reconnect.
+transfers never wait for the control connection to reconnect. `POST /cron/check`, the
+update probe that names that release, also goes over direct HTTPS when no owner can be
+started or reached, or when the owner answers `503 communicator_unavailable` (control
+channel down or refused); repeating it is harmless, and its body is replayed only when
+the request can rebuild it. A credential verdict (`401`/`403` with
+`X-Cxx-Communicator-Refusal`) is returned as is. Without this a server that refused the
+channel turned every nightly update into a local 503 (2026-10-24 to 2026-11-04, ~50
+insecure hosts on cxx 0.9.123); wrappers before this release keep that behaviour, so the
+server must keep the transport open for every wrapper version in the fleet.
 
 When the server refuses the WebSocket upgrade, the owner asks once more outside the
 WebSocket library and records the server's own verdict in `last_error` (for example

@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { createHostAuthService } from '../services/host-auth.js';
 import { registerWebsocketTransport } from '../ws/transport.js';
 import { wsPublisher } from '../ws/publisher.js';
-import { ForbiddenError } from '../http/errors.js';
+import { ApiError, ForbiddenError } from '../http/errors.js';
 import {
   communicatorRegistry,
   connections,
@@ -229,6 +229,26 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
         }
         await authorize(req);
       };
+      // A refused or revoked connection must leave a trace: from 2026-10-24 to
+      // 2026-11-04 every insecure host's socket closed with 1008 after hello and
+      // nothing in the API log said so. Only the stable code and host id are
+      // logged, never the frame, a key or a message from the client.
+      const closeRefused = (reason: string, err: unknown) => {
+        const code =
+          err instanceof ApiError
+            ? err.code
+            : err instanceof z.ZodError
+              ? 'invalid_frame'
+              : err instanceof SyntaxError
+                ? 'invalid_json'
+                : 'internal_error';
+        if (!closed)
+          req.log.warn(
+            { code, host_id: hostId || req.authHost?.id || null, connection_id: connectionID, greeted },
+            `Communicator connection closed (1008): ${reason}`,
+          );
+        socket.close(1008, reason);
+      };
       const watchAuthorization = () => {
         clearTimeout(authorizationDeadline);
         try {
@@ -240,8 +260,8 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             );
             authorizationDeadline.unref();
           }
-        } catch {
-          socket.close(1008, 'Authorization changed');
+        } catch (err) {
+          closeRefused('Authorization changed', err);
         }
       };
       let closed = false,
@@ -412,7 +432,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           .then(() => {
             /* Authorization is rechecked independently of content invalidations. */
           })
-          .catch(() => socket.close(1008, 'Authorization changed'));
+          .catch((err) => closeRefused('Authorization changed', err));
       }, 15000);
       socket.on('message', (raw: { toString(): string }) => {
         // Set once a greeted request frame names a valid id: its own malformed
@@ -825,7 +845,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
           } finally {
             inFlight--;
           }
-        })().catch(() => {
+        })().catch((err) => {
           if (rejectable && dispatched && !closed) {
             send(uncertainReply(rejectable, dispatched, 'fault'));
             return;
@@ -841,7 +861,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             });
             return;
           }
-          socket.close(1008, 'Invalid or unauthorized communicator request');
+          closeRefused('Invalid or unauthorized communicator request', err);
         });
       });
       socket.on('close', () => {

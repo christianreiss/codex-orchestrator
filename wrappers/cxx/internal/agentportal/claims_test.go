@@ -185,3 +185,29 @@ func TestClaimAttachmentRejectionNeverDispatches(t *testing.T) {
 		})
 	}
 }
+
+// The broker must pass a claim refusal's structured diagnosis on to the
+// session MCP, and the server's fields must not override status, code or message.
+func TestClaimRefusalKeepsServerErrorDetails(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"status":"error","code":"claim_connection_required","message":"A proven native connection is required","type":"conflict_error","claim_connection":{"proof_state":"client_too_old","minimum_version":"0.9.125"}}`))
+			}))
+			defer remote.Close()
+			b := &Broker{ctx: context.Background(), requests: make(map[uint64]context.CancelFunc), session: &Session{ID: "ours", Engine: engine, BaseURL: remote.URL, localBroker: true, http: remote.Client()}}
+			w := httptest.NewRecorder()
+			b.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/host/agent-sessions/ours/agent-messaging/claims/acquire", strings.NewReader(`{}`)))
+			var body map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			connection, _ := body["claim_connection"].(map[string]any)
+			if w.Code != http.StatusConflict || body["status"] != "error" || body["code"] != "claim_connection_required" || connection["proof_state"] != "client_too_old" {
+				t.Fatalf("claim refusal lost its details: %d %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}

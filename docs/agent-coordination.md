@@ -190,7 +190,11 @@ a native-transcript-bound flag, proof state and safe recovery instructions. Proo
 states distinguish missing session attachment, missing native instance, a missing
 original instance and a currently present native connection; the last state alone
 does not authorize adopting an older claim. No credential, native-instance UUID or
-foreign owner's proof is exposed. Run `cxx communicator status` and the engine's
+foreign owner's proof is exposed. The session `cxx-agent` MCP (all three engines)
+passes these fields through: an error carrying fields beyond message and code keeps
+its readable text as the first content item and adds `{error:{message,code,...}}`
+as a second text item and as `structuredContent` (cxx 0.9.158+; older wrappers
+showed the message only). Run `cxx communicator status` and the engine's
 `cdx doctor`/`clx doctor`/`cgx doctor` read-only on that host. A stale owner is a
 possible diagnosis, not proof: coordinate any shared-owner restart with its users.
 Session naming/context updates do not create attachment proof. After reconnect,

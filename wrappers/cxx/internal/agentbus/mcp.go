@@ -999,7 +999,7 @@ func handleMCPRequest(ctx context.Context, client *sessionClient, req mcpRequest
 		}
 		result, err := callMCPTool(ctx, client, channelState, params.Name, params.Arguments)
 		if err != nil {
-			return mcpSuccess(req.ID, map[string]any{"isError": true, "content": []map[string]any{{"type": "text", "text": err.Error()}}})
+			return mcpSuccess(req.ID, mcpToolError(err))
 		}
 		raw, _ := json.Marshal(result)
 		return mcpSuccess(req.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": string(raw)}}, "structuredContent": result})
@@ -1566,6 +1566,24 @@ func channelPumpOnce(ctx context.Context, client *sessionClient, output *mcpWrit
 	}
 
 	return nil
+}
+
+// mcpToolError keeps the readable error text first. A server error that carries
+// structured fields (claim_connection with proof_state, claim_ids, ...) adds them
+// as {"error":{...}} in a second text item and in structuredContent, the shape the
+// API's own MCP tools use, so an agent can tell "client too old" from "reconnect".
+func mcpToolError(err error) map[string]any {
+	content := []map[string]any{{"type": "text", "text": err.Error()}}
+	result := map[string]any{"isError": true, "content": content}
+	var api *APIError
+	if errors.As(err, &api) && len(api.Details) > 0 {
+		detail := map[string]any{"error": api.Details}
+		if raw, marshalErr := json.Marshal(detail); marshalErr == nil {
+			result["content"] = append(content, map[string]any{"type": "text", "text": string(raw)})
+			result["structuredContent"] = detail
+		}
+	}
+	return result
 }
 
 func mcpSuccess(id json.RawMessage, result any) map[string]any {
