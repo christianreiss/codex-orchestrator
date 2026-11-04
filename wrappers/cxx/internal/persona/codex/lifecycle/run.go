@@ -1119,11 +1119,15 @@ func bootstrapWithProgress(
 		configSync.Checked = true
 		configSync.Err = configPathErr
 		if configSync.Err == nil && len(resp.Config) > 0 {
-			if err := atomicWrite(configFile, resp.Config, 0o644); err != nil {
+			if err := atomicWrite(configFile, resp.Config, configTomlMode); err != nil {
 				logger.Debug("bundle config write failed", "err", err)
 				configSync.Err = err
 			} else {
 				configSync.Updated = true
+			}
+		} else if configSync.Err == nil {
+			if err := restrictConfigMode(configFile); err != nil {
+				logger.Warn("config.toml permissions not restricted", "err", err)
 			}
 		}
 		// Profile sidecars ride every bundle reply, `unchanged` included.
@@ -1729,10 +1733,12 @@ func writeConfigToml(ctx context.Context, client *orchestrator.Client) (bool, er
 	}
 	updated := false
 	if len(bundle.Content) > 0 {
-		if err := atomicWrite(dst, bundle.Content, 0o644); err != nil {
+		if err := atomicWrite(dst, bundle.Content, configTomlMode); err != nil {
 			return false, err
 		}
 		updated = true
+	} else if err := restrictConfigMode(dst); err != nil {
+		slog.Warn("config.toml permissions not restricted", "err", err)
 	}
 	// Profiles ride every reply, `unchanged` included; nil means the server sent
 	// none (older server, or a Codex that reads [profiles.*] from config.toml).
@@ -1758,6 +1764,31 @@ func agentsPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, "AGENTS.md"), nil
+}
+
+// configTomlMode keeps the baked config.toml private: its managed MCP entry
+// carries the fleet bearer ([mcp_servers.cdx.env] CXX_MCP_BEARER), and an
+// effective CODEX_HOME may sit under a shared directory such as /tmp. clx
+// writes settings.json and cgx its runtime config.toml with the same mode.
+const configTomlMode os.FileMode = 0o600
+
+// restrictConfigMode removes group and world access from an existing
+// config.toml that no sync rewrites (an unchanged digest is never rewritten,
+// so a file written 0644 by an older wrapper would otherwise stay readable).
+// A missing file or a symlink is left alone: a symlinked config belongs to
+// whoever placed it, and the next content write replaces the link anyway.
+func restrictConfigMode(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 == 0 {
+		return nil
+	}
+	return os.Chmod(path, info.Mode().Perm()&^0o077)
 }
 
 func configTomlPath() (string, error) {

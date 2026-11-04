@@ -130,21 +130,32 @@ func sessionCommandArgs(sub string, args, passthrough []string) ([]string, bool)
 	var prefix []string
 	switch sub {
 	case "run":
+		// A native `codex mcp add …` arrives here as `run` with the whole argv.
+		// Utilities take the same raw path as `cdx mcp …` and `cdx exec -- mcp …`
+		// (and clx's native commands): no managed sync into CODEX_HOME, no banner.
+		if raw := append(append([]string{}, args...), passthrough...); !conversationArgs(raw) {
+			return raw, false
+		}
 	case "exec":
 		raw := append(append([]string{}, args...), passthrough...)
 		if nativeargs.Has("codex", raw, "--help", "--version") {
 			return raw, false
 		}
-		command := nativeSubcommand(raw)
-		// Raw diagnostics, auth and utilities keep their existing native path.
-		// An unrecognized positional is the native TUI's initial prompt.
-		return raw, command == "" || !reservedCodexSubcommands[command] || command == "exec" || command == "e" || command == "review" || command == "resume" || command == "fork"
+		return raw, conversationArgs(raw)
 	case "e", "review", "fork":
 		prefix = []string{sub}
 	default:
 		return nil, false
 	}
 	return append(append(prefix, args...), passthrough...), true
+}
+
+// conversationArgs reports whether native argv starts a Codex conversation.
+// Raw diagnostics, auth and utilities keep their existing native path. An
+// unrecognized positional is the native TUI's initial prompt.
+func conversationArgs(raw []string) bool {
+	command := nativeSubcommand(raw)
+	return command == "" || !reservedCodexSubcommands[command] || command == "exec" || command == "e" || command == "review" || command == "resume" || command == "fork"
 }
 
 func cmdSession(ctx context.Context, cfg *config.Config, f flags, logger *slog.Logger, args []string) (int, error) {
@@ -596,7 +607,10 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 				ui.Say(stderr, "cdx", ui.ToneDim, "auth", "insecure-host credentials purged")
 			}
 		}()
-		if sessionCommand || sub == "exec" || sub == "resume" || sub == "execute" || sub == "profile" {
+		// A native utility under `run` (`codex mcp add …`) launches no session, so
+		// it must not start the detached cron sync into its CODEX_HOME either.
+		utility := sub == "run" && !conversationArgs(append(append([]string{}, subArgs...), passthrough...))
+		if (sessionCommand && !utility) || sub == "exec" || sub == "resume" || sub == "execute" || sub == "profile" {
 			if err := maintenance.Request(config.EngineCodex, f.configPath); err != nil {
 				logger.Debug("background maintenance request deferred", "err", err)
 			}
