@@ -157,7 +157,11 @@ export async function replyOwnedMessage(
           'agent_messaging_presence_notice_reply',
         );
       if (input.taskResult && (!parent.workKind || !claimId))
-        throw new ValidationError('Task result requires claimed work');
+        throw new ValidationError(
+          parent.workKind
+            ? 'Task result requires the accepted delivery claim; pass the claim_id of this delivery'
+            : 'Task result requires claimed work, and this message is not work: only messages sent with agent_request (kind request) or a schedule create work. A plain agent_send message cannot carry a task result; reply without task_result, or ask the sender to resend it with agent_request',
+        );
       if (parent.workKind && !claimId)
         throw new ConflictError(
           'Work replies require the accepted delivery claim',
