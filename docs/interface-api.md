@@ -3889,6 +3889,9 @@ change or new client ID generation is introduced.
 Receipt retention locates each selected row through its composite primary key
 before byte-exact checks. This avoids full-table scans that stall queued launch
 and finish commands; pending-work guards and retention deadlines are unchanged.
+Migration 0123 adds `(replay_class, created_at)` for internal receipt age probes
+and candidate selection. The existing age index remains available to other
+receipt classes; cleanup does not scan their older rows to find internal work.
 
 `node retention-maintenance.js --activate --no-backup` and
 `--compact --no-backup` require exclusive offline database ownership. Compaction

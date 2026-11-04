@@ -1603,6 +1603,8 @@ Account release hands its obligation to the fsynced local communicator journal,
 which retries until server acknowledgment. Missing or failed journaling keeps the
 synchronous fallback. Receipt retention uses indexed composite-key lookups with
 byte-exact checks to avoid blocking the shared command queue on table scans.
+A receipt-class/date index also bounds internal age probes and batch selection
+when older external receipts precede the internal retention boundary.
 
 
 ## Session scope coordination (protocol 1)

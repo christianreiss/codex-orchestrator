@@ -1398,6 +1398,7 @@ CREATE TABLE `control_plane_command_receipts` (
 	CONSTRAINT `control_plane_command_receipts_principal_request_id_pk` PRIMARY KEY(`principal`,`request_id`),
 	KEY `command_receipts_retention` (`created_at`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+CREATE INDEX `command_receipts_class_age` ON `control_plane_command_receipts` (`replay_class`,`created_at`);
 
 CREATE TABLE `control_plane_outbox` (
 	`id` char(36) NOT NULL,

@@ -3079,7 +3079,11 @@ export const controlPlaneCommandReceipts = mysqlTable('control_plane_command_rec
   replayClass: varchar('replay_class', { length: 16 }).notNull().default('legacy'),
   resultState: varchar('result_state', { length: 16 }).notNull().default('available'),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
-}, (t) => ({ pk: primaryKey({ columns: [t.principal, t.requestId] }), age: index('command_receipts_retention').on(t.createdAt) }));
+}, (t) => ({
+  pk: primaryKey({ columns: [t.principal, t.requestId] }),
+  age: index('command_receipts_retention').on(t.createdAt),
+  classAge: index('command_receipts_class_age').on(t.replayClass, t.createdAt),
+}));
 export const controlPlaneOutbox = mysqlTable('control_plane_outbox', {
   id: char('id', { length: 36 }).primaryKey(),
   principal: varchar('principal', { length: 191 }).notNull(),
