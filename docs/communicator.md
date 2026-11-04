@@ -25,8 +25,13 @@ cdx communicator: start: already running | pid=1234 | sessions=3 | leases=8
   -------+-------+------+----------+---------+----------+------
   codex  | 2     | 2    | 2        | 2       | 2        | 0
   claude | 1     | 1    | 1        | 1       | 1        | 0
-  grok   | 1     | 1    | 0        | 0       | 0        | 0
 ```
+
+This is the plain form (pipes, logs, `--minimal`). Colour terminals draw the same
+table with a dim header and `│`/`┼` rules, the engine name in its accent colour,
+right-aligned numbers and dimmed zeros. A row is omitted while every one of its
+columns is zero (including `shared` and `unknown`); a table with no rows is not
+printed.
 
 `sessions` is the unique authenticated managed-session
 count, deduplicating session and receiver streams. `leases` counts local transport
@@ -36,7 +41,8 @@ local sync/transport attachment, AUTH is an auth watcher, PROVIDER is a provider
 account state stream, SESSION is a managed lifecycle state stream, RECEIVER is
 its receiver state stream and OTHER covers remaining state topics. A lease with
 multiple engine scopes is counted once in `shared`; missing engine metadata stays
-`unknown`. Engine labels are diagnostic metadata, never an authorization proof.
+`unknown`; session and receiver state streams carry the launch engine, so a non-zero
+`unknown` row means a stream that really lacks attribution. Engine labels are diagnostic metadata, never an authorization proof.
 Only acknowledged, non-stopping state streams appear in the state columns.
 Without negotiated state authority those cells display `?`, not zero. Narrow
 terminals use named per-engine records instead of wrapping columns. Pipes retain

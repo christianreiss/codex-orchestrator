@@ -168,3 +168,18 @@ func TestNoticeTableKeepsAlignmentAndUsesNarrowRecords(t *testing.T) {
 		t.Fatalf("unsafe table: %q", out)
 	}
 }
+
+func TestNoticeTableRichDrawsRuleAndDimsZeros(t *testing.T) {
+	n := Notice{Prefix: "cdx", Topic: "communicator", Message: "running", Table: [][]string{{"ENGINE", "LEASE"}, {"codex", "29"}, {"claude", "0"}}}
+	caps := DetectCapsFor(&strings.Builder{}, "")
+	caps.IsTTY, caps.UTF8, caps.Dumb, caps.NoColor, caps.Columns = true, true, false, false, 100
+	caps.Palette = Palette{Dim: "<d>", Reset: "<r>"}
+	caps.BannerSym.BoxV, caps.BannerSym.BoxH = "│", "─"
+	out := FormatNotice(caps, n)
+	if !strings.Contains(out, "─┼─") || !strings.Contains(out, "<d>    0<r>") || strings.Contains(out, "<d>   29<r>") {
+		t.Fatalf("rich table: %q", out)
+	}
+	if strings.Contains(out, "-+-") {
+		t.Fatalf("plain rule leaked: %q", out)
+	}
+}

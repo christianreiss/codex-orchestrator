@@ -80,7 +80,7 @@ func (s *Session) withNativeControl(ctx context.Context) context.Context {
 			if communicator.StateRequired(s.BaseURL) || portalStateAvailable(pollCtx, s.BaseURL) {
 				for feed == nil && pollCtx.Err() == nil {
 					if _, err := call(pollCtx, nil); err == nil {
-						feed, _ = dialPortalState(pollCtx, s.BaseURL, communicator.StateScope{Topic: "session", SessionID: s.ID, NativeInstanceID: instance}, communicator.StateAuth{BridgeToken: s.BridgeToken})
+						feed, _ = dialPortalState(pollCtx, s.BaseURL, communicator.StateScope{Topic: "session", SessionID: s.ID, Engine: s.Engine, NativeInstanceID: instance}, communicator.StateAuth{BridgeToken: s.BridgeToken})
 					}
 					if feed == nil {
 						select {
@@ -109,7 +109,7 @@ func (s *Session) withNativeControl(ctx context.Context) context.Context {
 							return
 						case <-time.After(time.Second):
 						}
-						feed, _ = dialPortalState(pollCtx, s.BaseURL, communicator.StateScope{Topic: "session", SessionID: s.ID, NativeInstanceID: instance}, communicator.StateAuth{BridgeToken: s.BridgeToken})
+						feed, _ = dialPortalState(pollCtx, s.BaseURL, communicator.StateScope{Topic: "session", SessionID: s.ID, Engine: s.Engine, NativeInstanceID: instance}, communicator.StateAuth{BridgeToken: s.BridgeToken})
 						lastClaims = "\x00"
 						continue
 					}

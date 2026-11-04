@@ -423,7 +423,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		// server revokes the claim. Never replay it into the new connection.
 		_ = r.client.receiver(stopCtx, "stop", map[string]any{"generation": generation, "failure": "adapter_disconnected"}, nil)
 	}()
-	state, stateErr := communicator.DialStateSocket(ctx, r.client.socket, "/_state", communicator.StateScope{Topic: "receiver", SessionID: r.client.id, BindingGeneration: registered.BindingGeneration, ReceiverGeneration: generation}, communicator.StateAuth{})
+	state, stateErr := communicator.DialStateSocket(ctx, r.client.socket, "/_state", communicator.StateScope{Topic: "receiver", SessionID: r.client.id, Engine: engine, BindingGeneration: registered.BindingGeneration, ReceiverGeneration: generation}, communicator.StateAuth{})
 	r.mu.Lock()
 	wasConnectionOwned := r.connectionOwned
 	r.mu.Unlock()

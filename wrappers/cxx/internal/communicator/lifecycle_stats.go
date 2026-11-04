@@ -89,7 +89,8 @@ func (s *LifecycleStats) Table() [][]string {
 	}
 	rows := [][]string{{"ENGINE", "LEASE", "AUTH", "PROVIDER", "SESSION", "RECEIVER", "OTHER"}}
 	for _, row := range m.Rows {
-		if (row.Engine == "shared" || row.Engine == "unknown") && row.Lease+row.Auth+row.Provider+row.Session+row.Receiver+row.Other == 0 {
+		// An engine row with nothing attached (including shared/unknown) is noise.
+		if row.Lease+row.Auth+row.Provider+row.Session+row.Receiver+row.Other == 0 {
 			continue
 		}
 		state := []string{"?", "?", "?", "?"}
@@ -97,6 +98,9 @@ func (s *LifecycleStats) Table() [][]string {
 			state = []string{strconv.Itoa(row.Provider), strconv.Itoa(row.Session), strconv.Itoa(row.Receiver), strconv.Itoa(row.Other)}
 		}
 		rows = append(rows, []string{row.Engine, strconv.Itoa(row.Lease), strconv.Itoa(row.Auth), state[0], state[1], state[2], state[3]})
+	}
+	if len(rows) == 1 {
+		return nil
 	}
 	return rows
 }

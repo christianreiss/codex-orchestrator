@@ -83,3 +83,19 @@ func TestMatrixNeverCountsARejectedOrClosedStateAttachment(t *testing.T) {
 		t.Fatalf("closed attachment counted: %d", got)
 	}
 }
+
+func TestLifecycleTableOmitsEmptyRows(t *testing.T) {
+	s := &LifecycleStats{current: Owner{Matrix: &ConnectionMatrix{StateAvailable: true, Rows: []ConnectionRow{{Engine: "codex", Lease: 1}, {Engine: "grok"}, {Engine: "unknown"}}}}}
+	rows := s.Table()
+	if len(rows) != 2 || rows[1][0] != "codex" {
+		t.Fatalf("rows=%v", rows)
+	}
+	s.current.Matrix.Rows = []ConnectionRow{{Engine: "unknown"}}
+	if s.Table() != nil {
+		t.Fatal("empty matrix rendered a header-only table")
+	}
+	s.current.Matrix.Rows = []ConnectionRow{{Engine: "unknown", Session: 9}}
+	if got := s.Table(); len(got) != 2 || got[1][0] != "unknown" {
+		t.Fatalf("non-zero unknown row hidden: %v", got)
+	}
+}

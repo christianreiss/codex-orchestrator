@@ -110,6 +110,9 @@ func formatNoticeTable(caps Caps, rows [][]string) string {
 		}
 		return b.String()
 	}
+	if !noticePlain(caps) {
+		return formatRichNoticeTable(caps, clean, widths)
+	}
 	for i, row := range clean {
 		parts := make([]string, len(row))
 		for j, cell := range row {
@@ -121,6 +124,51 @@ func formatNoticeTable(caps Caps, rows [][]string) string {
 				parts[j] = strings.Repeat("-", w)
 			}
 			b.WriteString("  " + strings.Join(parts, "-+-") + "\n")
+		}
+	}
+	return b.String()
+}
+
+// formatRichNoticeTable draws the table for colour terminals: dim header and
+// separators, the engine name in its accent colour, numbers right-aligned and
+// zero/unavailable cells dimmed so the live counts stand out. Plain output
+// keeps the greppable "a | b" form above.
+func formatRichNoticeTable(caps Caps, rows [][]string, widths []int) string {
+	p := caps.Palette
+	vbar, cross := caps.BannerSym.BoxV, "+"
+	if vbar == "│" {
+		cross = "┼"
+	}
+	sep := p.Dim + " " + vbar + " " + p.Reset
+	var b strings.Builder
+	for i, row := range rows {
+		cells := make([]string, len(row))
+		for j, cell := range row {
+			pad := PadRight(cell, widths[j])
+			switch {
+			case i == 0:
+				cells[j] = p.Dim + pad + p.Reset
+			case j == 0:
+				cells[j] = engineCaps(caps, row[0]).BannerColor() + pad + p.Reset
+			default:
+				pad = strings.Repeat(" ", widths[j]-VisibleWidth(cell)) + cell
+				if cell == "0" || cell == "?" || cell == "-" {
+					pad = p.Dim + pad + p.Reset
+				}
+				cells[j] = pad
+			}
+		}
+		b.WriteString("  " + strings.Join(cells, sep) + "\n")
+		if i == 0 {
+			rule := make([]string, len(widths))
+			for j, w := range widths {
+				n := w + 2
+				if j == 0 || j == len(widths)-1 {
+					n = w + 1
+				}
+				rule[j] = strings.Repeat(caps.BannerSym.BoxH, n)
+			}
+			b.WriteString("  " + p.Dim + strings.Join(rule, cross) + p.Reset + "\n")
 		}
 	}
 	return b.String()
