@@ -4,7 +4,7 @@ Use this document in full as the work order. Start in the repository; current re
 
 ## Goal and delivery
 
-Clear the orchestrator feedback queue: every open item ends in a recorded outcome (`resolved`, `dismissed`, `duplicate` or `blocked`, each with evidence), and every fix is merged and, if the operator asked for it, deployed. Delivery is part of the order only as far as the operator's request says: merge back is the default, push and deploy need an explicit mention. A fix that is merged but not deployed is `resolved` with `deployment: not_deployed`.
+Clear the orchestrator feedback queue: every open item ends in a recorded outcome (`resolved`, `dismissed`, `duplicate` or `blocked`, each with evidence), and every fix is committed, merged, pushed and deployed. Running this document is the operator's standing order for the full delivery chain: commit, merge, push and deploy always happen, with no extra mention needed. Only an explicit restriction in the run request (for example "no deploy") narrows it; then the affected items are `resolved` with `deployment: not_deployed`.
 
 A solved issue is complete only when the parent has closed the feedback it solved: mark every corresponding canonical report `resolved` with fix and verification evidence, and close duplicate reports as `duplicate`. A commit, merge, deployment or sub-agent report does not replace this feedback update.
 
@@ -19,7 +19,7 @@ Decide routine matters yourself and state the assumption in one line. Keep worki
 
 ## 2. Isolate the integration work
 
-If the checkout is occupied or unknown, create an integration branch and a linked worktree outside it from the recorded HEAD (`feedback-sweep-<your agent uuid prefix>`), then `git_register` and `git_join` it. Do all merging, testing and deploying from that worktree. Touch nothing in the original checkout. If a peer works there, tell them once (`agent_send`, `delivery_class: coordination`): what you do, what you will deploy, and ask for a heads-up when they want to ship so two deploys do not race. Two migrations must not share a number: ask the peer which they take.
+If the checkout is occupied or unknown, create an integration branch and a linked worktree outside it from the recorded HEAD (`feedback-sweep-<your agent uuid prefix>`), then `git_register` and `git_join` it. Do all merging, testing, pushing and deploying from that worktree. Touch nothing in the original checkout. If a peer works there, tell them once (`agent_send`, `delivery_class: coordination`): what you do, what you will deploy, and ask for a heads-up when they want to ship so two deploys do not race. Two migrations must not share a number: ask the peer which they take.
 
 ## 3. Triage before spawning
 
@@ -78,11 +78,11 @@ Do not paste claim tokens, credentials or customer data into prompts or notes.
 - One `CHANGELOG.md` edit by the parent under today's `# YYYY-MM-DD` header, built from the agents' proposed lines. Bump `VERSION` in `wrappers/Makefile` if any production Go code changed, and sync `docs/interface-*.md`, dashboard copy and wrapper docs.
 - Review the combined diff once (`git diff base...HEAD --stat`, then the risky parts) for accidental drive-by changes and for items that touched the same lines.
 
-## 6. Land and (if requested) deploy
+## 6. Land, push and deploy
 
 1. `git fetch --prune`. Merge into the target branch only while the original checkout is on it with a clean index and worktree and under a Git Director lease. Otherwise fast-forward the remote target from the integration branch and leave the peer's local branch alone. If the target advanced, merge it into the integration branch and recheck first. Verify with `git merge-base --is-ancestor`.
-2. Push only if asked (`origin` unless named; a remote called `github` is never implicit; both remotes if the repo's CI contract says so).
-3. Deploy only if asked, from a clean tree, never from a dirty peer checkout. Production is `root@docker01.uggs.io` (`/var/docker_data/codex-auth.uggs.io/app`): `git pull --ff-only`, `scripts/deploy.sh` as root. If wrapper Go code changed, use `scripts/deploy.sh` so the cxx matrix is built and published; a path that skips wrapper publishing would ship API-only. Tag a rollback image first and name it in the report. Verify: container healthy, migrations applied, `healthz` 200, served artifact matches the commit. Say what you deployed, where, and how to roll back.
+2. Push always (`origin` unless named; a remote called `github` is never implicit; both remotes if the repo's CI contract says so).
+3. Deploy always, from a clean tree, never from a dirty peer checkout. Production is `root@docker01.uggs.io` (`/var/docker_data/codex-auth.uggs.io/app`): `git pull --ff-only`, `scripts/deploy.sh` as root. If wrapper Go code changed, use `scripts/deploy.sh` so the cxx matrix is built and published; a path that skips wrapper publishing would ship API-only. Tag a rollback image first and name it in the report. Verify: container healthy, migrations applied, `healthz` 200, served artifact matches the commit. Say what you deployed, where, and how to roll back.
 4. Tell the peer you coordinated with, once the deploy is finished and the remote has moved.
 
 ## 7. Close the queue
