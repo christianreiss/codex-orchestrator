@@ -99,6 +99,19 @@ therefore do not wait for the 15-second handshake deadline after native exit.
 Remote session finalization retains its separate four-second retry budget; this
 is not a promise that all shutdown work completes within four seconds.
 
+Clean exits keep the session-level control attachment alive through the terminal
+receipt, avoiding a connection-loss reconciliation before finalization. The
+native-instance attachment still ends with the native process; the local broker
+is closed and ordinary bridge requests are canceled before the receipt is sent.
+The remaining session attachment closes after either success or failure.
+
+From cxx 0.9.160, account release returns after the communicator's local release
+journal has been durably written. The communicator retries until the server
+acknowledges; shell return proves the durable handoff, not that remote release
+has already completed. If journaling is unavailable or fails, the wrapper keeps
+the synchronous release request and its five-second budget. Managed session
+finalization still awaits its own terminal response.
+
 Native launches and help forward SIGINT, SIGTERM and SIGHUP as catchable
 signals, allowing ten seconds for cleanup before forced termination. Exit
 status uses the shell convention `128 + signal`. Headless children, the Codex
@@ -310,6 +323,16 @@ quota provider question now appears before the clx boot screen, matching cdx.
 
 Hidden boot screens omit the native version subprocess used only for the
 display; visible boot/status reports still inspect the installed Claude CLI.
+Warm auth-only launches omit managed-content digest scans. When local credentials
+already carry a canonical digest and an account binding, bootstrap retrieves
+that account's latest head without resubmitting the same candidate or holding
+the local auth writer lock over the request. New native credentials, unknown
+account bindings and pending logout acknowledgements retain serialized candidate
+arbitration. A failed server head triggers one candidate exchange to distinguish
+it from a runnable local login; canonical replacement still requires verification
+and generation CAS. If that candidate exchange fails or returns no authoritative
+auth verdict, the original failed-head verdict remains binding; an outage cannot
+re-enable those local credentials without proof they differ from the failed head.
 A verified `claude_skills` bootstrap bundle also supplies the local skills sync
 result, including owned-directory retirement in MCP mode, avoiding a second list
 request. This result does not prove that a running Claude session can call MCP.

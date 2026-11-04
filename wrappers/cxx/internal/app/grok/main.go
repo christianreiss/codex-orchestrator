@@ -621,7 +621,8 @@ func acquireContentLease(ctx context.Context) (*ipc.Lock, error) {
 
 func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o options, stdout, stderr io.Writer) (exitCode int, runErr error) {
 	commStats := communicator.NewLifecycleStats(cfg.Orchestrator.BaseURL)
-	if err := requireSupportedNativeCLI(ctx); err != nil {
+	var versionProbe launchVersionProbe
+	if err := versionProbe.requireInstalled(ctx); err != nil {
 		return 1, err
 	}
 	headless := o.command == "execute" || nativeAnyFlag(o.args, "-p", "--single", "--print", "--prompt-file", "--prompt-json") || nativeCommand(o.args) == "agent"
@@ -831,7 +832,8 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if err != nil {
 		return 1, err
 	}
-	if err := requireSupportedNativeVersion(ctx, path); err != nil {
+	version, err = versionProbe.supported(ctx, path)
+	if err != nil {
 		return 1, err
 	}
 	env := rt.Environment(os.Environ())
@@ -966,10 +968,8 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	}
 	args = interactiveArgs(args, headless, o.skipBoot)
 	minimal = o.minimal || nativeFlag(args, "--minimal")
-	var versionErr error
-	version, versionErr = native.ProbeVersion(ctx, path)
 	if !o.skipBoot {
-		terminalui.PrintBootScreen(stderr, startupScreen(startupInput{Config: cfg, Auth: &initial, EngineVersion: version, VersionErr: versionErr, WrapperVersion: Version, Home: rt.Home, EffectiveHome: true, Overlay: rt.ModelPreferences(), LaunchArgs: args, Sync: sync, Minimal: minimal}))
+		terminalui.PrintBootScreen(stderr, startupScreen(startupInput{Config: cfg, Auth: &initial, EngineVersion: version, WrapperVersion: Version, Home: rt.Home, EffectiveHome: true, Overlay: rt.ModelPreferences(), LaunchArgs: args, Sync: sync, Minimal: minimal}))
 		caps := terminalui.DetectCapsFor(stderr, stringValue(cfg.EngineOptions.AdminThemeHint))
 		if minimal {
 			caps.IsTTY = false

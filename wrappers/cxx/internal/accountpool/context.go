@@ -213,6 +213,12 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		if journalErr != nil {
 			fmt.Fprintln(os.Stderr, "cxx: provider release journal:", journalErr)
 		}
+		if queued && journalErr == nil {
+			// The fsynced journal transfers this idempotent obligation to the
+			// communicator. Its worker retries until acknowledged; a second
+			// synchronous POST only races that worker and delays shell return.
+			return
+		}
 		rctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := client.JSON(rctx, http.MethodPost, "/auth/sessions/release", map[string]any{"engine": c.Engine, "session_id": id}, nil, 0); err == nil && queued {

@@ -215,7 +215,11 @@ export async function purgeCold(
       ? sql.join(
           candidates.map(
             (row) =>
-              sql`(BINARY principal=BINARY ${row.principal} AND BINARY request_id=BINARY ${row.request_id})`,
+              // Use the composite primary key to locate each candidate. Casting
+              // indexed columns alone forces a table scan for every batch and
+              // blocks the owner's command queue. Keep exact byte checks as
+              // residual guards for databases with legacy collations.
+              sql`(principal=${row.principal} AND request_id=${row.request_id} AND BINARY principal=BINARY ${row.principal} AND BINARY request_id=BINARY ${row.request_id})`,
           ),
           sql` OR `,
         )

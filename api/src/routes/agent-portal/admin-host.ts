@@ -345,7 +345,10 @@ export async function registerAgentPortalAdminHostRoutes(
       if (await coordination.enabled()) {
         // Finish has fenced the native binding. Fleet maintenance must not
         // inherit the ended session's response proofs into its next command.
-        if (ownerRuntimeFor(ctx.db)) await withOwnerBackgroundScope(() => coordination.tick());
+        // Commit claim/presence reconciliation before acknowledging exit. The
+        // owner worker dispatches persisted scope events; an unrelated backlog
+        // must not consume the terminal request's bounded cleanup budget.
+        if (ownerRuntimeFor(ctx.db)) await withOwnerBackgroundScope(() => coordination.reconcileOwned());
         else await coordination.tick();
       }
     }

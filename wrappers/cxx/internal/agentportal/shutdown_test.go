@@ -5,13 +5,152 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/google/uuid"
+	"golang.org/x/net/websocket"
 )
+
+// A normal exit must not trigger session disconnect before the terminal write.
+// Only session presence stays live; native ownership has already ended.
+func TestCloseRetainsSessionAttachmentUntilTerminalReceipt(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		for _, failure := range []bool{false, true} {
+			t.Run(engine+map[bool]string{false: "/success", true: "/failed_receipt"}[failure], func(t *testing.T) {
+				socket := filepath.Join(t.TempDir(), "state.sock")
+				listener, err := net.Listen("unix", socket)
+				if err != nil {
+					t.Fatal(err)
+				}
+				disconnected := make(chan struct{})
+				stateServer := &http.Server{Handler: websocket.Handler(func(ws *websocket.Conn) {
+					defer ws.Close()
+					defer close(disconnected)
+					var open communicator.StateFrame
+					if websocket.JSON.Receive(ws, &open) != nil {
+						return
+					}
+					if open.Scope.NativeInstanceID != "" {
+						t.Error("shutdown retained native-instance ownership")
+					}
+					frame := communicator.StateFrame{Type: "state_snapshot", Protocol: 1, StreamID: open.StreamID, OwnerEpoch: uuid.NewString(), Revision: "1", Payload: json.RawMessage(`{"ownership_mode":"connection","authorization_deadline":null,"session":{}}`)}
+					if websocket.JSON.Send(ws, frame) != nil {
+						return
+					}
+					for {
+						var frame communicator.StateFrame
+						if websocket.JSON.Receive(ws, &frame) != nil {
+							return
+						}
+					}
+				})}
+				go stateServer.Serve(listener)
+				defer stateServer.Close()
+				original := dialPortalState
+				defer func() { dialPortalState = original }()
+				dialPortalState = func(ctx context.Context, _ string, scope communicator.StateScope, auth communicator.StateAuth) (*communicator.StateClient, error) {
+					return communicator.DialStateSocket(ctx, socket, "/state", scope, auth)
+				}
+				finishStarted, allowReceipt := make(chan struct{}), make(chan struct{})
+				var signalFinish sync.Once
+				var session *Session
+				var broker *Broker
+				api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if !strings.HasSuffix(r.URL.Path, "/finish") {
+						t.Errorf("unexpected exit request: %s", r.URL.Path)
+					}
+					if _, _, live, _ := session.stateView(); !live {
+						t.Error("session attachment lost before terminal receipt")
+					}
+					if _, err := os.Stat(broker.socketPath); !errors.Is(err, os.ErrNotExist) {
+						t.Errorf("broker capability not revoked before finish: %v", err)
+					}
+					if _, cancel, err := session.beginBridgeRequest(context.Background(), false); err == nil {
+						cancel()
+						t.Error("normal bridge request admitted during finalization")
+					}
+					signalFinish.Do(func() { close(finishStarted) })
+					<-allowReceipt
+					if failure {
+						w.WriteHeader(http.StatusInternalServerError)
+					}
+					io.WriteString(w, `{}`)
+				}))
+				defer api.Close()
+				defer func() {
+					select {
+					case <-allowReceipt:
+					default:
+						close(allowReceipt)
+					}
+				}()
+				session = &Session{ID: uuid.NewString(), Engine: engine, BridgeToken: "fixture", BaseURL: api.URL, http: api.Client()}
+				stop := session.StartHeartbeat(context.Background())
+				defer stop()
+				select {
+				case <-session.stateNegotiated():
+				case <-time.After(time.Second):
+					t.Fatal("no session attachment")
+				}
+				broker, err = session.StartBroker(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer broker.Close()
+				activeRequest, cancelRequest, err := session.beginBridgeRequest(context.Background(), false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer cancelRequest()
+				runtime := &ConnectionRuntime{session: session, broker: broker, stopHeartbeat: stop, restore: func() {}}
+				done := make(chan error, 1)
+				go func() { done <- runtime.Close("completed", "native exited") }()
+				select {
+				case <-finishStarted:
+				case <-time.After(2 * time.Second):
+					t.Fatal("finish did not start")
+				}
+				select {
+				case <-disconnected:
+					t.Error("attachment disconnected while receipt was pending")
+				default:
+				}
+				select {
+				case <-activeRequest.Done():
+				case <-time.After(time.Second):
+					t.Error("normal in-flight request not canceled")
+				}
+				close(allowReceipt)
+				select {
+				case err := <-done:
+					if (err != nil) != failure {
+						t.Errorf("close error=%v failure=%v", err, failure)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("close did not finish")
+				}
+				select {
+				case <-disconnected:
+				case <-time.After(time.Second):
+					t.Fatal("attachment retained after close")
+				}
+				if _, _, live, _ := session.stateView(); live {
+					t.Error("session presence retained after close")
+				}
+			})
+		}
+	}
+}
 
 func TestCloseUsesOnlyFinishAndRecognizesNestedEndedConflict(t *testing.T) {
 	for _, engine := range []string{"codex", "claude", "grok"} {

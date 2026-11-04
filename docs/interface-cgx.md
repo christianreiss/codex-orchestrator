@@ -106,6 +106,28 @@ therefore do not wait for the 15-second handshake deadline after native exit.
 Remote session finalization retains its separate four-second retry budget; this
 is not a promise that all shutdown work completes within four seconds.
 
+Clean exits keep the session-level control attachment alive through the terminal
+receipt, avoiding a connection-loss reconciliation before finalization. The
+native-instance attachment still ends with the native process; the local broker
+is closed and ordinary bridge requests are canceled before the receipt is sent.
+The remaining session attachment closes after either success or failure.
+
+From cxx 0.9.160, account release returns after the communicator's local release
+journal has been durably written. The communicator retries until the server
+acknowledges; shell return proves the durable handoff, not that remote release
+has already completed. If journaling is unavailable or fails, the wrapper keeps
+the synchronous release request and its five-second budget. Managed session
+finalization still awaits its own terminal response.
+
+Interactive exit first stops and joins the private leader, then finalizes the
+managed session, releases the account lease and removes the private runtime.
+These steps retain the leader's auth and claim protection until its native work
+has stopped. On 2026-11-04, isolated Grok 1.0.70 leaders with no credentials or
+clients took about two seconds to exit after either SIGTERM or SIGINT, including
+with vendor telemetry disabled. This native graceful-shutdown delay is separate
+from the wrapper's remote finalization budget; faster wrapper cleanup does not
+remove it.
+
 Native launches and help forward SIGINT, SIGTERM and SIGHUP as catchable
 signals, allowing ten seconds for cleanup before forced termination. Exit
 status uses the shell convention `128 + signal`. Headless children, the Codex
@@ -349,6 +371,15 @@ this minimum. A launch with an already installed older binary fails before
 config sync or account leasing and names `cgx update` (or a supported
 `CGX_GROK_BIN`) as the remedy. Update policy and explicit binary overrides
 remain respected; diagnostics such as native `--version` still work.
+
+During a launch, the early settings compatibility check and final native launch
+check reuse a successful version probe for direct ELF/Mach-O binaries while the executable's identity, size,
+permissions and modification time remain unchanged. A replacement or newly
+installed binary is probed again. The boot card uses the admitted version rather
+than starting another native process; no version evidence survives the launch.
+Script launchers retain both compatibility probes because their delegated binary
+can change independently. Account admission, identity confirmation and private
+leader readiness still run.
 
 On API startup, the verified four-platform `cxx` matrix publishes the same
 wrapper version, Linux checksum, and download URL for all three engines.

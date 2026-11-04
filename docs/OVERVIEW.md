@@ -1582,11 +1582,27 @@ See `interface-api.md` → Fleet model policy.
 
 Model Class Check guidance rates the whole assignment before scouting or planning. Read-only scouting takes the tier of the decisions it feeds and is not Tier 5 by default; all five task definitions remain visible on hosts with only lower-tier models. Two-tier gaps stop unless the operator explicitly overrides the identified mismatch. This is agent guidance, not runtime enforcement.
 
+From cxx 0.9.160, Codex and Grok reuse successful version probes for unchanged
+native executables within the wrapper process or launch. Indirect script launchers
+still require fresh compatibility checks. Claude warm auth-only bootstrap omits
+content hashing and retrieves an already acknowledged account generation without
+holding the local credential writer lock over the request. New logins, logout
+intent, unknown accounts and failed canonical heads retain candidate arbitration.
+
 Managed session exit uses one terminal portal request with a four-second shared
 remote budget for all engines. Exit hooks hand watchdog evidence to the local
 broker, and the supervisor includes it in the terminal report. Claude final
 credential sync retains its verification and insecure cleanup guarantees while
 stopping retries for permanent refusals and unknown communicator outcomes.
+From cxx 0.9.160, the session connection remains attached until the terminal
+request ends; the native execution attachment still ends with the native process.
+The server awaits durable session and coordination cleanup before acknowledging
+finish. Queued room-event delivery remains with the existing durable worker and
+does not extend the finish response.
+Account release hands its obligation to the fsynced local communicator journal,
+which retries until server acknowledgment. Missing or failed journaling keeps the
+synchronous fallback. Receipt retention uses indexed composite-key lookups with
+byte-exact checks to avoid blocking the shared command queue on table scans.
 
 
 ## Session scope coordination (protocol 1)

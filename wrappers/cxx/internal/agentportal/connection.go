@@ -79,7 +79,12 @@ func (r *ConnectionRuntime) Close(status, summary string) error {
 		if r.stopWatchdog != nil {
 			r.stopWatchdog()
 		}
-		r.stopHeartbeat()
+		// Keep the authenticated session attachment until the terminal receipt
+		// completes. Disconnecting first turns a clean exit into connection-loss
+		// reconciliation before Finish can commit. The native-control attachment
+		// already ended with the native child; this preserves only session presence.
+		// Finish cancels/rejects normal bridge operations before its HTTP request.
+		defer r.stopHeartbeat()
 		var brokerErr error
 		if r.broker != nil {
 			brokerErr = r.broker.Close()

@@ -4,16 +4,152 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
 
 type fakeClient struct {
 	requests []string
 	bodies   []map[string]any
 	account  int64
+}
+
+type blockedReleaseClient struct {
+	fakeClient
+	started chan struct{}
+	ack     chan struct{}
+}
+
+func (f *blockedReleaseClient) JSON(ctx context.Context, method, path string, in, out any, retries int) error {
+	if path == "/auth/sessions/release" {
+		close(f.started)
+		select {
+		case <-f.ack:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return f.fakeClient.JSON(ctx, method, path, in, out, retries)
+}
+
+func TestLeaseReleaseUsesDurableHandoffAndSynchronousFallback(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		for _, mode := range []string{"durable", "journal_unwritable", "unmanaged"} {
+			t.Run(engine+"/"+mode, func(t *testing.T) {
+				home := t.TempDir()
+				t.Setenv("HOME", home)
+				runtime, err := os.MkdirTemp("", "lease-exit-")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer os.RemoveAll(runtime)
+				t.Setenv("XDG_RUNTIME_DIR", runtime)
+				t.Setenv("CXX_COMMUNICATOR_SYNC", "")
+				base := "https://lease-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".fixture.invalid"
+				wake := make(chan struct{}, 1)
+				if mode != "unmanaged" {
+					cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-11-04T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: base, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: 1}, Host: config.Host{ID: 1, FQDN: "fixture.invalid", Secure: true}, Wrapper: config.Wrapper{Version: "0.9.159", Track: "stable", BinaryURL: base + "/download", BinarySHA256: strings.Repeat("0", 64)}}
+					path := filepath.Join(home, "config.json")
+					raw, _ := json.Marshal(cfg)
+					if err := os.WriteFile(path, raw, 0600); err != nil {
+						t.Fatal(err)
+					}
+					loaded, err := config.LoadForEngine(path, nil, true, engine)
+					if err != nil {
+						t.Fatal(err)
+					}
+					communicator.WithSyncConfig(context.Background(), loaded)
+					dirs, _ := filepath.Glob(filepath.Join(runtime, "cxx-comm-*"))
+					if len(dirs) != 1 {
+						t.Fatalf("private owner directories: %v", dirs)
+					}
+					listener, err := net.Listen("unix", filepath.Join(dirs[0], "control.sock"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					owner := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if r.URL.Path == "/_comm/provider-release" {
+							wake <- struct{}{}
+							w.WriteHeader(http.StatusAccepted)
+							return // Local wake acknowledgement does not wait for remote release.
+						}
+						_, _ = w.Write([]byte(`{"protocol":1,"control_state_protocol":0}`))
+					})}
+					go owner.Serve(listener)
+					defer owner.Close()
+					if mode == "journal_unwritable" {
+						if err := os.WriteFile(filepath.Join(home, ".cxx"), []byte("not a directory"), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				pool := Load(engine, filepath.Join(home, "auth.json"), base)
+				pool.Capable = true
+				client := &blockedReleaseClient{started: make(chan struct{}), ack: make(chan struct{})}
+				stop, lease, err := pool.Start(context.Background(), client, false, func(json.RawMessage, string, bool) (bool, error) { return true, nil })
+				if err != nil {
+					t.Fatal(err)
+				}
+				done := make(chan struct{})
+				go func() { stop(); stop(); close(done) }()
+				if mode == "durable" {
+					select {
+					case <-done:
+					case <-client.started:
+						close(client.ack)
+						<-done
+						t.Fatal("durably queued release still waited on duplicate remote POST")
+					case <-time.After(2 * time.Second):
+						t.Fatal("durable handoff blocked shell return")
+					}
+					select {
+					case <-wake:
+					default:
+						t.Fatal("durable release did not wake owner")
+					}
+					files, _ := filepath.Glob(filepath.Join(home, ".cxx", "receipts", "*", "provider-release", lease.SessionID+".json"))
+					if len(files) != 1 {
+						t.Fatalf("pending release receipt lost: %v", files)
+					}
+					raw, err := os.ReadFile(files[0])
+					var receipt map[string]string
+					if err != nil || json.Unmarshal(raw, &receipt) != nil || receipt["engine"] != engine || receipt["session_id"] != lease.SessionID {
+						t.Fatalf("wrong durable receipt: %s %v", raw, err)
+					}
+					communicator.AcknowledgeProviderRelease(base, lease.SessionID)
+					if _, err := os.Stat(files[0]); !os.IsNotExist(err) {
+						t.Fatal("acknowledged receipt retained")
+					}
+				} else {
+					select {
+					case <-client.started:
+					case <-time.After(time.Second):
+						t.Fatal("missing synchronous fallback")
+					}
+					select {
+					case <-done:
+						t.Fatal("fallback returned before release acknowledged")
+					default:
+					}
+					close(client.ack)
+					select {
+					case <-done:
+					case <-time.After(time.Second):
+						t.Fatal("fallback ignored release acknowledgement")
+					}
+				}
+			})
+		}
+	}
 }
 
 func (f *fakeClient) JSON(_ context.Context, _ string, path string, in any, out any, _ int) error {

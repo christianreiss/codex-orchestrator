@@ -35,9 +35,11 @@ func TestNativeLaunchRequiresRegisteredIdentityBeforeProvider(t *testing.T) {
 			t.Setenv("CXX_TEST_REGISTERED", registered)
 			t.Setenv("CXX_TEST_CONFIRMED", confirmed)
 			t.Setenv("CXX_TEST_STARTED", started)
+			probes := filepath.Join(dir, "version-probes")
+			t.Setenv("CXX_TEST_VERSION_PROBES", probes)
 			cli := filepath.Join(dir, "grok-cli")
 			script := `#!/bin/sh
-if [ "$1" = --version ]; then echo 'grok 1.0.50'; exit 0; fi
+if [ "$1" = --version ]; then echo probe >> "$CXX_TEST_VERSION_PROBES"; echo 'grok 1.0.50'; exit 0; fi
 [ -f "$CXX_TEST_REGISTERED" ] && [ -f "$CXX_TEST_CONFIRMED" ] || exit 91
 [ -n "$CXX_AGENT_PORTAL_SOCKET" ] && [ -n "$CXX_AGENT_PORTAL_SESSION_ID" ] || exit 92
 : > "$CXX_TEST_STARTED"
@@ -110,6 +112,13 @@ printf '%s\n' "$@"
 			defer cancel()
 			var stdout, stderr bytes.Buffer
 			code, err := run(ctx, cfg, client, o, &stdout, &stderr)
+			wantProbes := "probe\n"
+			if named {
+				wantProbes += "probe\n" // Scripts retain both compatibility checks, but no boot-card probe.
+			}
+			if data, probeErr := os.ReadFile(probes); probeErr != nil || string(data) != wantProbes {
+				t.Fatalf("unexpected launch version probes: %q, %v", data, probeErr)
+			}
 			if !named {
 				if code != 1 || err == nil || !strings.Contains(err.Error(), "no confirmed name") {
 					t.Fatalf("unnamed launch: code=%d error=%v stderr=%s", code, err, &stderr)

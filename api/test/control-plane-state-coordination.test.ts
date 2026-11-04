@@ -5,7 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '../src/db/schema.js';
 import type { Database } from '../src/db/client.js';
-import type { StateSeed } from '../src/control-plane/state/catalog.js';
+import { OWNED_TABLE_NAMES, type StateSeed } from '../src/control-plane/state/catalog.js';
+import { stageScopeEvent } from '../src/control-plane/state/coordination.js';
+import { stageSessionFinish } from '../src/control-plane/state/session-lifecycle.js';
 import { CommandExecutor } from '../src/control-plane/commands.js';
 import type { PersistenceTransaction } from '../src/control-plane/persistence.js';
 import { DeadlineQueue } from '../src/control-plane/deadlines.js';
@@ -204,9 +206,51 @@ function setup(beforeCommit: () => Promise<void> = async () => {}, peerCount = 0
     return { ...peer, attach: attachPeer, live: attachPeer() };
   });
   const service = new AgentCoordination(db, loadTestEnv(), testKeyring(), {} as AgentMessagingService);
-  return { owner, state, select, fake, service, sessionId, token, instance, presence, attach, live, peers };
+  return { owner, state, select, fake, db, service, sessionId, token, instance, presence, attach, live, peers };
 }
 describe('connection-owned coordination claims', () => {
+  it('finishes claims while persisting an event backlog for hydration and later worker dispatch', async () => {
+    const h = setup(undefined, 1);
+    const claim = await h.service.claims.acquire(h.sessionId, h.token, {
+      client_request_id: randomUUID(), purpose: 'terminal cleanup',
+      resources: [{ kind: 'path', host_id: 1, path: '/repo' }],
+    });
+    await h.service.reconcileOwned();
+    const room = h.state.snapshot().table('agentScopes').all()[0]!;
+    // A persisted backlog can predate the current owner/terminal request.
+    const event = await mutateOwnerState(h.owner, {
+      kind: 'test.pending.scope-event', payload: {}, prepare(ctx) {
+        return { id: stageScopeEvent(ctx, testKeyring(), room.id, 'chat', h.sessionId, { content: 'retained room message' }).id };
+      },
+    }) as { id: string };
+    h.live.detach();
+    await h.service.reconcileOwned();
+    await mutateOwnerState(h.owner, {
+      kind: 'test.terminal.session', payload: {}, prepare(ctx) {
+        stageSessionFinish(ctx, ctx.snapshot.sessions.get(h.sessionId)!, 'completed', new Date().toISOString());
+        return null;
+      },
+    });
+    await h.service.reconcileOwned();
+    expect(h.state.snapshot().claims.get(claim.id)?.state).toBe('released');
+    expect(h.state.snapshot().table('agentScopeMembers').by('sessionId', h.sessionId).every((row) => row.state === 'left')).toBe(true);
+    expect(h.state.snapshot().table('agentScopeEvents').get(event.id)?.dispatched).toBe(0);
+
+    const persisted = Object.fromEntries(OWNED_TABLE_NAMES.map((name) => [name, h.fake.tables.get(schema[name]) ?? []])) as StateSeed;
+    const rehydrated = new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, persisted);
+    expect(rehydrated.table('agentScopeEvents').get(event.id)?.dispatched).toBe(0);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3000);
+    try {
+      const worker = new AgentCoordination(h.db, loadTestEnv(), testKeyring(), {} as AgentMessagingService);
+      await worker.tick();
+      expect(h.state.snapshot().table('agentScopeEvents').get(event.id)?.dispatched).toBe(1);
+      expect(h.fake.tables.get(schema.agentScopeEvents)?.find((row) => row.id === event.id)?.dispatched).toBe(1);
+      expect(h.state.snapshot().table('agentBusMessages').all().some((row) => row.targetSessionId === h.peers[0]!.id)).toBe(true);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('acquires once then answers repeated healthy status and context reads without SQL or commands', async () => {
     const h = setup();
     const result = await h.service.claims.acquire(h.sessionId, h.token, {

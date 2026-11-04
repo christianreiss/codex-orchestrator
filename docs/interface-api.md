@@ -3886,6 +3886,10 @@ payload conflicts with 409, and current authorization is checked first. Explicit
 internal IDs expire after seven days once unreferenced. No retry-window protocol
 change or new client ID generation is introduced.
 
+Receipt retention locates each selected row through its composite primary key
+before byte-exact checks. This avoids full-table scans that stall queued launch
+and finish commands; pending-work guards and retention deadlines are unchanged.
+
 `node retention-maintenance.js --activate --no-backup` and
 `--compact --no-backup` require exclusive offline database ownership. Compaction
 uses a fixed table allowlist and only recorded families with actual deletions from
@@ -3901,7 +3905,7 @@ Root Skill file reads (`skill://<slug>/SKILL.md` and the corresponding host supp
 
 Owner command views share only a private, non-serialized runtime-metadata scope with their published state. Connection-derived and explicitly protected legacy credential deadlines therefore remain valid during composition. A reconstructed snapshot or new owner epoch receives a fresh scope; credential, host, binding and connection revocation checks remain effective.
 
-Native session finish runs its post-finish fleet coordination maintenance outside the ended native session request scope. The authenticated finish retains committed-action response authorization; invalid bridge credentials and unrelated binding changes remain rejected.
+Native session finish runs its post-finish fleet coordination maintenance outside the ended native session request scope. On the owner path it awaits durable claim/presence reconciliation, while the existing coordination worker dispatches persisted scope events independently; an unrelated event backlog does not extend the terminal acknowledgement. Pending events remain eligible after owner restart. The legacy path retains its combined tick. The authenticated finish retains committed-action response authorization; invalid bridge credentials, reconciliation failures and unrelated binding changes remain rejected.
 
 
 ### Explicit native lock continuation (cxx 0.9.131)

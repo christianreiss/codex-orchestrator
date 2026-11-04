@@ -97,11 +97,30 @@ of the orchestrator MCP switch, fleet URL and fleet bearer availability.
 
 ## Native shutdown
 
+Within one wrapper process, boot, model compatibility and exit reporting reuse
+a successful installed-version probe while the selected native executable's
+identity, size, permissions and modification time remain unchanged. Replacement
+or modification triggers a fresh probe. Script launchers and failed probes are
+never cached; model minimum-version checks remain enforced before native launch.
+
 From cxx 0.9.153, cancellation interrupts control-state socket setup, including
 the HTTP upgrade and initial snapshot. Native-control and account-worker joins
 therefore do not wait for the 15-second handshake deadline after native exit.
 Remote session finalization retains its separate four-second retry budget; this
 is not a promise that all shutdown work completes within four seconds.
+
+Clean exits keep the session-level control attachment alive through the terminal
+receipt, avoiding a connection-loss reconciliation before finalization. The
+native-instance attachment still ends with the native process; the local broker
+is closed and ordinary bridge requests are canceled before the receipt is sent.
+The remaining session attachment closes after either success or failure.
+
+From cxx 0.9.160, account release returns after the communicator's local release
+journal has been durably written. The communicator retries until the server
+acknowledges; shell return proves the durable handoff, not that remote release
+has already completed. If journaling is unavailable or fails, the wrapper keeps
+the synchronous release request and its five-second budget. Managed session
+finalization still awaits its own terminal response.
 
 Native launches and help forward SIGINT, SIGTERM and SIGHUP as catchable
 signals, allowing ten seconds for cleanup before forced termination. Exit

@@ -750,6 +750,13 @@ func decideAuth(resp *orchestrator.AuthRetrieveResponse, authErr error, authPath
 		dec.Reason = "Server canonical credentials failed verification; using distinct valid local credentials while upload retries."
 		return dec
 	}
+	if resp != nil && strings.EqualFold(strings.TrimSpace(resp.VerificationState), "failed") {
+		// A transport error cannot erase an authoritative failed-head verdict.
+		// The explicit distinct-candidate proof above is the only local fallback.
+		dec.Allowed = false
+		dec.LocalUsable = false
+		return dec
+	}
 	if authErr != nil && localAuthFresh(authPath, secure) &&
 		(errors.Is(authErr, claude.ErrUnusableServerAuth) || isRetryableAuthSyncFailure(authErr)) {
 		// A broken canonical envelope or temporary control-plane failure must not
@@ -931,8 +938,12 @@ func bootstrapWithProgress(
 			return failure, fmt.Errorf("read authoritative Claude credentials: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 		}
 	}
-	agentsDigest := fileDigest(agentsPath())
-	configDigest := fileDigest(settingsPath())
+	skipContent := communicator.CachedContent(ctx)
+	var agentsDigest, configDigest string
+	if !skipContent {
+		agentsDigest = fileDigest(agentsPath())
+		configDigest = fileDigest(settingsPath())
+	}
 
 	username := ""
 	home := ""
@@ -949,82 +960,120 @@ func bootstrapWithProgress(
 	// Advertise on-disk digests for the flat collections AND the skills (skills
 	// ride the same `artifacts` map under the "skill" key) so the server can omit
 	// unchanged content.
-	reqArtifacts := artifactDigestsForRequest()
-	if skillDigests := skillDigestsForRequest(); len(skillDigests) > 0 {
-		if reqArtifacts == nil {
-			reqArtifacts = map[string]map[string]string{}
+	var reqArtifacts map[string]map[string]string
+	if !skipContent {
+		reqArtifacts = artifactDigestsForRequest()
+		if skillDigests := skillDigestsForRequest(); len(skillDigests) > 0 {
+			if reqArtifacts == nil {
+				reqArtifacts = map[string]map[string]string{}
+			}
+			reqArtifacts["skill"] = skillDigests
 		}
-		reqArtifacts["skill"] = skillDigests
 	}
 
-	releaseBundleUpload := func() {}
 	var (
 		bundleCandidateSnapshot claude.AuthSnapshot
 		bundleCandidateIntent   claude.LogoutIntentGeneration
 		bundleCandidateSent     bool
+		resp                    *orchestrator.BundleResponse
+		failedHead              *orchestrator.BundleResponse
+		berr                    error
 	)
-	if candidatePossible {
-		snap, intent, release, err := claude.BeginChangedAuthUploadState()
-		if errors.Is(err, os.ErrNotExist) {
-			authSnapshot = claude.AuthSnapshot{Path: authPath}
-			digest = ""
-		} else if err != nil {
-			failure := &orchestrator.AuthRetrieveResponse{Status: "error", Message: err.Error()}
-			return failure, fmt.Errorf("stabilize Claude candidate for bundle: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
-		} else {
-			authSnapshot = snap
-			digest = snap.DigestForServer()
-			if !snap.Usable || intent.Blocks(snap) {
-				release()
+	for attempt := 0; attempt < 2; attempt++ {
+		releaseBundleUpload := func() {}
+		canonicalRetrieveOnly := false
+		if candidatePossible {
+			snap, intent, release, err := claude.BeginChangedAuthUploadState()
+			if errors.Is(err, os.ErrNotExist) {
+				authSnapshot = claude.AuthSnapshot{Path: authPath}
+				digest = ""
+			} else if err != nil {
+				if failedHead != nil {
+					return failedHead.Auth, fmt.Errorf("stabilize Claude candidate for bundle: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, failedHead.Sessions
+				}
+				failure := &orchestrator.AuthRetrieveResponse{Status: "error", Message: err.Error()}
+				return failure, fmt.Errorf("stabilize Claude candidate for bundle: %w", err), false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, nil
 			} else {
-				candidate = snap.Upload
-				bundleCandidateSnapshot = snap
-				bundleCandidateIntent = intent
-				bundleCandidateSent = true
-				releaseBundleUpload = release
+				authSnapshot = snap
+				digest = snap.DigestForServer()
+				accountID, _ := client.Pool.Binding()
+				if !snap.Usable || intent.Blocks(snap) {
+					release()
+				} else if attempt == 0 && snap.ServerDigest != "" && accountID > 0 && !intent.Exists {
+					canonicalRetrieveOnly = true
+					// This native credential pair already has a canonical digest and
+					// an account binding. Retrieve that account's latest head without
+					// repeating candidate discovery or holding the writer lock over
+					// HTTP. Unknown accounts/logins and logout acknowledgements still
+					// use the serialized candidate transaction below.
+					release()
+				} else {
+					candidate = snap.Upload
+					bundleCandidateSnapshot = snap
+					bundleCandidateIntent = intent
+					bundleCandidateSent = true
+					releaseBundleUpload = release
+				}
 			}
 		}
+
+		// The live sync path. Attributes stay at the shape of the exchange —
+		// whether a candidate was offered, what status came back — because the
+		// request body and the response both carry credentials.
+		bctx, syncSpan := tracing.Start(bctx, "cxx.sync.bootstrap",
+			tracing.String("wrapper.engine", "claude"),
+			tracing.Bool("wrapper.auth_candidate_offered", bundleCandidateSent),
+		)
+		var includeContent *bool
+		if skipContent {
+			includeContent = new(bool)
+		}
+		resp, berr = client.SyncBootstrap(bctx, orchestrator.BundleRequest{
+			VersionProbe:   claude.Version,
+			IncludeContent: includeContent,
+			Engine:         "claude",
+			IncludeAuth:    includeAuth,
+			AuthDigest:     digest,
+			AuthCandidate:  candidate,
+			Agents:         agentsDigest,
+			Config:         configDigest,
+			Home:           home,
+			Username:       username,
+			Artifacts:      reqArtifacts,
+		})
+		progress.Clear()
+		if berr != nil {
+			syncSpan.Fail(berr)
+		} else if resp != nil && resp.Auth != nil {
+			syncSpan.SetString("wrapper.auth_status", resp.Auth.Status)
+		}
+		syncSpan.End()
+		releaseBundleUpload()
+
+		// A failed head may differ from the still-runnable local login. Only
+		// candidate arbitration can prove that distinction; retry once with
+		// the serialized candidate path instead of guessing from digests.
+		if canonicalRetrieveOnly && berr == nil && resp != nil && resp.Auth != nil && strings.EqualFold(strings.TrimSpace(resp.Auth.VerificationState), "failed") {
+			failedHead = resp
+			continue
+		}
+		break
 	}
 
-	// The live sync path. Attributes stay at the shape of the exchange —
-	// whether a candidate was offered, what status came back — because the
-	// request body and the response both carry credentials.
-	bctx, syncSpan := tracing.Start(bctx, "cxx.sync.bootstrap",
-		tracing.String("wrapper.engine", "claude"),
-		tracing.Bool("wrapper.auth_candidate_offered", bundleCandidateSent),
-	)
-	skipContent := communicator.CachedContent(ctx)
-	var includeContent *bool
-	if skipContent {
-		includeContent = new(bool)
+	if failedHead != nil && berr == nil && (resp == nil || resp.Auth == nil ||
+		(!strings.EqualFold(strings.TrimSpace(resp.Auth.VerificationState), "verified") &&
+			!strings.EqualFold(strings.TrimSpace(resp.Auth.VerificationState), "failed"))) {
+		// The retry must establish a new authoritative verdict before it can
+		// supersede the failed head. Outages and incomplete replies provide no
+		// evidence that the local credential pair differs from that failed head.
+		berr = errors.New("candidate arbitration did not resolve failed canonical credentials")
 	}
-	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
-		VersionProbe:   claude.Version,
-		IncludeContent: includeContent,
-		Engine:         "claude",
-		IncludeAuth:    includeAuth,
-		AuthDigest:     digest,
-		AuthCandidate:  candidate,
-		Agents:         agentsDigest,
-		Config:         configDigest,
-		Home:           home,
-		Username:       username,
-		Artifacts:      reqArtifacts,
-	})
-	progress.Clear()
-	if berr != nil {
-		syncSpan.Fail(berr)
-	} else if resp != nil && resp.Auth != nil {
-		syncSpan.SetString("wrapper.auth_status", resp.Auth.Status)
-	}
-	syncSpan.End()
-	releaseBundleUpload()
 
 	// The legacy fallback pulls auth per resource through `/auth command=retrieve`
 	// — the gated credential fetch this mode exists to avoid. A content-only pass
 	// against a server too old for the bundle reports a retryable sync failure
 	// instead of quietly downgrading into a credential request.
-	if berr != nil && includeAuth && isBundleUnsupported(berr) {
+	if berr != nil && failedHead == nil && includeAuth && isBundleUnsupported(berr) {
 		logger.Debug("bundle endpoint unsupported, falling back", "err", berr)
 		bootSpan.SetBool("wrapper.bundle_fallback", true)
 		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
@@ -1036,8 +1085,17 @@ func bootstrapWithProgress(
 		scope, removed := orchestrator.EngineDisabledScope(berr)
 		if !concurrent && ((errors.As(berr, &refusal) && memoryrouting.TrustLost(refusal.Code)) || (removed && scope == config.EngineDisabledScopeHost)) {
 			if err := stripMemoryRouting(authPath); err != nil {
-				return nil, errors.Join(berr, fmt.Errorf("managed memory cleanup incomplete: %w", err)), false, summary.ResourceSync{}, summary.ResourceSync{Checked: true, Err: err}, summary.ResourceSync{}, nil
+				var rejected *orchestrator.AuthRetrieveResponse
+				if failedHead != nil {
+					rejected = failedHead.Auth
+				}
+				return rejected, errors.Join(berr, fmt.Errorf("managed memory cleanup incomplete: %w", err)), false, summary.ResourceSync{}, summary.ResourceSync{Checked: true, Err: err}, summary.ResourceSync{}, nil
 			}
+		}
+		if failedHead != nil {
+			// Trust-loss cleanup above is mandatory even when this retry cannot
+			// supersede the earlier failed credential verdict.
+			return failedHead.Auth, berr, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, failedHead.Sessions
 		}
 		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
 		// map it to the auth status so the launch gate polls for approval

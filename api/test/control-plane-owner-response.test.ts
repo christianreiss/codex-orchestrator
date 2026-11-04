@@ -599,17 +599,28 @@ it.each([false, true])(
 );
 
 describe('terminal session maintenance', () => {
-  it.each([true, false])('does not inherit ended-session proofs (allowed=%s)', async (allowed) => {
+  it.each(['allowed', 'rejected', 'reconciliation_failed'])('awaits reconciliation without dispatch or ended-session proofs (%s)', async (scenario) => {
+    const allowed = scenario !== 'rejected';
     const f = await setup();
+    const entered = deferred(), release = deferred();
+    let reconciled = false, responded = false;
     const ticks: string[] = [];
+    const dispatch = vi.spyOn(AgentCoordination.prototype, 'tick').mockImplementation(async () => {
+      throw new Error('Unrelated event dispatch must remain in the owner worker');
+    });
     const spies = [
+      dispatch,
       vi.spyOn(AgentPortalService.prototype, 'isEnabled').mockResolvedValue(true),
       vi.spyOn(AgentMessagingService.prototype, 'isEnabled').mockResolvedValue(true),
       vi
         .spyOn(AgentMessagingService.prototype, 'finishSession')
         .mockResolvedValue({ enabled: true, status: 'completed' }),
       vi.spyOn(AgentCoordination.prototype, 'enabled').mockResolvedValue(true),
-      vi.spyOn(AgentCoordination.prototype, 'tick').mockImplementation(async () => {
+      vi.spyOn(AgentCoordination.prototype, 'reconcileOwned').mockImplementation(async () => {
+        reconciled = true;
+        entered.resolve();
+        await release.promise;
+        if (scenario === 'reconciliation_failed') throw new Error('Reconciliation persistence failed');
         await mutateOwnerState(f.runtime, {
           kind: 'test.maintenance',
           payload: {},
@@ -643,16 +654,25 @@ describe('terminal session maintenance', () => {
     ];
     try {
       await registerAgentPortalAdminHostRoutes(f.app, { db: f.db, env: f.env, keyring: testKeyring() });
-      const response = await f.app.inject({
+      const pending = f.app.inject({
         method: 'POST',
         url: '/host/agent-sessions/' + randomUUID() + '/finish',
         headers: { 'x-agent-bridge-token': 'fixture-token' },
         payload: { status: 'completed' },
-      });
-      expect(response.statusCode, response.body).toBe(allowed ? 200 : 409);
-      expect(ticks).toEqual(allowed ? ['maintenance'] : []);
+      }).then((response) => { responded = true; return response; });
+      if (allowed) {
+        await Promise.race([entered.promise, pending]);
+        expect(reconciled).toBe(true);
+        expect(responded).toBe(false);
+      }
+      release.resolve();
+      const response = await pending;
+      expect(response.statusCode, response.body).toBe(scenario === 'allowed' ? 200 : allowed ? 500 : 409);
+      expect(ticks).toEqual(scenario === 'allowed' ? ['maintenance'] : []);
+      expect(dispatch).not.toHaveBeenCalled();
       expect(f.runtime.state.snapshot().setting('test.finished')).toBe(allowed ? '1' : null);
     } finally {
+      release.resolve();
       for (const spy of spies) spy.mockRestore();
       await f.close();
     }
