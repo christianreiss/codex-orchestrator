@@ -276,7 +276,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var portalErr *PortalError
 		if errors.As(err, &portalErr) {
-			writeBrokerError(w, portalErr.Status, portalErr.Code, portalErr.Message)
+			writeBrokerErrorExtra(w, portalErr.Status, portalErr.Code, portalErr.Message, portalErr.Extra)
 			return
 		}
 		writeBrokerError(w, http.StatusBadGateway, "broker_upstream_unavailable", "Portal relay is unavailable")
@@ -607,12 +607,19 @@ func newUnixHTTPClient(socketPath string, timeout time.Duration) *http.Client {
 }
 
 func writeBrokerError(w http.ResponseWriter, status int, code, message string) {
+	writeBrokerErrorExtra(w, status, code, message, nil)
+}
+
+// writeBrokerErrorExtra keeps the server's structured error fields, such as
+// claim_connection, so the model-facing MCP error still carries them.
+func writeBrokerErrorExtra(w http.ResponseWriter, status int, code, message string, extra map[string]any) {
+	body := map[string]any{}
+	for key, value := range extra {
+		body[key] = value
+	}
+	body["status"], body["code"], body["message"] = "error", code, message
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"status":  "error",
-		"code":    code,
-		"message": message,
-	})
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // The existing private broker supplies native scope; no bridge secret enters model env or tool arguments.

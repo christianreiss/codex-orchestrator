@@ -30,6 +30,35 @@ type APIError struct {
 	// RetryAfter carries the server's Retry-After header when it sent one.
 	// Zero means it did not; it is a hint, and callers still clamp it.
 	RetryAfter time.Duration
+	// Details is the server's error object when it carries structured fields
+	// beyond message and code (claim_connection, claim_ids, ...). MCP callers
+	// receive it so they can branch on it instead of parsing prose.
+	Details map[string]any
+}
+
+// apiErrorDetails returns the error object of a failure body when it has
+// fields besides the envelope and the message/code already in APIError.
+func apiErrorDetails(raw []byte, message, code string) map[string]any {
+	var fields map[string]any
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil
+	}
+	if nested, ok := fields["error"].(map[string]any); ok {
+		fields = nested
+	}
+	extra := false
+	for key := range fields {
+		if key != "status" && key != "message" && key != "code" && key != "type" && key != "error" {
+			extra = true
+		}
+	}
+	if !extra {
+		return nil
+	}
+	delete(fields, "status")
+	delete(fields, "error")
+	fields["message"], fields["code"] = message, code
+	return fields
 }
 
 // parseRetryAfter reads the delta-seconds form of Retry-After. The HTTP-date
@@ -219,6 +248,7 @@ func doJSON(
 			Message:    failure.Message,
 			Path:       path,
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			Details:    apiErrorDetails(raw, failure.Message, failure.Code),
 		}
 	}
 	if out == nil || len(bytes.TrimSpace(raw)) == 0 {

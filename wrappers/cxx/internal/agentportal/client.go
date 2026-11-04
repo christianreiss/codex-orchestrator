@@ -157,6 +157,28 @@ type PortalError struct {
 	Code    string
 	Message string
 	Path    string
+	// Extra holds the server's structured error fields beyond message and code
+	// (claim_connection, claim_ids, ...); the broker passes them on unchanged.
+	Extra map[string]any
+}
+
+// portalErrorExtra returns a failure body's fields other than the envelope,
+// message, code and type, from the top level or a nested error object.
+func portalErrorExtra(raw []byte) map[string]any {
+	var fields map[string]any
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil
+	}
+	if nested, ok := fields["error"].(map[string]any); ok {
+		fields = nested
+	}
+	for _, key := range []string{"status", "message", "code", "type", "error"} {
+		delete(fields, key)
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
 }
 
 func (e *PortalError) Error() string {
@@ -798,7 +820,7 @@ func doJSON(ctx context.Context, client *http.Client, baseURL, method, path stri
 		if failure.Message == "" {
 			failure.Message = http.StatusText(resp.StatusCode)
 		}
-		return &PortalError{Status: resp.StatusCode, Code: failure.Code, Message: failure.Message, Path: path}
+		return &PortalError{Status: resp.StatusCode, Code: failure.Code, Message: failure.Message, Path: path, Extra: portalErrorExtra(raw)}
 	}
 	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
 		return nil

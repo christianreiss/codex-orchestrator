@@ -236,7 +236,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return t.Direct.RoundTrip(req)
 	}
 	if err := ep.ensure(req.Context()); err != nil {
-		if selfHealRequest(req, ep.base) {
+		if selfHealRequest(req, ep.base) || updateProbeRequest(req, ep.base) {
 			return t.Direct.RoundTrip(req)
 		}
 		return nil, err
@@ -287,6 +287,22 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil && selfHealRequest(req, ep.base) {
 		return t.Direct.RoundTrip(req)
 	}
+	if updateProbeRequest(req, ep.base) {
+		if err != nil {
+			if direct, directErr := t.replayDirect(req); directErr == nil {
+				return direct, nil
+			}
+		} else if res.StatusCode == http.StatusServiceUnavailable && res.Header.Get("X-Cxx-Communicator-Refusal") == "" {
+			raw, _ := io.ReadAll(io.LimitReader(res.Body, 64*1024))
+			res.Body.Close()
+			if upstreamErrorCode(raw) == "communicator_unavailable" {
+				if direct, directErr := t.replayDirect(req); directErr == nil {
+					return direct, nil
+				}
+			}
+			res.Body = responseBody(raw)
+		}
+	}
 	if err != nil && req.Method != "GET" && req.Method != "HEAD" {
 		return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"error":{"code":"communicator_outcome_unknown","message":"Local communicator disconnected; request outcome unknown"}}`)), Request: req}, nil
 	}
@@ -314,6 +330,42 @@ func selfHealRequest(req *http.Request, base string) bool {
 	}
 	path := strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/"))
 	return path == "/wrapper/v2/config" || wrapperArtifactPath(path)
+}
+
+// updateProbeRequest names POST /cron/check, the only way a wrapper learns the
+// release that repairs it. It is not a read, but repeating it is harmless (it
+// stamps last_cron_check and answers the target), so when no owner can be
+// reached, or the owner answers that the control channel is unavailable, it
+// goes over direct HTTPS. Without that, a server that refuses the channel turns
+// every nightly update into a local 503 and strands the host on its release
+// (2026-10-24 to 2026-11-04, ~50 hosts on 0.9.123). A credential verdict keeps
+// its own status and the X-Cxx-Communicator-Refusal header, and is not retried.
+func updateProbeRequest(req *http.Request, base string) bool {
+	if req.Method != http.MethodPost {
+		return false
+	}
+	original, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	return strings.TrimPrefix(req.URL.Path, strings.TrimRight(original.Path, "/")) == "/cron/check"
+}
+
+// replayDirect sends a request whose body may already have been consumed by the
+// local attempt; without GetBody it cannot be rebuilt and is not sent again.
+func (t *Transport) replayDirect(req *http.Request) (*http.Response, error) {
+	retry := req.Clone(req.Context())
+	if req.Body != nil && req.Body != http.NoBody {
+		if req.GetBody == nil {
+			return nil, errors.New("request body cannot be replayed")
+		}
+		body, err := req.GetBody()
+		if err != nil {
+			return nil, err
+		}
+		retry.Body = body
+	}
+	return t.Direct.RoundTrip(retry)
 }
 
 // wrapperArtifactPath names wrapper binary downloads, including the bakery's
