@@ -61,7 +61,14 @@ export function stageLaunchName(
     const owner = slot && ownerOf(slot),
       state = owner && stateOf(owner);
     const ownedHere = slot?.currentSessionId === sessionId && owner?.id === existing?.id;
-    const reclaimOwn = owner?.addressId === addressId && !!state?.endedAt;
+    // A resume that already took the address from a detached holder (the
+    // caller checked detachedHolderReplaceable) takes the address's name too.
+    const displaced =
+      !!owner &&
+      owner.addressId === addressId &&
+      owner.sessionId !== sessionId &&
+      draft.table('agentBusAddresses').get(addressId)?.currentSessionId === sessionId;
+    const reclaimOwn = owner?.addressId === addressId && (!!state?.endedAt || displaced);
     if (
       !slot ||
       blocked.has(preferred.nameKey) ||
@@ -94,9 +101,11 @@ export function stageLaunchName(
   const previous = ownerOf(slot!);
   if (previous) {
     const state = stateOf(previous);
+    // A displaced holder's lease ends now; nothing else would ever close it.
+    const endedAt = state.endedAt ?? (previous.sessionId !== sessionId ? now : null);
     stageUpdate(context, 'agentNameLeases', previous.id, {
-      endedAt: state.endedAt,
-      cooldownUntil: state.cooldownUntil,
+      endedAt,
+      cooldownUntil: state.cooldownUntil ?? (state.endedAt ? null : endedAt),
     });
   }
   if (existing && existing.nameKey !== slot!.nameKey)

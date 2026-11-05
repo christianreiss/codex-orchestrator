@@ -32,6 +32,7 @@ import {
   trackSessionActivity,
 } from '../../../src/control-plane/state/owner-liveness.js';
 import { maintainOwnedMessaging } from '../../../src/services/agent-messaging/owned-maintenance.js';
+import { stageLaunchName } from '../../../src/control-plane/state/names.js';
 import { recordMessagingRowChange } from '../../../src/control-plane/state/messaging-totals.js';
 import { recordOwnedNativeReceipt } from '../../../src/control-plane/streams/native-control.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -542,6 +543,44 @@ describe('connection-owned daemon commands', () => {
     // Never across hosts, and a vanished holder never blocks.
     expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), remote, 1)).toBe(false);
     expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), randomUUID(), 1)).toBe(true);
+  });
+  it('hands the launch name to the resume that took its address from a detached holder', async () => {
+    const holder = randomUUID(),
+      resumed = randomUUID(),
+      early = randomUUID(),
+      address = randomUUID(),
+      now = new Date().toISOString();
+    const session = (id: string, addr: string) => ({
+      id,
+      hostId: 1,
+      engine: 'claude',
+      agentBusAddressId: addr,
+      bindingGeneration: 1,
+      endedAt: null,
+    });
+    const h = harness({
+      agentSessions: [session(holder, address), session(resumed, address), session(early, address)],
+      agentBusAddresses: [
+        { id: address, address: `agent:${address}`, hostId: 1, displayAlias: null, currentSessionId: resumed },
+      ],
+      agentNamePool: [{ nameKey: 'vivian', name: 'Vivian', currentSessionId: holder }],
+      agentNameLeases: [
+        { id: 7, sessionId: holder, nameKey: 'vivian', name: 'Vivian', addressId: address, startedAt: now, endedAt: null, cooldownUntil: null },
+      ],
+    });
+    const stage = (sessionId: string, addressId: string) =>
+      mutateOwnerState(h.runtime, {
+        kind: 'test.launch_name',
+        payload: {},
+        prepare: (context) => stageLaunchName(context, sessionId, addressId, now),
+      });
+    // A lifecycle that does not hold the address never takes a name its live holder reserves.
+    await expect(stage(early, address)).rejects.toMatchObject({ code: 'agent_resume_name_conflict' });
+    // The address's new lifecycle (the takeover already passed the holder check) keeps its name.
+    await expect(stage(resumed, address)).resolves.toBe('Vivian');
+    const snapshot = h.state.snapshot();
+    expect(snapshot.table('agentNamePool').get('vivian')?.currentSessionId).toBe(resumed);
+    expect(snapshot.table('agentNameLeases').get(7)?.endedAt).toBe(now);
   });
   it('keeps held work for the exact relay process that reattaches within the grace', async () => {
     const f = await vanishedRelayFixture();
