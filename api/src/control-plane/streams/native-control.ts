@@ -103,6 +103,32 @@ export async function pollOwnedControl(
     },
   })) as { request_id: string | null; instance_id: string; binding_generation: number };
 }
+/**
+ * Re-aligns a native-control row with its session's current binding. Only for sessions that have no
+ * real native process (external clients): a stale generation would otherwise make every delivery
+ * claim fail with `agent_messaging_lease_lost`, because the claim path requires a current row.
+ */
+export async function realignOwnedControl(owner: OwnerRuntime, id: string, instance: string) {
+  await mutateOwnerState(owner, {
+    kind: 'native.control.realign',
+    payload: { id, instance },
+    prepare(context) {
+      const session = binding(context.snapshot, id),
+        row = context.snapshot.table('agentNativeControls').get(id);
+      if (!row) return null;
+      const next = stageUpdate(context, 'agentNativeControls', id, {
+        instanceId: instance,
+        bindingGeneration: session.bindingGeneration,
+        status: 'ready',
+        requestId: null,
+        clientMessageId: null,
+        actorId: null,
+        updatedAt: new Date().toISOString(),
+      });
+      return answer(next);
+    },
+  });
+}
 export async function requestOwnedControl(
   owner: OwnerRuntime,
   id: string,

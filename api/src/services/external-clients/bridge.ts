@@ -18,7 +18,7 @@ import type { Env } from '../../env.js';
 import { ApiError, ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError, ValidationError } from '../../http/errors.js';
 import type { Keyring } from '../../security/keyring.js';
 import { ownerPresence } from '../../control-plane/presence.js';
-import { pollOwnedControl } from '../../control-plane/streams/native-control.js';
+import { pollOwnedControl, realignOwnedControl } from '../../control-plane/streams/native-control.js';
 import { requireOwnerRuntime, type OwnerRuntime } from '../../control-plane/state/runtime.js';
 import { registerOwnedMessagingSession } from '../../control-plane/state/session-registration.js';
 import { claimOwnedDelivery } from '../agent-messaging/owned-claim.js';
@@ -159,12 +159,14 @@ export class ExternalBridge {
     }
     const snapshot = runtime.state.snapshot();
     const instanceId = snapshot.table('agentNativeControls').get(sessionId)?.instanceId ?? randomUUID();
-    // The control row only serves native stop; an external client has no process to stop. A re-registration can
-    // bump the binding generation past the stored row, which must not fail every call (native_stop_binding_changed).
+    // The control row only serves native stop, but the delivery claim requires it to match the session's
+    // current binding. A re-registration can leave it stale (native_stop_binding_changed on every call,
+    // agent_messaging_lease_lost on claim), so realign it: an external client has no process to stop.
     try {
       await pollOwnedControl(runtime, sessionId, instanceId);
     } catch (error) {
       if ((error as { code?: string }).code !== 'native_stop_binding_changed') throw error;
+      await realignOwnedControl(runtime, sessionId, instanceId);
     }
     return { client, runtime, host, sessionId, token, addressId: address.id, instanceId };
   }
