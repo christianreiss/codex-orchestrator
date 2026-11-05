@@ -95,6 +95,33 @@ export function sessionAttached(owner: OwnerRuntime, snapshot: OwnerStateSnapsho
   return Boolean(session && ownerPresence(owner).session(sessionId, session.bindingGeneration).length > 0);
 }
 
+/**
+ * A same-host session holding an address that a newer launch has proven to own
+ * by reporting its native transcript, while the holder itself is not attached
+ * (a crashed or closed terminal, a finished headless relay turn) and no planned
+ * reboot waits for it. The newer launch may take the address over: the
+ * operator resumed that conversation, and the detached holder cannot receive
+ * for it. Its held work settles through owner maintenance.
+ */
+export function detachedHolderReplaceable(
+  owner: OwnerRuntime,
+  snapshot: OwnerStateSnapshot,
+  holderId: string,
+  hostId: number,
+): boolean {
+  const holder = snapshot.sessions.get(holderId);
+  if (!holder) return true;
+  if (holder.hostId !== hostId || holder.status === 'reboot_wait') return false;
+  if (
+    snapshot
+      .table('agentRebootHandoffs')
+      .all()
+      .some((row) => row.oldSessionId === holderId && ['prepared', 'armed'].includes(row.status))
+  )
+    return false;
+  return holder.endedAt !== null || !sessionAttached(owner, snapshot, holderId);
+}
+
 /** Last moment the session was known to be connected; null while it is connected. */
 export function sessionLastSeen(owner: OwnerRuntime, snapshot: OwnerStateSnapshot, sessionId: string): number | null {
   const session = snapshot.sessions.get(sessionId);

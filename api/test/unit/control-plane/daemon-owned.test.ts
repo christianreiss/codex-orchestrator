@@ -27,6 +27,7 @@ import {
 import { mutateOwnerState } from '../../../src/control-plane/state/runtime.js';
 import {
   OWNER_RECONNECT_GRACE_MS,
+  detachedHolderReplaceable,
   stopSessionActivity,
   trackSessionActivity,
 } from '../../../src/control-plane/state/owner-liveness.js';
@@ -513,6 +514,34 @@ describe('connection-owned daemon commands', () => {
       stopSessionActivity(h.runtime);
       vi.useRealTimers();
     }
+  });
+  it('lets a newer same-host launch take over a transcript address only from a detached holder', () => {
+    const holder = randomUUID(),
+      remote = randomUUID(),
+      instance = randomUUID();
+    const session = (id: string, hostId: number) => ({
+      id,
+      hostId,
+      hostAuthFingerprint: createHash('sha256').update('test').digest('hex'),
+      engine: 'claude',
+      agentBusAddressId: null,
+      bindingGeneration: 1,
+      endedAt: null,
+    });
+    const h = harness({ agentSessions: [session(holder, 1), session(remote, 2)] });
+    const attachment = h.presence.attach({
+      connectionId: 'holder',
+      hostId: 1,
+      username: 'user',
+      scope: { topic: 'session', session_id: holder, binding_generation: 1, native_instance_id: instance },
+    });
+    // A live holder (an open terminal, a running headless turn) keeps its address.
+    expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), holder, 1)).toBe(false);
+    attachment.detach();
+    expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), holder, 1)).toBe(true);
+    // Never across hosts, and a vanished holder never blocks.
+    expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), remote, 1)).toBe(false);
+    expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), randomUUID(), 1)).toBe(true);
   });
   it('keeps held work for the exact relay process that reattaches within the grace', async () => {
     const f = await vanishedRelayFixture();

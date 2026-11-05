@@ -37,6 +37,7 @@ import { stageLaunchName, translateOwnedAgent } from './names.js';
 import { stageBeginReboot, stageCompleteReboot } from './reboot.js';
 import { stageUpdate } from './rows.js';
 import { mutateOwnerState, type OwnerMutationContext, type OwnerRuntime } from './runtime.js';
+import { detachedHolderReplaceable } from './owner-liveness.js';
 import { assertOwnedHousekeeping } from './session-lifecycle.js';
 
 function resolve(context: OwnerMutationContext, raw: string): AgentBusAddress {
@@ -232,7 +233,11 @@ export async function registerOwnedMessagingSession(
               !row.archivedAt,
           )
           .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0];
-        if (address?.currentSessionId && address.currentSessionId !== sessionId)
+        if (
+          address?.currentSessionId &&
+          address.currentSessionId !== sessionId &&
+          !detachedHolderReplaceable(runtime, draft.view(), address.currentSessionId, host.id)
+        )
           throw new ConflictError(
             'Native transcript is already bound to another lifecycle',
             'agent_messaging_address_busy',
@@ -271,7 +276,12 @@ export async function registerOwnedMessagingSession(
           await tx.insert(agentBusAddresses).values(created);
         });
       } else {
-        if (address.currentSessionId && address.currentSessionId !== sessionId)
+        if (
+          address.currentSessionId &&
+          address.currentSessionId !== sessionId &&
+          !(inferred === 'native' && input.upstreamSessionId &&
+            detachedHolderReplaceable(runtime, draft.view(), address.currentSessionId, host.id))
+        )
           throw new ConflictError(
             'Agent address is already bound to another lifecycle',
             'agent_messaging_address_busy',
