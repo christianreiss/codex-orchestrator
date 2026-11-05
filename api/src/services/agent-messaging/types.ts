@@ -35,6 +35,8 @@ export interface RegisterMessagingSessionInput {
   deliveryClaimId?: string;
   adapterProtocol?: string | null;
   adapterCapabilities?: Record<string, unknown> | null;
+  /** External clients only (honoured on the server-owned `external` host): the configured, reserved name. */
+  fixedName?: string | null;
 }
 
 export interface MessageDelivery {

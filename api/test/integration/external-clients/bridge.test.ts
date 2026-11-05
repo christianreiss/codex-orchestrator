@@ -164,6 +164,8 @@ describe.skipIf(!handle)('external clients over the owned messaging bus', () => 
       expect(row.addressId).toBeTruthy();
       const address = store.snapshot().addresses.get(row.addressId!)!;
       expect(address.engine).toBe('external');
+      // The address carries the configured name, never a random pool name.
+      expect(address.launchName).toBe(`Jessica ${suffix}`);
 
       // Peer -> external: arrives with server-stamped sender, redelivered until acked, then FIFO.
       const first = await bus.sendMessage(peerId, peerToken, {
@@ -231,7 +233,11 @@ describe.skipIf(!handle)('external clients over the owned messaging bus', () => 
       // Disabling ends access; rotating kills the old key.
       await service.update(client.id, { enabled: false });
       await expect(service.authenticate(created.key)).rejects.toMatchObject({ code: 'client_disabled' });
+      // Disabling releases the reserved name; re-enabling takes it back on the next call.
+      expect(store.snapshot().addresses.get(row.addressId!)?.launchName).toBeNull();
       await service.update(client.id, { enabled: true });
+      await service.bridge.heartbeat(await service.authenticate(created.key));
+      expect(store.snapshot().addresses.get(row.addressId!)?.launchName).toBe(`Jessica ${suffix}`);
       const rotated = await service.rotateKey(client.id);
       await expect(service.authenticate(created.key)).rejects.toMatchObject({ code: 'key_invalid' });
       expect((await service.authenticate(rotated.key)).id).toBe(client.id);

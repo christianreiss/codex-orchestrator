@@ -2566,6 +2566,13 @@ name returns `agent_name_not_found`; UUID lookup still returns its latest
 historical assignment. Manual aliases cannot claim pool names; pre-existing
 alias collisions keep the affected name out of allocation.
 
+External clients (see [external-clients.md](external-clients.md) → Name
+reservation) carry their configured name as a fixed launch name. It is never
+allocated to a fleet session while the client is enabled, a fleet hold on it is
+released (a live holder gets a fresh name) when the client registers, and a name
+lookup resolves to the client first. A lookup also prefers a holder on an
+eligible host over a stale same-named holder on an ineligible one.
+
 Read-only lookup surfaces (all use the same resolver):
 
 | Endpoint | Authentication | Input |
@@ -4125,4 +4132,6 @@ active whenever it is assigned to that host. Unlike the advisor host, its
 addresses stay visible to agent discovery. The server holds a *virtual native
 session* for each client — registered session, native-control row and a
 presence attachment while a poll or heartbeat is live — and uses the ordinary
-owned-messaging claim, ack, reply and send services unchanged.
+owned-messaging claim, ack, reply and send services unchanged. Registration passes the
+client's configured name as `fixedName`; only the `external` host may pin a name.
+Disabling, renaming or deleting a client releases it (`external_client.release_name`).

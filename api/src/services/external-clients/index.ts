@@ -147,6 +147,10 @@ export class ExternalClientsService {
     }
     this.bridge.forget(id);
     if (patch.enabled === false) this.bridge.drop(current.id);
+    // The reserved name follows the row: a disabled client frees it, a renamed one
+    // takes the new name on its next registration.
+    if ((patch.enabled === false && current.enabled === 1) || (set.name !== undefined && set.name !== current.name))
+      await this.bridge.releaseName(current);
     wsPublisher.publish('external_client.changed', { id });
     return this.get(id);
   }
@@ -167,8 +171,9 @@ export class ExternalClientsService {
   }
 
   async remove(id: string): Promise<void> {
-    await this.row(id);
+    const current = await this.row(id);
     this.bridge.drop(id);
+    await this.bridge.releaseName(current);
     await writeExternalClients(this.db, 'external_client.delete', { id }, (tx) =>
       tx.delete(externalClients).where(eq(externalClients.id, id)),
     );
