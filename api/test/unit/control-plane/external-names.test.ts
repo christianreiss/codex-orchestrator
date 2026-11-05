@@ -13,6 +13,7 @@ import { stageUpdate } from '../../../src/control-plane/state/rows.js';
 import type { Env } from '../../../src/env.js';
 import type { Host } from '../../../src/db/schema.js';
 import { createDbFake } from '../../helpers/db-fake.js';
+import { captureLegacyDrainManifest } from '../../../src/control-plane/legacy-drain.js';
 
 /**
  * External clients carry their configured name as a fixed, reserved launch name
@@ -176,6 +177,38 @@ describe('external client names', () => {
     const bot = (await h.register(other, 'Hermes Bot')) as { address: { id: string; name: string } };
     expect(bot.address.name).toBe('Hermes Bot');
     expect(translateOwnedAgent(h.state.snapshot(), 'hermes bot', new Date().toISOString()).uuid).toBe(bot.address.id);
+  });
+
+  it('never captures an external virtual session in the legacy drain, so a restart cannot pin its old name', async () => {
+    // Production 2026-11-05: after the deploy the owner captured Jessica's session for
+    // legacy recovery; every poll renewed the capture and registration (and with it
+    // the fixed name) never ran again while the client kept polling.
+    const h = harness({ agentNamePool: pool(['Viktoria', null], ['Ida', null]) });
+    const external = randomUUID(),
+      fleet = randomUUID();
+    await h.register(external, 'Jessica');
+    await h.register(fleet, null, FLEET);
+    const now = new Date().toISOString();
+    await mutateOwnerState(h.runtime, {
+      kind: 'test.controls',
+      payload: {},
+      prepare(context) {
+        for (const id of [external, fleet]) {
+          const binding = context.draft.table('agentSessions').get(id)!.bindingGeneration;
+          context.draft.upsert('agentNativeControls', {
+            sessionId: id,
+            instanceId: randomUUID(),
+            bindingGeneration: binding,
+            status: 'ready',
+            requestId: null,
+            updatedAt: now,
+          } as never);
+        }
+        return null;
+      },
+    });
+    const manifest = captureLegacyDrainManifest(h.state.snapshot());
+    expect(manifest.map((record) => record.id)).toEqual([fleet]);
   });
 
   it('only honours a fixed name on the server-owned external host', async () => {

@@ -36,7 +36,9 @@ The configured name is the client's agent name: peers see it in `agent_list`
 and as `sender.name`, and `agent_send`/`agent_translate` with that name reach
 the client. It is set on every registration of the virtual session (first call,
 periodic re-registration, a new lifecycle after `agent_session_finished`, server
-restart) and is reserved while the client exists and is enabled:
+restart) and is reserved while the client exists and is enabled. The owner never
+captures a virtual session for legacy-drain recovery at boot (there is no native
+process to drain), so the first call after a restart runs the full registration:
 
 - The launch-name pool never hands it to a fleet session, including a resume
   that held it earlier.

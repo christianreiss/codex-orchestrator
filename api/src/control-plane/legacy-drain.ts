@@ -8,6 +8,7 @@ import type { OwnerRuntime } from './state/runtime.js';
 import { ownerSnapshotScope, type OwnerStateSnapshot } from './state/store.js';
 import { ownedMessagingHost, ownedEngineState } from './state/messaging.js';
 import { receiverState } from '../services/agent-receiver-state.js';
+import { EXTERNAL_ROLE } from '../services/internal-hosts.js';
 
 export interface LegacyProtectedGrant {
   id: string;
@@ -78,6 +79,10 @@ export function captureLegacyDrainManifest(
       continue;
     const host = snapshot.hosts.get(session.hostId);
     if (!host || host.authFingerprint !== session.hostAuthFingerprint) continue;
+    // Server-owned virtual sessions (external clients) have no legacy native process to
+    // drain; the server re-registers them itself. Capturing one would pin it to the
+    // recovery path for as long as the client keeps polling, skipping registration.
+    if (host.internalRole === EXTERNAL_ROLE) continue;
     const accepted = snapshot.messages
       .all()
       .filter(
