@@ -142,7 +142,7 @@
   {:else if $messages.isPending}
     <StateBlock state="loading" />
   {:else if $messages.isError}
-    <StateBlock state="error" message={$messages.error.message} onRetry={() => $messages.refetch()} />
+    <StateBlock state="error" cause={$messages.error} message={$messages.error.message} onRetry={() => $messages.refetch()} />
   {:else if !$messages.data?.messages.length}
     <StateBlock state="empty" message="No deliveries" />
   {:else}

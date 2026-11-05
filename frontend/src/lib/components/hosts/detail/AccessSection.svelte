@@ -44,7 +44,7 @@
             confirmLabel="Extend"
             onConfirm={(duration_minutes) => run("Access extended", $enable.mutateAsync({ id, duration_minutes }))}
           />
-          <Button variant="ghost" onclick={() => run("Access closed", $disable.mutateAsync({ id }))}>Close now</Button>
+          <Button variant="ghost" disabled={$disable.isPending} onclick={() => run("Access closed", $disable.mutateAsync({ id }))}>{$disable.isPending ? "Closing…" : "Close now"}</Button>
         {:else}
           <InsecureWindowPopover
             label="Open temporary access"

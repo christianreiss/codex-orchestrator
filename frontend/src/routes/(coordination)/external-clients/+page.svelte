@@ -120,7 +120,7 @@
     <DataTable
       items={rows}
       loading={$listQuery.isPending}
-      error={$listQuery.isError ? ($listQuery.error?.message ?? "Could not load external clients") : null}
+      error={$listQuery.isError ? ($listQuery.error ?? "Could not load external clients") : null}
       onRetry={() => $listQuery.refetch()}
       key={(row) => row.id}
       emptyTitle="No external clients"
@@ -130,6 +130,7 @@
       onClearFilters={() => { search = ""; }}
       caption="External clients"
     >
+      {#snippet emptyAction()}{#if canManage}<Button onclick={openCreate}><Plus class="size-4" aria-hidden="true" /> New client</Button>{/if}{/snippet}
       {#snippet head()}
         <Table.Head>Name</Table.Head>
         <Table.Head>Trust</Table.Head>

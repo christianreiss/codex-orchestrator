@@ -7,10 +7,12 @@
   import { DataTable, StateBlock } from "$lib/components/page";
   import * as Table from "$lib/components/ui/table";
   import { Button } from "$lib/components/ui/button";
+  import * as Popover from "$lib/components/ui/popover";
   import { cn } from "$lib/utils/cn";
   import SortableHead from "$lib/components/data-table/SortableHead.svelte";
   import { hostDaemonsQuery } from "$lib/api/hostDaemons";
   import { hostLastSeen, hostStatusKind, isInsecureWindowActive } from "$lib/api/hosts";
+  import { accessDenied, errorText } from "$lib/api/access-denied";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import DaemonIndicator from "./DaemonIndicator.svelte";
   import EngineChips from "./EngineChips.svelte";
@@ -21,7 +23,7 @@
   type Props = {
     state: HostsListState;
     loading: boolean;
-    error: string | null;
+    error: string | Error | null;
     onRetry: () => void;
     onAdd: () => void;
     onReviewAccess: () => void;
@@ -47,7 +49,7 @@
   }
 </script>
 
-<div class={list.rows.length > 0 ? "max-sm:hidden" : undefined}>
+<div class={list.rows.length > 0 && !accessDenied(error) ? "max-sm:hidden" : undefined}>
 <DataTable
   items={list.rows}
   {loading}
@@ -90,8 +92,28 @@
           <span class="text-muted-foreground">Nothing</span>
         {:else}
           <span class="flex items-center gap-2">
-            <span class="truncate" title={warnings.map((w) => w.text).join("\n")}>{warnings[0].text}</span>
-            {#if warnings.length > 1}<span class="shrink-0 text-caption text-muted-foreground">+{warnings.length - 1} more</span>{/if}
+            <span class="truncate">{warnings[0].text}</span>
+            {#if warnings.length > 1}
+              <!-- The full list is a click/tap/keyboard away, not hover-only. -->
+              <Popover.Root>
+                <Popover.Trigger>
+                  {#snippet child({ props })}
+                    <button
+                      {...props}
+                      type="button"
+                      class="inline-flex min-h-6 shrink-0 items-center rounded px-1 text-caption text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`Show all ${warnings.length} warnings for ${host.fqdn}`}
+                    >+{warnings.length - 1} more</button>
+                  {/snippet}
+                </Popover.Trigger>
+                <Popover.Content class="w-72" align="start">
+                  <p class="mb-1 text-body-sm font-medium">{warnings.length} warnings</p>
+                  <ul class="list-disc space-y-1 pl-4 text-body-sm">
+                    {#each warnings as warning (warning.id)}<li class="break-words">{warning.text}</li>{/each}
+                  </ul>
+                </Popover.Content>
+              </Popover.Root>
+            {/if}
             {#if warnings.some((w) => w.fix === "review-access")}
               <Button size="sm" variant="outline" onclick={onReviewAccess}><ShieldAlert class="h-4 w-4" /> Review</Button>
             {/if}
@@ -111,10 +133,10 @@
   {/snippet}
 </DataTable>
 </div>
-{#if list.rows.length > 0}
+{#if list.rows.length > 0 && !accessDenied(error)}
   <!-- Under 640 px the table would scroll sideways and hide columns; show one card per host instead. -->
   <div class="space-y-2 sm:hidden">
-    {#if error}<StateBlock state="error" message={`Refresh failed. Showing previously loaded data. ${error}`} {onRetry} />{/if}
+    {#if error}<StateBlock state="error" message={`Refresh failed. Showing previously loaded data. ${errorText(error)}`} {onRetry} />{/if}
     <div class="flex items-center gap-1.5 text-body-sm" role="group" aria-label="Sort hosts">
       <span class="text-muted-foreground">Sort</span>
       {#each SORTS as option (option.field)}

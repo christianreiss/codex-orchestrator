@@ -10,6 +10,7 @@
   import { Skeleton } from "$lib/components/ui/skeleton";
   import BoardColumnPane from "$lib/components/projects/board/BoardColumn.svelte";
   import CardEditSheet from "$lib/components/projects/board/CardEditSheet.svelte";
+  import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
   import { createCard, deleteCard, fetchBoard, moveCard, projectKeys, releaseCard } from "$lib/api/projects";
@@ -59,13 +60,34 @@
     onSuccess: () => toast.success("Card archived"),
     onSettled: refresh,
   });
+
+  // The server archives rather than deletes (history keeps the row), but the
+  // console has no restore and the card's dependency links are dropped, so it
+  // names the card and asks first.
+  let deleteTarget = $state<BoardCard | null>(null);
+  let deleteOpen = $state(false);
+  let deleteError = $state<string | null>(null);
+  function askDelete(card: BoardCard) {
+    deleteTarget = card;
+    deleteError = null;
+    deleteOpen = true;
+  }
+  async function confirmDelete() {
+    if (!deleteTarget || $deleteMut.isPending) return;
+    try {
+      await $deleteMut.mutateAsync(deleteTarget);
+      deleteOpen = false;
+    } catch (err) {
+      deleteError = err instanceof ApiError ? err.message : "Could not archive the card";
+    }
+  }
 </script>
 
 <div class="flex flex-col gap-4">
   {#if $boardQuery.isPending}
     <div class="flex gap-4 overflow-hidden" aria-label="Loading board">{#each [0, 1, 2, 3] as index (index)}<Skeleton class="h-64 w-72 shrink-0" />{/each}</div>
   {:else if $boardQuery.isError}
-    <StateBlock state="error" message={$boardQuery.error instanceof ApiError ? $boardQuery.error.message : "Could not load the board"} onRetry={() => void $boardQuery.refetch()} />
+    <StateBlock state="error" cause={$boardQuery.error} message={$boardQuery.error instanceof ApiError ? $boardQuery.error.message : "Could not load the board"} onRetry={() => void $boardQuery.refetch()} />
   {:else}
     <!-- The lanes scroll inside this container; the page itself never scrolls sideways, however many columns are added. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -77,7 +99,7 @@
           onMove={(card, columnId) => $moveMut.mutate({ card, columnId })}
           onRelease={(card) => $releaseMut.mutate(card)}
           onEdit={(card) => (editing = card)}
-          onDelete={(card) => $deleteMut.mutate(card)}
+          onDelete={askDelete}
         />
       {/each}
     </div>
@@ -105,3 +127,15 @@
 </div>
 
 <CardEditSheet {slug} card={editing} onClose={() => (editing = null)} />
+
+<ConfirmDialog
+  bind:open={deleteOpen}
+  title={deleteTarget ? `Archive card #${deleteTarget.number} “${deleteTarget.title}”?` : "Archive card?"}
+  description="The card leaves the board for everyone, any claim on it is released and its dependency links are removed. Its history is kept, but the console cannot restore it."
+  confirmLabel="Archive card"
+  busyLabel="Archiving…"
+  destructive
+  busy={$deleteMut.isPending}
+  error={deleteError}
+  onConfirm={confirmDelete}
+/>

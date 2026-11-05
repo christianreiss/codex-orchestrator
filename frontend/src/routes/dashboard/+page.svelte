@@ -19,6 +19,7 @@
   import RunnerStatus from "$lib/components/dashboard/RunnerStatus.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Plus from "@lucide/svelte/icons/plus";
+  import { loadFailure } from "$lib/api/access-denied";
 
   const overview = overviewQuery();
   const accounts = accountsQuery();
@@ -78,6 +79,7 @@
     {#if $overview.isError}
       <StateBlock
         state="error"
+        cause={$overview.error}
         message={`${$overview.data ? "Overview could not refresh; showing the last snapshot" : "Could not load fleet overview"}: ${$overview.error?.message ?? "unknown error"}`}
         onRetry={() => $overview.refetch()}
       />
@@ -98,7 +100,7 @@
       <UsageTable
         accounts={accountRows}
         loading={$accounts.isPending}
-        error={$accounts.isError && !accountRows ? `Could not load provider accounts: ${$accounts.error?.message ?? "unknown error"}` : null}
+        error={$accounts.isError && !accountRows ? loadFailure($accounts.error, "Could not load provider accounts") : null}
         onRetry={() => $accounts.refetch()}
       />
       {#if $accounts.isError && accountRows}

@@ -25,7 +25,7 @@
 </script>
 
 {#if $detailQuery.isError}
-  <StateBlock state="error" message={$detailQuery.error.message} onRetry={() => void $detailQuery.refetch()} />
+  <StateBlock state="error" cause={$detailQuery.error} message={$detailQuery.error.message} onRetry={() => void $detailQuery.refetch()} />
 {:else if !item}
   <StateBlock state="loading" rows={3} />
 {:else}

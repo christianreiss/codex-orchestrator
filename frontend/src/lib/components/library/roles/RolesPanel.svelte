@@ -57,7 +57,7 @@
   </Toolbar>
 
   {#if $query.isError && !$query.data}
-    <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : "Could not load roles"} onRetry={() => void $query.refetch()} />
+    <StateBlock state="error" cause={$query.error} message={$query.error instanceof Error ? $query.error.message : "Could not load roles"} onRetry={() => void $query.refetch()} />
   {:else}
     <DataTable
       items={filtered}

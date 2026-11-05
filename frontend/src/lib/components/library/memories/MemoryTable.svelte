@@ -7,9 +7,10 @@
   import * as Table from "$lib/components/ui/table";
   import { displayMemoryKey, formatCharacters } from "$lib/components/memories/atlas-types";
   import type { MemoriesState } from "./memories-state.svelte";
+  import { loadFailure } from "$lib/api/access-denied";
 
   let { state }: { state: MemoriesState } = $props();
-  const error = $derived(state.query.isError ? (state.query.error instanceof Error ? state.query.error.message : "Could not load memories") : null);
+  const error = $derived(state.query.isError ? loadFailure(state.query.error) : null);
 </script>
 
 <DataTable

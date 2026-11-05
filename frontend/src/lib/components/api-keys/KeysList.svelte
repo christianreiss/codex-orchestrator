@@ -23,6 +23,7 @@
   import { cn } from "$lib/utils/cn";
   import { BACKEND_LABEL } from "./connection";
   import EndpointSummary from "./EndpointSummary.svelte";
+  import { loadFailure } from "$lib/api/access-denied";
 
   type Vendor = ApiKeyEngine | "all";
   type KeyRow = AdminApiKey & { format: ApiKeyEngine };
@@ -55,7 +56,7 @@
   const scoped = $derived(sources.filter((entry) => vendor === "all" || entry.engine === vendor));
   const loading = $derived(scoped.some((entry) => entry.q.isLoading));
   const failure = $derived(scoped.find((entry) => entry.q.isError));
-  const error = $derived(failure ? `Failed to load ${engineLabel(failure.engine)} keys: ${failure.q.error?.message ?? "Unknown error"}` : null);
+  const error = $derived(failure ? loadFailure(failure.q.error, `Failed to load ${engineLabel(failure.engine)} keys`) : null);
   const all = $derived<KeyRow[]>(scoped.flatMap((entry) => (entry.q.data ?? []).map((record) => ({ ...record, format: entry.engine }))));
 
   const q = $derived(search.trim().toLowerCase());
@@ -170,11 +171,13 @@
     onRetry={() => { void $openaiQuery.refetch(); void $claudeQuery.refetch(); void $grokQuery.refetch(); }}
     key={(r) => `${r.format}:${r.id}`}
     filtered={q !== ""}
+    onClearFilters={() => (search = "")}
     emptyIcon={KeyRound}
     emptyTitle={vendor === "all" ? "No API keys yet" : `No ${vendorLabel(vendor)} keys yet`}
     emptyDescription="Issue a key for each application that calls the fleet API."
     caption="API keys"
   >
+    {#snippet emptyAction()}<Button onclick={onCreate}><Plus class="h-4 w-4" />New key</Button>{/snippet}
     {#snippet head()}
       <SortableHead label="Name" active={sortKey === "name"} dir={sortDir} onclick={() => onSort("name")} />
       <Table.Head>API</Table.Head>

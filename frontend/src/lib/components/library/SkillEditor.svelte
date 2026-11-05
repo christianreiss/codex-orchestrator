@@ -109,7 +109,7 @@
   <PageShell title={slug} description="skill"><StateBlock state="loading" /></PageShell>
 {:else if $query.isError}
   <PageShell title={slug} description="skill">
-    <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : "Failed to load skill"} onRetry={() => void $query.refetch()} />
+    <StateBlock state="error" cause={$query.error} message={$query.error instanceof Error ? $query.error.message : "Failed to load skill"} onRetry={() => void $query.refetch()} />
   </PageShell>
 {:else}
   <DocumentEditor {dirty} pending={$save.isPending} error={$save.error ?? $remove.error} saved={$save.isSuccess} title={displayName || slug} description={`skill · ${slug}`}>

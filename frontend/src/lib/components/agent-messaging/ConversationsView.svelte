@@ -59,13 +59,14 @@
     <DataTable
       {items}
       loading={$conversations.isPending}
-      error={$conversations.isError ? $conversations.error.message : null}
+      error={$conversations.isError ? $conversations.error : null}
       onRetry={() => $conversations.refetch()}
       key={(item) => item.id}
       emptyTitle="No conversations"
       emptyDescription="Conversations start when one agent messages another."
       emptyIcon={MessageSquare}
       filtered={filters.conversationStatus !== "all"}
+      onClearFilters={() => (filters.conversationStatus = "all")}
       caption="Conversations"
     >
       {#snippet head()}

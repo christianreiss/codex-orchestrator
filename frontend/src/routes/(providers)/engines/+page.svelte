@@ -77,15 +77,18 @@
   <div id="engine-state" class="scroll-mt-20"><EngineMasterSwitches /></div>
 
   <Tabs.Root value={current} onValueChange={selectEngine} class="flex flex-col gap-4">
-    <Tabs.List class="w-fit" aria-label="Engine defaults">
-      {#each ENGINES as engine (engine)}
-        <Tabs.Trigger value={engine} class="gap-2">
-          <span class="h-2 w-2 shrink-0 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>
-          {ENGINE_META[engine].label}
-          {#if $fleet.known && !$fleet.isEnabled(engine)}<Badge variant="warning">Off</Badge>{/if}
-        </Tabs.Trigger>
-      {/each}
-    </Tabs.List>
+    <!-- At 320 px the engine tabs scroll inside this strip, never the page. -->
+    <div class="-m-1 max-w-full overflow-x-auto p-1">
+      <Tabs.List class="w-max justify-start" aria-label="Engine defaults">
+        {#each ENGINES as engine (engine)}
+          <Tabs.Trigger value={engine} class="shrink-0 gap-2">
+            <span class="h-2 w-2 shrink-0 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>
+            {ENGINE_META[engine].label}
+            {#if $fleet.known && !$fleet.isEnabled(engine)}<Badge variant="warning">Off</Badge>{/if}
+          </Tabs.Trigger>
+        {/each}
+      </Tabs.List>
+    </div>
 
     {#each ENGINES as engine (engine)}
       <Tabs.Content value={engine} class="space-y-8">

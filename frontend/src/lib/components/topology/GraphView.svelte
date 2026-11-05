@@ -31,7 +31,7 @@
 </script>
 
 {#if topology.isError && !topology.data}
-  <StateBlock state="error" message={`The topology could not be loaded. ${topology.error.message}`} onRetry={() => topology.refetch()} />
+  <StateBlock state="error" cause={topology.error} message={`The topology could not be loaded. ${topology.error.message}`} onRetry={() => topology.refetch()} />
 {:else if topology.isPending}
   <Skeleton class="h-[60vh] w-full" />
 {:else}

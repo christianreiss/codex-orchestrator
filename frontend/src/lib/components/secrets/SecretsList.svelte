@@ -23,6 +23,7 @@
   import { relativeTime } from "$lib/utils/format";
   import { authStore } from "$lib/stores/auth";
   import { missingCapabilityReason } from "$lib/auth/capabilities";
+  import { loadFailure } from "$lib/api/access-denied";
 
   type Props = { onEdit?: (secret: AdminSecret) => void; onCreate?: () => void };
   let { onEdit, onCreate }: Props = $props();
@@ -99,15 +100,17 @@
   <DataTable
     items={sorted}
     loading={$secretsQuery.isLoading}
-    error={$secretsQuery.isError ? `Could not load secrets: ${$secretsQuery.error?.message}` : null}
+    error={$secretsQuery.isError ? loadFailure($secretsQuery.error, "Could not load secrets") : null}
     onRetry={() => void $secretsQuery.refetch()}
     key={(s) => s.id}
     filtered={q !== ""}
+    onClearFilters={() => (search = "")}
     emptyIcon={KeyRound}
     emptyTitle="No secrets yet"
     emptyDescription="Add the credentials your agents need (API tokens, database passwords, service accounts) so they stop asking you for them."
     caption="Secrets"
   >
+    {#snippet emptyAction()}{#if canManage}<Button onclick={() => onCreate?.()}><Plus class="h-4 w-4" />New secret</Button>{/if}{/snippet}
     {#snippet head()}
       <SortableHead label="Secret" active={sortKey === "slug"} dir={sortDir} onclick={() => onSort("slug")} />
       <Table.Head class="hidden md:table-cell">Used for</Table.Head>

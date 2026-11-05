@@ -25,6 +25,7 @@
   import CreateDocumentSheet from "./CreateDocumentSheet.svelte";
   import SkillSourceSheet from "./SkillSourceSheet.svelte";
   import { libraryDocHref, type DocListConfig, type LibraryRow } from "./library-types";
+  import { loadFailure } from "$lib/api/access-denied";
 
   let { config }: { config: DocListConfig } = $props();
 
@@ -103,7 +104,7 @@
   <DataTable
     items={sorted}
     loading={$query.isLoading}
-    error={$query.isError ? ($query.error instanceof Error ? $query.error.message : `Failed to load ${plural}`) : null}
+    error={$query.isError ? loadFailure($query.error) : null}
     onRetry={() => void $query.refetch()}
     key={(row) => row.slug}
     filtered={search.trim() !== ""}

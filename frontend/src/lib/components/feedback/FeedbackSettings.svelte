@@ -36,7 +36,7 @@
 <details class="mb-5 border-b pb-4">
   <summary class="cursor-pointer text-body font-semibold">Feedback destination and automatic checks</summary>
   {#if $query.isError}
-    <StateBlock state="error" message={$query.error.message} onRetry={() => void $query.refetch()} />
+    <StateBlock state="error" cause={$query.error} message={$query.error.message} onRetry={() => void $query.refetch()} />
   {:else if !draft}
     <StateBlock state="loading" rows={2} />
   {:else}

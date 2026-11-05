@@ -29,6 +29,7 @@
   } from "$lib/api/users";
   import { USER_ROLES, type AdminUser, type AdminUserPayload } from "$lib/api/types";
   import { authStore } from "$lib/stores/auth";
+  import { loadFailure } from "$lib/api/access-denied";
 
   type SortKey = "person" | "role" | "status" | "last_login";
 
@@ -169,10 +170,11 @@
     <DataTable
       items={rows}
       loading={$usersQuery.isLoading}
-      error={$usersQuery.isError ? `Failed to load people: ${$usersQuery.error?.message ?? "Unknown error"}` : null}
+      error={$usersQuery.isError ? loadFailure($usersQuery.error, "Failed to load people") : null}
       onRetry={() => void $usersQuery.refetch()}
       key={(u) => u.id}
       filtered={query !== ""}
+      onClearFilters={() => (search = "")}
       emptyTitle="No people"
       emptyDescription="This should be unreachable while you are signed in."
       caption="Admin users"

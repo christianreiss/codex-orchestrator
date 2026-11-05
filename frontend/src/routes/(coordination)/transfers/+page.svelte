@@ -113,7 +113,7 @@
     <DataTable
       items={rows}
       loading={$listQuery.isPending}
-      error={$listQuery.isError ? ($listQuery.error?.message ?? "Could not load files") : null}
+      error={$listQuery.isError ? ($listQuery.error ?? "Could not load files") : null}
       onRetry={() => $listQuery.refetch()}
       key={(row) => row.id}
       emptyTitle="Nothing in the pool"

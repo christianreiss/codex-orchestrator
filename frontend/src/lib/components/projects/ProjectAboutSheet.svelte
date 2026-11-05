@@ -111,7 +111,7 @@
 
     <div class="mt-4 space-y-6">
       {#if $detailQuery.isError}
-        <StateBlock state="error" message={$detailQuery.error instanceof ApiError ? $detailQuery.error.message : "Could not load project"} onRetry={() => void $detailQuery.refetch()} />
+        <StateBlock state="error" cause={$detailQuery.error} message={$detailQuery.error instanceof ApiError ? $detailQuery.error.message : "Could not load project"} onRetry={() => void $detailQuery.refetch()} />
       {:else if !detail}
         <StateBlock state="loading" rows={5} />
       {:else}

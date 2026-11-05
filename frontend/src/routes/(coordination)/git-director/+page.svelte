@@ -124,7 +124,7 @@
       <DataTable
         items={rows}
         loading={$clones.isPending}
-        error={$clones.error?.message ?? null}
+        error={$clones.error ?? null}
         onRetry={() => $clones.refetch()}
         key={(row) => `${row.kind}:${row.id}`}
         {emptyTitle}

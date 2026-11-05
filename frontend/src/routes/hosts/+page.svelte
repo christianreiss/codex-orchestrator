@@ -14,6 +14,7 @@
   import NewHostSheet from "$lib/components/hosts/NewHostSheet.svelte";
   import QuickVmDialog from "$lib/components/hosts/QuickVmDialog.svelte";
   import SeedAuthDialog from "$lib/components/hosts/SeedAuthDialog.svelte";
+  import { loadFailure } from "$lib/api/access-denied";
 
   const hosts = hostsListQuery();
   const approvals = insecureApprovalsQuery();
@@ -101,7 +102,7 @@
   <HostsTable
     state={list}
     loading={$hosts.isLoading}
-    error={$hosts.isError ? `Could not load hosts: ${$hosts.error?.message ?? "unknown error"}` : null}
+    error={$hosts.isError ? loadFailure($hosts.error, "Could not load hosts") : null}
     onRetry={() => void $hosts.refetch()}
     onAdd={() => (addOpen = true)}
     onReviewAccess={reviewAccess}

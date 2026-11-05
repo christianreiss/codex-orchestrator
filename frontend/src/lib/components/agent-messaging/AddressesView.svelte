@@ -71,7 +71,7 @@
   <DataTable
     items={$addresses.data?.addresses}
     loading={$addresses.isPending}
-    error={$addresses.isError ? $addresses.error.message : null}
+    error={$addresses.isError ? $addresses.error : null}
     onRetry={() => $addresses.refetch()}
     key={(address) => address.id}
     emptyTitle="No agent addresses observed yet"

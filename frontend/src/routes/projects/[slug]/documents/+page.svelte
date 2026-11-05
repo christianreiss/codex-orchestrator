@@ -50,7 +50,7 @@
   const loading = $derived(($notesQuery.isLoading && kind !== "files") || ($filesQuery.isLoading && kind !== "notes"));
   const failure = $derived.by(() => {
     const err = ($notesQuery.isError && kind !== "files" ? $notesQuery.error : null) ?? ($filesQuery.isError && kind !== "notes" ? $filesQuery.error : null);
-    return err ? (err instanceof ApiError ? err.message : "Could not load documents") : null;
+    return err ? (err instanceof ApiError ? err : "Could not load documents") : null;
   });
 
   // What the editor sheet is showing: an existing row, or a new note/file.

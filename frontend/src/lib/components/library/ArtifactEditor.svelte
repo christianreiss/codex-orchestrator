@@ -120,7 +120,7 @@
   <PageShell title={slug} description={singular}><StateBlock state="loading" /></PageShell>
 {:else if $query.isError}
   <PageShell title={slug} description={singular}>
-    <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : `Failed to load ${singular}`} onRetry={() => void $query.refetch()} />
+    <StateBlock state="error" cause={$query.error} message={$query.error instanceof Error ? $query.error.message : `Failed to load ${singular}`} onRetry={() => void $query.refetch()} />
   </PageShell>
 {:else}
   <DocumentEditor {dirty} pending={$save.isPending} error={$save.error ?? $remove.error} saved={$save.isSuccess} title={$query.data?.display_name || slug} description={`${singular} · ${slug}`}>

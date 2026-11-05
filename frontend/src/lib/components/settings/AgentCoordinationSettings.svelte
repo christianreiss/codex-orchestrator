@@ -61,7 +61,7 @@
     <StateBlock state="loading" rows={2} />
   {:else}
     {#if $query.isError}
-      <StateBlock state="error" message={$query.data ? 'Could not refresh agent coordination. The displayed state is stale.' : 'Could not load agent coordination.'} onRetry={() => void reconcile()} />
+      <StateBlock state="error" cause={$query.error} message={$query.data ? 'Could not refresh agent coordination. The displayed state is stale.' : 'Could not load agent coordination.'} onRetry={() => void reconcile()} />
     {/if}
     {#if $query.data}
       <div class="flex items-start justify-between gap-4 border-y py-3">

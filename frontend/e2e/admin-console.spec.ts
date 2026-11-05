@@ -1508,6 +1508,9 @@ for (const mode of ["triage", "manage"] as const) {
     for (const client of clients) await expect(client.getByRole("dialog")).toBeVisible();
     await expect(page.getByRole("dialog").getByRole("button", { name: "Deny", exact: true })).toHaveCount(1);
     await page.getByRole("dialog").getByRole("button", { name: "Deny", exact: true }).click();
+    // Deny asks first, naming the host.
+    await expect(page.getByRole("dialog", { name: "Deny host3.example.test?" })).toBeVisible();
+    await page.getByRole("button", { name: "Deny access", exact: true }).click();
     for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
     if (mode === "manage") {
       await page.evaluate(() => window.dispatchEvent(new Event("codex:open-insecure-approvals")));

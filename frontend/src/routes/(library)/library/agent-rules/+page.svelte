@@ -77,6 +77,7 @@
   {#if doc.query.isError}
     <StateBlock
       state="error"
+      cause={doc.query.error}
       message={doc.query.error instanceof Error ? doc.query.error.message : "Failed to load AGENTS.md"}
       onRetry={() => void doc.query.refetch()}
     />

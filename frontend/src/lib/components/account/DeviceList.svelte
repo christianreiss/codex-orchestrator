@@ -122,7 +122,7 @@
   {#if $devices.isPending}
     <StateBlock state="loading" rows={2} />
   {:else if $devices.isError}
-    <StateBlock state="error" message={$devices.error.message} onRetry={() => $devices.refetch()} />
+    <StateBlock state="error" cause={$devices.error} message={$devices.error.message} onRetry={() => $devices.refetch()} />
   {:else if list.length === 0}
     <StateBlock state="empty" message="No paired devices" />
   {:else}

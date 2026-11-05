@@ -115,7 +115,7 @@
       <DataTable
         items={rows}
         loading={$listQuery.isPending}
-        error={$listQuery.error?.message ?? null}
+        error={$listQuery.error ?? null}
         onRetry={() => $listQuery.refetch()}
         key={(row) => row.id}
         emptyTitle="No timed wake-ups yet"

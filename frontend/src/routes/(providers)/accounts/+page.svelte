@@ -90,7 +90,7 @@
   <DataTable
     items={visible}
     loading={$query.isPending}
-    error={$query.error?.message ?? null}
+    error={$query.error ?? null}
     onRetry={() => $query.refetch()}
     key={(account) => account.id}
     filtered={search.trim() !== "" && scoped.length > 0}

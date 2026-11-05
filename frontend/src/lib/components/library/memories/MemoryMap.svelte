@@ -28,7 +28,7 @@
   {#if state.query.isLoading}
     <div class="p-4"><StateBlock state="loading" rows={6} /></div>
   {:else if error}
-    <div class="p-4"><StateBlock state="error" message={error} onRetry={() => void state.query.refetch()} /></div>
+    <div class="p-4"><StateBlock state="error" cause={state.query.error} message={error} onRetry={() => void state.query.refetch()} /></div>
   {:else if state.memoryNodes.length === 0}
     <StateBlock
       state="empty"

@@ -33,7 +33,7 @@
   <PageShell title="Host" width="narrow"><StateBlock state="loading" rows={5} /></PageShell>
 {:else if $detail.isError || !host || !$detail.data}
   <PageShell title="Host" width="narrow">
-    <StateBlock state="error" message={`Could not load this host: ${$detail.error?.message ?? "not found"}`} onRetry={() => void $detail.refetch()} />
+    <StateBlock state="error" cause={$detail.error} message={`Could not load this host: ${$detail.error?.message ?? "not found"}`} onRetry={() => void $detail.refetch()} />
     <a href={`${base}/hosts`} class="text-body-sm underline">Back to all hosts</a>
   </PageShell>
 {:else}

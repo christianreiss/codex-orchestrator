@@ -2,6 +2,7 @@
   import * as Sheet from "$lib/components/ui/sheet";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
+  import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import { onMount, tick } from "svelte";
   import { toast } from "svelte-sonner";
@@ -88,15 +89,20 @@
     }
   }
 
+  let deleteOpen = $state(false);
+  let deleteError = $state<string | null>(null);
+
   async function deleteAccident(): Promise<void> {
-    if (!result?.host?.id) return;
+    if (!result?.host?.id || $deleteMut.isPending) return;
+    deleteError = null;
     try {
       await $deleteMut.mutateAsync({ id: result.host.id });
       toast.success("Host deleted");
+      deleteOpen = false;
       handleOpenChange(false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Delete failed";
-      toast.error(msg);
+      deleteError = err instanceof Error ? err.message : "Delete failed";
+      toast.error(deleteError);
     }
   }
 
@@ -172,8 +178,8 @@
           <Button variant="secondary" onclick={reset}>Register another</Button>
           <Button variant="ghost" onclick={() => handleOpenChange(false)}>Close</Button>
           <div class="ml-auto">
-            <Button variant="destructive" onclick={deleteAccident}>
-              <Trash2 class="h-4 w-4" /> Delete accident
+            <Button variant="destructive" disabled={$deleteMut.isPending} onclick={() => { deleteError = null; deleteOpen = true; }}>
+              <Trash2 class="h-4 w-4" /> {$deleteMut.isPending ? "Deleting…" : "Delete host"}
             </Button>
           </div>
         </div>
@@ -181,3 +187,15 @@
     {/if}
   </Sheet.Content>
 </Sheet.Root>
+
+<ConfirmDialog
+  bind:open={deleteOpen}
+  title={`Delete ${result?.host?.fqdn ?? "this host"}?`}
+  description="Removes the registration you just created. Use this when the host was added by mistake; a machine that already ran the installer loses access."
+  confirmLabel="Delete host"
+  busyLabel="Deleting…"
+  destructive
+  busy={$deleteMut.isPending}
+  error={deleteError}
+  onConfirm={deleteAccident}
+/>

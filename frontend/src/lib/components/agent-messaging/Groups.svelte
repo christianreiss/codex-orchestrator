@@ -236,7 +236,14 @@
             <p class="break-all font-mono text-caption text-muted-foreground">{subscription.subscriber_engine} · {subscription.topic}</p>
           </li>
         {:else}
-          <li class="py-2 text-body-sm text-muted-foreground">{subscriptionSearch ? "No subscriptions match this search." : "No subscriptions yet. Agents subscribe through their messaging tools."}</li>
+          <li class="flex flex-wrap items-center gap-2 py-2 text-body-sm text-muted-foreground">
+            {#if subscriptionSearch}
+              <span>No subscriptions match this search.</span>
+              <Button size="sm" variant="outline" onclick={() => (subscriptionSearch = "")}>Clear search</Button>
+            {:else}
+              No subscriptions yet. Agents subscribe through their messaging tools.
+            {/if}
+          </li>
         {/each}
       </ul>
     {/if}

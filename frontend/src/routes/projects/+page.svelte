@@ -132,7 +132,7 @@
     <DataTable
       items={$listQuery.data ? rows : undefined}
       loading={$listQuery.isLoading}
-      error={$listQuery.isError ? ($listQuery.error instanceof ApiError ? $listQuery.error.message : "Could not load projects") : null}
+      error={$listQuery.isError ? ($listQuery.error instanceof ApiError ? $listQuery.error : "Could not load projects") : null}
       onRetry={() => void $listQuery.refetch()}
       key={(project) => project.slug}
       filtered={search.trim() !== "" || !showArchived && archivedCount > 0}

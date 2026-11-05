@@ -104,7 +104,7 @@
   {#if $timeline.isLoading}
     <StateBlock state="loading" rows={2} />
   {:else if $timeline.isError}
-    <StateBlock state="error" message={$timeline.error instanceof Error ? $timeline.error.message : "Could not load proposals"} onRetry={() => void $timeline.refetch()} />
+    <StateBlock state="error" cause={$timeline.error} message={$timeline.error instanceof Error ? $timeline.error.message : "Could not load proposals"} onRetry={() => void $timeline.refetch()} />
   {:else if !$timeline.data?.proposals.length}
     <p class="text-body-sm text-muted-foreground">No proposals yet.</p>
   {:else}

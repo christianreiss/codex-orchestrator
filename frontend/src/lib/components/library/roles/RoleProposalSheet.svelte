@@ -58,7 +58,7 @@
       {#if $query.isLoading}
         <StateBlock state="loading" />
       {:else if $query.isError || !detail || !proposal}
-        <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : "Could not load the proposal"} onRetry={() => void $query.refetch()} />
+        <StateBlock state="error" cause={$query.error} message={$query.error instanceof Error ? $query.error.message : "Could not load the proposal"} onRetry={() => void $query.refetch()} />
       {:else}
         <dl class="grid gap-x-4 gap-y-2 text-body-sm sm:grid-cols-2">
           <div><dt class="text-muted-foreground">Status</dt><dd><Badge variant={PROPOSAL_STATUS[proposal.status].variant}>{PROPOSAL_STATUS[proposal.status].label}</Badge></dd></div>

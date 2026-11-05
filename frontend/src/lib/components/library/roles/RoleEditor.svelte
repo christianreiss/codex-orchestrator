@@ -163,7 +163,7 @@
   <PageShell title={slug} description="role"><StateBlock state="loading" /></PageShell>
 {:else if $query.isError || !detail}
   <PageShell title={slug} description="role">
-    <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : "Could not load the role"} onRetry={() => void $query.refetch()} />
+    <StateBlock state="error" cause={$query.error} message={$query.error instanceof Error ? $query.error.message : "Could not load the role"} onRetry={() => void $query.refetch()} />
     <Button variant="outline" href={listHref} class="w-fit">Back to roles</Button>
   </PageShell>
 {:else}
