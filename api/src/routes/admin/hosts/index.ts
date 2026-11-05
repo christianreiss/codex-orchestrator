@@ -34,6 +34,7 @@ import {
 } from '../../../services/runner-validation.js';
 import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services/reverse-dns.js';
 import { hostEnginesList } from '../../../services/host-engine-policy.js';
+import { summarizeHostAgentsExtra } from '../../../services/host-agents-extra.js';
 import { hostAuthDigests, type Host } from '../../../db/schema.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
 
@@ -153,6 +154,10 @@ const versionSelectionSchema = z.object({
   grok_client_version_override: z.union([z.string(), z.null()]).optional(),
   agents_document_id_override: z.union([z.string(), z.number(), z.null()]).optional(),
 });
+
+// `content: null` (or blank) clears the instructions. Size and content rules
+// live in `normalizeHostAgentsExtra` so the service enforces them for every caller.
+const agentsExtraSchema = z.object({ content: z.union([z.string(), z.null()]) }).strict();
 
 const allowDomainSchema = z.object({
   domain: z.union([z.string(), z.null()]).optional(),
@@ -856,5 +861,21 @@ export async function registerAdminHostsRoutes(
       const host = await hostService.setAgentsDocumentOverride(id, selection);
       return { host: hostToWire(host) };
     },
+  });
+
+  // ─── GET/PUT /admin/hosts/:id/agents-extra ───
+  // Optional per-host instructions appended to the fleet AGENTS.md / CLAUDE.md
+  // this host receives (every engine). Kept out of `hostToWire` on purpose: up
+  // to 32 KiB of prose has no business riding every host list response.
+  app.get('/admin/hosts/:id/agents-extra', { preHandler: app.requireAdmin }, async (req) => {
+    const id = parseId((req.params as { id: string }).id);
+    const host = await hostService.requireById(id);
+    return { host_id: host.id, fqdn: host.fqdn, ...summarizeHostAgentsExtra(host.agentsExtra) };
+  });
+  app.put('/admin/hosts/:id/agents-extra', { preHandler: app.requireAdmin }, async (req) => {
+    const id = parseId((req.params as { id: string }).id);
+    const body = parseZod(agentsExtraSchema, req.body);
+    const host = await hostService.setAgentsExtra(id, body.content);
+    return { host_id: host.id, fqdn: host.fqdn, ...summarizeHostAgentsExtra(host.agentsExtra) };
   });
 }

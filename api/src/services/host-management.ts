@@ -11,6 +11,7 @@ import { wsPublisher } from '../ws/publisher.js';
 import { isTruthyFlagValue } from './settings.js';
 import type { Json } from '../control-plane/commands.js';
 import { pruneHosts } from './host-lifecycle.js';
+import { normalizeHostAgentsExtra, summarizeHostAgentsExtra } from './host-agents-extra.js';
 /**
  * Admin-side host management: register / clear / delete / toggle flags / set
  * version overrides. Mirrors the surface of the legacy PHP AdminHostController
@@ -1336,6 +1337,25 @@ export class HostManagementService {
       agents_document_id_override: stored,
     });
     return await this.publishUpdate(id, host.fqdn, { agents_document_id_override: stored });
+  }
+
+  /**
+   * Set or clear the host's extra AGENTS instructions. The audit trail records
+   * size and digest only: the text itself is policy prose, and the log is not
+   * where its history lives.
+   */
+  async setAgentsExtra(id: number, raw: unknown): Promise<ManagedHost> {
+    const host = await this.requireById(id);
+    const stored = normalizeHostAgentsExtra(raw);
+    const summary = summarizeHostAgentsExtra(stored);
+    const details = stored === null
+      ? { fqdn: host.fqdn, cleared: true }
+      : { fqdn: host.fqdn, agents_extra_bytes: summary.size_bytes, agents_extra_sha256: summary.sha256 };
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { agentsExtra: stored, updatedAt: nowIso() }, 'admin.host.agents_extra', details, host);
+    await this.db.update(hosts).set({ agentsExtra: stored, updatedAt: nowIso() }).where(eq(hosts.id, id));
+    await this.writeLog(id, 'admin.host.agents_extra', details);
+    const { fqdn: _fqdn, ...payload } = details;
+    return await this.publishUpdate(id, host.fqdn, payload);
   }
 
   // ────────── Helper ──────────

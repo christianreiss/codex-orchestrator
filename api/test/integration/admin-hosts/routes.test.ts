@@ -11,6 +11,7 @@ import type { HostManagementService } from '../../../src/services/host-managemen
 import type { InsecureWindowAdminService } from '../../../src/services/insecure-window-admin.js';
 import type { Host } from '../../../src/db/schema.js';
 import type { RouteContext } from '../../../src/routes/index.js';
+import { HOST_AGENTS_EXTRA_MAX_BYTES, normalizeHostAgentsExtra } from '../../../src/services/host-agents-extra.js';
 
 function fakeHost(overrides: Partial<Host> = {}): Host {
   return {
@@ -169,6 +170,12 @@ function makeMocks() {
     setClaudeVersionOverride: async (id: number, sel: string | null) => {
       calls.push({ method: 'setClaudeVersionOverride', args: [id, sel] });
       return fakeHost({ id, claudeClientVersionOverride: sel });
+    },
+    setAgentsExtra: async (id: number, content: unknown) => {
+      calls.push({ method: 'setAgentsExtra', args: [id, content] });
+      // The real service owns size/content validation; mirror it so the route
+      // test sees the same 400 an operator would.
+      return fakeHost({ id, agentsExtra: normalizeHostAgentsExtra(content) });
     },
     setAgentsDocumentOverride: async (id: number, sel: string | number | null) => {
       calls.push({ method: 'setAgentsDocumentOverride', args: [id, sel] });
@@ -890,6 +897,63 @@ describe('admin hosts routes', () => {
       expect(r2.statusCode).toBe(200);
       const ids = calls.filter((c) => c.method === 'setAgentsDocumentOverride').map((c) => c.args[1]);
       expect(ids).toEqual(['17', null]);
+      await app.close();
+    });
+
+    it('agents-extra reads, sets and clears the host instructions', async () => {
+      const { app, calls } = await build({ authenticated: true });
+      const read = await app.inject({ method: 'GET', url: '/admin/hosts/42/agents-extra' });
+      expect(read.statusCode).toBe(200);
+      expect(read.json()).toMatchObject({
+        host_id: 42,
+        fqdn: 'vm.example.com',
+        content: null,
+        size_bytes: 0,
+        sha256: null,
+        max_bytes: HOST_AGENTS_EXTRA_MAX_BYTES,
+      });
+      const set = await app.inject({
+        method: 'PUT',
+        url: '/admin/hosts/42/agents-extra',
+        payload: { content: '  Use staging only.\n' },
+      });
+      expect(set.statusCode).toBe(200);
+      expect(set.json()).toMatchObject({ host_id: 42, content: 'Use staging only.', size_bytes: 17 });
+      expect(set.json().sha256).toMatch(/^[0-9a-f]{64}$/);
+      const cleared = await app.inject({ method: 'PUT', url: '/admin/hosts/42/agents-extra', payload: { content: null } });
+      expect(cleared.statusCode).toBe(200);
+      expect(cleared.json()).toMatchObject({ content: null, sha256: null });
+      expect(calls.filter((c) => c.method === 'setAgentsExtra').map((c) => c.args)).toEqual([
+        [42, '  Use staging only.\n'],
+        [42, null],
+      ]);
+      await app.close();
+    });
+
+    it('agents-extra rejects oversized text, a missing or wrongly typed content and stray keys', async () => {
+      const { app } = await build({ authenticated: true });
+      for (const payload of [
+        { content: 'x'.repeat(HOST_AGENTS_EXTRA_MAX_BYTES + 1) },
+        {},
+        { content: 42 },
+        { content: 'ok', extra: true },
+      ]) {
+        const r = await app.inject({ method: 'PUT', url: '/admin/hosts/42/agents-extra', payload });
+        expect(r.statusCode, JSON.stringify(payload).slice(0, 40)).toBe(422);
+        expect(r.json().error?.code ?? r.json().code).toBe('validation_failed');
+      }
+      const badId = await app.inject({ method: 'GET', url: '/admin/hosts/abc/agents-extra' });
+      expect(badId.statusCode).toBe(422);
+      await app.close();
+    });
+
+    it('agents-extra requires an admin session', async () => {
+      const { app, calls } = await build({ authenticated: false });
+      for (const method of ['GET', 'PUT'] as const) {
+        const r = await app.inject({ method, url: '/admin/hosts/42/agents-extra', payload: method === 'PUT' ? { content: 'x' } : undefined });
+        expect(r.statusCode).toBe(401);
+      }
+      expect(calls.filter((c) => c.method === 'setAgentsExtra')).toEqual([]);
       await app.close();
     });
   });

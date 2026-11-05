@@ -600,6 +600,8 @@ Claude/host feature state and appends at most one
 block. Existing orchestrator-owned blocks are replaced so repeated renders are
 idempotent.
 
+Per-host extra instructions (`hosts.agents_extra`, admin `PUT /admin/hosts/{id}/agents-extra`) are appended after the managed blocks under `## Host-specific instructions (<fqdn>)` for that one host. The served CLAUDE.md digest covers them, so a change reaches the host on its next sync exactly like a fleet edit; hosts without them receive an unchanged document.
+
 The fleet-wide `agents_generation_mode` setting (`GET`/`POST
 /admin/agents-generation-mode`) applies to CLAUDE.md and AGENTS.md alike: it is
 one fleet switch, not one per engine. `managed` (default) re-composes the

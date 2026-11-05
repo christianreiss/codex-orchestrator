@@ -883,6 +883,16 @@ export interface HostsListResponse {
   hosts: HostListItem[];
 }
 
+/** GET/PUT /admin/hosts/{id}/agents-extra — optional per-host agent instructions. */
+export interface HostAgentsExtra {
+  host_id: number;
+  fqdn: string;
+  content: string | null;
+  size_bytes: number;
+  sha256: string | null;
+  max_bytes: number;
+}
+
 export interface HostDetailResponse {
   host: HostDetail;
   overview: {

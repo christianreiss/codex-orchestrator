@@ -18,6 +18,7 @@ import { engineLabel } from "../constants/engines";
 import type {
   HostsListResponse,
   HostDetailResponse,
+  HostAgentsExtra,
   HostListItem,
   HostDetail,
   HostInstallerPayload,
@@ -34,6 +35,9 @@ export const hostsKeys = {
   all: () => ["hosts"] as const,
   list: () => ["hosts", "list"] as const,
   detail: (id: number | string) => ["hosts", "detail", String(id)] as const,
+  // Under ["hosts"], so the `host.updated` event refreshes it; deliberately not
+  // under `detail`, whose optimistic updates cancel and rewrite that prefix.
+  agentsExtra: (id: number | string) => ["hosts", "agents-extra", String(id)] as const,
   insecure: () => ["hosts", "insecure"] as const,
 };
 
@@ -462,6 +466,25 @@ export function createAgentsVersionMutation(qc: QueryClient) {
       }),
     onSuccess: (_d, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
+    },
+  });
+}
+
+// --- per-host agent instructions ------------------------------------------
+
+export function hostAgentsExtraQuery(id: number | string) {
+  return createQuery<HostAgentsExtra>({
+    queryKey: hostsKeys.agentsExtra(id),
+    queryFn: () => api.get<HostAgentsExtra>(`/admin/hosts/${id}/agents-extra`),
+    enabled: String(id) !== "",
+  });
+}
+
+export function createHostAgentsExtraMutation(qc: QueryClient) {
+  return createMutation<HostAgentsExtra, ApiError, { id: number | string; content: string | null }>({
+    mutationFn: ({ id, content }) => api.put<HostAgentsExtra>(`/admin/hosts/${id}/agents-extra`, { content }),
+    onSuccess: (data, vars) => {
+      qc.setQueryData(hostsKeys.agentsExtra(vars.id), data);
     },
   });
 }
