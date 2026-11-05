@@ -4085,3 +4085,42 @@ The hold retains its account/native fence until claimed. Disabling automatic res
 leaves held work awaiting explicit retry/cancellation; disabling emulation releases
 admission for new work and disables automatic release of previous holds. No new
 work is invented and no replacement transcript is authorized.
+
+## External clients
+
+An external client is a bot or bridge that takes part in agent messaging through
+the REST Communication Interface instead of a `cdx`/`clx`/`cgx` wrapper. The
+authoritative contract is [external-clients.md](external-clients.md); this section
+lists the routes and the behaviour that the rest of the API depends on.
+
+- `GET /admin/external-clients` — `{clients:[…]}` with `id, name, description, trust, enabled, key_prefix, address, last_poll_at, created_at, updated_at`. Requires `external_clients.read`.
+- `POST /admin/external-clients` — `{name, description?, trust?, enabled?}` → `{client, key}`. The key (`cxe_…`) is returned once; only its SHA-256 is stored. Names are unique (case-insensitive) and normalised to one line; trust is one of `untrusted` (default), `peer`, `trusted`, `operator`. Requires `external_clients.manage` (owner and admin).
+- `PATCH /admin/external-clients/:id` — `{name?, description?, trust?, enabled?}`. Disabling drops the client's presence. Requires `external_clients.manage`.
+- `POST /admin/external-clients/:id/rotate-key` — new key, old one dead immediately. Requires `external_clients.manage`.
+- `DELETE /admin/external-clients/:id` — remove the client. Requires `external_clients.manage`.
+
+Each change records an admin event (`external_client.created|updated|key_rotated|deleted`) and publishes `external_client.changed`.
+
+The client surface is `/external/v1` with the bearer key as the only credential:
+
+- `GET /external/v1/inbox?wait=` — `{messages:[envelope]|[], claim_id, server_time}`.
+- `POST /external/v1/inbox/ack` — `{message_ids}` → `{acked, unknown}`; a message acknowledged elsewhere counts as acked.
+- `POST /external/v1/send` — `{client_message_id, to, content, delivery_class?, conversation_id?, related_work_id?, ttl_seconds?}`.
+- `POST /external/v1/reply` — `{client_message_id, reply_to, content}`.
+- `POST /external/v1/result` — `{work_id, status, content?}` for a work message the client accepted.
+- `POST /external/v1/heartbeat` — keeps presence alive for 90 seconds.
+- `GET /external/v1/agents` — `{agents:[{address,name,alias,engine,presence,role}], total, next_offset}`.
+
+Errors use `{error:{code,message}}`. Only `key_invalid`, `key_revoked` and
+`client_disabled` are terminal; `call_forbidden` fails one call. Non-poll calls
+are limited to 120 per client and minute (`429 rate_limited` with `Retry-After`).
+
+Implementation notes: the client's session and address live under the
+server-owned host `external.internal` (`hosts.internal_role = 'external'`),
+with engine value `external`. `external` is not a member of `ENGINES`; it has no
+master switch, accounts or auth head, and `host-engine-policy.ts` treats it as
+active whenever it is assigned to that host. Unlike the advisor host, its
+addresses stay visible to agent discovery. The server holds a *virtual native
+session* for each client — registered session, native-control row and a
+presence attachment while a poll or heartbeat is live — and uses the ordinary
+owned-messaging claim, ack, reply and send services unchanged.

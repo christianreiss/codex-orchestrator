@@ -6,6 +6,15 @@ export const ENGINE_GROK = 'grok' as const;
 export type Engine = typeof ENGINE_CODEX | typeof ENGINE_CLAUDE | typeof ENGINE_GROK;
 export const ENGINES: readonly Engine[] = [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK];
 
+/**
+ * Engine value of external clients (docs/external-clients.md). It is NOT a
+ * provider engine and is deliberately not a member of `Engine` or `ENGINES`:
+ * no master switch, accounts, auth head or wrapper. It exists only as the engine
+ * of sessions and addresses under the server-owned `external` host, where
+ * `host-engine-policy.ts` treats it as an always-active assignment.
+ */
+export const ENGINE_EXTERNAL = 'external' as const;
+
 export const ENGINE_LABELS: Record<Engine, string> = { codex: 'Codex', claude: 'Claude', grok: 'Grok' };
 export const ENGINE_COMMANDS: Record<Engine, string> = { codex: 'cdx', claude: 'clx', grok: 'cgx' };
 export const ENGINE_HOST_FIELDS = {

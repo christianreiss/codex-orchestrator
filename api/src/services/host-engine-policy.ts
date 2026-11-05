@@ -1,6 +1,6 @@
 import type { Host } from '../db/schema.js';
 import { ConflictError, ForbiddenError } from '../http/errors.js';
-import { ENGINE_CODEX, ENGINE_LABELS, ENGINES, isEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_EXTERNAL, ENGINE_LABELS, ENGINES, isEngine, type Engine } from '../util/engine.js';
 
 /**
  * Fleet-wide engine master switch state (`services/engine-switch.ts`).
@@ -16,7 +16,9 @@ export function hostEnginesList(raw: unknown): Engine[] {
   const out: Engine[] = [];
   for (const part of text.split(',')) {
     const engine = part.trim().toLowerCase();
-    if (isEngine(engine) && !out.includes(engine)) out.push(engine);
+    // `external` is only ever assigned to the server-owned external host.
+    if (engine === ENGINE_EXTERNAL && !out.includes(engine as Engine)) out.push(engine as Engine);
+    else if (isEngine(engine) && !out.includes(engine)) out.push(engine);
   }
   return out.length ? out : [ENGINE_CODEX];
 }
@@ -28,7 +30,8 @@ export function hostEnginesList(raw: unknown): Engine[] {
  * usable engine, not a Codex one.
  */
 export function activeHostEngines(raw: unknown, fleet: FleetEngineState): Engine[] {
-  return hostEnginesList(raw).filter((engine) => fleet[engine]);
+  // The external pseudo-engine has no fleet switch: it is active whenever assigned.
+  return hostEnginesList(raw).filter((engine) => (engine as string) === ENGINE_EXTERNAL || fleet[engine]);
 }
 
 /** Engines switched off fleet-wide, in canonical order. */
@@ -80,7 +83,7 @@ export function assertHostEngineEnabled(host: Pick<Host, 'engines'>, engine: Eng
   if (!hostEnginesList(host.engines).includes(engine)) {
     throw new ForbiddenError(`Engine ${engine} is disabled for this host`, 'engine_disabled', { scope: 'host', engine });
   }
-  if (!fleet[engine]) throw fleetEngineDisabledError(engine);
+  if ((engine as string) !== ENGINE_EXTERNAL && !fleet[engine]) throw fleetEngineDisabledError(engine);
 }
 
 /**

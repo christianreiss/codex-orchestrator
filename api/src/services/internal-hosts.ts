@@ -15,6 +15,9 @@ import { hosts, type Host } from '../db/schema.js';
 
 export const ADVISOR_ROLE = 'advisor';
 export const ADVISOR_FQDN = 'advisor.internal';
+/** The server-owned host that carries every external client's session and address. */
+export const EXTERNAL_ROLE = 'external';
+export const EXTERNAL_FQDN = 'external.internal';
 
 /** Drizzle predicate: the host is an ordinary fleet host. */
 export const visibleHost: SQL = isNull(hosts.internalRole);

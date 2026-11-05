@@ -53,6 +53,7 @@ import { registerAdminWrapperRolloutRoutes } from './admin/wrapper-rollout/index
 import { registerAdminProjectBoardRoutes } from './admin/project-board/index.js';
 import { registerAgentPortalRoutes } from './agent-portal/index.js';
 import { registerAgentMessagingRoutes } from './agent-messaging/index.js';
+import { registerExternalClientRoutes } from './external/index.js';
 
 /**
  * Top-level route mounter. Specific routes register before the static SPA
@@ -84,6 +85,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerWrapperV2Routes(app, ctx);
   await registerAgentPortalRoutes(app, ctx);
   await registerAgentMessagingRoutes(app, ctx);
+  await registerExternalClientRoutes(app, ctx);
   registerAgentRoomChatRoutes(app, ctx);
   await registerScheduleRoutes(app, ctx);
   await registerWatchdogRoutes(app, ctx);

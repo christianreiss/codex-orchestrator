@@ -141,6 +141,13 @@ export const CAPABILITIES = [
   'feedback.read',
   'feedback.manage',
 
+  // External clients (docs/external-clients.md): REST-only bots and bridges.
+  // Reading lists names, trust levels and key prefixes, never a key. Managing
+  // mints keys and sets trust levels, so it stays with owner and admin: a fleet
+  // operator keeps the fleet running but does not decide whom the fleet trusts.
+  'external_clients.read',
+  'external_clients.manage',
+
   'audit.read',
 ] as const;
 
@@ -180,6 +187,7 @@ const READ_ONLY: readonly Capability[] = [
   'transfers.read',
   'audit.read',
   'feedback.read',
+  'external_clients.read',
 ];
 
 /**

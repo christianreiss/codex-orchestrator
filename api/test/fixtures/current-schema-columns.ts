@@ -119,5 +119,20 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
     [...tables.get('agent_room_pins')!].join() !== 'room_id,event_id,pinned_by,pinned_at'
   )
     throw new Error('Migration 0119 room annotation inventory changed; cannot project the bootstrap schema');
+  // Migration 0124 adds the external clients table.
+  const external = splitSqlStatements(
+    readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0124_external_clients.sql'), 'utf8'),
+  ).flatMap((statement) => {
+    const name = /^CREATE TABLE IF NOT EXISTS ([a-z_]+)/i.exec(statement)?.[1];
+    if (!name) return [];
+    tables.set(name, new Set([...statement.matchAll(/^\s+([a-z_]+)\s+(?:char|varchar|tinyint|int)\b/gim)].map((m) => m[1]!)));
+    return [name];
+  });
+  if (
+    external.join() !== 'external_clients' ||
+    [...tables.get('external_clients')!].join() !==
+      'id,name,name_key,description,trust,enabled,key_hash,key_prefix,bridge_secret,session_id,address_id,last_poll_at,created_by_admin_id,created_at,updated_at,disabled_at'
+  )
+    throw new Error('Migration 0124 external clients inventory changed; cannot project the bootstrap schema');
   return tables;
 }

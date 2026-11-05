@@ -2788,6 +2788,33 @@ export const agentRoomPins = mysqlTable('agent_room_pins', {
   pinnedBy: varchar('pinned_by', { length: 80 }).notNull(),
   pinnedAt: varchar('pinned_at', { length: 100 }).notNull(),
 }, t => ({ pk: primaryKey({ columns: [t.roomId, t.eventId] }), eventIdx: index('idx_room_pins_event').on(t.eventId) }));
+/**
+ * External clients (0124, docs/external-clients.md): REST-only bots and bridges.
+ * The key is kept as a SHA-256 hash only. `bridgeSecret` derives the in-process
+ * bridge token of the client's virtual session and is never sent anywhere.
+ */
+export const externalClients = mysqlTable('external_clients', {
+  id: char('id', { length: 36 }).primaryKey(),
+  name: varchar('name', { length: 96 }).notNull(),
+  nameKey: varchar('name_key', { length: 96 }).notNull(),
+  description: varchar('description', { length: 160 }).notNull().default(''),
+  trust: varchar('trust', { length: 16 }).notNull().default('untrusted'),
+  enabled: tinyint('enabled').notNull().default(0),
+  keyHash: char('key_hash', { length: 64 }).notNull(),
+  keyPrefix: varchar('key_prefix', { length: 16 }).notNull(),
+  bridgeSecret: char('bridge_secret', { length: 64 }).notNull(),
+  sessionId: char('session_id', { length: 36 }),
+  addressId: char('address_id', { length: 36 }),
+  lastPollAt: varchar('last_poll_at', { length: 100 }),
+  createdByAdminId: int('created_by_admin_id', { unsigned: true }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  disabledAt: varchar('disabled_at', { length: 100 }),
+}, t => ({
+  nameUnique: uniqueIndex('uq_external_clients_name').on(t.nameKey),
+  keyUnique: uniqueIndex('uq_external_clients_key').on(t.keyHash),
+}));
+export type ExternalClient = typeof externalClients.$inferSelect;
 export const agentRoomReads = mysqlTable('agent_room_reads', {
   roomId: char('room_id', { length: 36 }).notNull(),
   adminId: int('admin_id', { unsigned: true }).notNull(),

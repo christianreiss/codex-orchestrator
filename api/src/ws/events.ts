@@ -168,6 +168,11 @@ export const WS_EVENT_TYPES = [
   // File transfer. One type for every change to the pool -- an upload, a chunk,
   // an expiry sweep, a limit change -- for the same reason git_director.changed
   // is one type: the console renders the pool as a single live view.
+  'external_client.changed',
+  'external_client.created',
+  'external_client.updated',
+  'external_client.key_rotated',
+  'external_client.deleted',
   'transfers.changed',
   // The three operator actions, which are audit facts as well as view changes.
   // A download is deliberately NOT here: an operator reading a file changes

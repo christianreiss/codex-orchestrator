@@ -479,6 +479,11 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/git-director/worktrees/:id/release': cap('git_director.manage'),
 
   // ── File transfer ────────────────────────────────────────────────────────
+  'GET /admin/external-clients': cap('external_clients.read'),
+  'POST /admin/external-clients': cap('external_clients.manage'),
+  'PATCH /admin/external-clients/:id': cap('external_clients.manage'),
+  'POST /admin/external-clients/:id/rotate-key': cap('external_clients.manage'),
+  'DELETE /admin/external-clients/:id': cap('external_clients.manage'),
   'GET /admin/transfers': cap('transfers.read'),
   'GET /admin/transfers/state': cap('transfers.read'),
   'GET /admin/transfers/:id/events': cap('transfers.read'),

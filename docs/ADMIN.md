@@ -160,6 +160,8 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 | `transfers.manage` | yes | yes | yes | — | — | — |
 | `feedback.read` | yes | yes | yes | yes | yes | yes |
 | `feedback.manage` | yes | yes | yes | — | — | — |
+| `external_clients.read` | yes | yes | yes | yes | yes | yes |
+| `external_clients.manage` | yes | yes | — | — | — | — |
 | `audit.read` | yes | yes | yes | yes | yes | yes |
 
 <!-- END GENERATED: capability-matrix -->

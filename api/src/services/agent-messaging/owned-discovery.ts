@@ -22,6 +22,7 @@ import { workspaceMatch, workspaceCoverage, readWorkspace } from './workspace.js
 import { publicAddress } from './views.js';
 import { LIVE_MESSAGE_STATUSES } from './constants.js';
 import type { HostInventoryFilters } from './host-inventory.js';
+import { EXTERNAL_ROLE } from '../internal-hosts.js';
 
 export async function ownedSelf(
   db: Database,
@@ -90,7 +91,8 @@ export async function discoverOwnedAddresses(
       (filters.engine && address.engine !== filters.engine) ||
       (filters.hostId && address.hostId !== filters.hostId) ||
       (holders && !holders.has(address.id)) ||
-      snapshot.hosts.get(address.hostId)?.internalRole
+      // The advisor's host stays invisible; external clients are ordinary peers.
+      (snapshot.hosts.get(address.hostId)?.internalRole && snapshot.hosts.get(address.hostId)?.internalRole !== EXTERNAL_ROLE)
     )
       return [];
     try {

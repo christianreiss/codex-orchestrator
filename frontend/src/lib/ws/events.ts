@@ -259,6 +259,11 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // File transfer. The pool listing and the module state are separate queries,
   // so both are invalidated: a toggle changes the state card, an upload changes
   // the table, and a limits change moves the quota meter on the same page.
+  "external_client.changed": [["external-clients"], ["agents"]],
+  "external_client.created": [["external-clients"]],
+  "external_client.updated": [["external-clients"], ["agents"]],
+  "external_client.key_rotated": [["external-clients"]],
+  "external_client.deleted": [["external-clients"], ["agents"]],
   "transfers.changed": [["transfers"]],
   "transfers.module_toggled": [["transfers"]],
   "transfers.limits_changed": [["transfers"]],

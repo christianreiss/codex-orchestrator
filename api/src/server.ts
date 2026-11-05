@@ -15,6 +15,7 @@ import { Keyring } from './security/keyring.js';
 import { runBootChecks } from './ops/boot-checks.js';
 import { retireManagedContextRow } from './ops/retire-context-skill.js';
 import { ensureAdvisorHost } from './ops/ensure-advisor-host.js';
+import { ensureExternalHost } from './ops/ensure-external-host.js';
 import { ensureAgentPolicy } from './ops/ensure-agent-policy.js';
 import { startAuthVerificationWorker } from './ops/auth-verification-worker.js';
 import { startAuthRetentionWorker } from './ops/auth-retention-worker.js';
@@ -92,6 +93,15 @@ export async function buildServer() {
     })
     .catch((err) => {
       console.warn(`[boot] could not ensure the advisor host: ${String(err)}`);
+    });
+  // The server-owned host of external clients (docs/external-clients.md). A
+  // failure only disables external clients, never the API.
+  await ensureExternalHost(db)
+    .then((outcome) => {
+      if (outcome.status !== 'present') console.warn(`[boot] external host ${outcome.status} (#${outcome.host_id})`);
+    })
+    .catch((err) => {
+      console.warn(`[boot] could not ensure the external host: ${String(err)}`);
     });
 
     },

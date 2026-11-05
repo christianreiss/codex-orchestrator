@@ -1455,3 +1455,26 @@ activation, compatibility, protection and no-backup offline maintenance.
 - `POST /host/agent-sessions/{id}/agent-messaging/work-state` — current bridge only: `{}` reads state; `{state,task_key?,message_id?,reason?,waiting_for?,coordinator?,version?}` reports current work (`task_key` or `message_id` required; the key derives as `message:<id>` when omitted). See [the supervisor contract](agent-supervisor.md).
 
 - `POST /admin/agent-messaging/messages/:id/quota-retry` — explicitly retry work held by an emulated quota, retaining its original account/native identity; checks the current budget. Requires `agent_messaging.manage`. See [emulated quotas](interface-api.md#emulated-short-quotas-cxx-09150).
+
+## External clients
+
+REST-only bots and bridges that take part in agent messaging. The full wire
+contract (envelope, errors, semantics) is [external-clients.md](external-clients.md).
+
+Admin (session + capability; `external_clients.read` / `external_clients.manage`):
+
+- `GET /admin/external-clients` — list clients: name, description, trust, enabled, key prefix, address, last poll. Never a key. Requires `external_clients.read`.
+- `POST /admin/external-clients` — `{name, description?, trust?, enabled?}`; trust defaults to `untrusted`. Answers `{client, key}`; the key is shown once. Requires `external_clients.manage`.
+- `PATCH /admin/external-clients/:id` — change name, description, trust or `enabled`. Disabling ends the client's presence at once. Requires `external_clients.manage`.
+- `POST /admin/external-clients/:id/rotate-key` — replace the key; the old one stops working at once. Answers `{client, key}`. Requires `external_clients.manage`.
+- `DELETE /admin/external-clients/:id` — delete the client. Requires `external_clients.manage`.
+
+Client (`Authorization: Bearer cxe_…`, errors as `{error:{code,message}}`):
+
+- `GET /external/v1/inbox` — long-poll (`wait` 0–25 s) for the next message; returns at most one unacknowledged message, again on every poll until acknowledged.
+- `POST /external/v1/inbox/ack` — acknowledge `message_ids`; idempotent.
+- `POST /external/v1/send` — send to a name or `agent:UUID`; `client_message_id` is the idempotency key.
+- `POST /external/v1/reply` — reply to a received message.
+- `POST /external/v1/result` — report a work outcome (`succeeded|failed|blocked|unknown`).
+- `POST /external/v1/heartbeat` — keep presence between polls.
+- `GET /external/v1/agents` — peer discovery without hosts or paths.
