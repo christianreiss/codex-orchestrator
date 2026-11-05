@@ -159,7 +159,13 @@ export class ExternalBridge {
     }
     const snapshot = runtime.state.snapshot();
     const instanceId = snapshot.table('agentNativeControls').get(sessionId)?.instanceId ?? randomUUID();
-    await pollOwnedControl(runtime, sessionId, instanceId);
+    // The control row only serves native stop; an external client has no process to stop. A re-registration can
+    // bump the binding generation past the stored row, which must not fail every call (native_stop_binding_changed).
+    try {
+      await pollOwnedControl(runtime, sessionId, instanceId);
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'native_stop_binding_changed') throw error;
+    }
     return { client, runtime, host, sessionId, token, addressId: address.id, instanceId };
   }
 
