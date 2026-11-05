@@ -1,6 +1,7 @@
 import { persistAuditLog } from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { servedAgentDocument } from '../control-plane/state/agent-documents.js';
+import { appendHostAgentsExtra } from './host-agents-extra.js';
 /**
  * Host-facing agents + client config retrieval.
  */
@@ -184,7 +185,9 @@ export class HostAgentsService {
     const featureContext = await this.resolveManagedFeatureContext(host, engine);
     const verbosity = responseVerbosityLevel ?? (await this.resolveResponseVerbosity());
     const rendered = renderManagedAgentFeatures(baseBody, featureContext, levels, baseProvenance, verbosity, addressForm ?? (await this.resolveAddressForm()));
-    const servedSha = createHash('sha256').update(rendered.body).digest('hex');
+    // The preview shows what this host would receive, host instructions included.
+    const hostExtra = appendHostAgentsExtra(rendered.body, host);
+    const servedSha = createHash('sha256').update(hostExtra.body).digest('hex');
     return {
       status: 'ok',
       version_id: null,
@@ -199,9 +202,10 @@ export class HostAgentsService {
       // would have to ignore.
       provenance: rendered.provenance,
       axis_sections: rendered.axis_sections,
+      ...(hostExtra.sha256 ? { host_instructions_sha256: hostExtra.sha256 } : {}),
       updated_at: null,
-      size_bytes: Buffer.byteLength(rendered.body, 'utf8'),
-      content: rendered.body,
+      size_bytes: Buffer.byteLength(hostExtra.body, 'utf8'),
+      content: hostExtra.body,
     };
   }
 
@@ -254,7 +258,11 @@ export class HostAgentsService {
       await this.resolveResponseVerbosity(),
       await this.resolveAddressForm(),
     );
-    const served = rendered.body;
+    // Per-host instructions go last, after the managed blocks. The served hash
+    // covers them, so changing only this host's text still makes its wrapper
+    // rewrite the file on the next sync.
+    const hostExtra = appendHostAgentsExtra(rendered.body, host);
+    const served = hostExtra.body;
     const servedSha = createHash('sha256').update(served).digest('hex');
     return {
       status: 'ok',
@@ -266,6 +274,9 @@ export class HostAgentsService {
       features_sha256: rendered.features_sha256,
       sections: rendered.sections,
       memory_routing: memoryRouting,
+      // Present only when the host has instructions, so a host without them
+      // gets exactly the response it got before the feature existed.
+      ...(hostExtra.sha256 ? { host_instructions_sha256: hostExtra.sha256 } : {}),
       updated_at: row.updatedAt,
       size_bytes: Buffer.byteLength(served, 'utf8'),
       content: served,

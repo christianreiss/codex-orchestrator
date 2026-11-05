@@ -978,3 +978,75 @@ describe('HostAgentsService generation mode', () => {
     expect(await service.generationMode()).toBe('off');
   });
 });
+
+describe('HostAgentsService per-host instructions', () => {
+  const EXTRA = 'Only deploy from the release branch.\nNever touch /srv/legacy.';
+
+  for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+    it(`${engine}: appends the host's instructions last and changes only the served digest`, async () => {
+      const body = `Fleet ${engine} rules\n`;
+      const db = makeDb([
+        [agentsDocuments, [agentsRow(4, body, engine)]],
+        [clientConfigDocuments, [configRow(1, engine, { orchestrator_mcp_enabled: true })]],
+      ]);
+      const service = makeService(db);
+      const plain = makeHost({ engines: engine, status: 'active' });
+      const before = await service.retrieve(null, plain, engine);
+      const withExtra = await service.retrieve(null, makeHost({ engines: engine, status: 'active', agentsExtra: EXTRA }), engine);
+
+      const served = String(withExtra['content']);
+      const heading = '## Host-specific instructions (host.example)';
+      expect(served.startsWith(String(before['content']).trimEnd())).toBe(true);
+      expect(served.endsWith(`\n\n${heading}\n\n${EXTRA}\n`)).toBe(true);
+      expect(served.indexOf(heading)).toBeGreaterThan(served.lastIndexOf('<!-- cxx:managed-features:end -->'));
+      expect(withExtra['sha256']).toBe(sha(served));
+      expect(withExtra['sha256']).not.toBe(before['sha256']);
+      expect(withExtra['size_bytes']).toBe(Buffer.byteLength(served, 'utf8'));
+      expect(withExtra['host_instructions_sha256']).toBe(sha(EXTRA));
+      // The canonical and managed layers are untouched.
+      expect(withExtra['base_sha256']).toBe(before['base_sha256']);
+      expect(withExtra['managed_sha256']).toBe(before['managed_sha256']);
+
+      // A host whose on-disk file predates the edit is told to rewrite it...
+      const stale = await service.retrieve(String(before['sha256']), makeHost({ engines: engine, status: 'active', agentsExtra: EXTRA }), engine);
+      expect(stale['status']).toBe('updated');
+      // ...and one that already has it is not.
+      const current = await service.retrieve(String(withExtra['sha256']), makeHost({ engines: engine, status: 'active', agentsExtra: EXTRA }), engine);
+      expect(current['status']).toBe('unchanged');
+      expect(current).not.toHaveProperty('content');
+    });
+  }
+
+  it('serves a byte-identical document without the host_instructions key when none are set', async () => {
+    const body = 'Fleet rules\n';
+    const seed = (): DbFake =>
+      makeDb([
+        [agentsDocuments, [agentsRow(4, body)]],
+        [clientConfigDocuments, [configRow(1, ENGINE_CODEX, { orchestrator_mcp_enabled: true })]],
+      ]);
+    const absent = await makeService(seed()).retrieve(null, makeHost({ status: 'active' }));
+    for (const agentsExtra of [null, '', '   \n']) {
+      const out = await makeService(seed()).retrieve(null, makeHost({ status: 'active', agentsExtra }));
+      expect(out).toEqual(absent);
+      expect(out).not.toHaveProperty('host_instructions_sha256');
+    }
+  });
+
+  it('includes the instructions in the current and draft admin previews', async () => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Fleet rules\n')]],
+      [clientConfigDocuments, [configRow(1, ENGINE_CODEX, { orchestrator_mcp_enabled: true })]],
+    ]);
+    const service = makeService(db);
+    const host = makeHost({ status: 'active', agentsExtra: EXTRA });
+    const current = await service.renderCurrent(host);
+    const served = await service.retrieve(null, host);
+    expect(current['content']).toBe(served['content']);
+    expect(current['sha256']).toBe(served['sha256']);
+    const draft = await service.renderDraft(host, 'Draft rules\n');
+    expect(String(draft['content'])).toContain('Draft rules');
+    expect(String(draft['content']).endsWith(`## Host-specific instructions (host.example)\n\n${EXTRA}\n`)).toBe(true);
+    expect(draft['sha256']).toBe(sha(String(draft['content'])));
+    expect(draft['host_instructions_sha256']).toBe(sha(EXTRA));
+  });
+});

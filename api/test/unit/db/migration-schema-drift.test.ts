@@ -397,6 +397,7 @@ describe('migrations against the test baseline', () => {
       'companion_devices.room_change_cursor',
       'host_daemon_sessions.permission_mode',
       'agent_bus_messages.quota_emulation_wait',
+      'hosts.agents_extra',
     ]);
   });
 

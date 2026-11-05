@@ -108,6 +108,7 @@ function fakeHost(): Host {
     clientVersionOverride: null,
     wrapperVersion: null,
     agentsDocumentIdOverride: null,
+    agentsExtra: null,
     apiCalls: 0,
     insecureEnabledUntil: null,
     insecureGraceUntil: null,

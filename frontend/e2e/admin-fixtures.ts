@@ -721,6 +721,8 @@ export function fixture(pathname: string): Record<string, unknown> {
           memory: { present: true, reason: "included" },
         },
       };
+    case "/admin/hosts/1/agents-extra":
+      return { host_id: 1, fqdn: "console.example.test", content: null, size_bytes: 0, sha256: null, max_bytes: 32768 };
     case "/admin/hosts/1/detail":
       return {
         host: {

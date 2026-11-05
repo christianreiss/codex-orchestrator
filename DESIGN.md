@@ -91,7 +91,7 @@ owning components when moving a setting; update this table in the same change.
 | Shared secrets | `/admin/secrets` |
 | Engine switches, model/effort/version defaults and native engine configuration | `/admin/engines` |
 | Quota enforcement, quota warnings and usage-based scaling | `/admin/limits` |
-| Host-specific access, engine assignments and overrides | `/admin/hosts/[id]` |
+| Host-specific access, engine assignments, overrides and extra agent instructions | `/admin/hosts/[id]` |
 | Fleet host policy, host-agent rollout and communicator API level (read-only), agent-session controls, Chatty and retention | `/admin/settings` |
 | Fleet-wide agent coordination: project/host rooms and resource claims | `/admin/settings#agent-coordination` (Graph shows status and links here) |
 | Agent messaging service and coordination data | `/admin/agent-messaging` |
@@ -216,7 +216,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin` | Entry redirect | Load redirects to dashboard; layout gates auth/setup | Signed-out, new fleet and unreachable paths |
 | `/admin/dashboard` | Prioritize attention; overview | `PageShell`, `Section`, `StatStrip`, attention/usage tables | Unknown/stale usage versus healthy zero |
 | `/admin/hosts` | Find/register hosts; list | `PageShell`, `Toolbar`, `HostsTable`, add/seed sheets | Filter retention, loading and no matches |
-| `/admin/hosts/[id]` | Diagnose/manage one host; detail | `PageShell`, attention, engine/access/advanced/delete sections | Long identity, accessible repair, disabled engine; native model minimum and upgrade repair |
+| `/admin/hosts/[id]` | Diagnose/manage one host; detail | `PageShell`, attention, engine/access sections, agent instructions (`Section`, `FormField`, `DraftGuard`, `SaveState`, explicit save, byte counter, confirmed clear), advanced/delete sections | Long identity, accessible repair, disabled engine; native model minimum and upgrade repair; instruction draft conflict, over-limit and failed-save recovery |
 | `/admin/agents` | Operate agents; conversation / graph | `PageShell`, `ClientsWorkspace`, `GraphView`, inspector; coordination status links to Settings | Both views, reconnect, focus and non-graph access; independent setting state when room loading fails |
 | `/admin/projects` | Browse/create projects; list | `PageShell`, `Toolbar`, `DataTable`, settings sheet | Selection scope and bulk destructive action |
 | `/admin/projects/[slug]` | Project entry redirect | Redirect to board | Encoded slugs and back navigation |

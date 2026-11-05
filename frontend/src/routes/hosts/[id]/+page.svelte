@@ -7,6 +7,7 @@
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import AccessSection from "$lib/components/hosts/detail/AccessSection.svelte";
   import AdvancedSection from "$lib/components/hosts/detail/AdvancedSection.svelte";
+  import AgentInstructions from "$lib/components/hosts/detail/AgentInstructions.svelte";
   import DeleteHost from "$lib/components/hosts/detail/DeleteHost.svelte";
   import EnginesSection from "$lib/components/hosts/detail/EnginesSection.svelte";
   import HostAttention from "$lib/components/hosts/detail/HostAttention.svelte";
@@ -54,6 +55,7 @@
       <EnginesSection {host} {id} />
       <AccessSection {host} {id} />
     </div>
+    {#key id}<AgentInstructions {id} fqdn={host.fqdn} />{/key}
     <AdvancedSection data={$detail.data} {id} />
     <DeleteHost {id} fqdn={host.fqdn} />
   </PageShell>

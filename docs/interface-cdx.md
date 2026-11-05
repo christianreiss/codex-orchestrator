@@ -459,6 +459,8 @@ one `<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->
 block carries host capability guidance. Existing orchestrator-owned blocks are
 replaced so repeated renders are idempotent.
 
+Per-host extra instructions (`hosts.agents_extra`, admin `PUT /admin/hosts/{id}/agents-extra`) are appended after the managed blocks under `## Host-specific instructions (<fqdn>)` for that one host. The served digest covers them, so a change reaches the host on its next sync exactly like a fleet edit; hosts without them receive an unchanged document.
+
 The fleet-wide `agents_generation_mode` setting (`GET`/`POST
 /admin/agents-generation-mode`) decides what the stored document contributes to
 that middle, and nothing else: `managed` (default) re-composes the policy

@@ -163,11 +163,13 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // ── Hosts ────────────────────────────────────────────────────────────────
   'GET /admin/hosts': cap('hosts.read'),
   'GET /admin/hosts/:id/detail': cap('hosts.read'),
+  'GET /admin/hosts/:id/agents-extra': cap('hosts.read'),
   'GET /admin/hosts/insecure': cap('hosts.read'),
   'GET /admin/insecure-approvals/pending': cap('hosts.read'),
 
   'POST /admin/hosts/quick-register': cap('hosts.manage'),
   'POST /admin/hosts/:id/agents-version': cap('hosts.manage'),
+  'PUT /admin/hosts/:id/agents-extra': cap('hosts.manage'),
   'POST /admin/hosts/:id/auto-update': cap('hosts.manage'),
   'POST /admin/hosts/:id/browseros-mcp': cap('hosts.manage'),
   'POST /admin/hosts/:id/claude-version': cap('hosts.manage'),

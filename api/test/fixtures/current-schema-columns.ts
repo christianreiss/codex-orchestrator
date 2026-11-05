@@ -134,5 +134,10 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
       'id,name,name_key,description,trust,enabled,key_hash,key_prefix,bridge_secret,session_id,address_id,last_poll_at,created_by_admin_id,created_at,updated_at,disabled_at'
   )
     throw new Error('Migration 0124 external clients inventory changed; cannot project the bootstrap schema');
+  // Migration 0126 adds optional per-host AGENTS instructions.
+  const hostAgentsExtra = readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0126_hosts_agents_extra.sql'), 'utf8');
+  if (!/ADD COLUMN agents_extra TEXT NULL/i.test(hostAgentsExtra))
+    throw new Error('Migration 0126 must declare hosts.agents_extra; cannot project the bootstrap schema');
+  tables.get('hosts')!.add('agents_extra');
   return tables;
 }

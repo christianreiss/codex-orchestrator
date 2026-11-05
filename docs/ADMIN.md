@@ -477,6 +477,7 @@ Admin routes:
     - Per-host codex version override: `POST /admin/hosts/{id}/codex-version`.
     - Per-host Claude Code version override: `POST /admin/hosts/{id}/claude-version`.
     - Per-host AGENTS version override: `POST /admin/hosts/{id}/agents-version`.
+    - Per-host extra agent instructions: `GET`/`PUT /admin/hosts/{id}/agents-extra` (appended to the served AGENTS.md / CLAUDE.md / Grok AGENTS.md of that host only; ≤ 32 KiB).
 - **Insecure Windows & Approval**:
   - Enable/disable per-host window: `POST /admin/hosts/{id}/insecure/enable|disable`.
   - List insecure hosts + domain auto-allows: `GET /admin/hosts/insecure`.

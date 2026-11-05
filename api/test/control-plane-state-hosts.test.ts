@@ -343,6 +343,36 @@ describe('owned host management and configuration', () => {
     expect(h.state.snapshot().hosts.get(created.host.id)).toBeUndefined();
     expect(h.select).not.toHaveBeenCalled();
   });
+  it('stores per-host agent instructions in owner state and audits only their size and digest', async () => {
+    const h = harness({ hosts: [host({ apiKey: sha256(key), apiKeyHash: sha256(key) })] });
+    const service = new HostManagementService({
+      db: h.db,
+      env: loadTestEnv(),
+      keyring: testKeyring(),
+      events: makeAdminEventsWriter(h.db),
+    });
+    const text = 'Use the staging database only.';
+    const saved = await service.setAgentsExtra(1, `\r\n  ${text}\r\n`);
+    expect(saved.agentsExtra).toBe(text);
+    expect(h.state.snapshot().hosts.get(1)?.agentsExtra).toBe(text);
+    // The authenticated host the /agents/retrieve route renders for carries it.
+    expect((await h.auth.authenticate(h.req())).agentsExtra).toBe(text);
+    const audit = h.fake.inserts
+      .filter((entry) => entry.table === schema.logs)
+      .map((entry) => (entry.values as Record<string, unknown>)['details'] as string);
+    expect(audit).toHaveLength(1);
+    expect(JSON.parse(audit[0]!)).toEqual({
+      fqdn: 'fixture.example.test',
+      agents_extra_bytes: Buffer.byteLength(text),
+      agents_extra_sha256: sha256(text),
+    });
+    expect(audit[0]).not.toContain(text);
+    await service.setAgentsExtra(1, '   ');
+    expect(h.state.snapshot().hosts.get(1)?.agentsExtra).toBeNull();
+    await expect(service.setAgentsExtra(1, 'x'.repeat(32 * 1024 + 1))).rejects.toThrow('the limit is 32768 bytes');
+    expect(h.state.snapshot().hosts.get(1)?.agentsExtra).toBeNull();
+    expect(h.select).not.toHaveBeenCalled();
+  });
   it('initializes Grok defaults once, renders its owner head and rejects stale config edits', async () => {
     const h = harness();
     const defaults = new ModelDefaultsService(h.db);

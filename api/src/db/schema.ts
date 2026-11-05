@@ -70,6 +70,8 @@ export const hosts = mysqlTable(
     clientVersionOverride: varchar('client_version_override', { length: 64 }),
     wrapperVersion: varchar('wrapper_version', { length: 64 }),
     agentsDocumentIdOverride: bigint('agents_document_id_override', { mode: 'number', unsigned: true }),
+    /** Optional operator-authored instructions appended to this host's served AGENTS/CLAUDE.md (migration 0126). */
+    agentsExtra: text('agents_extra'),
     apiCalls: bigint('api_calls', { mode: 'number', unsigned: true }).notNull().default(0),
     insecureEnabledUntil: datetime('insecure_enabled_until'),
     insecureGraceUntil: datetime('insecure_grace_until'),

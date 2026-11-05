@@ -144,6 +144,10 @@ the terminal foreground group; forced escalation targets their direct child.
 User stops finish as `user_stop`, while genuine crashes and an already reported
 hang or capacity failure keep their own recovery classification.
 
+## Per-host instructions
+
+The managed `~/.grok/AGENTS.md` gets the same optional per-host suffix as Codex and Claude: text stored in `hosts.agents_extra` (admin `PUT /admin/hosts/{id}/agents-extra`, ≤ 32 KiB) is appended after the managed blocks under `## Host-specific instructions (<fqdn>)`. The served digest covers it, so the next content sync rewrites the file; hosts without it receive an unchanged document. API contract: [interface-api.md](interface-api.md).
+
 ## Fleet commit preferences
 
 Managed AGENTS.md carries the fleet's short/long commit preference and AI attribution setting from the Git Director page, independently of Director, MCP and Skills activation. Defaults: a subject-only message and no automatic AI markers/co-authors. Long adds change/reason and relevant verification; attribution adds one `AI-Assisted-By: Grok` trailer after a blank line, also in short mode. Git author/committer and commit/push authorization remain unchanged; explicit operator instructions take precedence. The next content sync/launch refreshes the document hash; active sessions may retain previous guidance, and explicit blank generation mode suppresses managed rules. API contract: [Fleet commit preferences](interface-api.md#fleet-commit-preferences).
