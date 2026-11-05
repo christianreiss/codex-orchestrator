@@ -49,6 +49,7 @@
   {:else if $manifestQuery.isError}
     <StateBlock
       state="error"
+      cause={$manifestQuery.error}
       message={`Failed to load manifest: ${$manifestQuery.error instanceof Error ? $manifestQuery.error.message : "unknown"}`}
       onRetry={() => $manifestQuery.refetch()}
     />

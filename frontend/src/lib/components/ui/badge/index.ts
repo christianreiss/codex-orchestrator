@@ -9,6 +9,8 @@ export const badgeVariants = tv({
       default: "border-transparent bg-primary text-primary-foreground",
       secondary: "border-transparent bg-secondary text-secondary-foreground",
       destructive: "border-transparent bg-destructive text-destructive-foreground",
+      /** The muted destructive pair, matching the soft success/warning/info badges. */
+      danger: "border-destructive/25 bg-destructive-muted text-destructive-muted-foreground",
       outline: "text-foreground",
       success: "border-success/25 bg-success-muted text-success-muted-foreground",
       warning: "border-warning/25 bg-warning-muted text-warning-muted-foreground",

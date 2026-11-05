@@ -101,7 +101,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="overflow-hidden p-0 sm:max-w-[560px]">
+  <Dialog.Content size="lg" class="overflow-hidden p-0">
     <Dialog.Title class="sr-only">Search</Dialog.Title>
     <Dialog.Description class="sr-only">Search hosts, projects, skills, and users.</Dialog.Description>
     {#key openKey}

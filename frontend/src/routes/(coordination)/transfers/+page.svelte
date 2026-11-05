@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snapshot } from "./$types";
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { toast } from "svelte-sonner";
   import Download from "@lucide/svelte/icons/download";
@@ -33,7 +33,8 @@
   const canManage = $derived($authStore.can("transfers.manage"));
   const canDownload = $derived($authStore.can("transfers.download"));
 
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   let auditRow = $state<TransferRow | null>(null);
   let deleteTarget = $state<TransferRow | null>(null);
 
@@ -75,7 +76,7 @@
       },
       { label: "Copy id", icon: Copy, onClick: () => void copyId(row.id) },
       {
-        label: "Delete",
+        label: "Delete file",
         icon: Trash2,
         destructive: true,
         onClick: () => (deleteTarget = row),
@@ -89,10 +90,6 @@
     { label: "files held", value: moduleState?.live_count ?? "–" },
     { label: moduleState && moduleState.quota_bytes > 0 ? `used of ${formatBytes(moduleState.quota_bytes)}` : "used (unlimited quota)", value: moduleState ? formatBytes(moduleState.used_bytes) : "–" },
   ]);
-  export const snapshot: Snapshot<{ search: typeof search }> = {
-    capture: () => ({ search }),
-    restore: (value) => { search = value.search; },
-  };
 </script>
 
 <PageShell
@@ -109,23 +106,23 @@
 
   <section aria-labelledby="held-files-heading" class="space-y-2">
     <h2 id="held-files-heading" class="sr-only">Held files</h2>
-    <Toolbar bind:search searchPlaceholder="Search held files" count={rows && all ? (rows.length === all.length ? `${all.length} file${all.length === 1 ? "" : "s"}` : `${rows.length} of ${all.length}`) : undefined} />
+    <Toolbar bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()} searchPlaceholder="Search held files" count={rows && all ? (rows.length === all.length ? `${all.length} file${all.length === 1 ? "" : "s"}` : `${rows.length} of ${all.length}`) : undefined} />
     <DataTable
       items={rows}
       loading={$listQuery.isPending}
-      error={$listQuery.isError ? ($listQuery.error?.message ?? "Could not load files") : null}
+      error={$listQuery.isError ? ($listQuery.error ?? "Could not load files") : null}
       onRetry={() => $listQuery.refetch()}
       key={(row) => row.id}
       emptyTitle="Nothing in the pool"
       emptyDescription={moduleState?.enabled ? "No agent has uploaded a file yet. Uploads appear here until their TTL runs out." : "Shared files are switched off, so agents cannot upload anything."}
       emptyIcon={FileUp}
       filtered={search.trim() !== ""}
-      onClearFilters={() => { search = ""; }}
+      onClearFilters={() => filterState.clear()}
       caption="Held files"
     >
       {#snippet head()}
         <Table.Head>Name</Table.Head>
-        <Table.Head>Size</Table.Head>
+        <Table.Head class="text-right">Size</Table.Head>
         <Table.Head>Uploaded by</Table.Head>
         <Table.Head class="text-right">Fetches</Table.Head>
         <Table.Head>Expires</Table.Head>
@@ -137,12 +134,12 @@
             <button type="button" class="block max-w-full truncate text-left font-medium underline-offset-4 hover:underline" onclick={(event) => { event.stopPropagation(); auditRow = item; }}>{item.name}</button>
             <span class="block truncate text-caption text-muted-foreground">{item.mime_type ?? "unknown type"}{item.status !== "live" ? ` · ${transferStatusLabel(item.status)}` : ""}</span>
           </Table.Cell>
-          <Table.Cell class="tabular-nums">
+          <Table.Cell class="whitespace-nowrap text-right">
             {formatBytes(item.size_bytes)}
             {#if item.status === "uploading" && item.expected_size_bytes != null}<span class="text-muted-foreground">/ {formatBytes(item.expected_size_bytes)}</span>{/if}
           </Table.Cell>
           <Table.Cell class="max-w-[12rem] truncate">{item.uploaded_by ?? "—"}</Table.Cell>
-          <Table.Cell class="text-right tabular-nums">{item.download_count}</Table.Cell>
+          <Table.Cell class="text-right">{item.download_count}</Table.Cell>
           <Table.Cell>
             <Timestamp value={item.expires_at} />
             {#if item.ttl_clamped}<Badge variant="warning" class="ml-1">clamped</Badge>{/if}
@@ -175,7 +172,7 @@
   onClose={() => (deleteTarget = null)}
   title="Delete this file?"
   description={deleteTarget ? `The bytes of "${deleteTarget.name}" go immediately, before its deadline. Its record and fetch history are kept. Any agent still waiting on the id will get a not-found.` : ""}
-  confirmLabel="Delete"
+  confirmLabel="Delete file"
   destructive
   busy={$deleteMutation.isPending}
   onConfirm={() => { if (deleteTarget) $deleteMutation.mutate(deleteTarget.id); }}

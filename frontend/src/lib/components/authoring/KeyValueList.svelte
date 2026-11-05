@@ -8,16 +8,24 @@
 
   type Props = {
     rows: KeyValueRow[];
+    /** Visible column labels; each input is named "<label> <row number>". */
+    keyLabel?: string;
+    valueLabel?: string;
     keyPlaceholder?: string;
     valuePlaceholder?: string;
     addLabel?: string;
+    /** Id of the caller's visible heading for the whole list. */
+    labelledby?: string;
     disabled?: boolean;
   };
   let {
     rows = $bindable([]),
+    keyLabel = "Key",
+    valueLabel = "Value",
     keyPlaceholder = "KEY",
     valuePlaceholder = "value",
     addLabel = "Add",
+    labelledby,
     disabled = false,
   }: Props = $props();
 
@@ -35,19 +43,27 @@
   }
 </script>
 
-<div class="space-y-2">
+<div class="space-y-2" role={labelledby ? "group" : undefined} aria-labelledby={labelledby}>
+  {#if rows.length}
+    <div class="flex items-center gap-2 text-caption text-muted-foreground">
+      <span class="w-1/3">{keyLabel}</span>
+      <span>{valueLabel}</span>
+    </div>
+  {/if}
   {#each rows as row, i (i)}
     <div class="flex items-center gap-2">
       <Input
         class="w-1/3"
         value={row.key}
         placeholder={keyPlaceholder}
+        aria-label={`${keyLabel} ${i + 1}`}
         {disabled}
         oninput={(e) => updateKey(i, e.currentTarget.value)}
       />
       <Input
         value={row.value}
         placeholder={valuePlaceholder}
+        aria-label={`${valueLabel} ${i + 1}`}
         {disabled}
         oninput={(e) => updateValue(i, e.currentTarget.value)}
       />

@@ -56,7 +56,7 @@
   <DataTable
     items={pageRows}
     loading={$query.isPending}
-    error={$query.isError ? $query.error.message : null}
+    error={$query.isError ? $query.error : null}
     onRetry={() => void $query.refetch()}
     key={rowKey}
     filtered={feed.active}

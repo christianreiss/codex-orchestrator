@@ -26,7 +26,7 @@
 
     <div class="min-h-0 flex-1 space-y-5 overflow-y-auto">
       <section class="space-y-2" aria-labelledby="rules-versions-title">
-        <h3 id="rules-versions-title" class="text-h3">Version history</h3>
+        <h3 id="rules-versions-title" class="text-h2">Version history</h3>
         <p class="text-body-sm text-muted-foreground">Click a version to preview it before restoring. There is no one-click restore.</p>
         {#if history.versions.length === 0}
           <p class="text-body-sm text-muted-foreground">No versions yet.</p>
@@ -52,7 +52,7 @@
       </section>
 
       <section class="space-y-2" aria-labelledby="rules-serve-title">
-        <h3 id="rules-serve-title" class="text-h3">Which version hosts get</h3>
+        <h3 id="rules-serve-title" class="text-h2">Which version hosts get</h3>
         <p class="text-body-sm text-muted-foreground">
           <strong class="font-medium text-foreground">Latest</strong>: hosts always get the newest saved version.
           <strong class="font-medium text-foreground">Locked</strong>: hosts keep getting one chosen version, even if you save newer ones, until you switch back. (Serve mode.)
@@ -73,13 +73,13 @@
       </section>
 
       <section class="space-y-2" aria-labelledby="rules-retention-title">
-        <h3 id="rules-retention-title" class="text-h3">Retention</h3>
+        <h3 id="rules-retention-title" class="text-h2">Retention</h3>
         <div class="flex items-end gap-2">
           <div class="flex-1 space-y-1.5">
             <Label for="retention-days">Backups to keep</Label>
             <Input id="retention-days" type="number" min={0} max={200} bind:value={history.retentionInput} />
           </div>
-          <Button size="sm" variant="outline" onclick={() => history.saveRetention()} disabled={history.savingRetention}>Save</Button>
+          <Button size="sm" variant="outline" onclick={() => history.saveRetention()} disabled={history.savingRetention}>Save retention</Button>
         </div>
         <p class="text-body-sm text-muted-foreground">Older versions beyond this count are pruned.</p>
       </section>

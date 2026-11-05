@@ -97,7 +97,7 @@
 {#if $state.isPending}
   <StateBlock state="loading" rows={3} />
 {:else if $state.isError && !runner}
-  <StateBlock state="error" message={`Could not load runner state: ${$state.error?.message ?? "unknown error"}`} onRetry={() => $state.refetch()} />
+  <StateBlock state="error" cause={$state.error} message={`Could not load runner state: ${$state.error?.message || "the server returned no reason"}`} onRetry={() => $state.refetch()} />
 {:else if !runner}
   <StateBlock state="empty" message="No runner status reported" />
 {:else}

@@ -95,7 +95,7 @@
   {/snippet}
 
   {#if $detail.isError}
-    <StateBlock state="error" message={$detail.error instanceof ApiError ? $detail.error.message : "Could not load project"} onRetry={() => void $detail.refetch()} />
+    <StateBlock state="error" cause={$detail.error} message={$detail.error instanceof ApiError ? $detail.error.message : "Could not load project"} onRetry={() => void $detail.refetch()} />
   {/if}
 
   <ProjectTabsNav {slug} {counts} />

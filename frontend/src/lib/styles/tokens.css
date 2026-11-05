@@ -54,6 +54,9 @@
   --persona-codex: 201 90% 38%;
   --persona-claude: 272 55% 46%;
   --persona-grok: 160 55% 28%;
+  /* Text on a persona fill (engine avatars, graph engine codes). Persona fills do
+     not change with the theme, so neither does this; only :root declares it. */
+  --persona-foreground: 0 0% 100%;
   --border: 214 20% 85%;
   --input: 215 20% 45%;
   --ring: 217 91% 42%;

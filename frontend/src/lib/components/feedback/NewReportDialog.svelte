@@ -66,7 +66,7 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+  <Dialog.Content size="lg" class="max-h-[90vh] overflow-y-auto">
     <form class="grid gap-3" onsubmit={(e) => { e.preventDefault(); submit(); }}>
       <Dialog.Header>
         <Dialog.Title>New report</Dialog.Title>

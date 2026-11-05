@@ -5,6 +5,8 @@
    * environment — so this step reports and points at the command that fixes it
    * rather than pretending to offer a control.
    */
+  import CircleCheck from "@lucide/svelte/icons/circle-check";
+  import CircleX from "@lucide/svelte/icons/circle-x";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import type { SetupCheck } from "$lib/api/setup";
 
@@ -44,11 +46,10 @@
   <ul class="divide-y rounded-md border">
     {#each checks as check (check.id)}
       <li class="flex items-start justify-between gap-4 p-3 text-body">
-        <span class="flex items-center gap-2">
-          <span
-            class={check.ok ? "text-success" : "text-destructive"}
-            aria-hidden="true">{check.ok ? "✓" : "✕"}</span
-          >
+        <span class="flex flex-wrap items-center gap-2">
+          <span class={`inline-flex items-center gap-1 text-body-sm font-medium ${check.ok ? "text-success" : "text-destructive"}`}>
+            {#if check.ok}<CircleCheck class="h-4 w-4" aria-hidden="true" /> Passed{:else}<CircleX class="h-4 w-4" aria-hidden="true" /> Failing{/if}
+          </span>
           <span class="font-medium">{check.label}</span>
         </span>
         <span class="text-right text-body-sm text-muted-foreground">{check.detail}</span>

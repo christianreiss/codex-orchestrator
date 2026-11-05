@@ -46,7 +46,7 @@
 </script>
 
 <Dialog.Root open={credentials !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-  <Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+  <Dialog.Content size="xl" class="max-h-[90vh] overflow-y-auto">
     <Dialog.Header>
       <Dialog.Title>{title}</Dialog.Title>
       <Dialog.Description>Credentials are verified before they can be assigned to clients.</Dialog.Description>
@@ -70,13 +70,13 @@
 </Dialog.Root>
 
 <Dialog.Root open={dialog?.kind === "rename"} onOpenChange={(open) => { if (!open) onClose(); }}>
-  <Dialog.Content class="sm:max-w-md">
+  <Dialog.Content size="sm">
     <form onsubmit={(event) => { event.preventDefault(); if (dialog?.kind === "rename" && renameValue.trim()) onRename(dialog.account, renameValue.trim()); }}>
       <Dialog.Header><Dialog.Title>Rename account</Dialog.Title><Dialog.Description>Only the display name changes; credentials and sessions are untouched.</Dialog.Description></Dialog.Header>
       <div class="my-4"><Input aria-label="Account name" bind:value={renameValue} maxlength={191} required /></div>
       <Dialog.Footer>
         <Button type="button" variant="outline" onclick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={busy || !renameValue.trim()}>Save</Button>
+        <Button type="submit" disabled={busy || !renameValue.trim()}>Save name</Button>
       </Dialog.Footer>
     </form>
   </Dialog.Content>
@@ -86,7 +86,7 @@
   open={removeOpen}
   title={target ? `Remove “${target.label}”?` : "Remove account?"}
   description="New assignments stop immediately. Stored credentials are retired after active sessions finish."
-  confirmLabel="Remove"
+  confirmLabel="Remove account"
   destructive
   {busy}
   onConfirm={() => { if (dialog?.kind === "remove") onRemove(dialog.account); }}
@@ -94,7 +94,7 @@
 />
 
 <Dialog.Root open={dialog?.kind === "quota"} onOpenChange={(open) => { if (!open) onClose(); }}>
-  <Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+  <Dialog.Content size="lg" class="max-h-[90vh] overflow-y-auto">
     <Dialog.Header><Dialog.Title>{target?.label} quota policy</Dialog.Title><Dialog.Description>Account overrides for warnings, reset recovery and PayG.</Dialog.Description></Dialog.Header>
     {#if dialog?.kind === "quota"}
       {#key dialog.account.id}<QuotaPolicyEditor engine={dialog.account.engine} accountId={dialog.account.id} />{/key}

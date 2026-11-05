@@ -53,7 +53,7 @@
   <section class="rounded-md border border-primary/30 px-3 py-2" aria-labelledby="onboarding-title">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="min-w-0">
-        <h2 id="onboarding-title" class="text-h3">{started ? "Resume setup" : "Finish setting up"}</h2>
+        <h2 id="onboarding-title" class="text-h2">{started ? "Resume setup" : "Finish setting up"}</h2>
         <p class="text-body-sm text-muted-foreground">The console works, but these are still open.</p>
       </div>
       <div class="flex items-center gap-2">

@@ -127,7 +127,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleDialogOpenChange}>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     <form onsubmit={handleSubmit}>
       <Dialog.Header>
         <Dialog.Title>{isEdit ? "Edit secret" : "New secret"}</Dialog.Title>

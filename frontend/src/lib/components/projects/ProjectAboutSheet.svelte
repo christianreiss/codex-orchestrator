@@ -101,7 +101,7 @@
   });
 </script>
 
-<DraftGuard dirty={aboutChanged || rosterChanged} />
+<DraftGuard dirty={aboutChanged || rosterChanged} preserveOnSamePath />
 <Sheet.Root bind:open>
   <Sheet.Content side="right" class="w-full overflow-y-auto sm:max-w-xl">
     <Sheet.Header>
@@ -111,7 +111,7 @@
 
     <div class="mt-4 space-y-6">
       {#if $detailQuery.isError}
-        <StateBlock state="error" message={$detailQuery.error instanceof ApiError ? $detailQuery.error.message : "Could not load project"} onRetry={() => void $detailQuery.refetch()} />
+        <StateBlock state="error" cause={$detailQuery.error} message={$detailQuery.error instanceof ApiError ? $detailQuery.error.message : "Could not load project"} onRetry={() => void $detailQuery.refetch()} />
       {:else if !detail}
         <StateBlock state="loading" rows={5} />
       {:else}
@@ -126,7 +126,7 @@
           <div class="mt-3 flex flex-wrap justify-end gap-2">
             <Button variant="outline" onclick={() => $assistMutation.mutate()} disabled={$assistMutation.isPending}><Sparkles class="h-4 w-4" />{$assistMutation.isPending ? "Drafting…" : "AI-Assist"}</Button>
             <Button variant="ghost" onclick={resetAbout} disabled={!aboutChanged}><RotateCcw class="h-4 w-4" /> Reset</Button>
-            <Button onclick={() => $aboutMutation.mutate()} disabled={!aboutChanged || $aboutMutation.isPending}><Save class="h-4 w-4" />{$aboutMutation.isPending ? "Saving…" : "Save"}</Button>
+            <Button onclick={() => $aboutMutation.mutate()} disabled={!aboutChanged || $aboutMutation.isPending}><Save class="h-4 w-4" />{$aboutMutation.isPending ? "Saving…" : "Save project details"}</Button>
           </div>
         </Section>
 
@@ -137,7 +137,7 @@
           <div class="mt-3 flex flex-wrap justify-end gap-2">
             <Button variant="outline" onclick={() => $assistMutation.mutate()} disabled={$assistMutation.isPending}><Sparkles class="h-4 w-4" /> Draft Roster</Button>
             <Button variant="ghost" onclick={resetRoster} disabled={!rosterChanged}><RotateCcw class="h-4 w-4" /> Reset</Button>
-            <Button onclick={() => $rosterMutation.mutate()} disabled={!rosterChanged || $rosterMutation.isPending}><Save class="h-4 w-4" />{$rosterMutation.isPending ? "Saving…" : "Save"}</Button>
+            <Button onclick={() => $rosterMutation.mutate()} disabled={!rosterChanged || $rosterMutation.isPending}><Save class="h-4 w-4" />{$rosterMutation.isPending ? "Saving…" : "Save roster"}</Button>
           </div>
         </Section>
       {/if}

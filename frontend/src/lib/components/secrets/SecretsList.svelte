@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   /** The secrets table: search, one primary action, reveal / edit / revoke per row. */
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -23,6 +24,7 @@
   import { relativeTime } from "$lib/utils/format";
   import { authStore } from "$lib/stores/auth";
   import { missingCapabilityReason } from "$lib/auth/capabilities";
+  import { loadFailure } from "$lib/api/access-denied";
 
   type Props = { onEdit?: (secret: AdminSecret) => void; onCreate?: () => void };
   let { onEdit, onCreate }: Props = $props();
@@ -60,7 +62,8 @@
 
   const secrets = $derived($secretsQuery.data ?? []);
 
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   const q = $derived(search.trim().toLowerCase());
   const filtered = $derived(
     q
@@ -87,7 +90,7 @@
 
 <div class="space-y-3">
   <Toolbar
-    bind:search
+    bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()}
     searchPlaceholder="Search secrets"
     count={q ? `${sorted.length} of ${secrets.length}` : `${secrets.length} ${secrets.length === 1 ? "secret" : "secrets"}`}
   >
@@ -99,15 +102,17 @@
   <DataTable
     items={sorted}
     loading={$secretsQuery.isLoading}
-    error={$secretsQuery.isError ? `Could not load secrets: ${$secretsQuery.error?.message}` : null}
+    error={$secretsQuery.isError ? loadFailure($secretsQuery.error, "Could not load secrets") : null}
     onRetry={() => void $secretsQuery.refetch()}
     key={(s) => s.id}
     filtered={q !== ""}
+    onClearFilters={() => filterState.clear()}
     emptyIcon={KeyRound}
     emptyTitle="No secrets yet"
     emptyDescription="Add the credentials your agents need (API tokens, database passwords, service accounts) so they stop asking you for them."
     caption="Secrets"
   >
+    {#snippet emptyAction()}{#if canManage}<Button onclick={() => onCreate?.()}><Plus class="h-4 w-4" />New secret</Button>{/if}{/snippet}
     {#snippet head()}
       <SortableHead label="Secret" active={sortKey === "slug"} dir={sortDir} onclick={() => onSort("slug")} />
       <Table.Head class="hidden md:table-cell">Used for</Table.Head>
@@ -153,7 +158,7 @@
 <!-- Reveal. Deliberately a modal that must be dismissed rather than an inline
      unmask, so a plaintext credential cannot sit on screen unnoticed. -->
 <Dialog.Root open={revealed !== null} onOpenChange={(next) => { if (!next) revealed = null; }}>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     {#if revealed}
       <Dialog.Header>
         <Dialog.Title class="flex items-center gap-2"><KeyRound class="h-5 w-5" />{revealed.secret.slug}</Dialog.Title>
@@ -184,7 +189,7 @@
   bind:open={deleteOpen}
   title={`Revoke ${deleteTarget?.slug ?? "secret"}?`}
   description="Agents are refused from their next read on; nothing is cached on any host. The slug stays reserved, so adding it again later revives the entry with a fresh value."
-  confirmLabel="Revoke"
+  confirmLabel="Revoke secret"
   destructive
   busy={$deleteMutation.isPending}
   onConfirm={() => { if (deleteTarget) $deleteMutation.mutate(deleteTarget); }}

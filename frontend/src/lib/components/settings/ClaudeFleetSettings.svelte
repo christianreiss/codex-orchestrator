@@ -258,7 +258,7 @@
         <h3 id="environment-variables-heading" class="text-body-sm font-semibold">Environment variables</h3>
         <p class="mt-1 text-body-sm text-muted-foreground">Values are rendered only into fleet-owned Claude settings.</p>
       </div>
-      <KeyValueList bind:rows={env} keyPlaceholder="NAME" valuePlaceholder="value" addLabel="Add variable" />
+      <KeyValueList bind:rows={env} keyLabel="Name" labelledby="environment-variables-heading" keyPlaceholder="NAME" valuePlaceholder="value" addLabel="Add variable" />
     </section>
 
     <section class="py-5" aria-labelledby="permission-mode-heading">
@@ -285,16 +285,16 @@
       </div>
       <div class="divide-y border-y border-border">
         <div class="py-4">
-          <p class="mb-2 text-caption font-semibold text-muted-foreground">Allow</p>
-          <RepeatableList bind:items={allow} placeholder="e.g. Bash(npm run *)" addLabel="Add allow rule" />
+          <p id="permission-allow-label" class="mb-2 text-caption font-semibold text-muted-foreground">Allow</p>
+          <RepeatableList bind:items={allow} label="Allow rule" labelledby="permission-allow-label" placeholder="e.g. Bash(npm run *)" addLabel="Add allow rule" />
         </div>
         <div class="py-4">
-          <p class="mb-2 text-caption font-semibold text-muted-foreground">Ask</p>
-          <RepeatableList bind:items={ask} placeholder="e.g. Bash(git push *)" addLabel="Add ask rule" />
+          <p id="permission-ask-label" class="mb-2 text-caption font-semibold text-muted-foreground">Ask</p>
+          <RepeatableList bind:items={ask} label="Ask rule" labelledby="permission-ask-label" placeholder="e.g. Bash(git push *)" addLabel="Add ask rule" />
         </div>
         <div class="py-4">
-          <p class="mb-2 text-caption font-semibold text-muted-foreground">Deny</p>
-          <RepeatableList bind:items={deny} placeholder="e.g. Read(./secrets/**)" addLabel="Add deny rule" />
+          <p id="permission-deny-label" class="mb-2 text-caption font-semibold text-muted-foreground">Deny</p>
+          <RepeatableList bind:items={deny} label="Deny rule" labelledby="permission-deny-label" placeholder="e.g. Read(./secrets/**)" addLabel="Add deny rule" />
         </div>
       </div>
     </section>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatTime } from "$lib/utils/format";
   /** The Graph view: the connection tree as a radial map or a list, with the conversation drawer beside it. */
   import { Button } from "$lib/components/ui/button";
   import { Skeleton } from "$lib/components/ui/skeleton";
@@ -27,11 +28,11 @@
   const clouds = $derived(projectDirectoryClouds(groups).map(cloud => ({ ...cloud, color: palette[groups.findIndex(g => g.id === cloud.scopeId) % palette.length] })));
   const topology = $derived(agents.topology.current);
   const stale = $derived(topology.isError && Boolean(topology.data));
-  const updated = $derived(topology.data ? new Date(topology.data.generated_at).toLocaleTimeString() : "—");
+  const updated = $derived(topology.data ? formatTime(topology.data.generated_at, { seconds: true }) || "—" : "—");
 </script>
 
 {#if topology.isError && !topology.data}
-  <StateBlock state="error" message={`The topology could not be loaded. ${topology.error.message}`} onRetry={() => topology.refetch()} />
+  <StateBlock state="error" cause={topology.error} message={`The topology could not be loaded. ${topology.error.message}`} onRetry={() => topology.refetch()} />
 {:else if topology.isPending}
   <Skeleton class="h-[60vh] w-full" />
 {:else}

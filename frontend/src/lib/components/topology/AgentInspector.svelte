@@ -17,6 +17,7 @@
 </script>
 
 <aside
+  data-docked-inspector
   class:hidden={!item}
   class="z-20 flex flex-col gap-3 overflow-y-auto rounded-md border bg-card p-3 shadow-pop max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(4.5rem+env(safe-area-inset-bottom))] max-lg:max-h-[55dvh] lg:sticky lg:top-4 lg:max-h-[calc(100dvh-6rem)] lg:w-96 lg:shrink-0"
   aria-label="Selection details"

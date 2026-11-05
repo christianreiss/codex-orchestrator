@@ -94,8 +94,8 @@
     <button
       type="button"
       class="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card px-3 py-1.5
-             text-caption font-medium shadow-pop transition hover:bg-muted focus:outline-none
-             focus-visible:ring-2 focus-visible:ring-ring"
+             text-caption font-medium shadow-pop transition hover:bg-muted
+             focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onclick={() => scrollToBottom(true)}
     >
       {portal.missed > 0 ? `${portal.missed} new` : "Latest"}

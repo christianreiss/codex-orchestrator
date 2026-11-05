@@ -65,7 +65,7 @@
         {#if held}
           <DropdownMenu.Item onSelect={onRelease}>Force release</DropdownMenu.Item>
         {/if}
-        <DropdownMenu.Item onSelect={onDelete}>Archive</DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={onDelete} class="text-destructive">Archive card…</DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   </div>

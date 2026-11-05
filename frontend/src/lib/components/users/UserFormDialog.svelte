@@ -1,9 +1,11 @@
 <script lang="ts">
   import * as Dialog from "$lib/components/ui/dialog";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import * as Select from "$lib/components/ui/select";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
+  import { FormField } from "$lib/components/ui/form-field";
   import { Switch } from "$lib/components/ui/switch";
   import { cn } from "$lib/utils/cn";
   import { z } from "zod";
@@ -73,6 +75,24 @@
 
   let errors = $state<Record<string, string>>({});
 
+  // Unsaved while any field differs from the subject as opened (a typed password always counts).
+  const dirty = $derived(
+    open &&
+      (name !== (initial?.name ?? "") ||
+        username !== (initial?.username ?? "") ||
+        email !== (initial?.email ?? "") ||
+        access_level !== seedRole(initial?.access_level) ||
+        active !== (initial?.active ?? true) ||
+        password !== "" ||
+        passwordConfirm !== ""),
+  );
+
+  /** Escape, overlay, X and Cancel all ask before discarding an unsaved edit. */
+  function requestOpenChange(next: boolean): void {
+    if (!next && (submitting || (dirty && !window.confirm(isEdit ? "Discard your changes to this person?" : "Discard the new person?")))) return;
+    onOpenChange(next);
+  }
+
   // Real-time confirmation hint -------------------------------------------
   const passwordsEntered = $derived(password.length > 0 || passwordConfirm.length > 0);
   const passwordsMatch = $derived(
@@ -127,8 +147,9 @@
   );
 </script>
 
-<Dialog.Root open={open} onOpenChange={onOpenChange}>
-  <Dialog.Content class="sm:max-w-[480px]">
+<DraftGuard {dirty} />
+<Dialog.Root bind:open={() => open, requestOpenChange}>
+  <Dialog.Content size="sm">
     <Dialog.Header>
       <Dialog.Title>{isEdit ? "Edit user" : "Add user"}</Dialog.Title>
       <Dialog.Description>
@@ -139,59 +160,67 @@
     </Dialog.Header>
 
     <form class="space-y-4" onsubmit={submit}>
-      <div class="space-y-1.5">
-        <Label for="user-name">Name</Label>
-        <Input
-          id="user-name"
-          autocomplete="name"
-          bind:value={name}
-          disabled={submitting}
-          aria-invalid={errors.name ? "true" : undefined}
-        />
-        {#if errors.name}<p class="text-caption text-destructive">{errors.name}</p>{/if}
-      </div>
+      <FormField id="user-name" label="Name" error={errors.name}>
+        {#snippet children(f)}
+          <Input
+            id="user-name"
+            autocomplete="name"
+            bind:value={name}
+            disabled={submitting}
+            aria-invalid={f.invalid}
+            aria-describedby={f.describedBy}
+          />
+        {/snippet}
+      </FormField>
 
-      <div class="space-y-1.5">
-        <Label for="user-username">Username</Label>
-        <Input
-          id="user-username"
-          autocomplete="username"
-          bind:value={username}
-          placeholder="lowercase, 3-64 chars"
-          disabled={submitting}
-          aria-invalid={errors.username ? "true" : undefined}
-        />
-        {#if errors.username}<p class="text-caption text-destructive">{errors.username}</p>{/if}
-      </div>
+      <FormField id="user-username" label="Username" error={errors.username}>
+        {#snippet children(f)}
+          <Input
+            id="user-username"
+            autocomplete="username"
+            bind:value={username}
+            placeholder="lowercase, 3-64 chars"
+            disabled={submitting}
+            aria-invalid={f.invalid}
+            aria-describedby={f.describedBy}
+          />
+        {/snippet}
+      </FormField>
 
-      <div class="space-y-1.5">
-        <Label for="user-email">Email</Label>
-        <Input
-          id="user-email"
-          type="email"
-          autocomplete="email"
-          bind:value={email}
-          disabled={submitting}
-          aria-invalid={errors.email ? "true" : undefined}
-        />
-        {#if errors.email}<p class="text-caption text-destructive">{errors.email}</p>{/if}
-      </div>
+      <FormField id="user-email" label="Email" error={errors.email}>
+        {#snippet children(f)}
+          <Input
+            id="user-email"
+            type="email"
+            autocomplete="email"
+            bind:value={email}
+            disabled={submitting}
+            aria-invalid={f.invalid}
+            aria-describedby={f.describedBy}
+          />
+        {/snippet}
+      </FormField>
 
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div class="space-y-1.5">
-          <Label for="user-role">Role</Label>
-          <Select.Root type="single" value={access_level} onValueChange={(v) => (access_level = v as UserRole)}>
-            <Select.Trigger id="user-role" disabled={submitting}>
-              <span>{selectedRoleLabel}</span>
-            </Select.Trigger>
-            <Select.Content>
-              {#each ROLE_OPTIONS as opt (opt.value)}
-                <Select.Item value={opt.value} label={opt.label}>{opt.label}</Select.Item>
-              {/each}
-            </Select.Content>
-          </Select.Root>
-          {#if errors.access_level}<p class="text-caption text-destructive">{errors.access_level}</p>{/if}
-        </div>
+        <FormField id="user-role" label="Role" error={errors.access_level}>
+          {#snippet children(f)}
+            <Select.Root type="single" value={access_level} onValueChange={(v) => (access_level = v as UserRole)}>
+              <Select.Trigger
+                id="user-role"
+                disabled={submitting}
+                aria-invalid={f.invalid}
+                aria-describedby={f.describedBy}
+              >
+                <span>{selectedRoleLabel}</span>
+              </Select.Trigger>
+              <Select.Content>
+                {#each ROLE_OPTIONS as opt (opt.value)}
+                  <Select.Item value={opt.value} label={opt.label}>{opt.label}</Select.Item>
+                {/each}
+              </Select.Content>
+            </Select.Root>
+          {/snippet}
+        </FormField>
 
         <div class="space-y-1.5">
           <Label for="user-active">Active</Label>
@@ -223,6 +252,7 @@
             disabled={submitting}
             class="pr-10"
             aria-invalid={errors.password ? "true" : undefined}
+            aria-describedby={errors.password ? "user-password-error" : "user-password-hint"}
           />
           <button
             type="button"
@@ -238,9 +268,9 @@
           </button>
         </div>
         {#if errors.password}
-          <p class="text-caption text-destructive">{errors.password}</p>
+          <p id="user-password-error" class="text-body-sm text-destructive">{errors.password}</p>
         {:else}
-          <p class="text-caption text-muted-foreground">
+          <p id="user-password-hint" class="text-body-sm text-muted-foreground">
             {PASSWORD_POLICY_TEXT}
           </p>
         {/if}
@@ -255,22 +285,23 @@
           bind:value={passwordConfirm}
           disabled={submitting}
           aria-invalid={errors.password_confirm || passwordsMismatch ? "true" : undefined}
+          aria-describedby={errors.password_confirm || passwordsMatch || passwordsMismatch ? "user-password-confirm-status" : undefined}
         />
         {#if errors.password_confirm}
-          <p class={cn("text-caption", "text-destructive")}>{errors.password_confirm}</p>
+          <p id="user-password-confirm-status" class={cn("text-body-sm", "text-destructive")}>{errors.password_confirm}</p>
         {:else if passwordsMatch}
-          <p class="inline-flex items-center gap-1 text-caption text-success">
+          <p id="user-password-confirm-status" class="inline-flex items-center gap-1 text-body-sm text-success">
             <Check class="h-3 w-3" /> Passwords match
           </p>
         {:else if passwordsMismatch}
-          <p class="inline-flex items-center gap-1 text-caption text-destructive">
+          <p id="user-password-confirm-status" class="inline-flex items-center gap-1 text-body-sm text-destructive">
             <AlertCircle class="h-3 w-3" /> Passwords do not match
           </p>
         {/if}
       </div>
 
       <Dialog.Footer>
-        <Button type="button" variant="outline" onclick={() => onOpenChange(false)} disabled={submitting}>
+        <Button type="button" variant="outline" onclick={() => requestOpenChange(false)} disabled={submitting}>
           Cancel
         </Button>
         <Button type="submit" disabled={submitting}>

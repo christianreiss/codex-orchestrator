@@ -54,6 +54,51 @@ export function resetsIn(input: Date | string | number | null | undefined, now =
   return minutes >= 60 ? "in 1 hour" : `in ${counted(minutes, "minute")}`;
 }
 
+type DateInput = Date | string | number | null | undefined;
+
+/** Date, ISO string or Unix timestamp (seconds or ms); null when missing or unparseable. */
+export function toDate(input: DateInput): Date | null {
+  if (input === null || input === undefined || input === "") return null;
+  const date = input instanceof Date ? input : new Date(typeof input === "number" ? (input < 1e12 ? input * 1000 : input) : input);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export interface ZonedFormatOptions {
+  /** BCP 47 locale; defaults to the browser's. */
+  locale?: string;
+  /** IANA zone; defaults to the browser's local zone. */
+  timeZone?: string;
+  /** Include seconds (event logs); minutes otherwise. */
+  seconds?: boolean;
+}
+
+function zoned(input: DateInput, fields: Intl.DateTimeFormatOptions, options: ZonedFormatOptions): string {
+  const date = toDate(input);
+  if (!date) return "";
+  return new Intl.DateTimeFormat(options.locale, {
+    ...fields,
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(options.seconds ? { second: "2-digit" } : {}),
+    timeZoneName: "short",
+    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+  }).format(date);
+}
+
+/**
+ * Absolute date and time that names its zone, e.g. "5 Nov 2026, 21:18 CET".
+ * Use this instead of a bare toLocaleString(): an operator comparing hosts
+ * across zones must see which clock a time was read on. "" when missing.
+ */
+export function formatDateTime(input: DateInput, options: ZonedFormatOptions = {}): string {
+  return zoned(input, { year: "numeric", month: "short", day: "numeric" }, options);
+}
+
+/** Time of day with its zone, e.g. "21:18 CET", for same-day event rows. "" when missing. */
+export function formatTime(input: DateInput, options: ZonedFormatOptions = {}): string {
+  return zoned(input, {}, options);
+}
+
 /** Format byte size as KB/MB/GB string. */
 export function formatBytes(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "0 B";

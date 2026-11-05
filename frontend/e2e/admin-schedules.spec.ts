@@ -38,7 +38,7 @@ test('create, inspect, pause, edit and delete an explicit persistent interval',a
  await page.getByRole('checkbox',{name:/Persistent recovery/}).check();
  await page.getByLabel('Progress timeout in seconds').fill('120');
  await page.getByLabel('Maximum recovery attempts (empty means unlimited)').fill('3');
- await page.getByRole('button',{name:'Save',exact:true}).click();
+ await page.getByRole('button',{name:'Save schedule',exact:true}).click();
  await expect(page.getByRole('cell',{name:/^Continue review/})).toBeVisible();
  expect(calls[0].body).toMatchObject({kind:'interval',interval_minutes:5,persistent:true,progress_timeout_seconds:120,max_recovery_attempts:3,timezone:'Europe/Berlin',target});
  await expect(page.getByRole('dialog')).not.toBeVisible();
@@ -57,12 +57,12 @@ test('create, inspect, pause, edit and delete an explicit persistent interval',a
  await page.getByRole('menuitem',{name:'View',exact:true}).click();
  await page.getByRole('button',{name:'Edit',exact:true}).click();
  await page.getByLabel('Name',{exact:true}).fill('Updated review');
- await page.getByRole('button',{name:'Save',exact:true}).click();
+ await page.getByRole('button',{name:'Save schedule',exact:true}).click();
  await expect(page.getByRole('cell',{name:/^Updated review/})).toBeVisible();
  expect(calls[2].body.version).toBe(2);
  await page.getByRole('button',{name:'Actions for Updated review'}).click();
- await page.getByRole('menuitem',{name:'Delete',exact:true}).click();
- await page.getByRole('dialog').getByRole('button',{name:'Delete',exact:true}).click();
+ await page.getByRole('menuitem',{name:'Delete schedule',exact:true}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Delete schedule',exact:true}).click();
  await expect(page.getByText('No timed wake-ups yet')).toBeVisible();
  expect(calls[3]).toEqual({method:'DELETE',body:{version:3}});
 });
@@ -96,7 +96,7 @@ test('name search, keyboard selection, mobile panel and failed save retain input
  await search.press('Enter');
  await expect(page.getByRole('combobox',{name:'Target agent'})).toContainText('Beate');
  await page.getByLabel('Prompt',{exact:true}).fill('Continue review');
- await page.getByRole('button',{name:'Save',exact:true}).click();
+ await page.getByRole('button',{name:'Save schedule',exact:true}).click();
  await expect(page.getByRole('dialog').getByRole('alert')).toBeVisible();
  await expect(panel).toBeVisible();
  await expect(page.getByLabel('Name',{exact:true})).toHaveValue('Mobile review');
@@ -122,7 +122,7 @@ test('unknown stored targets remain editable without changing their address',asy
  await page.getByRole('menuitem',{name:'View',exact:true}).click();
  await page.getByRole('button',{name:'Edit',exact:true}).click();
  await expect(page.getByRole('combobox',{name:'Target agent'})).toContainText(unknown);
- await page.getByRole('button',{name:'Save',exact:true}).click();
+ await page.getByRole('button',{name:'Save schedule',exact:true}).click();
  await expect(page.getByRole('dialog')).not.toBeVisible();
  expect(calls[0].body).toMatchObject({target:unknown,version:4,persistent:false});
 });

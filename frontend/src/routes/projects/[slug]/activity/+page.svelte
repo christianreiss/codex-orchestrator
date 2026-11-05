@@ -42,7 +42,7 @@
   <DataTable
     items={rows}
     loading={$changesQuery.isLoading}
-    error={$changesQuery.isError ? ($changesQuery.error instanceof ApiError ? $changesQuery.error.message : "Could not load activity") : null}
+    error={$changesQuery.isError ? ($changesQuery.error instanceof ApiError ? $changesQuery.error : "Could not load activity") : null}
     onRetry={() => void $changesQuery.refetch()}
     key={(change) => change.seq}
     emptyIcon={History}

@@ -6,4 +6,4 @@
   let { class: className, ...rest }: Props = $props();
 </script>
 
-<SheetPrimitive.Title class={cn("text-lg font-semibold text-foreground", className)} {...rest} />
+<SheetPrimitive.Title class={cn("text-h2 text-foreground", className)} {...rest} />

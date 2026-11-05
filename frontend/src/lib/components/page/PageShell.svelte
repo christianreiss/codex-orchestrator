@@ -19,10 +19,12 @@
     actions?: Snippet;
     /** Stat strip, tabs or filters that belong to the header block. */
     subheader?: Snippet;
+    /** The title is an identifier (FQDN, slug): set it in the monospace face. */
+    monoTitle?: boolean;
     children?: Snippet;
     class?: string;
   };
-  let { title, description, width = "default", toggle, actions, subheader, children, class: className }: Props = $props();
+  let { title, description, width = "default", toggle, actions, subheader, monoTitle = false, children, class: className }: Props = $props();
 
   const maxWidth = { narrow: "max-w-3xl", default: "max-w-6xl", wide: "max-w-none" } as const;
 </script>
@@ -32,7 +34,7 @@
 <div class={cn("flex min-w-0 w-full flex-col gap-4", maxWidth[width], className)}>
   <header class="flex flex-col items-stretch justify-between gap-3 md:flex-row md:items-start">
     <div class="min-w-0 flex-1">
-      <h1 class="break-words text-xl font-semibold leading-[1.3] tracking-tight [overflow-wrap:anywhere]">{title}</h1>
+      <h1 class={cn("break-words text-h1 [overflow-wrap:anywhere]", monoTitle && "font-mono")}>{title}</h1>
       {#if description}<p class="mt-0.5 max-w-2xl text-body-sm text-muted-foreground">{description}</p>{/if}
     </div>
     <div class="flex min-w-0 flex-wrap items-center gap-2 md:max-w-[60%] md:justify-end">

@@ -51,7 +51,7 @@ test("manages a Claude-only pool and shows each quota separately", async ({ page
   await choose(page, rowOf(page, /Claude Alpha/), "Claude Alpha", "Resume");
   await choose(page, rowOf(page, /Claude Alpha/), "Claude Alpha", "Rename");
   await page.getByRole("dialog").getByRole("textbox", { name: "Account name" }).fill("Claude Primary");
-  await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Save name", exact: true }).click();
   await expect(rowOf(page, /Claude Primary/)).toBeVisible();
   await choose(page, rowOf(page, /Claude Primary/), "Claude Primary", "Verify");
   await page.getByRole("button", { name: "Add account", exact: true }).click();
@@ -64,8 +64,8 @@ test("manages a Claude-only pool and shows each quota separately", async ({ page
   await choose(page, rowOf(page, /Claude Fourth/), "Claude Fourth", "Replace credentials");
   await page.getByRole("dialog").locator("textarea").fill('{"claudeAiOauth":{"accessToken":"replacement"}}');
   await page.getByRole("dialog").getByRole("button", { name: "Upload credentials" }).click();
-  await choose(page, rowOf(page, /Claude Fourth/), "Claude Fourth", "Remove");
-  await page.getByRole("dialog").getByRole("button", { name: "Remove", exact: true }).click();
+  await choose(page, rowOf(page, /Claude Fourth/), "Claude Fourth", "Remove account");
+  await page.getByRole("dialog").getByRole("button", { name: "Remove account", exact: true }).click();
   await expect(rowOf(page, /Claude Fourth/)).toHaveCount(0);
   expect(writes.map((w) => `${w.method} ${w.path}`)).toEqual(["PATCH /admin/accounts/1", "PATCH /admin/accounts/1", "PATCH /admin/accounts/1", "POST /admin/accounts/1/verify", "POST /admin/accounts", "POST /admin/accounts/4/credentials", "DELETE /admin/accounts/4"]);
 });

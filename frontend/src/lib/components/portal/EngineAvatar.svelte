@@ -22,7 +22,7 @@
 
 <span class="relative inline-grid shrink-0" aria-hidden={logo ? undefined : true}>
   <span
-    class="grid place-items-center rounded-full font-semibold tracking-wide text-white transition-[filter]
+    class="grid place-items-center rounded-full font-semibold tracking-wide text-persona-foreground transition-[filter]
            {size === 'xs' ? 'h-7 w-7 text-overline' : size === 'sm' ? 'h-9 w-9 text-overline' : 'h-11 w-11 text-overline'}
            {ENGINE_META[engine].color}
            {dim ? 'grayscale' : ''}"

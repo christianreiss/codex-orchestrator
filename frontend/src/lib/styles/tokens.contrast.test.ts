@@ -28,6 +28,15 @@ function rgb(value: string): [number, number, number] {
   const a = s * Math.min(l, 1 - l); const f = (n: number) => l - a * Math.max(-1, Math.min((n + h / 30) % 12 - 3, Math.min(9 - ((n + h / 30) % 12), 1)));
   return [f(0), f(8), f(4)];
 }
+/** `#rrggbb` -> the "H S% L%" token form, so graph hexes go through the same contrast math. */
+function hexToken(hex: string): string {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex); assert.ok(match, `invalid hex ${hex}`);
+  const [r, g, b] = [match[1], match[2], match[3]].map((part) => parseInt(part!, 16) / 255) as [number, number, number];
+  const max = Math.max(r, g, b); const min = Math.min(r, g, b); const l = (max + min) / 2; const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  const h = d === 0 ? 0 : max === r ? 60 * (((g - b) / d) % 6) : max === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4);
+  return `${Math.round((h + 360) % 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+}
 function contrast(a: string, b: string, opacity = 1, backdrop = b) {
   const luminance = ([r, g, b]: [number, number, number]) => {
     const linear = (v: number) => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4;
@@ -70,13 +79,29 @@ describe("neutral theme contrast", () => {
    * that needs a floor.
    */
   it("keeps white legible on all persona colours", () => {
+    assert.equal(light["persona-foreground"], "0 0% 100%", "--persona-foreground is the white the avatars use");
+    assert.equal(darkBlock["persona-foreground"], undefined, "persona fills do not change with the theme, so neither does their text");
     for (const persona of ["persona-codex", "persona-claude", "persona-grok"]) {
       const value = light[persona];
       assert.ok(value, `missing --${persona}`);
       assert.ok(
-        contrast(value, "0 0% 100%") >= 4.5,
+        contrast(value, light["persona-foreground"]!) >= 4.5,
         `${persona} carries white text on the portal avatar and must clear 4.5:1`,
       );
+    }
+  });
+  // Memory Atlas category hues are flat hexes shared by both themes; each edge,
+  // border and minimap mark must clear the 3:1 graphical-object floor everywhere.
+  it("keeps every graph palette hue visible on light and dark surfaces", () => {
+    const palette = readFileSync(resolve(ROOT, "frontend/src/lib/constants/graph-palette.ts"), "utf8");
+    const hexes = [...palette.matchAll(/^(?:export )?const (\w+) = "(#[0-9a-f]{6})"/gim)].map((match) => [match[1]!, match[2]!] as const);
+    assert.ok(hexes.length >= 6, "graph palette hues not found");
+    for (const [name, hex] of hexes) {
+      for (const [mode, tokens] of Object.entries({ light, dark })) {
+        for (const surface of ["background", "card"]) {
+          assert.ok(contrast(hexToken(hex), tokens[surface]!) >= 3, `${name} ${hex} on ${mode} ${surface}`);
+        }
+      }
     }
   });
   it("keeps navigation labels readable on its dark rail in every mode", () => {

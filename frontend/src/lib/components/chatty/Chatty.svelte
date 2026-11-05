@@ -124,16 +124,16 @@
 
 {#if $authStore.can('chatty.use') && $status.data?.visible}
   <Dialog.Root bind:open>
-    <Dialog.Trigger class="chatty-launcher" aria-label="Chatty öffnen" title={$status.data.ready ? 'Chatty' : 'Chatty · kein KI-Zugang verfügbar'}>
+    <Dialog.Trigger class="chatty-launcher" lang="de" aria-label="Chatty öffnen" title={$status.data.ready ? 'Chatty' : 'Chatty · kein KI-Zugang verfügbar'}>
       <svg viewBox="0 0 48 48" aria-hidden="true" class:thinking={active?.status === 'running'}>
         <path d="M10 8h28a5 5 0 0 1 5 5v20a5 5 0 0 1-5 5H22l-9 6v-6h-3a5 5 0 0 1-5-5V13a5 5 0 0 1 5-5Z" fill="currentColor" />
-        <g class="face" fill="var(--chatty-face, #142020)"><circle cx="17" cy="22" r="2.4"/><circle cx="31" cy="22" r="2.4"/></g>
-        <path d="M18 29q6 5 12 0" fill="none" stroke="var(--chatty-face, #142020)" stroke-width="2.4" stroke-linecap="round"/>
+        <g class="face" fill="var(--chatty-face, #142020)"><circle cx="17" cy="22" r="2.4"/><circle cx="31" cy="22" r="2.4"/></g><!-- slop-ok: Chatty mascot artwork -->
+        <path d="M18 29q6 5 12 0" fill="none" stroke="var(--chatty-face, #142020)" stroke-width="2.4" stroke-linecap="round"/><!-- slop-ok: Chatty mascot artwork -->
       </svg>
       {#if !$status.data.ready}<span class="offline" aria-hidden="true"></span>{/if}
     </Dialog.Trigger>
     <Dialog.Portal>
-      <Dialog.Content class="chatty-panel" onOpenAutoFocus={(e) => { e.preventDefault(); void tick().then(() => input?.focus()); }} onInteractOutside={(e) => e.preventDefault()}>
+      <Dialog.Content class="chatty-panel" lang="de" onOpenAutoFocus={(e) => { e.preventDefault(); void tick().then(() => input?.focus()); }} onInteractOutside={(e) => e.preventDefault()}>
         <div class="flex items-center justify-between border-b p-3">
           <div><Dialog.Title class="font-semibold">Chatty</Dialog.Title><Dialog.Description class="text-body-sm text-muted-foreground">Dein Assistent für den Orchestrator</Dialog.Description></div>
           <div class="flex gap-1">

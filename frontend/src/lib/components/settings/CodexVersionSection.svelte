@@ -1,5 +1,6 @@
 <script lang="ts">
   import { toast } from "svelte-sonner";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import * as Select from "$lib/components/ui/select";
   import { Label } from "$lib/components/ui/label";
   import { Input } from "$lib/components/ui/input";
@@ -35,6 +36,10 @@
   let selection = $state<Selection>("latest");
   let exactVersion = $state("");
   let initialized = false;
+  /** The selection the server holds; the form is dirty while it differs. */
+  let saved = $state<string | null>(null);
+  const draft = $derived(selection === "latest" ? "latest" : exactVersion.trim());
+  const dirty = $derived(saved !== null && draft !== saved);
 
   const summary = $derived($query.data?.versions ?? null);
   const reportedClient = $derived(summary?.reported_client_version ?? null);
@@ -51,19 +56,22 @@
       selection = "latest";
       exactVersion = "";
     }
+    saved = selection === "latest" ? "latest" : exactVersion.trim();
     initialized = true;
   });
 
   function save() {
+    const sent = draft;
+    const onSuccess = () => { saved = sent; };
     if (selection === "latest") {
-      $setM.mutate("latest");
+      $setM.mutate("latest", { onSuccess });
     } else {
       const v = exactVersion.trim();
       if (!v) {
         toast.error("Enter a version like 0.125.0");
         return;
       }
-      $setM.mutate(v);
+      $setM.mutate(v, { onSuccess });
     }
   }
 
@@ -75,6 +83,7 @@
   });
 </script>
 
+<DraftGuard {dirty} />
 <SectionCard
   id="codex-version"
   title="Codex version"
@@ -144,6 +153,6 @@
   </dl>
 
   <div>
-    <Button size="sm" onclick={save} disabled={$setM.isPending}>Save</Button>
+    <Button size="sm" onclick={save} disabled={$setM.isPending}>{$setM.isPending ? "Saving…" : "Save Codex version"}</Button>
   </div>
 </SectionCard>

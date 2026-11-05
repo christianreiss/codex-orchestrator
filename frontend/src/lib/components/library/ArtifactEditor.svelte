@@ -120,7 +120,7 @@
   <PageShell title={slug} description={singular}><StateBlock state="loading" /></PageShell>
 {:else if $query.isError}
   <PageShell title={slug} description={singular}>
-    <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : `Failed to load ${singular}`} onRetry={() => void $query.refetch()} />
+    <StateBlock state="error" cause={$query.error} message={$query.error instanceof Error ? $query.error.message : `Failed to load ${singular}`} onRetry={() => void $query.refetch()} />
   </PageShell>
 {:else}
   <DocumentEditor {dirty} pending={$save.isPending} error={$save.error ?? $remove.error} saved={$save.isSuccess} title={$query.data?.display_name || slug} description={`${singular} · ${slug}`}>
@@ -128,7 +128,7 @@
       <Button variant="outline" href={listHref}><ArrowLeft class="h-4 w-4" />Back</Button>
       <Button onclick={() => $save.mutate()} disabled={$save.isPending}>
         <Save class="h-4 w-4" />
-        {$save.isPending ? "Saving…" : "Save"}
+        {$save.isPending ? "Saving…" : `Save ${singular}`}
       </Button>
     {/snippet}
     {#snippet body()}
@@ -181,8 +181,8 @@
         {/if}
         {#if type === "subagents" || type === "commands"}
           <div class="space-y-1.5">
-            <span class="text-body-sm font-medium">{type === "commands" ? "Allowed tools" : "Tools"}</span>
-            <RepeatableList bind:items={tools} placeholder="tool name" addLabel="Add tool" />
+            <span id="artifact-tools-label" class="text-body-sm font-medium">{type === "commands" ? "Allowed tools" : "Tools"}</span>
+            <RepeatableList bind:items={tools} label="Tool" labelledby="artifact-tools-label" placeholder="tool name" addLabel="Add tool" />
           </div>
         {/if}
         {#if serverSha}
@@ -204,7 +204,7 @@
   bind:open={deleteOpen}
   title={`Delete ${singular}`}
   description={`This will delete ${slug}. You can re-create it with the same slug later.`}
-  confirmLabel="Delete"
+  confirmLabel={`Delete ${singular}`}
   destructive
   busy={$remove.isPending}
   onConfirm={() => $remove.mutate()}

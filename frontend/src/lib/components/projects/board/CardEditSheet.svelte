@@ -3,6 +3,7 @@
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import * as Sheet from "$lib/components/ui/sheet";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import * as Alert from "$lib/components/ui/alert";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -61,6 +62,22 @@
     },
   });
 
+  // Unsaved while any field differs from the card as loaded.
+  const dirty = $derived(
+    card !== null &&
+      (title !== card.title ||
+        detail !== (card.detail ?? "") ||
+        dueAt !== (card.due_at ? toLocalInput(card.due_at) : "") ||
+        dependsOn !== (card.depends_on ?? []).map((n) => `#${n}`).join(", ")),
+  );
+
+  /** Close unless the operator keeps an unsaved edit (Escape, overlay, X and Cancel all come here). */
+  function requestClose(): void {
+    if ($mutation.isPending) return;
+    if (dirty && !window.confirm(`Discard your changes to card #${card?.number}?`)) return;
+    onClose();
+  }
+
   function submit() {
     if (!card) return;
     const trimmed = title.trim();
@@ -72,7 +89,8 @@
   }
 </script>
 
-<Sheet.Root open={card !== null} onOpenChange={(next) => { if (!next) onClose(); }}>
+<DraftGuard {dirty} />
+<Sheet.Root bind:open={() => card !== null, (next) => { if (!next) requestClose(); }}>
   <Sheet.Content side="right" class="w-full overflow-y-auto sm:max-w-lg">
     <Sheet.Header>
       <Sheet.Title>Edit card #{card?.number}</Sheet.Title>
@@ -89,8 +107,8 @@
       </div>
       {#if error}<Alert.Root variant="destructive"><Alert.Description>{error}</Alert.Description></Alert.Root>{/if}
       <div class="flex justify-end gap-2 pt-2">
-        <Button variant="ghost" type="button" onclick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={$mutation.isPending}>{$mutation.isPending ? "Saving…" : "Save"}</Button>
+        <Button variant="ghost" type="button" onclick={requestClose}>Cancel</Button>
+        <Button type="submit" disabled={$mutation.isPending}>{$mutation.isPending ? "Saving…" : "Save card"}</Button>
       </div>
     </form>
   </Sheet.Content>

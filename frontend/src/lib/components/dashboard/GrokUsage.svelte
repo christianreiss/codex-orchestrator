@@ -2,7 +2,7 @@
   import type { ProviderAccount } from "$lib/api/accounts";
   import UsageMeter from "./UsageMeter.svelte";
   import { Badge } from "$lib/components/ui/badge";
-  import { resetsIn } from "$lib/utils/format";
+  import { resetsIn, formatDateTime } from "$lib/utils/format";
 
   let { usage, label, showStatus = true, showUpdated = true, inline = false }: {
     usage: ProviderAccount["usage"]; label: string; showStatus?: boolean; showUpdated?: boolean;
@@ -12,8 +12,7 @@
   const window = $derived(usage.current_window);
   const periodLabel = $derived(window?.period === "weekly" ? "Weekly usage" : window?.period === "monthly" ? "Monthly usage" : "Current period");
   function date(value: string | null | undefined) {
-    return value && Number.isFinite(Date.parse(value))
-      ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null;
+    return formatDateTime(value) || null;
   }
 </script>
 

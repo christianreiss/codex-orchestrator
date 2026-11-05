@@ -17,12 +17,12 @@ export type ReportRow = {
 
 /** Native select / input styling for the report forms (keeps `selectOption` testable). */
 export const controlClass =
-  "flex h-9 w-full rounded-md border border-input bg-card px-3 py-2 text-body-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25";
+  "flex h-9 w-full rounded-md border border-input bg-card px-3 py-2 text-body-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 /** Toolbar filter controls: sized by the caller (`w-44`), never full width. */
 export const filterClass =
-  "h-9 rounded-md border border-input bg-card px-3 text-body-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25";
+  "h-9 rounded-md border border-input bg-card px-3 text-body-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 export const areaClass =
-  "flex min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-body-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25";
+  "flex min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-body-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
 export const humanize = (value: string): string => value.replaceAll("_", " ");
 

@@ -12,6 +12,8 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Tabs from "$lib/components/ui/tabs";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
+  import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import { useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { browser } from "$app/environment";
@@ -233,8 +235,44 @@
     return resolve(id, "denied", "Denied", $deny.mutateAsync({ id }));
   }
 
+  // Deny is the one decision here that turns a waiting host away, so it asks
+  // first — from the button and from the D shortcut alike.
+  let denyTarget = $state<Row | null>(null);
+  let denyOpen = $state(false);
+
+  function askDeny(req: Row): void {
+    denyTarget = req;
+    denyOpen = true;
+  }
+
+  function confirmDeny(): void {
+    const target = denyTarget;
+    denyOpen = false;
+    // `resolve` shadows the row at once, so the confirmation can close now.
+    if (target) void denyOne(target.id);
+  }
+
+  // "Approve all" names how many it will approve, approves exactly those, and
+  // stays locked until the last one has been sent.
+  let approveAllIds = $state<number[]>([]);
+  let approveAllOpen = $state(false);
+  let approvingAll = $state(false);
+
+  function askApproveAll(): void {
+    approveAllIds = actionable.map((r) => r.id);
+    approveAllOpen = true;
+  }
+
   async function approveAll(): Promise<void> {
-    for (const r of actionable) await approveOne(r.id);
+    if (approvingAll) return;
+    approvingAll = true;
+    try {
+      const still = new Set(actionable.map((r) => r.id));
+      for (const id of approveAllIds) if (still.has(id)) await approveOne(id);
+    } finally {
+      approvingAll = false;
+      approveAllOpen = false;
+    }
   }
 
   // ─── formatting ──────────────────────────────────────────────────────────
@@ -263,7 +301,7 @@
   const single = $derived(mode === "triage" && actionable.length === 1 ? actionable[0] : null);
 
   function onKeydown(e: KeyboardEvent): void {
-    if (!single || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!single || approvingAll || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
     const el = e.target as HTMLElement | null;
     if (el?.closest("input, textarea, select, button, a, [contenteditable], [role='dialog'] [role='dialog']")) {
       return;
@@ -273,7 +311,7 @@
       void approveOne(single.id);
     } else if (e.key === "d" || e.key === "D") {
       e.preventDefault();
-      void denyOne(single.id);
+      askDeny(single);
     }
   }
 
@@ -339,13 +377,13 @@
   {@const left = req.expiresMs === null ? null : req.expiresMs - now}
   {@const domain = parentDomain(req.fqdn)}
   <li
-    class="relative overflow-hidden rounded-md border bg-card transition-[opacity,filter] duration-300"
+    class="relative overflow-hidden transition-[opacity,filter] duration-300"
     class:opacity-50={req.ghost}
     class:grayscale={req.ghost}
     class:pointer-events-none={req.ghost}
     out:slide|local={{ duration: 220 }}
   >
-    <div class="space-y-3 p-4">
+    <div class="space-y-3 py-4">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 space-y-1">
           <p class="flex items-center gap-2">
@@ -359,9 +397,10 @@
                 <span class="relative inline-flex h-2 w-2 rounded-full bg-muted-foreground/40"></span>
               {/if}
             </span>
-            <span class="truncate text-base font-semibold" class:line-through={req.ghost}>
+            <span class="min-w-0 break-all font-mono text-base font-semibold" class:line-through={req.ghost}>
               {req.fqdn || `Host #${req.host_id}`}
             </span>
+            {#if req.fqdn}<CopyButton value={req.fqdn} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy FQDN ${req.fqdn}`} toastMessage="FQDN copied" />{/if}
           </p>
           <p class="text-body-sm text-muted-foreground">
             {req.live ? "Waiting in a terminal" : "Nobody is waiting on this one"}{req.request_ip
@@ -387,7 +426,7 @@
 
       {#if !req.ghost}
         <div class="flex flex-wrap items-center gap-2">
-          <Button size="sm" class="grow sm:grow-0" onclick={() => approveOne(req.id)}>
+          <Button size="sm" class="grow sm:grow-0" disabled={approvingAll} onclick={() => approveOne(req.id)}>
             <Check class="h-3.5 w-3.5" /> Approve for 8 hours
           </Button>
           <AllowDomainPopover
@@ -401,7 +440,7 @@
                 $allowDomain.mutateAsync({ id: req.id, duration_minutes, permanent }),
               )}
           />
-          <Button size="sm" variant="ghost" class="ml-auto" onclick={() => denyOne(req.id)}>
+          <Button size="sm" variant="ghost" class="ml-auto" disabled={approvingAll} onclick={() => askDeny(req)}>
             <X class="h-3.5 w-3.5" /> Deny
           </Button>
         </div>
@@ -428,7 +467,8 @@
       Pending requests could not be loaded. Hosts may be waiting; reload to try again.
     </p>
   {:else if rows.length > 0}
-    <ul class="space-y-2">
+    <!-- Rows divided by rules, not cards: the dialog is already the container. -->
+    <ul class="divide-y border-y">
       {#each rows as req (req.id)}
         {@render requestCard(req)}
       {/each}
@@ -439,7 +479,7 @@
 {/snippet}
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="sm:max-w-xl" onkeydown={onKeydown}>
+  <Dialog.Content size="lg" onkeydown={onKeydown}>
     <Dialog.Header>
       <Dialog.Title class="pr-8">{title}</Dialog.Title>
       <Dialog.Description>
@@ -474,20 +514,23 @@
         </div>
         <div class="flex items-center gap-2">
           <Button size="sm" variant="ghost" onclick={() => (mode = "manage")}>Manage access</Button>
-          {#if actionable.length > 1}
-            <Button size="sm" variant="outline" onclick={approveAll}>
-              Approve all {actionable.length}
+          {#if actionable.length > 1 || approvingAll}
+            <Button size="sm" variant="outline" disabled={approvingAll} onclick={askApproveAll}>
+              {approvingAll ? "Approving…" : `Approve all ${actionable.length}`}
             </Button>
           {/if}
         </div>
       </footer>
     {:else}
       <Tabs.Root value={tab} onValueChange={(v) => (tab = v as typeof tab)}>
-        <Tabs.List>
-          <Tabs.Trigger value="requests">Requests ({actionable.length})</Tabs.Trigger>
-          <Tabs.Trigger value="windows">Windows ({$summary.data?.hosts.length ?? 0})</Tabs.Trigger>
-          <Tabs.Trigger value="domains">Domains ({$summary.data?.domains_active ?? 0})</Tabs.Trigger>
-        </Tabs.List>
+        <!-- At 320 px the three tabs scroll inside this strip; the dialog never scrolls sideways. -->
+        <div class="-m-1 max-w-full overflow-x-auto p-1">
+          <Tabs.List class="w-max justify-start">
+            <Tabs.Trigger value="requests" class="shrink-0">Requests ({actionable.length})</Tabs.Trigger>
+            <Tabs.Trigger value="windows" class="shrink-0">Windows ({$summary.data?.hosts.length ?? 0})</Tabs.Trigger>
+            <Tabs.Trigger value="domains" class="shrink-0">Domains ({$summary.data?.domains_active ?? 0})</Tabs.Trigger>
+          </Tabs.List>
+        </div>
 
         <div class="mt-4 max-h-[60vh] overflow-y-auto">
           <Tabs.Content value="requests">
@@ -535,7 +578,7 @@
                   {#each $summary.data.hosts as h (h.id)}
                     <li class="flex items-center justify-between gap-3 px-3 py-2">
                       <div class="min-w-0">
-                        <div class="truncate text-body font-medium">{h.fqdn}</div>
+                        <div class="break-all font-mono text-body font-medium">{h.fqdn}</div>
                         <div class="text-caption text-muted-foreground">
                           Closes in <InsecureCountdown until={h.insecure_enabled_until} />
                         </div>
@@ -582,6 +625,7 @@
             {:else}
               <ul class="divide-y rounded-md border">
                 {#each $summary.data.domains as d (d.id)}
+                  {@const revoking = $revokeDomain.isPending && $revokeDomain.variables?.id === d.id}
                   <li class="flex items-center justify-between gap-3 px-3 py-2">
                     <div class="min-w-0">
                       <div class="truncate text-body font-medium">*.{d.domain}</div>
@@ -596,9 +640,10 @@
                     <Button
                       size="sm"
                       variant="ghost"
+                      disabled={revoking}
                       onclick={() => run("Domain revoked", $revokeDomain.mutateAsync({ id: d.id }))}
                     >
-                      Revoke
+                      {revoking ? "Revoking…" : "Revoke"}
                     </Button>
                   </li>
                 {/each}
@@ -620,3 +665,22 @@
     {/if}
   </Dialog.Content>
 </Dialog.Root>
+
+<ConfirmDialog
+  bind:open={denyOpen}
+  title={`Deny ${denyTarget?.fqdn || (denyTarget ? `host #${denyTarget.host_id}` : "this host")}?`}
+  description="The waiting request is refused and the host gets no credentials now. It has to ask again for access."
+  confirmLabel="Deny access"
+  destructive
+  onConfirm={confirmDeny}
+/>
+
+<ConfirmDialog
+  bind:open={approveAllOpen}
+  title={`Approve ${approveAllIds.length} access requests?`}
+  description={`Each of these ${approveAllIds.length} hosts may fetch credentials for 8 hours. Requests that time out or are resolved elsewhere before their turn are skipped.`}
+  confirmLabel={`Approve ${approveAllIds.length}`}
+  busyLabel="Approving…"
+  busy={approvingAll}
+  onConfirm={approveAll}
+/>

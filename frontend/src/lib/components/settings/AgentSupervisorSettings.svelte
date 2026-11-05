@@ -32,7 +32,7 @@
   <p class="text-body-sm text-muted-foreground">Viewing supervision requires agent_messaging.read.</p>
  {:else if $query.isPending}<StateBlock state="loading" rows={2}/>
  {:else}
-  {#if $query.isError}<StateBlock state="error" message={$query.data ? 'Supervisor information is stale. Refresh before changing it.' : 'Could not load the supervisor.'} onRetry={() => void check()}/>{/if}
+  {#if $query.isError}<StateBlock state="error" cause={$query.error} message={$query.data ? 'Supervisor information is stale. Refresh before changing it.' : 'Could not load the supervisor.'} onRetry={() => void check()}/>{/if}
   {#if $query.data}
    <div class="flex items-start justify-between gap-4 border-y py-3">
     <div class="space-y-1">

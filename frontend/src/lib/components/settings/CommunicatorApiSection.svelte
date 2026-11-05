@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { StateBlock } from "$lib/components/page";
   import SectionCard from "$lib/components/engines/SettingGroup.svelte";
   import { communicatorApiQuery, type ApiLevelCounts } from "$lib/api/communicator-api";
@@ -40,7 +41,7 @@
         <dt class="text-caption text-muted-foreground">Minimum source</dt>
         <dd>
           {#if levels.override_min_api !== null && levels.override_min_api > levels.default_min_api}
-            Operator override ({levels.override_min_api}){levels.override_updated_at ? `, set ${new Date(levels.override_updated_at).toLocaleString()}` : ""}
+            Operator override ({levels.override_min_api}){levels.override_updated_at ? `, set ${formatDateTime(levels.override_updated_at)}` : ""}
           {:else}
             Built-in default ({levels.default_min_api})
           {/if}

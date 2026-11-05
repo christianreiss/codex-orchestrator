@@ -2,6 +2,7 @@
   /** Search, filters, a result count and the one primary action. */
   import type { Snippet } from "svelte";
   import Search from "@lucide/svelte/icons/search";
+  import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { cn } from "$lib/utils/cn";
 
@@ -12,9 +13,12 @@
     count?: string;
     filters?: Snippet;
     actions?: Snippet;
+    /** A search or filter narrows the list; shows "Clear filters" when `onClearFilters` is set. */
+    filtersActive?: boolean;
+    onClearFilters?: () => void;
     class?: string;
   };
-  let { search = $bindable(), searchPlaceholder = "Search", count, filters, actions, class: className }: Props = $props();
+  let { search = $bindable(), searchPlaceholder = "Search", count, filters, actions, filtersActive = false, onClearFilters, class: className }: Props = $props();
 </script>
 
 <div class={cn("flex flex-wrap items-center gap-2", className)} role="search">
@@ -25,6 +29,7 @@
     </div>
   {/if}
   {@render filters?.()}
+  {#if filtersActive && onClearFilters}<Button variant="ghost" size="sm" onclick={onClearFilters}>Clear filters</Button>{/if}
   {#if count}<span class="text-body-sm text-muted-foreground" aria-live="polite">{count}</span>{/if}
   <div class="ml-auto flex flex-wrap items-center gap-2">{@render actions?.()}</div>
 </div>

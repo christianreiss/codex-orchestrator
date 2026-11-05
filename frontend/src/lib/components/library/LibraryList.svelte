@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   /**
    * The one list for every named Library document: search first, then the
    * table, with a single "New …" action. Skills add a secondary import action.
@@ -25,6 +26,7 @@
   import CreateDocumentSheet from "./CreateDocumentSheet.svelte";
   import SkillSourceSheet from "./SkillSourceSheet.svelte";
   import { libraryDocHref, type DocListConfig, type LibraryRow } from "./library-types";
+  import { loadFailure } from "$lib/api/access-denied";
 
   let { config }: { config: DocListConfig } = $props();
 
@@ -34,7 +36,8 @@
   );
 
   const items = $derived($query.data ?? []);
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   let createOpen = $state(false);
   let importOpen = $state(false);
   let deleteTarget = $state<LibraryRow | null>(null);
@@ -82,7 +85,7 @@
 </script>
 
 <div class="space-y-3">
-  <Toolbar bind:search searchPlaceholder={`Search ${plural} by name or description`} {count}>
+  <Toolbar bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()} searchPlaceholder={`Search ${plural} by name or description`} {count}>
     {#snippet actions()}
       <Button variant="outline" size="icon" aria-label="Refresh" disabled={$query.isFetching} onclick={() => void $query.refetch()}>
         <RefreshCw class={$query.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
@@ -103,11 +106,11 @@
   <DataTable
     items={sorted}
     loading={$query.isLoading}
-    error={$query.isError ? ($query.error instanceof Error ? $query.error.message : `Failed to load ${plural}`) : null}
+    error={$query.isError ? loadFailure($query.error) : null}
     onRetry={() => void $query.refetch()}
     key={(row) => row.slug}
     filtered={search.trim() !== ""}
-    onClearFilters={() => search = ""}
+    onClearFilters={() => filterState.clear()}
     emptyTitle={`No ${plural} yet`}
     emptyDescription={config.emptyDescription}
     caption={`${plural} list`}
@@ -138,7 +141,7 @@
             actions={[
               { label: "Open", icon: ExternalLink, onClick: () => void goto(href(item)) },
               {
-                label: "Delete",
+                label: `Delete ${config.singular}`,
                 icon: Trash2,
                 destructive: true,
                 disabled: item.locked,
@@ -160,7 +163,7 @@
   bind:open={deleteOpen}
   title={`Delete ${config.singular}`}
   description={`${deleteTarget?.slug ?? ""}: ${config.deleteNote}`}
-  confirmLabel="Delete"
+  confirmLabel={`Delete ${config.singular}`}
   destructive
   busy={$remove.isPending}
   onConfirm={() => { if (deleteTarget) $remove.mutate(deleteTarget.slug); }}

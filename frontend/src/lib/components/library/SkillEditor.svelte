@@ -109,7 +109,7 @@
   <PageShell title={slug} description="skill"><StateBlock state="loading" /></PageShell>
 {:else if $query.isError}
   <PageShell title={slug} description="skill">
-    <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : "Failed to load skill"} onRetry={() => void $query.refetch()} />
+    <StateBlock state="error" cause={$query.error} message={$query.error instanceof Error ? $query.error.message : "Failed to load skill"} onRetry={() => void $query.refetch()} />
   </PageShell>
 {:else}
   <DocumentEditor {dirty} pending={$save.isPending} error={$save.error ?? $remove.error} saved={$save.isSuccess} title={displayName || slug} description={`skill · ${slug}`}>
@@ -121,7 +121,7 @@
       </Button>
       <Button onclick={() => $save.mutate()} disabled={$save.isPending || isManaged}>
         <Save class="h-4 w-4" />
-        {$save.isPending ? "Saving…" : "Save"}
+        {$save.isPending ? "Saving…" : "Save skill"}
       </Button>
     {/snippet}
     {#snippet body()}
@@ -204,7 +204,7 @@
   bind:open={deleteOpen}
   title="Delete skill"
   description={`This will soft-delete ${slug}. The action is reversible by re-creating the skill with the same slug.`}
-  confirmLabel="Delete"
+  confirmLabel="Delete skill"
   destructive
   busy={$remove.isPending}
   onConfirm={() => $remove.mutate()}

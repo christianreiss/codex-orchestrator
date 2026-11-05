@@ -46,7 +46,7 @@
 </script>
 <PageShell title={run?.title ?? "Run report"} description={preparing ? "Prepare the request, review the summary, then confirm execution." : run?.status === "completed" ? "Final report · execution and evaluation preserved together." : "Live report · results and evidence update as the work proceeds."}>
   {#snippet actions()}<Button href={`${base}/workflows/runs`} variant="outline">All runs</Button>{#if run}<Button variant="outline" onclick={() => copy(run.report_url, "Report link")}>Copy link</Button><Button variant="outline" onclick={() => copy(reportText(run, issues), "Report")}>Copy report</Button>{/if}{/snippet}
-  {#if !canRead}<StateBlock state="empty" message="Workflow access required" description="Ask an owner for workflows.read to inspect this report." />{:else if $report.isPending}<StateBlock state="loading" />{:else if $report.isError}<StateBlock state="error" message={run ? "Refresh failed. Showing the previously loaded report; its data may be stale." : `Could not load run report. ${$report.error.message}`} onRetry={() => $report.refetch()} />{/if}
+  {#if !canRead}<StateBlock state="denied" message="Workflow access required" capability="workflows.read" />{:else if $report.isPending}<StateBlock state="loading" />{:else if $report.isError}<StateBlock state="error" cause={$report.error} message={run ? "Refresh failed. Showing the previously loaded report; its data may be stale." : `Could not load run report. ${$report.error.message}`} onRetry={() => $report.refetch()} />{/if}
   {#if run}
 
     <WorkflowAvailability />

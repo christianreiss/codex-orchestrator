@@ -4,6 +4,7 @@
   import { base } from "$app/paths";
   import * as Table from "$lib/components/ui/table";
   import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
   import { DataTable } from "$lib/components/page";
   import { ENGINE_META } from "$lib/constants/engines";
   import type { ProviderAccount } from "$lib/api/accounts";
@@ -17,7 +18,7 @@
   type Props = {
     accounts: ProviderAccount[] | undefined;
     loading?: boolean;
-    error?: string | null;
+    error?: string | Error | null;
     onRetry?: () => void;
   };
   let { accounts, loading = false, error = null, onRetry }: Props = $props();
@@ -48,6 +49,7 @@
   emptyTitle="No provider accounts yet"
   emptyDescription="Add a ChatGPT, Claude or Grok login to see quota usage here."
 >
+  {#snippet emptyAction()}<Button variant="outline" href={`${base}/accounts`}>Go to Accounts</Button>{/snippet}
   {#snippet head()}
     <Table.Head>Account</Table.Head>
     <Table.Head>Status</Table.Head>

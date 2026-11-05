@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
   import { Button } from "$lib/components/ui/button";
   import * as Select from "$lib/components/ui/select";
   import RepeatableList from "./RepeatableList.svelte";
@@ -125,6 +126,7 @@
   }
 
   const groups = $derived(toGroups(hooks));
+  const uid = $props.id();
 </script>
 
 <div class="space-y-4">
@@ -168,8 +170,10 @@
         <div class="mt-3 divide-y border-t">
           {#each group.rows as row, ri (ri)}
             <div class="space-y-2 py-3">
+            <Label for={`${uid}-matcher-${gi}-${ri}`} class="block text-caption font-normal text-muted-foreground">Matcher</Label>
             <div class="flex items-center gap-2">
               <Input
+                id={`${uid}-matcher-${gi}-${ri}`}
                 value={row.matcher}
                 placeholder="matcher (e.g. Bash, Edit|Write, *)"
                 {disabled}
@@ -188,6 +192,8 @@
             </div>
             <RepeatableList
               items={row.commands}
+              label="Command"
+              heading="Commands"
               placeholder="command to run"
               addLabel="Add command"
               {disabled}

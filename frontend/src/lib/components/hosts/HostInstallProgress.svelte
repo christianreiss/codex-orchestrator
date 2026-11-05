@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * What happens after a host is registered: the installer command, and a
@@ -143,7 +144,7 @@
     value={current.command}
     wrap
     rows={3}
-    expiresAt={expiresAt ? new Date(expiresAt).toLocaleString() : undefined}
+    expiresAt={expiresAt ? formatDateTime(expiresAt) : undefined}
   />
   <p class="text-body-sm text-muted-foreground">
     It installs the wrapper with this host's address and API key built in. The command works

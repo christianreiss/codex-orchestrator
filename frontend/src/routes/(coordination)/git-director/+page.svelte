@@ -1,6 +1,6 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import ModuleOffNotice from "$lib/components/feedback/ModuleOffNotice.svelte";
-  import type { Snapshot } from "./$types";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
@@ -39,7 +39,8 @@
     void goto(url, { keepFocus: true, noScroll: true });
   }
 
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   let open = $state(false);
   let selection = $state<GitSelection | null>(null);
   const cloneRows = $derived($clones.data?.clones ?? []);
@@ -68,10 +69,6 @@
   }
   const emptyTitle = $derived(view === "worktrees" ? "No active worktrees" : view === "merges" ? "No open merge requests" : "No history yet");
   const status = $derived($stateQuery.data);
-  export const snapshot: Snapshot<{ search: typeof search }> = {
-    capture: () => ({ search }),
-    restore: (value) => { search = value.search; },
-  };
 </script>
 
 {#snippet tabs()}
@@ -115,7 +112,7 @@
   {:else}
   {#if $clones.data}<StatStrip items={stats} />{/if}
 
-  <Toolbar bind:search searchPlaceholder="Search repository, host, user, task or branch…">
+  <Toolbar bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()} searchPlaceholder="Search repository, host, user, task or branch…">
     {#snippet filters()}{@render tabs()}{/snippet}
   </Toolbar>
 
@@ -124,13 +121,13 @@
       <DataTable
         items={rows}
         loading={$clones.isPending}
-        error={$clones.error?.message ?? null}
+        error={$clones.error ?? null}
         onRetry={() => $clones.refetch()}
         key={(row) => `${row.kind}:${row.id}`}
         {emptyTitle}
         emptyIcon={GitMerge}
         filtered={search.trim() !== ""}
-      onClearFilters={() => { search = ""; }}
+      onClearFilters={() => filterState.clear()}
         caption="Git merges"
       >
         {#snippet head()}

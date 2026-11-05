@@ -64,7 +64,7 @@
   const canSubmit = $derived(!loadError && storedName.trim().length > 0 && content.length > 0);
 </script>
 
-<DraftGuard {dirty} />
+<DraftGuard {dirty} preserveOnSamePath />
 <form class="flex flex-col gap-3" onsubmit={(e) => { e.preventDefault(); $mutation.mutate(); }}>
   {#if loadError}<p role="alert" class="text-destructive">{loadError}. Close and reopen this file to retry; saving is disabled to protect its contents.</p>{/if}
   <SaveState pending={$mutation.isPending} error={$mutation.error} {dirty} />
@@ -83,7 +83,7 @@
   </div>
   <div class="flex justify-end gap-2 pt-2">
     <Button variant="ghost" type="button" onclick={cancel}>Cancel</Button>
-    <Button type="submit" disabled={!canSubmit || loadingBody || $mutation.isPending}><Save class="h-4 w-4" />{$mutation.isPending ? "Saving…" : "Save"}</Button>
+    <Button type="submit" disabled={!canSubmit || loadingBody || $mutation.isPending}><Save class="h-4 w-4" />{$mutation.isPending ? "Saving…" : "Save file"}</Button>
   </div>
   </fieldset>
 </form>

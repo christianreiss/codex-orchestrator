@@ -79,7 +79,7 @@ test("draft survives rejection and navigation cancel, then clears only after sav
   const body = page.getByRole("textbox", { name: "Skill manifest" });
   await body.fill("# My retained draft");
   await page.route("**/admin/skills/store", route => route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ status: "error", message: "Description is required" }) }));
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save skill", exact: true }).click();
   await expect(page.getByText("The server rejected the change.", { exact: false })).toBeVisible();
   await expect(body).toHaveValue("# My retained draft");
   while (await page.getByRole("button", { name: "Close toast", exact: true }).count()) {
@@ -92,7 +92,7 @@ test("draft survives rejection and navigation cancel, then clears only after sav
   await page.getByRole("link", { name: "Back", exact: true }).click();
   await expect(body).toHaveValue("# My retained draft");
   await page.unroute("**/admin/skills/store");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save skill", exact: true }).click();
   await expect(page.getByText("Saved. Confirmed by the server.", { exact: true })).toBeVisible();
   while (await page.getByRole("button", { name: "Close toast", exact: true }).count()) {
     const closeButtons = page.getByRole("button", { name: "Close toast", exact: true });
@@ -231,7 +231,7 @@ test("transport failure does not claim a rejected or saved draft", async ({ page
   await page.goto("/admin/library/skills/design-fixture");
   await page.getByRole("textbox", { name: "Skill manifest" }).fill("Uncertain save fixture");
   await page.route("**/admin/skills/store", route => route.abort("failed"));
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save skill", exact: true }).click();
   await expect(page.getByText("Save not confirmed.", { exact: false })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Skill manifest" })).toHaveValue("Uncertain save fixture");
   await expect(page.getByText("Saved. Confirmed by the server.", { exact: true })).toHaveCount(0);

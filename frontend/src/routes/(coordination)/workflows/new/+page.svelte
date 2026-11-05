@@ -15,5 +15,5 @@
 </script>
 <PageShell title="New workflow" description="Define a goal, the work to reach it and the evidence each task must produce." width="narrow">
   {#snippet actions()}<Button href={`${base}/workflows`} variant="outline">Back to workflows</Button>{/snippet}
-  {#if !canRead}<StateBlock state="empty" message="Workflow access required" />{:else if $moduleQuery.isPending || (from && $source.isPending)}<StateBlock state="loading" />{:else if $moduleQuery.isError || (from && $source.isError)}<StateBlock state="error" message="Could not load workflow editor." onRetry={() => { void $moduleQuery.refetch(); if (from) void $source.refetch(); }} />{:else}<WorkflowEditor definition={$source.data} asNew {canManage} enabled={$moduleQuery.data?.enabled ?? false} />{/if}
+  {#if !canRead}<StateBlock state="denied" message="Workflow access required" capability="workflows.read" />{:else if $moduleQuery.isPending || (from && $source.isPending)}<StateBlock state="loading" />{:else if $moduleQuery.isError || (from && $source.isError)}<StateBlock state="error" cause={$moduleQuery.error ?? $source.error} message="Could not load workflow editor." onRetry={() => { void $moduleQuery.refetch(); if (from) void $source.refetch(); }} />{:else}<WorkflowEditor definition={$source.data} asNew {canManage} enabled={$moduleQuery.data?.enabled ?? false} />{/if}
 </PageShell>

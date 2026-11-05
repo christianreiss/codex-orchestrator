@@ -43,7 +43,7 @@
   function fix(item: AttentionItem): void {
     if (item.fix === "install") onInstall();
     else if (item.fix === "review-access") window.dispatchEvent(new CustomEvent("codex:open-insecure-approvals"));
-    else if (item.fix === "close-window") void run("Temporary access closed", $disableAccess.mutateAsync({ id }));
+    else if (item.fix === "close-window") { if (!$disableAccess.isPending) void run("Temporary access closed", $disableAccess.mutateAsync({ id })); }
     else if (item.fix === "engines-page") void goto(`${base}/engines`);
   }
   const fixLabel: Record<NonNullable<AttentionItem["fix"]>, string> = {
@@ -64,8 +64,9 @@
             {#if item.hint && hintShownFor.has(item.id)}<p class="text-body-sm text-muted-foreground">{item.hint}</p>{/if}
           </div>
           {#if item.fix}
-            <Button size="sm" variant={item.tone === "warning" ? "default" : "outline"} aria-label={`${fixLabel[item.fix]}: ${item.text}`} title={item.hint} onclick={() => fix(item)}>
-              {fixLabel[item.fix]}
+            {@const closing = item.fix === "close-window" && $disableAccess.isPending}
+            <Button size="sm" variant={item.tone === "warning" ? "default" : "outline"} aria-label={`${closing ? "Closing" : fixLabel[item.fix]}: ${item.text}`} title={item.hint} disabled={closing} onclick={() => fix(item)}>
+              {closing ? "Closing…" : fixLabel[item.fix]}
             </Button>
           {/if}
         </li>

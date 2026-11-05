@@ -43,7 +43,7 @@ export interface PinnedEntry {
   } | null;
 }
 /** Quick picks offered by the web picker; the server accepts any single emoji. */
-export const QUICK_REACTIONS = ["👍", "❤️", "😄", "🎉", "👀", "✅", "❌", "🚀"] as const;
+export const QUICK_REACTIONS = ["👍", "❤️", "😄", "🎉", "👀", "✅", "❌", "🚀"] as const; // slop-ok: reaction picker content, not icons
 export const MAX_ROOM_PINS = 20;
 export const SEARCH_ROOT = "/admin/agent-messaging/search";
 

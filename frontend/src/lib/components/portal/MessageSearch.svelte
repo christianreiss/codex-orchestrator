@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import * as Sheet from "$lib/components/ui/sheet";
   import { Button } from "$lib/components/ui/button";
   import { api } from "$lib/api/client";
@@ -126,7 +127,7 @@
                   ><time
                     class="shrink-0 text-muted-foreground"
                     datetime={hit.created_at}
-                    title={new Date(hit.created_at).toLocaleString()}
+                    title={formatDateTime(hit.created_at)}
                     >{new Date(hit.created_at).toLocaleDateString(undefined, {
                       dateStyle: "medium",
                     })}</time

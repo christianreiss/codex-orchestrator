@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   /**
    * Agent roles in the Library: the module switch (its one editable home), the
    * role list and "New role". Agents improve roles themselves; this list shows
@@ -23,7 +24,8 @@
   const query = createQuery(reactiveOptions(() => ({ queryKey: [...rolesKeys.list()], queryFn: () => rolesApi.list() })));
   const enabled = $derived($query.data?.enabled ?? false);
   const items = $derived($query.data?.roles ?? []);
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   let createOpen = $state(false);
 
   const filtered = $derived.by(() => {
@@ -44,7 +46,7 @@
     </p>
   {/if}
 
-  <Toolbar bind:search searchPlaceholder="Search roles by name or summary" {count}>
+  <Toolbar bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()} searchPlaceholder="Search roles by name or summary" {count}>
     {#snippet actions()}
       <Button variant="outline" size="icon" aria-label="Refresh" disabled={$query.isFetching} onclick={() => void $query.refetch()}>
         <RefreshCw class={$query.isFetching ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
@@ -57,7 +59,7 @@
   </Toolbar>
 
   {#if $query.isError && !$query.data}
-    <StateBlock state="error" message={$query.error instanceof Error ? $query.error.message : "Could not load roles"} onRetry={() => void $query.refetch()} />
+    <StateBlock state="error" cause={$query.error} message={$query.error instanceof Error ? $query.error.message : "Could not load roles"} onRetry={() => void $query.refetch()} />
   {:else}
     <DataTable
       items={filtered}
@@ -65,7 +67,7 @@
       error={null}
       key={(row) => row.slug}
       filtered={search.trim() !== ""}
-      onClearFilters={() => (search = "")}
+      onClearFilters={() => filterState.clear()}
       emptyTitle="No roles yet"
       emptyDescription="A role packages a specialist responsibility — a role prompt plus reference material — that agents take on an explicit assignment."
       caption="Agent roles"

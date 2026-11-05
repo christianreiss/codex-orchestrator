@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { reactiveOptions } from '$lib/components/projects/reactive-options.svelte';
   import { createInfiniteQuery } from '@tanstack/svelte-query';
   import { goto } from '$app/navigation';
@@ -35,6 +36,7 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import { EmptyState } from "$lib/components/ui/empty-state";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { authStore } from "$lib/stores/auth";
@@ -280,7 +282,7 @@
   function resetFilters() { search = ""; engine = "all"; }
   function agentName(row: AgentSessionRow) { return row.launch_name || row.session_name || row.work.address_alias || `Session ${row.id.slice(0, 8)}`; }
   function age(value: string | null, clock = serverNow) { return value ? shortAge(value, clock) || "unknown" : "unknown"; }
-  function exactTime(value: string | null) { const date = value ? new Date(value) : null; return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "Not reported"; }
+  function exactTime(value: string | null) { return formatDateTime(value) || "Not reported"; }
   let detailsOpen = $state(false);
   function preview(row: AgentSessionRow, ended: boolean) {
     const ask = row.pending_prompt?.question ?? row.attention?.summary;
@@ -393,7 +395,7 @@
               <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Agents</Button></div>
               <div class="flex min-w-0 flex-col items-center text-center">
                 <EngineAvatar engine={selected.engine} presence={selectedView.presence} activity={liveActivity(selected, serverNow)} status={selectedView.label} size="xs" badge logo />
-                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus:outline-none">{agentName(selected)}</h2>
+                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus:outline-none">{agentName(selected)}</h2><!-- slop-ok: programmatic focus target (tabindex=-1) -->
                 <p class="max-w-full truncate text-caption text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
                 <p class="max-w-full truncate text-caption text-muted-foreground">
                   {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selected.activity || selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
@@ -429,7 +431,7 @@
                   {#if selected.work.declared_paths.length}<dt class="text-muted-foreground">Paths</dt><dd class="whitespace-pre-wrap break-all font-mono">{selected.work.declared_paths.join("\n")}</dd>{/if}
                   <dt class="text-muted-foreground">Relay</dt><dd title={exactTime(selected.relay_heartbeat_at ?? null)}>{selected.relay_enabled === false ? "Relay disabled" : selected.relay_heartbeat_at ? `${age(selected.relay_heartbeat_at)} ago` : "Not reported"}</dd>
                   <dt class="text-muted-foreground">Invocation</dt><dd>{selected.invocation_kind}</dd>
-                  <dt class="text-muted-foreground">Session</dt><dd class="break-all font-mono">{selected.id}</dd>
+                  <dt class="text-muted-foreground">Session</dt><dd class="flex items-center gap-1 font-mono"><span class="min-w-0 break-all">{selected.id}</span><CopyButton value={selected.id} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label="Copy session ID" toastMessage="Session ID copied" /></dd>
                   <dt class="text-muted-foreground">Started</dt><dd>{exactTime(selected.started_at)}</dd>
                 </dl>
                 {#if selected.receiver}
@@ -490,7 +492,7 @@
 {/snippet}
 
 <Dialog.Root bind:open={forceOpen}>
-  <Dialog.Content class="sm:max-w-md"><Dialog.Header><Dialog.Title>Force close this session?</Dialog.Title><Dialog.Description>End the portal session for {forceTarget?.username} on {forceTarget?.host}. This works when the relay cannot accept a close request. The local client may take time to observe it.</Dialog.Description></Dialog.Header><Dialog.Footer><Button variant="ghost" onclick={() => (forceOpen = false)} disabled={$force.isPending}>Cancel</Button><Button variant="destructive" disabled={!canManage || !enabled || $force.isPending || !forceTarget} onclick={() => { if (forceTarget && canManage && enabled) $force.mutate({ id: forceTarget.id }); }}>{$force.isPending ? "Ending…" : "Force close session"}</Button></Dialog.Footer></Dialog.Content>
+  <Dialog.Content size="sm"><Dialog.Header><Dialog.Title>Force close this session?</Dialog.Title><Dialog.Description>End the portal session for {forceTarget?.username} on {forceTarget?.host}. This works when the relay cannot accept a close request. The local client may take time to observe it.</Dialog.Description></Dialog.Header><Dialog.Footer><Button variant="ghost" onclick={() => (forceOpen = false)} disabled={$force.isPending}>Cancel</Button><Button variant="destructive" disabled={!canManage || !enabled || $force.isPending || !forceTarget} onclick={() => { if (forceTarget && canManage && enabled) $force.mutate({ id: forceTarget.id }); }}>{$force.isPending ? "Ending…" : "Force close session"}</Button></Dialog.Footer></Dialog.Content>
 </Dialog.Root>
 
 {#if !embedded&&$authStore.can('agent_messaging.reveal_content')}<MessageSearch bind:open={messageSearchOpen} onroom={id=>selectRoom(id)} onclient={id=>selectClient(id)}/>{/if}

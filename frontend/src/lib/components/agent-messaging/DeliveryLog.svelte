@@ -131,7 +131,7 @@
 
 <section aria-labelledby="deliveries-heading" class="space-y-2">
   <div>
-    <h2 id="deliveries-heading" class="text-h3">Delivery log</h2>
+    <h2 id="deliveries-heading" class="text-h2">Delivery log</h2>
     <p class="text-body-sm text-muted-foreground">Every message with its delivery status. Content stays hidden until an owner or admin reveals it, and each reveal is audited.</p>
     {#if messageId}
       <p class="mt-1 text-caption text-muted-foreground">Showing linked message history · {messageId} <Button size="sm" variant="ghost" onclick={clearMessageLink}>Clear filter</Button></p>
@@ -142,7 +142,7 @@
   {:else if $messages.isPending}
     <StateBlock state="loading" />
   {:else if $messages.isError}
-    <StateBlock state="error" message={$messages.error.message} onRetry={() => $messages.refetch()} />
+    <StateBlock state="error" cause={$messages.error} message={$messages.error.message} onRetry={() => $messages.refetch()} />
   {:else if !$messages.data?.messages.length}
     <StateBlock state="empty" message="No deliveries" />
   {:else}
@@ -204,7 +204,7 @@
   onClose={() => (redriveTarget = null)}
   title="Redrive this message?"
   description={redriveTarget ? `Create an explicit redrive of ${redriveTarget.id.slice(0, 8)}. The original remains terminal for audit.` : ""}
-  confirmLabel="Redrive"
+  confirmLabel="Redrive message"
   busy={$redrive.isPending}
   onConfirm={() => { if (redriveTarget) void redriveMessage(redriveTarget); }}
 />
@@ -215,6 +215,6 @@
   label="Why is a fresh start authorized?"
   bind:value={freshReason}
   onClose={() => (freshTarget = null)}
-  confirmLabel="Approve"
+  confirmLabel="Approve fresh start"
   onConfirm={(reason) => { if (freshTarget) void approveFresh(freshTarget, reason); }}
 />

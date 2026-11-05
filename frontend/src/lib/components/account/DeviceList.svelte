@@ -122,7 +122,7 @@
   {#if $devices.isPending}
     <StateBlock state="loading" rows={2} />
   {:else if $devices.isError}
-    <StateBlock state="error" message={$devices.error.message} onRetry={() => $devices.refetch()} />
+    <StateBlock state="error" cause={$devices.error} message={$devices.error.message} onRetry={() => $devices.refetch()} />
   {:else if list.length === 0}
     <StateBlock state="empty" message="No paired devices" />
   {:else}
@@ -143,7 +143,7 @@
 </div>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-md">
+  <Dialog.Content size="sm">
     <Dialog.Header>
       <Dialog.Title>Pair your phone</Dialog.Title>
       <Dialog.Description>{pairedDevice ? "Pairing is complete. You can close this dialog." : "Open Orchestrator Companion and scan this code. It signs the phone in as your account and can be used once."}</Dialog.Description>

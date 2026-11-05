@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * One list of every API key, with a vendor filter in place of three tabs.
@@ -23,6 +24,7 @@
   import { cn } from "$lib/utils/cn";
   import { BACKEND_LABEL } from "./connection";
   import EndpointSummary from "./EndpointSummary.svelte";
+  import { loadFailure } from "$lib/api/access-denied";
 
   type Vendor = ApiKeyEngine | "all";
   type KeyRow = AdminApiKey & { format: ApiKeyEngine };
@@ -43,7 +45,8 @@
 
   let revokeOpen = $state(false);
   let revokeTarget = $state<KeyRow | null>(null);
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   let sortKey = $state<"name" | "last_used">("name");
   let sortDir = $state<"asc" | "desc">("asc");
 
@@ -55,7 +58,7 @@
   const scoped = $derived(sources.filter((entry) => vendor === "all" || entry.engine === vendor));
   const loading = $derived(scoped.some((entry) => entry.q.isLoading));
   const failure = $derived(scoped.find((entry) => entry.q.isError));
-  const error = $derived(failure ? `Failed to load ${engineLabel(failure.engine)} keys: ${failure.q.error?.message ?? "Unknown error"}` : null);
+  const error = $derived(failure ? loadFailure(failure.q.error, `Failed to load ${engineLabel(failure.engine)} keys`) : null);
   const all = $derived<KeyRow[]>(scoped.flatMap((entry) => (entry.q.data ?? []).map((record) => ({ ...record, format: entry.engine }))));
 
   const q = $derived(search.trim().toLowerCase());
@@ -138,7 +141,7 @@
 
 <div class="space-y-3">
   <Toolbar
-    bind:search
+    bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()}
     searchPlaceholder="Search keys by name or prefix"
     count={q ? `${rows.length} of ${all.length}` : `${all.length} ${all.length === 1 ? "key" : "keys"}`}
   >
@@ -170,11 +173,13 @@
     onRetry={() => { void $openaiQuery.refetch(); void $claudeQuery.refetch(); void $grokQuery.refetch(); }}
     key={(r) => `${r.format}:${r.id}`}
     filtered={q !== ""}
+    onClearFilters={() => filterState.clear()}
     emptyIcon={KeyRound}
     emptyTitle={vendor === "all" ? "No API keys yet" : `No ${vendorLabel(vendor)} keys yet`}
     emptyDescription="Issue a key for each application that calls the fleet API."
     caption="API keys"
   >
+    {#snippet emptyAction()}<Button onclick={onCreate}><Plus class="h-4 w-4" />New key</Button>{/snippet}
     {#snippet head()}
       <SortableHead label="Name" active={sortKey === "name"} dir={sortDir} onclick={() => onSort("name")} />
       <Table.Head>API</Table.Head>

@@ -106,10 +106,10 @@ test('passkey rename drafts survive tabs and report failures; removal stays scop
   await page.getByRole('tab', { name: 'Devices', exact: true }).click();
   await page.getByRole('tab', { name: 'Security', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Passkey name', exact: true })).toHaveValue('My security key');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: 'Save passkey name', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Rename unavailable' })).toBeVisible();
   fail = false;
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: 'Save passkey name', exact: true }).click();
   await expect(page.getByText('My security key', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Actions for My security key', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Remove', exact: true }).click();

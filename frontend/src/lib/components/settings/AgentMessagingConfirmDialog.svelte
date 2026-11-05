@@ -32,7 +32,7 @@
 </script>
 
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
-  <Dialog.Content class="sm:max-w-[520px]">
+  <Dialog.Content>
     <Dialog.Header>
       <div class="flex items-start gap-3">
         <div

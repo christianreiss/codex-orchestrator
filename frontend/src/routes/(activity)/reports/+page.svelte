@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import FeedbackSettings from "$lib/components/feedback/FeedbackSettings.svelte";
   import type { Snapshot } from "./$types";
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
@@ -24,14 +25,21 @@
   const qc = useQueryClient();
   const canManage = $derived($authStore.can("feedback.manage"));
 
-  let search = $state("");
-  let status = $state("open");
-  let type = $state("");
-  let priority = $state("");
-  let component = $state("");
-  let versionState = $state("");
-  let reviewState = $state("");
-  let deliveryState = $state("");
+  // Filters live in the URL; an explicit empty status (`status=`) means all statuses.
+  const filterState = new UrlFilters({ q: "", status: "open", type: "", priority: "", component: "", version: "", review: "", delivery: "" });
+  const f = filterState.values;
+  const search = $derived(f.q);
+  const status = $derived(f.status);
+  const type = $derived(f.type);
+  const priority = $derived(f.priority);
+  const component = $derived(f.component);
+  const versionState = $derived(f.version);
+  const reviewState = $derived(f.review);
+  const deliveryState = $derived(f.delivery);
+  function clearFilters() {
+    Object.assign(f, { q: "", status: "", type: "", priority: "", component: "", version: "", review: "", delivery: "" });
+    offset = 0;
+  }
   let offset = $state(0);
   let selected = $state("");
   let detailOpen = $state(false);
@@ -62,9 +70,9 @@
   const rows = $derived<ReportRow[] | undefined>($listQuery.data?.feedback?.map(feedbackRow));
 
   function select(id: string) { selected = id; detailOpen = true; }
-  export const snapshot: Snapshot<{ search: typeof search, status: typeof status, type: typeof type, priority: typeof priority, component: typeof component, versionState: typeof versionState, reviewState: typeof reviewState, deliveryState: typeof deliveryState, offset: typeof offset, selected: typeof selected }> = {
-    capture: () => ({ search, status, type, priority, component, versionState, reviewState, deliveryState, offset, selected }),
-    restore: (value) => { search = value.search; status = value.status; type = value.type; priority = value.priority; component = value.component; versionState = value.versionState; reviewState = value.reviewState; deliveryState = value.deliveryState; offset = value.offset; selected = value.selected; },
+  export const snapshot: Snapshot<{ offset: typeof offset, selected: typeof selected }> = {
+    capture: () => ({ offset, selected }),
+    restore: (value) => { offset = value.offset; selected = value.selected; },
   };
 </script>
 
@@ -87,15 +95,15 @@
 
   <FeedbackSettings {canManage} reportingEnabled={enabled} />
 
-  <Toolbar bind:search searchPlaceholder="Search reports">
+  <Toolbar bind:search={f.q} searchPlaceholder="Search reports" filtersActive={filtered} onClearFilters={clearFilters}>
     {#snippet filters()}
-      <FilterSelect label="Filter status" bind:value={status} options={feedbackStatuses} allLabel="All statuses" />
-      <FilterSelect label="Filter type" bind:value={type} options={feedbackTypes} allLabel="All types" />
-      <FilterSelect label="Filter priority" bind:value={priority} options={feedbackPriorities} allLabel="All priorities" />
-      <FilterSelect label="Filter version" bind:value={versionState} options={["old_version", "recent", "unknown"]} allLabel="All versions" />
-      <FilterSelect label="Filter review" bind:value={reviewState} options={["pending", "needs_retest", "new", "known", "fixed", "discarded", "unclear"]} allLabel="All reviews" />
-      <FilterSelect label="Filter delivery" bind:value={deliveryState} options={["local", "pending", "sent", "uncertain", "failed"]} allLabel="All delivery states" />
-      <Input bind:value={component} placeholder="Component" aria-label="Filter component" class="w-36" />
+      <FilterSelect label="Filter status" bind:value={f.status} options={feedbackStatuses} allLabel="All statuses" />
+      <FilterSelect label="Filter type" bind:value={f.type} options={feedbackTypes} allLabel="All types" />
+      <FilterSelect label="Filter priority" bind:value={f.priority} options={feedbackPriorities} allLabel="All priorities" />
+      <FilterSelect label="Filter version" bind:value={f.version} options={["old_version", "recent", "unknown"]} allLabel="All versions" />
+      <FilterSelect label="Filter review" bind:value={f.review} options={["pending", "needs_retest", "new", "known", "fixed", "discarded", "unclear"]} allLabel="All reviews" />
+      <FilterSelect label="Filter delivery" bind:value={f.delivery} options={["local", "pending", "sent", "uncertain", "failed"]} allLabel="All delivery states" />
+      <Input bind:value={f.component} placeholder="Component" aria-label="Filter component" class="w-36" />
     {/snippet}
   </Toolbar>
 
@@ -109,7 +117,7 @@
         selectedId={selected}
         onSelect={select}
         {filtered}
-        onClearFilters={() => { search = ""; status = ""; type = ""; priority = ""; component = ""; versionState = ""; reviewState = ""; deliveryState = ""; offset = 0; }}
+        onClearFilters={clearFilters}
         emptyTitle="No reports yet"
         emptyDescription={enabled ? "Agents and administrators can file reports here." : "Agent reporting is off. Existing reports stay available."}
       >
@@ -130,4 +138,4 @@
   </ListDetail>
 </PageShell>
 
-<NewReportDialog bind:open={newOpen} disabled={!canManage} onCreated={(id) => { status = ""; select(id); }} />
+<NewReportDialog bind:open={newOpen} disabled={!canManage} onCreated={(id) => { f.status = ""; select(id); }} />

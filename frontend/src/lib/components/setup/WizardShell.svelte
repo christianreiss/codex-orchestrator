@@ -78,7 +78,7 @@
     <Stepper label="Setup steps" {steps} {current} onSelect={(id) => onNavigate(id as SetupStep)} />
 
     <div class="border-t pt-4">
-      <h2 class="text-h3">{title}</h2>
+      <h2 class="text-h2">{title}</h2>
       {#if description}<p class="mt-0.5 text-body-sm text-muted-foreground">{description}</p>{/if}
     </div>
 

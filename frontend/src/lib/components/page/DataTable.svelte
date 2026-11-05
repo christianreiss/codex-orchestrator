@@ -1,6 +1,6 @@
 <script lang="ts" generics="T">
   /**
-   * The one list table. Owns the loading, error, empty and no-match states so
+   * The one list table. Owns the loading, error, no-access, empty and no-match states so
    * a page only declares its columns and its row. Wraps `ui/table`; use
    * `SortableHead` from `data-table/` inside `head` for sortable columns.
    */
@@ -8,11 +8,16 @@
   import * as Table from "$lib/components/ui/table";
   import { Button } from "$lib/components/ui/button";
   import StateBlock from "./StateBlock.svelte";
+  import { accessDenied, errorText } from "$lib/api/access-denied";
 
   type Props = {
     items: T[] | undefined;
     loading?: boolean;
-    error?: string | null;
+    /**
+     * The load failure: a message, or the query's error itself. Passing the
+     * error lets a 403 render as "No access" (no Retry) instead of a failure.
+     */
+    error?: string | Error | null;
     onRetry?: () => void;
     /** Column headers: `<Table.Head>…</Table.Head>` cells. */
     head: Snippet;
@@ -30,14 +35,20 @@
     caption?: string;
   };
   let { items, loading = false, error = null, onRetry, head, row, key, emptyTitle = "Nothing here yet", emptyDescription, emptyIcon, emptyAction, filtered = false, onClearFilters, caption }: Props = $props();
+
+  const denial = $derived(accessDenied(error));
+  const message = $derived(errorText(error));
 </script>
 
-{#if error}
-  <StateBlock state="error" message={items?.length ? `Refresh failed. Showing previously loaded data. ${error}` : error} {onRetry} />
+<!-- A denial replaces the table: nothing restricted stays on screen once the server says no. -->
+{#if denial}
+  <StateBlock state="denied" capability={denial.capability} />
+{:else if message}
+  <StateBlock state="error" message={items?.length ? `Refresh failed. Showing previously loaded data. ${message}` : message} {onRetry} />
 {/if}
-{#if loading && !items?.length}
+{#if !denial && loading && !items?.length}
   <StateBlock state="loading" />
-{:else if !error && (!items || items.length === 0)}
+{:else if !denial && !message && (!items || items.length === 0)}
   <StateBlock
     state="empty"
     message={filtered ? "No matches" : emptyTitle}
@@ -45,10 +56,10 @@
     icon={emptyIcon}
     action={filtered ? clearFilters : emptyAction}
   />
-{:else if items?.length}
+{:else if !denial && items?.length}
   {#if loading}<p role="status" class="text-body-sm text-muted-foreground">Refreshing… Previously loaded data remains visible.</p>{/if}
   <div class="min-w-0 max-w-full rounded-md border" aria-busy={loading}>
-    <Table.Root regionLabel={caption ?? emptyTitle}>
+    <Table.Root regionLabel={caption ?? emptyTitle} stickyHeader>
       {#if caption}<Table.Caption class="sr-only">{caption}</Table.Caption>{/if}
       <Table.Header><Table.Row>{@render head()}</Table.Row></Table.Header>
       <Table.Body>

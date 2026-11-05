@@ -139,7 +139,7 @@
   {#if !loading && !error && toc.length}
     <aside aria-label="Article contents" class="hidden xl:block">
       <div class="sticky top-4">
-        <p class="mb-2 text-caption uppercase tracking-wider text-muted-foreground">On this page</p>
+        <p class="section-label mb-2">On this page</p>
         <nav aria-label="Table of contents">
           <ul class="space-y-0.5 border-l border-border">
             {#each toc as entry}

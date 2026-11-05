@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "node --test 'src/**/*.test.ts'",
     "test:e2e": "playwright test",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run test",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run test && npm run slop",
+    "slop": "bash ../scripts/slop-grep.sh src",
     "shots:readme": "node scripts/readme-shots/capture.ts",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:e2e:cross-browser": "playwright test --config playwright.cross.config.ts"

@@ -32,12 +32,12 @@
     <div class="flex flex-row items-start justify-between gap-3">
       <div class="min-w-0">
         {#if headingLevel === 3}
-          <h3 class="text-sm font-semibold">{title}</h3>
+          <h3 class="text-h2">{title}</h3>
         {:else}
-          <h2 class="text-sm font-semibold">{title}</h2>
+          <h2 class="text-h2">{title}</h2>
         {/if}
         {#if description}
-          <p class="mt-0.5 text-sm leading-normal text-muted-foreground">
+          <p class="mt-0.5 text-body-sm text-muted-foreground">
             {description}
         </p>
         {/if}

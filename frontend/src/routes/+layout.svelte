@@ -8,6 +8,7 @@
   import { base } from "$app/paths";
   import { browser } from "$app/environment";
   import { QueryClient, QueryClientProvider } from "@tanstack/svelte-query";
+  import { accessDenied } from "$lib/api/access-denied";
   import { ModeWatcher } from "mode-watcher";
   import AppShell from "$lib/components/layout/AppShell.svelte";
   import CommandPalette from "$lib/components/command-palette/CommandPalette.svelte";
@@ -39,7 +40,8 @@
 
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 },
+      // A 403 will not change on retry; show "No access" at once.
+      queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: (failures, error) => !accessDenied(error) && failures < 1 },
     },
   });
 

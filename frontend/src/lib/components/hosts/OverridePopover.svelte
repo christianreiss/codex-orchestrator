@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   /**
    * A labeled row showing an effective value plus where it came from (host
    * override vs fleet default), with an inline popover editor — the
@@ -64,6 +65,7 @@
   $effect(() => {
     if (open) { draft = override ?? ""; error = ""; }
   });
+  const dirty = $derived(open && draft.trim() !== (override ?? ""));
 
   async function save(): Promise<void> {
     busy = true;
@@ -92,6 +94,7 @@
   }
 </script>
 
+<DraftGuard {dirty} />
 <div class="flex items-center justify-between gap-3 border-b py-2.5 last:border-b-0">
   <div class="min-w-0">
     <div class="text-body">{label}</div>
@@ -145,11 +148,11 @@
       <div class="flex justify-end gap-2">
         {#if override}
           <Button variant="ghost" size="sm" onclick={clearOverride} disabled={busy}>
-            Clear
+            Clear override
           </Button>
         {/if}
         <Button size="sm" onclick={save} disabled={busy || options?.find(option => option.value === draft)?.disabled}>
-          {busy ? "Saving…" : "Save"}
+          {busy ? "Saving…" : "Save override"}
         </Button>
       </div>
     </Popover.Content>

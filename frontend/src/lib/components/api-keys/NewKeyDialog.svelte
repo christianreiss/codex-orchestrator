@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { untrack } from "svelte";
   import { toast } from "svelte-sonner";
@@ -108,7 +109,7 @@
 </script>
 
 <Dialog.Root bind:open={() => open, handleDialogOpenChange}>
-  <Dialog.Content class="flex max-h-[calc(100dvh-2rem)] max-w-[960px] flex-col gap-0 overflow-hidden p-0 sm:p-0">
+  <Dialog.Content size="wide" class="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:p-0">
     <Dialog.Header class="shrink-0 border-b p-5 pr-14 text-left sm:p-6 sm:pr-14">
       <Dialog.Title class="flex items-center gap-2">
         <KeyRound class="h-5 w-5 {issued ? 'text-success' : 'text-muted-foreground'}" />
@@ -135,7 +136,7 @@
             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-body">
               <dt class="text-muted-foreground">API format</dt><dd>{FORMAT_LABEL[connection.format]}</dd>
               <dt class="text-muted-foreground">Engine</dt><dd class="font-medium">{BACKEND_LABEL[connection.backend]}</dd>
-              <dt class="text-muted-foreground">Expires</dt><dd>{issued.record.expires_at ? new Date(issued.record.expires_at).toLocaleString() : "Never"}</dd>
+              <dt class="text-muted-foreground">Expires</dt><dd>{issued.record.expires_at ? formatDateTime(issued.record.expires_at) : "Never"}</dd>
               <dt class="text-muted-foreground">Availability</dt><dd><span role="status">{availability}</span></dd>
             </dl>
             <p class="text-caption text-muted-foreground">This key keeps its assigned engine when the endpoint default changes.</p>

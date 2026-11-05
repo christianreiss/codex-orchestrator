@@ -137,7 +137,7 @@
   </details>
 
   <div class="flex gap-2 sm:col-span-2">
-    <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
+    <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save schedule"}</Button>
     <Button type="button" variant="outline" onclick={cancel}>Cancel</Button>
   </div>
   </fieldset>

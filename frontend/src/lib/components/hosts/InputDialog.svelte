@@ -14,7 +14,8 @@
     label: string;
     placeholder?: string;
     initialValue?: string | null;
-    confirmLabel?: string;
+    /** Names the action and its object, e.g. "Pin document". */
+    confirmLabel: string;
     /** Allow clearing the field to send null. */
     allowEmpty?: boolean;
     /** When set, render an editable model combobox (constant suggestions) instead of a plain input. */
@@ -30,7 +31,7 @@
     label,
     placeholder,
     initialValue,
-    confirmLabel = "Save",
+    confirmLabel,
     allowEmpty = true,
     options,
     onSubmit,
@@ -67,7 +68,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="sm:max-w-md">
+  <Dialog.Content size="sm">
     <Dialog.Header>
       <Dialog.Title>{title}</Dialog.Title>
       {#if description}<Dialog.Description>{description}</Dialog.Description>{/if}

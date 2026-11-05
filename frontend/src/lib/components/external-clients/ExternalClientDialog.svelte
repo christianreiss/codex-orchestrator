@@ -38,7 +38,7 @@
 </script>
 
 <Dialog.Root {open} onOpenChange={(next) => { if (!next) onClose(); }}>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     <form class="grid gap-3" onsubmit={(event) => { event.preventDefault(); onSubmit({ name, description, trust, enabled }); }}>
       <Dialog.Header>
         <Dialog.Title>{client ? `Edit ${client.name}` : "New external client"}</Dialog.Title>
@@ -63,7 +63,7 @@
       </label>
       <Dialog.Footer>
         <Button type="button" variant="outline" onclick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={busy || name.trim() === ""}>{client ? "Save" : "Create client"}</Button>
+        <Button type="submit" disabled={busy || name.trim() === ""}>{client ? "Save client" : "Create client"}</Button>
       </Dialog.Footer>
     </form>
   </Dialog.Content>

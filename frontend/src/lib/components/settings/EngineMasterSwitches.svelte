@@ -105,7 +105,7 @@
 
   function describe(engine: Engine): string {
     if ($query.isPending) return "Loading current state…";
-    if ($query.isError) return `Could not load: ${$query.error?.message ?? "unknown error"}`;
+    if ($query.isError) return `Could not load engine switches: ${$query.error?.message || "the server returned no reason"}`;
     const row = view.row(engine);
     if (!row) return "State unavailable.";
     const hostsText = `${row.assigned_hosts} ${row.assigned_hosts === 1 ? "host" : "hosts"} assigned`;

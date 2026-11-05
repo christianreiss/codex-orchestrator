@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { cn } from "$lib/utils/cn";
+  import { Badge, type BadgeVariant } from "$lib/components/ui/badge";
 
   type Props = {
     role: string | null | undefined;
@@ -9,31 +9,26 @@
   let { role, label, class: className }: Props = $props();
 
   /**
-   * Color-coded per spec: owner = solid primary (apex role, emphasis not
-   * hue -- the warm repaint leaves too little hue distance between accent
-   * and warning to tell them apart, see below), admin = destructive,
-   * viewer = slate, fleet_operator = warning, trusted_user = info,
-   * user = gray. Falls back to gray for unknown roles.
-   *
-   * viewer/user stay on raw slate/gray: they're neutral grays outside the
-   * indigo/violet -> terracotta/amber repaint, not a status signal, so
-   * there's no semantic token for them to move to.
+   * Shared Badge variants only (DESIGN.md VIS-1/VIS-4): owner is the solid
+   * primary badge (apex role, emphasis not hue), admin the soft destructive,
+   * fleet_operator warning, trusted_user info. viewer and user are neutral
+   * (secondary/outline), as is any unknown role. The label always names the
+   * role, so color is never the only cue.
    */
-  function variantClasses(r: string | null | undefined): string {
+  function variantFor(r: string | null | undefined): BadgeVariant {
     switch ((r ?? "").toLowerCase()) {
       case "owner":
-        return "border-transparent bg-primary text-primary-foreground";
+        return "default";
       case "admin":
-        return "border-destructive/25 bg-destructive-muted text-destructive-muted-foreground";
+        return "danger";
       case "fleet_operator":
-        return "border-warning/25 bg-warning-muted text-warning-muted-foreground";
+        return "warning";
       case "trusted_user":
-        return "border-info/25 bg-info-muted text-info-muted-foreground";
+        return "info";
       case "viewer":
-        return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300";
-      case "user":
+        return "secondary";
       default:
-        return "border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300";
+        return "outline";
     }
   }
 
@@ -49,12 +44,4 @@
   const displayLabel = $derived(label ?? DEFAULT_LABELS[(role ?? "").toLowerCase()] ?? role ?? "Unknown");
 </script>
 
-<span
-  class={cn(
-    "inline-flex items-center rounded-md border px-2 py-0.5 text-caption font-medium",
-    variantClasses(role),
-    className,
-  )}
->
-  {displayLabel}
-</span>
+<Badge variant={variantFor(role)} class={className}>{displayLabel}</Badge>

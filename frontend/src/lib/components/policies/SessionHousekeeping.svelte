@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { untrack } from "svelte";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
@@ -96,7 +97,7 @@
       {/each}
     </div>
   {/if}
-  {#if lastRun}<p class="text-caption text-muted-foreground">Last host report: {lastRun.engine} · {lastRun.outcome} · {new Date(lastRun.observed_at).toLocaleString()} · {((lastRun.freed_bytes ?? 0) / 1024 ** 3).toFixed(2)} GiB reclaimed</p>{/if}
+  {#if lastRun}<p class="text-caption text-muted-foreground">Last host report: {lastRun.engine} · {lastRun.outcome} · {formatDateTime(lastRun.observed_at)} · {((lastRun.freed_bytes ?? 0) / 1024 ** 3).toFixed(2)} GiB reclaimed</p>{/if}
   {#if editorOpen}
     <div class="space-y-3 border-t pt-3">
       <h3 class="text-body font-semibold capitalize">{engine} rule</h3>
@@ -126,7 +127,7 @@
   help="Keep recent conversations and remove older sessions to reclaim disk space, per engine and local user."
   details="Deletion permanently removes transcripts and their session history. Active sessions, pins, open goals, queued work and fleet resume or wake bindings stay protected. Protected or young sessions may exceed the budget. cxx waits for an idle engine and checks at most daily after a successful run."
 >
-  {#if lastRun}<p class="text-caption text-muted-foreground">Last host report: {lastRun.engine} · {lastRun.outcome} · {new Date(lastRun.observed_at).toLocaleString()} · {((lastRun.freed_bytes ?? 0) / 1024 ** 3).toFixed(2)} GiB reclaimed</p>{/if}
+  {#if lastRun}<p class="text-caption text-muted-foreground">Last host report: {lastRun.engine} · {lastRun.outcome} · {formatDateTime(lastRun.observed_at)} · {((lastRun.freed_bytes ?? 0) / 1024 ** 3).toFixed(2)} GiB reclaimed</p>{/if}
   <div class="flex flex-wrap items-center gap-3">
     <label for="housekeeping-engine-fleet" class="text-body-sm font-medium">Engine</label>
     <select id="housekeeping-engine-fleet" class="h-9 rounded-md border bg-background px-3 text-body-sm" bind:value={engine} disabled={$save.isPending}>

@@ -67,9 +67,9 @@
   onkeydown={handleKeydown}
   onpaste={handlePaste}
   class={cn(
-    "block w-full rounded-md border-2 border-input bg-background px-4 py-3 text-center font-mono text-2xl font-semibold uppercase tracking-[0.35em] text-foreground transition-colors",
+    "block w-full rounded-md border-2 border-input bg-background px-4 py-3 text-center font-mono text-2xl font-semibold uppercase tracking-[0.35em] text-foreground transition-colors", // slop-ok: device code mirrors the printed XXXX-9999 form
     "placeholder:text-muted-foreground/40 placeholder:tracking-[0.35em] placeholder:font-normal",
-    "focus-visible:border-ring focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/15",
+    "ring-offset-background focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
     "disabled:cursor-not-allowed disabled:opacity-60",
     className,
   )}

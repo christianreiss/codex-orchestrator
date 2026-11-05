@@ -44,7 +44,7 @@
   const canSubmit = $derived(header.trim().length > 0 && body.trim().length > 0);
 </script>
 
-<DraftGuard {dirty} />
+<DraftGuard {dirty} preserveOnSamePath />
 <form class="flex flex-col gap-3" onsubmit={(e) => { e.preventDefault(); $mutation.mutate(); }}>
   <SaveState pending={$mutation.isPending} error={$mutation.error} {dirty} />
   <fieldset disabled={$mutation.isPending} class="contents">
@@ -52,7 +52,7 @@
   <div class="grid gap-1.5"><Label for="note-body">Body</Label><Textarea id="note-body" bind:value={body} rows={12} placeholder="Note contents…" /></div>
   <div class="flex justify-end gap-2 pt-2">
     <Button variant="ghost" type="button" onclick={cancel}>Cancel</Button>
-    <Button type="submit" disabled={!canSubmit || $mutation.isPending}><Save class="h-4 w-4" />{$mutation.isPending ? "Saving…" : "Save"}</Button>
+    <Button type="submit" disabled={!canSubmit || $mutation.isPending}><Save class="h-4 w-4" />{$mutation.isPending ? "Saving…" : "Save note"}</Button>
   </div>
   </fieldset>
 </form>

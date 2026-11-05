@@ -24,7 +24,7 @@
 </script>
 
 <Dialog.Root {open} onOpenChange={(next) => { if (!next) onClose(); }}>
-  <Dialog.Content class="sm:max-w-md">
+  <Dialog.Content size="sm">
     <Dialog.Header>
       <Dialog.Title>{title}</Dialog.Title>
       {#if description}<Dialog.Description>{description}</Dialog.Description>{/if}

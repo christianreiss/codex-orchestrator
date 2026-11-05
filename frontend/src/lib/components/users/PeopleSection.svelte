@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * People (admin users): one compact table, email under the name, a quick
@@ -29,6 +30,7 @@
   } from "$lib/api/users";
   import { USER_ROLES, type AdminUser, type AdminUserPayload } from "$lib/api/types";
   import { authStore } from "$lib/stores/auth";
+  import { loadFailure } from "$lib/api/access-denied";
 
   type SortKey = "person" | "role" | "status" | "last_login";
 
@@ -42,13 +44,15 @@
   const updateMut = createUserUpdateMutation();
   const deleteMut = createUserDeleteMutation();
 
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   let sortKey = $state<SortKey>("person");
   let sortDir = $state<"asc" | "desc">("asc");
   let formOpen = $state(false);
   let formMode = $state<"create" | "edit">("create");
   let editTarget = $state<AdminUser | null>(null);
   let deleteOpen = $state(false);
+  let deleteError = $state<string | null>(null);
   let deleteTarget = $state<AdminUser | null>(null);
   let pendingActiveIds = $state(new Set<number | string>());
 
@@ -90,7 +94,7 @@
 
   function openAdd() { formMode = "create"; editTarget = null; formOpen = true; }
   function openEdit(user: AdminUser) { formMode = "edit"; editTarget = user; formOpen = true; }
-  function openDelete(user: AdminUser) { deleteTarget = user; deleteOpen = true; }
+  function openDelete(user: AdminUser) { deleteTarget = user; deleteError = null; deleteOpen = true; }
 
   function clearUserParam(): void {
     if (!page.url.searchParams.has("user")) return;
@@ -153,14 +157,14 @@
       deleteOpen = false;
       deleteTarget = null;
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delete failed");
+      deleteError = `Could not delete ${target.username}: ${(err instanceof Error && err.message) || "the server returned no reason"}`;
     }
   }
 </script>
 
 <Section id="people" title="People" hideTitle>
   <div class="space-y-3">
-    <Toolbar bind:search searchPlaceholder="Filter people" count={query ? `${rows.length} of ${users.length}` : `${users.length} ${users.length === 1 ? "person" : "people"}`}>
+    <Toolbar bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()} searchPlaceholder="Filter people" count={query ? `${rows.length} of ${users.length}` : `${users.length} ${users.length === 1 ? "person" : "people"}`}>
       {#snippet actions()}
         {#if canManage}<Button onclick={openAdd}><Plus class="h-4 w-4" />Add person</Button>{/if}
       {/snippet}
@@ -169,10 +173,11 @@
     <DataTable
       items={rows}
       loading={$usersQuery.isLoading}
-      error={$usersQuery.isError ? `Failed to load people: ${$usersQuery.error?.message ?? "Unknown error"}` : null}
+      error={$usersQuery.isError ? loadFailure($usersQuery.error, "Failed to load people") : null}
       onRetry={() => void $usersQuery.refetch()}
       key={(u) => u.id}
       filtered={query !== ""}
+      onClearFilters={() => filterState.clear()}
       emptyTitle="No people"
       emptyDescription="This should be unreachable while you are signed in."
       caption="Admin users"
@@ -208,7 +213,7 @@
           </Table.Cell>
           <Table.Cell class="hidden text-body-sm md:table-cell">
             {#if user.last_login_at}
-              <span title={new Date(user.last_login_at).toLocaleString()}><Timestamp value={user.last_login_at} /></span>
+              <Timestamp value={user.last_login_at} />
             {:else}
               <span class="text-muted-foreground">Never</span>
             {/if}
@@ -219,7 +224,7 @@
                 label={`Actions for ${user.username}`}
                 actions={[
                   { label: "Edit", icon: Pencil, onClick: () => openEdit(user) },
-                  { label: "Delete", icon: Trash2, destructive: true, onClick: () => openDelete(user) },
+                  { label: "Delete person", icon: Trash2, destructive: true, onClick: () => openDelete(user) },
                 ]}
               />
             {:else}
@@ -248,5 +253,6 @@
   confirmLabel="Delete person"
   destructive
   busy={$deleteMut.isPending}
+  error={deleteError}
   onConfirm={handleDeleteConfirm}
 />

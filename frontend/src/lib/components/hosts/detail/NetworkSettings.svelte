@@ -46,7 +46,7 @@
 </script>
 
 <div>
-  <h3 class="mb-1 text-h3">Network and IP</h3>
+  <h3 class="mb-1 text-h2">Network and IP</h3>
   <dl class="mb-2 flex flex-wrap gap-x-6 gap-y-1 text-body-sm text-muted-foreground">
     <div><dt class="mr-1.5 inline">IPv4</dt><dd class="inline font-mono">{host.ip4 ?? "none"}</dd></div>
     <div><dt class="mr-1.5 inline">IPv6</dt><dd class="inline font-mono">{host.ip6 ?? "none"}</dd></div>

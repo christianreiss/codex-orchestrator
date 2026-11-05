@@ -6,7 +6,7 @@
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
-  import { PageShell, Section, StateBlock, StatStrip, type Stat } from "$lib/components/page";
+  import { PageShell, Section, StateBlock, StatStrip, Timestamp, type Stat } from "$lib/components/page";
   import { ENGINES, ENGINE_META } from "$lib/constants/engines";
   import { Button } from "$lib/components/ui/button";
   import * as Tabs from "$lib/components/ui/tabs";
@@ -19,6 +19,7 @@
   import RunnerStatus from "$lib/components/dashboard/RunnerStatus.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Plus from "@lucide/svelte/icons/plus";
+  import { loadFailure } from "$lib/api/access-denied";
 
   const overview = overviewQuery();
   const accounts = accountsQuery();
@@ -32,6 +33,10 @@
   }
 
   const fetching = $derived($overview.isFetching || $accounts.isFetching);
+  // Freshness of what the page shows: the older of the two snapshots (0 = never loaded).
+  const updatedAt = $derived(
+    $overview.dataUpdatedAt && $accounts.dataUpdatedAt ? Math.min($overview.dataUpdatedAt, $accounts.dataUpdatedAt) : 0,
+  );
   function refresh() {
     void Promise.all([$overview.refetch(), $accounts.refetch(), $runner.refetch()]);
   }
@@ -65,6 +70,9 @@
 
 <PageShell title="Overview" description="Provider quota, installed engines and login verification.">
   {#snippet actions()}
+    {#if updatedAt}
+      <span class="text-body-sm text-muted-foreground">{#if fetching}Refreshing…{:else}Updated <Timestamp value={updatedAt} live />{/if}</span>
+    {/if}
     <Button variant="outline" onclick={refresh} disabled={fetching}>
       <RefreshCw class="h-4 w-4 {fetching ? 'animate-spin' : ''}" /> Refresh
     </Button>
@@ -78,7 +86,8 @@
     {#if $overview.isError}
       <StateBlock
         state="error"
-        message={`${$overview.data ? "Overview could not refresh; showing the last snapshot" : "Could not load fleet overview"}: ${$overview.error?.message ?? "unknown error"}`}
+        cause={$overview.error}
+        message={`${$overview.data ? "Overview could not refresh; showing the last snapshot" : "Could not load fleet overview"}: ${$overview.error?.message || "the server returned no reason"}`}
         onRetry={() => $overview.refetch()}
       />
     {/if}
@@ -98,7 +107,7 @@
       <UsageTable
         accounts={accountRows}
         loading={$accounts.isPending}
-        error={$accounts.isError && !accountRows ? `Could not load provider accounts: ${$accounts.error?.message ?? "unknown error"}` : null}
+        error={$accounts.isError && !accountRows ? loadFailure($accounts.error, "Could not load provider accounts") : null}
         onRetry={() => $accounts.refetch()}
       />
       {#if $accounts.isError && accountRows}

@@ -17,6 +17,7 @@ import {
 } from "$lib/api/hosts";
 import { engineLabel } from "$lib/constants/engines";
 import type { HostEngine, HostEngineReadinessReason, HostListItem } from "$lib/api/types";
+import { formatDateTime } from "$lib/utils/format";
 
 /** What the Fix button does. The component owning the page wires each kind. */
 export type AttentionFixKind = "install" | "review-access" | "close-window" | "engines-page";
@@ -111,7 +112,7 @@ export function hostAttention(host: HostListItem, ctx: AttentionContext = {}): A
     items.push({
       id: "temp-access",
       tone: "info",
-      text: `Temporary access is open until ${new Date(host.insecure_enabled_until ?? "").toLocaleString()}`,
+      text: `Temporary access is open until ${formatDateTime(host.insecure_enabled_until ?? "")}`,
       hint: "Closes the window now.",
       fix: "close-window",
     });

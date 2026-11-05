@@ -59,7 +59,7 @@
 </script>
 
 {#if $query.isError}
-  <StateBlock state="error" message={`Could not load quota policy: ${$query.error.message}`} onRetry={() => $query.refetch()} />
+  <StateBlock state="error" cause={$query.error} message={`Could not load quota policy: ${$query.error.message}`} onRetry={() => $query.refetch()} />
 {:else if !draft}
   <p role="status" class="text-body-sm text-muted-foreground">Loading quota policy…</p>
 {:else}

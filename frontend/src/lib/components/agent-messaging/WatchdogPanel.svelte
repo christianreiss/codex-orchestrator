@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   /** Per-address watchdog: resume the same session after a crash, hang or capacity failure. */
   import { writable } from "svelte/store";
   import { toast } from "svelte-sonner";
@@ -24,7 +25,7 @@
   const quotaRun = $derived($query.data?.quota_runs?.[0]);
   const current = $derived($query.data?.watchdogs.find((w) => LIVE.includes(w.status)) ?? (quotaRun ? undefined : $query.data?.watchdogs[0]));
   const active = $derived(!!current && LIVE.includes(current.status));
-  const when = (value: string | null | undefined) => (value ? new Date(value).toLocaleString() : "none");
+  const when = (value: string | null | undefined) => (value ? formatDateTime(value) : "none");
 
   async function enable() {
     try {

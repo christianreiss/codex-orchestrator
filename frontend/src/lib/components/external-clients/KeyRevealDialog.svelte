@@ -9,7 +9,7 @@
 </script>
 
 <Dialog.Root open={reveal !== null} onOpenChange={(next) => { if (!next) onClose(); }}>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     <Dialog.Header>
       <Dialog.Title>{reveal?.rotated ? "New key for" : "Key for"} {reveal?.name}</Dialog.Title>
       <Dialog.Description>

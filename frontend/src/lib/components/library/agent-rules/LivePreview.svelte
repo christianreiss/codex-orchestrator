@@ -19,7 +19,7 @@
 <section class="min-w-0 space-y-2" aria-label="Live preview">
   <div class="flex flex-wrap items-center justify-between gap-2">
     <div class="min-w-0">
-      <h2 class="text-h3">
+      <h2 class="text-h2">
         {effective ? "Effective AGENTS.md" : doc.builderMode ? "Generated canonical base" : "Stored canonical base"}
       </h2>
       <p class="text-body-sm text-muted-foreground">

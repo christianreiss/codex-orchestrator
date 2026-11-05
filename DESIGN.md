@@ -4,7 +4,7 @@
 
 This is the single design authority for every browser surface in this repository, including signed-out screens, setup, operator chat, help, overlays and failure states. It replaces the former admin-only design specification. It governs presentation and interaction; API contracts, permissions, authentication and provider ownership remain defined by their interface documents.
 
-**Adoption is not implementation.** This documentation step changes no UI. The source inventory below records the baseline at `bfa7ed5630e7bdb562349e3b6203339228260368`, including the 2026-10-17 consolidation. Existing pages have not been certified against this standard. Application and automated enforcement are step 2.
+**Adoption is not implementation.** This documentation step changes no UI. The source inventory below records the baseline at `bfa7ed5630e7bdb562349e3b6203339228260368`, including the 2026-10-17 consolidation. Existing pages have not been certified against this standard. Application and automated enforcement are step 2; the 2026-11-05 slices applied it to the shared primitives and added the `npm run slop` gate (section 9), which still certifies no page.
 
 ## 1. How to use and enforce this document
 
@@ -62,7 +62,7 @@ Sources were opened and reviewed on **2026-10-18**. “2026” describes the res
 
 **NAV-3 — Actions and disclosure [V/M; S11/P].** Give one action visual priority per task region. Put list-wide actions in the toolbar or page header, row actions beside the row, and selection actions beside the selection count. Do not duplicate the same primary action in header and toolbar. Frequent actions and active problems MUST NOT be hidden under “Advanced”. Collapsed sections use descriptive names such as “Network and access overrides”. Destructive settings sit last, separated from routine controls.
 
-**NAV-4 — Navigation depth [A/M; S9/P].** Preserve the current nine hubs and footer utilities as the starting structure. Use at most one local peer-navigation row; nested tab bars are prohibited. In-page panels use proper tab semantics and keyboard behavior; route destinations use links with current-location semantics. Filters, selection and pagination SHOULD survive back/forward navigation and use URL state where safe; credentials and message bodies MUST NOT enter URLs.
+**NAV-4 — Navigation depth [A/M; S9/P].** Preserve the current nine hubs and footer utilities as the starting structure. Use at most one local peer-navigation row; nested tab bars are prohibited. In-page panels use proper tab semantics and keyboard behavior; route destinations use links with current-location semantics. Filters, selection and pagination SHOULD survive back/forward navigation and use URL state where safe; credentials and message bodies MUST NOT enter URLs. List filters use `UrlFilters` (`frontend/src/lib/utils/url-filters.svelte.ts`): defaults stay out of the query string, other parameters are preserved, and writes are debounced `replaceState` navigations that keep focus and scroll.
 
 | Pattern | Composition and acceptance rule | Existing building blocks | Verification |
 | --- | --- | --- | --- |
@@ -104,6 +104,58 @@ owning components when moving a setting; update this table in the same change.
 
 ## 4. Visual foundations
 
+### Product identity
+
+**Register:** product, not brand. The console is a tool operators work in, not a page that sells; identity comes from consistency, not decoration.
+
+**Usage scene:** one fleet owner or a few admins at a desktop monitor, in sessions spread over the working day, comparing hosts, accounts and agent conversations in dense tables; occasionally a phone to answer an alert or approve a host. Hence the compact density, 14 px body text and the default theme `system`: light for daylit desks and long tables, dark for evening and low-light sessions. Both themes carry the same meaning and hierarchy (VIS-4).
+
+**Signature:** the navy sidebar rail. It stays dark in both themes, holds the brand mark and marks the current hub in signal blue. Everything else stays neutral, so color in the work area means state.
+
+**Palette.** Hex values are derived from the HSL tokens in [tokens.css](frontend/src/lib/styles/tokens.css), which stay authoritative; every status color has a matched `-muted` / `-muted-foreground` pair.
+
+| Name (token) | Light | Dark | Role |
+| --- | --- | --- | --- |
+| Canvas (`--background`) | `#f9fafb` | `#0b111e` | Page canvas |
+| Ink (`--foreground`) | `#0f1729` | `#f1f5f9` | Text and icons |
+| Surface (`--card`, `--popover`) | `#ffffff` | `#141a29` | Bounded independent surfaces and overlays |
+| Quiet ink (`--muted-foreground`) | `#4d596a` | `#a3b0c2` | Supporting text, never essential instructions |
+| Rule (`--border`) | `#d1d8e0` | `#30384b` | Separators and container edges (decorative) |
+| Field edge (`--input`) | `#5c6f8a` | `#7e90a9` | Required input boundaries (3:1, ACC-2) |
+| Signal blue (`--primary`, `--info`, `--ring`) | `#0a54cd` | `#61a6fa` | Primary action, selection, focus, information |
+| Alarm red (`--destructive`) | `#b81e1e` | `#ed7878` | Failure and destructive actions |
+| Caution amber (`--warning`) | `#9d5407` | `#fabd42` | Warnings and degraded state |
+| Healthy green (`--success`) | `#157a3a` | `#2fc666` | Confirmed success |
+| Rail navy (`--sidebar-bg`) | `#0f1729` | `#080c16` | Sidebar rail (dark in both themes) |
+| Personas (`--persona-codex` / `-claude` / `-grok`) | `#0a7bb8` / `#7a35b6` / `#206f54` | same | Engine identity, never health; text on them is `--persona-foreground` |
+
+**Type families.** Inter is a screen-first UI sans with a compact x-height that stays legible at 13–14 px, tabular figures for numeric columns and open digits (`ss01`, set on `body`). JetBrains Mono separates `0/O` and `1/l/I`, which identifiers, FQDNs, keys and commands need. Both are self-hosted variable fonts from `/admin/fonts` (no third-party request, one file per subset).
+
+**Shell layout** (`AppShell`, `Sidebar`, `TopBar`, `MobileNav`):
+
+```
++-----------+-------------------------------------------------------+
+| Sidebar   | Top bar 48 px: breadcrumb | search (Cmd-K) | live,    |
+| rail      | temporary-access and report indicators | appearance   |
+| 56 px md, +-------------------------------------------------------+
+| 256 px lg | main#main-content: inset 16 / 24 px, max 1600 px      |
+|           |   PageShell: h1 + one primary action                  |
+| hubs      |   at most one local tab row                           |
+|           |   Toolbar: search, filters, count, Clear filters      |
+| account,  |   DataTable / Sections / workspace                    |
+| utilities |                                                       |
++-----------+-------------------------------------------------------+
+Below 768 px: no rail; MobileNav (64 px) and the Chatty launcher sit
+at the bottom and main keeps scroll padding above them.
+```
+
+Alignment is left; only empty states and single-task authentication center.
+
+**Already rejected** (do not reintroduce):
+
+- Pink theme family (`bright-pink`, `auto-pink`): dropped from the theme picker in 2026-05. A second color family would compete with the status colors; stored preferences still normalize to light/system (`stores/theme.ts`).
+- Cream/terracotta “warm operator console” (2026-08: Paper/Ink themes, terracotta accents, serif headings): replaced by this neutral palette. The design guidelines list `#F4F1EA` / `#D97757` as a common generated-UI default; the unused fallback `utils/theme-colors.ts` was deleted on 2026-11-05 and `npm run slop` flags both values.
+
 **VIS-1 — Shared implementation [A/V; P].** Reuse [page primitives](frontend/src/lib/components/page/index.ts), shared `ui/` controls and [semantic tokens](frontend/src/lib/styles/tokens.css). [Tailwind configuration](frontend/tailwind.config.ts) maps implementation utilities. Do not introduce page-local colors, radii, type scales or shadow systems. A missing shared capability belongs in the shared layer during step 2.
 
 ### Typography (target scale)
@@ -120,15 +172,15 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 | Caption | 0.75rem / 1.4 / 500 (12 px) | Timestamps and secondary metadata |
 | Reading / composer / touch input | 1rem / 1.6 / 400 (16 px) | Long articles, message text and touch text entry |
 
-**VIS-2 — Readable hierarchy [V/M; P].** These roles MUST replace arbitrary sizes when a surface is migrated. Essential content MUST NOT use the existing 11 px overline. Avoid all-caps prose; sentence case is the default. Keep primary titles visible through wrapping or a keyboard/touch-accessible full-name view. Technical strings may break or scroll within their own region. Use tabular numerals for aligned measurements; right-align comparable numbers, left-align text.
+**VIS-2 — Readable hierarchy [V/M; P].** These roles MUST replace arbitrary sizes when a surface is migrated. Essential content MUST NOT rely on the overline (`.section-label`: 12 px tracked capitals in muted ink); it labels groups only, and apart from the device-code input it is the one place for uppercase tracking. Avoid all-caps prose; sentence case is the default. Keep primary titles visible through wrapping or a keyboard/touch-accessible full-name view. Technical strings may break or scroll within their own region. Use tabular numerals for aligned measurements; right-align comparable numbers, left-align text. The shared table (`ui/table`) sets body-size text and `tabular-nums` on every cell; a numeric column adds `text-right` to its head and cells. `DataTable` bounds its scroll region to the viewport from 768 px up so the header stays visible while rows scroll; below that the region is unbounded and the header scrolls with the page (a nested vertical scroller on a phone traps touch scrolling).
 
-The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and `text-h2` is 22 px. The table above is the target, not a claim that those aliases already match it. Consolidate their consumers in step 2 instead of adding another title convention.
+`text-h1` is the 20 px page title; `PageShell` and `AuthShell` use it. `text-h2` is the 16 px section heading for `Section`, `SectionCard`, card, dialog and sheet titles. The former `text-h3` alias of the same size was folded into `text-h2` on 2026-11-05 and removed from the Tailwind scale; the utility name does not set the HTML heading level. Do not add another title convention.
 
 ### Geometry and density
 
 | Property | Binding default (P) | Application |
 | --- | --- | --- |
-| Spacing scale | 4, 8, 12, 16, 24, 32 px, expressed in rem | 4–8 within a control; 12 between related fields; 16 between blocks; 24–32 between task sections |
+| Spacing scale | 4, 8, 12, 16, 24, 32 px, expressed in rem; 2 and 6 px micro steps inside a control only | 2–8 within a control (badge padding, icon-to-label gap); 12 between related fields; 16 between blocks; 24–32 between task sections. 10, 14 and 20 px (`*-2.5`, `*-3.5`, `*-5`; about 100 uses) are off-scale debt: move to the nearest step when touching the file, add no new ones |
 | Page inset | 16 px narrow; 24 px from 768 px viewport width | One owner for outer padding; avoid doubled shell/page gutters |
 | Data workspace | Available width (`PageShell` wide) | Tables, boards, graphs, comparison and editor-with-preview |
 | Standard workspace | 72rem maximum (`PageShell` default) | Mixed task pages |
@@ -137,31 +189,32 @@ The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and
 | Auth form / setup | 24rem / 56rem maximum | Narrow sign-in and wider staged setup respectively |
 | Desktop controls | 36 px normal; 32 px compact table/toolbar | Minimum heights; multiline content may grow |
 | Touch targets | At least 44 × 44 CSS px for standalone controls on coarse pointers | Expand hit areas without overlapping adjacent targets; applies on hybrid devices too |
-| Table rows | 40 px minimum normal; 36 px compact; 48 px or more for multiline/touch rows | One density per table; never clip wrapping content to force a height |
-| Corners | 4 px controls; 6 px containers/overlays | Existing `--radius-sm` and `--radius`; circles only for genuine circular affordances/avatars |
+| Table rows | 40 px minimum normal; 36 px compact; 48 px or more for multiline/touch rows | One density per table, no density switch (EX-2); never clip wrapping content to force a height |
+| Corners | 4 px controls; 6 px containers/overlays | Existing `--radius-sm` and `--radius`: `rounded`/`rounded-md` on controls and menu items, `rounded-lg` on cards, dialogs, popovers, menus, tooltips and toasts. No arbitrary `rounded-[…]`; circles only for genuine circular affordances/avatars |
 | Icons | 16 px inline; 20 px navigation/touch control glyph | One Lucide family; accessible hit area independent of glyph |
-| Borders / elevation | 1 px semantic border; ordinary surfaces no shadow; overlay uses `--shadow-pop` | Group primarily through alignment, headings and spacing |
+| Borders / elevation | 1 px semantic border; ordinary surfaces no shadow; overlay uses `--shadow-pop` | Group primarily through alignment, headings and spacing; `shadow-pop` is the only overlay shadow (no raw `shadow-md`/`shadow-lg`) |
+| Dialog widths | `DialogContent size`: `sm` 28rem, `md` 32rem (default), `lg` 36rem, `xl` 42rem, `wide` 64rem | `sm` confirmations and short input; `md` ordinary forms; `lg` multi-field forms; `xl` rich editors and pickers; `wide` previews and side-by-side content. No ad-hoc `max-w-[…px]` on a dialog |
 | Motion | 120 ms color/focus feedback via `--dur`; at most 200 ms functional opening/closing | No entry choreography; reduced motion removes travel and decorative animation |
 
 **VIS-3 — Geometry [A/V/M; P].** Use the table above without fixed-height clipping. At narrow widths, stack toolbars and collapse multi-pane workspaces into a reachable list/detail flow. Preserve access to data and actions. A small viewport is not permission to remove functionality.
 
-**VIS-4 — Color semantics [A/V; S2/S3/P].** Use `background/foreground` for the canvas; `card` for a bounded independent surface; `muted` for supporting content; `primary` for selected/primary interaction; `destructive`, `warning`, `success`, `info` for actual outcomes or urgency. Use their matched foreground/muted pairs. Engine persona colors identify engines, not health. Every meaningful status MUST also have text or another non-color cue. Light, dark and system modes retain the same meaning, information and hierarchy.
+**VIS-4 — Color semantics [A/V; S2/S3/P].** Use `background/foreground` for the canvas; `card` for a bounded independent surface; `muted` for supporting content; `primary` for selected/primary interaction; `destructive`, `warning`, `success`, `info` for actual outcomes or urgency. Use their matched foreground/muted pairs. Engine persona colors identify engines, not health; text on a persona fill uses `--persona-foreground`. Status dots, role badges and status icons use these tokens or the shared `Badge` variants (`danger` is the muted destructive pair), never raw Tailwind palette steps such as `green-500`. Categorical graph hues (`constants/graph-palette.ts`) are not status colors; each clears 3:1 against the background and card of both themes. Every meaningful status MUST also have text or another non-color cue. Light, dark and system modes retain the same meaning, information and hierarchy.
 
 **VIS-5 — Composition [V/M; S13/S14/P].** Each visual emphasis MUST have a task reason. Prohibited: decorative gradients/glass, oversized hero headings in working pages, ornamental sparkles, decorative charts, metric tiles without an actionable question, nested cards and repetitive explanatory banners. Use a flat section for related fields, a table for comparison and a card only for an independent object or bounded interaction. Typography and alignment establish hierarchy before color or borders.
 
 ## 5. Interaction and truthful state
 
-**INT-1 — Lists [A/M; S12/P].** Name columns and units; expose sort direction semantically. State active filters, visible count and selection scope. “Select all” must say whether it means this page or all filtered results. Preserve filters through opening/closing a detail. Provide “Clear filters” for no matches. Avoid hover-only row actions. A row link and its buttons must be separately operable; do not make a whole row an unlabeled button. Never nest tables inside table cells to simulate a detail page.
+**INT-1 — Lists [A/M; S12/P].** Name columns and units; expose sort direction semantically. State active filters, visible count and selection scope. “Select all” must say whether it means this page or all filtered results. Preserve filters through opening/closing a detail. Provide “Clear filters” for no matches, and offer the same action in the `Toolbar` while a filter narrows the list (`filtersActive` with `onClearFilters`). The label is always “Clear filters”, not “Reset”. Avoid hover-only row actions. A row link and its buttons must be separately operable; do not make a whole row an unlabeled button. Never nest tables inside table cells to simulate a detail page.
 
 **INT-2 — Forms [A/M; S10/P].** Every field MUST have a persistent label and associated help/error text. Mark required/optional consistently within the form. Use submission-time validation by default; earlier validation requires a concrete benefit such as a length limit. Server validation remains authoritative. On failure retain safe inputs, show specific correction beside each field, and provide a linked summary for multi-field errors. Do not echo secrets in summaries or logs.
 
-**INT-3 — Saving [A/M; P].** State whether changes save immediately or need an explicit save action. Show pending, saved and failed states near the affected controls. “Saved” requires confirmed acceptance; a transport timeout is not success. Preserve the attempted value or draft for recovery, distinguish it from effective state, and reconcile authoritative state before further dependent changes. Do not silently overwrite unsaved edits after a refresh. Warn before navigation that would discard a meaningful draft; keep ordinary navigation free of unnecessary confirmations.
+**INT-3 — Saving [A/M; P].** State whether changes save immediately or need an explicit save action. Show pending, saved and failed states near the affected controls. “Saved” requires confirmed acceptance; a transport timeout is not success. Preserve the attempted value or draft for recovery, distinguish it from effective state, and reconcile authoritative state before further dependent changes. Do not silently overwrite unsaved edits after a refresh. Warn before navigation that would discard a meaningful draft; keep ordinary navigation free of unnecessary confirmations. Explicit-save forms render `DraftGuard` with a `dirty` flag computed against the last confirmed server state; a dialog or sheet holding such a form also asks before Escape, overlay, close or Cancel discards it, because closing an overlay is not a navigation. Auto-saving controls need no guard.
 
-**INT-4 — Dialogs [A/M; S9/P].** Use a dialog for a short bounded task, a sheet for contextual detail and a page for sustained work. Modal overlays MUST have a title, sensible initial focus, contained Tab navigation, Escape/close behavior and focus restoration. Background content is inert only for real modals. Confirmation names the affected object, consequence and action (“Delete host”), not “Yes”. Irreversible actions default focus to the safe choice. Do not stack routine dialogs.
+**INT-4 — Dialogs [A/M; S9/P].** Use a dialog for a short bounded task, a sheet for contextual detail and a page for sustained work. Modal overlays MUST have a title, sensible initial focus, contained Tab navigation, Escape/close behavior and focus restoration. Background content is inert only for real modals. Confirmation names the affected object, consequence and action (“Delete host”), not “Yes”. `ConfirmDialog`, `InputDialog` and `PasskeyNameDialog` require their confirm label; buttons that save or delete name their object (“Save quotas”, “Delete skill”). Deleting an identity-bearing object (a host) shows the target in the dialog body, asks for its exact name and reports a failure inside the dialog through the `error` prop. Irreversible actions default focus to the safe choice. Do not stack routine dialogs.
 
 **INT-5 — Feedback [A/M; S8/P].** Put errors and durable results beside the affected task. Toasts may supplement but MUST NOT be the only record of a failed save or required action. Use polite live announcements for ordinary updates and assertive alerts only for urgent interruption. Do not announce each streamed token or steal focus on background refresh.
 
-**INT-6 — Time and measurements [A/M; P].** Show units, scope and observation age for operational data. Relative time MUST offer an exact timestamp with timezone via accessible detail. Zero is a value; unavailable is not zero. Stale is not current, queued is not delivered, and reachable is not working. Do not infer success from connection status or request dispatch.
+**INT-6 — Time and measurements [A/M; P].** Show units, scope and observation age for operational data. Relative time MUST offer an exact timestamp with timezone via accessible detail. `Timestamp` renders relative time with the browser-local exact time and its zone name as title and accessible label (`absolute` shows the zoned time instead; `live` refreshes it); text outside a component uses `formatDateTime`/`formatTime` from `utils/format.ts`, never a bare `toLocaleString()`. No user setting chooses UTC versus local; local time with a visible zone is the product default. Overview pages state the age of their snapshot (“Updated 2 minutes ago”). Zero is a value; unavailable is not zero. Stale is not current, queued is not delivered, and reachable is not working. Do not infer success from connection status or request dispatch.
 
 | State | Required presentation and recovery | Verification |
 | --- | --- | --- |
@@ -209,7 +262,7 @@ The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and
 
 ## 8. Baseline inventory and migration debt
 
-This is a source audit, not a live visual acceptance report. All 39 `+page.svelte` entrypoints are represented below, including redirects and the legacy catch-all. The five workflow routes were added on 2026-10-20 with automated interaction and responsive coverage; manual screen-reader and independent usability acceptance remain separate. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
+This is a source audit, not a live visual acceptance report. All 41 `+page.svelte` entrypoints are represented below (rechecked 2026-11-05), including redirects and the legacy catch-all. The five workflow routes were added on 2026-10-20 with automated interaction and responsive coverage; manual screen-reader and independent usability acceptance remain separate. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
 
 | Current entry / view | Primary task and pattern | Existing composition | Step-2 check |
 | --- | --- | --- | --- |
@@ -284,7 +337,7 @@ API endpoints, downloaded user-authored files, generated provider payloads and t
 | --- | --- |
 | Old spec listed direct Monitor/Fleet/Knowledge routes and called Settings retired; current registry has hubs, Library, Access and live Settings | Old spec replaced by a pointer. Follow current registry; do not recreate old navigation. |
 | Portal comments in `tokens.css` still describe two browser apps; portal route registration and its security test show the separate `/go` endpoints retired | Keep shared tokens; clean obsolete explanatory comments when touching implementation. Do not infer a live portal from component names. |
-| `PageShell`/`AuthShell` use 20 px titles while `h1`/`h2` tokens describe larger headings | Align shared typography to section 4; audit consumers before replacing aliases. |
+| `PageShell`/`AuthShell` use 20 px titles while `h1`/`h2` tokens describe larger headings | Resolved 2026-11-05: `text-h1` 20 px, `text-h2` 16 px, `text-h3` folded into `text-h2`. |
 | `PageShell` truncates its title; default descriptions use 13 px | Verify long identities and essential instructions; implement accessible full text/wrapping as required. |
 | `StateBlock` exposes loading/error/empty only; `DataTable` substitutes no-match copy but no clear-filter action | Extend shared state composition for the applicable section-5 states. Preserve stale content deliberately. |
 | Desktop control sizing exists, but universal coarse-pointer target compliance is not established | Audit actual hit areas; do not infer touch compliance from a 390 px screenshot. |
@@ -307,13 +360,14 @@ Owner-managed live views update on state transitions. A quiet view MUST NOT poll
 | Coverage | Existing location | What it does not establish |
 | --- | --- | --- |
 | Registry and compatibility | `frontend/src/lib/nav.test.ts`, `legacy-admin-routes.test.ts` | All rendered states or task comprehension |
-| Theme normalization and token contrast | `frontend/src/lib/stores/theme.test.ts`, `styles/tokens.contrast.test.ts` | Every composed surface, focus or high-contrast state |
+| Theme normalization and token contrast | `frontend/src/lib/stores/theme.test.ts`, `styles/tokens.contrast.test.ts` (incl. the persona foreground and the graph palette) | Every composed surface, focus or high-contrast state |
 | Desktop destinations, shell, mobile, selected Axe and settings flows | `frontend/e2e/admin-console.spec.ts` | All dynamic details, overlays or WCAG AA conformance |
 | Auth flows | `frontend/e2e/admin-auth-screens.spec.ts` | Entire setup, assistive authentication and all recovery failures |
 | Conversation retention, reconnect, drafts, attention and mobile | `frontend/e2e/admin-clients.spec.ts` | Manual screen-reader reading of a long live conversation |
+| Slop tells (regex) | [`scripts/slop-grep.sh`](scripts/slop-grep.sh) via `npm run slop`, part of `npm run check`: raw palette steps, arbitrary radii, raw shadows, hard-coded fonts, raw hex in components, inline uppercase eyebrows, glass, gradient text, emoji glyphs, focus outlines removed without a same-line `focus-visible:` replacement. `slop-ok: <reason>` on the same line accepts a reviewed hit | Context: a finding is a review prompt, a clean run proves no rule. `slop-ok` marks a false positive or a pattern this standard allows; a departure from a rule still needs a section 10 entry |
 | Domain flows | `frontend/e2e/admin-host-detail.spec.ts`, `admin-accounts.spec.ts`, `admin-agent-messaging.spec.ts`, `admin-schedules.spec.ts`, `admin-git-director.spec.ts`, `admin-chatty.spec.ts`, `admin-companion.spec.ts` | Compliance of every page/variant just because the feature suite passes |
 
-For UI implementation, run `npm run check` and `npm run test:e2e` from `frontend/`; the former includes unit tests. The latter rebuilds the committed SPA and starts its own preview on port 4173, refusing to reuse another checkout's server. Run these in the implementation worktree and review generated changes. `npm run build` is the standalone artifact build. **None of these commands is required merely to adopt this documentation; no SPA rebuild belongs in step 1.**
+For UI implementation, run `npm run check` and `npm run test:e2e` from `frontend/`; the former includes unit tests and the slop gate. The latter rebuilds the committed SPA and starts its own preview on port 4173, refusing to reuse another checkout's server. Run these in the implementation worktree and review generated changes. `npm run build` is the standalone artifact build. **None of these commands is required merely to adopt this documentation; no SPA rebuild belongs in step 1.**
 
 ### Required evidence per migration slice
 
@@ -350,11 +404,12 @@ VIS-1/2/3/4/5, INT-2/3/4/5/7, ACC-1/3/4/5. No new exception. Browser captures,
 automated checks and outstanding manual acceptance are recorded with delivery;
 shared composition alone does not certify every setup step or provider login.
 
-No design exceptions were approved at adoption; EX-1 was added 2026-10-19. The baseline debt in section 8 is pending migration, not a permanent exemption. Use this format for subsequent reviewed decisions:
+No design exceptions were approved at adoption; EX-1 was added 2026-10-19, EX-2 on 2026-11-05. The baseline debt in section 8 is pending migration, not a permanent exemption. Use this format for subsequent reviewed decisions:
 
 | Exception ID | Rule | Exact surface | User need / alternative | Verification | Owner / decision date | Review or removal condition |
 | --- | --- | --- | --- | --- | --- | --- |
 | EX-1 | VIS-5 | Overview (`/admin/dashboard`) host and stored-account count tiles (`StatStrip variant="tiles"`) | Operators open the console to see fleet size first; each tile links to its owner page (Hosts, Accounts) and the per-engine split is shown inline. Alternative: the inline strip. | Visual check in both themes; `admin-design.spec.ts` sweep | Christian Reiß / 2026-10-19 | Remove (back to the inline strip) if the counts stop answering an operator question or no longer link to their owning page |
+| EX-2 | VIS-3 (table density) | Every `ui/table` / `DataTable` consumer | The design guidelines ask for a user-selectable density; operators get one density per table instead. Ops tables are fixed-purpose, and one density keeps a single tested layout for sticky headers, touch rows and reflow. Alternative: page-level comparison views or filters | `admin-design.spec.ts` reflow sweep; table rules in VIS-2/VIS-3 | Christian Reiß / 2026-11-05 | Revisit when operators report a measured need for a denser or roomier comparison view |
 
 ### Server-retention settings slice (2026-10-24)
 
@@ -517,3 +572,76 @@ conflict recovery and queued-start feedback. Desktop/light and phone/dark screen
 were visually inspected. Manual screen-reader, 400% browser zoom, virtual keyboard,
 cross-browser review and field performance were not measured. Automated checks do
 not certify usability.
+
+### Admin/ops criteria slice (2026-11-05)
+
+Shared table: body-size text, `tabular-nums` cells, an opaque sticky header with its
+own rule, and a viewport-bounded `DataTable` region from 768 px up (focus kept clear
+by scroll padding); size columns in Transfers and project Documents are right-aligned.
+The Overview usage table already right-aligns its meter values and the hosts table
+has no comparable numeric column. Search and filters of Accounts, Transfers,
+External clients, Reports, project Reports and Documents, Projects, Git Director,
+API keys, Secrets, Library lists, Roles and People live in the URL through
+`UrlFilters`; Workflows already did. The API-key vendor switch stays in component
+state. `Toolbar` offers “Clear filters” while a filter is active, and the Agents graph
+toolbar uses the same label. Timestamps show the local zone; bare
+`toLocaleString()` calls were replaced. Host FQDNs, report, transfer, memory,
+conversation, session and publication IDs are monospace with a copy button; agent
+addresses keep the full value in a tooltip and a copy button. Host deletion names
+the host, requires the typed FQDN and reports failures in the dialog. `DraftGuard`
+covers quotas, the Codex/Claude/Grok version sections, transfer limits, host
+overrides, the card editor, the person dialog and the memory editor.
+Applicable rules: NAV-4, VIS-2, INT-1/3/4/5/6, ACC-3. No design exception. Checks:
+`npm run check` (svelte-check, node tests incl. `url-filters.test.ts` and the zoned
+formatters). Sticky behaviour, focus under the sticky header, close confirmation in
+overlays, URL round-trips with back/forward, both themes and 320 px still need a
+browser pass; Playwright was not run.
+
+### Tokens and slop-tells slice (2026-11-05)
+
+Status colors: the host daemon dot uses `success`/`warning`/`destructive`, role badges
+use `Badge` variants (new `danger`), and the Quick VM “all engines” glyph no longer
+uses `violet-500`; no raw Tailwind palette step remains in components. The seven
+inline copies of the uppercase label use `.section-label`. Topology graph labels are
+12 px, inherit the app font and put `--persona-foreground` on engine codes; the
+Memory Atlas green and amber were darkened to clear 3:1 on the light canvas, which
+`tokens.contrast.test.ts` now enforces. Radius: `rounded` maps to `--radius-sm`;
+cards, dialogs, popovers, menus, select lists, command lists, tooltips, toasts and
+alerts are 6 px, menu items and close buttons 4 px; the portal composer and prompt
+card lost their arbitrary radii. Tooltips and toasts use `shadow-pop`. Card, dialog
+and sheet titles use `text-h2` (18 → 16 px); `PageShell`/`AuthShell` titles `text-h1`.
+`SectionCard` and the security-levels panel use the type roles. `DialogContent`
+takes a `size`; every ad-hoc dialog width was migrated. `utils/theme-colors.ts` was
+unused and is deleted. Insecure-approval requests and the topology inspector's
+disconnect list and owner report are divided rows instead of boxes inside a box.
+Setup infrastructure checks show a Lucide icon plus “Passed”/“Failing”.
+Remaining debt, not exceptions: page-level `rounded-md border` containers outside
+`ui/`, the `shadow-sm` thumb of segmented controls (Accounts engine filter, Library
+type switch, quick model defaults) and the topology zoom group's `shadow-sm` and
+backdrop blur (the zoom group was closed in the slice below). Applicable rules: VIS-1/2/3/4/5, ACC-2. No design exception. Checks:
+`npm run check` (svelte-check, node tests incl. the extended contrast test). Graph
+label fit inside the engine and count circles, dialog widths, the smaller titles,
+both themes and 320 px still need a browser pass; Playwright was not run.
+
+### Design standard sync and slop gate (2026-11-05)
+
+Section 4 gains the product identity the design guidelines ask for: register,
+usage scene, signature, named palette with hex values for both themes, type
+rationale, shell layout and already-rejected directions. Drift fixed: the
+overline is 12 px, `text-h3` is folded into `text-h2` (same 16 px, no visual
+change), 2 and 6 px are micro steps of the spacing scale and 10/14/20 px are
+recorded debt. EX-2 records the single table density. `scripts/slop-grep.sh`
+(adopted from the guidelines template and extended with this standard's token
+rules) runs as `npm run slop` inside `npm run check`; accepted hits carry
+`slop-ok: <reason>` (modal scrim blur, the sticky table-header rule, prose quote
+and provenance rules, `@font-face`, brand and mascot artwork, reaction emoji,
+tabindex=-1 focus targets, the device-code input). The topology zoom group and
+the manual's copy button lost their decorative backdrop blur (opaque background,
+no `shadow-sm`); the choice-card check mark drops `rounded-[1px]`; the Memory
+Atlas scope chip uses `.section-label`. Applicable rules: GOV-1, VIS-1/2/3/5.
+No new exception besides EX-2. Not adopted: the guidelines' per-state axe
+Playwright template, which mocks a generic `/api/items` endpoint with German copy;
+fitting it to `installFixtures` and the English `StateBlock` copy is a separate
+change that must be run before it lands. Checks: `npm run check` (svelte-check,
+node tests, slop gate). The zoom group and the copy button need a
+browser pass in both themes; Playwright was not run.

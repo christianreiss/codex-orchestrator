@@ -3,6 +3,7 @@
   /** One report: status, original evidence, outcome, triage (if allowed) and history. */
   import { createQuery } from "@tanstack/svelte-query";
   import { StateBlock } from "$lib/components/page";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { feedbackApi, feedbackKeys } from "$lib/api/feedback";
   import FeedbackReview from "./FeedbackReview.svelte";
@@ -25,16 +26,16 @@
 </script>
 
 {#if $detailQuery.isError}
-  <StateBlock state="error" message={$detailQuery.error.message} onRetry={() => void $detailQuery.refetch()} />
+  <StateBlock state="error" cause={$detailQuery.error} message={$detailQuery.error.message} onRetry={() => void $detailQuery.refetch()} />
 {:else if !item}
   <StateBlock state="loading" rows={3} />
 {:else}
   <div class="space-y-5">
     <div>
-      <h3 class="break-words text-h3">{item.title}</h3>
-      <p class="mt-1 break-all font-mono text-caption text-muted-foreground">{item.id}</p>
+      <h3 class="break-words text-h2">{item.title}</h3>
+      <p class="mt-1 flex items-center gap-1 font-mono text-caption text-muted-foreground"><span class="min-w-0 break-all">{item.id}</span><CopyButton value={item.id} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label="Copy report ID" toastMessage="Report ID copied" /></p>
       <p class="mt-2 text-body-sm">{humanize(item.status)} · {actorLabel(item.claim_owner)}</p>
-      {#if item.claim_expires_at}<p class="text-caption text-muted-foreground">Claim expires {new Date(item.claim_expires_at).toLocaleString()}</p>{/if}
+      {#if item.claim_expires_at}<p class="text-caption text-muted-foreground">Claim expires <Timestamp value={item.claim_expires_at} absolute /></p>{/if}
       <p class="mt-1 text-body-sm">Deployment: {humanize(item.deployment)}{item.deployment_ref ? ` · ${item.deployment_ref}` : ""}</p>
       {#if item.duplicate_of}<p class="break-all text-body-sm">Duplicate of {item.duplicate_of}</p>{/if}
       <p class="mt-1 break-words text-caption text-muted-foreground">Reported <Timestamp value={item.created_at} /> by {actorLabel(item.source)}</p>
@@ -46,7 +47,7 @@
       <h4 class="text-body font-semibold">Original report</h4>
       {#each Object.entries(item.report ?? {}) as [key, value] (key)}
         <div>
-          <h5 class="text-caption font-medium uppercase text-muted-foreground">{key}</h5>
+          <h5 class="section-label">{key}</h5>
           <p class="whitespace-pre-wrap break-words text-body-sm">{typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}</p>
         </div>
       {/each}

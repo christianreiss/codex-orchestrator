@@ -9,7 +9,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import { Button } from "$lib/components/ui/button";
-  import { Section } from "$lib/components/page";
+  import { DraftGuard, Section } from "$lib/components/page";
   import { formatBytes } from "$lib/utils/format";
   import { formatDuration, transferLimitsMutation, type TransferState } from "$lib/api/transfers";
 
@@ -28,6 +28,10 @@
   let maxFileMib = $state(0);
   let quotaMib = $state(0);
   let initialized = false;
+  /** The limits the server holds; the form is dirty while it differs. */
+  let saved = $state<string | null>(null);
+  const draft = $derived([defaultTtlMinutes, maxTtlMinutes, maxFileMib, quotaMib].map(Number).join(","));
+  const dirty = $derived(saved !== null && draft !== saved);
 
   $effect(() => {
     if (!moduleState || initialized) return;
@@ -35,16 +39,18 @@
     maxTtlMinutes = Math.round(moduleState.max_ttl_seconds / 60);
     maxFileMib = moduleState.max_file_bytes / 1024 / 1024;
     quotaMib = moduleState.quota_bytes / 1024 / 1024;
+    saved = [defaultTtlMinutes, maxTtlMinutes, maxFileMib, quotaMib].map(Number).join(",");
     initialized = true;
   });
 
   function save() {
+    const sent = draft;
     $mutation.mutate({
       default_ttl_seconds: Number(defaultTtlMinutes) * 60,
       max_ttl_seconds: Number(maxTtlMinutes) * 60,
       max_file_bytes: Number(maxFileMib) * 1024 * 1024,
       quota_bytes: Number(quotaMib) * 1024 * 1024,
-    });
+    }, { onSuccess: () => { saved = sent; } });
   }
 
   const usedBytes = $derived(moduleState?.used_bytes ?? 0);
@@ -53,6 +59,7 @@
   const meterTone = $derived(usedPercent >= 90 ? "bg-destructive" : usedPercent >= 80 ? "bg-warning" : "bg-primary");
 </script>
 
+<DraftGuard {dirty} preserveOnSamePath />
 <Section
   id="transfer-limits"
   title="Limits and usage"

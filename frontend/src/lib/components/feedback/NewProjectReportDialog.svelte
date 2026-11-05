@@ -32,7 +32,7 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     <form class="grid gap-3" onsubmit={(e) => { e.preventDefault(); $mutation.mutate(); }}>
       <Dialog.Header>
         <Dialog.Title>New report</Dialog.Title>
@@ -47,7 +47,7 @@
       <FormField id="pr-body" label="Description"><textarea id="pr-body" class={areaClass} bind:value={body} rows="6" placeholder="Describe the report…"></textarea></FormField>
       <Dialog.Footer>
         <Button type="button" variant="outline" onclick={() => (open = false)}>Cancel</Button>
-        <Button type="submit" disabled={!canSubmit || $mutation.isPending}>{$mutation.isPending ? "Saving…" : "Save"}</Button>
+        <Button type="submit" disabled={!canSubmit || $mutation.isPending}>{$mutation.isPending ? "Creating…" : "Create report"}</Button>
       </Dialog.Footer>
     </form>
   </Dialog.Content>

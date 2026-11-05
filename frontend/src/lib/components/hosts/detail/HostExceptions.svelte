@@ -71,7 +71,7 @@
 </script>
 
 <div>
-  <h3 class="text-h3">Per-host exceptions</h3>
+  <h3 class="text-h2">Per-host exceptions</h3>
   <p class="mb-2 text-body-sm text-muted-foreground">Host overrides. Clearing one makes the host follow the fleet default again.</p>
   <div class="grid gap-x-8 gap-y-4 grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
     {#if engines.includes("codex")}
@@ -117,6 +117,7 @@
   description="Pin a specific agent-rules (agents) document by id for this host. Empty follows the fleet default."
   label="Agents document id"
   placeholder="42"
+  confirmLabel="Save document pin"
   initialValue={host.agents_document_id_override ? String(host.agents_document_id_override) : ""}
   onSubmit={(v) => {
     const parsed = v === null || v === "" ? null : Number.parseInt(v, 10);

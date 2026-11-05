@@ -81,7 +81,7 @@
     />
   {/if}
   {#if agents.view === "graph" && agents.filtersActive}
-    <Button size="sm" variant="ghost" onclick={() => agents.resetFilters()}>Reset filters</Button>
+    <Button size="sm" variant="ghost" onclick={() => agents.resetFilters()}>Clear filters</Button>
   {/if}
 {/snippet}
 

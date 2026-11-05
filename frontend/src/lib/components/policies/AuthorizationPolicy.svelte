@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { authorizationQuery, authorizationMutation } from "$lib/api/settings";
   import { authStore } from "$lib/stores/auth";
   import { Button } from "$lib/components/ui/button";
@@ -63,7 +64,7 @@
               <Table.Cell>{record.role}</Table.Cell>
               <Table.Cell><code class="break-all font-mono text-caption">{record.capability}</code></Table.Cell>
               <Table.Cell><code class="break-all font-mono text-caption">{record.route}</code></Table.Cell>
-              <Table.Cell class="text-body-sm">{new Date(record.last_seen).toLocaleString()}</Table.Cell>
+              <Table.Cell class="text-body-sm">{formatDateTime(record.last_seen)}</Table.Cell>
             </Table.Row>
           {/snippet}
         </DataTable>

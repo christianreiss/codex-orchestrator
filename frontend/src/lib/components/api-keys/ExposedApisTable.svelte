@@ -10,6 +10,7 @@
   import { apiSurfaceMutation, apiSurfacesQuery } from "$lib/api/settings";
   import type { ApiBackendEngine, ApiKeyEngine, ApiSurfaceId, ApiSurfaceRow } from "$lib/api/types";
   import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { loadFailure } from "$lib/api/access-denied";
 
   type Props = { onShowKeys?: (tab: ApiKeyEngine) => void };
   let { onShowKeys }: Props = $props();
@@ -49,7 +50,7 @@
 <DataTable
   items={rows}
   loading={$query.isPending}
-  error={$query.isError ? `Failed to load exposed APIs: ${$query.error?.message}` : null}
+  error={$query.isError ? loadFailure($query.error, "Failed to load exposed APIs") : null}
   onRetry={() => void $query.refetch()}
   key={(row) => row.surface}
   caption="Exposed APIs"
@@ -110,7 +111,7 @@
         <Switch checked={!row.disabled} onCheckedChange={(v) => setEnabled(row, v)} disabled={$mutation.isPending} aria-label={`Enable ${row.base_path}`} />
       </Table.Cell>
       <Table.Cell class="text-right">
-        <Button variant="link" size="sm" class="h-auto p-0 tabular-nums" onclick={() => onShowKeys?.(KEY_TAB[row.surface])}>
+        <Button variant="link" size="sm" class="tabular-nums" onclick={() => onShowKeys?.(KEY_TAB[row.surface])}>
           {row.key_count} active
         </Button>
       </Table.Cell>

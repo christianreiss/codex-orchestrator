@@ -6,6 +6,7 @@
   import AgentsToolbar from "$lib/components/topology/AgentsToolbar.svelte";
   import GraphView from "$lib/components/topology/GraphView.svelte";
   import { createAgentsView } from "$lib/components/topology/agents-view.svelte";
+  import { cn } from "$lib/utils/cn";
 
   const agents = createAgentsView();
   const summary = $derived(agents.summary);
@@ -31,7 +32,8 @@
   </div>
 
   <div class="lg:flex lg:items-start lg:gap-4">
-    <div class="min-w-0 flex-1 space-y-4">
+    <!-- Below lg the inspector is a fixed bottom card (max 55dvh): reserve room so content can scroll clear of it. -->
+    <div class={cn("min-w-0 flex-1 space-y-4", agents.selectedItem && "max-lg:pb-[55dvh]")}>
       {#if agents.view === "graph"}
         <StatStrip items={stats} />
         <GraphView {agents} />

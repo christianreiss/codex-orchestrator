@@ -37,7 +37,7 @@
     { label: "Replace credentials", onClick: onReplace, disabled: !engineOn, reason: offReason },
     { label: "Verify", onClick: onVerify, disabled: busy || !engineOn, reason: offReason },
     { label: account.state === "enabled" ? "Pause" : "Resume", onClick: onToggle, disabled: busy },
-    { label: "Remove", onClick: onRemove, destructive: true, disabled: busy },
+    { label: "Remove account", onClick: onRemove, destructive: true, disabled: busy },
   ]);
 </script>
 
