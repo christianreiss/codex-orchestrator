@@ -27,7 +27,7 @@ In the **What goes in** block, **Always included** shows the mandatory fleet pol
 
 The **History & publishing** button in the page header opens a sheet with the **Version history** (click a version for a read-only preview, `GET /admin/agents/versions/{id}`, then **Make current** to restore it, `POST /admin/agents/revert`), **Which version hosts get** (**Serve mode**, `POST /admin/agents/serve`: **Latest** or **Locked at version** with a version id, then **Apply**), and **Retention** (`POST /admin/agents/retention`, how many old versions to keep). The `DELETE /admin/agents/versions/{id}` route exists, but the page no longer offers a delete button. `AgentsService` (`api/src/services/agents.ts`) reconciles serve mode, latest version, and the canonical content hash that hosts compare against.
 
-A host can also be pinned to a specific version from its detail page (**Advanced → Per-host exceptions → Agent rules document**, `POST /admin/hosts/{id}/agents-version`); see [Hosts](/admin/manual/hosts).
+A host can also be pinned to a specific version from its detail page (**Advanced → Per-host exceptions → Agent rules document**, `POST /admin/hosts/{id}/agents-version`), and given extra rules of its own in its **Agent instructions** section, which are appended to that host's document under `## Host-specific instructions (<fqdn>)` (the previews include them); see [Hosts](/admin/manual/hosts).
 
 ## Security posture
 

@@ -4,10 +4,10 @@ section: Admin workspace
 summary: Bots and bridges outside the fleet that join agent messaging with their own key, name and trust level.
 tags: [external-clients, bots, messaging, trust]
 verified: 2026-11-05
-sources: api/src/routes/external/index.ts, api/src/services/external-clients/index.ts, api/src/services/external-clients/bridge.ts, api/src/services/external-clients/normalize.ts, api/src/db/migrations/0124_external_clients.sql, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, frontend/src/routes/(coordination)/external-clients/+page.svelte, frontend/src/lib/components/external-clients/ExternalClientDialog.svelte, frontend/src/lib/api/externalClients.ts, docs/external-clients.md
+sources: api/src/routes/external/index.ts, api/src/services/external-clients/index.ts, api/src/services/external-clients/bridge.ts, api/src/services/external-clients/normalize.ts, api/src/control-plane/state/names.ts, api/src/db/migrations/0124_external_clients.sql, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, frontend/src/routes/(coordination)/external-clients/+page.svelte, frontend/src/lib/components/external-clients/ExternalClientDialog.svelte, frontend/src/lib/api/externalClients.ts, docs/external-clients.md
 ---
 
-An **external client** is a bot or bridge that takes part in agent messaging without being a `cdx`/`clx`/`cgx` wrapper session: a chat bot, a Matrix or IRC bridge, a home-automation agent. It gets its own agent address and presence, and appears in `agent_list` like any other agent, with engine `external`. It only ever gets the **communication surface**: sending, replying, reporting a work result, reading its inbox, a heartbeat, and listing agents. Git, deploy, secrets, Skills, projects, memory and file transfers stay unavailable. It is not a fourth provider engine: there is no master switch, no provider account and no wrapper for it.
+An **external client** is a bot or bridge that takes part in agent messaging without being a `cdx`/`clx`/`cgx` wrapper session: a chat bot, a Matrix or IRC bridge, a home-automation agent. It gets its own agent address, its configured name as a fixed agent name, and presence, and appears in `agent_list` like any other agent, with engine `external`. It only ever gets the **communication surface**: sending, replying, reporting a work result, reading its inbox, a heartbeat, and listing agents. Git, deploy, secrets, Skills, projects, memory and file transfers stay unavailable. It is not a fourth provider engine: there is no master switch, no provider account and no wrapper for it.
 
 The page is **Coordination → External clients** (`/external-clients`). The wire contract for bot authors is `docs/external-clients.md`.
 
@@ -17,7 +17,7 @@ The page is **Coordination → External clients** (`/external-clients`). The wir
 
 | Field | Rule |
 |---|---|
-| Name | Shown to receivers on every message it sends. One line, at most 96 characters, unique regardless of case, must not start with `agent:`. |
+| Name | Its agent name: how agents see and address it. One line, at most 96 characters, unique regardless of case, must not start with `agent:`. |
 | Description | One line, at most 120 characters, shown to receivers next to the name (for example "Hermes bot of the owner"). |
 | Trust level | `untrusted` (default), `peer`, `trusted` or `operator`; see below. |
 | Enabled | A disabled client cannot authenticate. |
@@ -28,7 +28,16 @@ Saving shows the client's bearer key (`cxe_…`) **exactly once**. Only its SHA-
 
 ### Name and description
 
-Name and description are what receivers see about the client: wrapper agents in the server-written header on each of its messages (below), other external clients as `sender.name` and `sender.description`. Edits apply to the next message. The client's agent address (`agent:<uuid>`) is created on its first call and stays the same across restarts, renames and key replacements; agents can always reach it by that address.
+The configured name is the client's agent name. Peers see it in `agent_list` and as the sender name, and `agent_send` or `agent_translate` with that name reach the client. The description travels with its messages: in the server-written header for wrapper agents (below), as `sender.description` for other external clients. The client's agent address (`agent:<uuid>`) is created on its first call and stays the same across restarts, renames and key replacements.
+
+The name is **reserved** against the launch-name pool that gives fleet sessions their names (Christine, Lisa, …) for as long as the client exists and is enabled:
+
+- The pool never hands it to a fleet session, not even to a resume that held it before.
+- If a fleet session holds the name when the client registers, the client wins. An ended session still in its 24-hour name quarantine loses the name at once; a live session continues under a fresh pool name, keeping its address and history.
+- A name lookup resolves to the external client before any pool holder. More generally, when a stale holder of a name sits on a host that cannot take part in messaging (for example an insecure host with its window closed), a reachable holder of the same name wins.
+- A pool name the client carried before this rule ends with the usual 24-hour quarantine and keeps reaching the client meanwhile.
+- **Rename** releases the old name; the client takes the new one on its next call. **Disable** and **Delete** release the name; re-enabling takes it back.
+- Names are unique among external clients regardless of case, and two names that differ only in umlaut spelling (`ä` / `ae`) also collide: the second client's calls are refused with `409 external_client_name_taken` until one of them is renamed.
 
 ## The table
 
@@ -99,6 +108,7 @@ Chatty can list external clients and their status (`external_clients_list`, read
 - api/src/services/external-clients/index.ts (lifecycle, key handling, envelope and trust stamping)
 - api/src/services/external-clients/bridge.ts (virtual session, 90-second presence grace, server-written header, content limit)
 - api/src/services/external-clients/normalize.ts (name/description rules, trust levels)
+- api/src/control-plane/state/names.ts (launch-name pool, quarantine and the reserved external name)
 - api/src/db/migrations/0124_external_clients.sql (`external_clients`, unique name and key hash)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`external_clients.read` / `external_clients.manage`)
 - frontend/src/routes/(coordination)/external-clients/+page.svelte (table, status badges, row actions)
