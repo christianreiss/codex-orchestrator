@@ -33,6 +33,7 @@ const ARTICLE_FILES = [
   'auth-pipeline.md',
   'clx.md',
   'dashboard.md',
+  'external-clients.md',
   'hosts.md',
   'install.md',
   'logs.md',

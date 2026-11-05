@@ -266,7 +266,7 @@ Served to hosts via `POST /agents/retrieve`. Endpoints in `api/src/routes/admin/
 - `POST /admin/agents/retention` — how many old versions to keep.
 - `DELETE /admin/agents/versions/{id}` — delete one version.
 - `GET`/`POST /admin/agents-generation-mode` — the Generated / Manual / Disabled switch (in the settings routes).
-- `GET`/`POST /admin/response-verbosity` and `/admin/agent-policy-profiles*` — the verbosity dial and security posture profiles that live on the same page.
+- `GET`/`POST /admin/response-verbosity`, `GET`/`POST /admin/address-form` and `/admin/agent-policy-profiles*` — the verbosity dial, the form of address (du/Sie) and security posture profiles that live on the same page.
 
 `AgentsService` (`api/src/services/agents.ts`) reconciles serve mode, latest version, and canonical content hash. The page itself is described in [Agent rules](/admin/manual/instructions).
 

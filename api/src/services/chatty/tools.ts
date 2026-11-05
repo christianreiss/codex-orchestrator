@@ -51,6 +51,7 @@ import { SecretsService } from '../secrets.js';
 import { GitDirectorService } from '../git-director.js';
 import { ProjectBoardService } from '../project-board.js';
 import { WatchdogsService } from '../watchdogs.js';
+import { ExternalClientsService } from '../external-clients/index.js';
 import { engineSchema, modelSafe, signature, type ChattyActor } from './contracts.js';
 
 export interface ToolContext extends RouteContext {
@@ -107,6 +108,18 @@ const accountSnapshot = async (c: ToolContext, a: { id: number }) =>
 const userSnapshot = async (c: ToolContext, a: { id: number }) =>
   modelSafe((await c.db.select().from(adminUsers).where(eq(adminUsers.id, a.id)).for('update'))[0] ?? null);
 
+/**
+ * Host rows for lists: per-host agent instructions (`agentsExtra`, up to 32 KiB
+ * each) are reduced to their size so a 50-row search stays small. `host_read`
+ * keeps the text for the one host asked about.
+ */
+export function hostListRow(row: object): Record<string, unknown> {
+  const { agentsExtra, ...rest } = row as Record<string, unknown>;
+  return typeof agentsExtra === 'string' && agentsExtra
+    ? { ...rest, agentsExtraBytes: Buffer.byteLength(agentsExtra, 'utf8') }
+    : rest;
+}
+
 async function configRead(c: ToolContext, engine: 'codex' | 'claude' | 'grok') {
   const { content: _content, ...view } = await new ClientConfigService(c.db).adminFetch(engine);
   return modelSafe(view);
@@ -157,7 +170,8 @@ export function administrationTools(): ChattyTool[] {
             .select()
             .from(hosts)
             .where(and(like(hosts.fqdn, `%${a.query}%`), visibleHost))
-            .limit(50),
+            .limit(50)
+            .then((rows) => rows.map(hostListRow)),
         ),
     ),
     define(
@@ -853,6 +867,13 @@ export function administrationTools(): ChattyTool[] {
           settings: new SettingsService(c.db),
           dataRoot: c.env.DATA_ROOT ?? '/app/storage',
         }).list(),
+    ),
+    define(
+      'external_clients_list',
+      'List external clients (bots and bridges outside the fleet that use agent messaging): name, description, trust level, enabled, key prefix, agent address and last poll. Never returns a key.',
+      'external_clients.read',
+      {},
+      async (c) => modelSafe(await new ExternalClientsService(c.db, c.env, c.keyring).list()),
     ),
     handoffTool(),
     linksCheckTool(),

@@ -34,6 +34,11 @@ const CASES: Array<[string, string, string]> = [
   ['Wie funktionieren idempotente Migrationen?', 'How are idempotent database migrations applied?', 'migrat'],
   ['Wie funktionieren passkeys und WebAuthn?', 'How does passkey authentication work?', 'passkey'],
   ['Wie funktioniert der Setup Wizard?', 'What does setup_complete mean in the setup wizard?', 'setup'],
+  [
+    'Welche Vertrauensstufe hat ein externer Client?',
+    'What trust level does an external client get?',
+    'trust',
+  ],
 ];
 describe('Chatty product knowledge', () => {
   const bundle = buildKnowledge(resolve(import.meta.dirname, '../../../..'));
@@ -53,7 +58,7 @@ describe('Chatty product knowledge', () => {
       'docs/MCP.md', 'docs/communicator.md', 'docs/control-plane-owner.md',
       'docs/owner-cutover.md', 'docs/android-companion.md', 'docs/workflows.md',
       'docs/agent-coordination.md', 'docs/file-transfers.md',
-      'docs/documentation-maintenance.md',
+      'docs/documentation-maintenance.md', 'docs/external-clients.md', 'docs/workload-admission.md',
       'api/README.md', 'wrappers/README.md', 'runner/README.md',
       'docs/skills/README.md', 'docs/contracts/README.md',
     ];
@@ -93,7 +98,7 @@ describe('Chatty product knowledge', () => {
     expect(searchKnowledge(bundle, 'database storage rollback bundle', 8).some((source) => source.path === 'docs/INSTALL.md')).toBe(true);
     expect(searchKnowledge(bundle, 'Grok subscription billing usage weekly monthly', 8).some((source) => source.path === 'wrappers/README.md')).toBe(true);
   });
-  it('retrieves supporting evidence in the top five for at least 90% of 40 DE/EN questions', () => {
+  it('retrieves supporting evidence in the top five for at least 90% of 42 DE/EN questions', () => {
     const missed = CASES.flatMap(([de, en, evidence]) =>
       [de, en]
         .filter(

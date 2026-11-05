@@ -26,7 +26,7 @@ const GUIDES = new Set([
   'agent-chat', 'agent-supervisor', 'smart-queue', 'android-companion', 'agent-coordination',
   'agent-messaging-timing', 'agent-roles', 'workflows', 'file-transfers',
   'control-plane-owner', 'owner-cutover', 'host-runtime-policy', 'reboot-resume',
-  'model-tiers', 'documentation-maintenance',
+  'model-tiers', 'documentation-maintenance', 'external-clients', 'workload-admission',
 ].map((name) => `${name}.md`));
 const COMPONENT_GUIDES = [
   'README.md', 'api/README.md', 'wrappers/README.md', 'runner/README.md',

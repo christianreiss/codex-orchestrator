@@ -72,8 +72,9 @@ skills, fleet instructions, Claude artifacts, projects, notes, board cards, shar
 memory, users, gateway-key state, metadata, schedules and watchdog suspension.
 It also reads workflow runs and manages workflow definitions, agent roles and
 proposals, fleet/account quota policies, quota advice/scaling, server retention,
-and fleet supervisor configuration. Supervisor diagnostics and pause controls
-are available; no tool launches an agent or enables individual task recovery.
+and fleet supervisor configuration, and lists external clients (read-only).
+Supervisor diagnostics and pause controls are available; no tool launches an
+agent or enables individual task recovery.
 These administrative mutations require a prepared target snapshot and explicit
 confirmation. A cleanup receipt confirms admission of a guarded asynchronous
 retention pass; read its run status before claiming deletion completed.
@@ -253,7 +254,7 @@ together to enable inference. An older runner leaves Chatty unavailable.
 
 Canonical checks are API typecheck/lint/tests, the real-MySQL migration and Chatty
 lifecycle suites, runner unittest discovery, frontend check/build and the Chatty
-Playwright tests (desktop/mobile and axe). The retrieval fixture contains 40 DE/EN
+Playwright tests (desktop/mobile and axe). The retrieval fixture contains 42 DE/EN
 questions and requires supporting evidence in the top five for at least 90%.
 Mocked provider output and real subprocess tests prove orchestration, not the
 quality or compatibility of a live subscription/model. Each installed engine still

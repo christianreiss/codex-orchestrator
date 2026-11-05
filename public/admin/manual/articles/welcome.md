@@ -2,7 +2,7 @@
 
 title: Welcome to Orchestrator
 section: Orientation
-verified: 2026-10-27
+verified: 2026-11-05
 sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/(activity)/activity/+page.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
 ---
 
@@ -33,13 +33,13 @@ The desktop sidebar is nine always-visible entries in two sections. Each entry o
 | | Hosts | Hosts |
 | | Agents | Agents (Live and Graph views) |
 | | Projects | Projects |
-| | Coordination | Messages, Timed wake-ups, Git merges, Shared files, Workflows |
+| | Coordination | Messages, Timed wake-ups, Git merges, Shared files, External clients, Workflows |
 | | Activity | Activity (configuration and system changes), Reports |
 | **Configure** | Providers | Accounts, Engines (including Model defaults), Usage limits |
 | | Library | Skills, Agent rules, Memories; Claude-native: Subagents, Commands, Reply styles |
 | | Access & Settings | People, API keys, Secrets, Settings |
 
-Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** shows host and stored-account counts, then Provider, Engines and Runner tabs. The selected tab is kept in the URL; Refresh reloads overview, accounts and runner state together. **Agents** is one page with a Live / Graph view toggle. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **Timed wake-ups** is wake/cron, and **Messages** is agent messaging. **Activity** holds the audit trail of configuration and system changes, and **Reports** is the inbox for bugs and requests about the orchestrator itself (feedback). The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
+Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** shows host and stored-account counts, then Provider, Engines and Runner tabs. The selected tab is kept in the URL; Refresh reloads overview, accounts and runner state together. **Agents** is one page with a Live / Graph view toggle. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **External clients** are bots and bridges outside the fleet that take part in agent messaging, **Timed wake-ups** is wake/cron, and **Messages** is agent messaging. **Activity** holds the audit trail of configuration and system changes, and **Reports** is the inbox for bugs and requests about the orchestrator itself (feedback). The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
 
 The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu whose links jump to the Security, Appearance, and Android devices sections of the single **Account** page (`/account#security`, `#appearance`, `#devices`), plus sign-out. On phones, Overview, Hosts, Projects, and Agents stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
 
