@@ -1,0 +1,1 @@
+import{c as e,s as t}from"./D6Zcd1Pp.js";import"./xihTtKlq.js";import{n}from"./Ca5YPC-1.js";function r(r,i){let a=t(i,[`$$slots`,`$$events`,`$$legacy`]),o=[[`path`,{d:`M5 12h14`}]];n(r,e({name:`minus`},()=>a,{get iconNode(){return o}}))}export{r as t};
