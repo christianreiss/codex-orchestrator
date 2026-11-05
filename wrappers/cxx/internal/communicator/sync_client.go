@@ -91,6 +91,9 @@ type SyncRequest struct {
 	// Scheduled marks a content pass started by the owner's own scheduler. It is
 	// never sent over the wire: an explicit caller always gets a real exchange.
 	Scheduled bool `json:"-"`
+	// Unattended reaches the worker: the owner's scheduler started this pass and
+	// no caller waits on it, so its requests carry UnattendedHeader.
+	Unattended bool `json:"unattended,omitempty"`
 }
 
 // SyncManaged is false inside the dedicated worker, avoiding recursive dispatch.

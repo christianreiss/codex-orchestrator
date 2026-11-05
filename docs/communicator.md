@@ -698,6 +698,12 @@ satisfies the scope's initial pass instead of being followed by an identical
 exchange. A first connection is not an invalidation, a new scope's first
 scheduled pass waits 1.5 s so the session that opened it runs first, and explicit
 syncs, `auth` operations and bootstraps that carry auth always run.
+Passes the owner's own scheduler starts (the periodic auth resync and its error
+retries, scheduled content passes) send `X-Cxx-Unattended: 1` from the worker,
+since no caller waits on them. On an insecure host with a closed window the
+server answers such a request `423 insecure_pending` without opening an approval
+request; launches and explicit syncs stay attended and still open one
+(since cxx 0.9.167).
 It invokes the existing headless sync machinery with concurrent sync explicitly
 enabled, preserving each scope's environment and signed config path. Scope
 registrations are removed when their last client lease closes. Files update

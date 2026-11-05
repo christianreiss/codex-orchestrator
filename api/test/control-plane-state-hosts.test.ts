@@ -361,6 +361,21 @@ describe('owned host management and configuration', () => {
 });
 
 describe('owned insecure access state machine', () => {
+  it('refuses unattended traffic on a closed window without opening or touching an approval', async () => {
+    const h = harness({ hosts: [host({ secure: 0 })] });
+    const windows = createInsecureWindowService({ db: h.db, env: loadTestEnv() });
+    const authenticated = requestHost(h.state.snapshot().hosts.get(1)!, key);
+    for (let index = 0; index < 3; index++)
+      await expect(windows.enforce(authenticated, 'retrieve', '10.0.0.1', { unattended: true })).rejects.toMatchObject({
+        code: 'insecure_pending',
+      });
+    expect(h.state.snapshot().table('insecureAuthRequests').by('hostId', 1)).toHaveLength(0);
+    // An attended launch still opens the approval, and unattended retries never mark it live.
+    await expect(windows.enforce(authenticated, 'retrieve')).rejects.toThrow('pending');
+    const request = h.state.snapshot().table('insecureAuthRequests').by('hostId', 1)[0]!;
+    await expect(windows.enforce(authenticated, 'retrieve', null, { unattended: true })).rejects.toThrow('pending');
+    expect(admissionInterestAt(h.runtime, request.id)).toBeUndefined();
+  });
   it('keeps repeated waiting activity volatile without command receipts or SQL', async () => {
     const h = harness({ hosts: [host({ secure: 0 })] });
     const windows = createInsecureWindowService({ db: h.db, env: loadTestEnv() });

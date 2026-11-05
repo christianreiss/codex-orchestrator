@@ -373,6 +373,41 @@ describe('POST /sync/bootstrap and the insecure window', () => {
   });
 });
 
+describe('POST /sync/bootstrap from an unattended communicator resync', () => {
+  it('refuses a closed-window credential bundle without opening an approval', async () => {
+    const apiKey = 'sk-bootstrap-unattended';
+    const db = createDbFake();
+    db.tables.set(hostsTable, [
+      hostRow(apiKey, {
+        secure: 0,
+        insecureEnabledUntil: new Date(Date.now() - 120_000),
+        insecureGraceUntil: new Date(Date.now() - 60_000),
+      }),
+    ]);
+    db.tables.set(versionsTable, []);
+    db.tables.set(agentsDocuments, []);
+    db.tables.set(clientConfigDocuments, []);
+    db.tables.set(insecureAuthRequests, []);
+    db.tables.set(insecureDomainAllows, []);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+
+    const r = await app.inject({
+      method: 'POST',
+      url: '/sync/bootstrap',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+        'x-cxx-unattended': '1',
+      },
+      payload: JSON.stringify({ engine: 'codex', include_auth: true }),
+    });
+
+    expect(r.statusCode).toBe(423);
+    expect(db.tables.get(insecureAuthRequests)).toEqual([]);
+    await app.close();
+  });
+});
+
 describe('POST /sync/bootstrap inlines agents + config', () => {
   it('defaults an inherited host to the normal active quota lane in bundled auth', async () => {
     const apiKey = 'sk-bootstrap-normal-lane';

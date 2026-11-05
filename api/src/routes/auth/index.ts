@@ -179,7 +179,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const payload = readPayload(req.body);
     const engine = resolveAuthRequestEngine(req, payload);
     assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
-    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp);
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, unattendedRequest(req));
     const scope = opaqueId(payload.scope_id, 'scope_id');
     const sessionId = opaqueId(payload.session_id, 'session_id');
     let quota = await readQuotaControls(ctx, host.vip === 1, engine);
@@ -260,7 +260,9 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     // A fleet suspension refuses new leases but lets a running session keep
     // the one it holds; it does stop the server refreshing on its behalf.
     assertHostEngineAssigned(host, engine);
-    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp);
+    // A lease heartbeat is a running session's timer, never an operator
+    // launch: it must not open an approval nobody is there to answer.
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, true);
     const sessionId = opaqueId(payload.session_id, 'session_id');
     const heartbeat = await accounts.heartbeat(host.id, engine, sessionId);
     if (engine !== ENGINE_GROK) return heartbeat;
@@ -296,7 +298,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
     await enforceAccountSession(accounts, host.id, engine, payload);
     const command = normalizeCommand(payload.command);
-    const enforcedHost = await maybeEnforceInsecure(insecure, host, command, req.clientIp);
+    const enforcedHost = await maybeEnforceInsecure(insecure, host, command, req.clientIp, unattendedRequest(req));
     const projectedVersions = requestVersions(req, enforcedHost);
 
     if (command === 'retrieve') {
@@ -443,6 +445,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       host,
       includeAuth ? 'retrieve' : null,
       req.clientIp,
+      unattendedRequest(req),
     );
     const projectedVersions = requestVersions(req, enforced);
 
@@ -537,6 +540,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       host,
       includeAuth ? 'retrieve' : null,
       req.clientIp,
+      unattendedRequest(req),
     );
     // This request's collect/envelope/auth reads share one refresh and artifact
     // projection. Auth mutations below invalidate it before reading again.
@@ -1418,9 +1422,15 @@ async function maybeEnforceInsecure(
   host: Host,
   command: string | null,
   requestIp?: string | null,
+  unattended = false,
 ): Promise<Host> {
   if (command === null || host.secure === 1) return host;
-  return insecure.enforce(host, command, requestIp);
+  return insecure.enforce(host, command, requestIp, { unattended });
+}
+
+/** A wrapper marks its own background traffic (communicator scheduled resync). */
+function unattendedRequest(req: { headers: Record<string, unknown> }): boolean {
+  return req.headers['x-cxx-unattended'] === '1';
 }
 
 /**

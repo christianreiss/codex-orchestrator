@@ -48,6 +48,34 @@ describe('createInsecureWindowService', () => {
     expect(db.updates).toHaveLength(0);
   });
 
+  it('refuses unattended traffic on a closed window without queueing an approval', async () => {
+    const tables = new Map<unknown, Record<string, unknown>[]>();
+    tables.set(hosts, [insecureHost() as unknown as Record<string, unknown>]);
+    tables.set(insecureAuthRequests, []);
+    tables.set(insecureDomainAllows, []);
+    tables.set(versions, []);
+    const db = createDbFake(tables);
+    const svc = createInsecureWindowService({ db: db as never, env: env() });
+
+    await expect(svc.enforce(insecureHost(), 'retrieve', null, { unattended: true })).rejects.toMatchObject({
+      code: 'insecure_pending',
+    });
+    expect(db.inserts).toHaveLength(0);
+  });
+
+  it('admits unattended traffic while the window is open', async () => {
+    const host = insecureHost({ insecureEnabledUntil: new Date(Date.now() + 120_000) });
+    const tables = new Map<unknown, Record<string, unknown>[]>();
+    tables.set(hosts, [host as unknown as Record<string, unknown>]);
+    tables.set(insecureAuthRequests, []);
+    tables.set(versions, []);
+    const db = createDbFake(tables);
+    const svc = createInsecureWindowService({ db: db as never, env: env() });
+
+    await expect(svc.enforce(host, 'retrieve', null, { unattended: true })).resolves.toMatchObject({ id: 42 });
+    expect(db.inserts).toHaveLength(0);
+  });
+
   it('auto-denies stale pending approvals after five minutes', async () => {
     const requestedAt = new Date(Date.now() - 6 * 60_000).toISOString();
     const tables = new Map<unknown, Record<string, unknown>[]>();

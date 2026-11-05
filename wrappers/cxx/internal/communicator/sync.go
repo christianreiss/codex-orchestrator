@@ -756,7 +756,7 @@ func (s *server) syncLoop(ctx context.Context) {
 				defer work.Done()
 				defer func() { s.mu.Lock(); state.running = false; s.mu.Unlock(); s.wake() }()
 				if authDue {
-					result := s.runSync(ctx, SyncRequest{Job: job, Operation: "auth"})
+					result := s.runSync(ctx, SyncRequest{Job: job, Operation: "auth", Unattended: true})
 					s.mu.Lock()
 					if result.Error != nil {
 						state.retryDelay *= 2
@@ -776,7 +776,7 @@ func (s *server) syncLoop(ctx context.Context) {
 					s.mu.Unlock()
 				}
 				if contentDue && !(job.Owner && signedSyncDisabled(job)) {
-					result := s.runSync(ctx, SyncRequest{Job: job, Operation: "content", Scheduled: true})
+					result := s.runSync(ctx, SyncRequest{Job: job, Operation: "content", Scheduled: true, Unattended: true})
 					if result.Error != nil {
 						s.mu.Lock()
 						if !state.nextContent.IsZero() {

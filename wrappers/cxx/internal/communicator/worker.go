@@ -72,6 +72,9 @@ func WorkerCommand(ctx context.Context, in io.Reader, out io.Writer, dispatch fu
 	if req.SkipContent {
 		ctx = WithCachedContent(ctx)
 	}
+	if req.Unattended {
+		ctx = WithUnattended(ctx)
+	}
 	Configure(ctx)
 	// Configure normally discovers all installed engines. The worker's explicit
 	// signed path is authoritative even for --config and isolated test users.

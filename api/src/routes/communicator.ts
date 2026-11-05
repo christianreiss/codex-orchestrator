@@ -148,6 +148,7 @@ const allowedHeaders = new Set([
   'x-wrapper-platform',
   'x-wrapper-version',
   'x-cxx-version',
+  'x-cxx-unattended',
   'x-cxx-api',
   'if-none-match',
   'mcp-session-id',

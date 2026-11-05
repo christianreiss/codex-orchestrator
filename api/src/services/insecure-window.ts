@@ -108,7 +108,7 @@ export interface InsecureWindowService {
    * Mutates `insecure_enabled_until` to slide the window on a hit. Returns
    * the (possibly refreshed) host row.
    */
-  enforce(host: Host, command: InsecureCommand, requestIp?: string | null): Promise<Host>;
+  enforce(host: Host, command: InsecureCommand, requestIp?: string | null, options?: InsecureEnforceOptions): Promise<Host>;
 
   /**
    * Opens the initial 30-minute provisioning window for a freshly-registered
@@ -117,6 +117,21 @@ export interface InsecureWindowService {
   openInitial(hostId: number, windowMinutes?: number): Promise<void>;
   stageInitial?(ctx: OwnerMutationContext, hostId: number, windowMinutes?: number): void;
 }
+
+/**
+ * `unattended` marks traffic no human is waiting on: a communicator's own
+ * scheduled resync or a running session's lease heartbeat. It is admitted while
+ * the window (or a domain/fleet allow) is open, exactly like attended traffic,
+ * but with the window closed it is refused without opening an approval request
+ * or registering waiter interest. Nobody could answer such a request, and a
+ * background loop retrying it every minute turned into an operator popup and
+ * companion push every minute (web01, 2026-11-05).
+ */
+export interface InsecureEnforceOptions {
+  unattended?: boolean;
+}
+
+const unattendedRefusal = () => new LockedError('Insecure host approval pending', 'insecure_pending');
 
 export interface InsecureWindowDeps {
   db: Database;
@@ -141,7 +156,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
   };
   return {
     stageInitial,
-    async enforce(host, command, requestIp = null) {
+    async enforce(host, command, requestIp = null, options = {}) {
       const owner = ownerRuntimeFor(db);
       if (owner) {
         owner.assertOwner();
@@ -151,6 +166,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
         const waiting = owner.state.snapshot().table('insecureAuthRequests').by('hostId', host.id).find(row => row.status === 'pending');
         const activeDomain = owner.state.snapshot().table('insecureDomainAllows').all().some(row => !row.revokedAt && (!row.enabledUntil || (parseDate(row.enabledUntil)?.getTime() ?? 0) > Date.now()) && (admitted.fqdn.toLowerCase() === row.domain.toLowerCase() || admitted.fqdn.toLowerCase().endsWith('.' + row.domain.toLowerCase())));
         const fleetActive = (parseDate(owner.state.snapshot().setting('insecure_fleet_window_until'))?.getTime() ?? 0) > Date.now();
+        if (options.unattended && !insecureWindowActive(admitted) && !activeDomain && !fleetActive) throw unattendedRefusal();
         if (waiting && !insecureWindowActive(admitted) && !activeDomain && !fleetActive && !stalePendingReason(pendingWithInterest(owner, waiting))) {
           if (observeAdmissionInterest(owner, waiting.id)) wsPublisher.publish('insecure.requested', { host_id: host.id, fqdn: admitted.fqdn, request_id: waiting.id, live: true });
           throw new LockedError('Insecure host approval pending', 'insecure_pending');
@@ -286,6 +302,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
       }
 
       const domainMatch = await findActiveDomainAllow(db, host.fqdn);
+      if (!domainMatch && options.unattended) throw unattendedRefusal();
       if (domainMatch) {
         const windowMinutes = clampWindow(host.insecureWindowMinutes ?? null);
         const newUntil = new Date(now.getTime() + windowMinutes * 60_000);
