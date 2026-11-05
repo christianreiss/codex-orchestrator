@@ -19,7 +19,7 @@
 
 <section aria-labelledby="rules-modules-title" class="space-y-3">
   <div>
-    <h2 id="rules-modules-title" class="text-h3">What goes in</h2>
+    <h2 id="rules-modules-title" class="text-h2">What goes in</h2>
     <p class="text-body-sm text-muted-foreground">
       {#if off}
         Modules are not served while generation is disabled. Your selection is kept and returns when you switch back to Generated.

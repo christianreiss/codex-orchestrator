@@ -79,7 +79,7 @@
       {/if}
 
       <Collapsible.Content>
-        <h3 class="mb-2 text-h3">Service availability &amp; routing</h3>
+        <h3 class="mb-2 text-h2">Service availability &amp; routing</h3>
         <ApiConfigure onShowKeys={showKeys} bind:claudeOpen bind:grokOpen />
       </Collapsible.Content>
 

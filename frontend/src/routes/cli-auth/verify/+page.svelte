@@ -179,7 +179,7 @@
   {:else if phase === "approved"}
     <div class="flex flex-col items-center gap-3 py-2 text-center">
       <div class="flex h-12 w-12 items-center justify-center rounded-full bg-success-muted text-success"><Check class="h-6 w-6" /></div>
-      <p class="text-h3">Session approved</p>
+      <p class="text-h2">Session approved</p>
       <p class="text-body-sm text-muted-foreground">
         {session?.fqdn ? `${session.fqdn} is now registered.` : "The CLI is now authorized."} You can close this tab.
       </p>
@@ -187,7 +187,7 @@
   {:else}
     <div class="flex flex-col items-center gap-3 py-2 text-center">
       <div class="flex h-12 w-12 items-center justify-center rounded-full bg-destructive-muted text-destructive"><XCircle class="h-6 w-6" /></div>
-      <p class="text-h3">Session denied</p>
+      <p class="text-h2">Session denied</p>
       <p class="text-body-sm text-muted-foreground">
         The login request was rejected. The CLI on
         {#if session?.fqdn}<span class="font-mono">{session.fqdn}</span>{:else}the requesting host{/if}

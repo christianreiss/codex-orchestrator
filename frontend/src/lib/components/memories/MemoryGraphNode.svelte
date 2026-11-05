@@ -105,7 +105,7 @@
       <p class="truncate font-mono text-caption font-semibold text-foreground" title={data.displayKey}>
         {data.displayKey}
       </p>
-      <span class="shrink-0 rounded-md border border-current/15 bg-background/70 px-1.5 py-0.5 text-caption font-semibold uppercase tracking-wider text-muted-foreground">
+      <span class="shrink-0 rounded-md border border-current/15 bg-background/70 px-1.5 py-0.5 section-label">
         {node.scope}
       </span>
     </div>

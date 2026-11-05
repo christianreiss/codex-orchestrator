@@ -24,7 +24,7 @@
     </div>
     <pre class="whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-body-sm">{detail.schedule.prompt}</pre>
     <p class="text-caption text-muted-foreground">Created by {detail.schedule.created_by}; last changed by {detail.schedule.updated_by}.</p>
-    <h3 class="text-h3">Latest executions</h3>
+    <h3 class="text-h2">Latest executions</h3>
     <p class="text-caption text-muted-foreground">Accepted means received, not finished. Recovery after an interrupted run may repeat actions.</p>
     {#if !detail.runs.length}<p class="text-body-sm">No executions yet.</p>{/if}
     {#each detail.runs as run (run.id)}

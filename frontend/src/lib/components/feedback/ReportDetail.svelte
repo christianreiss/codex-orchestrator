@@ -32,7 +32,7 @@
 {:else}
   <div class="space-y-5">
     <div>
-      <h3 class="break-words text-h3">{item.title}</h3>
+      <h3 class="break-words text-h2">{item.title}</h3>
       <p class="mt-1 flex items-center gap-1 font-mono text-caption text-muted-foreground"><span class="min-w-0 break-all">{item.id}</span><CopyButton value={item.id} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label="Copy report ID" toastMessage="Report ID copied" /></p>
       <p class="mt-2 text-body-sm">{humanize(item.status)} · {actorLabel(item.claim_owner)}</p>
       {#if item.claim_expires_at}<p class="text-caption text-muted-foreground">Claim expires <Timestamp value={item.claim_expires_at} absolute /></p>{/if}

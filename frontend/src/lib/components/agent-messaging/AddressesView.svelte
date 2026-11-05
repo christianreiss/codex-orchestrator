@@ -66,7 +66,7 @@
 
 <section aria-labelledby="addresses-heading" class="space-y-2">
   <div>
-    <h2 id="addresses-heading" class="text-h3">Addresses</h2>
+    <h2 id="addresses-heading" class="text-h2">Addresses</h2>
     <p class="text-body-sm text-muted-foreground">Created from eligible secure managed sessions. Aliases are optional; the stable address always works. Listening needs a connected receiver.</p>
   </div>
   <DataTable

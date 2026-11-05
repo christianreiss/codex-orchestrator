@@ -84,7 +84,7 @@
 <Card.Root>
   <Card.Content class="space-y-5 p-4">
     <div class="space-y-1">
-      <h3 class="text-h3">Fleet security posture</h3>
+      <h3 class="text-h2">Fleet security posture</h3>
       <p class="text-body-sm text-muted-foreground">
         Every axis runs the same direction: <span class="font-medium">0 is most constrained, 4 is
         unrestricted</span>. Levels change the served policy text, and drive engine config where a

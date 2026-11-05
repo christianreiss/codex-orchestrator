@@ -15,7 +15,7 @@
 <DraftGuard dirty={posture.levelsDirty || posture.verbosityDirty || posture.addressFormDirty} />
 <section aria-labelledby="rules-posture-title" class="space-y-3">
   <div>
-    <h2 id="rules-posture-title" class="text-h3">How cautious agents are</h2>
+    <h2 id="rules-posture-title" class="text-h2">How cautious agents are</h2>
     <p class="text-body-sm text-muted-foreground">Security level, response length and form of address. All apply fleet-wide and are saved separately from the document.</p>
   </div>
 

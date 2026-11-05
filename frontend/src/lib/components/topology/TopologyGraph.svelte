@@ -510,7 +510,7 @@
   <div class="pointer-events-none absolute bottom-3 right-3 rounded-md border bg-background/90 px-3 py-2 text-caption text-muted-foreground" aria-label="Connection legend">
     <span>━━ Persistent</span> · <span>╍╍ On demand</span> · <span>··· Unknown</span>
   </div>
-  <div class="absolute right-3 top-3 flex flex-col gap-1 rounded-md border bg-background/90 p-1 shadow-sm backdrop-blur" role="group" aria-label="Zoom">
+  <div class="absolute right-3 top-3 flex flex-col gap-1 rounded-md border bg-background p-1" role="group" aria-label="Zoom">
     <button type="button" class="zoom-button" aria-label="Zoom in" onpointerdown={(e) => e.stopPropagation()} onclick={() => zoomAround(1.25)}><ZoomInIcon class="h-4 w-4" /></button>
     <button type="button" class="zoom-button" aria-label="Zoom out" onpointerdown={(e) => e.stopPropagation()} onclick={() => zoomAround(0.8)}><ZoomOutIcon class="h-4 w-4" /></button>
     <button type="button" class="zoom-button" aria-label="Fit to view" onpointerdown={(e) => e.stopPropagation()} onclick={resetView}><MaximizeIcon class="h-4 w-4" /></button>
@@ -518,7 +518,7 @@
 </div>
 
 <style>
-  .node { cursor: pointer; outline: none; transition: opacity 0.6s ease; }
+  .node { cursor: pointer; outline: none; transition: opacity 0.6s ease; } /* slop-ok: the :focus-visible halo rule below shows focus */
   .node:focus-visible .halo, .node--selected .halo { opacity: 1 !important; }
   .halo { transition: opacity 0.15s ease; }
   /* Labels inherit the app font (Tailwind's font-sans on <html>) and stay at the 12 px caption floor (DESIGN.md VIS-2). */
@@ -527,7 +527,7 @@
   .node-label--muted { font-weight: 500; fill: hsl(var(--muted-foreground)); }
   .count { font-family: inherit; font-size: 12px; font-weight: 700; line-height: 1; fill: hsl(var(--primary-foreground)); pointer-events: none; }
   .engine-code { font-family: inherit; font-size: 12px; font-weight: 700; line-height: 1; fill: hsl(var(--persona-foreground)); pointer-events: none; }
-  .zoom-button { display: grid; height: 2rem; width: 2rem; place-items: center; border-radius: 0.375rem; color: hsl(var(--muted-foreground)); outline: none; }
+  .zoom-button { display: grid; height: 2rem; width: 2rem; place-items: center; border-radius: 0.375rem; color: hsl(var(--muted-foreground)); outline: none; } /* slop-ok: .zoom-button:focus-visible below draws the ring */
   .zoom-button:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
   .zoom-button:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }
   .edge-flow { stroke-dasharray: 3 7; animation: flow 1.4s linear infinite; }

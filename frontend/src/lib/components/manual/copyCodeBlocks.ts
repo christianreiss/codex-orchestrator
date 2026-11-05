@@ -29,7 +29,7 @@ function createButton(getText: () => string): CopyButtonState {
   const button = document.createElement("button");
   button.type = "button";
   button.className =
-    "copy-btn absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md border border-border bg-background/80 px-2 py-1 text-xs font-medium text-muted-foreground opacity-0 backdrop-blur transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:opacity-100 group-hover:opacity-100";
+    "copy-btn absolute right-2 top-2 z-10 inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:opacity-100 group-hover:opacity-100";
   button.setAttribute("aria-label", "Copy code");
   button.innerHTML = `${ICON_COPY}<span>Copy</span>`;
 

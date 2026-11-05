@@ -11,7 +11,7 @@
   <Search class="mr-2.5 h-4 w-4 shrink-0 opacity-50" />
   <CommandPrimitive.Input
     class={cn(
-      "flex h-12 w-full rounded-lg bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+      "flex h-12 w-full rounded-lg bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50", // slop-ok: the wrapper draws the focus-within ring
       className,
     )}
     {...rest}

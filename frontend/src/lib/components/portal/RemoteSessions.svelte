@@ -168,7 +168,7 @@
       {#if selectedId}
         <header class="flex items-center gap-2 border-b px-3 py-2">
           <Button variant="ghost" size="icon" class="shrink-0 lg:hidden" aria-label="Back to remote sessions" onclick={back}><ChevronLeftIcon class="h-5 w-5" /></Button>
-          <div class="min-w-0 flex-1"><h2 bind:this={heading} tabindex="-1" class="truncate text-body-sm font-semibold outline-none">{selected?.title ?? 'Remote session'}</h2><p class="truncate text-caption text-muted-foreground">{selectedHost?.fqdn ?? 'Host'} · {remoteState(selected?.status ?? 'queued').label}{inPlan ? ' · Plan mode' : ''}</p></div>
+          <div class="min-w-0 flex-1"><h2 bind:this={heading} tabindex="-1" class="truncate text-body-sm font-semibold outline-none">{selected?.title ?? 'Remote session'}</h2><!-- slop-ok: programmatic focus target (tabindex=-1) --><p class="truncate text-caption text-muted-foreground">{selectedHost?.fqdn ?? 'Host'} · {remoteState(selected?.status ?? 'queued').label}{inPlan ? ' · Plan mode' : ''}</p></div>
           <Button variant="ghost" size="sm" aria-expanded={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>Details</Button>
         </header>
         {#if detailsOpen && selected}<div class="max-h-[40%] shrink-0 space-y-2 overflow-y-auto border-b bg-muted/20 p-4 text-caption">

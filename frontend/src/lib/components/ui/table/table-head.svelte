@@ -8,7 +8,7 @@
 
 <th
   class={cn(
-    "h-9 bg-muted/55 px-3 shadow-[inset_0_-1px_0_hsl(var(--border))] text-left align-middle text-body-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
+    "h-9 bg-muted/55 px-3 shadow-[inset_0_-1px_0_hsl(var(--border))] text-left align-middle text-body-sm font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0", // slop-ok: the inset shadow is the sticky header rule; a border scrolls away
     className,
   )}
   {...rest}

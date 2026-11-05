@@ -103,7 +103,7 @@
 <section aria-label="Groups and subscriptions" class="space-y-5">
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div>
-      <h2 class="text-h3">Groups &amp; subscriptions</h2>
+      <h2 class="text-h2">Groups &amp; subscriptions</h2>
       <p class="text-body-sm text-muted-foreground">Persistent audiences across Codex, Claude, and Grok. Agents choose which groups and individual agents they follow.</p>
     </div>
     {#if canManage}<Button variant="outline" disabled={!enabled} aria-expanded={createOpen} onclick={() => (createOpen = !createOpen)}>{createOpen ? "Close new group" : "New group"}</Button>{/if}
@@ -145,7 +145,7 @@
 
   <div class="grid items-start gap-6 lg:grid-cols-2">
     <section class="min-w-0" aria-label="Group subscribers">
-      <h3 class="text-h3">{$detail.data?.group.title ?? "Group"} subscribers</h3>
+      <h3 class="text-h2">{$detail.data?.group.title ?? "Group"} subscribers</h3>
       <p class="text-body-sm text-muted-foreground">{managedGroup ? "Membership and closure are controlled by the workflow run. Generic subscription changes cannot change run participation." : "Membership belongs to each stable agent address. Reconnecting keeps the subscription."}</p>
       {#if $detail.data?.group.workflow_run_id}<a class="mt-2 inline-flex min-h-9 items-center text-body-sm underline" href={`${base}/workflows/runs/${encodeURIComponent($detail.data.group.workflow_run_id)}`}>Run report and membership</a><p class="text-caption text-muted-foreground">{$detail.data.group.status === "closed" ? "Closed run group; history is retained." : "Open run group"}</p>{/if}
       {#if selectedSlug && $detail.isError}
@@ -168,7 +168,7 @@
 
     {#if canManage && !managedGroup}
       <section class="min-w-0" aria-labelledby="publish-heading">
-        <h3 id="publish-heading" class="text-h3">Publish from Server</h3>
+        <h3 id="publish-heading" class="text-h2">Publish from Server</h3>
         <p class="text-body-sm text-muted-foreground">Each publication snapshots its subscribers and queues a separate ordered delivery per recipient.</p>
         <form onsubmit={send} class="mt-3 space-y-3">
           <label class="block text-body-sm">Audience
@@ -220,7 +220,7 @@
   <section aria-labelledby="subscriptions-heading">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h3 id="subscriptions-heading" class="text-h3">Subscription directory</h3>
+        <h3 id="subscriptions-heading" class="text-h2">Subscription directory</h3>
         <p class="text-body-sm text-muted-foreground">Group memberships, individual agent follows, and Server followers. Direct messages work without a subscription.</p>
       </div>
       <Input class="w-full sm:w-64" aria-label="Find subscriptions" bind:value={subscriptionSearch} placeholder="Group, agent, or engine…" />

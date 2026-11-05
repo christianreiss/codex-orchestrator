@@ -17,8 +17,7 @@
     <main
       id="main-content"
       tabindex="-1"
-      class="app-main min-h-0 flex-1 overflow-y-auto px-4 pt-4 focus:outline-none md:px-6 md:pt-5"
-    >
+      class="app-main min-h-0 flex-1 overflow-y-auto px-4 pt-4 focus:outline-none md:px-6 md:pt-5"><!-- slop-ok: skip-link target (tabindex=-1), not a control -->
       <div class="mx-auto w-full max-w-[1600px]">
         {@render children?.()}
       </div>

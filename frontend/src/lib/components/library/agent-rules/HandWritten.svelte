@@ -24,7 +24,7 @@
   onfocusout={preview.clearActiveSetting}
 >
   <div>
-    <h2 class="text-h3">Hand-written Markdown</h2>
+    <h2 class="text-h2">Hand-written Markdown</h2>
     <p class="text-body-sm text-muted-foreground">
       Served verbatim between the mandatory fleet policy and the host capability guidance, which are added either way. Saving stores a
       hand-written version; the module selection of the version before it stays in history.

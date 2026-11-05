@@ -18,7 +18,7 @@
   onfocusin={() => preview.setActive({ kind: "custom" })}
   onfocusout={preview.clearActiveSetting}
 >
-  <Label for="agents-custom-instructions" class="text-h3">Custom instructions</Label>
+  <Label for="agents-custom-instructions" class="text-h2">Custom instructions</Label>
   <Textarea
     id="agents-custom-instructions"
     class="min-h-40 resize-y font-mono text-body-sm leading-relaxed"

@@ -24,7 +24,7 @@
 </script>
 
 <div>
-  <h3 class="mb-1 text-h3">Fleet behaviour and integrations</h3>
+  <h3 class="mb-1 text-h2">Fleet behaviour and integrations</h3>
   <ToggleRow label="Priority host" note="VIP: usage limits only warn on this host instead of blocking it." checked={host.vip} onchange={(v) => runQuiet($vip.mutateAsync({ id, value: v }))} />
   <ToggleRow label="Always allowed (ignores usage limits)" note="Scaling exempt: this host is not held back when quota is tight." checked={host.lane_preference === "exempt"} onchange={(v) => runQuiet($scaling.mutateAsync({ id, value: v }))} />
   <ToggleRow label="Update automatically" note="Auto-update: the host agent and engine CLIs follow the fleet target versions." checked={host.effective_auto_update_enabled} onchange={(v) => runQuiet($autoUpdate.mutateAsync({ id, value: v }))} />

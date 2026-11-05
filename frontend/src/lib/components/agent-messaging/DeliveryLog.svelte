@@ -131,7 +131,7 @@
 
 <section aria-labelledby="deliveries-heading" class="space-y-2">
   <div>
-    <h2 id="deliveries-heading" class="text-h3">Delivery log</h2>
+    <h2 id="deliveries-heading" class="text-h2">Delivery log</h2>
     <p class="text-body-sm text-muted-foreground">Every message with its delivery status. Content stays hidden until an owner or admin reveals it, and each reveal is audited.</p>
     {#if messageId}
       <p class="mt-1 text-caption text-muted-foreground">Showing linked message history · {messageId} <Button size="sm" variant="ghost" onclick={clearMessageLink}>Clear filter</Button></p>

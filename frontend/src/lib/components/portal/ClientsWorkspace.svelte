@@ -395,7 +395,7 @@
               <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Agents</Button></div>
               <div class="flex min-w-0 flex-col items-center text-center">
                 <EngineAvatar engine={selected.engine} presence={selectedView.presence} activity={liveActivity(selected, serverNow)} status={selectedView.label} size="xs" badge logo />
-                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus:outline-none">{agentName(selected)}</h2>
+                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus:outline-none">{agentName(selected)}</h2><!-- slop-ok: programmatic focus target (tabindex=-1) -->
                 <p class="max-w-full truncate text-caption text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
                 <p class="max-w-full truncate text-caption text-muted-foreground">
                   {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selected.activity || selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}

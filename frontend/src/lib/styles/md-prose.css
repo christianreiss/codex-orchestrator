@@ -21,8 +21,8 @@
 .md-prose ul { list-style: disc; padding-left: 1.5rem; margin: .75rem 0; }
 .md-prose ol { list-style: decimal; padding-left: 1.5rem; margin: .75rem 0; }
 .md-prose li { margin: .25rem 0; }
-.md-prose blockquote { margin: 1rem 0; padding: .5rem 1rem; border-left: 3px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); background: hsl(var(--muted) / .4); }
-.md-prose code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .85em; padding: .15em .35em; background: hsl(var(--muted)); border-radius: 3px; }
+.md-prose blockquote { margin: 1rem 0; padding: .5rem 1rem; border-left: 3px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); background: hsl(var(--muted) / .4); } /* slop-ok: conventional quotation rule, not an accent stripe */
+.md-prose code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .85em; padding: .15em .35em; background: hsl(var(--muted)); border-radius: 3px; } /* slop-ok: prose CSS outside Tailwind repeats the font-mono stack */
 .md-prose pre { position: relative; margin: 1rem 0; padding: 2.25rem 1rem 1rem; overflow-x: auto; background: hsl(var(--muted)); border: 1px solid hsl(var(--border)); border-radius: 4px; font-size: .85rem; }
 .md-prose pre code { background: transparent; padding: 0; }
 .md-prose table { display: block; overflow-x: auto; max-width: 100%; width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .9rem; }
@@ -57,7 +57,7 @@
  * background: text keeps its own contrast ratio, which a saturated highlight
  * behind body copy would not.
  */
-.md-prose [data-provenance] { border-left: 3px solid transparent; margin-left: -.75rem; padding-left: .5rem; transition: background-color .12s ease, border-color .12s ease; }
+.md-prose [data-provenance] { border-left: 3px solid transparent; margin-left: -.75rem; padding-left: .5rem; transition: background-color .12s ease, border-color .12s ease; } /* slop-ok: provenance marker revealed on hover/selection */
 .md-prose [data-provenance-active] { border-left-color: hsl(var(--primary)); background: hsl(var(--primary) / .07); }
 .md-prose [data-provenance]:hover { border-left-color: hsl(var(--primary) / .45); }
 

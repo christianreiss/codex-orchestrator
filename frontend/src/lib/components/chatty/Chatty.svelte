@@ -127,8 +127,8 @@
     <Dialog.Trigger class="chatty-launcher" lang="de" aria-label="Chatty öffnen" title={$status.data.ready ? 'Chatty' : 'Chatty · kein KI-Zugang verfügbar'}>
       <svg viewBox="0 0 48 48" aria-hidden="true" class:thinking={active?.status === 'running'}>
         <path d="M10 8h28a5 5 0 0 1 5 5v20a5 5 0 0 1-5 5H22l-9 6v-6h-3a5 5 0 0 1-5-5V13a5 5 0 0 1 5-5Z" fill="currentColor" />
-        <g class="face" fill="var(--chatty-face, #142020)"><circle cx="17" cy="22" r="2.4"/><circle cx="31" cy="22" r="2.4"/></g>
-        <path d="M18 29q6 5 12 0" fill="none" stroke="var(--chatty-face, #142020)" stroke-width="2.4" stroke-linecap="round"/>
+        <g class="face" fill="var(--chatty-face, #142020)"><circle cx="17" cy="22" r="2.4"/><circle cx="31" cy="22" r="2.4"/></g><!-- slop-ok: Chatty mascot artwork -->
+        <path d="M18 29q6 5 12 0" fill="none" stroke="var(--chatty-face, #142020)" stroke-width="2.4" stroke-linecap="round"/><!-- slop-ok: Chatty mascot artwork -->
       </svg>
       {#if !$status.data.ready}<span class="offline" aria-hidden="true"></span>{/if}
     </Dialog.Trigger>

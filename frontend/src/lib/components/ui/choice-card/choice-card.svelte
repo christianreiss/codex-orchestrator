@@ -66,7 +66,7 @@
           <span
             class={cn(
               "bg-primary-foreground",
-              mode === "radio" ? "h-1.5 w-1.5 rounded-full" : "h-2 w-2 rounded-[1px]",
+              mode === "radio" ? "h-1.5 w-1.5 rounded-full" : "h-2 w-2 rounded-none",
             )}
           ></span>
         {/if}

@@ -15,6 +15,8 @@ on:
       # catch ships. `frontend/src/lib/ci-workflow-paths.test.ts` holds both
       # filters below against what the tests actually read.
       - 'api/**'
+      # `npm run check` runs the design gate kept at the repo root.
+      - 'scripts/slop-grep.sh'
       - '.github/workflows/frontend.yml'
   pull_request:
     paths:
@@ -24,6 +26,7 @@ on:
       # Same trees as `push`; GitHub Actions has no YAML anchors, so the list
       # is spelled twice and the test above requires both copies to carry it.
       - 'api/**'
+      - 'scripts/slop-grep.sh'
       - '.github/workflows/frontend.yml'
 
 concurrency:

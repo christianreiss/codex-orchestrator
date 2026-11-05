@@ -125,7 +125,6 @@ const config: Config = {
         "body-sm": ["0.8125rem", { lineHeight: "1.5" }],
         body: ["0.875rem", { lineHeight: "1.5" }],
         "body-lg": ["1rem", { lineHeight: "1.6" }],
-        h3: ["1rem", { lineHeight: "1.3", fontWeight: "600" }],
         h2: ["1rem", { lineHeight: "1.3", fontWeight: "600" }],
         h1: ["1.25rem", { lineHeight: "1.3", fontWeight: "600" }],
       },

@@ -24,7 +24,7 @@
   {:else}
     <div class="mb-2 flex flex-wrap items-end justify-between gap-2">
       <div class="min-w-0">
-        <h2 class={cn("text-h3", danger && "text-destructive")}>{title}</h2>
+        <h2 class={cn("text-h2", danger && "text-destructive")}>{title}</h2>
         {#if description}<p class="mt-0.5 text-body-sm text-muted-foreground">{description}</p>{/if}
       </div>
       {#if actions}<div class="flex flex-wrap items-center gap-2">{@render actions()}</div>{/if}

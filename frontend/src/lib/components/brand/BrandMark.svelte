@@ -39,8 +39,8 @@
       stroke-linejoin="round"
     />
     <path d="M9 12.8 12.2 16 9 19.2 5.8 16Z" fill="currentColor" />
-    <circle cx="24" cy="10" r="2.35" fill="#67e8f9" stroke="currentColor" stroke-width="0.8" />
-    <circle cx="24" cy="22" r="2.35" fill="#fdba74" stroke="currentColor" stroke-width="0.8" />
+    <circle cx="24" cy="10" r="2.35" fill="#67e8f9" stroke="currentColor" stroke-width="0.8" /><!-- slop-ok: brand mark artwork -->
+    <circle cx="24" cy="22" r="2.35" fill="#fdba74" stroke="currentColor" stroke-width="0.8" /><!-- slop-ok: brand mark artwork -->
   </svg>
 
   {#if status}

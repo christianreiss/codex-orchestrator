@@ -32,7 +32,7 @@
 
 <section class="space-y-3" aria-labelledby="host-remote-heading">
   <div class="flex flex-wrap items-center justify-between gap-2">
-    <h3 id="host-remote-heading" class="text-h3">Remote sessions</h3>
+    <h3 id="host-remote-heading" class="text-h2">Remote sessions</h3>
     <DaemonIndicator host={$query.data}/>
   </div>
   <p class="text-body-sm text-muted-foreground">Keep communication and managed sync available through this host's Linux service. Remote agent starts have their own control.</p>

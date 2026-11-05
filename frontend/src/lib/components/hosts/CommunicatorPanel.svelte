@@ -14,7 +14,7 @@
   const connections = $derived(($query.data?.connections ?? []).filter(c => c.host_id === Number(id)));
 </script>
 <section class="space-y-2" aria-labelledby="communicator-heading">
-  <h3 id="communicator-heading" class="text-h3">Connection <span class="text-body-sm font-normal text-muted-foreground">CoCo communicator</span></h3>
+  <h3 id="communicator-heading" class="text-h2">Connection <span class="text-body-sm font-normal text-muted-foreground">CoCo communicator</span></h3>
   <p class="text-body-sm text-muted-foreground">Shares one server connection across this user's Codex, Claude and Grok sessions. Coordinates live content and credential updates without restarting native sessions. An enabled host daemon keeps it running.</p>
   {#if $query.error}<p role="alert" class="text-body text-destructive">{$query.error.message}</p>
   {:else if $query.isPending}<p class="text-body text-muted-foreground">Loading connection status…</p>

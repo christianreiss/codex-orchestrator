@@ -316,8 +316,7 @@
       <h2
         bind:this={heading}
         tabindex="-1"
-        class="break-words text-body font-semibold focus:outline-none"
-      >
+        class="break-words text-body font-semibold focus:outline-none"><!-- slop-ok: programmatic focus target (tabindex=-1) -->
         {room?.title ?? "Conversation"}
       </h2>
       <p class="text-caption text-muted-foreground">
