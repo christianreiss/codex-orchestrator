@@ -93,6 +93,22 @@ func (b *Broker) activityHook(w http.ResponseWriter, raw []byte) {
 	_ = json.NewEncoder(w).Encode(a)
 }
 
+// ClaudeActiveStaleAfter bounds how long an `active` turn proof may hold back
+// default (after_turn) deliveries without any new native hook evidence. Claude
+// Code queues channel notifications natively and presents them in order, so a
+// delivery written into a turn that is in fact still running is not lost; a
+// proof stuck `active` because a Stop never fired (Esc interrupt, crash,
+// dropped hook) would otherwise close reception for good.
+const ClaudeActiveStaleAfter = 10 * time.Minute
+
+// ClaudeTurnBusy reports whether a turn proof is positive, fresh evidence that
+// the root turn is still running. Only that may defer a channel write: unknown
+// (reconnect, reset, observer restart) and stale active fail open, because the
+// native channel queue already serializes delivery with the running turn.
+func ClaudeTurnBusy(proof *ClaudeTurnProof, evidenceAge time.Duration) bool {
+	return proof != nil && proof.State == "active" && evidenceAge < ClaudeActiveStaleAfter
+}
+
 // ClaudeTurnProof is lifecycle order, separate from expiring activity telemetry.
 // Sequence one is the unknown epoch bootstrap; only an observed Stop is idle.
 type ClaudeTurnProof struct {
@@ -167,8 +183,12 @@ func (b *Broker) nativeTurnIdentity() (string, int) {
 
 // Caller holds nativeMu, also used by synchronous native lifecycle hooks.
 func (b *Broker) updateClaudeTurnProof(native, instance string, binding int, event string) ClaudeTurnProof {
+	// A native state feed outage reports an empty identity. That is not a new
+	// native instance: keep the epoch so a reconnect does not discard the last
+	// observed boundary. Only a different non-empty identity starts a new epoch.
 	if b.turnProof.Epoch == "" || b.turnProofNativeID != b.nativeID ||
-		b.turnProof.NativeInstanceID != instance || b.turnProof.BindingGeneration != binding {
+		(instance != "" && b.turnProof.NativeInstanceID != instance) ||
+		(binding > 0 && b.turnProof.BindingGeneration != binding) {
 		b.turnProof = ClaudeTurnProof{Epoch: newUUID(), Sequence: 1, State: "unknown", NativeInstanceID: instance, BindingGeneration: binding}
 		b.turnProofNativeID = b.nativeID
 	}
@@ -211,8 +231,16 @@ func (b *Broker) channelDeliver(w http.ResponseWriter, request *http.Request, ra
 	defer b.nativeMu.Unlock()
 	instance, binding := b.nativeTurnIdentity()
 	proof := b.updateClaudeTurnProof(input.NativeID, instance, binding, "")
-	if b.session.Engine != "claude" || input.NativeID != b.nativeID || proof.State == "unknown" ||
-		(input.Timing == "after_turn" && proof.State != "idle") {
+	// Claude Code queues channel notifications and presents them in order, so
+	// only fresh positive evidence of a running turn defers an after_turn write.
+	// Unknown proof (reconnect, observer restart, missed Stop) fails open:
+	// requiring a Stop that an idle prompt never produces left sessions deaf.
+	evidenceAge := ClaudeActiveStaleAfter
+	if !b.hookActivityAt.IsZero() && b.hookActivityNativeID == b.nativeID {
+		evidenceAge = time.Since(b.hookActivityAt)
+	}
+	if b.session.Engine != "claude" || input.NativeID != b.nativeID ||
+		(input.Timing == "after_turn" && ClaudeTurnBusy(&proof, evidenceAge)) {
 		writeBrokerError(w, 409, "native_boundary_changed", "Native turn boundary changed before submission")
 		return
 	}

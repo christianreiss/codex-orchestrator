@@ -6,7 +6,9 @@ import type { OwnerRuntime } from '../../../src/control-plane/state/runtime.js';
 import type { StateRow } from '../../../src/control-plane/state/catalog.js';
 import {
   acceptOwnedClaudeTurnProof,
+  ownedClaudeTurnBusy,
   ownedClaudeTurnIdle,
+  CLAUDE_ACTIVE_STALE_MS,
   type ReceiverTurnProof,
 } from '../../../src/control-plane/state/receiver-turn-proof.js';
 
@@ -64,6 +66,7 @@ function fixture() {
     return accepted;
   };
   const idle = () => ownedClaudeTurnIdle(owner, {} as OwnerStateSnapshot, session);
+  const busy = (now?: number) => ownedClaudeTurnBusy(owner, {} as OwnerStateSnapshot, session, now);
   return {
     owner,
     presence,
@@ -73,6 +76,7 @@ function fixture() {
     input,
     apply,
     idle,
+    busy,
     change(patch: Partial<typeof session>) {
       session = { ...session, ...patch };
     },
@@ -133,6 +137,27 @@ describe('Claude native turn boundary proof', () => {
     if (change === 'instance') h.live.detach();
     expect(h.idle()).toBe(false);
     expect(() => h.apply({ ...h.input, sequence: 3, state: 'idle' })).toThrow();
+    h.presence.close();
+  });
+  // 2026-11-05 10:13:54: a reconnect wave left every idle Claude session with an
+  // unknown proof, and after_turn admission required proven idle, so nothing was
+  // delivered until a human typed. Only fresh, bound `active` may defer now.
+  it('defers after_turn only for fresh bound active proof and fails open otherwise', () => {
+    const h = fixture();
+    expect(h.busy()).toBe(false);
+    h.apply(h.input);
+    expect(h.busy()).toBe(false);
+    h.apply({ ...h.input, sequence: 2, state: 'active' });
+    expect(h.busy()).toBe(true);
+    expect(h.busy(Date.now() + CLAUDE_ACTIVE_STALE_MS)).toBe(false);
+    // An unchanged re-report does not refresh the evidence age.
+    h.apply({ ...h.input, sequence: 2, state: 'active' });
+    expect(h.busy(Date.now() + CLAUDE_ACTIVE_STALE_MS)).toBe(false);
+    h.live.detach();
+    expect(h.busy()).toBe(false);
+    h.attach();
+    h.apply({ ...h.input, sequence: 3, state: 'active' });
+    expect(h.busy()).toBe(false);
     h.presence.close();
   });
 });

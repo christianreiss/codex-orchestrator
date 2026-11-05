@@ -441,6 +441,36 @@ func (r *autoReceiver) releaseAfterNativeTurn(ctx context.Context, status string
 	r.turnBusyAt, r.turnIdleSince = time.Time{}, time.Time{}
 }
 
+// claudeHeldReleaseAfter bounds how long a Claude informational delivery that
+// was written into the native channel can hold reception closed without the
+// Stop/UserPromptSubmit release or an agent_listen. The notification already
+// sits in Claude Code's own ordered queue, so completing its receipt cannot
+// lose it; never releasing it stranded every later message and wake.
+const claudeHeldReleaseAfter = 15 * time.Minute
+
+// releaseStaleClaudeHeld is the bounded fallback for a lost turn-end release.
+// Work and Portal deliveries keep their explicit-result contract, and nothing
+// is released while fresh hook evidence says the turn is still running.
+func (r *autoReceiver) releaseStaleClaudeHeld(ctx context.Context, now time.Time) {
+	r.mu.Lock()
+	activity := claudeTurnState(r.claudeActivity)
+	r.mu.Unlock()
+	if activity == "working" {
+		return
+	}
+	r.tracker.mu.Lock()
+	var stale []string
+	for id, p := range r.tracker.items {
+		if p.workKind == "" && !p.admissionPending() && !p.nativeAt.IsZero() && now.Sub(p.nativeAt) >= claudeHeldReleaseAfter {
+			stale = append(stale, id)
+		}
+	}
+	r.tracker.mu.Unlock()
+	if len(stale) > 0 {
+		_, _ = r.tracker.releaseSeen(ctx, stale)
+	}
+}
+
 func (t *channelTracker) releaseNativeTurn(ctx context.Context, busyAt time.Time) error {
 	t.mu.Lock()
 	var seen []string

@@ -307,6 +307,29 @@ func TestClaudeTurnProofSeparatesIdleFromReadinessAndTelemetry(t *testing.T) {
 			t.Fatalf("coarse=%s proof=%s =>%s", tc.coarse, tc.proof, got)
 		}
 	}
+	// A Stop that never fired (Esc, crash, dropped hook) must not hold an
+	// active proof forever: without fresh hook evidence it decays to unknown.
+	stale := activityObservation{State: "unknown", EvidenceAgeMS: agentportal.ClaudeActiveStaleAfter.Milliseconds(), TurnProof: &agentportal.ClaudeTurnProof{State: "active"}}
+	if got := claudeTurnState(stale); got != "unknown" {
+		t.Fatalf("stale active proof => %s", got)
+	}
+}
+
+// Unknown turn proof is the state every idle Claude session fell into after the
+// 2026-11-05 10:13:54 reconnect wave: the gate must stay open and nativeIdle
+// must admit, otherwise nothing but a human keystroke ever reopens reception.
+func TestClaudeUnknownTurnProofKeepsReceptionOpen(t *testing.T) {
+	r := &autoReceiver{deliveryTimingV1: true}
+	for _, proof := range []*agentportal.ClaudeTurnProof{nil, {State: "unknown"}, {State: "idle"}} {
+		r.claudeActivity = activityObservation{TurnProof: proof}
+		if !r.nativeIdle() {
+			t.Fatalf("proof %+v closed reception", proof)
+		}
+	}
+	r.claudeActivity = activityObservation{TurnProof: &agentportal.ClaudeTurnProof{State: "active"}}
+	if r.nativeIdle() {
+		t.Fatal("fresh active turn admitted an after_turn delivery")
+	}
 }
 
 func TestImmediateCompletionRequiresExactCompletedSteeredTurn(t *testing.T) {
@@ -543,6 +566,26 @@ func TestImmediateCapabilityRecognizesOnlyObservedCodexParserDiagnostic(t *testi
 	} {
 		if got := probeImmediateMethod(func(string, any, any) error { return tc.rpc }, tc.method); got != tc.want {
 			t.Fatalf("method=%s error=%+v got=%v", tc.method, tc.rpc, got)
+		}
+	}
+}
+
+func TestCoordinationDefaultsToImmediateOnlyForInformation(t *testing.T) {
+	for _, tc := range []struct {
+		args map[string]any
+		work bool
+		want any
+	}{
+		{map[string]any{"delivery_class": "coordination"}, false, "immediate"},
+		{map[string]any{"delivery_class": "coordination", "delivery_timing": "after_turn"}, false, nil},
+		{map[string]any{"delivery_class": "coordination"}, true, nil},
+		{map[string]any{"delivery_class": "information"}, false, nil},
+		{map[string]any{}, false, nil},
+	} {
+		body := map[string]any{}
+		defaultCoordinationImmediate(tc.args, body, tc.work)
+		if body["delivery_timing"] != tc.want {
+			t.Fatalf("%v work=%v => %v", tc.args, tc.work, body["delivery_timing"])
 		}
 	}
 }

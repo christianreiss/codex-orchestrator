@@ -16,7 +16,13 @@ export const receiverTurnProofSchema = z
   })
   .strict();
 export type ReceiverTurnProof = z.infer<typeof receiverTurnProofSchema>;
-type StoredProof = ReceiverTurnProof & { attachment_id: string; receiver_generation: string };
+type StoredProof = ReceiverTurnProof & { attachment_id: string; receiver_generation: string; observed_at_ms?: number };
+
+/** Mirrors the wrapper's `agentportal.ClaudeActiveStaleAfter`. An `active` proof
+ * that has not advanced for this long (a Stop that never fired: Esc interrupt,
+ * crash, dropped hook) no longer defers delivery. Claude Code queues channel
+ * notifications natively, so a write into a still-running turn is not lost. */
+export const CLAUDE_ACTIVE_STALE_MS = 10 * 60_000;
 type Session = Readonly<StateRow<'agentSessions'>>;
 
 function stored(session: Session): StoredProof | undefined {
@@ -66,13 +72,42 @@ export function acceptOwnedClaudeTurnProof(
     (proof.sequence !== previous.sequence || proof.state !== previous.state)
   )
     state = 'unknown';
+  const sequence = same ? Math.max(previous.sequence, proof.sequence) : proof.sequence;
+  const advanced = !same || sequence !== previous.sequence || state !== previous.state;
   return {
     ...proof,
     state,
-    sequence: same ? Math.max(previous.sequence, proof.sequence) : proof.sequence,
+    sequence,
     attachment_id: live.id,
     receiver_generation: receiver.generation,
+    observed_at_ms: advanced ? Date.now() : (previous.observed_at_ms ?? Date.now()),
   };
+}
+
+/** Only fresh, exactly bound evidence of a running Claude turn defers a default
+ * (after_turn) delivery. Missing, unknown, stale or rebound proof fails open:
+ * requiring a proven idle boundary left every idle session deaf after a
+ * reconnect, because an idle prompt never emits the Stop that would prove it. */
+export function ownedClaudeTurnBusy(
+  owner: OwnerRuntime,
+  _snapshot: OwnerStateSnapshot,
+  session: Session,
+  now = Date.now(),
+): boolean {
+  const proof = stored(session),
+    receiver = receiverState(session.receiver);
+  if (
+    !proof ||
+    proof.state !== 'active' ||
+    session.engine !== 'claude' ||
+    session.endedAt ||
+    proof.binding_generation !== session.bindingGeneration ||
+    !receiver ||
+    proof.receiver_generation !== receiver.generation ||
+    now - (proof.observed_at_ms ?? 0) >= CLAUDE_ACTIVE_STALE_MS
+  )
+    return false;
+  return attachment(owner, session, proof.native_instance_id)?.id === proof.attachment_id;
 }
 
 export function ownedClaudeTurnIdle(

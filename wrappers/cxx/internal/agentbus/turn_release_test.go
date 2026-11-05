@@ -12,9 +12,12 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 )
 
 // transcriptLines renders Claude Code transcript entries the way the live
@@ -488,5 +491,41 @@ func TestNativeTurnEndKeepsDeliveriesSubmittedDuringTheTurn(t *testing.T) {
 	r.releaseAfterNativeTurn(context.Background(), "idle", start.Add(20*time.Second))
 	if len(calls) != 0 || tracker.get("held") == nil {
 		t.Fatalf("released a delivery the finished turn never saw: %v", calls)
+	}
+}
+
+// A held informational Claude delivery whose turn-end release never arrives
+// (Stop lost, model never called agent_listen) is released after a bound, so a
+// session cannot stay closed behind it. Work and fresh deliveries stay held,
+// and nothing is released while fresh hook evidence shows a running turn.
+func TestStaleClaudeHeldDeliveryIsReleasedAfterBound(t *testing.T) {
+	var acked []string
+	var mu sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		acked = append(acked, path.Base(path.Dir(req.URL.Path)))
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{})
+	}))
+	defer server.Close()
+	c := &sessionClient{id: "session", http: &http.Client{Transport: rewriteTransport{server: server}}}
+	tracker := newChannelTracker(c)
+	r := &autoReceiver{client: c, tracker: tracker, deliveryTimingV1: true}
+	tracker.receiver = r
+	now := time.Now()
+	old := now.Add(-claudeHeldReleaseAfter - time.Second)
+	noop := func() {}
+	tracker.items["old"] = &channelPending{claimID: "c1", nativeAt: old, cancel: noop}
+	tracker.items["fresh"] = &channelPending{claimID: "c2", nativeAt: now, cancel: noop}
+	tracker.items["work"] = &channelPending{claimID: "c3", nativeAt: old, workKind: "task", cancel: noop}
+	r.claudeActivity = activityObservation{TurnProof: &agentportal.ClaudeTurnProof{State: "active"}}
+	r.releaseStaleClaudeHeld(context.Background(), now)
+	if tracker.get("old") == nil {
+		t.Fatal("released during a fresh active turn")
+	}
+	r.claudeActivity = activityObservation{TurnProof: &agentportal.ClaudeTurnProof{State: "unknown"}}
+	r.releaseStaleClaudeHeld(context.Background(), now)
+	if tracker.get("old") != nil || tracker.get("fresh") == nil || tracker.get("work") == nil {
+		t.Fatalf("wrong release set; acked %v", acked)
 	}
 }

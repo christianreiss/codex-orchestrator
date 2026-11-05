@@ -1767,6 +1767,20 @@ because the parallel activity hook is refused until that identity exists. After 
 subprocess restart at a never-used prompt the new observer pins the cached idle and the
 session waits for its next turn, as for any restarted observer.
 
+From cxx 0.9.162 reception recovers by itself whatever was gone and for how long.
+Only a fresh `active` turn proof (a native hook within the last 10 minutes) holds
+back default-timed deliveries; `unknown` and stale `active` deliver, because Claude
+Code queues channel notifications natively and presents them in order. Before,
+the wrapper gate, the broker and server admission all demanded a proven `idle`
+boundary, and a reconnect (seen fleet-wide at 2026-11-05 10:13:54), an observer
+restart or an Esc interrupt left the proof `unknown`/`active` with no `Stop` to
+come, so the session sat at claim gate `thread_other` until a human typed. A
+native state feed outage now keeps the turn epoch instead of minting a new one,
+`immediate` no longer requires an observed `working` turn, and an informational
+delivery whose turn-end release was lost is released after 15 minutes without
+fresh turn activity. Sessions still running an older receiver keep their old gate
+until their next turn or relaunch.
+
 Claude keeps its native TUI and receives `notifications/claude/channel`. A temporary
 per-launch plugin named `cxx-receiver` adds a SessionStart identity hook without
 replacing user hooks or settings; it handles new sessions, continue/resume pickers

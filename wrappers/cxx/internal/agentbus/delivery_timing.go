@@ -10,7 +10,25 @@ import (
 )
 
 func deliveryTimingProperty() map[string]any {
-	return map[string]any{"type": "string", "enum": []string{"immediate", "after_turn"}, "default": "after_turn", "description": "Informational delivery timing: immediate inserts at a supported native boundary during current work without cancellation; after_turn waits for idle."}
+	return map[string]any{"type": "string", "enum": []string{"immediate", "after_turn"}, "default": "after_turn", "description": "Informational delivery timing: immediate inserts at a supported native boundary during current work without cancellation; after_turn waits for idle. Omitted on a delivery_class coordination message, it defaults to immediate."}
+}
+
+// defaultCoordinationImmediate makes an informational coordination message
+// (stop, hold, question, approval) steer by default: it reaches a busy peer at
+// its next native boundary (Codex turn/steer, Grok interject, Claude channel)
+// instead of after a turn that can last an hour (feedback 7f965cc6). The value
+// is written explicitly, so the server's omitted-equals-after_turn idempotency
+// is untouched. Work never takes this path; an explicit timing always wins.
+func defaultCoordinationImmediate(args, body map[string]any, work bool) {
+	if work {
+		return
+	}
+	if _, explicit := args["delivery_timing"]; explicit {
+		return
+	}
+	if stringArg(args, "delivery_class") == "coordination" {
+		body["delivery_timing"] = "immediate"
+	}
 }
 
 func copyDeliveryTiming(args, body map[string]any, work bool) error {
@@ -85,7 +103,6 @@ func (r *autoReceiver) deliversAfterTurn() bool {
 func (r *autoReceiver) deliverImmediate(id, content string) (string, error) {
 	r.mu.Lock()
 	queue := r.queue
-	activity := claudeTurnState(r.claudeActivity)
 	r.mu.Unlock()
 	if queue != nil {
 		adapter, ok := queue.(nativeImmediateDelivery)
@@ -94,9 +111,8 @@ func (r *autoReceiver) deliverImmediate(id, content string) (string, error) {
 		}
 		return adapter.sendImmediate(id, content)
 	}
-	if activity != "working" {
-		return "", errors.New("immediate channel delivery requires active native activity proof")
-	}
+	// Claude Code queues a channel notification whatever the turn state is, so
+	// an immediate write never needs activity proof to be safe.
 	return "", r.deliver(id, content)
 }
 
@@ -148,7 +164,9 @@ func (r *autoReceiver) nativeIdle() bool {
 		status, err := queue.status()
 		return err == nil && status == "idle"
 	}
-	return !enabled || activity == "idle"
+	// Only fresh positive evidence of a running Claude turn defers delivery;
+	// unknown fails open (see agentportal.ClaudeTurnBusy).
+	return !enabled || activity != "working"
 }
 
 const ownerDeliverPath = "/turn/deliver"
@@ -211,10 +229,11 @@ func (r *autoReceiver) guardedChannelDelivery(ctx context.Context, id, content, 
 		if !valid {
 			proof = nil
 		}
+		// The write already happened when the broker answers delivered: a
+		// missing proof (unknown turn after a reconnect) only spends the budget
+		// conservatively. Turning it into an error would mark a message the
+		// session has received as ambiguous and drop it.
 		r.finishClaudeImmediateBudget(proof)
-		if err == nil && !valid {
-			return errors.New("guarded immediate channel admission proof missing")
-		}
 	}
 	if err != nil {
 		return err
@@ -225,6 +244,10 @@ func (r *autoReceiver) guardedChannelDelivery(ctx context.Context, id, content, 
 	return nil
 }
 
+// claudeTurnState maps the broker's lifecycle proof to the receiver gate. Only
+// `working` closes the gate for default deliveries, and only while the hook
+// evidence behind it is fresh: a proof left `active` by a Stop that never fired
+// decays to unknown after agentportal.ClaudeActiveStaleAfter.
 func claudeTurnState(a activityObservation) string {
 	if a.TurnProof == nil {
 		return "unknown"
@@ -233,7 +256,9 @@ func claudeTurnState(a activityObservation) string {
 	case "idle":
 		return "idle"
 	case "active":
-		return "working"
+		if agentportal.ClaudeTurnBusy(a.TurnProof, time.Duration(a.EvidenceAgeMS)*time.Millisecond) {
+			return "working"
+		}
 	}
 	return "unknown"
 }

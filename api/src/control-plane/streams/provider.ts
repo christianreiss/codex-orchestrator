@@ -1,4 +1,4 @@
-import { ownedClaudeTurnIdle } from '../state/receiver-turn-proof.js';
+import { ownedClaudeTurnBusy } from '../state/receiver-turn-proof.js';
 import type { OwnerStateSnapshot } from '../state/store.js';
 import { relayCommunicatorUsername } from './authorization.js';
 import { ownerCredentials } from '../credentials.js';
@@ -157,7 +157,7 @@ export class OwnerStateProvider implements StateProvider {
           // authoritative proof commits. Wake once when admission actually
           // changes, without treating activity heartbeats as new queued work.
           const claudeIdle = session.engine === 'claude' && receiver?.delivery_timing_v1 === true
-            ? ownedClaudeTurnIdle(this.runtime, state, session) : null;
+            ? !ownedClaudeTurnBusy(this.runtime, state, session) : null;
           const fingerprint = canonicalCommand(json([sources, work, claudeIdle]));
           if (lastWork !== fingerprint) {
             lastWork = fingerprint;

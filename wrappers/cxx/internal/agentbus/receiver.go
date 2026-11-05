@@ -588,9 +588,15 @@ func (r *autoReceiver) connection(parent context.Context) error {
 			r.mu.Lock()
 			activity := claudeTurnState(r.claudeActivity)
 			r.mu.Unlock()
-			if activity != "idle" {
+			// Unknown is not busy. Claude Code queues channel notifications
+			// natively, and an idle prompt never emits the Stop that a stricter
+			// gate would wait for (reconnect, observer restart, Esc interrupt).
+			if activity == "working" {
 				gate = "thread_" + activity
 			}
+		}
+		if gate == "held_delivery" && r.queue == nil {
+			r.releaseStaleClaudeHeld(ctx, time.Now())
 		}
 		r.setGate(gate)
 		immediateOnly := r.immediateClaimAllowed(gate)

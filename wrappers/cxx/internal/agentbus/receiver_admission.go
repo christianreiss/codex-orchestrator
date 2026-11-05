@@ -144,6 +144,11 @@ func (r *autoReceiver) reconcileAdmission(ctx context.Context, id string, pendin
 	r.mu.Lock()
 	native := r.queue != nil
 	r.mu.Unlock()
+	if !native {
+		// Claude: remember the channel write time so a delivery whose turn-end
+		// release never arrives cannot hold reception closed forever.
+		r.tracker.markNativeDelivered(pending, time.Now())
+	}
 	if native {
 		r.tracker.mu.Lock()
 		pending.nativeTurn = nativeTurn

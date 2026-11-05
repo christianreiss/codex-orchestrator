@@ -96,9 +96,16 @@ func TestClaudeTurnProofRetainsStopBeyondActivityTTLAndRejectsKnownResets(t *tes
 	if changed.State != "unknown" || changed.Sequence != 1 || changed.Epoch == idle.Epoch {
 		t.Fatal(changed)
 	}
+	settled := b.updateClaudeTurnProof("native", instance, 8, "Stop")
+	// A native state feed outage reports no identity. It reads unknown while the
+	// feed is down but must not discard the epoch: a reconnect that loses the
+	// last boundary left idle sessions deaf until a human typed.
 	lost := b.updateClaudeTurnProof("native", "", 0, "")
-	if lost.State != "unknown" || lost.Epoch == changed.Epoch {
+	if lost.State != "unknown" || lost.Epoch != settled.Epoch {
 		t.Fatal(lost)
+	}
+	if back := b.updateClaudeTurnProof("native", instance, 8, ""); back != settled {
+		t.Fatal("feed outage reset the turn proof", settled, back)
 	}
 	b.nativeID = "other"
 	if p := b.updateClaudeTurnProof("native", instance, 8, "Stop"); p.State != "unknown" {
@@ -164,13 +171,41 @@ func TestClaudeSessionStartBecomesIdleOnlyAfterAnObserverSawTheBootstrap(t *test
 	}
 }
 
-func TestClaudeChannelDeliveryNeverCallsOwnerWithoutNativeProof(t *testing.T) {
-	b := &Broker{session: &Session{ID: "fixture", Engine: "claude"}, nativeID: "native"}
-	request := httptest.NewRequest("POST", "/receiver/channel-deliver", nil)
-	recorder := httptest.NewRecorder()
-	b.channelDeliver(recorder, request, []byte(`{"native_session_id":"native","message_id":"fixture","content":"fixture","delivery_timing":"after_turn"}`))
-	if recorder.Code != 409 {
-		t.Fatalf("%d %s", recorder.Code, recorder.Body.String())
+func TestClaudeChannelDeliveryDefersOnlyForAFreshActiveTurn(t *testing.T) {
+	deliver := func(b *Broker, timing string) int {
+		t.Helper()
+		request := httptest.NewRequest("POST", "/receiver/channel-deliver", nil)
+		recorder := httptest.NewRecorder()
+		b.channelDeliver(recorder, request, []byte(`{"native_session_id":"native","message_id":"fixture","content":"fixture","delivery_timing":"`+timing+`"}`))
+		return recorder.Code
+	}
+	// Fresh positive evidence of a running turn defers after_turn before any
+	// owner callback (409 is the proven non-submission).
+	b := claudeTurnBrokerFixture(t)
+	b.dir = t.TempDir()
+	instance, binding := b.nativeTurnIdentity()
+	b.updateClaudeTurnProof("native", instance, binding, "UserPromptSubmit")
+	b.hookActivityAt, b.hookActivityNativeID = time.Now(), "native"
+	if code := deliver(b, "after_turn"); code != 409 {
+		t.Fatalf("fresh active turn: %d", code)
+	}
+	// Unknown proof (reconnect, observer restart), stale active (lost Stop) and
+	// immediate all reach the owner: Claude Code queues channel notifications
+	// itself. Without an owner socket here that surfaces as 502, never 409.
+	if code := deliver(b, "immediate"); code != 502 {
+		t.Fatalf("immediate during active turn: %d", code)
+	}
+	b.hookActivityAt = time.Now().Add(-ClaudeActiveStaleAfter - time.Second)
+	if code := deliver(b, "after_turn"); code != 502 {
+		t.Fatalf("stale active turn: %d", code)
+	}
+	unknown := &Broker{session: &Session{ID: "fixture", Engine: "claude"}, nativeID: "native", dir: t.TempDir()}
+	if code := deliver(unknown, "after_turn"); code != 502 {
+		t.Fatalf("unknown turn: %d", code)
+	}
+	if !ClaudeTurnBusy(&ClaudeTurnProof{State: "active"}, time.Minute) || ClaudeTurnBusy(&ClaudeTurnProof{State: "unknown"}, 0) ||
+		ClaudeTurnBusy(&ClaudeTurnProof{State: "active"}, ClaudeActiveStaleAfter) || ClaudeTurnBusy(nil, 0) {
+		t.Fatal("ClaudeTurnBusy")
 	}
 }
 

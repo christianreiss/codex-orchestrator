@@ -50,7 +50,7 @@ type channelPending struct {
 	workKind       string
 	conferenceID   string
 	sender         string
-	nativeAt       time.Time // submitted to a Codex/Grok native queue
+	nativeAt       time.Time // submitted to a native queue or Claude channel
 	replyClientID  string
 	cancel         context.CancelFunc
 }
@@ -1132,6 +1132,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if err := copyDeliveryTiming(args, body, name == "agent_request"); err != nil {
 			return nil, err
 		}
+		defaultCoordinationImmediate(args, body, name == "agent_request")
 		copyQueuePolicy(args, body, channelState)
 		if err := client.post(ctx, "send", body, &out); err != nil || name == "agent_send" {
 			if err != nil {
@@ -1217,6 +1218,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		if err := copyDeliveryTiming(args, body, false); err != nil {
 			return nil, err
 		}
+		defaultCoordinationImmediate(args, body, hasResult || pending != nil && pending.workKind != "")
 		copyQueuePolicy(args, body, channelState)
 		if pending != nil {
 			body["claim_id"] = pending.claimID

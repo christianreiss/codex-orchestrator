@@ -1,8 +1,14 @@
 # Message delivery timing
 
 Senders can choose `delivery_timing: "immediate" | "after_turn"` for informational
-direct messages, replies and publications. Omission means `after_turn`; this is
-independent of `delivery_class`, which retains its existing queue-priority meaning.
+direct messages, replies and publications. On the wire, omission means `after_turn`;
+`delivery_class` keeps its existing queue-priority meaning. From cxx 0.9.162 the
+`agent_send` and `agent_reply` MCP tools write `immediate` explicitly when a
+`delivery_class: "coordination"` message omits `delivery_timing` (never for
+`agent_request`, accepted work or a `task_result` reply): stop, hold, question and
+approval messages steer a busy peer at its next native boundary on every engine
+instead of waiting out a turn that can last an hour (feedback 7f965cc6). An explicit
+`after_turn` still wins.
 The choice does not grant authority, cancel tools, stop a turn, or admit parallel work.
 
 ```json
@@ -47,15 +53,29 @@ Immediate information leaves current work running. Keep its delivery pending unt
 a substantive answer is needed or the natural turn end; call `agent_listen` then.
 A peer reply does not end the ongoing operator task.
 
-For Claude this makes `after_turn` (the default) strictly turn-gated: the broker
-refuses an `after_turn` channel write unless the turn proof is idle, and the
-receiver claims only immediate information while a turn runs. A busy session
-therefore cannot read default-timed replies mid-turn, and `agent_listen` cannot
-fetch them; it only releases a finished delivery. The ringer hooks say so instead
-of pointing at `agent_listen`, and the `Stop` hook does not block for pending mail
-the receiver will push at that boundary (see `interface-clx.md`). A sender that
-needs a busy coordinator to read an update before its turn ends sends it
-`immediate`.
+For Claude, `after_turn` (the default) is deferred only by fresh, positive
+evidence of a running root turn: a turn proof in state `active` whose last native
+hook is younger than 10 minutes (`ClaudeActiveStaleAfter` in the wrapper,
+`CLAUDE_ACTIVE_STALE_MS` on the server). While that holds, the receiver claims
+only immediate information, the broker refuses an `after_turn` channel write and
+server admission waits, so a busy session cannot read default-timed replies
+mid-turn and `agent_listen` cannot fetch them; it only releases a finished
+delivery. The ringer hooks say so instead of pointing at `agent_listen`, and the
+`Stop` hook does not block for pending mail the receiver will push at that
+boundary (see `interface-clx.md`). A sender that needs a busy coordinator to read
+an update before its turn ends sends it `immediate`.
+
+From cxx 0.9.162 every other state fails open: an `unknown` proof (reconnect,
+observer restart, native state feed outage, missing proof) and an `active` proof
+without fresh hook evidence (a `Stop` that never fired after an Esc interrupt,
+crash or dropped hook) deliver. Claude Code queues channel notifications itself
+and presents them in order, so a write that lands in a turn which is in fact still
+running waits in the native queue instead of being lost. Requiring a proven idle
+boundary had made every idle session deaf after the 2026-11-05 reconnect wave,
+because an idle prompt never emits the `Stop` that would prove it. A held
+informational Claude delivery whose turn-end release never arrives is released
+after 15 minutes without fresh turn activity; accepted work and Portal
+instructions keep their explicit-result contract.
 
 ## Capability and receipts
 
@@ -94,9 +114,11 @@ information is excluded from deferred digests; coalescing never mixes timing mod
   A definitely stale turn is handled through normal deferred queue admission;
   an unknown response is not retried.
 - Claude: native channel notification with a final local broker guard serialized
-  against synchronous lifecycle-hook updates. Exact instance, binding, receiver
-  generation and ordered epoch/sequence evidence are required. Idle evidence does
-  not expire merely because an activity heartbeat is old. Channel writes have an
+  against synchronous lifecycle-hook updates. Exact native session identity is
+  required; ordered epoch/sequence evidence can only defer an `after_turn` write
+  while it shows a fresh `active` turn. A native state feed outage keeps the
+  current epoch. Idle evidence does not expire merely because an activity
+  heartbeat is old. Channel writes have an
   absolute 250 ms deadline; synchronous turn-boundary hooks allow 5 seconds. A
   pre-write rejection safely defers; a lost callback leaves timing uncertain and
   is never retried. Known reset/disconnect

@@ -1,6 +1,6 @@
 import { ownedEmulation, assertEmulationAdmission } from '../quota-emulation.js';
 import { isEngine } from '../../util/engine.js';
-import { ownedClaudeTurnIdle } from '../../control-plane/state/receiver-turn-proof.js';
+import { ownedClaudeTurnBusy } from '../../control-plane/state/receiver-turn-proof.js';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { agentBusMessages } from '../../db/schema.js';
@@ -123,7 +123,7 @@ function afterTurnReady(runtime: OwnerRuntime, snapshot: OwnerStateSnapshot, opt
   if (options.immediateOnly || options.relayGeneration !== null) return true;
   const session = snapshot.sessions.get(options.leaseOwner.slice(8));
   return !session || session.engine !== 'claude' || receiverState(session.receiver)?.delivery_timing_v1 !== true ||
-    ownedClaudeTurnIdle(runtime, snapshot, session);
+    !ownedClaudeTurnBusy(runtime, snapshot, session);
 }
 function authorizeClaim(
   runtime: OwnerRuntime,
