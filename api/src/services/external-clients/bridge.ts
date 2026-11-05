@@ -26,6 +26,7 @@ import { acknowledgeOwnedDelivery } from '../agent-messaging/owned-delivery.js';
 import { replyOwnedMessage } from '../agent-messaging/owned-reply.js';
 import { sendOwnedMessage } from '../agent-messaging/owned-send.js';
 import { discoverOwnedAddresses } from '../agent-messaging/owned-discovery.js';
+import { writeExternalClients } from './write.js';
 import { AGENT_MESSAGING_MAX_BODY_BYTES as MAX_MESSAGE_BYTES } from '../agent-messaging/constants.js';
 import type { MessageDelivery } from '../agent-messaging/types.js';
 import type { Engine } from '../../util/engine.js';
@@ -38,6 +39,9 @@ import { oneLine } from './normalize.js';
 export const POLL_MAX_WAIT_SECONDS = 25;
 /** An open poll or heartbeat keeps the client "listening" for this long. */
 export const PRESENCE_GRACE_MS = 90_000;
+const TOUCH_INTERVAL_MS = 60_000;
+/** How long a registered virtual session is reused before it is re-registered. */
+const ENSURE_CACHE_MS = 30_000;
 export const ADAPTER_PROTOCOL = 'external-rest-v1';
 
 export class ExternalCallError extends ApiError {
@@ -79,6 +83,8 @@ export class ExternalBridge {
   }
 
   private readonly ensuring = new Map<string, Promise<unknown>>();
+  private readonly touched = new Map<string, number>();
+  private readonly cache = new Map<string, { at: number; value: Virtual }>();
 
   /**
    * Register (or refresh) the client's virtual session; stable address across
@@ -86,6 +92,8 @@ export class ExternalBridge {
    * first calls (or a caller holding a stale row) never mint a second address.
    */
   async ensure(client: ExternalClient): Promise<Virtual> {
+    const hit = this.cache.get(client.id);
+    if (hit && Date.now() - hit.at < ENSURE_CACHE_MS) return hit.value;
     const previous = this.ensuring.get(client.id) ?? Promise.resolve();
     const run = previous.catch(() => undefined).then(() => this.ensureLocked(client));
     const tail = run.catch(() => undefined);
@@ -93,7 +101,15 @@ export class ExternalBridge {
     void tail.then(() => {
       if (this.ensuring.get(client.id) === tail) this.ensuring.delete(client.id);
     });
-    return run;
+    return run.then((value) => {
+      this.cache.set(client.id, { at: Date.now(), value });
+      return value;
+    });
+  }
+
+  /** Forget the cached session binding, e.g. after the client row changed. */
+  forget(clientId: string): void {
+    this.cache.delete(clientId);
   }
 
   private async ensureLocked(given: ExternalClient): Promise<Virtual> {
@@ -134,10 +150,12 @@ export class ExternalBridge {
       throw new ExternalCallError(503, 'messaging_disabled', 'Agent messaging is disabled on this server');
     const address = result.address as { id: string };
     if (client.sessionId !== sessionId || client.addressId !== address.id) {
-      await this.db
-        .update(externalClients)
-        .set({ sessionId, addressId: address.id, updatedAt: nowIso() })
-        .where(eq(externalClients.id, client.id));
+      await writeExternalClients(this.db, 'external_client.bind_session', { id: client.id }, (tx) =>
+        tx
+          .update(externalClients)
+          .set({ sessionId, addressId: address.id, updatedAt: nowIso() })
+          .where(eq(externalClients.id, client.id)),
+      );
     }
     const snapshot = runtime.state.snapshot();
     const instanceId = snapshot.table('agentNativeControls').get(sessionId)?.instanceId ?? randomUUID();
@@ -190,7 +208,13 @@ export class ExternalBridge {
   }
 
   private async touch(client: ExternalClient): Promise<void> {
-    await this.db.update(externalClients).set({ lastPollAt: nowIso() }).where(eq(externalClients.id, client.id));
+    // Each write is an owner command; one a minute is plenty for "last seen".
+    const last = this.touched.get(client.id) ?? 0;
+    if (Date.now() - last < TOUCH_INTERVAL_MS) return;
+    this.touched.set(client.id, Date.now());
+    await writeExternalClients(this.db, 'external_client.touch', { id: client.id }, (tx) =>
+      tx.update(externalClients).set({ lastPollAt: nowIso() }).where(eq(externalClients.id, client.id)),
+    );
   }
 
   /**
@@ -381,6 +405,7 @@ export class ExternalBridge {
 
   /** Server-side end of the client's presence (disable/rotate/delete). */
   drop(clientId: string): void {
+    this.cache.delete(clientId);
     const entry = this.presence.get(clientId);
     if (!entry) return;
     this.presence.delete(clientId);

@@ -14,6 +14,7 @@ import type { MessageDelivery } from '../agent-messaging/types.js';
 import { nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { ENGINE_EXTERNAL } from '../../util/engine.js';
+import { writeExternalClients } from './write.js';
 import { ExternalBridge, ExternalCallError, ADAPTER_PROTOCOL, stripExternalHeader } from './bridge.js';
 import { EXTERNAL_KEY_PREFIX, hashExternalKey, newExternalKey } from './keys.js';
 import {
@@ -94,7 +95,7 @@ export class ExternalClientsService {
     const now = nowIso();
     const id = randomUUID();
     try {
-      await this.db.insert(externalClients).values({
+      await writeExternalClients(this.db, 'external_client.create', { id }, (tx) => tx.insert(externalClients).values({
         id,
         name,
         nameKey,
@@ -108,7 +109,7 @@ export class ExternalClientsService {
         createdAt: now,
         updatedAt: now,
         disabledAt: input.enabled === false ? now : null,
-      });
+      }));
     } catch (error) {
       if (isDuplicate(error))
         throw new ConflictError('An external client with this name already exists', 'external_client_name_taken');
@@ -136,12 +137,15 @@ export class ExternalClientsService {
       set.disabledAt = patch.enabled ? null : nowIso();
     }
     try {
-      await this.db.update(externalClients).set(set).where(eq(externalClients.id, id));
+      await writeExternalClients(this.db, 'external_client.update', { id }, (tx) =>
+        tx.update(externalClients).set(set).where(eq(externalClients.id, id)),
+      );
     } catch (error) {
       if (isDuplicate(error))
         throw new ConflictError('An external client with this name already exists', 'external_client_name_taken');
       throw error;
     }
+    this.bridge.forget(id);
     if (patch.enabled === false) this.bridge.drop(current.id);
     wsPublisher.publish('external_client.changed', { id });
     return this.get(id);
@@ -151,10 +155,12 @@ export class ExternalClientsService {
   async rotateKey(id: string): Promise<{ client: ExternalClientView; key: string }> {
     await this.row(id);
     const key = newExternalKey();
-    await this.db
-      .update(externalClients)
-      .set({ keyHash: key.hash, keyPrefix: key.prefix, updatedAt: nowIso() })
-      .where(eq(externalClients.id, id));
+    await writeExternalClients(this.db, 'external_client.rotate_key', { id }, (tx) =>
+      tx
+        .update(externalClients)
+        .set({ keyHash: key.hash, keyPrefix: key.prefix, updatedAt: nowIso() })
+        .where(eq(externalClients.id, id)),
+    );
     this.bridge.drop(id);
     wsPublisher.publish('external_client.changed', { id });
     return { client: await this.get(id), key: key.key };
@@ -163,7 +169,9 @@ export class ExternalClientsService {
   async remove(id: string): Promise<void> {
     await this.row(id);
     this.bridge.drop(id);
-    await this.db.delete(externalClients).where(eq(externalClients.id, id));
+    await writeExternalClients(this.db, 'external_client.delete', { id }, (tx) =>
+      tx.delete(externalClients).where(eq(externalClients.id, id)),
+    );
     wsPublisher.publish('external_client.changed', { id });
   }
 

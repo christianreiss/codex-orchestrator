@@ -1,3 +1,4 @@
+import { protectOwnerReadHandle, scopedDatabase } from '../../../src/db/fresh-read.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { drizzle } from 'drizzle-orm/mysql2';
@@ -84,14 +85,17 @@ describe.skipIf(!handle)('external clients over the owned messaging bus', () => 
         assertOwner: () => owner.assertReady(),
         execute: (command) => executor.execute(command),
       };
-      bindOwnerRuntime(handle!.db, runtime);
+      // Production hands services a handle that refuses writes outside an owner command.
+      const guarded = scopedDatabase(handle!.db);
+      bindOwnerRuntime(guarded, runtime);
+      protectOwnerReadHandle(guarded);
       const presence = new ConnectionPresence((error) => {
         throw error;
       });
       bindOwnerPresence(runtime, presence);
       new ConnectionCredentials(runtime, presence, { session: 3_600_000, relay: 900_000 });
-      const bus = new AgentMessagingService(handle!.db, env, keyring);
-      const service = new ExternalClientsService(handle!.db, env, keyring);
+      const bus = new AgentMessagingService(guarded, env, keyring);
+      const service = new ExternalClientsService(guarded, env, keyring);
 
       // A native peer that can receive.
       const peerId = randomUUID(),
