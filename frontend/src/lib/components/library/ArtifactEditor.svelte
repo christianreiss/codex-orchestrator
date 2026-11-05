@@ -181,8 +181,8 @@
         {/if}
         {#if type === "subagents" || type === "commands"}
           <div class="space-y-1.5">
-            <span class="text-body-sm font-medium">{type === "commands" ? "Allowed tools" : "Tools"}</span>
-            <RepeatableList bind:items={tools} placeholder="tool name" addLabel="Add tool" />
+            <span id="artifact-tools-label" class="text-body-sm font-medium">{type === "commands" ? "Allowed tools" : "Tools"}</span>
+            <RepeatableList bind:items={tools} label="Tool" labelledby="artifact-tools-label" placeholder="tool name" addLabel="Add tool" />
           </div>
         {/if}
         {#if serverSha}

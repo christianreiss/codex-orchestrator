@@ -39,6 +39,7 @@
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
+  import { FormField } from "$lib/components/ui/form-field";
   import { ChoiceCard } from "$lib/components/ui/choice-card";
   import { createRegisterHostMutation } from "$lib/api/hosts";
   import { invalidateSetup } from "$lib/api/setup";
@@ -192,18 +193,19 @@
     else onSubmitRequested?.();
   }}
 >
-  <div class="space-y-1.5">
-    <Label for="{idPrefix}-fqdn">Hostname (FQDN)</Label>
-    <Input
-      id="{idPrefix}-fqdn"
-      placeholder="worker-1.example.com"
-      bind:value={fqdn}
-      autocomplete="off"
-      disabled={submitting}
-      aria-invalid={errors.fqdn ? "true" : undefined}
-    />
-    {#if errors.fqdn}<p class="text-body-sm text-destructive">{errors.fqdn}</p>{/if}
-  </div>
+  <FormField id="{idPrefix}-fqdn" label="Hostname (FQDN)" error={errors.fqdn}>
+    {#snippet children(f)}
+      <Input
+        id="{idPrefix}-fqdn"
+        placeholder="worker-1.example.com"
+        bind:value={fqdn}
+        autocomplete="off"
+        disabled={submitting}
+        aria-invalid={f.invalid}
+        aria-describedby={f.describedBy}
+      />
+    {/snippet}
+  </FormField>
 
   <div class="space-y-2">
     <Label id="{idPrefix}-options-label">Options</Label>
@@ -232,7 +234,12 @@
 
   <div class="space-y-2">
     <Label id="{idPrefix}-engines-label">Engines</Label>
-    <div role="group" aria-labelledby="{idPrefix}-engines-label" class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+    <div
+      role="group"
+      aria-labelledby="{idPrefix}-engines-label"
+      aria-describedby={errors.engines ? `${idPrefix}-engines-error` : undefined}
+      class="grid grid-cols-1 gap-2 sm:grid-cols-3"
+    >
       {#each HOST_ENGINE_OPTIONS as opt (opt.id)}
         <ChoiceCard
           mode="checkbox"
@@ -253,7 +260,7 @@
         </ChoiceCard>
       {/each}
     </div>
-    {#if errors.engines}<p class="text-body-sm text-destructive">{errors.engines}</p>{/if}
+    {#if errors.engines}<p id="{idPrefix}-engines-error" class="text-body-sm text-destructive">{errors.engines}</p>{/if}
   </div>
 
   {#if !hideSubmit}

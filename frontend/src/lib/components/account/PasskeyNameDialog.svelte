@@ -2,7 +2,7 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
-  import { Label } from "$lib/components/ui/label";
+  import { FormField } from "$lib/components/ui/form-field";
 
   type Props = {
     open: boolean;
@@ -69,20 +69,19 @@
         <Dialog.Title>{title}</Dialog.Title>
         <Dialog.Description>{description}</Dialog.Description>
       </Dialog.Header>
-      <div class="space-y-2">
-        <Label for="passkey-name">Name</Label>
-        <Input
-          id="passkey-name"
-          bind:value
-          {placeholder}
-          maxlength={255}
-          autofocus
-          aria-invalid={error ? "true" : undefined}
-        />
-        {#if error}
-          <p class="text-body-sm text-destructive">{error}</p>
-        {/if}
-      </div>
+      <FormField id="passkey-name" label="Name" error={error ?? undefined} class="space-y-2">
+        {#snippet children(f)}
+          <Input
+            id="passkey-name"
+            bind:value
+            {placeholder}
+            maxlength={255}
+            autofocus
+            aria-invalid={f.invalid}
+            aria-describedby={f.describedBy}
+          />
+        {/snippet}
+      </FormField>
       {#if submitError}<p role="alert" class="text-body-sm text-destructive">{submitError}</p>{/if}
       <Dialog.Footer>
         <Button

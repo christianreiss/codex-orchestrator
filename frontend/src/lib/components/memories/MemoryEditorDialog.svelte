@@ -452,9 +452,9 @@
         </div>
 
         <div class="grid gap-1.5 sm:col-span-2">
-          <Label>Metadata</Label>
+          <Label id="memory-metadata-label">Metadata</Label>
           {#if metadataMode === "keyvalue"}
-            <KeyValueList bind:rows={metadataRows} keyPlaceholder="key" valuePlaceholder="value" addLabel="Add field" />
+            <KeyValueList bind:rows={metadataRows} labelledby="memory-metadata-label" keyPlaceholder="key" valuePlaceholder="value" addLabel="Add field" />
           {:else}
             <Alert.Root variant="warning">
               <AlertTriangle class="h-4 w-4" />

@@ -11,7 +11,7 @@
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { Input } from "$lib/components/ui/input";
-  import { Label } from "$lib/components/ui/label";
+  import { FormField } from "$lib/components/ui/form-field";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
   import { fetchProjectsState, updateProjectsState, createProject } from "$lib/api/projects";
   import { secretsApi } from "$lib/api/secrets";
@@ -97,21 +97,23 @@
 </script>
 
 {#snippet projectNotice()}
-  <div class="space-y-1.5">
-    <Label for="setup-project-slug" class="text-body-sm">First project (optional)</Label>
-    <Input
-      id="setup-project-slug"
-      bind:value={slug}
-      placeholder="platform"
-      class="max-w-xs"
-      aria-invalid={slugError ? "true" : undefined}
-    />
-    {#if slugError}
-      <p class="text-body-sm text-destructive">{slugError}</p>
-    {:else}
-      <p class="text-body-sm text-muted-foreground">A slug is all that is required.</p>
-    {/if}
-  </div>
+  <FormField
+    id="setup-project-slug"
+    label="First project (optional)"
+    hint="A slug is all that is required."
+    error={slugError ?? undefined}
+  >
+    {#snippet children(f)}
+      <Input
+        id="setup-project-slug"
+        bind:value={slug}
+        placeholder="platform"
+        class="max-w-xs"
+        aria-invalid={f.invalid}
+        aria-describedby={f.describedBy}
+      />
+    {/snippet}
+  </FormField>
 {/snippet}
 
 <div class="space-y-5">

@@ -6,6 +6,12 @@
 
   type Props = {
     items: string[];
+    /** Name of one entry; each input is named "<label> <number>". */
+    label?: string;
+    /** Visible caption above the entries, for callers without their own heading. */
+    heading?: string;
+    /** Id of the caller's visible heading for the whole list. */
+    labelledby?: string;
     placeholder?: string;
     addLabel?: string;
     disabled?: boolean;
@@ -13,11 +19,16 @@
   };
   let {
     items = $bindable([]),
+    label = "Item",
+    heading,
+    labelledby,
     placeholder = "",
     addLabel = "Add",
     disabled = false,
     onItemsChange,
   }: Props = $props();
+  const headingId = $props.id();
+  const groupLabel = $derived(labelledby ?? (heading ? headingId : undefined));
 
   function set(next: string[]) {
     items = next;
@@ -34,12 +45,14 @@
   }
 </script>
 
-<div class="space-y-2">
+<div class="space-y-2" role={groupLabel ? "group" : undefined} aria-labelledby={groupLabel}>
+  {#if heading}<p id={headingId} class="text-caption text-muted-foreground">{heading}</p>{/if}
   {#each items as item, i (i)}
     <div class="flex items-center gap-2">
       <Input
         value={item}
         {placeholder}
+        aria-label={`${label} ${i + 1}`}
         {disabled}
         oninput={(e) => update(i, e.currentTarget.value)}
       />

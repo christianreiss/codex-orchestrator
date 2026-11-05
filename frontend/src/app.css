@@ -61,9 +61,12 @@
   .app-main {
     scrollbar-gutter: stable;
     scroll-padding-top: 1.5rem;
+    /* Keep focus clear of fixed bottom chrome (WCAG 2.4.11): below md the
+       MobileNav (h-16) plus the Chatty launcher (bottom 5rem + 52px). */
+    scroll-padding-bottom: calc(8.5rem + env(safe-area-inset-bottom, 0px));
     overscroll-behavior-y: contain;
     background: hsl(var(--background));
-    padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(8.5rem + env(safe-area-inset-bottom, 0px));
   }
   .shell-icon-button { @apply grid h-11 w-11 shrink-0 place-items-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:h-9 sm:w-9; }
   .keyboard-key { @apply inline-flex min-w-5 items-center justify-center rounded border bg-background px-1 py-0.5 font-mono text-caption leading-none text-muted-foreground; }
@@ -74,7 +77,15 @@
 }
 
 @media (min-width: 768px) {
-  .app-main { padding-bottom: 2rem; }
+  /* Only the Chatty launcher remains: bottom 1.25rem + 52px. */
+  .app-main { padding-bottom: 4.5rem; scroll-padding-bottom: 4.5rem; }
+}
+
+/* Below lg the agents inspector is a fixed bottom card (bottom 4.5rem, max 55dvh). */
+@media not all and (min-width: 1024px) {
+  .app-main:has([data-docked-inspector]:not(.hidden)) {
+    scroll-padding-bottom: calc(4.5rem + 55dvh + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 * { scrollbar-width: thin; scrollbar-color: hsl(var(--muted-foreground) / .35) transparent; }

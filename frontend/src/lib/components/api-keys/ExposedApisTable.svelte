@@ -110,7 +110,7 @@
         <Switch checked={!row.disabled} onCheckedChange={(v) => setEnabled(row, v)} disabled={$mutation.isPending} aria-label={`Enable ${row.base_path}`} />
       </Table.Cell>
       <Table.Cell class="text-right">
-        <Button variant="link" size="sm" class="h-auto p-0 tabular-nums" onclick={() => onShowKeys?.(KEY_TAB[row.surface])}>
+        <Button variant="link" size="sm" class="tabular-nums" onclick={() => onShowKeys?.(KEY_TAB[row.surface])}>
           {row.key_count} active
         </Button>
       </Table.Cell>

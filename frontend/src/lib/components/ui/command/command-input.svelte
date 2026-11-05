@@ -7,7 +7,7 @@
   let { class: className, ...rest }: Props = $props();
 </script>
 
-<div class="flex items-center border-b border-border/70 px-4" data-cmdk-input-wrapper="">
+<div class="flex items-center border-b border-border/70 px-4 focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring" data-cmdk-input-wrapper="">
   <Search class="mr-2.5 h-4 w-4 shrink-0 opacity-50" />
   <CommandPrimitive.Input
     class={cn(

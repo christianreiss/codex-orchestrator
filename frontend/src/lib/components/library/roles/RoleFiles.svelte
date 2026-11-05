@@ -103,7 +103,9 @@
     <summary class="cursor-pointer select-none px-3 py-2 text-body font-medium">Add a file</summary>
     <div class="space-y-3 border-t p-3">
       <FormField id="role-file-path" label="Path" hint="Relative, e.g. checklists/review.md." error={error ?? undefined}>
-        <Input id="role-file-path" bind:value={path} class="font-mono" autocomplete="off" aria-describedby="role-file-path-hint" />
+        {#snippet children(f)}
+          <Input id="role-file-path" bind:value={path} class="font-mono" autocomplete="off" aria-invalid={f.invalid} aria-describedby={f.describedBy} />
+        {/snippet}
       </FormField>
       <FormField id="role-file-content" label="Text">
         <Textarea id="role-file-content" rows={6} class="font-mono" bind:value={content} />
