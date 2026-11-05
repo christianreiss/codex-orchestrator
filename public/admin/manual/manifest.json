@@ -206,6 +206,19 @@
       "verified": "2026-09-09"
     },
     {
+      "slug": "external-clients",
+      "title": "External clients",
+      "section": "Admin workspace",
+      "summary": "Bots and bridges outside the fleet that join agent messaging with their own key, name and trust level.",
+      "tags": [
+        "external-clients",
+        "bots",
+        "messaging",
+        "trust"
+      ],
+      "verified": "2026-11-05"
+    },
+    {
       "slug": "memories",
       "title": "Memories and the Memory Atlas",
       "section": "Admin workspace",

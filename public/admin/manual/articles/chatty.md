@@ -1,7 +1,7 @@
 ---
 title: Chatty administration assistant
 section: Admin workspace
-verified: 2026-10-29
+verified: 2026-11-05
 sources: api/src/services/chatty/actions.ts, api/src/services/chatty/tools.ts, api/src/services/chatty/contracts.ts, api/src/services/chatty/coordinator.ts, api/src/services/chatty/owner-actions.ts, api/src/services/chatty/workflow-tools.ts, api/src/services/chatty/role-retention-tools.ts, api/src/services/chatty/quota-tools.ts, api/src/services/chatty/supervisor-tools.ts, api/src/services/chatty/handoff-tools.ts, api/src/services/chatty/elements.ts, api/src/services/chatty/surface-inventory.json, api/src/services/chatty/knowledge.ts
 ---
 
@@ -29,6 +29,9 @@ The newer administration tools also cover:
   a guarded cleanup pass.
 - Supervisor: inspect diagnostics, configure the fleet switch and pause an
   existing task's supervision.
+- External clients: list bots and bridges with their trust level, enabled state,
+  agent address and last poll (read-only; changes and key replacement stay on
+  the External clients page).
 
 These newer mutations show a confirmation card tied to the target state. Review
 its operation, arguments and target before approving. If the target changes or

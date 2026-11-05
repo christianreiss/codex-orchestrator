@@ -1,8 +1,8 @@
 ---
 title: The shared cxx wrapper
 section: Fleet operations
-verified: 2026-10-17
-sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json
+verified: 2026-11-05
+sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json, wrappers/cxx/internal/emergency/emergency.go, wrappers/cxx/internal/workload/run_linux.go
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
@@ -446,6 +446,23 @@ client an agent calls from inside a session: `status`, `notify --summary`,
 keeping the timeline, relay, and any open question), `say --text`,
 `ask --question [--options 'one|two']`, `wait [--seconds]`, `accept`, and
 `leave`. See [Agents and agent sessions](/admin/manual/agent-portal).
+
+Two host-local escape hatches need no server:
+
+- `cxx emergency codex|claude|grok [--] [args]` (cxx 0.9.141) replaces itself
+  with the plain native engine CLI when the Orchestrator or a sync is broken:
+  no network call, sync, quota check, lease, communicator, MCP/Skill injection
+  or argument/environment rewriting, and nothing written to disk. It runs only
+  when the signature-verified host config says `host.secure=true` (an expired
+  but verified config counts); otherwise it refuses with exit 1. Only the bare
+  `cxx` name takes it (`cdx emergency` is still a Codex prompt). Grok also needs
+  an existing native login. Details: `docs/interface-cdx.md` → Emergency mode.
+- `cxx workload run --memory 8GiB [--wait 5m] -- <command>` (Linux) admits a
+  heavy local job only when the declared peak RAM fits next to every other
+  declared reservation of the same Unix user and a system reserve; `status`,
+  `hold`, `resume` and `release <id> --confirm-finished` manage the pool. It is
+  cooperative admission, not a memory cap: it never limits or kills the job.
+  Details: `docs/workload-admission.md`.
 
 ### Quick selection
 

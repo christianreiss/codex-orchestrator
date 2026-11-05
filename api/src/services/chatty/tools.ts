@@ -51,6 +51,7 @@ import { SecretsService } from '../secrets.js';
 import { GitDirectorService } from '../git-director.js';
 import { ProjectBoardService } from '../project-board.js';
 import { WatchdogsService } from '../watchdogs.js';
+import { ExternalClientsService } from '../external-clients/index.js';
 import { engineSchema, modelSafe, signature, type ChattyActor } from './contracts.js';
 
 export interface ToolContext extends RouteContext {
@@ -853,6 +854,13 @@ export function administrationTools(): ChattyTool[] {
           settings: new SettingsService(c.db),
           dataRoot: c.env.DATA_ROOT ?? '/app/storage',
         }).list(),
+    ),
+    define(
+      'external_clients_list',
+      'List external clients (bots and bridges outside the fleet that use agent messaging): name, description, trust level, enabled, key prefix, agent address and last poll. Never returns a key.',
+      'external_clients.read',
+      {},
+      async (c) => modelSafe(await new ExternalClientsService(c.db, c.env, c.keyring).list()),
     ),
     handoffTool(),
     linksCheckTool(),

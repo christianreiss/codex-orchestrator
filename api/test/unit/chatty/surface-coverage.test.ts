@@ -50,6 +50,7 @@ describe('Chatty admin surface coverage', () => {
       'workflow_run_report',
       'supervisor_read',
       'watchdog_read',
+      'external_clients_list',
     ])
       expect(
         tools.find((tool) => tool.name === name),

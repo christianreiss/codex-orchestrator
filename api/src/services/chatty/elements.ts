@@ -50,6 +50,7 @@ export const PAGE_TARGETS = {
   schedules: { path: '/schedules', label: 'Zeitgesteuerte Weckrufe', capability: 'agent_messaging.read' },
   'git-director': { path: '/git-director', label: 'Git-Merges', capability: 'git_director.read' },
   transfers: { path: '/transfers', label: 'Geteilte Dateien', capability: 'transfers.read' },
+  'external-clients': { path: '/external-clients', label: 'Externe Clients', capability: 'external_clients.read' },
   workflows: { path: '/workflows', label: 'Workflows', capability: 'workflows.read' },
   'workflow-runs': { path: '/workflows/runs', label: 'Workflow-Läufe', capability: 'workflows.read' },
   activity: { path: '/activity', label: 'Aktivität', capability: 'audit.read' },
@@ -173,7 +174,7 @@ export function cleanLabel(value: string, max = 60) {
 
 /** Final gate: only base-relative paths built from the templates above can leave this module. */
 const ALLOWED_PATH =
-  /^\/(?:dashboard|hosts|agents|projects|agent-messaging|schedules|git-director|transfers|workflows|activity|reports|accounts|engines|limits|library|people|api-keys|secrets|settings|manual|account)(?:\/[A-Za-z0-9._~%-]+)*(?:\?type=[a-z-]+)?(?:#[a-z-]+)?$/;
+  /^\/(?:dashboard|hosts|agents|projects|agent-messaging|schedules|git-director|transfers|external-clients|workflows|activity|reports|accounts|engines|limits|library|people|api-keys|secrets|settings|manual|account)(?:\/[A-Za-z0-9._~%-]+)*(?:\?type=[a-z-]+)?(?:#[a-z-]+)?$/;
 export function safePath(path: string) {
   return ALLOWED_PATH.test(path) && !path.includes('//') && !/(^|\/)\.\.?(\/|$|\?|#)/.test(path);
 }
