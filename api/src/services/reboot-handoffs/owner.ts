@@ -43,7 +43,18 @@ function get(context: OwnerMutationContext, id: string, hostId?: number, session
     throw new NotFoundError('Reboot handoff not found');
   return r;
 }
+/**
+ * A handoff that ends without its continuation (expired, disarmed, failed)
+ * returns the old session to normal liveness. Left in `reboot_wait` it would
+ * never be abandoned or replaced and would pin its address and name forever.
+ */
+function stageReleaseRebootHolder(context: OwnerMutationContext, r: Handoff, now: string) {
+  const old = context.draft.table('agentSessions').get(r.oldSessionId);
+  if (old?.status === 'reboot_wait' && !old.endedAt)
+    stageUpdate(context, 'agentSessions', old.id, { status: 'active', updatedAt: now });
+}
 export function stageExpireOwnedHandoff(context: OwnerMutationContext, r: Handoff, now: string) {
+  stageReleaseRebootHolder(context, r, now);
   for (const id of r.busMessageIds) {
     const m = context.draft.table('agentBusMessages').get(id);
     if (m?.status === 'reboot_hold')
@@ -314,6 +325,7 @@ export async function finishOwnedReboot(
         if (session?.status === 'running')
           stageUpdate(context, 'hostDaemonSessions', session.id, { status: 'waiting', lastActivityAt: now });
       }
+      stageReleaseRebootHolder(context, r, now);
       return ownedHandoffView(
         stageUpdate(context, 'agentRebootHandoffs', r.id, {
           status: failed ? 'failed' : 'finished',

@@ -37,8 +37,7 @@ import { stageLaunchName, translateOwnedAgent } from './names.js';
 import { stageBeginReboot, stageCompleteReboot } from './reboot.js';
 import { stageUpdate } from './rows.js';
 import { mutateOwnerState, type OwnerMutationContext, type OwnerRuntime } from './runtime.js';
-import { detachedHolderReplaceable } from './owner-liveness.js';
-import type { OwnerStateSnapshot } from './store.js';
+import { abandonedSessionRevivable, detachedHolderReplaceable, holderKind } from './owner-liveness.js';
 import { assertOwnedHousekeeping } from './session-lifecycle.js';
 
 function resolve(context: OwnerMutationContext, raw: string): AgentBusAddress {
@@ -54,11 +53,6 @@ function resolve(context: OwnerMutationContext, raw: string): AgentBusAddress {
   if (!address || address.archivedAt || !address.enabled)
     throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
   return address;
-}
-
-/** Lets a resuming wrapper wait out a short headless delivery turn instead of failing. */
-function holderKind(snapshot: OwnerStateSnapshot, holderId: string) {
-  return { holder_invocation_kind: snapshot.sessions.get(holderId)?.invocationKind ?? null };
 }
 
 export async function registerOwnedMessagingSession(
@@ -150,12 +144,15 @@ export async function registerOwnedMessagingSession(
             'Session registration does not match existing lifecycle',
             'agent_session_conflict',
           );
-        if (existing.endedAt)
+        if (existing.endedAt && !abandonedSessionRevivable(draft.view(), existing))
           throw new ConflictError(
             'Agent session is finished; resume in a new managed launch',
             'agent_session_finished',
           );
         current = stageUpdate(context, 'agentSessions', sessionId, {
+          ...(existing.endedAt
+            ? { status: 'active', endedAt: null, expiresAt: null, activeTurnId: null, receiver: null }
+            : {}),
           ...(input.workspace ? { workspace } : {}),
           hostAuthFingerprint: fingerprint,
           bridgeExpiresAt,
@@ -247,7 +244,7 @@ export async function registerOwnedMessagingSession(
           throw new ConflictError(
             'Native transcript is already bound to another lifecycle',
             'agent_messaging_address_busy',
-            holderKind(draft.view(), address.currentSessionId),
+            holderKind(runtime, draft.view(), address.currentSessionId),
           );
         if (address) inferred = 'native';
       }
@@ -292,7 +289,7 @@ export async function registerOwnedMessagingSession(
           throw new ConflictError(
             'Agent address is already bound to another lifecycle',
             'agent_messaging_address_busy',
-            holderKind(draft.view(), address.currentSessionId),
+            holderKind(runtime, draft.view(), address.currentSessionId),
           );
         const continuity =
           input.continuity ??
@@ -388,7 +385,8 @@ export async function registerOwnedMessagingSession(
         updatedAt: now,
       });
       stageCompleteReboot(context, reboot, sessionId, address, now);
-      const launchName = stageLaunchName(context, sessionId, address.id, now);
+      const naming: { renamedFrom?: string } = {};
+      const launchName = stageLaunchName(context, sessionId, address.id, now, naming);
       if (!launchName && input.adapterCapabilities?.launch_identity_version === 1)
         throw new ConflictError(
           'No free launch name; retry after a name becomes available',
@@ -403,7 +401,8 @@ export async function registerOwnedMessagingSession(
           bridge_token: bridgeToken,
           expires_at: bridgeExpiresAt,
           address: publicAddress(address),
-          name_status: launchName ? 'assigned' : 'unavailable',
+          name_status: launchName ? (naming.renamedFrom ? 'renamed' : 'assigned') : 'unavailable',
+          ...(launchName && naming.renamedFrom ? { renamed_from: naming.renamedFrom } : {}),
           capabilities: { control_state_protocol: 1 },
         }),
       ) as Json;

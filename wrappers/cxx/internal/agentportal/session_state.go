@@ -18,6 +18,9 @@ func isTerminalBridgeError(err error) bool {
 	if !errors.As(err, &portalErr) {
 		return false
 	}
+	if abandonedSessionError(err) {
+		return false // The server revives an abandoned lifecycle for its own process.
+	}
 	switch portalErr.Code {
 	case "agent_bridge_expired", "agent_messaging_binding_stale", "agent_messaging_address_disabled":
 		return false // Explicitly recoverable; signed-policy gates still apply.
@@ -29,6 +32,16 @@ func isTerminalBridgeError(err error) bool {
 	// An operation-specific 403 (for example, a conference the agent does
 	// not own) denies that operation without invalidating its whole session.
 	return portalErr.Status == http.StatusUnauthorized || (portalErr.Status == http.StatusForbidden && portalErr.Code == "")
+}
+
+// abandonedSessionError is the server closing this lifecycle as abandoned while
+// it was disconnected (laptop sleep, long outage). The process is alive, so it
+// re-registers with its own launch credential; the server resumes the same
+// lifecycle, address and name. A refused revival is terminal as before.
+func abandonedSessionError(err error) bool {
+	var portalErr *PortalError
+	return errors.As(err, &portalErr) && portalErr.Code == "agent_session_finished" &&
+		portalErr.Extra["recovery"] == "reregister"
 }
 
 func (s *Session) rememberTerminal(err error) {

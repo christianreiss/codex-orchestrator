@@ -1891,24 +1891,31 @@ transactional and idempotent for a launch ID. The session title is
 `(Claudia) Task title`; the task title is preserved separately.
 
 New conversations receive a name; resuming the same native transcript restores
-its original recorded name and UUID, including picker/continue resumes discovered
-by the receiver. Same-launch bridge recovery preserves its confirmed name. Exit
-or bridge expiry starts a 24-hour quarantine; offline presence alone does not.
+its current recorded name (the address's newest name lease) and UUID, including
+picker/continue resumes discovered by the receiver. Same-launch bridge recovery
+preserves its confirmed name. Exit, bridge expiry or abandonment of a
+disconnected session starts a 24-hour quarantine.
 A resume can reclaim its own name during quarantine or after expiry while free.
 A resume that takes its address over from a detached lifecycle of the same
 transcript (closed terminal, finished relay turn; never a live attached holder)
-takes that lifecycle's name with it and ends its name lease.
-While a host-daemon delivery turn (`peer_delivery`) still holds the transcript,
-registration returns HTTP 409 `agent_messaging_address_busy` with
-`holder_invocation_kind: "peer_delivery"`; from cxx 0.9.165 an operator resume
-prints a waiting line and retries every 2 seconds for up to 3 minutes. Any other
-holder (`interactive`, `execute`, or `null` when unknown) refuses at once.
-If another identity owns the name or its quarantine, registration returns HTTP 409
-`agent_resume_name_conflict` with `name`, `uuid` and `address`; no replacement name
-is allocated. Direct resumes stop before provider startup; late receiver binding
-is refused without activating delivery. Retry once the name is free. Names remain
-reusable after 24 hours, so keep UUIDs for durable references. Existing renamed
-identities restore their earliest surviving name on their next native resume.
+takes that lifecycle's name with it and ends its name lease. A holder counts as
+detached only after 60 seconds without an attachment (and at least 60 seconds
+after an API owner start), so a blip or communicator restart never loses it.
+While a host-daemon delivery turn (`peer_delivery`) or a detached holder inside
+that grace holds the transcript, registration returns HTTP 409
+`agent_messaging_address_busy` with `holder_invocation_kind` and
+`holder_detached`; from cxx 0.9.166 an operator resume prints a waiting line and
+retries every 2 seconds for up to 3 minutes. A live attached holder refuses at once.
+If the name outlived its quarantine and now belongs to another identity, the
+resume keeps its UUID, address and history and continues under a fresh name.
+Registration reports `name_status: "renamed"` and `renamed_from`; the wrapper
+prints one line and the launch identity context tells the agent to call
+`agent_session_name` again and to tell its peers and operator that the old
+name is now the new one (same UUID). The next resume keeps the replacement.
+Same-launch recovery adopts a server-side rename the same way instead of
+failing. Names remain reusable after 24 hours, so keep UUIDs for durable
+references. `clx --resume ID --fork-session` starts a new identity and leaves
+ID's address and name alone (Codex forks and Grok `--fork-session` already did).
 From cxx 0.9.37, messaging-enabled launches require a confirmed name before
 starting the native provider. Registration advertises `launch_identity_version: 1`;
 an exhausted pool returns `agent_name_pool_exhausted` and rolls back allocation.
@@ -2642,7 +2649,7 @@ reported with `git_release(request_id: "<request>", worktree_path: "<path>", out
 
 All engines expose `agent_git_remote` and support `remote` FQDN/service resources as documented in [scope coordination](agent-coordination.md). The host BrowserOS toggle injects its local `http://127.0.0.1:9000/mcp` entry independently of fleet credentials for Codex, Claude and Grok.
 
-A new wrapper advertises `suspend_recovery_version:1`. For interactive sessions only, the server leaves an expired bridge nonterminal for up to 24 hours since its last heartbeat. Authentication and receives still refuse the expired bridge; active claims become uncertain normally. The intact supervising wrapper may re-register with its original host authentication and session credential, subject to current engine, address and binding checks. This never revives a finished session, transfers a foreign binding or extends a mutation claim. Older wrappers and explicit finishes keep the prior terminal contract. Sessions already finalized before the update require the usual new managed launch of the same native conversation.
+A new wrapper advertises `suspend_recovery_version:1`. For interactive sessions only, the server leaves an expired bridge nonterminal for up to 24 hours since its last heartbeat. Authentication and receives still refuse the expired bridge; active claims become uncertain normally. The intact supervising wrapper may re-register with its original host authentication and session credential, subject to current engine, address and binding checks. It never transfers a foreign binding or extends a mutation claim. A session the server closed as abandoned while its process lived (status `failed`, no close request, no reboot handoff, `interactive` or `execute`) answers bridge calls with `agent_session_finished` plus `ended_reason: "abandoned"`, `recovery: "reregister"`; from cxx 0.9.166 the wrapper re-registers with its original session credential and the server resumes that same lifecycle, address and name (a name lost after quarantine follows the rename rule above). A wrapper whose state stream keeps failing for 30 seconds probes over HTTP to learn this. Receive-plane binds (`cxx agent listen`, receivers) no longer drop `suspend_recovery_version`. Explicit finishes, operator closes and finished headless delivery turns stay terminal.
 ## Provider grant compatibility (cxx 0.9.127)
 
 Signed connection-state configurations explicitly request connection ownership

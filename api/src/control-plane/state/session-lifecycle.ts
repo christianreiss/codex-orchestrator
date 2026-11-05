@@ -8,7 +8,7 @@ import { stageUpdate } from './rows.js';
 import type { OwnerMutationContext } from './runtime.js';
 import type { OwnerRuntime } from './runtime.js';
 import { ownerPresence } from '../presence.js';
-import { detachedHolderReplaceable } from './owner-liveness.js';
+import { detachedHolderReplaceable, holderKind } from './owner-liveness.js';
 import { observedNativeTask, supervisorHasOutstandingWork } from '../../services/agent-supervisor/policy.js';
 
 export function assertOwnedHousekeeping(context: OwnerMutationContext, hostId: number, engine: string): void {
@@ -55,6 +55,7 @@ export function stageNativeIdentity(
     throw new ConflictError(
       'Native transcript is already bound to another lifecycle',
       'agent_messaging_address_busy',
+      holderKind(runtime, draft.view(), known.currentSessionId),
     );
   if (!known && !current.lastUpstreamSessionId) return current;
   const control = draft.table('agentNativeControls').get(session.id);

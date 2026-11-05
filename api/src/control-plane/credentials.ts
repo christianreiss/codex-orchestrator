@@ -1,3 +1,4 @@
+import { ownedSessionFinishedError } from './state/owner-liveness.js';
 import { ConflictError, ForbiddenError, UnauthorizedError } from '../http/errors.js';
 import { sha256 } from '../security/hash.js';
 import { activeHostEngines } from '../services/host-engine-policy.js';
@@ -57,7 +58,7 @@ function proof(snapshot: OwnerStateSnapshot, kind: Kind, id: string): Proof {
   let hash: string, binding: unknown;
   if (kind === 'session') {
     const session = snapshot.sessions.get(id)!;
-    if (session.endedAt) throw new ConflictError('Agent session is finished', 'agent_session_finished');
+    if (session.endedAt) throw ownedSessionFinishedError(snapshot, session);
     const fleet = Object.fromEntries(
       ENGINES.map((engine) => [engine, !isTruthyFlagValue(snapshot.setting(`${engine}_engine_disabled`))]),
     ) as Record<Engine, boolean>;

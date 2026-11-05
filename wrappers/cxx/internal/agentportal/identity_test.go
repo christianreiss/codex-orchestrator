@@ -209,7 +209,10 @@ func TestMessagingDisabledDoesNotRequireIdentity(t *testing.T) {
 	}
 }
 
-func TestRecoveryKeepsNameAndRejectsIdentityReplacement(t *testing.T) {
+// The same launch credential makes the server's name authoritative: a reassigned
+// name after a long outage renames the agent, which is told to rename its
+// session and announce the change (2026-11-05 operator decision).
+func TestRecoveryKeepsNameOrAdoptsAnnouncedRename(t *testing.T) {
 	for _, name := range []string{"Claudia", "Tanja"} {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -220,16 +223,18 @@ func TestRecoveryKeepsNameAndRejectsIdentityReplacement(t *testing.T) {
 			defer server.Close()
 			session := &Session{ID: newUUID(), BridgeToken: "test-token", LaunchName: "Claudia", BaseURL: server.URL, hostAPIKey: "host-key", http: server.Client(), registrationGeneration: 1, registrationBody: map[string]any{}}
 			session.registrationBody["session_id"], session.registrationBody["bridge_token"] = session.ID, session.BridgeToken
-			err := session.recoverRegistration(context.Background(), 1, false)
-			if name == "Claudia" {
-				if err != nil || session.registrationGeneration != 2 {
-					t.Fatalf("same-launch recovery failed: %v", err)
-				}
-			} else if !portalErrorCode(err, "agent_identity_conflict") || !isTerminalBridgeError(err) {
-				t.Fatalf("replacement accepted: %v", err)
+			if err := session.recoverRegistration(context.Background(), 1, false); err != nil || session.registrationGeneration != 2 {
+				t.Fatalf("same-launch recovery failed: %v", err)
 			}
-			if session.LaunchName != "Claudia" {
-				t.Fatal("recovery changed the confirmed name")
+			if session.LaunchName != name {
+				t.Fatalf("recovery kept %q, server said %q", session.LaunchName, name)
+			}
+			text := Identity{Name: session.LaunchName, RenamedFrom: session.renamedFrom, SessionID: "s", Engine: "claude"}.Context()
+			if renamed := strings.Contains(text, "NAME CHANGE: your previous launch name Claudia"); renamed != (name == "Tanja") {
+				t.Fatalf("rename notice = %t for %s: %s", renamed, name, text)
+			}
+			if name == "Tanja" && !strings.Contains(text, "call agent_session_name") {
+				t.Fatalf("rename notice does not ask for a session rename: %s", text)
 			}
 		})
 	}

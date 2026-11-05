@@ -25,6 +25,7 @@ export function stageLaunchName(
   sessionId: string,
   addressId: string,
   now: string,
+  outcome?: { renamedFrom?: string },
 ): string | null {
   const { draft } = context;
   const session = draft.table('agentSessions').get(sessionId);
@@ -38,7 +39,9 @@ export function stageLaunchName(
   const original = leases
     .by('addressId', addressId)
     .filter((row) => row.sessionId !== sessionId)
-    .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.id - b.id)[0];
+    // The address's current name is its newest lease: after a reassigned name
+    // was replaced, resumes keep the replacement instead of chasing the old one.
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id - a.id)[0];
   const preferred = existing?.addressId === addressId ? existing : (original ?? existing);
   const pool = draft.table('agentNamePool').all();
   const ownerOf = (slot: (typeof pool)[number]) =>
@@ -57,6 +60,7 @@ export function stageLaunchName(
       .flatMap((row) => (row.displayAlias ? [agentNameKey(row.displayAlias.replace(/^agent:/, ''))] : [])),
   );
   let slot = preferred ? pool.find((row) => row.nameKey === preferred.nameKey) : undefined;
+  let takeFree = !preferred;
   if (preferred) {
     const owner = slot && ownerOf(slot),
       state = owner && stateOf(owner);
@@ -73,22 +77,18 @@ export function stageLaunchName(
       !slot ||
       blocked.has(preferred.nameKey) ||
       (!ownedHere && !reclaimOwn && slot.currentSessionId && (!state || state.reserved))
-    )
-      throw new ConflictError(
-        `Cannot resume ${preferred.name}: the name is assigned to another agent. Retry when it is free; identity remains agent:${addressId}`,
-        'agent_resume_name_conflict',
-        { name: preferred.name, address: `agent:${addressId}`, uuid: addressId },
-      );
-    if (ownedHere && existing) {
-      if (existing.cooldownUntil && existing.cooldownUntil <= now)
-        throw new ConflictError(
-          'Launch name lease has ended; start a new lifecycle',
-          'agent_session_finished',
-        );
-      stageUpdate(context, 'agentNameLeases', existing.id, { addressId, endedAt: null, cooldownUntil: null });
+    ) {
+      // The name outlived its 24-hour quarantine and now belongs to another
+      // agent. The identity (UUID, address, history) stays; it continues under
+      // a fresh name and is told so, so it renames its session and announces it.
+      takeFree = true;
+      if (outcome) outcome.renamedFrom = preferred.name;
+    } else if (ownedHere && existing && existing.addressId === addressId) {
+      stageUpdate(context, 'agentNameLeases', existing.id, { endedAt: null, cooldownUntil: null });
       return existing.name;
     }
-  } else {
+  }
+  if (takeFree) {
     const free = pool.filter((candidate) => {
       if (blocked.has(candidate.nameKey)) return false;
       if (!candidate.currentSessionId) return true;

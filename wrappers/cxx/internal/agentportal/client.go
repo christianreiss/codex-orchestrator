@@ -73,6 +73,16 @@ func ExplicitResumeSessionID(args []string) string {
 	if !isCanonicalUUID(candidate) {
 		return ""
 	}
+	// `--resume X --fork-session` starts a new transcript from X's history; it
+	// must not take X's address and name (Codex `fork` and Grok forks never do).
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "--fork-session" {
+			return ""
+		}
+	}
 	return candidate
 }
 
@@ -113,16 +123,19 @@ func NativeResumeSessionID(engine string, args []string) string {
 }
 
 type Session struct {
-	state                  *communicator.StateClient
-	nativeState            *communicator.StateClient
-	stateUsed              bool
-	stateReady             chan struct{}
-	claimsChanged          chan struct{}
-	activeClaims           map[string]bool
-	scopeContext           json.RawMessage
-	watchdog               *watchdogFeed
-	peerDelivery           bool
-	LaunchName             string
+	state         *communicator.StateClient
+	nativeState   *communicator.StateClient
+	stateUsed     bool
+	stateReady    chan struct{}
+	claimsChanged chan struct{}
+	activeClaims  map[string]bool
+	scopeContext  json.RawMessage
+	watchdog      *watchdogFeed
+	peerDelivery  bool
+	LaunchName    string
+	// renamedFrom is the launch name this identity lost to another agent after
+	// its 24-hour quarantine; the agent is told to rename and announce it.
+	renamedFrom            string
 	ID                     string
 	BridgeToken            string
 	BaseURL                string
@@ -200,6 +213,7 @@ type ClaimedMessage struct {
 }
 
 type registerResponse struct {
+	RenamedFrom  string          `json:"renamed_from"`
 	ScopeContext json.RawMessage `json:"scope_context"`
 	Enabled      bool            `json:"enabled"`
 	SessionID    string          `json:"session_id"`
@@ -335,7 +349,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	// conversation headlessly to answer it, usually for well under a minute. An
 	// operator resume in that window waits for the turn instead of failing.
 	if !session.peerDelivery && headlessHolderBusy(registerErr) {
-		fmt.Fprintln(os.Stderr, "agent portal: a headless delivery turn is answering on this conversation; waiting for it to finish (Ctrl-C to abort)")
+		fmt.Fprintln(os.Stderr, "agent portal: this conversation is still held by a headless delivery turn or a session that just disconnected; waiting for it to finish (Ctrl-C to abort)")
 		for deadline := time.Now().Add(headlessHolderWait); headlessHolderBusy(registerErr) && time.Now().Before(deadline); {
 			select {
 			case <-parent.Done():
@@ -370,6 +384,10 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
 		session.LaunchName = response.AgentAddress.Name
+		if response.RenamedFrom != "" && response.RenamedFrom != response.AgentAddress.Name {
+			session.renamedFrom = response.RenamedFrom
+			fmt.Fprintf(os.Stderr, "agent portal: the name %s was reassigned after its 24-hour quarantine; this agent continues as %s (%s)\n", response.RenamedFrom, response.AgentAddress.Name, response.AgentAddress.Address)
+		}
 		body["agent_address"] = response.AgentAddress.Address
 		body["binding_generation"] = response.AgentAddress.BindingGeneration
 	}
@@ -378,16 +396,21 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 }
 
 var (
+	// A state attachment that lasted this long was healthy.
+	stateHealthyAfter = 10 * time.Second
+	// A stream failing this long is probed over HTTP.
+	stateProbeAfter    = 30 * time.Second
 	headlessHolderWait = 3 * time.Minute
 	headlessHolderPoll = 2 * time.Second
 )
 
 // headlessHolderBusy reports a refusal only because a daemon-launched delivery
-// turn still holds the conversation; any other holder is a real conflict.
+// turn still holds the conversation, or a disconnected holder is inside the
+// server's takeover grace; a live attached terminal is a real conflict.
 func headlessHolderBusy(err error) bool {
 	var portalErr *PortalError
 	return errors.As(err, &portalErr) && portalErr.Code == "agent_messaging_address_busy" &&
-		portalErr.Extra["holder_invocation_kind"] == "peer_delivery"
+		(portalErr.Extra["holder_invocation_kind"] == "peer_delivery" || portalErr.Extra["holder_detached"] == true)
 }
 
 func signedChannelReceiveAllowed(cfg *config.Config, sessionEngine string) bool {
@@ -423,6 +446,7 @@ func (s *Session) startHeartbeat(parent context.Context, interval time.Duration)
 	go func() {
 		defer close(done)
 		delay := interval
+		var streamFailingSince, lastStateProbe time.Time
 		for {
 			if ctx.Err() != nil {
 				return
@@ -430,9 +454,30 @@ func (s *Session) startHeartbeat(parent context.Context, interval time.Duration)
 			s.mu.Lock()
 			wasPending := s.pendingRegistration
 			s.mu.Unlock()
+			attached := time.Now()
 			_ = s.consumeState(ctx)
 			_, _, _, stateUsed := s.stateView()
 			if stateUsed {
+				// The state stream reports a refused credential only as an
+				// unavailable stream. A stream that keeps failing gets an HTTP
+				// heartbeat probe, whose structured answer can recover the
+				// registration (expired bridge, abandoned lifecycle) or end it.
+				if time.Since(attached) >= stateHealthyAfter {
+					streamFailingSince = time.Time{}
+				} else if streamFailingSince.IsZero() {
+					streamFailingSince = time.Now()
+				} else if time.Since(streamFailingSince) >= stateProbeAfter && time.Since(lastStateProbe) >= stateProbeAfter {
+					lastStateProbe = time.Now()
+					probeCtx, probeCancel := context.WithTimeout(ctx, 6*time.Second)
+					probeErr := s.Heartbeat(probeCtx, "", "")
+					probeCancel()
+					if probeErr == nil {
+						streamFailingSince = time.Time{}
+					}
+					if ctx.Err() != nil || s.isInactive() || isTerminalBridgeError(probeErr) {
+						return
+					}
+				}
 				select {
 				case <-ctx.Done():
 					return
@@ -688,7 +733,7 @@ func (s *Session) bridgeJSON(ctx context.Context, method, path string, body, out
 }
 
 func (s *Session) canRecoverBridgeError(err error) bool {
-	if portalErrorCode(err, "agent_bridge_expired") {
+	if portalErrorCode(err, "agent_bridge_expired") || abandonedSessionError(err) {
 		return true
 	}
 	if s == nil || !s.signedMessagingRecoveryEnabled() {
@@ -929,9 +974,11 @@ func (s *Session) recoverRegistration(ctx context.Context, observedGeneration ui
 	if response.AgentAddress != nil && response.AgentAddress.Address != "" {
 		registrationBody["agent_address"] = response.AgentAddress.Address
 		registrationBody["binding_generation"] = response.AgentAddress.BindingGeneration
+		// Same launch credential, so the server's name is authoritative: a late
+		// native bind or a reassigned name after a long outage renamed it.
 		if s.LaunchName != "" && s.LaunchName != response.AgentAddress.Name {
-			s.mu.Unlock()
-			return &PortalError{Status: http.StatusConflict, Code: "agent_identity_conflict", Message: "Recovery changed the launch name"}
+			s.renamedFrom = s.LaunchName
+			fmt.Fprintf(os.Stderr, "agent portal: this agent is now %s (was %s, %s)\n", response.AgentAddress.Name, s.LaunchName, response.AgentAddress.Address)
 		}
 		s.LaunchName = response.AgentAddress.Name
 	}

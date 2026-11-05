@@ -243,7 +243,13 @@ export async function registerAgentPortalAdminHostRoutes(
         portal: portalResult.enabled,
         agent_messaging: messagingResult.enabled === true,
       },
-      ...(messagingResult.address ? { agent_address: messagingResult.address, name_status: messagingResult.name_status } : {}),
+      ...(messagingResult.address
+        ? {
+            agent_address: messagingResult.address,
+            name_status: messagingResult.name_status,
+            ...(messagingResult.renamed_from ? { renamed_from: messagingResult.renamed_from } : {}),
+          }
+        : {}),
     };
   });
 

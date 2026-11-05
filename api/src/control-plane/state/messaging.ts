@@ -1,3 +1,4 @@
+import { ownedSessionFinishedError } from './owner-liveness.js';
 import {
   ConflictError,
   ForbiddenError,
@@ -55,12 +56,7 @@ export function ownedBridge(
     throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
   if (!activeHostEngines(host.engines, ownedEngineState(snapshot)).includes(session.engine as Engine))
     throw new ForbiddenError('Engine disabled', 'engine_disabled');
-  if (session.endedAt && !options.allowEnded)
-    throw new ConflictError(
-      'Agent session is finished. Resume the same native conversation in a new managed launch.',
-      'agent_session_finished',
-      { ended_reason: 'finished', recovery: 'resume_native_conversation' },
-    );
+  if (session.endedAt && !options.allowEnded) throw ownedSessionFinishedError(snapshot, session);
   if (!session.endedAt && ownedCredentialDeadline(snapshot, 'session', sessionId) <= now)
     throw new UnauthorizedError('Agent bridge credential expired', 'agent_bridge_expired');
   if (options.generation !== undefined && session.bindingGeneration !== options.generation)

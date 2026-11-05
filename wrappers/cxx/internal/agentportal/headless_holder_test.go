@@ -30,7 +30,7 @@ func busyServer(t *testing.T, holder string, busyCalls int32) (*httptest.Server,
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"enabled": true, "session_id": body["session_id"], "bridge_token": body["bridge_token"],
-			"expires_at": "2026-07-29T12:00:00Z",
+			"expires_at":    "2026-07-29T12:00:00Z",
 			"agent_address": map[string]any{"name": "Hedwig", "address": "agent:11111111-1111-4111-8111-111111111111", "binding_generation": 4},
 		})
 	}))
@@ -73,5 +73,37 @@ func TestResumeGivesUpOnAHeadlessTurnAfterTheWait(t *testing.T) {
 	session, err := Start(context.Background(), &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "host-fixture"}}, resumeInput())
 	if session != nil || !headlessHolderBusy(err) {
 		t.Fatalf("wait must be bounded: session=%v err=%v", session != nil, err)
+	}
+}
+
+func TestAbandonedLifecycleIsRecoverableOnlyWhenTheServerOffersRevival(t *testing.T) {
+	revivable := &PortalError{Status: http.StatusConflict, Code: "agent_session_finished", Extra: map[string]any{"ended_reason": "abandoned", "recovery": "reregister"}}
+	finished := &PortalError{Status: http.StatusConflict, Code: "agent_session_finished", Extra: map[string]any{"ended_reason": "finished", "recovery": "resume_native_conversation"}}
+	session := &Session{}
+	if isTerminalBridgeError(revivable) || !session.canRecoverBridgeError(revivable) {
+		t.Fatal("an abandoned lifecycle must re-register instead of ending")
+	}
+	if !isTerminalBridgeError(finished) || session.canRecoverBridgeError(finished) {
+		t.Fatal("a finished lifecycle must stay terminal")
+	}
+}
+
+func TestResumeWaitsOutADetachedHolderInsideTheTakeoverGrace(t *testing.T) {
+	withHeadlessTiming(t, 5*time.Second, 5*time.Millisecond)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if calls.Add(1) <= 2 {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "error", "code": "agent_messaging_address_busy", "holder_invocation_kind": "interactive", "holder_detached": true})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": true, "session_id": body["session_id"], "bridge_token": body["bridge_token"], "agent_address": map[string]any{"name": "Vivian", "address": "agent:11111111-1111-4111-8111-111111111111", "binding_generation": 14}})
+	}))
+	defer server.Close()
+	session, err := Start(context.Background(), &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "host-fixture"}}, resumeInput())
+	if err != nil || session == nil || calls.Load() != 3 {
+		t.Fatalf("detached holder was not waited out: session=%v err=%v calls=%d", session != nil, err, calls.Load())
 	}
 }

@@ -1,3 +1,4 @@
+import { ownedSessionFinishedError } from '../state/owner-liveness.js';
 import { legacyDrainFor } from '../legacy-drain.js';
 import { randomUUID } from 'node:crypto';
 import { ConflictError, ForbiddenError, UnauthorizedError } from '../../http/errors.js';
@@ -48,8 +49,7 @@ export function ownedSessionAuthority(
     throw new UnauthorizedError('Agent bridge host credential changed', 'agent_bridge_host_auth_changed');
   if (!activeHostEngines(host.engines, ownedEngineState(snapshot)).includes(session.engine as Engine))
     throw new ForbiddenError('Engine disabled', 'engine_disabled');
-  if (session.endedAt && !options.allowEnded)
-    throw new ConflictError('Agent session is finished', 'agent_session_finished');
+  if (session.endedAt && !options.allowEnded) throw ownedSessionFinishedError(snapshot, session);
   if (!session.endedAt && ownedCredentialDeadline(snapshot, 'session', id) <= Date.now())
     throw new UnauthorizedError('Agent bridge credential expired', 'agent_bridge_expired');
   if (options.bindingGeneration !== undefined && session.bindingGeneration !== options.bindingGeneration)

@@ -27,12 +27,14 @@ import {
 import { mutateOwnerState } from '../../../src/control-plane/state/runtime.js';
 import {
   OWNER_RECONNECT_GRACE_MS,
+  HOLDER_TAKEOVER_GRACE_MS,
   detachedHolderReplaceable,
   stopSessionActivity,
   trackSessionActivity,
 } from '../../../src/control-plane/state/owner-liveness.js';
 import { maintainOwnedMessaging } from '../../../src/services/agent-messaging/owned-maintenance.js';
-import { stageLaunchName } from '../../../src/control-plane/state/names.js';
+import { stageEndNames, stageLaunchName } from '../../../src/control-plane/state/names.js';
+import { stageExpireOwnedHandoff } from '../../../src/services/reboot-handoffs/owner.js';
 import { recordMessagingRowChange } from '../../../src/control-plane/state/messaging-totals.js';
 import { recordOwnedNativeReceipt } from '../../../src/control-plane/streams/native-control.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -517,6 +519,7 @@ describe('connection-owned daemon commands', () => {
     }
   });
   it('lets a newer same-host launch take over a transcript address only from a detached holder', () => {
+    vi.useFakeTimers();
     const holder = randomUUID(),
       remote = randomUUID(),
       instance = randomUUID();
@@ -539,10 +542,77 @@ describe('connection-owned daemon commands', () => {
     // A live holder (an open terminal, a running headless turn) keeps its address.
     expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), holder, 1)).toBe(false);
     attachment.detach();
+    // A blip or communicator restart detaches a live holder for seconds; it keeps the address.
+    vi.advanceTimersByTime(2_000);
+    expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), holder, 1)).toBe(false);
+    vi.advanceTimersByTime(HOLDER_TAKEOVER_GRACE_MS);
     expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), holder, 1)).toBe(true);
     // Never across hosts, and a vanished holder never blocks.
     expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), remote, 1)).toBe(false);
     expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), randomUUID(), 1)).toBe(true);
+  });
+  it('returns a reboot-waiting session to normal liveness when its handoff ends without a continuation', async () => {
+    vi.useFakeTimers();
+    const old = randomUUID();
+    const handoff = { id: randomUUID(), hostId: 1, oldSessionId: old, status: 'armed', busMessageIds: [], portalMessageIds: [] };
+    const h = harness({
+      agentSessions: [{ id: old, hostId: 1, engine: 'claude', status: 'reboot_wait', agentBusAddressId: null, bindingGeneration: 1, endedAt: null }],
+      agentRebootHandoffs: [handoff],
+    });
+    trackSessionActivity(h.runtime);
+    expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), old, 1)).toBe(false);
+    await mutateOwnerState(h.runtime, {
+      kind: 'test.reboot_expire',
+      payload: {},
+      prepare: (context) => {
+        stageExpireOwnedHandoff(context, context.draft.table('agentRebootHandoffs').get(handoff.id)!, new Date().toISOString());
+        return null;
+      },
+    });
+    expect(h.state.snapshot().sessions.get(old)?.status).toBe("active");
+    // Detached past the takeover grace, an operator resume may now take the address over.
+    vi.advanceTimersByTime(HOLDER_TAKEOVER_GRACE_MS + 1000);
+    expect(detachedHolderReplaceable(h.runtime, h.state.snapshot(), old, 1)).toBe(true);
+  });
+  it('gives a resume whose name was reassigned after quarantine a fresh name and keeps it next time', async () => {
+    const old = randomUUID(),
+      resumed = randomUUID(),
+      later = randomUUID(),
+      other = randomUUID(),
+      address = randomUUID(),
+      otherAddress = randomUUID(),
+      long = '2026-11-01T10:00:00.000Z',
+      now = new Date().toISOString();
+    const session = (id: string, addr: string, endedAt: string | null) => ({ id, hostId: 1, engine: 'claude', agentBusAddressId: addr, bindingGeneration: 1, endedAt });
+    const h = harness({
+      agentSessions: [session(old, address, long), session(resumed, address, null), session(later, address, null), session(other, otherAddress, null)],
+      agentBusAddresses: [
+        { id: address, address: `agent:${address}`, hostId: 1, displayAlias: null, currentSessionId: resumed },
+        { id: otherAddress, address: `agent:${otherAddress}`, hostId: 1, displayAlias: null, currentSessionId: other },
+      ],
+      agentNamePool: [
+        { nameKey: 'vivian', name: 'Vivian', currentSessionId: other },
+        { nameKey: 'delia', name: 'Delia', currentSessionId: null },
+      ],
+      agentNameLeases: [
+        { id: 1, sessionId: old, nameKey: 'vivian', name: 'Vivian', addressId: address, startedAt: '2026-10-31T10:00:00.000Z', endedAt: long, cooldownUntil: '2026-11-02T10:00:00.000Z' },
+        { id: 2, sessionId: other, nameKey: 'vivian', name: 'Vivian', addressId: otherAddress, startedAt: '2026-11-03T10:00:00.000Z', endedAt: null, cooldownUntil: null },
+      ],
+    });
+    const outcome: { renamedFrom?: string } = {};
+    await expect(
+      mutateOwnerState(h.runtime, { kind: 'test.rename', payload: {}, prepare: (context) => stageLaunchName(context, resumed, address, now, outcome) }),
+    ).resolves.toBe('Delia');
+    expect(outcome).toEqual({ renamedFrom: 'Vivian' });
+    // The live owner of Vivian keeps it.
+    expect(h.state.snapshot().table('agentNamePool').get('vivian')?.currentSessionId).toBe(other);
+    // The next resume of the same address keeps the replacement instead of chasing Vivian again.
+    await mutateOwnerState(h.runtime, { kind: 'test.end', payload: {}, prepare: (context) => { stageEndNames(context, resumed, now); return null; } });
+    const next: { renamedFrom?: string } = {};
+    await expect(
+      mutateOwnerState(h.runtime, { kind: 'test.rename2', payload: {}, prepare: (context) => stageLaunchName(context, later, address, now, next) }),
+    ).resolves.toBe('Delia');
+    expect(next).toEqual({});
   });
   it('hands the launch name to the resume that took its address from a detached holder', async () => {
     const holder = randomUUID(),
@@ -574,8 +644,10 @@ describe('connection-owned daemon commands', () => {
         payload: {},
         prepare: (context) => stageLaunchName(context, sessionId, addressId, now),
       });
-    // A lifecycle that does not hold the address never takes a name its live holder reserves.
-    await expect(stage(early, address)).rejects.toMatchObject({ code: 'agent_resume_name_conflict' });
+    // A lifecycle that does not hold the address never takes a name its live holder
+    // reserves; it falls back to a fresh name (none free in this one-name pool).
+    await expect(stage(early, address)).resolves.toBeNull();
+    expect(h.state.snapshot().table('agentNamePool').get('vivian')?.currentSessionId).toBe(holder);
     // The address's new lifecycle (the takeover already passed the holder check) keeps its name.
     await expect(stage(resumed, address)).resolves.toBe('Vivian');
     const snapshot = h.state.snapshot();

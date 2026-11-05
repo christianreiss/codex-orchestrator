@@ -3,6 +3,7 @@ import { ownedCredentialDeadline } from '../credentials.js';
 import { legacyDrainFor } from '../legacy-drain.js';
 import type { OwnerRuntime } from './runtime.js';
 import type { OwnerStateSnapshot } from './store.js';
+import { ConflictError } from '../../http/errors.js';
 
 /**
  * How long a holder may stay disconnected before its resource claims, Git
@@ -119,8 +120,63 @@ export function detachedHolderReplaceable(
       .some((row) => row.oldSessionId === holderId && ['prepared', 'armed'].includes(row.status))
   )
     return false;
-  return holder.endedAt !== null || !sessionAttached(owner, snapshot, holderId);
+  if (holder.endedAt !== null) return true;
+  // A blip, a communicator restart or an owner restart detaches a live holder
+  // for seconds; only a holder that stayed away past the grace is taken over.
+  const lastSeen = sessionLastSeen(owner, snapshot, holderId);
+  if (lastSeen === null) return false;
+  return Date.now() >= Math.max(lastSeen, tracker(owner).bootAt) + HOLDER_TAKEOVER_GRACE_MS;
 }
+/**
+ * Facts a refused launch needs to decide whether to wait: a headless delivery
+ * turn ends by itself, and a detached holder becomes replaceable after the grace.
+ */
+export function holderKind(owner: OwnerRuntime | undefined, snapshot: OwnerStateSnapshot, holderId: string) {
+  const holder = snapshot.sessions.get(holderId);
+  return {
+    holder_invocation_kind: holder?.invocationKind ?? null,
+    holder_detached: Boolean(owner && holder && !holder.endedAt && !sessionAttached(owner, snapshot, holderId)),
+  };
+}
+/**
+ * The server closed this lifecycle as abandoned (its connection lapsed past the
+ * abandon grace), yet its own process re-registers with the exact launch
+ * credential: that is a resume of a living process, which gets its lifecycle,
+ * address and name back. Sessions the wrapper or an operator ended, headless
+ * delivery turns (their delivery already settled) and old sessions of a reboot
+ * handoff stay finished.
+ */
+export function abandonedSessionRevivable(
+  snapshot: OwnerStateSnapshot,
+  session: { id: string; status: string; endedAt: string | null; closeRequestedAt: string | null; invocationKind: string },
+): boolean {
+  return (
+    session.endedAt !== null &&
+    session.status === 'failed' &&
+    !session.closeRequestedAt &&
+    ['interactive', 'execute'].includes(session.invocationKind) &&
+    !snapshot.table('agentRebootHandoffs').by('oldSessionId', session.id).length
+  );
+}
+/** The one owned refusal for an ended lifecycle; a revivable one tells the wrapper to re-register. */
+export function ownedSessionFinishedError(
+  snapshot: OwnerStateSnapshot,
+  session: Parameters<typeof abandonedSessionRevivable>[1],
+): ConflictError {
+  return abandonedSessionRevivable(snapshot, session)
+    ? new ConflictError(
+        'Agent session was closed as abandoned while disconnected; its own process re-registers to resume it.',
+        'agent_session_finished',
+        { ended_reason: 'abandoned', recovery: 'reregister' },
+      )
+    : new ConflictError(
+        'Agent session is finished. Resume the same native conversation in a new managed launch.',
+        'agent_session_finished',
+        { ended_reason: 'finished', recovery: 'resume_native_conversation' },
+      );
+}
+/** How long a detached address holder keeps its address against a newer launch. */
+export const HOLDER_TAKEOVER_GRACE_MS = 60_000;
 
 /** Last moment the session was known to be connected; null while it is connected. */
 export function sessionLastSeen(owner: OwnerRuntime, snapshot: OwnerStateSnapshot, sessionId: string): number | null {

@@ -71,6 +71,8 @@ func TestExplicitResumeSessionIDDoesNotGuessPromptText(t *testing.T) {
 		{"resume", "--last"},
 		{"resume", "ordinary prompt text"},
 		{"run", sessionID},
+		{"--resume", sessionID, "--fork-session"},
+		{"--fork-session", "--resume=" + sessionID},
 	} {
 		if got := ExplicitResumeSessionID(args); got != "" {
 			t.Fatalf("ExplicitResumeSessionID(%v) guessed %q", args, got)

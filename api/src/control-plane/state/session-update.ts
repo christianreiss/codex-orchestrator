@@ -67,7 +67,9 @@ function inspect(
     status: normalizeSessionStatus(input.status) ?? session.status,
     upstreamSessionId: upstream,
     adapterProtocol: normalizeOptionalText(input.adapterProtocol, 32) ?? session.adapterProtocol,
-    adapterCapabilities: input.adapterCapabilities ? {...input.adapterCapabilities, ...((session.adapterCapabilities as Record<string,unknown>|null)?.supervisor_model ? {supervisor_model:(session.adapterCapabilities as Record<string,unknown>).supervisor_model} : {})} : session.adapterCapabilities,
+    adapterCapabilities: input.adapterCapabilities
+      ? { ...input.adapterCapabilities, ...launchCapabilities(session.adapterCapabilities) }
+      : session.adapterCapabilities,
   };
   const continuity = input.continuity ?? (upstream ? 'native' : address.continuity);
   const changed =
@@ -76,6 +78,17 @@ function inspect(
         canonicalCommand(json(value)) !== canonicalCommand(json(session[field as keyof AgentSession])),
     ) || continuity !== address.continuity;
   return { session, address, patch, continuity, changed };
+}
+/**
+ * Facts the launch registered about its own process. A later receiver or
+ * `cxx agent listen` bind describes a receive plane, not the process, and must
+ * not drop them: losing `suspend_recovery_version` turned a 24-hour sleep grace
+ * into the 15-minute bridge TTL and ended living sessions as abandoned.
+ */
+const LAUNCH_CAPABILITY_KEYS = ['supervisor_model', 'suspend_recovery_version', 'launch_identity_version'] as const;
+export function launchCapabilities(current: unknown): Record<string, unknown> {
+  const caps = (current && typeof current === 'object' ? current : {}) as Record<string, unknown>;
+  return Object.fromEntries(LAUNCH_CAPABILITY_KEYS.flatMap((key) => (caps[key] != null ? [[key, caps[key]]] : [])));
 }
 export async function updateOwnedSession(
   runtime: OwnerRuntime,
