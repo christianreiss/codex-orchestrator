@@ -1,3 +1,8 @@
+# 2026-11-05
+
+- **Plasma 6 widget:** new `plasmoid/org.codex.orchestrator` panel widget (QML) for KDE. It pairs like the Android companion (credential kept in KWallet via libsecret), shows a badge and desktop notification for pending insecure requests, approves/denies them, extends or closes host and fleet windows, lists engine quotas and reads/writes room chats. Install with `kpackagetool6 -t Plasma/Applet -i plasmoid/org.codex.orchestrator`; see `plasmoid/README.md`.
+- **Companion API — host window enable:** `POST /companion/v1/hosts/{hostId}/insecure/enable` (`hosts.activate_insecure`, optional `duration_minutes` 0–480) opens or extends one host's insecure window for paired devices, matching the existing per-host disable.
+
 # 2026-11-04
 
 - **cxx 0.9.161 — Claude message delivery:** recognize channel messages consumed as native `queued_command` attachments, so finishing a turn releases their informational receipts and unblocks later messages. Queued-only notifications, child transcript entries, accepted work and Portal instructions remain protected. Waiting-message hints include message IDs and distinguish an unconfirmed earlier delivery from ordinary after-turn delivery.

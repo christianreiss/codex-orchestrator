@@ -191,7 +191,7 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       (await app.inject({ url: '/companion/v1/approvals', headers: { authorization: authorization() } }))
         .statusCode,
     ).toBe(403);
-    for (const url of [`/companion/v1/hosts/${hostId}/insecure/disable`, '/companion/v1/insecure/window/close']) {
+    for (const url of [`/companion/v1/hosts/${hostId}/insecure/disable`, `/companion/v1/hosts/${hostId}/insecure/enable`, '/companion/v1/insecure/window/close']) {
       expect((await app.inject({ method: 'POST', url })).statusCode).toBe(401);
       expect((await app.inject({ method: 'POST', url, headers: { authorization: authorization() } })).statusCode).toBe(403);
     }
@@ -235,6 +235,17 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     expect(host).toMatchObject({ insecureEnabledUntil: null, insecureGraceUntil: null, insecureSessionRenewalBlocked: 1 });
     const [log] = await db.select().from(logs).where(eq(logs.hostId, hostId)).orderBy(desc(logs.id)).limit(1);
     expect(JSON.parse(log!.details!)).toMatchObject({ actor: { admin_user_id: userId, device_id: connection.device_id } });
+  });
+  it('opens and extends a host window through the paired device', async () => {
+    const enable = (id: number | string, payload?: object) => app.inject({ method: 'POST', url: `/companion/v1/hosts/${id}/insecure/enable`, headers: { authorization: authorization() }, payload });
+    expect((await enable('invalid')).statusCode).toBe(422);
+    expect((await enable(hostId, { duration_minutes: 481 })).statusCode).toBe(422);
+    const first = await enable(hostId, { duration_minutes: 30 });
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json().data).toEqual({ host_id: hostId, enabled_until: expect.any(String) });
+    const second = await enable(hostId, { duration_minutes: 30 });
+    expect(new Date(second.json().data.enabled_until).getTime()).toBeGreaterThan(new Date(first.json().data.enabled_until).getTime());
+    await insecure.disable(hostId);
   });
   it('exposes the fleet window, rejects per-host close and closes all standing grants with a device audit', async () => {
     const [domain] = await db.insert(insecureDomainAllows).values({ domain: `${unique}.fleet.test`, windowMinutes: 60, enabledUntil: null, createdAt: nowIso(), updatedAt: nowIso() });

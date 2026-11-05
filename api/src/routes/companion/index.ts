@@ -516,6 +516,20 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       const host = await insecure.disable(hostId, { admin_user_id: user.id, device_id: device.id });
       return { host_id: host.id, enabled_until: null };
     });
+    // Open or extend one host's window (same service call as the dashboard's
+    // enable; an already open window is extended from its deadline).
+    app.post('/companion/v1/hosts/:hostId/insecure/enable', async (req) => {
+      await auth(req, 'hosts.activate_insecure');
+      const hostId = z.object({ hostId: z.coerce.number().int().positive() }).parse(req.params).hostId;
+      const body = z
+        .object({ duration_minutes: z.number().int().min(0).max(480).optional() })
+        .parse(req.body ?? {});
+      const host = await insecure.enable(hostId, body.duration_minutes ?? null);
+      return {
+        host_id: host.id,
+        enabled_until: host.insecureEnabledUntil ? new Date(host.insecureEnabledUntil).toISOString() : null,
+      };
+    });
     app.post('/companion/v1/insecure/window/close', async (req) => {
       const { user, device } = await auth(req, 'hosts.activate_insecure');
       return insecure.closeFleetWindow('manual', { admin_user_id: user.id, device_id: device.id });
