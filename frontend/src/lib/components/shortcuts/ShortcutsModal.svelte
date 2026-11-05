@@ -63,7 +63,7 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-md">
+  <Dialog.Content size="sm">
     <Dialog.Header>
       <Dialog.Title>Keyboard shortcuts</Dialog.Title>
       <Dialog.Description>
@@ -74,7 +74,7 @@
     <div class="mt-2 space-y-4">
       {#each GROUPS as group (group.title)}
         <div>
-          <p class="mb-1.5 text-body-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          <p class="section-label mb-1.5">
             {group.title}
           </p>
           <div class="grid grid-cols-1 gap-1.5">

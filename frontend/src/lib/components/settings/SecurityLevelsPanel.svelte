@@ -84,8 +84,8 @@
 <Card.Root>
   <Card.Content class="space-y-5 p-4">
     <div class="space-y-1">
-      <h3 class="text-sm font-semibold">Fleet security posture</h3>
-      <p class="text-xs text-muted-foreground">
+      <h3 class="text-h3">Fleet security posture</h3>
+      <p class="text-body-sm text-muted-foreground">
         Every axis runs the same direction: <span class="font-medium">0 is most constrained, 4 is
         unrestricted</span>. Levels change the served policy text, and drive engine config where a
         real knob exists.
@@ -93,7 +93,7 @@
     </div>
 
     {#if axes.length === 0}
-      <p class="text-xs text-muted-foreground">
+      <p class="text-body-sm text-muted-foreground">
         This server does not publish a security-level catalog yet.
       </p>
     {:else}
@@ -105,7 +105,7 @@
               {disabled}
               onclick={() => applyPreset(preset.id)}
               title={preset.description}
-              class="rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 {activePreset?.id ===
+              class="rounded-md border px-2.5 py-1 text-body-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 {activePreset?.id ===
               preset.id
                 ? 'border-primary bg-primary/10 font-medium text-foreground'
                 : 'border-border text-muted-foreground'}"
@@ -114,7 +114,7 @@
             </button>
           {/each}
           {#if modifiedCount > 0 && nearest}
-            <span class="text-xs text-muted-foreground">
+            <span class="text-body-sm text-muted-foreground">
               — {nearest.label}, modified: {modifiedCount}
               {modifiedCount === 1 ? "axis" : "axes"}
             </span>
@@ -143,7 +143,7 @@
           >
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-1.5">
-                <Label for={`axis-${axis.id}`} class="text-sm font-medium">{axis.label}</Label>
+                <Label for={`axis-${axis.id}`} class="text-body font-medium">{axis.label}</Label>
                 {#if axis.enforcement === "prose_only"}
                   <Badge variant="secondary" class="text-caption">prose only</Badge>
                 {:else}
@@ -152,11 +152,11 @@
                   </Badge>
                 {/if}
               </div>
-              <p class="mt-0.5 text-xs text-muted-foreground">{axis.description}</p>
+              <p class="mt-0.5 text-body-sm text-muted-foreground">{axis.description}</p>
               {#if blockCount && blocks > 0}
                 <!-- "Contributes to", never "produces": one bullet is routinely the
                      joint work of several axes, and this count cannot say otherwise. -->
-                <p class="mt-0.5 text-xs text-muted-foreground/80">
+                <p class="mt-0.5 text-caption text-muted-foreground">
                   contributes to {blocks} {blocks === 1 ? "block" : "blocks"}
                 </p>
               {/if}
@@ -170,7 +170,7 @@
                 aria-label={`${axis.label} level`}
                 onValueChange={(value) => setAxis(axis.id, value)}
               />
-              <p class="text-xs">
+              <p class="text-body-sm">
                 <span class="font-mono text-muted-foreground">{level}</span>
                 <span class="ml-1.5 text-foreground">{axis.bands[level] ?? ""}</span>
               </p>
@@ -179,7 +179,7 @@
         {/each}
       </div>
 
-      <p class="text-xs text-muted-foreground">
+      <p class="text-body-sm text-muted-foreground">
         Lowering a level applies on a host's next launch, not immediately — a host holding a session
         lock keeps its current policy for that session.
       </p>

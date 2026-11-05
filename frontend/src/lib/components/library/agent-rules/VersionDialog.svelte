@@ -11,7 +11,7 @@
 </script>
 
 <Dialog.Root open={!!version} onOpenChange={(open) => { if (!open) history.closeVersion(); }}>
-  <Dialog.Content class="sm:max-w-3xl">
+  <Dialog.Content size="wide">
     <Dialog.Header>
       <Dialog.Title>Version #{version?.id}</Dialog.Title>
       <Dialog.Description>Read-only preview. Use "Make current" to restore this version as the new active document.</Dialog.Description>

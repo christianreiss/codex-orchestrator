@@ -20,7 +20,7 @@
     Asked · {clockTime(event.created_at)}
   </p>
   <p
-    class="max-w-[min(88%,40rem)] whitespace-pre-wrap rounded-[1.1rem] border px-3.5 py-2 text-body
+    class="max-w-[min(88%,40rem)] whitespace-pre-wrap rounded-lg border px-3.5 py-2 text-body
            {active ? 'border-warning/30 bg-warning-muted' : 'border-border bg-muted/40'}"
   >{eventText(event)}</p>
   {#if options.length && active && !readonly}

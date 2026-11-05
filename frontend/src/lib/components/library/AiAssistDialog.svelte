@@ -74,7 +74,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={(next) => { if (!next) close(); }}>
-  <Dialog.Content class="sm:max-w-2xl">
+  <Dialog.Content size="xl">
     <Dialog.Header>
       <Dialog.Title>AI assist</Dialog.Title>
       <Dialog.Description>
@@ -116,7 +116,7 @@
         </Button>
         {#if reply}
           <div class="rounded-md border bg-muted/50 p-3">
-            <h4 class="mb-2 text-caption font-semibold uppercase tracking-wide text-muted-foreground">Assistant reply</h4>
+            <h4 class="section-label mb-2">Assistant reply</h4>
             <pre class="max-h-[40vh] overflow-y-auto whitespace-pre-wrap font-mono text-body-sm">{reply}</pre>
             {#if $ask.data?.manifest}
               <div class="mt-2 flex justify-end">

@@ -153,7 +153,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="top-[max(1rem,12dvh)] max-h-[calc(100dvh-2rem)] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-[640px] sm:p-0">
+  <Dialog.Content size="xl" class="top-[max(1rem,12dvh)] max-h-[calc(100dvh-2rem)] translate-y-0 gap-0 overflow-hidden p-0 sm:p-0">
     <Dialog.Title class="sr-only">Command palette</Dialog.Title>
     <Dialog.Description class="sr-only">Search pages, hosts, projects, skills and people. Use arrow keys to choose a result and Enter to open it.</Dialog.Description>
     <Command.Root shouldFilter={true} class="[&_[data-cmdk-input-wrapper]]:pl-4 [&_[data-cmdk-input-wrapper]]:pr-14">

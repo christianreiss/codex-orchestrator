@@ -109,7 +109,7 @@
 </script>
 
 <Dialog.Root bind:open={() => open, handleDialogOpenChange}>
-  <Dialog.Content class="flex max-h-[calc(100dvh-2rem)] max-w-[960px] flex-col gap-0 overflow-hidden p-0 sm:p-0">
+  <Dialog.Content size="wide" class="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:p-0">
     <Dialog.Header class="shrink-0 border-b p-5 pr-14 text-left sm:p-6 sm:pr-14">
       <Dialog.Title class="flex items-center gap-2">
         <KeyRound class="h-5 w-5 {issued ? 'text-success' : 'text-muted-foreground'}" />

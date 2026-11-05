@@ -23,7 +23,7 @@
 </script>
 
 <Dialog.Root bind:open={preview.renderedPreviewOpen}>
-  <Dialog.Content class="sm:max-w-5xl">
+  <Dialog.Content size="wide">
     <Dialog.Header>
       <Dialog.Title>Effective AGENTS.md draft</Dialog.Title>
       <Dialog.Description>

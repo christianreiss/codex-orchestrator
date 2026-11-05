@@ -377,13 +377,13 @@
   {@const left = req.expiresMs === null ? null : req.expiresMs - now}
   {@const domain = parentDomain(req.fqdn)}
   <li
-    class="relative overflow-hidden rounded-md border bg-card transition-[opacity,filter] duration-300"
+    class="relative overflow-hidden transition-[opacity,filter] duration-300"
     class:opacity-50={req.ghost}
     class:grayscale={req.ghost}
     class:pointer-events-none={req.ghost}
     out:slide|local={{ duration: 220 }}
   >
-    <div class="space-y-3 p-4">
+    <div class="space-y-3 py-4">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 space-y-1">
           <p class="flex items-center gap-2">
@@ -467,7 +467,8 @@
       Pending requests could not be loaded. Hosts may be waiting; reload to try again.
     </p>
   {:else if rows.length > 0}
-    <ul class="space-y-2">
+    <!-- Rows divided by rules, not cards: the dialog is already the container. -->
+    <ul class="divide-y border-y">
       {#each rows as req (req.id)}
         {@render requestCard(req)}
       {/each}
@@ -478,7 +479,7 @@
 {/snippet}
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="sm:max-w-xl" onkeydown={onKeydown}>
+  <Dialog.Content size="lg" onkeydown={onKeydown}>
     <Dialog.Header>
       <Dialog.Title class="pr-8">{title}</Dialog.Title>
       <Dialog.Description>

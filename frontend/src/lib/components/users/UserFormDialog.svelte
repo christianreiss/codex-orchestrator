@@ -149,7 +149,7 @@
 
 <DraftGuard {dirty} />
 <Dialog.Root bind:open={() => open, requestOpenChange}>
-  <Dialog.Content class="sm:max-w-[480px]">
+  <Dialog.Content size="sm">
     <Dialog.Header>
       <Dialog.Title>{isEdit ? "Edit user" : "Add user"}</Dialog.Title>
       <Dialog.Description>

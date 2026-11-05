@@ -31,7 +31,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="sm:max-w-xl">
+  <Dialog.Content size="lg">
     <Dialog.Header>
       <Dialog.Title>Seed auth</Dialog.Title>
       <Dialog.Description>

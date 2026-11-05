@@ -228,9 +228,9 @@
     {#if snapshot && snapshot.recent_disconnects.length > 0}
       <section class="space-y-2">
         <h2 class="text-body-sm font-semibold">Recent disconnects</h2>
-        <ul class="space-y-2 text-body-sm">
+        <ul class="divide-y border-y text-body-sm">
           {#each snapshot.recent_disconnects.slice(0, 6) as d (d.id)}
-            <li class="rounded-md border p-2">
+            <li class="py-2">
               <p class="font-medium">{communicatorLabel(d)} <span class="font-normal text-muted-foreground">· {ageLabel(Math.round((Date.now() - Date.parse(d.ended_at)) / 1000))}</span></p>
               <p class="text-caption text-muted-foreground">
                 {d.reason === "admin_disconnect" ? `Closed by ${d.actor ?? "an administrator"}` : d.reason === "admin_terminate" ? `Process stopped by ${d.actor ?? "an administrator"}` : "Connection ended"}
@@ -308,7 +308,7 @@
     <details><summary class="cursor-pointer text-caption">Runtime and connected agents</summary>
     {#if communicator.resident}
       {@const report = communicator.resident}
-      <section class="space-y-2 rounded-md border p-3" aria-label="Resident owner report">
+      <section class="space-y-2 border-t pt-3" aria-label="Resident owner report">
         <h3 class="section-label">Owner runtime <Badge variant="outline">{report.stale || ghost ? "Latest report · stale" : "Latest report"}</Badge></h3>
         <p class="text-caption text-muted-foreground">Reported by the owner at {when(report.received_at)} (received by the server). This is not a confirmed exit.</p>
         <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-body-sm">

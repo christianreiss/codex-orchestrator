@@ -15,10 +15,10 @@
  * import SCOPE_COLORS too rather than carrying their own copy.
  *
  * Each value below is a single flat hex used identically in light and dark
- * mode (no `dark:` variant) — verified to clear the >=3.0:1 WCAG 1.4.11
- * non-text/graphical-object floor against both the light (cream/cardLight)
- * and dark (espresso/cardDark) app canvases, the same bar this repo's own
- * lib/styles/tokens.contrast.test.ts applies to --input/--ring.
+ * mode (no `dark:` variant), so it sits at mid luminance: every hue clears
+ * the >=3.0:1 WCAG 1.4.11 graphical-object floor against the light and dark
+ * `--background` and `--card` tokens. lib/styles/tokens.contrast.test.ts
+ * reads this file and enforces that floor.
  */
 import type { MemoryGraphEdgeType, MemoryScope } from "$lib/api/memories";
 
@@ -26,8 +26,8 @@ import type { MemoryGraphEdgeType, MemoryScope } from "$lib/api/memories";
 // intentionally share a hue (e.g. the "in_project" edge and the "project"
 // scope, or the "in_scope" edge and the "shared" scope), mirroring the
 // original inline color choices.
-const TAG_GREEN = "#10b981"; // already warm/earthy — unchanged from the original palette
-const HOST_AMBER = "#f59e0b"; // already warm — unchanged from the original palette
+const TAG_GREEN = "#0c8d62"; // #10b981 darkened to clear 3:1 on the light canvas
+const HOST_AMBER = "#ab6e07"; // #f59e0b darkened to clear 3:1 on the light canvas
 const ENGINE_ROSE = "#c15c6f"; // re-hued from cold fuchsia #d946ef
 const PROJECT_OLIVE = "#798131"; // re-hued from cold cyan #06b6d4
 const SHARED_PLUM = "#bd51b4"; // re-hued from cold violet #8b5cf6
@@ -59,8 +59,8 @@ export const NODE_KIND_COLORS: Record<"tag" | "engine", string> = {
 export const DEFAULT_NODE_COLOR = "#64748b";
 
 /**
- * Appends an alpha channel to a `#rrggbb` hex color, e.g. `withAlpha("#f59e0b", 0.1)`
- * -> `"#f59e0b1a"`. These are custom hex values (not Tailwind palette stops) picked
+ * Appends an alpha channel to a `#rrggbb` hex color, e.g. `withAlpha("#ab6e07", 0.1)`
+ * -> `"#ab6e071a"`. These are custom hex values (not Tailwind palette stops) picked
  * dynamically per category, so consumers apply them via inline style rather than
  * Tailwind utility classes — dynamic class names built from interpolated strings
  * aren't visible to Tailwind's build-time scanner.

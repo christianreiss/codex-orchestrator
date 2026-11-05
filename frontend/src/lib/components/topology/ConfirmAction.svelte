@@ -58,7 +58,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={(value) => { if (!value) onclose(); }}>
-  <Dialog.Content class="sm:max-w-lg" aria-busy={phase === "pending"}>
+  <Dialog.Content aria-busy={phase === "pending"}>
     <Dialog.Header>
       <Dialog.Title>{title}</Dialog.Title>
       <Dialog.Description>{description}</Dialog.Description>

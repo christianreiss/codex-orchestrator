@@ -59,7 +59,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     <Dialog.Header>
       <Dialog.Title>Quick VM</Dialog.Title>
       <Dialog.Description>
@@ -110,7 +110,7 @@
           disabled={pending !== null || $fleet.enabled.length === 0}
           onclick={() => spin([...$fleet.enabled], "all")}
         >
-          <Layers class="h-7 w-7 text-violet-500" />
+          <Layers class="h-7 w-7 text-primary" />
           <span class="text-body font-semibold">{allLabel}</span>
           <span class="text-body-sm text-muted-foreground">{allHint}</span>
           {#if pending === "all"}<span class="text-body-sm text-muted-foreground">Working…</span>{/if}

@@ -334,7 +334,7 @@
 
 <DraftGuard {dirty} />
 <Dialog.Root bind:open={() => open, requestOpenChange}>
-  <Dialog.Content class="sm:max-w-2xl">
+  <Dialog.Content size="xl">
     <form class="flex flex-col gap-4" onsubmit={submit}>
       <Dialog.Header>
         <Dialog.Title>{mode === "create" ? "Create memory" : `Edit ${memory?.id ?? "memory"}`}</Dialog.Title>

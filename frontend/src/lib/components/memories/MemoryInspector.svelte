@@ -274,7 +274,7 @@
           </dl>
 
           <div>
-            <h3 class="text-caption font-semibold uppercase tracking-wide text-muted-foreground">Tags</h3>
+            <h3 class="section-label">Tags</h3>
             <div class="mt-2 flex flex-wrap gap-1.5">
               {#if memory.tags.length}
                 {#each memory.tags as tag (tag)}<Badge variant="outline">{tag}</Badge>{/each}
@@ -285,7 +285,7 @@
           </div>
 
           <div>
-            <h3 class="text-caption font-semibold uppercase tracking-wide text-muted-foreground">Lifecycle capabilities</h3>
+            <h3 class="section-label">Lifecycle capabilities</h3>
             <div class="mt-2 flex flex-wrap gap-1.5">
               {#each Object.entries(memory.capabilities) as [action, allowed] (action)}
                 <Badge variant={allowed ? "secondary" : "outline"} class={!allowed ? "opacity-45" : ""}>{action}</Badge>

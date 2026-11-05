@@ -8,7 +8,7 @@
 
 <div
   class={cn(
-    "rounded-md border border-border bg-card text-card-foreground",
+    "rounded-lg border border-border bg-card text-card-foreground",
     className,
   )}
   {...rest}

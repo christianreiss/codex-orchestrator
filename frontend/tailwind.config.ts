@@ -14,6 +14,7 @@ const config: Config = {
     },
     extend: {
       borderRadius: {
+        DEFAULT: "var(--radius-sm)",
         sm: "var(--radius-sm)",
         md: "calc(var(--radius) - 2px)",
         lg: "var(--radius)",
@@ -75,6 +76,7 @@ const config: Config = {
           codex: "hsl(var(--persona-codex))",
           claude: "hsl(var(--persona-claude))",
           grok: "hsl(var(--persona-grok))",
+          foreground: "hsl(var(--persona-foreground))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

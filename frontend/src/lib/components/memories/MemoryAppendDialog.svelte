@@ -56,7 +56,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={setOpen}>
-  <Dialog.Content class="sm:max-w-xl">
+  <Dialog.Content size="lg">
     <form class="space-y-4" onsubmit={submit}>
       <Dialog.Header>
         <Dialog.Title>Append to {memory?.title || memory?.id || "shared memory"}</Dialog.Title>

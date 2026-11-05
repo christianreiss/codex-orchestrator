@@ -158,7 +158,7 @@
 <!-- Reveal. Deliberately a modal that must be dismissed rather than an inline
      unmask, so a plaintext credential cannot sit on screen unnoticed. -->
 <Dialog.Root open={revealed !== null} onOpenChange={(next) => { if (!next) revealed = null; }}>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     {#if revealed}
       <Dialog.Header>
         <Dialog.Title class="flex items-center gap-2"><KeyRound class="h-5 w-5" />{revealed.secret.slug}</Dialog.Title>

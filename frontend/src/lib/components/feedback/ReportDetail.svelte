@@ -47,7 +47,7 @@
       <h4 class="text-body font-semibold">Original report</h4>
       {#each Object.entries(item.report ?? {}) as [key, value] (key)}
         <div>
-          <h5 class="text-caption font-medium uppercase text-muted-foreground">{key}</h5>
+          <h5 class="section-label">{key}</h5>
           <p class="whitespace-pre-wrap break-words text-body-sm">{typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}</p>
         </div>
       {/each}

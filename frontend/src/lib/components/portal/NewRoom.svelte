@@ -71,7 +71,7 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+  <Dialog.Content class="max-h-[90dvh] overflow-y-auto">
     <Dialog.Header
       ><Dialog.Title>New conversation</Dialog.Title><Dialog.Description
         >Bring agents together around a shared topic.</Dialog.Description

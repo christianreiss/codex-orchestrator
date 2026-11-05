@@ -440,12 +440,12 @@
           {#if item.node.agent_ids.length > 0}
             <g transform="translate(18 -18)">
               <circle r="10" fill="hsl(var(--primary))" />
-              <text y="3.6" text-anchor="middle" class="count">{item.node.agent_ids.length}</text>
+              <text y="4.2" text-anchor="middle" class="count">{item.node.agent_ids.length}</text>
             </g>
           {/if}
           {#if scale >= 0.35 || lit}
             <text y="46" text-anchor="middle" class="node-label node-label--strong">{communicatorLabel(item.node)}</text>
-            <text y="59" text-anchor="middle" class="node-label node-label--muted">{item.ghost ? "disconnected" : `cxx ${item.node.version}`}</text>
+            <text y="61" text-anchor="middle" class="node-label node-label--muted">{item.ghost ? "disconnected" : `cxx ${item.node.version}`}</text>
           {/if}
         </g>
       {/each}
@@ -479,7 +479,7 @@
           {#if item.node.presence === "working" && !item.ghost}<circle r="16" fill="none" stroke="hsl(var(--success))" stroke-width="1.5" class="pulse" />{/if}
           <circle r="16" fill="hsl(var(--card))" stroke={presenceColor(item.node.presence)} stroke-width="2.25" stroke-dasharray={offline ? "3 3" : undefined} />
           <circle r="11" fill={engineColor(item.node.engine)} opacity={offline ? 0.55 : 1} />
-          <text y="3.2" text-anchor="middle" class="engine-code">{engineCode(item.node.engine)}</text>
+          <text y="4.2" text-anchor="middle" class="engine-code">{engineCode(item.node.engine)}</text>
           {#if item.node.association.state === "stale"}
             <circle cx="12" cy="-12" r="4.5" fill="hsl(var(--warning))" stroke="hsl(var(--card))" stroke-width="1.5" />
           {/if}
@@ -502,7 +502,7 @@
   {/if}
 
   {#if preview && preview.node.id !== selectedId}
-    <div class="pointer-events-none absolute left-3 top-3 max-w-64 rounded-md border bg-background/95 px-3 py-2 text-caption shadow-sm" role="status">
+    <div class="pointer-events-none absolute left-3 top-3 max-w-64 rounded-lg border bg-background/95 px-3 py-2 text-caption shadow-pop" role="status">
       <p class="font-semibold">{preview.node.kind === "agent" ? preview.node.name : communicatorLabel(preview.node)}</p>
       <p class="text-muted-foreground">{preview.node.kind === "agent" ? `${preview.node.engine} · ${preview.node.presence} · ${preview.node.host}` : `${runtimeStyle(preview.node).label} · ${preview.node.health}`}</p>
     </div>
@@ -521,11 +521,12 @@
   .node { cursor: pointer; outline: none; transition: opacity 0.6s ease; }
   .node:focus-visible .halo, .node--selected .halo { opacity: 1 !important; }
   .halo { transition: opacity 0.15s ease; }
-  .node-label { font: 600 11px/1 var(--font-sans, Inter, system-ui, sans-serif); fill: hsl(var(--foreground)); paint-order: stroke; stroke: hsl(var(--card)); stroke-width: 3.5px; stroke-linejoin: round; pointer-events: none; }
-  .node-label--strong { font-size: 12px; font-weight: 650; }
-  .node-label--muted { font-size: 10px; font-weight: 500; fill: hsl(var(--muted-foreground)); }
-  .count { font: 700 10px/1 var(--font-sans, Inter, system-ui, sans-serif); fill: hsl(var(--primary-foreground)); pointer-events: none; }
-  .engine-code { font: 700 9px/1 var(--font-sans, Inter, system-ui, sans-serif); fill: #fff; pointer-events: none; }
+  /* Labels inherit the app font (Tailwind's font-sans on <html>) and stay at the 12 px caption floor (DESIGN.md VIS-2). */
+  .node-label { font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1; fill: hsl(var(--foreground)); paint-order: stroke; stroke: hsl(var(--card)); stroke-width: 3.5px; stroke-linejoin: round; pointer-events: none; }
+  .node-label--strong { font-weight: 650; }
+  .node-label--muted { font-weight: 500; fill: hsl(var(--muted-foreground)); }
+  .count { font-family: inherit; font-size: 12px; font-weight: 700; line-height: 1; fill: hsl(var(--primary-foreground)); pointer-events: none; }
+  .engine-code { font-family: inherit; font-size: 12px; font-weight: 700; line-height: 1; fill: hsl(var(--persona-foreground)); pointer-events: none; }
   .zoom-button { display: grid; height: 2rem; width: 2rem; place-items: center; border-radius: 0.375rem; color: hsl(var(--muted-foreground)); outline: none; }
   .zoom-button:hover { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
   .zoom-button:focus-visible { box-shadow: 0 0 0 2px hsl(var(--ring)); }

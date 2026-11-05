@@ -41,7 +41,7 @@
 </Button>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-xl">
+  <Dialog.Content size="lg">
     <Dialog.Header>
       <Dialog.Title>Install command</Dialog.Title>
       <Dialog.Description>

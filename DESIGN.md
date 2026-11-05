@@ -122,7 +122,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 
 **VIS-2 — Readable hierarchy [V/M; P].** These roles MUST replace arbitrary sizes when a surface is migrated. Essential content MUST NOT use the existing 11 px overline. Avoid all-caps prose; sentence case is the default. Keep primary titles visible through wrapping or a keyboard/touch-accessible full-name view. Technical strings may break or scroll within their own region. Use tabular numerals for aligned measurements; right-align comparable numbers, left-align text. The shared table (`ui/table`) sets body-size text and `tabular-nums` on every cell; a numeric column adds `text-right` to its head and cells. `DataTable` bounds its scroll region to the viewport from 768 px up so the header stays visible while rows scroll; below that the region is unbounded and the header scrolls with the page (a nested vertical scroller on a phone traps touch scrolling).
 
-The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and `text-h2` is 22 px. The table above is the target, not a claim that those aliases already match it. Consolidate their consumers in step 2 instead of adding another title convention.
+`text-h1` is the 20 px page title; `PageShell` and `AuthShell` use it. `text-h2` and `text-h3` are both the 16 px section heading: card, dialog and sheet titles use `text-h2`, `Section` and `SectionCard` headings `text-h3`. Resolving that alias is pending; do not add another title convention.
 
 ### Geometry and density
 
@@ -138,14 +138,15 @@ The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and
 | Desktop controls | 36 px normal; 32 px compact table/toolbar | Minimum heights; multiline content may grow |
 | Touch targets | At least 44 × 44 CSS px for standalone controls on coarse pointers | Expand hit areas without overlapping adjacent targets; applies on hybrid devices too |
 | Table rows | 40 px minimum normal; 36 px compact; 48 px or more for multiline/touch rows | One density per table; never clip wrapping content to force a height |
-| Corners | 4 px controls; 6 px containers/overlays | Existing `--radius-sm` and `--radius`; circles only for genuine circular affordances/avatars |
+| Corners | 4 px controls; 6 px containers/overlays | Existing `--radius-sm` and `--radius`: `rounded`/`rounded-md` on controls and menu items, `rounded-lg` on cards, dialogs, popovers, menus, tooltips and toasts. No arbitrary `rounded-[…]`; circles only for genuine circular affordances/avatars |
 | Icons | 16 px inline; 20 px navigation/touch control glyph | One Lucide family; accessible hit area independent of glyph |
-| Borders / elevation | 1 px semantic border; ordinary surfaces no shadow; overlay uses `--shadow-pop` | Group primarily through alignment, headings and spacing |
+| Borders / elevation | 1 px semantic border; ordinary surfaces no shadow; overlay uses `--shadow-pop` | Group primarily through alignment, headings and spacing; `shadow-pop` is the only overlay shadow (no raw `shadow-md`/`shadow-lg`) |
+| Dialog widths | `DialogContent size`: `sm` 28rem, `md` 32rem (default), `lg` 36rem, `xl` 42rem, `wide` 64rem | `sm` confirmations and short input; `md` ordinary forms; `lg` multi-field forms; `xl` rich editors and pickers; `wide` previews and side-by-side content. No ad-hoc `max-w-[…px]` on a dialog |
 | Motion | 120 ms color/focus feedback via `--dur`; at most 200 ms functional opening/closing | No entry choreography; reduced motion removes travel and decorative animation |
 
 **VIS-3 — Geometry [A/V/M; P].** Use the table above without fixed-height clipping. At narrow widths, stack toolbars and collapse multi-pane workspaces into a reachable list/detail flow. Preserve access to data and actions. A small viewport is not permission to remove functionality.
 
-**VIS-4 — Color semantics [A/V; S2/S3/P].** Use `background/foreground` for the canvas; `card` for a bounded independent surface; `muted` for supporting content; `primary` for selected/primary interaction; `destructive`, `warning`, `success`, `info` for actual outcomes or urgency. Use their matched foreground/muted pairs. Engine persona colors identify engines, not health. Every meaningful status MUST also have text or another non-color cue. Light, dark and system modes retain the same meaning, information and hierarchy.
+**VIS-4 — Color semantics [A/V; S2/S3/P].** Use `background/foreground` for the canvas; `card` for a bounded independent surface; `muted` for supporting content; `primary` for selected/primary interaction; `destructive`, `warning`, `success`, `info` for actual outcomes or urgency. Use their matched foreground/muted pairs. Engine persona colors identify engines, not health; text on a persona fill uses `--persona-foreground`. Status dots, role badges and status icons use these tokens or the shared `Badge` variants (`danger` is the muted destructive pair), never raw Tailwind palette steps such as `green-500`. Categorical graph hues (`constants/graph-palette.ts`) are not status colors; each clears 3:1 against the background and card of both themes. Every meaningful status MUST also have text or another non-color cue. Light, dark and system modes retain the same meaning, information and hierarchy.
 
 **VIS-5 — Composition [V/M; S13/S14/P].** Each visual emphasis MUST have a task reason. Prohibited: decorative gradients/glass, oversized hero headings in working pages, ornamental sparkles, decorative charts, metric tiles without an actionable question, nested cards and repetitive explanatory banners. Use a flat section for related fields, a table for comparison and a card only for an independent object or bounded interaction. Typography and alignment establish hierarchy before color or borders.
 
@@ -307,7 +308,7 @@ Owner-managed live views update on state transitions. A quiet view MUST NOT poll
 | Coverage | Existing location | What it does not establish |
 | --- | --- | --- |
 | Registry and compatibility | `frontend/src/lib/nav.test.ts`, `legacy-admin-routes.test.ts` | All rendered states or task comprehension |
-| Theme normalization and token contrast | `frontend/src/lib/stores/theme.test.ts`, `styles/tokens.contrast.test.ts` | Every composed surface, focus or high-contrast state |
+| Theme normalization and token contrast | `frontend/src/lib/stores/theme.test.ts`, `styles/tokens.contrast.test.ts` (incl. the persona foreground and the graph palette) | Every composed surface, focus or high-contrast state |
 | Desktop destinations, shell, mobile, selected Axe and settings flows | `frontend/e2e/admin-console.spec.ts` | All dynamic details, overlays or WCAG AA conformance |
 | Auth flows | `frontend/e2e/admin-auth-screens.spec.ts` | Entire setup, assistive authentication and all recovery failures |
 | Conversation retention, reconnect, drafts, attention and mobile | `frontend/e2e/admin-clients.spec.ts` | Manual screen-reader reading of a long live conversation |
@@ -541,3 +542,29 @@ Applicable rules: NAV-4, VIS-2, INT-1/3/4/5/6, ACC-3. No design exception. Check
 formatters). Sticky behaviour, focus under the sticky header, close confirmation in
 overlays, URL round-trips with back/forward, both themes and 320 px still need a
 browser pass; Playwright was not run.
+
+### Tokens and slop-tells slice (2026-11-05)
+
+Status colors: the host daemon dot uses `success`/`warning`/`destructive`, role badges
+use `Badge` variants (new `danger`), and the Quick VM “all engines” glyph no longer
+uses `violet-500`; no raw Tailwind palette step remains in components. The seven
+inline copies of the uppercase label use `.section-label`. Topology graph labels are
+12 px, inherit the app font and put `--persona-foreground` on engine codes; the
+Memory Atlas green and amber were darkened to clear 3:1 on the light canvas, which
+`tokens.contrast.test.ts` now enforces. Radius: `rounded` maps to `--radius-sm`;
+cards, dialogs, popovers, menus, select lists, command lists, tooltips, toasts and
+alerts are 6 px, menu items and close buttons 4 px; the portal composer and prompt
+card lost their arbitrary radii. Tooltips and toasts use `shadow-pop`. Card, dialog
+and sheet titles use `text-h2` (18 → 16 px); `PageShell`/`AuthShell` titles `text-h1`.
+`SectionCard` and the security-levels panel use the type roles. `DialogContent`
+takes a `size`; every ad-hoc dialog width was migrated. `utils/theme-colors.ts` was
+unused and is deleted. Insecure-approval requests and the topology inspector's
+disconnect list and owner report are divided rows instead of boxes inside a box.
+Setup infrastructure checks show a Lucide icon plus “Passed”/“Failing”.
+Remaining debt, not exceptions: page-level `rounded-md border` containers outside
+`ui/`, the `shadow-sm` thumb of segmented controls (Accounts engine filter, Library
+type switch, quick model defaults) and the topology zoom group's `shadow-sm` and
+backdrop blur. Applicable rules: VIS-1/2/3/4/5, ACC-2. No design exception. Checks:
+`npm run check` (svelte-check, node tests incl. the extended contrast test). Graph
+label fit inside the engine and count circles, dialog widths, the smaller titles,
+both themes and 320 px still need a browser pass; Playwright was not run.

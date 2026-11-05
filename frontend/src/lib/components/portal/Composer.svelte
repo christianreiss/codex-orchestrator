@@ -91,7 +91,7 @@
         aria-keyshortcuts="Enter"
         aria-describedby="portal-composer-hint"
         onkeydown={onKeydown}
-        class="max-h-40 [field-sizing:content] min-h-[2.25rem] flex-1 resize-none rounded-[1.25rem] border border-border
+        class="max-h-40 [field-sizing:content] min-h-[2.25rem] flex-1 resize-none rounded-md border border-border
                bg-background py-1.5 pl-3.5 pr-11 text-body leading-6 outline-none transition
                ring-offset-background placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2
                focus-visible:ring-ring focus-visible:ring-offset-2"

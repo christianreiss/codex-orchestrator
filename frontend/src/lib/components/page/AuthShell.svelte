@@ -24,7 +24,7 @@
     </div>
     <section aria-labelledby="auth-heading" class="space-y-6 rounded-md border bg-card p-4 sm:p-6">
       <header class="space-y-2">
-        <h1 id="auth-heading" class="break-words text-xl font-semibold tracking-tight">{title}</h1>
+        <h1 id="auth-heading" class="break-words text-h1">{title}</h1>
         {#if description}<p class="text-body-sm text-muted-foreground">{description}</p>{/if}
       </header>
       <MutationNotice />

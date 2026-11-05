@@ -74,7 +74,7 @@
         </dl>
 
         <div>
-          <h3 class="mb-2 text-caption font-semibold uppercase tracking-wide text-muted-foreground">
+          <h3 class="section-label mb-2">
             Trail
           </h3>
           {#if $query.isPending}

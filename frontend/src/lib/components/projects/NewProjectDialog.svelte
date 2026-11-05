@@ -104,7 +104,7 @@
 
 <DraftGuard dirty={open && dirty} />
 <Dialog.Root bind:open={() => open, setOpen}>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     <form onsubmit={submit} class="flex flex-col gap-4">
       <Dialog.Header>
         <Dialog.Title>New project</Dialog.Title>

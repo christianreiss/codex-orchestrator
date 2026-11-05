@@ -32,7 +32,7 @@
 </script>
 
 <Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-lg">
+  <Dialog.Content>
     <form class="grid gap-3" onsubmit={(e) => { e.preventDefault(); $mutation.mutate(); }}>
       <Dialog.Header>
         <Dialog.Title>New report</Dialog.Title>

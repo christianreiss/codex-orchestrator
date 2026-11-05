@@ -68,7 +68,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content class="sm:max-w-md">
+  <Dialog.Content size="sm">
     <Dialog.Header>
       <Dialog.Title>{title}</Dialog.Title>
       {#if description}
