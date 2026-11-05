@@ -101,7 +101,7 @@
       deleteOpen = false;
       handleOpenChange(false);
     } catch (err) {
-      deleteError = err instanceof Error ? err.message : "Delete failed";
+      deleteError = `Could not delete ${result?.host?.fqdn ?? "the host"}: ${(err instanceof Error && err.message) || "the server returned no reason"}`;
       toast.error(deleteError);
     }
   }

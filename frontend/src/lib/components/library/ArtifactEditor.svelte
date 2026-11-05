@@ -128,7 +128,7 @@
       <Button variant="outline" href={listHref}><ArrowLeft class="h-4 w-4" />Back</Button>
       <Button onclick={() => $save.mutate()} disabled={$save.isPending}>
         <Save class="h-4 w-4" />
-        {$save.isPending ? "Saving…" : "Save"}
+        {$save.isPending ? "Saving…" : `Save ${singular}`}
       </Button>
     {/snippet}
     {#snippet body()}
@@ -204,7 +204,7 @@
   bind:open={deleteOpen}
   title={`Delete ${singular}`}
   description={`This will delete ${slug}. You can re-create it with the same slug later.`}
-  confirmLabel="Delete"
+  confirmLabel={`Delete ${singular}`}
   destructive
   busy={$remove.isPending}
   onConfirm={() => $remove.mutate()}

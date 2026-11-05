@@ -79,7 +79,7 @@
             <Label for="retention-days">Backups to keep</Label>
             <Input id="retention-days" type="number" min={0} max={200} bind:value={history.retentionInput} />
           </div>
-          <Button size="sm" variant="outline" onclick={() => history.saveRetention()} disabled={history.savingRetention}>Save</Button>
+          <Button size="sm" variant="outline" onclick={() => history.saveRetention()} disabled={history.savingRetention}>Save retention</Button>
         </div>
         <p class="text-body-sm text-muted-foreground">Older versions beyond this count are pruned.</p>
       </section>

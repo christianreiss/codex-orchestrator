@@ -1,5 +1,4 @@
 <script lang="ts">
-  import type { Snapshot } from "./$types";
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { PageShell, StatStrip, Toolbar, DataTable } from "$lib/components/page";
@@ -14,14 +13,16 @@
   import AccountDialogs, { type AccountDialog } from "$lib/components/accounts/AccountDialogs.svelte";
   import EngineFilter from "$lib/components/accounts/EngineFilter.svelte";
   import { isNearQuota, matchesSearch, needsAttention, sortAccounts, NEAR_QUOTA_PERCENT } from "$lib/components/accounts/account-state";
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
 
   const query = accountsQuery();
   const qc = useQueryClient();
   const fleet = useFleetEngines();
   const canManage = $derived($authStore.can("auth.manage"));
 
-  let scope = $state<Engine | "all">("all");
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "", engine: "all" });
+  const scope = $derived<Engine | "all">((ENGINES as readonly string[]).includes(filterState.values.engine) ? (filterState.values.engine as Engine) : "all");
+  const search = $derived(filterState.values.q);
   let dialog = $state<AccountDialog | null>(null);
 
   const accounts = $derived($query.data?.accounts ?? []);
@@ -57,10 +58,6 @@
     onSettled: () => { void qc.invalidateQueries({ queryKey: accountsKeys.all() }); },
   });
   const run = (account: ProviderAccount, action: "state" | "verify") => $change.mutate({ account, action });
-  export const snapshot: Snapshot<{ scope: typeof scope, search: typeof search }> = {
-    capture: () => ({ scope, search }),
-    restore: (value) => { scope = value.scope; search = value.search; },
-  };
 </script>
 
 <PageShell title="Accounts" description="Subscription accounts shared by the fleet. New sessions use verified accounts that still have quota." width="wide">
@@ -74,8 +71,8 @@
     {/if}
   {/snippet}
 
-  <Toolbar bind:search searchPlaceholder="Search accounts" count={countLabel}>
-    {#snippet filters()}<EngineFilter value={scope} isEnabled={(engine) => $fleet.isEnabled(engine)} onChange={(next) => (scope = next)} />{/snippet}
+  <Toolbar bind:search={filterState.values.q} searchPlaceholder="Search accounts" count={countLabel} filtersActive={filterState.active} onClearFilters={() => filterState.clear()}>
+    {#snippet filters()}<EngineFilter value={scope} isEnabled={(engine) => $fleet.isEnabled(engine)} onChange={(next) => (filterState.values.engine = next)} />{/snippet}
   </Toolbar>
 
   {#if offEngines.length}
@@ -94,7 +91,7 @@
     onRetry={() => $query.refetch()}
     key={(account) => account.id}
     filtered={search.trim() !== "" && scoped.length > 0}
-      onClearFilters={() => { search = ""; }}
+    onClearFilters={() => { filterState.values.q = ""; }}
     emptyTitle={scope === "all" ? "No accounts" : `No ${ENGINE_META[scope].account} accounts`}
     emptyDescription={`Add credentials here, or log in through ${scope === "all" ? "cdx, clx or cgx" : ENGINE_META[scope].command} on a registered host.`}
     caption="Provider accounts"

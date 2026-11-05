@@ -10,7 +10,8 @@
     description?: string;
     placeholder?: string;
     initialValue?: string;
-    submitLabel?: string;
+    /** Names the action and its object, e.g. "Save name". */
+    submitLabel: string;
     submitting?: boolean;
     submitError?: string;
     onSubmit: (name: string) => void | Promise<void>;
@@ -23,7 +24,7 @@
     description = "Give the new credential a recognizable label so you can find it later.",
     placeholder = "e.g. YubiKey 5C — work laptop",
     initialValue = "",
-    submitLabel = "Save",
+    submitLabel,
     submitting = false,
     submitError = "",
     onSubmit,

@@ -19,6 +19,8 @@
   import * as Alert from "$lib/components/ui/alert";
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
+  import { untrack } from "svelte";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import * as Select from "$lib/components/ui/select";
@@ -68,9 +70,20 @@
   const hosts = $derived($hostsQuery.data?.hosts ?? []);
   const projects = $derived($projectsQuery.data?.projects ?? []);
 
+  // Every editable field, compared against its value when the dialog opened.
+  const snapshot = () => JSON.stringify([scope, memoryId, hostId, projectSlug, title, summary, content, tagsInput, metadataMode, metadataInput, metadataRows, engine]);
+  let baseline = $state<string | null>(null);
+  const dirty = $derived(open && baseline !== null && snapshot() !== baseline);
+
   function setOpen(next: boolean): void {
     open = next;
     onOpenChange(next);
+  }
+
+  /** Escape, overlay, X and Cancel ask before discarding an unsaved edit. */
+  function requestOpenChange(next: boolean): void {
+    if (!next && ($mutation.isPending || (dirty && !window.confirm(mode === "create" ? "Discard the new memory?" : "Discard your changes to this memory?")))) return;
+    setOpen(next);
   }
 
   function reset(): void {
@@ -156,6 +169,7 @@
     if (open && !wasOpen) {
       if (mode === "edit" && memory) hydrate(memory);
       else reset();
+      baseline = untrack(snapshot);
     }
     if (!open && wasOpen) reset();
     wasOpen = open;
@@ -318,7 +332,8 @@
   }
 </script>
 
-<Dialog.Root bind:open onOpenChange={setOpen}>
+<DraftGuard {dirty} />
+<Dialog.Root bind:open={() => open, requestOpenChange}>
   <Dialog.Content class="sm:max-w-2xl">
     <form class="flex flex-col gap-4" onsubmit={submit}>
       <Dialog.Header>
@@ -480,7 +495,7 @@
       {/if}
 
       <Dialog.Footer>
-        <Button type="button" variant="outline" onclick={() => setOpen(false)} disabled={$mutation.isPending}>Cancel</Button>
+        <Button type="button" variant="outline" onclick={() => requestOpenChange(false)} disabled={$mutation.isPending}>Cancel</Button>
         <Button type="submit" disabled={$mutation.isPending || !memoryId.trim() || !content.trim()}>
           {$mutation.isPending ? "Saving…" : mode === "create" ? "Create memory" : "Save changes"}
         </Button>

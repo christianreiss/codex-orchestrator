@@ -9,6 +9,7 @@
    * copy is this list.
    */
   import * as Sheet from "$lib/components/ui/sheet";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import { Badge } from "$lib/components/ui/badge";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { formatBytes } from "$lib/utils/format";
@@ -40,7 +41,7 @@
       <div class="mt-4 space-y-4">
         <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-caption">
           <dt class="text-muted-foreground">Id</dt>
-          <dd class="break-all font-mono">{row.id}</dd>
+          <dd class="flex items-center gap-1 font-mono"><span class="min-w-0 break-all">{row.id}</span><CopyButton value={row.id} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label="Copy file ID" toastMessage="File ID copied" /></dd>
 
           <dt class="text-muted-foreground">Uploaded by</dt>
           <dd>

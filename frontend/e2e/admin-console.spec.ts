@@ -953,7 +953,7 @@ test("project detail and standalone approval keep their task-focused layouts", a
   await expect(about.getByRole("heading", { name: "About", level: 2, exact: true })).toBeVisible();
   await expect(about.getByRole("heading", { name: "Roster", level: 2 })).toBeVisible();
   await expect(about.getByLabel("Title")).toHaveValue("Fleet console");
-  await expect(about.getByRole("button", { name: "Save", exact: true }).first()).toBeDisabled();
+  await expect(about.getByRole("button", { name: "Save project details", exact: true }).first()).toBeDisabled();
   await expectNoSeriousAxeFindings(page);
 
   await page.goto("/admin/cli-auth/verify");
@@ -1384,7 +1384,7 @@ test("quota advice settings save centrally and survive reload", async ({ page })
   await page.getByLabel("High usage (%)", { exact: true }).fill("90");
   await page.getByLabel("Maximum measurement age (minutes)").fill("15");
   await page.getByRole("switch", { name: "Allow remembering the provider until local midnight" }).click();
-  await quotas.getByRole("button", { name: "Save", exact: true }).click();
+  await quotas.getByRole("button", { name: "Save quotas", exact: true }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(stored).toEqual({ hard_fail: true, limit_percent: 95, week_partition: "off", advice: {
     mode: "hint", high_usage_percent: 90, projected_usage_percent: 100,
@@ -1395,7 +1395,7 @@ test("quota advice settings save centrally and survive reload", async ({ page })
   await expect(page.getByLabel("Maximum measurement age (minutes)")).toHaveValue("15");
   await expect(page.getByRole("switch", { name: "Allow remembering the provider until local midnight" })).not.toBeChecked();
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(quotas.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+  await expect(quotas.getByRole("button", { name: "Save quotas", exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
 });
 

@@ -8,6 +8,7 @@
       import { toast } from "svelte-sonner";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import { authStore } from "$lib/stores/auth";
@@ -201,7 +202,7 @@
           <div class="mt-4 rounded-md border bg-muted/25 p-3" role="status" aria-label="Publication receipt">
             <p class="text-body font-medium">{receipt.recipient_count} {receipt.recipient_count === 1 ? "recipient" : "recipients"} queued{!receipt.created ? " · Existing publication" : ""}</p>
             <p class="text-body-sm text-muted-foreground">Requested timing: {(receipt.requested_delivery_timing ?? receipt.delivery_timing) === "immediate" ? "During the current turn" : "After the current turn"}. Queued is not yet delivered.</p>
-            <p class="break-all font-mono text-caption text-muted-foreground">{receipt.publication_id}</p>
+            <p class="flex items-center gap-1 font-mono text-caption text-muted-foreground"><span class="min-w-0 break-all">{receipt.publication_id}</span><CopyButton value={receipt.publication_id} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label="Copy publication ID" toastMessage="Publication ID copied" /></p>
             <p class="text-caption text-muted-foreground">{topicLabel(receipt.topic)} · {receipt.skipped.length} skipped · Queued means waiting for engine acceptance.</p>
             <details class="mt-2">
               <summary class="cursor-pointer text-caption font-medium">Recipient receipts</summary>

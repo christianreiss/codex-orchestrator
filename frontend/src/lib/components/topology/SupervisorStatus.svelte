@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
  import { supervisorQuery, supervisorPause } from '$lib/api/supervisor';
  import { authStore } from '$lib/stores/auth';
  import { StateBlock, SaveState } from '$lib/components/page';
@@ -8,7 +9,7 @@
  const pause=supervisorPause();
  const work=$derived($query.data?.states?.find(w=>w.target===target));
  const labels:Record<string,string>={working:'Working',waiting_agent:'Waiting for an agent',waiting_user:'Waiting for user input',completed:'Completed',canceled:'Canceled'};
- const when=(value:string|null)=>value?new Date(value).toLocaleString():'—';
+ const when=(value:string|null)=>value?formatDateTime(value):'—';
 </script>
 {#if $authStore.can('agent_messaging.read')}
  <section class="space-y-2 border-t pt-3" aria-label="Task supervision">

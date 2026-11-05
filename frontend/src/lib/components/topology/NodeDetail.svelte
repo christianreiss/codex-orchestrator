@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { createQuery } from "@tanstack/svelte-query";
   import { toStore } from "svelte/store";
   import { api } from "$lib/api/client";
@@ -177,7 +178,7 @@
   const presenceVariant = (presence: string) =>
     presence === "listening" || presence === "working" ? "success" : presence === "idle" ? "warning" : "secondary";
   const healthVariant = (health: string) => (health === "live" ? "success" : health === "closing" ? "destructive" : "warning");
-  const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—");
+  const when = (iso: string | null) => (iso ? formatDateTime(iso) : "—");
   const agentLine = (a: TopologyAgent) => `${a.name} · ${isEngine(a.engine) ? engineLabel(a.engine) : a.engine} · ${a.presence}`;
 </script>
 
@@ -291,7 +292,7 @@
         <dt class="text-muted-foreground">Connected</dt><dd>{when(communicator.connected_at)}</dd>
         <dt class="text-muted-foreground">Last heartbeat</dt><dd>{communicator.last_heartbeat_at ? `${ageLabel(Math.round((Date.now() - Date.parse(communicator.last_heartbeat_at)) / 1000))}` : "none yet"}</dd>
         <dt class="text-muted-foreground">Process</dt>
-        <dd>{communicator.process ? `pid ${communicator.process.pid}` : "not reported"}{#if communicator.process} <span class="text-muted-foreground">self-reported{communicator.process.started_at ? `, started ${new Date(communicator.process.started_at).toLocaleTimeString()}` : ""}</span>{/if}</dd>
+        <dd>{communicator.process ? `pid ${communicator.process.pid}` : "not reported"}{#if communicator.process} <span class="text-muted-foreground">self-reported{communicator.process.started_at ? `, started ${formatDateTime(communicator.process.started_at)}` : ""}</span>{/if}</dd>
         {#if communicator.process?.runtime_id}
           <dt class="text-muted-foreground">Runtime</dt>
           <dd class="font-mono text-caption" title="Hash of the owner's local socket path: the same value means the same local clients are served">{communicator.process.runtime_id.slice(0, 8)}{#if communicator.process.instance_id} <span class="text-muted-foreground">· instance {communicator.process.instance_id.slice(0, 8)}</span>{/if}</dd>

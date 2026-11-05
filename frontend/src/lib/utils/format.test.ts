@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // import needs the ".ts" extension that TypeScript rejects on a static import;
 // hiding it behind a variable keeps both happy. Types come from the cast.
 const formatModule: string = "./format.ts";
-const { relativeTime, resetsIn, formatBytes } = (await import(formatModule)) as typeof import("./format");
+const { relativeTime, resetsIn, formatBytes, formatDateTime, formatTime, toDate } = (await import(formatModule)) as typeof import("./format");
 
 /** The clock every relativeTime expectation below is measured against. */
 const NOW = Date.UTC(2026, 6, 29, 12, 0, 0);
@@ -104,5 +104,43 @@ describe("formatBytes", () => {
     assert.equal(formatBytes(null), "0 B");
     assert.equal(formatBytes(undefined), "0 B");
     assert.equal(formatBytes(Number.NaN), "0 B");
+  });
+});
+
+describe("toDate", () => {
+  it("accepts dates, ISO strings and Unix seconds or milliseconds", () => {
+    const at = Date.UTC(2026, 10, 5, 20, 18, 4);
+    assert.equal(toDate(new Date(at))?.getTime(), at);
+    assert.equal(toDate("2026-11-05T20:18:04Z")?.getTime(), at);
+    assert.equal(toDate(at / 1000)?.getTime(), at);
+    assert.equal(toDate(at)?.getTime(), at);
+  });
+
+  it("returns null for missing or unparseable input", () => {
+    for (const value of [null, undefined, "", "not a date"]) assert.equal(toDate(value), null);
+  });
+});
+
+describe("formatDateTime / formatTime", () => {
+  // Fixed locale and zone: the default follows the machine, which a test must not.
+  const AT = "2026-11-05T20:18:04Z";
+
+  it("names the zone it was read in", () => {
+    assert.equal(formatDateTime(AT, { locale: "en-GB", timeZone: "UTC" }), "5 Nov 2026, 20:18 UTC");
+    assert.equal(formatDateTime(AT, { locale: "en-GB", timeZone: "Europe/Berlin" }), "5 Nov 2026, 21:18 CET");
+  });
+
+  it("adds seconds on request", () => {
+    assert.equal(formatDateTime(AT, { locale: "en-GB", timeZone: "UTC", seconds: true }), "5 Nov 2026, 20:18:04 UTC");
+  });
+
+  it("formats a time of day with its zone", () => {
+    assert.equal(formatTime(AT, { locale: "en-GB", timeZone: "UTC" }), "20:18 UTC");
+    assert.equal(formatTime(1_793_909_884, { locale: "en-GB", timeZone: "UTC" }), "20:18 UTC");
+  });
+
+  it("is empty for missing input instead of 'Invalid Date'", () => {
+    assert.equal(formatDateTime(null), "");
+    assert.equal(formatTime("garbage"), "");
   });
 });

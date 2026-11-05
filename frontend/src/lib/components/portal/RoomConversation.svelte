@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime, formatTime } from "$lib/utils/format";
   import { base } from "$app/paths";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
@@ -435,11 +436,8 @@
                     >{/if}<time
                     class="text-caption text-muted-foreground"
                     datetime={event.created_at}
-                    title={new Date(event.created_at).toLocaleString()}
-                    >{new Date(event.created_at).toLocaleTimeString(undefined, {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}</time
+                    title={formatDateTime(event.created_at)}
+                    >{formatTime(event.created_at)}</time
                   >{#if pinned.includes(event.id)}<span
                       class="inline-flex items-center gap-1 text-caption text-muted-foreground"
                       ><PinIcon class="h-3 w-3" aria-hidden="true" />Pinned</span
@@ -755,7 +753,7 @@
           {#if room.deadline_at}<p
               class="mt-2 text-caption text-muted-foreground"
             >
-              Deadline: {new Date(room.deadline_at).toLocaleString()}
+              Deadline: {formatDateTime(room.deadline_at)}
             </p>{/if}
           {#if canWrite && !room.workflow_managed && !room.workflow_run_id && room.kind === "conference" && room.status === "open"}<div
               class="mt-6 border-t pt-4"
@@ -818,7 +816,7 @@
               <p class="mt-1 text-caption text-muted-foreground">
                 <time
                   datetime={entry.event.created_at}
-                  title={new Date(entry.event.created_at).toLocaleString()}
+                  title={formatDateTime(entry.event.created_at)}
                   >{new Date(entry.event.created_at).toLocaleString(undefined, {
                     dateStyle: "medium",
                     timeStyle: "short",

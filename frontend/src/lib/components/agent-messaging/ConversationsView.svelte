@@ -5,6 +5,7 @@
   import { toast } from "svelte-sonner";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import * as Table from "$lib/components/ui/table";
   import MessageSquare from "@lucide/svelte/icons/message-square";
@@ -99,7 +100,7 @@
         {#if selected.canceled_at}
           <dt class="text-muted-foreground">Canceled</dt><dd><Timestamp value={selected.canceled_at} />{selected.canceled_by ? ` by ${selected.canceled_by}` : ""}{selected.cancel_reason ? ` · ${selected.cancel_reason}` : ""}</dd>
         {/if}
-        <dt class="text-muted-foreground">ID</dt><dd class="break-all font-mono text-caption">{selected.id}</dd>
+        <dt class="text-muted-foreground">ID</dt><dd class="flex items-center gap-1 font-mono text-caption"><span class="min-w-0 break-all">{selected.id}</span><CopyButton value={selected.id} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label="Copy conversation ID" toastMessage="Conversation ID copied" /></dd>
       </dl>
       <p class="mt-3 text-body-sm text-muted-foreground">Open until a participant, an administrator, or the master switch cancels it.</p>
     {/if}

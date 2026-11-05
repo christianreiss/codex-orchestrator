@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snapshot } from "./$types";
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -30,11 +30,12 @@
   let settingsOpen = $state(false);
   let confirmOpen = $state(false);
   let projectToDelete = $state<ProjectSummary | null>(null);
-  let search = $state("");
-  let sort = $state<ProjectSort>("updated");
+  const filterState = new UrlFilters({ q: "", sort: "updated", archived: "" });
+  const search = $derived(filterState.values.q);
+  const sort = $derived<ProjectSort>(PROJECT_SORTS.some((option) => option.value === filterState.values.sort) ? (filterState.values.sort as ProjectSort) : "updated");
   // The admin list returns archived projects too, because the console is where you find one again.
   // Hidden by default so a finished project stops competing with live work.
-  let showArchived = $state(false);
+  const showArchived = $derived(filterState.values.archived === "1");
 
   const stateQuery = createQuery({ queryKey: projectKeys.state, queryFn: fetchProjectsState });
   const listQuery = createQuery({ queryKey: projectKeys.list, queryFn: fetchProjects });
@@ -93,10 +94,6 @@
       clearDialogParam();
     }
   });
-  export const snapshot: Snapshot<{ search: typeof search, sort: typeof sort, showArchived: boolean }> = {
-    capture: () => ({ search, sort, showArchived }),
-    restore: (value) => { search = value.search; sort = value.sort; showArchived = value.showArchived; },
-  };
 </script>
 
 <PageShell
@@ -114,15 +111,15 @@
     <Button onclick={() => (dialogOpen = true)} disabled={!enabled}><Plus class="h-4 w-4" /> New project</Button>
   {/snippet}
 
-  <Toolbar bind:search searchPlaceholder="Search projects" count={`${rows.length} of ${projects.length} projects`}>
+  <Toolbar bind:search={filterState.values.q} filtersActive={search.trim() !== ""} onClearFilters={() => { filterState.values.q = ""; }} searchPlaceholder="Search projects" count={`${rows.length} of ${projects.length} projects`}>
     {#snippet filters()}
       {#if archivedCount > 0}
         <label class="flex cursor-pointer items-center gap-2 text-body-sm text-muted-foreground">
-          <Checkbox bind:checked={showArchived} aria-label="Show archived projects" />
+          <Checkbox checked={showArchived} onCheckedChange={(next) => { filterState.values.archived = next ? "1" : ""; }} aria-label="Show archived projects" />
           Show archived ({archivedCount})
         </label>
       {/if}
-      <select class="{filterClass} w-44" aria-label="Sort projects" bind:value={sort}>
+      <select class="{filterClass} w-44" aria-label="Sort projects" bind:value={filterState.values.sort}>
         {#each PROJECT_SORTS as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
       </select>
     {/snippet}
@@ -136,7 +133,7 @@
       onRetry={() => void $listQuery.refetch()}
       key={(project) => project.slug}
       filtered={search.trim() !== "" || !showArchived && archivedCount > 0}
-      onClearFilters={() => { search = ""; showArchived = true; }}
+      onClearFilters={() => { filterState.values.q = ""; filterState.values.archived = "1"; }}
       emptyIcon={FolderKanban}
       emptyTitle="No projects yet"
       emptyDescription="Projects are shared workspaces agents coordinate through."

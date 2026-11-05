@@ -12,6 +12,7 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Tabs from "$lib/components/ui/tabs";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import { useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -396,9 +397,10 @@
                 <span class="relative inline-flex h-2 w-2 rounded-full bg-muted-foreground/40"></span>
               {/if}
             </span>
-            <span class="truncate text-base font-semibold" class:line-through={req.ghost}>
+            <span class="min-w-0 break-all font-mono text-base font-semibold" class:line-through={req.ghost}>
               {req.fqdn || `Host #${req.host_id}`}
             </span>
+            {#if req.fqdn}<CopyButton value={req.fqdn} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy FQDN ${req.fqdn}`} toastMessage="FQDN copied" />{/if}
           </p>
           <p class="text-body-sm text-muted-foreground">
             {req.live ? "Waiting in a terminal" : "Nobody is waiting on this one"}{req.request_ip
@@ -575,7 +577,7 @@
                   {#each $summary.data.hosts as h (h.id)}
                     <li class="flex items-center justify-between gap-3 px-3 py-2">
                       <div class="min-w-0">
-                        <div class="truncate text-body font-medium">{h.fqdn}</div>
+                        <div class="break-all font-mono text-body font-medium">{h.fqdn}</div>
                         <div class="text-caption text-muted-foreground">
                           Closes in <InsecureCountdown until={h.insecure_enabled_until} />
                         </div>

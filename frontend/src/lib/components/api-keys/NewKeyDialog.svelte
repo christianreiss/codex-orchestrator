@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { untrack } from "svelte";
   import { toast } from "svelte-sonner";
@@ -135,7 +136,7 @@
             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-body">
               <dt class="text-muted-foreground">API format</dt><dd>{FORMAT_LABEL[connection.format]}</dd>
               <dt class="text-muted-foreground">Engine</dt><dd class="font-medium">{BACKEND_LABEL[connection.backend]}</dd>
-              <dt class="text-muted-foreground">Expires</dt><dd>{issued.record.expires_at ? new Date(issued.record.expires_at).toLocaleString() : "Never"}</dd>
+              <dt class="text-muted-foreground">Expires</dt><dd>{issued.record.expires_at ? formatDateTime(issued.record.expires_at) : "Never"}</dd>
               <dt class="text-muted-foreground">Availability</dt><dd><span role="status">{availability}</span></dd>
             </dl>
             <p class="text-caption text-muted-foreground">This key keeps its assigned engine when the endpoint default changes.</p>

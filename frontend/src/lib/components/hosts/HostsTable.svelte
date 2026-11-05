@@ -7,6 +7,7 @@
   import { DataTable, StateBlock } from "$lib/components/page";
   import * as Table from "$lib/components/ui/table";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import * as Popover from "$lib/components/ui/popover";
   import { cn } from "$lib/utils/cn";
   import SortableHead from "$lib/components/data-table/SortableHead.svelte";
@@ -77,8 +78,11 @@
     {@const kind = hostStatusKind(host, list.now)}
     {@const warnings = items.filter((item) => item.tone === "warning")}
     <Table.Row class="cursor-pointer" onclick={(event: MouseEvent) => open(event, host.id)} data-host-id={host.id}>
-      <Table.Cell class="max-w-[16rem]">
-        <a href={`${base}/hosts/${host.id}`} class="block whitespace-normal font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
+      <Table.Cell class="max-w-[18rem]">
+        <span class="flex items-start gap-1">
+          <a href={`${base}/hosts/${host.id}`} class="block min-w-0 whitespace-normal font-mono font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
+          <CopyButton value={host.fqdn} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy FQDN ${host.fqdn}`} toastMessage="FQDN copied" />
+        </span>
         <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"} · #{host.id}</span>
       </Table.Cell>
       <Table.Cell>
@@ -158,7 +162,10 @@
         <li class="rounded-md border bg-card p-3">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
-              <a href={`${base}/hosts/${host.id}`} class="block whitespace-normal font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
+              <span class="flex items-start gap-1">
+                <a href={`${base}/hosts/${host.id}`} class="block min-w-0 whitespace-normal font-mono font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
+                <CopyButton value={host.fqdn} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy FQDN ${host.fqdn}`} toastMessage="FQDN copied" />
+              </span>
               <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"} · #{host.id}</span>
             </div>
             <span class="inline-flex shrink-0 flex-wrap items-center justify-end gap-1.5">

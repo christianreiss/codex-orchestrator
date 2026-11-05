@@ -121,7 +121,7 @@
       </Button>
       <Button onclick={() => $save.mutate()} disabled={$save.isPending || isManaged}>
         <Save class="h-4 w-4" />
-        {$save.isPending ? "Saving…" : "Save"}
+        {$save.isPending ? "Saving…" : "Save skill"}
       </Button>
     {/snippet}
     {#snippet body()}
@@ -204,7 +204,7 @@
   bind:open={deleteOpen}
   title="Delete skill"
   description={`This will soft-delete ${slug}. The action is reversible by re-creating the skill with the same slug.`}
-  confirmLabel="Delete"
+  confirmLabel="Delete skill"
   destructive
   busy={$remove.isPending}
   onConfirm={() => $remove.mutate()}

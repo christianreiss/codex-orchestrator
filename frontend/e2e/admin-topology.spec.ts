@@ -348,7 +348,7 @@ test("filters, collapses and persists preferences without inventing runtime mode
   await expect(page.locator('[data-node]')).toHaveCount(0);
   await page.reload();
   await expect(page.getByLabel('Filter runtime')).toHaveValue('resident');
-  await page.getByRole('button', { name: 'Reset filters' }).click();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(page.locator('[data-node]')).toHaveCount(5);
   await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Exit fullscreen' })).toBeVisible();

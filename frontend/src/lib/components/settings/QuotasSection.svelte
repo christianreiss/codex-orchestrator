@@ -5,6 +5,7 @@
   import type { QuotaAdviceSettings } from "$lib/api/types";
   import { Switch } from "$lib/components/ui/switch";
   import { toast } from "svelte-sonner";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import * as Select from "$lib/components/ui/select";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -36,6 +37,10 @@
     min_pressure_gap: 20, max_age_minutes: 30, remember_day: true,
   });
   let initialized = false;
+  /** The settings the server holds; the form is dirty while it differs. */
+  let saved = $state<string | null>(null);
+  const draft = $derived(JSON.stringify({ mode, limitPercent: Number(limitPercent), weekPartition, advice }));
+  const dirty = $derived(saved !== null && draft !== saved);
 
   $effect(() => {
     const d = $query.data;
@@ -44,6 +49,7 @@
     limitPercent = d.limit_percent;
     weekPartition = String(d.week_partition);
     if (d.advice) advice = { ...d.advice };
+    saved = JSON.stringify({ mode, limitPercent: Number(limitPercent), weekPartition, advice });
     initialized = true;
   });
 
@@ -53,12 +59,13 @@
   };
 
   function save() {
+    const sent = draft;
     $mutation.mutate({
       hard_fail: mode === "hard",
       limit_percent: Number(limitPercent),
       week_partition: weekPartition as "off" | "5" | "7",
       advice: { ...advice },
-    });
+    }, { onSuccess: () => { saved = sent; } });
   }
 
   const status = $derived.by(() => {
@@ -69,6 +76,7 @@
   });
 </script>
 
+<DraftGuard {dirty} />
 <SectionCard
   id="quotas"
   title="Quotas"
@@ -162,7 +170,7 @@
   </div>
 
   <div class="pt-2">
-    <Button size="sm" onclick={save} disabled={$query.isPending || $query.isError || $mutation.isPending}>Save</Button>
+    <Button size="sm" onclick={save} disabled={$query.isPending || $query.isError || $mutation.isPending}>{$mutation.isPending ? "Saving…" : "Save quotas"}</Button>
   </div>
 </SectionCard>
 

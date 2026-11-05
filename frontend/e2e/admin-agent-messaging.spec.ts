@@ -226,7 +226,7 @@ test('ordinary missing transcripts require one explicit approval, while wakes an
   await expect(page.getByRole('button',{name:'Approve one fresh start'})).toHaveCount(1);
   await page.getByRole('button',{name:'Approve one fresh start'}).click();
   await page.getByLabel('Why is a fresh start authorized?').fill('Operator requests replacement for this work');
-  await page.getByRole('dialog').getByRole('button',{name:'Approve',exact:true}).click();
+  await page.getByRole('dialog').getByRole('button',{name:'Approve fresh start',exact:true}).click();
   await expect(page.getByRole('button',{name:'Approve one fresh start'})).toHaveCount(0);
   expect(state.bodies.at(-1)?.body).toEqual({version:1,reason:'Operator requests replacement for this work'});
   await page.setViewportSize({width:390,height:844});

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   /** The secrets table: search, one primary action, reveal / edit / revoke per row. */
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -61,7 +62,8 @@
 
   const secrets = $derived($secretsQuery.data ?? []);
 
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   const q = $derived(search.trim().toLowerCase());
   const filtered = $derived(
     q
@@ -88,7 +90,7 @@
 
 <div class="space-y-3">
   <Toolbar
-    bind:search
+    bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()}
     searchPlaceholder="Search secrets"
     count={q ? `${sorted.length} of ${secrets.length}` : `${secrets.length} ${secrets.length === 1 ? "secret" : "secrets"}`}
   >
@@ -104,7 +106,7 @@
     onRetry={() => void $secretsQuery.refetch()}
     key={(s) => s.id}
     filtered={q !== ""}
-    onClearFilters={() => (search = "")}
+    onClearFilters={() => filterState.clear()}
     emptyIcon={KeyRound}
     emptyTitle="No secrets yet"
     emptyDescription="Add the credentials your agents need (API tokens, database passwords, service accounts) so they stop asking you for them."
@@ -187,7 +189,7 @@
   bind:open={deleteOpen}
   title={`Revoke ${deleteTarget?.slug ?? "secret"}?`}
   description="Agents are refused from their next read on; nothing is cached on any host. The slug stays reserved, so adding it again later revives the entry with a fresh value."
-  confirmLabel="Revoke"
+  confirmLabel="Revoke secret"
   destructive
   busy={$deleteMutation.isPending}
   onConfirm={() => { if (deleteTarget) $deleteMutation.mutate(deleteTarget); }}

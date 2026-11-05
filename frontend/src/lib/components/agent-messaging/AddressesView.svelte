@@ -4,6 +4,7 @@
   import Bot from "@lucide/svelte/icons/bot";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import { Switch } from "$lib/components/ui/switch";
   import * as Table from "$lib/components/ui/table";
   import { DataTable } from "$lib/components/page";
@@ -94,7 +95,7 @@
             <span class="inline-flex items-center gap-1.5 text-body-sm text-muted-foreground"><span class={cn("h-2 w-2 rounded-full", isEngine(address.engine) ? ENGINE_META[address.engine].color : "bg-muted-foreground/40")} aria-hidden="true"></span>{address.engine}</span>
             {#if !address.eligible}<Badge variant="warning">Ineligible</Badge>{/if}
           </div>
-          <p class="truncate font-mono text-caption text-muted-foreground">{address.address}</p>
+          <p class="flex items-center gap-1 font-mono text-caption text-muted-foreground"><span class="min-w-0 truncate" title={address.address}>{address.address}</span><CopyButton value={address.address} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy address ${address.address}`} toastMessage="Address copied" /></p>
           {#if ineligibleLabel}<p class="text-caption text-warning-muted-foreground">{ineligibleLabel}</p>{/if}
         </Table.Cell>
         <Table.Cell>

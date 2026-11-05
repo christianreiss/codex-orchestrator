@@ -204,7 +204,7 @@
   onClose={() => (redriveTarget = null)}
   title="Redrive this message?"
   description={redriveTarget ? `Create an explicit redrive of ${redriveTarget.id.slice(0, 8)}. The original remains terminal for audit.` : ""}
-  confirmLabel="Redrive"
+  confirmLabel="Redrive message"
   busy={$redrive.isPending}
   onConfirm={() => { if (redriveTarget) void redriveMessage(redriveTarget); }}
 />
@@ -215,6 +215,6 @@
   label="Why is a fresh start authorized?"
   bind:value={freshReason}
   onClose={() => (freshTarget = null)}
-  confirmLabel="Approve"
+  confirmLabel="Approve fresh start"
   onConfirm={(reason) => { if (freshTarget) void approveFresh(freshTarget, reason); }}
 />

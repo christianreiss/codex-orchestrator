@@ -1,9 +1,9 @@
 <script lang="ts">
   import { page } from "$app/state";
   import { base } from "$app/paths";
-  import { PageShell, StateBlock } from "$lib/components/page";
+  import { PageShell, StateBlock, Timestamp } from "$lib/components/page";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import { hostDetailQuery, hostLastSeen, hostStatusKind } from "$lib/api/hosts";
-  import { relativeTime } from "$lib/utils/format";
   import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import AccessSection from "$lib/components/hosts/detail/AccessSection.svelte";
   import AdvancedSection from "$lib/components/hosts/detail/AdvancedSection.svelte";
@@ -38,14 +38,15 @@
   </PageShell>
 {:else}
   {@const status = STATUS[hostStatusKind(host, now)]}
-  <PageShell title={host.fqdn} description={`Host #${host.id}`} width="narrow">
+  <PageShell title={host.fqdn} monoTitle description={`Host #${host.id}`} width="narrow">
     {#snippet actions()}
       <InstallCommand bind:this={installer} {id} fqdn={host.fqdn} curlInsecure={host.curl_insecure} />
     {/snippet}
     {#snippet subheader()}
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-body-sm text-muted-foreground">
         <StatusPill tone={status.tone} label={status.label} />
-        <span title={hostLastSeen(host) ?? undefined}>Last contact {relativeTime(hostLastSeen(host)) || "never"}</span>
+        <span>Last contact <Timestamp value={hostLastSeen(host)} fallback="never" /></span>
+        <CopyButton value={host.fqdn} label="Copy FQDN" copiedLabel="Copied" variant="ghost" size="sm" toastMessage="FQDN copied" />
       </div>
     {/snippet}
 

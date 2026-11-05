@@ -1,6 +1,6 @@
 <script lang="ts">
   import { cn } from "$lib/utils/cn";
-  import { relativeTime } from "$lib/utils/format";
+  import { relativeTime, formatDateTime } from "$lib/utils/format";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import type { CliAuthLookup } from "$lib/api/types";
@@ -20,15 +20,7 @@
 
   function formatAbsolute(iso: string | null | undefined): string {
     if (!iso) return "—";
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return formatDateTime(iso) || iso;
   }
 </script>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import type { Snapshot } from "./$types";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { page } from "$app/state";
@@ -27,9 +28,10 @@
   const TYPE_BADGE: Record<ProjectFeedbackType, BadgeVariant> = { feature: "default", bug: "destructive", note: "secondary", issue: "destructive", test: "outline" };
   const statusOf = (entry: ProjectFeedback): ProjectFeedbackStatus => entry.status ?? "open";
 
-  let search = $state("");
-  let statusFilter = $state("");
-  let typeFilter = $state("");
+  const filterState = new UrlFilters({ q: "", status: "", type: "" });
+  const search = $derived(filterState.values.q);
+  const statusFilter = $derived(filterState.values.status);
+  const typeFilter = $derived(filterState.values.type);
   let newOpen = $state(false);
   let detailOpen = $state(false);
   let selected = $state("");
@@ -79,17 +81,17 @@
       void qc.invalidateQueries({ queryKey: projectKeys.detail(slug) });
     },
   });
-  export const snapshot: Snapshot<{ search: typeof search, statusFilter: typeof statusFilter, typeFilter: typeof typeFilter, selected: typeof selected }> = {
-    capture: () => ({ search, statusFilter, typeFilter, selected }),
-    restore: (value) => { search = value.search; statusFilter = value.statusFilter; typeFilter = value.typeFilter; selected = value.selected; },
+  export const snapshot: Snapshot<{ selected: typeof selected }> = {
+    capture: () => ({ selected }),
+    restore: (value) => { selected = value.selected; },
   };
 </script>
 
 <div class="space-y-3">
-  <Toolbar bind:search searchPlaceholder="Search reports" count={`${shown.length} of ${all.length} reports${openCount > 0 ? ` · ${openCount} open` : ""}`}>
+  <Toolbar bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()} searchPlaceholder="Search reports" count={`${shown.length} of ${all.length} reports${openCount > 0 ? ` · ${openCount} open` : ""}`}>
     {#snippet filters()}
-      <FilterSelect label="Filter status" bind:value={statusFilter} options={STATUSES} allLabel="All statuses" />
-      <FilterSelect label="Filter type" bind:value={typeFilter} options={TYPES} allLabel="All types" />
+      <FilterSelect label="Filter status" bind:value={filterState.values.status} options={STATUSES} allLabel="All statuses" />
+      <FilterSelect label="Filter type" bind:value={filterState.values.type} options={TYPES} allLabel="All types" />
     {/snippet}
     {#snippet actions()}
       <Button onclick={() => (newOpen = true)}><Plus class="h-4 w-4" /> New report</Button>
@@ -106,7 +108,7 @@
         selectedId={selected}
         onSelect={(id) => { selected = id; detailOpen = true; }}
         filtered={Boolean(search.trim() || statusFilter || typeFilter)}
-        onClearFilters={() => { search = ""; statusFilter = ""; typeFilter = ""; }}
+        onClearFilters={() => filterState.clear()}
         emptyTitle="No reports yet"
         emptyDescription="Feature requests, issues and test results for this project appear here."
       />

@@ -76,7 +76,7 @@
       <div class="my-4"><Input aria-label="Account name" bind:value={renameValue} maxlength={191} required /></div>
       <Dialog.Footer>
         <Button type="button" variant="outline" onclick={onClose}>Cancel</Button>
-        <Button type="submit" disabled={busy || !renameValue.trim()}>Save</Button>
+        <Button type="submit" disabled={busy || !renameValue.trim()}>Save name</Button>
       </Dialog.Footer>
     </form>
   </Dialog.Content>
@@ -86,7 +86,7 @@
   open={removeOpen}
   title={target ? `Remove “${target.label}”?` : "Remove account?"}
   description="New assignments stop immediately. Stored credentials are retired after active sessions finish."
-  confirmLabel="Remove"
+  confirmLabel="Remove account"
   destructive
   {busy}
   onConfirm={() => { if (dialog?.kind === "remove") onRemove(dialog.account); }}

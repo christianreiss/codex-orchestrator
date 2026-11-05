@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   /**
    * "Get install command" (mint installer): the header's one primary action and the
    * Fix for most problems. Exposes `mint()` so the Needs-attention list can trigger it.
@@ -44,7 +45,7 @@
     <Dialog.Header>
       <Dialog.Title>Install command</Dialog.Title>
       <Dialog.Description>
-        {result?.label ?? "Installer"} for {fqdn}. Run it on the host. It works once and expires {result ? new Date(result.expires_at).toLocaleString() : "soon"}.
+        {result?.label ?? "Installer"} for {fqdn}. Run it on the host. It works once and expires {result ? formatDateTime(result.expires_at) : "soon"}.
       </Dialog.Description>
     </Dialog.Header>
     <div class="space-y-3">

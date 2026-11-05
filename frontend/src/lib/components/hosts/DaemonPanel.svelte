@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { authStore } from '$lib/stores/auth';
   import { useQueryClient } from '@tanstack/svelte-query';
   import { hostDaemonQuery, configureDaemon, daemonDefaults } from '$lib/api/hostDaemons';
@@ -39,7 +40,7 @@
   {#if $query.error}<p role="alert" class="text-body text-destructive">{$query.error.message}</p>{/if}
   {#if $query.data?.access && !$query.data.access.secure}
     <div class="flex flex-wrap items-center gap-3 rounded-md bg-muted/40 px-3 py-2 text-body">
-      <span>{$query.data.access.allowed ? `Access until ${new Date($query.data.access.enabled_until!).toLocaleString()}` : 'Access window closed'}</span>
+      <span>{$query.data.access.allowed ? `Access until ${formatDateTime($query.data.access.enabled_until!)}` : 'Access window closed'}</span>
       {#if !$query.data.access.allowed && $authStore.can('hosts.activate_insecure')}
         <Button variant="outline" size="sm" disabled={$enableAccess.isPending} onclick={openAccess}>Open access window</Button>
       {/if}
@@ -47,7 +48,7 @@
     </div>
   {/if}
   {#if $query.data?.lifetime_minutes}
-    <p class="text-body">Time limited: {$query.data.lifetime_minutes} minutes · {$query.data.expires_at ? new Date($query.data.expires_at).toLocaleString() : 'Starts on first connection'}{$query.data.deadline_expired ? ' · Expired; running work is draining.' : ''}</p>
+    <p class="text-body">Time limited: {$query.data.lifetime_minutes} minutes · {$query.data.expires_at ? formatDateTime($query.data.expires_at) : 'Starts on first connection'}{$query.data.deadline_expired ? ' · Expired; running work is draining.' : ''}</p>
   {/if}
   <form oninput={() => dirty = true} onsubmit={submit} class="space-y-3">
     <fieldset disabled={!$authStore.can('agent_messaging.manage') || $query.isPending || !!$query.error || $save.isPending} class="space-y-3 disabled:opacity-60">

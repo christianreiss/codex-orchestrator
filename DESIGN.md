@@ -62,7 +62,7 @@ Sources were opened and reviewed on **2026-10-18**. “2026” describes the res
 
 **NAV-3 — Actions and disclosure [V/M; S11/P].** Give one action visual priority per task region. Put list-wide actions in the toolbar or page header, row actions beside the row, and selection actions beside the selection count. Do not duplicate the same primary action in header and toolbar. Frequent actions and active problems MUST NOT be hidden under “Advanced”. Collapsed sections use descriptive names such as “Network and access overrides”. Destructive settings sit last, separated from routine controls.
 
-**NAV-4 — Navigation depth [A/M; S9/P].** Preserve the current nine hubs and footer utilities as the starting structure. Use at most one local peer-navigation row; nested tab bars are prohibited. In-page panels use proper tab semantics and keyboard behavior; route destinations use links with current-location semantics. Filters, selection and pagination SHOULD survive back/forward navigation and use URL state where safe; credentials and message bodies MUST NOT enter URLs.
+**NAV-4 — Navigation depth [A/M; S9/P].** Preserve the current nine hubs and footer utilities as the starting structure. Use at most one local peer-navigation row; nested tab bars are prohibited. In-page panels use proper tab semantics and keyboard behavior; route destinations use links with current-location semantics. Filters, selection and pagination SHOULD survive back/forward navigation and use URL state where safe; credentials and message bodies MUST NOT enter URLs. List filters use `UrlFilters` (`frontend/src/lib/utils/url-filters.svelte.ts`): defaults stay out of the query string, other parameters are preserved, and writes are debounced `replaceState` navigations that keep focus and scroll.
 
 | Pattern | Composition and acceptance rule | Existing building blocks | Verification |
 | --- | --- | --- | --- |
@@ -120,7 +120,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 | Caption | 0.75rem / 1.4 / 500 (12 px) | Timestamps and secondary metadata |
 | Reading / composer / touch input | 1rem / 1.6 / 400 (16 px) | Long articles, message text and touch text entry |
 
-**VIS-2 — Readable hierarchy [V/M; P].** These roles MUST replace arbitrary sizes when a surface is migrated. Essential content MUST NOT use the existing 11 px overline. Avoid all-caps prose; sentence case is the default. Keep primary titles visible through wrapping or a keyboard/touch-accessible full-name view. Technical strings may break or scroll within their own region. Use tabular numerals for aligned measurements; right-align comparable numbers, left-align text.
+**VIS-2 — Readable hierarchy [V/M; P].** These roles MUST replace arbitrary sizes when a surface is migrated. Essential content MUST NOT use the existing 11 px overline. Avoid all-caps prose; sentence case is the default. Keep primary titles visible through wrapping or a keyboard/touch-accessible full-name view. Technical strings may break or scroll within their own region. Use tabular numerals for aligned measurements; right-align comparable numbers, left-align text. The shared table (`ui/table`) sets body-size text and `tabular-nums` on every cell; a numeric column adds `text-right` to its head and cells. `DataTable` bounds its scroll region to the viewport from 768 px up so the header stays visible while rows scroll; below that the region is unbounded and the header scrolls with the page (a nested vertical scroller on a phone traps touch scrolling).
 
 The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and `text-h2` is 22 px. The table above is the target, not a claim that those aliases already match it. Consolidate their consumers in step 2 instead of adding another title convention.
 
@@ -151,17 +151,17 @@ The current `PageShell` already uses a 20 px title, while `text-h1` is 30 px and
 
 ## 5. Interaction and truthful state
 
-**INT-1 — Lists [A/M; S12/P].** Name columns and units; expose sort direction semantically. State active filters, visible count and selection scope. “Select all” must say whether it means this page or all filtered results. Preserve filters through opening/closing a detail. Provide “Clear filters” for no matches. Avoid hover-only row actions. A row link and its buttons must be separately operable; do not make a whole row an unlabeled button. Never nest tables inside table cells to simulate a detail page.
+**INT-1 — Lists [A/M; S12/P].** Name columns and units; expose sort direction semantically. State active filters, visible count and selection scope. “Select all” must say whether it means this page or all filtered results. Preserve filters through opening/closing a detail. Provide “Clear filters” for no matches, and offer the same action in the `Toolbar` while a filter narrows the list (`filtersActive` with `onClearFilters`). The label is always “Clear filters”, not “Reset”. Avoid hover-only row actions. A row link and its buttons must be separately operable; do not make a whole row an unlabeled button. Never nest tables inside table cells to simulate a detail page.
 
 **INT-2 — Forms [A/M; S10/P].** Every field MUST have a persistent label and associated help/error text. Mark required/optional consistently within the form. Use submission-time validation by default; earlier validation requires a concrete benefit such as a length limit. Server validation remains authoritative. On failure retain safe inputs, show specific correction beside each field, and provide a linked summary for multi-field errors. Do not echo secrets in summaries or logs.
 
-**INT-3 — Saving [A/M; P].** State whether changes save immediately or need an explicit save action. Show pending, saved and failed states near the affected controls. “Saved” requires confirmed acceptance; a transport timeout is not success. Preserve the attempted value or draft for recovery, distinguish it from effective state, and reconcile authoritative state before further dependent changes. Do not silently overwrite unsaved edits after a refresh. Warn before navigation that would discard a meaningful draft; keep ordinary navigation free of unnecessary confirmations.
+**INT-3 — Saving [A/M; P].** State whether changes save immediately or need an explicit save action. Show pending, saved and failed states near the affected controls. “Saved” requires confirmed acceptance; a transport timeout is not success. Preserve the attempted value or draft for recovery, distinguish it from effective state, and reconcile authoritative state before further dependent changes. Do not silently overwrite unsaved edits after a refresh. Warn before navigation that would discard a meaningful draft; keep ordinary navigation free of unnecessary confirmations. Explicit-save forms render `DraftGuard` with a `dirty` flag computed against the last confirmed server state; a dialog or sheet holding such a form also asks before Escape, overlay, close or Cancel discards it, because closing an overlay is not a navigation. Auto-saving controls need no guard.
 
-**INT-4 — Dialogs [A/M; S9/P].** Use a dialog for a short bounded task, a sheet for contextual detail and a page for sustained work. Modal overlays MUST have a title, sensible initial focus, contained Tab navigation, Escape/close behavior and focus restoration. Background content is inert only for real modals. Confirmation names the affected object, consequence and action (“Delete host”), not “Yes”. Irreversible actions default focus to the safe choice. Do not stack routine dialogs.
+**INT-4 — Dialogs [A/M; S9/P].** Use a dialog for a short bounded task, a sheet for contextual detail and a page for sustained work. Modal overlays MUST have a title, sensible initial focus, contained Tab navigation, Escape/close behavior and focus restoration. Background content is inert only for real modals. Confirmation names the affected object, consequence and action (“Delete host”), not “Yes”. `ConfirmDialog`, `InputDialog` and `PasskeyNameDialog` require their confirm label; buttons that save or delete name their object (“Save quotas”, “Delete skill”). Deleting an identity-bearing object (a host) shows the target in the dialog body, asks for its exact name and reports a failure inside the dialog through the `error` prop. Irreversible actions default focus to the safe choice. Do not stack routine dialogs.
 
 **INT-5 — Feedback [A/M; S8/P].** Put errors and durable results beside the affected task. Toasts may supplement but MUST NOT be the only record of a failed save or required action. Use polite live announcements for ordinary updates and assertive alerts only for urgent interruption. Do not announce each streamed token or steal focus on background refresh.
 
-**INT-6 — Time and measurements [A/M; P].** Show units, scope and observation age for operational data. Relative time MUST offer an exact timestamp with timezone via accessible detail. Zero is a value; unavailable is not zero. Stale is not current, queued is not delivered, and reachable is not working. Do not infer success from connection status or request dispatch.
+**INT-6 — Time and measurements [A/M; P].** Show units, scope and observation age for operational data. Relative time MUST offer an exact timestamp with timezone via accessible detail. `Timestamp` renders relative time with the browser-local exact time and its zone name as title and accessible label (`absolute` shows the zoned time instead; `live` refreshes it); text outside a component uses `formatDateTime`/`formatTime` from `utils/format.ts`, never a bare `toLocaleString()`. No user setting chooses UTC versus local; local time with a visible zone is the product default. Overview pages state the age of their snapshot (“Updated 2 minutes ago”). Zero is a value; unavailable is not zero. Stale is not current, queued is not delivered, and reachable is not working. Do not infer success from connection status or request dispatch.
 
 | State | Required presentation and recovery | Verification |
 | --- | --- | --- |
@@ -517,3 +517,27 @@ conflict recovery and queued-start feedback. Desktop/light and phone/dark screen
 were visually inspected. Manual screen-reader, 400% browser zoom, virtual keyboard,
 cross-browser review and field performance were not measured. Automated checks do
 not certify usability.
+
+### Admin/ops criteria slice (2026-11-05)
+
+Shared table: body-size text, `tabular-nums` cells, an opaque sticky header with its
+own rule, and a viewport-bounded `DataTable` region from 768 px up (focus kept clear
+by scroll padding); size columns in Transfers and project Documents are right-aligned.
+The Overview usage table already right-aligns its meter values and the hosts table
+has no comparable numeric column. Search and filters of Accounts, Transfers,
+External clients, Reports, project Reports and Documents, Projects, Git Director,
+API keys, Secrets, Library lists, Roles and People live in the URL through
+`UrlFilters`; Workflows already did. The API-key vendor switch stays in component
+state. `Toolbar` offers “Clear filters” while a filter is active, and the Agents graph
+toolbar uses the same label. Timestamps show the local zone; bare
+`toLocaleString()` calls were replaced. Host FQDNs, report, transfer, memory,
+conversation, session and publication IDs are monospace with a copy button; agent
+addresses keep the full value in a tooltip and a copy button. Host deletion names
+the host, requires the typed FQDN and reports failures in the dialog. `DraftGuard`
+covers quotas, the Codex/Claude/Grok version sections, transfer limits, host
+overrides, the card editor, the person dialog and the memory editor.
+Applicable rules: NAV-4, VIS-2, INT-1/3/4/5/6, ACC-3. No design exception. Checks:
+`npm run check` (svelte-check, node tests incl. `url-filters.test.ts` and the zoned
+formatters). Sticky behaviour, focus under the sticky header, close confirmation in
+overlays, URL round-trips with back/forward, both themes and 320 px still need a
+browser pass; Playwright was not run.

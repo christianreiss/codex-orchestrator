@@ -197,7 +197,7 @@
           {#if editingId === p.id}
             <form use:focusFirstInput class="flex items-center gap-2" onsubmit={(e) => { e.preventDefault(); void commitEdit(); }}>
               <Input bind:value={editingValue} aria-label="Passkey name" maxlength={255} disabled={inlineSubmitting} />
-              <Button type="submit" size="icon" disabled={inlineSubmitting} aria-label="Save"><Check class="h-4 w-4" /></Button>
+              <Button type="submit" size="icon" disabled={inlineSubmitting} aria-label="Save passkey name"><Check class="h-4 w-4" /></Button>
               <Button type="button" size="icon" variant="outline" onclick={cancelEdit} disabled={inlineSubmitting} aria-label="Cancel"><X class="h-4 w-4" /></Button>
             </form>
           {:else}

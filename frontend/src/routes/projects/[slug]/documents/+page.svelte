@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import type { Snapshot } from "./$types";
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
@@ -29,7 +30,8 @@
 
   // svelte-ignore state_referenced_locally
   let kind = $state<KindFilter>(parseKind(page.url.searchParams.get("kind")));
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   $effect(() => {
     const url = new URL(page.url);
     if (kind === "all") url.searchParams.delete("kind");
@@ -75,14 +77,14 @@
       void qc.invalidateQueries({ queryKey: projectKeys.detail(slug) });
     },
   });
-  export const snapshot: Snapshot<{ search: typeof search, kind: typeof kind }> = {
-    capture: () => ({ search, kind }),
-    restore: (value) => { search = value.search; kind = value.kind; },
+  export const snapshot: Snapshot<{ kind: typeof kind }> = {
+    capture: () => ({ kind }),
+    restore: (value) => { kind = value.kind; },
   };
 </script>
 
 <div class="space-y-3">
-  <Toolbar bind:search searchPlaceholder="Search documents" count={`${rows.length} ${rows.length === 1 ? "document" : "documents"}`}>
+  <Toolbar bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()} searchPlaceholder="Search documents" count={`${rows.length} ${rows.length === 1 ? "document" : "documents"}`}>
     {#snippet filters()}
       <SegmentedControl label="Document kind" value={kind} options={KIND_OPTIONS} onChange={(next) => (kind = next)} />
     {/snippet}
@@ -104,7 +106,7 @@
       <DataTable
         items={rows}
         {loading}
-        onClearFilters={() => search = ""}
+        onClearFilters={() => filterState.clear()}
         error={failure}
         key={(row) => row.key}
         filtered={search.trim() !== ""}
@@ -117,7 +119,7 @@
           <Table.Head>Name</Table.Head>
           <Table.Head class="hidden sm:table-cell">Kind</Table.Head>
           <Table.Head class="hidden md:table-cell">Summary</Table.Head>
-          <Table.Head class="hidden lg:table-cell">Size</Table.Head>
+          <Table.Head class="hidden text-right lg:table-cell">Size</Table.Head>
           <Table.Head>Updated</Table.Head>
           <Table.Head class="w-10"><span class="sr-only">Actions</span></Table.Head>
         {/snippet}
@@ -131,7 +133,7 @@
             </Table.Cell>
             <Table.Cell class="hidden sm:table-cell"><Badge variant="outline">{item.kind === "note" ? "Note" : "File"}</Badge></Table.Cell>
             <Table.Cell class="hidden max-w-sm truncate text-muted-foreground md:table-cell">{item.summary || "—"}</Table.Cell>
-            <Table.Cell class="hidden whitespace-nowrap text-muted-foreground lg:table-cell">{item.kind === "file" ? formatBytes(item.file.size_bytes) : "—"}</Table.Cell>
+            <Table.Cell class="hidden whitespace-nowrap text-right text-muted-foreground lg:table-cell">{item.kind === "file" ? formatBytes(item.file.size_bytes) : "—"}</Table.Cell>
             <Table.Cell class="whitespace-nowrap text-muted-foreground">{item.updatedAt ? relativeTime(item.updatedAt) : "—"}</Table.Cell>
             <Table.Cell class="text-right">
               <RowActions
@@ -161,7 +163,7 @@
   bind:open={confirmOpen}
   title={toDelete?.kind === "file" ? "Delete file?" : "Delete note?"}
   description={`This permanently removes ${toDelete?.name ?? "this document"} from the project.`}
-  confirmLabel="Delete"
+  confirmLabel={toDelete?.kind === "file" ? "Delete file" : "Delete note"}
   destructive
   busy={$deleteMutation.isPending}
   onClose={() => { if (!$deleteMutation.isPending) toDelete = null; }}

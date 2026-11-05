@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import { toast } from "svelte-sonner";
   import Bot from "@lucide/svelte/icons/bot";
   import KeyRound from "@lucide/svelte/icons/key-round";
@@ -31,7 +32,8 @@
   const canManage = $derived($authStore.can("external_clients.manage"));
   const all = $derived($listQuery.data?.clients);
 
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   let dialogOpen = $state(false);
   let editing = $state<ExternalClient | null>(null);
   let rotateTarget = $state<ExternalClient | null>(null);
@@ -97,7 +99,7 @@
         reason,
       },
       { label: "Replace key", icon: KeyRound, onClick: () => (rotateTarget = row), disabled: !canManage, reason },
-      { label: "Delete", icon: Trash2, destructive: true, onClick: () => (deleteTarget = row), disabled: !canManage, reason },
+      { label: "Delete client", icon: Trash2, destructive: true, onClick: () => (deleteTarget = row), disabled: !canManage, reason },
     ];
   }
 </script>
@@ -113,7 +115,7 @@
   <section aria-labelledby="external-clients-heading" class="space-y-2">
     <h2 id="external-clients-heading" class="sr-only">Configured clients</h2>
     <Toolbar
-      bind:search
+      bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()}
       searchPlaceholder="Search clients"
       count={rows && all ? (rows.length === all.length ? `${all.length} client${all.length === 1 ? "" : "s"}` : `${rows.length} of ${all.length}`) : undefined}
     />
@@ -127,7 +129,7 @@
       emptyDescription="Create one to let a bot join agent messaging. It receives a key once; the bot polls /external/v1 with it."
       emptyIcon={Bot}
       filtered={search.trim() !== ""}
-      onClearFilters={() => { search = ""; }}
+      onClearFilters={() => filterState.clear()}
       caption="External clients"
     >
       {#snippet emptyAction()}{#if canManage}<Button onclick={openCreate}><Plus class="size-4" aria-hidden="true" /> New client</Button>{/if}{/snippet}
@@ -193,7 +195,7 @@
   onClose={() => (deleteTarget = null)}
   title="Delete this client?"
   description={deleteTarget ? `"${deleteTarget.name}" and its key are removed and its connection is dropped. Messages already delivered stay in the history.` : ""}
-  confirmLabel="Delete"
+  confirmLabel="Delete client"
   destructive
   busy={$deleteMutation.isPending}
   onConfirm={() => { if (deleteTarget) $deleteMutation.mutate(deleteTarget.id); }}

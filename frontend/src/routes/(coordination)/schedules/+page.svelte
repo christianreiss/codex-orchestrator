@@ -87,7 +87,7 @@
     return [
       ...base,
       { label: row.enabled ? "Pause" : "Enable", icon: row.enabled ? Pause : Play, onClick: () => togglePaused(row), disabled: $mutation.isPending },
-      { label: "Delete", icon: Trash2, destructive: true, onClick: () => (deleteTarget = row), disabled: $mutation.isPending },
+      { label: "Delete schedule", icon: Trash2, destructive: true, onClick: () => (deleteTarget = row), disabled: $mutation.isPending },
     ];
   }
   const timing = (row: Schedule) => (row.kind === "interval" ? `Every ${row.interval_minutes} min` : row.kind === "cron" ? row.cron : "Once");
@@ -187,7 +187,7 @@
   onClose={() => (deleteTarget = null)}
   title="Delete this wake-up?"
   description={deleteTarget ? `"${deleteTarget.name}" stops waking its agent. This cannot be undone.` : ""}
-  confirmLabel="Delete"
+  confirmLabel="Delete schedule"
   destructive
   onConfirm={confirmDelete}
 />

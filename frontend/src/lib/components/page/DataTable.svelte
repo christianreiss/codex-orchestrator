@@ -59,7 +59,7 @@
 {:else if !denial && items?.length}
   {#if loading}<p role="status" class="text-body-sm text-muted-foreground">Refreshing… Previously loaded data remains visible.</p>{/if}
   <div class="min-w-0 max-w-full rounded-md border" aria-busy={loading}>
-    <Table.Root regionLabel={caption ?? emptyTitle}>
+    <Table.Root regionLabel={caption ?? emptyTitle} stickyHeader>
       {#if caption}<Table.Caption class="sr-only">{caption}</Table.Caption>{/if}
       <Table.Header><Table.Row>{@render head()}</Table.Row></Table.Header>
       <Table.Body>

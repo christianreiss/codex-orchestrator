@@ -117,6 +117,7 @@
   description="Pin a specific agent-rules (agents) document by id for this host. Empty follows the fleet default."
   label="Agents document id"
   placeholder="42"
+  confirmLabel="Save document pin"
   initialValue={host.agents_document_id_override ? String(host.agents_document_id_override) : ""}
   onSubmit={(v) => {
     const parsed = v === null || v === "" ? null : Number.parseInt(v, 10);

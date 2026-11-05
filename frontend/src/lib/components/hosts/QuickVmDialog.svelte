@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
   import Cpu from "@lucide/svelte/icons/cpu";
@@ -118,7 +119,7 @@
     {:else}
       <div class="space-y-3 py-2">
         <div class="rounded-md border border-success/25 bg-success-muted px-3 py-2 text-body">
-          Provisioned <span class="font-mono">{result.host.fqdn ?? "(unknown)"}</span>. The command expires {new Date(result.installer.expires_at).toLocaleString()}.
+          Provisioned <span class="font-mono">{result.host.fqdn ?? "(unknown)"}</span>. The command expires {formatDateTime(result.installer.expires_at)}.
         </div>
         <ReadonlyCodeBlock
           id="quickvm-installer"

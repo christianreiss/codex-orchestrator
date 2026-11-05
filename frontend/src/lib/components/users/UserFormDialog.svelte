@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as Dialog from "$lib/components/ui/dialog";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import * as Select from "$lib/components/ui/select";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
@@ -74,6 +75,24 @@
 
   let errors = $state<Record<string, string>>({});
 
+  // Unsaved while any field differs from the subject as opened (a typed password always counts).
+  const dirty = $derived(
+    open &&
+      (name !== (initial?.name ?? "") ||
+        username !== (initial?.username ?? "") ||
+        email !== (initial?.email ?? "") ||
+        access_level !== seedRole(initial?.access_level) ||
+        active !== (initial?.active ?? true) ||
+        password !== "" ||
+        passwordConfirm !== ""),
+  );
+
+  /** Escape, overlay, X and Cancel all ask before discarding an unsaved edit. */
+  function requestOpenChange(next: boolean): void {
+    if (!next && (submitting || (dirty && !window.confirm(isEdit ? "Discard your changes to this person?" : "Discard the new person?")))) return;
+    onOpenChange(next);
+  }
+
   // Real-time confirmation hint -------------------------------------------
   const passwordsEntered = $derived(password.length > 0 || passwordConfirm.length > 0);
   const passwordsMatch = $derived(
@@ -128,7 +147,8 @@
   );
 </script>
 
-<Dialog.Root open={open} onOpenChange={onOpenChange}>
+<DraftGuard {dirty} />
+<Dialog.Root bind:open={() => open, requestOpenChange}>
   <Dialog.Content class="sm:max-w-[480px]">
     <Dialog.Header>
       <Dialog.Title>{isEdit ? "Edit user" : "Add user"}</Dialog.Title>
@@ -281,7 +301,7 @@
       </div>
 
       <Dialog.Footer>
-        <Button type="button" variant="outline" onclick={() => onOpenChange(false)} disabled={submitting}>
+        <Button type="button" variant="outline" onclick={() => requestOpenChange(false)} disabled={submitting}>
           Cancel
         </Button>
         <Button type="submit" disabled={submitting}>

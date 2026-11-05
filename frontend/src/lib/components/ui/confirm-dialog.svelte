@@ -9,7 +9,8 @@
     open: boolean;
     title: string;
     description?: string;
-    confirmLabel?: string;
+    /** Names the action and its object ("Delete host"), never "Confirm" or "Yes" (INT-4). */
+    confirmLabel: string;
     cancelLabel?: string;
     busyLabel?: string;
     destructive?: boolean;
@@ -31,7 +32,7 @@
     open = $bindable(),
     title,
     description,
-    confirmLabel = "Confirm",
+    confirmLabel,
     cancelLabel = "Cancel",
     busyLabel = "Working…",
     destructive = false,

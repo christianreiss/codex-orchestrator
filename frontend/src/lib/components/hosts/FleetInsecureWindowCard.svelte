@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatTime } from "$lib/utils/format";
   /**
    * The fleet-wide insecure window — "let every insecure host through until
    * this evening", with a deadline and an off.
@@ -48,9 +49,7 @@
 
   const deadlineLabel = $derived.by(() => {
     if (!fleetWindow?.until) return null;
-    const at = new Date(fleetWindow.until);
-    if (Number.isNaN(at.getTime())) return null;
-    return at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    return formatTime(fleetWindow.until) || null;
   });
 
   async function run(label: string, work: Promise<unknown>): Promise<void> {

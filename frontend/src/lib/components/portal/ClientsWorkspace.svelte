@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { reactiveOptions } from '$lib/components/projects/reactive-options.svelte';
   import { createInfiniteQuery } from '@tanstack/svelte-query';
   import { goto } from '$app/navigation';
@@ -35,6 +36,7 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import { EmptyState } from "$lib/components/ui/empty-state";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { authStore } from "$lib/stores/auth";
@@ -280,7 +282,7 @@
   function resetFilters() { search = ""; engine = "all"; }
   function agentName(row: AgentSessionRow) { return row.launch_name || row.session_name || row.work.address_alias || `Session ${row.id.slice(0, 8)}`; }
   function age(value: string | null, clock = serverNow) { return value ? shortAge(value, clock) || "unknown" : "unknown"; }
-  function exactTime(value: string | null) { const date = value ? new Date(value) : null; return date && Number.isFinite(date.getTime()) ? date.toLocaleString() : "Not reported"; }
+  function exactTime(value: string | null) { return formatDateTime(value) || "Not reported"; }
   let detailsOpen = $state(false);
   function preview(row: AgentSessionRow, ended: boolean) {
     const ask = row.pending_prompt?.question ?? row.attention?.summary;
@@ -429,7 +431,7 @@
                   {#if selected.work.declared_paths.length}<dt class="text-muted-foreground">Paths</dt><dd class="whitespace-pre-wrap break-all font-mono">{selected.work.declared_paths.join("\n")}</dd>{/if}
                   <dt class="text-muted-foreground">Relay</dt><dd title={exactTime(selected.relay_heartbeat_at ?? null)}>{selected.relay_enabled === false ? "Relay disabled" : selected.relay_heartbeat_at ? `${age(selected.relay_heartbeat_at)} ago` : "Not reported"}</dd>
                   <dt class="text-muted-foreground">Invocation</dt><dd>{selected.invocation_kind}</dd>
-                  <dt class="text-muted-foreground">Session</dt><dd class="break-all font-mono">{selected.id}</dd>
+                  <dt class="text-muted-foreground">Session</dt><dd class="flex items-center gap-1 font-mono"><span class="min-w-0 break-all">{selected.id}</span><CopyButton value={selected.id} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label="Copy session ID" toastMessage="Session ID copied" /></dd>
                   <dt class="text-muted-foreground">Started</dt><dd>{exactTime(selected.started_at)}</dd>
                 </dl>
                 {#if selected.receiver}

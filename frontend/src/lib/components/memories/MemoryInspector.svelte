@@ -25,6 +25,7 @@
   import { formatCharacters } from "./atlas-types";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
+  import { CopyButton } from "$lib/components/ui/copy-button";
   import * as Sheet from "$lib/components/ui/sheet";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import * as Tabs from "$lib/components/ui/tabs";
@@ -198,7 +199,7 @@
     {:else if $detailQuery.isError}
       <div class="m-5 rounded-md border border-destructive/35 bg-destructive-muted p-4 text-body-sm text-destructive-muted-foreground" role="alert">
         <p class="font-semibold">Could not load this memory</p>
-        <p class="mt-1">{$detailQuery.error instanceof Error ? $detailQuery.error.message : "Unknown error"}</p>
+        <p class="mt-1">{($detailQuery.error instanceof Error && $detailQuery.error.message) || "The server returned no reason."}</p>
         <Button class="mt-3" size="sm" variant="outline" onclick={() => $detailQuery.refetch()}>Try again</Button>
       </div>
     {:else if memory}
@@ -215,7 +216,7 @@
         {/if}
         {#if memory.capabilities.delete}
           <Button size="sm" variant="ghost" class="ml-auto text-destructive hover:text-destructive" onclick={() => onDelete(memory)}>
-            <Trash2 class="h-3.5 w-3.5" /> Delete
+            <Trash2 class="h-3.5 w-3.5" /> Delete memory
           </Button>
         {/if}
       </div>
@@ -232,7 +233,7 @@
           <dl class="grid gap-x-4 gap-y-3 border-y border-border/70 bg-muted/25 px-4 py-3 text-body-sm sm:grid-cols-2">
             <div>
               <dt class="text-caption text-muted-foreground">Immutable key</dt>
-              <dd class="mt-0.5 break-all font-mono text-caption">{memory.id}</dd>
+              <dd class="mt-0.5 flex items-center gap-1 font-mono text-caption"><span class="min-w-0 break-all">{memory.id}</span><CopyButton value={memory.id} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label="Copy memory key" toastMessage="Memory key copied" /></dd>
             </div>
             <div>
               <dt class="text-caption text-muted-foreground">Record</dt>

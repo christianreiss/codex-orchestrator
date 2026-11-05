@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { createQuery } from '@tanstack/svelte-query';
   import { api } from '$lib/api/client';
   let { id }: { id: string | number } = $props();
@@ -22,7 +23,7 @@
   {:else}
     {#each connections as connection}
       <div class="text-body"><strong>{connection.username}</strong> · cxx {connection.version} · {connection.managed_sessions == null ? 'Native sessions unavailable' : `${connection.managed_sessions} observed native sessions`} · {connection.transport_leases ?? connection.sessions} transport leases · {connection.requests} requests
-        <p class="text-body-sm text-muted-foreground">Connected {new Date(connection.connected_at).toLocaleString()} · Last sync: {connection.synced_at ? new Date(connection.synced_at).toLocaleString() : 'Pending'}</p>
+        <p class="text-body-sm text-muted-foreground">Connected {formatDateTime(connection.connected_at)} · Last sync: {connection.synced_at ? formatDateTime(connection.synced_at) : 'Pending'}</p>
         {#each connection.sync_scopes ?? [] as scope (scope.scope)}
           <p class="mt-1 text-body-sm text-muted-foreground">
             {scope.auth.engine}{scope.auth.account_id ? ` · Account ${scope.auth.account_id}` : ''} · {scope.running ? 'Synchronizing' : (authLabels[scope.auth.state] ?? 'Waiting for sync')}

@@ -49,7 +49,7 @@
     </Button>
     <Button onclick={() => doc.save()} disabled={doc.saving || doc.composing || !doc.hydrated}>
       <Save class="h-4 w-4" />
-      {doc.saving ? "Saving…" : "Save"}
+      {doc.saving ? "Saving…" : "Save agent rules"}
     </Button>
   {/snippet}
   {#snippet subheader()}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { StateBlock } from "$lib/components/page";
   import { toast } from "svelte-sonner";
   import SectionCard from "$lib/components/engines/SettingGroup.svelte";
@@ -46,7 +47,7 @@
   }
 
   function time(value: string | null): string {
-    return value ? new Date(value).toLocaleString() : "—";
+    return value ? formatDateTime(value) : "—";
   }
 
   const description = $derived(

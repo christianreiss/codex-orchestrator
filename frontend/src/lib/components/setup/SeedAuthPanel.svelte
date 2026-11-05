@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+  import { formatDateTime } from "$lib/utils/format";
   import { engineLabel } from "$lib/constants/engines";
   /**
    * Canonical provider-auth seeding, without any container chrome.
@@ -427,7 +428,7 @@
         value={command}
         wrap
         rows={4}
-        expiresAt={commandExpiresAt ? new Date(commandExpiresAt).toLocaleString() : undefined}
+        expiresAt={commandExpiresAt ? formatDateTime(commandExpiresAt) : undefined}
       />
     {:else}
       <p class="text-body-sm text-muted-foreground">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * One list of every API key, with a vendor filter in place of three tabs.
@@ -44,7 +45,8 @@
 
   let revokeOpen = $state(false);
   let revokeTarget = $state<KeyRow | null>(null);
-  let search = $state("");
+  const filterState = new UrlFilters({ q: "" });
+  const search = $derived(filterState.values.q);
   let sortKey = $state<"name" | "last_used">("name");
   let sortDir = $state<"asc" | "desc">("asc");
 
@@ -139,7 +141,7 @@
 
 <div class="space-y-3">
   <Toolbar
-    bind:search
+    bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()}
     searchPlaceholder="Search keys by name or prefix"
     count={q ? `${rows.length} of ${all.length}` : `${all.length} ${all.length === 1 ? "key" : "keys"}`}
   >
@@ -171,7 +173,7 @@
     onRetry={() => { void $openaiQuery.refetch(); void $claudeQuery.refetch(); void $grokQuery.refetch(); }}
     key={(r) => `${r.format}:${r.id}`}
     filtered={q !== ""}
-    onClearFilters={() => (search = "")}
+    onClearFilters={() => filterState.clear()}
     emptyIcon={KeyRound}
     emptyTitle={vendor === "all" ? "No API keys yet" : `No ${vendorLabel(vendor)} keys yet`}
     emptyDescription="Issue a key for each application that calls the fleet API."
