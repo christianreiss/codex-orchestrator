@@ -499,33 +499,54 @@ func TestNativeTurnEndKeepsDeliveriesSubmittedDuringTheTurn(t *testing.T) {
 // session cannot stay closed behind it. Work and fresh deliveries stay held,
 // and nothing is released while fresh hook evidence shows a running turn.
 func TestStaleClaudeHeldDeliveryIsReleasedAfterBound(t *testing.T) {
-	var acked []string
+	outcomes := map[string]string{}
 	var mu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(req.Body).Decode(&body)
 		mu.Lock()
-		acked = append(acked, path.Base(path.Dir(req.URL.Path)))
+		outcome, _ := body["outcome"].(string)
+		outcomes[path.Base(path.Dir(req.URL.Path))] = outcome
 		mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{})
 	}))
 	defer server.Close()
+	root := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", root)
+	native := "11111111-2222-3333-4444-555555555555"
+	dir := filepath.Join(root, "projects", "-work")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line, _ := json.Marshal(dequeued("seen"))
+	if err := os.WriteFile(filepath.Join(dir, native+".jsonl"), append(line, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	c := &sessionClient{id: "session", http: &http.Client{Transport: rewriteTransport{server: server}}}
 	tracker := newChannelTracker(c)
-	r := &autoReceiver{client: c, tracker: tracker, deliveryTimingV1: true}
+	r := &autoReceiver{client: c, tracker: tracker, deliveryTimingV1: true, boundNativeID: native}
 	tracker.receiver = r
 	now := time.Now()
 	old := now.Add(-claudeHeldReleaseAfter - time.Second)
 	noop := func() {}
-	tracker.items["old"] = &channelPending{claimID: "c1", nativeAt: old, cancel: noop}
+	tracker.items["seen"] = &channelPending{claimID: "c1", nativeAt: old, cancel: noop}
+	tracker.items["dropped"] = &channelPending{claimID: "c4", nativeAt: old, cancel: noop}
 	tracker.items["fresh"] = &channelPending{claimID: "c2", nativeAt: now, cancel: noop}
 	tracker.items["work"] = &channelPending{claimID: "c3", nativeAt: old, workKind: "task", cancel: noop}
 	r.claudeActivity = activityObservation{TurnProof: &agentportal.ClaudeTurnProof{State: "active"}}
 	r.releaseStaleClaudeHeld(context.Background(), now)
-	if tracker.get("old") == nil {
+	if tracker.get("seen") == nil || tracker.get("dropped") == nil {
 		t.Fatal("released during a fresh active turn")
 	}
 	r.claudeActivity = activityObservation{TurnProof: &agentportal.ClaudeTurnProof{State: "unknown"}}
 	r.releaseStaleClaudeHeld(context.Background(), now)
-	if tracker.get("old") != nil || tracker.get("fresh") == nil || tracker.get("work") == nil {
-		t.Fatalf("wrong release set; acked %v", acked)
+	if tracker.get("seen") != nil || tracker.get("dropped") != nil || tracker.get("fresh") == nil || tracker.get("work") == nil {
+		t.Fatalf("wrong release set; outcomes %v", outcomes)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// Only transcript proof completes; an unread channel write ends ambiguous.
+	if outcomes["seen"] != "completed" || outcomes["dropped"] != "ambiguous" || len(outcomes) != 2 {
+		t.Fatalf("outcomes = %v", outcomes)
 	}
 }

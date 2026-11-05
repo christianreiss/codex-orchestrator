@@ -25,10 +25,10 @@ export type OwnerMaintenanceOperation =
 export interface MessagingMaintenanceFacts {
   relayConnected(relayId: string): boolean;
   /**
-   * When relay-held (`leased`/`accepted`) work loses any owner that could report it;
-   * null while its exact relay incarnation is attached or the work is not relay-held.
+   * When held (`leased`/`accepted`) work loses any owner that could report it;
+   * null while its exact relay incarnation or receiving session is attached.
    */
-  relayHeldWorkGoneAt(snapshot: OwnerStateSnapshot, message: OwnedBusMessage): number | null;
+  heldWorkGoneAt(snapshot: OwnerStateSnapshot, message: OwnedBusMessage): number | null;
   sessionConnected(sessionId: string, binding: number): boolean;
   receiverConnected(sessionId: string, binding: number, receiverGeneration: string): boolean;
   /** Changes on every connection/registry transition relevant to maintenance. */

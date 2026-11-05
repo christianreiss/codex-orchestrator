@@ -5,7 +5,7 @@ import type { StateSeed } from '../../../src/control-plane/state/catalog.js';
 import { portalObligations } from '../../../src/ops/portal-obligations.js';
 const facts = {
   relayConnected: () => false,
-  relayHeldWorkGoneAt: () => null,
+  heldWorkGoneAt: () => null,
   sessionConnected: () => false,
   receiverConnected: () => false,
   revision: () => 'connected',

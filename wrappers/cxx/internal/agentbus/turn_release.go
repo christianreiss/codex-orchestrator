@@ -450,25 +450,86 @@ const claudeHeldReleaseAfter = 15 * time.Minute
 
 // releaseStaleClaudeHeld is the bounded fallback for a lost turn-end release.
 // Work and Portal deliveries keep their explicit-result contract, and nothing
-// is released while fresh hook evidence says the turn is still running.
+// is released while fresh hook evidence says the turn is still running. A
+// delivery is completed only with the same proof the Stop hook uses: its
+// channel entry was dequeued into the bound transcript. One that never reached
+// the conversation (a dropped or refused notification, an unresolvable
+// transcript) ends `ambiguous`, never silently `completed`; acceptance already
+// happened, so the server cannot safely retry it.
 func (r *autoReceiver) releaseStaleClaudeHeld(ctx context.Context, now time.Time) {
 	r.mu.Lock()
 	activity := claudeTurnState(r.claudeActivity)
+	nativeID := r.boundNativeID
 	r.mu.Unlock()
 	if activity == "working" {
 		return
 	}
 	r.tracker.mu.Lock()
-	var stale []string
+	var stale []heldDelivery
 	for id, p := range r.tracker.items {
 		if p.workKind == "" && !p.admissionPending() && !p.nativeAt.IsZero() && now.Sub(p.nativeAt) >= claudeHeldReleaseAfter {
-			stale = append(stale, id)
+			stale = append(stale, heldDelivery{MessageID: id})
 		}
 	}
 	r.tracker.mu.Unlock()
-	if len(stale) > 0 {
-		_, _ = r.tracker.releaseSeen(ctx, stale)
+	if len(stale) == 0 {
+		return
 	}
+	seen := seenInTranscript(claudeTranscriptPath(nativeID), stale)
+	var release []string
+	for _, h := range stale {
+		if seen[h.MessageID] {
+			release = append(release, h.MessageID)
+			continue
+		}
+		_ = r.tracker.abandonUnseen(ctx, h.MessageID, "native_channel_unconfirmed")
+	}
+	if len(release) > 0 {
+		_, _ = r.tracker.releaseSeen(ctx, release)
+	}
+}
+
+// claudeTranscriptPath resolves the bound native session's transcript the way
+// session naming and reboot recovery do; empty when it is not exactly one file.
+func claudeTranscriptPath(id string) string {
+	if !nativeNameID.MatchString(id) {
+		return ""
+	}
+	root := os.Getenv("CLAUDE_CONFIG_DIR")
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		root = filepath.Join(home, ".claude")
+	}
+	paths, _ := filepath.Glob(filepath.Join(root, "projects", "*", id+".jsonl"))
+	if len(paths) != 1 {
+		return ""
+	}
+	return paths[0]
+}
+
+// abandonUnseen ends one informational delivery the model provably never read
+// as ambiguous, so it stops holding reception closed without claiming receipt.
+func (t *channelTracker) abandonUnseen(ctx context.Context, id, code string) error {
+	p := t.get(id)
+	if p == nil {
+		return nil
+	}
+	p.opMu.Lock()
+	defer p.opMu.Unlock()
+	if t.get(id) != p || p.workKind != "" || p.admissionPending() || p.completion() != nil || p.reply() != nil {
+		return nil
+	}
+	err := t.acknowledge(ctx, id, p, "ambiguous", code)
+	var apiErr *APIError
+	if err == nil || (errors.As(err, &apiErr) && (apiErr.Status == 403 || apiErr.Status == 404 || apiErr.Status == 409)) {
+		p.cancel()
+		t.drop(id, p)
+		return nil
+	}
+	return err
 }
 
 func (t *channelTracker) releaseNativeTurn(ctx context.Context, busyAt time.Time) error {

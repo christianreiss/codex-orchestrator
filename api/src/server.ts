@@ -181,6 +181,13 @@ if (isMain) {
     process.stderr.write(`[boot] fatal: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
   }
+  // A lost owner lock is final for this process: every request would fail
+  // assertOwner while the container still looks alive, and nothing reacquires.
+  // Exit so the container restart policy brings up a fresh owner that hydrates.
+  app.controlPlane.ownership.onLost((reason) => {
+    app.log.fatal({ err: reason }, 'control-plane ownership lost; exiting for restart');
+    setTimeout(() => process.exit(1), 250).unref();
+  });
   try {
     await app.listen({ host: env.LISTEN_HOST, port: env.LISTEN_PORT });
   } catch (err) {

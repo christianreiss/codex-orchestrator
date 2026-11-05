@@ -7,31 +7,45 @@ import {
 import { stageUpdate } from '../../control-plane/state/rows.js';
 import { stageEndNames } from '../../control-plane/state/names.js';
 import { wsPublisher } from '../../ws/publisher.js';
-import { relayHolderGoneAt } from '../../control-plane/state/owner-liveness.js';
+import { holderGoneAt, relayHolderGoneAt } from '../../control-plane/state/owner-liveness.js';
+import { legacyDrainFor } from '../../control-plane/legacy-drain.js';
 import { daemonExecutionEnabled } from '../host-daemon/policy.js';
 import { SERVER_ADDRESS_ID } from './groups.js';
 import { AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS } from './constants.js';
 
 type OwnedBusMessage = ReturnType<OwnerStateSnapshot['messages']['all']>[number];
 /**
- * Offered (`leased`) or `accepted` work whose relay incarnation can never
- * report it again: the relay row/generation/instance moved on, or the exact
- * relay process has been detached past the reconnect grace. A new worker
- * process always has a new instance id, so without this the predecessor's
- * work would refuse every successor registration forever.
+ * Offered (`leased`) or `accepted` work whose holder can never report it again.
+ *
+ * Relay holders: the relay row/generation/instance moved on, or the exact relay
+ * process has been detached past the reconnect grace. A new worker process
+ * always has a new instance id, so without this the predecessor's work would
+ * refuse every successor registration forever.
+ *
+ * Session holders: the receiving session ended, vanished, or has been detached
+ * past the reconnect grace. Connection-owned leases carry no timer, and a
+ * successor resumed from the same transcript has its own lease identity and an
+ * empty tracker, so it can never acknowledge them; left alone they keep every
+ * later delivery to the address in flight forever. A planned reboot moves its
+ * held work explicitly (`reboot_hold`), never through this path.
  */
-export function relayHeldWorkGoneAt(
+export function heldWorkGoneAt(
   runtime: OwnerRuntime,
   snapshot: OwnerStateSnapshot,
   message: OwnedBusMessage,
 ): number | null {
-  if (!['leased', 'accepted'].includes(message.status) || !message.leaseOwner?.startsWith('relay:')) return null;
-  return relayHolderGoneAt(runtime, snapshot, message.leaseOwner, message.ownerInstanceId, message.claimId);
+  if (!['leased', 'accepted'].includes(message.status) || !message.leaseOwner) return null;
+  if (message.leaseOwner.startsWith('relay:'))
+    return relayHolderGoneAt(runtime, snapshot, message.leaseOwner, message.ownerInstanceId, message.claimId);
+  if (!message.leaseOwner.startsWith('session:') || message.ownershipMode !== 'connection') return null;
+  const sessionId = message.leaseOwner.slice(8);
+  if (message.claimId && legacyDrainFor(runtime)?.existingClaim('session', sessionId, message.claimId)) return null;
+  return holderGoneAt(runtime, snapshot, sessionId);
 }
-function relayHeldWorkDue(runtime: OwnerRuntime, snapshot: OwnerStateSnapshot, now: number): boolean {
+function heldWorkDue(runtime: OwnerRuntime, snapshot: OwnerStateSnapshot, now: number): boolean {
   return ['leased', 'accepted'].some((status) =>
     snapshot.messages.by('status', status).some((message) => {
-      const gone = relayHeldWorkGoneAt(runtime, snapshot, message);
+      const gone = heldWorkGoneAt(runtime, snapshot, message);
       return gone !== null && gone <= now;
     }),
   );
@@ -148,18 +162,20 @@ export function stageExpiredReboots(ctx: OwnerMutationContext, now: string): voi
   }
 }
 /**
- * Settle work a vanished relay incarnation held. The relay acknowledges
- * `accepted` before it starts the native process, so `leased` work never ran
- * and returns to the queue (or expires/dies like any other retry). `accepted`
- * work may have run: it becomes `ambiguous` and keeps its lease identity, as a
- * revoked conversation does. Neither transfers the work to the successor.
+ * Settle work a vanished holder (relay incarnation or receiving session) held.
+ * Both acknowledge `accepted` before exposing anything natively, so `leased`
+ * work never ran and returns to the queue (or expires/dies like any other
+ * retry). `accepted` work may have run: it becomes `ambiguous` and keeps its
+ * lease identity, as a revoked conversation does; an explicit late task result
+ * still records. Neither transfers the work to the successor.
  */
-function stageRelayLost(
+function stageHolderLost(
   ctx: OwnerMutationContext,
   message: OwnedBusMessage,
   now: string,
   counts: { expired: number; retried: number; dead: number; ambiguous: number },
 ): void {
+  const code = message.leaseOwner?.startsWith('session:') ? 'session_holder_lost' : 'relay_instance_lost';
   let status: string;
   if (message.status === 'accepted') {
     status = 'ambiguous';
@@ -167,7 +183,7 @@ function stageRelayLost(
       status,
       ambiguousAt: now,
       leaseUntil: null,
-      lastErrorCode: 'relay_instance_lost',
+      lastErrorCode: code,
       updatedAt: now,
     });
     counts.ambiguous++;
@@ -181,7 +197,7 @@ function stageRelayLost(
       claimId: null,
       relayGeneration: null,
       ownerInstanceId: null,
-      lastErrorCode: 'relay_instance_lost',
+      lastErrorCode: code,
       updatedAt: now,
     });
     counts.expired++;
@@ -205,7 +221,7 @@ function stageRelayLost(
       claimId: null,
       relayGeneration: null,
       ownerInstanceId: null,
-      lastErrorCode: 'relay_instance_lost',
+      lastErrorCode: code,
       updatedAt: now,
     });
     counts.retried++;
@@ -240,7 +256,7 @@ export async function maintainOwnedMessaging(runtime: OwnerRuntime): Promise<Rec
     dispatches_expired: 0,
   };
   const initial = runtime.state.snapshot();
-  if (!due(initial, new Date().toISOString()) && !relayHeldWorkDue(runtime, initial, Date.now())) return empty;
+  if (!due(initial, new Date().toISOString()) && !heldWorkDue(runtime, initial, Date.now())) return empty;
   const result = (await mutateOwnerState(runtime, {
     kind: 'messaging.maintenance',
     payload: {},
@@ -251,9 +267,9 @@ export async function maintainOwnedMessaging(runtime: OwnerRuntime): Promise<Rec
       const nowMs = Date.parse(now);
       for (const status of ['leased', 'accepted'])
         for (const message of ctx.snapshot.messages.by('status', status)) {
-          const gone = relayHeldWorkGoneAt(runtime, ctx.snapshot, message);
+          const gone = heldWorkGoneAt(runtime, ctx.snapshot, message);
           if (gone === null || gone > nowMs) continue;
-          stageRelayLost(ctx, message, now, counts);
+          stageHolderLost(ctx, message, now, counts);
         }
       for (const message of ctx.draft.table('agentBusMessages').all()) {
         if (['queued', 'batched'].includes(message.status) && message.expiresAt <= now) {

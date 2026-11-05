@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
@@ -189,9 +190,13 @@ func reportActivityHook(stdin io.Reader) error {
 		Event     string `json:"hook_event_name"`
 		Tool      string `json:"tool_name"`
 		Source    string `json:"source"`
+		AgentID   string `json:"agent_id"`
 	}
 	if err := json.NewDecoder(io.LimitReader(stdin, 1<<20)).Decode(&h); err != nil {
 		return err
+	}
+	if subagentHook(h.AgentID) {
+		return nil
 	}
 	timeout := activityHookTimeout(h.Event)
 	client, err := sessionClientFromEnv(timeout)
@@ -201,6 +206,15 @@ func reportActivityHook(stdin io.Reader) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return client.receiver(ctx, "activity-hook", agentportal.ActivityHook{NativeID: h.SessionID, Event: h.Event, Tool: h.Tool, Source: h.Source}, nil)
+}
+
+// subagentHook reports a hook that fired inside a subagent. Claude Code runs
+// those with the parent's session_id plus agent_id, and a background agent
+// keeps firing tool hooks after the root turn's Stop. They are not root turn
+// boundaries: counting them re-marked an idle prompt as an active turn and
+// held every after_turn delivery until the operator typed.
+func subagentHook(agentID string) bool {
+	return strings.TrimSpace(agentID) != ""
 }
 
 // Turn boundaries must outlive the broker's bounded serialized channel callback.

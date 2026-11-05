@@ -73,9 +73,11 @@ and presents them in order, so a write that lands in a turn which is in fact sti
 running waits in the native queue instead of being lost. Requiring a proven idle
 boundary had made every idle session deaf after the 2026-11-05 reconnect wave,
 because an idle prompt never emits the `Stop` that would prove it. A held
-informational Claude delivery whose turn-end release never arrives is released
-after 15 minutes without fresh turn activity; accepted work and Portal
-instructions keep their explicit-result contract.
+informational Claude delivery whose turn-end release never arrives is settled
+after 15 minutes without fresh turn activity: completed when the bound transcript
+shows it was dequeued, otherwise `ambiguous` (`native_channel_unconfirmed`);
+accepted work and Portal instructions keep their explicit-result contract.
+Subagent hooks (`agent_id` in the hook input) never count as root turn activity.
 
 ## Capability and receipts
 

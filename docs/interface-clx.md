@@ -1765,7 +1765,7 @@ sees `idle`. The readiness probe's own poll neither advances nor consumes it. Th
 `native-session` hook reports the SessionStart to the broker after binding the identity,
 because the parallel activity hook is refused until that identity exists. After an MCP
 subprocess restart at a never-used prompt the new observer pins the cached idle and the
-session waits for its next turn, as for any restarted observer.
+session reports `unknown` and, from cxx 0.9.162, still receives (see below).
 
 From cxx 0.9.162 reception recovers by itself whatever was gone and for how long.
 Only a fresh `active` turn proof (a native hook within the last 10 minutes) holds
@@ -1777,9 +1777,15 @@ restart or an Esc interrupt left the proof `unknown`/`active` with no `Stop` to
 come, so the session sat at claim gate `thread_other` until a human typed. A
 native state feed outage now keeps the turn epoch instead of minting a new one,
 `immediate` no longer requires an observed `working` turn, and an informational
-delivery whose turn-end release was lost is released after 15 minutes without
-fresh turn activity. Sessions still running an older receiver keep their old gate
-until their next turn or relaunch.
+delivery whose turn-end release was lost is settled after 15 minutes without
+fresh turn activity. From cxx 0.9.163 that fallback uses the same transcript proof
+as the `Stop` hook: a delivery dequeued into the bound transcript completes, one
+that never reached the conversation ends `ambiguous` (`native_channel_unconfirmed`)
+instead of being counted as read. Hooks that fire inside a subagent (input carries
+`agent_id`) are ignored for turn activity: a background agent keeps firing tool
+hooks after the root `Stop`, which had re-marked idle prompts as active turns and
+held every default-timed delivery until the operator typed. Sessions still running
+an older receiver keep their old gate until their next turn or relaunch.
 
 Claude keeps its native TUI and receives `notifications/claude/channel`. A temporary
 per-launch plugin named `cxx-receiver` adds a SessionStart identity hook without

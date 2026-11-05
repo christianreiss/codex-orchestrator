@@ -7,7 +7,7 @@ import { messagingMaintenanceObligations } from '../../../src/ops/maintenance-ob
 const stamp = '2026-10-24T10:00:00.000Z';
 const facts = {
   relayConnected: () => false,
-  relayHeldWorkGoneAt: () => null,
+  heldWorkGoneAt: () => null,
   sessionConnected: () => false,
   receiverConnected: () => false,
   revision: () => '1',
@@ -51,14 +51,14 @@ describe('indexed messaging maintenance', () => {
     const gone = Date.parse(stamp) + 300_000;
     const relayFacts = {
       ...facts,
-      relayHeldWorkGoneAt: (_: unknown, message: { leaseOwner: string | null }) =>
+      heldWorkGoneAt: (_: unknown, message: { leaseOwner: string | null }) =>
         message.leaseOwner === 'relay:r:1' ? gone : null,
     };
     expect(messagingMaintenanceObligations(state, relayFacts).sort((a, b) => a.key.localeCompare(b.key))).toEqual([
-      { key: 'message:relay:relay-accepted', dueAt: gone, revision: stamp },
-      { key: 'message:relay:relay-leased', dueAt: gone, revision: stamp },
+      { key: 'message:holder:relay-accepted', dueAt: gone, revision: stamp },
+      { key: 'message:holder:relay-leased', dueAt: gone, revision: stamp },
     ]);
-    expect(messagingMaintenanceObligations(state, { ...facts, relayHeldWorkGoneAt: () => -Infinity }).map((w) => w.dueAt)).toEqual([0, 0, 0, 0]);
+    expect(messagingMaintenanceObligations(state, { ...facts, heldWorkGoneAt: () => -Infinity }).map((w) => w.dueAt)).toEqual([0, 0, 0, 0]);
   });
   it.each(['queued', 'batched', 'leased', 'accepted'])('preserves %s presence notice pruning for missing, ended and replaced bindings', (status) => {
     const state = snapshot(['missing', 'ended', 'replaced', 'live'].map((targetSessionId) => ({

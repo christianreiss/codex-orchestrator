@@ -54,13 +54,13 @@ export function messagingMaintenanceObligations(
           message.leaseUntil ? 0 : 86_400_000,
         ),
       );
-    // A vanished relay incarnation never reports its held work; settle it after
-    // the reconnect grace so a successor relay process can register.
-    const relayGone = facts.relayHeldWorkGoneAt(snapshot, message);
-    if (relayGone !== null)
+    // A vanished relay incarnation or receiving session never reports its held
+    // work; settle it after the reconnect grace so the address can move on.
+    const holderGone = facts.heldWorkGoneAt(snapshot, message);
+    if (holderGone !== null)
       work.push({
-        key: `message:relay:${message.id}`,
-        dueAt: Number.isFinite(relayGone) ? relayGone : 0,
+        key: `message:holder:${message.id}`,
+        dueAt: Number.isFinite(holderGone) ? holderGone : 0,
         revision: message.updatedAt,
       });
     if (

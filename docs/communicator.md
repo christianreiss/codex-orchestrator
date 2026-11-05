@@ -132,7 +132,14 @@ resource claims and Git registrations), owner maintenance settles its work
 with `relay_instance_lost` (`accepted` becomes `ambiguous`, never replayed;
 `leased` work, which was never started, is requeued) and the next 30-second
 retry registers. The refusal names `relay_id`, `generation` and
-`settles_after`.
+`settles_after`. Work held by a receiving session (`session:` lease owner)
+settles the same way with `session_holder_lost` once that session ended or was
+detached past the grace (cxx/API 0.9.163).
+
+A relay whose owner state stream stays unavailable for one minute, or whose
+claim is refused with 401/403, `agent_messaging_relay_detached` or
+`agent_messaging_lease_lost`, returns from its state loop and registers again
+(cxx 0.9.163). Before, it redialled the revoked registration forever.
 
 cxx 0.9.130 advertises `cache.native_scope_protocol:1` and preserves the paired
 `X-Agent-Session-Id` / `X-Agent-Bridge-Token` through cache proofs and scope keys.

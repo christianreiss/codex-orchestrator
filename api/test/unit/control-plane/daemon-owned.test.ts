@@ -433,6 +433,87 @@ describe('connection-owned daemon commands', () => {
       stopSessionActivity(f.h.runtime);
     }
   });
+  it('settles work held by an ended or vanished receiving session so the address is not blocked forever', async () => {
+    vi.useFakeTimers();
+    const address = randomUUID(),
+      ended = randomUUID(),
+      crashed = randomUUID(),
+      instance = randomUUID(),
+      upstream = randomUUID(),
+      at = new Date().toISOString();
+    const session = (id: string, endedAt: string | null) => ({
+      id,
+      hostId: 1,
+      hostAuthFingerprint: createHash('sha256').update('test').digest('hex'),
+      engine: 'claude',
+      agentBusAddressId: address,
+      upstreamSessionId: upstream,
+      bindingGeneration: 1,
+      heartbeatAt: at,
+      startedAt: at,
+      endedAt,
+    });
+    const h = harness({ agentSessions: [session(ended, at), session(crashed, null)] });
+    trackSessionActivity(h.runtime);
+    try {
+      const attachment = h.presence.attach({
+        connectionId: 'session-proof',
+        hostId: 1,
+        username: 'user',
+        scope: { topic: 'session', session_id: crashed, binding_generation: 1, native_instance_id: instance },
+      });
+      const held = (id: string, holder: string, status: string) => ({
+        id,
+        kind: 'message',
+        sourceEngine: 'claude',
+        targetEngine: 'claude',
+        targetAddressId: address,
+        status,
+        attempts: 1,
+        leaseOwner: `session:${holder}`,
+        claimId: randomUUID(),
+        relayGeneration: null,
+        ownershipMode: 'connection',
+        ownerInstanceId: null,
+        leaseUntil: null,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        updatedAt: at,
+      });
+      const rows = [
+        held('ended-accepted', ended, 'accepted'),
+        held('ended-leased', ended, 'leased'),
+        held('crashed-accepted', crashed, 'accepted'),
+      ];
+      await mutateOwnerState(h.runtime, {
+        kind: 'fixture.held',
+        payload: {},
+        prepare(c) {
+          for (const row of rows) {
+            recordMessagingRowChange(c.draft, 'agentBusMessages', null, row);
+            c.draft.upsert('agentBusMessages', row as never);
+          }
+          return null;
+        },
+      });
+      const status = (id: string) => h.state.snapshot().messages.get(id);
+      // An ended holder can never acknowledge: settle at once.
+      await maintainOwnedMessaging(h.runtime);
+      expect(status('ended-accepted')).toMatchObject({ status: 'ambiguous', lastErrorCode: 'session_holder_lost' });
+      expect(status('ended-leased')).toMatchObject({ status: 'queued', leaseOwner: null, claimId: null, lastErrorCode: 'session_holder_lost' });
+      // An attached holder keeps its work; a crashed one keeps it for the reconnect grace.
+      expect(status('crashed-accepted')?.status).toBe('accepted');
+      attachment.detach();
+      await vi.advanceTimersByTimeAsync(OWNER_RECONNECT_GRACE_MS - 1000);
+      await maintainOwnedMessaging(h.runtime);
+      expect(status('crashed-accepted')?.status).toBe('accepted');
+      await vi.advanceTimersByTimeAsync(2000);
+      await maintainOwnedMessaging(h.runtime);
+      expect(status('crashed-accepted')).toMatchObject({ status: 'ambiguous', lastErrorCode: 'session_holder_lost' });
+    } finally {
+      stopSessionActivity(h.runtime);
+      vi.useRealTimers();
+    }
+  });
   it('keeps held work for the exact relay process that reattaches within the grace', async () => {
     const f = await vanishedRelayFixture();
     try {

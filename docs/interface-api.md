@@ -1989,6 +1989,15 @@ returns to `queued` (or becomes `expired` past its TTL, or `dead` when attempts
 are exhausted). A host-daemon session running that delivery is released as on
 `peer_finished`. Accepted claims of a captured legacy-drain relay stay protected
 while their drain proof is live.
+Session-held work follows the same rule. A connection-owned `leased` or
+`accepted` delivery whose receiving session ended, vanished, or has been
+detached for the reconnect grace is settled with `last_error_code:
+session_holder_lost` (`accepted` → `ambiguous`, `leased` → `queued`). A session
+resumed from the same transcript has its own lease identity and cannot
+acknowledge its predecessor's receipts, so it does not defer settlement; without
+this the stale row kept every later delivery to the address in flight forever.
+A late explicit task result for settled work still records. Planned reboots move
+held work through `reboot_hold`, not this path.
 Only an owner/admin may explicitly redrive a `dead` or `ambiguous` message; the
 redrive is a new queued row and conversation sequence linked by
 `redrive_of_message_id`, while the terminal original remains unchanged.
