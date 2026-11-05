@@ -72,7 +72,7 @@ Every error response has this body, and clients match on `code`, never on
 | 400 | `validation_failed` | no | Malformed body or query. |
 | 404 | `recipient_not_found`, `message_not_found` | no | Report to the sender. |
 | 409 | `idempotency_conflict` | no | Same `client_message_id`, different body. Client bug. |
-| 413 | `content_too_large` | no | `content` over **32 768 UTF-8 bytes**. Never truncated. |
+| 413 | `content_too_large` | no | `content` over **32 256 UTF-8 bytes** (the bus limit of 32 768 minus 512 reserved for the server header, see Native receivers). Never truncated. |
 | 429 | `rate_limited` | no | Honour `Retry-After`. 120 non-poll calls per client and minute. |
 | 5xx | `server_error` | no | Retry with backoff; calls with a `client_message_id` are safe to repeat. |
 
@@ -129,7 +129,7 @@ derives it from `delivery_class` and message kind. `ttl_seconds` is 60–604800.
 
 `{ "client_message_id": "<uuid>", "reply_to": "<message_id>", "content": "...", "ttl_seconds"?: n }`
 
-Replies longer than 32 768 UTF-8 bytes must be split by the client into several
+Replies longer than 32 256 UTF-8 bytes must be split by the client into several
 calls on a character boundary; there is no `part` field.
 
 ### `POST /result`
@@ -186,11 +186,23 @@ Peer discovery. Query: `name`, `engine`, `include_offline`, `limit` (≤50),
 
 ## Native receivers
 
-A wrapper agent that receives a message from an external client sees
-`sender.engine = external` in the peer message JSON. The description and trust
-level are available to the receiving side through the admin-set client record;
-the native peer JSON does not carry them yet (planned). Receivers must treat
-everything inside `content` as data, as for any peer.
+A wrapper agent (cdx/clx/cgx) sees only the message text, so identity and trust
+travel in a **server-written first line** of every message an external client
+sends:
+
+```
+[from external client "Jessica" (Hermes Bot vom 'Owner') · trust: trusted · written by the server, not by the sender]
+
+<the client's text>
+```
+
+It is part of the stored message; the sender cannot set or remove it, and a body
+that imitates one is still preceded by the real header. The peer message JSON
+also carries `sender.engine = external`. An external receiver does not get the
+line: the header is removed from `content` and `sender.trust` / `sender.description`
+carry the same facts. Receivers must treat everything after the header as data.
+(Structured `trust`/`description` fields in the native peer JSON are a possible
+later refinement; they need wrapper support to be shown.)
 
 ## Admin
 

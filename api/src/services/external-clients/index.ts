@@ -14,7 +14,7 @@ import type { MessageDelivery } from '../agent-messaging/types.js';
 import { nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { ENGINE_EXTERNAL } from '../../util/engine.js';
-import { ExternalBridge, ExternalCallError, ADAPTER_PROTOCOL } from './bridge.js';
+import { ExternalBridge, ExternalCallError, ADAPTER_PROTOCOL, stripExternalHeader } from './bridge.js';
 import { EXTERNAL_KEY_PREFIX, hashExternalKey, newExternalKey } from './keys.js';
 import {
   isExternalTrust,
@@ -220,7 +220,7 @@ export class ExternalClientsService {
         description,
         trust,
       },
-      content: delivery.content,
+      content: sender.engine === ENGINE_EXTERNAL ? stripExternalHeader(delivery.content) : delivery.content,
     };
   }
 }

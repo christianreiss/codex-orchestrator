@@ -191,7 +191,7 @@ describe.skipIf(!handle)('external clients over the owned messaging bus', () => 
       await service.bridge.reply(client, { clientMessageId: randomUUID(), replyTo: got!.message_id, content: 'answer' });
       const replyClaim = randomUUID();
       const replied = await bus.claimForSession(peerId, peerToken, replyClaim);
-      expect(replied?.content).toBe('answer');
+      expect(replied?.content).toContain('answer');
       expect(replied?.sender).toMatchObject({ engine: 'external' });
       await bus.acknowledgeSessionDelivery(peerId, peerToken, replied!.message_id, { claimId: replyClaim, outcome: 'completed' });
 
@@ -203,7 +203,10 @@ describe.skipIf(!handle)('external clients over the owned messaging bus', () => 
       });
       expect(sent).toBeTruthy();
       const received = await bus.claimForSession(peerId, peerToken, randomUUID());
-      expect(received?.content).toBe('hello from outside');
+      expect(received?.content).toContain('hello from outside');
+      // Native receivers get identity and trust as a server-written first line.
+      expect(received?.content.startsWith('[from external client "Jessica')).toBe(true);
+      expect(received?.content).toContain("(Hermes Bot vom 'Owner') · trust: trusted");
       expect(received?.sender).toMatchObject({ engine: 'external' });
       const back = await service.envelope(received!);
       expect(back.sender).toMatchObject({ engine: 'external', trust: 'trusted', description: "Hermes Bot vom 'Owner'" });

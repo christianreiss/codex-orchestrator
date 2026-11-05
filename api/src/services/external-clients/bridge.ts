@@ -47,6 +47,8 @@ export class ExternalCallError extends ApiError {
 }
 
 interface Virtual {
+  /** The client's stored row, read fresh by `ensure`: trust and description are never stale. */
+  client: ExternalClient;
   runtime: OwnerRuntime;
   host: Host;
   sessionId: string;
@@ -140,7 +142,7 @@ export class ExternalBridge {
     const snapshot = runtime.state.snapshot();
     const instanceId = snapshot.table('agentNativeControls').get(sessionId)?.instanceId ?? randomUUID();
     await pollOwnedControl(runtime, sessionId, instanceId);
-    return { runtime, host, sessionId, token, addressId: address.id, instanceId };
+    return { client, runtime, host, sessionId, token, addressId: address.id, instanceId };
   }
 
   /** Attach presence for this client; a newer attachment replaces (and aborts) the older poll. */
@@ -290,7 +292,7 @@ export class ExternalBridge {
     const v = await this.ensure(client);
     return sendOwnedMessage(this.db, v.runtime, this.keyring, v.sessionId, v.token, {
       to: body.to,
-      content: body.content,
+      content: stampExternalContent(v.client, body.content),
       clientMessageId: body.clientMessageId,
       conversationId: body.conversationId ?? null,
       ttlSeconds: body.ttlSeconds ?? null,
@@ -314,7 +316,7 @@ export class ExternalBridge {
       this.keyring,
       { kind: 'session', id: v.sessionId, token: v.token },
       body.replyTo,
-      { content: body.content, clientMessageId: body.clientMessageId, ttlSeconds: body.ttlSeconds ?? null },
+      { content: stampExternalContent(v.client, body.content), clientMessageId: body.clientMessageId, ttlSeconds: body.ttlSeconds ?? null },
     );
   }
 
@@ -388,9 +390,39 @@ export class ExternalBridge {
   }
 
   private assertSize(content: string): void {
-    if (Buffer.byteLength(String(content ?? ''), 'utf8') > MAX_MESSAGE_BYTES)
-      throw new ExternalCallError(413, 'content_too_large', `content exceeds ${MAX_MESSAGE_BYTES} UTF-8 bytes`);
+    if (Buffer.byteLength(String(content ?? ''), 'utf8') > EXTERNAL_CONTENT_MAX_BYTES)
+      throw new ExternalCallError(413, 'content_too_large', `content exceeds ${EXTERNAL_CONTENT_MAX_BYTES} UTF-8 bytes`);
   }
+}
+
+/**
+ * Room kept for the server-stamped header (below) inside the bus's own message
+ * limit. A header is at most ~420 bytes (96 name + 160 description + framing).
+ */
+export const EXTERNAL_CONTENT_MAX_BYTES = MAX_MESSAGE_BYTES - 512;
+
+export const EXTERNAL_HEADER_PREFIX = '[from external client ';
+
+/**
+ * Native receivers (cdx/clx/cgx) see only the message text, so the client's
+ * identity and trust level travel as a server-written first line. It is part of
+ * the stored message and cannot be set or removed by the sender; a body that
+ * imitates one is still preceded by the real header.
+ */
+export function externalHeader(client: Pick<ExternalClient, 'name' | 'description' | 'trust'>): string {
+  const about = client.description ? ` (${client.description})` : '';
+  return `${EXTERNAL_HEADER_PREFIX}"${client.name}"${about} · trust: ${client.trust} · written by the server, not by the sender]`;
+}
+
+export function stampExternalContent(client: ExternalClient, content: string): string {
+  return `${externalHeader(client)}\n\n${content}`;
+}
+
+/** Remove our own header again for an external receiver, who gets `sender.trust` as a field. */
+export function stripExternalHeader(content: string): string {
+  if (!content.startsWith(EXTERNAL_HEADER_PREFIX)) return content;
+  const end = content.indexOf(']\n\n');
+  return end === -1 ? content : content.slice(end + 3);
 }
 
 export { ForbiddenError, ValidationError };
