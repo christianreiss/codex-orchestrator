@@ -21,6 +21,12 @@ import { decrypt, encrypt } from '../../../../src/security/secret-box.js';
 import { createDbFake } from '../../../helpers/db-fake.js';
 import { testKeyring } from '../../../helpers/test-keyring.js';
 
+const turn = vi.hoisted(() => ({ busy: false }));
+vi.mock('../../../../src/control-plane/state/receiver-turn-proof.js', async (original) => ({
+  ...(await original<typeof import('../../../../src/control-plane/state/receiver-turn-proof.js')>()),
+  ownedClaudeTurnBusy: () => turn.busy,
+}));
+
 function fixture(engine: string, count = 2) {
   const sessionId = randomUUID(),
     instance = randomUUID(),
@@ -172,6 +178,22 @@ it.each([59_999, 60_000, 60_001])('uses the exact stale threshold at %i millisec
   const now = Date.parse('2026-11-02T13:00:00Z');
   expect(peerBatchTimingEligible({ deliveryTiming: 'immediate', relatedWorkId: null,
     createdAt: new Date(now - age).toISOString() }, true, now)).toBe(age >= 60_000);
+});
+
+it('lets a Claude turn the owner still sees as busy take immediate information through an ordinary claim', async () => {
+  const f = fixture('claude', 1);
+  turn.busy = true;
+  try {
+    // The receiver's local gate is open, so it does not ask immediate-only.
+    const delivery = await f.claim(randomUUID(), { immediateOnly: false, informationalOnly: false });
+    expect(delivery?.message_id).toBe(f.messages[0]!.id);
+    const draft = f.state.begin();
+    draft.upsert('agentBusMessages', { ...f.state.snapshot().messages.get(f.messages[0]!.id)!, status: 'completed' });
+    f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+  } finally {
+    turn.busy = false;
+    await f.close();
+  }
 });
 
 describe.each(['codex', 'claude', 'grok'])('%s owned immediate admission', (engine) => {

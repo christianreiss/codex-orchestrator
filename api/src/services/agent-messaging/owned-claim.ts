@@ -197,7 +197,14 @@ export async function claimOwnedDelivery(
   const options = { ...rawOptions, claimId: normalizeUuid(rawOptions.claimId, 'claim_id') };
   runtime.assertOwner();
   authorizeClaim(runtime, runtime.state.snapshot(), options);
-  if (!afterTurnReady(runtime, runtime.state.snapshot(), options)) return null;
+  // A Claude turn the owner still sees as running defers default-timed mail but
+  // never immediate information: downgrade instead of refusing, so a receiver
+  // whose local gate is already open does not strand `immediate` messages.
+  if (!afterTurnReady(runtime, runtime.state.snapshot(), options)) {
+    options.immediateOnly = true;
+    options.informationalOnly = true;
+    options.deliveryTimingEnabled = true;
+  }
   const initial = runtime.state.snapshot();
   const replay = initial.messages
     .all()

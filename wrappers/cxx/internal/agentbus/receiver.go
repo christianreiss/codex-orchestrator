@@ -439,6 +439,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	var stateRevision, lastGate string
 	stateClaims := 0
 	lastBeat := time.Time{}
+	lastStateClaim := time.Now()
 	nextSource := 0
 	for ctx.Err() == nil {
 		if time.Since(lastBeat) >= 15*time.Second {
@@ -606,6 +607,12 @@ func (r *autoReceiver) connection(parent context.Context) error {
 				stateClaims = len(registered.Sources)
 				stateRevision = revision
 			}
+			// Admission can open by time alone (a stale busy proof, a backoff
+			// that elapsed) without any owner revision. Re-claim on a bounded
+			// floor so an open receiver never waits for an unrelated event.
+			if stateClaims == 0 && (!busy || immediateOnly) && time.Since(lastStateClaim) >= receiverClaimFloor {
+				stateClaims = 1
+			}
 			if gate != lastGate {
 				if err := state.Update(map[string]any{"generation": generation, "gate": r.heartbeatRequest(generation, true)["claim_gate"], "capacity": !busy, "informational_only": coordinationOnly}); err != nil {
 					return err
@@ -620,6 +627,7 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		if (!busy || immediateOnly) && len(claimSources) > 0 && (state == nil || stateClaims > 0) {
 			if state != nil {
 				stateClaims--
+				lastStateClaim = time.Now()
 			}
 			source := claimSources[nextSource%len(claimSources)]
 			nextSource++
@@ -700,6 +708,10 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	}
 	return ctx.Err()
 }
+
+// receiverClaimFloor bounds how long an open receiver goes without asking the
+// owner for work when no state revision arrives.
+const receiverClaimFloor = 30 * time.Second
 
 func (r *autoReceiver) pingChannel(ctx context.Context) error {
 	sent := time.Now()

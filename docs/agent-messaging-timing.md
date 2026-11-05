@@ -78,6 +78,10 @@ after 15 minutes without fresh turn activity: completed when the bound transcrip
 shows it was dequeued, otherwise `ambiguous` (`native_channel_unconfirmed`);
 accepted work and Portal instructions keep their explicit-result contract.
 Subagent hooks (`agent_id` in the hook input) never count as root turn activity.
+From cxx 0.9.164 an ordinary claim from a Claude receiver whose turn the owner
+still sees as running takes immediate information instead of returning nothing,
+and every open receiver re-claims at least every 30 seconds even without a new
+owner state revision, because admission can open by time alone.
 
 ## Capability and receipts
 
