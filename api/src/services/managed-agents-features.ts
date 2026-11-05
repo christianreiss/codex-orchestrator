@@ -27,6 +27,7 @@ import {
   stripResponseStyleModule,
   type ResponseVerbosityLevel,
 } from './agent-response-style.js';
+import { DEFAULT_ADDRESS_FORM, normalizeAddressForm, renderAddressFormMarkdown, type AddressForm } from './agent-address-form.js';
 import { DEFAULT_GIT_COMMIT_SETTINGS, renderGitCommitGuidance, type GitCommitSettings } from './git-commit-settings.js';
 
 
@@ -84,6 +85,8 @@ export interface ManagedAgentFeatureSections {
   standing_authorizations: ManagedAgentFeatureSection;
   /** Absent at verbosity level 0 (no-op) or when the response_style module is disabled. */
   response_style: ManagedAgentFeatureSection;
+  /** Always present: formal vs informal address (agent-address-form.ts). */
+  address_form: ManagedAgentFeatureSection;
   skills: ManagedAgentFeatureSection;
   memories: ManagedAgentFeatureSection;
   /** Compatibility alias for clients that consumed the former memory block. */
@@ -706,6 +709,7 @@ export function renderManagedAgentFeatures(
   levels?: SecurityLevels,
   baseProvenance?: readonly AgentPolicyProvenanceEntry[],
   responseVerbosityLevel?: ResponseVerbosityLevel,
+  addressForm?: AddressForm,
 ): RenderManagedAgentFeaturesResult {
   // Optional and defaulting to Standard so every existing call site keeps
   // compiling and keeps its current output. Posture is resolved per host by
@@ -721,6 +725,7 @@ export function renderManagedAgentFeatures(
   const overrideMarkdown = renderResponseStyleOverride(resolvedVerbosity);
   const strippedBase = overrideMarkdown === null ? { body: baseBody, stripped: false } : stripResponseStyleModule(baseBody);
   const responseStyleActive = overrideMarkdown !== null && strippedBase.stripped;
+  const addressFormMarkdown = renderAddressFormMarkdown(normalizeAddressForm(addressForm ?? DEFAULT_ADDRESS_FORM));
   baseBody = dedupeGitModule(strippedBase.body, context);
 
   const skills = skillsSection(context);
@@ -839,6 +844,7 @@ with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read prop
     response_style: responseStyleActive
       ? { present: true, reason: 'level_override', sha256: sha256(overrideMarkdown as string) }
       : { present: false, reason: overrideMarkdown === null ? 'level_0_default' : 'module_disabled' },
+    address_form: { present: true, reason: 'mandatory', sha256: sha256(addressFormMarkdown) },
     skills: skillsMetadata,
     memories: memoryMetadata,
     memory_routing: memoryMetadata,
@@ -885,7 +891,7 @@ with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read prop
   );
   const renderedSections = presentFeatures.map((entry) => entry.section.text);
   const stripped = stripManagedContent(baseBody);
-  const policyMarkdown = responseStyleActive ? `${policy.markdown}\n\n${overrideMarkdown}` : policy.markdown;
+  const policyMarkdown = `${responseStyleActive ? `${policy.markdown}\n\n${overrideMarkdown}` : policy.markdown}\n\n${addressFormMarkdown}`;
   const policyBlock = `${MANAGED_POLICY_START}\n${policyMarkdown}\n${MANAGED_POLICY_END}\n`;
   const managedBlock = renderedSections.length === 0
     ? ''
@@ -921,6 +927,12 @@ with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read prop
       headings: documentHeadings(overrideMarkdown as string),
     });
   }
+  provenance.push({
+    key: 'policy:address_form',
+    label: 'Address Form',
+    group: 'policy',
+    headings: documentHeadings(addressFormMarkdown),
+  });
   if (baseProvenance !== undefined) provenance.push(...baseProvenance.map((entry) => ({ ...entry })));
   else if (cleaned !== '') {
     provenance.push({

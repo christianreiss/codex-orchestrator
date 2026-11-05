@@ -720,6 +720,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` are excluded.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
 - `GET /admin/response-verbosity` / `POST /admin/response-verbosity` — read/set the fleet-wide response-verbosity dial (`level`: `0..4`, `0` default/no-op). Projected into the served AGENTS.md/CLAUDE.md `## Default Response Shape` policy text, and (for `clx` hosts) into a `verbosity-*` Claude output style via `outputStyle` in settings.json.
+- `GET /admin/address-form` / `POST /admin/address-form` — read/set the fleet-wide formal/informal address form (`form`: `informal` default, `formal`). Rendered as the `## Address Form` section of the managed policy block of every engine's served AGENTS.md/CLAUDE.md. Capabilities `settings.read` / `settings.manage`.
 - `POST /admin/prune-policy` — set inactivity prune days `{inactivity_days:0..60}`.
 - Runner: `GET /admin/runner` (config/telemetry/state/timestamps/counts/canonical metadata), `POST /admin/runner/run` (force Codex runner validation), `POST /admin/runner/run-claude` (force Claude runner validation), `POST /admin/runner/run-grok` (read-only Grok subscription verification).
 - Logs:

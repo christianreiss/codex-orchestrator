@@ -70,6 +70,13 @@ import {
   RESPONSE_VERBOSITY_SETTINGS_KEY,
   normalizeResponseVerbosityLevel,
 } from '../../../services/agent-response-style.js';
+import {
+  ADDRESS_FORMS,
+  ADDRESS_FORM_DEFINITIONS,
+  ADDRESS_FORM_SETTINGS_KEY,
+  DEFAULT_ADDRESS_FORM,
+  normalizeAddressForm,
+} from '../../../services/agent-address-form.js';
 
 /**
  * The only values `/admin/theme` accepts. The legacy palette values remain
@@ -233,6 +240,23 @@ export async function registerAdminSettingsRoutes(
     await settings.setInt(RESPONSE_VERBOSITY_SETTINGS_KEY, level);
     await recordLog(ctx, 'admin.response_verbosity', { level });
     return ok({ level });
+  });
+
+  // ── address-form ─────────────────────────────────────────────────────────
+  // Fleet-wide formal/informal address (default informal). Rendered into the
+  // managed policy block of every engine's served instructions.
+  app.get('/admin/address-form', { preHandler: app.requireAdmin }, async () => {
+    const form = normalizeAddressForm(await settings.getString(ADDRESS_FORM_SETTINGS_KEY, DEFAULT_ADDRESS_FORM));
+    return ok({ form, forms: ADDRESS_FORM_DEFINITIONS.map((d) => ({ form: d.form, label: d.label, description: d.description })) });
+  });
+  app.post('/admin/address-form', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { form?: unknown };
+    if (typeof body.form !== 'string' || !(ADDRESS_FORMS as readonly string[]).includes(body.form.trim().toLowerCase()))
+      throw new ValidationError(`form must be one of: ${ADDRESS_FORMS.join(', ')}`, { param: 'form' });
+    const form = normalizeAddressForm(body.form);
+    await settings.set(ADDRESS_FORM_SETTINGS_KEY, form);
+    await recordLog(ctx, 'admin.address_form', { form });
+    return ok({ form });
   });
 
   // ── theme ─────────────────────────────────────────────────────────────────

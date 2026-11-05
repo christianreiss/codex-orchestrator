@@ -69,6 +69,7 @@ import {
   RESPONSE_VERBOSITY_SETTINGS_KEY,
   type ResponseVerbosityLevel,
 } from './agent-response-style.js';
+import { ADDRESS_FORM_SETTINGS_KEY, DEFAULT_ADDRESS_FORM, normalizeAddressForm, type AddressForm } from './agent-address-form.js';
 
 const STATE_ID_CODEX = 1;
 const STATE_ID_CLAUDE = 2;
@@ -135,6 +136,12 @@ export class HostAgentsService {
     return normalizeResponseVerbosityLevel(raw);
   }
 
+  /** The fleet's formal/informal address form; a read failure degrades to the default. */
+  private async resolveAddressForm(): Promise<AddressForm> {
+    const raw = await this.settings.getString(ADDRESS_FORM_SETTINGS_KEY, DEFAULT_ADDRESS_FORM).catch(() => DEFAULT_ADDRESS_FORM);
+    return normalizeAddressForm(raw);
+  }
+
   /**
    * The fleet's AGENTS.md generation mode.
    *
@@ -172,10 +179,11 @@ export class HostAgentsService {
     levels?: SecurityLevels,
     baseProvenance?: readonly AgentPolicyProvenanceEntry[],
     responseVerbosityLevel?: ResponseVerbosityLevel,
+    addressForm?: AddressForm,
   ): Promise<Record<string, unknown>> {
     const featureContext = await this.resolveManagedFeatureContext(host, engine);
     const verbosity = responseVerbosityLevel ?? (await this.resolveResponseVerbosity());
-    const rendered = renderManagedAgentFeatures(baseBody, featureContext, levels, baseProvenance, verbosity);
+    const rendered = renderManagedAgentFeatures(baseBody, featureContext, levels, baseProvenance, verbosity, addressForm ?? (await this.resolveAddressForm()));
     const servedSha = createHash('sha256').update(rendered.body).digest('hex');
     return {
       status: 'ok',
@@ -244,6 +252,7 @@ export class HostAgentsService {
       await this.resolvePosture(host),
       undefined,
       await this.resolveResponseVerbosity(),
+      await this.resolveAddressForm(),
     );
     const served = rendered.body;
     const servedSha = createHash('sha256').update(served).digest('hex');

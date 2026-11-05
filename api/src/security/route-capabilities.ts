@@ -295,6 +295,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/prune-policy': cap('settings.manage'),
   'GET /admin/response-verbosity': cap('settings.read'),
   'POST /admin/response-verbosity': cap('settings.manage'),
+  'GET /admin/address-form': cap('settings.read'),
+  'POST /admin/address-form': cap('settings.manage'),
   'GET /admin/quota-policy/:engine': cap('settings.read'),
   'PUT /admin/quota-policy/:engine': cap('settings.manage'),
   'GET /admin/accounts/:id/quota-policy': cap('auth.read_metadata'),

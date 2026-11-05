@@ -14,6 +14,7 @@
 import {
   Activity,
   BookOpen,
+  Bot,
   CalendarClock,
   CircleUser,
   Cpu,
@@ -146,6 +147,10 @@ const REGISTRY: NavDefinition[] = [
   {
     id: "transfers", group: "coordination", route: "/transfers", label: "Shared files",
     description: "Files agents hand each other, and when they expire", keywords: ["file", "transfer", "upload", "download", "artifact", "ttl", "expiry"], icon: FileUp,
+  },
+  {
+    id: "external-clients", group: "coordination", route: "/external-clients", label: "External clients",
+    description: "Bots and bridges outside the fleet that take part in messaging", keywords: ["bot", "hermes", "bridge", "trust", "key", "non-fleet", "external", "communication interface"], icon: Bot,
   },
   { id: "workflows", group: "coordination", route: "/workflows", label: "Workflows", description: "Reusable instructions, shared runs and reports", keywords: ["tasks", "runs", "evaluation", "reports"], icon: Waypoints },
   {

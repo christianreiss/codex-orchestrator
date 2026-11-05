@@ -97,3 +97,23 @@ export const responseVerbosityApi = {
     return api.post<ResponseVerbosityResponse>("/admin/response-verbosity", { level });
   },
 };
+
+export interface AddressFormOption {
+  form: "informal" | "formal";
+  label: string;
+  description: string;
+}
+export interface AddressFormResponse {
+  form: "informal" | "formal";
+  forms?: AddressFormOption[];
+}
+export const addressFormApi = {
+  /** GET /admin/address-form — the fleet's formal/informal address form (default informal). */
+  get(): Promise<AddressFormResponse> {
+    return api.get<AddressFormResponse>("/admin/address-form");
+  },
+  /** POST /admin/address-form — persist it. */
+  set(form: "informal" | "formal"): Promise<AddressFormResponse> {
+    return api.post<AddressFormResponse>("/admin/address-form", { form });
+  },
+};

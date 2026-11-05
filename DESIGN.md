@@ -95,10 +95,11 @@ owning components when moving a setting; update this table in the same change.
 | Fleet host policy, host-agent rollout and communicator API level (read-only), agent-session controls, Chatty and retention | `/admin/settings` |
 | Fleet-wide agent coordination: project/host rooms and resource claims | `/admin/settings#agent-coordination` (Graph shows status and links here) |
 | Agent messaging service and coordination data | `/admin/agent-messaging` |
+| External clients (bots outside the fleet): keys, trust level, enabled | `/admin/external-clients` |
 | Workflow module switch and reusable instructions | `/admin/workflows` and selected definition |
 | Schedule configuration, Git coordination settings and transfer limits | Their respective Coordination pages |
 | Project/module controls and project content | `/admin/projects` and selected project views |
-| Fleet instruction content and managed instruction modules | `/admin/library/agent-rules` |
+| Fleet instruction content, managed instruction modules, security posture, response verbosity and form of address (du/Sie) | `/admin/library/agent-rules` |
 | Personal profile, password, passkeys, appearance and paired devices | `/admin/account` |
 
 ## 4. Visual foundations
@@ -232,6 +233,7 @@ This is a source audit, not a live visual acceptance report. All 39 `+page.svelt
 | `/admin/schedules` | Schedule/review prompts; list/detail | `PageShell`, `DataTable`, `ListDetail`, schedule form | Timezone, recurrence, failure and recovery meaning |
 | `/admin/git-director` | Inspect merge coordination; list/detail | `PageShell`, `Toolbar`, `DataTable`, `ListDetail`, settings | Pending versus granted/denied; stale evidence |
 | `/admin/transfers` | Inspect shared files; list | `PageShell`, `DataTable`, `Toolbar`, audit sheet | Expiry, unavailable download, limits and deletion |
+| `/admin/external-clients` | Manage bots outside the fleet; list | `PageShell`, `DataTable`, `Toolbar`, create/edit dialog, one-time key dialog, `ConfirmDialog` | Key shown once, trust meaning, disabled versus not listening, denied manage, rotation and deletion |
 | `/admin/activity` | Inspect configuration/system changes; history | `PageShell`, filters, change events | Empty/error, details and legacy deep links; generic MCP call history removed 2026-10-24 |
 | `/admin/reports` | Triage fleet reports; list/detail | `PageShell`, `Toolbar`, `ReportInbox`, `ListDetail` | Create/detail, long evidence, status transitions; feedback destination/configuration, opt-in, old-version/retest and uncertain publication evidence |
 | `/admin/accounts` | Manage provider accounts and quota overrides (PayG, warnings, reset recovery); list | `PageShell`, `Toolbar`, `DataTable`, account dialogs | Codex/Claude/Grok, missing quota, expired auth |

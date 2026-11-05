@@ -6,7 +6,7 @@
 import { fromStore } from "svelte/store";
 import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
 import { toast } from "svelte-sonner";
-import { responseVerbosityApi, type ResponseVerbosityLevelOption } from "$lib/api/agents";
+import { addressFormApi, responseVerbosityApi, type AddressFormOption, type ResponseVerbosityLevelOption } from "$lib/api/agents";
 import { ApiError } from "$lib/api/client";
 import {
   agentPolicyProfilesApi,
@@ -20,6 +20,8 @@ export class RulesPostureState {
   private profilesStore = fromStore(createQuery({ queryKey: ["agent-policy-profiles"], queryFn: () => agentPolicyProfilesApi.list() }));
   private verbosityStore = fromStore(createQuery({ queryKey: ["response-verbosity"], queryFn: () => responseVerbosityApi.get() }));
 
+  private addressFormStore = fromStore(createQuery({ queryKey: ["address-form"], queryFn: () => addressFormApi.get() }));
+
   securityCatalog = $state<SecurityLevelCatalog | null>(null);
   defaultProfile = $state<AgentPolicyProfile | null>(null);
   draftLevels = $state<SecurityLevels | null>(null);
@@ -30,12 +32,18 @@ export class RulesPostureState {
   verbosityLevelOptions = $state<ResponseVerbosityLevelOption[]>([]);
   private verbosityHydrated = false;
 
+  savedAddressForm = $state<"informal" | "formal" | null>(null);
+  draftAddressForm = $state<"informal" | "formal">("informal");
+  addressFormOptions = $state<AddressFormOption[]>([]);
+  private addressFormHydrated = false;
+
   levelsDirty = $derived(
     this.draftLevels !== null &&
       this.defaultProfile !== null &&
       JSON.stringify(this.draftLevels) !== JSON.stringify(this.defaultProfile.levels),
   );
   verbosityDirty = $derived(this.savedVerbosity !== null && this.draftVerbosity !== this.savedVerbosity);
+  addressFormDirty = $derived(this.savedAddressForm !== null && this.draftAddressForm !== this.savedAddressForm);
 
   /**
    * Claude Code refuses to start as root in bypassPermissions, so those hosts
@@ -80,6 +88,26 @@ export class RulesPostureState {
     }),
   );
 
+  private saveAddressFormStore = fromStore(
+    createMutation({
+      mutationFn: () => addressFormApi.set(this.draftAddressForm),
+      onSuccess: (result) => {
+        this.savedAddressForm = result.form;
+        this.draftAddressForm = result.form;
+        toast.success("Address form saved");
+        void this.qc.invalidateQueries({ queryKey: ["address-form"] });
+      },
+      onError: (err: unknown) => toast.error(err instanceof ApiError ? err.message : "Failed to save address form"),
+    }),
+  );
+
+  get savingAddressForm() {
+    return this.saveAddressFormStore.current.isPending;
+  }
+  saveAddressForm() {
+    this.saveAddressFormStore.current.mutate();
+  }
+
   get savingLevels() {
     return this.saveLevelsStore.current.isPending;
   }
@@ -94,6 +122,15 @@ export class RulesPostureState {
   }
 
   constructor() {
+    $effect(() => {
+      const data = this.addressFormStore.current.data;
+      if (!data || this.addressFormHydrated) return;
+      this.savedAddressForm = data.form;
+      this.draftAddressForm = data.form;
+      this.addressFormOptions = data.forms ?? [];
+      this.addressFormHydrated = true;
+    });
+
     $effect(() => {
       const data = this.profilesStore.current.data;
       if (!data || this.levelsHydrated) return;

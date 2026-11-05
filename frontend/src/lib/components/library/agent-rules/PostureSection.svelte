@@ -2,6 +2,7 @@
   /** Security level and response verbosity: each saved on its own, apart from the document. */
   import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { Button } from "$lib/components/ui/button";
+  import AddressFormPanel from "$lib/components/settings/AddressFormPanel.svelte";
   import ResponseVerbosityPanel from "$lib/components/settings/ResponseVerbosityPanel.svelte";
   import SecurityLevelsPanel from "$lib/components/settings/SecurityLevelsPanel.svelte";
   import type { SecurityLevels } from "$lib/api/agentPolicyProfiles";
@@ -11,11 +12,11 @@
   let { posture, preview }: { posture: RulesPostureState; preview: RulesPreviewState } = $props();
 </script>
 
-<DraftGuard dirty={posture.levelsDirty || posture.verbosityDirty} />
+<DraftGuard dirty={posture.levelsDirty || posture.verbosityDirty || posture.addressFormDirty} />
 <section aria-labelledby="rules-posture-title" class="space-y-3">
   <div>
     <h2 id="rules-posture-title" class="text-h3">How cautious agents are</h2>
-    <p class="text-body-sm text-muted-foreground">Security level and response length. Both apply fleet-wide and are saved separately from the document.</p>
+    <p class="text-body-sm text-muted-foreground">Security level, response length and form of address. All apply fleet-wide and are saved separately from the document.</p>
   </div>
 
   <SecurityLevelsPanel
@@ -50,6 +51,19 @@
     <div class="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
       <p class="text-body-sm text-muted-foreground">Verbosity is fleet-wide and saved separately from the document.</p>
       <Button size="sm" onclick={() => posture.saveVerbosity()} disabled={posture.savingVerbosity}>{posture.savingVerbosity ? "Saving…" : "Save verbosity"}</Button>
+    </div>
+  {/if}
+
+  <AddressFormPanel
+    form={posture.draftAddressForm}
+    options={posture.addressFormOptions}
+    disabled={posture.savedAddressForm === null || posture.savingAddressForm}
+    onChange={(next) => (posture.draftAddressForm = next)}
+  />
+  {#if posture.addressFormDirty}
+    <div class="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+      <p class="text-body-sm text-muted-foreground">Address form is fleet-wide and saved separately from the document.</p>
+      <Button size="sm" onclick={() => posture.saveAddressForm()} disabled={posture.savingAddressForm}>{posture.savingAddressForm ? "Saving…" : "Save address form"}</Button>
     </div>
   {/if}
 </section>

@@ -273,7 +273,8 @@ describe('served document size budget', () => {
       // 2026-10-21: +550 for ordinary proactive Portal updates and explicit attention criteria.
       // 2026-10-25: +1100 for shared-native-child safety and exact-proof recovery.
       // 2026-11-04: +500 for the one-line session greeting in the Model Class Check.
-      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(30_500);
+      // 2026-11-05: +500 for the always-present formal/informal Address Form policy line.
+      expect(Buffer.byteLength(out.body, 'utf8')).toBeLessThan(31_000);
       expect(out.body).toContain('Before heavy work or large delegation call `quota_get`');
       expect(out.body).toContain('report unavailable and continue authorized work');
       expect(out.body).toContain('`#reboot-safe` before `agent_reboot`');
@@ -341,7 +342,7 @@ describe('served document byte invariance', () => {
     );
 
     expect(base.sha256).toBe('b0dbfff2b92182e13faf1171f6daf6910c8e59839ce64b67798b6c38af759740');
-    expect(out.policy_sha256).toBe('63a9a7c40faccd3da6fde10471a0076948be0fb1fdd1d38e2510f8c3aeffe512');
+    expect(out.policy_sha256).toBe('9db419f665a7b054e0b6c0d9ce9fb4e40e4940068816e5c7e39ed6d67b92d3c7');
     // 2026-10-11: compact project discovery consistently starts with project_summary.
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
@@ -368,8 +369,8 @@ describe('served document byte invariance', () => {
     // 2026-10-27: task/wait supervision and compact explicit-result guidance.
     // 2026-11-01: emulated-budget actions and opt-in held-work resume.
     expect(out.features_sha256).toBe('7510fd58236e6e37baf40e2f06ba010d7f99a9312c48354bf13100476450ba59');
-    expect(out.managed_sha256).toBe('3dd70f9ead4cbaa3b67baa0657af35e6f92a65ae7af9395c6327f477c5201adf');
-    expect(sha256(out.body)).toBe('4f084813a10f6a27023ff26f96c1075d13736b7acb0d2f02c4a766ed964898e8');
+    expect(out.managed_sha256).toBe('97c99274447107fd6d6f1fc8ffb964d6289ca571fc2a8d490403745d75cc6a40');
+    expect(sha256(out.body)).toBe('9c8611c74caf7152682219639742933465567e14edc20adba8573f554eb3ce71');
   });
 });
 
