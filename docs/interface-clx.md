@@ -1895,6 +1895,14 @@ its original recorded name and UUID, including picker/continue resumes discovere
 by the receiver. Same-launch bridge recovery preserves its confirmed name. Exit
 or bridge expiry starts a 24-hour quarantine; offline presence alone does not.
 A resume can reclaim its own name during quarantine or after expiry while free.
+A resume that takes its address over from a detached lifecycle of the same
+transcript (closed terminal, finished relay turn; never a live attached holder)
+takes that lifecycle's name with it and ends its name lease.
+While a host-daemon delivery turn (`peer_delivery`) still holds the transcript,
+registration returns HTTP 409 `agent_messaging_address_busy` with
+`holder_invocation_kind: "peer_delivery"`; from cxx 0.9.165 an operator resume
+prints a waiting line and retries every 2 seconds for up to 3 minutes. Any other
+holder (`interactive`, `execute`, or `null` when unknown) refuses at once.
 If another identity owns the name or its quarantine, registration returns HTTP 409
 `agent_resume_name_conflict` with `name`, `uuid` and `address`; no replacement name
 is allocated. Direct resumes stop before provider startup; late receiver binding

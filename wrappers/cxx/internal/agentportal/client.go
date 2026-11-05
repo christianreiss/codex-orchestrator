@@ -315,20 +315,38 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 
 	var response registerResponse
 	var registerErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		ctx, cancel := context.WithTimeout(parent, 8*time.Second)
-		registerErr = doJSON(ctx, client, strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), http.MethodPost, "/host/agent-sessions", body, cfg.Orchestrator.APIKey, "", &response)
-		cancel()
-		if registerErr == nil || !isRetryableAmbiguous(registerErr) {
-			break
-		}
-		if attempt == 0 {
+	register := func() {
+		for attempt := 0; attempt < 2; attempt++ {
+			ctx, cancel := context.WithTimeout(parent, 8*time.Second)
+			registerErr = doJSON(ctx, client, strings.TrimRight(cfg.Orchestrator.BaseURL, "/"), http.MethodPost, "/host/agent-sessions", body, cfg.Orchestrator.APIKey, "", &response)
+			cancel()
+			if registerErr == nil || !isRetryableAmbiguous(registerErr) || attempt > 0 {
+				return
+			}
 			select {
 			case <-parent.Done():
-				return nil, parent.Err()
+				return
 			case <-time.After(150 * time.Millisecond):
 			}
 		}
+	}
+	register()
+	// Stopping a session with mail waiting lets the host daemon resume the same
+	// conversation headlessly to answer it, usually for well under a minute. An
+	// operator resume in that window waits for the turn instead of failing.
+	if !session.peerDelivery && headlessHolderBusy(registerErr) {
+		fmt.Fprintln(os.Stderr, "agent portal: a headless delivery turn is answering on this conversation; waiting for it to finish (Ctrl-C to abort)")
+		for deadline := time.Now().Add(headlessHolderWait); headlessHolderBusy(registerErr) && time.Now().Before(deadline); {
+			select {
+			case <-parent.Done():
+				return nil, parent.Err()
+			case <-time.After(headlessHolderPoll):
+			}
+			register()
+		}
+	}
+	if parent.Err() != nil && registerErr != nil {
+		return nil, parent.Err()
 	}
 	if registerErr != nil {
 		if parent.Err() == nil && isRetryableAmbiguous(registerErr) {
@@ -357,6 +375,19 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	session.scopeContext = response.ScopeContext
 	return session, nil
+}
+
+var (
+	headlessHolderWait = 3 * time.Minute
+	headlessHolderPoll = 2 * time.Second
+)
+
+// headlessHolderBusy reports a refusal only because a daemon-launched delivery
+// turn still holds the conversation; any other holder is a real conflict.
+func headlessHolderBusy(err error) bool {
+	var portalErr *PortalError
+	return errors.As(err, &portalErr) && portalErr.Code == "agent_messaging_address_busy" &&
+		portalErr.Extra["holder_invocation_kind"] == "peer_delivery"
 }
 
 func signedChannelReceiveAllowed(cfg *config.Config, sessionEngine string) bool {

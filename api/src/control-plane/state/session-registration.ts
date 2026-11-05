@@ -38,6 +38,7 @@ import { stageBeginReboot, stageCompleteReboot } from './reboot.js';
 import { stageUpdate } from './rows.js';
 import { mutateOwnerState, type OwnerMutationContext, type OwnerRuntime } from './runtime.js';
 import { detachedHolderReplaceable } from './owner-liveness.js';
+import type { OwnerStateSnapshot } from './store.js';
 import { assertOwnedHousekeeping } from './session-lifecycle.js';
 
 function resolve(context: OwnerMutationContext, raw: string): AgentBusAddress {
@@ -53,6 +54,11 @@ function resolve(context: OwnerMutationContext, raw: string): AgentBusAddress {
   if (!address || address.archivedAt || !address.enabled)
     throw new NotFoundError('Agent address not found', 'agent_messaging_address_not_found');
   return address;
+}
+
+/** Lets a resuming wrapper wait out a short headless delivery turn instead of failing. */
+function holderKind(snapshot: OwnerStateSnapshot, holderId: string) {
+  return { holder_invocation_kind: snapshot.sessions.get(holderId)?.invocationKind ?? null };
 }
 
 export async function registerOwnedMessagingSession(
@@ -241,6 +247,7 @@ export async function registerOwnedMessagingSession(
           throw new ConflictError(
             'Native transcript is already bound to another lifecycle',
             'agent_messaging_address_busy',
+            holderKind(draft.view(), address.currentSessionId),
           );
         if (address) inferred = 'native';
       }
@@ -285,6 +292,7 @@ export async function registerOwnedMessagingSession(
           throw new ConflictError(
             'Agent address is already bound to another lifecycle',
             'agent_messaging_address_busy',
+            holderKind(draft.view(), address.currentSessionId),
           );
         const continuity =
           input.continuity ??
