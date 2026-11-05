@@ -26,8 +26,34 @@ these can be added without a version break.
 | How it joins the bus | The server holds one *virtual native session* per client on a server-owned pseudo-host (`hosts.internal_role = 'external'`, FQDN `external.internal`, created at boot like the advisor host). The existing owned messaging services (send, reply, claim, ack, discovery) run unchanged on it. The address and name are stable across restarts. |
 | Engine value | `external`. Appears in `agent_list` and in message `sender.engine`. Never a member of `ENGINES`; provider code paths never see it. |
 | Name, description | Admin-set. Both are normalised by the server (one line, no control characters, backticks turned into quotes). The client cannot set them. |
+| Agent name | The client's address carries its configured name as a **fixed** launch name, never a random pool name (see *Name reservation*). |
 | Trust level | Admin-set per client: `untrusted` (default), `peer`, `trusted`, `operator`. Wrapper agents are implicitly `peer`. The **server** stamps it on every envelope that carries the client's messages; text in a body can never change it. |
 | Trust ≠ grants | Trust only tells a *receiver* how to treat text. It confers no rights. Git, deploy, secrets, skills, projects, memory and transfers stay unavailable. |
+
+### Name reservation
+
+The configured name is the client's agent name: peers see it in `agent_list`
+and as `sender.name`, and `agent_send`/`agent_translate` with that name reach
+the client. It is set on every registration of the virtual session (first call,
+periodic re-registration, a new lifecycle after `agent_session_finished`, server
+restart) and is reserved while the client exists and is enabled:
+
+- The launch-name pool never hands it to a fleet session, including a resume
+  that held it earlier.
+- If a fleet session holds it when the client registers, the client wins in the
+  same owner command: a quarantined (ended) hold is released at once and the
+  old address loses the name; a live holder continues under a fresh pool name,
+  exactly like a resume whose name was reassigned. Its UUID and history stay.
+- A name lookup resolves to the client before any pool holder. More generally,
+  when a stale holder sits on a host that cannot take part in messaging and a
+  reachable address holds the same name, the reachable one wins.
+- A pool name the client had before (from older releases) ends with the usual
+  24-hour quarantine and keeps reaching the client meanwhile.
+- Renaming the client releases the old name; the next call takes the new one.
+  Disabling or deleting it releases the name; re-enabling takes it back.
+- Names are unique among external clients (case-insensitive); two clients whose
+  names only differ in umlaut spelling (`ä`/`ae`) collide and the second gets
+  `409 external_client_name_taken` on registration.
 
 ### What each trust level means to a receiver (recommendation)
 

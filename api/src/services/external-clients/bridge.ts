@@ -19,7 +19,8 @@ import { ApiError, ConflictError, ForbiddenError, NotFoundError, ServiceUnavaila
 import type { Keyring } from '../../security/keyring.js';
 import { ownerPresence } from '../../control-plane/presence.js';
 import { pollOwnedControl, realignOwnedControl } from '../../control-plane/streams/native-control.js';
-import { requireOwnerRuntime, type OwnerRuntime } from '../../control-plane/state/runtime.js';
+import { mutateOwnerState, ownerRuntimeFor, requireOwnerRuntime, type OwnerRuntime } from '../../control-plane/state/runtime.js';
+import { stageReleaseFixedName } from '../../control-plane/state/names.js';
 import { registerOwnedMessagingSession } from '../../control-plane/state/session-registration.js';
 import { claimOwnedDelivery } from '../agent-messaging/owned-claim.js';
 import { acknowledgeOwnedDelivery } from '../agent-messaging/owned-delivery.js';
@@ -115,6 +116,8 @@ export class ExternalBridge {
   private async ensureLocked(given: ExternalClient): Promise<Virtual> {
     const [stored] = await this.db.select().from(externalClients).where(eq(externalClients.id, given.id)).limit(1);
     const client = stored ?? given;
+    // A disable racing an in-flight call must not re-take the name it just released.
+    if (client.enabled !== 1) throw new ExternalCallError(403, 'client_disabled', 'This client is disabled');
     const runtime = requireOwnerRuntime(this.db);
     const host = await this.externalHost();
     const token = bridgeTokenFor(client.id, client.bridgeSecret);
@@ -131,6 +134,8 @@ export class ExternalBridge {
           bridgeToken: token,
           requestedAddress: client.addressId ? `agent:${client.addressId}` : null,
           continuity: 'reset',
+          // The address always carries the configured name; it is reserved against the pool.
+          fixedName: client.name,
           adapterProtocol: ADAPTER_PROTOCOL,
           adapterCapabilities: { execution_contract_version: 2 },
         },
@@ -409,6 +414,24 @@ export class ExternalBridge {
       next_offset: found.next_offset ?? null,
       server_time: nowIso(),
     };
+  }
+
+  /**
+   * Release the client's reserved name (disable, rename, delete). The next
+   * `ensure` of an enabled client takes its configured name again.
+   */
+  async releaseName(client: Pick<ExternalClient, 'id' | 'addressId'>): Promise<void> {
+    this.cache.delete(client.id);
+    const runtime = ownerRuntimeFor(this.db);
+    if (!runtime || !client.addressId) return;
+    const addressId = client.addressId;
+    await mutateOwnerState(runtime, {
+      kind: 'external_client.release_name',
+      payload: { id: client.id, addressId },
+      prepare(context) {
+        return stageReleaseFixedName(context, addressId, nowIso());
+      },
+    });
   }
 
   /** Server-side end of the client's presence (disable/rotate/delete). */

@@ -28,6 +28,7 @@ import { normalizeWorkspace } from '../../services/agent-messaging/workspace.js'
 import { publicAddress } from '../../services/agent-messaging/views.js';
 import type { RegisterMessagingSessionInput } from '../../services/agent-messaging/types.js';
 import { assertHostEngineEnabled } from '../../services/host-engine-policy.js';
+import { EXTERNAL_ROLE } from '../../services/internal-hosts.js';
 import { isTruthyFlagValue } from '../../services/settings.js';
 import { isoOffsetSeconds, nowIso } from '../../util/timestamp.js';
 import { wsPublisher } from '../../ws/publisher.js';
@@ -386,7 +387,10 @@ export async function registerOwnedMessagingSession(
       });
       stageCompleteReboot(context, reboot, sessionId, address, now);
       const naming: { renamedFrom?: string } = {};
-      const launchName = stageLaunchName(context, sessionId, address.id, now, naming);
+      // Only the server-owned external host may pin a name (an external client's configured name).
+      const fixedName =
+        host.internalRole === EXTERNAL_ROLE ? normalizeOptionalText(input.fixedName, 384) : null;
+      const launchName = stageLaunchName(context, sessionId, address.id, now, naming, fixedName);
       if (!launchName && input.adapterCapabilities?.launch_identity_version === 1)
         throw new ConflictError(
           'No free launch name; retry after a name becomes available',
