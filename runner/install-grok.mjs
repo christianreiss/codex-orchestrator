@@ -3,15 +3,15 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { writeFileSync, chmodSync } from 'node:fs';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 
-const version = '1.0.70';
+const version = '1.0.77';
 // The integrity pins below belong to this exact version; a different build arg
 // must fail here with a reason, not later as an opaque integrity mismatch.
 if (process.env.GROK_VERSION && process.env.GROK_VERSION !== version) {
   throw new Error(`install-grok.mjs pins Grok ${version}; update its integrity hashes for ${process.env.GROK_VERSION}`);
 }
 const packages = {
-  amd64: ['x64', 'rElshycz/6SgPSkiFGtKHA4vSVOI8qQ6d0jFeu4I92hXCMfvxgMiOvNSzuBhm2P8Jd+4rNGAty2zW0VwmgHSeA=='],
-  arm64: ['arm64', 'rH0TfWOT/Ca/sBMtAJJ+GJ9UyZlr/TkTqIHq8FL7o+ZTzJMBWvCv40JC4T/XuwEZ3WMmxOHGiPap7H9B4SbDSw=='],
+  amd64: ['x64', 'DuPSEw1NYj/bwLOCK/7LJw83N1rgKc8hEsIg4CggJ9y74yabAOUdamr4lfI+i2cKLPq9h8TQf2KNbyE/zX89yg=='],
+  arm64: ['arm64', 'Kb4yKbVEztX07iM7cvKB2L/xiQP1M/kLjJnyRk84gNtr3IG7ahqJp6005uB/VLvw0isv1Cj50zJ9jYTK7NiOqw=='],
 };
 const selected = packages[process.argv[2]];
 if (!selected) throw new Error('Unsupported Grok architecture');

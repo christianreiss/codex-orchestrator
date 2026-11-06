@@ -4,7 +4,7 @@ The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) tha
 
 The runner also pins Claude Code 2.1.318 (latest normal release reviewed on
 2026-11-06; vendor conservative stable channel: 2.1.311) and Grok Build
-1.0.70 (the official stable-pointer/npm-latest selection; local channel labels
+1.0.77 (the official stable-pointer/npm-latest selection reviewed on 2026-11-06; local channel labels
 are separate from the distributed version). These image pins do not change host minimum-version policy.
 
 The bundled Codex CLI is pinned to 0.167.0, matching the fleet catalog. Older
