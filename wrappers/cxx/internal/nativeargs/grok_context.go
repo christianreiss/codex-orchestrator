@@ -6,7 +6,8 @@ import (
 )
 
 // Grok reuses short names, and even a long option's arity can change below a
-// subcommand. These overrides describe native 1.0.70, never wrapper grammar.
+// subcommand. These overrides describe native 1.0.70 (unchanged in 1.0.77),
+// never wrapper grammar.
 var grokScopedOptions = map[string]map[string]spec{
 	"mcp add": {
 		"--scope": {"--scope", required}, "-s": {"--scope", required},
