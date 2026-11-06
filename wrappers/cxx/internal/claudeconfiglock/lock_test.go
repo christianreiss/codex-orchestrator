@@ -136,6 +136,19 @@ func TestStaleRegularFileIsNeverUnlinked(t *testing.T) {
 	}
 }
 
+func TestDanglingSymlinkAtLockPathIsLockedNotLooped(t *testing.T) {
+	p := configPath(t)
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone"), Path(p)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Acquire(p, Options{Budget: 10 * time.Millisecond}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("dangling symlink lock = %v, want ErrLocked", err)
+	}
+	if _, err := os.Lstat(Path(p)); err != nil {
+		t.Fatalf("foreign symlink must survive: %v", err)
+	}
+}
+
 func TestLostLockIsDetectedAndForeignLockSurvivesRelease(t *testing.T) {
 	p := configPath(t)
 	l, err := Acquire(p, Options{})

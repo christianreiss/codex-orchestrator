@@ -140,6 +140,11 @@ func tryAcquire(dir string, opts Options, allowStale bool) (*Lock, error) {
 	if !errors.Is(err, fs.ErrExist) {
 		return nil, err
 	}
+	if !allowStale {
+		// Native's stale:0 retry reports ELOCKED on EEXIST without a stat, which
+		// also bounds this recursion (e.g. a dangling symlink at the lock path).
+		return nil, &HeldError{Path: dir}
+	}
 	st, serr := os.Stat(dir)
 	if serr != nil {
 		if errors.Is(serr, fs.ErrNotExist) {
@@ -149,7 +154,7 @@ func tryAcquire(dir string, opts Options, allowStale bool) (*Lock, error) {
 		return nil, serr
 	}
 	age := opts.Now().Sub(st.ModTime())
-	if !allowStale || age <= opts.Stale {
+	if age <= opts.Stale {
 		return nil, &HeldError{Path: dir, Age: age}
 	}
 	if !st.IsDir() {
