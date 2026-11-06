@@ -53,6 +53,7 @@ type Broker struct {
 	nativeLock           *ipc.Lock
 	lockedNativeID       string
 	nativeID             string
+	pendingNativeID      string
 	hookActivity         ActivityObservation
 	hookActivityAt       time.Time
 	hookActivityNativeID string
@@ -174,22 +175,28 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			NativeID string `json:"native_session_id"`
 		}
 		_ = json.Unmarshal(raw, &identity)
-		daemonOwnsWriter := identity.NativeID != "" && identity.NativeID == os.Getenv("CXX_DAEMON_NATIVE_WRITER_ID") && os.Getenv("CXX_DAEMON_OPERATION_ID") != "" && os.Getenv("CXX_DAEMON_CLAIM_ID") != ""
-		if identity.NativeID != "" && isCanonicalUUID(identity.NativeID) && os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") == "" && !daemonOwnsWriter && !(identity.NativeID == os.Getenv("CXX_REBOOT_WRITER_ID") && os.Getenv("CXX_REBOOT_REQUEST_ID") != "") {
+		report := strings.HasSuffix(r.URL.Path, "/receiver/native")
+		if identity.NativeID == "" && report {
+			// SessionStart fires once. A transcript picked while a headless
+			// delivery turn held its writer stays pending, and the receiver's
+			// identity polls claim it once that turn ends.
 			b.nativeMu.Lock()
-			if b.lockedNativeID != identity.NativeID {
-				// A /clear changes native identity but retains this wrapper owner.
-				lock, lockErr := nativewriter.Acquire(b.session.Engine, identity.NativeID)
-				if lockErr != nil {
-					b.nativeMu.Unlock()
-					writeBrokerError(w, 409, "native_session_busy", "Another wrapper owns this native session")
-					return
+			if pending := b.pendingNativeID; pending != "" && b.claimNativeWriterLocked(pending) {
+				b.nativeID, b.pendingNativeID = pending, ""
+			}
+			b.nativeMu.Unlock()
+		} else if needsNativeWriter(identity.NativeID) {
+			b.nativeMu.Lock()
+			if !b.claimNativeWriterLocked(identity.NativeID) {
+				if report {
+					b.pendingNativeID = identity.NativeID
 				}
-				if b.nativeLock != nil {
-					b.nativeLock.Release()
-				}
-				b.nativeLock = lock
-				b.lockedNativeID = identity.NativeID
+				b.nativeMu.Unlock()
+				writeBrokerError(w, 409, "native_session_busy", "Another wrapper owns this native session")
+				return
+			}
+			if report {
+				b.pendingNativeID = ""
 			}
 			b.nativeMu.Unlock()
 		}
@@ -230,6 +237,10 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			b.nativeID = input.NativeID
 		}
 		id := b.nativeID
+		if b.pendingNativeID != "" {
+			// Native now runs the pending transcript; never report the old one.
+			id = ""
+		}
 		b.nativeMu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]string{"native_session_id": id})
 		return
@@ -692,4 +703,34 @@ func (b *Broker) forwardManagedMCP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(res.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(response, 16*1024*1024))
+}
+
+// needsNativeWriter reports whether this wrapper must own the native writer
+// lock for a reported transcript. A daemon child or reboot resume runs under
+// its parent's lock for that exact transcript.
+func needsNativeWriter(nativeID string) bool {
+	if nativeID == "" || !isCanonicalUUID(nativeID) || os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") != "" {
+		return false
+	}
+	daemonOwnsWriter := nativeID == os.Getenv("CXX_DAEMON_NATIVE_WRITER_ID") && os.Getenv("CXX_DAEMON_OPERATION_ID") != "" && os.Getenv("CXX_DAEMON_CLAIM_ID") != ""
+	return !daemonOwnsWriter && !(nativeID == os.Getenv("CXX_REBOOT_WRITER_ID") && os.Getenv("CXX_REBOOT_REQUEST_ID") != "")
+}
+
+// claimNativeWriterLocked takes the transcript's writer lock, releasing the
+// previous one: a /clear changes native identity but retains this wrapper
+// owner. The caller holds nativeMu.
+func (b *Broker) claimNativeWriterLocked(nativeID string) bool {
+	if b.lockedNativeID == nativeID {
+		return true
+	}
+	lock, err := nativewriter.Acquire(b.session.Engine, nativeID)
+	if err != nil {
+		return false
+	}
+	if b.nativeLock != nil {
+		b.nativeLock.Release()
+	}
+	b.nativeLock = lock
+	b.lockedNativeID = nativeID
+	return true
 }

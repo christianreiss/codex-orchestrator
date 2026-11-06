@@ -2,6 +2,8 @@ package agentportal
 
 import (
 	"encoding/json"
+	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"net/http"
 	"net/http/httptest"
@@ -274,6 +276,51 @@ func TestDaemonChildUsesParentWriterOnlyForItsExactNativeIdentity(t *testing.T) 
 			t.Setenv("CXX_DAEMON_NATIVE_WRITER_ID", "33333333-3333-4333-8333-333333333333")
 			if response := post(); response.Code != 409 {
 				t.Fatalf("unrelated native identity bypassed the writer lock: %d", response.Code)
+			}
+		})
+	}
+}
+
+// A transcript picked in the resume picker while a headless delivery turn
+// holds its writer must not be lost: SessionStart reports it only once, and
+// without it the receiver never binds, so the launch keeps a second identity
+// and the relay keeps resuming the transcript headlessly.
+func TestPickedTranscriptClaimsWriterAfterHeadlessTurn(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CXX_AGENT_MESSAGING_MESSAGE_ID", "")
+			const id = "44444444-4444-4444-8444-444444444444"
+			relay, err := nativewriter.Acquire(engine, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			broker := &Broker{session: &Session{ID: "session", Engine: engine, receiverAllowed: true}}
+			defer func() {
+				if broker.nativeLock != nil {
+					broker.nativeLock.Release()
+				}
+			}()
+			post := func(body string) *httptest.ResponseRecorder {
+				response := httptest.NewRecorder()
+				broker.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/host/agent-sessions/session/receiver/native", strings.NewReader(body)))
+				return response
+			}
+			if response := post(`{"native_session_id":"` + id + `"}`); response.Code != 409 {
+				t.Fatalf("second writer allowed during the headless turn: %d", response.Code)
+			}
+			if response := post(`{}`); response.Code != 200 || strings.Contains(response.Body.String(), id) {
+				t.Fatalf("reported a transcript whose writer is still held: %d %s", response.Code, response.Body)
+			}
+			relay.Release()
+			if response := post(`{}`); response.Code != 200 || !strings.Contains(response.Body.String(), id) {
+				t.Fatalf("picked transcript lost after the headless turn: %d %s", response.Code, response.Body)
+			}
+			if again, err := nativewriter.Acquire(engine, id); !errors.Is(err, ipc.ErrHeld) {
+				if again != nil {
+					again.Release()
+				}
+				t.Fatalf("relay could resume the open transcript: %v", err)
 			}
 		})
 	}
