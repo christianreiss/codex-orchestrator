@@ -3151,6 +3151,7 @@ export type SlopJob = typeof slopJobs.$inferSelect;
 export const slopJobFiles = mysqlTable('slop_job_files', {
   id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
   jobId: char('job_id', { length: 36 }).notNull(),
+  /** Byte-exact (utf8mb4_bin, 0128): repository paths are case-sensitive. */
   path: varchar('path', { length: 512 }).notNull(),
   rev: int('rev', { unsigned: true }).notNull(),
   kind: varchar('kind', { length: 16 }).notNull(),
