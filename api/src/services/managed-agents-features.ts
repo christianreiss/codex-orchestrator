@@ -452,6 +452,8 @@ Digests are previews: read originals with \`agent_digest_get\` or \`agent_messag
 when an answer is needed; a closing acknowledgement ends the exchange. Never resend a queued message;
 reuse its idempotency UUID on an uncertain retry. Questions, approvals and cancellations use
 \`delivery_class: coordination\`; progress may carry a \`coalesce_key\`.
+A follow-up you need later ("tell me when deployed") is an \`agent_request\` the peer
+finishes with a result, never "no reply needed".
 
 **Automatic reception.** A received reply is informational by default; continue only for a question,
 requested work or a substantive next turn. Never acknowledge an acknowledgement or answer a closing
