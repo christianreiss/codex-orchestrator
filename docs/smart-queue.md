@@ -17,7 +17,11 @@ A negotiated older server receives its original request shape.
 
 Use coordination for questions, approvals, clarifications and cancellation
 notices. Class is explicit metadata, not a content classifier. Unmarked messages
-remain information. Calls, conferences, explicit task results and operator portal
+remain information. Class orders delivery; it does not decide whether an idle
+session wakes: a receiver with an open gate claims every class alike. A follow-up
+the sender needs later ("tell me when deployed") is an `agent_request` the peer
+must finish with a task result, which is reported back as coordination; a "no
+reply needed" message creates no such obligation (feedback 98abb657). Calls, conferences, explicit task results and operator portal
 messages retain full text. Each sender retains ordering within its delivery lane.
 An accepted work claim can coexist with one informational/coordination delivery;
 no second work request starts until the existing work ends. Native queues still

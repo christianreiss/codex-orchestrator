@@ -368,9 +368,10 @@ describe('served document byte invariance', () => {
     // 2026-10-25: shared native children, connection-proof recovery and non-interrupting immediate delivery.
     // 2026-10-27: task/wait supervision and compact explicit-result guidance.
     // 2026-11-01: emulated-budget actions and opt-in held-work resume.
-    expect(out.features_sha256).toBe('7510fd58236e6e37baf40e2f06ba010d7f99a9312c48354bf13100476450ba59');
-    expect(out.managed_sha256).toBe('97c99274447107fd6d6f1fc8ffb964d6289ca571fc2a8d490403745d75cc6a40');
-    expect(sha256(out.body)).toBe('9c8611c74caf7152682219639742933465567e14edc20adba8573f554eb3ce71');
+    // 2026-11-06: a later peer follow-up is an agent_request, not "no reply needed" (feedback 98abb657).
+    expect(out.features_sha256).toBe('62b17ecbee98e3b8dcac0eb97c09adeca5b2ef7dd029497a915936c300eb0f00');
+    expect(out.managed_sha256).toBe('6d3cf75a1469bcaea45600c54d3ac796817b07af9c904b9ea5c6ffec88d1a12c');
+    expect(sha256(out.body)).toBe('1e66db81d358036f017e539893824739c731f19dadbce529ed37752d35bd7395');
   });
 });
 
@@ -1025,6 +1026,15 @@ describe('managed Agent Messaging guidance', () => {
       expect(body).toContain('Immediate information: keep work running');
       expect(body).toContain('pending until reply or natural turn end');
       expect(body).toMatch(/Complete that delivery with `agent_listen` once and yield, without sending\s+another peer message/);
+    }
+  });
+
+  it('turns a handover follow-up into tracked work instead of a no-reply message', () => {
+    // Feedback 98abb657: both sides of "tell me when deployed" sent "no reply
+    // needed" and yielded; nothing obliged either peer to report back.
+    for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+      const body = rendered(engine).body;
+      expect(body).toMatch(/A follow-up you need later \("tell me when deployed"\) is an `agent_request` the peer\s+finishes with a result, never "no reply needed"\./);
     }
   });
 
