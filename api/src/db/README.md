@@ -36,7 +36,10 @@ Useful flags: `--check`, `--list`, `--dry-run`, `--json`, `--baseline VERSION`,
 written through Drizzle) holds one row per applied version with the file's
 sha256, statement count, duration, and who applied it. A MySQL advisory lock
 (`GET_LOCK`) serialises concurrent runners, so several API instances booting at
-once is safe.
+once is safe. Lock names are server-global, so the runner scopes its name to
+the database (`codex_orchestrator_schema_migrations.<sha256(DATABASE())[:16]>`):
+boot and the deploy CLI against the same database still serialise, while test
+or staging databases on the same MySQL server no longer block each other.
 
 Migrations run on a **single connection** and **without a transaction**. Both are
 deliberate: the files use session state (`SET @… :=`, `PREPARE`/`EXECUTE`), and

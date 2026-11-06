@@ -58,6 +58,12 @@ export interface OwnedReplyInput {
 }
 const json = (value: unknown): Json => JSON.parse(JSON.stringify(value)) as Json;
 
+/** 422 texts shared with the unbound SQL reply path in `agent-messaging.ts`. */
+export const TASK_RESULT_CLAIM_REQUIRED =
+  'Task result requires the accepted delivery claim; pass the claim_id of this delivery';
+export const TASK_RESULT_NOT_WORK =
+  'Task result requires claimed work, and this message is not work: only messages sent with agent_request (kind request) or a schedule create work. A plain agent_send message cannot carry a task result; reply without task_result, or ask the sender to resend it with agent_request';
+
 export async function replyOwnedMessage(
   db: Database,
   runtime: OwnerRuntime,
@@ -157,11 +163,7 @@ export async function replyOwnedMessage(
           'agent_messaging_presence_notice_reply',
         );
       if (input.taskResult && (!parent.workKind || !claimId))
-        throw new ValidationError(
-          parent.workKind
-            ? 'Task result requires the accepted delivery claim; pass the claim_id of this delivery'
-            : 'Task result requires claimed work, and this message is not work: only messages sent with agent_request (kind request) or a schedule create work. A plain agent_send message cannot carry a task result; reply without task_result, or ask the sender to resend it with agent_request',
-        );
+        throw new ValidationError(parent.workKind ? TASK_RESULT_CLAIM_REQUIRED : TASK_RESULT_NOT_WORK);
       if (parent.workKind && !claimId)
         throw new ConflictError(
           'Work replies require the accepted delivery claim',

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import * as schema from '../../../src/db/schema.js';
 import { AgentMessagingService, AGENT_MESSAGING_ENABLED_KEY } from '../../../src/services/agent-messaging.js';
 import { advisorTurnCompleted } from '../../../src/services/advisor-delivery.js';
+import { SERVER_ADDRESS_ID } from '../../../src/services/agent-messaging/groups.js';
 import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
 import { invalidateFleetEngineState } from '../../../src/services/engine-switch.js';
 import { ENGINES, type Engine } from '../../../src/util/engine.js';
@@ -315,7 +316,11 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
     const ids: string[] = [];
     for (let n = 0; n < 9; n++) ids.push((await send(source, target, `Presence or progress ${n}`)).message.id);
     await db.update(schema.agentBusMessages).set({ createdAt: '2026-01-01T00:00:00Z' }).where(inArray(schema.agentBusMessages.id, ids));
-    await db.update(schema.agentBusMessages).set({ kind: 'presence_notice' }).where(inArray(schema.agentBusMessages.id, ids.filter((_, i) => i % 2 === 0)));
+    // Real presence notices come from the server address and are scoped to the
+    // target's live session (queuePresenceNotices); a notice without one is an
+    // ended-session leftover that discardPresenceNotices cancels before FIFO.
+    await db.update(schema.agentBusMessages).set({ kind: 'presence_notice', senderAddressId: SERVER_ADDRESS_ID, targetSessionId: target.id })
+      .where(inArray(schema.agentBusMessages.id, ids.filter((_, i) => i % 2 === 0)));
     const d = (await claim(target))!;
     expect(d.kind).toBe('digest');
     const body = JSON.parse(d.content);

@@ -42,8 +42,20 @@ import { splitSqlStatements } from './migration-sql.js';
 
 export const LEDGER_TABLE = 'schema_migrations';
 
-/** Session-scoped MySQL advisory lock; names are capped at 64 characters. */
-const LOCK_NAME = 'codex_orchestrator_schema_migrations';
+/**
+ * Session-scoped MySQL advisory lock; names are capped at 64 characters.
+ * GET_LOCK names are server-global, but the ledger and the schema it guards
+ * belong to one database, so the name carries a digest of `DATABASE()`
+ * (like the control-plane owner lock). Every runner against the same database
+ * — API boot and the `migrate` CLI in `scripts/deploy.sh` — still derives the
+ * same name and serialises; runners against other databases on the same server
+ * no longer block each other.
+ */
+const LOCK_PREFIX = 'codex_orchestrator_schema_migrations';
+
+export function migrationLockName(database: string): string {
+  return `${LOCK_PREFIX}.${createHash('sha256').update(database).digest('hex').slice(0, 16)}`;
+}
 
 export type MigrationPool = Pick<Pool, 'getConnection'>;
 
@@ -327,7 +339,8 @@ export async function runMigrations(
 
   const conn = await pool.getConnection();
   try {
-    await acquireLock(conn, lockTimeout);
+    const lockName = await resolveLockName(conn);
+    await acquireLock(conn, lockName, lockTimeout);
     try {
       const baseline = baselineStatements
         ? await applyBaseline(conn, baselineStatements, { dryRun, logger })
@@ -422,7 +435,7 @@ export async function runMigrations(
 
       return report;
     } finally {
-      await releaseLock(conn, logger);
+      await releaseLock(conn, lockName, logger);
     }
   } finally {
     conn.release();
@@ -606,27 +619,32 @@ function buildStates(files: MigrationFile[], ledger: Map<string, LedgerRow>): Mi
   return states.sort((a, b) => versionKey(a.version).localeCompare(versionKey(b.version)));
 }
 
-async function acquireLock(conn: PoolConnection, timeoutSeconds: number): Promise<void> {
+async function resolveLockName(conn: PoolConnection): Promise<string> {
+  const [rows] = await conn.query<RowDataPacket[]>('SELECT DATABASE() AS db');
+  return migrationLockName(String(rows[0]?.db ?? ''));
+}
+
+async function acquireLock(conn: PoolConnection, lockName: string, timeoutSeconds: number): Promise<void> {
   const [rows] = await conn.query<RowDataPacket[]>('SELECT GET_LOCK(?, ?) AS acquired', [
-    LOCK_NAME,
+    lockName,
     timeoutSeconds,
   ]);
   const acquired = rows[0]?.acquired ?? null;
   // GET_LOCK is 1 on success, 0 on timeout, NULL on error — and NULL coerces to
   // 0, so the three cases have to be separated before any numeric compare.
   if (acquired === null) {
-    throw new Error(`migration lock ${LOCK_NAME} could not be evaluated (GET_LOCK returned NULL)`);
+    throw new Error(`migration lock ${lockName} could not be evaluated (GET_LOCK returned NULL)`);
   }
   if (Number(acquired) === 1) return;
   throw new Error(
-    `another process holds the migration lock ${LOCK_NAME} (waited ${timeoutSeconds}s); ` +
+    `another process holds the migration lock ${lockName} (waited ${timeoutSeconds}s); ` +
       'retry once it finishes',
   );
 }
 
-async function releaseLock(conn: PoolConnection, logger: MigrationLogger): Promise<void> {
+async function releaseLock(conn: PoolConnection, lockName: string, logger: MigrationLogger): Promise<void> {
   try {
-    await conn.query('SELECT RELEASE_LOCK(?)', [LOCK_NAME]);
+    await conn.query('SELECT RELEASE_LOCK(?)', [lockName]);
   } catch (err) {
     // The connection goes back to the pool either way; MySQL drops the lock
     // when the session ends, so this is noise rather than a failure.

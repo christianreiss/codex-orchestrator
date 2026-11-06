@@ -10,7 +10,7 @@ import { queueOwnedPresenceNotices } from '../control-plane/state/presence-notic
 import { sendOwnedMessage } from './agent-messaging/owned-send.js';
 import { acknowledgeOwnedDelivery, renewOwnedDelivery } from './agent-messaging/owned-delivery.js';
 import { claimOwnedDelivery } from './agent-messaging/owned-claim.js';
-import { replyOwnedMessage } from './agent-messaging/owned-reply.js';
+import { replyOwnedMessage, TASK_RESULT_CLAIM_REQUIRED, TASK_RESULT_NOT_WORK } from './agent-messaging/owned-reply.js';
 import { getOwnedMessage, peekOwnedMailbox, waitOwnedMessages } from './agent-messaging/owned-read.js';
 import { maintainOwnedMessaging } from './agent-messaging/owned-maintenance.js';
 import { stageCoordinationNotice } from '../control-plane/state/coordination-notices.js';
@@ -646,8 +646,8 @@ export class AgentMessagingService {
         throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
       }
       if (!input.queue && parent.deliveryClass === 'coordination') policy = { ...policy, deliveryClass: 'coordination' };
-      if (input.taskResult && !parent.workKind) throw new ValidationError('Only work deliveries accept a task result');
-      if (input.taskResult && !input.claimId) throw new ValidationError('Task result requires the current claim');
+      if (input.taskResult && !parent.workKind) throw new ValidationError(TASK_RESULT_NOT_WORK);
+      if (input.taskResult && !input.claimId) throw new ValidationError(TASK_RESULT_CLAIM_REQUIRED);
       if (parent.workKind && !input.claimId) {
         throw new ConflictError('Work replies require the accepted delivery claim', 'agent_task_result_not_accepted');
       }
