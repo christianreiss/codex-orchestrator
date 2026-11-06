@@ -1336,7 +1336,16 @@ change the model.
   `mcpServers.*` owned paths out of the partial and merges them into
   `~/.claude.json` (managed names tracked in `~/.clx/state/managed-mcp.json`;
   user-authored servers and all other `.claude.json` keys survive; an
-  unparseable file is never overwritten). Because the split removes
+  unparseable file is never overwritten). The read-modify-rename runs under
+  Claude Code's own config lock, the `~/.claude.json.lock` directory that
+  native `saveConfigWithLock` and `claude mcp add/remove` take. A lock whose
+  mtime is at most 10 s old is never stolen. After a 3 s retry budget the
+  wrapper skips that round instead of writing unlocked: no file write, no
+  sidecar update, and the next sync retries. A lock older than 10 s is taken
+  over the same way native does it. The trust-loss strip and the
+  `hasCompletedOnboarding` seed use the same lock. See
+  [Claude global config lock](NATIVE_CONFIG_SCOPES.md#claude-global-config-lock-claudejson).
+  Because the split removes
   `mcpServers.*` from the settings.json owned set, the stale-path cleanup
   removes the inert block older wrapper versions wrote there.
 - The wrapper merges `partial` over the user's file, preserving every key the

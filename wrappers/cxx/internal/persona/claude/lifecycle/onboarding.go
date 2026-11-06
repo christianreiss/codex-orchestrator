@@ -9,7 +9,8 @@
 // up the minted credentials directly.
 //
 // Same discipline as userconfig_merge.go: never touch an unparseable file,
-// only add the one key, preserve the existing file mode, write atomically.
+// only add the one key, preserve the existing file mode, write atomically under
+// Claude Code's config lock (a held lock defers the seed to the next sync).
 package lifecycle
 
 import (
@@ -23,6 +24,23 @@ import (
 
 func ensureOnboardingState(logger *slog.Logger) {
 	path := userConfigPath()
+	// Unlocked fast path: the flag is normally already set, and a read needs no
+	// lock. Only an actual seed takes Claude Code's config lock and re-reads.
+	if raw, err := os.ReadFile(path); err == nil {
+		var root map[string]any
+		if json.Unmarshal(raw, &root) == nil {
+			if v, ok := root["hasCompletedOnboarding"].(bool); ok && v {
+				return
+			}
+		}
+	}
+	_ = withUserConfigLock(path, "onboarding-seed", logger, func(check func() error) error {
+		seedOnboardingLocked(path, logger, check)
+		return nil
+	})
+}
+
+func seedOnboardingLocked(path string, logger *slog.Logger, check func() error) {
 	raw, rerr := os.ReadFile(path)
 	if rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
 		// An existing-but-unreadable file (root-owned, or 0600 from another uid)
@@ -54,6 +72,10 @@ func ensureOnboardingState(logger *slog.Logger) {
 	mode := os.FileMode(0o600)
 	if fi, serr := os.Stat(path); serr == nil {
 		mode = fi.Mode().Perm()
+	}
+	if cerr := check(); cerr != nil {
+		logger.Warn("skipping onboarding seed; Claude Code config lock lost", "err", cerr)
+		return
 	}
 	if werr := atomicWrite(path, out, mode); werr != nil {
 		logger.Debug("onboarding seed write failed", "err", werr)

@@ -13,6 +13,13 @@
 // touch only the managed `mcpServers` leaves, track managed names in a sidecar
 // (~/.clx/state/managed-mcp.json) so renames/removals clean up, fail safe on an
 // unparseable user file, write atomically preserving the existing file mode.
+//
+// Every read-modify-rename of ~/.claude.json runs under Claude Code's own config
+// lock (claudeconfiglock: the `~/.claude.json.lock` directory that native
+// saveConfigWithLock and `claude mcp add/remove` take). The read happens under
+// the lock so a native save cannot land between our read and our rename. A live
+// holder that outlasts the short budget defers this round: nothing is written,
+// the managed-mcp sidecar is left as it was, and the next sync retries.
 package lifecycle
 
 import (
@@ -24,6 +31,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claudeconfiglock"
 )
 
 type managedMcpState struct {
@@ -143,21 +152,71 @@ func applyUserMcpServers(servers map[string]any, logger *slog.Logger) bool {
 	return changed
 }
 
+// ErrUserConfigLocked reports a ~/.claude.json update deferred because Claude
+// Code held its config lock for the whole retry budget. Nothing was written and
+// the managed-mcp sidecar is unchanged, so the next sync retries the update.
+var ErrUserConfigLocked = errors.New("~/.claude.json update deferred: Claude Code holds its config lock")
+
+// userConfigLockOptions is the test seam for the lock budget and clock.
+var userConfigLockOptions claudeconfiglock.Options
+
+// withUserConfigLock runs fn while holding Claude Code's config lock for path.
+// fn must read the file inside the lock and call check immediately before its
+// rename; a lost lock means the write must not land. It never falls back to an
+// unlocked write.
+func withUserConfigLock(path, op string, logger *slog.Logger, fn func(check func() error) error) error {
+	lockPath := claudeconfiglock.Path(path)
+	lock, err := claudeconfiglock.Acquire(path, userConfigLockOptions)
+	if err != nil {
+		if errors.Is(err, claudeconfiglock.ErrLocked) {
+			logger.Warn("deferring ~/.claude.json update to the next sync; Claude Code holds its config lock", "op", op, "lock", lockPath, "err", err)
+			return fmt.Errorf("%w: %w", ErrUserConfigLocked, err)
+		}
+		logger.Warn("skipping ~/.claude.json update; Claude Code config lock unavailable", "op", op, "lock", lockPath, "err", err)
+		return fmt.Errorf("acquire Claude Code config lock: %w", err)
+	}
+	defer func() {
+		if rerr := lock.Release(); rerr != nil {
+			logger.Warn("Claude Code config lock release failed", "op", op, "lock", lockPath, "err", rerr)
+		}
+	}()
+	return fn(lock.Check)
+}
+
 func applyUserMcpServersResult(servers map[string]any, logger *slog.Logger) (bool, error) {
 	prev := loadManagedMcpState()
 	if len(servers) == 0 && len(prev.Names) == 0 {
 		return false, nil
 	}
 	path := userConfigPath()
+	var changed bool
+	var names []string
+	err := withUserConfigLock(path, "mcp-merge", logger, func(check func() error) error {
+		var merr error
+		changed, names, merr = mergeUserMcpServersLocked(path, servers, prev.Names, logger, check)
+		return merr
+	})
+	if err != nil {
+		return false, err
+	}
+	if serr := saveManagedMcpState(managedMcpState{Version: 1, Names: names}); serr != nil {
+		logger.Debug("managed-mcp state write failed", "err", serr)
+		return changed, serr
+	}
+	return changed, nil
+}
+
+// mergeUserMcpServersLocked is the read-modify-rename; the caller holds the lock.
+func mergeUserMcpServersLocked(path string, servers map[string]any, prevNames []string, logger *slog.Logger, check func() error) (bool, []string, error) {
 	userRaw, readErr := os.ReadFile(path)
 	if readErr != nil && !os.IsNotExist(readErr) {
-		return false, fmt.Errorf("read user MCP config: %w", readErr)
+		return false, nil, fmt.Errorf("read user MCP config: %w", readErr)
 	}
-	merged, names, err := MergeUserMcpServers(userRaw, servers, prev.Names)
+	merged, names, err := MergeUserMcpServers(userRaw, servers, prevNames)
 	if err != nil {
 		// Fail safe: leave the user's .claude.json untouched this run.
 		logger.Warn("skipping MCP merge to avoid clobbering unparseable user .claude.json", "path", path, "err", err)
-		return false, err
+		return false, nil, err
 	}
 	changed := !bytesEqual(userRaw, merged)
 	if changed {
@@ -167,16 +226,15 @@ func applyUserMcpServersResult(servers map[string]any, logger *slog.Logger) (boo
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
 		}
+		if cerr := check(); cerr != nil {
+			return false, nil, cerr
+		}
 		if werr := atomicWrite(path, merged, mode); werr != nil {
 			logger.Debug("merged .claude.json write failed", "err", werr)
-			return false, werr
+			return false, nil, werr
 		}
 	}
-	if serr := saveManagedMcpState(managedMcpState{Version: 1, Names: names}); serr != nil {
-		logger.Debug("managed-mcp state write failed", "err", serr)
-		return changed, serr
-	}
-	return changed, nil
+	return changed, names, nil
 }
 
 // stripUserMcpServers removes every fleet-managed MCP server from ~/.claude.json
@@ -191,30 +249,44 @@ func stripUserMcpServersWith(logger *slog.Logger, write func(string, []byte, os.
 		return nil
 	}
 	path := userConfigPath()
-	userRaw, readErr := os.ReadFile(path)
-	if readErr != nil && !os.IsNotExist(readErr) {
-		return fmt.Errorf("read user MCP config: %w", readErr)
-	}
-	if os.IsNotExist(readErr) {
+	if _, serr := os.Lstat(path); os.IsNotExist(serr) {
+		// Nothing to strip: no lock needed to clear the ownership sidecar.
 		if err := saveManagedMcpState(managedMcpState{Version: 1, Names: []string{}}); err != nil {
 			return fmt.Errorf("clear managed MCP ownership: %w", err)
 		}
 		return nil
 	}
-	merged, _, err := MergeUserMcpServers(userRaw, map[string]any{}, prev.Names)
-	if err != nil {
-		logger.Warn("skipping MCP strip; user .claude.json unparseable", "err", err)
-		return err
-	}
-	if !bytesEqual(userRaw, merged) {
+	err := withUserConfigLock(path, "mcp-strip", logger, func(check func() error) error {
+		userRaw, readErr := os.ReadFile(path)
+		if os.IsNotExist(readErr) {
+			return nil
+		}
+		if readErr != nil {
+			return fmt.Errorf("read user MCP config: %w", readErr)
+		}
+		merged, _, err := MergeUserMcpServers(userRaw, map[string]any{}, prev.Names)
+		if err != nil {
+			logger.Warn("skipping MCP strip; user .claude.json unparseable", "err", err)
+			return err
+		}
+		if bytesEqual(userRaw, merged) {
+			return nil
+		}
 		mode := os.FileMode(0o600)
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
+		}
+		if err := check(); err != nil {
+			return err
 		}
 		if err := write(path, merged, mode); err != nil {
 			logger.Warn("MCP strip write failed; retaining ownership for retry", "err", err)
 			return err
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	if err := saveManagedMcpState(managedMcpState{Version: 1, Names: []string{}}); err != nil {
 		return fmt.Errorf("clear managed MCP ownership: %w", err)
