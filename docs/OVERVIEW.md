@@ -42,6 +42,13 @@ checked. See [shutdown](interface-cdx.md#native-shutdown),
 [Advisor](interface-api.md#fleet-advisor) and
 [wrapper publication](wrapper-v2-architecture.md).
 
+Grok native user defaults are audited against Build 1.0.77: fields added in
+1.0.71–1.0.77 (feedback tools, Ctrl-C and multiline UI, request compression,
+workflow runtime, kitty keyboard, hook `failClosed`, `keys.vim = "all"`) carry
+per-field CLI minimum versions, and `cli.channels.<name>` is rejected as fleet
+update policy. The auth runner pins Codex 0.167.0, Claude Code 2.1.318 and Grok
+Build 1.0.77; see the [engine maintenance report](engine-maintenance-2026-11-06.md).
+
 Codex native defaults and profile sidecars support 0.167.0 configuration: seven
 new feature switches, SSE delta logging, provider cyber-access capability and gateway
 OAuth storage, and plugin connector settings. These require an observed 0.167.0 CLI;

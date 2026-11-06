@@ -19,7 +19,7 @@ type spec struct {
 }
 
 // Sources: Codex rust-v0.167.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
-// help/PagerArgs. Comma-delimited vectors take one argv value unless num_args
+// help/PagerArgs (worker options re-checked against 1.0.77). Comma-delimited vectors take one argv value unless num_args
 // explicitly says otherwise. An attached/equal value ends a variadic occurrence.
 var codex = map[string]spec{}
 var grok = map[string]spec{}
