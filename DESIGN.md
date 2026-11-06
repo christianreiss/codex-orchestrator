@@ -262,7 +262,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 
 ## 8. Baseline inventory and migration debt
 
-This is a source audit, not a live visual acceptance report. All 41 `+page.svelte` entrypoints are represented below (rechecked 2026-11-05), including redirects and the legacy catch-all. The five workflow routes were added on 2026-10-20 with automated interaction and responsive coverage; manual screen-reader and independent usability acceptance remain separate. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
+This is a source audit, not a live visual acceptance report. All 42 `+page.svelte` entrypoints are represented below (rechecked 2026-11-06), including redirects and the legacy catch-all. The five workflow routes were added on 2026-10-20 with automated interaction and responsive coverage; manual screen-reader and independent usability acceptance remain separate. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
 
 | Current entry / view | Primary task and pattern | Existing composition | Step-2 check |
 | --- | --- | --- | --- |
@@ -276,6 +276,7 @@ This is a source audit, not a live visual acceptance report. All 41 `+page.svelt
 | `/admin/projects/[slug]/board` | Manage work; board | Project shell, `Section`, columns, card sheet | Non-drag move, narrow layout, empty columns |
 | `/admin/projects/[slug]/documents` | Edit notes/files; list + editor | Project shell, `DataTable`, `ListDetail`, `Toolbar` | Both kinds, unsaved input, long content |
 | `/admin/projects/[slug]/reports` | Triage project reports; list/detail | Project shell, `Toolbar`, `ReportInbox`, `ListDetail` | Status vocabulary, mutation recovery |
+| `/admin/projects/[slug]/slop` | Inspect agents' slop review jobs, runs and findings; read-only | Project shell, `DataTable`, `EventRow` detail, `StateBlock` | Long finding lists, many runs per job, 320 px file table scroll region |
 | `/admin/projects/[slug]/activity` | Inspect project events; history | Project shell, `EventFeed`, `DataTable`, diagnostics | Pagination, timestamp context, long JSON |
 | `/admin/agent-messaging` | Inspect coordination; list/history | `PageShell`, domain toolbar, address/conversation/delivery/group/conference views | Every subview, unreadable raw payloads, action scope |
 | `/admin/workflows` | Find reusable instructions; list | `PageShell`, `Toolbar`, `DataTable`, module switch | Disabled versus empty, search, pagination, stale/denied |

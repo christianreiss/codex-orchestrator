@@ -599,8 +599,16 @@ export class AdvisorService {
 
   async close(caller: AdvisorCaller, body: unknown) {
     const input = z.object({ advisor_session_id: z.string().uuid() }).strict().parse(body);
-    const callerId = this.callerAddress(caller);
-    const row = await this.owned(callerId, input.advisor_session_id);
+    return this.closeFor(this.callerAddress(caller), input.advisor_session_id);
+  }
+
+  /**
+   * Close on behalf of the agent that opened the session. Server-internal: a
+   * full slop run closes its review advisor once the answer is recorded, long
+   * after the caller's request (and its bridge proof) ended.
+   */
+  async closeFor(callerId: string, advisorSessionId: string) {
+    const row = await this.owned(callerId, advisorSessionId);
     const owner = ownerRuntimeFor(this.ctx.db);
     if (owner) {
       await mutateOwnerState(owner, {

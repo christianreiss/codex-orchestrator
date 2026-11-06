@@ -13,6 +13,8 @@ import { ProviderAccountsService } from '../../../services/provider-accounts.js'
  *   POST   /admin/projects/:slug/about
  *   POST   /admin/projects/:slug/roster
  *   GET    /admin/projects/:slug/changes
+ *   GET    /admin/projects/:slug/slop-jobs
+ *   GET    /admin/projects/:slug/slop-jobs/:id
  *   GET    /admin/projects/:slug/notes
  *   POST   /admin/projects/:slug/notes
  *   POST   /admin/projects/:slug/notes/:id
@@ -32,6 +34,7 @@ import { ProviderAccountsService } from '../../../services/provider-accounts.js'
 import type { FastifyInstance } from 'fastify';
 import { ValidationError } from '../../../http/errors.js';
 import type { RouteContext } from '../../index.js';
+import { slopJobsService } from '../../../services/slop-jobs.js';
 import { ProjectContentService } from '../../../services/project-content.js';
 import { ProjectDraftsService } from '../../../services/project-drafts.js';
 import { ProjectsService } from '../../../services/projects.js';
@@ -190,6 +193,20 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
       const since = parseInteger(req.query.since) ?? 0;
       return await projects.listChanges(decodeURIComponent(req.params.slug), Math.max(0, since));
     },
+  );
+
+  // ── slop jobs (read-only; agents own them through MCP) ──────────────────
+
+  const slop = slopJobsService(ctx);
+  app.get<{ Params: { slug: string } }>(
+    '/admin/projects/:slug/slop-jobs',
+    { preHandler: app.requireAdmin },
+    async (req) => slop.adminList(decodeURIComponent(req.params.slug)),
+  );
+  app.get<{ Params: { slug: string; id: string } }>(
+    '/admin/projects/:slug/slop-jobs/:id',
+    { preHandler: app.requireAdmin },
+    async (req) => slop.adminGet(decodeURIComponent(req.params.slug), req.params.id),
   );
 
   // ── notes ────────────────────────────────────────────────────────────────

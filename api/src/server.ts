@@ -25,6 +25,7 @@ import { startAgentPortalWorker } from './ops/agent-portal-worker.js';
 import { startInsecureFleetWindowWorker } from './ops/insecure-fleet-window-worker.js';
 import { startWrapperRolloutWorker } from './ops/wrapper-rollout-worker.js';
 import { startAgentTransfersWorker } from './ops/agent-transfers-worker.js';
+import { startSlopJobsWorker } from './services/slop-jobs.js';
 import { startAgentMessagingWorker } from './ops/agent-messaging-worker.js';
 import { startGrokUsageWorker } from './ops/grok-usage-worker.js';
 import { attachShutdown } from './ops/shutdown.js';
@@ -157,6 +158,7 @@ export async function buildServer() {
   startInsecureFleetWindowWorker(app, db, env);
   startWrapperRolloutWorker(app, db, env);
   startAgentTransfersWorker(app, db, env);
+  startSlopJobsWorker(app, { db, env, keyring });
   startGrokUsageWorker(app, db, env, keyring);
   startChatGptUsageWorker(app, db, env);
   startFeedbackWorker(app, { db, env, keyring });

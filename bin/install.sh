@@ -686,16 +686,16 @@ step_dataroot() {
   [[ "$chosen" != /* ]] && chosen="$ROOT_DIR/${chosen#./}"
 
   if (( ! DRY_RUN )); then
-    mkdir -p "$chosen"/{store,store/sql,store/logs,store/transfers,store/agent-chat,store/advisor,mysql_data,caddy/tls,backups} ||
+    mkdir -p "$chosen"/{store,store/sql,store/logs,store/transfers,store/agent-chat,store/advisor,store/slop,mysql_data,caddy/tls,backups} ||
       fatal "cannot create data directories under $chosen (try sudo, or pick a writable path)"
     # Deliberately not `chmod -R` over the whole store: the wrapper signing key
     # lives under it at mode 0600, and a recursive widen would quietly publish
     # this installation's private key to every local user. Directories only.
     find "$chosen/store" "$chosen/caddy" "$chosen/backups" \
-      -type d -not -path "*/wrapper/v2/keys*" -not -path "*/agent-chat*" -not -path "*/advisor*" -exec chmod 775 {} + 2>/dev/null || true
+      -type d -not -path "*/wrapper/v2/keys*" -not -path "*/agent-chat*" -not -path "*/advisor*" -not -path "*/slop*" -exec chmod 775 {} + 2>/dev/null || true
     # Private runtime files are written by the API and media worker (uid 10001).
     # Keep the rest of the store root-owned and preserve existing media modes.
-    for runtime_directory in "$chosen/store/transfers" "$chosen/store/agent-chat" "$chosen/store/advisor"; do
+    for runtime_directory in "$chosen/store/transfers" "$chosen/store/agent-chat" "$chosen/store/advisor" "$chosen/store/slop"; do
       mkdir -p "$runtime_directory"
       chown 10001:10001 "$runtime_directory" 2>/dev/null ||
         warn "could not chown $runtime_directory to 10001:10001; runtime uploads will fail until it is owned by the container user"
@@ -1092,18 +1092,18 @@ step_schema() {
 }
 
 step_apptier() {
-  (( DRY_RUN )) && { step_skipped "would start api, media-worker and configured caddy"; return 0; }
+  (( DRY_RUN )) && { step_skipped "would start api, media-worker, slop-worker and configured caddy"; return 0; }
   if [[ -z "$OWNER_CUTOVER_DIR" ]]; then
     instance_compose_init
     owner_cutover_prepare || fatal "quiescent backup failed"
   fi
-  local services=(api media-worker) up=(up -d)
+  local services=(api media-worker slop-worker) up=(up -d)
   (( USE_CADDY )) && services+=(caddy)
   compose up --help 2>/dev/null | grep -q -- '--wait' && up+=(--wait --wait-timeout 180)
   [[ -z "$OWNER_CUTOVER_DIR" ]] || owner_cutover_phase replacement-started
   info "starting ${services[*]}"
   compose "${up[@]}" "${services[@]}" >&2 ||
-    fatal "the API or media worker did not become healthy; check \`docker compose logs api media-worker\`"
+    fatal "the API or a worker did not become healthy; check \`docker compose logs api media-worker slop-worker\`"
   # Provider usage deadlines run inside the API owner.
   step_done "api healthy"
 }

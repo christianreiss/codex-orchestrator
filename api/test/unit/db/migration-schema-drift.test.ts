@@ -254,6 +254,9 @@ describe('migrations against the test baseline', () => {
       'agent_room_pins',
       'quota_emulation_states',
       'external_clients',
+      'slop_jobs',
+      'slop_job_files',
+      'slop_runs',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

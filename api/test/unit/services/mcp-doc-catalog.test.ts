@@ -30,6 +30,7 @@ const GROUPS = [
   'Fleet secrets store',
   'Git Director',
   'File transfer',
+  'Slop jobs',
   'Work grants',
   'Wake / Cron',
   'Operator/internal filesystem helpers',

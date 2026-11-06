@@ -123,6 +123,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.file.deleted": [["projects"]],
   "project.feedback.created": [["projects"]],
   "project.feedback.updated": [["projects"]],
+  "project.slop.changed": [["projects"]],
   "project.archived": [["projects"]],
   "project.unarchived": [["projects"]],
   "project.card.created": [["projects"]],
@@ -349,6 +350,7 @@ const PROJECT_SCOPED_EVENTS = new Set<string>([
   "project.card.released",
   "project.card.deleted",
   "project.board.updated",
+  "project.slop.changed",
 ]);
 
 function projectDetailSubKey(eventType: string): string | null {
@@ -358,6 +360,7 @@ function projectDetailSubKey(eventType: string): string | null {
   if (eventType.startsWith("project.feedback")) return "feedback";
   if (eventType.startsWith("project.memory")) return "memories";
   if (eventType.startsWith("project.card") || eventType.startsWith("project.board")) return "board";
+  if (eventType.startsWith("project.slop")) return "slop";
   return null;
 }
 

@@ -1177,6 +1177,14 @@ const CURATION_TOOLS = [
   // a fleet that has not asked for it.
   'transfer_put',
   'transfer_delete',
+  // Slop jobs: a review loop is create, put, run, re-put, re-run, close. A
+  // prompt on each step turns a self-check into an interrogation; the job is
+  // confined to its project and expires after 24 h on its own.
+  'slop_job_create',
+  'slop_job_put',
+  'slop_job_describe',
+  'slop_job_run',
+  'slop_job_close',
 ] as const;
 
 /**

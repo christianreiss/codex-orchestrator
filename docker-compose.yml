@@ -104,6 +104,32 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Slop jobs (docs/interface-api.md#slop-jobs): runs the vendored slop-detector
+  # `scan`/`report` on run directories the API writes under store/slop/runs.
+  # No network and a read-only root: uploaded files are only read, never run.
+  slop-worker:
+    build: ./slop-worker
+    environment:
+      DATA_ROOT: /app/storage
+    volumes:
+      - ${DATA_ROOT:-/var/docker_data/codex-auth.example.com}/store:/app/storage
+    cpus: 1
+    mem_limit: 1g
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('fs');const p='/app/storage/slop/runs';fs.accessSync(p,fs.constants.W_OK);fs.accessSync('/opt/slop/dist/cli.js')"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   mysql:
     image: mysql:8.4
     command: ["--mysql-native-password=ON", "--skip-log-bin"]

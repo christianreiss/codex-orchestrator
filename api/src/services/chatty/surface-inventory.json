@@ -199,6 +199,8 @@
       "GET /admin/passkeys",
       "GET /admin/project-board/state",
       "GET /admin/projects/:slug/changes",
+      "GET /admin/projects/:slug/slop-jobs",
+      "GET /admin/projects/:slug/slop-jobs/:id",
       "GET /admin/projects/:slug/files/:id",
       "GET /admin/projects/:slug/summary",
       "GET /admin/projects/:slug/todos",

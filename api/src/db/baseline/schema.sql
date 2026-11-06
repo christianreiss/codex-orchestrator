@@ -2525,6 +2525,71 @@ CREATE TABLE `feedback_pipeline` (
 );
 ALTER TABLE `feedback_pipeline` ADD CONSTRAINT `feedback_pipeline_feedback_id_feedback_items_id_fk` FOREIGN KEY (`feedback_id`) REFERENCES `feedback_items`(`id`) ON DELETE cascade ON UPDATE no action;
 CREATE INDEX `idx_feedback_pipeline_due` ON `feedback_pipeline` (`next_attempt_at`,`lease_expires_at`);
+CREATE TABLE `slop_job_files` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`job_id` char(36) NOT NULL,
+	`path` varchar(512) NOT NULL,
+	`rev` int unsigned NOT NULL,
+	`kind` varchar(16) NOT NULL,
+	`sha256` char(64),
+	`size_bytes` int unsigned NOT NULL DEFAULT 0,
+	`created_by` varchar(80) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	CONSTRAINT `slop_job_files_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_slop_job_files_rev` UNIQUE(`job_id`,`path`,`rev`)
+);
+
+CREATE TABLE `slop_jobs` (
+	`id` char(36) NOT NULL,
+	`project_id` bigint unsigned NOT NULL,
+	`title` varchar(160) NOT NULL,
+	`description` mediumtext,
+	`description_rev` int unsigned NOT NULL DEFAULT 0,
+	`status` varchar(16) NOT NULL DEFAULT 'open',
+	`created_by` varchar(80) NOT NULL,
+	`created_host_id` int unsigned,
+	`run_count` int unsigned NOT NULL DEFAULT 0,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	`last_activity_at` varchar(100) NOT NULL,
+	CONSTRAINT `slop_jobs_id` PRIMARY KEY(`id`)
+);
+
+CREATE TABLE `slop_runs` (
+	`id` char(36) NOT NULL,
+	`job_id` char(36) NOT NULL,
+	`seq` int unsigned NOT NULL,
+	`client_key` varchar(120) NOT NULL,
+	`mode` varchar(8) NOT NULL,
+	`status` varchar(16) NOT NULL,
+	`snapshot_json` mediumtext NOT NULL,
+	`description_rev` int unsigned NOT NULL DEFAULT 0,
+	`slop_version` varchar(32),
+	`guidelines_sha256` char(64),
+	`exit_code` int,
+	`scan_json` mediumtext,
+	`report_json` mediumtext,
+	`verdict_json` mediumtext,
+	`advisor_session_id` char(36),
+	`advisor_caller_id` char(36),
+	`advisor_engine` varchar(16),
+	`advisor_model` varchar(128),
+	`advisor_reply_enc` mediumtext,
+	`advisor_reply_status` varchar(32),
+	`error` varchar(2000),
+	`created_by` varchar(80) NOT NULL,
+	`created_at` varchar(100) NOT NULL,
+	`updated_at` varchar(100) NOT NULL,
+	`completed_at` varchar(100),
+	CONSTRAINT `slop_runs_id` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_slop_runs_client` UNIQUE(`client_key`),
+	CONSTRAINT `uq_slop_runs_seq` UNIQUE(`job_id`,`seq`)
+);
+
+CREATE INDEX `idx_slop_job_files_sha` ON `slop_job_files` (`sha256`);
+CREATE INDEX `idx_slop_jobs_project` ON `slop_jobs` (`project_id`,`updated_at`);
+CREATE INDEX `idx_slop_jobs_activity` ON `slop_jobs` (`last_activity_at`);
+CREATE INDEX `idx_slop_runs_status` ON `slop_runs` (`status`);
 
 -- Fresh installations select User feedback mode; outbound publication remains opt-in.
 INSERT INTO versions (name, version, updated_at) VALUES ('feedback_mode', 'user', '2026-10-20T00:00:00.000Z') ON DUPLICATE KEY UPDATE name = VALUES(name);

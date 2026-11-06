@@ -1,3 +1,4 @@
+import type { SlopJobsService } from './slop-jobs.js';
 import { ApiError } from '../http/errors.js';
 import type { HostSpawnService } from './host-spawn.js';
 import type { WorkflowsService } from './workflows.js';
@@ -99,6 +100,8 @@ export interface ToolDeps {
    */
   roles?: RolesService;
   workflows?: WorkflowsService;
+  /** Slop jobs. Optional: when omitted the slop_job_* tools are neither listed nor callable. */
+  slopJobs?: SlopJobsService;
 }
 
 export type ToolResult =
@@ -1951,6 +1954,158 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         await requireEnabled();
         return await director.release(args, host);
       },
+    });
+  }
+
+  // Slop jobs -- project-bound, versioned UI/UX review jobs (docs/MCP.md).
+  // Optional like `transfers`: absent means the slop_job_* tools do not exist.
+  if (deps.slopJobs) {
+    const slop = deps.slopJobs;
+    const job = { type: 'string', description: 'Slop job id (UUID) from slop_job_create.' };
+    inputs.push({
+      definition: {
+        name: 'slop_job_create',
+        description:
+          'Create a slop job: a versioned UI/UX review workspace bound to a CoCo project. Returns `job_id`. Upload files with slop_job_put, describe the change with slop_job_describe (or `description` here), then start a run with slop_job_run. Jobs are visible to every agent that can use the project; a job closes with slop_job_close or after 24 h without activity, which deletes it with all revisions and results.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'CoCo project slug.' },
+            title: { type: 'string', description: 'What is being reviewed (max 160 characters).' },
+            description: { type: 'string', description: 'Optional brief: what changed, intent, target users, states (max 64 KiB). Only full runs use it.' },
+          },
+          additionalProperties: false,
+          required: ['project', 'title'],
+        },
+      },
+      handler: async (args, host) => slop.create(args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'slop_job_put',
+        description:
+          'Upload one file into a slop job at a project-relative path (e.g. `src/routes/+page.svelte`, `DESIGN.md`, `shots/home-dark-390.png`). Uploading an existing path creates the next revision (v2, v3, ...); identical bytes are a no-op. Pass text inline as `content` (max 256 KiB) or upload with `cxx transfer put FILE --ttl-seconds 3600 --json` and pass `transfer_id` (max 2 MiB per file, 200 files, 50 MiB per job). `kind`: `source` (scanned; default for text), `screenshot` (png/jpg/webp; default for those extensions; full runs only) or `a11y` (JSON accessibility export; full runs only). `remove: true` drops the path from the current set (history stays). A `DESIGN.md` at the root is the design brief.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            job_id: job,
+            path: { type: 'string' },
+            content: { type: 'string', description: 'UTF-8 text content.' },
+            transfer_id: { type: 'string', description: 'Id from cxx transfer put / transfer_put.' },
+            kind: { type: 'string', enum: ['source', 'screenshot', 'a11y'] },
+            remove: { type: 'boolean' },
+          },
+          additionalProperties: false,
+          required: ['job_id', 'path'],
+        },
+      },
+      handler: async (args, host) => slop.put(args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'slop_job_describe',
+        description:
+          'Set or replace the job description: what changed, its intent, the audience and the states that matter. Each change bumps `description_rev`; full runs record which revision they reviewed. Quick runs ignore it.',
+        inputSchema: {
+          type: 'object',
+          properties: { job_id: job, description: { type: 'string' } },
+          additionalProperties: false,
+          required: ['job_id', 'description'],
+        },
+      },
+      handler: async (args, host) => slop.describe(args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'slop_job_run',
+        description:
+          'Start a run over the current files. `mode: "quick"` runs the deterministic slop scan over source files only (screenshots and description are ignored; seconds). `mode: "full"` runs the same scan and then has the server-hosted Fleet Advisor review sources, screenshots, a11y exports, description, the design guidelines and the quick report; its findings are validated by slop before they are recorded (locations must exist). Full runs take minutes, need a managed agent session and File Transfer enabled, and the advisor answer also reaches you as an ADVISOR/1 message. Results are kept per run; re-run after uploading new revisions. `client_message_id` (UUID) makes retries idempotent. `wait_seconds` (0-25, default 20 for quick) waits for the result.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            job_id: job,
+            mode: { type: 'string', enum: ['quick', 'full'] },
+            client_message_id: { type: 'string', description: 'UUID; reuse it when retrying.' },
+            wait_seconds: { type: 'integer', minimum: 0, maximum: 25 },
+            engine: { type: 'string', description: 'Full only: advisor engine (see advisor_status).' },
+            model: { type: 'string', description: 'Full only: advisor model (see advisor_status).' },
+          },
+          additionalProperties: false,
+          required: ['job_id', 'mode', 'client_message_id'],
+        },
+      },
+      handler: async (args, host) => slop.run(args, host),
+    });
+    inputs.push({
+      definition: {
+        name: 'slop_job_get',
+        description:
+          'Show a slop job: description, current files with their latest revision and revision count, removed paths, and the run history (status, finding counts, advisor verdict). Every job call counts as activity for the 24 h idle timer.',
+        inputSchema: { type: 'object', properties: { job_id: job }, additionalProperties: false, required: ['job_id'] },
+      },
+      handler: async (args) => slop.get(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'slop_job_result',
+        description:
+          'Fetch a run result (default: the latest run; `run` takes a run id or its sequence number). Returns the run summary and the full slop report (version 2: findings with id, rule, priority P0-P2, kind measured|review, location, evidence, message, remedy, acceptance, alternative), or `format: "markdown"` for a readable digest. `wait_seconds` (0-25) waits for a running run. Status: completed, incomplete (coverage gaps or rejected review findings; see report.errors) or failed (see error). Review findings are judgments with an alternative explanation, never measurements.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            job_id: job,
+            run: { type: 'string' },
+            format: { type: 'string', enum: ['json', 'markdown'] },
+            wait_seconds: { type: 'integer', minimum: 0, maximum: 25 },
+          },
+          additionalProperties: false,
+          required: ['job_id'],
+        },
+      },
+      handler: async (args) => slop.result(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'slop_job_diff',
+        description:
+          'Diff inside a slop job. With `path`: unified diff between two revisions of that file (`from_rev`/`to_rev`, default previous vs. latest; binary files report hash changes only). With `from_run`/`to_run` (run id or sequence; default the two latest runs): findings that are new, resolved or unchanged, plus files added, removed or changed between the run snapshots.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            job_id: job,
+            path: { type: 'string' },
+            from_rev: { type: 'integer' },
+            to_rev: { type: 'integer' },
+            from_run: { type: 'string' },
+            to_run: { type: 'string' },
+          },
+          additionalProperties: false,
+          required: ['job_id'],
+        },
+      },
+      handler: async (args) => slop.diff(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'slop_job_list',
+        description: 'List the open slop jobs of a CoCo project with their expiry (24 h after the last activity).',
+        inputSchema: {
+          type: 'object',
+          properties: { project: { type: 'string', description: 'CoCo project slug.' } },
+          additionalProperties: false,
+          required: ['project'],
+        },
+      },
+      handler: async (args) => slop.list(args),
+    });
+    inputs.push({
+      definition: {
+        name: 'slop_job_close',
+        description:
+          'Close a slop job: permanently deletes the job, every file revision, every run result and unreferenced file bytes, and stops a running advisor review. There is no restore.',
+        inputSchema: { type: 'object', properties: { job_id: job }, additionalProperties: false, required: ['job_id'] },
+      },
+      handler: async (args) => slop.close(args),
     });
   }
 

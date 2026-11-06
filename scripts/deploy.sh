@@ -379,11 +379,12 @@ fi
 
 # Existing stores deliberately stay root-owned. Only private runtime files
 # need the API/worker uid, including upgrades that never rerun the installer:
-# chat attachments, and the advisor container's bootstrap credential.
-if [[ "${deploys_api}" -eq 1 || " ${services[*]} " == *" media-worker "* ]]; then
+# chat attachments, the advisor container's bootstrap credential, and slop job
+# blobs/run directories shared by the API and the slop worker.
+if [[ "${deploys_api}" -eq 1 || " ${services[*]} " == *" media-worker "* || " ${services[*]} " == *" slop-worker "* ]]; then
   chat_publish_root="$(wrapper_publish_root)"
   [[ "${chat_publish_root}" == */wrapper/v2/bin ]] || fail "could not resolve the chat store mount"
-  for private_directory in agent-chat advisor; do
+  for private_directory in agent-chat advisor slop; do
     chat_directory="${chat_publish_root%/wrapper/v2/bin}/${private_directory}"
     mkdir -p "${chat_directory}" || fail "cannot create ${chat_directory}; run deploy with permission to prepare the store"
     if [[ "$(stat -c '%u:%g' "${chat_directory}")" != "10001:10001" ]]; then

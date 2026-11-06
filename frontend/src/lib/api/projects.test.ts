@@ -195,6 +195,24 @@ const BUILDER_CASES: BuilderCase[] = [
     slugged: true,
   },
   {
+    name: "fetchSlopJobs",
+    label: "fetchSlopJobs(slug)",
+    call: () => projects.fetchSlopJobs(SLUG),
+    method: "GET",
+    path: `/admin/projects/${ENCODED}/slop-jobs`,
+    body: undefined,
+    slugged: true,
+  },
+  {
+    name: "fetchSlopJob",
+    label: "fetchSlopJob(slug, id)",
+    call: () => projects.fetchSlopJob(SLUG, "0c1d2e3f-0000-4000-8000-000000000001"),
+    method: "GET",
+    path: `/admin/projects/${ENCODED}/slop-jobs/0c1d2e3f-0000-4000-8000-000000000001`,
+    body: undefined,
+    slugged: true,
+  },
+  {
     name: "fetchNotes",
     call: () => projects.fetchNotes(SLUG),
     method: "GET",
@@ -464,7 +482,7 @@ describe("slug encoding", () => {
   const SLUGGED_CASES = BUILDER_CASES.filter((builderCase) => builderCase.slugged);
 
   it("covers every builder that takes a slug", () => {
-    assert.equal(SLUGGED_CASES.length, 33);
+    assert.equal(SLUGGED_CASES.length, 35);
   });
 
   for (const builderCase of SLUGGED_CASES) {
@@ -578,6 +596,8 @@ describe("module surface", () => {
     "fetchProject",
     "fetchProjects",
     "fetchProjectsState",
+    "fetchSlopJob",
+    "fetchSlopJobs",
     "fetchTodos",
     "markTodoDone",
     "markTodoUndone",

@@ -69,6 +69,8 @@ export const WS_EVENT_TYPES = [
   'project.file.deleted',
   'project.feedback.created',
   'project.feedback.updated',
+  // Slop jobs: one type, routed by the SPA to ["project", slug, "slop"].
+  'project.slop.changed',
   'project.archived',
   'project.unarchived',
   // Project board. Per-entity rather than one `project.board.changed`, because

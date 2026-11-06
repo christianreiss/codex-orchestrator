@@ -270,6 +270,66 @@ export const updateFeedback = (
     payload,
   );
 
+// ─────────────────────────── Slop jobs (read-only) ──────────────────────
+
+export interface SlopRunSummary {
+  run_id: string;
+  seq: number;
+  mode: "quick" | "full";
+  status: "scanning" | "reviewing" | "validating" | "completed" | "incomplete" | "failed";
+  exit_code: number | null;
+  findings: number | null;
+  counts: Record<string, number> | null;
+  errors: number | null;
+  verdict: { verdict?: string; summary?: string } | null;
+  slop_version: string | null;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface SlopJobSummary {
+  job_id: string;
+  title: string;
+  status: string;
+  description_rev: number;
+  has_description: boolean;
+  runs: number;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  last_activity_at: string;
+  expires_at: string;
+  files: number;
+  revisions: number;
+  latest_run: SlopRunSummary | null;
+}
+
+export interface SlopFinding {
+  id: string;
+  rule: string;
+  priority: "P0" | "P1" | "P2";
+  kind: "measured" | "review";
+  location: string;
+  evidence: string;
+  message: string;
+  remedy: string;
+  acceptance: string;
+  alternative?: string;
+}
+
+export interface SlopJobDetail {
+  job: Omit<SlopJobSummary, "files" | "revisions" | "latest_run"> & { description: string | null };
+  files: Array<{ path: string; kind: string; rev: number; revisions: number; sha256: string | null; size_bytes: number; removed: boolean; updated_at: string }>;
+  runs: Array<SlopRunSummary & { report: { findings: SlopFinding[]; errors: string[]; coverage: string[] } | null }>;
+}
+
+export const fetchSlopJobs = (slug: string): Promise<{ project: string; idle_hours: number; jobs: SlopJobSummary[] }> =>
+  api.get(`${BASE}/${encodeSlug(slug)}/slop-jobs`);
+
+export const fetchSlopJob = (slug: string, id: string): Promise<SlopJobDetail> =>
+  api.get(`${BASE}/${encodeSlug(slug)}/slop-jobs/${encodeURIComponent(id)}`);
+
 // ─────────────────────────── Archive ────────────────────────────────────
 
 export const archiveProject = (slug: string) =>
@@ -303,4 +363,7 @@ export const projectKeys = {
   files: (slug: string) => ["project", slug, "files"] as const,
   feedback: (slug: string) => ["project", slug, "feedback"] as const,
   changes: (slug: string) => ["project", slug, "changes"] as const,
+  // Matches `projectDetailSubKey` for project.slop.* websocket events.
+  slop: (slug: string) => ["project", slug, "slop"] as const,
+  slopJob: (slug: string, id: string) => ["project", slug, "slop", id] as const,
 };

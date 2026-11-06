@@ -19,6 +19,7 @@ import {
   varchar,
   text,
   longtext,
+  mediumtext,
   tinyint,
   char,
   int,
@@ -3126,3 +3127,72 @@ export const controlPlaneOutbox = mysqlTable('control_plane_outbox', {
   createdAt: varchar('created_at', { length: 100 }).notNull(),
   completedAt: varchar('completed_at', { length: 100 }),
 }, (t) => ({ due: index('control_plane_outbox_due').on(t.status, t.availableAt) }));
+
+/** Slop jobs (0127, docs/interface-api.md#slop-jobs): project-bound UI/UX review jobs. */
+export const slopJobs = mysqlTable('slop_jobs', {
+  id: char('id', { length: 36 }).primaryKey(),
+  projectId: bigint('project_id', { mode: 'number', unsigned: true }).notNull(),
+  title: varchar('title', { length: 160 }).notNull(),
+  description: mediumtext('description'),
+  descriptionRev: int('description_rev', { unsigned: true }).notNull().default(0),
+  status: varchar('status', { length: 16 }).notNull().default('open'),
+  createdBy: varchar('created_by', { length: 80 }).notNull(),
+  createdHostId: int('created_host_id', { unsigned: true }),
+  runCount: int('run_count', { unsigned: true }).notNull().default(0),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  lastActivityAt: varchar('last_activity_at', { length: 100 }).notNull(),
+}, (t) => ({
+  project: index('idx_slop_jobs_project').on(t.projectId, t.updatedAt),
+  activity: index('idx_slop_jobs_activity').on(t.lastActivityAt),
+}));
+export type SlopJob = typeof slopJobs.$inferSelect;
+/** One row per uploaded revision of a path; sha256 NULL marks a removal. */
+export const slopJobFiles = mysqlTable('slop_job_files', {
+  id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+  jobId: char('job_id', { length: 36 }).notNull(),
+  path: varchar('path', { length: 512 }).notNull(),
+  rev: int('rev', { unsigned: true }).notNull(),
+  kind: varchar('kind', { length: 16 }).notNull(),
+  sha256: char('sha256', { length: 64 }),
+  sizeBytes: int('size_bytes', { unsigned: true }).notNull().default(0),
+  createdBy: varchar('created_by', { length: 80 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, (t) => ({
+  rev: uniqueIndex('uq_slop_job_files_rev').on(t.jobId, t.path, t.rev),
+  sha: index('idx_slop_job_files_sha').on(t.sha256),
+}));
+export type SlopJobFile = typeof slopJobFiles.$inferSelect;
+/** An immutable run over a pinned snapshot; quick = deterministic scan, full = scan + Fleet Advisor review. */
+export const slopRuns = mysqlTable('slop_runs', {
+  id: char('id', { length: 36 }).primaryKey(),
+  jobId: char('job_id', { length: 36 }).notNull(),
+  seq: int('seq', { unsigned: true }).notNull(),
+  clientKey: varchar('client_key', { length: 120 }).notNull(),
+  mode: varchar('mode', { length: 8 }).notNull(),
+  status: varchar('status', { length: 16 }).notNull(),
+  snapshotJson: mediumtext('snapshot_json').notNull(),
+  descriptionRev: int('description_rev', { unsigned: true }).notNull().default(0),
+  slopVersion: varchar('slop_version', { length: 32 }),
+  guidelinesSha256: char('guidelines_sha256', { length: 64 }),
+  exitCode: int('exit_code'),
+  scanJson: mediumtext('scan_json'),
+  reportJson: mediumtext('report_json'),
+  verdictJson: mediumtext('verdict_json'),
+  advisorSessionId: char('advisor_session_id', { length: 36 }),
+  advisorCallerId: char('advisor_caller_id', { length: 36 }),
+  advisorEngine: varchar('advisor_engine', { length: 16 }),
+  advisorModel: varchar('advisor_model', { length: 128 }),
+  advisorReplyEnc: mediumtext('advisor_reply_enc'),
+  advisorReplyStatus: varchar('advisor_reply_status', { length: 32 }),
+  error: varchar('error', { length: 2000 }),
+  createdBy: varchar('created_by', { length: 80 }).notNull(),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  completedAt: varchar('completed_at', { length: 100 }),
+}, (t) => ({
+  client: uniqueIndex('uq_slop_runs_client').on(t.clientKey),
+  seq: uniqueIndex('uq_slop_runs_seq').on(t.jobId, t.seq),
+  status: index('idx_slop_runs_status').on(t.status),
+}));
+export type SlopRun = typeof slopRuns.$inferSelect;

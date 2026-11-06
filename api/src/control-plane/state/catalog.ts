@@ -166,6 +166,9 @@ export const TABLE_POLICY = {
   workflowRunEvents: 'owned',
   workflowRunEvaluations: 'owned',
   workflowMutations: 'cold',
+  slopJobs: 'cold',
+  slopJobFiles: 'cold',
+  slopRuns: 'cold',
 } as const;
 
 type Tables = typeof schema;

@@ -20,6 +20,7 @@ import {
 } from '../db/schema.js';
 import { encrypt } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
+import { recordSlopAdvisorReply } from './slop-jobs/advisor-hook.js';
 import { newQueuedMessage } from './agent-messaging/views.js';
 import { AGENT_MESSAGING_DEFAULT_TTL_SECONDS } from './agent-messaging/constants.js';
 import type { DaemonDb } from './host-daemon/access.js';
@@ -177,6 +178,7 @@ export async function advisorTurnCompleted(
     advisorEnvelope(row.id, turn, row.kind, body, idleMinutes),
     'coordination',
   );
+  await recordSlopAdvisorReply(tx, keyring, row.clientKey, turn, result);
   const verdict = result.status === 'completed' ? parseAdvisorVerdict(result.reply) : null;
   const now = new Date().toISOString();
   const ended = !['idle', 'waiting'].includes(nextStatus);
@@ -246,6 +248,7 @@ export function stageAdvisorTurnCompleted(c:OwnerMutationContext,keyring:Keyring
   const turn=row.turns+1;
   const body=result.status==='completed'&&result.reply.trim()?result.reply:`The advisor turn ended with status "${result.status}".${result.reply.trim()?`\n\n${result.reply.trim()}`:' No answer was returned.'}\n\nCheck advisor_status; open a new advisor if this session ended, or close it.`;
   const delivered=stageAdvisorDelivery(c,keyring,row,session.addressId,advisorEnvelope(row.id,turn,row.kind,body,idleMinutes),'coordination');
+  c.write(tx=>recordSlopAdvisorReply(tx,keyring,row.clientKey,turn,result));
   const verdict=result.status==='completed'?parseAdvisorVerdict(result.reply):null,at=new Date().toISOString(),ended=!['idle','waiting'].includes(nextStatus);
   stageUpdate(c,'advisorSessions',row.id,{turns:turn,status:ended?(nextStatus==='closed'?'closed':'failed'):'open',...(ended?{closedAt:at,closeReason:row.closeReason??(nextStatus==='closed'?'stopped':'error')}:{}),...(delivered?{conversationId:delivered.conversationId}:{}),verdictEnc:verdict?encrypt(JSON.stringify(verdict),keyring):null,updatedAt:at});
 }

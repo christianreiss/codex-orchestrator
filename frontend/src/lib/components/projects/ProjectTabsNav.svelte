@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** The one tab level on a project page: Board, Documents, Reports, Activity. */
+  /** The one tab level on a project page: Board, Documents, Reports, Slop, Activity. */
   import { base } from "$app/paths";
   import TabNav from "$lib/components/layout/TabNav.svelte";
 
@@ -16,6 +16,7 @@
     { label: "Board", href: `${root}/board`, badge: badge(counts?.board) },
     { label: "Documents", href: `${root}/documents`, badge: badge(counts?.documents) },
     { label: "Reports", href: `${root}/reports`, badge: badge(counts?.reports) },
+    { label: "Slop", href: `${root}/slop` },
     { label: "Activity", href: `${root}/activity` },
   ]);
 </script>

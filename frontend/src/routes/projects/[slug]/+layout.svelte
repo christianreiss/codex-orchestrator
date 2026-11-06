@@ -24,7 +24,7 @@
   let { children } = $props();
 
   const qc = useQueryClient();
-  const section = $derived(({ board: "Board", documents: "Documents", reports: "Reports", activity: "Activity" } as Record<string, string>)[page.url.pathname.split("/").at(-1) ?? ""] ?? "Board");
+  const section = $derived(({ board: "Board", documents: "Documents", reports: "Reports", slop: "Slop", activity: "Activity" } as Record<string, string>)[page.url.pathname.split("/").at(-1) ?? ""] ?? "Board");
   const slug = $derived(page.params.slug ?? "");
 
   // The lean summary, not `fetchProject`: this query runs on every tab, and the

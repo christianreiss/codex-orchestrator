@@ -425,6 +425,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/projects/feedback': cap('projects.read'),
   'GET /admin/projects/:slug': cap('projects.read'),
   'GET /admin/projects/:slug/changes': cap('projects.read'),
+  'GET /admin/projects/:slug/slop-jobs': cap('projects.read'),
+  'GET /admin/projects/:slug/slop-jobs/:id': cap('projects.read'),
   'GET /admin/projects/:slug/summary': cap('projects.read'),
   'GET /admin/projects/:slug/feedback': cap('projects.read'),
   'GET /admin/projects/:slug/files': cap('projects.read'),

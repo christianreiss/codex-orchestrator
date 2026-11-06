@@ -1,3 +1,4 @@
+import { slopJobsService } from '../../services/slop-jobs.js';
 import {addOwnerResponseProof} from '../../control-plane/state/runtime.js';
 import { requireOwnerRuntime } from '../../control-plane/state/runtime.js';
 import { ownedBridge,ownedEngineState } from '../../control-plane/state/messaging.js';
@@ -150,6 +151,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     transfers,
     roles,
     workflows,
+    slopJobs: slopJobsService(ctx),
   });
   const server = new McpServer(tools, resources);
 
