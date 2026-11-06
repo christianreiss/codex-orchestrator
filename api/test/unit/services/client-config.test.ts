@@ -703,6 +703,42 @@ describe('client-config: Claude effortLevel rendering', () => {
     expect(haiku.partial.modelSettings).toEqual({ 'claude-sonnet-4-6': { autoCompactWindow: 300000 } });
     expect(haiku.owned_paths.some(path => path.endsWith('.effortLevel') || path === 'effortLevel')).toBe(false);
   });
+
+  describe('1M-context `[1m]` model ids', () => {
+    const forHost = (claudeModelOverride: string, claudeReasoningEffortOverride: string | null) => renderClaudeSettingsPartialForHost({
+      settings: { model: 'claude-sonnet-4-6', effortLevel: 'low' },
+      host: { claudeClientVersion: '2.1.296', claudeModelOverride, claudeReasoningEffortOverride } as never,
+      baseUrl: null, apiKey: null, engine: ENGINE_CLAUDE,
+    });
+
+    it('keys a legacy-effort host override by the canonical id and keeps the suffix on model', () => {
+      const { partial, owned_paths } = forHost('claude-opus-4-6[1m]', 'high');
+      expect(partial.model).toBe('claude-opus-4-6[1m]');
+      expect(partial.effortLevel).toBe('high');
+      expect(partial.modelSettings).toEqual({ 'claude-opus-4-6': { effortLevel: 'high' } });
+      expect(owned_paths).toEqual(expect.arrayContaining(['model', 'effortLevel', 'modelSettings.claude-opus-4-6.effortLevel']));
+      expect(owned_paths.some(path => path.includes('[1m]'))).toBe(false);
+    });
+
+    it('omits the ignored top-level key for Opus 5.5 and later', () => {
+      const { partial } = forHost('claude-opus-5-5[1m]', 'high');
+      expect(partial.model).toBe('claude-opus-5-5[1m]');
+      expect(partial.modelSettings).toEqual({ 'claude-opus-5-5': { effortLevel: 'high' } });
+      expect(partial).not.toHaveProperty('effortLevel');
+    });
+
+    it('falls back to the canonical model default for an unsupported host effort', () => {
+      const { partial } = forHost('claude-opus-5-5[1m]', 'ultra');
+      expect(partial.modelSettings).toEqual({ 'claude-opus-5-5': { effortLevel: 'medium' } });
+    });
+
+    it('keeps fleet-level effort for a `[1m]` model without a host override', () => {
+      const settings = normalizeSettings({ model: 'claude-opus-4-6[1m]', effortLevel: 'high' }, { applyCodexDefaults: false, engine: ENGINE_CLAUDE });
+      expect(settings.effortLevel).toBe('high');
+      const { partial } = renderClaudeSettingsPartial(settings);
+      expect(partial).toMatchObject({ model: 'claude-opus-4-6[1m]', effortLevel: 'high', modelSettings: { 'claude-opus-4-6': { effortLevel: 'high' } } });
+    });
+  });
 });
 
 describe('client-config: renderClaudeSettingsPartial permissions.defaultMode', () => {

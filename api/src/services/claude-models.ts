@@ -34,16 +34,27 @@ export const CLAUDE_LEGACY_MODEL_UPGRADES = upgradeMap('claude') as Record<strin
 
 export const CLAUDE_MODEL_ENV_KEYS: readonly string[] = ['ANTHROPIC_MODEL', 'ANTHROPIC_DEFAULT_MODEL', 'ANTHROPIC_DEFAULT_OPUS_MODEL', 'ANTHROPIC_DEFAULT_SONNET_MODEL', 'ANTHROPIC_DEFAULT_HAIKU_MODEL', 'ANTHROPIC_DEFAULT_FABLE_MODEL', 'ANTHROPIC_SMALL_FAST_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL'];
 
+/** Claude Code's 1M-context modifier on a model id; not part of the catalog id. */
+const CLAUDE_1M_SUFFIX = /\[1m\]$/i;
+
 /** Canonicalize known retired/deprecated IDs without rewriting custom providers. */
 export function normalizeClaudeModelReference(value: string): string {
   const trimmed = value.trim();
-  const suffix = /\[1m\]$/i.test(trimmed) ? '[1m]' : '';
+  const suffix = CLAUDE_1M_SUFFIX.test(trimmed) ? '[1m]' : '';
   const base = suffix ? trimmed.slice(0, -4) : trimmed;
   const key = base.toLowerCase();
   const replacement = Object.hasOwn(CLAUDE_LEGACY_MODEL_UPGRADES, key)
     ? CLAUDE_LEGACY_MODEL_UPGRADES[key]
     : undefined;
   return replacement ? replacement + suffix : trimmed;
+}
+
+/** Catalog id for capability lookups and the native `modelSettings` key:
+ * known retired ids migrate and the `[1m]` modifier is dropped, case preserved.
+ * Native Claude Code matches a `[1m]` selection to that canonical entry.
+ */
+export function claudeCanonicalModelId(value: string): string {
+  return normalizeClaudeModelReference(value).replace(CLAUDE_1M_SUFFIX, '');
 }
 
 /**
