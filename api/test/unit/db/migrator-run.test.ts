@@ -7,6 +7,7 @@ import {
   LEDGER_TABLE,
   MigrationFailure,
   loadMigrations,
+  migrationLockName,
   migrationStatus,
   runMigrations,
   type MigrationLogger,
@@ -22,9 +23,13 @@ import {
  *
  * `runMigrations` touches the pool only through `getConnection()` → `query()` →
  * `release()`, so a fake that answers the ledger probe, the ledger SELECT,
- * GET_LOCK/RELEASE_LOCK and the INSERT drives all of it.
+ * DATABASE(), GET_LOCK/RELEASE_LOCK and the INSERT drives all of it.
  */
 
+const FAKE_DATABASE = 'codex_fake';
+const FAKE_LOCK = migrationLockName(FAKE_DATABASE);
+
+const IS_DATABASE = /^SELECT DATABASE\(\)/;
 const IS_GET_LOCK = /^SELECT GET_LOCK/;
 const IS_RELEASE_LOCK = /^SELECT RELEASE_LOCK/;
 /**
@@ -109,6 +114,7 @@ class FakePool {
   private async query(sql: string, params: unknown[]): Promise<[unknown, unknown[]]> {
     this.queries.push({ sql, params });
 
+    if (IS_DATABASE.test(sql)) return [[{ db: FAKE_DATABASE }], []];
     if (IS_GET_LOCK.test(sql)) return [[{ acquired: this.getLock }], []];
     if (IS_RELEASE_LOCK.test(sql)) {
       if (this.releaseLockError) throw this.releaseLockError;
@@ -221,8 +227,10 @@ describe('runMigrations against a fake pool', () => {
 
     // The lock brackets the whole run; a ledger this run created is known to be
     // empty, so it is never read back.
-    expect(IS_GET_LOCK.test(fake.queries[0]!.sql)).toBe(true);
-    expect(fake.queries[0]!.params).toEqual(['codex_orchestrator_schema_migrations', 120]);
+    expect(IS_DATABASE.test(fake.queries[0]!.sql)).toBe(true);
+    expect(IS_GET_LOCK.test(fake.queries[1]!.sql)).toBe(true);
+    expect(fake.queries[1]!.params).toEqual([FAKE_LOCK, 120]);
+    expect(fake.queries[fake.queries.length - 1]!.params).toEqual([FAKE_LOCK]);
     expect(IS_RELEASE_LOCK.test(fake.queries[fake.queries.length - 1]!.sql)).toBe(true);
     expect(fake.queries.some((query) => IS_CREATE_LEDGER.test(query.sql))).toBe(true);
     expect(fake.queries.some((query) => IS_READ_LEDGER.test(query.sql))).toBe(false);
@@ -435,6 +443,15 @@ describe('runMigrations against a fake pool', () => {
     expectDrained(fake);
   });
 
+  // GET_LOCK names are server-global; the ledger is per database. Same database
+  // (boot and deploy CLI) must share one name, other databases must not.
+  it('scopes the advisory lock name to the database within the 64-character limit', () => {
+    expect(migrationLockName('codex')).toBe(migrationLockName('codex'));
+    expect(migrationLockName('codex')).not.toBe(migrationLockName('codex_test'));
+    expect(migrationLockName('codex')).toMatch(/^codex_orchestrator_schema_migrations\.[0-9a-f]{16}$/);
+    expect(migrationLockName('x'.repeat(64)).length).toBeLessThanOrEqual(64);
+  });
+
   // GET_LOCK is 1 on success, 0 on timeout and NULL on error, and NULL coerces
   // to 0 — the two failures must not collapse into one message.
   it('separates a held lock from an unevaluable one', async () => {
@@ -442,9 +459,9 @@ describe('runMigrations against a fake pool', () => {
 
     const busy = new FakePool({ getLock: 0 });
     await expect(runMigrations(asPool(busy), { dir, lockTimeoutSeconds: 7 })).rejects.toThrow(
-      /another process holds the migration lock codex_orchestrator_schema_migrations \(waited 7s\)/,
+      `another process holds the migration lock ${FAKE_LOCK} (waited 7s)`,
     );
-    expect(busy.queries[0]!.params).toEqual(['codex_orchestrator_schema_migrations', 7]);
+    expect(busy.queries[1]!.params).toEqual([FAKE_LOCK, 7]);
     expect(busy.executed).toEqual([]);
     expect(busy.queries.some((query) => IS_LEDGER_PROBE.test(query.sql))).toBe(false);
     // The lock was never taken, so it is not released; the connection still is.

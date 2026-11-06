@@ -4,6 +4,7 @@ import type { RowDataPacket } from 'mysql2/promise';
 import {
   LEDGER_TABLE,
   loadMigrations,
+  migrationLockName,
   migrationStatus,
   runMigrations,
   type MigrationLogger,
@@ -249,7 +250,29 @@ describe.skipIf(!handle)('migration runner against a real database', { timeout: 
     expect(applied).toHaveLength(1);
     expect(applied[0]!.outcomes).toHaveLength(files.length);
     expect(await scalar(`SELECT COUNT(*) FROM ${LEDGER_TABLE}`)).toBe(files.length);
-    expect(await scalar(`SELECT IS_USED_LOCK('codex_orchestrator_schema_migrations')`)).toBeNull();
+    const database = String(await scalar('SELECT DATABASE()'));
+    expect(await scalar(`SELECT IS_USED_LOCK('${migrationLockName(database)}')`)).toBeNull();
+  });
+
+  // GET_LOCK names are server-global. A runner against another database on the
+  // same server must not block this one; a holder of this database's lock must.
+  it('scopes the lock to the current database', async () => {
+    const database = String(await scalar('SELECT DATABASE()'));
+    const holder = await pool.getConnection();
+    try {
+      await holder.query('SELECT GET_LOCK(?, 0)', [migrationLockName(`${database}_other`)]);
+      const report = await runMigrations(pool, { appliedBy: 'vitest', lockTimeoutSeconds: 1 });
+      expect(report.outcomes).toEqual([]);
+      await holder.query('SELECT RELEASE_ALL_LOCKS()');
+
+      await holder.query('SELECT GET_LOCK(?, 0)', [migrationLockName(database)]);
+      await expect(runMigrations(pool, { appliedBy: 'vitest', lockTimeoutSeconds: 1 })).rejects.toThrow(
+        /another process holds the migration lock/,
+      );
+    } finally {
+      await holder.query('SELECT RELEASE_ALL_LOCKS()');
+      holder.release();
+    }
   });
 
   it('writes nothing in dry-run mode', async () => {
