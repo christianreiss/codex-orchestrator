@@ -197,6 +197,10 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if report {
 				b.pendingNativeID = ""
+			} else if identity.NativeID == b.pendingNativeID {
+				// A receiver that learned the transcript natively (Grok's
+				// queue) claimed the pending writer with its registration.
+				b.nativeID, b.pendingNativeID = identity.NativeID, ""
 			}
 			b.nativeMu.Unlock()
 		}

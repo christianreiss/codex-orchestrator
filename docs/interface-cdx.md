@@ -1902,13 +1902,13 @@ settings override both. Heartbeats do not count as activity. Explicit resume
 requires the same existing native transcript. Automatic recovery is separate.
 From cxx 0.9.47, a daemon resume child recognizes the writer lock held by its
 parent for that exact native ID. Other wrappers and native identity changes
-still acquire their own lock. A transcript reported by the SessionStart hook
-(for example one picked in the resume picker) while a headless delivery turn
-still holds its writer lock is refused with `native_session_busy` but kept
-pending: the receiver's identity polls claim the lock once that turn ends, then
-bind the transcript and take over its address. From then on the relay finds the
-lock held and defers (`native_session_busy`) instead of resuming the transcript
-headlessly beside the open session.
+still acquire their own lock. A Codex receiver carries the thread ID on every
+registration attempt, so while a headless delivery turn holds that writer lock
+its registration is refused with `native_session_busy` and retried until the
+turn ends; it then binds the thread and takes over its address, and the relay
+finds the lock held and defers. (Claude and Grok report the transcript once
+through the SessionStart hook; there the broker keeps a refused report pending
+for the receiver's identity polls.)
 
 MCP tools: `agent_spawn` takes `host_id`, `engine`, optional absolute `cwd`,
 `title`, `prompt`, and stable UUID `client_message_id`. It returns
