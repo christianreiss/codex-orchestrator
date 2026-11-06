@@ -18,7 +18,7 @@ type spec struct {
 	arity arity
 }
 
-// Sources: Codex rust-v0.166.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
+// Sources: Codex rust-v0.167.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
 // help/PagerArgs. Comma-delimited vectors take one argv value unless num_args
 // explicitly says otherwise. An attached/equal value ends a variadic occurrence.
 var codex = map[string]spec{}
@@ -49,7 +49,7 @@ func init() {
 		{"--experimental_client-id"},
 		{"--listen"}, {"--staging-dir"},
 		{"--thread-source"}, {"--cyber-access-program"}, {"--color"}, {"--base"}, {"--commit"}, {"--title"},
-		// Codex 0.166.0 queue/migrate-rollouts and utility or refused commands.
+		// Codex 0.167.0 queue/migrate-rollouts and utility or refused commands.
 		// Readers stop interpreting semantics there, but values stay opaque.
 		{"--thread"}, {"--message"}, {"--max-mib-per-second"},
 		{"--permission-profile", "-P"}, {"--sandbox-state-json"}, {"--sandbox-state-readable-root"},

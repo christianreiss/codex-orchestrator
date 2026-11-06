@@ -10,7 +10,7 @@ import (
 
 const nestedUUID = "01234567-89ab-4cde-8fab-0123456789ab"
 
-// Codex 0.166.0 exec/src/cli.rs: `exec resume` and `exec fork` declare
+// Codex 0.167.0 exec/src/cli.rs: `exec resume` and `exec fork` declare
 // `-i/--image` with num_args = 1, while root/TUI resume/fork and exec itself
 // keep the shared 1.. image list.
 func TestCodexNestedExecSessionImageTakesOneValue(t *testing.T) {
@@ -47,12 +47,13 @@ func TestCodexNestedExecSessionImageTakesOneValue(t *testing.T) {
 	}
 }
 
-// codex0166ValueOptions is the value-taking option corpus of `codex <path>
-// --help` for Codex 0.166.0 (verified 2026-11-01 in a throwaway CODEX_HOME).
+// codex0167ValueOptions is the value-taking option corpus of `codex <path>
+// --help` for Codex 0.167.0 (verified 2026-11-06 in a throwaway CODEX_HOME;
+// unchanged from 0.166.0 apart from the boolean `agents --no-daemon`).
 // Readers descend through root, exec, exec resume|fork|review, review, resume,
 // fork, queue, archive, unarchive, delete and agents; utility and refused
 // command options are listed too so their values never become commands or flags.
-var codex0166ValueOptions = []struct{ path, options string }{
+var codex0167ValueOptions = []struct{ path, options string }{
 	{"", "-c, --config <key=value>; --enable <FEATURE>; --disable <FEATURE>; --remote <ADDR>; --remote-auth-token-env <ENV_VAR>; -i, --image <FILE>...; -m, --model <MODEL>; --local-provider <OSS_PROVIDER>; -p, --profile <CONFIG_PROFILE_V2>; -s, --sandbox <SANDBOX_MODE>; -C, --cd <DIR>; --add-dir <DIR>; -a, --ask-for-approval <APPROVAL_POLICY>"},
 	{"exec", "-c, --config <key=value>; --enable <FEATURE>; --disable <FEATURE>; -i, --image <FILE>...; -m, --model <MODEL>; --local-provider <OSS_PROVIDER>; -p, --profile <CONFIG_PROFILE_V2>; -s, --sandbox <SANDBOX_MODE>; -C, --cd <DIR>; --add-dir <DIR>; --thread-source <SOURCE>; --cyber-access-program <PROGRAM>; --output-schema <FILE>; --color <COLOR>; -o, --output-last-message <FILE>"},
 	{"exec resume", "-c, --config <key=value>; --enable <FEATURE>; --disable <FEATURE>; -i, --image <FILE>; -m, --model <MODEL>; --thread-source <SOURCE>; --cyber-access-program <PROGRAM>; --output-schema <FILE>; -o, --output-last-message <FILE>"},
@@ -112,8 +113,8 @@ func assertValueOption(t *testing.T, path []string, line string) {
 	}
 }
 
-func TestCodex0166ValueOptionCorpus(t *testing.T) {
-	for _, cmd := range codex0166ValueOptions {
+func TestCodex0167ValueOptionCorpus(t *testing.T) {
+	for _, cmd := range codex0167ValueOptions {
 		for _, line := range strings.Split(cmd.options, ";") {
 			assertValueOption(t, strings.Fields(cmd.path), line)
 		}
@@ -187,7 +188,7 @@ func TestCodexValueOptionHelpOracle(t *testing.T) {
 		t.Skip("native help oracle not configured")
 	}
 	line := regexp.MustCompile(`^\s+(?:-[A-Za-z], )?--[A-Za-z][A-Za-z0-9_-]* \[?<`)
-	for _, cmd := range codex0166ValueOptions {
+	for _, cmd := range codex0167ValueOptions {
 		home := t.TempDir()
 		path := strings.Fields(cmd.path)
 		run := exec.Command(binary, append(append([]string{}, path...), "--help")...)
