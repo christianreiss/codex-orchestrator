@@ -448,13 +448,14 @@ subagents, plugins, goals, memory, native command/HTTP hooks, notification hooks
 and built-in or command status lines. Features are configured only when an
 operator supplies them; support does not turn experimental features on.
 
-The field/type registry is audited against Grok Build **1.0.70**, selected by
-the official stable-pointer distribution and npm latest. The verified native
-binary prints `grok 1.0.70 (f50904eaee6c)` in a clean home and `grok version --json`
-reports `"channel":"unknown"`; a channel suffix such as `[alpha]` comes from local
-install or config state, not from the build, so distribution selection and channel label
-are separate observations.
-The audit uses its bundled complete reference (SHA-256 `ebd97fec98bb00bfdfa37befddf31dd8a14e3f277db887c7b643888867865db7`).
+The field/type registry is audited against Grok Build **1.0.77** (2026-11-06,
+npm latest and the version fleet hosts run). The verified native binary prints
+`grok 1.0.77 (50ca579fa996)` in a clean home. The previous 1.0.70 audit's binary
+reported `"channel":"unknown"` from `grok version --json`; a channel suffix such
+as `[alpha]` comes from local install or config state, not from the build, so
+distribution selection and channel label are separate observations.
+The audit uses its bundled complete reference (SHA-256 `76b4fe09ce2e52e8fa89aaac0df44e3c75cec6b312d22bb7431b16bc486cdaa1`;
+1.0.70's was `ebd97fec98bb00bfdfa37befddf31dd8a14e3f277db887c7b643888867865db7`).
 The older [public source reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md)
 is supplemented by the matching bundled configuration, hooks and status-line guides and
 [current settings reference](https://docs.x.ai/build/settings/reference).
@@ -490,13 +491,31 @@ The accidental `model.<id>.6.api_key` registry path is also rejected; documented
 `model.<id>.api_key` remains supported. `features.tool_search` is not accepted:
 the web reference and stable 1.0.70 consumer disagree (native inspect reports an unknown field).
 
-The 1.0.70 audit adds `keys.vim` (`off|nav`), diagnostics/error reporting,
+The 1.0.70 audit adds `keys.vim` (`off|nav`; `all` from 1.0.71), diagnostics/error reporting,
 web UI endpoint, current opt-in feature switches, memory daily token cap, model
 vision and boolean/integer compaction headers, image/video endpoint credentials,
 command-hook argument arrays, and program-status notification strings/tables.
 `compactions_remaining` integers are 0–255; `daily_token_cap` is at least 1,000,000.
 These settings remain absent until an operator configures them. Literal model
 names do not affect feature-version detection.
+
+The 1.0.77 audit adds, with their first release: `features.send_feedback_tool`,
+`ui.single_ctrl_c_quit`, `keys.vim = "all"` and the hook handler field
+`failClosed` (1.0.71); `managed_mcps.allow_external_auth` and
+`ui.multiline_default` (1.0.73); `features.request_compression`,
+`features.resume_pagination`, `model.<id>.interjection_reply_nudge`,
+`ui.at_picker_outside_workspace` and `workflows.runtime = "node"|"deno"`
+(1.0.74); `features.daemon_feedback_drafts` (1.0.76); and
+`ui.kitty_keyboard = "auto"|"query"` (1.0.77). All are booleans unless an enum is
+shown. `send_feedback_tool`, `daemon_feedback_drafts` and `workflows.runtime`
+act on the daemon route only, and `allow_external_auth` needs a non-xAI sign-in
+that managed subscription sessions do not use; they are accepted but have no
+effect elsewhere. Native hooks also read `fail_closed` and Claude's `onFailure`
+on a handler; the TOML editor rejects both and names `failClosed`.
+Still rejected on purpose: `experiments`, `cursor_worker.*` (including
+`engine` and `any_repo`), and requirements-only keys such as `features.writeback`,
+`features.image_edit`, `fail_closed`, `ui.disable_bypass_permissions_mode` and
+`allow_hosted_models` (unknown in user `config.toml`).
 
 The 2026-11-01 stable-reference review also validates numeric values that Grok
 would otherwise silently clamp. New input receives HTTP 422 with the setting
@@ -540,7 +559,8 @@ worker services do not share the managed auth/session/receiver lifecycle.
 
 New fields raise the required reported version only when configured: command
 hook args/program status require 1.0.63, inherited worktree approvals 1.0.67,
-Vim keys 1.0.68, and additions without a proven earlier introduction 1.0.70.
+Vim keys 1.0.68 (`all` 1.0.71), additions without a proven earlier introduction
+1.0.70, and the 1.0.77 audit's additions their listed first release (1.0.71–1.0.77).
 False and empty values count. Version overrides are checked when applicable to
 the observed host; a future layer does not block an older host that skips it.
 Run `cgx update` or `cgx cron run` to install/report before retrying gated sync;
@@ -575,7 +595,8 @@ patches. Conditional model, posture and MCP changes are rejected because those
 layers would bypass the corresponding fleet controls.
 
 Native updater policy is fleet-owned. Besides `cli.auto_update = true`, root and
-version-override layers reject `cli.channel`, `cli.minimum_version`,
+version-override layers reject `cli.channel`, custom `cli.channels.<name>`
+(1.0.71; never storable before, so no migration), `cli.minimum_version`,
 `cli.maximum_version`, `cli.npm_registry` and `cli.installer` (managed launches
 never run the native updater) and `cli.required_minimum_version` /
 `cli.required_maximum_version` (a bound outside the fleet target would make every
@@ -822,7 +843,7 @@ against the Grok Build 1.0.50 and 1.0.70 home contract:
 | Linked | `sessions worktrees memory memory-v2 rules skills commands personas roles agents plugins installed-plugins plugin-data marketplace-cache workflows` | User content or native state that must persist. No native sandbox profile refuses these links. |
 | Linked, copied under a sandbox | `bundled bundles` (built-in bundle caches) | Linked so bundle updates persist. Grok 1.0.70 refuses every write-denying sandbox profile (`workspace`, `read-only`, `strict` and custom profiles) on a linked cache ("symlink component"). When `--sandbox`, `GROK_SANDBOX`, the merged `[sandbox] profile` or a requirements/managed layer selects anything but `off`, the launch uses a private copy instead. |
 | Read-only snapshot | `config.toml AGENTS.md CLAUDE.md Claude.md claude.md GROK.md pager.toml lsp.json requirements.toml managed_config.toml managed_config.sig.json managed_identity.sig.json sandbox.toml sandbox_grants.toml trusted_folders.toml trusted-plugins trusted-hook-projects hooks-paths disabled-hooks`, plus `hooks/*.json` | Native replaces these files by atomic rename, so a link would not persist a change. Sandbox profiles also refuse linked protected files. The signature sidecars keep a synced `requirements.toml` signed. |
-| Never carried | `auth.json`, auth locks, `mcp_credentials.json`, `settings_cache.json`, `models_cache.json`, `managed_config_cache.json`, `managed_config_refresh.json`, `agent_id`, `version.json`, `bin/`, `downloads/`, `logs/`, `grove/`, `worktrees.db`, `extensions` and lock files | Credentials, or caches and sync state bound to the operator's own account. The leased account rebuilds them. Grove's daemon lifetime is unverified. |
+| Never carried | `auth.json`, auth locks, `mcp_credentials.json`, `settings_cache.json`, `models_cache.json`, `managed_config_cache.json`, `managed_config_refresh.json`, `experiments_remote_opt_out`, `agent_id`, `version.json`, `channel-switch.json`, `bin/`, `downloads/`, `logs/`, `grove/`, `worktrees.db`, `extensions` and lock files | Credentials, or caches and sync state bound to the operator's own account. The leased account rebuilds them; `experiments_remote_opt_out` is rewritten by every settings fetch of that account (1.0.77). `channel-switch.json` is native custom-channel updater state for `bin/`, which the fleet version policy owns. Grove's daemon lifetime is unverified. |
 
 Folder trust is the operator's own. The private home sees the original
 `trusted_folders.toml` (including explicit untrust), so user, project, plugin and

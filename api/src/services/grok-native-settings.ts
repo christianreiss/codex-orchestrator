@@ -70,7 +70,8 @@ function patternMatches(pattern: string[], path: string[]): boolean {
 // Removed in Grok 1.0.51; other memory_v2 tuning fields still have native consumers.
 const removedMemory = new Set(['embedding', 'initial_injection', 'search', 'session', 'watcher']);
 // Native `cli` updater policy; fleet version selection owns it (migration 0115 removes stored values).
-const updatePolicyKeys = ['channel', 'minimum_version', 'maximum_version', 'required_minimum_version', 'required_maximum_version', 'npm_registry', 'installer'];
+// `channels` (1.0.71 custom update channels) was never storable: it was an unknown key before.
+const updatePolicyKeys = ['channel', 'channels', 'minimum_version', 'maximum_version', 'required_minimum_version', 'required_maximum_version', 'npm_registry', 'installer'];
 const removedMemoryV2 = new Set(['automatic_dream_enabled', 'capture_enabled', 'capture_status_enabled', 'file_writes_enabled', 'manual_dream_enabled', 'rollout']);
 
 function validate(value: unknown, path: string[], candidates = fields): void {
@@ -85,6 +86,10 @@ function validate(value: unknown, path: string[], candidates = fields): void {
   // The bundled compat guide documents session import as staged: no scanner consumes it.
   if (path.length === 3 && path[0] === 'compat' && path[2] === 'sessions') {
     fail(path, 'staged in Grok Build without a consumer; it has no effect, omit this setting');
+  }
+  // Native hooks also read `fail_closed` and Claude's `onFailure`; render one canonical TOML spelling.
+  if (path.length === 6 && path[0] === 'hooks' && path[3] === 'hooks' && (path[5] === 'fail_closed' || path[5] === 'onFailure')) {
+    fail(path, 'use failClosed, the canonical config.toml hook handler field');
   }
   const matching = candidates.filter(field => field.parts.length >= path.length && patternMatches(field.parts, path));
   const exact = matching.find(field => field.parts.length === path.length);
@@ -112,6 +117,20 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   for (const root of ['worker', 'cursor_worker']) {
     if (root in value) fail([root], 'independent Cursor worker services are not integrated with managed auth, session and receiver ownership');
   }
+  // Before field validation, so keys absent from the registry (cli.channels.<name>)
+  // still receive the update-policy reason instead of "unknown Grok setting".
+  const cli = grokRecord(value.cli);
+  if (cli.auto_update === true) fail(['cli', 'auto_update'], 'updates are owned by the fleet version policy');
+  // Managed processes never run the native updater, so these only steer an
+  // updater that is off; the required_* bounds additionally refuse to start.
+  for (const key of updatePolicyKeys) {
+    if (key in cli) {
+      fail(['cli', key], key.startsWith('required_')
+        ? 'updates are owned by the fleet version policy; a required version outside the fleet target makes every managed launch refuse to start'
+        : 'updates are owned by the fleet version policy; managed launches never run the native updater');
+    }
+  }
+  if (cli.use_leader === false) fail(['cli', 'use_leader'], 'the managed receiver requires its private leader');
   for (const [key, item] of Object.entries(value)) validate(item, [key]);
   for (const [key, control] of [['default', 'model'], ['default_reasoning_effort', 'reasoning_effort']]) {
     if (key! in grokRecord(value.models)) fail(['models', key!], `use settings.${control}; the fleet model controls own this setting`);
@@ -137,18 +156,6 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   for (const root of ['auth', 'grok_com_config', 'announcements', 'campaigns']) {
     if (root in value) fail([root], 'owned by the managed subscription runtime');
   }
-  const cli = grokRecord(value.cli);
-  if (cli.auto_update === true) fail(['cli', 'auto_update'], 'updates are owned by the fleet version policy');
-  // Managed processes never run the native updater, so these only steer an
-  // updater that is off; the required_* bounds additionally refuse to start.
-  for (const key of updatePolicyKeys) {
-    if (key in cli) {
-      fail(['cli', key], key.startsWith('required_')
-        ? 'updates are owned by the fleet version policy; a required version outside the fleet target makes every managed launch refuse to start'
-        : 'updates are owned by the fleet version policy; managed launches never run the native updater');
-    }
-  }
-  if (cli.use_leader === false) fail(['cli', 'use_leader'], 'the managed receiver requires its private leader');
   const endpoints = grokRecord(value.endpoints);
   for (const key of ['models_base_url', 'models_list_url', 'cli_chat_proxy_base_url']) {
     if (key in endpoints) fail(['endpoints', key], 'owned by the managed subscription runtime');

@@ -42,13 +42,15 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
   const require = (version: string) => { if (!minimum || versionCompare(version, minimum) > 0) minimum = version; };
   const has = (root: Record<string, unknown>, key: string) => Object.hasOwn(root, key);
   const features = record(native.features);
-  if (has(record(native.keys), 'vim')) require('1.0.68');
+  const ui = record(native.ui);
+  if (has(record(native.keys), 'vim')) require(record(native.keys).vim === 'all' ? '1.0.71' : '1.0.68');
   if (has(features, 'worktree_inherits_main_approvals')) require('1.0.67');
-  if (has(record(record(native.ui).notifications), 'program_status')) require('1.0.63');
+  if (has(record(ui.notifications), 'program_status')) require('1.0.63');
   for (const groups of Object.values(record(native.hooks))) {
     if (Array.isArray(groups)) for (const group of groups) {
       const handlers = record(group).hooks;
       if (Array.isArray(handlers) && handlers.some(handler => has(record(handler), 'args'))) require('1.0.63');
+      if (Array.isArray(handlers) && handlers.some(handler => has(record(handler), 'failClosed'))) require('1.0.71');
     }
   }
   if (['ask_answer_rows', 'cursor_marketplace', 'subagent_bundle', 'workflow_conversion', 'workspace_dashboard'].some(key => has(features, key))
@@ -57,11 +59,19 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
   for (const model of Object.values(record(native.model))) {
     const fields = record(model);
     if (has(fields, 'vision') || has(fields, 'compactions_remaining') || has(fields, 'send_compactions_remaining') || typeof fields.compaction_at_tokens === 'boolean') require('1.0.70');
+    if (has(fields, 'interjection_reply_nudge')) require('1.0.74');
   }
   for (const tool of ['image_gen', 'video_gen']) {
     const fields = record(record(native.toolset)[tool]);
     if (has(fields, 'base_url') || has(fields, 'env_key')) require('1.0.70');
   }
+  // 1.0.71–1.0.77 additions; first releases per the 2026-11-06 bundled-reference audit.
+  if (has(features, 'send_feedback_tool') || has(ui, 'single_ctrl_c_quit')) require('1.0.71');
+  if (has(record(native.managed_mcps), 'allow_external_auth') || has(ui, 'multiline_default')) require('1.0.73');
+  if (has(features, 'request_compression') || has(features, 'resume_pagination')
+    || has(ui, 'at_picker_outside_workspace') || has(record(native.workflows), 'runtime')) require('1.0.74');
+  if (has(features, 'daemon_feedback_drafts')) require('1.0.76');
+  if (has(ui, 'kitty_keyboard')) require('1.0.77');
   if (includeOverrides && Array.isArray(native.version_overrides)) for (const layer of native.version_overrides) {
     const patch = record(layer);
     if (observed && ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)

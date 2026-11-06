@@ -283,7 +283,7 @@ test("Grok 1.0.70 native defaults preserve false values, argument arrays and rem
   const shared = state(); shared.configs.grok.settings.native_settings = {};
   await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["grok"]);
   const card = page.locator("#grok-native-settings"), editor = card.getByRole("textbox");
-  await expect(card.getByRole("link", { name: "Grok 1.0.70 settings" })).toBeVisible();
+  await expect(card.getByRole("link", { name: "Grok 1.0.77 settings" })).toBeVisible();
   const value = { keys: { vim: "off" }, features: { worktree_inherits_main_approvals: false }, hooks: { Stop: [{ hooks: [{ type: "command", command: "echo", args: ["login", "--background"] }] }] }, ui: { notifications: { program_status: { children: false } } } };
   await editor.fill(JSON.stringify(value));
   await card.getByRole("button", { name: "Validate and preview" }).click();
