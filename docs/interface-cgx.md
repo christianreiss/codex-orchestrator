@@ -279,6 +279,16 @@ bypass signed config or the existing service refusal. Attached/equal forms and
 opt-in `NATIVE_GROK_ORACLE` check cover value declarations; oracle probes use only
 `--help`, without starting a leader, worker, login or inference request.
 
+Grok Build 1.0.77 (verified 2026-11-06) adds worker options to `[leader] worker`
+and its `start|status|stop|controller` commands: `--data-dir <DIR>` and
+`--mcp-tool-timeout <SERVER[/TOOL]=SECONDS>` require a value, `--wait
+[<SECONDS>]` takes an optional one, and controller adds required `--warm-idle
+<COUNT>`. The argument table knows all four, so `--data-dir worker` stays a
+directory value. Worker commands stay refused by command word and native `--help`
+still passes through. `usage [SESSION_ID]` became optional (no option change);
+root options are unchanged. The `NATIVE_GROK_ORACLE` run of the 84 pinned
+command paths passes against 1.0.77.
+
 Before central auth routing removes root session options, native login/logout
 checks structural option names/value boundaries and the command's trailing
 arguments. Unknown leading flags and unsupported logout arguments are refused,

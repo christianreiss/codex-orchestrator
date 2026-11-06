@@ -105,6 +105,8 @@ func init() {
 		{"--name"}, {"--worker-dir"}, {"--max-agents"}, {"--pool-name"}, {"--label"}, {"--labels-file"},
 		{"--api-key"}, {"--auth-token-file"}, {"--on-session-start"}, {"--on-session-end"}, {"--management-addr"}, {"--idle-release-timeout"},
 		{"--cursor-worker-name"}, {"--cursor-worker-dir"}, {"--cursor-worker-max-agents"},
+		// Grok Build 1.0.77 `[leader] worker [start|status|stop|controller]`.
+		{"--mcp-tool-timeout"}, {"--data-dir"}, {"--warm-idle"},
 		{"--pid"}, {"--spawn"}, {"--repository"}, {"--identity-audience"}, {"--endpoint"},
 		{"--redirect-dir"}, {"--repo"}, {"--type"}, {"--max-age"}, {"--out"},
 		{"--transport", "-t"}, {"--scope"}, {"--env", "-e"}, {"--header", "-H"},
@@ -117,6 +119,7 @@ func init() {
 	add(grok, optional, "--worktree", "-w")
 	add(grok, optional, "--local-workspace")
 	add(grok, optional, "--pool")
+	add(grok, optional, "--wait") // 1.0.77 worker `--wait [<SECONDS>]`
 	// Boolean aliases also need canonical names for headless/security readers.
 	for _, names := range [][]string{
 		{"--continue", "-c"},
