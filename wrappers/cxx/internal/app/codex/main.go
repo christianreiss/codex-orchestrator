@@ -269,7 +269,7 @@ func isProfileShorthand(sub string) bool {
 // interpret as profile shorthand and whose `--help` invocations are passed
 // straight through to the upstream codex CLI.
 //
-// Re-synced against `codex --help` on codex-cli 0.164.0, 2026-10-26. `update`
+// Re-synced against `codex --help` on codex-cli 0.167.0, 2026-11-06. `update`
 // and `doctor` are absent on purpose: both are wrapperOwnedSubcommands above,
 // because the fleet pins the Codex version and cdx runs its own doctor.
 var reservedCodexSubcommands = map[string]bool{

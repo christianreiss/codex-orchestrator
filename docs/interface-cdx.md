@@ -274,7 +274,8 @@ so `resume -i a.png UUID` and `exec -i a.png resume UUID` still read `UUID` (and
 also covers `queue --thread/--message`, `migrate-rollouts --thread`, and the
 value options of the utility and refused commands (`sandbox`, `mcp add|login`,
 `app-server`, `exec-server`, `cloud`, `plugin add`); a unit test pins it to the
-0.166.0 help corpus (the value declarations remain unchanged). An opt-in
+0.167.0 help corpus (the value declarations remain unchanged; re-verified
+2026-11-06, where the only help delta is the boolean `agents --no-daemon`). An opt-in
 `NATIVE_CODEX_ORACLE` test compares it with a live binary. Readers do not interpret those utility commands' semantics; the
 table only keeps their values (including command- or flag-shaped ones) opaque.
 
@@ -299,10 +300,13 @@ request; `--message '--resume'` does not become a resume flag. Ordinary option,
 image and prompt values named after these commands do not trigger this refusal.
 
 The `agents` overview explicitly starts the native shared daemon when no remote
-endpoint is supplied (Codex 0.163.0). A disabled receiver or failed private
-receiver startup would otherwise reach that path, so the public command is
-refused independently of receiver state; `agents --help` and `help agents`
-remain safe. Image paths and prompt/option values named `agents` remain data.
+endpoint is supplied (Codex 0.163.0). Codex 0.167.0 adds `agents --no-daemon`,
+which runs the overview against an embedded app server instead; that in-process
+server equally bypasses the wrapper-owned private app-server, auth broker and
+receiver. A disabled receiver or failed private receiver startup would otherwise
+reach either path, so the public command is refused in every form (plain,
+`--no-daemon`, `--remote`, and combinations) independently of receiver state;
+`agents --help`, `agents --no-daemon --help` and `help agents` remain safe. Image paths and prompt/option values named `agents` remain data.
 Ordinary native TUI daemon defaults and the existing receiver-failure fallback
 are a separate baseline integration boundary: this command guard does not
 establish full lifecycle ownership of every native daemon/default path.

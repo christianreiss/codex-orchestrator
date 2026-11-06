@@ -78,7 +78,8 @@ func TestNativeHelpOracle(t *testing.T) {
 					heading string
 				}{
 					{[]string{"--image", "a.png", "login", "--help"}, "Codex CLI"},
-					{[]string{"agents", "--help"}, "Browse all agent sessions on the shared local app-server daemon"},
+					{[]string{"agents", "--help"}, "Open the agent command center to browse and switch sessions"},
+					{[]string{"agents", "--no-daemon", "--help"}, "Open the agent command center to browse and switch sessions"},
 					{[]string{"migrate-nfs-db", "--staging-dir", "login", "--help"}, "[experimental] Migrate configured SQLite databases"},
 					{[]string{"--image", "a.png", "agents", "--help"}, "Codex CLI"},
 					{[]string{"--model", "agents", "--help"}, "Codex CLI"},
@@ -120,7 +121,7 @@ func TestNativeHelpOracle(t *testing.T) {
 				if tc.heading == "Manage login" || tc.heading == "Sign in to Grok" {
 					wantCommand = "login"
 				}
-				if strings.HasPrefix(tc.heading, "Browse all agent sessions") {
+				if strings.HasPrefix(tc.heading, "Open the agent command center") {
 					wantCommand = "agents"
 				}
 				if strings.HasPrefix(tc.heading, "[experimental] Migrate configured SQLite") {
