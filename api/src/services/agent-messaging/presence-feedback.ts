@@ -1,5 +1,5 @@
 import { deliveryTimingReceipt } from './smart-queue.js';
-import { receiverState } from '../agent-receiver-state.js';
+import { receiverState, receiverView } from '../agent-receiver-state.js';
 import { randomUUID } from 'node:crypto';
 import { and, asc, eq, gt, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import { agentBusAddresses, agentBusConversations, agentBusMessages, agentSessions, type AgentBusAddress } from '../../db/schema.js';
@@ -11,11 +11,43 @@ import { deriveAddressPresence, isPresent, type AgentAddressPresence } from '../
 import { newQueuedMessage } from './views.js';
 import type { AgentMessagingDb } from './types.js';
 
-export function deliveryHint(presence: AgentAddressPresence): string {
+/** A closed claim gate older than this is named on a send receipt (feedback f2b100b0). */
+export const STUCK_CLAIM_GATE_SECONDS = 120;
+/** Gates that still admit a claim; `unknown` keeps reception open since cxx 0.9.162. */
+const ADMITTING_CLAIM_GATES = new Set(['open', 'work_active', 'unknown']);
+
+/** Receipt evidence beyond transport presence. Each field is set only when observed. */
+export interface DeliveryHintContext {
+  /** The recipient receiver's local claim gate and its age in seconds, as last reported. */
+  claimGate?: { state: string; seconds: number } | null;
+  /** Set only for a host-daemon helper address: whether its host has a connected daemon relay. */
+  daemonRelay?: 'connected' | 'missing';
+}
+
+export function stuckClaimGate(gate: DeliveryHintContext['claimGate']): { state: string; seconds: number } | null {
+  return gate && !ADMITTING_CLAIM_GATES.has(gate.state) && gate.seconds > STUCK_CLAIM_GATE_SECONDS ? gate : null;
+}
+
+export function deliveryHint(presence: AgentAddressPresence, context: DeliveryHintContext = {}): string {
+  const stuck = presence === 'listening' ? stuckClaimGate(context.claimGate) : null;
+  if (stuck) return `Stored by the server; recipient is online, but its local claim gate has been ${stuck.state} for ${stuck.seconds}s, so delivery waits until that gate opens. Not yet proof of acceptance or reading.`;
   if (presence === 'listening') return 'Stored by the server; recipient is online and ready to receive. Not yet proof of acceptance or reading.';
   if (presence === 'online') return 'Stored by the server; recipient is online but reception is not ready. Delivery is waiting.';
   if (presence === 'disabled') return 'Stored receipt; recipient is now disabled. Check the message status for delivery outcome.';
+  if (context.daemonRelay === 'missing') return 'Stored by the server; recipient is an idle host-daemon helper and no daemon relay is connected on its host, so nothing can resume it now. Delivery waits until the host daemon reconnects or the message expires.';
   return 'Stored by the server; recipient is offline. Delivery is waiting; a background worker may resume the existing conversation.';
+}
+
+/** The presence part of a send/reply receipt: the hint plus the structured evidence it names. */
+export function deliveryReceiptFields(presence: AgentAddressPresence, context: DeliveryHintContext = {}) {
+  const stuck = presence === 'listening' ? stuckClaimGate(context.claimGate) : null;
+  const daemonRelay = presence === 'offline' || presence === 'resumable' ? context.daemonRelay : undefined;
+  return {
+    recipient_presence: presence,
+    ...(stuck ? { recipient_claim_gate: stuck.state, recipient_claim_gate_seconds: stuck.seconds } : {}),
+    ...(daemonRelay ? { recipient_daemon_relay: daemonRelay } : {}),
+    delivery_hint: deliveryHint(presence, context),
+  };
 }
 
 export async function recipientSnapshot(tx: AgentMessagingDb, address: AgentBusAddress, env: Env, now = new Date(), requestedTiming?: string) {
@@ -23,7 +55,10 @@ export async function recipientSnapshot(tx: AgentMessagingDb, address: AgentBusA
     ? await tx.select().from(agentSessions).where(eq(agentSessions.id, address.currentSessionId)).limit(1)
     : [];
   const presence = deriveAddressPresence(address, session, new Date(now.getTime() - env.AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS * 1000).toISOString(), now.getTime());
-  return { ...(requestedTiming === undefined ? {} : deliveryTimingReceipt(requestedTiming, receiverState(session?.receiver)?.delivery_timing_v1 === true)), recipient_presence: presence, observed_at: now.toISOString(), delivery_hint: deliveryHint(presence) };
+  const view = presence === 'listening' ? receiverView(session?.receiver, now.getTime()) : null;
+  const claimGate = view?.claim_gate ? { state: view.claim_gate, seconds: view.claim_gate_seconds ?? 0 } : null;
+  const { delivery_hint, ...fields } = deliveryReceiptFields(presence, { claimGate });
+  return { ...(requestedTiming === undefined ? {} : deliveryTimingReceipt(requestedTiming, receiverState(session?.receiver)?.delivery_timing_v1 === true)), ...fields, observed_at: now.toISOString(), delivery_hint };
 }
 
 /** Called under the bus gate, before FIFO selection. Session-scoped mail must never wake a replacement. */

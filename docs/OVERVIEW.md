@@ -864,7 +864,9 @@ status stays available. See [installation](INSTALL.md#instance-management).
 ## Agent Messaging
 
 Send/reply receipts expose current `recipient_presence`, `observed_at` and
-`delivery_hint`: a queued message is stored, not accepted or read. When a peer
+`delivery_hint`: a queued message is stored, not accepted or read. The hint
+names a recipient claim gate closed for over two minutes, and says when an idle
+host-daemon helper has no connected daemon relay to resume it. When a peer
 returns receive-ready with mail waiting, each still-online sender gets one
 bundled server `presence_notice`. It applies only to that sender's current
 session, needs no reply and never wakes the sender after exit. Manual and

@@ -7,6 +7,9 @@ import { encrypt } from '../../security/secret-box.js';
 import { isPresent, type AgentAddressPresence } from '../../services/agent-presence.js';
 import { receiverState } from '../../services/agent-receiver-state.js';
 import { newQueuedMessage } from '../../services/agent-messaging/views.js';
+import { jsonRecord } from '../../services/agent-messaging/normalize.js';
+import type { DeliveryHintContext } from '../../services/agent-messaging/presence-feedback.js';
+import { ownedReceiverView } from '../streams/receiver.js';
 import { ownerPresence } from '../presence.js';
 import { ownedAddress, requireOwnedMessaging } from './messaging.js';
 import { stageQueuedMessage, stageServerAddress } from './messages.js';
@@ -41,6 +44,43 @@ export function ownedAddressPresence(
       return 'online';
   }
   return address.lastUpstreamSessionId ? 'resumable' : 'offline';
+}
+
+/** A host's daemon relay is connected when its active registration has a live attachment or legacy drain proof. */
+export function ownedDaemonRelayConnected(runtime: OwnerRuntime, snapshot: OwnerStateSnapshot, hostId: number): boolean {
+  runtime.assertOwner();
+  const presence = ownerPresence(runtime),
+    legacy = legacyDrainFor(runtime);
+  return snapshot
+    .table('agentBusRelays')
+    .by('hostId', hostId)
+    .some(
+      (relay) =>
+        relay.status === 'active' &&
+        jsonRecord(relay.capabilities)?.host_daemon === true &&
+        (presence.hasRelay(relay.id) || (legacy?.deadline(snapshot, 'relay', relay.id) ?? 0) > Date.now()),
+    );
+}
+
+/**
+ * Receipt evidence beyond transport presence (feedback f2b100b0, f4b31207):
+ * the claim gate a listening receiver last reported over its connection, and
+ * for an idle host-daemon helper whether any daemon relay could resume it.
+ */
+export function ownedDeliveryHintContext(
+  runtime: OwnerRuntime,
+  snapshot: OwnerStateSnapshot,
+  address: AgentBusAddress,
+  presence: AgentAddressPresence,
+): DeliveryHintContext {
+  if (presence === 'listening') {
+    const session = address.currentSessionId ? snapshot.sessions.get(address.currentSessionId) : undefined,
+      view = session ? ownedReceiverView(runtime, session) : null;
+    return view?.claim_gate ? { claimGate: { state: view.claim_gate, seconds: view.claim_gate_seconds ?? 0 } } : {};
+  }
+  if ((presence === 'offline' || presence === 'resumable') && snapshot.table('hostDaemonSessions').by('addressId', address.id).length)
+    return { daemonRelay: ownedDaemonRelayConnected(runtime, snapshot, address.hostId) ? 'connected' : 'missing' };
+  return {};
 }
 
 function pending(snapshot: OwnerStateSnapshot, sessionId: string, addressId: string, now: string) {

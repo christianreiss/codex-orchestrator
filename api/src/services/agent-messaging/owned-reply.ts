@@ -15,7 +15,7 @@ import { ownedAddress, ownedBridge, ownedRelay } from '../../control-plane/state
 import { stageUpdate } from '../../control-plane/state/rows.js';
 import { stageQueuedMessage } from '../../control-plane/state/messages.js';
 import { assertOwnedHousekeeping } from '../../control-plane/state/session-lifecycle.js';
-import { ownedAddressPresence } from '../../control-plane/state/presence-notices.js';
+import { ownedAddressPresence, ownedDeliveryHintContext } from '../../control-plane/state/presence-notices.js';
 import {
   assertQueuePolicyReplay,
   coalescedEventStats,
@@ -38,7 +38,7 @@ import {
   normalizeUuid,
 } from './normalize.js';
 import { messageForParticipant, messageMetadata, newQueuedMessage } from './views.js';
-import { deliveryHint } from './presence-feedback.js';
+import { deliveryReceiptFields } from './presence-feedback.js';
 import { SERVER_ADDRESS_ID } from './groups.js';
 import { TERMINAL_MESSAGE_STATUSES } from './constants.js';
 import { unknownTaskResult, type TaskResult } from './task-execution.js';
@@ -416,8 +416,7 @@ export async function replyOwnedMessage(
     message: result.message,
     ...deliveryTimingReceipt(String(result.message.delivery_timing ?? 'after_turn'), !!target?.currentSessionId &&
       receiverState(current.sessions.get(target.currentSessionId)?.receiver)?.delivery_timing_v1 === true),
-    recipient_presence: presence,
+    ...deliveryReceiptFields(presence, target ? ownedDeliveryHintContext(runtime, current, target, presence) : {}),
     observed_at: nowIso(),
-    delivery_hint: deliveryHint(presence),
   };
 }

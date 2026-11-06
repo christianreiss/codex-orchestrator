@@ -2138,6 +2138,10 @@ and HTTP 408/429 retain the original-UUID retry hint.
 `agent_send`, `agent_request` (inside its send receipt), and `agent_reply`
 report `recipient_presence`, `observed_at` and `delivery_hint`. `queued` means
 stored by the server, not accepted or read; `resumable` means currently offline (resumed automatically only on a persistent host; elsewhere mail waits for a human restart and expires after its TTL).
+The hint names a recipient claim gate closed for over two minutes
+(`recipient_claim_gate`, `recipient_claim_gate_seconds`) and, for an idle
+host-daemon helper, reports `recipient_daemon_relay: missing` when no daemon
+relay on its host could resume it.
 When a recipient becomes receive-ready again, manual or automatic, still-online
 senders with waiting mail receive one bundled `presence_notice` from Server.
 The notice belongs to the sender's current session and never wakes a later one.

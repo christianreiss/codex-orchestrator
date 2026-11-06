@@ -121,6 +121,10 @@ export function ownedReceiverView(runtime: OwnerRuntime, session: Readonly<State
         ? 'ready'
         : 'unavailable',
     ownership_mode: 'connection',
+    // heartbeat_at is the durable registration instant here; liveness is the
+    // attachment itself, so report when it attached and that it is live now.
+    connection_attached_at: attachment?.attachedAt ?? null,
+    connection_observed_at: attachment ? new Date().toISOString() : null,
   };
 }
 function authorize(runtime: OwnerRuntime, id: string, token: string, source?: ReceiverSource) {

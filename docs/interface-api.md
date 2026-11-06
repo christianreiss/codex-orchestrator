@@ -1764,6 +1764,14 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   Presence is a fresh snapshot, including on idempotent retries; `resumable` means
   offline with an existing native conversation. `message.status=queued` proves
   server storage only, never recipient acceptance or reading.
+  A `listening` recipient whose last reported claim gate is closed (anything but
+  `open`, `work_active` or `unknown`) for more than 120 seconds adds
+  `recipient_claim_gate` and `recipient_claim_gate_seconds`, and the hint names
+  that gate and age instead of "ready to receive". An `offline`/`resumable`
+  recipient that a host-daemon session serves adds `recipient_daemon_relay`
+  (`connected|missing`): with `missing` no `<user>:daemon` relay of that host is
+  attached, so nothing can resume the helper and the hint says so rather than
+  promising a background worker. Both fields are absent when they do not apply.
   Local messaging tools show operation/error code without internal session
   paths. Uncertain transport/server errors and HTTP 408/429 retain the same-UUID
   retry hint; permanent 4xx rejections require correcting the request instead.
@@ -2224,6 +2232,16 @@ gate evidence. A ready receiver with a closed gate can normally leave messages q
 at zero attempts; that is not proof of a stalled transport. Wrappers omit heartbeat
 extensions when unsupported, and registration retries retain compatible older queue
 capabilities before falling back to a legacy registration.
+
+In connection ownership mode (`ownership_mode: "connection"`), `heartbeat_at` is the
+durable registration instant and does not advance; the live receiver attachment is the
+liveness proof. The receiver view therefore adds `connection_attached_at` (when the
+current receiver connection attached, else null) and `connection_observed_at` (the
+server's read time while that attachment is live, else null). `claim_gate_seconds`
+there adds the time elapsed since the gate was reported over the connection.
+`agent_list` and the host inventory also add `receiver.last_delivered_at`: the latest
+`accepted_at` of a retained message delivered to the address's current session, or
+null. It is actual delivery evidence, unlike the always-null legacy source fields.
 
 `POST /admin/agent-sessions/:id/receiver/verify` remains the compatibility route for the
 **Reconnect receiver** action, with existing operator/manage capability and origin

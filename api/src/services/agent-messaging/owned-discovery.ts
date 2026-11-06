@@ -2,6 +2,7 @@ import type { Database } from '../../db/client.js';
 import type { Host } from '../../db/schema.js';
 import { ConflictError, NotFoundError } from '../../http/errors.js';
 import type { OwnerRuntime } from '../../control-plane/state/runtime.js';
+import type { OwnerStateSnapshot } from '../../control-plane/state/store.js';
 import {
   ownedAddress,
   ownedBridge,
@@ -23,6 +24,27 @@ import { publicAddress } from './views.js';
 import { LIVE_MESSAGE_STATUSES } from './constants.js';
 import type { HostInventoryFilters } from './host-inventory.js';
 import { EXTERNAL_ROLE } from '../internal-hosts.js';
+
+/**
+ * The last retained message the current session accepted. A frozen heartbeat
+ * once hid deaf receivers (feedback f2b100b0); this is actual delivery evidence.
+ */
+function lastDeliveredAt(snapshot: OwnerStateSnapshot, addressId: string, sessionId: string | undefined): string | null {
+  if (!sessionId) return null;
+  let last: string | null = null;
+  for (const message of snapshot.messages.by('targetAddressId', addressId))
+    if (message.deliverySessionId === sessionId && message.acceptedAt && (!last || message.acceptedAt > last))
+      last = message.acceptedAt;
+  return last;
+}
+function withDelivery<T extends Record<string, unknown> | null>(
+  receiver: T,
+  snapshot: OwnerStateSnapshot,
+  addressId: string,
+  sessionId: string | undefined,
+): T {
+  return receiver ? { ...receiver, last_delivered_at: lastDeliveredAt(snapshot, addressId, sessionId) } : receiver;
+}
 
 export async function ownedSelf(
   db: Database,
@@ -171,7 +193,7 @@ export async function discoverOwnedAddresses(
     addresses: page.addresses.map((row) => ({
       ...publicAddress(row.address, row.fqdn, row.presence),
       presence_source: 'connection',
-      receiver: row.receiver,
+      receiver: withDelivery(row.receiver, snapshot, row.address.id, row.session?.id),
       cwd: readWorkspace(row.session?.workspace)?.cwd ?? row.session?.cwd ?? row.address.cwd,
       task_title:
         row.session?.taskTitleNativeId === row.session?.upstreamSessionId
@@ -206,7 +228,7 @@ export function ownedHostInventory(runtime: OwnerRuntime, host: Host, filters: H
           ...publicAddress(address, current.fqdn, presence),
           presence_source: 'connection',
           cwd: session?.cwd ?? address.cwd,
-          receiver: session ? ownedReceiverView(runtime, session) : null,
+          receiver: withDelivery(session ? ownedReceiverView(runtime, session) : null, snapshot, address.id, session?.id),
           current_session_id: address.currentSessionId,
           upstream_session_id: session?.upstreamSessionId ?? null,
           last_upstream_session_id: address.lastUpstreamSessionId,
