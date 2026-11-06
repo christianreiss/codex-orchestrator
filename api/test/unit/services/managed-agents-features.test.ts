@@ -369,9 +369,10 @@ describe('served document byte invariance', () => {
     // 2026-10-27: task/wait supervision and compact explicit-result guidance.
     // 2026-11-01: emulated-budget actions and opt-in held-work resume.
     // 2026-11-06: a later peer follow-up is an agent_request, not "no reply needed" (feedback 98abb657).
-    expect(out.features_sha256).toBe('62b17ecbee98e3b8dcac0eb97c09adeca5b2ef7dd029497a915936c300eb0f00');
-    expect(out.managed_sha256).toBe('6d3cf75a1469bcaea45600c54d3ac796817b07af9c904b9ea5c6ffec88d1a12c');
-    expect(sha256(out.body)).toBe('1e66db81d358036f017e539893824739c731f19dadbce529ed37752d35bd7395');
+    // 2026-11-06: slop jobs (UI/UX review) in the Projects section.
+    expect(out.features_sha256).toBe('0cb7b7bb0024a899a7cdba6504db0af9ce6962f430597bc9212b88842b7855f5');
+    expect(out.managed_sha256).toBe('f9efb271ebb4dd6361a96494ae936310fe37680be86dbe4eda47b706094a13c3');
+    expect(sha256(out.body)).toBe('521b353a1b88703b6cf7f757979cc88f8b4453ae838106f51237b64fb00d8bb9');
   });
 });
 

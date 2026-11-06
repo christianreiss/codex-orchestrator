@@ -41,6 +41,7 @@ const ALL_DEPS = {
   secrets: {},
   gitDirector: {},
   transfers: {},
+  slopJobs: {},
   board: {},
   schedules: {},
   taskMessaging: {},

@@ -54,6 +54,8 @@ const UUID_RE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 const TERMINAL = ['completed', 'incomplete', 'failed'] as const;
 const MAX_WAIT_SECONDS = 25;
 const BUNDLE_TTL_SECONDS = 2 * 3600;
+/** Holds the review bundle's transfer id inside the run dir, so finishing or purging the run retires it. */
+const BUNDLE_TRANSFER_FILE = 'bundle.transfer';
 
 type Snapshot = Record<string, { rev: number; sha256: string; kind: SlopFileKind; size: number }>;
 interface SlopReport {
@@ -703,6 +705,19 @@ export class SlopJobsService {
       .where(eq(slopRuns.id, runId)));
   }
 
+  /**
+   * Remove a run's working directory and retire its review bundle: the
+   * advisor has its copy by then (or never will), and a closed job must not
+   * leave its files in the transfer pool until the bundle TTL runs out.
+   */
+  private async dropRunDir(runId: string) {
+    const dir = this.runDir(runId);
+    const transferId = (await readFile(join(dir, BUNDLE_TRANSFER_FILE), 'utf8').catch(() => '')).trim();
+    if (UUID_RE.test(transferId))
+      await this.transfers.remove(transferId, { kind: 'system', label: 'slop-jobs' }).catch(() => {});
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+
   private async finish(runId: string, status: (typeof TERMINAL)[number], extra: Partial<typeof slopRuns.$inferInsert> = {}) {
     const at = now();
     const [run] = await this.ctx.db.select().from(slopRuns).where(eq(slopRuns.id, runId)).limit(1);
@@ -711,7 +726,7 @@ export class SlopJobsService {
       tx.update(slopRuns)
       .set({ ...extra, status, updatedAt: at, completedAt: at })
       .where(and(eq(slopRuns.id, runId), eq(slopRuns.status, run.status))));
-    await rm(this.runDir(runId), { recursive: true, force: true }).catch(() => {});
+    await this.dropRunDir(runId);
     if (run.advisorSessionId && run.advisorCallerId)
       await this.advisor.closeFor(run.advisorCallerId, run.advisorSessionId).catch(() => {});
     const [job] = await this.ctx.db.select().from(slopJobs).where(eq(slopJobs.id, run.jobId)).limit(1);
@@ -752,6 +767,7 @@ export class SlopJobsService {
         },
         null,
       );
+      if (!transferId) await writeFile(join(dir, BUNDLE_TRANSFER_FILE), put.transfer.id);
       transferId = put.transfer.id;
       offset += chunk.length;
       if (offset >= tar.length) break;
@@ -869,7 +885,7 @@ export class SlopJobsService {
       await tx.delete(slopJobs).where(eq(slopJobs.id, jobId));
     });
     for (const run of runs) {
-      await rm(this.runDir(run.id), { recursive: true, force: true }).catch(() => {});
+      await this.dropRunDir(run.id);
       if (run.advisorSessionId && run.advisorCallerId && !TERMINAL.includes(run.status as (typeof TERMINAL)[number]))
         await this.advisor.closeFor(run.advisorCallerId, run.advisorSessionId).catch(() => {});
     }
@@ -912,7 +928,7 @@ export class SlopJobsService {
         if (!UUID_RE.test(name) || live.has(name)) continue;
         const [row] = await this.ctx.db.select({ status: slopRuns.status }).from(slopRuns).where(eq(slopRuns.id, name)).limit(1);
         if (!row || TERMINAL.includes(row.status as (typeof TERMINAL)[number]))
-          await rm(this.runDir(name), { recursive: true, force: true }).catch(() => {});
+          await this.dropRunDir(name);
       }
     } catch {
       /* no runs directory yet */
