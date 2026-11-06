@@ -92,3 +92,12 @@ export function parseReviewReply(reply: string): ParsedReview | null {
   if (raw.length > MAX_FINDINGS) problems.push(`only the first ${MAX_FINDINGS} findings were kept`);
   return { findings, problems };
 }
+
+/**
+ * The reply without its slop-review block. parseAdvisorVerdict pairs fences
+ * naively, so the review block's closing fence would otherwise open a bogus
+ * block and swallow the json verdict that follows it.
+ */
+export function stripReviewBlock(reply: string): string {
+  return reply.replace(new RegExp('```' + REVIEW_FENCE + '[^\\n]*\\n[\\s\\S]*?```', 'g'), '');
+}

@@ -44,7 +44,7 @@ import {
 } from './slop-jobs/paths.js';
 import { MAX_DIFF_LINES, unifiedDiff } from './slop-jobs/diff.js';
 import { buildTar, tarName, type TarEntry } from './slop-jobs/tar.js';
-import { parseReviewReply, reviewQuestion } from './slop-jobs/review.js';
+import { parseReviewReply, reviewQuestion, stripReviewBlock } from './slop-jobs/review.js';
 import { slopAdvisorEvents } from './slop-jobs/advisor-hook.js';
 
 const now = () => new Date().toISOString();
@@ -813,7 +813,7 @@ export class SlopJobsService {
     if (run.status === 'reviewing') {
       if (!run.advisorReplyEnc) return;
       const reply = decrypt(run.advisorReplyEnc, this.ctx.keyring);
-      const verdict = run.advisorReplyStatus === 'completed' ? parseAdvisorVerdict(reply) : null;
+      const verdict = run.advisorReplyStatus === 'completed' ? parseAdvisorVerdict(stripReviewBlock(reply)) : null;
       const verdictJson = verdict ? JSON.stringify(verdict) : null;
       if (run.advisorReplyStatus !== 'completed') {
         await this.finish(run.id, 'failed', { verdictJson, error: `The advisor turn ended with status ${run.advisorReplyStatus}.` });

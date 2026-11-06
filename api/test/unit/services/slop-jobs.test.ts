@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { inferSlopKind, normalizeSlopPath, pathsCollide, isLikelyText } from '../../../src/services/slop-jobs/paths.js';
 import { unifiedDiff } from '../../../src/services/slop-jobs/diff.js';
 import { buildTar, tarName } from '../../../src/services/slop-jobs/tar.js';
-import { parseReviewReply, reviewQuestion, REVIEW_FENCE } from '../../../src/services/slop-jobs/review.js';
+import { parseReviewReply, reviewQuestion, REVIEW_FENCE, stripReviewBlock } from '../../../src/services/slop-jobs/review.js';
+import { parseAdvisorVerdict } from '../../../src/services/advisor-delivery.js';
 import { slopRunIdFromClientKey } from '../../../src/services/slop-jobs/advisor-hook.js';
 import { SLOP_JOB_TOOLS } from '../../../src/services/slop-jobs-tool-names.js';
 
@@ -104,6 +105,10 @@ describe('slop review protocol', () => {
     expect(parsed.problems[0]).toMatch(/finding 2 lacks/);
     // Stable ids: the same finding in a later run diffs as unchanged.
     expect(parseReviewReply(reply)!.findings[0]!['id']).toBe(parsed.findings[0]!['id']);
+  });
+  it('still finds the json verdict after the review block', () => {
+    const reply = `Text.\n\n\`\`\`${REVIEW_FENCE}\n{"version":1,"findings":[]}\n\`\`\`\n\n\`\`\`json\n{"verdict":"disagree","summary":"s"}\n\`\`\``;
+    expect(parseAdvisorVerdict(stripReviewBlock(reply))).toMatchObject({ verdict: 'disagree', summary: 's' });
   });
   it('returns null without a block and reports invalid JSON', () => {
     expect(parseReviewReply('no block here')).toBeNull();
