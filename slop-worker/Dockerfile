@@ -13,6 +13,6 @@ COPY --from=build /opt/slop/node_modules ./node_modules
 COPY --from=build /opt/slop/dist ./dist
 COPY vendor/slop-detector/package.json vendor/slop-detector/0*.md ./
 COPY worker.mjs /worker/worker.mjs
-ENV DATA_ROOT=/app/storage SLOP_HOME=/opt/slop PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV DATA_ROOT=/app/storage SLOP_HOME=/opt/slop PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 HOME=/tmp
 USER 10001:10001
 CMD ["node", "/worker/worker.mjs"]

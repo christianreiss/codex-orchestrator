@@ -530,8 +530,7 @@ export class SlopJobsService {
   async diff(args: Record<string, unknown>) {
     const job = await this.job(args['job_id']);
     if (args['path'] !== undefined) return this.fileDiff(job, args);
-    if (args['from_run'] === undefined && args['to_run'] === undefined)
-      throw new ValidationError('pass path (file revisions) or from_run/to_run (run results)');
+    // Without path or runs: the two latest runs (previous → latest).
     const runs = await this.ctx.db.select().from(slopRuns).where(eq(slopRuns.jobId, job.id)).orderBy(desc(slopRuns.seq));
     const pick = (raw: unknown, fallbackIndex: number) => {
       if (raw === undefined || raw === null || raw === '') return runs[fallbackIndex];

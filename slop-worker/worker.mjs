@@ -24,7 +24,15 @@ function run(args, cwd) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd,
-      env: { PATH: process.env.PATH ?? '/usr/bin:/bin', NODE_ENV: 'production' },
+      // uid 10001 has no passwd entry: without HOME, os.homedir() (called by
+      // playwright-core at import time) throws ENOENT. /tmp is the only writable tmpfs.
+      env: {
+        PATH: process.env.PATH ?? '/usr/bin:/bin',
+        NODE_ENV: 'production',
+        HOME: '/tmp',
+        XDG_CACHE_HOME: '/tmp/.cache',
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '',
