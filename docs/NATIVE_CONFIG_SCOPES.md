@@ -57,6 +57,45 @@ body/hash pairs remain historical snapshots until the next save; generated host
 config and validation previews use the migrated settings. A key shared by multiple
 native scopes is authored here only with **user-default** semantics, never as an enforced requirement.
 
+## Claude global config lock (`~/.claude.json`)
+
+The wrapper writes three things into Claude Code's native global state file:
+the managed user-scope `mcpServers` entries, their trust-loss strip, and the
+one-time `hasCompletedOnboarding` seed. Each read-modify-rename takes Claude
+Code's own config lock (`wrappers/cxx/internal/claudeconfiglock`), so it cannot
+interleave with a native save or with `claude mcp add/remove --scope user`.
+
+Protocol, verified on 2026-11-06 in the managed 2.1.317 and 2.1.318 Linux x64
+binaries (bundled JS strings): `saveConfigWithLock` calls the bundled
+proper-lockfile `lock(configPath, {lockfilePath: configPath + ".lock",
+onCompromised})` with library defaults (`stale: 1e4`, `update: stale/2`,
+`retries: 0`), then retries `ELOCKED` itself at 200/400/800/1600/3200/4000 ms ×
+(1 + random). `claude mcp add/remove` at user scope go through the same lock
+(`writesOnlyUnderLock`). In effect:
+
+| Aspect | Native behaviour | Wrapper |
+| --- | --- | --- |
+| Lock object | Directory `<config>.lock`, created with `mkdir`, path built from the unresolved config path | Same directory |
+| Live holder | `mkdir` gives `EEXIST` and the directory mtime is at most 10 s old → `ELOCKED` | Same test; never removed or touched |
+| Stale holder | mtime older than 10 s → `rmdir`, then one more `mkdir` (a second `EEXIST` is `ELOCKED`) | Same; re-stats just before `rmdir` |
+| Hold | Holder refreshes the mtime every 5 s; release is `rmdir` | Short hold without refresh; refuses to rename once the lock changed or 5 s passed; releases only its own directory |
+| Contention | Retries for roughly 10–20 s, then (for ordinary saves) an unlocked fallback write | Retries for at most 3 s, then **skips** the write: no `~/.claude.json` change, the `managed-mcp.json` sidecar is not advanced, a warning is logged, and the next sync retries |
+
+No PID or owner file exists, so liveness is the mtime alone. A deferred MCP
+merge or strip reports a `config` resource error for that sync (the scope is
+not marked freshly synchronized, so it is retried). Like any other failed
+managed write, that error fails a strict-cache launch. A deferred onboarding seed is
+only logged.
+
+Boundaries: native resolves the file from `CLAUDE_CONFIG_DIR`, OAuth-environment
+suffixes (`.claude-staging-oauth.json` and similar) and a legacy
+`~/.claude/.config.json`. The wrapper writes only `~/.claude.json` and locks
+next to that file. Native also has an opt-in v5 storage backend (pinned by the
+`tengu_hover_rest` flag) with its own lock. In 2.1.318 that backend factory returns
+nothing, so the mkdir lock is the only path. Re-verify both points when the
+managed Claude version moves. `cxx` engine destroy (`enginedestroy`) still
+strips managed servers without this lock.
+
 ## Native version compatibility
 
 Nonempty Codex native settings, including profile native settings, require a
