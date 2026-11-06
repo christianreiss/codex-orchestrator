@@ -1,7 +1,7 @@
 /**
- * Codex 0.166.0 native configuration, audited 2026-11-01.
- * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.166.0/codex-rs/core/config.schema.json
- * Original SHA-256: 211bec2282459fcd70e4905af948721177b6ec7a03e0df84cd8b7c131006a6ca.
+ * Codex 0.167.0 native configuration, audited 2026-11-06.
+ * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/core/config.schema.json
+ * Original SHA-256: 66ed795352d32f2464778acd2e332b7fafe644246d540cdceec4663c56cfbc16.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
@@ -88,9 +88,22 @@ export function nativeRecord(value: unknown): NativeSettings {
     ? value as NativeSettings : {};
 }
 
+/**
+ * The wrapper syncs CODEX_HOME/auth.json (lease, refresh, insecure-host purge);
+ * any other native auth store would hide credentials from that sync.
+ */
+function wrapperOwnsCliAuthStore(native: NativeSettings): boolean {
+  return Object.hasOwn(native, 'cli_auth_credentials_store') && native.cli_auth_credentials_store !== 'file';
+}
+
 /** Stored compatibility only; authoring must use the strict normalizer first. */
 export function normalizeStoredCodexNativeSettings(value: unknown): NativeSettings | undefined {
-  const input = nativeRecord(value);
+  let input = nativeRecord(value);
+  if (wrapperOwnsCliAuthStore(input)) {
+    input = { ...input };
+    delete input.cli_auth_credentials_store;
+    value = input;
+  }
   const features = nativeRecord(input.features);
   if (!Object.hasOwn(features, 'code_mode_tool_description_first')
     && !Object.hasOwn(nativeRecord(features.guardianv2), 'async_classifier_mode')) {
@@ -131,6 +144,9 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
   const out = cloneJson(value, 'native_settings') as NativeSettings;
   for (const key of ['requirements', 'allowed_approval_policies', 'allowed_sandbox_modes', 'allow_managed_hooks_only', 'managed_hooks', 'allow_remote_control']) {
     if (Object.hasOwn(out, key)) throw new ValidationError(`native_settings.${key} belongs to admin-enforced requirements.toml, not user config.toml; configure it through your native device or enterprise policy deployment`, { param: `native_settings.${key}` });
+  }
+  if (wrapperOwnsCliAuthStore(out)) {
+    throw new ValidationError('native_settings.cli_auth_credentials_store is owned by the fleet wrapper, which syncs CODEX_HOME/auth.json; keyring, auto or ephemeral storage would hide credentials from fleet auth sync. Omit it or set "file"', { param: 'native_settings.cli_auth_credentials_store' });
   }
   for (const key of Object.keys(out)) {
     if (retiredRootKeys.has(key)) throw new ValidationError(`native_settings.${key} is retired; use current native settings or profile sidecars`, { param: `native_settings.${key}` });

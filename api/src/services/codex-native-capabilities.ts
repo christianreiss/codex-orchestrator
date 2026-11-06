@@ -1,4 +1,4 @@
-/** Exact 0.164.0/0.165.0/0.166.0 field paths; map identifiers are never interpreted as paths. */
+/** Exact 0.164.0–0.167.0 field paths; map identifiers are never interpreted as paths. */
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -53,4 +53,16 @@ export function needsCodex166(value: Record<string, unknown>): boolean {
     || Object.values(record(value.permissions)).some(profile =>
       Object.values(record(record(record(record(profile).network).mitm).actions))
         .some(action => ['aws_sigv4', 'body_secret_substitution'].some(key => Object.hasOwn(record(action), key))));
+}
+
+/** New 0.167 fields only; provider/plugin/connector identifiers remain opaque segments. */
+export function needsCodex167(value: Record<string, unknown>): boolean {
+  return ['apps_early_resource_discovery', 'code_mode_host_output_truncation', 'gcp_setup_wizard',
+    'incremental_exec_tools', 'interrupt_on_cancel', 'suppress_model_change_announcements',
+    'tui_extensions_statusline'].some(key => Object.hasOwn(record(value.features), key))
+    || Object.hasOwn(record(value.otel), 'log_sse_deltas')
+    || Object.values(record(value.model_providers)).some(provider =>
+      Object.hasOwn(record(record(provider).gateway_oauth), 'credentials_store')
+      || Object.hasOwn(record(record(provider).capabilities), 'cyber_access_programs'))
+    || Object.values(record(value.plugins)).some(plugin => Object.hasOwn(record(plugin), 'apps'));
 }

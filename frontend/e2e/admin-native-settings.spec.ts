@@ -151,7 +151,7 @@ test("native JSON validates, previews and saves each engine without losing separ
 test("Codex 0.166 native options preview, save and remove through the existing editor", async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["codex"]);
   const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");
-  await expect(card).toContainText("0.166.0");
+  await expect(card).toContainText("0.167.0");
   const native = { features: { plugin_discovery_prefetch: false, rollout_budget: { enforce_limit: false } },
     memories: { consolidation_service_tier: "priority" }, tui: { keymap: { global: { select_transcript: "ctrl-s" } } } };
   await editor.fill(JSON.stringify(native));

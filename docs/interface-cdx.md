@@ -2131,6 +2131,55 @@ This is agent-executed guidance shared by all three engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
+## Native configuration maintenance (Codex 0.167.0)
+
+The Engines native JSON editor, root configuration and profile sidecars accept the
+published 0.167.0 schema (release `rust-v0.167.0`, commit
+`086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`, audited 2026-11-06, SHA-256
+`66ed795352d32f2464778acd2e332b7fafe644246d540cdceec4663c56cfbc16`).
+`codex features list` adds seven keys and removes none, so the retired-feature
+list is unchanged. The following additions conditionally require an **observed**
+native CLI 0.167.0; existing settings keep their earlier floors. Explicit false,
+empty maps or profile-only values count as configured; provider, plugin and
+connector IDs stay opaque, so map names containing these words are not gated.
+
+- Features: `apps_early_resource_discovery`, `code_mode_host_output_truncation`,
+  `incremental_exec_tools`, `interrupt_on_cancel`, `tui_extensions_statusline`
+  (all under development) and `suppress_model_change_announcements`,
+  `gcp_setup_wizard` (stable). All default to false; none is enabled by this update.
+- `otel.log_sse_deltas` (native default true; false keeps errors, completion
+  events and metrics).
+- Custom provider `capabilities.cyber_access_programs` (whether the provider
+  accepts explicit `access_programs.cyber` selections; grants no access) and
+  `gateway_oauth.credentials_store` (`keyring`, the native default, or `file`).
+  Native 0.166.0 refuses to load a config containing
+  `gateway_oauth.credentials_store`; the other additions are ignored there.
+- `plugins.<id>.apps.<connector>`: connector-wide app settings with the native
+  `AppConfig` fields. Explicit top-level `apps` entries still win natively.
+
+Built-in providers keep the existing restrictions: `openai` accepts only
+`model_catalog_url`, and `gcp`, `amazon-bedrock` and `amazon-bedrock-runtime`
+reject `capabilities` and `gateway_oauth`. Use a custom provider ID for both.
+
+**CLI auth storage is wrapper-owned.** `cli_auth_credentials_store` (not new in
+0.167) may only be omitted or set to `"file"` in root native settings and profile
+sidecars. The wrapper leases, refreshes, uploads and purges `CODEX_HOME/auth.json`;
+`keyring`, `auto` or `ephemeral` would move credentials where fleet auth sync and
+the insecure-host purge cannot see them. Authoring returns a 422 naming the field;
+stored documents that already carry another value are healed on read by dropping
+only that key, so the native file default applies again.
+
+`mcp_oauth_credentials_store` and provider `gateway_oauth.credentials_store`
+remain user-selectable. Their `file` modes store OAuth tokens **in plaintext**
+under `CODEX_HOME` (the gateway store is `$CODEX_HOME/secrets/gateway_oauth.json`).
+The insecure-host cleanup removes only `auth.json` (with its wrapper lock and
+intent files); these OAuth files are not purged.
+Prefer the keyring default on shared or insecure hosts.
+
+Sources: [versioned schema](https://github.com/openai/codex/blob/rust-v0.167.0/codex-rs/core/config.schema.json),
+`codex features list` and config-load probes of the 0.166.0 and 0.167.0 binaries
+with a throwaway `CODEX_HOME`.
+
 ## Native configuration maintenance (Codex 0.166.0)
 
 New native and structured root/profile authoring rejects
