@@ -158,6 +158,18 @@ export const fetchBoardState = (): Promise<ProjectBoardModuleState> =>
 export const setBoardEnabled = (enabled: boolean): Promise<ProjectBoardModuleState> =>
   api.post("/admin/project-board/state", { enabled });
 
+/** Fleet switch for slop jobs (default on); outside /admin/projects/… for the same reason as the board's. */
+export interface SlopModuleState {
+  enabled: boolean;
+  jobs: number;
+  updated_at: string | null;
+}
+
+export const fetchSlopState = (): Promise<SlopModuleState> => api.get("/admin/slop-jobs/state");
+
+export const setSlopEnabled = (enabled: boolean): Promise<SlopModuleState> =>
+  api.post("/admin/slop-jobs/state", { enabled });
+
 export interface CardPayload {
   title: string;
   detail?: string;
@@ -360,6 +372,7 @@ export const projectKeys = {
   // updating when another agent moves a card.
   board: (slug: string) => ["project", slug, "board"] as const,
   boardState: ["projects", "board", "state"] as const,
+  slopState: ["projects", "slop", "state"] as const,
   files: (slug: string) => ["project", slug, "files"] as const,
   feedback: (slug: string) => ["project", slug, "feedback"] as const,
   changes: (slug: string) => ["project", slug, "changes"] as const,

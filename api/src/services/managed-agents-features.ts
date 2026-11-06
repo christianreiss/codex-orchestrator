@@ -52,6 +52,8 @@ export interface ManagedAgentFeatureContext {
   skillsTransport?: 'mcp' | 'native';
   memory: ManagedFeatureState;
   projects: ManagedFeatureState;
+  /** Slop jobs fleet switch; its guidance rides in the Projects section. Absent counts as on. */
+  slopJobs?: ManagedFeatureState;
   browseros: ManagedFeatureState;
   secrets: ManagedFeatureState;
   apiKeysInChat: ManagedFeatureState;
@@ -320,6 +322,13 @@ function memorySection(context: ManagedAgentFeatureContext): RenderedSection | n
   return present(context.memory, text);
 }
 
+const SLOP_GUIDANCE = `
+
+**Slop jobs.** Review UI work before reporting it done: \`slop_job_create\` → \`slop_job_put\` (sources,
+DESIGN.md, screenshots) → \`slop_job_describe\` → \`slop_job_run\` (\`quick\` scan, \`full\` adds the
+Fleet Advisor) → \`slop_job_result\`. Fix, re-upload, re-run, compare with \`slop_job_diff\`; report open
+findings as incomplete. \`slop_job_close\` when done.`;
+
 function projectsSection(context: ManagedAgentFeatureContext): RenderedSection | null {
   if (!context.projects.enabled) return null;
   return present(
@@ -329,12 +338,7 @@ function projectsSection(context: ManagedAgentFeatureContext): RenderedSection |
 Use \`#coco\` for the managed workflow and \`project_*\` tools for shared project state, handoffs and
 workstream memory: read \`project_summary\` for the active project first, then the relevant memories and files
 (\`project_files\` for metadata, \`project_file_read\` for bodies). Correct a fact with
-\`project_memory_upsert\` on the same key, never a near-duplicate beside it.
-
-**Slop jobs.** Review UI work before reporting it done: \`slop_job_create\` → \`slop_job_put\` (sources,
-DESIGN.md, screenshots) → \`slop_job_describe\` → \`slop_job_run\` (\`quick\` scan, \`full\` adds the
-Fleet Advisor) → \`slop_job_result\`. Fix, re-upload, re-run, compare with \`slop_job_diff\`; report open
-findings as incomplete. \`slop_job_close\` when done.`,
+\`project_memory_upsert\` on the same key, never a near-duplicate beside it.${context.slopJobs?.enabled === false ? '' : SLOP_GUIDANCE}`,
   );
 }
 

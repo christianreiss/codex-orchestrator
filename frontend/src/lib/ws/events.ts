@@ -134,6 +134,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.card.deleted": [["projects"]],
   "project.board.updated": [["projects"]],
   "project_board.module_toggled": [["projects"], ["projects", "board", "state"]],
+  "slop_jobs.module_toggled": [["projects", "slop", "state"]],
   "project_board.claim_force_released": [["projects"]],
 
   // Authoring (the authoring pages query the bare ["agents"]/["skills"]/["memories"] keys)

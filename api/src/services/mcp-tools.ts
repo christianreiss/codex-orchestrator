@@ -127,8 +127,12 @@ export class McpToolsRegistry {
   async listAvailable(capability: Capability = 'host'): Promise<ToolDefinition[]> {
     const enabled = await this.deps.feedback?.getEnabled().catch(() => false) ?? false;
     const roles = await this.deps.roles?.isEnabled().catch(() => false) ?? false;
+    const slop = await this.deps.slopJobs?.getEnabled().catch(() => false) ?? false;
     return this.list(capability).filter(
-      (entry) => (enabled || !entry.name.startsWith('feedback_')) && (roles || entry.name !== 'role_list'),
+      (entry) =>
+        (enabled || !entry.name.startsWith('feedback_')) &&
+        (roles || entry.name !== 'role_list') &&
+        (slop || !entry.name.startsWith('slop_job_')),
     );
   }
 
@@ -1978,7 +1982,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           required: ['project', 'title'],
         },
       },
-      handler: async (args, host) => slop.create(args, host),
+      handler: async (args, host) => {
+        await slop.assertEnabled();
+        return slop.create(args, host);
+      },
     });
     inputs.push({
       definition: {
@@ -1999,7 +2006,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           required: ['job_id', 'path'],
         },
       },
-      handler: async (args, host) => slop.put(args, host),
+      handler: async (args, host) => {
+        await slop.assertEnabled();
+        return slop.put(args, host);
+      },
     });
     inputs.push({
       definition: {
@@ -2013,7 +2023,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           required: ['job_id', 'description'],
         },
       },
-      handler: async (args, host) => slop.describe(args, host),
+      handler: async (args, host) => {
+        await slop.assertEnabled();
+        return slop.describe(args, host);
+      },
     });
     inputs.push({
       definition: {
@@ -2034,7 +2047,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           required: ['job_id', 'mode', 'client_message_id'],
         },
       },
-      handler: async (args, host) => slop.run(args, host),
+      handler: async (args, host) => {
+        await slop.assertEnabled();
+        return slop.run(args, host);
+      },
     });
     inputs.push({
       definition: {
@@ -2043,7 +2059,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           'Show a slop job: description, current files with their latest revision and revision count, removed paths, and the run history (status, finding counts, advisor verdict). Every job call counts as activity for the 24 h idle timer.',
         inputSchema: { type: 'object', properties: { job_id: job }, additionalProperties: false, required: ['job_id'] },
       },
-      handler: async (args) => slop.get(args),
+      handler: async (args) => {
+        await slop.assertEnabled();
+        return slop.get(args);
+      },
     });
     inputs.push({
       definition: {
@@ -2062,7 +2081,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           required: ['job_id'],
         },
       },
-      handler: async (args) => slop.result(args),
+      handler: async (args) => {
+        await slop.assertEnabled();
+        return slop.result(args);
+      },
     });
     inputs.push({
       definition: {
@@ -2083,7 +2105,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           required: ['job_id'],
         },
       },
-      handler: async (args) => slop.diff(args),
+      handler: async (args) => {
+        await slop.assertEnabled();
+        return slop.diff(args);
+      },
     });
     inputs.push({
       definition: {
@@ -2096,7 +2121,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           required: ['project'],
         },
       },
-      handler: async (args) => slop.list(args),
+      handler: async (args) => {
+        await slop.assertEnabled();
+        return slop.list(args);
+      },
     });
     inputs.push({
       definition: {
@@ -2105,7 +2133,10 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           'Close a slop job: permanently deletes the job, every file revision, every run result and unreferenced file bytes, and stops a running advisor review. There is no restore.',
         inputSchema: { type: 'object', properties: { job_id: job }, additionalProperties: false, required: ['job_id'] },
       },
-      handler: async (args) => slop.close(args),
+      handler: async (args) => {
+        await slop.assertEnabled();
+        return slop.close(args);
+      },
     });
   }
 

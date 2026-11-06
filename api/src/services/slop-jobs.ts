@@ -46,6 +46,7 @@ import { MAX_DIFF_LINES, unifiedDiff } from './slop-jobs/diff.js';
 import { buildTar, tarName, type TarEntry } from './slop-jobs/tar.js';
 import { parseReviewReply, reviewQuestion, stripReviewBlock } from './slop-jobs/review.js';
 import { slopAdvisorEvents } from './slop-jobs/advisor-hook.js';
+import { SLOP_JOBS_ENABLED_FLAG } from './slop-jobs-tool-names.js';
 
 const now = () => new Date().toISOString();
 const sha256 = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
@@ -281,6 +282,30 @@ export class SlopJobsService {
   }
 
   // ------------------------------------------------------------ MCP tools
+
+  // ── module switch ─────────────────────────────────────────────────────────
+
+  async getEnabled(): Promise<boolean> {
+    return await new SettingsService(this.ctx.db).getFlag(SLOP_JOBS_ENABLED_FLAG, true);
+  }
+
+  async adminState(): Promise<{ enabled: boolean; jobs: number; updated_at: string | null }> {
+    const meta = await new SettingsService(this.ctx.db).getWithMeta(SLOP_JOBS_ENABLED_FLAG);
+    const jobs = await this.ctx.db.select({ id: slopJobs.id }).from(slopJobs);
+    return { enabled: await this.getEnabled(), jobs: jobs.length, updated_at: meta.updatedAt };
+  }
+
+  async setEnabled(enabled: boolean) {
+    await new SettingsService(this.ctx.db).setFlag(SLOP_JOBS_ENABLED_FLAG, enabled, { publish: false });
+    wsPublisher.publish('settings.changed', { kind: 'slop_jobs', enabled });
+    return await this.adminState();
+  }
+
+  /** MCP entry guard: a switched-off module refuses every slop_job_* call. */
+  async assertEnabled(): Promise<void> {
+    if (!(await this.getEnabled()))
+      throw new ForbiddenError('Slop jobs are disabled for this fleet. An operator turns them on in the console under Projects → settings.', 'slop_jobs_disabled');
+  }
 
   async create(args: Record<string, unknown>, host: Host) {
     const project = await this.project(args['project']);

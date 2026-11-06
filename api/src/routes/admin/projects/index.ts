@@ -15,6 +15,8 @@ import { ProviderAccountsService } from '../../../services/provider-accounts.js'
  *   GET    /admin/projects/:slug/changes
  *   GET    /admin/projects/:slug/slop-jobs
  *   GET    /admin/projects/:slug/slop-jobs/:id
+ *   GET    /admin/slop-jobs/state
+ *   POST   /admin/slop-jobs/state
  *   GET    /admin/projects/:slug/notes
  *   POST   /admin/projects/:slug/notes
  *   POST   /admin/projects/:slug/notes/:id
@@ -33,6 +35,7 @@ import { ProviderAccountsService } from '../../../services/provider-accounts.js'
  */
 import type { FastifyInstance } from 'fastify';
 import { ValidationError } from '../../../http/errors.js';
+import { AdminEventsService } from '../../../services/admin-events.js';
 import type { RouteContext } from '../../index.js';
 import { slopJobsService } from '../../../services/slop-jobs.js';
 import { ProjectContentService } from '../../../services/project-content.js';
@@ -208,6 +211,20 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
     { preHandler: app.requireAdmin },
     async (req) => slop.adminGet(decodeURIComponent(req.params.slug), req.params.id),
   );
+  // Fleet switch, beside the project-board one; default on.
+  app.get('/admin/slop-jobs/state', { preHandler: app.requireAdmin }, async () => slop.adminState());
+  app.post('/admin/slop-jobs/state', { preHandler: app.requireAdmin }, async (req) => {
+    const raw = (req.body as { enabled?: unknown } | undefined)?.enabled;
+    if (![true, false, 0, 1, '0', '1', 'true', 'false'].includes(raw as never))
+      throw new ValidationError('enabled must be a boolean', { param: 'enabled' });
+    const enabled = raw === true || raw === 1 || raw === '1' || raw === 'true';
+    const state = await slop.setEnabled(enabled);
+    await new AdminEventsService(ctx.db).record({
+      type: 'slop_jobs.module_toggled',
+      payload: { enabled, admin_user_id: req.admin?.user?.id ?? null },
+    });
+    return state;
+  });
 
   // ── notes ────────────────────────────────────────────────────────────────
 

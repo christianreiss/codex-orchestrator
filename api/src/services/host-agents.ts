@@ -71,6 +71,7 @@ import {
   type ResponseVerbosityLevel,
 } from './agent-response-style.js';
 import { ADDRESS_FORM_SETTINGS_KEY, DEFAULT_ADDRESS_FORM, normalizeAddressForm, type AddressForm } from './agent-address-form.js';
+import { SLOP_JOBS_ENABLED_FLAG } from './slop-jobs-tool-names.js';
 
 const STATE_ID_CODEX = 1;
 const STATE_ID_CLAUDE = 2;
@@ -471,6 +472,7 @@ export class HostAgentsService {
       modelTierCheckEnabled,
       fleetEngines,
       modelPolicies,
+      slopJobsEnabled,
     ] = await Promise.all([
       owner
         ? owner.state.snapshot().table('clientConfigDocuments').by('engine', engine)
@@ -507,6 +509,7 @@ export class HostAgentsService {
           readModelPolicy(this.db, candidate).catch(() => buildModelPolicy(candidate)),
         ),
       ),
+      this.settings.getFlag(SLOP_JOBS_ENABLED_FLAG, true).catch(() => null),
     ]);
     // db-fake ignores WHERE, so do not borrow another engine's row in tests.
     const configRow = configRows.find((candidate) => candidate.engine === engine) ?? null;
@@ -682,6 +685,7 @@ export class HostAgentsService {
         engine === ENGINE_CODEX || (engine === ENGINE_CLAUDE && mcp.enabled) ? 'mcp' : 'native',
       memory,
       projects,
+      slopJobs: slopJobsEnabled === false ? state(false, 'slop_jobs_disabled') : state(true, 'ok'),
       browseros,
       secrets,
       apiKeysInChat,

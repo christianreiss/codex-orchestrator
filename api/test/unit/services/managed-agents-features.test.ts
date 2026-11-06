@@ -383,6 +383,16 @@ describe('renderManagedAgentFeatures', () => {
     expect(out.body).toContain('`project_files`');
     expect(out.body).not.toContain('`project_bootstrap`');
   });
+  it('drops the slop paragraph when the slop switch is off', () => {
+    const on = renderManagedAgentFeatures('# Fleet rules', context(ENGINE_CLAUDE, { projects: enabled() }));
+    const off = renderManagedAgentFeatures(
+      '# Fleet rules',
+      context(ENGINE_CLAUDE, { projects: enabled(), slopJobs: { enabled: false, reason: 'slop_jobs_disabled' } }),
+    );
+    expect(on.body).toContain('`slop_job_create`');
+    expect(off.body).not.toContain('slop_job_');
+    expect(off.body).toContain('`project_summary`');
+  });
 
   it('renders Grok MCP guidance and replaces its own legacy memory block without Codex local-memory copy', () => {
     const base = `# Fleet rules\n\n${buildManagedMemoryBlock('grok')}`;

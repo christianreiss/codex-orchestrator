@@ -469,6 +469,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   // turns it off fleet-wide, so both are manage.
   'GET /admin/project-board/state': cap('projects.read'),
   'POST /admin/project-board/state': cap('projects.manage'),
+  'GET /admin/slop-jobs/state': cap('projects.read'),
+  'POST /admin/slop-jobs/state': cap('projects.manage'),
   'GET /admin/projects/:slug/board': cap('projects.read'),
   'POST /admin/projects/:slug/board/cards': cap('projects.manage'),
   'POST /admin/projects/:slug/board/cards/:id': cap('projects.manage'),
