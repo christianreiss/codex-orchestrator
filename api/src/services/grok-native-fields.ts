@@ -1,11 +1,12 @@
-/** Grok Build native field registry, audited 2026-10-26.
- * Stable channel: 1.0.70. Bundled 26-config-reference.md SHA-256:
- * ebd97fec98bb00bfdfa37befddf31dd8a14e3f277db887c7b643888867865db7.
+/** Grok Build native field registry, audited 2026-11-06.
+ * Stable channel: 1.0.77. Bundled 26-config-reference.md SHA-256:
+ * 76b4fe09ce2e52e8fa89aaac0df44e3c75cec6b312d22bb7431b16bc486cdaa1.
  * Public source (Apache-2.0; supplemented by the newer bundled reference):
  * https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md
- * Supplemented by 1.0.70's bundled 05-configuration.md, 10-hooks.md and
- * 25-status-line.md; ui.timestamps also verified against the 1.0.50 release notes
- * and https://docs.x.ai/build/settings/reference. pager.toml fields are separate.
+ * Supplemented by the bundled 05-configuration.md, 10-hooks.md (1.0.77 handler
+ * failClosed) and 25-status-line.md; ui.timestamps also verified against the
+ * 1.0.50 release notes and https://docs.x.ai/build/settings/reference.
+ * pager.toml fields are separate.
  * Wildcards match one literal map key, including keys containing dots.
  */
 export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
@@ -105,6 +106,7 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "features.compaction_tool_choice": ["string"],
   "features.compaction_verbatim_input": ["boolean"],
   "features.cursor_marketplace": ["boolean"],
+  "features.daemon_feedback_drafts": ["boolean"],
   "features.dock": ["boolean"],
   "features.feedback": ["boolean"],
   "features.feedback_trace_card": ["boolean"],
@@ -121,6 +123,9 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "features.non_git_warning": ["boolean"],
   "features.remember_mode": ["boolean"],
   "features.remote_fetch": ["boolean"],
+  "features.request_compression": ["boolean"],
+  "features.resume_pagination": ["boolean"],
+  "features.send_feedback_tool": ["boolean"],
   "features.session_recap": ["boolean"],
   "features.session_search": ["boolean"],
   "features.subagent_bundle": ["boolean"],
@@ -177,14 +182,16 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "hooks.*[].hooks[].args": ["string[]"],
   "hooks.*[].hooks[].command": ["string"],
   "hooks.*[].hooks[].env": ["map<string,string>"],
+  "hooks.*[].hooks[].failClosed": ["boolean"],
   "hooks.*[].hooks[].timeout": ["number"],
   "hooks.*[].hooks[].type": ["=command", "=http"],
   "hooks.*[].hooks[].url": ["string"],
   "hooks.*[].matcher": ["string"],
-  "keys.vim": ["=off", "=nav"],
+  "keys.vim": ["=off", "=nav", "=all"],
   "long_reasoning_reminder.delay": ["integer"],
   "long_reasoning_reminder.enabled": ["boolean"],
   "long_reasoning_reminder.tokens": ["integer"],
+  "managed_mcps.allow_external_auth": ["boolean"],
   "managed_mcps.enabled": ["boolean"],
   "managed_mcps.gateway_tools_enabled": ["boolean"],
   "marketplace.require_sha": ["boolean"],
@@ -240,6 +247,7 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "model.*.extra_headers": ["map<string,string>"],
   "model.*.hidden": ["boolean"],
   "model.*.inference_idle_timeout_secs": ["number"],
+  "model.*.interjection_reply_nudge": ["boolean"],
   "model.*.max_completion_tokens": ["number"],
   "model.*.max_request_bytes": ["number"],
   "model.*.max_retries": ["number"],
@@ -379,6 +387,7 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "toolset.web_search.allowed_domains": ["string[]"],
   "toolset.web_search.excluded_domains": ["string[]"],
   "ui.approval_mode": ["string"],
+  "ui.at_picker_outside_workspace": ["boolean"],
   "ui.auto_dark_theme": ["string"],
   "ui.auto_light_theme": ["string"],
   "ui.cancel_subagents_on_turn_cancel": ["=ask", "=always_stop", "=always_continue"],
@@ -403,8 +412,10 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "ui.hunk_tracker_mode": ["=agent_only", "=all_dirty", "=off"],
   "ui.invert_scroll": ["boolean"],
   "ui.keep_text_selection": ["=flash", "=hold", "=word_select"],
+  "ui.kitty_keyboard": ["=auto", "=query"],
   "ui.max_thoughts_width": ["number"],
   "ui.mouse_reporting_toggle": ["boolean"],
+  "ui.multiline_default": ["boolean"],
   "ui.notifications.condition": ["=unfocused", "=always", "=never"],
   "ui.notifications.events": ["string[]"],
   "ui.notifications.hooks[].command": ["string"],
@@ -434,6 +445,7 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "ui.show_timeline": ["boolean"],
   "ui.show_timestamps": ["boolean"],
   "ui.simple_mode": ["boolean"],
+  "ui.single_ctrl_c_quit": ["boolean"],
   "ui.status_line.command": ["string"],
   "ui.status_line.items": ["string[]"],
   "ui.status_line.padding": ["integer"],
@@ -453,5 +465,6 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "voice.language": ["string"],
   "voice.sample_rate": ["number"],
   "workflows.enabled": ["boolean"],
+  "workflows.runtime": ["=node", "=deno"],
   "worktree.auto_gc": ["table"],
 };

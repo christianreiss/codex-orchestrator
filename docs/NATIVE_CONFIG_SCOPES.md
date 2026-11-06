@@ -11,7 +11,7 @@ profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed against Codex 0.167.0
-(2026-11-06), Claude Code 2.1.318 (2026-11-06) and Grok Build 1.0.70 (2026-10-26).
+(2026-11-06), Claude Code 2.1.318 (2026-11-06) and Grok Build 1.0.77 (2026-11-06).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -26,7 +26,7 @@ file must already exist where the native engine expects it. Authentication,
 account refresh, updater selection and managed MCP ownership continue through
 their existing fleet controls. Native updater keys are therefore rejected in the
 user-settings editors with that reason: Claude `autoUpdatesChannel` and
-`minimumVersion`; Grok `cli.auto_update = true`, `cli.channel`,
+`minimumVersion`; Grok `cli.auto_update = true`, `cli.channel`, `cli.channels.<name>`,
 `cli.minimum_version`, `cli.maximum_version`, `cli.required_minimum_version`,
 `cli.required_maximum_version`, `cli.npm_registry` and `cli.installer` (root and
 `version_overrides`). Migration 0115 removed previously stored values.
@@ -108,7 +108,8 @@ error with observed and required versions. Empty extensions and existing
 structured-only settings do not raise either fleet-wide minimum. Grok already
 enforces its 1.0.50 native floor. Grok additions use exact conditional floors:
 1.0.63 for hook args/program status, 1.0.67 for inherited worktree approvals,
-1.0.68 for Vim keys, and 1.0.70 for additions without a proven earlier release.
+1.0.68 for Vim keys (1.0.71 for `keys.vim = "all"`), 1.0.70 for additions without
+a proven earlier release, and 1.0.71–1.0.77 for the 1.0.77 audit's additions.
 Only applicable version overrides contribute to the floor. Native experiments
 and independent Cursor-worker settings are rejected because they require separate
 rollout-state and auth/session-lifecycle ownership. Project Grok configuration
