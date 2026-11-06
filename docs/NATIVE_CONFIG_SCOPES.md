@@ -10,8 +10,8 @@ The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed against Codex 0.166.0
-(2026-11-01), Claude Code 2.1.316 (2026-11-01) and Grok Build 1.0.70 (2026-10-26).
+can be authored centrally. Coverage was reviewed against Codex 0.167.0
+(2026-11-06), Claude Code 2.1.316 (2026-11-01) and Grok Build 1.0.70 (2026-10-26).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -87,6 +87,12 @@ constraints without reading referenced credentials. All keybinding actions also
 validate the exact native string/chord grammar; alternatives and explicit `[]`
 unbinding preserve authored values. Older binding actions keep their older floor. See
 [Codex 0.166 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01660).
+New 0.167.0 fields require 0.167.0 only when configured: seven new feature switches,
+`otel.log_sse_deltas`, custom provider `capabilities.cyber_access_programs` and
+`gateway_oauth.credentials_store`, and plugin `apps` connector settings.
+`cli_auth_credentials_store` is wrapper-owned at every version: only omission or
+`"file"` is accepted, because the wrapper syncs `auth.json`. See
+[Codex 0.167 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01670).
 Claude native settings require
 2.1.296, or 2.1.305 when `native_settings.sandbox.allowNestedUserNamespaces`
 is present (including `false`). This opt-in boolean defaults to false; true

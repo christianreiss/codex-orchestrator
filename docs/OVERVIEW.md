@@ -42,6 +42,12 @@ checked. See [shutdown](interface-cdx.md#native-shutdown),
 [Advisor](interface-api.md#fleet-advisor) and
 [wrapper publication](wrapper-v2-architecture.md).
 
+Codex native defaults and profile sidecars support 0.167.0 configuration: seven
+new feature switches, SSE delta logging, provider cyber-access capability and gateway
+OAuth storage, and plugin connector settings. These require an observed 0.167.0 CLI;
+`cli_auth_credentials_store` accepts only `"file"` because the wrapper owns `auth.json`.
+See [the Codex contract](interface-cdx.md#native-configuration-maintenance-codex-01670).
+
 Codex native defaults and profile sidecars support 0.166.0 configuration, including
 scoped MITM signing/body substitution, Vertex project/ADC references and the
 first-party OpenAI model-catalog URL. Exact new fields require an observed 0.166.0

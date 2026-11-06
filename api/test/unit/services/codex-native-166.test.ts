@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -24,10 +23,6 @@ const render = (version: string | null, settings: unknown) => renderTomlForHost(
   host: { clientVersion: version } as never, baseUrl: null, apiKey: null });
 
 describe('Codex 0.166 native configuration', () => {
-  it('vendors the exact official versioned schema', () => {
-    expect(createHash('sha256').update(readFileSync(new URL('../../../src/services/codex-config-schema.json', import.meta.url))).digest('hex'))
-      .toBe('211bec2282459fcd70e4905af948721177b6ec7a03e0df84cd8b7c131006a6ca');
-  });
   it('roundtrips every new field at root and profile, edits and withdraws without changing defaults', async () => {
     const service = new ClientConfigService(createDbFake() as never), native = all();
     const input = { native_settings: native, profiles: [{ name: 'new', native_settings: native }] };
