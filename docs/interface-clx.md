@@ -1135,7 +1135,7 @@ Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.316 on 2026-11-01. Validation rejects unknown
+checked against Claude Code 2.1.318 on 2026-11-06. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys
