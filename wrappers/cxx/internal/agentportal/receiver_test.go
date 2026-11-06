@@ -1,7 +1,10 @@
 package agentportal
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"net/http"
 	"net/http/httptest"
@@ -276,6 +279,67 @@ func TestDaemonChildUsesParentWriterOnlyForItsExactNativeIdentity(t *testing.T) 
 				t.Fatalf("unrelated native identity bypassed the writer lock: %d", response.Code)
 			}
 		})
+	}
+}
+
+// A transcript picked in the resume picker while a headless delivery turn
+// holds its writer must not be lost: SessionStart reports it only once, and
+// without it the receiver never binds, so the launch keeps a second identity
+// and the relay keeps resuming the transcript headlessly.
+func TestPickedTranscriptClaimsWriterAfterHeadlessTurn(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		// Claude polls its identity; Grok's queue may report the transcript
+		// itself and claim the pending writer with its registration.
+		for _, claim := range []string{"poll", "register"} {
+			t.Run(engine+"/"+claim, func(t *testing.T) {
+				t.Setenv("HOME", t.TempDir())
+				t.Setenv("CXX_AGENT_MESSAGING_MESSAGE_ID", "")
+				const id = "44444444-4444-4444-8444-444444444444"
+				relay, err := nativewriter.Acquire(engine, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				broker := &Broker{session: &Session{ID: "session", Engine: engine, receiverAllowed: true}, ctx: context.Background(), requests: map[uint64]context.CancelFunc{}}
+				defer func() {
+					if broker.nativeLock != nil {
+						broker.nativeLock.Release()
+					}
+				}()
+				post := func(body string) *httptest.ResponseRecorder {
+					response := httptest.NewRecorder()
+					broker.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/host/agent-sessions/session/receiver/native", strings.NewReader(body)))
+					return response
+				}
+				if response := post(`{"native_session_id":"` + id + `"}`); response.Code != 409 {
+					t.Fatalf("second writer allowed during the headless turn: %d", response.Code)
+				}
+				if response := post(`{}`); response.Code != 200 || strings.Contains(response.Body.String(), id) {
+					t.Fatalf("reported a transcript whose writer is still held: %d %s", response.Code, response.Body)
+				}
+				relay.Release()
+				if claim == "register" {
+					// The bridge itself is absent here; only the local writer claim matters.
+					response := httptest.NewRecorder()
+					broker.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/host/agent-sessions/session/receiver/register", strings.NewReader(`{"native_session_id":"`+id+`"}`)))
+					if response.Code == 409 {
+						t.Fatalf("registration could not claim the released writer: %s", response.Body)
+					}
+					// Watchdog and activity hooks match this identity before any poll.
+					if broker.nativeID != id || broker.pendingNativeID != "" {
+						t.Fatalf("registration left the transcript pending: native=%q pending=%q", broker.nativeID, broker.pendingNativeID)
+					}
+				}
+				if response := post(`{}`); response.Code != 200 || !strings.Contains(response.Body.String(), id) {
+					t.Fatalf("picked transcript lost after the headless turn: %d %s", response.Code, response.Body)
+				}
+				if again, err := nativewriter.Acquire(engine, id); !errors.Is(err, ipc.ErrHeld) {
+					if again != nil {
+						again.Release()
+					}
+					t.Fatalf("relay could resume the open transcript: %v", err)
+				}
+			})
+		}
 	}
 }
 
