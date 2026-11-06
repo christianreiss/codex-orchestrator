@@ -26,7 +26,8 @@ import { coordProjects, slopJobFiles, slopJobs, slopRuns, type Host, type SlopJo
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
 import { decrypt } from '../security/secret-box.js';
 import { wsPublisher } from '../ws/publisher.js';
-import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import type { PersistenceTransaction } from '../control-plane/persistence.js';
 import { currentNativePrincipal } from '../control-plane/state/native-principal.js';
 import { AgentTransfersService } from './agent-transfers.js';
 import { SettingsService } from './settings.js';
@@ -139,6 +140,29 @@ export class SlopJobsService {
     }
   }
 
+  /**
+   * Slop tables are cold, but after hydration the public pool handle refuses
+   * writes: every write runs inside an owner command's transaction (same rule
+   * as external-clients/write.ts). Without an owner (tests) the handle is used.
+   */
+  private async write(operation: (tx: PersistenceTransaction) => Promise<unknown>): Promise<void> {
+    const runtime = ownerRuntimeFor(this.ctx.db);
+    if (!runtime) {
+      await operation(this.ctx.db as unknown as PersistenceTransaction);
+      return;
+    }
+    await mutateOwnerState(runtime, {
+      kind: 'slop_jobs.write',
+      payload: {},
+      prepare(c) {
+        c.write(async (tx) => {
+          await operation(tx);
+        });
+        return null;
+      },
+    });
+  }
+
   // ----------------------------------------------------------- identities
 
   private actor(host: Host): string {
@@ -207,7 +231,7 @@ export class SlopJobsService {
     }
     if (touch) {
       const at = now();
-      await this.ctx.db.update(slopJobs).set({ lastActivityAt: at }).where(eq(slopJobs.id, row.id));
+      await this.write((tx) => tx.update(slopJobs).set({ lastActivityAt: at }).where(eq(slopJobs.id, row.id)));
       row.lastActivityAt = at;
     }
     return row;
@@ -277,7 +301,7 @@ export class SlopJobsService {
       updatedAt: at,
       lastActivityAt: at,
     };
-    await this.ctx.db.insert(slopJobs).values(row);
+    await this.write((tx) => tx.insert(slopJobs).values(row));
     this.publish(project.slug, row.id, 'created');
     return { job: this.jobView(row as SlopJob, project.slug) };
   }
@@ -289,10 +313,10 @@ export class SlopJobsService {
       throw new ValidationError(`description is limited to ${SLOP_LIMITS.maxDescriptionBytes} bytes`);
     if ((job.description ?? '') === description) return { job: this.jobView(job, await this.projectSlug(job.projectId)), changed: false };
     const at = now();
-    await this.ctx.db
-      .update(slopJobs)
+    await this.write((tx) =>
+      tx.update(slopJobs)
       .set({ description: description || null, descriptionRev: job.descriptionRev + 1, updatedAt: at })
-      .where(eq(slopJobs.id, job.id));
+      .where(eq(slopJobs.id, job.id)));
     void host;
     const updated = { ...job, description: description || null, descriptionRev: job.descriptionRev + 1, updatedAt: at };
     const slug = await this.projectSlug(job.projectId);
@@ -310,10 +334,10 @@ export class SlopJobsService {
 
     if (args['remove'] === true) {
       if (!current || current.sha256 === null) throw new NotFoundError(`No current file at ${path}`, 'slop_file_not_found');
-      await this.ctx.db.insert(slopJobFiles).values({
+      await this.write((tx) => tx.insert(slopJobFiles).values({
         jobId: job.id, path, rev: nextRev, kind: current.kind, sha256: null, sizeBytes: 0, createdBy: actor, createdAt: now(),
-      });
-      await this.ctx.db.update(slopJobs).set({ updatedAt: now() }).where(eq(slopJobs.id, job.id));
+      }));
+      await this.write((tx) => tx.update(slopJobs).set({ updatedAt: now() }).where(eq(slopJobs.id, job.id)));
       this.publish(await this.projectSlug(job.projectId), job.id, 'file_removed');
       return { path, rev: nextRev, removed: true };
     }
@@ -365,10 +389,10 @@ export class SlopJobsService {
     const digest = await this.storeBlob(bytes);
     if (current && current.sha256 === digest && current.kind === kind)
       return { path, rev: current.rev, kind, sha256: digest, size_bytes: bytes.length, unchanged: true };
-    await this.ctx.db.insert(slopJobFiles).values({
+    await this.write((tx) => tx.insert(slopJobFiles).values({
       jobId: job.id, path, rev: nextRev, kind, sha256: digest, sizeBytes: bytes.length, createdBy: actor, createdAt: now(),
-    });
-    await this.ctx.db.update(slopJobs).set({ updatedAt: now() }).where(eq(slopJobs.id, job.id));
+    }));
+    await this.write((tx) => tx.update(slopJobs).set({ updatedAt: now() }).where(eq(slopJobs.id, job.id)));
     this.publish(await this.projectSlug(job.projectId), job.id, 'file_uploaded');
     return { path, rev: nextRev, kind, sha256: digest, size_bytes: bytes.length, previous_rev: current?.sha256 ? current.rev : null };
   }
@@ -443,7 +467,7 @@ export class SlopJobsService {
     const id = randomUUID(),
       at = now();
     let seq = 0;
-    await this.ctx.db.transaction(async (tx) => {
+    await this.write(async (tx) => {
       await tx.update(slopJobs).set({ runCount: sql`${slopJobs.runCount} + 1`, updatedAt: at }).where(eq(slopJobs.id, job.id));
       const [counted] = await tx.select({ runCount: slopJobs.runCount }).from(slopJobs).where(eq(slopJobs.id, job.id));
       seq = counted!.runCount;
@@ -668,8 +692,8 @@ export class SlopJobsService {
   }
 
   private async recordScan(runId: string, scan: WorkerResult) {
-    await this.ctx.db
-      .update(slopRuns)
+    await this.write((tx) =>
+      tx.update(slopRuns)
       .set({
         scanJson: scan.report ? JSON.stringify(scan.report) : null,
         slopVersion: scan.slop_version ?? null,
@@ -677,23 +701,23 @@ export class SlopJobsService {
         exitCode: scan.exit_code,
         updatedAt: now(),
       })
-      .where(eq(slopRuns.id, runId));
+      .where(eq(slopRuns.id, runId)));
   }
 
   private async finish(runId: string, status: (typeof TERMINAL)[number], extra: Partial<typeof slopRuns.$inferInsert> = {}) {
     const at = now();
     const [run] = await this.ctx.db.select().from(slopRuns).where(eq(slopRuns.id, runId)).limit(1);
     if (!run || TERMINAL.includes(run.status as (typeof TERMINAL)[number])) return;
-    await this.ctx.db
-      .update(slopRuns)
+    await this.write((tx) =>
+      tx.update(slopRuns)
       .set({ ...extra, status, updatedAt: at, completedAt: at })
-      .where(and(eq(slopRuns.id, runId), eq(slopRuns.status, run.status)));
+      .where(and(eq(slopRuns.id, runId), eq(slopRuns.status, run.status))));
     await rm(this.runDir(runId), { recursive: true, force: true }).catch(() => {});
     if (run.advisorSessionId && run.advisorCallerId)
       await this.advisor.closeFor(run.advisorCallerId, run.advisorSessionId).catch(() => {});
     const [job] = await this.ctx.db.select().from(slopJobs).where(eq(slopJobs.id, run.jobId)).limit(1);
     if (job) {
-      await this.ctx.db.update(slopJobs).set({ updatedAt: at }).where(eq(slopJobs.id, job.id));
+      await this.write((tx) => tx.update(slopJobs).set({ updatedAt: at }).where(eq(slopJobs.id, job.id)));
       this.publish(await this.projectSlug(job.projectId), job.id, 'run_finished');
     }
   }
@@ -746,10 +770,10 @@ export class SlopJobsService {
     if (typeof args['engine'] === 'string') ask['engine'] = args['engine'];
     if (typeof args['model'] === 'string') ask['model'] = args['model'];
     const view = (await this.advisor.ask(caller, ask)) as { advisor_session_id: string };
-    await this.ctx.db
-      .update(slopRuns)
+    await this.write((tx) =>
+      tx.update(slopRuns)
       .set({ status: 'reviewing', advisorSessionId: view.advisor_session_id, updatedAt: now() })
-      .where(and(eq(slopRuns.id, run.id), eq(slopRuns.status, 'scanning')));
+      .where(and(eq(slopRuns.id, run.id), eq(slopRuns.status, 'scanning'))));
   }
 
   /** Idempotent state machine step for one run; concurrent callers share one promise. */
@@ -807,10 +831,10 @@ export class SlopJobsService {
       }
       await this.writeAtomic(join(dir, 'review.json'), JSON.stringify({ version: 1, findings: parsed.findings }));
       await this.writeAtomic(join(dir, 'report.request.json'), JSON.stringify({ task: 'report' }));
-      await this.ctx.db
-        .update(slopRuns)
+      await this.write((tx) =>
+        tx.update(slopRuns)
         .set({ status: 'validating', verdictJson, error: parsed.problems.length ? parsed.problems.join('; ').slice(0, 2000) : null, updatedAt: now() })
-        .where(and(eq(slopRuns.id, run.id), eq(slopRuns.status, 'reviewing')));
+        .where(and(eq(slopRuns.id, run.id), eq(slopRuns.status, 'reviewing'))));
       return;
     }
     if (run.status === 'validating') {
@@ -840,7 +864,7 @@ export class SlopJobsService {
       .select({ id: slopRuns.id, advisorSessionId: slopRuns.advisorSessionId, advisorCallerId: slopRuns.advisorCallerId, status: slopRuns.status })
       .from(slopRuns)
       .where(eq(slopRuns.jobId, jobId));
-    await this.ctx.db.transaction(async (tx) => {
+    await this.write(async (tx) => {
       await tx.delete(slopRuns).where(eq(slopRuns.jobId, jobId));
       await tx.delete(slopJobFiles).where(eq(slopJobFiles.jobId, jobId));
       await tx.delete(slopJobs).where(eq(slopJobs.id, jobId));
