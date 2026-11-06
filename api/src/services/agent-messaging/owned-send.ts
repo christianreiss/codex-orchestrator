@@ -21,8 +21,8 @@ import { ownedAddress, ownedBridge } from '../../control-plane/state/messaging.j
 import { translateOwnedAgent } from '../../control-plane/state/names.js';
 import { stageQueuedMessage } from '../../control-plane/state/messages.js';
 import { stageUpdate } from '../../control-plane/state/rows.js';
-import { ownedAddressPresence } from '../../control-plane/state/presence-notices.js';
-import { deliveryHint } from './presence-feedback.js';
+import { ownedAddressPresence, ownedDeliveryHintContext } from '../../control-plane/state/presence-notices.js';
+import { deliveryReceiptFields } from './presence-feedback.js';
 import {
   assertQueuePolicyReplay,
   coalescedEventStats,
@@ -300,8 +300,7 @@ export async function sendOwnedMessage(
     ...result,
     ...deliveryTimingReceipt(String(result.message.delivery_timing ?? 'after_turn'), !!target?.currentSessionId &&
       receiverState(current.sessions.get(target.currentSessionId)?.receiver)?.delivery_timing_v1 === true),
-    recipient_presence: presence,
+    ...deliveryReceiptFields(presence, target ? ownedDeliveryHintContext(runtime, current, target, presence) : {}),
     observed_at: nowIso(),
-    delivery_hint: deliveryHint(presence),
   };
 }

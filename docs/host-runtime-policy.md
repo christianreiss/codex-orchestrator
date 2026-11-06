@@ -71,6 +71,12 @@ The server is the enforcement point; the wrapper follows it.
   than at token expiry. While remote sessions are still running or a peer
   delivery is leased/accepted it keeps heartbeat and claim (claim hands out no
   new work) so accepted turns drain and their results are recorded.
+  The daemon retries an unavailable configuration, a refused registration and
+  an ended relay connection every 5 s and logs each to its journal
+  (`journalctl -u cxx-daemon`): a changed reason at most once a minute, an
+  unchanged one at most every 10 minutes, plus a `registered as
+  <user>:daemon` line. Until it registers, a send to an idle helper on that
+  host reports `recipient_daemon_relay: missing` instead of promising a resume.
 - **Persistent schedules**: creating or enabling a persistent Wake/Cron schedule
   for an agent on a non-persistent host is refused
   (`schedule_host_not_persistent`). An existing persistent schedule whose host
