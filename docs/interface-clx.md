@@ -1945,6 +1945,14 @@ alias collisions keep the affected name out of allocation.
 From cxx 0.9.118, an unconfirmed registration reports its HTTP failure status
 instead of implying that the server returned an unnamed registration. Server
 response bodies are excluded from this diagnostic; the identity gate is unchanged.
+The one exception is a 4xx refusal whose code is on the wrapper's known list
+(`agent_resume_name_conflict`, `agent_messaging_address_busy`,
+`agent_messaging_binding_stale`, ...): the refusal then names the server's
+`message` next to the code, for example `registration unavailable (HTTP 409:
+Cannot resume Vivian: ...); native launch refused (agent_resume_name_conflict)`.
+The message is reduced to one printable line of at most 200 characters and is
+dropped if it contains a URL; unknown codes stay `api_rejected` and 5xx bodies
+stay hidden. Exit status and refusal are unchanged.
 
 Before any messaging-enabled provider starts, the wrapper confirms its name,
 engine, launch ID and canonical address with the authenticated session-bound

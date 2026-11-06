@@ -89,6 +89,46 @@ func TestIdentityGateExplainsFailedRegistrationWithoutServerBody(t *testing.T) {
 	}
 }
 
+// A 4xx refusal with a known code names the code and the server's reason, so
+// a name conflict, a busy address and a stale binding can be told apart.
+// Unknown codes, 5xx bodies and URL-bearing text stay hidden.
+func TestIdentityGateNamesKnownRegistrationRefusal(t *testing.T) {
+	cases := []struct {
+		name, body, want, hidden string
+		status                   int
+	}{
+		{"name-conflict", `{"code":"agent_resume_name_conflict","message":"Cannot resume Vivian: the name is\nassigned to another agent"}`, "registration unavailable (HTTP 409: Cannot resume Vivian: the name is assigned to another agent); native launch refused (agent_resume_name_conflict)", "", 409},
+		{"stale-binding", `{"error":{"code":"agent_messaging_binding_stale","message":"Binding generation is stale"}}`, "(HTTP 409: Binding generation is stale); native launch refused (agent_messaging_binding_stale)", "", 409},
+		{"unknown-code", `{"code":"private_fixture_code","message":"private-fixture-body"}`, "registration unavailable (HTTP 409); native launch refused (api_rejected)", "private-fixture", 409},
+		{"url-message", `{"code":"agent_session_conflict","message":"see https://private-fixture/token"}`, "registration unavailable (HTTP 409); native launch refused (agent_session_conflict)", "private-fixture", 409},
+	}
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+		for _, tc := range cases {
+			t.Run(engine+"/"+tc.name, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(tc.status)
+					_, _ = w.Write([]byte(tc.body))
+				}))
+				defer server.Close()
+				cfg := &config.Config{Engine: engine, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "fixture"}, AgentMessaging: config.AgentMessaging{Enabled: true}}
+				session, registrationErr := Start(context.Background(), cfg, StartInput{Engine: engine})
+				if registrationErr == nil || session != nil {
+					t.Fatalf("expected a refused registration: %v", registrationErr)
+				}
+				runtime := &ConnectionRuntime{startupErr: registrationErr}
+				_, err := runtime.RequireIdentity(context.Background(), cfg)
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("refusal diagnostic = %v, want %q", err, tc.want)
+				}
+				if tc.hidden != "" && strings.Contains(err.Error(), tc.hidden) {
+					t.Fatalf("server body leaked: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
 	const uuid = "12345678-1234-4123-8123-123456789abc"
 	for _, engine := range []string{"codex", "claude", "grok"} {

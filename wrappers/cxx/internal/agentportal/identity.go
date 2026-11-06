@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 )
@@ -140,7 +141,9 @@ func (r *ConnectionRuntime) RequireIdentity(ctx context.Context, cfg *config.Con
 }
 
 // Only known machine codes cross this diagnostic boundary. Server bodies,
-// credential-bearing URLs and arbitrary local error text never reach the TUI.
+// credential-bearing URLs and arbitrary local error text never reach the TUI;
+// the one exception is the refusal message of a known 4xx code, which tells
+// the operator why (name conflict, busy address, stale binding).
 func identityStartupError(err error) error {
 	var apiErr *PortalError
 	if errors.As(err, &apiErr) {
@@ -151,11 +154,16 @@ func identityStartupError(err error) error {
 		if apiErr.Code == "forbidden" && apiErr.Message == "Provider account lease is unavailable" {
 			code = "provider_account_lease_unavailable"
 		}
+		known := false
 		switch apiErr.Code {
 		case "agent_name_pool_exhausted", "agent_messaging_address_busy", "agent_messaging_binding_stale", "agent_identity_conflict", "agent_resume_name_conflict", "agent_session_conflict", "agent_session_finished", "agent_messaging_lease_lost", "communicator_outcome_unknown", "agent_bridge_host_auth_changed", "engine_disabled", "session_housekeeping_busy":
-			code = apiErr.Code
+			code, known = apiErr.Code, true
 		}
-		return &PortalError{Status: apiErr.Status, Code: code, Message: fmt.Sprintf("agent identity: registration unavailable (HTTP %d); native launch refused", apiErr.Status)}
+		detail := fmt.Sprintf("HTTP %d", apiErr.Status)
+		if reason := refusalReason(apiErr.Message); known && apiErr.Status >= 400 && apiErr.Status <= 499 && reason != "" {
+			detail += ": " + reason
+		}
+		return &PortalError{Status: apiErr.Status, Code: code, Message: fmt.Sprintf("agent identity: registration unavailable (%s); native launch refused", detail)}
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("agent identity: registration timed out; native launch refused")
@@ -164,6 +172,24 @@ func identityStartupError(err error) error {
 		return fmt.Errorf("agent identity: registration canceled; native launch refused")
 	}
 	return fmt.Errorf("agent identity: connection startup failed; native launch refused; run cxx communicator doctor")
+}
+
+// refusalReason bounds a server refusal message for the terminal: one line of
+// printable text, at most 200 characters, and never one that carries a URL.
+func refusalReason(message string) string {
+	if strings.Contains(message, "://") {
+		return ""
+	}
+	message = strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || !unicode.IsPrint(r) {
+			return ' '
+		}
+		return r
+	}, message)), " ")
+	if runes := []rune(message); len(runes) > 200 {
+		message = string(runes[:200]) + "…"
+	}
+	return message
 }
 
 // Context is fixed into the native prompt before the provider starts. A later
