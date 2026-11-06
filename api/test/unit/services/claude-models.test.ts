@@ -4,6 +4,7 @@ import {
   CLAUDE_DEFAULT_MODEL,
   CLAUDE_LEGACY_MODEL_UPGRADES,
   CLAUDE_SUPPORTED_MODELS,
+  claudeCanonicalModelId,
   createClaudeModelsService,
   normalizeClaudeModelReference,
 } from '../../../src/services/claude-models.js';
@@ -99,6 +100,13 @@ describe('claude-models', () => {
     expect(normalizeClaudeModelReference('claude-sonnet-5')).toBe('claude-sonnet-5');
     expect(normalizeClaudeModelReference('claude-sonnet-5[1m]')).toBe('claude-sonnet-5[1m]');
     expect(normalizeClaudeModelReference('my-provider/claude-3-5-sonnet')).toBe('my-provider/claude-3-5-sonnet');
+  });
+
+  it('drops only the `[1m]` modifier for the catalog id', () => {
+    expect(claudeCanonicalModelId('claude-opus-4-6[1m]')).toBe('claude-opus-4-6');
+    expect(claudeCanonicalModelId(' claude-sonnet-4-5[1M] ')).toBe('claude-sonnet-5-5');
+    expect(claudeCanonicalModelId('claude-opus-5-5')).toBe('claude-opus-5-5');
+    expect(claudeCanonicalModelId('My-Provider/Model[1m]')).toBe('My-Provider/Model');
   });
 
   it('keeps active pinned predecessors and canonicalizes their short aliases', async () => {

@@ -55,6 +55,7 @@ import { ConflictError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { claudeSupportsLegacyUserEffort } from './claude-effort.js';
+import { claudeCanonicalModelId } from './claude-models.js';
 import { claudeNativeOwnedPaths } from './claude-native-settings.js';
 import { assertNativeConfigSupport } from './native-config-support.js';
 import {
@@ -857,7 +858,9 @@ function applyHostModelOverrides(
     if (claudeModel !== null) {
       out['model'] = claudeModel;
       const effortLevel =
-        explicitEffort ?? modelEntry(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS, claudeModel) ?? null;
+        explicitEffort ??
+        modelEntry(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS, claudeCanonicalModelId(claudeModel)) ??
+        null;
       if (effortLevel === null) delete out['effortLevel'];
       else out['effortLevel'] = effortLevel;
     } else if (explicitEffort !== null) {
@@ -1089,6 +1092,7 @@ function buildClaudeMcpServers(settings: NormalizedSettings): Record<string, unk
 }
 
 /** Project the fleet's abstract effort onto Claude's canonical per-model key.
+ * A `[1m]` selection keys modelSettings by its catalog id; `model` keeps the suffix.
  * Top-level user effortLevel is ignored by Opus 5.5 and newer releases.
  * Copy both object levels so rendering never mutates the persisted native sidecar.
  */
@@ -1098,10 +1102,11 @@ function withClaudeModelEffort(settings: NormalizedSettings): Record<string, unk
   // would allow a foreign local true to reactivate the deprecated combination.
   if (claudeSettingsFastModeDeprecated(settings)) result['fastMode'] = false;
   if (settings.model && settings.effortLevel) {
+    const canonical = claudeCanonicalModelId(settings.model);
     const models = { ...asRecord(result['modelSettings']) };
-    models[settings.model] = { ...asRecord(models[settings.model]), effortLevel: settings.effortLevel };
+    models[canonical] = { ...asRecord(models[canonical]), effortLevel: settings.effortLevel };
     result['modelSettings'] = models;
-    if (claudeSupportsLegacyUserEffort(settings.model)) result['effortLevel'] = settings.effortLevel;
+    if (claudeSupportsLegacyUserEffort(canonical)) result['effortLevel'] = settings.effortLevel;
   }
   return result;
 }

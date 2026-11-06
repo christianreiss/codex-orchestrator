@@ -30,7 +30,7 @@ import { createHash } from 'node:crypto';
 import { ValidationError } from '../http/errors.js';
 import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, normalizeStoredCodexNativeSettings, validateCodexFeatureDocument, validateCodexMcpOAuthSemantics, type CodexApprovalPolicy } from './codex-native-settings.js';
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
-import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, CLAUDE_SUPPORTED_MODELS, normalizeClaudeModelReference } from './claude-models.js';
+import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, CLAUDE_SUPPORTED_MODELS, claudeCanonicalModelId, normalizeClaudeModelReference } from './claude-models.js';
 import { claudeSettingsFastModeDeprecated } from './claude-fast-mode.js';
 import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
 import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
@@ -252,11 +252,12 @@ export function normalizeStoredCodexEffort(value: unknown, rawModel: unknown): s
     ?? (isLegacyModelUpgrade(rawModel) ? defaultCodexReasoningEffortForModel(model) : null);
 }
 
-/** Claude settings.json `effortLevel`, constrained by the selected Claude model. */
+/** Claude settings.json `effortLevel`, constrained by the selected Claude model
+ * (looked up by catalog id, so a `[1m]` selection keeps its model's efforts). */
 export function normalizeClaudeEffortLevel(value: unknown, model: string | null): string | null {
   const effort = normalizeString(value)?.toLowerCase() ?? null;
   if (effort === null || model === null) return null;
-  const supported = modelEntry(CLAUDE_MODEL_REASONING_EFFORTS, model);
+  const supported = modelEntry(CLAUDE_MODEL_REASONING_EFFORTS, claudeCanonicalModelId(model));
   return supported?.includes(effort) ? effort : null;
 }
 

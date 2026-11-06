@@ -1045,7 +1045,10 @@ the fleet-managed keys (`model`, `modelSettings.<model>.effortLevel`, the compat
 legacy `effortLevel`, `mcpServers.<name>`, `env.<VAR>`, `statusLine`,
 `hooks.<Event>`, `permissions.{allow,ask,deny}`, `permissions.defaultMode`,
 `advisorModel`) and `owned_paths` are the leaf-granular dot-paths the fleet owns
-this run. An optional `omitted: [{ path, value, reason }]` lists configured
+this run. A 1M-context selection such as `claude-opus-4-6[1m]` keeps
+the suffix in `model`, while effort support, the default effort and the
+`modelSettings` key use the canonical id without it (`claude-opus-4-6`), the
+entry native Claude Code applies to the `[1m]` variant. An optional `omitted: [{ path, value, reason }]` lists configured
 values withheld for this host because Claude Code would ignore them; wrappers
 ignore it, and the withheld key is not owned, so a previously written value is
 removed.
