@@ -76,6 +76,20 @@ const (
 	goldenExpiresAt = "2026-02-14T00:00:00Z"
 )
 
+// goldenRTK pins every signed RTK field independently of the fixture bytes.
+func goldenRTK(engine string) *RTKPolicy {
+	revision := "51ed530bef618745db9d8e4d0af752934b4792887fb9aba0593ab8479ed9860c"
+	if engine == EngineClaude {
+		revision = "91030886a11803e2b1dcefb9f17563b7e77c9b69317f3addc1fb4e4d532c5d55"
+	}
+	return &RTKPolicy{Enabled: false, Protocol: 1, Version: "1.2.0", AdapterMode: "instructions", PolicyRevision: goldenString(revision), Artifacts: map[string]RTKArtifact{
+		"linux/amd64":  {URL: "https://orchestrator.example.com/wrapper/v2/rtk/v1.2.0/linux-amd64?engine=" + engine, SHA256: "a28407dc13038bdc9c2a1f5a047b0c636e0c1d495b15523576e2adb992a06a17"},
+		"linux/arm64":  {URL: "https://orchestrator.example.com/wrapper/v2/rtk/v1.2.0/linux-arm64?engine=" + engine, SHA256: "9786c61dbbea704e1468ee7060930d3b45b67f79ba2babfb73463e85340628d9"},
+		"darwin/amd64": {URL: "https://orchestrator.example.com/wrapper/v2/rtk/v1.2.0/darwin-amd64?engine=" + engine, SHA256: "48f8cee63ae0b4853f9a77d7839e62ffcca18ef88c408f8a93d4e69986b1ab82"},
+		"darwin/arm64": {URL: "https://orchestrator.example.com/wrapper/v2/rtk/v1.2.0/darwin-arm64?engine=" + engine, SHA256: "1959bd6d89a729ccdee176b7141490bbe750820f032c74f29a752576f2495254"},
+	}}
+}
+
 func goldenFixtures() []goldenFixture {
 	return []goldenFixture{
 		{
@@ -305,6 +319,7 @@ func TestGoldenDecodesToExpectedFields(t *testing.T) {
 			}
 			// sourcePath is loader metadata, never part of the signed document.
 			got.sourcePath = ""
+			fixture.want.RTK = goldenRTK(fixture.engine)
 			fixture.want.SessionHousekeeping = &SessionHousekeepingPolicy{Enabled: true, RetentionDays: 30, MaxBytes: 5 << 30, MinAgeDays: 7}
 			// The catalog mirrors the server's model list, which changes with
 			// every model release; pin its shape here instead of every entry.
