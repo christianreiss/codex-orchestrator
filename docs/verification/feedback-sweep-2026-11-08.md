@@ -92,6 +92,25 @@ The API-only follow-up targets `docker01.uggs.io` with
 `8499f582ae401c39d7ecc8b3c0b9b5d0ff9f0501`. Exact deployment and live-canary
 evidence are saved in the report's feedback closure after verification.
 
+## Deployment provenance follow-up
+
+The RTK rollout filed `03a0d647-32fa-480b-9954-5e75d3aa102b` while this run
+waited for production access. Fix `057eea5efbf96c47e9e9cc1b47ead0d0615d62ac`
+retains `source_before_pull` across systemd handoff and reads
+`source_after_deploy` on completion. Only a successful result identifies the
+final checkout as `commit`; failed or unknown outcomes leave it unset. A failed
+final provenance read cannot be reported as successful supervision. This does
+not substitute for independently checking a served artifact.
+
+Four regression cases failed before the fix and passed afterward; all 12
+focused deployment tests and Python AST validation passed. Final API typecheck
+and all 458 unit files passed (6,611 tests passed, 12 skipped); Go build, vet
+and full tests passed again. Script-only delivery
+updates the production checkout and verifies script bytes without rebuilding or
+restarting the unchanged API. The API continues serving `3ceabc92c` and wrapper
+manifests remain `0.9.171`; exact script shipment and final combined-test evidence
+are recorded in the feedback closure.
+
 ## Task discovery
 
 `AGENTS.md` now links both complete task prompts: feedback sweep and engine
