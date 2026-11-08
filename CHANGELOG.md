@@ -2,7 +2,9 @@
 - **Explicit peer-work acceptance:** the current native receiver can adopt an already-read queued request/task by ID during an operator turn, with a stable claim UUID and the existing ownership, FIFO and admission checks. Schedules and concurrent in-flight deliveries remain excluded.
 - **Git Director reconnects:** registrations recover automatically when their exact native owner reconnects after an API restart or network interruption; foreign native instances and unknown outcomes retain exclusion.
 - **Slop review accuracy:** font checks inspect declarations rather than words such as Internal or IntersectionObserver; run summaries expose unsupported source coverage and the accessibility upload metadata explains the JSON audit format.
+- **Fresh MySQL checks:** preserve anonymous usage totals when internal hosts exist, normalize legacy batching flags, and let owner-server fixtures use the supported DB configuration fallback.
 - **Model metadata:** peer supervisor models are explicitly labeled as launch configuration, so they are not mistaken for live model observations after `/model` changes.
+- **Subagent model selection:** Settings → Agents can enable guidance that chooses a suitable stronger or lighter model for each permitted delegation, with quality first and parent review. When enabled, the Model Class Check permits delegation to a fitting model for otherwise underclassed work; runtime and user restrictions still apply. The switch defaults off.
 
 # 2026-11-06
 - **Slop jobs have their own switch:** Projects → settings (gear) now carries a *Slop jobs* switch (`slop_jobs_enabled`, default on; `GET|POST /admin/slop-jobs/state`). Off withholds the `slop_job_*` tools from `tools/list`, refuses direct calls with `slop_jobs_disabled` and drops the slop paragraph from the served AGENTS.md/CLAUDE.md; existing jobs stay readable and still expire.

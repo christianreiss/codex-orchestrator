@@ -1615,7 +1615,9 @@ Only current models resolves that family to GPT-6.1 Terra without rewriting the
 stored choice. Native CLI and provider API effort contracts remain separate.
 See `interface-api.md` → Fleet model policy.
 
-Model Class Check guidance rates the whole assignment before scouting or planning. Read-only scouting takes the tier of the decisions it feeds and is not Tier 5 by default; all five task definitions remain visible on hosts with only lower-tier models. Two-tier gaps stop unless the operator explicitly overrides the identified mismatch. This is agent guidance, not runtime enforcement.
+The independently switchable Subagent Model Selection guidance asks agents to choose a suitable stronger or lighter model for permitted delegations, prioritizing quality and parent verification. With both switches enabled, a fitting delegated model can handle work otherwise stopped by a two-tier mismatch, subject to runtime and user instructions.
+
+Model Class Check guidance rates the whole assignment before scouting or planning. Read-only scouting takes the tier of the decisions it feeds and is not Tier 5 by default; all five task definitions remain visible on hosts with only lower-tier models. Two-tier gaps stop unless a permitted fitting-model delegation is available or the operator explicitly overrides the identified mismatch. This is agent guidance, not runtime enforcement.
 
 From cxx 0.9.160, Codex and Grok reuse successful version probes for unchanged
 native executables within the wrapper process or launch. Indirect script launchers

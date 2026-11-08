@@ -54,7 +54,7 @@ import {
   CLAUDE_SUPPORTED_MODELS,
 } from '../../../services/claude-models.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from '../../../services/api-keys-in-chat.js';
-import { MODEL_TIER_CHECK_ENABLED_KEY } from '../../../services/model-tiers.js';
+import { MODEL_TIER_CHECK_ENABLED_KEY, SUBAGENT_MODEL_SELECTION_ENABLED_KEY } from '../../../services/model-tiers.js';
 import {
   AUTHORIZATION_MODES,
   isAuthorizationMode,
@@ -201,6 +201,18 @@ export async function registerAdminSettingsRoutes(
     if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
     await settings.setFlag(MODEL_TIER_CHECK_ENABLED_KEY, enabled);
     await recordLog(ctx, 'admin.model_tier_check', { enabled });
+    return ok({ enabled });
+  });
+
+  app.get('/admin/subagent-model-selection', { preHandler: app.requireAdmin }, async () => {
+    return ok({ enabled: await settings.getFlag(SUBAGENT_MODEL_SELECTION_ENABLED_KEY, false) });
+  });
+  app.post('/admin/subagent-model-selection', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { enabled?: unknown };
+    const enabled = normalizeBool(body.enabled);
+    if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
+    await settings.setFlag(SUBAGENT_MODEL_SELECTION_ENABLED_KEY, enabled);
+    await recordLog(ctx, 'admin.subagent_model_selection', { enabled });
     return ok({ enabled });
   });
 
