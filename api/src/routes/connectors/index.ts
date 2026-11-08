@@ -1,3 +1,4 @@
+import { canonicalConnectorOrigin, canonicalDashboardOrigin } from '../../util/connector-origin.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
@@ -13,21 +14,26 @@ import { AdminEventsService } from '../../services/admin-events.js';
 
 export async function registerConnectorRoutes(app: FastifyInstance, ctx: RouteContext) {
   // This module stays inert until an operator configures a public HTTPS issuer.
-  const base = (ctx.env.PUBLIC_BASE_URL ?? '').replace(/\/$/, '');
+  const base = canonicalConnectorOrigin(ctx.env.CONNECTOR_PUBLIC_BASE_URL ?? ctx.env.PUBLIC_BASE_URL) ?? '';
+  const dashboardBase = canonicalDashboardOrigin(ctx.env.PUBLIC_BASE_URL) ?? '';
   const oauth = new ConnectorOAuth(new ConnectorStore(ctx.db), base),
     catalog = new ConnectorCatalog(oauth, ctx),
     events = new AdminEventsService(ctx.db);
   const validIssuer = () => {
-    const u = new URL(base);
-    if (u.protocol !== 'https:' || u.pathname !== '/' || u.search || u.hash)
-      throw new ForbiddenError('Configure PUBLIC_BASE_URL as a canonical HTTPS origin');
+    if (!base) throw new ForbiddenError('Configure the connector base URL as a canonical HTTPS origin');
   };
   const administrator = (req: FastifyRequest) => {
     if (!capabilitiesForRole(req.admin!.user.accessLevel).includes('security.manage_authorization'))
       throw new ForbiddenError('Administrator connector policy permission required');
   };
   const sameOrigin = (req: FastifyRequest) => {
-    if (req.headers.origin !== base) throw new ForbiddenError('Same-origin request required');
+    const origin = req.headers.origin;
+    if (
+      typeof origin !== 'string' ||
+      !origin ||
+      ![base, dashboardBase].some((allowed) => !!allowed && allowed === origin)
+    )
+      throw new ForbiddenError('Same-origin request required');
   };
   const limits = new Map<string, { start: number; count: number }>();
   const rate = (req: FastifyRequest, max = 60) => {
@@ -48,7 +54,7 @@ export async function registerConnectorRoutes(app: FastifyInstance, ctx: RouteCo
     can_manage: capabilitiesForRole(req.admin!.user.accessLevel).includes('security.manage_authorization'),
     issuer: base,
     mcp_url: `${base}/connectors/mcp`,
-    ready: base.startsWith('https://'),
+    ready: Boolean(base),
     catalog: Object.entries(catalog.operations).map(([name, o]) => ({
       name,
       category: o.category,

@@ -2,7 +2,7 @@
 
 Connector access is **off by default**, independently of managed engine login and the existing fleet `/mcp` endpoint. Open **Coordination → Connectors**. An administrator enables the service and each permitted chat app, selects the permission ceiling, hosts and projects, and saves. Users then connect with their own dashboard account.
 
-Use the setup steps on that page: URLs are generated from `PUBLIC_BASE_URL`, which must be a canonical public HTTPS origin. The provider's cloud must reach it. No host API key or provider subscription credential belongs in a connector setup field.
+Use the setup steps on that page: URLs are generated from `CONNECTOR_PUBLIC_BASE_URL` (falling back to `PUBLIC_BASE_URL`), which must be a canonical public HTTPS origin. The provider's cloud must reach it. Cloud providers need a publicly trusted server certificate; trusting the fleet private CA on a workstation does not establish cloud trust. A separate connector origin preserves the existing fleet URL and TLS policy. Keep the public origin under the existing WebAuthn RP domain to reuse passkeys. No host API key or provider subscription credential belongs in a connector setup field.
 
 ## Permissions
 
@@ -36,3 +36,10 @@ Provider instructions were checked against the official OpenAI authentication gu
 Default-off deployment requires no existing credential migration. Migration 0129 creates the new table idempotently. Roll back application code while leaving the additive table in place; disable/revoke connectors before rollback. Never restore old token/grant rows to reactivate a connection.
 
 Connector-origin work cannot be redriven from the general admin queue: submit a fresh request through the current OAuth connection so the current grant and target are checked again.
+
+
+### Separate public origin
+
+Set `CONNECTOR_PUBLIC_BASE_URL` to a canonical HTTPS origin, proxy its OAuth discovery, `/oauth/*`, `/connectors/mcp`, `/admin`, `/admin/*` and health routes to the API, and strip all client-supplied mTLS identity headers. Keep native `/mcp`, `/auth`, `/host/*`, wrapper and inference paths off this alias. The public proxy may preserve verified optional client-certificate authentication; it must never trust identity headers from the caller. Admin mutations accept only the configured dashboard or connector origin. Passkeys retain the original RP ID and accept the explicitly configured connector origin only within that RP domain. An explicit `ADMIN_WEBAUTHN_ORIGIN` override retains precedence; normal base-URL derivation supports both configured origins. The public WebSocket ingress accepts only its own exact Origin.
+
+Production on 2026-11-08 uses `https://connectors.codex-auth.uggs.io`; the fleet origin remains `https://codex-auth.uggs.io`. The connector switch stays off. The [deployed proxy example](examples/connectors-public.caddy) records the exact route and header boundary. The new DNS CNAME targets the fleet hostname; the Caddy vhost is `/etc/caddy/vhosts/connectors.codex-auth.uggs.io.caddy` on docker01.uggs.io, with automatic public TLS. Rollback: remove the public vhost and its CNAME, unset `CONNECTOR_PUBLIC_BASE_URL`, validate/reload Caddy and redeploy the application. The fleet vhost and private CA files are unchanged.

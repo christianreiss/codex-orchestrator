@@ -275,9 +275,10 @@
           </li>
         </ol>
         <p class="mt-3 text-body-sm text-muted-foreground">
-          The server must be reachable from the provider's cloud over HTTPS.
-          Callback URLs must match exactly. If permissions change, disconnect
-          and reconnect.
+          The server must be reachable from the provider's cloud over HTTPS with
+          a publicly trusted certificate. Cloud providers do not inherit the
+          fleet's private CA trust. Callback URLs must match exactly. If
+          permissions change, disconnect and reconnect.
         </p>
         <details class="mt-4">
           <summary class="cursor-pointer py-2"

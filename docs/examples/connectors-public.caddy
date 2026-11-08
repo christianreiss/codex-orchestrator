@@ -1,0 +1,86 @@
+# Public OAuth connector origin. Fleet TLS vhost remains separate.
+connectors.codex-auth.uggs.io {
+    tls {
+        client_auth {
+            mode verify_if_given
+            trusted_ca_cert_file /etc/ssl/al-ca/alpha-labs.net.ca.crt
+        }
+    }
+
+    @mtls expression {tls_client_fingerprint} != null
+    @admin_ws path /admin/ws
+    @bad_ws {
+        path /admin/ws
+        not header Origin https://connectors.codex-auth.uggs.io
+    }
+    @unsafe path_regexp unsafe (?i)(%|\\|(^|/)\.\.(/|$))
+    @outside not path /healthz /.well-known/oauth-authorization-server /.well-known/oauth-protected-resource/connectors/mcp /oauth/* /connectors/mcp /admin /admin/*
+    route {
+        respond @bad_ws 403
+        respond @unsafe 404
+        respond @outside 404
+        # 1) Requests WITH mTLS: remove spoofable headers, then inject real TLS-derived values
+        handle @mtls {
+            request_header -X-MTLS-FINGERPRINT
+            request_header -X-MTLS-SUBJECT
+            request_header -X-MTLS-ISSUER
+            request_header -X-MTLS-SERIAL
+            request_header -X-MTLS-PRESENT
+            handle @admin_ws {
+                reverse_proxy 127.0.0.1:8488 {
+                    header_up Authorization {http.request.header.Authorization}
+                    header_up X-Forwarded-Proto {scheme}
+                    header_up Host {host}
+                    header_up X-Real-IP {remote_host}
+
+                    header_up X-MTLS-FINGERPRINT {tls_client_fingerprint}
+                    header_up X-MTLS-SUBJECT     {tls_client_subject}
+                    header_up X-MTLS-ISSUER      {tls_client_issuer}
+                    header_up X-MTLS-SERIAL      {tls_client_serial}
+                    header_up X-MTLS-PRESENT     {tls_client_fingerprint}
+                }
+            }
+            reverse_proxy 127.0.0.1:8488 {
+
+                # Normal forwarded headers
+                header_up Authorization {http.request.header.Authorization}
+                header_up X-Forwarded-Proto {scheme}
+                header_up Host {host}
+                header_up X-Real-IP {remote_host}
+
+                # Re-add mTLS metadata from the *actual* TLS connection
+                header_up X-MTLS-FINGERPRINT {tls_client_fingerprint}
+                header_up X-MTLS-SUBJECT     {tls_client_subject}
+                header_up X-MTLS-ISSUER      {tls_client_issuer}
+                header_up X-MTLS-SERIAL      {tls_client_serial}
+
+                # App expects X-MTLS-PRESENT to be usable as a fingerprint fallback (>=64 hex chars).
+                header_up X-MTLS-PRESENT     {tls_client_fingerprint}
+            }
+        }
+
+        # 2) Requests WITHOUT mTLS: strip spoofable headers and DO NOT add them back
+        handle {
+            request_header -X-MTLS-FINGERPRINT
+            request_header -X-MTLS-SUBJECT
+            request_header -X-MTLS-ISSUER
+            request_header -X-MTLS-SERIAL
+            request_header -X-MTLS-PRESENT
+            handle @admin_ws {
+                reverse_proxy 127.0.0.1:8488 {
+                    header_up Authorization {http.request.header.Authorization}
+                    header_up X-Forwarded-Proto {scheme}
+                    header_up Host {host}
+                    header_up X-Real-IP {remote_host}
+                }
+            }
+            reverse_proxy 127.0.0.1:8488 {
+
+                header_up Authorization {http.request.header.Authorization}
+                header_up X-Forwarded-Proto {scheme}
+                header_up Host {host}
+                header_up X-Real-IP {remote_host}
+            }
+        }
+    }
+}

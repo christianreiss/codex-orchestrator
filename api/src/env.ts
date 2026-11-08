@@ -1,3 +1,4 @@
+import { canonicalConnectorOrigin } from './util/connector-origin.js';
 import { z } from 'zod';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -143,6 +144,13 @@ const schema = z
 
     // Public base URL
     PUBLIC_BASE_URL: z.string().optional(),
+    CONNECTOR_PUBLIC_BASE_URL: z.preprocess(
+      (v) => (typeof v === 'string' && !v.trim() ? undefined : v),
+      z.string()
+        .refine(v => canonicalConnectorOrigin(v) !== null, 'Connector URL must be an HTTPS origin without credentials, path, query or fragment')
+        .transform(v => canonicalConnectorOrigin(v)!)
+        .optional(),
+    ),
     PUBLIC_BASE_URL_REQUIRED: boolish.default(true),
     CODEX_SYNC_BASE_URL: z.string().optional(),
 

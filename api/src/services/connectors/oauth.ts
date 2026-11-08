@@ -51,6 +51,7 @@ export class ConnectorOAuth {
     return policySchema.parse(this.store.get('policy', snapshot) ?? {});
   }
   enabled(provider?: Client['provider'], snapshot = this.store.snapshot()): ConnectorPolicy {
+    if (!this.issuer) throw new ForbiddenError('Connector HTTPS origin is not configured');
     const policy = this.policy(snapshot);
     if (!policy.enabled || (provider && !policy.providers[provider]))
       throw new ForbiddenError('Connector access is disabled');

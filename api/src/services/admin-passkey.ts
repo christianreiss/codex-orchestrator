@@ -1,3 +1,4 @@
+import { canonicalConnectorOrigin } from '../util/connector-origin.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { adminAudit, requireCurrentUser, type PasskeyPrincipal } from '../control-plane/state/admin.js';
 import type { Json } from '../control-plane/commands.js';
@@ -95,6 +96,23 @@ export class AdminPasskeyService {
   origin(req?: WebAuthnRequestContext): string {
     const o = this.env.ADMIN_WEBAUTHN_ORIGIN;
     if (o) return o;
+    // The configured connector origin may share the existing parent RP ID.
+    // Never infer an additional trusted origin from an arbitrary Host header.
+    const connector = canonicalConnectorOrigin(this.env.CONNECTOR_PUBLIC_BASE_URL);
+    if (connector && req) {
+      const url = new URL(connector),
+        host = this.requestHost(req),
+        rpId = this.rpId(req);
+      if (
+        url.protocol === 'https:' &&
+        url.pathname === '/' &&
+        !url.search &&
+        !url.hash &&
+        host === url.hostname &&
+        (host === rpId || host.endsWith('.' + rpId))
+      )
+        return url.origin;
+    }
     const baseOrigin = this.publicBaseUrlOrigin();
     if (baseOrigin) return baseOrigin;
     const host = this.requestHost(req);

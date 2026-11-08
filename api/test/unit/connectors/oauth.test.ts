@@ -354,3 +354,84 @@ it.each(['queued', 'leased', 'accepted', 'reboot_hold'])(
     );
   },
 );
+
+it('advertises the configured public issuer and limits admin mutations to its two configured origins', async () => {
+  const { db, store } = await setup();
+  const app = Fastify();
+  app.setErrorHandler((error, _req, reply) =>
+    reply
+      .code((error as { status?: number }).status ?? 500)
+      .send({ error: error instanceof Error ? error.message : String(error) }),
+  );
+  app.decorate('requireAdmin', async (req) => {
+    req.admin = {
+      user: store.snapshot().table('adminUsers').get(1),
+      session: { tokenHash: 'test-hash' },
+    } as never;
+  });
+  await registerConnectorRoutes(app, {
+    db,
+    env: {
+      ...loadTestEnv(),
+      PUBLIC_BASE_URL: 'https://fleet.example',
+      CONNECTOR_PUBLIC_BASE_URL: 'https://connectors.fleet.example',
+    },
+    keyring: testKeyring(),
+  });
+  try {
+    const metadata = await app.inject({ url: '/.well-known/oauth-authorization-server' });
+    expect(metadata.json().issuer).toBe('https://connectors.fleet.example');
+    for (const origin of [
+      'https://fleet.example',
+      'https://connectors.fleet.example',
+      'https://evil.example',
+    ]) {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/connectors/preview',
+        headers: { origin },
+        payload: {},
+      });
+      expect(r.statusCode).toBe(origin === 'https://evil.example' ? 403 : 200);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+it('does not publish a credential-bearing configured issuer even with an enabled stored policy', async () => {
+  const { db, store } = await setup();
+  const app = Fastify();
+  app.setErrorHandler((error, _req, reply) =>
+    reply.code((error as { status?: number }).status ?? 500).send({ error: String(error) }),
+  );
+  app.decorate('requireAdmin', async (req) => {
+    req.admin = { user: store.snapshot().table('adminUsers').get(1) } as never;
+  });
+  await registerConnectorRoutes(app, {
+    db,
+    env: {
+      ...loadTestEnv(),
+      PUBLIC_BASE_URL: 'https://fleet.example',
+      CONNECTOR_PUBLIC_BASE_URL: 'https://user:password@connectors.fleet.example',
+    },
+    keyring: testKeyring(),
+  });
+  try {
+    const config = await app.inject({ url: '/admin/connectors/config' });
+    expect(config.json()).toMatchObject({ ready: false, issuer: '' });
+    expect(config.body).not.toContain('password@');
+    for (const origin of ['', 'null', undefined]) {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/admin/connectors/preview',
+        headers: origin === undefined ? {} : { origin },
+        payload: {},
+      });
+      expect(r.statusCode).toBe(403);
+    }
+    expect((await app.inject({ url: '/.well-known/oauth-authorization-server' })).statusCode).toBe(403);
+  } finally {
+    await app.close();
+  }
+});

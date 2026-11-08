@@ -1,3 +1,4 @@
+import { canonicalConnectorOrigin } from '../../../util/connector-origin.js';
 import {currentCanonicalMetadata} from '../../../control-plane/state/canonical-metadata.js';
 import {persistAuditLog} from '../../../services/audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../../../control-plane/state/runtime.js';
@@ -90,6 +91,7 @@ async function recordLog(
 interface WsInfoEnv {
   ADMIN_WS_ENABLED: boolean;
   ADMIN_WS_PUBLIC_URL?: string;
+  CONNECTOR_PUBLIC_BASE_URL?: string;
   ADMIN_WS_HEARTBEAT_SECONDS?: number;
   ADMIN_WS_BACKLOG_LIMIT?: number;
   PUBLIC_BASE_URL?: string;
@@ -155,7 +157,7 @@ function hostAuthSummary(
   return { authed, auth_outdated: authed && outdated };
 }
 
-export function buildWsInfo(env: WsInfoEnv): {
+export function buildWsInfo(env: WsInfoEnv, requestHostname?: string): {
   enabled: boolean;
   url: string | null;
   heartbeat_seconds: number;
@@ -168,7 +170,9 @@ export function buildWsInfo(env: WsInfoEnv): {
     if (publicUrl && /^wss?:\/\//.test(publicUrl)) {
       url = publicUrl;
     } else if (env.PUBLIC_BASE_URL) {
-      const base = env.PUBLIC_BASE_URL.replace(/\/$/, '');
+      const connector = canonicalConnectorOrigin(env.CONNECTOR_PUBLIC_BASE_URL);
+      const base = connector && requestHostname === new URL(connector).hostname
+        ? connector : env.PUBLIC_BASE_URL.replace(/\/$/, '');
       let wsUrl = `${base}/admin/ws`;
       if (wsUrl.startsWith('https://')) wsUrl = 'wss://' + wsUrl.slice('https://'.length);
       else if (wsUrl.startsWith('http://')) wsUrl = 'ws://' + wsUrl.slice('http://'.length);
@@ -384,14 +388,15 @@ export async function registerAdminOverviewRoutes(
   });
 
   // ── /admin/ws/info ────────────────────────────────────────────────────────
-  app.get('/admin/ws/info', { preHandler: app.requireAdmin }, async () => {
+  app.get('/admin/ws/info', { preHandler: app.requireAdmin }, async (req) => {
     const info = buildWsInfo({
       ADMIN_WS_ENABLED: ctx.env.ADMIN_WS_ENABLED,
       ADMIN_WS_PUBLIC_URL: ctx.env.ADMIN_WS_PUBLIC_URL,
+      CONNECTOR_PUBLIC_BASE_URL: ctx.env.CONNECTOR_PUBLIC_BASE_URL,
       ADMIN_WS_HEARTBEAT_SECONDS: ctx.env.ADMIN_WS_HEARTBEAT_SECONDS,
       ADMIN_WS_BACKLOG_LIMIT: ctx.env.ADMIN_WS_BACKLOG_LIMIT,
       PUBLIC_BASE_URL: ctx.env.PUBLIC_BASE_URL,
-    });
+    }, req.hostname);
     let lastEventId: number | null = null;
     try {
       lastEventId = await adminEventsService.latestEventId();

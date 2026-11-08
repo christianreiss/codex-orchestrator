@@ -1,5 +1,6 @@
 # 2026-11-08
 
+- Support a separate publicly trusted connector origin while retaining fleet TLS and parent-domain passkeys.
 - Add default-off OAuth chat connectors with per-user consent, category/tool permissions, explicit host/project scopes, separate sensitive grants, rotating tokens and dashboard setup instructions.
 - **Slop audit remediation:** editors retain newer and canceled drafts, failed reads stay unknown, and save/delete failures remain beside the action. Hook edits preserve each command's timeout; credential labels, selection cues, clipboard feedback and list navigation are corrected. The browser design inventory includes all routes.
 - **Safe CLI discovery and truthful checks (cxx 0.9.172):** wrapper-owned help exits before side effects or privilege/auth checks; housekeeping pin/unpin rejects unsupported dry-run before writes, JSON modes remain structured, empty model catalogs stay usable, and compact launchers retain failure notices. Setup forwards safety flags; installers reject unsupported platforms before consuming tokens, disclose TLS bypasses, and preserve sanitized upload diagnostics. Readiness and source-scan failures can no longer report a clean result.

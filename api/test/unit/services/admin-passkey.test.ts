@@ -27,9 +27,9 @@ describe('AdminPasskeyService env accessors', () => {
 
   it('returns the RP name with a sensible default', () => {
     expect(makeService().rpName()).toBe('Codex Orchestrator');
-    expect(
-      makeService({ ADMIN_WEBAUTHN_RP_NAME: 'Custom' as Env['ADMIN_WEBAUTHN_RP_NAME'] }).rpName(),
-    ).toBe('Custom');
+    expect(makeService({ ADMIN_WEBAUTHN_RP_NAME: 'Custom' as Env['ADMIN_WEBAUTHN_RP_NAME'] }).rpName()).toBe(
+      'Custom',
+    );
   });
 
   it('returns configured rpId / origin when present', () => {
@@ -101,4 +101,32 @@ describe('credentialIdToBase64Url', () => {
   it('base64url-encodes raw credential bytes', () => {
     expect(credentialIdToBase64Url(Buffer.from([0xff, 0x00, 0x7f]))).toBe('_wB_');
   });
+});
+
+it('keeps the parent RP ID and accepts only the configured connector subdomain origin', () => {
+  const svc = makeService({
+    PUBLIC_BASE_URL: 'https://fleet.example',
+    CONNECTOR_PUBLIC_BASE_URL: 'https://connectors.fleet.example',
+  });
+  expect(svc.rpId({ headers: { host: 'connectors.fleet.example' } })).toBe('fleet.example');
+  expect(svc.origin({ headers: { host: 'connectors.fleet.example' } })).toBe(
+    'https://connectors.fleet.example',
+  );
+  expect(svc.origin({ headers: { host: 'evil.example' } })).toBe('https://fleet.example');
+  expect(svc.origin({ headers: { host: 'other.fleet.example' } })).toBe('https://fleet.example');
+  expect(
+    makeService({
+      PUBLIC_BASE_URL: 'https://fleet.example',
+      CONNECTOR_PUBLIC_BASE_URL: 'https://unrelated.example',
+    }).origin({ headers: { host: 'unrelated.example' } }),
+  ).toBe('https://fleet.example');
+});
+
+it('preserves an explicit WebAuthn origin override over connector alias detection', () => {
+  const svc = makeService({
+    PUBLIC_BASE_URL: 'https://fleet.example',
+    CONNECTOR_PUBLIC_BASE_URL: 'https://connectors.fleet.example',
+    ADMIN_WEBAUTHN_ORIGIN: 'https://secure.fleet.example',
+  });
+  expect(svc.origin({ headers: { host: 'connectors.fleet.example' } })).toBe('https://secure.fleet.example');
 });

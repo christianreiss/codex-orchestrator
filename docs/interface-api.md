@@ -4258,3 +4258,5 @@ Default off; see [connector contract](connectors.md). Admin routes require a das
 - `POST /oauth/revoke`
 - `GET /connectors/mcp`
 - `POST /connectors/mcp`
+
+`CONNECTOR_PUBLIC_BASE_URL` optionally selects a separate public-trusted OAuth issuer; `PUBLIC_BASE_URL` remains the fleet/dashboard origin. Consent and policy mutations accept only these configured origins. Connector subdomains of the existing WebAuthn RP ID reuse its passkeys without widening RP scope. See [public connector deployment](connectors.md#separate-public-origin).

@@ -671,3 +671,5 @@ are recorded in [verification](docs/verification/slop-remediation-2026-11-08.md)
 ### OAuth connector surfaces (2026-11-08)
 
 `/admin/connectors` is the editable home for OAuth connector policy, individual grants and configuration-aware setup. Its authorization-request state is an authentication task inside the existing signed-in shell. It uses PageShell, Section and shared buttons; scopes remain visible, and switching access off revokes grants. Applicable rules: NAV-1–4, GOV-2, authentication/settings/setup patterns. Provider connection acceptance is reported separately from configuration readiness.
+
+The optional public connector origin reuses the existing sign-in and `/admin/connectors` browser surfaces. It preserves role checks and parent-domain passkey scope; its setup guide must distinguish public certificate trust from fleet-local CA trust.

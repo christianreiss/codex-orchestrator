@@ -34,6 +34,23 @@ describe('buildWsInfo', () => {
     expect(buildWsInfo({ ADMIN_WS_ENABLED: false, ADMIN_WS_HEARTBEAT_SECONDS: 1 }).heartbeat_seconds).toBe(5);
     expect(buildWsInfo({ ADMIN_WS_ENABLED: false, ADMIN_WS_BACKLOG_LIMIT: 0 }).backlog_limit).toBe(1);
     expect(buildWsInfo({ ADMIN_WS_ENABLED: false, ADMIN_WS_BACKLOG_LIMIT: 9999 }).backlog_limit).toBe(500);
-    expect(buildWsInfo({ ADMIN_WS_ENABLED: false, ADMIN_WS_HEARTBEAT_SECONDS: 60 }).heartbeat_seconds).toBe(60);
+    expect(buildWsInfo({ ADMIN_WS_ENABLED: false, ADMIN_WS_HEARTBEAT_SECONDS: 60 }).heartbeat_seconds).toBe(
+      60,
+    );
   });
+});
+
+it('uses only the configured connector hostname for its public socket URL', () => {
+  const env = {
+    ADMIN_WS_ENABLED: true,
+    PUBLIC_BASE_URL: 'https://fleet.example',
+    CONNECTOR_PUBLIC_BASE_URL: 'https://connectors.fleet.example',
+  };
+  expect(buildWsInfo(env, 'connectors.fleet.example').url).toBe('wss://connectors.fleet.example/admin/ws');
+  expect(buildWsInfo(env, 'evil.example').url).toBe('wss://fleet.example/admin/ws');
+  expect(buildWsInfo(env).url).toBe('wss://fleet.example/admin/ws');
+  expect(
+    buildWsInfo({ ...env, ADMIN_WS_PUBLIC_URL: 'wss://fixed.example/socket' }, 'connectors.fleet.example')
+      .url,
+  ).toBe('wss://fixed.example/socket');
 });
