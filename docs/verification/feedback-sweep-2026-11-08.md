@@ -74,7 +74,8 @@ Validation and publication are atomic, with unchanged 200-file, 2 MiB/file and
 50 MiB/job limits. Archive extraction, symlinks and binary imports are excluded.
 
 The follow-up integrates RTK main `8fbdb4d6f012f22353aea7d9fbdbc6424dd8e203`
-and its production-cache repair `d24f6bccee0226e38952f5847ed8dbb2446d1194`.
+and its production-cache repair `d24f6bccee0226e38952f5847ed8dbb2446d1194`,
+then final RTK concurrency repair `8499f582ae401c39d7ecc8b3c0b9b5d0ff9f0501`.
 Its Go build, vet and full tests passed. Seven combined real-MySQL tests passed
 (six Slop import/concurrency tests and one RTK policy test) on disposable MySQL
 port 37707 after baseline and all 125 migrations. The import itself changes no
@@ -87,8 +88,8 @@ suite remains the original batch's evidence; the final follow-up reruns the
 relevant Slop and RTK integration suites rather than claiming a second full run.
 The API-only follow-up targets `docker01.uggs.io` with
 `scripts/deploy.sh --no-backup --no-cleanup --service api`, preserving RTK's
-`0.9.170` wrapper artifacts. Follow-up rollback source is RTK revision
-`d24f6bccee0226e38952f5847ed8dbb2446d1194`. Exact deployment and live-canary
+`0.9.171` wrapper artifacts. Follow-up rollback source is RTK revision
+`8499f582ae401c39d7ecc8b3c0b9b5d0ff9f0501`. Exact deployment and live-canary
 evidence are saved in the report's feedback closure after verification.
 
 ## Task discovery
