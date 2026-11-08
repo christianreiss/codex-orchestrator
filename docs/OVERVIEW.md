@@ -1,5 +1,11 @@
 # Overview
 
+Current native receivers can explicitly adopt an already-read queued peer
+request/task with `agent_accept(message_id, claim_id)`, preserving normal
+admission and exclusive delivery ownership. See [the messaging contract](interface-api.md).
+Peer supervisor-model metadata is labeled as launch configuration, not a live
+model observation after interactive model switches.
+
 cxx 0.9.161 repairs Claude receiver queues blocked by messages absorbed during a
 turn: completion hooks recognize native channel attachments as well as user
 entries. Waiting-message hints include IDs and report unconfirmed earlier
@@ -270,6 +276,11 @@ Checkout scope includes subdirectories, excludes other worktrees/hosts, and retu
 push/deploy remain separate. Agents execute this workflow on their next instruction
 sync/launch; the wrapper does not enforce Git mutations. See
 [the delivery contract](interface-api.md#automatic-repository-delivery).
+
+Git registrations made uncertain by an API restart or disconnect automatically
+return to active when the exact recorded native instance reconnects with the same
+session and binding. A different instance or an unknown work outcome keeps its
+exclusion and requires the existing explicit recovery procedure.
 
 Git Director opens on Settings with compact service and commit controls and a selectable engine preview. Activity, Merge requests and History are separate searchable tabs (`?tab=settings|activity|merges|history`). Worktree and request details open in a side panel, full-screen on mobile; release and verdict overrides remain permission-gated in details.
 
@@ -1774,3 +1785,4 @@ still require a new review. See `interface-api.md` for the receipt and retry con
 See [RTK integration](rtk.md) for fleet/host controls, per-session disabling,
 local recall retention, engine adapters and deployment acceptance. Policy and
 observed adapter readiness are separate; changes apply to new launches.
+Slop job quick-run summaries expose scanned source counts and coverage limits, including unsupported Kotlin files. Accessibility audit uploads use JSON `{tool, findings: []}`; native accessibility trees belong in source evidence. Web font heuristics inspect font declarations rather than product text or identifiers.

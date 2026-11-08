@@ -15,7 +15,7 @@ import type { StateSeed } from '../../../../src/control-plane/state/catalog.js';
 import { prepareOwnedPresentations } from '../../../../src/services/agent-messaging/owned-presentations.js';
 import { peerBatchTimingEligible } from '../../../../src/services/agent-messaging/peer-batch.js';
 import { SERVER_ADDRESS_ID } from '../../../../src/services/agent-messaging/groups.js';
-import { claimOwnedDelivery } from '../../../../src/services/agent-messaging/owned-claim.js';
+import { claimOwnedDelivery, type OwnedClaimOptions } from '../../../../src/services/agent-messaging/owned-claim.js';
 import { newQueuedMessage } from '../../../../src/services/agent-messaging/views.js';
 import { decrypt, encrypt } from '../../../../src/security/secret-box.js';
 import { createDbFake } from '../../../helpers/db-fake.js';
@@ -157,7 +157,7 @@ function fixture(engine: string, count = 2) {
     smartQueue: false,
     peerBatch: false,
   };
-  const claim = (claimId = randomUUID(), overrides: Partial<typeof options> = {}) =>
+  const claim = (claimId = randomUUID(), overrides: Partial<OwnedClaimOptions> = {}) =>
     claimOwnedDelivery(db as never, runtime, keyring, { ...options, ...overrides, claimId });
   return {
     state,
@@ -173,6 +173,105 @@ function fixture(engine: string, count = 2) {
     },
   };
 }
+
+describe.each(['codex', 'claude', 'grok'])('%s explicit work acceptance', (engine) => {
+  function prepare(f: ReturnType<typeof fixture>, overrides: Record<string, unknown> = {}) {
+    const draft = f.state.begin();
+    for (const row of draft.table('agentBusMessages').all()) draft.upsert('agentBusMessages', {
+      ...row, kind: 'request', workKind: 'request', deliveryTiming: 'after_turn', ...overrides,
+    });
+    f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+  }
+  it('leases the exact request during a native turn and replays the same claim', async () => {
+    const f = fixture(engine, 1);
+    prepare(f);
+    turn.busy = true;
+    try {
+      const claimId = randomUUID();
+      const options = { explicitMessageId: f.messages[0]!.id, immediateOnly: false, informationalOnly: false };
+      const delivery = await f.claim(claimId, options);
+      expect(delivery?.message_id).toBe(options.explicitMessageId);
+      expect(delivery?.claim_id).toBe(claimId);
+      expect(await f.claim(claimId, options)).toEqual(delivery);
+      expect(f.state.snapshot().messages.get(options.explicitMessageId)?.attempts).toBe(1);
+    } finally { turn.busy = false; await f.close(); }
+  });
+  it('preserves FIFO and does not accept a second request while work is held', async () => {
+    const f = fixture(engine);
+    prepare(f);
+    try {
+      const options = { immediateOnly: false, informationalOnly: false };
+      expect(await f.claim(randomUUID(), { ...options, explicitMessageId: f.messages[1]!.id })).toBeNull();
+      expect(await f.claim(randomUUID(), { ...options, explicitMessageId: f.messages[0]!.id })).not.toBeNull();
+      expect(await f.claim(randomUUID(), { ...options, explicitMessageId: f.messages[1]!.id })).toBeNull();
+    } finally { await f.close(); }
+  });
+  it('keeps smart-queue informational ownership exclusive during explicit acceptance', async () => {
+    const f = fixture(engine);
+    prepare(f);
+    const draft = f.state.begin();
+    draft.upsert('agentBusMessages', { ...draft.table('agentBusMessages').get(f.messages[0]!.id)!,
+      kind: 'message', workKind: null, status: 'accepted' });
+    f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+    try {
+      expect(await f.claim(randomUUID(), { explicitMessageId: f.messages[1]!.id,
+        immediateOnly: false, informationalOnly: false, smartQueue: true })).toBeNull();
+    } finally { await f.close(); }
+  });
+  it('rolls back explicit adoption when receiver proof disappears during preparation', async () => {
+    const f = fixture(engine, 1);
+    prepare(f);
+    const select = f.db.select.bind(f.db);
+    vi.spyOn(f.db, 'select').mockImplementation(fields => {
+      const result = select(fields);
+      f.receiver.detach();
+      return result;
+    });
+    try {
+      await expect(f.claim(randomUUID(), { explicitMessageId: f.messages[0]!.id,
+        immediateOnly: false, informationalOnly: false })).rejects.toThrow();
+      expect(f.state.snapshot().messages.get(f.messages[0]!.id)?.status).toBe('queued');
+    } finally { await f.close(); }
+  });
+  it.each([
+    { kind: 'schedule', workKind: 'schedule' },
+    { kind: 'message', workKind: null },
+    { cancelRequestedAt: new Date().toISOString() },
+    { expiresAt: '2000-01-01T00:00:00Z' },
+    { targetAddressId: randomUUID() },
+  ])('refuses ineligible target %j', async changes => {
+    const f = fixture(engine, 1);
+    prepare(f, changes);
+    try {
+      expect(await f.claim(randomUUID(), { explicitMessageId: f.messages[0]!.id,
+        immediateOnly: false, informationalOnly: false })).toBeNull();
+    } finally { await f.close(); }
+  });
+  it('requires the exact receiver generation', async () => {
+    const f = fixture(engine, 1);
+    prepare(f);
+    try {
+      await expect(f.claim(randomUUID(), { explicitMessageId: f.messages[0]!.id,
+        receiverGeneration: randomUUID(), immediateOnly: false, informationalOnly: false }))
+        .rejects.toMatchObject({ code: 'receiver_generation_changed' });
+    } finally { await f.close(); }
+  });
+  it.each([{ kind: 'schedule', workKind: 'schedule' }, { cancelRequestedAt: new Date().toISOString() }])(
+    'rechecks explicit eligibility when replaying a leased claim %j', async changes => {
+      const f = fixture(engine, 1);
+      prepare(f);
+      try {
+        const claimId = randomUUID();
+        const options = { explicitMessageId: f.messages[0]!.id, immediateOnly: false, informationalOnly: false };
+        expect(await f.claim(claimId, options)).not.toBeNull();
+        const draft = f.state.begin();
+        draft.upsert('agentBusMessages', { ...draft.table('agentBusMessages').get(options.explicitMessageId)!, ...changes });
+        f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+        await expect(f.claim(claimId, options)).rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+      } finally { await f.close(); }
+    },
+  );
+});
 
 it.each([59_999, 60_000, 60_001])('uses the exact stale threshold at %i milliseconds', age => {
   const now = Date.parse('2026-11-02T13:00:00Z');
@@ -197,6 +296,22 @@ it('lets a Claude turn the owner still sees as busy take immediate information t
 });
 
 describe.each(['codex', 'claude', 'grok'])('%s owned immediate admission', (engine) => {
+  it('batches legacy after-turn information without delivery-timing negotiation', async () => {
+    const f = fixture(engine);
+    try {
+      const draft = f.state.begin();
+      for (const row of draft.table('agentBusMessages').all()) draft.upsert('agentBusMessages', {
+        ...row, createdAt: '2026-01-01T00:00:00Z', deliveryTiming: 'after_turn',
+      });
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+      const delivery = await f.claim(randomUUID(), {
+        immediateOnly: false, smartQueue: true, peerBatch: true, deliveryTimingEnabled: undefined,
+      });
+      expect(delivery?.kind).toBe('digest');
+      expect(f.state.snapshot().messages.all().filter(row => row.kind === 'digest')).toHaveLength(1);
+    } finally { await f.close(); }
+  });
+
   it('does not batch old immediate originals without peer-batch negotiation', async () => {
     const f = fixture(engine);
     try {

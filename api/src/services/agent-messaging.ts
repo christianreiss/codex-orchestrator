@@ -844,11 +844,16 @@ export class AgentMessagingService {
     return result;
   }
 
-  async claimForSession(sessionId: string, bridgeToken: string, claimId: string, receiverGeneration?: string, informationalOnly = false, immediateOnly = false): Promise<MessageDelivery | null> {
+  async claimForSession(sessionId: string, bridgeToken: string, claimId: string, receiverGeneration?: string, informationalOnly = false, immediateOnly = false, explicitMessageId?: string): Promise<MessageDelivery | null> {
     const authenticated = await this.authenticateBridge(sessionId, bridgeToken);
     const addressId = authenticated.session.agentBusAddressId;
     if (!addressId) throw new ConflictError('Agent session has no messaging address', 'agent_messaging_address_missing');
-    if (ownerRuntimeFor(this.db)) return this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver), immediateOnly, receiverState(authenticated.session.receiver)?.delivery_timing_v1 === true);
+    const owner = ownerRuntimeFor(this.db);
+    if (explicitMessageId) {
+      if (!owner) throw new ConflictError('Explicit acceptance requires the native owner runtime', 'agent_accept_receiver_required');
+      return claimOwnedDelivery(this.db, owner, this.keyring, { targetAddressIds: [addressId], leaseOwner: `session:${sessionId}`, claimId, relayGeneration: null, skipReceiveCapable: false, receiverGeneration, informationalOnly, immediateOnly, deliveryTimingEnabled: receiverState(authenticated.session.receiver)?.delivery_timing_v1 === true, smartQueue: smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatch: peerBatchAllowed(this.env, authenticated.session.receiver), explicitMessageId });
+    }
+    if (owner) return this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver), immediateOnly, receiverState(authenticated.session.receiver)?.delivery_timing_v1 === true);
     if (!authenticated.session.receiveHeartbeatAt) {
       throw new ConflictError('Agent session is not receive-capable', 'agent_messaging_adapter_unavailable');
     }

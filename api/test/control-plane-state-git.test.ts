@@ -31,7 +31,7 @@ const closers: Array<() => void> = [];
 afterEach(() => {
   for (const close of closers.splice(0)) close();
 });
-function setup(engine: 'codex' | 'claude' | 'grok' = 'codex') {
+function setup(engine: 'codex' | 'claude' | 'grok' = 'codex', beforeCommit: () => void = () => {}) {
   const sessionId = randomUUID(),
     addressId = randomUUID(),
     instance = randomUUID(),
@@ -124,7 +124,7 @@ function setup(engine: 'codex' | 'claude' | 'grok' = 'codex') {
       async transaction(run) {
         await run(fake as unknown as PersistenceTransaction);
       },
-      async record() {},
+      async record() { beforeCommit(); },
     },
   });
   const owner: OwnerRuntime = {
@@ -467,25 +467,40 @@ describe('Git Director feedback sweep (registration state, remotes, nesting, lis
       return null;
     } });
 
-  it('names an uncertain registration on merge, and git_join restores it completely (a4ce60ec, 2b7d13fe)', async () => {
+  it.each((['codex', 'claude', 'grok'] as const).flatMap(engine => ['owner_restart', 'disconnected'].map(reason => ({ engine, reason }))))('restores the exact $engine native registration after $reason without re-registering', async ({ engine, reason }) => {
+    const h = setup(engine);
+    await claimRepo(h);
+    const registered = await as(h, () => h.git.register({ ...base, engine }, h.host));
+    const id = String(registered.worktree_id);
+    edit(h, (draft) => draft.upsert('gitWorktrees', { ...draft.table('gitWorktrees').get(id)!, status: 'uncertain', uncertaintyReason: reason }));
+    const result = await as(h, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(), changed_paths: ['src/a.ts'] }, h.host));
+    expect(result.verdict).toBe('allow');
+    expect(h.state.snapshot().table('gitWorktrees').get(id)).toMatchObject({ status: 'active', uncertaintyReason: null });
+  });
+
+  it('does not publish recovery if the exact native instance disconnects during persistence', async () => {
+    let disconnect = () => {};
+    const h = setup('codex', () => disconnect());
+    const id = String((await as(h, () => h.git.register(base, h.host))).worktree_id);
+    edit(h, (draft) => draft.upsert('gitWorktrees', { ...draft.table('gitWorktrees').get(id)!, status: 'uncertain', uncertaintyReason: 'owner_restart' }));
+    disconnect = () => h.live.detach();
+    await expect(h.git.reconcileOwned()).rejects.toMatchObject({ code: 'git_director_owner_uncertain' });
+    expect(h.state.snapshot().table('gitWorktrees').get(id)).toMatchObject({ status: 'uncertain', uncertaintyReason: 'owner_restart' });
+  });
+
+  it('retains uncertainty for a different native instance and unknown outcomes', async () => {
     const h = setup();
     await claimRepo(h);
-    const registered = await as(h, () => h.git.register(base, h.host));
-    const id = String(registered.worktree_id);
-    edit(h, (draft) => draft.upsert('gitWorktrees', { ...draft.table('gitWorktrees').get(id)!, status: 'uncertain', uncertaintyReason: 'owner_restart' }));
-    const ask = () => as(h, () => h.git.requestMerge({ worktree_path: '/repo', target_branch: 'main', client_request_id: 'same-id', changed_paths: ['src/a.ts'] }, h.host));
-    await expect(ask()).rejects.toMatchObject({
-      code: 'git_director_owner_uncertain',
-      message: expect.stringMatching(/uncertain \(owner_restart\)[\s\S]*git_register/),
-    });
-    const joined = await as(h, () => h.git.join({ worktree_path: '/repo', target_branch: 'main' }, h.host));
-    expect(joined.restored_registration).toEqual({ status: 'uncertain', uncertainty_reason: 'owner_restart' });
-    const row = h.state.snapshot().table('gitWorktrees').get(id)!;
-    expect(row.status).toBe('active');
-    expect(row.uncertaintyReason).toBeNull();
-    expect((await ask()).verdict).toBe('allow');
-    const again = await as(h, () => h.git.join({ worktree_path: '/repo' }, h.host));
-    expect(again.restored_registration).toBeUndefined();
+    const id = String((await as(h, () => h.git.register(base, h.host))).worktree_id);
+    h.live.detach();
+    h.attach(randomUUID());
+    edit(h, (draft) => draft.upsert('gitWorktrees', { ...draft.table('gitWorktrees').get(id)!, status: 'uncertain', uncertaintyReason: 'disconnected' }));
+    await h.git.reconcileOwned();
+    expect(h.state.snapshot().table('gitWorktrees').get(id)?.status).toBe('uncertain');
+    h.attach();
+    edit(h, (draft) => draft.upsert('gitWorktrees', { ...draft.table('gitWorktrees').get(id)!, uncertaintyReason: 'unknown' }));
+    await h.git.reconcileOwned();
+    expect(h.state.snapshot().table('gitWorktrees').get(id)).toMatchObject({ status: 'uncertain', uncertaintyReason: 'unknown' });
   });
 
   it('git_director_worktree_changed names the recorded field that changed while judging (5d35864a)', async () => {
@@ -604,7 +619,7 @@ describe('offline Git registration owners', () => {
     h.attach();
     const later = new GitDirectorService({ db: h.fake as unknown as Database, settings: new SettingsService(h.fake as unknown as Database), now: () => new Date(Date.now() + 10 * GRACE).toISOString() });
     await later.reconcileOwned();
-    expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.status).toBe('uncertain');
+    expect(h.state.snapshot().table('gitWorktrees').get(String(registered.worktree_id))?.status).toBe('active');
   });
 });
 

@@ -170,7 +170,7 @@ export const rules: [string, RegExp, string, string, string, Lang[]][] = [
   ],
   [
     "type-default",
-    /Inter|Roboto|Space Grotesk|Instrument Serif|Fraunces/,
+    /\b(?:font-family|fontFamily)\s*[:=]\s*[^;\n}]*\b(?:Inter|Roboto|Space Grotesk|Instrument Serif|Fraunces)\b/i,
     "Verify font choice is intentional.",
     "Compare typography with DESIGN.md; keep justified choices.",
     "Typography supports the task and documented hierarchy.",
@@ -478,6 +478,7 @@ export async function scan(
     translation: 0,
     minified: 0,
     excluded: 0,
+    "unsupported extension": 0,
   };
   let longLines = 0;
   const skip = new Set([
@@ -520,7 +521,8 @@ export async function scan(
       return;
     }
     const lang = langOf(p);
-    if (!lang || /^(?:moc|qrc)_.*\.cpp$/.test(base)) return;
+    if (!lang) return void skips["unsupported extension"]++;
+    if (/^(?:moc|qrc)_.*\.cpp$/.test(base)) return;
     if (excluded.some((re) => re.test(posix))) return void skips.excluded++;
     if (
       skipTests &&

@@ -2747,6 +2747,16 @@ cxx 0.9.137 checks the actual installed native version for launchpad and managed
 
 ## External task supervision (cxx 0.9.139)
 
+Peer `supervisor_model` metadata is labeled `supervisor_model_scope: "launch_configuration"`;
+it does not track native `/model` switches (Codex, Claude and Grok).
+
+`agent_accept(message_id, claim_id)` adopts an already-read, authorized queued
+peer request/task through the current native receiver during an operator turn.
+Keep the claim UUID unchanged on retry. It preserves FIFO and all admission
+checks, refuses schedules and other in-flight deliveries, and never launches a
+second executor. Adoption is not completion: finish with an explicit task result.
+The same contract applies to Claude and Grok.
+
 See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
 switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
 Applies equally to Codex, Claude and Grok; native resume stays engine-specific.

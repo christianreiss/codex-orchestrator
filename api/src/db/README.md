@@ -132,6 +132,12 @@ npm run test:db
 `services: mysql` container — so the baseline-then-migrate path a fresh install
 depends on is exercised on every CI run, not only on install day.
 
+Run these destructive suites only against a disposable MySQL instance. The
+server-owner composition fixture resolves both `TEST_DATABASE_URL` and `DB_*`
+through `readDbConfig()` and creates/drops an isolated `owner_server_*` database;
+its test account needs those DDL privileges. CI uses the disposable service's
+root account for the DB tier, never production credentials or grants.
+
 The file is generated from `schema.ts`, not hand-written. After a schema change,
 run from `api/`:
 

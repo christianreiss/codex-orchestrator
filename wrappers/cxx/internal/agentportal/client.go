@@ -268,6 +268,7 @@ func Start(parent context.Context, cfg *config.Config, input StartInput) (*Sessi
 	}
 	if model := supervisorModel(cfg, input); model != "" {
 		body["adapter_capabilities"].(map[string]any)["supervisor_model"] = model
+		body["adapter_capabilities"].(map[string]any)["supervisor_model_scope"] = "launch_configuration"
 	}
 	// The server verifies this lease against the authenticated host and engine.
 	if lease := os.Getenv("CXX_PROVIDER_SESSION_ID"); lease != "" {

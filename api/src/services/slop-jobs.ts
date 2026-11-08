@@ -671,6 +671,8 @@ export class SlopJobsService {
       findings: report ? report.findings.length : null,
       counts: report ? this.counts(report) : null,
       errors: report?.errors?.length ?? null,
+      coverage: report?.coverage ?? null,
+      scanned_source_files: report ? Object.keys((report.sources as Record<string, unknown> | undefined) ?? {}).length : null,
       verdict: this.parseJson<{ verdict?: string; summary?: string }>(run.verdictJson),
       slop_version: run.slopVersion,
       guidelines_sha256: run.guidelinesSha256,

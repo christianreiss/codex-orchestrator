@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every locally exposed tool is dispatched against a fake broker. No real
@@ -31,7 +32,7 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 83 {
+	if len(catalog) != 84 {
 		t.Fatalf("review new tools: got %d", len(catalog))
 	}
 	// Optional export lets the real Grok MCP doctor load exactly this catalogue
@@ -67,6 +68,8 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 			case "agent_attachment_get":
 				args["attachment_id"] = "11111111-1111-4111-8111-111111111111"
 				args["variant"] = "transcript.json"
+			case "agent_accept":
+				args["message_id"], args["claim_id"] = explicitMessage, explicitClaim
 			case "agent_task_result":
 				args["task_result"] = map[string]any{"status": "succeeded", "summary": "fixture"}
 			}
@@ -77,6 +80,13 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 				client := &sessionClient{id: "fixture", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 					requests++
 					code, body := 200, `{}`
+					if tool.Name == "agent_accept" {
+						if strings.HasSuffix(req.URL.Path, "/claim") {
+							body = `{"delivery":{"message_id":"` + explicitMessage + `","work_kind":"request"}}`
+						} else {
+							body = `{"message":{"status":"accepted"}}`
+						}
+					}
 					if tool.Name == "agent_attachment_get" {
 						body = `{"done":true,"content_b64":"Zml4dHVyZQ=="}`
 					}
@@ -86,6 +96,9 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 					return &http.Response{StatusCode: code, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 				})}}
 				tracker := newChannelTracker(client)
+				if tool.Name == "agent_accept" {
+					tracker.receiver = &autoReceiver{client: client, tracker: tracker, connected: true, lastBeatOK: time.Now(), sources: []string{"peer"}, generation: "fixture", connectionOwned: true}
+				}
 				if tool.Name == "agent_task_result" {
 					tracker.track(ctx, "fixture", "fixture-claim")
 				}

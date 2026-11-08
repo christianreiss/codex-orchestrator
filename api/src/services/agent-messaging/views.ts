@@ -131,6 +131,7 @@ export function publicConferenceMember(
  * compatibility and carries no liveness meaning for a non-relay session.
  */
 export function publicAddress(address: AgentBusAddress, fqdn?: string, presence?: AgentAddressPresence): Record<string, unknown> {
+  const capabilities = jsonRecord(address.adapterCapabilities);
   return {
     id: address.id,
     address: address.address,
@@ -146,7 +147,9 @@ export function publicAddress(address: AgentBusAddress, fqdn?: string, presence?
     ...(presence ? { presence } : {}),
     readiness: address.readiness,
     adapter_protocol: address.adapterProtocol,
-    adapter_capabilities: jsonRecord(address.adapterCapabilities),
+    adapter_capabilities: capabilities && typeof capabilities.supervisor_model === 'string'
+      ? { ...capabilities, supervisor_model_scope: 'launch_configuration' }
+      : capabilities,
     binding_generation: address.bindingGeneration,
     receive_heartbeat_at: address.receiveHeartbeatAt,
     last_seen_at: address.lastSeenAt,

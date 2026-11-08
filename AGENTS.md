@@ -1,5 +1,17 @@
 # Agents & Responsibilities
 
+## Maintenance task prompts
+
+- [Feedback sweep](docs/prompts/feedback-sweep.md): triage the feedback queue,
+  implement verified fixes with isolated subagents, then merge, push, deploy and
+  close each report with evidence.
+- [Engine maintenance](docs/prompts/engine-maintenance.md): audit all supported
+  engines with separate research and implementation agents, verify, document,
+  merge and push. Deployment is a separate instruction for this task.
+
+When asked to run either task, read its complete prompt and follow its delivery
+contract. These links do not start either task automatically.
+
 Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, `docs/interface-clx.md`, and `docs/interface-cgx.md`. Keep them in lock-step with code. This service keeps multiple provider accounts per engine for the whole fleet, each with an independent canonical auth head and quota snapshots. Account leases balance new CLI launches while preserving active native sessions; every auth change needs a paper trail.
 
 ## Backend stack
