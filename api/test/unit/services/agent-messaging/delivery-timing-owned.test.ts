@@ -197,6 +197,22 @@ it('lets a Claude turn the owner still sees as busy take immediate information t
 });
 
 describe.each(['codex', 'claude', 'grok'])('%s owned immediate admission', (engine) => {
+  it('batches legacy after-turn information without delivery-timing negotiation', async () => {
+    const f = fixture(engine);
+    try {
+      const draft = f.state.begin();
+      for (const row of draft.table('agentBusMessages').all()) draft.upsert('agentBusMessages', {
+        ...row, createdAt: '2026-01-01T00:00:00Z', deliveryTiming: 'after_turn',
+      });
+      f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+      const delivery = await f.claim(randomUUID(), {
+        immediateOnly: false, smartQueue: true, peerBatch: true, deliveryTimingEnabled: undefined,
+      });
+      expect(delivery?.kind).toBe('digest');
+      expect(f.state.snapshot().messages.all().filter(row => row.kind === 'digest')).toHaveLength(1);
+    } finally { await f.close(); }
+  });
+
   it('does not batch old immediate originals without peer-batch negotiation', async () => {
     const f = fixture(engine);
     try {

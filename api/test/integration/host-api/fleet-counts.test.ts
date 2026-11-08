@@ -18,6 +18,9 @@ describe.skipIf(!handle)('fleet activity counts against MySQL', () => {
     // MySQL TEMPORARY table cannot be read by three scalar subqueries at once.
     await connection.beginTransaction();
     await connection.query('DELETE FROM logs');
+    // Synthetic log IDs must not inherit an internal role left by another
+    // suite's advisor boot. Both fixtures and roles roll back after each case.
+    await connection.query('UPDATE hosts SET internal_role = NULL WHERE internal_role IS NOT NULL');
     db = drizzle(connection, { schema, mode: 'default' });
   });
   afterEach(async () => {
@@ -96,6 +99,21 @@ describe.skipIf(!handle)('fleet activity counts against MySQL', () => {
       now: 0,
       today: 0,
       month: 0,
+    });
+  });
+
+  it('excludes internal hosts without dropping anonymous sync totals', async () => {
+    const now = '2026-10-13T12:00:00Z';
+    const [inserted] = await db.insert(schema.hosts).values({
+      fqdn: 'fleet-count-internal.fixture.test', apiKey: 'fixture', internalRole: 'advisor',
+      createdAt: now, updatedAt: now,
+    });
+    await db.insert(schema.logs).values([
+      { hostId: Number(inserted.insertId), action: 'agents.retrieve', createdAt: now },
+      { hostId: null, action: 'agents.retrieve', createdAt: now },
+    ]);
+    expect(await new HostSessionsService(db).fleetCounts(new Date(now))).toEqual({
+      now: 0, today: 1, month: 1,
     });
   });
 });
