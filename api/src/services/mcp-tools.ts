@@ -2013,6 +2013,14 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     });
     inputs.push({
       definition: {
+        name: 'slop_job_import',
+        description: 'Import source files atomically from one File Transfer JSON bundle, preserving original paths, bytes, scanner line numbers and per-file revisions. Create UTF-8 JSON {"version":1,"files":[{"path":"src/app.ts","content":"source text","sha256":"optional lowercase SHA-256 of UTF-8 content"}]}, upload with cxx transfer put FILE --ttl-seconds 3600 --json, then pass transfer_id. Source only; no archive extraction, screenshots, symlinks or removals. Limits unchanged: 200 current files, 2 MiB/file, 50 MiB decoded/job; bundle transport max 64 MiB. Duplicate/colliding paths, invalid hashes and over-cap imports fail as a whole. Identical retries are no-ops; omitted paths stay unchanged. Split larger applications into jobs. Requires File Transfer enabled.',
+        inputSchema: { type: 'object', properties: { job_id: job, transfer_id: { type: 'string', description: 'Completed transfer id from cxx transfer put.' } }, additionalProperties: false, required: ['job_id', 'transfer_id'] },
+      },
+      handler: async (args, host) => { await slop.assertEnabled(); return slop.importSources(args, host); },
+    });
+    inputs.push({
+      definition: {
         name: 'slop_job_describe',
         description:
           'Set or replace the job description: what changed, its intent, the audience and the states that matter. Each change bumps `description_rev`; full runs record which revision they reviewed. Quick runs ignore it.',

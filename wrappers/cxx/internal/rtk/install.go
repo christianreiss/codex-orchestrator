@@ -47,20 +47,26 @@ func Install(ctx context.Context, cfg *config.Config) (string, error) {
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(dir, ".install.lock"))
-	if err != nil {
-		return "", err
-	}
-	defer lock.Release()
 	a, ok := cfg.RTK.Artifacts[runtime.GOOS+"/"+runtime.GOARCH]
 	if !ok || len(a.SHA256) != 64 {
 		return "", errors.New("unsupported_platform")
 	}
+	// Immutable, verified artifacts need no writer lease. Every engine on a
+	// host shares this cache, including simultaneous sync and native launches.
 	if verifiedCache(dest, a.SHA256) {
 		return dest, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	lock, err := waitInstallLock(ctx, filepath.Join(dir, ".install.lock"))
+	if err != nil {
+		return "", err
+	}
+	defer lock.Release()
+	// Another engine may have completed the same installation while we waited.
+	if verifiedCache(dest, a.SHA256) {
+		return dest, nil
+	}
 	req, err := http.NewRequestWithContext(ctx, "GET", a.URL, nil)
 	if err != nil {
 		return "", errors.New("invalid_artifact")
@@ -184,4 +190,28 @@ func Sync(ctx context.Context, cfg *config.Config) error {
 		report(ctx, cfg, false, errorCode(err), "", "")
 	}
 	return err
+}
+
+// waitInstallLock gives a concurrent installer time to finish without allowing
+// a stalled download to hold a new launch beyond its own context deadline.
+func waitInstallLock(ctx context.Context, path string) (*ipc.Lock, error) {
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		lock, err := ipc.TryAcquireExclusivePath(path)
+		if err == nil {
+			return lock, nil
+		}
+		if !errors.Is(err, ipc.ErrHeld) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }

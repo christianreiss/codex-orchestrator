@@ -63,6 +63,54 @@ image tag is created. Production rollback source is the pre-run
 no-backup procedure if needed. Deployment verification is recorded in feedback
 closure evidence and the final work result.
 
+## Late-arriving report
+
+The final queue scan found `fcc272fe-1eeb-48d4-86f7-9e1d584a0e57`, filed
+during deployment, requesting bulk Slop source ingestion. Fix
+`3dca7349bf8c3cdfe0ac39d009904f92353e6a3c` adds `slop_job_import` for a
+transferred version-1 JSON source bundle. Individual paths, UTF-8 bytes,
+SHA-256 hashes and revisions remain intact; identical retries add no revisions.
+Validation and publication are atomic, with unchanged 200-file, 2 MiB/file and
+50 MiB/job limits. Archive extraction, symlinks and binary imports are excluded.
+
+The follow-up integrates RTK main `8fbdb4d6f012f22353aea7d9fbdbc6424dd8e203`
+and its production-cache repair `d24f6bccee0226e38952f5847ed8dbb2446d1194`,
+then final RTK concurrency repair `8499f582ae401c39d7ecc8b3c0b9b5d0ff9f0501`.
+Its Go build, vet and full tests passed. Seven combined real-MySQL tests passed
+(six Slop import/concurrency tests and one RTK policy test) on disposable MySQL
+port 37707 after baseline and all 125 migrations. The import itself changes no
+Go code or schema and needs no additional wrapper version.
+
+Combined follow-up validation: API typecheck and build passed; all 458 unit-test
+files passed, with 6,610 tests passed and 12 skipped. Nine focused RTK cache/route
+tests also passed after integrating the cache repair. The earlier full-MySQL
+suite remains the original batch's evidence; the final follow-up reruns the
+relevant Slop and RTK integration suites rather than claiming a second full run.
+The API-only follow-up targets `docker01.uggs.io` with
+`scripts/deploy.sh --no-backup --no-cleanup --service api`, preserving RTK's
+`0.9.171` wrapper artifacts. Follow-up rollback source is RTK revision
+`8499f582ae401c39d7ecc8b3c0b9b5d0ff9f0501`. Exact deployment and live-canary
+evidence are saved in the report's feedback closure after verification.
+
+## Deployment provenance follow-up
+
+The RTK rollout filed `03a0d647-32fa-480b-9954-5e75d3aa102b` while this run
+waited for production access. Fix `057eea5efbf96c47e9e9cc1b47ead0d0615d62ac`
+retains `source_before_pull` across systemd handoff and reads
+`source_after_deploy` on completion. Only a successful result identifies the
+final checkout as `commit`; failed or unknown outcomes leave it unset. A failed
+final provenance read cannot be reported as successful supervision. This does
+not substitute for independently checking a served artifact.
+
+Four regression cases failed before the fix and passed afterward; all 12
+focused deployment tests and Python AST validation passed. Final API typecheck
+and all 458 unit files passed (6,611 tests passed, 12 skipped); Go build, vet
+and full tests passed again. Script-only delivery
+updates the production checkout and verifies script bytes without rebuilding or
+restarting the unchanged API. The API continues serving `3ceabc92c` and wrapper
+manifests remain `0.9.171`; exact script shipment and final combined-test evidence
+are recorded in the feedback closure.
+
 ## Task discovery
 
 `AGENTS.md` now links both complete task prompts: feedback sweep and engine

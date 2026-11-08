@@ -26,7 +26,7 @@ for (const width of [320, 390, 768, 1440, 1920]) for (const dark of [false, true
     for (const engine of engines) await expect(section.getByRole('switch', { name: `${engine} output filtering` })).toBeVisible();
     await section.getByRole('switch', { name: 'codex output filtering' }).click();
     await expect(section.getByRole('switch', { name: 'codex output filtering' })).toBeChecked();
-    await expect(section).toContainText('Saved. Applies to new sessions.');
+    await expect(section).toContainText('Saved. Applies to new sessions after host sync.');
     expect(writes).toEqual([{ enabled: true }]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect((await new AxeBuilder({ page }).include('#rtk').analyze()).violations).toEqual([]);

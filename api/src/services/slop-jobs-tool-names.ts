@@ -6,6 +6,7 @@
 export const SLOP_JOB_TOOL_NAMES = {
   create: 'slop_job_create',
   put: 'slop_job_put',
+  import: 'slop_job_import',
   describe: 'slop_job_describe',
   run: 'slop_job_run',
   get: 'slop_job_get',

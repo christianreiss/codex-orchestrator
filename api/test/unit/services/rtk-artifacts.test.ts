@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadRtkArtifact, rtkArtifacts, RTK_ARTIFACTS } from '../../../src/services/rtk-artifacts.js';
+import {
+  createRtkArtifactCache,
+  loadRtkArtifact,
+  rtkArtifacts,
+  RTK_ARTIFACTS,
+} from '../../../src/services/rtk-artifacts.js';
 
 const roots: string[] = [];
 async function root() {
@@ -15,6 +20,34 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 describe('pinned RTK OSS artifact cache', () => {
+  it('uses a lazy, per-process writable temporary cache with private ownership and shutdown cleanup', async () => {
+    const temporary = await root();
+    const cache = createRtkArtifactCache(temporary);
+    const other = createRtkArtifactCache(temporary);
+    expect(await readdir(temporary)).toEqual([]);
+    try {
+      const [path, samePath] = await Promise.all([cache.root(), cache.root()]);
+      expect(path).toBe(samePath);
+      expect(path).not.toBe(await other.root());
+      expect(path).toMatch(/cxx-rtk-[^/]+$/);
+      const metadata = await stat(path);
+      expect(metadata.mode & 0o777).toBe(0o700);
+      if (process.getuid) expect(metadata.uid).toBe(process.getuid());
+      await mkdir(join(path, '1.2.0'));
+      await writeFile(join(path, '1.2.0', 'archive'), 'cache fixture');
+    } finally {
+      await Promise.all([cache.close(), other.close()]);
+    }
+    expect(await readdir(temporary)).toEqual([]);
+  });
+  it('reports an unavailable temporary directory and does not claim cache readiness', async () => {
+    const temporary = await root();
+    const cache = createRtkArtifactCache(join(temporary, 'missing'));
+    await expect(cache.root()).rejects.toMatchObject({ status: 503, code: 'rtk_artifact_unavailable' });
+    expect(await readdir(temporary)).toEqual([]);
+    await expect(cache.close()).resolves.toBeUndefined();
+  });
+
   it('exposes only pinned OSS archives through authenticated per-engine mirrors', () => {
     const artifacts = rtkArtifacts('https://fleet.example/', 'grok');
     expect(Object.keys(artifacts)).toEqual(['linux/amd64', 'linux/arm64', 'darwin/amd64', 'darwin/arm64']);
