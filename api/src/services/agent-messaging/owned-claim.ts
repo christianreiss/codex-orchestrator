@@ -41,6 +41,7 @@ export interface OwnedClaimOptions {
   deliveryTimingEnabled?: boolean;
   smartQueue: boolean;
   peerBatch: boolean;
+  explicitMessageId?: string;
 }
 const isWork = (row: OwnedMessage) => !!row.workKind || ['request', 'task', 'schedule'].includes(row.kind);
 const inFlight = (row: OwnedMessage) => ['leased', 'accepted', 'reboot_hold'].includes(row.status);
@@ -71,6 +72,8 @@ export function ownedClaimCandidates(
         (row.nextAttemptAt > now && (!sessionId || row.deliverySessionId === sessionId))
       )
         return false;
+      if (options.explicitMessageId && (row.id !== options.explicitMessageId ||
+          !['request', 'task'].includes(row.kind) || row.cancelRequestedAt)) return false;
       if ((row.deliveryTiming === 'immediate' && options.deliveryTimingEnabled !== true) ||
           (options.immediateOnly && !isImmediateInformation(row))) return false;
       if ((!options.smartQueue && row.kind === 'digest') || (options.informationalOnly && isWork(row)))
@@ -120,6 +123,9 @@ export function ownedClaimCandidates(
     });
 }
 function afterTurnReady(runtime: OwnerRuntime, snapshot: OwnerStateSnapshot, options: OwnedClaimOptions): boolean {
+  // Explicit acceptance originates in the current native turn, not a background
+  // delivery. All ordinary candidate, ownership and admission checks still apply.
+  if (options.explicitMessageId) return true;
   if (options.immediateOnly || options.relayGeneration !== null) return true;
   const session = snapshot.sessions.get(options.leaseOwner.slice(8));
   return !session || session.engine !== 'claude' || receiverState(session.receiver)?.delivery_timing_v1 !== true ||
@@ -139,6 +145,8 @@ function authorizeClaim(
     if (!session.agentBusAddressId || !options.targetAddressIds.includes(session.agentBusAddressId))
       throw new ConflictError('Agent address binding changed', 'agent_messaging_binding_stale');
     const receiver = receiverState(session.receiver);
+    if (options.explicitMessageId && !receiver)
+      throw new ConflictError('Explicit work acceptance requires the current native receiver', 'agent_accept_receiver_required');
     if (options.immediateOnly && receiver?.delivery_timing_v1 !== true)
       throw new ConflictError('Receiver does not support immediate delivery', 'delivery_timing_unsupported');
     if (
@@ -195,6 +203,11 @@ export async function claimOwnedDelivery(
   rawOptions: OwnedClaimOptions,
 ): Promise<MessageDelivery | null> {
   const options = { ...rawOptions, claimId: normalizeUuid(rawOptions.claimId, 'claim_id') };
+  if (options.explicitMessageId) {
+    options.explicitMessageId = normalizeUuid(options.explicitMessageId, 'message_id');
+    if (options.relayGeneration !== null || !options.receiverGeneration || options.informationalOnly || options.immediateOnly)
+      throw new ConflictError('Explicit work acceptance requires the current native receiver', 'agent_accept_receiver_required');
+  }
   runtime.assertOwner();
   authorizeClaim(runtime, runtime.state.snapshot(), options);
   // A Claude turn the owner still sees as running defers default-timed mail but
@@ -216,7 +229,7 @@ export async function claimOwnedDelivery(
         ['leased', 'accepted'].includes(row.status),
     );
   if (replay && replay.status === 'accepted') return null; // The executor already owns this work; never present it again.
-  if (!options.immediateOnly) await prepareOwnedPresentations(db, runtime, keyring, options.targetAddressIds, {
+  if (!options.immediateOnly && !options.explicitMessageId) await prepareOwnedPresentations(db, runtime, keyring, options.targetAddressIds, {
     smart: options.smartQueue,
     peer: options.peerBatch,
     relay: options.skipReceiveCapable,
@@ -264,6 +277,8 @@ export async function claimOwnedDelivery(
             row.status === 'leased',
         );
       if (existing) {
+        if (options.explicitMessageId && existing.id !== options.explicitMessageId)
+          throw new ConflictError('Claim belongs to another message', 'agent_messaging_lease_lost');
         if (options.immediateOnly && !isImmediateInformation(existing)) return null;
         if (options.informationalOnly && isWork(existing)) return null;
         assertOwnedDelivery(snapshot, existing, options.claimId, options.leaseOwner, options.relayGeneration);
