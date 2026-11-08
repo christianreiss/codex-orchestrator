@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { join, resolve } from 'node:path';
 import type { RouteContext } from './index.js';
 import { hosts } from '../db/schema.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
@@ -22,7 +21,7 @@ import {
   validateRtkEnabled,
   validateRtkReport,
 } from '../services/rtk.js';
-import { loadRtkArtifact } from '../services/rtk-artifacts.js';
+import { createRtkArtifactCache, loadRtkArtifact } from '../services/rtk-artifacts.js';
 import { wsPublisher } from '../ws/publisher.js';
 
 const engineOf = (value: string): Engine => {
@@ -31,6 +30,8 @@ const engineOf = (value: string): Engine => {
 };
 export async function registerRtkRoutes(app: FastifyInstance, ctx: RouteContext) {
   const settings = new SettingsService(ctx.db);
+  const artifactCache = createRtkArtifactCache();
+  app.addHook('onClose', async () => artifactCache.close());
   const auth = createHostAuthService({
     db: ctx.db,
     env: ctx.env,
@@ -107,9 +108,7 @@ export async function registerRtkRoutes(app: FastifyInstance, ctx: RouteContext)
       const engine = engineOf(req.query.engine ?? '');
       if (!req.authHost) throw new NotFoundError('Host context missing');
       assertHostEngineEnabled(req.authHost, engine, await readFleetEngineState(ctx.db));
-      const root = ctx.env.DATA_ROOT
-        ? join(ctx.env.DATA_ROOT, 'wrapper', 'v2', 'rtk')
-        : resolve(import.meta.dirname, '..', '..', '..', 'storage', 'wrapper', 'v2', 'rtk');
+      const root = await artifactCache.root();
       const bytes = await loadRtkArtifact(root, req.params.platform, req.params.version);
       return reply
         .type('application/gzip')

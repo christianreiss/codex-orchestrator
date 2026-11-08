@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { NotFoundError, ServiceUnavailableError } from '../http/errors.js';
 import type { Engine } from '../util/engine.js';
 import { RTK_VERSION } from './rtk.js';
@@ -34,6 +35,24 @@ export function rtkArtifacts(baseUrl: string, engine: Engine) {
       },
     ]),
   );
+}
+/** Downloaded artifacts are disposable cache data. The persistent bakery is
+ * root-owned in production; only /tmp is writable by the unprivileged API.
+ * mkdtemp avoids predictable shared paths and creates a private 0700 directory. */
+export function createRtkArtifactCache(parent = tmpdir()) {
+  let allocated: Promise<string> | undefined;
+  return {
+    root(): Promise<string> {
+      allocated ??= mkdtemp(join(parent, 'cxx-rtk-')).catch(() => {
+        allocated = undefined;
+        throw new ServiceUnavailableError('RTK temporary cache is unavailable', 'rtk_artifact_unavailable');
+      });
+      return allocated;
+    },
+    async close(): Promise<void> {
+      if (allocated) await rm(await allocated, { recursive: true, force: true });
+    },
+  };
 }
 const pending = new Map<string, Promise<Buffer>>();
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
