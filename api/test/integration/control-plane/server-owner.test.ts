@@ -15,7 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import mysql from 'mysql2/promise';
 import { loadBaseline } from '../../../src/db/migrator.js';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { getTestDb } from '../../helpers/test-db.js';
+import { getTestDb, readDbConfig } from '../../helpers/test-db.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
 import { resetEnvCache } from '../../../src/env.js';
 import { buildServer } from '../../../src/server.js';
@@ -37,15 +37,12 @@ describe.skipIf(!handle)('complete owner server composition', () => {
     await handle?.pool.end();
   });
   it('boots the actual HTTP server under one owner, serves metadata without SQL, and releases ownership on close', async () => {
-    const url = new URL(process.env.TEST_DATABASE_URL!);
+    const config = readDbConfig()!;
     const root = await mkdtemp(join(tmpdir(), 'orchestrator-owner-test-'));
     const database = 'owner_server_' + randomUUID().replaceAll('-', '');
     await handle!.pool.query(`CREATE DATABASE \`${database}\``);
     const bootstrap = await mysql.createConnection({
-      host: url.hostname,
-      port: Number(url.port || 3306),
-      user: decodeURIComponent(url.username),
-      password: decodeURIComponent(url.password),
+      ...config,
       database,
     });
     try {
@@ -55,10 +52,10 @@ describe.skipIf(!handle)('complete owner server composition', () => {
     }
     testKeyring();
     for (const [name, value] of Object.entries({
-      DB_HOST: url.hostname,
-      DB_PORT: url.port || '3306',
-      DB_USERNAME: decodeURIComponent(url.username),
-      DB_PASSWORD: decodeURIComponent(url.password),
+      DB_HOST: String(config.host),
+      DB_PORT: String(config.port || 3306),
+      DB_USERNAME: String(config.user),
+      DB_PASSWORD: String(config.password || ''),
       DB_DATABASE: database,
       DATA_ROOT: root,
       AUTH_RUNNER_URL: '',

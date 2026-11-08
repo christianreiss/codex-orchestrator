@@ -47,7 +47,9 @@ export class HostSessionsService {
     // this keeps that work bounded to recent hosts and preserves the previous
     // month's part of the recent window just after UTC midnight on the 1st.
     // Server-owned hosts (the Fleet Advisor) are not fleet sessions.
-    const fleetHost = sql`${logs.hostId} NOT IN (SELECT id FROM hosts WHERE internal_role IS NOT NULL)`;
+    // Anonymous historical syncs still contribute to totals. NOT IN would
+    // drop NULL host IDs as soon as any internal host exists.
+    const fleetHost = sql`NOT EXISTS (SELECT 1 FROM hosts WHERE id = ${logs.hostId} AND internal_role IS NOT NULL)`;
     const [result] = await this.db.execute(sql`
       SELECT
         (SELECT count(distinct ${logs.hostId}) FROM ${logs}

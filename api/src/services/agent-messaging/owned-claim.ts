@@ -233,7 +233,7 @@ export async function claimOwnedDelivery(
     smart: options.smartQueue,
     peer: options.peerBatch,
     relay: options.skipReceiveCapable,
-    includeStaleImmediate: options.peerBatch && options.deliveryTimingEnabled,
+    includeStaleImmediate: options.peerBatch && options.deliveryTimingEnabled === true,
   });
   if (!replay && !ownedClaimCandidates(runtime.state.snapshot(), options).length) return null;
   let selected: OwnedMessage | undefined;
