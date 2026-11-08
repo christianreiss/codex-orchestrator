@@ -758,15 +758,27 @@ export class GitDirectorService {
       ];
       const abandonedIds = new Set(abandoned.map(row => row.id));
       const uncertain = lostProof.filter(row => !abandonedIds.has(row.id));
+      const recovered = snapshot.table('gitWorktrees').by('status', 'uncertain').filter(row =>
+        row.ownershipMode === 'connection' && ['disconnected', 'owner_restart'].includes(row.uncertaintyReason ?? '') &&
+        this.registrationProof(row, snapshot));
       const orphaned = snapshot.table('gitMergeRequests').all().filter(row => !row.completedAt && abandonedIds.has(row.worktreeId));
       const expired = snapshot.table('gitMergeRequests').by('verdict', 'allow').filter(row => !row.completedAt && !abandonedIds.has(row.worktreeId) && isExpired(row.leaseExpiresAt, now));
       // Every clone and registration row is hydrated (only completed merge
       // history is trimmed, and only the newest of it can matter here).
       const archive = archivableClones(snapshot.table('gitClones').all(), snapshot.table('gitWorktrees').all(),
         snapshot.table('gitMergeRequests').all(), now, this.cloneArchiveDays);
-      if (!apply) return Boolean(uncertain.length || abandoned.length || expired.length || archive.length);
+      if (!apply) return Boolean(uncertain.length || recovered.length || abandoned.length || expired.length || archive.length);
       for (const row of uncertain) {
         await this.updateRows(db, 'gitWorktrees', [row.id], { status: 'uncertain', uncertaintyReason: 'disconnected', updatedAt: now });
+        this.publish(db, 'worktree', row.cloneId);
+      }
+      for (const row of recovered) {
+        // Recovery uses the recorded session, binding and native instance, never
+        // address presence alone. Recheck that exact proof at command commit.
+        this.ownedContext.getStore()!.checks.push(current => {
+          if (!this.registrationProof(row, current)) throw new ConflictError('Native instance disconnected before registration recovery', 'git_director_owner_uncertain');
+        });
+        await this.updateRows(db, 'gitWorktrees', [row.id], { status: 'active', uncertaintyReason: null, updatedAt: now });
         this.publish(db, 'worktree', row.cloneId);
       }
       for (const request of orphaned) {
@@ -786,7 +798,7 @@ export class GitDirectorService {
         this.publish(db, 'lease', row.cloneId);
       }
       await this.archiveClones(db, archive, now);
-      return Boolean(uncertain.length || expired.length || archive.length);
+      return Boolean(uncertain.length || recovered.length || expired.length || archive.length);
     }
     const active = (
       await db
