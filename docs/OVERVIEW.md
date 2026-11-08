@@ -1765,3 +1765,5 @@ shows the queued receipt separately from actual execution. A request without a
 coordinator remains confirmed and waiting for assignment. Agents reuse the saved
 approval rather than repeating the approval question in chat; changed answers
 still require a new review. See `interface-api.md` for the receipt and retry contract.
+
+Slop job quick-run summaries expose scanned source counts and coverage limits, including unsupported Kotlin files. Accessibility audit uploads use JSON `{tool, findings: []}`; native accessibility trees belong in source evidence. Web font heuristics inspect font declarations rather than product text or identifiers.
