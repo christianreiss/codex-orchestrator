@@ -270,6 +270,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/api-keys-in-chat': cap('settings.read'),
   'POST /admin/api-keys-in-chat': cap('settings.manage'),
   'GET /admin/model-tier-check': cap('settings.read'),
+  'GET /admin/subagent-model-selection': cap('settings.read'),
+  'POST /admin/subagent-model-selection': cap('settings.manage'),
   'POST /admin/model-tier-check': cap('settings.manage'),
   'GET /admin/auto-update': cap('settings.read'),
   'POST /admin/auto-update': cap('settings.manage'),
