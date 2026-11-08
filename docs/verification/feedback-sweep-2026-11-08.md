@@ -63,6 +63,32 @@ image tag is created. Production rollback source is the pre-run
 no-backup procedure if needed. Deployment verification is recorded in feedback
 closure evidence and the final work result.
 
+## Late-arriving report
+
+The final queue scan found `fcc272fe-1eeb-48d4-86f7-9e1d584a0e57`, filed
+during deployment, requesting bulk Slop source ingestion. Fix
+`3dca7349bf8c3cdfe0ac39d009904f92353e6a3c` adds `slop_job_import` for a
+transferred version-1 JSON source bundle. Individual paths, UTF-8 bytes,
+SHA-256 hashes and revisions remain intact; identical retries add no revisions.
+Validation and publication are atomic, with unchanged 200-file, 2 MiB/file and
+50 MiB/job limits. Archive extraction, symlinks and binary imports are excluded.
+
+The follow-up integrates RTK main `8fbdb4d6f012f22353aea7d9fbdbc6424dd8e203`.
+Its Go build, vet and full tests passed. Seven combined real-MySQL tests passed
+(six Slop import/concurrency tests and one RTK policy test) on disposable MySQL
+port 37707 after baseline and all 125 migrations. The import itself changes no
+Go code or schema and needs no additional wrapper version.
+
+Combined follow-up validation: API typecheck and build passed; all 458 unit-test
+files passed, with 6,608 tests passed and 12 skipped. The earlier full-MySQL
+suite remains the original batch's evidence; the final follow-up reruns the
+relevant Slop and RTK integration suites rather than claiming a second full run.
+The API-only follow-up targets `docker01.uggs.io` with
+`scripts/deploy.sh --no-backup --no-cleanup --service api`, preserving RTK's
+`0.9.170` wrapper artifacts. Follow-up rollback source is RTK revision
+`8fbdb4d6f012f22353aea7d9fbdbc6424dd8e203`. Exact deployment and live-canary
+evidence are saved in the report's feedback closure after verification.
+
 ## Task discovery
 
 `AGENTS.md` now links both complete task prompts: feedback sweep and engine
