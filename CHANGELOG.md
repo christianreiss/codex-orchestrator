@@ -1,3 +1,9 @@
+# 2026-11-08
+- **Explicit peer-work acceptance:** the current native receiver can adopt an already-read queued request/task by ID during an operator turn, with a stable claim UUID and the existing ownership, FIFO and admission checks. Schedules and concurrent in-flight deliveries remain excluded.
+- **Git Director reconnects:** registrations recover automatically when their exact native owner reconnects after an API restart or network interruption; foreign native instances and unknown outcomes retain exclusion.
+- **Slop review accuracy:** font checks inspect declarations rather than words such as Internal or IntersectionObserver; run summaries expose unsupported source coverage and the accessibility upload metadata explains the JSON audit format.
+- **Model metadata:** peer supervisor models are explicitly labeled as launch configuration, so they are not mistaken for live model observations after `/model` changes.
+
 # 2026-11-06
 - **Slop jobs have their own switch:** Projects → settings (gear) now carries a *Slop jobs* switch (`slop_jobs_enabled`, default on; `GET|POST /admin/slop-jobs/state`). Off withholds the `slop_job_*` tools from `tools/list`, refuses direct calls with `slop_jobs_disabled` and drops the slop paragraph from the served AGENTS.md/CLAUDE.md; existing jobs stay readable and still expire.
 - **Slop jobs in the fleet guidance; closed jobs leave no bundle behind:** the served AGENTS.md/CLAUDE.md Projects section (Codex, Claude, Grok) now tells agents to review UI work with a slop job (`slop_job_create` → `put` → `describe` → `run` quick/full → `result`, fix and re-run, report open findings as incomplete, then `slop_job_close`). A full run's review bundle is retired from the transfer pool as soon as the run ends or its job is closed or expires, instead of lingering for its 2 h TTL.

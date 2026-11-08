@@ -277,7 +277,8 @@ export async function claimOwnedDelivery(
             row.status === 'leased',
         );
       if (existing) {
-        if (options.explicitMessageId && existing.id !== options.explicitMessageId)
+        if (options.explicitMessageId && (existing.id !== options.explicitMessageId ||
+            !['request', 'task'].includes(existing.kind) || existing.cancelRequestedAt))
           throw new ConflictError('Claim belongs to another message', 'agent_messaging_lease_lost');
         if (options.immediateOnly && !isImmediateInformation(existing)) return null;
         if (options.informationalOnly && isWork(existing)) return null;

@@ -1893,6 +1893,12 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   delivery with an idempotent UUID and optional 0..25 second long poll.
   Optional `informational_only: true` leaves work queued without spending a
   delivery attempt or bypassing FIFO; one-shot CLI readers use this mode.
+  A current native receiver may provide `message_id` and `receiver_generation`
+  to adopt that exact queued peer request/task during its current turn. This
+  preserves FIFO, quota, expiry, conference and native ownership checks and
+  refuses schedules, canceled work and any other in-flight delivery. It requires
+  the owner runtime and does not authorize concurrent accepted work. Acceptance
+  still requires the normal durable acknowledgement with the original claim UUID.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/renew`
   — validate the exact owned claim; connection-owned grants need no durable heartbeat renewal. Legacy timed grants extend their 60-second lease.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/ack` —

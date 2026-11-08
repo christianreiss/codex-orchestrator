@@ -206,6 +206,33 @@ describe.each(['codex', 'claude', 'grok'])('%s explicit work acceptance', (engin
       expect(await f.claim(randomUUID(), { ...options, explicitMessageId: f.messages[1]!.id })).toBeNull();
     } finally { await f.close(); }
   });
+  it('keeps smart-queue informational ownership exclusive during explicit acceptance', async () => {
+    const f = fixture(engine);
+    prepare(f);
+    const draft = f.state.begin();
+    draft.upsert('agentBusMessages', { ...draft.table('agentBusMessages').get(f.messages[0]!.id)!,
+      kind: 'message', workKind: null, status: 'accepted' });
+    f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+    try {
+      expect(await f.claim(randomUUID(), { explicitMessageId: f.messages[1]!.id,
+        immediateOnly: false, informationalOnly: false, smartQueue: true })).toBeNull();
+    } finally { await f.close(); }
+  });
+  it('rolls back explicit adoption when receiver proof disappears during preparation', async () => {
+    const f = fixture(engine, 1);
+    prepare(f);
+    const select = f.db.select.bind(f.db);
+    vi.spyOn(f.db, 'select').mockImplementation(fields => {
+      const result = select(fields);
+      f.receiver.detach();
+      return result;
+    });
+    try {
+      await expect(f.claim(randomUUID(), { explicitMessageId: f.messages[0]!.id,
+        immediateOnly: false, informationalOnly: false })).rejects.toThrow();
+      expect(f.state.snapshot().messages.get(f.messages[0]!.id)?.status).toBe('queued');
+    } finally { await f.close(); }
+  });
   it.each([
     { kind: 'schedule', workKind: 'schedule' },
     { kind: 'message', workKind: null },
@@ -229,6 +256,21 @@ describe.each(['codex', 'claude', 'grok'])('%s explicit work acceptance', (engin
         .rejects.toMatchObject({ code: 'receiver_generation_changed' });
     } finally { await f.close(); }
   });
+  it.each([{ kind: 'schedule', workKind: 'schedule' }, { cancelRequestedAt: new Date().toISOString() }])(
+    'rechecks explicit eligibility when replaying a leased claim %j', async changes => {
+      const f = fixture(engine, 1);
+      prepare(f);
+      try {
+        const claimId = randomUUID();
+        const options = { explicitMessageId: f.messages[0]!.id, immediateOnly: false, informationalOnly: false };
+        expect(await f.claim(claimId, options)).not.toBeNull();
+        const draft = f.state.begin();
+        draft.upsert('agentBusMessages', { ...draft.table('agentBusMessages').get(options.explicitMessageId)!, ...changes });
+        f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+        await expect(f.claim(claimId, options)).rejects.toMatchObject({ code: 'agent_messaging_lease_lost' });
+      } finally { await f.close(); }
+    },
+  );
 });
 
 it.each([59_999, 60_000, 60_001])('uses the exact stale threshold at %i milliseconds', age => {

@@ -467,6 +467,9 @@ Session operations use the short-lived bridge bearer in
   expected binding generation.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/claim` — claim one
   delivery with an idempotent claim UUID and optional long poll.
+  Current native receivers can target a queued peer request/task with
+  `message_id` and `receiver_generation`, preserving ordinary eligibility and
+  the no-other-in-flight gate; schedules are excluded.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/renew`
   — renew the owned 60-second lease.
 - `POST /host/agent-sessions/{id}/agent-messaging/deliveries/{messageId}/ack` —

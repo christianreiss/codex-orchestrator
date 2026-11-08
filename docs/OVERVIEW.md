@@ -1,5 +1,11 @@
 # Overview
 
+Current native receivers can explicitly adopt an already-read queued peer
+request/task with `agent_accept(message_id, claim_id)`, preserving normal
+admission and exclusive delivery ownership. See [the messaging contract](interface-api.md).
+Peer supervisor-model metadata is labeled as launch configuration, not a live
+model observation after interactive model switches.
+
 cxx 0.9.161 repairs Claude receiver queues blocked by messages absorbed during a
 turn: completion hooks recognize native channel attachments as well as user
 entries. Waiting-message hints include IDs and report unconfirmed earlier
