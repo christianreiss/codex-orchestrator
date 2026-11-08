@@ -1780,3 +1780,5 @@ approval rather than repeating the approval question in chat; changed answers
 still require a new review. See `interface-api.md` for the receipt and retry contract.
 
 Slop job quick-run summaries expose scanned source counts and coverage limits, including unsupported Kotlin files. Accessibility audit uploads use JSON `{tool, findings: []}`; native accessibility trees belong in source evidence. Web font heuristics inspect font declarations rather than product text or identifiers.
+
+Whole-application Slop review ingestion uses `slop_job_import` with one transferred version-1 JSON source bundle. Each file keeps its path, bytes, hash and revision; validation and revision publication are atomic. Existing per-job caps remain unchanged, so split applications above 200 files or 50 MiB into jobs. See [source batch import](interface-api.md#slop-jobs) for the bundle contract and creation command.

@@ -39,13 +39,13 @@ import {
   inferSlopKind,
   isLikelyText,
   normalizeSlopPath,
-  pathsCollide,
   type SlopFileKind,
 } from './slop-jobs/paths.js';
 import { MAX_DIFF_LINES, unifiedDiff } from './slop-jobs/diff.js';
 import { buildTar, tarName, type TarEntry } from './slop-jobs/tar.js';
 import { parseReviewReply, reviewQuestion, stripReviewBlock } from './slop-jobs/review.js';
 import { slopAdvisorEvents } from './slop-jobs/advisor-hook.js';
+import { MAX_SOURCE_BUNDLE_BYTES, parseSourceBundle, planFileUpdates, type FileUpdate } from './slop-jobs/source-bundle.js';
 import { SLOP_JOBS_ENABLED_FLAG } from './slop-jobs-tool-names.js';
 
 const now = () => new Date().toISOString();
@@ -146,12 +146,12 @@ export class SlopJobsService {
   /**
    * Slop tables are cold, but after hydration the public pool handle refuses
    * writes: every write runs inside an owner command's transaction (same rule
-   * as external-clients/write.ts). Without an owner (tests) the handle is used.
+   * as external-clients/write.ts). Without an owner, use an explicit SQL transaction.
    */
   private async write(operation: (tx: PersistenceTransaction) => Promise<unknown>): Promise<void> {
     const runtime = ownerRuntimeFor(this.ctx.db);
     if (!runtime) {
-      await operation(this.ctx.db as unknown as PersistenceTransaction);
+      await this.ctx.db.transaction((tx) => operation(tx as unknown as PersistenceTransaction));
       return;
     }
     await mutateOwnerState(runtime, {
@@ -241,8 +241,8 @@ export class SlopJobsService {
   }
 
   /** Latest revision per path, removals excluded. */
-  private async currentFiles(jobId: string) {
-    const rows = await this.ctx.db
+  private async currentFiles(jobId: string, db = this.ctx.db as unknown as PersistenceTransaction) {
+    const rows = await db
       .select()
       .from(slopJobFiles)
       .where(eq(slopJobFiles.jobId, jobId))
@@ -352,21 +352,12 @@ export class SlopJobsService {
   }
 
   async put(args: Record<string, unknown>, host: Host) {
-    const job = await this.job(args['job_id']);
+    const job = await this.job(args['job_id'], false);
     const path = normalizeSlopPath(args['path']);
-    const { all, latest } = await this.currentFiles(job.id);
-    const current = latest.find((f) => f.path === path);
-    const nextRev = (all.filter((f) => f.path === path).reduce((max, f) => Math.max(max, f.rev), 0) || 0) + 1;
-    const actor = this.actor(host);
-
     if (args['remove'] === true) {
-      if (!current || current.sha256 === null) throw new NotFoundError(`No current file at ${path}`, 'slop_file_not_found');
-      await this.write((tx) => tx.insert(slopJobFiles).values({
-        jobId: job.id, path, rev: nextRev, kind: current.kind, sha256: null, sizeBytes: 0, createdBy: actor, createdAt: now(),
-      }));
-      await this.write((tx) => tx.update(slopJobs).set({ updatedAt: now() }).where(eq(slopJobs.id, job.id)));
+      const [file] = await this.commitFiles(job.id, host, [{ path, kind: 'source', sha256: null, sizeBytes: 0 }]);
       this.publish(await this.projectSlug(job.projectId), job.id, 'file_removed');
-      return { path, rev: nextRev, removed: true };
+      return { path, rev: file!.rev, removed: true };
     }
 
     const transferId = str(args, 'transfer_id', false);
@@ -402,26 +393,71 @@ export class SlopJobsService {
         throw new ValidationError('a11y files must be JSON exports ({tool, findings[]})');
       }
     }
-    const others = latest.filter((f) => f.path !== path && f.sha256 !== null);
-    const collision = others.find((f) => pathsCollide(f.path, path));
-    if (collision) throw new ConflictError(`${path} collides with ${collision.path} (file vs. directory)`, 'slop_path_collision');
-    if (!current || current.sha256 === null) {
-      if (others.length + 1 > SLOP_LIMITS.maxJobFiles)
-        throw new ConflictError(`a job holds at most ${SLOP_LIMITS.maxJobFiles} current files`, 'slop_job_full');
-    }
-    const total = others.reduce((sum, f) => sum + f.sizeBytes, 0) + bytes.length;
-    if (total > SLOP_LIMITS.maxJobBytes)
-      throw new ConflictError(`a job holds at most ${SLOP_LIMITS.maxJobBytes} bytes of current files`, 'slop_job_full');
+    const digest = sha256(bytes);
+    const [file] = await this.commitFiles(job.id, host, [{ path, kind, sha256: digest, sizeBytes: bytes.length, bytes }]);
+    if (!file!.unchanged) this.publish(await this.projectSlug(job.projectId), job.id, 'file_uploaded');
+    return { path, rev: file!.rev, kind, sha256: digest, size_bytes: bytes.length, ...(file!.unchanged ? { unchanged: true } : { previous_rev: file!.previous_rev }) };
+  }
 
-    const digest = await this.storeBlob(bytes);
-    if (current && current.sha256 === digest && current.kind === kind)
-      return { path, rev: current.rev, kind, sha256: digest, size_bytes: bytes.length, unchanged: true };
-    await this.write((tx) => tx.insert(slopJobFiles).values({
-      jobId: job.id, path, rev: nextRev, kind, sha256: digest, sizeBytes: bytes.length, createdBy: actor, createdAt: now(),
-    }));
-    await this.write((tx) => tx.update(slopJobs).set({ updatedAt: now() }).where(eq(slopJobs.id, job.id)));
-    this.publish(await this.projectSlug(job.projectId), job.id, 'file_uploaded');
-    return { path, rev: nextRev, kind, sha256: digest, size_bytes: bytes.length, previous_rev: current?.sha256 ? current.rev : null };
+  /** One transaction and job lock shared by single puts, removals and imports. */
+  private async commitFiles(jobId: string, host: Host, updates: Array<FileUpdate & { bytes?: Buffer }>) {
+    let result: ReturnType<typeof planFileUpdates> = [];
+    const operation = async (tx: PersistenceTransaction) => {
+      const [job] = await tx.select().from(slopJobs).where(eq(slopJobs.id, jobId)).limit(1).for('update');
+      if (!job || job.status !== 'open' || Date.parse(this.expiresAt(job)) <= Date.now())
+        throw new NotFoundError('Slop job not found, closed or expired', 'slop_job_not_found');
+      const [project] = await tx.select({ id: coordProjects.id }).from(coordProjects).where(eq(coordProjects.id, job.projectId)).limit(1);
+      if (!project) throw new NotFoundError('Project not found', 'project_not_found');
+      const rows = await tx.select().from(slopJobFiles).where(eq(slopJobFiles.jobId, jobId));
+      // Tombstones retain the old file kind for revision history.
+      const normalized = updates.map((entry) => entry.sha256 !== null ? entry : {
+        ...entry, kind: rows.filter((row) => row.path === entry.path).sort((a, b) => b.rev - a.rev)[0]?.kind as SlopFileKind ?? entry.kind,
+      });
+      result = planFileUpdates(rows as Array<FileUpdate & { rev: number }>, normalized);
+      const at = now();
+      const changed = result.filter((file) => !file.unchanged);
+      // Validate the complete plan before creating any new blob or revision.
+      for (const file of changed) {
+        const bytes = updates.find((entry) => entry.path === file.path)?.bytes;
+        if (bytes) await this.storeBlob(bytes);
+      }
+      if (changed.length) await tx.insert(slopJobFiles).values(changed.map((file) => ({
+        jobId, path: file.path, rev: file.rev, kind: file.kind, sha256: file.sha256, sizeBytes: file.sizeBytes,
+        createdBy: this.actor(host), createdAt: at,
+      })));
+      await tx.update(slopJobs).set({ ...(changed.length ? { updatedAt: at } : {}), lastActivityAt: at }).where(eq(slopJobs.id, jobId));
+    };
+    await this.write(operation);
+    return result;
+  }
+
+  async importSources(args: Record<string, unknown>, host: Host) {
+    const job = await this.job(args['job_id'], false);
+    if (!(await this.transfers.getEnabled())) throw new ConflictError('File Transfer is disabled.', 'slop_transfers_disabled');
+    const transferId = str(args, 'transfer_id');
+    const info = await this.transfers.info(transferId);
+    if (info.size_bytes > MAX_SOURCE_BUNDLE_BYTES || !info.content_sha256)
+      throw new ValidationError('source bundle must be a completed transfer of at most 64 MiB');
+    const parts: Buffer[] = [];
+    let offset: number | null = 0, size = 0;
+    while (offset !== null) {
+      const chunk = await this.transfers.get(transferId, { offset, max_bytes: 4 * 1024 * 1024 });
+      const bytes = Buffer.from(chunk.content_b64, 'base64');
+      size += bytes.length;
+      if (size > info.size_bytes || size > MAX_SOURCE_BUNDLE_BYTES || (chunk.next_offset !== null && chunk.next_offset !== size))
+        throw new ValidationError('source transfer changed or returned invalid chunk offsets');
+      if (!bytes.length && chunk.next_offset !== null) throw new ValidationError('source transfer made no progress');
+      parts.push(bytes);
+      offset = chunk.next_offset;
+    }
+    const bytes = Buffer.concat(parts);
+    if (bytes.length !== info.size_bytes || sha256(bytes) !== info.content_sha256)
+      throw new ValidationError('source transfer size or SHA-256 mismatch');
+    const entries = parseSourceBundle(bytes);
+    const files = await this.commitFiles(job.id, host, entries);
+    if (files.some((file) => !file.unchanged)) this.publish(await this.projectSlug(job.projectId), job.id, 'files_imported');
+    return { job_id: job.id, imported: files.filter((file) => !file.unchanged).length, unchanged: files.filter((file) => file.unchanged).length,
+      files: files.map((file) => ({ path: file.path, rev: file.rev, kind: file.kind, sha256: file.sha256, size_bytes: file.sizeBytes, unchanged: file.unchanged })) };
   }
 
   async get(args: Record<string, unknown>) {
@@ -483,24 +519,24 @@ export class SlopJobsService {
       if (!(await this.transfers.getEnabled()))
         throw new ConflictError('Full runs hand the bundle to the advisor as a transfer; File Transfer is disabled.', 'slop_transfers_disabled');
     }
-    const { latest } = await this.currentFiles(job.id);
-    const files = latest.filter((f) => f.sha256 !== null && (mode === 'full' || f.kind === 'source'));
-    if (!files.some((f) => f.kind === 'source'))
-      throw new ConflictError('The job has no source files to scan; upload at least one with slop_job_put', 'slop_job_empty');
-    const snapshot: Snapshot = Object.fromEntries(
-      files.map((f) => [f.path, { rev: f.rev, sha256: f.sha256!, kind: f.kind as SlopFileKind, size: f.sizeBytes }]),
-    );
+    let snapshot: Snapshot = {};
 
     const id = randomUUID(),
       at = now();
     let seq = 0;
     await this.write(async (tx) => {
+      const [locked] = await tx.select().from(slopJobs).where(eq(slopJobs.id, job.id)).limit(1).for('update');
+      if (!locked || locked.status !== 'open') throw new NotFoundError('Slop job not found or closed', 'slop_job_not_found');
+      const { latest } = await this.currentFiles(job.id, tx);
+      const files = latest.filter((f) => f.sha256 !== null && (mode === 'full' || f.kind === 'source'));
+      if (!files.some((f) => f.kind === 'source')) throw new ConflictError('The job has no source files to scan; upload at least one with slop_job_put', 'slop_job_empty');
+      snapshot = Object.fromEntries(files.map((f) => [f.path, { rev: f.rev, sha256: f.sha256!, kind: f.kind as SlopFileKind, size: f.sizeBytes }]));
       await tx.update(slopJobs).set({ runCount: sql`${slopJobs.runCount} + 1`, updatedAt: at }).where(eq(slopJobs.id, job.id));
       const [counted] = await tx.select({ runCount: slopJobs.runCount }).from(slopJobs).where(eq(slopJobs.id, job.id));
       seq = counted!.runCount;
       await tx.insert(slopRuns).values({
         id, jobId: job.id, seq, clientKey, mode, status: 'scanning', snapshotJson: JSON.stringify(snapshot),
-        descriptionRev: job.descriptionRev, createdBy: this.actor(host), createdAt: at, updatedAt: at,
+        descriptionRev: locked.descriptionRev, createdBy: this.actor(host), createdAt: at, updatedAt: at,
         advisorCallerId: caller?.session.agentBusAddressId ?? null,
         advisorEngine: typeof args['engine'] === 'string' ? args['engine'] : null,
         advisorModel: typeof args['model'] === 'string' ? args['model'] : null,
@@ -907,6 +943,7 @@ export class SlopJobsService {
       .from(slopRuns)
       .where(eq(slopRuns.jobId, jobId));
     await this.write(async (tx) => {
+      await tx.select({ id: slopJobs.id }).from(slopJobs).where(eq(slopJobs.id, jobId)).limit(1).for('update');
       await tx.delete(slopRuns).where(eq(slopRuns.jobId, jobId));
       await tx.delete(slopJobFiles).where(eq(slopJobFiles.jobId, jobId));
       await tx.delete(slopJobs).where(eq(slopJobs.id, jobId));

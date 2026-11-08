@@ -1182,6 +1182,7 @@ const CURATION_TOOLS = [
   // confined to its project and expires after 24 h on its own.
   'slop_job_create',
   'slop_job_put',
+  'slop_job_import',
   'slop_job_describe',
   'slop_job_run',
   'slop_job_close',
