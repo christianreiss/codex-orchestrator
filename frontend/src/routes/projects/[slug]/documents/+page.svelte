@@ -23,7 +23,8 @@
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
   import { deleteFile, deleteNote, fetchFiles, fetchNotes, projectKeys } from "$lib/api/projects";
-  import { relativeTime, formatBytes } from "$lib/utils/format";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
+  import { formatBytes } from "$lib/utils/format";
 
   const qc = useQueryClient();
   const slug = $derived(page.params.slug ?? "");
@@ -108,6 +109,7 @@
         {loading}
         onClearFilters={() => filterState.clear()}
         error={failure}
+        onRetry={() => { if (kind !== "files") void $notesQuery.refetch(); if (kind !== "notes") void $filesQuery.refetch(); }}
         key={(row) => row.key}
         filtered={search.trim() !== ""}
         emptyIcon={FileText}
@@ -134,7 +136,7 @@
             <Table.Cell class="hidden sm:table-cell"><Badge variant="outline">{item.kind === "note" ? "Note" : "File"}</Badge></Table.Cell>
             <Table.Cell class="hidden max-w-sm truncate text-muted-foreground md:table-cell">{item.summary || "—"}</Table.Cell>
             <Table.Cell class="hidden whitespace-nowrap text-right text-muted-foreground lg:table-cell">{item.kind === "file" ? formatBytes(item.file.size_bytes) : "—"}</Table.Cell>
-            <Table.Cell class="whitespace-nowrap text-muted-foreground">{item.updatedAt ? relativeTime(item.updatedAt) : "—"}</Table.Cell>
+            <Table.Cell class="whitespace-nowrap text-muted-foreground"><Timestamp value={item.updatedAt} fallback="—" /></Table.Cell>
             <Table.Cell class="text-right">
               <RowActions
                 label={`Actions for ${item.name}`}

@@ -179,7 +179,7 @@
     emptyDescription="Issue a key for each application that calls the fleet API."
     caption="API keys"
   >
-    {#snippet emptyAction()}<Button onclick={onCreate}><Plus class="h-4 w-4" />New key</Button>{/snippet}
+    {#snippet emptyAction()}<Button variant="outline" onclick={onCreate}><Plus class="h-4 w-4" />New key</Button>{/snippet}
     {#snippet head()}
       <SortableHead label="Name" active={sortKey === "name"} dir={sortDir} onclick={() => onSort("name")} />
       <Table.Head>API</Table.Head>

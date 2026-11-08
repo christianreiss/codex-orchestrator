@@ -187,8 +187,9 @@ test("list context survives a detail roundtrip and Back", async ({ page }) => {
   await expect(page).toHaveURL(/\/board$/);
   await page.goBack();
   await expect(search).toHaveValue("fleet");
+  await expect(page).toHaveURL(/\/admin\/projects\?q=fleet$/);
   await search.fill("no-result-fixture");
-  await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+  await page.getByRole("search").getByRole("button", { name: "Clear filters", exact: true }).click();
   await expect(search).toHaveValue("");
 });
 
@@ -222,9 +223,9 @@ test("loading, empty and failed requests remain distinct", async ({ page }) => {
     return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ status: "error", message: "Project access denied" }) });
   });
   await page.reload();
-  await expect(page.getByText("Project access denied", { exact: true })).toBeVisible();
+  await expect(page.getByText("No access", { exact: true })).toBeVisible();
   await expect(page.getByText("No projects yet", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0);
 });
 
 test("transport failure does not claim a rejected or saved draft", async ({ page }) => {

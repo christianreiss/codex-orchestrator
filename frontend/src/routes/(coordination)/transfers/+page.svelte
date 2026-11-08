@@ -13,6 +13,7 @@
   import TransferAuditSheet from "$lib/components/transfers/TransferAuditSheet.svelte";
   import RowActions, { type RowAction } from "$lib/components/data-table/RowActions.svelte";
   import * as Table from "$lib/components/ui/table";
+  import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
   import { formatBytes } from "$lib/utils/format";
   import {
@@ -98,10 +99,12 @@
   toggle={{
     label: "Enable shared files",
     checked: moduleState?.enabled ?? false,
-    disabled: !canManage || $stateQuery.isPending || $stateMutation.isPending,
+    disabled: !canManage || !moduleState || $stateQuery.isError || $stateQuery.isPending || $stateMutation.isPending,
     onChange: (next) => $stateMutation.mutate(next),
   }}
 >
+  {#if $stateQuery.isError}<p role="alert" class="text-body-sm text-destructive">Shared files state unavailable: {$stateQuery.error.message}. Previously loaded values may be stale.</p><Button variant="outline" size="sm" onclick={() => $stateQuery.refetch()}>Retry shared files state</Button>{/if}
+  {#if $stateMutation.isError}<p role="alert" class="text-body-sm text-destructive">{$stateMutation.error.message}</p>{/if}
   <StatStrip items={stats} />
 
   <section aria-labelledby="held-files-heading" class="space-y-2">
@@ -114,7 +117,7 @@
       onRetry={() => $listQuery.refetch()}
       key={(row) => row.id}
       emptyTitle="Nothing in the pool"
-      emptyDescription={moduleState?.enabled ? "No agent has uploaded a file yet. Uploads appear here until their TTL runs out." : "Shared files are switched off, so agents cannot upload anything."}
+      emptyDescription={!moduleState || $stateQuery.isError ? "No files are listed. The shared files module state is unavailable." : moduleState.enabled ? "No agent has uploaded a file yet. Uploads appear here until their TTL runs out." : "Shared files are switched off, so agents cannot upload anything."}
       emptyIcon={FileUp}
       filtered={search.trim() !== ""}
       onClearFilters={() => filterState.clear()}
@@ -165,7 +168,9 @@
   </details>
 </PageShell>
 
-<TransferAuditSheet row={auditRow} onOpenChange={(open) => { if (!open) auditRow = null; }} />
+{#key auditRow?.id}
+  <TransferAuditSheet row={auditRow} onOpenChange={(open) => { if (!open) auditRow = null; }} />
+{/key}
 
 <ConfirmDialog
   open={deleteTarget !== null}
@@ -175,5 +180,6 @@
   confirmLabel="Delete file"
   destructive
   busy={$deleteMutation.isPending}
+  error={$deleteMutation.error?.message}
   onConfirm={() => { if (deleteTarget) $deleteMutation.mutate(deleteTarget.id); }}
 />

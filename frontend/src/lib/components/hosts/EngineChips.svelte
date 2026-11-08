@@ -33,7 +33,7 @@
     const versions = readiness
       ? ` · CLI ${readiness.cli_version ?? "unknown"} / target ${readiness.cli_target ?? "unknown"} · cxx ${readiness.wrapper_version ?? "unknown"} / target ${readiness.wrapper_target ?? "unknown"}`
       : "";
-    return { state, label: `${ENGINE_META[engine].label}: ${description}${versions}` };
+    return { state, description, label: `${ENGINE_META[engine].label}: ${description}${versions}` };
   }
 </script>
 
@@ -52,7 +52,7 @@
       )}
     >
       <span class={cn("h-1.5 w-1.5 rounded-full", dot[info.state])} aria-hidden="true"></span>
-      {ENGINE_META[engine].label}
+      {ENGINE_META[engine].label}: {info.description}
     </span>
   {:else}
     <span class="text-body-sm text-muted-foreground">None</span>

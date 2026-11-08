@@ -80,7 +80,14 @@ func Preview() (Result, error) {
 // change anything and always reports.
 func Command(dryRun, jsonOut, suspended bool, stdout, stderr io.Writer) int {
 	if suspended && !dryRun {
-		fmt.Fprintln(stdout, "reaper grok: suspended (fleet master switch off)")
+		if jsonOut {
+			if err := json.NewEncoder(stdout).Encode(map[string]any{"engine": "grok", "outcome": "suspended", "reason": "fleet master switch off"}); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+		} else {
+			fmt.Fprintln(stdout, "reaper grok: suspended (fleet master switch off)")
+		}
 		return 0
 	}
 	o, err := Defaults(dryRun)

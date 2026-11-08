@@ -1,5 +1,7 @@
 <script lang="ts">
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
+  import { untrack } from "svelte";
   import { toast } from "svelte-sonner";
   import * as Dialog from "$lib/components/ui/dialog";
   import { Button } from "$lib/components/ui/button";
@@ -26,6 +28,11 @@
   let tags = $state("");
 
   const isEdit = $derived(editing !== null);
+  const snapshot = () => JSON.stringify([slug, name, description, value, tags]);
+  let baseline = $state("");
+  let error = $state("");
+  let fieldErrors = $state<Record<string, string>>({});
+  const dirty = $derived(open && snapshot() !== baseline);
 
   // Re-seed whenever the dialog opens, so a cancelled edit cannot bleed into the
   // next create.
@@ -36,6 +43,8 @@
     description = editing?.description ?? "";
     value = "";
     tags = (editing?.tags ?? []).join(", ");
+    baseline = untrack(snapshot);
+    error = ""; fieldErrors = {};
   });
 
   function parseTags(raw: string): string[] {
@@ -83,6 +92,7 @@
       onOpenChange?.(false);
     },
     onError: (err) => {
+      error = err.message;
       toast.error(isEdit ? "Could not update the secret" : "Could not create the secret", {
         description: err.message,
       });
@@ -91,18 +101,23 @@
 
   function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
+    if ($saveMut.isPending) return;
+    error = ""; fieldErrors = {};
     if (!name.trim()) {
+      fieldErrors.name = "Name is required";
       toast.error("Name is required");
       return;
     }
     if (!isEdit) {
       if (!slug.trim()) {
+        fieldErrors.slug = "Slug is required";
         toast.error("Slug is required", {
           description: "It is the key agents use, and it cannot be changed later.",
         });
         return;
       }
       if (!value) {
+        fieldErrors.value = "Value is required";
         toast.error("Value is required");
         return;
       }
@@ -111,13 +126,13 @@
   }
 
   function close() {
-    if ($saveMut.isPending) return;
+    if ($saveMut.isPending || (dirty && !window.confirm("Discard the unsaved secret changes?"))) return;
     open = false;
     onOpenChange?.(false);
   }
 
   function handleDialogOpenChange(next: boolean) {
-    if (!next && $saveMut.isPending) {
+    if (!next && ($saveMut.isPending || (dirty && !window.confirm("Discard the unsaved secret changes?")))) {
       open = true;
       return;
     }
@@ -126,7 +141,8 @@
   }
 </script>
 
-<Dialog.Root bind:open onOpenChange={handleDialogOpenChange}>
+<DraftGuard {dirty} />
+<Dialog.Root bind:open={() => open, handleDialogOpenChange}>
   <Dialog.Content>
     <form onsubmit={handleSubmit}>
       <Dialog.Header>
@@ -138,17 +154,20 @@
         </Dialog.Description>
       </Dialog.Header>
 
-      <div class="grid gap-4 py-4">
+      <fieldset disabled={$saveMut.isPending} class="grid gap-4 py-4">
         <div class="grid gap-2">
           <Label for="secret-slug">Slug</Label>
           <Input
             id="secret-slug"
+            aria-invalid={!!fieldErrors.slug}
+            aria-describedby={fieldErrors.slug ? "secret-slug-error" : undefined}
             bind:value={slug}
             placeholder="e.g. powerdns-api-key"
             required={!isEdit}
             disabled={isEdit}
             autocomplete="off"
           />
+          {#if fieldErrors.slug}<p id="secret-slug-error" role="alert" class="text-body-sm text-destructive">{fieldErrors.slug}</p>{/if}
           <p class="text-caption text-muted-foreground">
             {isEdit
               ? "Immutable — it is the key agents already hold. Delete and recreate to rename."
@@ -160,11 +179,14 @@
           <Label for="secret-name">Name</Label>
           <Input
             id="secret-name"
+            aria-invalid={!!fieldErrors.name}
+            aria-describedby={fieldErrors.name ? "secret-name-error" : undefined}
             bind:value={name}
             placeholder="e.g. PowerDNS Authoritative API key"
             required
             autocomplete="off"
           />
+          {#if fieldErrors.name}<p id="secret-name-error" role="alert" class="text-body-sm text-destructive">{fieldErrors.name}</p>{/if}
         </div>
 
         <div class="grid gap-2">
@@ -185,12 +207,15 @@
           <Label for="secret-value">Value</Label>
           <Input
             id="secret-value"
+            aria-invalid={!!fieldErrors.value}
+            aria-describedby={fieldErrors.value ? "secret-value-error" : undefined}
             type="password"
             bind:value
             required={!isEdit}
             autocomplete="new-password"
             placeholder={isEdit ? "Leave blank to keep the current value" : ""}
           />
+          {#if fieldErrors.value}<p id="secret-value-error" role="alert" class="text-body-sm text-destructive">{fieldErrors.value}</p>{/if}
         </div>
 
         <div class="grid gap-2">
@@ -202,7 +227,8 @@
             autocomplete="off"
           />
         </div>
-      </div>
+      </fieldset>
+      {#if error}<p role="alert" class="text-body-sm text-destructive">{error}</p>{/if}
 
       <Dialog.Footer>
         <Button type="button" variant="outline" onclick={close} disabled={$saveMut.isPending}>

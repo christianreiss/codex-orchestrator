@@ -58,8 +58,11 @@ type picker struct {
 }
 
 func newPicker(engines []Engine, last *Selection, caps terminalui.Caps) *picker {
-	p := &picker{engines: engines, cursors: make([]cursor, len(engines)), caps: caps, animate: caps.IsTTY && !caps.Dumb && caps.UTF8 && !caps.NoColor && os.Getenv("CXX_REDUCED_MOTION") != "1"}
+	p := &picker{engines: append([]Engine(nil), engines...), cursors: make([]cursor, len(engines)), caps: caps, animate: caps.IsTTY && !caps.Dumb && caps.UTF8 && !caps.NoColor && os.Getenv("CXX_REDUCED_MOTION") != "1"}
 	for i, e := range engines {
+		if len(e.Models) == 0 && e.Disabled == "" {
+			p.engines[i].Disabled = "no current models enabled"
+		}
 		p.cursors[i] = cursorFor(e)
 		if last != nil && last.Engine == e.Name {
 			p.focus = i
@@ -78,6 +81,9 @@ func newPicker(engines []Engine, last *Selection, caps terminalui.Caps) *picker 
 
 func cursorFor(e Engine) cursor {
 	var c cursor
+	if len(e.Models) == 0 {
+		return c
+	}
 	for i, m := range e.Models {
 		if m.ID == e.Model {
 			c.model = i
@@ -198,7 +204,7 @@ func (p *picker) key(k string) (tea.Model, tea.Cmd) {
 			return p, p.restart(false)
 		}
 	case "right", "l":
-		if c.effort < len(models[c.model].Efforts)-1 {
+		if len(models) > 0 && c.effort < len(models[c.model].Efforts)-1 {
 			c.effort++
 			return p, p.restart(false)
 		}
@@ -241,8 +247,12 @@ func (p *picker) moveModel(c *cursor, models []Model, delta int) tea.Cmd {
 
 func (p *picker) choose(mode Mode) (tea.Model, tea.Cmd) {
 	e := p.current()
-	if e.Disabled != "" {
-		p.notice = e.Label() + ": " + e.Disabled
+	if e.Disabled != "" || len(e.Models) == 0 {
+		reason := e.Disabled
+		if reason == "" {
+			reason = "no current models enabled"
+		}
+		p.notice = e.Label() + ": " + reason
 		return p, nil
 	}
 	if mode == ModePick && !e.CanPick() {

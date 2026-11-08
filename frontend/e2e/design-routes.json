@@ -158,5 +158,13 @@
   {
     "source": "src/routes/(coordination)/workflows/runs/[id]/+page.svelte",
     "path": "/admin/workflows/runs/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+  },
+  {
+    "source": "src/routes/(coordination)/external-clients/+page.svelte",
+    "path": "/admin/external-clients"
+  },
+  {
+    "source": "src/routes/projects/[slug]/slop/+page.svelte",
+    "path": "/admin/projects/fleet-console/slop"
   }
 ]

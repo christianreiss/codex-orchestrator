@@ -29,38 +29,48 @@
   let prompt = $state("");
   let question = $state("");
   let reply = $state<string | null>(null);
+  let requestGeneration = 0;
+  let assistError = $state<string | null>(null);
+  const skillSnapshot = () => JSON.stringify(skill);
+  type Request = { generation: number; snapshot: string; skill: SkillDraft; text: string };
+  function request(text: string): Request { assistError = null; return { generation: ++requestGeneration, snapshot: skillSnapshot(), skill: { ...skill }, text: text.trim() }; }
+  function isCurrent(request: Request) { return open && request.generation === requestGeneration && request.snapshot === skillSnapshot(); }
 
   const draft = createMutation({
-    mutationFn: () => skillsApi.generate({ prompt: prompt.trim(), slug_hint: skill.slug }),
-    onSuccess: (result) => {
+    mutationFn: (request: Request) => skillsApi.generate({ prompt: request.text, slug_hint: request.skill.slug }),
+    onSuccess: (result, request) => {
+      if (!isCurrent(request)) return;
       onDraft(result);
       toast.success("Manifest generated");
       close();
     },
-    onError: (err: unknown) => toast.error(err instanceof ApiError ? err.message : "Failed to generate manifest"),
+    onError: (err: unknown, request) => { if (isCurrent(request)) assistError = err instanceof ApiError ? err.message : "Failed to generate manifest"; },
   });
 
   const ask = createMutation({
-    mutationFn: () =>
+    mutationFn: (request: Request) =>
       skillsApi.assist({
         mode: "edit",
-        messages: [{ role: "user", content: question.trim() }],
-        skill: { slug: skill.slug, manifest: skill.manifest, display_name: skill.displayName, description: skill.description },
+        messages: [{ role: "user", content: request.text }],
+        skill: { slug: request.skill.slug, manifest: request.skill.manifest, display_name: request.skill.displayName, description: request.skill.description },
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, request) => {
+      if (!isCurrent(request)) return;
       reply = result.assistant_message?.content ?? result.manifest ?? "(no reply)";
     },
-    onError: (err: unknown) => toast.error(err instanceof ApiError ? err.message : "Failed to fetch assistant reply"),
+    onError: (err: unknown, request) => { if (isCurrent(request)) assistError = err instanceof ApiError ? err.message : "Failed to fetch assistant reply"; },
   });
 
   function close() {
+    requestGeneration++;
     open = false;
     prompt = question = "";
-    reply = null;
+    reply = null; assistError = null;
   }
 
   function applyManifest() {
     const manifest = $ask.data?.manifest;
+    if (!$ask.variables || !isCurrent($ask.variables)) { assistError = "The skill changed since this reply. Ask again before replacing the current draft."; return; }
     if (!manifest) return void toast.error("Assistant did not return a manifest");
     onApplyManifest(manifest);
     toast.success("Manifest replaced from assistant");
@@ -89,6 +99,7 @@
         <button
           type="button"
           aria-pressed={mode === option.id}
+          disabled={$draft.isPending || $ask.isPending}
           onclick={() => (mode = option.id)}
           class={cn(
             "h-8 rounded-md px-3 text-body-sm transition-colors",
@@ -100,18 +111,19 @@
       {/each}
     </div>
 
+    {#if assistError}<p role="alert" class="text-body-sm text-destructive">{assistError}</p>{/if}
     {#if mode === "draft"}
-      <Textarea class="min-h-36" aria-label="Skill description for the draft" placeholder="e.g. coordinate multi-step refactors on PHP repositories…" bind:value={prompt} />
+      <Textarea class="min-h-36" aria-label="Skill description for the draft" placeholder="e.g. coordinate multi-step refactors on PHP repositories…" bind:value={prompt} disabled={$draft.isPending || $ask.isPending} />
       <Dialog.Footer>
         <Button variant="outline" onclick={close}>Cancel</Button>
-        <Button disabled={$draft.isPending || !prompt.trim()} onclick={() => $draft.mutate()}>
+        <Button disabled={$draft.isPending || !prompt.trim()} onclick={() => $draft.mutate(request(prompt))}>
           {$draft.isPending ? "Generating…" : "Generate manifest"}
         </Button>
       </Dialog.Footer>
     {:else}
       <div class="space-y-3">
-        <Textarea rows={3} aria-label="Question about the skill" placeholder="e.g. tighten the When-to-use section…" bind:value={question} />
-        <Button size="sm" disabled={$ask.isPending || !question.trim()} onclick={() => $ask.mutate()}>
+        <Textarea rows={3} aria-label="Question about the skill" placeholder="e.g. tighten the When-to-use section…" bind:value={question} disabled={$draft.isPending || $ask.isPending} />
+        <Button size="sm" disabled={$ask.isPending || !question.trim()} onclick={() => $ask.mutate(request(question))}>
           {$ask.isPending ? "Thinking…" : "Ask"}
         </Button>
         {#if reply}

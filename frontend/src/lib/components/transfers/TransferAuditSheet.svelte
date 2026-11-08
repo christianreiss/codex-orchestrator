@@ -11,6 +11,7 @@
   import * as Sheet from "$lib/components/ui/sheet";
   import { CopyButton } from "$lib/components/ui/copy-button";
   import { Badge } from "$lib/components/ui/badge";
+  import { Button } from "$lib/components/ui/button";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { formatBytes } from "$lib/utils/format";
   import {
@@ -82,6 +83,9 @@
               <Skeleton class="h-8 w-full" />
               <Skeleton class="h-8 w-full" />
             </div>
+          {:else if $query.isError}
+            <p role="alert" class="text-body-sm text-destructive">Could not load the audit trail: {$query.error.message}</p>
+            <Button variant="outline" size="sm" onclick={() => $query.refetch()}>Retry audit trail</Button>
           {:else if events.length === 0}
             <p class="text-caption text-muted-foreground">Nothing recorded yet.</p>
           {:else}

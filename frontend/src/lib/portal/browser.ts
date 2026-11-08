@@ -50,10 +50,23 @@ export function attachCopyButtons(root: HTMLElement): void {
     button.className = "md-copy";
     button.textContent = "Copy";
     button.setAttribute("aria-label", "Copy code");
-    button.addEventListener("click", () => {
-      void navigator.clipboard?.writeText(pre.innerText.replace(/^Copy\n?/, ""));
-      button.textContent = "Copied";
-      setTimeout(() => (button.textContent = "Copy"), 1600);
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+        const code = pre.querySelector("code");
+        const text = code?.textContent ?? Array.from(pre.childNodes)
+          .filter((node) => node !== button).map((node) => node.textContent ?? "").join("");
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copied";
+        button.setAttribute("aria-label", "Code copied");
+      } catch {
+        button.textContent = "Copy failed";
+        button.setAttribute("aria-label", "Copy failed. Select the code and copy it manually.");
+      } finally {
+        button.disabled = false;
+      }
+      setTimeout(() => { button.textContent = "Copy"; button.setAttribute("aria-label", "Copy code"); }, 1600);
     });
     pre.appendChild(button);
   }

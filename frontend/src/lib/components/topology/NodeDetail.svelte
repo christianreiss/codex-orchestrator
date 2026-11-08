@@ -459,6 +459,7 @@
       pendingLabel="Closing connection…"
       {phase}
       resultTitle={outcome?.title}
+      resultTone={outcome?.tone}
       {errorMessage}
       onconfirm={confirm}
       onclose={close}
@@ -548,6 +549,7 @@
       tone={action.kind === "request_close" ? "default" : "destructive"}
       {phase}
       resultTitle={outcome?.title}
+      resultTone={outcome?.tone}
       {errorMessage}
       onconfirm={confirm}
       onclose={close}

@@ -11,7 +11,7 @@
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { Badge, type BadgeVariant } from "$lib/components/ui/badge";
   import * as Table from "$lib/components/ui/table";
-  import EventRow from "$lib/components/logs/EventRow.svelte";
+  import { Button } from "$lib/components/ui/button";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte.js";
   import { ApiError } from "$lib/api/client";
   import { fetchSlopJob, fetchSlopJobs, projectKeys, type SlopJobSummary, type SlopRunSummary } from "$lib/api/projects";
@@ -60,8 +60,8 @@
     <Table.Head class="text-right">Expires</Table.Head>
   {/snippet}
   {#snippet row(job: SlopJobSummary)}
-    <EventRow expanded={open === job.job_id} onToggle={() => (open = open === job.job_id ? null : job.job_id)} label={job.title} columns={5}>
-      {#snippet cells()}
+    <Table.Row>
+      <Table.Cell><Button variant="ghost" size="sm" aria-expanded={open === job.job_id} onclick={() => (open = open === job.job_id ? null : job.job_id)}>Details</Button></Table.Cell>
         <Table.Cell>
           <div class="font-medium">{job.title}</div>
           <div class="text-caption text-muted-foreground"><code class="font-mono">{job.job_id.slice(0, 8)}</code> · {job.created_by}</div>
@@ -76,8 +76,14 @@
         </Table.Cell>
         <Table.Cell class="whitespace-nowrap tabular-nums text-body-sm">{countsLabel(job.latest_run)}</Table.Cell>
         <Table.Cell class="whitespace-nowrap text-right text-body-sm text-muted-foreground"><Timestamp value={job.expires_at} /></Table.Cell>
-      {/snippet}
-      {#snippet detail()}
+    </Table.Row>
+  {/snippet}
+</DataTable>
+
+{#if open}
+  <section class="mt-4 space-y-3" aria-label="Selected slop job">
+    <h3 class="text-h2">{jobs.find((job) => job.job_id === open)?.title ?? "Slop job"}</h3>
+
         {#if $detailQuery.isLoading}
           <StateBlock state="loading" rows={3} />
         {:else if $detailQuery.isError}
@@ -153,7 +159,6 @@
             </section>
           </div>
         {/if}
-      {/snippet}
-    </EventRow>
-  {/snippet}
-</DataTable>
+
+  </section>
+{/if}

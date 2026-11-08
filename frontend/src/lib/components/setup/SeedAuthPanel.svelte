@@ -74,6 +74,7 @@
     onStored,
   }: Props = $props();
 
+  const idPrefix = $props.id();
   const qc = useQueryClient();
   const seedCmd = createSeedCommandMutation();
   const uploadAuth = createUploadAuthMutation(qc);
@@ -310,7 +311,7 @@
 {/if}
 
 <div class="space-y-6">
-  {@render enginePicker("seed-provider")}
+  {@render enginePicker(`${idPrefix}-seed-provider`)}
   <div class="space-y-1">
     <h3 class="text-base font-semibold">Connect {engineLabel(engine)}</h3>
     <p class="text-body-sm text-muted-foreground">Choose how to provide credentials. Verification confirms when the account is ready.</p>
@@ -336,11 +337,11 @@
           class="flex flex-wrap gap-x-4 gap-y-2"
         >
           <label class="flex items-center gap-2 text-body">
-            <RadioGroupItem value="apikey" id="seed-upload-mode-apikey" />
+            <RadioGroupItem value="apikey" id="{idPrefix}-seed-upload-mode-apikey" />
             API key
           </label>
           <label class="flex items-center gap-2 text-body">
-            <RadioGroupItem value="chatgpt" id="seed-upload-mode-chatgpt" />
+            <RadioGroupItem value="chatgpt" id="{idPrefix}-seed-upload-mode-chatgpt" />
             ChatGPT session
           </label>
         </RadioGroup>
@@ -349,9 +350,9 @@
 
     {#if isApiKeyMode}
       <div class="space-y-1.5">
-        <Label for="seed-upload-apikey">OpenAI API key</Label>
+        <Label for="{idPrefix}-seed-upload-apikey">OpenAI API key</Label>
         <Input
-          id="seed-upload-apikey"
+          id="{idPrefix}-seed-upload-apikey"
           type="password"
           bind:value={apiKey}
           autocomplete="new-password"
@@ -364,11 +365,11 @@
       </div>
     {:else}
       <div class="space-y-1.5">
-        <Label for="seed-upload-payload">
+        <Label for="{idPrefix}-seed-upload-payload">
           {engine === "codex" ? "ChatGPT session auth JSON" : engine === "grok" ? "Grok subscription login JSON" : "Canonical Claude auth JSON or API key"}
         </Label>
         <Textarea
-          id="seed-upload-payload"
+          id="{idPrefix}-seed-upload-payload"
           class="h-40 font-mono text-body-sm"
           placeholder={engine === "codex"
             ? '{ "tokens": { "access_token": "…", "refresh_token": "…" }, … }'
@@ -392,17 +393,17 @@
       </div>
 
       <div class="space-y-1.5">
-        <Label for="seed-upload-file">Or choose a credentials file</Label>
+        <Label for="{idPrefix}-seed-upload-file">Or choose a credentials file</Label>
         <input
-          id="seed-upload-file"
+          id="{idPrefix}-seed-upload-file"
           type="file"
           accept=".json,.txt,text/plain,application/json"
           class="block min-h-9 w-full min-w-0 rounded border border-input bg-card p-2 text-body-sm file:mr-3 file:rounded file:border-0 file:bg-muted file:px-3 file:py-1 file:text-foreground"
-          aria-describedby="seed-upload-file-hint"
+          aria-describedby="{idPrefix}-seed-upload-file-hint"
           disabled={fileBusy || busy}
           onchange={handleFile}
         />
-        <p id="seed-upload-file-hint" class="text-body-sm text-muted-foreground">
+        <p id="{idPrefix}-seed-upload-file-hint" class="text-body-sm text-muted-foreground">
           {fileBusy ? "Reading file…" : "Reads the file into the textarea — does not auto-submit."}
         </p>
       </div>
@@ -423,7 +424,7 @@
   <Tabs.Content value="command" class="space-y-4 pt-3">
     {#if command}
       <ReadonlyCodeBlock
-        id="seed-cmd-output"
+        id="{idPrefix}-seed-cmd-output"
         label="One-time command"
         value={command}
         wrap

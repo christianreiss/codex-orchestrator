@@ -57,7 +57,7 @@
   }: Props = $props();
 </script>
 
-<Dialog.Root bind:open onOpenChange={(value) => { if (!value) onclose(); }}>
+<Dialog.Root bind:open={() => open, (value) => { if (phase === "pending") return; open = value; if (!value) onclose(); }}>
   <Dialog.Content aria-busy={phase === "pending"}>
     <Dialog.Header>
       <Dialog.Title>{title}</Dialog.Title>

@@ -493,9 +493,10 @@ readyz_check_ok() {
     process.stdin.on("data", (c) => (raw += c));
     process.stdin.on("end", () => {
       try {
-        const checks = JSON.parse(raw).checks ?? [];
+        const checks = JSON.parse(raw).checks;
+        if (!Array.isArray(checks)) process.exit(2);
         const hit = checks.find((c) => c.id === process.env.CHECK_ID);
-        process.exit(hit && hit.ok ? 0 : 1);
+        process.exit(hit && hit.ok === true ? 0 : 1);
       } catch { process.exit(2); }
     });
   ' >/dev/null 2>&1
@@ -508,26 +509,35 @@ readyz_failures() {
     process.stdin.on("data", (c) => (raw += c));
     process.stdin.on("end", () => {
       try {
-        for (const c of JSON.parse(raw).checks ?? []) {
-          if (!c.ok) console.log(`${c.id}\t${c.detail ?? ""}`);
+        const value = JSON.parse(raw);
+        if (typeof value.ok !== "boolean" || !Array.isArray(value.checks) ||
+            value.checks.some(c => typeof c.id !== "string" || typeof c.ok !== "boolean")) process.exit(2);
+        for (const c of value.checks) {
+          if (c.ok === false) console.log(`${c.id}\t${c.detail ?? ""}`);
         }
+        if (!value.ok && !value.checks.some(c => c.ok === false)) console.log("readyz\tnot ready");
       } catch { process.exit(2); }
     });
   ' 2>/dev/null)"; then
     [[ -n "$out" ]] && printf '%s\n' "$out"
     return 0
   fi
-  # No container to parse with (doctor on a half-up stack). /readyz is compact
-  # JSON of flat {id,label,ok,critical,detail} objects, so a grep is enough —
-  # and an empty answer here would read as "all checks pass".
-  out="$(printf '%s' "$body" | grep -o '{[^{}]*}' | grep '"ok":false' |
-    sed -n 's/.*"id":"\([^"]*\)".*"detail":"\([^"]*\)".*/\1'$'\t''\2/p' || true)"
-  if [[ -z "$out" && "$body" == *'"ok":false'* ]]; then
-    out="$(printf 'readyz\tnot ready, and the failing checks could not be read')"
-  fi
-  # `read` drops a final line without its newline; $(…) stripped it above.
-  [[ -n "$out" ]] && printf '%s\n' "$out"
+  printf 'readyz\treadiness response could not be validated; check the API container and /readyz\n'
   return 0
+}
+
+readyz_overall_ok() {
+  printf '%s' "$1" | compose exec -T api node -e '
+    let raw = "";
+    process.stdin.on("data", c => raw += c);
+    process.stdin.on("end", () => {
+      try {
+        const value = JSON.parse(raw);
+        process.exit(value.ok === true && Array.isArray(value.checks) &&
+          value.checks.every(c => typeof c.id === "string" && (c.ok === true || c.critical === false)) ? 0 : 1);
+      } catch { process.exit(2); }
+    });
+  ' >/dev/null 2>&1
 }
 
 # report_readyz_failures BODY [fail|warn]: one line per failing check plus its
@@ -1234,8 +1244,8 @@ run_checks() {
     info "public readiness bypassed (--skip-public-ready)"
   elif [[ -n "$public_url" ]]; then
     local public_ready
-    public_ready="$(fetch_url "${public_url%/}/readyz" 30 any || true)"
-    if [[ "$public_ready" == *'"ok":true'* ]]; then
+    public_ready="$(fetch_url "${public_url%/}/readyz" 30 || true)"
+    if readyz_overall_ok "$public_ready"; then
       good "public readiness at $public_url"
     elif [[ "$public_ready" == *'"checks"'* ]]; then
       # Reaches this API, which is not ready: the local checks above say why.

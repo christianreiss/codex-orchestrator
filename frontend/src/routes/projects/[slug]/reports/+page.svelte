@@ -127,12 +127,14 @@
               <label for="project-report-status" class="text-body-sm font-medium">Status</label>
               <select
                 id="project-report-status"
+                disabled={$statusMut.isPending}
                 class="{controlClass} sm:w-56"
                 value={statusOf(entry)}
                 onchange={(e) => $statusMut.mutate({ id: entry.id, status: e.currentTarget.value as ProjectFeedbackStatus })}
               >
                 {#each STATUSES as value (value)}<option {value}>{value}</option>{/each}
               </select>
+              {#if $statusMut.isError}<p role="alert" class="text-body-sm text-destructive">{$statusMut.error.message}</p>{/if}
             </div>
           {/if}
         </div>

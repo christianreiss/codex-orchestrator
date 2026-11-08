@@ -62,7 +62,7 @@ Sources were opened and reviewed on **2026-10-18**. “2026” describes the res
 
 **NAV-3 — Actions and disclosure [V/M; S11/P].** Give one action visual priority per task region. Put list-wide actions in the toolbar or page header, row actions beside the row, and selection actions beside the selection count. Do not duplicate the same primary action in header and toolbar. Frequent actions and active problems MUST NOT be hidden under “Advanced”. Collapsed sections use descriptive names such as “Network and access overrides”. Destructive settings sit last, separated from routine controls.
 
-**NAV-4 — Navigation depth [A/M; S9/P].** Preserve the current nine hubs and footer utilities as the starting structure. Use at most one local peer-navigation row; nested tab bars are prohibited. In-page panels use proper tab semantics and keyboard behavior; route destinations use links with current-location semantics. Filters, selection and pagination SHOULD survive back/forward navigation and use URL state where safe; credentials and message bodies MUST NOT enter URLs. List filters use `UrlFilters` (`frontend/src/lib/utils/url-filters.svelte.ts`): defaults stay out of the query string, other parameters are preserved, and writes are debounced `replaceState` navigations that keep focus and scroll.
+**NAV-4 — Navigation depth [A/M; S9/P].** Preserve the current nine hubs and footer utilities as the starting structure. Use at most one local peer-navigation row; nested tab bars are prohibited. In-page panels use proper tab semantics and keyboard behavior; route destinations use links with current-location semantics. Filters, selection and pagination SHOULD survive back/forward navigation and use URL state where safe; credentials and message bodies MUST NOT enter URLs. List filters use `UrlFilters` (`frontend/src/lib/utils/url-filters.svelte.ts`): defaults stay out of the query string, other parameters are preserved, and the address bar reflects edits immediately for reload/copy. Real `replaceState` router navigations are debounced, keep focus/scroll, and finish before opening a detail so Back restores the filter.
 
 | Pattern | Composition and acceptance rule | Existing building blocks | Verification |
 | --- | --- | --- | --- |
@@ -656,3 +656,14 @@ NAV-1/3, VIS-1/3/4/5, INT-2/3/5/6/7, ACC-1/3/4. Requested policy, effective
 policy and dated readiness remain distinct. Save failures stay inline and
 changes are labeled as applying to new launches. No design exception. Actual
 browser and accessibility evidence is recorded separately at delivery.
+
+### Full Slop remediation slice (2026-11-08)
+
+Existing editors, conversations, lists and settings retain meaningful drafts,
+show unknown reads explicitly, keep operation failures beside the task and
+preserve filter history/reload state. Hooks retain independent command timeouts;
+shared choice/select controls, provider-auth labels and engine status have
+semantic selection and non-color cues. No surface or exception is added.
+Applicable rules: NAV-3/4, VIS-1/4/5, INT-1/2/3/4/5/6/7/8, ACC-1/3/4.
+Executed checks, Full review disposition and remaining manual acceptance limits
+are recorded in [verification](docs/verification/slop-remediation-2026-11-08.md).

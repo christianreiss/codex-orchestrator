@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
@@ -144,6 +145,10 @@ func render(w io.Writer, r Result) {
 	fmt.Fprintln(w)
 }
 func Command(args []string, selected string, stdout, stderr io.Writer) int {
+	if clihelp.Requested(args) {
+		fmt.Fprintln(stdout, "Usage: cxx housekeeping status|run [--dry-run] [--engine ENGINE] [--json] | pin|unpin UUID --engine ENGINE [--json] | reap [--dry-run] [--json]")
+		return 0
+	}
 	action := "status"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		action = args[0]
@@ -207,6 +212,10 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if action == "pin" || action == "unpin" {
+		if dry {
+			fmt.Fprintln(stderr, "--dry-run is only supported by run and reap; pin state was not changed")
+			return 2
+		}
 		if engine == "" || id == "" {
 			fmt.Fprintln(stderr, "pin/unpin require a session UUID and engine")
 			return 2
@@ -219,7 +228,14 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "housekeeping:", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "housekeeping pin updated")
+		if jsonOut {
+			if err := json.NewEncoder(stdout).Encode(map[string]any{"engine": engine, "session_id": id, "pinned": action == "pin", "outcome": "updated"}); err != nil {
+				fmt.Fprintln(stderr, err)
+				return 1
+			}
+		} else {
+			fmt.Fprintln(stdout, "housekeeping pin updated")
+		}
 		return 0
 	}
 	if id != "" {

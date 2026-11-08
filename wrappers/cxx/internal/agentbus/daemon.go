@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"math/rand/v2"
@@ -141,6 +142,10 @@ var daemonVersion string
 
 // RunDaemonCommand controls only the explicitly enabled host execution service.
 func RunDaemonCommand(args []string, stdout, stderr io.Writer, version string) int {
+	if clihelp.Requested(args) {
+		fmt.Fprintln(stdout, "Usage: cxx daemon install|status|start|stop|uninstall|run")
+		return 0
+	}
 	if runtime.GOOS != "linux" {
 		fmt.Fprintln(stderr, "host daemon requires Linux/systemd")
 		return 1

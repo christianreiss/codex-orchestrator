@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"io/fs"
 	"net/http"
@@ -39,13 +41,16 @@ func rebootBootID() (string, error) {
 
 func RunRebootCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err := runRebootCommand(args, stdin, stdout, stderr); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		fmt.Fprintln(stderr, "cxx reboot:", err)
 		return 1
 	}
 	return 0
 }
 func runRebootCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if len(args) > 0 && (args[0] == "help" || args[0] == "--help") {
+	if len(args) > 0 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
 		fmt.Fprintln(stdout, "cxx reboot --request-id UUID --reason TEXT --stdin\ncxx reboot status [--id UUID]\ncxx reboot disarm --id UUID\nLinux, root or passwordless sudo. One job per host; consumed sessions cannot rearm. No automatic retry after native startup.")
 		return nil
 	}
@@ -58,7 +63,7 @@ func runRebootCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 	if len(args) > 0 && (args[0] == "status" || args[0] == "disarm") {
 		f := newFlagSet("cxx reboot "+args[0], stderr)
 		id := f.String("id", "", "request UUID")
-		if err := f.Parse(args[1:]); err != nil {
+		if err := clihelp.Parse(f, args[1:], stdout); err != nil {
 			return err
 		}
 		if f.NArg() != 0 {
@@ -77,7 +82,7 @@ func runRebootCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 	id := f.String("request-id", "", "stable request UUID")
 	reason := f.String("reason", "", "reason")
 	fromStdin := f.Bool("stdin", false, "read continuation")
-	if err := f.Parse(args); err != nil {
+	if err := clihelp.Parse(f, args, stdout); err != nil {
 		return err
 	}
 	if f.NArg() != 0 {
@@ -223,7 +228,7 @@ func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) (r
 	}
 	f := newFlagSet("cxx reboot internal", stderr)
 	id := f.String("id", "", "request UUID")
-	if err := f.Parse(args[1:]); err != nil {
+	if err := clihelp.Parse(f, args[1:], stdout); err != nil {
 		return err
 	}
 	if f.NArg() != 0 {

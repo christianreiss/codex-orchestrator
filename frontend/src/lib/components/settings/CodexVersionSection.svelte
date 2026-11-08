@@ -35,7 +35,7 @@
   type Selection = "latest" | "exact";
   let selection = $state<Selection>("latest");
   let exactVersion = $state("");
-  let initialized = false;
+  let initialized = $state(false);
   /** The selection the server holds; the form is dirty while it differs. */
   let saved = $state<string | null>(null);
   const draft = $derived(selection === "latest" ? "latest" : exactVersion.trim());
@@ -61,6 +61,7 @@
   });
 
   function save() {
+    if (!initialized || $query.isError || $query.isPending || $setM.isPending) return;
     const sent = draft;
     const onSuccess = () => { saved = sent; };
     if (selection === "latest") {
@@ -78,7 +79,7 @@
   const status = $derived.by(() => {
     if ($setM.isPending) return "saving" as const;
     if ($setM.isError) return "error" as const;
-    if ($setM.isSuccess) return "saved" as const;
+    if ($setM.isSuccess && !dirty) return "saved" as const;
     return "idle" as const;
   });
 </script>
@@ -89,7 +90,7 @@
   title="Codex version"
   description="Pin the fleet to the latest Codex release or a specific semantic version."
   {status}
-  savedAt={lastSavedAt}
+  savedAt={dirty ? null : lastSavedAt}
   error={$setM.error?.message}
   {headingLevel}
 >
@@ -105,7 +106,10 @@
     </Button>
   {/snippet}
 
-  <div class="grid gap-3 sm:grid-cols-2">
+  {#if $query.isPending}<p role="status">Loading current Codex version selection…</p>{/if}
+  {#if $query.isError}<p role="alert" class="text-body-sm text-destructive">Could not load Codex version selection: {$query.error.message}</p><Button variant="outline" size="sm" onclick={() => $query.refetch()}>Retry version selection</Button>{/if}
+  {#if dirty}<p role="status" class="text-body-sm text-muted-foreground">Unsaved changes</p>{/if}
+  <fieldset disabled={!initialized || $query.isError || $query.isPending || $setM.isPending} class="grid gap-3 sm:grid-cols-2">
     <div class="grid gap-1.5">
       <Label for="codex-version-selection">Selection</Label>
       <Select.Root
@@ -131,7 +135,7 @@
         <Input id="codex-version-exact" bind:value={exactVersion} placeholder="0.125.0" />
       </div>
     {/if}
-  </div>
+  </fieldset>
 
   <dl class="grid gap-2 border-y py-2 text-caption sm:grid-cols-3">
     <div>
@@ -148,11 +152,11 @@
     </div>
     <div class="sm:col-span-3">
       <dt class="text-muted-foreground">Mode</dt>
-      <dd>{enforceExact ? "Pinned (exact)" : "Latest (auto)"}</dd>
+      <dd>{summary ? (enforceExact ? "Pinned (exact)" : "Latest (auto)") : "Unavailable"}</dd>
     </div>
   </dl>
 
   <div>
-    <Button size="sm" onclick={save} disabled={$setM.isPending}>{$setM.isPending ? "Saving…" : "Save Codex version"}</Button>
+    <Button size="sm" onclick={save} disabled={!initialized || $query.isError || $query.isPending || $setM.isPending}>{$setM.isPending ? "Saving…" : "Save Codex version"}</Button>
   </div>
 </SectionCard>

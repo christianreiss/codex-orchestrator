@@ -8,7 +8,7 @@
 #
 # Usage:  scripts/slop-grep.sh [PATH ...]      (default: frontend/src)
 #         cd frontend && npm run slop
-# Exit:   0 = no findings, 2 = findings (printed on stderr).
+# Exit:   0 = no findings, 2 = findings, 3 = incomplete scan (stderr).
 # Accept: a line containing "slop-ok: <reason>" is skipped. Use it for a
 #         reviewed false positive or a pattern DESIGN.md allows; it never
 #         replaces an exception-register entry (DESIGN.md GOV-1).
@@ -20,6 +20,15 @@ LC_ALL=C.UTF-8; export LC_ALL
 if [ $# -eq 0 ]; then
   set -- "$(cd "$(dirname "$0")/.." && pwd)/frontend/src"
 fi
+
+for target in "$@"; do
+  if [[ ! -e "$target" || ! -r "$target" || ( -d "$target" && ! -x "$target" ) ]]; then
+    printf 'slop-grep: cannot inspect target: %s\n' "$target" >&2
+    exit 3
+  fi
+done
+scan_errors=$(mktemp) || exit 3
+trap 'rm -f "$scan_errors"' EXIT
 
 includes=(--include='*.ts' --include='*.js' --include='*.html' --include='*.css'
           --include='*.svelte')
@@ -63,26 +72,32 @@ report() {
 for entry in "${rules[@]}"; do
   label=${entry%%|*}
   regex=${entry#*|}
-  hits=$(grep -rnE "${includes[@]}" "${excludes[@]}" -- "$regex" "$@" 2>/dev/null | grep -v 'slop-ok' || true)
+  hits=$(grep -rnE "${includes[@]}" "${excludes[@]}" -- "$regex" "$@" 2>>"$scan_errors" | grep -v 'slop-ok' || true)
   report "$label" "$hits"
 done
 
 # Raw hex colors in Svelte markup/styles (anchors such as href="#id" are skipped).
-hits=$(grep -rnE --include='*.svelte' "${excludes[@]}" -- '(^|[^&[:alnum:]_/-])#[0-9a-fA-F]{3}([0-9a-fA-F]{3}([0-9a-fA-F]{2})?)?\b' "$@" 2>/dev/null \
+hits=$(grep -rnE --include='*.svelte' "${excludes[@]}" -- '(^|[^&[:alnum:]_/-])#[0-9a-fA-F]{3}([0-9a-fA-F]{3}([0-9a-fA-F]{2})?)?\b' "$@" 2>>"$scan_errors" \
   | grep -vE 'href=["'"'"'`]#|slop-ok' || true)
 report "Raw hex color in a component (use a token)" "$hits"
 
 # Removed focus outline without a replacement on the same line.
-hits=$(grep -rnE "${includes[@]}" "${excludes[@]}" -- 'outline-none|outline:[[:space:]]*(none|0)[[:space:]]*;' "$@" 2>/dev/null \
+hits=$(grep -rnE "${includes[@]}" "${excludes[@]}" -- 'outline-none|outline:[[:space:]]*(none|0)[[:space:]]*;' "$@" 2>>"$scan_errors" \
   | grep -vE 'focus-visible|focus-within|focus:ring|data-\[(selected|highlighted)|slop-ok' || true)
 report "Focus outline removed (add focus-visible: on the same line)" "$hits"
 
 # Emoji in source (needs grep with PCRE support).
 if echo | grep -qP '' 2>/dev/null; then
-  hits=$(grep -rnP "${includes[@]}" "${excludes[@]}" -- '[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]' "$@" 2>/dev/null | grep -v 'slop-ok' || true)
+  hits=$(grep -rnP "${includes[@]}" "${excludes[@]}" -- '[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]' "$@" 2>>"$scan_errors" | grep -v 'slop-ok' || true)
   report "Emoji as icon or status glyph (use Lucide plus a word)" "$hits"
 else
   echo "slop-grep: grep without -P; emoji rule skipped." >&2
+fi
+
+if [ -s "$scan_errors" ]; then
+  printf 'slop-grep: incomplete scan; input or grep errors:\n' >&2
+  cat "$scan_errors" >&2
+  exit 3
 fi
 
 if [ $found -eq 1 ]; then

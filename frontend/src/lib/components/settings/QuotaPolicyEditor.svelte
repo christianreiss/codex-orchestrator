@@ -14,6 +14,8 @@
   }
 </script>
 <script lang="ts">
+  import { untrack } from "svelte";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { derived } from "svelte/store";
   import { toStore } from "svelte/store";
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
@@ -35,6 +37,9 @@
   let draft = $state<QuotaPolicy | null>(null);
   let inherit = $state(false);
   let emulation = $state<EmulationSettings>({ enabled: false, window_hours: 5, action: 'suggest_pause', auto_resume: false });
+  let baseline = $state("");
+  const snapshot = () => JSON.stringify([draft, inherit, accountId ? null : emulation]);
+  const dirty = $derived(draft !== null && baseline !== "" && snapshot() !== baseline);
   const actions = { suggest_pause: 'Warn only — suggest pause', suggest_ignore: 'Warn only — suggest ignore', hard_stop: 'Hard stop — block new work' };
   let initializedPath = "";
   $effect(() => {
@@ -43,6 +48,7 @@
       if ($query.data.emulation) emulation = { ...$query.data.emulation };
       inherit = !!accountId && !$query.data.override;
       initializedPath = path;
+      baseline = untrack(snapshot);
     }
   });
   const mutation = createMutation({
@@ -50,13 +56,16 @@
     onSuccess: async (value: Value) => {
       if (value.emulation) emulation = { ...value.emulation };
       draft = { ...value.effective }; inherit = !!accountId && !value.override;
+      baseline = snapshot();
       qc.setQueryData(key, value);
       await qc.invalidateQueries({ queryKey: ["accounts"] });
     },
   });
-  const disabled = $derived(!!accountId && inherit);
+  const disabled = $derived($mutation.isPending || (!!accountId && inherit));
   const prefix = $derived(`quota-${engine}-${accountId ?? "default"}`);
 </script>
+
+<DraftGuard {dirty} preserveOnSamePath />
 
 {#if $query.isError}
   <StateBlock state="error" cause={$query.error} message={`Could not load quota policy: ${$query.error.message}`} onRetry={() => $query.refetch()} />
@@ -64,6 +73,7 @@
   <p role="status" class="text-body-sm text-muted-foreground">Loading quota policy…</p>
 {:else}
   <form class="grid gap-4" onsubmit={(event) => { event.preventDefault(); $mutation.mutate(); }}>
+    <fieldset disabled={$mutation.isPending} class="contents">
     {#if accountId}
       <div class="flex items-center gap-3">
         <Switch id={`${prefix}-inherit`} checked={inherit} onCheckedChange={(v) => { inherit = v; if (v && $query.data) draft = { ...$query.data.defaults }; }} />
@@ -129,8 +139,9 @@
     <div class="flex flex-wrap items-center gap-3">
       <Button type="submit" size="sm" disabled={$mutation.isPending}>Save quota policy</Button>
       {#if $mutation.isPending}<p role="status" class="text-body-sm">Saving…</p>{/if}
-      {#if $mutation.isSuccess}<p role="status" class="text-body-sm">Quota policy saved.</p>{/if}
+      {#if dirty && !$mutation.isPending}<p role="status" class="text-body-sm">Unsaved quota policy changes.</p>{:else if $mutation.isSuccess}<p role="status" class="text-body-sm">Quota policy saved.</p>{/if}
       {#if $mutation.isError}<p role="alert" class="text-body-sm text-destructive">{$mutation.error.message}</p>{/if}
     </div>
+    </fieldset>
   </form>
 {/if}

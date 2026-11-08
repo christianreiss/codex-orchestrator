@@ -198,7 +198,7 @@ func TestMaintenanceReportsVersionsEvenWhenContentSyncFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "managed sync unavailable") {
 		t.Fatalf("sync failure not returned: %v", err)
 	}
-	if reported.Load() != 1 || !strings.Contains(out.String(), "cron: ok (wrapper 9.9.9, grok 1.0.46, no updates, reported=true)") {
+	if reported.Load() != 1 || !strings.Contains(out.String(), "cron: Grok version unchanged (wrapper 9.9.9, grok 1.0.46, no updates, reported=true)") {
 		t.Fatalf("versions not reported before the sync error: %d %q", reported.Load(), out.String())
 	}
 }

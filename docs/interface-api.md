@@ -4207,3 +4207,10 @@ observed adapter readiness are separate; changes apply to new launches.
 - `GET /wrapper/v2/rtk/v:version/:platform`: host-authenticated pinned OSS archive mirror; requires `engine` query parameter and verifies assignment and engine switch. Only version 1.2.0 is served. Platform is `linux-amd64`, `linux-arm64`, `darwin-amd64`, or `darwin-arm64`.
 
 Policy writes are audited and publish settings/host invalidations. New policy applies at the next native launch. Signed wrapper config carries the effective policy and fixed artifact URLs/digests; absence means disabled.
+
+
+### Installer discovery and failure evidence (2026-11-08)
+
+Generated installer launchers, full installers and legacy transition scripts answer help locally before network or filesystem mutations. Installers reject unsupported arguments; preflight accepts only Linux/macOS amd64/arm64 and refuses unsupported pairs before the single-use token claim. Enabled insecure curl transport emits a stderr notice explaining how to restore certificate verification. Seed uploads retain HTTP status and allowlisted server error codes in sanitized diagnostics, use unique private response files and remove them at exit. Failed daemon prerequisites name the missing command, account, home or working directory. Credential-sync warnings give the explicit retry rather than promise an unverified cron retry.
+
+Generated seed-auth uploaders and host-spawn setup scripts also handle `--help`/`-h` locally before credential reads, login, privilege checks or temporary files. Unsupported arguments (including unsupported `--dry-run`) exit 2 before an operation; run without arguments to execute.

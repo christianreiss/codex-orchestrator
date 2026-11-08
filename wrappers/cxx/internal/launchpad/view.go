@@ -183,6 +183,9 @@ func (p *picker) label(e Engine) string {
 func (p *picker) summary(i int) string {
 	e := p.engines[i]
 	c := p.cursors[i]
+	if len(e.Models) == 0 {
+		return p.dim("no current models enabled")
+	}
 	m := e.Models[c.model]
 	parts := []string{modelName(m.ID)}
 	if c.effort < len(m.Efforts) {

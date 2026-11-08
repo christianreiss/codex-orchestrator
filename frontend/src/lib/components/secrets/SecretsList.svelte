@@ -112,7 +112,7 @@
     emptyDescription="Add the credentials your agents need (API tokens, database passwords, service accounts) so they stop asking you for them."
     caption="Secrets"
   >
-    {#snippet emptyAction()}{#if canManage}<Button onclick={() => onCreate?.()}><Plus class="h-4 w-4" />New secret</Button>{/if}{/snippet}
+    {#snippet emptyAction()}{#if canManage}<Button variant="outline" onclick={() => onCreate?.()}><Plus class="h-4 w-4" />New secret</Button>{/if}{/snippet}
     {#snippet head()}
       <SortableHead label="Secret" active={sortKey === "slug"} dir={sortDir} onclick={() => onSort("slug")} />
       <Table.Head class="hidden md:table-cell">Used for</Table.Head>

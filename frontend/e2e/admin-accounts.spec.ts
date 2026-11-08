@@ -196,9 +196,9 @@ for (const engine of ["codex", "claude", "grok"] as const) {
       await dialog.getByRole("tab", { name: "One-time command" }).click();
       await expect(dialog.getByRole("radiogroup", { name: "Engine", exact: true })).toHaveCount(1);
       await dialog.getByRole("button", { name: "Generate", exact: true }).click();
-      await expect(dialog.locator("#seed-cmd-output")).toHaveText(`echo fixture-${engine}`);
+      await expect(dialog.getByText(`echo fixture-${engine}`, { exact: true })).toHaveText(`echo fixture-${engine}`);
       await dialog.getByRole("radio", { name: engine === "grok" ? "Claude" : "Grok", exact: true }).click();
-      await expect(dialog.locator("#seed-cmd-output")).toHaveCount(0);
+      await expect(dialog.getByText(`echo fixture-${engine}`, { exact: true })).toHaveCount(0);
     });
   }
 }

@@ -23,7 +23,7 @@
   $effect(() => { if (draft || pending) drafts.set(roomId, { content: draft, pending }); else drafts.delete(roomId); });
   let older = $state<RoomEvent[]>([]);
   let before = $state<number | null | undefined>(undefined);
-  let reason = $state('');
+  let reasons = $state<Record<string, string>>({});
   const events = $derived([...new Map([...older, ...($history.data?.events ?? [])].map(e => [e.id, e])).values()].sort((a,b) => a.sequence - b.sequence));
   const roomClaims = $derived(claims.filter(c => c.scope_ids?.includes(room.id) || room.members.some(m => m.session_id === c.session_id)));
   const send = createMutation({ mutationFn: () => {
@@ -36,7 +36,7 @@
     const page = await client.fetchQuery<RoomHistory>({ queryKey: ['agent-scopes', 'history', room.id, cursor], queryFn: () => api.post('/admin/agent-messaging/scopes/read', { scope_id: room.id, before: cursor }) });
     older = [...page.events, ...older]; before = page.next_before;
   } });
-  const resolve = createMutation({ mutationFn: (claimId: string) => api.post('/admin/agent-messaging/scopes/resolve', { claim_id: claimId, outcome: 'completed', reason }), onSuccess: async () => { reason = ''; await client.invalidateQueries({ queryKey: ['agent-scopes'] }); } });
+  const resolve = createMutation({ mutationFn: (claimId: string) => api.post('/admin/agent-messaging/scopes/resolve', { claim_id: claimId, outcome: 'completed', reason: reasons[claimId] ?? '' }), onSuccess: async (_result, claimId) => { delete reasons[claimId]; await client.invalidateQueries({ queryKey: ['agent-scopes'] }); } });
 </script>
 <DraftGuard dirty={Boolean(draft.trim())} />
 <section class="flex h-full min-h-0 flex-col rounded-md border bg-card" aria-label={`${room.title} scope chat`}>
@@ -45,7 +45,7 @@
     <ul class="my-2 space-y-1">{#each room.members as member (member.session_id)}<li class="text-caption">{member.name ?? member.session_id} · {member.engine} · {member.host} · {member.workspace?.branch ?? member.cwd}{member.coordinated ? '' : ' · limited coordination'}</li>{/each}</ul>
     {#each roomClaims as claim (claim.id)}<div class="my-2 rounded border p-2 text-caption"><strong>{claim.state}</strong> · {claim.purpose}<pre class="overflow-auto whitespace-pre-wrap">{JSON.stringify(claim.resources, null, 2)}</pre>
       {#if claim.isolation_available}<p>Git isolation available after unanswered coordination.</p>{/if}
-      {#if claim.state === 'uncertain' && canWrite}<label class="block">Evidence that the operation ended<input class="my-1 w-full rounded border bg-background p-2" bind:value={reason} /></label><Button size="sm" disabled={!reason.trim() || $resolve.isPending} onclick={() => $resolve.mutate(claim.id)}>Resolve resource</Button>{/if}</div>{/each}
+      {#if claim.state === 'uncertain' && canWrite}<label class="block">Evidence that the operation ended<input class="my-1 w-full rounded border bg-background p-2" bind:value={reasons[claim.id]} /></label><Button size="sm" disabled={!reasons[claim.id]?.trim() || $resolve.isPending} onclick={() => $resolve.mutate(claim.id)}>Resolve resource</Button>{/if}</div>{/each}
     {#if $resolve.error}<p role="alert" class="text-destructive">{$resolve.error.message}</p>{/if}
   </details>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->

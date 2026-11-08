@@ -1,6 +1,6 @@
 <script lang="ts">
   import { toStore } from 'svelte/store';
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { base } from '$app/paths';
@@ -21,11 +21,17 @@
   let open = $state(false);
   let draft = $state('');
   let busy = $state(false);
+  let draftRevision = 0;
   let error = $state('');
   let older = $state<ChattyEvent[]>([]);
   let olderGeneration = $state(0);
   let input = $state<HTMLTextAreaElement>();
   let bottom = $state<HTMLDivElement>();
+  let timeline = $state<HTMLDivElement>();
+  let followingLatest = $state(true);
+  let unreadOutput = $state(false);
+  function followLatest() { followingLatest = true; unreadOutput = false; bottom?.scrollIntoView({ block: 'end', behavior: 'instant' }); }
+  function trackReading() { if (timeline) followingLatest = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 64; if (followingLatest) unreadOutput = false; }
   let retryMessage = $state<{ id: string; text: string; generation: number; context: ReturnType<typeof chattyContext> } | null>(null);
   const status = createQuery(toStore(() => ({ queryKey: [...chattyKeys.status, $authStore.user?.id], queryFn: fetchChattyStatus, enabled: $authStore.can('chatty.use'), retry: false })));
   const session = createQuery(toStore(() => ({ queryKey: [...chattyKeys.session, $authStore.user?.id], queryFn: () => fetchChattySession(), enabled: open && $authStore.can('chatty.use'), retry: false })));
@@ -67,7 +73,10 @@
     try { await fn(); await refresh(); } catch (e) { error = e instanceof Error ? e.message : 'Chatty konnte die Anfrage nicht abschließen.'; }
     finally { busy = false; }
   }
-  async function send(text = draft) {
+  async function send(suggestion?: string) {
+    const fromComposer = suggestion === undefined;
+    const text = suggestion ?? draft;
+    const submittedRevision = draftRevision;
     if (!text.trim() || !canSend || !$session.data) return;
     const generation = $session.data.generation;
     await operation(async () => {
@@ -76,14 +85,15 @@
         if (!retryMessage || retryMessage.text !== text || retryMessage.generation !== generation) retryMessage = { id: crypto.randomUUID(), text, generation, context: chattyContext(page.url.pathname) };
         await api.post('/admin/chatty/messages', { client_message_id: retryMessage.id, generation, text, context: retryMessage.context });
       }
-      retryMessage = null; draft = '';
+      retryMessage = null; if (fromComposer && draftRevision === submittedRevision && draft === text) draft = '';
     });
   }
   async function newChat() {
     if (busy) return;
+    const resetRevision = draftRevision;
     await operation(async () => {
       await api.delete('/admin/chatty/session');
-      older = []; olderGeneration = 0; draft = ''; retryMessage = null;
+      older = []; olderGeneration = 0; if (draftRevision === resetRevision) draft = ''; retryMessage = null;
     });
     await tick();
     input?.focus();
@@ -100,7 +110,10 @@
   }
   $effect(() => {
     const count = $session.data?.events.length;
-    if (open && count) void tick().then(() => bottom?.scrollIntoView({ block: 'end', behavior: 'instant' }));
+    if (open && count) {
+      if (untrack(() => followingLatest)) void tick().then(followLatest);
+      else unreadOutput = true;
+    }
   });
   $effect(() => {
     if (!open) return;
@@ -161,7 +174,7 @@
             </div>
           {/if}
         </div>
-        <div class="min-h-0 flex-1 overflow-y-auto p-3" role="log" aria-label="Chatty Gespräch" aria-live="polite" aria-relevant="additions">
+        <div bind:this={timeline} onscroll={trackReading} class="min-h-0 flex-1 overflow-y-auto p-3" role="log" aria-label="Chatty Gespräch" aria-live="polite" aria-relevant="additions">
           {#if $session.data?.has_older}<button class="mb-3 text-body-sm underline" onclick={() => void more()} disabled={busy}>Ältere Nachrichten laden</button>{/if}
           {#if !$session.isPending && events.length === 0}<p class="py-8 text-body text-muted-foreground">Was möchtest du wissen oder ändern? Ich kann das Produkt erklären, den aktuellen Zustand nachsehen und Verwaltungsaufgaben erledigen.</p>{/if}
           {#each events as event (event.id)}
@@ -233,13 +246,14 @@
           {/each}
           <div bind:this={bottom}></div>
         </div>
+        <div class="px-3">{#if unreadOutput}<Button variant="outline" size="sm" onclick={followLatest}>Neue Nachrichten anzeigen</Button>{/if}</div>
         <ChattyActionDialog element={pendingAction} bind:open={actionOpen} onOutcome={(proposal, outcome) => { outcomes = { ...outcomes, [proposal]: outcome }; }}/>
         <div class="border-t p-3">
           {#if !$status.data.ready}<p class="mb-2 text-body-sm text-muted-foreground">Chatty ist gerade nicht verfügbar. Prüfe aktivierte Engines, verifizierte Konten, Kontingent und Runner unter <a class="underline" href="/admin/settings">Einstellungen</a>.</p>{/if}
           {#if error || $session.error}<p class="mb-2 text-body text-destructive" role="alert">{error || $session.error?.message}</p>{/if}
           {#if active}<div class="mb-2 flex items-center justify-between text-body-sm text-muted-foreground"><span>{active.status === 'waiting_confirmation' ? 'Wartet auf Bestätigung' : active.status === 'waiting_input' ? 'Rückfrage' : active.status === 'queued' ? 'In der Warteschlange' : 'Chatty arbeitet …'}</span><button class="flex items-center gap-1" aria-label="Anfrage stoppen" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/runs/${active.id}/cancel`))}><Square size={12}/> Stoppen</button></div>{/if}
           <form class="flex items-end gap-2" onsubmit={(e) => { e.preventDefault(); void send(); }}>
-            <textarea bind:this={input} bind:value={draft} aria-label="Nachricht an Chatty" placeholder="Frag Chatty …" rows="2" maxlength="16000" class="max-h-36 min-w-0 flex-1 resize-y rounded-md border bg-background p-2 text-body" onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } }}></textarea>
+            <textarea bind:this={input} bind:value={draft} oninput={() => draftRevision++} aria-label="Nachricht an Chatty" placeholder="Frag Chatty …" rows="2" maxlength="16000" class="max-h-36 min-w-0 flex-1 resize-y rounded-md border bg-background p-2 text-body" onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } }}></textarea>
             <button type="submit" class="icon-button bg-primary text-primary-foreground disabled:opacity-40" aria-label="Nachricht senden" disabled={!canSend || !draft.trim()}><Send size={18}/></button>
           </form>
         </div>

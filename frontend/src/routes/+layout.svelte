@@ -162,7 +162,7 @@
 <ModeWatcher defaultMode="system" />
 
 <QueryClientProvider client={queryClient}>
-  {#if auth.unreachable || setupError}
+  {#if auth.unreachable}
     <AuthShell title="API unreachable" description={auth.unreachable ?? setupError ?? undefined}>
       <Button onclick={() => { setupError = null; void authActions.refresh(); }}>Retry</Button>
     </AuthShell>
@@ -175,6 +175,7 @@
     </div>
   {:else}
     <AppShell>
+      {#if setupError}<div role="alert" class="m-4 text-body-sm text-destructive">Setup status unavailable: {setupError}. Your current page and drafts are retained. <Button size="sm" variant="outline" onclick={() => { setupError = null; void authActions.refresh(); }}>Retry setup check</Button></div>{/if}
       {@render children?.()}
     </AppShell>
     {#if auth.authenticated && wsHandle}

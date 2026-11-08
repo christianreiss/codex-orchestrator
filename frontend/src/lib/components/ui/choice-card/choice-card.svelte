@@ -5,7 +5,7 @@
    * `mode="radio"` for one-of-many (wrap the set in `role="radiogroup"`),
    * `mode="checkbox"` for independent toggles. Either way it is a real button
    * with `aria-checked`, so Space/Enter toggle it and screen readers announce
-   * the state; arrow-key roving is left to native tab order.
+   * the state; arrow keys select radio choices within their group.
    */
   import type { Snippet } from "svelte";
   import { cn } from "$lib/utils/cn";
@@ -36,6 +36,18 @@
     class: className,
     onSelect,
   }: Props = $props();
+  function keydown(event: KeyboardEvent) {
+    if (mode !== "radio" || !["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const current = event.currentTarget as HTMLButtonElement;
+    const group = current.closest('[role="radiogroup"]');
+    if (!group) return;
+    const choices = Array.from(group.querySelectorAll<HTMLButtonElement>('button[role="radio"]:not(:disabled)'));
+    const index = choices.indexOf(current);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? choices.length - 1 : (index + (event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1) + choices.length) % choices.length;
+    event.preventDefault();
+    choices[next]?.focus();
+    choices[next]?.click();
+  }
 </script>
 
 <button
@@ -45,6 +57,7 @@
   aria-checked={checked}
   {disabled}
   onclick={() => !disabled && onSelect()}
+  onkeydown={keydown}
   class={cn(
     "flex w-full flex-col items-start gap-0.5 rounded-lg border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
     size === "sm" ? "p-2.5" : "p-4",

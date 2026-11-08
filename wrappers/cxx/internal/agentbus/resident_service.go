@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"os/exec"
 	"runtime"
@@ -19,6 +20,10 @@ import (
 type ResidentRunner func(context.Context, string) error
 
 func RunResidentServiceCommand(args []string, stdout, stderr io.Writer, version string, runner ResidentRunner) int {
+	if clihelp.Requested(args) {
+		fmt.Fprintln(stdout, "Usage: cxx communicator install|status|start|stop|uninstall|run|rollback")
+		return 0
+	}
 	if runtime.GOOS != "linux" {
 		fmt.Fprintln(stderr, "resident service requires Linux/systemd")
 		return 1

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -22,6 +23,10 @@ import (
 )
 
 func Command(args []string, in io.Reader, out, stderr io.Writer, version string) int {
+	if clihelp.Requested(args) {
+		fmt.Fprintln(out, "Usage: cxx communicator status|doctor|mcp ENGINE|install|start|stop|uninstall|run|rollback")
+		return 0
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer cancel()
 	if len(args) > 0 && args[0] == "migration" {

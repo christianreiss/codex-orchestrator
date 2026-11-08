@@ -20,7 +20,7 @@
   import ProjectSettingsSheet from "$lib/components/projects/ProjectSettingsSheet.svelte";
   import { PROJECT_SORTS, visibleProjects, type ProjectSort } from "$lib/components/projects/project-list";
   import { filterClass } from "$lib/components/feedback/report-model";
-  import { relativeTime } from "$lib/utils/format";
+  import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { ApiError } from "$lib/api/client";
   import { deleteProject, fetchProjects, fetchProjectsState, projectKeys, updateProjectsState } from "$lib/api/projects";
   import type { ProjectSummary } from "$lib/api/types";
@@ -86,7 +86,7 @@
   $effect(() => {
     const requested = page.url.searchParams.get("dialog") === "new";
     if (!requested) { handledDisabledRequest = false; return; }
-    if ($stateQuery.isLoading) return;
+    if ($stateQuery.isLoading || $stateQuery.isError || !$stateQuery.data) return;
     if (enabled) { dialogOpen = true; return; }
     if (!handledDisabledRequest) {
       handledDisabledRequest = true;
@@ -102,15 +102,17 @@
   toggle={{
     label: "Project coordination",
     checked: enabled,
-    disabled: $stateQuery.isLoading || $stateMutation.isPending,
+    disabled: !$stateQuery.data || $stateQuery.isError || $stateQuery.isLoading || $stateMutation.isPending,
     onChange: (next) => $stateMutation.mutate(next),
   }}
 >
   {#snippet actions()}
     <Button variant="outline" size="icon" aria-label="Project settings" onclick={() => (settingsOpen = true)}><Settings class="h-4 w-4" /></Button>
-    <Button onclick={() => (dialogOpen = true)} disabled={!enabled}><Plus class="h-4 w-4" /> New project</Button>
+    <Button onclick={() => (dialogOpen = true)} disabled={!enabled || $stateQuery.isError || !$stateQuery.data}><Plus class="h-4 w-4" /> New project</Button>
   {/snippet}
 
+  {#if $stateQuery.isError}<p role="alert" class="text-body-sm text-destructive">Project coordination state unavailable: {$stateQuery.error.message}. Existing list data may be stale.</p><Button variant="outline" size="sm" onclick={() => $stateQuery.refetch()}>Retry coordination state</Button>{/if}
+  {#if $stateMutation.isError}<p role="alert" class="text-body-sm text-destructive">{$stateMutation.error.message}</p>{/if}
   <Toolbar bind:search={filterState.values.q} filtersActive={search.trim() !== ""} onClearFilters={() => { filterState.values.q = ""; }} searchPlaceholder="Search projects" count={`${rows.length} of ${projects.length} projects`}>
     {#snippet filters()}
       {#if archivedCount > 0}
@@ -140,7 +142,7 @@
       caption="Projects"
     >
       {#snippet emptyAction()}
-        <Button disabled={!enabled} onclick={() => (dialogOpen = true)}><Plus class="h-4 w-4" /> Create project</Button>
+        <Button variant="outline" disabled={!enabled} onclick={() => (dialogOpen = true)}><Plus class="h-4 w-4" /> Create project</Button>
       {/snippet}
       {#snippet head()}
         <Table.Head>Project</Table.Head>
@@ -155,7 +157,7 @@
             {#if project.title && project.title !== project.slug}<code class="block truncate text-caption text-muted-foreground">{project.slug}</code>{/if}
             {#if project.description}<p class="max-w-prose truncate text-body-sm text-muted-foreground">{project.description}</p>{/if}
           </Table.Cell>
-          <Table.Cell class="hidden whitespace-nowrap text-muted-foreground sm:table-cell">{project.updated_at ? relativeTime(project.updated_at) : "—"}</Table.Cell>
+          <Table.Cell class="hidden whitespace-nowrap text-muted-foreground sm:table-cell"><Timestamp value={project.updated_at} fallback="—" /></Table.Cell>
           <Table.Cell class="text-right">
             <RowActions
               label={`Actions for ${project.title || project.slug}`}
@@ -178,6 +180,7 @@
   confirmLabel="Delete project"
   destructive
   busy={$deleteMutation.isPending}
+  error={$deleteMutation.error?.message}
   onClose={() => { if (!$deleteMutation.isPending && !confirmOpen) projectToDelete = null; }}
   onConfirm={() => { if (projectToDelete) $deleteMutation.mutate(projectToDelete); }}
 />

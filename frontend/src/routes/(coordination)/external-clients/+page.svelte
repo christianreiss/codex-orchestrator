@@ -132,7 +132,7 @@
       onClearFilters={() => filterState.clear()}
       caption="External clients"
     >
-      {#snippet emptyAction()}{#if canManage}<Button onclick={openCreate}><Plus class="size-4" aria-hidden="true" /> New client</Button>{/if}{/snippet}
+      {#snippet emptyAction()}{#if canManage}<Button variant="outline" onclick={openCreate}><Plus class="size-4" aria-hidden="true" /> New client</Button>{/if}{/snippet}
       {#snippet head()}
         <Table.Head>Name</Table.Head>
         <Table.Head>Trust</Table.Head>

@@ -367,7 +367,7 @@
         </Alert.Root>
       {/if}
 
-      <div class="grid gap-4 sm:grid-cols-2">
+      <fieldset disabled={$mutation.isPending} class="grid gap-4 sm:grid-cols-2">
         <div class="grid gap-1.5">
           <Label for="memory-scope">Scope</Label>
           {#if mode === "create"}
@@ -488,7 +488,7 @@
             />
           {/if}
         </div>
-      </div>
+      </fieldset>
 
       {#if validationError}
         <p class="text-body-sm text-destructive" role="alert">{validationError}</p>

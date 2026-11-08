@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"io"
 	"log/slog"
@@ -56,6 +57,7 @@ type options struct {
 	configPath                        string
 	skipBoot, concurrent, debug, ipv4 bool
 	minimal                           bool
+	nativeInvocation                  bool
 	command                           string
 	args                              []string
 }
@@ -174,7 +176,7 @@ func nativeOptions(args []string) (options, error) {
 	if err != nil {
 		return options{}, err
 	}
-	o := options{configPath: path, command: "run", args: append([]string(nil), args...), skipBoot: true}
+	o := options{configPath: path, command: "run", args: append([]string(nil), args...), skipBoot: true, nativeInvocation: true}
 	command, at := nativeargs.Command("grok", args)
 	if refusal := managedNativeRefusal(args); refusal == installRefusal {
 		return options{}, errors.New(installRefusal)
@@ -241,6 +243,26 @@ func managedNativeRefusal(args []string) string {
 }
 
 func runOptions(o options, stdout, stderr io.Writer) int {
+	if !o.nativeInvocation {
+		switch o.command {
+		case "login", "cron", "auth-reconcile":
+			if clihelp.Requested(o.args) {
+				PrintWrapperHelp(stdout, terminalui.DetectCapsFor(stdout, "auto"))
+				return 0
+			}
+		}
+		switch o.command {
+		case "uninstall", "logout", "sync", "auth-sync", "update", "auth-upload-auto", "status", "doctor":
+			if clihelp.Requested(o.args) {
+				PrintWrapperHelp(stdout, terminalui.DetectCapsFor(stdout, "auto"))
+				return 0
+			}
+			if len(o.args) != 0 {
+				fmt.Fprintf(stderr, "cgx %s: unexpected arguments; use --wrapper-help\n", o.command)
+				return 2
+			}
+		}
+	}
 	if o.command == "auth-reconcile" {
 		fmt.Fprintln(stderr, "cgx auth-reconcile: unsupported; Grok credentials are server-owned")
 		return 2
@@ -1229,7 +1251,7 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	case cliUpdated:
 		fmt.Fprintf(stdout, "%s: grok installed %s (wrapper %s, reported=%t)\n", label, version, Version, reported)
 	default:
-		fmt.Fprintf(stdout, "%s: ok (wrapper %s, grok %s, no updates, reported=%t)\n", label, Version, version, reported)
+		fmt.Fprintf(stdout, "%s: Grok version unchanged (wrapper %s, grok %s, no updates, reported=%t)\n", label, Version, version, reported)
 	}
 	if syncErr != nil {
 		fmt.Fprintln(stderr, "cgx "+label+": managed content sync failed:", syncErr)

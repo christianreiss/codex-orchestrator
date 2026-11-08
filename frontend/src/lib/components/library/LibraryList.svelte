@@ -116,7 +116,7 @@
     caption={`${plural} list`}
   >
     {#snippet emptyAction()}
-      <Button onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />New {config.singular}</Button>
+      <Button variant="outline" onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />New {config.singular}</Button>
     {/snippet}
     {#snippet head()}
       <SortableHead label="Name" active={sortKey === "name"} dir={sortDir} onclick={() => onSort("name")} />

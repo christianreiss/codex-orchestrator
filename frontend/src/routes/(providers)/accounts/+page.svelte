@@ -97,7 +97,7 @@
     caption="Provider accounts"
   >
     {#snippet emptyAction()}
-      {#if canManage}<Button size="sm" disabled={addDisabled} onclick={() => (dialog = { kind: "add" })}>Add account</Button>{/if}
+      {#if canManage}<Button variant="outline" size="sm" disabled={addDisabled} onclick={() => (dialog = { kind: "add" })}>Add account</Button>{/if}
     {/snippet}
     {#snippet head()}
       <Table.Head>Account</Table.Head>

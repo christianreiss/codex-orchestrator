@@ -74,12 +74,14 @@
     panelOpen = true;
   }
   const togglePaused = (row: Schedule) => $mutation.mutate({ method: "PATCH", id: row.id, body: { version: row.version, enabled: !row.enabled } });
-  function confirmDelete() {
+  async function confirmDelete() {
     const row = deleteTarget;
-    if (!row) return;
-    $mutation.mutate({ method: "DELETE", id: row.id, body: { version: row.version } });
-    $selected = "";
-    deleteTarget = null;
+    if (!row || $mutation.isPending) return;
+    try {
+      await $mutation.mutateAsync({ method: "DELETE", id: row.id, body: { version: row.version } });
+      $selected = "";
+      deleteTarget = null;
+    } catch { /* Mutation error remains in the confirmation for recovery. */ }
   }
   function actionsFor(row: Schedule): RowAction[] {
     const base: RowAction[] = [{ label: "View", icon: Eye, onClick: () => view(row) }];
@@ -87,7 +89,7 @@
     return [
       ...base,
       { label: row.enabled ? "Pause" : "Enable", icon: row.enabled ? Pause : Play, onClick: () => togglePaused(row), disabled: $mutation.isPending },
-      { label: "Delete schedule", icon: Trash2, destructive: true, onClick: () => (deleteTarget = row), disabled: $mutation.isPending },
+      { label: "Delete schedule", icon: Trash2, destructive: true, onClick: () => { $mutation.reset(); deleteTarget = row; }, disabled: $mutation.isPending },
     ];
   }
   const timing = (row: Schedule) => (row.kind === "interval" ? `Every ${row.interval_minutes} min` : row.kind === "cron" ? row.cron : "Once");
@@ -189,5 +191,7 @@
   description={deleteTarget ? `"${deleteTarget.name}" stops waking its agent. This cannot be undone.` : ""}
   confirmLabel="Delete schedule"
   destructive
+  busy={$mutation.isPending}
+  error={$mutation.error?.message}
   onConfirm={confirmDelete}
 />

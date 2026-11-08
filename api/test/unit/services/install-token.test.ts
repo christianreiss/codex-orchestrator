@@ -162,6 +162,7 @@ out=
 for a in "$@"; do case "$prev" in -o) out=$a;; --data-binary) echo "upload $a $(cat "\${a#@}")" >> ${log};; esac; prev=$a; done
 echo "url $a" >> ${log}
 printf '{"status":"ok"}' > "$out"
+printf 200
 `);
       chmodSync(join(bin, 'grok'), 0o755);
       chmodSync(join(bin, 'curl'), 0o755);
@@ -169,7 +170,7 @@ printf '{"status":"ok"}' > "$out"
       writeFileSync(script, buildSeedAuthScript({ baseUrl: 'https://o.example.com', token: 'tok', engine: 'grok' }));
       const env = { PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: dir, GROK_API_KEY: 'must-not-leak' };
       const out = execFileSync('sh', [script], { encoding: 'utf8', env, stdio: ['ignore', 'pipe', 'pipe'] });
-      expect(out).toContain('Done. Server response:');
+      expect(out).toContain('Upload accepted (HTTP 200).');
       const lines = readFileSync(log, 'utf8');
       const seedHome = /home=(\S+) /.exec(lines)?.[1] ?? '';
       expect(lines).toContain('grok login --device-auth');
@@ -185,7 +186,7 @@ printf '{"status":"ok"}' > "$out"
       const existing = join(dir, 'existing.json');
       writeFileSync(existing, '{"existing":true}');
       const optIn = execFileSync('sh', [script], { encoding: 'utf8', env: { ...env, GROK_SEED_AUTH_PATH: existing }, stdio: ['ignore', 'pipe', 'pipe'] });
-      expect(optIn).toContain('Done.');
+      expect(optIn).toContain('Upload accepted (HTTP 200).');
       const second = readFileSync(log, 'utf8');
       expect(second).not.toContain('grok login');
       expect(second).toContain(`upload @${existing} {"existing":true}`);
@@ -256,7 +257,7 @@ describe('install-token: credential-free installer launcher', () => {
     try {
       const bin = join(dir, 'bin');
       mkdirSync(bin);
-      for (const tool of ['sh', 'mkdir', 'mktemp', 'rm', 'cat']) {
+      for (const tool of ['sh', 'mkdir', 'mktemp', 'rm', 'cat', 'uname']) {
         symlinkSync(execFileSync('sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).trim(), join(bin, tool));
       }
       if (opts.python3) {

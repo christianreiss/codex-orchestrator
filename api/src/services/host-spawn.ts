@@ -169,18 +169,25 @@ export function hostSpawnCompletionScript(): string {
 
 function quote(value: string) { return "'" + value.replace(/'/g, "'\\''") + "'"; }
 export function hostSpawnSetupScript(url: string, daemon: z.infer<typeof hostSpawnSchema>['daemon'], deadlineExpired = false): string {
+  const argumentGuard = `for arg in "$@"; do
+  case "$arg" in -h|--help) printf '%s\\n' 'Usage: host-setup [--help]' 'Installs the managed host and configured daemon. Run without arguments to continue.'; exit 0 ;; esac
+done
+[ "$#" -eq 0 ] || { echo 'Unsupported host-setup arguments; use --help for usage' >&2; exit 2; }
+`;
   const download = `setup_file=$(mktemp)
 trap 'rm -f "$setup_file"' EXIT HUP INT TERM
 curl -fsSL ${quote(url)} -o "$setup_file"
 `;
-  if (daemon.mode === 'none') return '#!/bin/sh\nset -eu\n' + download + 'sh "$setup_file"\n';
+  if (daemon.mode === 'none') return '#!/bin/sh\nset -eu\n' + argumentGuard + download + 'sh "$setup_file"\n';
   return `#!/bin/sh
 set -eu
-[ "$(id -u)" = "0" ] || { echo 'Daemon setup requires root' >&2; exit 1; }
-command -v systemctl >/dev/null
+${argumentGuard}[ "$(id -u)" = "0" ] || { echo 'Daemon setup requires root' >&2; exit 1; }
+command -v systemctl >/dev/null || { echo 'Daemon setup requires systemctl; use a systemd host or daemon mode none' >&2; exit 1; }
 service_user=${quote(daemon.username)}
 service_home=$(getent passwd "$service_user" | cut -d: -f6)
-[ -n "$service_home" ] && [ -d "$service_home" ] && [ -d ${quote(daemon.default_cwd)} ]
+[ -n "$service_home" ] || { echo "Service account $service_user not found; create the account first" >&2; exit 1; }
+[ -d "$service_home" ] || { echo "Service home $service_home missing; create the account home first" >&2; exit 1; }
+[ -d ${quote(daemon.default_cwd)} ] || { echo ${quote('Working directory missing; create ' + daemon.default_cwd + ' before daemon setup')} >&2; exit 1; }
 ${download}chown "$service_user" "$setup_file"
 chmod 600 "$setup_file"
 runuser -u "$service_user" -- env HOME="$service_home" XDG_CONFIG_HOME="$service_home/.config" BIN_DIR="$service_home/.local/bin" sh "$setup_file"

@@ -3,8 +3,10 @@ package agentportal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"strings"
 	"time"
@@ -20,6 +22,9 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "status":
+		if code, handled := noArgumentHelp(args[1:], stdout, stderr); handled {
+			return code
+		}
 		return runStatus(stdout, stderr)
 	case "notify":
 		return runNotify(args[1:], stdout, stderr)
@@ -34,6 +39,9 @@ func RunCommand(args []string, stdout, stderr io.Writer) int {
 	case "accept":
 		return runAccept(args[1:], stdout, stderr)
 	case "leave":
+		if code, handled := noArgumentHelp(args[1:], stdout, stderr); handled {
+			return code
+		}
 		return runLeave(stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cxx portal: unknown command %q\n", args[0])
@@ -63,7 +71,14 @@ func runNotify(args []string, stdout, stderr io.Writer) int {
 	summary := flags.String("summary", "", "safe attention summary")
 	severity := flags.String("severity", "", "important, critical or blocker")
 	noticeID := flags.String("notice-id", "", "stable notice UUID")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "unexpected positional arguments")
 		return 2
 	}
 	if strings.TrimSpace(*summary) == "" {
@@ -114,7 +129,14 @@ func runSay(args []string, stdout, stderr io.Writer) int {
 	text := flags.String("text", "", "safe assistant response")
 	summary := flags.String("summary", "", "one sentence with the latest result or decision needed (max 160 characters)")
 	attachments := flags.String("attachments", "", "JSON array of attachment UUIDs")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "unexpected positional arguments")
 		return 2
 	}
 	if strings.TrimSpace(*text) == "" && *attachments == "" {
@@ -140,7 +162,14 @@ func runResolve(args []string, stdout, stderr io.Writer) int {
 	flags.SetOutput(stderr)
 	summary := flags.String("summary", "", "why the attention notice is resolved")
 	noticeID := flags.String("notice-id", "", "specific classified notice UUID")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "unexpected positional arguments")
 		return 2
 	}
 	text := strings.TrimSpace(*summary)
@@ -177,7 +206,14 @@ func runAsk(args []string, stdout, stderr io.Writer) int {
 	attachmentsRaw := flags.String("attachments", "", "JSON array of attachment UUIDs")
 	severity := flags.String("severity", "", "important, critical or blocker")
 	noticeID := flags.String("notice-id", "", "stable UUID for Needs you notice")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "unexpected positional arguments")
 		return 2
 	}
 	if strings.TrimSpace(*question) == "" {
@@ -245,7 +281,14 @@ func runWait(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("cxx portal wait", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	seconds := flags.Int("seconds", 20, "long-poll duration (0-25)")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "unexpected positional arguments")
 		return 2
 	}
 	if *seconds < 0 || *seconds > 25 {
@@ -306,7 +349,14 @@ func runAccept(args []string, stdout, stderr io.Writer) int {
 	messageID := flags.String("message-id", "", "message ID returned by portal wait")
 	leaseOwner := flags.String("lease-owner", "", "lease owner returned by portal wait")
 	upstreamID := flags.String("upstream-id", "cxx-relay", "optional engine correlation ID")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintln(stderr, "unexpected positional arguments")
 		return 2
 	}
 	if strings.TrimSpace(*messageID) == "" || strings.TrimSpace(*leaseOwner) == "" {
@@ -408,4 +458,16 @@ func printCommandHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx portal wait [--seconds 20]")
 	fmt.Fprintln(w, "  cxx portal accept --message-id <id> --lease-owner <lease>")
 	fmt.Fprintln(w, "  cxx portal leave")
+}
+
+func noArgumentHelp(args []string, stdout, stderr io.Writer) (int, bool) {
+	if len(args) == 1 && clihelp.Requested(args) {
+		printCommandHelp(stdout)
+		return 0, true
+	}
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "command does not accept arguments; use --help")
+		return 2, true
+	}
+	return 0, false
 }

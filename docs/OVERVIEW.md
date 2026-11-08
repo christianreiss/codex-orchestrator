@@ -1786,3 +1786,8 @@ See [RTK integration](rtk.md) for fleet/host controls, per-session disabling,
 local recall retention, engine adapters and deployment acceptance. Policy and
 observed adapter readiness are separate; changes apply to new launches.
 Slop job quick-run summaries expose scanned source counts and coverage limits, including unsupported Kotlin files. Accessibility audit uploads use JSON `{tool, findings: []}`; native accessibility trees belong in source evidence. Web font heuristics inspect font declarations rather than product text or identifiers.
+
+
+### Slop audit remediation (2026-11-08)
+
+Editors preserve meaningful drafts across delayed saves, canceled AI suggestions and background setup failures. Unknown module/settings reads remain unavailable until refreshed; failures remain next to their action. Hook timeout edits preserve untouched command settings. URL filters flush before detail navigation, and the design test inventory contains every route. Wrapper-owned help is read-only; installer preflight rejects unsupported platforms and arguments, while readiness and Slop grep distinguish invalid input from successful inspection. See the engine interface documents for cxx 0.9.171 CLI contracts and `docs/verification/slop-remediation-2026-11-08.md` for actual checks and remaining proof limits.

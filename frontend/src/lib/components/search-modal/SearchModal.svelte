@@ -23,6 +23,7 @@
   let query = $state("");
   let results = $state<PaletteCommand[]>([]);
   let loading = $state(false);
+  let failedSources = $state(0);
   let openKey = $state(0);
 
   let inflightToken = 0;
@@ -41,6 +42,10 @@
   function refreshResults(q: string): void {
     if (debounceTimer) clearTimeout(debounceTimer);
     const normalized = q.trim();
+    const token = ++inflightToken;
+    results = [];
+    failedSources = 0;
+    loading = Boolean(normalized);
     if (!normalized) {
       ++inflightToken;
       results = [];
@@ -48,9 +53,11 @@
       return;
     }
     debounceTimer = setTimeout(() => {
-      const token = ++inflightToken;
+      if (token !== inflightToken) return;
       if (sources.length === 0) {
         results = [];
+        failedSources = 1;
+        loading = false;
         return;
       }
       loading = true;
@@ -62,7 +69,9 @@
           pending.push(...r);
           results = [...pending];
         }),
-      ).finally(() => {
+      ).then((settled) => {
+        if (token === inflightToken) failedSources = settled.filter((result) => result.status === "rejected").length;
+      }).finally(() => {
         if (token === inflightToken) loading = false;
       });
     }, 150);
@@ -122,8 +131,12 @@
           </div>
         {:else if !loading && results.length === 0}
           <div role="option" aria-disabled="true" aria-selected="false" class="px-3 py-8 text-center text-body text-muted-foreground">
-            No results for "{query}"
+            {failedSources ? "Search unavailable. Retry the search." : `No results for "${query}"`}
           </div>
+        {/if}
+        {#if !loading && failedSources > 0}
+          <div role="option" aria-selected="false" aria-disabled="true" class="px-3 py-2 text-body-sm text-destructive">Some search sources failed. Results may be incomplete.</div>
+          <Command.Item value="retry-search" onSelect={() => refreshResults(query)}>Retry search</Command.Item>
         {/if}
         {#each grouped as [group, items] (group)}
           {#if items.length > 0}

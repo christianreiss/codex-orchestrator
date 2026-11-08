@@ -63,6 +63,8 @@ export function buildWrapperV2InstallerScript(opts: {
 # Generated for host ${commentValue(opts.fqdn)}.
 set -eu
 
+${shellArgumentGuard(false)}
+
 BASE_URL=${shellQuote(opts.baseUrl.replace(/\/+$/, ''))}
 HOST_API_KEY=${shellQuote(opts.apiKey)}
 ENGINE=${shellQuote(opts.engine)}
@@ -140,6 +142,8 @@ export function buildLegacyWrapperTransitionScript(opts: {
 # Generated for host ${commentValue(opts.fqdn)}.
 set -eu
 
+${shellArgumentGuard(true)}
+
 BASE_URL=${shellQuote(opts.baseUrl.replace(/\/+$/, ''))}
 HOST_API_KEY=${shellQuote(opts.apiKey)}
 ENGINE=${shellQuote(opts.engine)}
@@ -156,6 +160,20 @@ INSTALL_CONTEXT=transition
 
 ${bootstrapBody()}
 `;
+}
+
+function shellArgumentGuard(transition: boolean): string {
+  return `for argument in "$@"; do
+  case "$argument" in
+    -h|--help|--wrapper-help)
+      printf '%s\\n' 'Usage: sh installer.sh' 'Installs the managed cxx wrapper and assigned engines.' 'Help performs no installation or network requests.'
+      exit 0 ;;
+  esac
+done
+${transition ? '' : `if [ "$#" -ne 0 ]; then
+  printf '%s\\n' 'Unsupported installer arguments. Use --help; no installation was started.' >&2
+  exit 2
+fi`}`;
 }
 
 function bootstrapBody(): string {
@@ -478,6 +496,7 @@ GROK_CONFIG_PATH=\${CGX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/cgx.json}
 CURL_INSECURE_FLAG=
 if [ "\${CODEX_INSTALL_CURL_INSECURE:-0}" = "1" ]; then
   CURL_INSECURE_FLAG=-k
+  printf '%s\\n' 'Warning: TLS certificate verification is disabled (CODEX_INSTALL_CURL_INSECURE=1). Set it to 0 and use a trusted certificate to restore verification.' >&2
 fi
 
 ${preflightFunctions()}
@@ -797,10 +816,10 @@ else
   BIN_ROOT="$BIN_DIR"
 fi
 
+preflight
 if [ "$HAS_CODEX" = "1" ]; then mkdir -p "$(dirname "$CODEX_CONFIG_PATH")"; fi
 if [ "$HAS_CLAUDE" = "1" ]; then mkdir -p "$(dirname "$CLAUDE_CONFIG_PATH")"; fi
 if [ "$HAS_GROK" = "1" ]; then mkdir -p "$(dirname "$GROK_CONFIG_PATH")"; fi
-preflight
 BIN_ROOT_ON_PATH=0
 case ":$PARENT_PATH:" in
   *":$BIN_ROOT:"*) BIN_ROOT_ON_PATH=1 ;;
@@ -825,19 +844,6 @@ if [ "$HAS_GROK" = "1" ]; then
   GROK_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/cgx.config.XXXXXX")
 fi
 
-PLATFORM_OS=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
-case "$PLATFORM_OS" in
-  darwin) PLATFORM_OS=darwin ;;
-  linux) PLATFORM_OS=linux ;;
-  *) PLATFORM_OS=linux ;;
-esac
-PLATFORM_ARCH=$(uname -m 2>/dev/null)
-case "$PLATFORM_ARCH" in
-  x86_64|amd64) PLATFORM_ARCH=amd64 ;;
-  arm64|aarch64) PLATFORM_ARCH=arm64 ;;
-  *) PLATFORM_ARCH=amd64 ;;
-esac
-WRAPPER_PLATFORM="$PLATFORM_OS-$PLATFORM_ARCH"
 
 ui_progress "cxx" "config" "" "fetching enabled engines…"
 if [ "$HAS_CODEX" = "1" ]; then
@@ -1141,7 +1147,7 @@ if [ "$HAS_GROK" = "1" ] && [ -n "$ORIGINAL_GROK_BIN" ] && [ "$ORIGINAL_GROK_BIN
 fi
 
 # One credentialed sync per engine so the host holds canonical auth before
-# the operator's first run. Non-fatal: the next cron tick retries it, so a
+# the operator's first run. Non-fatal: the operator can retry explicitly, so a
 # failure is a warning and never turns READY into INCOMPLETE.
 sync_engine() {
   SYNC_NAME=$1
@@ -1154,7 +1160,7 @@ sync_engine() {
   if "$@" --allow-concurrent-sync sync </dev/null >"$STEP_LOG" 2>&1; then
     ui_ok "$SYNC_NAME" "sync" "" "credentials synced"
   else
-    ui_warn "$SYNC_NAME" "sync" "retry: $SYNC_NAME sync" "credential sync did not finish; the next cron tick retries it"
+    ui_warn "$SYNC_NAME" "sync" "retry: $SYNC_NAME sync" "credential sync did not finish; run the retry command to check its outcome"
   fi
 }
 
@@ -1199,6 +1205,20 @@ function preflightFunctions(): string {
 # so a doomed run stops on one line per problem instead of halfway through.
 preflight_checks() {
   PREFLIGHT_FAILED=0
+  PLATFORM_OS=$(uname -s 2>/dev/null || true)
+  PLATFORM_ARCH=$(uname -m 2>/dev/null || true)
+  case "$PLATFORM_OS" in
+    Darwin|darwin) PLATFORM_OS=darwin ;;
+    Linux|linux) PLATFORM_OS=linux ;;
+    *) ui_fail "cxx" "preflight" "Use a supported Linux or macOS host" "Unsupported operating system: $PLATFORM_OS"; PREFLIGHT_FAILED=1 ;;
+  esac
+  case "$PLATFORM_ARCH" in
+    x86_64|amd64) PLATFORM_ARCH=amd64 ;;
+    arm64|aarch64) PLATFORM_ARCH=arm64 ;;
+    *) ui_fail "cxx" "preflight" "Use an amd64 or arm64 host" "Unsupported architecture: $PLATFORM_ARCH"; PREFLIGHT_FAILED=1 ;;
+  esac
+  if [ "$PREFLIGHT_FAILED" = "1" ]; then return; fi
+  WRAPPER_PLATFORM="$PLATFORM_OS-$PLATFORM_ARCH"
   if ! command -v python3 >/dev/null 2>&1; then
     ui_fail "cxx" "preflight" "install it: apt-get install python3 | dnf install python3 | apk add python3 | brew install python3" "python3 is required"
     PREFLIGHT_FAILED=1
@@ -1234,6 +1254,8 @@ export function buildInstallerLauncherScript(opts: {
 # installer with a POST and runs it. A failed check leaves the installer unused.
 set -eu
 
+${shellArgumentGuard(false)}
+
 INSTALL_URL=${shellQuote(opts.installUrl)}
 NAME=${shellQuote(binaryName(opts.engine))}
 CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${opts.allowInsecure ? '1' : '0'}}
@@ -1265,7 +1287,10 @@ main() {
   fi
   : "$INSTALL_WITH_SUDO"
   CURL_INSECURE_FLAG=
-  if [ "$CODEX_INSTALL_CURL_INSECURE" = "1" ]; then CURL_INSECURE_FLAG=-k; fi
+  if [ "$CODEX_INSTALL_CURL_INSECURE" = "1" ]; then
+    CURL_INSECURE_FLAG=-k
+    printf '%s\\n' 'Warning: TLS certificate verification is disabled (CODEX_INSTALL_CURL_INSECURE=1). Set it to 0 and use a trusted certificate to restore verification.' >&2
+  fi
   trap launcher_cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM

@@ -182,6 +182,14 @@ export function buildInstallerLauncher(opts: {
   return buildInstallerLauncherScript(opts);
 }
 
+function seedArgumentGuard(): string {
+  return `for arg in "$@"; do
+  case "$arg" in -h|--help) printf '%s\\n' 'Usage: seed-auth [--help]' 'Uploads credentials to the orchestrator. Run without arguments to continue.'; exit 0 ;; esac
+done
+[ "$#" -eq 0 ] || { echo 'Unsupported seed-auth arguments; use --help for usage' >&2; exit 2; }
+`;
+}
+
 export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engine: Engine }): string {
   const token = opts.token.trim();
   if (!token) throw new Error('Seed token missing');
@@ -197,23 +205,41 @@ export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engi
   return `#!/bin/sh
 # Codex Orchestrator wrapper-v2 seed-auth uploader (${opts.engine}).
 set -eu
-
+${seedArgumentGuard()}
 AUTH_PATH=${authPath}
 if [ ! -f "$AUTH_PATH" ]; then
   echo "${label} not found at $AUTH_PATH" >&2
   exit 1
 fi
 
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required to read safe upload diagnostics" >&2; exit 1; }
+RESPONSE_FILE=$(mktemp "\${TMPDIR:-/tmp}/cxx-seed-response.XXXXXX")
+trap 'rm -f "$RESPONSE_FILE"' EXIT HUP INT TERM
 echo ">> Uploading ${label} to orchestrator"
-curl -fsSL -X POST \\
+if ! HTTP_STATUS=$(curl -sSL -w '%{http_code}' -X POST \\
   -H "Content-Type: application/json" \\
   --data-binary @"$AUTH_PATH" \\
-  -o /tmp/seed-auth-response.json \\
-  ${postUrlQ} || { echo "Upload failed; see /tmp/seed-auth-response.json" >&2; exit 1; }
-
-echo "Done. Server response:"
-cat /tmp/seed-auth-response.json
-echo
+  -o "$RESPONSE_FILE" \\
+  ${postUrlQ}); then
+  echo "Upload transport failed; acceptance is unknown. Check account state before retrying." >&2
+  exit 1
+fi
+case "$HTTP_STATUS" in
+  2??) printf 'Upload accepted (HTTP %s).\\n' "$HTTP_STATUS" ;;
+  *) python3 - "$RESPONSE_FILE" "$HTTP_STATUS" <<'CXX_SEED_ERROR_PY'
+import json, re, sys
+status = sys.argv[2]
+reason = {'401': 'authorization rejected', '403': 'authorization rejected', '404': 'seed token missing or expired', '409': 'seed token already used or state conflict', '422': 'credentials rejected by verification'}.get(status, 'server rejected upload')
+try:
+    data = json.load(open(sys.argv[1]))
+    code = data.get('code', data.get('error', ''))
+    if isinstance(code, dict): code = code.get('code', '')
+    if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_.-]{0,100}', code): reason += ': ' + code
+except (OSError, ValueError, AttributeError): pass
+print('Upload failed (HTTP ' + status + '): ' + reason, file=sys.stderr)
+CXX_SEED_ERROR_PY
+    exit 1 ;;
+esac
 `;
 }
 
@@ -230,9 +256,9 @@ function buildGrokSeedAuthScript(postUrl: string): string {
   return `#!/bin/sh
 # Codex Orchestrator wrapper-v2 seed-auth uploader (grok).
 set -eu
-command -v python3 >/dev/null 2>&1 || { echo "python3 is required for private Grok seed cleanup" >&2; exit 1; }
+${seedArgumentGuard()}command -v python3 >/dev/null 2>&1 || { echo "python3 is required for private Grok seed cleanup" >&2; exit 1; }
 exec python3 - ${shellQuote(postUrl)} <<'CXX_GROK_SEED_PY'
-import os, pathlib, shutil, subprocess, sys, tempfile, time
+import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 post_url = sys.argv[1]
 existing = os.environ.get('GROK_SEED_AUTH_PATH', '')
@@ -321,9 +347,18 @@ try:
     response = tempfile.NamedTemporaryFile(prefix='cgx-seed-response-', delete=False)
     response.close()
     try:
-        subprocess.run(['curl', '-fsSL', '-X', 'POST', '-H', 'Content-Type: application/json', '--data-binary', '@' + auth_path, '-o', response.name, post_url], env=env, pass_fds=(() if lease is None else (lease,)), check=True)
-        print('Done. Server response:')
-        print(pathlib.Path(response.name).read_text())
+        request = subprocess.run(['curl', '-sSL', '-w', '%{http_code}', '-X', 'POST', '-H', 'Content-Type: application/json', '--data-binary', '@' + auth_path, '-o', response.name, post_url], env=env, pass_fds=(() if lease is None else (lease,)), stdout=subprocess.PIPE, text=True, check=True)
+        status = request.stdout.strip()
+        if not re.fullmatch(r'2[0-9]{2}', status):
+            reason = {'401': 'authorization rejected', '403': 'authorization rejected', '404': 'seed token missing or expired', '409': 'seed token already used or state conflict', '422': 'credentials rejected by verification'}.get(status, 'server rejected upload')
+            try:
+                data = json.loads(pathlib.Path(response.name).read_text())
+                code = data.get('code', data.get('error', ''))
+                if isinstance(code, dict): code = code.get('code', '')
+                if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_.-]{0,100}', code): reason += ': ' + code
+            except (OSError, ValueError, AttributeError): pass
+            raise RuntimeError('Upload failed (HTTP ' + status + '): ' + reason)
+        print('Upload accepted (HTTP ' + status + ').')
     finally:
         os.unlink(response.name)
 except (OSError, RuntimeError, subprocess.CalledProcessError) as error:

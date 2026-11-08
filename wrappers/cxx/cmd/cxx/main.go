@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"os"
 	"path/filepath"
@@ -55,6 +56,17 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 			engine = ""
 		}
 		return rtk.Command(args[1:], engine, os.Stdin, stdout, stderr)
+	}
+	// Discovery of wrapper-owned global commands must not start services.
+	if len(args) > 1 && clihelp.Requested(args[1:]) {
+		switch args[0] {
+		case "housekeeping", "native-entry", "cron", "update", "sync", "daemon", "agent", "portal":
+			return runExplicit(args, stdout, stderr)
+		case "reboot":
+			return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)
+		case "watchdog":
+			return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
+		}
 	}
 	// Local cooperative admission must not depend on auth, fleet availability,
 	// communicator startup or native-entry reconciliation. All engines share it.
@@ -196,6 +208,10 @@ func setPersonaBuildInfo() {
 }
 
 func runHostCron(args []string, stdout, stderr io.Writer) int {
+	if clihelp.Requested(args) {
+		fmt.Fprintln(stdout, "Usage: cxx cron install|remove|run [--due] [--minimal]")
+		return 0
+	}
 	action, minimal, due, err := parseHostCronArgs(args)
 	if err != nil {
 		fmt.Fprintln(stderr, "cxx cron:", err)
@@ -259,6 +275,10 @@ type engineRunner func(args []string, stdout, stderr io.Writer) int
 // a child may re-exec after a self-update, this runs both legs in-process: a
 // sync-only lifecycle never re-execs.
 func runHostSync(args []string, stdout, stderr io.Writer) int {
+	if clihelp.Requested(args) {
+		fmt.Fprintln(stdout, "Usage: cxx sync [--minimal] [--allow-concurrent-sync]")
+		return 0
+	}
 	var passthrough []string
 	for _, arg := range args {
 		switch arg {

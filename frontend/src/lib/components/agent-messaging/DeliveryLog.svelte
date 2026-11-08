@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api } from "$lib/api/client";
+  import { api, ApiError } from "$lib/api/client";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   /**
    * The delivery log: raw per-message plumbing (status, attempts, errors) with
@@ -60,6 +60,9 @@
   let redriveTarget = $state<AgentMessageMetadata | null>(null);
   let freshTarget = $state<AgentMessageMetadata | null>(null);
   let freshReason = $state("");
+  let freshBusy = $state(false);
+  let freshError = $state<string | null>(null);
+  let freshUncertain = $state(false);
 
   function clearReveal() {
     guard.generation += 1;
@@ -111,14 +114,19 @@
   }
 
   async function approveFresh(item: AgentMessageMetadata, reason: string) {
+    if (freshBusy || freshUncertain) return;
+    freshBusy = true; freshError = null;
     try {
       await approveAgentFreshStart(item.id, item.execution_version ?? 1, reason);
       await queryClient.invalidateQueries({ queryKey: agentMessagingKeys.all });
       toast.success("One replacement session approved");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Approval failed");
-    } finally {
       freshTarget = null;
+    } catch (error) {
+      freshUncertain = !(error instanceof ApiError && error.status < 500);
+      freshError = `${error instanceof Error ? error.message : "Approval failed"}${freshUncertain ? " The outcome is unconfirmed. Close this dialog and inspect the refreshed delivery before approving again." : ""}`;
+      void queryClient.invalidateQueries({ queryKey: agentMessagingKeys.all });
+    } finally {
+      freshBusy = false;
     }
   }
 
@@ -181,7 +189,7 @@
           {#if canReveal || canMutate}
             <div class="flex flex-wrap gap-2 pt-1">
               {#if canReveal}<Button size="sm" variant="outline" disabled={busyMessage !== null} onclick={() => (revealTarget = message)}>{busyMessage === message.id ? "Revealing…" : "Reveal content"}</Button>{/if}
-              {#if needsFreshStart(message)}<Button size="sm" variant="outline" onclick={() => { freshReason = ""; freshTarget = message; }}>Approve one fresh start</Button>{/if}
+              {#if needsFreshStart(message)}<Button size="sm" variant="outline" disabled={freshBusy || !enabled} onclick={() => { freshReason = ""; freshError = null; freshUncertain = false; freshTarget = message; }}>Approve one fresh start</Button>{/if}
               {#if canRedrive(message)}<Button size="sm" variant="outline" disabled={$redrive.isPending || !enabled} onclick={() => (redriveTarget = message)}>Redrive</Button>{/if}
             </div>
           {/if}
@@ -214,7 +222,10 @@
   description="Approve one replacement session for this work only."
   label="Why is a fresh start authorized?"
   bind:value={freshReason}
-  onClose={() => (freshTarget = null)}
+  onClose={() => { if (!freshBusy) freshTarget = null; }}
+  busy={freshBusy}
+  error={freshError}
+  confirmDisabled={freshUncertain}
   confirmLabel="Approve fresh start"
   onConfirm={(reason) => { if (freshTarget) void approveFresh(freshTarget, reason); }}
 />

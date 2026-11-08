@@ -1511,7 +1511,8 @@ for (const mode of ["triage", "manage"] as const) {
     // Deny asks first, naming the host.
     await expect(page.getByRole("dialog", { name: "Deny host3.example.test?" })).toBeVisible();
     await page.getByRole("button", { name: "Deny access", exact: true }).click();
-    for (const client of clients) await expect(client.getByRole("dialog")).toBeHidden();
+    // Both the approval popup and its denial confirmation must finish closing.
+    for (const client of clients) await expect(client.locator('[role="dialog"]:visible')).toHaveCount(0);
     if (mode === "manage") {
       await page.evaluate(() => window.dispatchEvent(new Event("codex:open-insecure-approvals")));
       await expect(page.getByRole("dialog")).toContainText("No host is waiting for access.");
@@ -1565,7 +1566,7 @@ test("Access shows the Grok text gateway and issues a scoped client key", async 
   await page.getByRole("switch", { name: "Grok 4.5", exact: true }).click();
   await expect.poll(() => writes.some(w => w.path === "/admin/grok/models/grok-4.5/toggle")).toBe(true);
   await page.getByRole("group", { name: "Filter keys by API" }).getByRole("button", { name: "Grok", exact: true }).click();
-  await page.getByRole("button", { name: "New key", exact: true }).click();
+  await page.getByRole("search").getByRole("button", { name: "New key", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("button", { name: "API format", exact: true })).toContainText("Grok");
   await dialog.getByRole("button", { name: "Engine", exact: true }).click();
@@ -1752,7 +1753,7 @@ test("Access keeps keys visible, copies endpoints and preserves the vendor filte
   await expect(page.getByLabel("Proxy default model", { exact: true })).not.toBeVisible();
   await page.getByRole("button", { name: "Configure", exact: true }).click();
   await expect(keyFilter(page).getByRole("button", { name: "Anthropic", exact: true })).toHaveAttribute("aria-pressed", "true");
-  await page.getByRole("button", { name: "New key", exact: true }).click();
+  await page.getByRole("search").getByRole("button", { name: "New key", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("button", { name: "API format", exact: true })).toContainText("Anthropic");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);

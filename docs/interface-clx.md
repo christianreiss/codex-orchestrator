@@ -2756,3 +2756,8 @@ failure behavior and exact-session safeguards.
 See [RTK integration](rtk.md) for fleet/host controls, per-session disabling,
 local recall retention, engine adapters and deployment acceptance. Policy and
 observed adapter readiness are separate; changes apply to new launches.
+
+
+## Safe command discovery and operation feedback (cxx 0.9.172)
+
+Wrapper-owned command help (`-h`/`--help`, including nested command groups) returns success before configuration, authentication, service or privilege checks. Argument-free actions reject unexpected positional arguments; a help request never authorizes an uninstall, logout or portal relay closure. Native engine help retains its existing passthrough grammar. Housekeeping pin/unpin rejects the unsupported `--dry-run` combination before changing protection and returns structured receipts with `--json`; suspended Grok reaping also preserves JSON output. Empty model catalogs remain visible as unavailable, and compact launchers retain the active recovery notice.

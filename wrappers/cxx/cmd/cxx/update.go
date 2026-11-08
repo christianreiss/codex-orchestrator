@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"log/slog"
 	"net/url"
@@ -64,6 +65,10 @@ type engineUpdate struct {
 }
 
 func runHostUpdate(args []string, stdout, stderr io.Writer) int {
+	if clihelp.Requested(args) {
+		fmt.Fprintln(stdout, "Usage: cxx update [--minimal]")
+		return 0
+	}
 	minimal := false
 	for _, arg := range args {
 		switch arg {

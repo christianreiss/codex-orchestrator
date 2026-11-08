@@ -87,22 +87,40 @@
     onSuccess: () => { toast.success("Roster saved"); initialRoster = submittedRoster; saved(); },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not save roster"),
   });
+  let assistError = $state<string | null>(null);
+  let assistGeneration = 0;
   const assistMutation = createMutation({
-    mutationFn: () => assistProject(slug),
-    onSuccess: (data) => {
-      toast.success(data.assistant_message ? `Assist: ${data.assistant_message}` : "Assist generated");
-      const about = (data.about ?? {}) as Record<string, unknown>;
-      if (typeof about.title === "string") aboutTitle = about.title;
-      if (typeof about.name === "string") aboutName = about.name;
-      if (typeof about.description === "string") aboutDesc = about.description;
-      if (typeof data.roster_markdown === "string") roster = data.roster_markdown;
+    mutationFn: async ({ scope, generation }: { scope: "about" | "roster"; generation: number }) => {
+      assistError = null;
+      const before = { generation, slug, title: aboutTitle, name: aboutName, description: aboutDesc, roster };
+      return { data: await assistProject(slug), scope, before };
     },
-    onError: (err) => toast.error(err instanceof ApiError ? err.message : "Assist failed"),
+    onSuccess: ({ data, scope, before }) => {
+      if (!open || slug !== before.slug || before.generation !== assistGeneration) return;
+      const unchanged = scope === "roster" ? roster === before.roster : aboutTitle === before.title && aboutName === before.name && aboutDesc === before.description;
+      if (!unchanged) { assistError = "Your draft changed while generating. It has been kept; generate again from the current draft."; return; }
+      if (scope === "roster") {
+        if (typeof data.roster_markdown === "string") roster = data.roster_markdown;
+      } else {
+        const about = (data.about ?? {}) as Record<string, unknown>;
+        if (typeof about.title === "string") aboutTitle = about.title;
+        if (typeof about.name === "string") aboutName = about.name;
+        if (typeof about.description === "string") aboutDesc = about.description;
+      }
+      toast.success(data.assistant_message ? `Assist: ${data.assistant_message}` : "Assist generated");
+    },
+    onError: (err, request) => { if (open && request.generation === assistGeneration) assistError = err instanceof ApiError ? err.message : "Assist failed"; },
   });
+  function requestOpenChange(next: boolean) {
+    if (!next && ($aboutMutation.isPending || $rosterMutation.isPending || ((aboutChanged || rosterChanged) && !window.confirm("Discard the unsaved project details?")))) return;
+    if (!next) { resetAbout(); resetRoster(); assistError = null; assistGeneration++; }
+    open = next;
+  }
+
 </script>
 
 <DraftGuard dirty={aboutChanged || rosterChanged} preserveOnSamePath />
-<Sheet.Root bind:open>
+<Sheet.Root bind:open={() => open, requestOpenChange}>
   <Sheet.Content side="right" class="w-full overflow-y-auto sm:max-w-xl">
     <Sheet.Header>
       <Sheet.Title>Project details</Sheet.Title>
@@ -110,6 +128,7 @@
     </Sheet.Header>
 
     <div class="mt-4 space-y-6">
+      {#if assistError}<p role="alert" class="text-body-sm text-destructive">{assistError}</p>{/if}
       {#if $detailQuery.isError}
         <StateBlock state="error" cause={$detailQuery.error} message={$detailQuery.error instanceof ApiError ? $detailQuery.error.message : "Could not load project"} onRetry={() => void $detailQuery.refetch()} />
       {:else if !detail}
@@ -124,7 +143,7 @@
             <div class="grid gap-1.5"><Label for="about-desc">Description</Label><Textarea id="about-desc" disabled={$aboutMutation.isPending} bind:value={aboutDesc} rows={4} placeholder="What is this workspace for?" /></div>
           </div>
           <div class="mt-3 flex flex-wrap justify-end gap-2">
-            <Button variant="outline" onclick={() => $assistMutation.mutate()} disabled={$assistMutation.isPending}><Sparkles class="h-4 w-4" />{$assistMutation.isPending ? "Drafting…" : "AI-Assist"}</Button>
+            <Button variant="outline" onclick={() => $assistMutation.mutate({ scope: "about", generation: assistGeneration })} disabled={$assistMutation.isPending}><Sparkles class="h-4 w-4" />{$assistMutation.isPending ? "Drafting…" : "AI-Assist"}</Button>
             <Button variant="ghost" onclick={resetAbout} disabled={!aboutChanged}><RotateCcw class="h-4 w-4" /> Reset</Button>
             <Button onclick={() => $aboutMutation.mutate()} disabled={!aboutChanged || $aboutMutation.isPending}><Save class="h-4 w-4" />{$aboutMutation.isPending ? "Saving…" : "Save project details"}</Button>
           </div>
@@ -135,7 +154,7 @@
           <SaveState dirty={rosterChanged} pending={$rosterMutation.isPending} saved={$rosterMutation.isSuccess} error={$rosterMutation.error} />
           <Textarea disabled={$rosterMutation.isPending} bind:value={roster} rows={10} class="font-mono" aria-label="Roster" placeholder={"# Roster\n- @alice — owner\n- @bob — reviewer"} />
           <div class="mt-3 flex flex-wrap justify-end gap-2">
-            <Button variant="outline" onclick={() => $assistMutation.mutate()} disabled={$assistMutation.isPending}><Sparkles class="h-4 w-4" /> Draft Roster</Button>
+            <Button variant="outline" onclick={() => $assistMutation.mutate({ scope: "roster", generation: assistGeneration })} disabled={$assistMutation.isPending}><Sparkles class="h-4 w-4" /> Draft Roster</Button>
             <Button variant="ghost" onclick={resetRoster} disabled={!rosterChanged}><RotateCcw class="h-4 w-4" /> Reset</Button>
             <Button onclick={() => $rosterMutation.mutate()} disabled={!rosterChanged || $rosterMutation.isPending}><Save class="h-4 w-4" />{$rosterMutation.isPending ? "Saving…" : "Save roster"}</Button>
           </div>

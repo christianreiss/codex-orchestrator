@@ -21,13 +21,14 @@
   const enabledOptions = $derived(catalog.length ? catalog.filter((entry) => entry.enabled).map((entry) => ({ label: modelLabel(entry.id), value: entry.id })) : GROK_MODEL_OPTIONS);
   const modelDisabled = $derived(catalog.some((entry) => entry.id === model && !entry.enabled));
 </script>
-<SectionCard id="grok-engine" title="Grok API gateway" description="Applies to every API routed to Grok." error={$settings.error?.message ?? $models.error?.message ?? $save.error?.message ?? $modelToggle.error?.message}>
+<SectionCard status={$settings.isError || $models.isError || $save.isError || $modelToggle.isError ? "error" : "idle"} id="grok-engine" title="Grok API gateway" description="Applies to every API routed to Grok." error={$settings.error?.message ?? $models.error?.message ?? $save.error?.message ?? $modelToggle.error?.message}>
+  {#if $settings.isError || $models.isError}<Button variant="outline" size="sm" onclick={() => { void $settings.refetch(); void $models.refetch(); }}>Retry Grok gateway settings</Button>{/if}
   <div class="grid gap-2">
     <Label for="grok-proxy-model">Gateway default model</Label>
     <ModelSelect id="grok-proxy-model" bind:value={model} options={enabledOptions} label="Gateway default model" placeholder={DEFAULT_MODELS.grok} />
     {#if modelDisabled}<p class="text-xs text-destructive">{modelLabel(model)} is disabled; requests without a model fail until the default is an enabled model.</p>{/if}
     <p class="text-xs text-muted-foreground">Supports text messages and system instructions. Streaming, tools, images, sampling controls, and token limits are unavailable.</p>
-    <div><Button size="sm" disabled={$save.isPending || $settings.isPending || !model || modelDisabled} onclick={() => $save.mutate({ default_model: model })}>Save gateway default</Button></div>
+    <div><Button size="sm" disabled={$save.isPending || $settings.isPending || $settings.isError || $models.isPending || $models.isError || !model || modelDisabled} onclick={() => $save.mutate({ default_model: model })}>Save gateway default</Button></div>
   </div>
   <div class="grid gap-2 border-t pt-4">
     <p class="text-sm font-medium">Gateway models</p>

@@ -73,7 +73,7 @@
       caption="Agent roles"
     >
       {#snippet emptyAction()}
-        <Button onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />New role</Button>
+        <Button variant="outline" onclick={() => (createOpen = true)}><Plus class="h-4 w-4" />New role</Button>
       {/snippet}
       {#snippet head()}
         <Table.Head>Role</Table.Head>

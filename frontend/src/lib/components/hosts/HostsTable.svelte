@@ -65,7 +65,7 @@
   caption="Hosts"
 >
   {#snippet emptyAction()}
-    <Button size="sm" onclick={onAdd}><Plus class="h-4 w-4" /> Add host</Button>
+    <Button variant="outline" size="sm" onclick={onAdd}><Plus class="h-4 w-4" /> Add host</Button>
   {/snippet}
   {#snippet head()}
     <SortableHead label="Name" active={list.sortField === "fqdn"} dir={list.sortDir} onclick={() => list.setSort("fqdn")} />

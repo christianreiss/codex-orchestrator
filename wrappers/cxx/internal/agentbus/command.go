@@ -3,8 +3,10 @@ package agentbus
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"strconv"
 	"strings"
@@ -17,6 +19,13 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 	if len(args) == 0 {
 		printHelp(stderr)
 		return 2
+	}
+	switch args[0] {
+	case "translate", "mcp", "poll", "message", "status", "doctor", "activity-event", "watchdog-event", "native-session", "service":
+		if clihelp.Requested(args[1:]) {
+			printHelp(stdout)
+			return 0
+		}
 	}
 	var err error
 	switch args[0] {
@@ -65,6 +74,9 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 		printHelp(stderr)
 		return 2
 	}
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "cxx agent:", err)
 		return 1
@@ -81,7 +93,7 @@ func runList(args []string, stdout, stderr io.Writer) error {
 	host := flags.Int64("host", 0, "host id")
 	online := flags.Bool("online", false, "exclude offline addresses")
 	_ = flags.Bool("json", true, "JSON output (always enabled)")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
@@ -153,7 +165,7 @@ func runSend(args []string, stdin io.Reader, stdout, stderr io.Writer, request b
 	conversation := flags.String("conversation", "", "existing conversation UUID")
 	ttl := flags.Int("ttl-seconds", 0, "queued TTL (60..604800)")
 	waitSeconds := flags.Int("wait-seconds", 25, "request wait (0..25 seconds)")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*to) == "" {
@@ -235,7 +247,7 @@ func runWait(args []string, stdout, stderr io.Writer) error {
 	conversation := flags.String("conversation", "", "conversation UUID")
 	after := flags.Int64("after", 0, "last observed sequence")
 	seconds := flags.Int("seconds", 25, "long poll duration")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
 		return err
 	}
 	if *conversation == "" || *seconds < 0 || *seconds > 25 {
@@ -259,7 +271,7 @@ func runReply(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	timing := flags.String("delivery-timing", "", "immediate or after_turn (default after_turn; informational only)")
 	stdinFlag := flags.Bool("stdin", false, "read reply from stdin")
 	ttl := flags.Int("ttl-seconds", 0, "queued TTL")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*messageID) == "" {
@@ -315,7 +327,7 @@ func runCancel(args []string, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent cancel", stderr)
 	conversation := flags.String("conversation", "", "conversation UUID")
 	reason := flags.String("reason", "", "short cancellation reason")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || strings.TrimSpace(*conversation) == "" {
@@ -335,7 +347,7 @@ func runCancel(args []string, stdout, stderr io.Writer) error {
 func runListen(args []string, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent listen", stderr)
 	seconds := flags.Int("seconds", 25, "how long to wait")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 || *seconds < 0 || *seconds > 25 {
@@ -395,7 +407,7 @@ func runStatus(stdout io.Writer) error {
 func runWorkerCommand(args []string, stdout, stderr io.Writer, version string) error {
 	flags := newFlagSet("cxx agent worker", stderr)
 	foreground := flags.Bool("foreground", false, "run the relay in this process")
-	if err := flags.Parse(args); err != nil {
+	if err := clihelp.Parse(flags, args, stdout); err != nil {
 		return err
 	}
 	if !*foreground || flags.NArg() != 0 {

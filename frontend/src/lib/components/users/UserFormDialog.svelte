@@ -29,10 +29,11 @@
     mode: Mode;
     initial?: AdminUser | null;
     submitting?: boolean;
+    serverError?: string | null;
     onSubmit: (payload: AdminUserPayload) => void | Promise<void>;
   };
 
-  let { open, onOpenChange, mode, initial, submitting = false, onSubmit }: Props = $props();
+  let { open, onOpenChange, mode, initial, submitting = false, serverError = null, onSubmit }: Props = $props();
 
   const isEdit = $derived(mode === "edit");
 
@@ -300,6 +301,7 @@
         {/if}
       </div>
 
+      {#if serverError}<p role="alert" class="text-body-sm text-destructive">{serverError}</p>{/if}
       <Dialog.Footer>
         <Button type="button" variant="outline" onclick={() => requestOpenChange(false)} disabled={submitting}>
           Cancel

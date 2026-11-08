@@ -56,6 +56,9 @@
     {#if complete}
       <Alert><AlertDescription>Your password has been reset. You can now sign in.</AlertDescription></Alert>
       <Button href={`${base}/login`} class="w-full">Return to sign in</Button>
+    {:else if !token}
+      <Alert variant="destructive"><AlertDescription>This reset link is missing its token. Request a new password reset link from the sign-in page.</AlertDescription></Alert>
+      <Button href={`${base}/login`} class="w-full">Return to sign in</Button>
     {:else}
       <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); void submit(); }}>
         <FormField id="new-password" label="New password" hint="Use at least 12 characters.">

@@ -257,6 +257,9 @@ func (p *picker) quotaBar(i, width int) string {
 
 func (p *picker) modelCard(width, height int) []string {
 	e := p.current()
+	if len(e.Models) == 0 {
+		return p.card([]string{p.label(e), p.dim("no current models enabled")}, width, true, e.Name)
+	}
 	c := &p.cursors[p.focus]
 	rows := max(1, height-9)
 	rows = min(rows, len(e.Models))
@@ -295,6 +298,9 @@ func (p *picker) scroll(rows int) {
 // always rendered, even while transitioning or when the full strip won't fit.
 func (p *picker) effortSegments(width int) string {
 	c := p.cursors[p.focus]
+	if len(p.current().Models) == 0 {
+		return p.dim("no current models enabled")
+	}
 	efforts := p.current().Models[c.model].Efforts
 	if len(efforts) == 0 {
 		return p.dim("no effort setting")
@@ -359,13 +365,10 @@ func ansiStripText(s string) string { return ansi.Strip(s) }
 // and notices get space before decorative content; no off-screen selected row.
 func (p *picker) renderCompact(width, height int) string {
 	if height < 8 {
-		c := p.cursors[p.focus]
-		m := p.current().Models[c.model]
-		line := p.current().Label() + " " + modelName(m.ID)
-		if c.effort < len(m.Efforts) {
-			line += " [" + m.Efforts[c.effort] + "]"
+		lines := []string{p.fit(p.current().Label()+" "+ansiStripText(p.summary(p.focus)), width), p.fit("enter new  c continue  q quit", width)}
+		if p.notice != "" {
+			lines = append(lines, strings.Split(ansi.Wrap(p.notice, width, ""), "\n")...)
 		}
-		lines := []string{p.fit(line, width), p.fit("enter new  c continue  q quit", width), p.fit(p.notice, width)}
 		return strings.Join(lines[:min(height, len(lines))], "\n")
 	}
 	lines := []string{p.bold("cxx") + p.dim(" / launchpad")}
@@ -399,6 +402,9 @@ func (p *picker) renderCompact(width, height int) string {
 			lines = append(lines, p.fit(marker+modelName(p.current().Models[i].ID), width))
 		}
 		position := fmt.Sprintf("%d / %d", c.model+1, len(p.current().Models))
+		if len(p.current().Models) == 0 {
+			position = "no current models enabled"
+		}
 		if len(p.current().Models) > rows {
 			position += "  more"
 		}
@@ -406,7 +412,14 @@ func (p *picker) renderCompact(width, height int) string {
 	}
 	footer := p.footerLines(width)
 	// Space belongs to the content, not a fixed vertical offset on small TTYs.
-	lines = append(lines, footer[1:5]...)
+	// Active recovery text and navigation get their own rows before optional
+	// summaries. Cropping the whole result used to hide notices at eight rows.
+	essential := []string{footer[2], footer[3]}
+	if p.notice != "" {
+		essential = append(essential, strings.Split(ansi.Wrap(p.notice, width, ""), "\n")...)
+	}
+	essential = essential[:min(height-1, len(essential))]
+	lines = append(lines[:min(len(lines), height-len(essential))], essential...)
 	for i := range lines {
 		lines[i] = p.fit(lines[i], width)
 	}

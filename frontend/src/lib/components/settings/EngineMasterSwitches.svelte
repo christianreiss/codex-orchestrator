@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Timestamp from "$lib/components/page/Timestamp.svelte";
+  import { formatDateTime } from "$lib/utils/format";
   /**
    * Fleet-wide engine master switches: one compact row, each switch confirmed in
    * both directions. Turning an engine off suspends it on every host and stops
@@ -111,7 +111,7 @@
     const hostsText = `${row.assigned_hosts} ${row.assigned_hosts === 1 ? "host" : "hosts"} assigned`;
     const parts = [row.enabled ? `On · ${hostsText}` : `Off fleet-wide · ${hostsText}, suspended`];
     if (row.updated_at) {
-      parts.push(`changed $<Timestamp value={row.updated_at} />${row.updated_by ? ` by ${row.updated_by}` : ""}`);
+      parts.push(`changed ${formatDateTime(row.updated_at)}${row.updated_by ? ` by ${row.updated_by}` : ""}`);
     }
     return parts.join(" · ");
   }

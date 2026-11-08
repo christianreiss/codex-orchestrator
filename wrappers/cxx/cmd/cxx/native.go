@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"os"
 	"strings"
@@ -120,6 +121,10 @@ func reconcileNativeEntries(requireAssignment ...bool) error {
 }
 
 func runNativeEntry(args []string, stdout, stderr io.Writer) int {
+	if clihelp.Requested(args) {
+		fmt.Fprintln(stdout, "Usage: cxx native-entry status|install|remove")
+		return 0
+	}
 	if len(args) != 1 {
 		fmt.Fprintln(stderr, "usage: cxx native-entry status|install|remove")
 		return 2

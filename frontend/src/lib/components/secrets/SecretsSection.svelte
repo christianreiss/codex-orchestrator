@@ -4,6 +4,7 @@
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import { Switch } from "$lib/components/ui/switch";
+  import { Button } from "$lib/components/ui/button";
   import { Section } from "$lib/components/page";
   import SecretsList from "./SecretsList.svelte";
   import NewSecretDialog from "./NewSecretDialog.svelte";
@@ -52,11 +53,11 @@
 <Section id="secrets" title="Secrets" hideTitle>
   {#snippet actions()}
     <label class="flex items-center gap-2 text-body-sm text-muted-foreground">
-      Store enabled
+      {$stateQuery.isError || !moduleState ? "Store state unavailable" : "Store enabled"}
       <Switch
         id="secrets-enabled"
         checked={enabled}
-        disabled={!canManage || $stateQuery.isLoading || $toggleMutation.isPending}
+        disabled={!canManage || !moduleState || $stateQuery.isError || $stateQuery.isLoading || $toggleMutation.isPending}
         onCheckedChange={(next) => $toggleMutation.mutate(next)}
         aria-label="Fleet secrets store"
       />
@@ -64,6 +65,8 @@
   {/snippet}
 
   <div class="space-y-3">
+    {#if $stateQuery.isError}<p role="alert" class="text-body-sm text-destructive">Could not load secrets store state: {$stateQuery.error.message}</p><Button variant="outline" size="sm" onclick={() => $stateQuery.refetch()}>Retry store state</Button>{/if}
+    {#if $toggleMutation.isError}<p role="alert" class="text-body-sm text-destructive">{$toggleMutation.error.message}</p>{/if}
     <SecretsList onEdit={openEdit} onCreate={openCreate} />
 
     {#if moduleState && !enabled}

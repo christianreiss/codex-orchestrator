@@ -3,7 +3,7 @@
   import { Label } from "$lib/components/ui/label";
   import { Button } from "$lib/components/ui/button";
   import * as Select from "$lib/components/ui/select";
-  import RepeatableList from "./RepeatableList.svelte";
+  import { hookGroups, hooksFromGroups, type HookGroup } from "./hook-model";
   import { HOOK_EVENTS } from "$lib/constants/models";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -28,64 +28,10 @@
   export type HookEntry = { matcher?: string; hooks: HookCommand[] };
   export type HooksMap = Record<string, HookEntry[]>;
 
-  /** Editor-internal row: flattened for the UI, never stored in this shape. */
-  export type HookRow = { matcher: string; commands: string[]; timeout?: number };
-
-  type Props = {
-    hooks: HooksMap;
-    disabled?: boolean;
-  };
+  type Props = { hooks: HooksMap; disabled?: boolean };
   let { hooks = $bindable({}), disabled = false }: Props = $props();
-
-  // Internal flat representation so each event group is independently editable.
-  type Group = { event: string; rows: HookRow[] };
-
-  /**
-   * Wire -> editor. Also understands the pre-fix `{ matcher, commands }` rows so
-   * a fleet that saved hooks under the old code still loads them here (and is
-   * migrated to the correct shape the next time the form is saved).
-   */
-  function toGroups(map: HooksMap): Group[] {
-    return Object.entries(map ?? {}).map(([event, rows]) => ({
-      event,
-      rows: (rows ?? []).map((r) => {
-        const legacy = (r as unknown as { commands?: string[] }).commands;
-        const commands = Array.isArray(r?.hooks)
-          ? r.hooks.filter((h) => h?.type === "command" && typeof h.command === "string").map((h) => h.command)
-          : Array.isArray(legacy)
-            ? [...legacy]
-            : [];
-        const timeout = Array.isArray(r?.hooks)
-          ? r.hooks.find((h) => typeof h?.timeout === "number")?.timeout
-          : undefined;
-        return { matcher: r?.matcher ?? "", commands, ...(timeout === undefined ? {} : { timeout }) };
-      }),
-    }));
-  }
-
-  /**
-   * Editor -> wire. `matcher` is omitted rather than sent empty: it is optional
-   * upstream, and events like Stop or UserPromptSubmit have no tool name to
-   * match, so an empty string would be a pattern that matches nothing.
-   */
-  function commit(groups: Group[]) {
-    const next: HooksMap = {};
-    for (const g of groups) {
-      if (!g.event) continue;
-      next[g.event] = g.rows.map((r) => {
-        const matcher = r.matcher?.trim() ?? "";
-        return {
-          ...(matcher === "" ? {} : { matcher }),
-          hooks: r.commands.map((command) => ({
-            type: "command" as const,
-            command,
-            ...(r.timeout === undefined ? {} : { timeout: r.timeout }),
-          })),
-        };
-      });
-    }
-    hooks = next;
-  }
+  const toGroups = hookGroups;
+  function commit(groups: HookGroup[]) { hooks = hooksFromGroups(groups); }
 
   function addEvent() {
     const groups = toGroups(hooks);
@@ -119,9 +65,19 @@
     groups[groupIndex].rows[rowIndex].matcher = matcher;
     commit(groups);
   }
-  function setCommands(groupIndex: number, rowIndex: number, commands: string[]) {
+  function setCommand(groupIndex: number, rowIndex: number, index: number, command: string) {
     const groups = toGroups(hooks);
-    groups[groupIndex].rows[rowIndex].commands = commands;
+    groups[groupIndex].rows[rowIndex].commands[index].command = command;
+    commit(groups);
+  }
+  function removeCommand(groupIndex: number, rowIndex: number, index: number) {
+    const groups = toGroups(hooks);
+    groups[groupIndex].rows[rowIndex].commands.splice(index, 1);
+    commit(groups);
+  }
+  function addCommand(groupIndex: number, rowIndex: number) {
+    const groups = toGroups(hooks);
+    groups[groupIndex].rows[rowIndex].commands.push({ type: "command", command: "" });
     commit(groups);
   }
 
@@ -190,15 +146,15 @@
                 <Trash2 class="h-4 w-4 text-destructive" />
               </Button>
             </div>
-            <RepeatableList
-              items={row.commands}
-              label="Command"
-              heading="Commands"
-              placeholder="command to run"
-              addLabel="Add command"
-              {disabled}
-              onItemsChange={(items) => setCommands(gi, ri, items)}
-            />
+            <div class="space-y-2" role="group" aria-label="Commands">
+              {#each row.commands as command, ci (ci)}
+                <div class="flex items-center gap-2">
+                  <Input value={command.command} aria-label={`Command ${ci + 1}`} placeholder="command to run" {disabled} oninput={(e) => setCommand(gi, ri, ci, e.currentTarget.value)} />
+                  <Button type="button" variant="ghost" size="sm" {disabled} aria-label="Remove command" onclick={() => removeCommand(gi, ri, ci)}><Trash2 class="h-4 w-4 text-destructive" /></Button>
+                </div>
+              {/each}
+              <Button type="button" variant="outline" size="sm" {disabled} onclick={() => addCommand(gi, ri)}><Plus class="h-4 w-4" /> Add command</Button>
+            </div>
             </div>
           {/each}
         </div>

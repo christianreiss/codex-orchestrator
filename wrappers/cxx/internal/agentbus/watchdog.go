@@ -3,7 +3,9 @@ package agentbus
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"net/http"
 	"os"
@@ -14,11 +16,14 @@ import (
 // RunWatchdogCommand uses the current private bridge by default. An explicit
 // target outside that session uses signed host config, without registering a relay.
 func RunWatchdogCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] == "--help" || args[0] == "help" {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
 		fmt.Fprintln(stdout, "cxx watchdog status [--id UUID | --target agent:UUID]\ncxx watchdog on --task-key KEY --stdin [--target agent:UUID] [--duration 2h] [--progress-timeout 10m] [--version N]\ncxx watchdog off --id UUID --version N\nContinuation text is read from stdin. Keep-alives: 15s; deadline stops future recovery.")
 		return 0
 	}
 	if err := runWatchdog(args, stdin, stdout, stderr); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		fmt.Fprintln(stderr, "cxx watchdog:", err)
 		return 1
 	}
@@ -37,7 +42,7 @@ func runWatchdog(args []string, stdin io.Reader, stdout, stderr io.Writer) error
 	timeout := flags.Duration("progress-timeout", 10*time.Minute, "maximum time without progress")
 	version := flags.Int("version", 0, "version returned by status")
 	fromStdin := flags.Bool("stdin", false, "read continuation from stdin")
-	if err := flags.Parse(args[1:]); err != nil {
+	if err := clihelp.Parse(flags, args[1:], stdout); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {

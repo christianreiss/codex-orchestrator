@@ -14,6 +14,15 @@
 # Requires: skopeo (or docker/podman with `manifest inspect`), curl, jq.
 set -euo pipefail
 
+if (( $# )); then
+  if (( $# == 1 )) && [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    printf '%s\n' 'Usage: scripts/update-base-images.sh' 'Refresh pinned base-image digests and runner checksums in this checkout.'
+    exit 0
+  fi
+  printf '%s\n' 'Unsupported arguments. Run scripts/update-base-images.sh --help.' >&2
+  exit 2
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 

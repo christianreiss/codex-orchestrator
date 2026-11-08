@@ -49,6 +49,7 @@
   let sortKey = $state<SortKey>("person");
   let sortDir = $state<"asc" | "desc">("asc");
   let formOpen = $state(false);
+  let formError = $state<string | null>(null);
   let formMode = $state<"create" | "edit">("create");
   let editTarget = $state<AdminUser | null>(null);
   let deleteOpen = $state(false);
@@ -92,8 +93,8 @@
     });
   });
 
-  function openAdd() { formMode = "create"; editTarget = null; formOpen = true; }
-  function openEdit(user: AdminUser) { formMode = "edit"; editTarget = user; formOpen = true; }
+  function openAdd() { formError = null; formMode = "create"; editTarget = null; formOpen = true; }
+  function openEdit(user: AdminUser) { formError = null; formMode = "edit"; editTarget = user; formOpen = true; }
   function openDelete(user: AdminUser) { deleteTarget = user; deleteError = null; deleteOpen = true; }
 
   function clearUserParam(): void {
@@ -117,6 +118,7 @@
   });
 
   async function handleFormSubmit(payload: AdminUserPayload) {
+    formError = null;
     try {
       if (formMode === "create") {
         await $createMut.mutateAsync(payload);
@@ -130,7 +132,8 @@
       formOpen = false;
       clearUserParam();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save user");
+      formError = err instanceof Error ? err.message : "Failed to save user";
+      toast.error(formError);
     }
   }
 
@@ -243,6 +246,7 @@
   mode={formMode}
   initial={editTarget}
   submitting={$createMut.isPending || $updateMut.isPending}
+  serverError={formError}
   onSubmit={handleFormSubmit}
 />
 

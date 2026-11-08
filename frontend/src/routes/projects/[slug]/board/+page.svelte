@@ -36,9 +36,9 @@
   const failed = (err: unknown, fallback: string) => toast.error(err instanceof ApiError ? err.message : fallback);
 
   const createMut = createMutation({
-    mutationFn: () => createCard(slug, { title: formTitle.trim() }),
+    mutationFn: (title: string) => createCard(slug, { title }),
     onError: (err) => failed(err, "Could not create the card"),
-    onSuccess: () => { toast.success("Card created"); formTitle = ""; },
+    onSuccess: (_result, submitted) => { toast.success("Card created"); if (formTitle.trim() === submitted) formTitle = ""; },
     onSettled: refresh,
   });
   const moveMut = createMutation({
@@ -104,11 +104,14 @@
       {/each}
     </div>
 
-    <form class="flex flex-wrap items-center gap-2" onsubmit={(event) => { event.preventDefault(); if (formTitle.trim()) $createMut.mutate(); }}>
+    <form class="flex flex-wrap items-center gap-2" onsubmit={(event) => { event.preventDefault(); if (formTitle.trim() && !$createMut.isPending) $createMut.mutate(formTitle.trim()); }}>
       <label for="new-card-title" class="w-full text-body font-medium">New card title</label>
       <Input id="new-card-title" bind:value={formTitle} placeholder="New card title" class="max-w-sm" aria-label="New card title" />
       <Button type="submit" disabled={!formTitle.trim() || $createMut.isPending}><Plus class="h-4 w-4" /> Add card</Button>
     </form>
+    {#if $createMut.isError}<p role="alert" class="text-body-sm text-destructive">Could not create the card: {$createMut.error.message}</p>{/if}
+    {#if $moveMut.isError}<p role="alert" class="text-body-sm text-destructive">Could not move the card: {$moveMut.error.message}</p>{/if}
+    {#if $releaseMut.isError}<p role="alert" class="text-body-sm text-destructive">Could not release the claim: {$releaseMut.error.message}</p>{/if}
 
     {#if reclaimed.length > 0}
       <Section title="Recently reclaimed" description="Claims the board took back because the agent holding them stopped without releasing.">

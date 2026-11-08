@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
+  import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { toast } from "svelte-sonner";
   import { memoriesApi, memoriesKeys, type MemoryRecord } from "$lib/api/memories";
   import { Button } from "$lib/components/ui/button";
@@ -18,6 +19,11 @@
   const qc = useQueryClient();
   let content = $state("");
   let wasOpen = false;
+
+  function requestOpenChange(next: boolean): void {
+    if (!next && ($mutation.isPending || (content.trim() && !window.confirm("Discard the unsaved append?")))) return;
+    setOpen(next);
+  }
 
   function setOpen(next: boolean): void {
     open = next;
@@ -55,7 +61,8 @@
   }
 </script>
 
-<Dialog.Root bind:open onOpenChange={setOpen}>
+<DraftGuard dirty={open && Boolean(content.trim())} />
+<Dialog.Root bind:open={() => open, requestOpenChange}>
   <Dialog.Content size="lg">
     <form class="space-y-4" onsubmit={submit}>
       <Dialog.Header>
@@ -66,11 +73,12 @@
       </Dialog.Header>
       <div class="space-y-1.5">
         <Label for="append-memory-content">Content to append</Label>
-        <Textarea id="append-memory-content" bind:value={content} rows={10} class="font-mono text-caption leading-5" placeholder="Additional durable context…" />
+        <Textarea id="append-memory-content" disabled={$mutation.isPending} bind:value={content} rows={10} class="font-mono text-caption leading-5" placeholder="Additional durable context…" />
         <p class="text-right text-caption text-muted-foreground">{content.length.toLocaleString()} characters</p>
       </div>
+      {#if $mutation.error}<p role="alert" class="text-body-sm text-destructive">{$mutation.error instanceof Error ? $mutation.error.message : "Could not confirm the append."} Your text is retained. If the response was lost, check the memory before appending again.</p>{/if}
       <Dialog.Footer>
-        <Button type="button" variant="outline" onclick={() => setOpen(false)} disabled={$mutation.isPending}>Cancel</Button>
+        <Button type="button" variant="outline" onclick={() => requestOpenChange(false)} disabled={$mutation.isPending}>Cancel</Button>
         <Button type="submit" disabled={$mutation.isPending || !content}>
           {$mutation.isPending ? "Appending…" : "Append content"}
         </Button>

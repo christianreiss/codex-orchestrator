@@ -10,6 +10,15 @@
 
 set -euo pipefail
 
+if (( $# )); then
+  if (( $# == 1 )) && [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    printf '%s\n' 'Usage: scripts/wrapper-v2-init-keys.sh' 'Generate a new wrapper signing keypair; refuses to overwrite an existing key.'
+    exit 0
+  fi
+  printf '%s\n' 'Unsupported arguments. Run scripts/wrapper-v2-init-keys.sh --help.' >&2
+  exit 2
+fi
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 KEY_DIR="$ROOT/storage/wrapper/v2/keys"
 PRIV="$KEY_DIR/signing.ed25519"

@@ -936,7 +936,7 @@ describe('wrapper transition helpers', () => {
     const output = result.stdout + result.stderr;
     expect(result.status).toBe(0);
     expect(output).toContain('READY | Codex + Claude installed successfully');
-    expect(output).toContain('cdx sync: credential sync did not finish; the next cron tick retries it\n  retry: cdx sync\n');
+    expect(output).toContain('cdx sync: credential sync did not finish; run the retry command to check its outcome\n  retry: cdx sync\n');
     expect(output).toContain('clx sync: credential sync did not finish');
     expect(output).not.toContain('INCOMPLETE');
   });

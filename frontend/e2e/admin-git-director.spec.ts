@@ -96,11 +96,22 @@ test('mobile views, read-only details, fallback view and empty states',async({pa
 });
 test('registry failures remain visible without blocking settings',async({page})=>{
  await fixture(page);
- await page.route('**/admin/git-director',route=>route.request().headers().accept?.includes('application/json')?route.fulfill({status:403,json:{status:'error',message:'Registry unavailable'}}):route.fallback());
+ await page.route('**/admin/git-director',route=>route.request().headers().accept?.includes('application/json')?route.fulfill({status:503,json:{status:'error',message:'Registry unavailable'}}):route.fallback());
  await page.goto('/admin/git-director');
  await page.getByRole('button',{name:'Settings',exact:true}).click();
  await expect(page.getByLabel('Message length')).toBeVisible();
  await page.getByRole('button',{name:'Worktrees',exact:true}).click();
  await expect(page.getByRole('alert')).toContainText('Registry unavailable');
  await expect(page.getByText('No active worktrees')).toHaveCount(0);
+});
+
+test('registry access denial remains distinct from an outage',async({page})=>{
+ await fixture(page);
+ await page.route('**/admin/git-director',route=>route.request().headers().accept?.includes('application/json')?route.fulfill({status:403,json:{status:'error',message:'Registry access denied'}}):route.fallback());
+ await page.goto('/admin/git-director');
+ await page.getByRole('button',{name:'Worktrees',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'No access',exact:true})).toBeVisible();
+ await expect(page.getByText('No active worktrees')).toHaveCount(0);
+ await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await expect(page.getByLabel('Message length')).toBeVisible();
 });

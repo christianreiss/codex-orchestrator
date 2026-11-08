@@ -18,7 +18,7 @@ async function fixtures(page: Page) {
     const json=(data: unknown,status=200)=>route.fulfill({status,json:data});
     let body:Record<string,unknown>={};try{body=req.postDataJSON();}catch{}
     if (req.method()==="POST") state.calls.push({path,body});
-    if (state.denied) return json({status:"error",message:"Requires workflows.read"},403);
+    if (state.denied) return json({status:"error",message:"Requires workflows.read",required_capability:"workflows.read"},403);
     if (state.fail && req.method()==="GET") return json({status:"error",message:"Workflow storage unavailable"},503);
     if (path.endsWith("/state")) {if(req.method()==="POST") state.enabled=Boolean(body.enabled);return json({enabled:state.enabled});}
     if (path==="/admin/workflow-definitions") {if(req.method()==="POST")return json({...current,...body,version:1});return json({enabled:state.enabled,items:state.empty||url.searchParams.get("search")==="absent"?[]:[{...current,title:current.document.title,summary:current.document.summary}],next_cursor:null});}
@@ -50,11 +50,18 @@ async function fixtures(page: Page) {
 test("catalog distinguishes disabled, empty, filtered, denied and failed states",async({page})=>{
   const {state}=await fixtures(page);await page.goto("/admin/workflows");
   await expect(page.getByRole("link",{name:document.title,exact:true})).toBeVisible();
-  await page.getByLabel("Find workflows").fill("absent");await page.getByRole("button",{name:"Search",exact:true}).click();await expect(page.getByText("No matches",{exact:true})).toBeVisible();await expect(page).toHaveURL(/search=absent/);await page.getByRole("button",{name:"Clear filters"}).click();
+  await page.getByLabel("Find workflows").fill("absent");await page.getByRole("button",{name:"Search",exact:true}).click();await expect(page.getByText("No matches",{exact:true})).toBeVisible();await expect(page).toHaveURL(/search=absent/);await page.getByRole("search").getByRole("button",{name:"Clear filters",exact:true}).click();
   await page.getByRole("switch",{name:"Workflows enabled"}).click();await expect(page.getByText("Workflows are disabled",{exact:true})).toBeVisible();await expect(page.getByRole("link",{name:"New workflow",exact:true})).toBeVisible();
   state.empty=true;await page.reload();await expect(page.getByText("No workflows created",{exact:true})).toBeVisible();
   state.fail=true;await page.reload();await expect(page.getByRole("alert").first()).toContainText(/Could not load|unavailable/);await expect(page.getByText("No workflows created",{exact:true})).toHaveCount(0);
-  state.fail=false;state.denied=true;await page.reload();await expect(page.getByRole("alert").last()).toContainText("Requires workflows.read");expect(state.errors).toEqual([]);
+  state.fail=false;state.denied=true;await page.reload();
+  const denied=page.getByRole("heading",{name:"No access",exact:true}).last().locator("..");
+  await expect(denied).toContainText("You need the workflows.read capability. An owner or admin can grant it.");
+  await expect(page.getByRole("table",{name:"Workflow catalog"})).toHaveCount(0);
+  await expect(page.getByText("No workflows created",{exact:true})).toHaveCount(0);
+  await expect(denied.getByRole("link",{name:"New workflow",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Retry",exact:true})).toHaveCount(0);
+  expect(state.errors).toEqual([]);
 });
 
 test("structured editor preserves draft on rejection and compares the current head",async({page})=>{
