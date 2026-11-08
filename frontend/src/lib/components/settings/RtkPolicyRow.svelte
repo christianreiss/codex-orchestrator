@@ -65,6 +65,6 @@
     {:else if $save.error}
       <p id={`${uid}-error`} role="alert" class="text-destructive">Save unconfirmed: {$save.error.message}. Requested: {attempted === null ? "Inherit" : attempted ? "Enabled" : "Disabled"}. The policy above shows the last fetched state.</p>
       <Button variant="outline" size="sm" disabled={disabled} onclick={() => { if (attempted !== undefined) void change(attempted); }}>Retry change</Button>
-    {:else if $save.isSuccess}<p role="status" class="text-muted-foreground">Saved. Applies to new sessions.</p>{/if}
+    {:else if $save.isSuccess}<p role="status" class="text-muted-foreground">Saved. Applies to new sessions after host sync.</p>{/if}
   </div>
 </div>
