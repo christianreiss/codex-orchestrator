@@ -1793,3 +1793,5 @@ Whole-application Slop review ingestion uses `slop_job_import` with one transfer
 ### Slop audit remediation (2026-11-08)
 
 Editors preserve meaningful drafts across delayed saves, canceled AI suggestions and background setup failures. Unknown module/settings reads remain unavailable until refreshed; failures remain next to their action. Hook timeout edits preserve untouched command settings. URL filters flush before detail navigation, and the design test inventory contains every route. Wrapper-owned help is read-only; installer preflight rejects unsupported platforms and arguments, while readiness and Slop grep distinguish invalid input from successful inspection. See the engine interface documents for cxx 0.9.172 CLI contracts and `docs/verification/slop-remediation-2026-11-08.md` for actual checks and remaining proof limits.
+
+OAuth chat-app connectors are separately controlled and default off. See [connector setup and permissions](connectors.md).

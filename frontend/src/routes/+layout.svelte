@@ -85,7 +85,8 @@
       if (!state.enforced && currentPath !== "/setup") {
         void goto(`${base}/setup`, { replaceState: true });
       } else if (!state.loading && state.enforced && !state.authenticated && !isStandalone) {
-        void goto(`${base}/login`, { replaceState: true });
+        const connectorReturn = currentPath === "/connectors" && window.location.search ? `?next=${encodeURIComponent(currentPath + window.location.search)}` : "";
+        void goto(`${base}/login${connectorReturn}`, { replaceState: true });
       } else if (!state.loading && state.authenticated && !isStandalone && !setupRedirected()) {
         // Check first-run setup in the background: infrastructure probes must
         // not hold up authenticated pages. Remember successful checks once per

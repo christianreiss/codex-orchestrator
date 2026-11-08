@@ -257,6 +257,7 @@ describe('migrations against the test baseline', () => {
       'slop_jobs',
       'slop_job_files',
       'slop_runs',
+      'connector_records',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -401,6 +402,7 @@ describe('migrations against the test baseline', () => {
       'host_daemon_sessions.permission_mode',
       'agent_bus_messages.quota_emulation_wait',
       'hosts.agents_extra',
+      'agent_bus_messages.connector_grant_id',
     ]);
   });
 

@@ -4234,3 +4234,27 @@ Policy writes are audited and publish settings/host invalidations. New policy ap
 Generated installer launchers, full installers and legacy transition scripts answer help locally before network or filesystem mutations. Installers reject unsupported arguments; preflight accepts only Linux/macOS amd64/arm64 and refuses unsupported pairs before the single-use token claim. Enabled insecure curl transport emits a stderr notice explaining how to restore certificate verification. Seed uploads retain HTTP status and allowlisted server error codes in sanitized diagnostics, use unique private response files and remove them at exit. Failed daemon prerequisites name the missing command, account, home or working directory. Credential-sync warnings give the explicit retry rather than promise an unverified cron retry.
 
 Generated seed-auth uploaders and host-spawn setup scripts also handle `--help`/`-h` locally before credential reads, login, privilege checks or temporary files. Unsupported arguments (including unsupported `--dry-run`) exit 2 before an operation; run without arguments to execute.
+
+## OAuth chat connectors
+
+See [connectors.md](connectors.md) for the default-off OAuth/MCP surface, consent, scope enforcement, token lifecycle and setup. This surface is separate from host `/mcp` and never accepts host keys.
+## OAuth chat connectors
+
+Default off; see [connector contract](connectors.md). Admin routes require a dashboard session; policy writes require strict authorization administration. OAuth routes use the separate connector flow.
+
+- `GET /admin/connectors/config`
+- `PUT /admin/connectors/config`
+- `POST /admin/connectors/preview`
+- `POST /admin/connectors/clients`
+- `GET /admin/connectors/connections`
+- `DELETE /admin/connectors/connections/:id`
+- `GET /.well-known/oauth-protected-resource/connectors/mcp`
+- `GET /.well-known/oauth-authorization-server`
+- `POST /oauth/register`
+- `GET /oauth/authorize`
+- `GET /admin/connectors/consent/:id`
+- `POST /admin/connectors/consent/:id`
+- `POST /oauth/token`
+- `POST /oauth/revoke`
+- `GET /connectors/mcp`
+- `POST /connectors/mcp`

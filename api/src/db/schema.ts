@@ -1852,6 +1852,7 @@ export const agentBusMessages = mysqlTable(
     deliveryTiming: varchar('delivery_timing', { length: 16 }).notNull().default('after_turn'),
     coalesceKey: varchar('coalesce_key', { length: 128 }),
     relatedWorkId: char('related_work_id', { length: 36 }),
+    connectorGrantId: char('connector_grant_id', {length:36}),
     eventCount: int('event_count', { unsigned: true }).notNull().default(1),
     eventFirstAt: varchar('event_first_at', { length: 100 }),
     eventLastAt: varchar('event_last_at', { length: 100 }),
@@ -3197,3 +3198,11 @@ export const slopRuns = mysqlTable('slop_runs', {
   status: index('idx_slop_runs_status').on(t.status),
 }));
 export type SlopRun = typeof slopRuns.$inferSelect;
+
+export const connectorRecords = mysqlTable('connector_records', {
+  id: varchar('id', { length: 160 }).primaryKey(),
+  kind: varchar('kind', { length: 24 }).notNull(),
+  bodyJson: mediumtext('body_json').notNull(),
+  expiresAt: varchar('expires_at', { length: 100 }),
+  createdAt: varchar('created_at', { length: 100 }).notNull(),
+}, t => ({ kind: index('idx_connector_records_kind').on(t.kind), expiry: index('idx_connector_records_expiry').on(t.expiresAt) }));

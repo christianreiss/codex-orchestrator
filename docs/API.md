@@ -1497,3 +1497,24 @@ Client (`Authorization: Bearer cxe_…`, errors as `{error:{code,message}}`):
 - `GET /wrapper/v2/rtk/v:version/:platform` — host-authenticated verified OSS archive; required engine query, version pinned to 1.2.0.
 
 See [RTK](rtk.md) for engine modes, session disable and local recall behavior.
+
+## OAuth chat connectors
+
+Default off; see [connector contract](connectors.md). Admin routes require a dashboard session; policy writes require strict authorization administration. OAuth routes use the separate connector flow.
+
+- `GET /admin/connectors/config`
+- `PUT /admin/connectors/config`
+- `POST /admin/connectors/preview`
+- `POST /admin/connectors/clients`
+- `GET /admin/connectors/connections`
+- `DELETE /admin/connectors/connections/:id`
+- `GET /.well-known/oauth-protected-resource/connectors/mcp`
+- `GET /.well-known/oauth-authorization-server`
+- `POST /oauth/register`
+- `GET /oauth/authorize`
+- `GET /admin/connectors/consent/:id`
+- `POST /admin/connectors/consent/:id`
+- `POST /oauth/token`
+- `POST /oauth/revoke`
+- `GET /connectors/mcp`
+- `POST /connectors/mcp`

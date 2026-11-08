@@ -63,6 +63,7 @@ export const TABLE_POLICY = {
   sharedMemories: 'owned',
   sharedMemoryChunks: 'cold',
   sharedMemoryRevisions: 'cold',
+  connectorRecords: 'owned',
   adminUsers: 'owned',
   adminSessions: 'owned',
   adminPasswordResets: 'owned',

@@ -139,5 +139,10 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   if (!/ADD COLUMN agents_extra TEXT NULL/i.test(hostAgentsExtra))
     throw new Error('Migration 0126 must declare hosts.agents_extra; cannot project the bootstrap schema');
   tables.get('hosts')!.add('agents_extra');
+  const connectors = splitSqlStatements(readFileSync(resolve(import.meta.dirname,'../../src/db/migrations/0129_connectors.sql'),'utf8'));
+  const connectorCreate=connectors.find(s=>/^CREATE TABLE IF NOT EXISTS connector_records/i.test(s));
+  if(!connectorCreate)throw new Error('Migration 0129 must create connector_records');
+  tables.set('connector_records',new Set([...connectorCreate.matchAll(/^\s+([a-z_]+)\s+(?:varchar|mediumtext)\b/gim)].map(m=>m[1]!)));
+  tables.get('agent_bus_messages')!.add('connector_grant_id');
   return tables;
 }

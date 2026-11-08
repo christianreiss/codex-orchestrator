@@ -220,6 +220,7 @@ export class OwnedMessagingAdmin {
           .limit(1);
         const original = cold ? { ...cold, ...ctx.snapshot.messages.get(id) } : null;
         if (!original) throw new NotFoundError('Message not found', 'agent_messaging_message_not_found');
+        if (original.connectorGrantId) throw new ConflictError('Delegate connector work again through its current OAuth connection', 'connector_redrive_requires_new_request');
         if (
           ['digest', 'presence_notice', 'schedule'].includes(original.kind) ||
           !['dead', 'ambiguous'].includes(original.status)

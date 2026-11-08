@@ -1,3 +1,4 @@
+import { registerConnectorRoutes } from './connectors/index.js';
 import { apiKillSwitch } from '../http/plugins/api-kill-switch.js';
 import { SettingsService } from '../services/settings.js';
 import { registerAgentRoomChatRoutes } from './agent-room-chat.js';
@@ -88,6 +89,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAgentPortalRoutes(app, ctx);
   await registerAgentMessagingRoutes(app, ctx);
   await registerExternalClientRoutes(app, ctx);
+  await registerConnectorRoutes(app, ctx);
   registerAgentRoomChatRoutes(app, ctx);
   await registerScheduleRoutes(app, ctx);
   await registerWatchdogRoutes(app, ctx);

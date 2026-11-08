@@ -152,6 +152,7 @@ const REGISTRY: NavDefinition[] = [
     id: "external-clients", group: "coordination", route: "/external-clients", label: "External clients",
     description: "Bots and bridges outside the fleet that take part in messaging", keywords: ["bot", "hermes", "bridge", "trust", "key", "non-fleet", "external", "communication interface"], icon: Bot,
   },
+  { id: "connectors", group: "coordination", route: "/connectors", label: "Connectors", description: "OAuth access for ChatGPT, Claude and Grok", keywords: ["oauth", "chatgpt", "claude", "grok"], icon: Bot },
   { id: "workflows", group: "coordination", route: "/workflows", label: "Workflows", description: "Reusable instructions, shared runs and reports", keywords: ["tasks", "runs", "evaluation", "reports"], icon: Waypoints },
   {
     id: "activity", group: "activity", route: "/activity", label: "Activity",

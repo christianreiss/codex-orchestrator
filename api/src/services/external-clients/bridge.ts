@@ -317,6 +317,8 @@ export class ExternalBridge {
     client: ExternalClient,
     body: {
       clientMessageId: string;
+      kind?: 'message' | 'request';
+      connector?: import('../connectors/work.js').ConnectorWork;
       to: string;
       content: string;
       conversationId?: string | null;
@@ -330,6 +332,8 @@ export class ExternalBridge {
     return sendOwnedMessage(this.db, v.runtime, this.keyring, v.sessionId, v.token, {
       to: body.to,
       content: stampExternalContent(v.client, body.content),
+      kind: body.kind,
+      connector: body.connector,
       clientMessageId: body.clientMessageId,
       conversationId: body.conversationId ?? null,
       ttlSeconds: body.ttlSeconds ?? null,

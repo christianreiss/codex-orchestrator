@@ -58,6 +58,7 @@ export function newQueuedMessage(input: {
     deliveryClass: input.deliveryClass ?? 'information',
     deliveryTiming: input.deliveryTiming ?? 'after_turn',
     executionContractVersion: ['request', 'schedule', 'task'].includes(input.kind) ? 2 : 1,
+    connectorGrantId: null,
     workKind: ['request', 'schedule', 'task'].includes(input.kind) ? input.kind : null,
     contentEnc: input.contentEnc,
     contentBytes: Buffer.byteLength(input.content, 'utf8'),

@@ -37,6 +37,7 @@ export function stageQueuedMessage(
     supersededById: null,
     presentedAt: null,
     executionContractVersion: 1,
+    connectorGrantId: null,
     workKind: null,
     taskResultStatus: null,
     executionVersion: 1,

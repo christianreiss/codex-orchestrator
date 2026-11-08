@@ -1,3 +1,4 @@
+import { connectorMessageAllowed } from '../connectors/work.js';
 import { ownedEmulation, assertEmulationAdmission } from '../quota-emulation.js';
 import { isEngine } from '../../util/engine.js';
 import { ownedClaudeTurnBusy } from '../../control-plane/state/receiver-turn-proof.js';
@@ -59,7 +60,7 @@ export function ownedClaimCandidates(
   now = new Date().toISOString(),
 ): OwnedMessage[] {
   const sessionId = options.relayGeneration === null ? options.leaseOwner.slice(8) : null;
-  const relevant = options.targetAddressIds.flatMap((id) => snapshot.messages.by('targetAddressId', id));
+  const relevant = options.targetAddressIds.flatMap((id) => snapshot.messages.by('targetAddressId', id)).filter(row=>row.status!=='queued' || connectorMessageAllowed(snapshot,row.id,row.connectorGrantId));
   const live = relevant.filter((row) => (row.status !== 'queued' || row.deliveryTiming !== 'immediate' || options.deliveryTimingEnabled === true) && (
     ['accepted', 'reboot_hold'].includes(row.status) ||
     (['queued', 'leased'].includes(row.status) && row.expiresAt > now && ownedConferenceAdmissionOpen(snapshot, row, now))));
@@ -247,6 +248,7 @@ export async function claimOwnedDelivery(
       authorizeClaim(runtime, snapshot, options);
       if (!afterTurnReady(runtime, snapshot, options)) throw new ConflictError('Receiver activity changed', 'receiver_activity_changed');
       if (selected) {
+        if (!connectorMessageAllowed(snapshot,selected.id,selected.connectorGrantId)) throw new ConflictError('Connector authority changed before delivery', 'connector_authority_revoked');
         ownedAddress(snapshot, selected.targetAddressId);
         if (selected.deliveryTiming === 'immediate' && (options.relayGeneration !== null ||
             receiverState(snapshot.sessions.get(options.leaseOwner.slice(8))?.receiver)?.delivery_timing_v1 !== true))

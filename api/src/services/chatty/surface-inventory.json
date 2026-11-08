@@ -354,7 +354,15 @@
       "POST /admin/wrapper/rollout/:action",
       "POST /admin/hosts/:id/wrapper-canary",
       "GET /admin/feedback/summary",
-      "POST /admin/memories/shared/:recordId/restore"
+      "POST /admin/memories/shared/:recordId/restore",
+      "GET /admin/connectors/config",
+      "PUT /admin/connectors/config",
+      "GET /admin/connectors/connections",
+      "DELETE /admin/connectors/connections/:id",
+      "GET /admin/connectors/consent/:id",
+      "POST /admin/connectors/consent/:id",
+      "POST /admin/connectors/preview",
+      "POST /admin/connectors/clients"
     ]
   },
   "excluded": {

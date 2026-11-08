@@ -46,6 +46,14 @@ const bootstrap = (capability: Capability, reason: string): RouteGuard => ({
 });
 
 export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
+  'POST /admin/connectors/preview': cap('account.self_manage'),
+  'POST /admin/connectors/clients': cap('account.self_manage'),
+  'GET /admin/connectors/config': cap('account.self_manage'),
+  'PUT /admin/connectors/config': cap('security.manage_authorization'),
+  'GET /admin/connectors/connections': cap('account.self_manage'),
+  'DELETE /admin/connectors/connections/:id': cap('account.self_manage'),
+  'GET /admin/connectors/consent/:id': cap('account.self_manage'),
+  'POST /admin/connectors/consent/:id': cap('account.self_manage'),
   'GET /admin/chatty/status': cap('chatty.use'),
   'GET /admin/chatty/session': cap('chatty.use'),
   'PUT /admin/chatty/selection': cap('chatty.use'),

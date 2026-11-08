@@ -1,3 +1,5 @@
+import { connectorWorkAllowed, type ConnectorWork } from '../connectors/work.js';
+import { ConnectorStore } from '../connectors/store.js';
 import { deliveryTimingReceipt, captureQueuePolicy } from './smart-queue.js';
 import { receiverState } from '../agent-receiver-state.js';
 import { randomUUID } from 'node:crypto';
@@ -39,6 +41,8 @@ export interface OwnedSendInput {
   conversationId?: string | null;
   ttlSeconds?: number | null;
   kind?: 'message' | 'request';
+  /** Server-only OAuth origin, never accepted from bridge request bodies. */
+  connector?: ConnectorWork;
   queue?: QueuePolicy;
 }
 const json = (value: unknown): Json => JSON.parse(JSON.stringify(value)) as Json;
@@ -94,6 +98,7 @@ export async function sendOwnedMessage(
       queue: input.queue ?? null,
     }),
     authorize(snapshot) {
+      if(input.connector && !connectorWorkAllowed(snapshot,input.connector)) throw new ValidationError('Connector work authority changed');
       ownedBridge(snapshot, sessionId, token, { generation: first.bindingGeneration });
       if (authorizedTarget) ownedAddress(snapshot, authorizedTarget);
     },
@@ -268,6 +273,7 @@ export async function sendOwnedMessage(
           expiresAt: isoOffsetSeconds(ttlSeconds),
           now,
         }),
+        connectorGrantId: input.connector?.grantId ?? null,
         ...policy,
         ...(replaced.length ? coalescedEventStats(replaced, now) : {}),
         requestedTarget: requested,
@@ -278,6 +284,7 @@ export async function sendOwnedMessage(
         lastActivityAt: now,
         updatedAt: now,
       });
+      if(input.connector) new ConnectorStore(db).put(context, `work:${id}`, 'work', input.connector, 31*86400);
       created = true;
       return () => json({ message: messageForParticipant(message(), content, sender, target) });
     },
