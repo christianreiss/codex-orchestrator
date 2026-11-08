@@ -4049,6 +4049,10 @@ Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
 
 ## Fleet task supervisor
 
+Peer address metadata labels `adapter_capabilities.supervisor_model` with
+`supervisor_model_scope: "launch_configuration"`. It is the configured launch
+selection for recovery, not a live observation after native `/model` switches.
+
 - `GET /admin/agent-supervisor` — read configured/effective state, work states, outstanding dependencies and incident budgets; optional `target=agent:UUID`. Requires `agent_messaging.read`.
 - `POST /admin/agent-supervisor/state` — set `{enabled:boolean}`. Requires `agent_messaging.manage`; disabling stops supervisor-owned future recovery.
 - `POST /admin/agent-supervisor/pause` — pause `{target,version}` with an optimistic work-state version. Requires `agent_messaging.manage`.

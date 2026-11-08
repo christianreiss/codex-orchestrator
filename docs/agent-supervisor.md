@@ -51,6 +51,12 @@ host, an exact native transcript and local process ownership. Older wrappers and
 nonpersistent hosts retain handoff monitoring; their processes are not restarted.
 An unknown original model prevents automatic termination/recovery.
 
+`adapter_capabilities.supervisor_model` is the launch configuration used for
+recovery, not a live native model observation. Peer projections label it with
+`supervisor_model_scope: "launch_configuration"`, including older wrappers.
+An interactive `/model` switch is not tracked by this field; do not use it to
+infer the model currently answering a turn.
+
 The existing watchdog and scheduler provide the execution lane. The local watcher
 checks the actual owned child and child tools, protects active tools, rereads fresh
 policy immediately before TERM, and suspends termination if policy becomes stale.

@@ -100,6 +100,29 @@ func TestStartKeepsMessagingRecoveryOffWhenSignedPolicyIsOff(t *testing.T) {
 	}
 }
 
+func TestStartLabelsRecoveryModelAsLaunchConfiguration(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok"} {
+		t.Run(engine, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				caps, _ := body["adapter_capabilities"].(map[string]any)
+				if caps["supervisor_model"] != "selected" || caps["supervisor_model_scope"] != "launch_configuration" {
+					t.Errorf("unlabeled launch selection: %v", caps)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"enabled": false})
+			}))
+			defer server.Close()
+			_, err := Start(context.Background(), &config.Config{
+				Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "host-key"},
+			}, StartInput{Engine: engine, NativeArgs: []string{"--model", "selected"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestBridgeRecoveryRebindsStableAddressAfterAdminLifecycleReset(t *testing.T) {
 	for _, failure := range []struct {
 		code   string

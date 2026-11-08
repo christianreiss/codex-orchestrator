@@ -2745,6 +2745,9 @@ cxx 0.9.137 checks the actual installed native version for launchpad and managed
 
 ## External task supervision (cxx 0.9.139)
 
+Peer `supervisor_model` metadata is labeled `supervisor_model_scope: "launch_configuration"`;
+it does not track native `/model` switches (Codex, Claude and Grok).
+
 See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
 switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
 Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
