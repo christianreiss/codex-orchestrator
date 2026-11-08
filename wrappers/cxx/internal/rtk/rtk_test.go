@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,10 +18,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 )
 
 func archive(t *testing.T, name string, kind byte, body string) []byte {
@@ -262,5 +266,105 @@ exit 1
 	out.Reset()
 	if code := Exec(context.Background(), []string{"recall", hash}, strings.NewReader(""), &out, &stderr); code != 0 || !strings.Contains(out.String(), "RTK_FAILURE_EVIDENCE") {
 		t.Fatalf("raw recall unavailable %d %s %s", code, out.String(), stderr.String())
+	}
+}
+
+func TestInstallCachedArtifactDoesNotNeedWriterLock(t *testing.T) {
+	cfg, calls := testPolicy(t, archive(t, "rtk", tar.TypeReg, "#!/bin/sh\n"))
+	bin, err := Install(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(bin), ".install.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	const workers = 8
+	results := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		go func() { _, err := Install(context.Background(), cfg); results <- err }()
+	}
+	for i := 0; i < workers; i++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("verified cache blocked on writer")
+		}
+	}
+	if *calls != 1 {
+		t.Fatalf("cached engines downloaded %d times", *calls)
+	}
+}
+func TestConcurrentColdInstallSharesVerifiedDownload(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	raw := archive(t, "rtk", tar.TypeReg, "#!/bin/sh\n")
+	sum := sha256.Sum256(raw)
+	var calls atomic.Int32
+	var startedOnce sync.Once
+	started, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		startedOnce.Do(func() { close(started) })
+		<-release
+		w.Write(raw)
+	}))
+	defer srv.Close()
+	defer unblock()
+	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: srv.URL, APIKey: "fixture"}, RTK: &config.RTKPolicy{Protocol: 1, Version: Version, Artifacts: map[string]config.RTKArtifact{runtime.GOOS + "/" + runtime.GOARCH: {URL: srv.URL + "/wrapper/v2/rtk/v1.2.0/fixture", SHA256: hex.EncodeToString(sum[:])}}}}
+	const workers = 8
+	results := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		go func() { _, err := Install(context.Background(), cfg); results <- err }()
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("download did not start")
+	}
+	// Contenders must wait for the first response, rather than fail on ErrHeld.
+	select {
+	case err := <-results:
+		unblock()
+		t.Fatalf("installer returned before download finished: %v", err)
+	case <-time.After(75 * time.Millisecond):
+	}
+	unblock()
+	for i := 0; i < workers; i++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("installer did not observe completed download")
+		}
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("concurrent engines downloaded %d times", calls.Load())
+	}
+}
+func TestInstallLockWaitHonorsContext(t *testing.T) {
+	cfg, calls := testPolicy(t, archive(t, "rtk", tar.TypeReg, "#!/bin/sh\n"))
+	bin, _ := binaryPath()
+	os.MkdirAll(filepath.Dir(bin), 0700)
+	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(filepath.Dir(bin), ".install.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
+	defer cancel()
+	_, err = Install(ctx, cfg)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("lock wait ignored context: %v", err)
+	}
+	if *calls != 0 {
+		t.Fatal("download began without writer lease")
 	}
 }
