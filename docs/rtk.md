@@ -21,7 +21,7 @@ actually asks to execute, including explicit RTK invocations.
 
 ## Data and recovery
 
-The managed edition is RTK OSS 1.2.0, with pinned archive digests for Linux and macOS on amd64 and arm64. Downloads are verified before installation into cxx-owned storage. User-installed binaries and configuration are preserved. Upstream telemetry is disabled.
+The managed edition is RTK OSS 1.2.0, with pinned archive digests for Linux and macOS on amd64 and arm64. Downloads are verified before installation into cxx-owned storage. The API mirrors verified archives through a private disposable cache owned by its unprivileged process; it does not write into the root-owned wrapper bakery. User-installed binaries and configuration are preserved. Upstream telemetry is disabled.
 
 Recall and tracking are session-local. Raw output stays on the host in private bounded storage and is removed after session teardown; abandoned storage is cleaned only once its owner has ended. Commands and output are never included in readiness reports. Read a printed recall hint within the same session to recover omitted output.
 
