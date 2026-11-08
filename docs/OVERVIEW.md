@@ -271,6 +271,11 @@ push/deploy remain separate. Agents execute this workflow on their next instruct
 sync/launch; the wrapper does not enforce Git mutations. See
 [the delivery contract](interface-api.md#automatic-repository-delivery).
 
+Git registrations made uncertain by an API restart or disconnect automatically
+return to active when the exact recorded native instance reconnects with the same
+session and binding. A different instance or an unknown work outcome keeps its
+exclusion and requires the existing explicit recovery procedure.
+
 Git Director opens on Settings with compact service and commit controls and a selectable engine preview. Activity, Merge requests and History are separate searchable tabs (`?tab=settings|activity|merges|history`). Worktree and request details open in a side panel, full-screen on mobile; release and verdict overrides remain permission-gated in details.
 
 - Centralize `auth.json` instead of managing per-host logins.

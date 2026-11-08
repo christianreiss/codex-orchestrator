@@ -1105,6 +1105,12 @@ All three engine config GET/store routes share the revision contract: `revision`
   holds no live registration. Owner-mode merge grants expire after 15 minutes and
   `git_merge_status` never extends them; an expired grant requires a new request.
   An API restart marks connection-owned registrations `uncertain`/`owner_restart`.
+  Read/tick reconciliation automatically restores `owner_restart`/`disconnected`
+  registrations when the recorded session, binding generation and exact native
+  instance reconnect with valid host/engine authentication. The proof is checked
+  again before committing recovery; address presence alone, a different native
+  instance and explicit unknown outcomes never qualify. Resource claims retain
+  their separate recovery requirements.
   A `git_merge_request`/`git_merge_status` on a registration that is not
   `active` is refused before the claim guard with `git_director_owner_uncertain`
   (extra `status`, `uncertainty_reason`), naming the state and the recovery:
