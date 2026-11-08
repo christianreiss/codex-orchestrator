@@ -879,6 +879,7 @@ status stays available. See [installation](INSTALL.md#instance-management).
 ## Operations
 
 - `scripts/deploy.sh` captures API build provenance after its Git update, so `ORCHESTRATOR_BUILD_COMMIT` identifies the sources actually built. `--skip-git` captures the current checkout instead.
+- Detached deployment records preserve `source_before_pull` across systemd startup and read `source_after_deploy` when the worker finishes. `commit` is null until successful completion, then identifies the final checkout HEAD; served image/artifact verification remains separate. A failed deployment keeps `commit` null even if the source advanced. A successful deploy exit with unreadable final provenance records `status: "unknown"` and a nonzero supervisor exit, retaining the deploy's own `exit_code`.
 - The API build (`cd api && npm run build`) parses `package.json` and `package-lock.json` before writing artifacts. Malformed JSON aborts with the manifest path and no manifest contents; fix the named file and rerun the build. Existing artifacts are preserved on this failure.
 - Logs are stored in MySQL (`logs` table). For a quick peek in a default Docker setup you can run:  
   `docker compose exec mysql mysql -u"$DB_USERNAME" -p"$DB_PASSWORD" "$DB_DATABASE" -e "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"`
@@ -1704,7 +1705,7 @@ and deployment. See `docs/interface-api.md` for the event and delivery contract.
 
 Activity now shows meaningful changes; generic MCP history and ineffective log-retention controls are retired. Secret reads retain fail-closed audits, protocol events retain their state/cursor roles, and migration 0092 requires a pre-deploy SQL backup for historical telemetry rollback. Remote Git provenance, unmanaged-target claims, structured MCP conflicts and bounded interactive suspend recovery are documented in the interface and coordination contracts.
 
-For a self-hosted control-plane rollout run `python3 scripts/deploy-detached.py -- --backup --no-cleanup --service api`. The systemd unit survives SSH/native/API interruption; inspect the printed result.json and deploy.log paths. An accepted launcher is not deployment success. The result includes actual Git provenance and the deploy exit code; HOME/PATH are retained explicitly. Restore old source plus the matching pre-0092 SQL backup to roll back the removed MCP schema; an old image alone cannot audit secret reads and therefore fails closed.
+For a self-hosted control-plane rollout run `python3 scripts/deploy-detached.py -- --no-backup --no-cleanup --service api`. The systemd unit survives SSH/native/API interruption; inspect the printed result.json and deploy.log paths. An accepted launcher is not deployment success. The result distinguishes the initial and final checkout revisions and includes the deploy exit code; HOME/PATH are retained explicitly. Restore old source plus the matching pre-0092 SQL backup to roll back the removed MCP schema; an old image alone cannot audit secret reads and therefore fails closed.
 
 MCP transport health uses the JSON-RPC `ping` method. Empty batches, malformed IDs and non-object parameter envelopes are rejected before dispatch; see [MCP methods](MCP.md#json-rpc-methods).
 
