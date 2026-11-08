@@ -4,6 +4,7 @@ import {
   modelTier,
   ENGINE_VENDOR,
   renderModelTierGuidance,
+  renderSubagentModelGuidance,
 } from '../../../src/services/model-tiers.js';
 import { buildModelPolicy } from '../../../src/services/model-policy.js';
 import { SUPPORTED_MODELS } from '../../../src/services/config-normalizer.js';
@@ -11,6 +12,18 @@ import { CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js'
 import { GROK_SUPPORTED_MODELS } from '../../../src/services/grok-models.js';
 import { registryModels } from '../../../src/services/model-registry/index.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../../../src/util/engine.js';
+
+it('guides model selection in both directions and preserves the underclassed fallback', () => {
+  const table = buildModelTierTable([ENGINE_CODEX], { codex: ['gpt-6.1-terra', 'gpt-6.1-sol', 'gpt-6-astra'] });
+  const guidance = renderSubagentModelGuidance(table, ENGINE_CODEX);
+  expect(guidance).toContain('stronger or lighter model');
+  expect(guidance).toContain('Quality comes first');
+  expect(guidance).toContain('`gpt-6-astra`');
+  expect(guidance).toContain('`gpt-6.1-terra`');
+  const configured = { engine: ENGINE_CODEX, model: 'gpt-6.1-terra' };
+  expect(renderModelTierGuidance(table, configured, true)).toContain('delegate the assignment to that model');
+  expect(renderModelTierGuidance(table, configured, false)).not.toContain('delegate the assignment to that model');
+});
 
 describe('modelTier', () => {
   // A catalog addition without a tier must fail here, not vanish from guidance.

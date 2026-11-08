@@ -45,6 +45,8 @@ The **response verbosity** slider, in the same *How cautious agents are* block a
 
 The **Form of address** choice sits in the same *How cautious agents are* block, below the verbosity dial, and is saved with **Save address form** (`GET`/`POST /admin/address-form`, `settings.read` / `settings.manage`). It sets how agents address the user in languages that distinguish it (German *du*/*Sie*, French *tu*/*vous*): **Informal (du)**, the default, or **Formal (Sie)**. Models drift towards the formal form on their own, so the choice is always spelled out: every engine's served `AGENTS.md` / `CLAUDE.md` / Grok `AGENTS.md` carries a short `## Address Form` section in its managed policy, and an explicit request from the user still wins. Hosts pick up a change on their next sync or launch.
 
+**Choose models for delegated work** in Settings → Agents enables independent, default-off guidance for choosing a suitable stronger or lighter model per permitted subagent task. Quality and parent verification come first. If the Model Class Check is also on, a fitting delegated model can handle an otherwise underclassed assignment when runtime and user instructions permit delegation. The setting is guidance and takes effect on the next sync.
+
 The Model Class Check (**Settings → Agents → Agents check their model against the task**, `GET`/`POST /admin/model-tier-check`, on by default) is a separate managed section. Besides the tier table it asks each new session to open its first reply with one line naming its launch name, vendor, model family and tier; resumed sessions and delivered work turns skip that greeting. See `docs/model-tiers.md`.
 
 ## Roles
@@ -54,7 +56,7 @@ Reading the document, versions, previews, and profiles is `content.read` (every 
 ## Source references
 
 - api/src/routes/admin/config/index.ts (`/admin/agents*` and `/admin/agent-policy-profiles*` routes)
-- api/src/routes/admin/settings/index.ts (`/admin/agents-generation-mode`, `/admin/response-verbosity`, `/admin/address-form`, `/admin/api-keys-in-chat`, `/admin/model-tier-check`)
+- api/src/routes/admin/settings/index.ts (`/admin/agents-generation-mode`, `/admin/response-verbosity`, `/admin/address-form`, `/admin/api-keys-in-chat`, `/admin/model-tier-check`, `/admin/subagent-model-selection`)
 - api/src/services/agents.ts (versions, serve mode, retention, canonical hash)
 - api/src/services/agents-generation-mode.ts (`managed` / `manual` / `off`)
 - api/src/services/agent-policy-profiles.ts, api/src/services/agent-security-levels.ts (profiles, the nine axes, five bands, presets, enforcement)

@@ -10,7 +10,7 @@ import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES, type Engine } from '
 import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
 import { API_KEYS_IN_CHAT_GUIDANCE } from './api-keys-in-chat.js';
-import { renderModelTierGuidance, type ConfiguredModel, type ModelTierRow } from './model-tiers.js';
+import { renderModelTierGuidance, renderSubagentModelGuidance, type ConfiguredModel, type ModelTierRow } from './model-tiers.js';
 import {
   axisPolicySections,
   DEFAULT_SECURITY_LEVELS,
@@ -68,6 +68,7 @@ export interface ManagedAgentFeatureContext {
   gitCommitSettings?: GitCommitSettings;
   /** Recommendable models of the host's active engines, grouped by tier. */
   modelTiers?: ManagedFeatureState & { table: ModelTierRow[]; configured: ConfiguredModel };
+  subagentModelSelection?: ManagedFeatureState & { table: ModelTierRow[] };
 }
 
 export interface ManagedAgentFeatureSection {
@@ -103,6 +104,7 @@ export interface ManagedAgentFeatureSections {
   file_transfer: ManagedAgentFeatureSection;
   git_commit_messages: ManagedAgentFeatureSection;
   model_tiers?: ManagedAgentFeatureSection;
+  subagent_model_selection?: ManagedAgentFeatureSection;
   advisor?: ManagedAgentFeatureSection;
   roles?: ManagedAgentFeatureSection;
   workflows?: ManagedAgentFeatureSection;
@@ -153,6 +155,7 @@ const FEATURE_SECTION_LABELS: Partial<Record<keyof ManagedAgentFeatureSections, 
   file_transfer: 'File Transfer (fleet setting)',
   feedback: 'Orchestrator Feedback (fleet setting)',
   model_tiers: 'Model Class Check (fleet setting)',
+  subagent_model_selection: 'Subagent Model Selection (fleet setting)',
   roles: 'Agent Roles (fleet setting)',
   workflows: 'Workflows (fleet setting)',
   // Also one console switch for every host. Unlike its neighbours this one is
@@ -418,7 +421,7 @@ function apiKeysInChatSection(context: ManagedAgentFeatureContext): RenderedSect
 function modelTiersSection(context: ManagedAgentFeatureContext): RenderedSection | null {
   const state = context.modelTiers;
   if (!state?.enabled || state.table.length === 0) return null;
-  return present(state, renderModelTierGuidance(state.table, state.configured));
+  return present(state, renderModelTierGuidance(state.table, state.configured, context.subagentModelSelection?.enabled === true));
 }
 
 function agentMessagingSection(context: ManagedAgentFeatureContext): RenderedSection | null {
@@ -825,6 +828,10 @@ with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read prop
     ? { enabled: false, reason: 'no_models' }
     : context.modelTiers ?? { enabled: false, reason: 'disabled' };
   const modelTiers = modelTiersSection(context);
+  const subagentState = context.subagentModelSelection ?? { enabled: false, reason: 'disabled' };
+  const subagentModelSelection = context.subagentModelSelection?.enabled
+    ? present(context.subagentModelSelection, renderSubagentModelGuidance(context.subagentModelSelection.table, context.engine))
+    : null;
   const commitText = renderGitCommitGuidance(context.gitCommitSettings ?? DEFAULT_GIT_COMMIT_SETTINGS, context.engine);
   const gitCommitMessages: RenderedSection = {
     text: commitText,
@@ -870,6 +877,7 @@ with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read prop
     feedback: feedback?.metadata ?? absent(feedbackState),
     git_commit_messages: gitCommitMessages.metadata,
     model_tiers: modelTiers?.metadata ?? absent(modelTiersState),
+    subagent_model_selection: subagentModelSelection?.metadata ?? absent(subagentState),
     advisor: advisor?.metadata ?? absent(context.agentMessaging.enabled ? advisorState : context.agentMessaging),
     workflows: workflows?.metadata ?? absent(context.agentMessaging.enabled ? workflowsState : context.agentMessaging),
     roles: roles?.metadata ?? absent(context.agentMessaging.enabled ? rolesState : context.agentMessaging),
@@ -892,6 +900,7 @@ with \`REVIEW/1\`. Holders improve a role with \`agent_role_propose\`, read prop
     { key: 'git_commit_messages', section: gitCommitMessages },
     { key: 'feedback', section: feedback },
     { key: 'model_tiers', section: modelTiers },
+    { key: 'subagent_model_selection', section: subagentModelSelection },
     ...(advisor ? [{ key: 'advisor' as const, section: advisor }] : []),
     ...(roles ? [{ key: 'roles' as const, section: roles }] : []),
     ...(workflows ? [{ key: 'workflows' as const, section: workflows }] : []),

@@ -432,6 +432,25 @@ export function cdxSilentMutation(opts: MutationOpts<CdxSilentValue, boolean> = 
 
 export const modelTierCheckQueryKey = ["settings", "model-tier-check"] as const;
 
+export const subagentModelSelectionQueryKey = ["settings", "subagent-model-selection"] as const;
+export function subagentModelSelectionQuery() {
+  return createQuery<ApiKeysInChatValue>({
+    queryKey: subagentModelSelectionQueryKey,
+    queryFn: () => api.get<ApiKeysInChatValue>("/admin/subagent-model-selection"),
+  });
+}
+export function subagentModelSelectionMutation(opts: MutationOpts<ApiKeysInChatValue, boolean> = {}) {
+  const qc = useQueryClient();
+  return createMutation<ApiKeysInChatValue, Error, boolean>({
+    mutationFn: makeToggle<ApiKeysInChatValue>("/admin/subagent-model-selection", "enabled"),
+    ...opts,
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: subagentModelSelectionQueryKey });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
 export function modelTierCheckQuery() {
   return createQuery<ApiKeysInChatValue>({
     queryKey: modelTierCheckQueryKey,

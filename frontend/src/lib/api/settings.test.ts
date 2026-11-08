@@ -123,6 +123,7 @@ const KEYS = {
   autoUpdate: ["settings", "auto-update"],
   apiKeysInChat: ["settings", "api-keys-in-chat"],
   modelTierCheck: ["settings", "model-tier-check"],
+  subagentModelSelection: ["settings", "subagent-model-selection"],
   cdxSilent: ["settings", "cdx-silent"],
   insecureApproval: ["settings", "insecure-approval"],
   quotaMode: ["settings", "quota-mode"],
@@ -267,6 +268,13 @@ const QUERY_CASES: QueryCase[] = [
     queryKey: KEYS.modelTierCheck,
     method: "GET",
     path: "/admin/model-tier-check",
+  },
+  {
+    name: "subagentModelSelectionQuery",
+    build: () => asQuery(settings.subagentModelSelectionQuery()),
+    queryKey: KEYS.subagentModelSelection,
+    method: "GET",
+    path: "/admin/subagent-model-selection",
   },
   {
     name: "insecureApprovalQuery",
@@ -467,6 +475,13 @@ const MUTATION_CASES: MutationCase[] = [
     invalidates: [KEYS.modelTierCheck],
   },
   {
+    name: "subagentModelSelectionMutation",
+    build: (opts) => asMutation(settings.subagentModelSelectionMutation(opts)),
+    variables: true,
+    request: { method: "POST", path: "/admin/subagent-model-selection", body: { enabled: true } },
+    invalidates: [KEYS.subagentModelSelection],
+  },
+  {
     name: "insecureApprovalMutation",
     build: (opts) => asMutation(settings.insecureApprovalMutation(opts)),
     variables: true,
@@ -657,6 +672,9 @@ describe("module surface", () => {
     "scalingMutation",
     "scalingQuery",
     "scalingQueryKey",
+    "subagentModelSelectionMutation",
+    "subagentModelSelectionQuery",
+    "subagentModelSelectionQueryKey",
     "versionsCheckQueryKey",
   ];
 

@@ -37,6 +37,7 @@
         {#if $authStore.can("agent_portal.manage")}<SessionControls />{/if}
         <TogglePolicy id="api-keys-in-chat" />
         <TogglePolicy id="model-tier-check" />
+        <TogglePolicy id="subagent-model-selection" />
         <AuthorizationPolicy />
       </div>
     </Section>

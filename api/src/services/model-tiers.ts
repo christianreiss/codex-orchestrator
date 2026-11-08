@@ -15,6 +15,7 @@ import { familyTiers, registryModels, type ModelTier } from './model-registry/in
 export type { ModelTier } from './model-registry/index.js';
 
 export const MODEL_TIER_CHECK_ENABLED_KEY = 'model_tier_check_enabled';
+export const SUBAGENT_MODEL_SELECTION_ENABLED_KEY = 'subagent_model_selection_enabled';
 
 const FAMILY_TIERS: Readonly<Record<Engine, Readonly<Record<string, ModelTier>>>> = {
   codex: familyTiers('codex'),
@@ -107,7 +108,32 @@ export interface ConfiguredModel {
   model: string | null;
 }
 
-export function renderModelTierGuidance(table: readonly ModelTierRow[], configured: ConfiguredModel): string {
+/** Advisory only: runtime instructions still govern delegation and model overrides. */
+export function renderSubagentModelGuidance(table: readonly ModelTierRow[], engine: Engine): string {
+  const rows = table.map(({ tier, models }) => {
+    const own = models.filter((entry) => entry.engine === engine).map((entry) => `\`${entry.model}\``);
+    return own.length ? `- Tier ${tier}: ${own.join(', ')}` : null;
+  }).filter((row): row is string => row !== null);
+  return `## Subagent Model Selection
+
+When delegation is permitted and useful, assess each delegated task's judgment,
+complexity, uncertainty and verification needs. Select a model capable of the
+required quality: a stronger or lighter model than yours can be appropriate.
+Quality comes first; avoid underclassing and unnecessary overshooting. Delegate
+when it benefits the task, not merely to change models.
+
+Use an available model supported by the subagent launcher and its engine. If no
+fitting model is available or model choice is unsupported, say so and follow the
+applicable task and model-class rules. Explicit user choices and higher-level
+runtime instructions take precedence. The parent reviews and verifies results,
+and increases capability when evidence warrants it.
+
+Available ${engine} models by fleet tier:
+${rows.join('\n') || '- No classified models available'}
+`;
+}
+
+export function renderModelTierGuidance(table: readonly ModelTierRow[], configured: ConfiguredModel, allowDelegation = false): string {
   const tier = modelTier(configured.engine, configured.model);
   const identity = configured.model !== null && tier !== null
     ? `This host's configured ${configured.engine} model is \`${configured.model}\` (Tier ${tier}).`
@@ -142,9 +168,9 @@ Report \`Underclassed: Tier <n> required, running <model> (Tier <m>). Recommende
 with the lowest fitting available model, own engine first; if none fits, say so.
 
 - **Task one tier above yours:** report and proceed.
-- **Task two or more tiers above yours:** stop before scouting or planning; accepted work ends
+- **Task two or more tiers above yours:** ${allowDelegation ? 'if delegation is useful, higher-level instructions permit it and a fitting model is available, delegate the assignment to that model and review its evidence; otherwise stop before scouting or planning. If unable to delegate, accepted work ends' : 'stop before scouting or planning; accepted work ends'}
   \`agent_task_result\` \`blocked\`. Only an explicit operator override acknowledging this mismatch
-  permits proceeding; selecting a model or assigning the task is not an override.
+  permits proceeding with the underclassed model; selecting a model or assigning the task is not an override.
 - Otherwise proceed; re-check when scope grows.
 `;
 }

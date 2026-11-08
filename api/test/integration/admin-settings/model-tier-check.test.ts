@@ -66,3 +66,16 @@ describe('/admin/model-tier-check', () => {
     await app.close();
   });
 });
+
+describe('/admin/subagent-model-selection', () => {
+  it('defaults off, persists and audits changes, and rejects invalid values', async () => {
+    const { app, db } = await buildApp();
+    expect(JSON.parse((await app.inject({ method: 'GET', url: '/admin/subagent-model-selection' })).payload)).toMatchObject({ enabled: false });
+    const save = await app.inject({ method: 'POST', url: '/admin/subagent-model-selection', payload: { enabled: true } });
+    expect(save.statusCode).toBe(200);
+    expect(JSON.parse((await app.inject({ method: 'GET', url: '/admin/subagent-model-selection' })).payload)).toMatchObject({ enabled: true });
+    expect(db.inserts).toEqual(expect.arrayContaining([expect.objectContaining({ table: logs, values: expect.objectContaining({ action: 'admin.subagent_model_selection' }) })]));
+    expect((await app.inject({ method: 'POST', url: '/admin/subagent-model-selection', payload: { enabled: 'sometimes' } })).statusCode).toBe(422);
+    await app.close();
+  });
+});

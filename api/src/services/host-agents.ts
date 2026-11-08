@@ -42,7 +42,7 @@ import { WORKFLOWS_MIN_CXX_VERSION } from './managed-workflows-skill.js';
 import { ROLES_ENABLED_KEY, ROLES_MIN_CXX_VERSION } from './roles/contract.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
-import { buildModelTierTable, MODEL_TIER_CHECK_ENABLED_KEY, type ConfiguredModel } from './model-tiers.js';
+import { buildModelTierTable, MODEL_TIER_CHECK_ENABLED_KEY, SUBAGENT_MODEL_SELECTION_ENABLED_KEY, type ConfiguredModel } from './model-tiers.js';
 import { buildModelPolicy, readModelPolicy } from './model-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { activeHostEngines } from './host-engine-policy.js';
@@ -470,6 +470,7 @@ export class HostAgentsService {
       feedbackEnabled,
       feedbackMode,
       modelTierCheckEnabled,
+      subagentModelSelectionEnabled,
       fleetEngines,
       modelPolicies,
       slopJobsEnabled,
@@ -501,6 +502,7 @@ export class HostAgentsService {
       this.settings.getFlag(FEEDBACK_ENABLED_KEY, false).catch(() => null),
       this.settings.getRaw(FEEDBACK_MODE_KEY).catch(() => null),
       this.settings.getFlag(MODEL_TIER_CHECK_ENABLED_KEY, true).catch(() => null),
+      this.settings.getFlag(SUBAGENT_MODEL_SELECTION_ENABLED_KEY, false).catch(() => null),
       readFleetEngineState(this.db),
       // A missing settings table must not hide the check: fall back to the
       // unfiltered catalog, which is what an unconfigured policy serves anyway.
@@ -732,6 +734,11 @@ export class HostAgentsService {
       feedbackMode: feedbackMode === 'user' ? 'user' : 'source_developer',
       gitCommitSettings,
       modelTiers,
+      subagentModelSelection: {
+        ...(subagentModelSelectionEnabled === null ? state(false, 'service_unavailable')
+          : state(subagentModelSelectionEnabled, subagentModelSelectionEnabled ? 'ok' : 'disabled')),
+        table: tierTable,
+      },
     };
   }
 

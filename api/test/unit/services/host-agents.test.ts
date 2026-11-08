@@ -470,6 +470,29 @@ describe('HostAgentsService Model Class Check', () => {
     expect(out['content']).not.toContain('## Model Class Check');
     expect(out['sections']).toMatchObject({ model_tiers: { present: false, reason: 'disabled' } });
   });
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('renders independent subagent guidance for %s', async (engine) => {
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Canonical body\n')]],
+      [versions, [{ name: 'model_tier_check_enabled', version: '0' }, { name: 'subagent_model_selection_enabled', version: '1' }]],
+    ]);
+    const out = await makeService(db).renderCurrent(makeHost({ engines: 'codex,claude,grok', status: 'active' }), engine);
+    expect(out['content']).toContain('## Subagent Model Selection');
+    expect(out['content']).not.toContain('## Model Class Check');
+    expect(out['content']).toContain(`Available ${engine} models by fleet tier:`);
+    expect(out['sections']).toMatchObject({ subagent_model_selection: { present: true, reason: 'ok' } });
+  });
+
+  it('allows fitting-model delegation in the class check only when enabled', async () => {
+    for (const enabled of [false, true]) {
+      const db = makeDb([
+        [agentsDocuments, [agentsRow(4, 'Canonical body\n')]],
+        [versions, [{ name: 'subagent_model_selection_enabled', version: enabled ? '1' : '0' }]],
+      ]);
+      const out = await makeService(db).renderCurrent(makeHost({ status: 'active' }), ENGINE_CODEX);
+      expect(String(out['content']).includes('delegate the assignment to that model')).toBe(enabled);
+    }
+  });
 });
 
 describe('HostAgentsService Agent Messaging guidance', () => {
