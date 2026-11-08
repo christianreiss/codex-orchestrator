@@ -4168,3 +4168,21 @@ Project-bound, versioned UI/UX review jobs for agents, built on the vendored slo
 - **Results and diffs.** Runs are immutable and keep the slop version, guidelines hash, snapshot and description revision. `slop_job_result` returns the report (or Markdown); `slop_job_diff` returns a unified diff between file revisions or new/resolved/unchanged findings and file changes between two runs.
 - **Lifecycle.** Every job call bumps `last_activity_at`; the sweeper (every 15 s, owner only) advances open runs, fails runs older than 90 min, hard-deletes jobs idle for 24 h (unless a run is active) or whose project is gone, and removes stray run directories. WebSocket: `project.slop.changed {slug, job_id, action}`.
 - **Storage.** `DATA_ROOT/slop` must be owned by uid 10001 with mode 700; `bin/install.sh` and `scripts/deploy.sh` prepare it.
+
+
+## Managed command output filtering
+
+See [RTK integration](rtk.md) for fleet/host controls, per-session disabling,
+local recall retention, engine adapters and deployment acceptance. Policy and
+observed adapter readiness are separate; changes apply to new launches.
+
+### RTK policy and readiness API
+
+- `GET /admin/rtk`: `{engines:{codex,claude,grok}}`; each policy contains `enabled`, `fleet`, `override`, `source`, and `policy_revision`.
+- `POST /admin/rtk/:engine`: `{enabled:boolean}` changes a fleet default and returns its policy.
+- `GET /admin/hosts/:id/rtk`: the same engines map, adding `assigned` and `observation` to each policy.
+- `POST /admin/hosts/:id/rtk/:engine`: `{enabled:boolean|null}` sets an override or clears it to inheritance.
+- `POST /host/rtk/report`: authenticated host metadata only: engine, wrapper/native/RTK versions, policy revision, readiness and optional enumerated error code. The server adds `observed_at`. Command/output fields are rejected.
+- `GET /wrapper/v2/rtk/v:version/:platform`: host-authenticated pinned OSS archive mirror; requires `engine` query parameter and verifies assignment and engine switch. Only version 1.2.0 is served. Platform is `linux-amd64`, `linux-arm64`, `darwin-amd64`, or `darwin-arm64`.
+
+Policy writes are audited and publish settings/host invalidations. New policy applies at the next native launch. Signed wrapper config carries the effective policy and fixed artifact URLs/digests; absence means disabled.

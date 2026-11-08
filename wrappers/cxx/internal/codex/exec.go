@@ -18,9 +18,11 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 )
@@ -278,8 +280,26 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 		env = append(env, "PROMPT_TOOLKIT_NO_CPR=1")
 	}
 
+	rtkConfig := cfg
+	if command, _ := nativeargs.Command("codex", args); command != "" {
+		switch command {
+		case "login", "logout", "mcp", "plugin", "features", "completion", "doctor", "sandbox", "debug", "apply", "update", "app-server", "exec-server", "remote-control":
+			rtkConfig = nil
+		}
+	}
+	rtkNativeVersion := ""
+	if rtkConfig != nil && rtkConfig.RTK != nil && rtkConfig.RTK.Enabled {
+		rtkNativeVersion = Version(ctx)
+	}
+	rtkSession, rtkErr := rtk.Prepare(ctx, rtkConfig, args, env, home, os.Stderr, rtkNativeVersion)
+	if rtkErr != nil {
+		fmt.Fprintln(os.Stderr, "cxx: RTK unavailable; continuing without filtering")
+	}
+	defer rtkSession.Close()
+	args, env = rtkSession.Args, rtkSession.Env
+
 	if cfg != nil && cfg.AgentMessaging.ReceiverEnabled && stdoutIsTTY && stdinIsTTY && os.Getenv("CXX_AGENT_PORTAL_SOCKET") != "" {
-		receiverArgs, stopReceiver, receiverErr := startReceiverServer(ctx, cli, args, env, session, childLease, guard)
+		receiverArgs, stopReceiver, receiverErr := startReceiverServer(rtk.WithSession(ctx, rtkSession), cli, args, env, session, childLease, guard)
 		if receiverErr != nil {
 			fmt.Fprintln(os.Stderr, "cxx receiver unavailable:", receiverErr)
 		} else {
@@ -289,6 +309,7 @@ func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, a
 	}
 
 	cmd := exec.CommandContext(ctx, cli, args...)
+	rtkSession.Attach(cmd)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
 	supervisor := nativeprocess.Prepare(ctx, cmd, nativeprocess.Headless(cmd.Stdin))

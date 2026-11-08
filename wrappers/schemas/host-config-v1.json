@@ -6,6 +6,61 @@
   "additionalProperties": false,
   "required": ["schema_version", "engine", "issued_at", "orchestrator", "host", "engine_options", "wrapper"],
   "properties": {
+    "rtk": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "protocol": {
+          "const": 1
+        },
+        "version": {
+          "const": "1.2.0"
+        },
+        "policy_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "url",
+              "sha256"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "adapter_mode": {
+          "enum": [
+            "instructions",
+            "hook"
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "protocol",
+        "version",
+        "policy_revision",
+        "artifacts",
+        "adapter_mode"
+      ],
+      "additionalProperties": false
+    },
     "schema_version": { "type": "integer", "const": 1 },
     "engine": { "type": "string", "enum": ["codex", "claude", "grok"] },
     "issued_at": { "type": "string", "format": "date-time" },

@@ -39,6 +39,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
@@ -418,6 +419,9 @@ func syncManaged(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	_, err := syncMeasuredManagedWith(ctx, cfg, client, len(concurrent) > 0 && concurrent[0])
 	if err == nil {
 		agentbus.ReconcileConfiguredHostDaemon(cfg, updateprogress.Output(ctx, os.Stderr))
+	}
+	if err == nil {
+		err = rtk.Sync(ctx, cfg)
 	}
 	return err
 }
@@ -837,6 +841,13 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		return 1, err
 	}
 	env := rt.Environment(os.Environ())
+	rtkSession, rtkErr := rtk.Prepare(ctx, cfg, args, env, rt.Home, stderr, version)
+	if rtkErr != nil {
+		fmt.Fprintln(stderr, "cgx: RTK unavailable; continuing without filtering")
+	}
+	defer rtkSession.Close()
+	args, env = rtkSession.Args, rtkSession.Env
+
 	// The cause names why the wrapper ended the session, so the native and
 	// leader exit reports can say so instead of reporting a start failure.
 	sessionCtx, stopSession := context.WithCancelCause(ctx)
@@ -977,7 +988,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.Start(), Details: commStats.Details(), Table: commStats.Table()})
 	}
 	started = time.Now()
-	code := execute(activityCtx, path, args, env, stdout, stderr, rt)
+	code := execute(activityCtx, path, args, env, stdout, stderr, rt, rtkSession)
 	select {
 	case err := <-authFailure:
 		return 1, err

@@ -1993,3 +1993,10 @@ work in the original native session, using the existing receiver/relay. With res
 off use Retry held work in delivery history. See the
 [API contract](interface-api.md#emulated-short-quotas-cxx-09150) for settings,
 failure behavior and exact-session safeguards.
+
+
+## Managed command output filtering
+
+See [RTK integration](rtk.md) for fleet/host controls, per-session disabling,
+local recall retention, engine adapters and deployment acceptance. Policy and
+observed adapter readiness are separate; changes apply to new launches.

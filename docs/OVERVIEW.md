@@ -1765,3 +1765,10 @@ shows the queued receipt separately from actual execution. A request without a
 coordinator remains confirmed and waiting for assignment. Agents reuse the saved
 approval rather than repeating the approval question in chat; changed answers
 still require a new review. See `interface-api.md` for the receipt and retry contract.
+
+
+## Managed command output filtering
+
+See [RTK integration](rtk.md) for fleet/host controls, per-session disabling,
+local recall retention, engine adapters and deployment acceptance. Policy and
+observed adapter readiness are separate; changes apply to new launches.

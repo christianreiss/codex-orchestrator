@@ -952,7 +952,7 @@ describe('wrapper-config', () => {
       } as unknown as Database;
     }
 
-    async function bakeWith(engine: 'codex' | 'claude', flags: Record<string, string>) {
+    async function bakeWith(engine: 'codex' | 'claude' | 'grok', flags: Record<string, string>) {
       const { privateKey } = generateKeyPairSync('ed25519');
       const signer: WrapperSigner = {
         kid: '1',
@@ -961,7 +961,7 @@ describe('wrapper-config', () => {
         sign: (payload) =>
           cryptoSign(null, Buffer.from(typeof payload === 'string' ? payload : payload), privateKey),
       };
-      const host = fakeHost({ engines: 'codex,claude' });
+      const host = fakeHost({ engines: 'codex,claude,grok' });
       const db = withVersions(
         makeFakeDb({
           hosts: [host],
@@ -985,10 +985,22 @@ describe('wrapper-config', () => {
 
     const ON = { agent_messaging_enabled: '1', agent_portal_enabled: '1' };
 
+    it.each(['codex', 'claude', 'grok'] as const)('signs %s RTK policy with scoped artifacts and honors host overrides and suspension', async engine => {
+      const enabled = await bakeWith(engine, { [`rtk_${engine}`]: 'true' });
+      expect(enabled.rtk).toMatchObject({ enabled: true, protocol: 1, version: '1.2.0', adapter_mode: 'instructions' });
+      expect(enabled.rtk?.artifacts['linux/amd64']?.url).toBe(`https://api.example.com/wrapper/v2/rtk/v1.2.0/linux-amd64?engine=${engine}`);
+      expect(enabled.rtk?.policy_revision).toMatch(/^[a-f0-9]{64}$/);
+      const overridden = await bakeWith(engine, { [`rtk_${engine}`]: 'true', [`rtk_${engine}_host_7`]: 'false' });
+      expect(overridden.rtk?.enabled).toBe(false);
+      const suspended = await bakeWith(engine, { [`rtk_${engine}`]: 'true', [`${engine}_engine_disabled`]: '1' });
+      expect(suspended.rtk?.enabled).toBe(false);
+    });
+
+
     it('still bakes a suspended engine, carrying the switch and no way to run', async () => {
       const payload = await bakeWith('claude', { ...ON, claude_engine_disabled: '1' });
       // Assignment unchanged: the wrapper must not read suspension as removal.
-      expect(payload.host.engines_list).toEqual(['codex', 'claude']);
+      expect(payload.host.engines_list).toEqual(['codex', 'claude', 'grok']);
       expect(payload.host.fleet_disabled_engines).toEqual(['claude']);
       expect(payload.agent_messaging.enabled).toBe(false);
       expect(payload.agent_messaging.receiver_enabled).toBe(false);

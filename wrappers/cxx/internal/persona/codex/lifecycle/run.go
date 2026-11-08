@@ -36,6 +36,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 )
 
 type Options struct {
@@ -634,6 +635,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		}
 		if !opts.SkipCredentialExchange && strings.EqualFold(dec.Status, "offline") {
 			return 1, errors.New("managed sync incomplete: API offline; cached credentials do not confirm content is current")
+		}
+		if err := rtk.Sync(ctx, cfg); err != nil {
+			return 1, fmt.Errorf("RTK sync unavailable: %w", err)
 		}
 		return 0, nil
 	}

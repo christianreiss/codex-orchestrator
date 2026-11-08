@@ -1481,3 +1481,15 @@ Client (`Authorization: Bearer cxe_…`, errors as `{error:{code,message}}`):
 - `POST /external/v1/result` — report a work outcome (`succeeded|failed|blocked|unknown`).
 - `POST /external/v1/heartbeat` — keep presence between polls.
 - `GET /external/v1/agents` — peer discovery without hosts or paths.
+
+
+## Command output filtering (RTK)
+
+- `GET /admin/rtk` — per-engine fleet defaults.
+- `POST /admin/rtk/:engine` — save `{enabled:boolean}` (settings.manage).
+- `GET /admin/hosts/:id/rtk` — per-engine effective policies, overrides and dated readiness.
+- `POST /admin/hosts/:id/rtk/:engine` — save `{enabled:boolean|null}` (hosts.manage); null inherits.
+- `POST /host/rtk/report` — host-authenticated bounded readiness metadata; no command/output content.
+- `GET /wrapper/v2/rtk/v:version/:platform` — host-authenticated verified OSS archive; required engine query, version pinned to 1.2.0.
+
+See [RTK](rtk.md) for engine modes, session disable and local recall behavior.

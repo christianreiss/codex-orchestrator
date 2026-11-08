@@ -20,6 +20,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 )
@@ -262,7 +263,22 @@ func runCaptureWithHeldAuthLeaseUsing(
 		return 1, nil, err
 	}
 	defer cleanupRuntimeAuth()
+	rtkConfig := cfg
+	if _, subcommand := NativeSubcommandIndex(args); subcommand {
+		rtkConfig = nil
+	}
+	rtkNativeVersion := ""
+	if rtkConfig != nil && rtkConfig.RTK != nil && rtkConfig.RTK.Enabled {
+		rtkNativeVersion = Version(ctx)
+	}
+	rtkSession, rtkErr := rtk.Prepare(ctx, rtkConfig, args, env, "", os.Stderr, rtkNativeVersion)
+	if rtkErr != nil {
+		fmt.Fprintln(os.Stderr, "cxx: RTK unavailable; continuing without filtering")
+	}
+	defer rtkSession.Close()
+	args, env = rtkSession.Args, rtkSession.Env
 	cmd := exec.CommandContext(ctx, cli, args...)
+	rtkSession.Attach(cmd)
 	cmd.Env = env
 	cmd.Stdin = os.Stdin
 	supervisor := nativeprocess.Prepare(ctx, cmd, nativeprocess.Headless(cmd.Stdin))

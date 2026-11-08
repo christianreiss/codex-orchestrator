@@ -11,6 +11,7 @@
   import CommunicatorApiSection from "$lib/components/settings/CommunicatorApiSection.svelte";
   import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
   import AgentSupervisorSettings from "$lib/components/settings/AgentSupervisorSettings.svelte";
+  import RtkSettings from "$lib/components/settings/RtkSettings.svelte";
   import AgentCoordinationSettings from "$lib/components/settings/AgentCoordinationSettings.svelte";
 
   const canManage = $derived($authStore.can("settings.manage"));
@@ -48,6 +49,8 @@
       <WrapperRolloutSection headingLevel={3} />
       <CommunicatorApiSection headingLevel={3} />
     </Section>
+
+    <RtkSettings />
 
     <ChattySettings />
 

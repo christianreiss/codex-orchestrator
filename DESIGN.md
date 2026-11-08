@@ -646,3 +646,13 @@ fitting it to `installFixtures` and the English `StateBlock` copy is a separate
 change that must be run before it lands. Checks: `npm run check` (svelte-check,
 node tests, slop gate). The zoom group and the copy button need a
 browser pass in both themes; Playwright was not run.
+
+
+### RTK command output filtering (2026-11-08)
+
+Settings owns per-engine fleet defaults; host detail owns per-engine inheritance
+and overrides with observed readiness. No new navigation hub. Applicable rules:
+NAV-1/3, VIS-1/3/4/5, INT-2/3/5/6/7, ACC-1/3/4. Requested policy, effective
+policy and dated readiness remain distinct. Save failures stay inline and
+changes are labeled as applying to new launches. No design exception. Actual
+browser and accessibility evidence is recorded separately at delivery.

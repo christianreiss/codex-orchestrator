@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,6 +74,7 @@ func startReceiverServer(ctx context.Context, binary string, args, env []string,
 	serverArgs = append(serverArgs, overrides...)
 	serverCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(serverCtx, binary, serverArgs...)
+	rtk.AttachContext(ctx, cmd)
 	supervisor := nativeprocess.Prepare(serverCtx, cmd, true)
 	cmd.Env = env
 	// Bounded diagnostics without copying conversations or prompts to a log.

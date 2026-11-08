@@ -5,6 +5,7 @@ import { registerTransfersRoutes } from './transfers/index.js';
 import { registerCommunicatorRoutes } from './communicator.js';
 import { registerAgentChatRoutes } from './agent-chat.js';
 import { registerHostSpawnRoutes } from './host-spawn.js';
+import { registerRtkRoutes } from './rtk.js';
 import { registerHousekeepingRoutes } from './session-housekeeping.js';
 import { registerServerRetentionRoutes } from './server-retention.js';
 import { registerEngineDestroyRoutes } from './engine-destroy.js';
@@ -71,6 +72,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerHealthRoutes(app, ctx);
   await registerCommunicatorRoutes(app, ctx);
   await registerHousekeepingRoutes(app, ctx);
+  await registerRtkRoutes(app, ctx);
   await registerServerRetentionRoutes(app, ctx);
   await registerEngineDestroyRoutes(app, ctx);
   await registerHostDaemonRoutes(app, ctx);

@@ -16,6 +16,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/projectfiles"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/transfers"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/workload"
@@ -48,6 +49,13 @@ func main() {
 }
 
 func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
+	if len(args) > 0 && args[0] == "rtk" {
+		engine := personaForProgramName(invokedAs)
+		if engine == "common" {
+			engine = ""
+		}
+		return rtk.Command(args[1:], engine, os.Stdin, stdout, stderr)
+	}
 	// Local cooperative admission must not depend on auth, fleet availability,
 	// communicator startup or native-entry reconciliation. All engines share it.
 	if len(args) > 0 && args[0] == "workload" {
@@ -395,6 +403,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx sync")
 	fmt.Fprintln(w, "  cxx project file put SLUG FILE [--stored-name NAME] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx transfer put FILE | get ID --output FILE [--resume] [--engine ENGINE] [--json]")
+	fmt.Fprintln(w, "  cxx rtk status [--engine ENGINE] [--json]; --no-rtk disables RTK for one launch")
 	fmt.Fprintln(w, "  cxx housekeeping [status|run [--dry-run]|pin|unpin] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx workload run --memory 8GiB [--wait 5m] -- command [args...]  (Linux, cooperative jobs)")
 	fmt.Fprintln(w, "  cxx workload status|hold|resume | release ID --confirm-finished")
@@ -411,6 +420,26 @@ func printSelectorHelp(w io.Writer) {
 
 // Dispatch only after the first app returns, including all deferred auth cleanup.
 func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "rtk" {
+		return rtk.Command(args[1:], engine, os.Stdin, stdout, stderr)
+	}
+	var clean []string
+	for _, a := range args {
+		if a == "--no-rtk" {
+			prior, had := os.LookupEnv("RTK_DISABLED")
+			os.Setenv("RTK_DISABLED", "1")
+			defer func() {
+				if had {
+					os.Setenv("RTK_DISABLED", prior)
+				} else {
+					os.Unsetenv("RTK_DISABLED")
+				}
+			}()
+		} else {
+			clean = append(clean, a)
+		}
+	}
+	args = clean
 	if len(args) > 0 && args[0] == "project" {
 		return projectfiles.Command(args[1:], engine, stdout, stderr)
 	}

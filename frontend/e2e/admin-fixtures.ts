@@ -721,6 +721,9 @@ export function fixture(pathname: string): Record<string, unknown> {
           memory: { present: true, reason: "included" },
         },
       };
+    case "/admin/rtk":
+    case "/admin/hosts/1/rtk":
+      return { engines: Object.fromEntries(["codex", "claude", "grok"].map(engine => [engine, { enabled: false, fleet: false, override: null, source: "fleet", policy_revision: null, adapter_mode: "instructions", assigned: true, observation: null }])) };
     case "/admin/hosts/1/agents-extra":
       return { host_id: 1, fqdn: "console.example.test", content: null, size_bytes: 0, sha256: null, max_bytes: 32768 };
     case "/admin/hosts/1/detail":

@@ -20,7 +20,21 @@ type SessionHousekeepingPolicy struct {
 	MinAgeDays    int   `json:"min_age_days"`
 }
 
+type RTKArtifact struct {
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
+}
+type RTKPolicy struct {
+	AdapterMode    string                 `json:"adapter_mode"`
+	Enabled        bool                   `json:"enabled"`
+	Protocol       int                    `json:"protocol"`
+	Version        string                 `json:"version"`
+	PolicyRevision *string                `json:"policy_revision"`
+	Artifacts      map[string]RTKArtifact `json:"artifacts"`
+}
+
 type Config struct {
+	RTK                 *RTKPolicy                 `json:"rtk,omitempty"`
 	SessionHousekeeping *SessionHousekeepingPolicy `json:"session_housekeeping,omitempty"`
 	SchemaVersion       int                        `json:"schema_version"`
 	Engine              string                     `json:"engine"`

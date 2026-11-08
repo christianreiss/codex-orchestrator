@@ -25,6 +25,7 @@ async function fixture(page: Page, overrides = false, manage = true, singleEngin
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: [manage ? 'owner' : 'viewer'] }, capabilities: ['admin.read', 'hosts.read', 'settings.read', ...(manage ? ['hosts.manage', 'agent_messaging.manage'] : [])] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: stamp } });
     if (path === '/admin/ws/info') return json({ enabled: true, url: 'ws://127.0.0.1:4173/host-detail-ws' });
+    if (path === '/admin/hosts/1/rtk') return json({ engines: Object.fromEntries(['codex','claude','grok'].map(engine => [engine, { enabled:false, fleet:false, override:null, source:'fleet', policy_revision:null, assigned:!singleEngine || engine === 'codex', adapter_mode:'instructions', observation:null }])) });
     if (path === '/admin/hosts/1/detail') return json({ host });
     if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, enabled: engine !== 'grok' })) });
     if (path === '/admin/model-defaults/grok') return json({ model: 'grok-4.7', catalog: [] });
@@ -70,7 +71,7 @@ test('page order: problems first, then engines and access, Advanced collapsed, D
   await page.goto('/admin/hosts/1');
   await expect(page.getByRole('heading', { name: 'workstation.example.test', level: 1 })).toBeVisible();
   await expect(page.getByRole('tab')).toHaveCount(0);
-  expect((await page.locator('main').getByRole('heading', { level: 2 }).allTextContents()).slice(0, 4)).toEqual(['Needs attention', 'Engines', 'Access', 'Delete host']);
+  expect((await page.locator('main').getByRole('heading', { level: 2 }).allTextContents()).slice(0, 6)).toEqual(['Needs attention', 'Engines', 'Access', 'Agent instructions', 'Command output filtering', 'Delete host']);
   await expect(advanced(page)).not.toHaveAttribute('open', '');
   await expect(page.getByRole('heading', { name: 'Remote sessions', exact: true })).toBeHidden();
   // Grok is switched off fleet-wide in the fixture: that is information with a link to Engines, not a failure.

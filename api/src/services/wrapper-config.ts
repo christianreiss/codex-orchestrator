@@ -1,3 +1,5 @@
+import { rtkPolicy, RTK_VERSION } from './rtk.js';
+import { rtkArtifacts } from './rtk-artifacts.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { housekeepingPolicy, type HousekeepingPolicy } from './session-housekeeping.js';
 import { createHash } from 'node:crypto';
@@ -118,6 +120,7 @@ export interface WrapperConfigPayload {
   };
   engine_options: Record<string, unknown>;
   session_housekeeping?: HousekeepingPolicy;
+  rtk?: { enabled: boolean; protocol: 1; version: string; adapter_mode: 'instructions'; policy_revision: string; artifacts: Record<string, { url: string; sha256: string }> };
   agent_messaging: {
     enabled: boolean;
     relay_poll_seconds: number;
@@ -632,6 +635,10 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         max_bytes,
         min_age_days,
       }))(await housekeepingPolicy(deps.db, engine, host.id)),
+      rtk: await (async () => {
+        const rtk = await rtkPolicy(deps.db, engine, host.id);
+        return { enabled: engineActive && rtk.enabled, protocol: 1 as const, version: RTK_VERSION, adapter_mode: rtk.adapter_mode, policy_revision: rtk.policy_revision, artifacts: rtkArtifacts(publicBaseUrl, engine) };
+      })(),
       agent_messaging: {
         enabled: messagingBaked,
         relay_poll_seconds: 25,

@@ -11,6 +11,7 @@
   import DeleteHost from "$lib/components/hosts/detail/DeleteHost.svelte";
   import EnginesSection from "$lib/components/hosts/detail/EnginesSection.svelte";
   import HostAttention from "$lib/components/hosts/detail/HostAttention.svelte";
+  import RtkSettings from "$lib/components/settings/RtkSettings.svelte";
   import InstallCommand from "$lib/components/hosts/detail/InstallCommand.svelte";
 
   const id = $derived(page.params.id ?? "");
@@ -57,6 +58,7 @@
       <AccessSection {host} {id} />
     </div>
     {#key id}<AgentInstructions {id} fqdn={host.fqdn} />{/key}
+    {#key id}<RtkSettings hostId={id} />{/key}
     <AdvancedSection data={$detail.data} {id} />
     <DeleteHost {id} fqdn={host.fqdn} />
   </PageShell>

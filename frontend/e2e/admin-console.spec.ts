@@ -969,7 +969,7 @@ test("host detail orders problems, engines and access before a collapsed Advance
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Get install command" })).toBeVisible();
   const headings = await page.locator("main").getByRole("heading", { level: 2 }).allTextContents();
-  expect(headings.slice(0, 4)).toEqual(["Needs attention", "Engines", "Access", "Delete host"]);
+  expect(headings.slice(0, 6)).toEqual(["Needs attention", "Engines", "Access", "Agent instructions", "Command output filtering", "Delete host"]);
   const advanced = page.getByTestId("host-advanced");
   await expect(advanced).not.toHaveAttribute("open", "");
   await advanced.locator(":scope > summary").click();
