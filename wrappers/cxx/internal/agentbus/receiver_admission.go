@@ -19,7 +19,7 @@ func (t *channelTracker) admissionIDs() []string {
 	defer t.mu.Unlock()
 	var ids []string
 	for id, p := range t.items {
-		if p.admissionPending() {
+		if !p.explicit && p.admissionPending() {
 			ids = append(ids, id)
 		}
 	}
@@ -67,7 +67,7 @@ func (r *autoReceiver) reconcileAdmissions(ctx context.Context) error {
 func (r *autoReceiver) reconcileAdmission(ctx context.Context, id string, pending *channelPending) error {
 	pending.opMu.Lock()
 	defer pending.opMu.Unlock()
-	if r.tracker.get(id) != pending {
+	if pending.explicit || r.tracker.get(id) != pending {
 		return nil
 	}
 	pending.mu.Lock()

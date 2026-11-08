@@ -39,6 +39,8 @@ type mcpWriter struct {
 }
 
 type channelPending struct {
+	explicit       bool // exposed only through agent_accept; never native submission
+	acceptBody     map[string]any
 	mu             sync.Mutex
 	opMu           sync.Mutex // serialize reply/result/listen without blocking lease renewal
 	completionBody map[string]any
@@ -105,6 +107,8 @@ func (p *channelPending) reply() map[string]any { p.mu.Lock(); defer p.mu.Unlock
 // or the next agent_listen; work is durably accepted before exposure. Renewal
 // keeps the lease alive while the model thinks beyond the 60s lease.
 type channelTracker struct {
+	acceptMu       sync.Mutex
+	acceptClaims   map[string]string
 	rebootMu       sync.Mutex
 	rebootRestored bool
 	receiver       *autoReceiver
@@ -220,16 +224,19 @@ func newChannelTracker(client *sessionClient) *channelTracker {
 }
 
 func (t *channelTracker) track(parent context.Context, messageID, claimID string, delivery ...map[string]any) *channelPending {
-	return t.trackDelivery(parent, messageID, claimID, false, delivery...)
+	return t.trackDelivery(parent, messageID, claimID, false, false, delivery...)
 }
 func (t *channelTracker) trackAdmission(parent context.Context, messageID, claimID string, delivery map[string]any) *channelPending {
-	return t.trackDelivery(parent, messageID, claimID, true, delivery)
+	return t.trackDelivery(parent, messageID, claimID, true, false, delivery)
 }
-func (t *channelTracker) trackDelivery(parent context.Context, messageID, claimID string, unexposed bool, delivery ...map[string]any) *channelPending {
+func (t *channelTracker) trackDelivery(parent context.Context, messageID, claimID string, unexposed, explicit bool, delivery ...map[string]any) *channelPending {
 	ctx, cancel := context.WithCancel(parent)
-	pending := &channelPending{claimID: claimID, replyClientID: newUUID(), cancel: cancel}
+	pending := &channelPending{explicit: explicit, claimID: claimID, replyClientID: newUUID(), cancel: cancel}
 	if unexposed && len(delivery) > 0 {
 		pending.admission = delivery[0]
+		if explicit {
+			pending.acceptBody = delivery[0]
+		}
 	}
 	if len(delivery) > 0 {
 		pending.immediate = immediateInformation(delivery[0])
@@ -639,6 +646,10 @@ func toolCatalogJSON() []byte {
 		tool("agent_cancel", "Cancel an open conversation and its undelivered work.", map[string]any{
 			"conversation_id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"},
 		}, []string{"conversation_id"}),
+		tool("agent_accept", "Explicitly accept one authorized queued peer request/task after reading its full original with agent_message_get or agent_digest_get. Requires a ready automatic native receiver; preserves queue order, quota and existing ownership. This grants no new authority. Retain the same message_id and claim_id UUID on every retry, including lost responses; never mint a replacement claim. Returns the original only after durable acceptance; does not submit another native prompt or complete unrelated deliveries.", map[string]any{
+			"message_id": map[string]any{"type": "string", "format": "uuid", "description": "UUID of the fully read queued request/task."},
+			"claim_id":   map[string]any{"type": "string", "format": "uuid", "description": "Stable UUID acceptance identity; reuse unchanged on retries."},
+		}, []string{"message_id", "claim_id"}),
 		tool("agent_listen", "Release a finished delivery and check reception. With an automatic receiver, call once and yield on status automatic; never poll. On receiver_unavailable, report the failure instead of waiting. Only manual reception waits up to 25 seconds and returns a delivery. Finish accepted work with agent_task_result or agent_reply with task_result before listening again.", map[string]any{
 			"wait_seconds": map[string]any{"type": "integer", "minimum": 0, "maximum": 25},
 		}, nil),
@@ -1288,6 +1299,8 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			return nil, err
 		}
 		return out, nil
+	case "agent_accept":
+		return agentAccept(ctx, client, channelState, args)
 	case "agent_listen":
 		return agentListen(ctx, client, channelState, args)
 	case "agent_conf_open":
