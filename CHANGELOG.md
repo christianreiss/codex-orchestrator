@@ -1,3 +1,7 @@
+# 2026-11-09
+
+- Redesign connector setup with provider guides and copyable connection details.
+
 # 2026-11-08
 
 - Support a separate publicly trusted connector origin while retaining fleet TLS and parent-domain passkeys.

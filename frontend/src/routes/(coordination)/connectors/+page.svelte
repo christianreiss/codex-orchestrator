@@ -23,6 +23,7 @@
   const config = connectorConfig(),
     connections = connectorConnections(),
     client = useQueryClient();
+  let approving = $state(true);
   let draft = $state<Policy | null>(null),
     consentScope = $state(emptyScope()),
     provider = $state<"chatgpt" | "claude" | "grok">("chatgpt");
@@ -133,7 +134,7 @@
       await navigator.clipboard.writeText(value);
       toast.success("Copied");
     } catch {
-      toast.error("Copy failed; select and copy the displayed URL.");
+      toast.error("Copy failed; select and copy the displayed value.");
     }
   }
 </script>
@@ -206,80 +207,63 @@
                   !reviewed ||
                   reviewed.request !== request ||
                   reviewed.input !== JSON.stringify(consentScope)}
-                onclick={() => $approve.mutate(true)}
+                onclick={() => { approving = true; $approve.mutate(true); }}
                 >Authorize connection</Button
               ><Button
                 variant="outline"
                 disabled={$approve.isPending}
-                onclick={() => $approve.mutate(false)}>Deny</Button
+                onclick={() => { approving = false; $approve.mutate(false); }}>Deny</Button
               >
             </div>
           </fieldset>
           {#if $approve.isPending}<p class="mt-2" role="status">
-              Authorizing reviewed permissions…
+              {approving ? "Authorizing reviewed permissions…" : "Denying connection…"}
             </p>{/if}
         {:else}<p role="status">Loading authorization request…</p>{/if}
       </Section>
     {:else}
       <Section title="Set up a chat app">
-        <label class="block"
-          >Chat app <select
-            class="m-2 rounded border border-input bg-background p-2"
-            bind:value={provider}
-            onchange={() => $register.reset()}
-            ><option value="chatgpt">ChatGPT</option><option value="claude"
-              >Claude</option
-            ><option value="grok">Grok</option></select
-          ></label
-        >
-        <p class="my-2" role="status">
-          {!c.ready
-            ? "Not ready: configure a public HTTPS base URL."
-            : !c.policy.enabled
-              ? "Connector access is off. An administrator must enable it."
-              : !c.policy.providers[provider]
-                ? `${provider} connections are disabled.`
-                : "Configuration ready. Complete authorization and make a test call to verify the connection."}
+        <div class="flex flex-wrap gap-2" role="group" aria-label="Choose chat app">
+          {#each [{ id: "chatgpt", name: "ChatGPT" }, { id: "claude", name: "Claude" }, { id: "grok", name: "Grok" }] as app}
+            <Button variant={provider === app.id ? "default" : "outline"} aria-pressed={provider === app.id} onclick={() => { provider = app.id as typeof provider; $register.reset(); }}>{app.name}</Button>
+          {/each}
+        </div>
+        <p class="my-4 text-body-sm" role="status">
+          {!c.ready ? "Not ready: an administrator must configure a public HTTPS base URL on the server." : !c.policy.enabled ? "Connector access is off. An administrator can enable it in connector policy." : !c.policy.providers[provider] ? `${provider} connections are disabled. An administrator can enable them in connector policy.` : "Configuration ready. Authorize and make a test call to verify the connection."}
         </p>
-        <ol class="list-decimal space-y-3 pl-5">
-          <li>
-            Open {provider === "chatgpt"
-              ? "ChatGPT Settings → Apps (enable developer mode where required)"
-              : provider === "claude"
-                ? "Claude Customize → Connectors → Add custom connector"
-                : "grok.com/connectors → New Connector → Custom MCP"}. Workspace
-            accounts may need their administrator to add the connector first.
-          </li>
-          <li>
-            Enter a name and this MCP server URL: <code class="break-all"
-              >{c.mcp_url}</code
-            >
-            <Button variant="outline" onclick={() => copy(c.mcp_url)}
-              >Copy URL</Button
-            >
-          </li>
-          <li>
-            Choose OAuth. Use the app's published identity (CIMD) when offered,
-            or automatic client registration. If the app asks for a client ID,
-            use Manual OAuth client setup below with its exact callback URL.
-            Never enter a fleet host API key.
-          </li>
-          <li>
-            Sign in with your dashboard account. Select the permitted
-            categories, hosts and projects, then authorize.
-          </li>
-          <li>
-            Ask the chat app to list authorized hosts or projects. OAuth
-            authorization and a successful tool call are separate checks; review
-            the connection below.
-          </li>
-        </ol>
-        <p class="mt-3 text-body-sm text-muted-foreground">
-          The server must be reachable from the provider's cloud over HTTPS with
-          a publicly trusted certificate. Cloud providers do not inherit the
-          fleet's private CA trust. Callback URLs must match exactly. If
-          permissions change, disconnect and reconnect.
-        </p>
+        <div class="grid gap-6 lg:grid-cols-2">
+          <div class="space-y-4">
+            <div>
+              <h3 class="font-semibold">1. Open the connector setup</h3>
+              <p class="mt-1 text-body-sm text-muted-foreground">{provider === "chatgpt" ? "In ChatGPT, open Settings → Apps and enable developer mode if required. Add a custom MCP server." : provider === "claude" ? "In Claude, open Customize → Connectors → Add custom connector." : "In Grok, open grok.com/connectors → New Connector → Custom."} Workspace accounts may need an administrator to add it first.</p>
+            </div>
+            <div>
+              <h3 class="font-semibold">2. Copy the connection details</h3>
+              <p class="mt-1 text-body-sm text-muted-foreground">Enter the values shown here in {provider === "chatgpt" ? "ChatGPT" : provider === "claude" ? "Claude" : "Grok"}. Choose OAuth; use the published client identity or automatic registration when offered. Never enter a fleet host API key.</p>
+            </div>
+            <div>
+              <h3 class="font-semibold">3. Authorize and test</h3>
+              <p class="mt-1 text-body-sm text-muted-foreground">Sign in, choose permitted categories, hosts and projects, and authorize. Then ask the app to list authorized hosts or projects. Authorization alone does not verify a successful tool call.</p>
+            </div>
+            <p class="text-body-sm text-muted-foreground">The server needs public HTTPS with a publicly trusted certificate; cloud providers do not inherit the fleet's private CA. If permissions change, disconnect and reconnect.</p>
+          </div>
+          <div class="min-w-0 rounded border border-border bg-card p-4 sm:p-6" aria-label="Connection details to copy">
+            <p class="text-body-sm text-muted-foreground">Reference · complete this form in {provider === "chatgpt" ? "ChatGPT" : provider === "claude" ? "Claude" : "Grok"}</p>
+            <h3 class="mt-2 text-h2">{provider === "chatgpt" ? "Add custom MCP server" : provider === "claude" ? "Add custom connector" : "Custom MCP connector"}</h3>
+            {#if provider === "chatgpt"}<div class="mt-5"><p class="font-medium">Icon <span class="font-normal text-muted-foreground">(optional)</span></p><p class="text-body-sm text-muted-foreground">Add an icon in ChatGPT if you like.</p></div>{/if}
+            {#each [{ label: "Name", value: "Orchestrator" }, { label: "Description (optional)", value: "Connect to your Orchestrator fleet" }, { label: provider === "chatgpt" ? "Connection · Server URL" : "Server URL", value: c.mcp_url }] as field}
+              <div class="mt-4 min-w-0">
+                <p class="mb-1 font-medium">{field.label}</p>
+                <div class="flex min-w-0 items-center gap-2 rounded border border-input bg-background p-2">
+                  <code class="min-w-0 flex-1 select-all break-all text-body-sm">{field.value}</code>
+                  <Button variant="outline" onclick={() => copy(field.value)} aria-label={`Copy ${field.label}`}>Copy</Button>
+                </div>
+              </div>
+            {/each}
+            <div class="mt-4"><p class="mb-1 font-medium">Authentication</p><p class="rounded border border-input bg-background p-2">OAuth</p></div>
+            {#if provider === "chatgpt"}<div class="mt-4 rounded border border-border bg-muted p-3"><p class="font-medium">Advanced OAuth settings</p><p class="text-body-sm text-muted-foreground">Use discovered settings or automatic registration when offered. Manual setup is available below.</p></div><p class="mt-4 text-body-sm text-muted-foreground">Review ChatGPT's warning and confirm it in ChatGPT before creating the plugin.</p>{/if}
+          </div>
+        </div>
         <details class="mt-4">
           <summary class="cursor-pointer py-2"
             >Manual OAuth client setup</summary
@@ -303,11 +287,11 @@
               !c.policy.providers[provider]}
             onclick={() =>
               $register.mutate({ provider, redirect_uri: callback })}
-            >Create client ID</Button
+            >{$register.isPending ? "Creating client ID…" : "Create client ID"}</Button
           >{#if manualClient && manualClient.provider === provider && manualClient.callback === callback}<p
-              class="mt-2 break-all"
+              class="mt-2 break-all" role="status"
             >
-              Client ID: <code>{manualClient.id}</code>
+              Client ID created: <code>{manualClient.id}</code>
               <Button
                 variant="outline"
                 onclick={() => manualClient && copy(manualClient.id)}
@@ -330,8 +314,8 @@
         description="Revoke access here immediately. Enabling a disabled connector does not restore revoked grants."
       >
         {#if $connections.error}<p role="alert">
-            {$connections.error.message}
-          </p>{:else if !$connections.data}<p role="status">
+            Could not load connections: {$connections.error.message}
+          </p><Button variant="outline" disabled={$connections.isFetching} onclick={() => void $connections.refetch()}>{$connections.isFetching ? "Retrying…" : "Retry"}</Button>{:else if !$connections.data}<p role="status">
             Loading connections…
           </p>{:else if !$connections.data.connections.length}<p>
             No authorized connections yet.
