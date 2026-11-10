@@ -1,5 +1,6 @@
 # 2026-11-10
 
+- **Toast contrast:** shared success, information, warning and error notifications use the console's semantic surface/text pairs in both themes instead of the library's separate palette. Toast feedback and severity remain unchanged.
 - **Grok native settings:** validate fixed nested provider, marketplace, MCP setup, S3 and worktree-GC structures before preview/save; preserve historical invalid input for correction. Support native mixed string/table reasoning-effort menus and custom model context-window lists without inserting defaults or running external consumers.
 - **Grok permission rules:** reject malformed or unknown rule fields before preview/save instead of accepting rules the native CLI silently skips. Optional tool/pattern/matching-mode values stay optional; invalid stored rules remain visible for explicit correction.
 - **Fable 5.2:** add the public Claude model to API, UI and signed launch catalogs with its native 2.1.321 minimum, medium default, persistent low/medium/high/xhigh efforts and Tier 5. The Fable advisor alias and optional latest-family policy follow 5.2; active Fable 5/5.1 remain selectable. No fleet default changes or native fast-mode consent are implied.

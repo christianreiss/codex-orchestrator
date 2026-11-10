@@ -9,6 +9,20 @@
 <Sonner
   theme={mode.current ?? "system"}
   class="toaster group"
+  style="
+    --success-bg: hsl(var(--success-muted));
+    --success-border: hsl(var(--success));
+    --success-text: hsl(var(--success-muted-foreground));
+    --info-bg: hsl(var(--info-muted));
+    --info-border: hsl(var(--info));
+    --info-text: hsl(var(--info-muted-foreground));
+    --warning-bg: hsl(var(--warning-muted));
+    --warning-border: hsl(var(--warning));
+    --warning-text: hsl(var(--warning-muted-foreground));
+    --error-bg: hsl(var(--destructive-muted));
+    --error-border: hsl(var(--destructive));
+    --error-text: hsl(var(--destructive-muted-foreground));
+  "
   toastOptions={{
     classes: {
       toast:

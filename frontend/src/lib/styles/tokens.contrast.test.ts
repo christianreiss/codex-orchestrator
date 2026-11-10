@@ -55,6 +55,11 @@ describe("neutral theme contrast", () => {
       for (const surface of ["background", "card"]) {
         assert.ok(contrast(tokens.destructive!, tokens[surface]!) >= 4.5, `${name}: destructive text on ${surface}`);
       }
+      // Rich-colour toast titles use the same semantic surface/text pairs.
+      for (const status of ["success", "info", "warning", "destructive"]) {
+        assert.ok(contrast(tokens[`${status}-muted-foreground`]!, tokens[`${status}-muted`]!) >= 4.5,
+          `${name}: ${status} toast text on its muted surface`);
+      }
       for (const surface of ["background", "card", "popover", "sidebar-bg"]) {
         for (const opacity of [.8, .9]) {
           assert.ok(contrast(tokens["destructive-foreground"]!, tokens.destructive!, opacity, tokens[surface]!) >= 4.5,

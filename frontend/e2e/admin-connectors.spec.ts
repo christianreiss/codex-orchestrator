@@ -47,9 +47,11 @@ async function fixture(page: Page, enabled = false) {
     return json({});
   });
 }
-test("default-off guide explains actual installation, has editable policy and mobile reflow", async ({
+for (const colorScheme of ["light", "dark"] as const) test(`default-off guide explains actual installation, has editable policy and mobile reflow (${colorScheme})`, async ({
   page,
-}) => {
+}, testInfo) => {
+  await page.emulateMedia({ colorScheme });
+  await page.addInitScript((theme) => localStorage.setItem("mode-watcher-mode", theme), colorScheme);
   await fixture(page);
   await page.goto("/admin/connectors");
   await expect(
@@ -67,20 +69,29 @@ test("default-off guide explains actual installation, has editable policy and mo
   await expect(
     page.getByText("Connector access is on.", { exact: true }),
   ).toBeVisible();
+  const toast = page.locator('[data-sonner-toast][data-type="success"]');
+  await expect(toast).toContainText("Connector policy saved");
+  await expect(page.locator("[data-sonner-toaster]")).toHaveAttribute("data-sonner-theme", colorScheme);
+  await expect(toast).toHaveCSS("opacity", "1");
+  console.log("Connector success toast", colorScheme, await toast.evaluate((element) => ({
+    foreground: getComputedStyle(element).color,
+    background: getComputedStyle(element).backgroundColor,
+  })));
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await page.screenshot({ path: "/tmp/connectors-mobile.png", fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath("connectors-mobile.png"), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({
-    path: "/tmp/connectors-desktop.png",
+    path: testInfo.outputPath("connectors-desktop.png"),
     fullPage: true,
   });
+  await expect(toast).toBeVisible();
   const a11y = await new AxeBuilder({ page }).analyze();
-  await writeFile("/tmp/connectors-a11y.json", JSON.stringify(a11y));
+  await writeFile(testInfo.outputPath("connectors-a11y.json"), JSON.stringify(a11y));
   expect(a11y.violations).toEqual([]);
 });
 test("consent requires an effective permission review", async ({ page }) => {
