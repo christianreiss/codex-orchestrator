@@ -47,6 +47,16 @@ export const unknownTaskResult: TaskResult = {
   summary: 'Transport completed without an explicit task result.',
 };
 
+/** Explain terminal ambiguity without granting a new acceptance or execution. */
+export function taskNotAcceptedError(message: Pick<AgentBusMessage, 'status' | 'cancelRequestedAt'>, fallback: string): ConflictError {
+  return new ConflictError(
+    message.status === 'ambiguous' && !message.cancelRequestedAt
+      ? 'Work is ambiguous and cannot accept progress or a new result. Read agent_message_get, then report measured outcome and evidence to the original requester with agent_send (or to the operator if unavailable). The original request stays ambiguous; do not reaccept or rerun it. See docs/interface-api.md#reconciling-ambiguous-work.'
+      : fallback,
+    'agent_task_result_not_accepted',
+  );
+}
+
 export async function storeTaskResult(
   tx: Tx,
   message: AgentBusMessage,
@@ -72,9 +82,9 @@ export async function storeTaskResult(
     return result;
   }
   if (message.status !== 'accepted')
-    throw new ConflictError(
+    throw taskNotAcceptedError(
+      message,
       'Task must be accepted before its result is stored',
-      'agent_task_result_not_accepted',
     );
   await tx.insert(agentTaskResults).values({
     id: randomUUID(),

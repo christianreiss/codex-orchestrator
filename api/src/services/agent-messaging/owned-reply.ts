@@ -41,7 +41,7 @@ import { messageForParticipant, messageMetadata, newQueuedMessage } from './view
 import { deliveryReceiptFields } from './presence-feedback.js';
 import { SERVER_ADDRESS_ID } from './groups.js';
 import { TERMINAL_MESSAGE_STATUSES } from './constants.js';
-import { unknownTaskResult, type TaskResult } from './task-execution.js';
+import { taskNotAcceptedError, unknownTaskResult, type TaskResult } from './task-execution.js';
 
 export type ReplyActor =
   | { kind: 'session'; id: string; token: string }
@@ -165,9 +165,9 @@ export async function replyOwnedMessage(
       if (input.taskResult && (!parent.workKind || !claimId))
         throw new ValidationError(parent.workKind ? TASK_RESULT_CLAIM_REQUIRED : TASK_RESULT_NOT_WORK);
       if (parent.workKind && !claimId)
-        throw new ConflictError(
+        throw taskNotAcceptedError(
+          parent,
           'Work replies require the accepted delivery claim',
-          'agent_task_result_not_accepted',
         );
       if (
         !parent.workKind &&
@@ -191,9 +191,9 @@ export async function replyOwnedMessage(
         );
       const progress = !!parent.workKind && !input.taskResult && policy.deliveryClass === 'progress';
       if (progress && parent.status !== 'accepted')
-        throw new ConflictError(
+        throw taskNotAcceptedError(
+          parent,
           'Progress replies require accepted, unfinished work',
-          'agent_task_result_not_accepted',
         );
       const now = nowIso();
       // The work's recorded outcome. The reply row never carries one, so its
