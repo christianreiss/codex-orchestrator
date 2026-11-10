@@ -19,6 +19,7 @@ import {
 } from '../src/control-plane/state/store.js';
 import { bindOwnerRuntime, type OwnerRuntime } from '../src/control-plane/state/runtime.js';
 import { AgentCoordination } from '../src/services/agent-coordination/index.js';
+import { discoverOwnedAddresses } from '../src/services/agent-messaging/owned-discovery.js';
 import type { AgentMessagingService } from '../src/services/agent-messaging.js';
 import { sha256 } from '../src/security/hash.js';
 import { decrypt } from '../src/security/secret-box.js';
@@ -209,6 +210,68 @@ function setup(beforeCommit: () => Promise<void> = async () => {}, peerCount = 0
   return { owner, state, select, fake, db, service, sessionId, token, instance, presence, attach, live, peers };
 }
 describe('connection-owned coordination claims', () => {
+  it('reserves shared lab VMs across unrelated workspaces and identifies the conflicting owner', async () => {
+    const h = setup(undefined, 1), peer = h.peers[0]!;
+    await h.service.update(h.sessionId, h.token, {
+      workspace: { cwd: '/repo/audit', git_status: 'repository', git_root: '/repo/audit', git_common_dir: '/repo/audit/.git' },
+    });
+    // This peer has no workspace metadata and cannot match the audit project.
+    const draft = h.state.begin(), revision = h.state.revision();
+    draft.upsert('agentSessions', { ...draft.table('agentSessions').get(peer.id)!, cwd: '/tmp/foreign-worktree', workspace: null });
+    h.state.publish(draft.seal({ ...revision, sequence: revision.sequence + 1n }));
+    const resources = [{ kind: 'remote', fqdn: 'LAB.EXAMPLE.ORG.', service: 'vm:cm-debian12' }];
+    const owned = await h.service.claims.acquire(peer.id, peer.token, {
+      client_request_id: randomUUID(), purpose: 'VM acceptance tests', resources,
+    });
+    expect(owned).toMatchObject({ state: 'active', ownership_mode: 'connection', resources: [
+      { kind: 'remote', fqdn: 'lab.example.org', service: 'vm:cm-debian12' },
+    ] });
+    const waiting = await h.service.claims.acquire(h.sessionId, h.token, {
+      client_request_id: randomUUID(), purpose: 'VM reinstall', resources: owned.resources,
+    });
+    expect(waiting).toMatchObject({ state: 'waiting', isolation_available: false, blockers: [
+      { id: owned.id, owner_address: `agent:${peer.addressId}`, owner_name: peer.name },
+    ] });
+    const notices = h.fake.inserts.filter((row) => row.table === schema.agentBusMessages)
+      .map((row) => row.values as { targetSessionId: string; contentEnc: string })
+      .filter((row) => row.targetSessionId === peer.id)
+      .map((row) => decrypt(row.contentEnc, testKeyring()));
+    expect(notices.filter((content) => content.startsWith('CLAIM/1\n'))).toEqual([
+      expect.stringContaining(waiting.id),
+    ]);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 121_000);
+    try {
+      expect(await h.service.claims.status(h.sessionId, h.token, { claim_id: waiting.id }))
+        .toMatchObject({ state: 'waiting', isolation_available: false });
+    } finally {
+      clock.mockRestore();
+    }
+    const independent = await h.service.claims.acquire(h.sessionId, h.token, {
+      client_request_id: randomUUID(), purpose: 'other VM',
+      resources: [{ ...resources[0], service: 'vm:cm-fedora' }],
+    });
+    expect(independent.state).toBe('active');
+    await h.service.claims.release(peer.id, peer.token, { claim_id: owned.id, outcome: 'completed', reason: 'tests finished' });
+    expect(await h.service.claims.status(h.sessionId, h.token, { claim_id: waiting.id })).toMatchObject({ state: 'active' });
+  });
+
+  it('keeps unknown workspace peers contactable via fleet discovery and the host room', async () => {
+    const h = setup(undefined, 1), peer = h.peers[0]!;
+    await h.service.update(h.sessionId, h.token, {
+      workspace: { cwd: '/repo/audit', git_status: 'repository', git_root: '/repo/audit', git_common_dir: '/repo/audit/.git' },
+    });
+    const list = (scope: 'project' | 'fleet') => discoverOwnedAddresses(h.db, h.owner, h.sessionId, h.token, {
+      scope, includeOffline: false,
+    });
+    expect(await list('project')).toMatchObject({ total: 0, coverage: { limited: true, peers_without_workspace: 1 } });
+    expect(await list('fleet')).toMatchObject({ total: 1, addresses: [
+      { address: `agent:${peer.addressId}`, match_reason: 'fleet' },
+    ] });
+    const context = await h.service.context(h.sessionId, h.token);
+    const host = context.rooms.find((room) => room.kind === 'host')!;
+    expect(host.members).toEqual(expect.arrayContaining([expect.objectContaining({ agent_id: peer.addressId, workspace: null })]));
+  });
+
   it('finishes claims while persisting an event backlog for hydration and later worker dispatch', async () => {
     const h = setup(undefined, 1);
     const claim = await h.service.claims.acquire(h.sessionId, h.token, {

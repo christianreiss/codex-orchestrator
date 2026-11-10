@@ -370,9 +370,10 @@ describe('served document byte invariance', () => {
     // 2026-11-01: emulated-budget actions and opt-in held-work resume.
     // 2026-11-06: a later peer follow-up is an agent_request, not "no reply needed" (feedback 98abb657).
     // 2026-11-06: slop jobs (UI/UX review) in the Projects section.
-    expect(out.features_sha256).toBe('0cb7b7bb0024a899a7cdba6504db0af9ce6962f430597bc9212b88842b7855f5');
-    expect(out.managed_sha256).toBe('f9efb271ebb4dd6361a96494ae936310fe37680be86dbe4eda47b706094a13c3');
-    expect(sha256(out.body)).toBe('521b353a1b88703b6cf7f757979cc88f8b4453ae838106f51237b64fb00d8bb9');
+    // 2026-11-10: shared VM claims, unknown-workspace discovery and unified room history.
+    expect(out.features_sha256).toBe('5a57c7cb938ed5620953d4ebc85d0ebf51477b9080b7441038decd0e3f1e307a');
+    expect(out.managed_sha256).toBe('2dd7356ce99ee41b57d3464c19058ae7f47aa1fe63bd59aa9a97f568d3d578e6');
+    expect(sha256(out.body)).toBe('d080003c98b4c8a3000f756b485da8d319c1692ed3c2a7f4b9960133fe8eb7cf');
   });
 });
 
@@ -960,8 +961,21 @@ describe('managed Agent Messaging guidance', () => {
       expect(body).toContain('scope:"project", online:true');
       expect(body).toContain('scope:"directory"');
       expect(body).toContain('coverage.limited');
+      expect(body).toContain('scope:"fleet", online:true');
+      expect(body).toContain('Unknown workspace peers');
       expect(body).toContain('Presence is not proof of editing');
     }
+  });
+
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s names a shared VM claim independent of its checkout', (engine) => {
+    const body = rendered(engine).body;
+    expect(body).toContain('{kind:"remote",fqdn:"lab.example.org",service:"vm:cm-debian12"}');
+    expect(body).toContain('same canonical target/key');
+    expect(body).toContain('before tests, reinstall or re-enrollment');
+    expect(body).toContain('A claim is not an OS sandbox');
+    expect(body).toContain('`agent_room_read` omits shared-chat/UI posts');
+    expect(body).toContain('`agent_chat_read(room_id=scope_id)`');
+    expect(body).toContain('never reuse scope cursors there');
   });
 
   it('renders the Fleet Advisor block only while the advisor and messaging are both on', () => {

@@ -71,6 +71,17 @@ Routine presence and claim changes, including a session's own join or task-title
 do not queue model wakeups. Context/room reads and the operator UI expose current
 membership and its ordered history. Engine suspension and host messaging eligibility apply.
 
+An empty `agent_list(scope:"project", online:true)` with `coverage.limited:true`
+does not establish that a checkout or shared lab is free. Unknown-workspace peers
+cannot safely be assigned to a project. Use `agent_list(scope:"fleet", online:true)`
+without name/engine filters and follow every `next_offset` for contact addresses,
+even when a peer has no workspace or Git Director registration. For local peers,
+`agent_context_get`/`agent_room_list` also expose the host room: page its members
+with `agent_room_read(scope_id, member_offset)` and `next_member_offset`.
+A room member's `agent_id` identifies its `agent:<UUID>` address. These are
+discovery paths, not ownership proof. Take resource claims for the actual shared
+targets independently of repository discovery; agents on other hosts can use them too.
+
 ## Rooms and delivery
 
 `agent_room_list` returns automatic rooms, claims and the first 50 members per room.
@@ -123,6 +134,32 @@ manual groups, conferences, direct requests and task results are unchanged.
 - `{kind:"path", host_id, path}` reserves a canonical absolute path and descendants.
 - `{kind:"git", host_id, common_dir, branch?}` reserves shared Git metadata or a target branch.
 - `{kind:"service", host_id, service}` reserves a named host service; `*` covers all services.
+- `{kind:"remote", fqdn, service}` reserves a named remote target without fleet enrollment; `*` covers its services.
+
+### Shared lab VMs
+
+VMs use these existing service keys; there is no separate `vm` resource kind.
+All workstreams must agree on one canonical target and key before tests,
+reinstallations, re-enrollment, resets or other operations sharing that VM.
+For example, reserve a libvirt domain on its hypervisor with
+`{kind:"remote",fqdn:"lab.example.org",service:"vm:cm-debian12"}`. The service
+string is an agreed literal key, not automatic libvirt discovery. A second
+claim for that target/key waits, returns the owner's contact address in
+`blockers`, and sends the owner a coordination notice. Different VM keys can
+proceed independently. Hold the claim throughout tests that need stable VM state.
+
+When using a fleet hypervisor ID instead, all participants must consistently use
+`{kind:"service",host_id:<hypervisor-id>,service:"vm:cm-debian12"}`. Supply the
+explicit target ID when it differs from the caller's host. A `service` claim and
+a `remote` claim are different namespaces: neither aliases the other. Likewise,
+a guest FQDN, hypervisor key, DNS alias and IP do not automatically refer to the
+same claim. For an operation affecting all VMs on that hypervisor, use `service:"*"`
+in the agreed namespace and account for its broader service exclusion.
+Git/path claims and isolated worktrees do not reserve VMs. Claims cannot stop
+uncooperative shell/SSH/libvirt commands; every participant must acquire and
+check them. Neither a claim nor peer discovery authorizes touching a VM.
+
+### Ownership and waiting
 
 The response is active or waiting and includes blocker IDs and owners. Conflicting
 owners get one session-bound coordination notice. They answer with
