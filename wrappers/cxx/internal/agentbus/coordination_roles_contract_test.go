@@ -45,6 +45,9 @@ func TestCoordinationAndRoleToolsPreserveSessionRequestsAndFences(t *testing.T) 
 						t.Fatalf("request changed: %#v, %v", sent, err)
 					}
 					body := `{"marker":"fixture-response"}`
+					if name == "agent_room_read" {
+						body = `{"marker":"fixture-response","history":{"coverage":"scope_events_only","notice":"Use agent_chat_read for unified history","unified_chat":{"tool":"agent_chat_read","arguments":{"room_id":"fixture-room"}}}}`
+					}
 					if status == 409 {
 						body = `{"error":{"code":"fixture_fenced","message":"Original owner required"}}`
 					}
@@ -54,6 +57,16 @@ func TestCoordinationAndRoleToolsPreserveSessionRequestsAndFences(t *testing.T) 
 				if status == 200 {
 					if err != nil || out["marker"] != "fixture-response" {
 						t.Fatalf("lost response: %#v %v", out, err)
+					}
+					if name == "agent_room_read" {
+						history, ok := out["history"].(map[string]any)
+						if !ok || history["coverage"] != "scope_events_only" {
+							t.Fatalf("lost scope-history coverage: %#v", out)
+						}
+						call := history["unified_chat"].(map[string]any)
+						if call["tool"] != "agent_chat_read" || call["arguments"].(map[string]any)["room_id"] != "fixture-room" {
+							t.Fatalf("lost unified-history next action: %#v", history)
+						}
 					}
 				} else {
 					var fenced *APIError

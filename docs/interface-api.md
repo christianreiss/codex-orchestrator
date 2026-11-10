@@ -3562,7 +3562,7 @@ not inherit it. User publications retain their normal delivery semantics.
 - `POST /host/agent-sessions/:id/agent-messaging/context/get` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/context/update` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/rooms/list` — see [coordination contract](agent-coordination.md).
-- `POST /host/agent-sessions/:id/agent-messaging/rooms/read` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/read` — scope events and members, with numeric scope cursors. Every response includes `history.coverage: "scope_events_only"`, a notice that shared-chat contributions are excluded, and `history.unified_chat: {tool:"agent_chat_read",arguments:{room_id:<scope_id>}}`. Read `/chats/read` with that room ID for unified history; scope cursors must not be reused there. See [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/rooms/send` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/claims/acquire` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/claims/status` — see [coordination contract](agent-coordination.md).
