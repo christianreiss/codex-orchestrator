@@ -1,5 +1,6 @@
 # 2026-11-10
 
+- **Grok native settings:** validate fixed nested provider, marketplace, MCP setup, S3 and worktree-GC structures before preview/save; preserve historical invalid input for correction. Support native mixed string/table reasoning-effort menus and custom model context-window lists without inserting defaults or running external consumers.
 - **Grok permission rules:** reject malformed or unknown rule fields before preview/save instead of accepting rules the native CLI silently skips. Optional tool/pattern/matching-mode values stay optional; invalid stored rules remain visible for explicit correction.
 
 # 2026-11-09

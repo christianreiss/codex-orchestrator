@@ -1,5 +1,6 @@
 import { ValidationError } from '../http/errors.js';
 import { GROK_NATIVE_FIELDS } from './grok-native-fields.js';
+import { validateGrokNativeStructures } from './grok-native-structures.js';
 
 type RecordValue = Record<string, unknown>;
 const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor']);
@@ -50,6 +51,7 @@ function clone(value: unknown, path: string[], depth = 0): unknown {
 function matches(value: unknown, type: string): boolean {
   if (type.startsWith('=')) return value === type.slice(1);
   if (type === 'table') return isRecord(value);
+  if (type === 'array') return Array.isArray(value);
   if (type === 'integer') return typeof value === 'number' && Number.isSafeInteger(value);
   if (type === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (type.endsWith('[]')) return Array.isArray(value) && value.every(item => matches(item, type.slice(0, -2)));
@@ -160,6 +162,7 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   if (cli.use_leader === false) fail(['cli', 'use_leader'], 'the managed receiver requires its private leader');
   for (const [key, item] of Object.entries(value)) validate(item, [key]);
   validatePermissionRules(value);
+  validateGrokNativeStructures(value, fail);
   for (const [key, control] of [['default', 'model'], ['default_reasoning_effort', 'reasoning_effort']]) {
     if (key! in grokRecord(value.models)) fail(['models', key!], `use settings.${control}; the fleet model controls own this setting`);
   }

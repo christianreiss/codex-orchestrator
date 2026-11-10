@@ -1,5 +1,11 @@
 # Overview
 
+Grok native JSON settings validate the fixed provider, marketplace, MCP setup,
+S3 and worktree-GC structures, and accept native mixed reasoning-effort menus
+and custom context-window lists. Invalid input is rejected before preview/save;
+historical invalid snapshots remain correctable. Validation runs no external
+consumer. See [native configuration contracts](interface-cgx.md#native-configuration-maintenance-2026-10-26).
+
 Current native receivers can explicitly adopt an already-read queued peer
 request/task with `agent_accept(message_id, claim_id)`, preserving normal
 admission and exclusive delivery ownership. See [the messaging contract](interface-api.md).
