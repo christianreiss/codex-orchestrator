@@ -50,7 +50,8 @@ Per item:
    separate task-caused failures from pre-existing ones by diffing against a clean base.
 6. Commit on your worktree branch; stage only your files, never `git add -A` or `git add .`.
    Subject, blank line, what and why with the verification you actually ran, blank line,
-   `AI-Assisted-By: Claude`.
+   exactly one `AI-Assisted-By: <engine>` trailer, replacing `<engine>` with the committing
+   engine (Codex, Claude or Grok).
 
 Do NOT: push, merge into main, edit CHANGELOG.md, bump wrappers/Makefile VERSION, add a migration
 number without asking the parent, deploy, or touch files outside your item.
@@ -82,14 +83,14 @@ Do not paste claim tokens, credentials or customer data into prompts or notes.
 
 1. `git fetch --prune`. Merge into the target branch only while the original checkout is on it with a clean index and worktree and under a Git Director lease. Otherwise fast-forward the remote target from the integration branch and leave the peer's local branch alone. If the target advanced, merge it into the integration branch and recheck first. Verify with `git merge-base --is-ancestor`.
 2. Push always (`origin` unless named; a remote called `github` is never implicit; both remotes if the repo's CI contract says so).
-3. Deploy always, from a clean tree, never from a dirty peer checkout. Production is `root@docker01.uggs.io` (`/var/docker_data/codex-auth.uggs.io/app`): `git pull --ff-only`, `scripts/deploy.sh` as root. If wrapper Go code changed, use `scripts/deploy.sh` so the cxx matrix is built and published; a path that skips wrapper publishing would ship API-only. Tag a rollback image first and name it in the report. Verify: container healthy, migrations applied, `healthz` 200, served artifact matches the commit. Say what you deployed, where, and how to roll back.
+3. Deploy always, from a clean tree, never from a dirty peer checkout. Production is `root@docker01.uggs.io` (`/var/docker_data/codex-auth.uggs.io/app`): `git pull --ff-only`, `scripts/deploy.sh --no-backup` as root. If wrapper Go code changed, use `scripts/deploy.sh --no-backup` so the cxx matrix is built and published; a path that skips wrapper publishing would ship API-only. Do not create manual backups, database dumps, storage archives, credential/config backup copies or additional manual rollback image tags. Retain script-owned cutover metadata and record existing artifact/source references plus the recovery or rebuild procedure. Verify: container healthy, migrations applied, `healthz` 200, served artifact matches the commit. Say what you deployed, where, and how to roll back.
 4. Tell the peer you coordinated with, once the deploy is finished and the remote has moved.
 
 ## 7. Close the queue
 
 For each item: `feedback_claim` acquire (new request id), `feedback_get` for the current `version`, then `feedback_update`:
 
-- Fixed: `status: resolved`, `resolution`, `fix_ref` (merge or commit SHA), `verification` (commands and results actually run), `deployment` (`deployed` plus `deployment_ref` as `<sha> on <host> via <script>, <date>; rollback <image>`, or `not_deployed`).
+- Fixed: `status: resolved`, `resolution`, `fix_ref` (merge or commit SHA), `verification` (commands and results actually run), `deployment` (`deployed` plus `deployment_ref` as `<sha> on <host> via scripts/deploy.sh --no-backup, <date>; recovery <existing artifact or rebuild source/procedure>`, or `not_deployed`).
 - Already fixed earlier: resolved with the earlier SHA and your evidence; mark `deployed` only after checking the served artifact.
 - Out of scope or upstream: `dismissed` with a precise reason. Needs a decision or access: `blocked` with the missing piece.
 - Read each updated item back with `feedback_get` to confirm the closing status and evidence were saved. If closure fails or remains unconfirmed, report the feedback id as an unfinished delivery step and retry safely; do not claim the item complete.
