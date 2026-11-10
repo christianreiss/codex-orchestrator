@@ -1,3 +1,7 @@
+# 2026-11-10
+
+- **Auth runner:** pin Claude Code 2.1.322 to the reviewed latest normal release, retaining exact-version readiness checks. Codex 0.167.0 and Grok Build 1.0.77 stay unchanged; this source update does not deploy or restart the runner.
+
 # 2026-11-09
 
 - Redesign connector setup with provider guides and copyable connection details.

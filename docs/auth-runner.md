@@ -2,9 +2,9 @@
 
 The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, revises skill and project drafts from a conversation, and executes one-shot prompts by running `/usr/local/bin/codex` (or the Claude or Grok CLI) in an isolated temp `$HOME`.
 
-The runner also pins Claude Code 2.1.318 (latest normal release reviewed on
-2026-11-06; vendor conservative stable channel: 2.1.311) and Grok Build
-1.0.77 (the official stable-pointer/npm-latest selection reviewed on 2026-11-06; local channel labels
+The runner also pins Claude Code 2.1.322 (latest normal release reviewed on
+2026-11-10; vendor conservative stable channel: 2.1.311) and Grok Build
+1.0.77 (the official stable-pointer/npm-latest selection reviewed on 2026-11-10; local channel labels
 are separate from the distributed version). These image pins do not change host minimum-version policy.
 
 The bundled Codex CLI is pinned to 0.167.0, matching the fleet catalog. Older
