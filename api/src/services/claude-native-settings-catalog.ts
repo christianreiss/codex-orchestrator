@@ -1,4 +1,4 @@
-/** Public user-scope settings, verified against Claude Code 2.1.318 on 2026-11-06.
+/** Public user-scope settings, verified against Claude Code 2.1.322 on 2026-11-10.
  * Sources: https://code.claude.com/docs/en/settings-reference
  * https://github.com/anthropics/claude-code/releases/tag/v2.1.314 (write boundary).
  * Only key names, JSON types and fixed enum values are recorded here. Native
@@ -215,6 +215,7 @@ export const CLAUDE_NATIVE_NESTED_SETTING_RULES: Readonly<Record<string, ClaudeN
   "permissions.additionalDirectories": {"type": "array", "items": "string"},
   "permissions.blockReadsOutsideWorkingDirectories": {"type": "boolean"},
   "permissions.blockWritesOutsideWorkingDirectories": {"type": "boolean"},
+  "permissions.denyInsteadOfPrompting": {"type": "boolean"},
   "permissions.defaultMode": {"type": "string", "values": ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions", "manual"]},
   "permissions.disableBypassPermissionsMode": {"type": "string", "values": ["disable"]},
   "permissions.disableAutoMode": {"type": "string", "values": ["disable"]},

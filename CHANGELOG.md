@@ -1,3 +1,7 @@
+# 2026-11-10
+
+- **Claude unattended permission handling:** the native JSON editor now supports optional `permissions.denyInsteadOfPrompting`. Both boolean values require observed Claude Code 2.1.319 or newer; the setting remains unset by default, preserves permission siblings, and can be previewed, changed or removed. Native `true` denies calls that would wait for approval; `false` does not override another scope's `true`.
+
 # 2026-11-09
 
 - Redesign connector setup with provider guides and copyable connection details.

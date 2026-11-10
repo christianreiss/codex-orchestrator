@@ -75,6 +75,13 @@ help stays available. See the [Codex](interface-cdx.md#native-command-maintenanc
 and [Grok](interface-cgx.md#native-argument-boundaries-grok-build-1070) contracts.
 
 Claude native user settings include the opt-in
+`permissions.denyInsteadOfPrompting` boolean for sessions without someone to
+answer approval prompts. Preview, save, change and removal use the existing
+Engines JSON editor; both boolean values require observed Claude Code 2.1.319.
+It stays unset by default, and false does not override true from another native
+settings scope. See the [Claude settings contract](interface-clx.md#additional-native-user-settings).
+
+Claude native user settings include the opt-in
 `permissions.blockWritesOutsideWorkingDirectories` boolean. The existing Engines
 JSON editor supports preview, save and removal; configured values require a
 reported Claude Code 2.1.314 or newer, while other settings retain their existing

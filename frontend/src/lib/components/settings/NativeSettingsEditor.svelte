@@ -24,7 +24,7 @@
   const parse = (text: string) => profiles ? parseNativeProfiles(text) : parseNativeSettings(text);
   const references = {
     codex: { version: "0.167.0", url: "https://developers.openai.com/codex/config-reference/" },
-    claude: { version: "2.1.318", url: "https://code.claude.com/docs/en/settings-reference" },
+    claude: { version: "2.1.322", url: "https://code.claude.com/docs/en/settings-reference" },
     grok: { version: "1.0.77", url: "https://docs.x.ai/build/settings/reference" },
   };
   const qc = useQueryClient();
@@ -120,6 +120,8 @@
       Setting it to true lets sandboxed commands escape the sandbox; protected paths and credentials are no longer a security boundary.
       permissions.blockWritesOutsideWorkingDirectories requires Claude Code 2.1.314 or newer, including an explicit false.
       Set true to block Write, Edit and NotebookEdit outside working directories in every permission mode.
+      permissions.denyInsteadOfPrompting requires Claude Code 2.1.319 or newer, including an explicit false.
+      Set true to deny calls that would wait for approval; it stays unset by default. False does not override true from another settings scope.
       Desktop-only sshHostCommands is configured in Claude Desktop.
     </p>
   {/if}

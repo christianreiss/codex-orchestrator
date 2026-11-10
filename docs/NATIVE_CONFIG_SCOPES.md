@@ -141,6 +141,11 @@ user/managed settings can enable it; subprocess environment scrubbing overrides 
 2.1.314 whenever present, including `false`. With `true`, native Write, Edit and
 NotebookEdit refuse writes outside the working directories in every permission
 mode; it stays unset unless authored. Removing it withdraws that leaf only.
+`native_settings.permissions.denyInsteadOfPrompting` requires 2.1.319 whenever
+present, including `false`. It is supported in native user/managed settings and
+`--settings`, not project/local files. True denies calls that would wait on an
+approval prompt; false does not override another scope's true. It remains unset
+unless authored, and removal withdraws only that owned permission leaf.
 Claude Desktop 3.6556.0+ owns `sshHostCommands`; CLI defaults reject it with a scope explanation.
 Older or unreported versions receive an actionable config validation
 error with observed and required versions. Empty extensions and existing
