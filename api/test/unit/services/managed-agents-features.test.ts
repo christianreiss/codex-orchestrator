@@ -371,9 +371,9 @@ describe('served document byte invariance', () => {
     // 2026-11-06: a later peer follow-up is an agent_request, not "no reply needed" (feedback 98abb657).
     // 2026-11-06: slop jobs (UI/UX review) in the Projects section.
     // 2026-11-10: shared VM claims, unknown-workspace discovery and unified room history.
-    expect(out.features_sha256).toBe('5a57c7cb938ed5620953d4ebc85d0ebf51477b9080b7441038decd0e3f1e307a');
-    expect(out.managed_sha256).toBe('2dd7356ce99ee41b57d3464c19058ae7f47aa1fe63bd59aa9a97f568d3d578e6');
-    expect(sha256(out.body)).toBe('d080003c98b4c8a3000f756b485da8d319c1692ed3c2a7f4b9960133fe8eb7cf');
+    expect(out.features_sha256).toBe('72ee2d773f204c539be3dd517bbbed09fe25c2293f24a827820d17ac8ddf4e02');
+    expect(out.managed_sha256).toBe('0aa93530d9ba26f1a32df172734c759a130db6ff5d3075a82e6404762c3c23dc');
+    expect(sha256(out.body)).toBe('be116b032784dbd41a2815eb424d78242f2663e7b27ece2a13ec535301eb6dde');
   });
 });
 
@@ -974,7 +974,7 @@ describe('managed Agent Messaging guidance', () => {
     expect(body).toContain('before tests, reinstall or re-enrollment');
     expect(body).toContain('A claim is not an OS sandbox');
     expect(body).toContain('`agent_room_read` omits shared-chat/UI posts');
-    expect(body).toContain('`agent_chat_read(room_id=scope_id)`');
+    expect(body).toContain('`agent_chat_read` with room_id equal to the scope ID');
     expect(body).toContain('never reuse scope cursors there');
   });
 
