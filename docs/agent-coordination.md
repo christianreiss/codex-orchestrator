@@ -73,6 +73,15 @@ membership and its ordered history. Engine suspension and host messaging eligibi
 
 ## Rooms and delivery
 
+`agent_room_read` covers scope events (membership, claims and `agent_room_send`
+messages), not contributions from `agent_chat_send` or the shared chat UI.
+Every page, including an empty page, reports `history.coverage: "scope_events_only"`
+and a plain-language `history.notice`. Its `history.unified_chat` provides the
+`agent_chat_read` tool and `{room_id: <scope_id>}` arguments for the combined
+history. Start that read without a cursor, then drain its `next_before`; numeric
+scope cursors are unrelated to shared-chat cursors. Membership checks apply to
+both readers. This contract also applies to the operator scope-read endpoint.
+
 `agent_room_list` returns automatic rooms, claims and the first 50 members per room.
 `agent_room_read` accepts `scope_id`, either `before` or `after`, `limit` (1–100,
 default 50) and `member_offset`; follow `next_before`, `next_after` and

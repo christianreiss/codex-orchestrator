@@ -539,13 +539,19 @@ export class AgentCoordination {
   }
   async read(id: string | null, token: string | null, input: unknown) {
     const body = roomReadSchema.parse(input);
+    // Scope sequences cannot page the separate shared-chat event stream.
+    const history = {
+      coverage: 'scope_events_only' as const,
+      notice: 'Includes scope events and agent_room_send messages. Contributions sent through agent_chat_send or the shared chat UI are not included. Use agent_chat_read with room_id equal to scope_id for unified history; do not reuse scope cursors.',
+      unified_chat: { tool: 'agent_chat_read', arguments: { room_id: body.scope_id } },
+    };
     const owner = ownerRuntimeFor(this.db);
     if (owner) {
       const before = owner.state.snapshot(); requireScopeMembership(owner,before,body.scope_id,coordinationSession(owner,before,id,token));
       const events = await this.db.select().from(agentScopeEvents).where(and(eq(agentScopeEvents.scopeId,body.scope_id),body.after!==undefined?gt(agentScopeEvents.sequence,body.after):undefined,body.before!==undefined?lt(agentScopeEvents.sequence,body.before):undefined)).orderBy(body.after!==undefined?asc(agentScopeEvents.sequence):desc(agentScopeEvents.sequence)).limit(body.limit+1);
       const snapshot = owner.state.snapshot(), session = coordinationSession(owner,snapshot,id,token), scope = requireScopeMembership(owner,snapshot,body.scope_id,session), members = scopeMembers(owner,snapshot,scope.id);
       const more = events.length>body.limit, selected = events.slice(0,body.limit).sort((a,b)=>a.sequence-b.sequence);
-      return {scope,cursor:scope.sequence,resync_required:body.after!==undefined&&body.after>scope.sequence,events:selected.map(event=>({id:event.id,sequence:event.sequence,kind:event.kind,actor:event.actor,body:this.decode(event),created_at:event.createdAt})),has_more:more,next_after:body.after!==undefined&&more?selected.at(-1)?.sequence:null,next_before:body.after===undefined&&more?selected[0]?.sequence:null,members:members.slice(body.member_offset,body.member_offset+50).map(row=>scopeMemberView(row,session??undefined)),member_count:members.length,next_member_offset:members.length>body.member_offset+50?body.member_offset+50:null};
+      return {scope,history,cursor:scope.sequence,resync_required:body.after!==undefined&&body.after>scope.sequence,events:selected.map(event=>({id:event.id,sequence:event.sequence,kind:event.kind,actor:event.actor,body:this.decode(event),created_at:event.createdAt})),has_more:more,next_after:body.after!==undefined&&more?selected.at(-1)?.sequence:null,next_before:body.after===undefined&&more?selected[0]?.sequence:null,members:members.slice(body.member_offset,body.member_offset+50).map(row=>scopeMemberView(row,session??undefined)),member_count:members.length,next_member_offset:members.length>body.member_offset+50?body.member_offset+50:null};
     }
     return this.run(id, token, async (tx, session) => {
       const scope = await this.membership(tx, body.scope_id, session);
@@ -566,6 +572,7 @@ export class AgentCoordination {
       const members = await this.members(tx, scope.id);
       return {
         scope,
+        history,
         cursor: scope.sequence,
         resync_required: body.after !== undefined && body.after > scope.sequence,
         events: selected.map((e) => ({
