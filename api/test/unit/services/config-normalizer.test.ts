@@ -114,6 +114,7 @@ describe('config-normalizer constants', () => {
     // effortLevel as X(["low","medium","high","xhigh"]). `max` is
     // session-scoped (the --effort flag only) and must never be persisted.
     expect(CLAUDE_MODEL_REASONING_EFFORTS).toEqual({
+      'claude-fable-5-2': ['low', 'medium', 'high', 'xhigh'],
       'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh'],
       'claude-fable-5': ['low', 'medium', 'high', 'xhigh'],
       'claude-opus-5-5': ['low', 'medium', 'high', 'xhigh'],
@@ -129,6 +130,7 @@ describe('config-normalizer constants', () => {
       'claude-haiku-4-5-20251001': [],
     });
     expect(CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
+      'claude-fable-5-2': 'medium',
       'claude-fable-5-1': 'high',
       'claude-fable-5': 'high',
       'claude-opus-5-5': 'medium',

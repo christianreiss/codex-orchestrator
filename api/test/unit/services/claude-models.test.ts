@@ -35,6 +35,7 @@ describe('claude-models', () => {
   it('exposes a non-empty static catalog and a sane default', () => {
     expect(CLAUDE_DEFAULT_MODEL).toBe('claude-sonnet-5');
     expect(CLAUDE_SUPPORTED_MODELS).toEqual([
+      'claude-fable-5-2',
       'claude-fable-5-1',
       'claude-fable-5',
       'claude-opus-5-5',

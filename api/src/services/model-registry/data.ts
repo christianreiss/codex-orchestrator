@@ -84,6 +84,10 @@ const CLAUDE_200K = { maxInputTokens: 200_000, maxTokens: 64_000 } as const;
  *   platform.claude.com/docs/en/about-claude/model-deprecations (2026-10-28).
  */
 export const CLAUDE_MODELS = [
+  // Fable 5.2: public 2026-11-09, verified against Claude Code 2.1.322 and
+  // code.claude.com/docs/en/model-config on 2026-11-10. Native default medium
+  // differs from the API default high. Older Fable models remain active.
+  { id: 'claude-fable-5-2', label: 'Fable 5.2', family: 'fable', tier: 5, status: 'active', efforts: CLAUDE_ADAPTIVE, defaultEffort: 'medium', minCliVersion: '2.1.321', sessionEfforts: ['max'], advisorRank: 10, api: { ...CLAUDE_1M, line: 'fable' } },
   { id: 'claude-fable-5-1', label: 'Fable 5.1', family: 'fable', tier: 5, status: 'active', efforts: CLAUDE_ADAPTIVE, defaultEffort: 'high', minCliVersion: '2.1.257', sessionEfforts: ['max'], legacyUserEffort: true, advisorRank: 9, api: { ...CLAUDE_1M, line: 'fable' } },
   { id: 'claude-fable-5', label: 'Fable 5', family: 'fable', tier: 5, status: 'active', efforts: CLAUDE_ADAPTIVE, defaultEffort: 'high', sessionEfforts: ['max'], legacyUserEffort: true, advisorRank: 8, api: { ...CLAUDE_1M, line: 'fable' } },
   { id: 'claude-opus-5-5', label: 'Opus 5.5', family: 'opus', tier: 4, status: 'active', efforts: CLAUDE_ADAPTIVE, defaultEffort: 'medium', minCliVersion: '2.1.280', sessionEfforts: ['max'], advisorRank: 7, api: { ...CLAUDE_1M, line: 'opus' } },
@@ -119,14 +123,14 @@ export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-5';
 
 /**
  * Native advisor aliases and the concrete model the CLI's catalog resolves each
- * to (`aliases:{opus:{default:"claude-opus-5-5"},...}`, Claude Code 2.1.312).
+ * to (`aliases:{opus:{default:"claude-opus-5-5"},...}`, Claude Code 2.1.322).
  * Order is the order operators see. `haiku` stays absent: the native advisor
  * picker still offers only fable/opus/sonnet.
  */
 export const CLAUDE_ADVISOR_ALIASES = {
   opus: 'claude-opus-5-5',
   sonnet: 'claude-sonnet-5-5',
-  fable: 'claude-fable-5-1',
+  fable: 'claude-fable-5-2',
 } as const;
 
 const GROK_ADAPTIVE = ['low', 'medium', 'high', 'xhigh'] as const;

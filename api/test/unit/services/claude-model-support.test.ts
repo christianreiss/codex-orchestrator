@@ -10,7 +10,9 @@ import { createDbFake } from '../../helpers/db-fake.js';
 // code.claude.com/docs/en/model-config, checked 2026-10-28: "Sonnet 5.5 requires
 // Claude Code v2.1.284 or later, and Opus 5.5 requires v2.1.280 or later." /
 // "Use v2.1.293 or later with Haiku 5.5." / "Fable 5.1 requires Claude Code v2.1.257".
+// Fable 5.2 minimum re-verified on the same official page, 2026-11-10.
 const DOCUMENTED = {
+  'claude-fable-5-2': '2.1.321',
   'claude-fable-5-1': '2.1.257',
   'claude-opus-5-5': '2.1.280',
   'claude-sonnet-5-5': '2.1.284',
@@ -35,6 +37,7 @@ describe('Claude native model compatibility', () => {
     ['claude-haiku-5-5', '2.1.292', '2.1.293'],
     ['claude-opus-5-5', '2.1.279', '2.1.280'],
     ['claude-fable-5-1', '2.1.256', '2.1.257'],
+    ['claude-fable-5-2', '2.1.320', '2.1.321'],
   ])('%s refuses %s and accepts %s', (model, below, at) => {
     expect(() => assertClaudeModelVersion(model, below)).toThrow(new RegExp(`${at.replace(/\./g, '\\.')}.*clx update`));
     expect(() => assertClaudeModelVersion(model, null)).toThrow(/unreported/);

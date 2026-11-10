@@ -120,3 +120,20 @@ func TestModelCatalogDecodesAdditiveKeys(t *testing.T) {
 		t.Fatalf("additive keys not decoded: %#v", catalog)
 	}
 }
+
+func TestFable52MinimumTravelsInSignedCatalog(t *testing.T) {
+	catalog := &ModelCatalog{MinCLIVersions: map[string]string{"claude-fable-5-2": "2.1.321"}}
+	for _, model := range []string{"claude-fable-5-2", "claude-fable-5-2[1m]", "CLAUDE-FABLE-5-2[1M]"} {
+		for _, version := range []string{"", "unknown", "2.1.320"} {
+			if err := CheckModelVersion(EngineClaude, model, version, catalog); err == nil || !strings.Contains(err.Error(), "clx update") {
+				t.Fatalf("accepted old native %q for %s: %v", version, model, err)
+			}
+		}
+		if err := CheckModelVersion(EngineClaude, model, "2.1.322 (Claude Code)", catalog); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if minimum := ModelMinimum(EngineClaude, "claude-fable-5-2", nil); minimum != "" {
+		t.Fatalf("modified frozen fallback: %s", minimum)
+	}
+}

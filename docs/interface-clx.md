@@ -1185,13 +1185,44 @@ silently writing the wrong property. Ordinary dotted ownership paths remain
 compatible. Migration from an old whole-object owner removes the stale object
 before applying its replacement leaves.
 
+### Fable 5.2 model support (2026-11-10)
+
+The fleet registry, API catalog, model/effort pickers, signed launch catalog and
+optional latest-family policy include `claude-fable-5-2`. Claude Code requires
+**2.1.321** or later. Native persistent efforts are `low`, `medium`, `high` and
+`xhigh`, default **medium**; `max` remains session-only. The API's default `high`
+is a different contract. Settings render effort under
+`modelSettings.claude-fable-5-2.effortLevel`, including a `[1m]` selection, without
+writing the ignored legacy user `effortLevel`. cxx 0.9.173 also ignores that
+legacy key when reading Fable 5.2 preferences for the launchpad. Explicit
+per-model preferences and active older Fable models retain their own behavior.
+
+Fable 5.2 has a 1,000,000-token context and 128,000-token output limit. The
+`fable` advisor alias resolves to it (native advisor rank 10), so a Fable 5.2
+session cannot silently select a weaker Fable 5.1 advisor. Tier 5 follows the
+provider's demanding-reasoning and long-horizon positioning; no existing model
+is reclassified. Fable 5 and 5.1 remain active and explicitly selectable; only
+an enabled latest-family policy maps them to 5.2. No deprecation migration or
+fleet default change is performed. Restricted Mythos 5.2 is not a public choice.
+
+Fast mode remains opt-in: on Fable 5.2 native consent must be given while using
+that model. An authored `fastMode: true` alone does not establish consent or
+activate the provider's fast service. The fleet does not synthesize consent.
+
+Sources fetched 2026-11-10: [native model configuration](https://code.claude.com/docs/en/model-config),
+[Fable 5.2 specifications](https://platform.claude.com/docs/en/models/fable-5-2/overview),
+[model lifecycle](https://platform.claude.com/docs/en/about-claude/model-deprecations),
+and [native fast mode](https://code.claude.com/docs/en/fast-mode). Native metadata
+was independently read from managed Claude Code 2.1.322 (binary SHA-256
+`bfb3703ad5380242328459bc62ada4bde8ae7ba57c6e1eeadb9c00e08874c478`).
+
 ### Model catalog maintenance (2026-10-12)
 
 The public picker and inference gateway now include Haiku 5.5 and the still-active
 Opus 4.6 and Opus 4.5 (`claude-opus-4-5-20251101`). Selecting Opus 4.6 no longer
 silently upgrades it to 4.8. Haiku 5.5 has a 1M context window and 128k output
-limit; use Claude Code 2.1.293 or later. The runner image pins 2.1.312. Restricted
-Mythos models remain outside the public catalog; plan/provider entitlements are
+limit; use Claude Code 2.1.293 or later. The runner's current exact CLI pins
+are documented in [the runner contract](auth-runner.md). Restricted Mythos models remain outside the public catalog; plan/provider entitlements are
 still checked upstream.
 
 Known retired or deprecated IDs migrate on store and render, including the now
@@ -1226,7 +1257,7 @@ default is `medium` even though its API default is `high`.
 ### Claude model CLI minimums
 
 [Model configuration](https://code.claude.com/docs/en/model-config) (checked
-2026-10-28) documents per-model Claude Code floors: Fable 5.1 **2.1.257**,
+2026-11-10) documents per-model Claude Code floors: Fable 5.2 **2.1.321**, Fable 5.1 **2.1.257**,
 Opus 5.5 **2.1.280**, Sonnet 5.5 **2.1.284** and Haiku 5.5 **2.1.293**; older
 CLIs do not support these models. No minimum is invented for other catalog
 models, tier aliases (`sonnet`, `opus`, ...) or custom provider IDs. A retired
@@ -1255,8 +1286,9 @@ change the model.
   2 before touching auth, settings or the session guard. The check probes the
   binary that would actually run, so a `CLX_CLAUDE_BIN` override is gated too.
   Native subcommands (`update`, `install`, `doctor`, `auth`, `mcp`, ...) and
-  help/version are never gated. The wrapper keeps the four floors built in so
-  an older signed catalog without `min_cli_version` still enforces them. An
+  help/version are never gated. The wrapper keeps the four pre-registry floors
+  built in for older signed catalogs; newer floors, including Fable 5.2, travel only through the signed
+  `model_catalog.min_cli_versions` map (also when filtered out of the menu). An
   `ANTHROPIC_MODEL` inside the settings `env` block is not considered.
 
 ### Structured settings

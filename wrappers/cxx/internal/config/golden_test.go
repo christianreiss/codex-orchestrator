@@ -489,7 +489,7 @@ func assertGoldenCatalog(t *testing.T, engine string, catalog *ModelCatalog) {
 			t.Fatalf("codex Terra floor must be signed while Terra is filtered for the old CLI: %v", catalog.MinCLIVersions)
 		}
 	case EngineClaude:
-		if len(catalog.MinCLIVersions) != 4 || catalog.MinCLIVersions["claude-opus-5-5"] != "2.1.280" || len(live) != 0 {
+		if len(catalog.MinCLIVersions) != 5 || catalog.MinCLIVersions["claude-fable-5-2"] != "2.1.321" || catalog.MinCLIVersions["claude-opus-5-5"] != "2.1.280" || len(live) != 0 {
 			t.Fatalf("claude floors = %v, live = %v", catalog.MinCLIVersions, live)
 		}
 	case EngineGrok:

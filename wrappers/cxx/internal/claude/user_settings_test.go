@@ -14,3 +14,24 @@ func TestUserSettingsPerModelEffort(t *testing.T) {
 		}
 	}
 }
+
+func TestFable52UsesOnlyItsOwnUserEffort(t *testing.T) {
+	for _, model := range []string{"claude-fable-5-2", "claude-fable-5-2[1m]"} {
+		for _, level := range []string{"", "high"} {
+			raw := []byte(`{"model":"` + model + `","effortLevel":"low","modelSettings":{"claude-fable-5-2":{"effortLevel":"` + level + `"},"claude-fable-5-1":{"effortLevel":"xhigh"}}}`)
+			for _, selection := range []string{"", model} {
+				gotModel, effort := UserSettingsPreferences(raw, selection)
+				if gotModel != model || effort != level {
+					t.Fatalf("model %q selection %q effort=%q: got %q / %q", model, selection, level, gotModel, effort)
+				}
+			}
+		}
+	}
+	// Older active Fable versions retain the legacy user preference.
+	for _, model := range []string{"claude-fable-5-1", "claude-fable-5"} {
+		_, effort := UserSettingsPreferences([]byte(`{"model":"`+model+`","effortLevel":"low"}`), "")
+		if effort != "low" {
+			t.Fatalf("legacy preference lost for %s", model)
+		}
+	}
+}

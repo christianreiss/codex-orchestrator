@@ -12,6 +12,7 @@ export type ModelEngine = "codex" | "claude" | "grok";
 
 /** Claude models the fleet offers, in picker order. */
 export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
+  { label: "Fable 5.2", value: "claude-fable-5-2" },
   { label: "Fable 5.1", value: "claude-fable-5-1" },
   { label: "Fable 5", value: "claude-fable-5" },
   { label: "Opus 5.5", value: "claude-opus-5-5" },
@@ -76,6 +77,7 @@ export const MODEL_EFFORTS: Record<ModelEngine, Record<string, string[]>> = {
     "gpt-5.6-luna": ["low","medium","high","xhigh","max"],
   },
   claude: {
+    "claude-fable-5-2": ["low","medium","high","xhigh"],
     "claude-fable-5-1": ["low","medium","high","xhigh"],
     "claude-fable-5": ["low","medium","high","xhigh"],
     "claude-opus-5-5": ["low","medium","high","xhigh"],
@@ -104,6 +106,7 @@ export const MODEL_MIN_CLI_VERSIONS: Record<ModelEngine, Record<string, string>>
     "gpt-6.1-terra": "0.159.0",
   },
   claude: {
+    "claude-fable-5-2": "2.1.321",
     "claude-fable-5-1": "2.1.257",
     "claude-opus-5-5": "2.1.280",
     "claude-sonnet-5-5": "2.1.284",

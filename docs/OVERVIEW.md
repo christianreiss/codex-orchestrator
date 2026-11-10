@@ -1,5 +1,11 @@
 # Overview
 
+Fable 5.2 is available in Claude model/effort pickers and signed catalogs from
+Claude Code 2.1.321, with native default medium and Tier 5. Older active Fable
+models remain selectable; the optional latest-family policy and advisor alias
+follow 5.2. cxx 0.9.173 reads its per-model user effort without inheriting the
+ignored legacy key. [Model contract and sources](interface-clx.md#fable-52-model-support-2026-11-10).
+
 Current native receivers can explicitly adopt an already-read queued peer
 request/task with `agent_accept(message_id, claim_id)`, preserving normal
 admission and exclusive delivery ownership. See [the messaging contract](interface-api.md).

@@ -6,6 +6,15 @@ tiers, upgrades or offers a model derives from it. Adding or changing a model is
 an edit to that file plus `npm run models:generate` (from `api/`) and the
 registry snapshot (`npx vitest run test/unit/services/model-registry.test.ts -u`).
 
+## Fable 5.2 (2026-11-10)
+
+The public native catalog adds `claude-fable-5-2`, minimum CLI 2.1.321,
+Tier 5, default effort medium, persistent low/medium/high/xhigh, session-only max,
+advisor rank 10, 1M context and 128K output. Its user `effortLevel` is ignored;
+the per-model key applies. The advisor alias and optional latest-family policy
+track 5.2; active Fable 5/5.1 remain selectable and no default is changed.
+See [the source and behavior contract](interface-clx.md#fable-52-model-support-2026-11-10).
+
 ## Inventory (2026-10-29, before the registry)
 
 `grep -rIl -E "gpt-6-luna|gpt-6\.1-terra|gpt-6\.1-sol"` hit ~60 files. Classified:
