@@ -1132,12 +1132,30 @@ JSON editor can preview, save, change and remove it; removing the key withdraws
 only that owned leaf and preserves read restrictions and other local siblings.
 It is not enabled by default. See the [native release](https://github.com/anthropics/claude-code/releases/tag/v2.1.314).
 
+`permissions.denyInsteadOfPrompting` is an optional user-scope boolean introduced
+in Claude Code 2.1.319. Either explicit value requires an observed CLI version of
+at least 2.1.319; omission keeps the existing settings floor. The Engines native
+JSON editor supports preview, save, change and removal. The fleet adds no value
+by default and owns only the configured leaf, preserving local permission siblings.
+With `true`, native calls that would wait for approval are denied and the turn
+continues. Calls already approved by rules, the permission mode or auto mode's
+classifier still run. `false` behaves like unset and cannot override `true` in
+another native settings scope. Project/local settings cannot enable it.
+
+Native also omits question and plan tools (agent-team plan tools are an exception),
+cancels unanswered MCP elicitation, and does not query a permission-host callback;
+`PermissionRequest`/`Elicitation` hooks may still answer supported requests.
+Workspace trust and project MCP approval can still wait, so this is not a guarantee
+of unattended startup. In auto mode, twenty consecutive refused actions without
+progress stop the turn. See the [native setting contract](https://code.claude.com/docs/en/settings-reference),
+verified against 2.1.322 on 2026-11-10.
+
 `sshHostCommands` is rejected with a Desktop-scope explanation: only Claude
 Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.318 on 2026-11-06. Validation rejects unknown
+checked against Claude Code 2.1.322 on 2026-11-10. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys

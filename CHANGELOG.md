@@ -3,6 +3,7 @@
 - **Grok permission rules:** reject malformed or unknown rule fields before preview/save instead of accepting rules the native CLI silently skips. Optional tool/pattern/matching-mode values stay optional; invalid stored rules remain visible for explicit correction.
 - **Fable 5.2:** add the public Claude model to API, UI and signed launch catalogs with its native 2.1.321 minimum, medium default, persistent low/medium/high/xhigh efforts and Tier 5. The Fable advisor alias and optional latest-family policy follow 5.2; active Fable 5/5.1 remain selectable. No fleet default changes or native fast-mode consent are implied.
 - **cxx 0.9.173 — Fable 5.2 preferences:** use the model's own saved effort and ignore the legacy top-level user effort, matching native Claude Code.
+- **Claude unattended permission handling:** the native JSON editor now supports optional `permissions.denyInsteadOfPrompting`. Both boolean values require observed Claude Code 2.1.319 or newer; the setting remains unset by default, preserves permission siblings, and can be previewed, changed or removed. Native `true` denies calls that would wait for approval; `false` does not override another scope's `true`.
 
 # 2026-11-09
 

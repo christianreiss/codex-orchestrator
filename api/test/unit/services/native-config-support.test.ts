@@ -141,3 +141,28 @@ describe('Claude write boundary conditional capability floor', () => {
     expect(() => render(null, { native_settings: {} })).not.toThrow();
   });
 });
+
+describe('Claude unattended permission conditional capability floor', () => {
+  const render = (version: string | null, settings: unknown) => renderClaudeSettingsPartialForHost({
+    settings, host: { claudeClientVersion: version, claudeWrapperVersion: '0.9.66' } as never, baseUrl: null, apiKey: null,
+  });
+  it.each([false, true])('requires 2.1.319 for denyInsteadOfPrompting=%s', denyInsteadOfPrompting => {
+    const settings = { native_settings: { permissions: { denyInsteadOfPrompting, blockWritesOutsideWorkingDirectories: false }, sandbox: { allowNestedUserNamespaces: false } } };
+    for (const version of ['2.1.296', '2.1.305', '2.1.314', '2.1.318', null]) {
+      expect(() => render(version, settings)).toThrow(/2\.1\.319.*observed.*clx update/);
+    }
+    expect(render('2.1.319 (Claude Code)', settings).partial.permissions).toMatchObject({ denyInsteadOfPrompting });
+    expect(() => render('2.1.322', settings)).not.toThrow();
+    expect(JSON.parse(new ClientConfigService({} as never).render(settings, 'claude').content).permissions)
+      .toMatchObject({ denyInsteadOfPrompting });
+  });
+  it('does not raise floors for opaque names or a removed setting', () => {
+    expect(() => render('2.1.296', { native_settings: {
+      permissions: { blockReadsOutsideWorkingDirectories: true },
+      env: { 'permissions.denyInsteadOfPrompting': 'opaque' },
+      modelSettings: { denyInsteadOfPrompting: { effortLevel: 'high' } },
+    } })).not.toThrow();
+    expect(() => render('2.1.314', { native_settings: { permissions: { blockWritesOutsideWorkingDirectories: false } } })).not.toThrow();
+    expect(() => render(null, { native_settings: {} })).not.toThrow();
+  });
+});
