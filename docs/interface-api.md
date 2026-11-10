@@ -4047,8 +4047,8 @@ family mapping. Signed bootstrap remains available for update/recovery. See
 [the Codex availability contract](interface-cdx.md#gpt-61-terra-native-availability).
 
 Claude defaults and signed launch catalogs carry the same optional field for
-Fable 5.1 (2.1.257), Opus 5.5 (2.1.280), Sonnet 5.5 (2.1.284) and Haiku 5.5
-(2.1.293); the observed version is the host's reported `claude_client_version`,
+Fable 5.2 (2.1.321), Fable 5.1 (2.1.257), Opus 5.5 (2.1.280),
+Sonnet 5.5 (2.1.284) and Haiku 5.5 (2.1.293); the observed version is the host's reported `claude_client_version`,
 never the Codex `client_version` or a desired pin. `POST /admin/hosts/{id}/model`
 rejects a `claude_model_override` (after retired-ID migration and latest-family
 mapping) whose minimum the reported Claude version does not meet, with HTTP 422

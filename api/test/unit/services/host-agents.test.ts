@@ -454,7 +454,7 @@ describe('HostAgentsService Model Class Check', () => {
 
     expect(out['content']).toContain('## Model Class Check');
     expect(out['content']).toContain("configured codex model is `gpt-6.1-sol` (Tier 3)");
-    expect(out['content']).toContain('`claude-fable-5-1`');
+    expect(out['content']).toContain('`claude-fable-5-2`');
     // A fleet-suspended engine is never recommended.
     expect(out['content']).not.toContain('`grok-4.7`');
     expect(out['sections']).toMatchObject({ model_tiers: { present: true, reason: 'ok' } });

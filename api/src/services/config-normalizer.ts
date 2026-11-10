@@ -557,9 +557,9 @@ export const CLAUDE_MIN_ADVISOR_RANK = 2;
 /**
  * Tier alias -> concrete model, as the CLI's own catalog resolves them
  * (`aliases:{opus:{default:"claude-opus-5-5"},sonnet:{default:"claude-sonnet-5-5"},
- * fable:{default:"claude-fable-5-1"}}`). `haiku` remains absent from ADVISOR_MODEL_ALIASES: although Haiku 5.5
+ * fable:{default:"claude-fable-5-2"}}`). `haiku` remains absent from ADVISOR_MODEL_ALIASES: although Haiku 5.5
  * now has rank 4, the native advisor picker still offers only
- * `["fable","opus","sonnet"]` in Claude Code 2.1.312.
+ * `["fable","opus","sonnet"]` in Claude Code 2.1.322.
  */
 export const CLAUDE_ADVISOR_ALIAS_TARGETS: Readonly<Record<string, string>> = CLAUDE_ADVISOR_ALIASES;
 

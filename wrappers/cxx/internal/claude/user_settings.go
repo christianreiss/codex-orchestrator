@@ -33,7 +33,7 @@ func UserSettingsPreferences(raw []byte, selectedModel string) (model, effort st
 	}
 	// The old user-level effort key stopped applying with Opus 5.5.
 	switch selectedModel {
-	case "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5":
+	case "claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5":
 		return model, ""
 	}
 	return model, strings.TrimSpace(settings.EffortLevel)

@@ -813,6 +813,22 @@ describe('Terra host override installed-version boundary', () => {
 });
 
 describe('Claude host override installed-version boundary', () => {
+  it.each([null, '2.1.320', '2.1.321 (Claude Code)'])('gates Fable 5.2 on observed %s while preserving older Fable choices and clearing', async version => {
+    const mock = createMockDb();
+    const svc = new HostManagementService({ db: mock.db, env: buildEnv(), keyring: await buildKeyring(), events: makeAdminEventsWriter(mock.db) });
+    const registered = await svc.register({ fqdn: 'fable52-version.test', engines: ['claude'] });
+    const row = mock.rows('hosts')[0]!;
+    row.claude_client_version = version;
+    row.client_version = '9.0.0';
+    const set = (model: string | null) => svc.setModelOverrides(registered.host.id, { claude_model_override: model, includeClaudeOverride: true });
+    if (version?.startsWith('2.1.321')) await expect(set('claude-fable-5-2[1m]')).resolves.toBeDefined();
+    else await expect(set('claude-fable-5-2[1m]')).rejects.toThrow(/2\.1\.321.*clx update/);
+    if (version) await expect(set('claude-fable-5-1')).resolves.toBeDefined();
+    await expect(set('claude-fable-5')).resolves.toBeDefined();
+    await expect(set(null)).resolves.toBeDefined();
+    expect(mock.rows('hosts')[0]!.claude_model_override).toBeNull();
+  });
+
   it.each([null, '2.1.283', '2.1.284 (Claude Code)'])('checks observed %s without blocking clearing or older models', async version => {
     const mock = createMockDb();
     const svc = new HostManagementService({ db: mock.db, env: buildEnv(), keyring: await buildKeyring(), events: makeAdminEventsWriter(mock.db) });

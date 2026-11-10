@@ -33,6 +33,16 @@ language. The vendor is fixed per engine (`ENGINE_VENDOR` in `api/src/services/m
 model and tier come from the session's own launch identity and model. It is guidance, not enforcement,
 and it follows the Model Class Check switch.
 
+## Fable 5.2 addition (2026-11-10)
+
+`claude-fable-5-2`: unlisted → Tier 5, matching its active Fable family.
+The [provider's release specifications](https://platform.claude.com/docs/en/models/fable-5-2/overview)
+position it for demanding reasoning, extended autonomous sessions and multistep
+research, with the same 1M context / 128K output envelope as the current frontier
+family. This supports retaining the existing family class rather than
+reclassifying other engines. Codex, Grok and older Claude model tiers are
+unchanged; efforts, latency modes and provider access remain separate controls.
+
 ---
 
 History. Reviewed **2026-10-26** for the engine-maintenance run. Classes are the fleet's

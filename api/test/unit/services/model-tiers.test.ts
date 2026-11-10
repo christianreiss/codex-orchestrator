@@ -41,6 +41,7 @@ describe('modelTier', () => {
     [ENGINE_CLAUDE, 'claude-opus-5-5[1m]', 4],
     [ENGINE_CLAUDE, 'opus', 4],
     [ENGINE_CLAUDE, 'claude-fable-5-1', 5],
+    [ENGINE_CLAUDE, 'claude-fable-5-2', 5],
     [ENGINE_CODEX, 'gpt-6-luna', 1],
     [ENGINE_CODEX, 'gpt-5.6-terra', 2],
     [ENGINE_CODEX, 'gpt-6.1-terra', 2],

@@ -151,6 +151,12 @@ describe('ModelDefaultsService', () => {
     });
     expect(claude.catalog).toEqual([
       {
+        model: 'claude-fable-5-2',
+        min_cli_version: '2.1.321',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh'],
+        default_effort: 'medium',
+      },
+      {
         model: 'claude-fable-5-1',
         min_cli_version: '2.1.257',
         persistent_efforts: ['low', 'medium', 'high', 'xhigh'],

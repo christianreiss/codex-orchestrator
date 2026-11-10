@@ -5,6 +5,7 @@ exports[`registry snapshot > records every model change for review 1`] = `
   "claude": {
     "default": "claude-sonnet-5",
     "models": [
+      "claude-fable-5-2 active tier 5 low|medium|high|xhigh medium cli>=2.1.321",
       "claude-fable-5-1 active tier 5 low|medium|high|xhigh high cli>=2.1.257",
       "claude-fable-5 active tier 5 low|medium|high|xhigh high",
       "claude-opus-5-5 active tier 4 low|medium|high|xhigh medium cli>=2.1.280",

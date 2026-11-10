@@ -74,6 +74,7 @@ function quickDefaults(): Record<"codex" | "claude" | "grok", ModelDefaultsValue
     claude: {
       engine: "claude", model: "claude-fable-5-1", reasoning_effort: "high",
       catalog: [
+        { model: "claude-fable-5-2", min_cli_version: "2.1.321", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "medium" },
         { model: "claude-fable-5-1", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high" },
         { model: "claude-opus-5-5", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "medium" },
         { model: "claude-sonnet-4-6", persistent_efforts: ["low", "medium", "high"], default_effort: "high" },
@@ -129,6 +130,37 @@ test("quick settings save model and catalog effort together for both engines and
   await expect(claude.getByRole("radio", { name: "Haiku 4.5", exact: true })).toBeChecked();
   await claude.getByRole("radio", { name: "Fable 5.1", exact: true }).locator("..").click();
   await expect(claude.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
+});
+
+test("Fable 5.2 quick defaults persist native effort and retain active Fable 5.1", async ({ page }) => {
+  const defaults = quickDefaults();
+  const writes: unknown[] = [];
+  await installFixtures(page, (path, body) => {
+    if (path !== "/admin/model-defaults/claude") return;
+    if (body) { writes.push(body); Object.assign(defaults.claude, body); }
+    return { ...defaults.claude };
+  });
+  await page.goto("/admin/engines#defaults");
+  await engineTab(page, "Claude");
+  const claude = page.getByRole("region", { name: "Claude", exact: true });
+  await expect(claude.getByRole("radio", { name: "Fable 5.1", exact: true })).toBeChecked();
+  await claude.getByRole("radio", { name: "Fable 5.2", exact: true }).locator("..").click();
+  await expect(claude.getByRole("radio", { name: "Medium Default", exact: true })).toBeChecked();
+  await expect(claude.getByRole("radio", { name: "Max", exact: true })).toHaveCount(0);
+  await expect(claude.getByRole("status")).toHaveText("Saved");
+  await claude.getByRole("radio", { name: "Extra high", exact: true }).locator("..").click();
+  await expect(claude.getByRole("status")).toHaveText("Saved");
+  expect(writes).toEqual([
+    { model: "claude-fable-5-2", reasoning_effort: "medium" },
+    { model: "claude-fable-5-2", reasoning_effort: "xhigh" },
+  ]);
+  await page.reload();
+  await expect(claude.getByRole("radio", { name: "Fable 5.2", exact: true })).toBeChecked();
+  await expect(claude.getByRole("radio", { name: "Extra high", exact: true })).toBeChecked();
+  await claude.getByRole("radio", { name: "Fable 5.1", exact: true }).locator("..").click();
+  await expect(claude.getByRole("radio", { name: "High Default", exact: true })).toBeChecked();
+  await expect(claude.getByRole("status")).toHaveText("Saved");
+  expect(writes.at(-1)).toEqual({ model: "claude-fable-5-1", reasoning_effort: "high" });
 });
 
 test("quick settings save Grok context windows, retain them across model and effort changes, and survive reload", async ({ page }) => {
