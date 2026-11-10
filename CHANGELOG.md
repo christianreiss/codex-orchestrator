@@ -1,5 +1,6 @@
 # 2026-11-10
 
+- **Toast contrast:** shared success, information, warning and error notifications use the console's semantic surface/text pairs in both themes instead of the library's separate palette. Toast feedback and severity remain unchanged.
 - **Grok native settings:** validate fixed nested provider, marketplace, MCP setup, S3 and worktree-GC structures before preview/save; preserve historical invalid input for correction. Support native mixed string/table reasoning-effort menus and custom model context-window lists without inserting defaults or running external consumers.
 - **Grok permission rules:** reject malformed or unknown rule fields before preview/save instead of accepting rules the native CLI silently skips. Optional tool/pattern/matching-mode values stay optional; invalid stored rules remain visible for explicit correction.
 - **cxx 0.9.173 — Claude settings saves:** read user settings after global MCP-lock waits, preserving native plugin/config edits made while waiting. Serialize cooperating wrapper writes and retry detected file changes before publishing; retain mirror/ownership state on deferred merges. Native writers do not share the wrapper lock, so remaining non-cooperative races are explicitly documented.
