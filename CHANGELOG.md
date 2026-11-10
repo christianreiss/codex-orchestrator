@@ -1,5 +1,6 @@
 # 2026-11-10
 
+- **cxx 0.9.173 — Claude settings saves:** read user settings after global MCP-lock waits, preserving native plugin/config edits made while waiting. Serialize cooperating wrapper writes and retry detected file changes before publishing; retain mirror/ownership state on deferred merges. Native writers do not share the wrapper lock, so remaining non-cooperative races are explicitly documented.
 - **Fable 5.2:** add the public Claude model to API, UI and signed launch catalogs with its native 2.1.321 minimum, medium default, persistent low/medium/high/xhigh efforts and Tier 5. The Fable advisor alias and optional latest-family policy follow 5.2; active Fable 5/5.1 remain selectable. No fleet default changes or native fast-mode consent are implied.
 - **cxx 0.9.173 — Fable 5.2 preferences:** use the model's own saved effort and ignore the legacy top-level user effort, matching native Claude Code.
 

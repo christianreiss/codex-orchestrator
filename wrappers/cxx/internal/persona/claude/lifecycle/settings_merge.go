@@ -307,6 +307,10 @@ func applyManagedSettings(cs *orchestrator.ClaudeSettings, logger *slog.Logger) 
 }
 
 func applyManagedSettingsResult(cs *orchestrator.ClaudeSettings, logger *slog.Logger) (bool, error) {
+	return applyManagedSettingsWithPublisher(cs, logger, nil)
+}
+
+func applyManagedSettingsWithPublisher(cs *orchestrator.ClaudeSettings, logger *slog.Logger, publish settingsPublisher) (bool, error) {
 	if cs == nil {
 		return false, nil
 	}
@@ -324,32 +328,20 @@ func applyManagedSettingsResult(cs *orchestrator.ClaudeSettings, logger *slog.Lo
 	if partial == nil {
 		return false, errors.New("claude_settings partial must be a JSON object; refusing to remove managed settings")
 	}
-	path := settingsPath()
-	userRaw, readErr := os.ReadFile(path)
-	if readErr != nil && !os.IsNotExist(readErr) {
-		return false, fmt.Errorf("read user settings: %w", readErr)
+	lock, err := acquireSettingsMutationLock()
+	if err != nil {
+		return false, err
 	}
+	defer lock.Release()
 	mcpServers, ownedPaths := splitMcpOwned(partial, cs.OwnedPaths)
 	mcpChanged, mcpErr := applyUserMcpServersResult(mcpServers, logger)
-	merged, newState, err := MergeSettings(userRaw, partial, ownedPaths, loadManagedState())
+	// The global MCP lock may wait for native saves. Do not retain a settings
+	// snapshot across that wait or overwrite a plugin/config edit made there.
+	path := settingsPath()
+	merged, newState, changed, err := mergeSettingsFile(path, partial, ownedPaths, loadManagedState(), false, publish)
 	if err != nil {
-		// Fail safe: leave the user's settings.json untouched this run.
-		logger.Warn("skipping settings merge to avoid clobbering unparseable user settings.json", "path", path, "err", err)
+		logger.Warn("skipping settings merge; preserving user settings and ownership for retry", "path", path, "err", err)
 		return mcpChanged, errors.Join(mcpErr, err)
-	}
-	changed := !bytesEqual(userRaw, merged)
-	if changed {
-		// Preserve the existing mode, defaulting to private; the merged env.*
-		// block can carry fleet-injected secrets (API keys, tokens), so a
-		// freshly created settings.json must not be world-readable.
-		mode := os.FileMode(0o600)
-		if fi, serr := os.Stat(path); serr == nil {
-			mode = fi.Mode().Perm()
-		}
-		if err := atomicWrite(path, merged, mode); err != nil {
-			logger.Debug("merged settings write failed", "err", err)
-			return mcpChanged, errors.Join(mcpErr, err)
-		}
 	}
 	// Reconcile the mirror independently: a previous mirror write can have
 	// failed after the primary was already updated, or the mirror was removed.
@@ -358,21 +350,11 @@ func applyManagedSettingsResult(cs *orchestrator.ClaudeSettings, logger *slog.Lo
 		return changed || mcpChanged, errors.Join(mcpErr, herr)
 	}
 	mirrorPath := filepath.Join(home, ".clx", "config", "settings.json")
-	mirrorRaw, mirrorErr := os.ReadFile(mirrorPath)
-	if mirrorErr != nil && !os.IsNotExist(mirrorErr) {
-		return changed || mcpChanged, errors.Join(mcpErr, fmt.Errorf("read settings mirror: %w", mirrorErr))
+	mirrorChanged, mirrorErr := writeSettingsMirror(mirrorPath, merged)
+	if mirrorErr != nil {
+		return changed || mcpChanged, errors.Join(mcpErr, fmt.Errorf("write settings mirror: %w", mirrorErr))
 	}
-	if !bytesEqual(mirrorRaw, merged) {
-		mirrorMode := os.FileMode(0o600)
-		if fi, serr := os.Stat(mirrorPath); serr == nil {
-			mirrorMode = fi.Mode().Perm()
-		}
-		if err := atomicWrite(mirrorPath, merged, mirrorMode); err != nil {
-			logger.Debug("mirrored settings write failed", "err", err)
-			return changed || mcpChanged, errors.Join(mcpErr, err)
-		}
-		changed = true
-	}
+	changed = changed || mirrorChanged
 	if serr := saveManagedState(newState); serr != nil {
 		logger.Debug("managed-keys state write failed", "err", serr)
 		return changed || mcpChanged, errors.Join(mcpErr, serr)
@@ -384,12 +366,21 @@ func applyManagedSettingsResult(cs *orchestrator.ClaudeSettings, logger *slog.Lo
 // plus the fleet MCP servers from ~/.claude.json (used when a host loses trust).
 // Reuses the merge with an empty partial so user keys survive; clears the sidecars.
 func stripManagedSettings(logger *slog.Logger) error {
-	return stripManagedSettingsWith(logger, atomicWrite)
+	return stripManagedSettingsWith(logger, nil)
 }
 
 func stripManagedSettingsWith(logger *slog.Logger, write func(string, []byte, os.FileMode) error) error {
+	lock, err := acquireSettingsMutationLock()
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
 	var resultErr error
-	if err := stripUserMcpServersWith(logger, write); err != nil {
+	mcpWrite := write
+	if mcpWrite == nil {
+		mcpWrite = atomicWrite
+	}
+	if err := stripUserMcpServersWith(logger, mcpWrite); err != nil {
 		resultErr = errors.Join(resultErr, err)
 	}
 	prev := loadManagedState()
@@ -402,31 +393,20 @@ func stripManagedSettingsWith(logger *slog.Logger, write func(string, []byte, os
 	} else {
 		resultErr = errors.Join(resultErr, fmt.Errorf("resolve settings mirror: %w", err))
 	}
+	var publish settingsPublisher
+	if write != nil {
+		// Test/failure-injection seam; production uses the staged publisher.
+		publish = func(path string, body []byte, snapshot settingsSnapshot) error {
+			if err := snapshot.current(path); err != nil {
+				return err
+			}
+			return write(path, body, snapshot.mode())
+		}
+	}
 	for _, path := range paths {
-		userRaw, err := os.ReadFile(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("read %s: %w", path, err))
-			continue
-		}
-		merged, _, err := MergeSettings(userRaw, map[string]any{}, []string{}, prev)
-		if err != nil {
-			logger.Warn("skipping settings strip; settings file is unparseable", "path", path, "err", err)
+		if _, _, _, err := mergeSettingsFile(path, map[string]any{}, nil, prev, true, publish); err != nil {
+			logger.Warn("settings strip deferred; retaining ownership for retry", "path", path, "err", err)
 			resultErr = errors.Join(resultErr, fmt.Errorf("strip %s: %w", path, err))
-			continue
-		}
-		if bytesEqual(userRaw, merged) {
-			continue
-		}
-		mode := os.FileMode(0o600)
-		if fi, err := os.Stat(path); err == nil {
-			mode = fi.Mode().Perm()
-		}
-		if err := write(path, merged, mode); err != nil {
-			logger.Warn("settings strip write failed; retaining ownership for retry", "path", path, "err", err)
-			resultErr = errors.Join(resultErr, fmt.Errorf("write stripped settings %s: %w", path, err))
 		}
 	}
 	if resultErr != nil {
