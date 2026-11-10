@@ -1,5 +1,9 @@
 # 2026-11-10
 
+- **Feedback sweeps:** use the actual committing engine in AI trailers and the prescribed no-backup deploy path; retain recovery evidence without extra manual backup or image-tag steps.
+- **cxx 0.9.174 — scope history:** scope reads identify omitted shared-chat/UI contributions and provide the same-room unified chat reader. Numeric scope cursors and existing access checks remain intact.
+- **Ambiguous work:** result/progress errors explain safe evidence reconciliation with the original requester or operator. The original request remains ambiguous; no acceptance, replay or result-authority rules change.
+- **Shared lab VMs:** all engines receive canonical remote/service VM reservation examples and a fleet/host-room discovery fallback when project coverage is incomplete. Claims still rely on cooperating writers.
 - **Toast contrast:** shared success, information, warning and error notifications use the console's semantic surface/text pairs in both themes instead of the library's separate palette. Toast feedback and severity remain unchanged.
 - **Grok native settings:** validate fixed nested provider, marketplace, MCP setup, S3 and worktree-GC structures before preview/save; preserve historical invalid input for correction. Support native mixed string/table reasoning-effort menus and custom model context-window lists without inserting defaults or running external consumers.
 - **Grok permission rules:** reject malformed or unknown rule fields before preview/save instead of accepting rules the native CLI silently skips. Optional tool/pattern/matching-mode values stay optional; invalid stored rules remain visible for explicit correction.

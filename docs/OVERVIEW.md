@@ -1,5 +1,10 @@
 # Overview
 
+cxx 0.9.174 makes scope-history coverage explicit and points to the matching
+unified chat reader without mixing cursors. All engines receive guidance for
+[shared VM reservations](agent-coordination.md#shared-lab-vms) and incomplete
+project discovery; claims do not fence uncooperative SSH/libvirt commands.
+
 Fable 5.2 is available in Claude model/effort pickers and signed catalogs from
 Claude Code 2.1.321, with native default medium and Tier 5. Older active Fable
 models remain selectable; the optional latest-family policy and advisor alias
