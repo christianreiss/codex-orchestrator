@@ -2479,24 +2479,10 @@ delivery-attempt budget, even if the original message expired while awaiting the
 operator. Repeating the same approval preserves that deadline and budget; it
 does not extend them. Prior terminal timestamps are cleared for the new execution.
 
-**Result reconciliation after a lost lease.** Accepted work whose lease lapses (the
-claim renewal stopped, for example because a same-transcript rebind changed the
-address binding generation or the session ended) becomes `ambiguous` with
-`last_error_code: accepted_lease_lost` after the next maintenance tick. The claim and
-lease owner are cleared on purpose: `agent_task_result` and `agent_reply` for that
-claim answer `agent_messaging_lease_lost` or `agent_task_result_not_accepted`, and the
-new binding or session is never handed the old lease. The server has no route that
-attaches a late result to the ambiguous row, and it does not rerun the work. The
-supported reconciliation is out-of-band: the executing agent sends its measured
-outcome to the original requester with `agent_send` in the same conversation (name the
-message id and state succeeded, failed, blocked or unknown honestly), and the requester
-reads the row with `agent_message_get` (`status: ambiguous`, `last_error_code`,
-`task_results: []`) plus that message. The requester or an operator then decides whether
-to accept the reported outcome or to explicitly redrive the message
-(`POST /admin/agent-messaging/messages/{id}/redrive`), which is a new execution and
-may repeat external effects. A first-class "attach late result" mechanism is a larger
-design question (it needs an authorization model for a new binding to claim an old
-execution) and is not implemented.
+**Ambiguous results.** A lost legacy timed lease or a native-turn interruption can
+leave accepted work `ambiguous`. The [reconciliation procedure](#reconciling-ambiguous-work) applies even when
+the original transcript continues and its resource claims are valid. Ambiguity is
+not a new execution grant; retained claim identity alone cannot restore acceptance.
 
 From cxx 0.9.27, `agent_conf_join` and `agent_conf_say` release only the
 matching room's informational delivery. They preserve held work and messages
@@ -2558,6 +2544,65 @@ exists, since resuming a dormant agent is their purpose. Actions are recorded as
 - Delivery ACK bodies additionally accept `task_result` only with `outcome: completed`. Session replies accept `claim_id` and `task_result`; relay replies accept `task_result`. Atomic result/reply/transport updates reject stale claims and binding generations. Reveal includes encrypted report history through the existing reveal-content capability.
 
 A result-only peer completion also queues one correlated reply containing its summary in the same transaction; wakes produce no peer reply. Retrying the same result never queues a second summary.
+
+#### Reconciling ambiguous work
+
+This procedure applies to Codex, Claude and Grok. It reconciles evidence with the
+requester/operator; it does **not** formally complete the original bus request.
+There is no general agent or admin operation to attach a new late result to an
+interrupted ambiguous execution or restore its acceptance.
+
+`accepted_lease_lost` clears the lease owner while the old claim UUID may remain.
+A receiver's explicit
+`ambiguous` ACK with `native_turn_interrupted` can instead retain the original
+claim, accepted timestamp and owner. The wrapper reports that code when it
+observes `user_stop`; the code alone does not prove who interrupted the turn or
+whether application effects occurred. Neither the same transcript nor a valid
+resource claim overrides the bus result gate. Depending on which gate fails,
+reporting returns `agent_messaging_lease_lost`, `agent_messaging_binding_stale`
+or `agent_task_result_not_accepted`. The last error now explains the reporting
+procedure for interrupted ambiguous work. Repeating acceptance cannot make it reportable.
+
+1. **Original executor: inspect without replay.** Read `agent_self` and
+   `agent_message_get({message_id})`. Keep the original delivery's message and
+   claim UUIDs, native session ID and binding generation; do not mint a new claim.
+   Record the current `message.status`, `execution_version`, `accepted_at`,
+   `ambiguous_at`, `last_error_code` and `message.task_results`. Read the actual
+   artifacts and external effects needed to distinguish succeeded, failed,
+   blocked and unknown. Continuing the transcript is not evidence of completion.
+   A result already stored for the original claim is an immutable receipt: a lost
+   ACK permits retrying the identical result under still-valid original authority,
+   never rerunning the work or replacing that result.
+2. **Original executor: deliver the evidence separately.** For an ambiguous row
+   without that result, stop retrying `agent_reply`, `agent_task_result` or
+   acceptance. Send an informational `agent_send` to the original requester's
+   canonical `agent:<uuid>` with the original `conversation_id` while it is open.
+   Use a stable `client_message_id` and preserve it on an uncertain retry. Include
+   the original message/claim/session IDs, observed error/state, measured outcome,
+   artifact/commit/test references, external effects and anything still running
+   or unverified. State: "Out-of-band outcome; original request remains ambiguous."
+   If the conversation is closed or the requester unavailable, report through the
+   existing operator conversation instead. Do not create replacement work merely
+   to obtain a successful result receipt.
+3. **Requester/operator: verify and record the decision.** Read the original row
+   and evidence, then record acceptance of the measured outcome in the existing
+   task conversation or work record. An empty `task_results` still means no formal
+   result was stored. If evidence is insufficient, retain `unknown` and name the
+   missing verification. A new execution requires an explicit decision after
+   accounting for the original executor and possible external effects. Only an
+   authorized owner/admin can call
+   `POST /admin/agent-messaging/messages/{id}/redrive`; it creates a **new** queued
+   message linked by `redrive_of_message_id`, can repeat effects, and does not
+   repair or complete the old row. Read back the returned message; an uncertain
+   response is not permission to redrive again. Schedules use their own recovery
+   policy. Fresh-start approval is only for confirmed `native_transcript_missing`,
+   not this interruption case. Resource-claim resolution is separate and does
+   not settle the bus request.
+
+The separate cancellation path can preserve a late result from the exact
+accepted original delivery after `cancel_requested_at`; it does not grant
+general interrupted-work reconciliation. Never cancel a conversation to gain
+that exception. Stored-result retries remain immutable in both paths.
 
 Git Director registrations require absolute worktree, repository and common-directory paths (`git rev-parse --path-format=absolute --show-toplevel --git-common-dir`). A correct re-registration supersedes earlier mappings for that host/path and withdraws their queued requests while retaining history. A live lease on an earlier mapping blocks reassignment. Join/list/merge/release never select an arbitrary legacy duplicate: `git_director_worktree_ambiguous` requires explicit re-registration with the correct clone facts. Superseded rows cannot be revived by path lookups.
 

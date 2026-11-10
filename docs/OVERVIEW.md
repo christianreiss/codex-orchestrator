@@ -1229,6 +1229,13 @@ Native background final output is one JSON object with `content` and `task_resul
 Missing/invalid reports, listening and successful process exit never imply task success.
 These are agent-reported outcomes, not independent verification.
 
+Accepted work marked `ambiguous`, including `native_turn_interrupted`, cannot be
+reaccepted merely because its original transcript continues. Follow the
+[original-executor/requester/operator reconciliation procedure](interface-api.md#reconciling-ambiguous-work):
+inspect the original result history, report measured evidence separately, and
+retain the ambiguous bus outcome. An admin redrive starts new work; it does not
+attach the missing result. Resource claims and task-result acceptance are separate.
+
 Persistent schedules optionally accept `max_recovery_attempts` (null: unlimited).
 Retries double from the base interval, cap at max(base, 1h), add 0–20% positive jitter
 and honor later provider reset times. Three failed recovery attempts raise a warning;

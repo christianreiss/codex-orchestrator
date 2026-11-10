@@ -42,7 +42,7 @@ import {
   AGENT_MESSAGING_MAX_DELIVERY_ATTEMPTS,
   TERMINAL_MESSAGE_STATUSES,
 } from './constants.js';
-import { taskResultSchema, unknownTaskResult, type TaskResult } from './task-execution.js';
+import { taskResultSchema, taskNotAcceptedError, unknownTaskResult, type TaskResult } from './task-execution.js';
 
 export type OwnedMessage = StateRow<'agentBusMessages'>;
 const json = (value: unknown): Json => JSON.parse(JSON.stringify(value)) as Json;
@@ -263,9 +263,9 @@ export function stageOwnedTaskResult(
     return result;
   }
   if (message.status !== 'accepted' && !(message.cancelRequestedAt && message.acceptedAt))
-    throw new ConflictError(
+    throw taskNotAcceptedError(
+      message,
       'Task must be accepted before its result is stored',
-      'agent_task_result_not_accepted',
     );
   const row = {
     id: randomUUID(),

@@ -44,7 +44,7 @@ import { translateOwnedAgent } from '../control-plane/state/names.js';
 import { listHostInventory, type HostInventoryFilters } from './agent-messaging/host-inventory.js';
 import { jsonRecord } from './agent-messaging/normalize.js';
 import { agentFreshStartGrants, agentTaskResults } from '../db/schema.js';
-import { storeTaskResult, queueTaskResultReply, unknownTaskResult, approveFreshStart, approveOwnedFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
+import { storeTaskResult, queueTaskResultReply, taskNotAcceptedError, unknownTaskResult, approveFreshStart, approveOwnedFreshStart, freshStartAllowed, taskResultSchema, type TaskResult } from './agent-messaging/task-execution.js';
 import { receiverReady, receiverState } from './agent-receiver-state.js';
 import type { WatchdogFailure } from './watchdog-lifecycle.js';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -649,7 +649,7 @@ export class AgentMessagingService {
       if (input.taskResult && !parent.workKind) throw new ValidationError(TASK_RESULT_NOT_WORK);
       if (input.taskResult && !input.claimId) throw new ValidationError(TASK_RESULT_CLAIM_REQUIRED);
       if (parent.workKind && !input.claimId) {
-        throw new ConflictError('Work replies require the accepted delivery claim', 'agent_task_result_not_accepted');
+        throw taskNotAcceptedError(parent, 'Work replies require the accepted delivery claim');
       }
       if (parent.kind === 'presence_notice') throw new ConflictError('Presence notices are informational and cannot be replied to', 'agent_messaging_presence_notice_reply');
       if (!parent.workKind && parent.attempts > 0 && !['completed', 'digested', 'superseded'].includes(parent.status) && !input.claimId) {
@@ -1133,7 +1133,7 @@ export class AgentMessagingService {
   /** A progress reply leaves accepted work held: no result, no completion. */
   private async assertTaskProgressLocked(tx: Parameters<Parameters<Database['transaction']>[0]>[0], message: AgentBusMessage, claimId: string, leaseOwner: string) {
     await this.assertTaskLeaseLocked(tx, message, claimId, leaseOwner);
-    if (message.status !== 'accepted') throw new ConflictError('Progress replies require accepted, unfinished work', 'agent_task_result_not_accepted');
+    if (message.status !== 'accepted') throw taskNotAcceptedError(message, 'Progress replies require accepted, unfinished work');
   }
 
   private async finishTaskLocked(tx: Parameters<Parameters<Database['transaction']>[0]>[0], message: AgentBusMessage, claimId: string, leaseOwner: string, result?: TaskResult) {
