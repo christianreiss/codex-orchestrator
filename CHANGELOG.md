@@ -1,3 +1,7 @@
+# 2026-11-10
+
+- **Grok permission rules:** reject malformed or unknown rule fields before preview/save instead of accepting rules the native CLI silently skips. Optional tool/pattern/matching-mode values stay optional; invalid stored rules remain visible for explicit correction.
+
 # 2026-11-09
 
 - Redesign connector setup with provider guides and copyable connection details.

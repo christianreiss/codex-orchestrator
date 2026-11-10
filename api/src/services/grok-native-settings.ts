@@ -108,6 +108,33 @@ function validate(value: unknown, path: string[], candidates = fields): void {
   }
 }
 
+// Grok otherwise skips malformed rules while still exiting successfully. Keep
+// its optional fields absent and validate the consumer's exact wire enums.
+function validatePermissionRules(value: RecordValue, prefix: string[] = []): void {
+  const rules = grokRecord(value.permission).rules;
+  if (rules !== undefined) {
+    const path = [...prefix, 'permission', 'rules'];
+    if (!Array.isArray(rules)) fail(path, 'expected table[]');
+    for (const [index, rule] of rules.entries()) {
+      const at = [...path, String(index)];
+      if (!isRecord(rule)) fail(at, 'expected a table');
+      for (const name of Object.keys(rule)) {
+        if (!['action', 'tool', 'pattern', 'pattern_mode'].includes(name)) fail([...at, name], 'unknown Grok permission rule field');
+      }
+      if (typeof rule.action !== 'string' || !['allow', 'deny', 'ask'].includes(rule.action)) fail([...at, 'action'], 'required; expected allow, deny or ask');
+      const tools = ['any', 'bash', 'edit', 'read', 'grep', 'mcp', 'webfetch', 'websearch', 'agent_message', 'agentmessage'];
+      if (rule.tool !== undefined && (typeof rule.tool !== 'string' || !tools.includes(rule.tool))) fail([...at, 'tool'], `expected ${tools.join(', ')}`);
+      if (rule.pattern !== undefined && typeof rule.pattern !== 'string') fail([...at, 'pattern'], 'expected a string');
+      if (rule.pattern_mode !== undefined && (typeof rule.pattern_mode !== 'string' || !['glob', 'domain'].includes(rule.pattern_mode))) fail([...at, 'pattern_mode'], 'expected glob or domain');
+    }
+  }
+  if (Array.isArray(value.version_overrides)) {
+    for (const [index, layer] of value.version_overrides.entries()) {
+      if (isRecord(layer)) validatePermissionRules(layer, [...prefix, 'version_overrides', String(index)]);
+    }
+  }
+}
+
 /** Validate before storage; never silently discard unknown or deprecated native fields. */
 export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false): RecordValue | undefined {
   if (raw === undefined) return undefined;
@@ -132,6 +159,7 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   }
   if (cli.use_leader === false) fail(['cli', 'use_leader'], 'the managed receiver requires its private leader');
   for (const [key, item] of Object.entries(value)) validate(item, [key]);
+  validatePermissionRules(value);
   for (const [key, control] of [['default', 'model'], ['default_reasoning_effort', 'reasoning_effort']]) {
     if (key! in grokRecord(value.models)) fail(['models', key!], `use settings.${control}; the fleet model controls own this setting`);
   }

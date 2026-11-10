@@ -483,6 +483,25 @@ model notices require string `text`, optional string `label`, and
 require a nonempty command, and built-in rows validate segment names and reject
 command-only refresh timers. Native disabled aliases `off|none|hidden` are accepted.
 
+Permission rules (`permission.rules`) require `action = "allow"|"deny"|"ask"`.
+Optional `tool` accepts `any`, `bash`, `edit`, `read`, `grep`, `mcp`, `webfetch`,
+`websearch`, `agent_message` or its native alias `agentmessage`; omission keeps
+the native `any` default. Optional `pattern` is a string, and optional
+`pattern_mode` is `glob` or `domain` (native default `glob`). Values are
+case-sensitive. The existing native JSON editor supports adding, changing and
+removing ordered rule arrays, owned as the exact `permission.rules` value.
+Preview/store reject malformed rules and unknown rule fields with a 422 and
+the rule index, including inside `version_overrides`; Grok would otherwise
+skip invalid rules while exiting successfully, or ignore unknown fields.
+Invalid stored snapshots remain readable with `validation_error` for explicit
+correction; neither rules nor their historical body/hash are silently rewritten.
+No permission defaults or modes are enabled automatically.
+
+Verified on 2026-11-10 against Grok Build 1.0.77 `inspect --json`'s actual
+permission loaded/skipped diagnostics, supplemented by the
+[permission value types](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-config-types/src/permission.rs)
+and [permissions guide](https://docs.x.ai/build/features/permissions).
+
 Grok 1.0.51 removed `memory.embedding`, `initial_injection`, `search`, `session`
 and `watcher`, plus `memory_v2.automatic_dream_enabled`, `capture_enabled`,
 `capture_status_enabled`, `file_writes_enabled`, `manual_dream_enabled` and `rollout`.

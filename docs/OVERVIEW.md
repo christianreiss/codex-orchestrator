@@ -48,6 +48,11 @@ checked. See [shutdown](interface-cdx.md#native-shutdown),
 [Advisor](interface-api.md#fleet-advisor) and
 [wrapper publication](wrapper-v2-architecture.md).
 
+Grok permission-rule validation rejects malformed or unknown rule fields before
+preview/save, including conditional layers, instead of accepting rules the CLI
+would skip. Optional fields retain native defaults and invalid historical
+snapshots remain visible for correction; see [the Grok contract](interface-cgx.md#native-configuration-maintenance-2026-10-26).
+
 Grok native user defaults are audited against Build 1.0.77: fields added in
 1.0.71–1.0.77 (feedback tools, Ctrl-C and multiline UI, request compression,
 workflow runtime, kitty keyboard, hook `failClosed`, `keys.vim = "all"`) carry

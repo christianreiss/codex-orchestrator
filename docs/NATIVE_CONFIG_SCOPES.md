@@ -40,6 +40,13 @@ retain native number-versus-integer types. Invalid historical snapshots remain
 available for explicit correction with their original body/hash and a validation
 error; this validation change performs no data migration.
 
+Grok `permission.rules` are validated against the native permission consumer:
+an exact `allow|deny|ask` action is required; optional tool, pattern and
+`glob|domain` matching mode retain native defaults. Unknown fields and rules the
+CLI would skip are rejected with indexed paths before save or preview, including
+conditional layers. The editor keeps invalid historical snapshots visible for
+correction. See [the permission rule contract](interface-cgx.md#native-configuration-maintenance-2026-10-26).
+
 Use the official native mechanisms for the separate scopes:
 
 - [Codex configuration and requirements reference](https://learn.chatgpt.com/docs/config-file/config-reference#requirementstoml).
