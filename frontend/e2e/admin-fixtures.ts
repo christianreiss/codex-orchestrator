@@ -186,6 +186,21 @@ export function fixture(pathname: string): Record<string, unknown> {
     return { slug, meta: {}, body: source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "") };
   }
   switch (pathname) {
+    case "/admin/connectors/config": return {
+      policy: {
+        enabled: false,
+        providers: { chatgpt: false, claude: false, grok: false },
+        ceiling: { categories: {}, tools: [], hosts: [], projects: [], global: false, sensitive: [] },
+      },
+      can_manage: true,
+      issuer: "https://fleet.example",
+      mcp_url: "https://fleet.example/connectors/mcp",
+      ready: true,
+      hosts: [{ id: 1, name: "host01.example" }],
+      projects: ["alpha"],
+      catalog: [],
+    };
+    case "/admin/connectors/connections": return { connections: [] };
     case "/admin/server-retention": return {
       policy:{audit_days:14,history_hours:24,quota_days:7,armed:true}, revision:"retention-fixture-v1", observed_at:"2026-10-24T20:00:00Z",run:null,obligations:[],
       limits:{audit_days:[1,3650],history_hours:[1,87600],quota_days:[1,3650]},
