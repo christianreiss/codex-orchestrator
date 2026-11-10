@@ -1041,6 +1041,31 @@ analogue for. The orchestrator manages them as first-class fleet artifacts
 
 ## Settings.json sub-blocks (deep-merge, non-clobbering)
 
+From cxx 0.9.173, a managed partial reads `settings.json` **after** any wait
+for the separate global MCP-config lock. This preserves native changes made
+during that wait, including a successful `claude plugin disable --scope user`.
+Cooperating wrapper applies, trust-loss strips and legacy-fallback publications
+serialize through `~/.clx/state/managed-keys.json.lock`; contention defers with a
+config error for the next sync rather than writing unlocked. The lock covers
+the settings/mirror/ownership sequence; the legacy fallback retains its old
+full-replacement semantics.
+
+Partial merges and strips stage a private temporary file, then compare the
+source's bytes, file identity, mode and modification time immediately before
+rename. A detected change causes a fresh merge, at most three attempts. Invalid
+or continuously changing input is preserved, with mirror/ownership state left
+pending for retry. The mirror and ownership sidecar advance only after a
+confirmed settings publication (or confirmed unchanged input).
+
+This is bounded conflict mitigation, **not** full cross-process exclusion.
+Claude Code 2.1.322 serializes settings saves only inside its own process; it
+does not take the wrapper lock. A native writer can publish in the final
+check-to-rename gap, or later publish its own transform read before the wrapper
+write. Neither direction can be excluded without native cooperation. The
+proper-lockfile used for `~/.claude.json` is a different lock and provides no
+such guarantee for `settings.json`. No native process is paused and no settings
+scope/precedence is changed by this mitigation.
+
 `~/.claude/settings.json` is **deep-merged**, not overwritten. The bundle returns
 `claude_settings: { sha256, partial, owned_paths }` where `partial` holds only
 the fleet-managed keys (`model`, `modelSettings.<model>.effortLevel`, the compatible

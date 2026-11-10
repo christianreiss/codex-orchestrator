@@ -112,6 +112,29 @@ nothing, so the mkdir lock is the only path. Re-verify both points when the
 managed Claude version moves. `cxx` engine destroy (`enginedestroy`) still
 strips managed servers without this lock.
 
+## Claude user-settings concurrency (`settings.json`)
+
+The global-config lock above does not protect Claude's user settings. Verified
+against native 2.1.322: a user-scope plugin save uses an in-process queue and
+atomic publication, without a cooperative cross-process settings lock.
+
+cxx 0.9.173 reads settings only after global MCP work completes. Its own
+`~/.clx/state/managed-keys.json.lock` serializes wrapper apply/strip/fallback
+publication and settings ownership state. Partial apply and strip stage output,
+check current bytes/inode/mode/mtime, and re-read/re-merge up to three times on
+detected changes. Contentious or unparseable input defers with a config error;
+mirror/ownership do not advance for a failed primary publication. Removing
+managed leaves uses the same protection and preserves local siblings.
+
+The actual-native regression disables a plugin during the global MCP wait in a
+temporary home; its disabled value survives the subsequent wrapper merge.
+This closes that reproduced stale-read window, not every race: native can still
+write in the final check/rename gap, or publish a stale native transform after
+the wrapper. The wrapper lock excludes only cooperating wrapper writers. A
+strict multi-process transaction would require native cooperation; changing to
+a higher-priority `--settings` overlay would change the user-default contract
+and is deliberately outside this maintenance fix.
+
 ## Native version compatibility
 
 Nonempty Codex native settings, including profile native settings, require a

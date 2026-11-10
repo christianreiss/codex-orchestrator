@@ -1854,6 +1854,13 @@ func writeSettings(ctx context.Context, client *orchestrator.Client) (bool, erro
 	if len(body) == 0 {
 		return false, nil
 	}
+	// Legacy full replacement remains its own contract, but its publication
+	// must not interleave with a partial merge and its ownership sidecars.
+	lock, err := acquireSettingsMutationLock()
+	if err != nil {
+		return false, err
+	}
+	defer lock.Release()
 	if err := atomicWrite(dst, body, 0o644); err != nil {
 		return false, err
 	}
