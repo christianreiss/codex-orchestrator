@@ -1743,6 +1743,11 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   without it; the count describes the eligible population before scope/name filtering.
   A known non-Git caller falls back without itself marking coverage incomplete.
   Legacy peers retain matching by reported cwd; no repository identity is guessed.
+  When coverage is limited, use `agent_list(scope:"fleet", online:true)` without
+  name/engine filters and drain `next_offset` to find unknown-workspace peers'
+  contact addresses. Local peers are also visible in the automatic host room
+  (`agent_context_get`/`agent_room_list`, then `agent_room_read` member pagination).
+  An incomplete project result never proves a shared checkout or VM is free.
   Each address adds `task_title` (latest naming event for the bound native session,
   or null), canonical `cwd` when known, and `match_reason`
   (`fleet|same_directory|same_checkout|same_clone|same_repository`). No conversation content is returned.
@@ -3491,6 +3496,11 @@ case/trailing-dot and IPv6 textual normalization participate in conflict checks;
 aliases and hostname/IP equivalence are not inferred. Re-registering an existing
 native lifecycle preserves an explicit workspace binding across reconnects;
 `agent_context_update` is the interface for changing that binding.
+Shared lab VMs use an agreed remote/service target, for example
+`{kind:"remote",fqdn:"lab.example.org",service:"vm:cm-debian12"}`; reserve it
+throughout tests and before reinstall/re-enrollment. All participants must use
+the same namespace/key; Git/path claims do not reserve VMs, and direct SSH/libvirt
+commands are not OS-fenced. See [shared VM claims](agent-coordination.md#shared-lab-vms).
 Waiting claims queue in arrival order: earlier overlapping waiters appear in
 `blockers` with `state: "waiting"`, and release, operator resolution and
 reconciliation grant waiters server-side in that order. The claimant receives one
