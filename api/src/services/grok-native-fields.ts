@@ -1,4 +1,4 @@
-/** Grok Build native field registry, audited 2026-11-06.
+/** Grok Build native field registry, audited 2026-11-10.
  * Stable channel: 1.0.77. Bundled 26-config-reference.md SHA-256:
  * 76b4fe09ce2e52e8fa89aaac0df44e3c75cec6b312d22bb7431b16bc486cdaa1.
  * Public source (Apache-2.0; supplemented by the newer bundled reference):
@@ -241,6 +241,7 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "model.*.compaction_at_tokens": ["boolean", "integer"],
   "model.*.compactions_remaining": ["boolean", "integer"],
   "model.*.context_window": ["number"],
+  "model.*.context_windows": ["integer[]"],
   "model.*.description": ["string"],
   "model.*.env_http_headers": ["map<string,string>"],
   "model.*.env_key": ["string", "string[]"],
@@ -263,7 +264,7 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "model.*.query_params": ["map<string,string>"],
   "model.*.rate_limit_retry_threshold": ["number"],
   "model.*.reasoning_effort": ["string"],
-  "model.*.reasoning_efforts": ["table[]"],
+  "model.*.reasoning_efforts": ["array"],
   "model.*.reasoning_summary": ["=none", "=auto", "=concise", "=detailed"],
   "model.*.send_compactions_remaining": ["boolean", "integer"],
   "model.*.show_model_fingerprint": ["boolean"],

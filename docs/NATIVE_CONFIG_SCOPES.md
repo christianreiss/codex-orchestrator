@@ -47,6 +47,15 @@ CLI would skip are rejected with indexed paths before save or preview, including
 conditional layers. The editor keeps invalid historical snapshots visible for
 correction. See [the permission rule contract](interface-cgx.md#native-configuration-maintenance-2026-10-26).
 
+Fixed Grok nested user tables (named auth/model providers, marketplace sources,
+MCP setup, reasoning-effort menus, S3 output and worktree GC) receive full known
+field/type validation; custom model context-window lists and mixed string/table
+effort menus are supported. Invalid saved snapshots remain editable rather than
+being silently pruned. Native defaults, short-token-TTL helper behavior and the
+optional read-only S3 fallback are preserved. Validation executes no helper,
+connection, download or cleanup; native selection/preferences stay on the host.
+See [the detailed contracts and ranges](interface-cgx.md#native-configuration-maintenance-2026-10-26).
+
 Use the official native mechanisms for the separate scopes:
 
 - [Codex configuration and requirements reference](https://learn.chatgpt.com/docs/config-file/config-reference#requirementstoml).

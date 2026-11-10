@@ -502,6 +502,45 @@ permission loaded/skipped diagnostics, supplemented by the
 [permission value types](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-config-types/src/permission.rs)
 and [permissions guide](https://docs.x.ai/build/features/permissions).
 
+The 2026-11-10 nested-structure audit also validates the following fixed user
+tables, including applicable version layers. Map names remain literal, including
+dots; only documented maps admit arbitrary inner names. The existing JSON editor
+can preview/save/change/remove these values. Unknown fields, wrong types and
+values the native consumer would silently clamp receive indexed 422 errors;
+historical invalid snapshots remain visible for correction without a migration.
+
+| Native table | Validated contract |
+| --- | --- |
+| `auth_provider.<name>` | Nonblank `command`; optional string-array `args`, string `cwd`, nonnegative integer `token_ttl_secs`, integer `timeout_secs` 1–600. Omitted `args` uses the native shell; explicit `[]` uses direct exec. TTL 0–60 remains valid, but native warns and runs the helper before every turn. |
+| `model_providers.<name>` | Optional string URL/key/auth-provider fields, string or string-array `env_key`, `api_backend=chat_completions|responses|messages`, string maps `extra_headers`, `query_params`, `env_http_headers`, optional inline `auth` as above, nonnegative integer `context_window`, positive integer `context_windows[]` and `max_request_bytes`. Missing fields stay inherited. |
+| `marketplace.sources[]` | Required string `name`; string `git` or `path`, optional string `branch`. When both sources are present native chooses Git; branch applies only to Git. No repository is fetched during validation. |
+| `model.<id>.reasoning_efforts[]` | Strings, tables, or a mixed array. Values are case-insensitive `none|minimal|low|medium|high|xhigh|max`; a table requires `value`, with optional strings `id`, `label`, `description` and optional boolean `default`. Native derives missing labels/IDs; no defaults are persisted. |
+| `model.<id>.context_windows` | Positive safe integer token counts, including custom/BYOK windows such as 100000. The structured subscription model/context controls retain their existing allowlist. |
+| `mcp_servers.<name>.setup` | Exactly one `fields[]` entry with string `id`, string `label`, `type=select`, optional boolean `required`, optional string `default`, and nonempty `options[]` of string `label`/`value` pairs. Optional `variables` (alias `values`, one spelling only) maps names to `{from, map}`: `from` names that field and `map` is a string map. User selections remain native-owned; no preferences or connections are fabricated. |
+| `tools.zdr_video_output_s3` | Nonblank `bucket`, `endpoint`, `region` and `read_write` credential strings `access_key_id`/`secret_access_key`; optional `read_only` requires the same string fields, but native intentionally falls back to read-write credentials when either is blank. Optional string `key_prefix`; `expires_secs` at least 480 (native raises smaller values). |
+| `worktree.auto_gc` | Optional booleans `enabled`, `dry_run`, `include_orphan_snapshots`, `include_rebuild`; `max_age_secs` 3600–7776000, `min_interval_secs`/`rebuild_min_interval_secs` 60–604800. `max_age_by_kind` accepts only `session|ab|pool|fork|manual|subagent`, each with age seconds in the same range, native unsigned integer strings, or case-insensitive `never`. |
+
+Native unsigned integers are limited to JavaScript safe integers in this JSON
+interface. No setting above is enabled or filled in by validation. Auth helpers,
+MCP processes, marketplace downloads, GC and video/S3 operations are not executed.
+Managed subscription auth, refresh ownership, endpoints and private leader remain
+on their existing channels; conditional model/MCP overrides remain rejected.
+
+Source contracts: official `xai-org/grok-build` commit
+`2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`, particularly
+[`AuthProviderConfig`](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-config-types/src/auth_provider.rs),
+[`ModelProviderConfig`](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/agent/model_providers.rs),
+[`ReasoningEffortOption`](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-sampling-types/src/types.rs),
+[`McpSetupConfig` and resolution](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-config/src/mcp_server_config.rs),
+[`S3 configuration`](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-tools/src/implementations/grok_build/video_gen/mod.rs),
+and [`worktree GC`](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-fast-worktree/src/auto_gc.rs).
+Stable 1.0.77 `inspect` checks configuration loading in a throwaway home; its
+plain-text Config Warnings also expose model/provider skips, with invalid
+effort/window negative controls. The string/mixed effort and context-window
+list forms were also consumed by 1.0.46, below the existing 1.0.50 minimum,
+so they add no version floor. These checks do not establish external provider,
+MCP or storage availability.
+
 Grok 1.0.51 removed `memory.embedding`, `initial_injection`, `search`, `session`
 and `watcher`, plus `memory_v2.automatic_dream_enabled`, `capture_enabled`,
 `capture_status_enabled`, `file_writes_enabled`, `manual_dream_enabled` and `rollout`.
