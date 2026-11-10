@@ -32,6 +32,10 @@
     "path": "/admin/agent-messaging"
   },
   {
+    "source": "src/routes/(coordination)/connectors/+page.svelte",
+    "path": "/admin/connectors"
+  },
+  {
     "source": "src/routes/(coordination)/git-director/+page.svelte",
     "path": "/admin/git-director"
   },
