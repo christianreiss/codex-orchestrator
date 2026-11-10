@@ -16,7 +16,7 @@ All three engines are supported:
 ## Build
 
 ```bash
-docker build -t codex-auth-runner -f runner/Dockerfile .
+docker build -t codex-auth-runner -f runner/Dockerfile runner
 ```
 
 The image bundles:
