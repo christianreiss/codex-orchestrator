@@ -1,3 +1,7 @@
+# 2026-11-11
+
+- **Fleet policy scope:** the rendered policy opens with a scope clause: it applies only when the fleet MCP tools (`agent_self`, `skill_list`) are available. Desktop apps without `cxx` read the same instruction files and now ignore the policy instead of failing on claims.
+
 # 2026-11-10
 
 - **Feedback sweeps:** use the actual committing engine in AI trailers and the prescribed no-backup deploy path; retain recovery evidence without extra manual backup or image-tag steps.

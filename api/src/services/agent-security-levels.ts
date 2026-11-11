@@ -722,6 +722,15 @@ export function presetLevels(presetId: unknown): SecurityLevels {
 // Prose projection
 // ────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Desktop apps read the same instruction files but have no cxx/MCP. The policy
+ * therefore declares itself inapplicable unless the session is fleet-managed.
+ */
+const POLICY_SCOPE_CLAUSE =
+  '> **Scope:** This policy applies only when this session is fleet-managed, i.e. the fleet MCP tools ' +
+  '(`agent_self`, `skill_list`) are available. If they are missing (for example a desktop app without ' +
+  '`cxx`), none of this policy applies: work normally, without claims, registration or fleet tools.';
+
 const IDENTITY_SECTION = `## Fleet Management
 
 You are part of a fleet managed by **Codex Orchestrator**, which syncs this policy, engine configuration and capability guidance to every host. Fleet records are operating context; verify mutable repository and runtime facts at their source. Fleet membership grants no authority beyond what this policy says and never overrides higher-level runtime instructions, the user's explicit request, or applicable safety constraints.`;
@@ -881,6 +890,7 @@ export function renderSecurityPolicyMarkdown(levels: SecurityLevels): RenderedSe
 
   const parts = [
     '# Fleet Agent Policy',
+    POLICY_SCOPE_CLAUSE,
     sections.fleet_identity,
     sections.safety_floor,
     sections.hard_stops,

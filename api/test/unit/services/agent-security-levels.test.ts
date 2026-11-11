@@ -188,6 +188,7 @@ describe('renderSecurityPolicyMarkdown', () => {
     for (const levels of [CONTAINED, STANDARD, UNRESTRICTED]) {
       const out = renderSecurityPolicyMarkdown(levels);
       expect(out.markdown).toContain('# Fleet Agent Policy');
+      expect(out.markdown).toMatch(/# Fleet Agent Policy\n\n> \*\*Scope:\*\*[^\n]*none of this policy applies/);
       expect(out.markdown).toContain('## Fleet Management');
       expect(out.markdown).toContain('## Instruction Precedence and Safety Floor');
       expect(out.markdown).toContain('A level grants; it never instructs.');
