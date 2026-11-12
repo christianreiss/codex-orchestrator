@@ -42,7 +42,11 @@
   const concurrencyError = $derived(Number.isInteger(concurrency) && concurrency! >= 1 && concurrency! <= 2 ? '' : 'Enter 1 or 2.');
   const concurrencyDirty = $derived($settings.data !== undefined && concurrency !== $settings.data.concurrency);
 </script>
-{#if canManage}
+{#if !canManage}
+  <Section id="chatty" title="Chatty" description="Personal product assistant for owners and admins. Uses verified accounts of the enabled engines.">
+    <p class="text-body-sm text-muted-foreground">Read only. Chatty settings require <code class="font-mono">chatty.manage</code>.</p>
+  </Section>
+{:else}
   <DraftGuard dirty={concurrencyDirty} preserveOnSamePath />
   <Section id="chatty" title="Chatty" description="Personal product assistant for owners and admins. Uses verified accounts of the enabled engines.">
     {#if $settings.isPending}

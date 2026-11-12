@@ -57,3 +57,12 @@ test('a failed Chatty save is visible at the control and the switch keeps the se
   await expect(area).toContainText('Save failed: Chatty store unavailable');
   await expect(toggle).not.toBeChecked();
 });
+
+test('without chatty.manage the section names the missing permission instead of vanishing', async ({ page }) => {
+  await fixture(page, { manage: false });
+  await page.goto('/admin/settings#chatty');
+  const area = page.locator('#chatty');
+  await expect(area.getByRole('heading', { name: 'Chatty', exact: true })).toBeVisible();
+  await expect(area).toContainText('chatty.manage');
+  await expect(area.getByRole('switch')).toHaveCount(0);
+});

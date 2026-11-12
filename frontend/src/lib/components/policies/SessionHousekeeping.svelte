@@ -74,6 +74,7 @@
     <Button variant="outline" size="sm" onclick={() => void $query.refetch()}>Retry loading</Button>
   {:else}
     <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); if (canManage && !conflict && valid) $save.mutate(draft); }}>
+      <p class="text-caption text-muted-foreground">The switch and the fields below are one rule: they are saved together with Save rule.</p>
       <fieldset disabled={!canManage || $save.isPending} class="space-y-3 disabled:opacity-60">
         <label class="flex items-center gap-2 text-body"><Switch checked={enabled} onCheckedChange={(value) => enabled = value} disabled={!canManage || $save.isPending} aria-label="Enable automatic housekeeping"/>Enable automatic housekeeping</label>
         <div class="grid gap-3 sm:grid-cols-3">
