@@ -378,6 +378,8 @@
       "POST /admin/kimi/keys",
       "POST /admin/kimi/models/:model/toggle",
       "POST /admin/kimi/settings",
+      "GET /admin/speech-input",
+      "POST /admin/speech-input/:target",
       "POST /admin/kimi/state",
       "POST /admin/kimi/version",
       "POST /admin/hosts/:id/kimi-version",

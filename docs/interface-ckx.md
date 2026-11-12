@@ -271,7 +271,7 @@ and reject controls requiring exact telemetry instead of inventing values.
 
 ## Parity exemptions
 
-Audit base: `511b4486e`, 2026-11-12. The requested case-insensitive Grok-without-Kimi gate contained **332 files**. Every file was classified: **83 corrected/current files** and **249 exemptions** below. Exemptions are scoped to the stated reason, not permission for a new engine enumeration to omit Kimi. New runtime behavior is checked separately from historical/provider-only fixtures.
+Audit base: `511b4486e`, 2026-11-12. The requested case-insensitive Grok-without-Kimi gate contained **332 files**. Every file was classified: **83 corrected/current files** and **249 exemptions** below (250 since the 2026-11-12 libc selection added `libcselect/reconcile.go`). Exemptions are scoped to the stated reason, not permission for a new engine enumeration to omit Kimi. New runtime behavior is checked separately from historical/provider-only fixtures.
 
 Reproduce the gate (excluded build artifacts and changelog stay untouched):
 
@@ -626,6 +626,7 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/housekeeping/sqlite_test.go` | Grok-only external-content FTS deletion behavior; Kimi has no corresponding SQLite FTS layout. |
 | `wrappers/cxx/internal/ipc/shared_transition_test.go` | Grok-named lock is an arbitrary key for generic shared/exclusive lock semantics. |
 | `wrappers/cxx/internal/launchpad/obsidian.go` | Grok-only reasoning-engine label and absence of weekly quota; all engine card positions already support Kimi. |
+| `wrappers/cxx/internal/libcselect/reconcile.go` | glibc-before-musl selection is limited to Codex, Claude and Grok, whose providers publish (or may publish) both libc variants. Kimi Code publishes exactly one Linux binary per architecture in its manifest, so there is no libc choice to reconcile. |
 | `wrappers/cxx/internal/maintenance/maintenance_test.go` | Grok-specific native-path and child-environment fixtures, not an engine catalog. |
 | `wrappers/cxx/internal/memoryrouting/routing.go` | Comment mentions Grok private projection; dispatch and Kimi routing live in the engine-specific targets implementation. |
 | `wrappers/cxx/internal/memoryrouting/routing_test.go` | Tests Grok generated memory-v2 index recovery; Kimi has no Grok memory-v2 tree. |

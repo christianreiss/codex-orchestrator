@@ -1562,6 +1562,8 @@ Client (`Authorization: Bearer cxe_…`, errors as `{error:{code,message}}`):
 
 - `GET /admin/rtk` — per-engine fleet defaults.
 - `POST /admin/rtk/:engine` — save `{enabled:boolean}` (settings.manage).
+- `GET /admin/speech-input` — per-engine speech input policy `{engines:{<engine>:{enabled, override, global, supported, activation, control}}}`; the global default is on.
+- `POST /admin/speech-input/:target` — `target` is `global` or an engine; body `{enabled:boolean}`, or `{enabled:null}` on an engine to inherit the global default. Returns the updated policies.
 - `GET /admin/hosts/:id/rtk` — per-engine effective policies, overrides and dated readiness.
 - `POST /admin/hosts/:id/rtk/:engine` — save `{enabled:boolean|null}` (hosts.manage); null inherits.
 - `POST /host/rtk/report` — host-authenticated bounded readiness metadata; no command/output content.
