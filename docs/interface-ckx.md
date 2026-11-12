@@ -103,7 +103,7 @@ differences are listed under *Intentional deltas*.
 | `config.toml` | fleet-owned paths, user keys preserved | `default_model`, `default_permission_mode` (`manual`/`yolo`/`auto`), `telemetry=false`, `auto_session_title=false`, `disable_feedback_survey=true`, `[providers."managed:kimi-code"]` (`type="kimi"`, `base_url`, `oauth={storage="file",key="oauth/kimi-code"}`), `[models."kimi-code/<id>"]`, `[thinking] effort`, `[[hooks]]` for the receiver |
 | `credentials/kimi-code.json` (0600) | wrapper | access-only projection above |
 | `device_id` (0600) | wrapper | canonical `device_id` |
-| `AGENTS.md` | wrapper | fleet instructions (digest in `~/.cxx/state`) |
+| `AGENTS.md` | wrapper | fleet instructions (digest in `~/.ckx/state`, the Kimi state dir mirroring Grok's `~/.cgx/state`) |
 | `skills/` | wrapper (`skillstore`) | native fleet Skills (`kimi_skills` bundle field, `/skills?engine=kimi`) |
 | `mcp.json` | wrapper | `{"mcpServers":{…}}` with the fleet MCP and `cxx-agent` |
 
