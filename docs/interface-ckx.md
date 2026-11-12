@@ -66,6 +66,12 @@ differences are listed under *Intentional deltas*.
 }
 ```
 
+- Only the default region is supported: `oauth_host` must be
+  `https://auth.kimi.com` and `base_url` `https://api.kimi.com/coding/v1`.
+  kimi-code derives a scoped credential key (`oauth/kimi-code-env-<hash>`) for
+  any other endpoint (`resolveKimiCodeRuntimeAuth`), so the canonical
+  `credentials/kimi-code.json` projection would not apply; such payloads are
+  rejected with `kimi_endpoint_unsupported`.
 - Seeding always uses a dedicated device login in a throwaway `KIMI_CODE_HOME`
   (`ckx login` / seed script), then uploads `credentials/kimi-code.json` plus
   `device_id`. The seeding home is deleted afterwards so exactly one refresher
