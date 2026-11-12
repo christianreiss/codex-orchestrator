@@ -1,5 +1,6 @@
 # 2026-11-12
 
+- **Dashboard usage bars — today marker:** each quota bar carries a thin marker at how far the period has run (0 % at the window start, 100 % at the reset), so used quota reads directly against time. The start comes from the provider (Grok) or from `resets_at` minus the window length (Claude, ChatGPT); a window without a reset time, or one whose reset has passed, gets no marker. The meter's accessible value text adds "N% of the period elapsed". Bar colour is unchanged.
 - **Dashboard usage table:** a dedicated "Reset in" column shows when each quota window resets, one line per window (labelled when an account reports two). A window without a reset time reads "Unknown" and a passed reset reads "Reset passed"; the per-meter "Resets …" lines are gone.
 - **Provider plans:** ChatGPT plans from newer Codex builds (`prolite`, `promax`, business, enterprise and edu variants) now show their name instead of "Plan unavailable"; a future provider-reported slug is shown humanised rather than blank. Claude's login-reported plan is no longer flagged "last known" after ten minutes (it changes only on token refresh, so it is stale after 48 hours). Grok billing readings at a fresh period start, where the provider omits a zero percentage, read as 0% used instead of `usage_unavailable`.
 

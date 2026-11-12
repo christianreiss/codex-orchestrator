@@ -8,7 +8,7 @@
   import { DataTable } from "$lib/components/page";
   import { ENGINE_META } from "$lib/constants/engines";
   import type { ProviderAccount } from "$lib/api/accounts";
-  import { resetsIn } from "$lib/utils/format";
+  import { periodElapsedPercent, resetsIn } from "$lib/utils/format";
   import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import { cn } from "$lib/utils/cn";
   import GrokUsage from "./GrokUsage.svelte";
@@ -95,7 +95,7 @@
         {:else if rows.length}
           <div class="space-y-1">
             {#each rows as quota (quota.key)}
-              <UsageMeter inline label={quota.label} usedPercent={quota.value} valueLabel={`${quota.value}% used`} />
+              <UsageMeter inline label={quota.label} usedPercent={quota.value} valueLabel={`${quota.value}% used`} elapsedPercent={periodElapsedPercent(quota.reset, { limitSeconds: quota.seconds })} />
             {/each}
           </div>
         {:else}
@@ -104,7 +104,7 @@
         {#if account.quota_snapshot?.emulation.enabled && !account.quota_policy?.unlimited}
           {#if account.quota_snapshot.short?.source === 'emulated'}
             {#if account.engine === 'grok'}
-              <UsageMeter inline label={`Emulated ${Math.round((account.quota_snapshot.short.limit_seconds ?? 18000) / 3600)}-hour window`} usedPercent={account.quota_snapshot.short.used_percent} />
+              <UsageMeter inline label={`Emulated ${Math.round((account.quota_snapshot.short.limit_seconds ?? 18000) / 3600)}-hour window`} usedPercent={account.quota_snapshot.short.used_percent} elapsedPercent={periodElapsedPercent(account.quota_snapshot.short.resets_at, { limitSeconds: account.quota_snapshot.short.limit_seconds ?? 18000 })} />
             {/if}
             {#if account.quota_snapshot.short.status !== 'fresh'}<p class="text-caption text-muted-foreground">Emulated quota stale — work allowed</p>{/if}
           {:else if typeof account.usage.short_used_percent !== "number"}

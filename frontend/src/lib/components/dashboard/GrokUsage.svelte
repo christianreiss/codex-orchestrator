@@ -2,7 +2,7 @@
   import type { ProviderAccount } from "$lib/api/accounts";
   import UsageMeter from "./UsageMeter.svelte";
   import { Badge } from "$lib/components/ui/badge";
-  import { resetsIn, formatDateTime } from "$lib/utils/format";
+  import { periodElapsedPercent, resetsIn, formatDateTime } from "$lib/utils/format";
 
   let { usage, label, showStatus = true, showUpdated = true, showReset = true, inline = false }: {
     usage: ProviderAccount["usage"]; label: string; showStatus?: boolean; showUpdated?: boolean;
@@ -22,7 +22,7 @@
   {#if window}
     {@const when = resetsIn(window.resets_at)}
     {#if showStatus && usage.stale}<Badge variant="warning">Last known reading</Badge>{/if}
-    <UsageMeter {inline} usedPercent={window.used_percent} label={periodLabel} valueLabel={`${window.used_percent}% used`} />
+    <UsageMeter {inline} usedPercent={window.used_percent} label={periodLabel} valueLabel={`${window.used_percent}% used`} elapsedPercent={periodElapsedPercent(window.resets_at, { startsAt: window.starts_at })} />
     {#if showReset}
       <p class="text-body-sm text-muted-foreground">
         {#if when === "passed"}Reset passed{:else if when}Resets <time datetime={window.resets_at ?? undefined} title={window.resets_at ?? undefined}>{when}</time>{:else}Reset time unavailable{/if}
