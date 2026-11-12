@@ -192,3 +192,32 @@ describe('generation controls the Claude CLI cannot honor', () => {
     expect(res.stop_reason).toBeNull();
   });
 });
+
+describe('Kimi backend on Anthropic wire', () => {
+  it('refuses oversized UTF-8 prompts including system instructions before reading auth', async () => {
+    let touched = false;
+    const adapter = createRunnerClaudeAdapter({
+      env: { ...baseEnv, AUTH_RUNNER_URL: 'http://runner/verify-kimi' }, engine: 'kimi',
+      getAuthSnapshot: async () => { touched = true; return {}; },
+    })!;
+    await expect(adapter.messages([{ role: 'user', content: 'hi' }], 'k3', { max_tokens: 64, system: '😀'.repeat(25000) }))
+      .rejects.toMatchObject({ status: 413, code: 'prompt_too_large' });
+    expect(touched).toBe(false);
+  });
+
+  it('sends inference text to /exec without client controls and reports usage/stop unknown', async () => {
+    const sent: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const adapter = createRunnerClaudeAdapter({
+      env: { ...baseEnv, AUTH_RUNNER_URL: 'http://runner/verify-kimi' }, engine: 'kimi',
+      getAuthSnapshot: async () => ({ kimi_code: { access_token: 'access', refresh_token: '' } }),
+      fetcher: (async (url: string, init: RequestInit) => {
+        sent.push({ url, body: JSON.parse(String(init.body)) });
+        return new Response(JSON.stringify({ status: 'ok', output: 'answer', usage_known: true, input_tokens: 70, output_tokens: 5, finish_reason: 'stop' }));
+      }) as typeof fetch,
+    })!;
+    const result = await adapter.messages([{ role: 'user', content: 'hi' }], 'k3', { max_tokens: 64, system: 'Be brief' });
+    expect(sent).toEqual([{ url: 'http://runner/exec', body: expect.objectContaining({ engine: 'kimi', prompt: 'user: hi', system: 'Be brief', model: 'k3' }) }]);
+    expect(sent[0]!.body.max_tokens).toBeUndefined();
+    expect(result).toMatchObject({ stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 } });
+  });
+});

@@ -284,14 +284,14 @@ source/target pairs. Grok quota has no synthetic percentage or capacity claim.
 ## Exposed API routing (any-to-any)
 
 Generation requests accept an omitted, null or boolean `stream` flag. Other
-values return `400 invalid_stream` before execution; Grok continues to refuse
+values return `400 invalid_stream` before execution; Grok and Kimi continue to refuse
 `stream: true`. Synthesized streams preserve the backend's reported finish
 reason, including `null` when unknown, instead of inventing a clean stop.
 Client disconnect and API pre-close abort in-flight execution for every backend
 and surface; adapter timeouts include reading the response body. An aborted
 call cannot record a successful auth verification.
 
-The three inference gateways are **surfaces**; the engine that answers is the
+The four inference gateways are **surfaces**; the engine that answers is the
 surface's **backend**, chosen per surface and resolved per request (1 s cache),
 so a change applies without a restart.
 
@@ -300,17 +300,18 @@ so a change applies without a restart.
 | `openai` | `/v1` | OpenAI | `sk-cdx-` (`codex`) | `openai_api_disabled` | `api_surface_backend_openai` (`codex`) |
 | `anthropic` | `/anthropic/v1` | Anthropic | `sk-ant-` (`claude`) | `claude_api_disabled` | `api_surface_backend_anthropic` (`claude`) |
 | `grok` | `/grok/v1` | OpenAI | `sk-cgx-` (`grok`) | `grok_api_disabled` | `api_surface_backend_grok` (`grok`) |
+| `kimi` | `/kimi/v1` | OpenAI | `sk-ckx-` (`kimi`) | `kimi_api_disabled` (default off) | `api_surface_backend_kimi` (`kimi`) |
 
 - URL, wire shape, error envelope, key namespace and kill switch belong to the
   surface and never change with the backend; `openai_api_keys.engine` names the
   surface's key namespace, not the engine that answers. A missing or invalid
   backend row means the identity backend (migration `0038` seeds it explicitly).
-- Each key may independently pin `backend_engine` to `codex`, `claude`, or
-  `grok`. NULL keeps endpoint-default routing. Resolve the effective backend
+- Each key may independently pin `backend_engine` to `codex`, `claude`, `grok`, or
+  `kimi`. NULL keeps endpoint-default routing. Resolve the effective backend
   once per authenticated request and use it for availability, models and execution;
   a disabled endpoint default does not block keys assigned to an enabled engine.
 - Key creation on `/admin/openai/keys`, `/admin/claude/keys` and
-  `/admin/grok/keys` accepts optional `backend_engine`
+  `/admin/grok/keys` and `/admin/kimi/keys` accept optional `backend_engine`
   alongside `name` and `expires_at`. Omission preserves legacy default routing;
   explicit invalid values (including NULL) return 400, and fleet-disabled engines
   return `409 engine_disabled`. Creation and list records include nullable
@@ -318,26 +319,25 @@ so a change applies without a restart.
   Assignments cannot be edited; issue a replacement key to change the engine.
 - The backend supplies the canonical credential snapshot, the runner `engine`,
   the capability table and the model catalog. Each engine's backend exists once
-  per API process, so Grok's single central refresher is shared by every surface
-  routed to Grok.
+  per API process, so Grok and Kimi each share their central refresher across surfaces.
 - Controls follow the backend: a control it cannot honour fails with
   `400 unsupported_generation_control` before credentials are read. On the
   Anthropic wire, Codex receives `system` as a leading `system:` transcript line
-  and Grok does not receive the protocol-mandatory `max_tokens` (accepted,
-  unenforced); Grok refuses `stream`, images and sampling controls on every
+  and Grok/Kimi do not receive the protocol-mandatory `max_tokens` (accepted,
+  unenforced); Grok and Kimi refuse `stream`, images and sampling controls on every
   surface. Usage and stop reasons are translated into the surface's vocabulary
   (Codex reports no tokens: zeros, or `null` where the OpenAI wire already used it).
 - Models: `/models` lists the backend's catalog in the surface's shape. A
   generation request whose `model` is empty, or belongs to the surface's native
   family (`gpt-*`/`o*`/`codex-*` on `/v1`, `claude-*` on `/anthropic/v1`,
-  `grok-*` on `/grok/v1`) but is not served by a foreign backend, runs on the
+  `grok-*` on `/grok/v1`, `k3*`/`kimi-*` on `/kimi/v1`) but is not served by a foreign backend, runs on the
   backend's default model and reports it in the response `model` field. Other
   unknown ids, admin-disabled models and single-model lookups stay strict.
 - `GET /admin/api/surfaces` (`settings.read`) →
   `{surfaces:[{surface,label,base_path,wire,backend,identity_backend,disabled,key_count}],
   backends:[{engine,label}]}`; `key_count` counts active keys.
 - `POST /admin/api/surfaces/{surface}` (`settings.manage`) with
-  `{backend?: "codex"|"claude"|"grok", disabled?: boolean}` (at least one) returns
+  `{backend?: "codex"|"claude"|"grok"|"kimi", disabled?: boolean}` (at least one) returns
   the updated row. Backend changes are audited as `admin.api.surface_backend`
   `{surface, backend, previous}`; `disabled` writes the surface's kill-switch flag
   under its legacy audit action. Unknown surfaces or engines return `422`.
@@ -2344,6 +2344,38 @@ No additional Claude provider request or wrapper update is needed.
 `GET /admin/accounts` adds `usage.current_window` for Grok: `{used_percent, period: weekly|monthly|null, starts_at, resets_at, shared}` or `null` when no provider reading exists. `usage.supported` is true; `fetched_at` is the last successful reading, `checked_at` the last attempt, and `error_code` is a sanitized failure code. `stale` is true after ten minutes, after the provider period expires, or on a failed poll; failed polls retain the last successful window. Missing percentages never become zero. Legacy `short_*`/`weekly_*` fields stay null for Grok: this is a dashboard observation and does not change account selection or wrapper quota contracts.
 
 The API background worker polls `https://cli-chat-proxy.grok.com/v1/billing?format=credits` at most once per five minutes per account, with a ten-second request deadline and redirects refused. It wakes every thirty seconds for new accounts; disabled engines, paused/removed/merged accounts are skipped. Bearers come only from the existing fenced Grok auth owner. `accounts.updated` invalidates the existing admin queries after each observation. No billing write or top-up operation is performed. The endpoint is provider-owned and not a stable public xAI API contract; unavailable/changed responses remain visibly unknown or stale.
+
+## Kimi inference gateway
+
+Kimi Code exposes the OpenAI-shaped `/kimi/v1` surface with `sk-ckx-` bearer
+keys. `versions.kimi_api_disabled=1` is seeded by migration 0130; operators
+must opt in through `/admin/kimi/state` or `/admin/api/surfaces/kimi`.
+Missing switch metadata or a failed switch read leaves this surface disabled.
+Its backend defaults to `kimi` (`api_surface_backend_kimi`) and can be changed
+independently of its key namespace and kill switch, like every other surface.
+Kimi may also serve `/v1`, `/anthropic/v1` or `/grok/v1` through routing or a
+key's `backend_engine`. The fleet engine switch follows the effective backend.
+
+- `OPTIONS /kimi/v1/*` — Open CORS preflight, no gateway key required.
+- `POST /kimi/v1/chat/completions` — Text chat, scoped bearer required.
+- `POST /kimi/v1/responses` — Text Responses API, scoped bearer required.
+- `POST /kimi/v1/completions` — Legacy text completion, scoped bearer required.
+- `POST /kimi/v1/embeddings` — Explicit `400 unsupported_endpoint`.
+- `GET /kimi/v1/models` — Enabled backend models (MoonshotAI catalog by default).
+- `GET /kimi/v1/models/:model` — Strict single-model lookup.
+
+Kimi supports model selection and system instructions. Streaming, images,
+client tools, output caps, sampling and stop sequences return explicit 400s
+before credentials or execution. On Anthropic surfaces only, mandatory
+`max_tokens` is accepted as unenforceable and omitted from `/exec`.
+Kimi stream-json reports neither token usage nor a stop reason: OpenAI usage
+and finish reason are `null`; Anthropic usage integers are zero (unavailable),
+with `stop_reason: null`. These are not measured zero-token requests.
+Rendered prompt plus system instructions are limited to **100000 UTF-8 bytes**
+for every Kimi backend route (`413 prompt_too_large` before credential access).
+NUL characters return `400 invalid_prompt` because prompts travel as argv.
+The runner uses `--agent-file` with `tools: []`, never `-p` with `--auto`/`--yolo`;
+permission deny rules alone are insufficient. See [runner isolation](auth-runner.md#kimi-execution-isolation).
 
 ## Grok endpoint inventory
 

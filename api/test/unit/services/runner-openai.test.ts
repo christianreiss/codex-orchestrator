@@ -9,6 +9,7 @@ describe('runner-openai', () => {
   it('derives /exec from the shared AUTH_RUNNER_URL verify endpoint', () => {
     expect(runnerExecUrl('http://auth-runner:8080/verify')).toBe('http://auth-runner:8080/exec');
     expect(runnerExecUrl('http://auth-runner:8080/verify/')).toBe('http://auth-runner:8080/exec');
+    expect(runnerExecUrl('http://auth-runner:8080/verify-kimi')).toBe('http://auth-runner:8080/exec');
   });
 
   it('keeps explicit /exec URLs and appends /exec to bare runner bases', () => {

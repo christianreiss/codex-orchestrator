@@ -23,13 +23,13 @@ export interface KillSwitch {
   throwIfDisabled(): Promise<void>;
 }
 
-export function makeOpenAiKillSwitch(db: Database, flagName = FLAG_NAME, label = 'OpenAI'): KillSwitch {
+export function makeOpenAiKillSwitch(db: Database, flagName = FLAG_NAME, label = 'OpenAI', disabledByDefault = false): KillSwitch {
   return {
     async isDisabled() {
       const owner = ownerRuntimeFor(db);
       if (owner) {
         owner.assertOwner();
-        return isTruthyFlagValue(owner.state.snapshot().table('versions').get(flagName)?.version);
+        return isTruthyFlagValue(owner.state.snapshot().table('versions').get(flagName)?.version ?? (disabledByDefault ? '1' : undefined));
       }
       try {
         const rows = await db
@@ -37,11 +37,11 @@ export function makeOpenAiKillSwitch(db: Database, flagName = FLAG_NAME, label =
           .from(versions)
           .where(eq(versions.name, flagName))
           .limit(1);
-        return isTruthyFlagValue(rows[0]?.value);
+        return isTruthyFlagValue(rows[0]?.value ?? (disabledByDefault ? '1' : undefined));
       } catch {
-        // If the version table is unreachable we fail open — refusing every
-        // request because the metadata table glitched is worse than serving.
-        return false;
+        // Preserve legacy availability on failed reads. Opt-in surfaces
+        // (Kimi) stay disabled when their switch cannot be verified.
+        return disabledByDefault;
       }
     },
     async throwIfDisabled() {

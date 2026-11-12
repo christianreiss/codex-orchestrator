@@ -31,6 +31,7 @@ import { registerWrapperV2Routes } from './wrapper-v2/index.js';
 
 import { registerOpenAiCompatWorktree } from './openai-compat/index.js';
 import { registerAnthropicCompatBundle } from './anthropic-compat/index.js';
+import { registerKimiCompatRoutes } from './kimi-v1/index.js';
 import { registerGrokCompatRoutes } from './grok-v1/index.js';
 import { createGatewayWiring } from '../services/gateway-backends.js';
 
@@ -97,12 +98,13 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAgentReceiverRoutes(app, ctx);
 
   // OpenAI / Anthropic-shaped public APIs (envelope dispatcher selects shape).
-  // One backend set for all three surfaces: each engine's bundle — Grok's
+  // One backend set for all four surfaces: each engine's bundle — Grok's
   // single auth owner included — exists once, whichever surfaces route to it.
   const gateway = createGatewayWiring(ctx, app.log);
   await registerOpenAiCompatWorktree(app, ctx, gateway);
   await registerAnthropicCompatBundle(app, ctx, { gateway });
   await registerGrokCompatRoutes(app, ctx, { gateway });
+  await registerKimiCompatRoutes(app, ctx, { gateway });
 
   // Admin surface
   await registerAdminAuthAndUsersRoutes(app, ctx);

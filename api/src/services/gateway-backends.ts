@@ -1,6 +1,6 @@
 /**
  * Backend engines for the inference gateways (`/v1`, `/anthropic/v1`,
- * `/grok/v1`). A backend is everything engine-specific about answering a
+ * `/grok/v1`, `/kimi/v1`). A backend is everything engine-specific about answering a
  * request: the canonical credential snapshot handed to the runner, the
  * verification bookkeeping after a successful exec, and the model catalog.
  * Wire shape is the surface's business (see `api-surfaces.ts`); nothing here
@@ -15,10 +15,12 @@ import { ApiError } from '../http/errors.js';
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
 import type { Keyring } from '../security/keyring.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_LABELS, isEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINE_LABELS, isEngine, type Engine } from '../util/engine.js';
 import { createAuthTrafficVerifier, type AuthTrafficVerifier } from './auth-traffic-verification.js';
 import { createRunnerValidationService } from './runner-validation.js';
 import { createRunnerClient } from './runner-client.js';
+import { createKimiAuthOwner } from './kimi-auth-owner.js';
+import { createKimiModelsService, KIMI_DEFAULT_MODEL, KIMI_MODEL_CONTEXT_WINDOWS, type KimiModel } from './kimi-models.js';
 import { createGrokAuthOwner } from './grok-auth-owner.js';
 import { createGrokModelsService, GROK_MODEL_CONTEXT_TOKENS } from './grok-models.js';
 import { createClaudeModelsService, modelObject as claudeModelObject, type ClaudeModel, type ClaudeModelLine } from './claude-models.js';
@@ -70,7 +72,7 @@ export interface GatewayBackends {
   get(engine: Engine): GatewayBackend;
 }
 
-/** What the three gateway registrations share: one backend set, one routing. */
+/** What the four gateway registrations share: one backend set, one routing. */
 export interface GatewayWiring {
   backends: GatewayBackends;
   routing: SurfaceRouting;
@@ -142,17 +144,26 @@ export function createGatewayBackends(
   const validation = () => (runnerValidation ??= createRunnerValidationService({ db: ctx.db, keyring: ctx.keyring }));
 
   function traffic(engine: Engine): AuthTrafficVerifier {
-    if (engine !== ENGINE_GROK) {
+    if (engine !== ENGINE_GROK && engine !== ENGINE_KIMI) {
       return createAuthTrafficVerifier({ db: ctx.db, runnerValidation: validation(), engine, log });
     }
-    const owner = createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) });
+    const owner = (engine === ENGINE_KIMI ? createKimiAuthOwner : createGrokAuthOwner)({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) });
     const minValiditySeconds = Math.min(600, ctx.env.AUTH_RUNNER_EXEC_TIMEOUT ?? 600) + 300;
     return createAuthTrafficVerifier({
       db: ctx.db,
       engine,
       log,
       runnerValidation: validation(),
-      snapshotProvider: () => owner.ensureFresh({ minValiditySeconds }),
+      snapshotProvider: async () => {
+        const snapshot = await owner.ensureFresh({ minValiditySeconds });
+        if (engine !== ENGINE_KIMI) return snapshot;
+        // The runner validates remaining lifetime before writing its expiry=0
+        // native projection. Supply that bound, never a refresh credential.
+        const credential = snapshot.auth.kimi_code as Record<string, unknown>;
+        return { ...snapshot, auth: { ...snapshot.auth, kimi_code: {
+          ...credential, expires_at: Date.parse(snapshot.expires_at) / 1000,
+        } } };
+      },
     });
   }
 
@@ -188,7 +199,13 @@ const GROK_CATALOG_CREATED = 1790812800;
 function modelsFor(engine: Engine, ctx: GatewayContext): GatewayBackendModels {
   // Standalone gateway adapters without a database have no fleet settings.
   const policyNow = () => typeof ctx.db?.select === 'function' ? readModelPolicy(ctx.db, engine) : Promise.resolve(buildModelPolicy(engine));
-  const base = engine === ENGINE_CLAUDE ? claudeModels(ctx) : engine === ENGINE_GROK ? grokModels(ctx) : codexModels();
+  let base: GatewayBackendModels;
+  switch (engine) {
+    case ENGINE_CODEX: base = codexModels(); break;
+    case ENGINE_CLAUDE: base = claudeModels(ctx); break;
+    case ENGINE_GROK: base = grokModels(ctx); break;
+    case ENGINE_KIMI: base = kimiModels(ctx); break;
+  }
   return {
     ...base,
     async resolve(value) {
@@ -199,6 +216,7 @@ function modelsFor(engine: Engine, ctx: GatewayContext): GatewayBackendModels {
       if (engine === ENGINE_CLAUDE) requested = requested.toLowerCase();
       if (!requested) requested = engine === ENGINE_CLAUDE ? CLAUDE_DEFAULT_MODEL
         : engine === ENGINE_GROK ? await new SettingsService(ctx.db).getString('grok_default_model', GROK_DEFAULT_MODEL) ?? GROK_DEFAULT_MODEL
+        : engine === ENGINE_KIMI ? await new SettingsService(ctx.db).getString('kimi_default_model', KIMI_DEFAULT_MODEL) ?? KIMI_DEFAULT_MODEL
         : resolveRequestedModel(undefined);
       if (Object.hasOwn(policy.replacements, requested)) return base.resolve(applyModelPolicy(policy, requested));
       // Existing native/legacy aliases keep their normal canonicalization.
@@ -276,6 +294,20 @@ function grokModels(ctx: GatewayContext): GatewayBackendModels {
   };
 }
 
+function kimiModels(ctx: GatewayContext): GatewayBackendModels {
+  let service: ReturnType<typeof createKimiModelsService> | null = null;
+  const svc = () => (service ??= createKimiModelsService(ctx.db));
+  const info = (id: string): GatewayModelInfo => ({
+    id, display_name: id, created: 1790812800, owned_by: 'moonshotai',
+    max_input_tokens: KIMI_MODEL_CONTEXT_WINDOWS[id as KimiModel],
+  });
+  return {
+    resolve: (value) => svc().resolveRequestedModel(value),
+    async catalog() { return (await svc().catalog()).filter(model => model.enabled).map(model => info(model.id)); },
+    info,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Cross-surface model ids.
 
@@ -284,7 +316,7 @@ const NATIVE_MODEL_FAMILY: Record<Engine, RegExp> = {
   [ENGINE_CODEX]: /^(gpt-|chatgpt-|codex-|o[1-9])/i,
   [ENGINE_CLAUDE]: /^claude-/i,
   [ENGINE_GROK]: /^grok-/i,
-  kimi: /^(?:kimi-|k3)/i,
+  [ENGINE_KIMI]: /^(?:kimi-(?:code\/)?|k3(?:[.-]|$))/i,
 };
 
 function isModelNotFound(err: unknown): boolean {
@@ -362,7 +394,7 @@ export function assertBackendRequestControls(
       param: 'stream',
     });
   }
-  if (engine !== ENGINE_GROK) return;
+  if (engine !== ENGINE_GROK && engine !== ENGINE_KIMI) return;
   assertControlsSupported(
     { stream: controls.stream === true ? true : undefined, tools: controls.tools, top_k: controls.top_k },
     capabilitiesFor('runner-cli', engine),

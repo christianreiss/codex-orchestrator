@@ -100,6 +100,7 @@ const SURFACE_STATE_AUDIT: Record<ApiSurfaceId, string> = {
   openai: 'admin.openai_api.state',
   anthropic: 'admin.claude_api.state',
   grok: 'admin.grok_api.state',
+  kimi: 'admin.kimi_api.state',
 };
 
 function normalizeBool(value: unknown): boolean | null {
@@ -703,7 +704,7 @@ app.get('/admin/kimi/version/lock', { preHandler: app.requireAdmin }, async () =
   app.post('/admin/api/surfaces/:surface', { preHandler: app.requireAdmin }, async (req) => {
     const { surface } = req.params as { surface?: string };
     if (!isApiSurfaceId(surface)) {
-      throw new ValidationError('surface must be "openai", "anthropic" or "grok"', { param: 'surface' });
+      throw new ValidationError('surface must be "openai", "anthropic", "grok" or "kimi"', { param: 'surface' });
     }
     const body = (req.body ?? {}) as { backend?: unknown; disabled?: unknown };
     const backend = body.backend === undefined ? undefined : parseEngine(body.backend);

@@ -46,11 +46,11 @@ describe('owned API metadata', () => {
     const versions = createVersionSnapshotService({ db: f.db, installationId: 'install' });
     for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
       expect((await versions.summary(engine)).engine).toBe(engine);
-      expect(await makeOpenAiKillSwitch(f.db, `${engine}_api_disabled`).isDisabled()).toBe(false);
+      expect(await makeOpenAiKillSwitch(f.db, `${engine}_api_disabled`, engine, engine === 'kimi').isDisabled()).toBe(engine === 'kimi');
     }
     expect(await versions.setting('missing')).toBeNull();
     expect(await versions.flag('missing', true)).toBe(true);
-    expect((await listApiSurfaces(f.db)).map((row) => row.key_count)).toEqual([0, 0, 0]);
+    expect((await listApiSurfaces(f.db)).map((row) => row.key_count)).toEqual([0, 0, 0, 0]);
     expect(f.select).not.toHaveBeenCalled();
   });
 

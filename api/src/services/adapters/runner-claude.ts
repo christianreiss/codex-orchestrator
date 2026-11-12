@@ -1,3 +1,4 @@
+import { assertRunnerPrompt } from './runner-prompt.js';
 import { withRunnerCancellation } from './runner-cancellation.js';
 /**
  * Runner-backed Anthropic adapter. Mirror of src/Adapters/ClaudeBackendAdapter.php.
@@ -26,7 +27,7 @@ import { withRunnerCancellation } from './runner-cancellation.js';
  */
 import { ApiError } from '../../http/errors.js';
 import type { Env } from '../../env.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_LABELS, type Engine } from '../../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINE_LABELS, type Engine } from '../../util/engine.js';
 import {
   assertControlsSupported,
   capabilitiesFor,
@@ -144,8 +145,9 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
       const maxTokens = capabilities.controls.max_tokens === 'unsupported' ? undefined : params.max_tokens;
       const { prompt, images } = buildPromptPayload(transcript);
 
-      if (engine === ENGINE_GROK && images.length > 0) {
-        throw new ApiError('Image inputs are not supported by the Grok CLI transport', {
+      assertRunnerPrompt(engine, prompt, system);
+      if ((engine === ENGINE_GROK || engine === ENGINE_KIMI) && images.length > 0) {
+        throw new ApiError(`Image inputs are not supported by the ${ENGINE_LABELS[engine]} CLI transport`, {
           status: 400, code: 'unsupported_generation_control', type: 'invalid_request_error', param: 'images',
         });
       }
@@ -255,7 +257,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
           role: 'assistant',
           content: [{ type: 'text', text: output }],
           model,
-          stop_reason: stopReasonFor(capabilities, anthropicStopReason(obj)),
+          stop_reason: stopReasonFor(capabilities, engine === ENGINE_KIMI ? null : anthropicStopReason(obj)),
           stop_sequence: null,
           usage,
         };
@@ -269,6 +271,8 @@ function stringOrUndefined(v: unknown): string | undefined {
 }
 
 function extractUsage(obj: Record<string, unknown>, engine: Engine): ClaudeUsage {
+  // Anthropic requires integer usage; zero denotes unavailable for Kimi.
+  if (engine === ENGINE_KIMI) return { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
   const num = (k: string): number => {
     const v = obj[k];
     if (typeof v === 'number' && Number.isFinite(v)) return v;

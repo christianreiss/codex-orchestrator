@@ -682,7 +682,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /seed/auth/{uuid}` — serve engine-specific seed shell script. Missing/used/expired tokens return HTTP 200 with `X-Installer-Error` (`seed_not_found`, `seed_used`, `seed_expired`, …) and a script that prints the reason to stderr and exits 1.
 - `POST /seed/auth/{uuid}` — accept raw credential payload (or `{ "auth": ... }`), require positive live runner validation, store verified canonical auth for the token engine, and consume the token after a successful store. Malformed, definitively rejected, and ordinary transient failures release the reservation so the same unexpired token can be retried. Unsafe runner-refresh/readback failures keep the one-time token consumed because the submitted refresh token may already have rotated; any retained replacement remains quarantined.
 - `GET /admin/api/state` / `POST /admin/api/state` — read/set API kill switch.
-- `GET /admin/api/surfaces` / `POST /admin/api/surfaces/{surface}` — list the exposed APIs (`openai` `/v1`, `anthropic` `/anthropic/v1`, `grok` `/grok/v1`) with backend engine, kill switch and active key count; set `{backend?, disabled?}`. Any surface may be served by any engine; keys and kill switches stay with the surface. See `docs/interface-api.md` → Exposed API routing.
+- `GET /admin/api/surfaces` / `POST /admin/api/surfaces/{surface}` — list the exposed APIs (`openai` `/v1`, `anthropic` `/anthropic/v1`, `grok` `/grok/v1`, `kimi` `/kimi/v1`) with backend engine, kill switch and active key count; set `{backend?, disabled?}`. Any surface may be served by any engine; keys and kill switches stay with the surface. See `docs/interface-api.md` → Exposed API routing.
 - `GET /admin/engines/state` / `POST /admin/engines/{engine}/state` — fleet-wide engine master switches. GET returns `{engines:[{engine,label,enabled,updated_at,updated_by,assigned_hosts}]}`; POST `{enabled: boolean}` switches one engine on or off for the whole fleet and returns the row plus `previous` and `hosts_suspended`. Off suspends everything for that engine (host routes `403 engine_disabled` with `scope:"fleet"`, gateways routed to it `503 api_disabled`, provider-touching admin actions `409`) while keeping assignments, accounts and keys. See `docs/interface-api.md` → Engine master switches.
 - `GET /admin/engines/{engine}/destroy` / `POST /admin/engines/{engine}/destroy` / `POST /admin/engines/{engine}/destroy/purge` / `DELETE /admin/engines/{engine}/destroy` — fleet-wide **destroy engine**: remove an engine completely from every host. POST `{confirm: "<engine>"}` opens a request (engine must already be suspended; `409 engine_not_suspended` otherwise) and re-bakes every host config with `host.destroy_engines`; GET returns `{engine, request, counts, hosts:[{host_id,fqdn,status,residue,reported_at}]}`; `purge` `{force?}` then drops the engine's stored credentials, accounts and host assignments (refused with `409 engine_destroy_incomplete` while hosts are unfinished unless `force`); DELETE cancels. Hosts report via `POST /host/engine-destroy/report`. Re-enabling the engine is refused (`409 engine_destroy_open`) until the request is cancelled. See `docs/interface-api.md` → Engine destroy.
 - `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
@@ -896,6 +896,38 @@ ChatGPT (`codex`), Claude (`claude`), and Grok (`grok`) have independent account
 Admin mutations require `auth.manage`; listing requires `auth.metadata.read`. All host routes retain the API kill switch, engine membership, host/IP authentication and insecure credential-distribution window. `/auth` and `/sync/bootstrap` accept `account_id` and advertise `account_pool: true`; returned digests, generations, verdicts and quota readings belong to that account. `/claude/usage/report` accepts `account_id` and `session_id`, rejecting a mismatched binding.
 
 Selection runs once per native CLI launch. It prefers verified enabled accounts with lower short/weekly utilization below the configured quota threshold; readings within five percentage points share assignments by active session count, then least recent selection. Unknown/reset accounts get bounded trials to obtain usage. Stale utilization stays conservative until its reset; reset windows become unknown rather than fabricated zero usage. Active sessions retain their account, including overlapping launches sharing native files. If all known quotas are exhausted, existing hard-fail/warn and VIP behavior still governs the selected account. There is no cross-engine fallback or manual host pinning.
+
+## Kimi inference gateway
+
+Kimi Code exposes the OpenAI-shaped `/kimi/v1` surface with `sk-ckx-` bearer
+keys. `versions.kimi_api_disabled=1` is seeded by migration 0130; operators
+must opt in through `/admin/kimi/state` or `/admin/api/surfaces/kimi`.
+Missing switch metadata or a failed switch read leaves this surface disabled.
+Its backend defaults to `kimi` (`api_surface_backend_kimi`) and can be changed
+independently of its key namespace and kill switch, like every other surface.
+Kimi may also serve `/v1`, `/anthropic/v1` or `/grok/v1` through routing or a
+key's `backend_engine`. The fleet engine switch follows the effective backend.
+
+- `OPTIONS /kimi/v1/*` — Open CORS preflight, no gateway key required.
+- `POST /kimi/v1/chat/completions` — Text chat, scoped bearer required.
+- `POST /kimi/v1/responses` — Text Responses API, scoped bearer required.
+- `POST /kimi/v1/completions` — Legacy text completion, scoped bearer required.
+- `POST /kimi/v1/embeddings` — Explicit `400 unsupported_endpoint`.
+- `GET /kimi/v1/models` — Enabled backend models (MoonshotAI catalog by default).
+- `GET /kimi/v1/models/:model` — Strict single-model lookup.
+
+Kimi supports model selection and system instructions. Streaming, images,
+client tools, output caps, sampling and stop sequences return explicit 400s
+before credentials or execution. On Anthropic surfaces only, mandatory
+`max_tokens` is accepted as unenforceable and omitted from `/exec`.
+Kimi stream-json reports neither token usage nor a stop reason: OpenAI usage
+and finish reason are `null`; Anthropic usage integers are zero (unavailable),
+with `stop_reason: null`. These are not measured zero-token requests.
+Rendered prompt plus system instructions are limited to **100000 UTF-8 bytes**
+for every Kimi backend route (`413 prompt_too_large` before credential access).
+NUL characters return `400 invalid_prompt` because prompts travel as argv.
+The runner uses `--agent-file` with `tools: []`, never `-p` with `--auto`/`--yolo`;
+permission deny rules alone are insufficient. See [runner isolation](auth-runner.md#kimi-execution-isolation).
 
 ## Grok endpoint inventory
 

@@ -24,6 +24,8 @@ describe('api surfaces', () => {
     expect(API_SURFACES.openai).toMatchObject({ basePath: '/v1', keyEngine: 'codex', identityBackend: 'codex', disabledFlag: 'openai_api_disabled' });
     expect(API_SURFACES.anthropic).toMatchObject({ basePath: '/anthropic/v1', wire: 'anthropic', keyEngine: 'claude', disabledFlag: 'claude_api_disabled' });
     expect(API_SURFACES.grok).toMatchObject({ basePath: '/grok/v1', wire: 'openai', keyEngine: 'grok', disabledFlag: 'grok_api_disabled' });
+    expect(API_SURFACES.kimi).toMatchObject({ basePath: '/kimi/v1', wire: 'openai', keyEngine: 'kimi', identityBackend: 'kimi', disabledFlag: 'kimi_api_disabled', backendFlag: 'api_surface_backend_kimi' });
+    expect(isApiSurfaceId('kimi')).toBe(true);
     expect(isApiSurfaceId('anthropic')).toBe(true);
     expect(isApiSurfaceId('claude')).toBe(false);
   });
@@ -69,6 +71,8 @@ describe('gateway backends', () => {
   it('builds each engine bundle once, so Grok keeps a single auth owner', () => {
     const backends = createGatewayBackends(ctx);
     expect(backends.get('grok')).toBe(backends.get('grok'));
+    expect(backends.get('kimi')).toBe(backends.get('kimi'));
+    expect(backends.get('kimi')).not.toBe(backends.get('codex'));
     expect(backends.get('codex')).not.toBe(backends.get('grok'));
   });
 
@@ -93,6 +97,10 @@ describe('gateway backends', () => {
   it('maps a native-family model id of the surface to the backend default', async () => {
     const claude = backend('claude', ['claude-sonnet-5', 'claude-opus-5']);
     expect(await resolveGenerationModel(claude, 'codex', 'gpt-6-sol')).toBe('claude-sonnet-5');
+    for (const model of ['k3', 'k3-256k', 'k3.1-pro', 'kimi-for-coding', 'kimi-code/k3']) {
+      expect(await resolveGenerationModel(claude, 'kimi', model)).toBe('claude-sonnet-5');
+    }
+    expect(await resolveGenerationModel(backend('kimi', ['k3.1-pro']), 'grok', 'grok-4.7')).toBe('k3.1-pro');
     expect(await resolveGenerationModel(claude, 'codex', 'claude-opus-5')).toBe('claude-opus-5');
     expect(await resolveGenerationModel(backend('codex', ['gpt-6-sol']), 'claude', 'claude-sonnet-5')).toBe('gpt-6-sol');
     expect(await resolveGenerationModel(backend('grok', ['grok-4.7']), 'claude', 'claude-3-5-haiku-latest')).toBe('grok-4.7');
