@@ -2,14 +2,14 @@
 
 <p align="center">
   <strong>Your AI coding agents, all on one control plane.</strong><br>
-  Self-hosted fleet management for <b>OpenAI Codex</b>, <b>Anthropic Claude Code</b>, and <b>xAI Grok Build</b>, side by side.
+  Self-hosted fleet management for <b>OpenAI Codex</b>, <b>Anthropic Claude Code</b>, <b>xAI Grok Build</b>, and <b>Moonshot Kimi Code</b>, side by side.
 </p>
 
 <p align="center">
   <a href="#get-started">Quickstart</a> ·
   <a href="#the-tour">Tour</a> ·
   <a href="#codex-claude-and-grok-at-a-glance">Engine matrix</a> ·
-  <a href="#day-to-day-cdx-clx-and-cgx">Commands</a> ·
+  <a href="#day-to-day-cdx-clx-cgx-and-ckx">Commands</a> ·
   <a href="#documentation">Docs</a>
 </p>
 
@@ -244,7 +244,7 @@ AI account; host work is dispatched through remote sessions and agent tools.
 - `/v1/` and `/grok/v1/` speak the **OpenAI** protocol; `/anthropic/v1/` speaks the **Anthropic** protocol.
 - Choose **Codex, Claude, or Grok** as the backend for each API in the console. URLs, key namespaces, and wire formats stay with the API when you switch engines.
 - The selected backend determines supported models, inputs and streaming. These gateways implement a documented subset of the provider protocols.
-- Separate revocable, expiring keys: `sk-cdx-` for the OpenAI surface, `sk-ant-` for Anthropic and `sk-cgx-` for Grok. Each surface has its own switch and key namespace.
+- Separate revocable, expiring keys: `sk-cdx-` for the OpenAI surface, `sk-ant-` for Anthropic, `sk-cgx-` for Grok and `sk-ckx-` for Kimi. Each surface has its own switch and key namespace.
 - [Code samples below.](#compatible-apis)
 
 ### Access and operational controls
@@ -257,7 +257,7 @@ AI account; host work is dispatched through remote sessions and agent tools.
 
 ---
 
-## Codex, Claude, and Grok at a glance
+## Codex, Claude, Grok, and Kimi at a glance
 
 The matrix describes this repository's implementation. Features still require
 an assigned, enabled engine and the relevant fleet modules. ✅ supported ·
@@ -265,49 +265,49 @@ an assigned, enabled engine and the relevant fleet modules. ✅ supported ·
 
 ### Native integration and engine differences
 
-| Capability | Codex (`cdx`) | Claude (`clx`) | Grok (`cgx`) |
-|---|---|---|---|
-| Wrapper / managed native command | `cdx` / `codex` | `clx` / `claude` | `cgx` / `grok` |
-| Linux and macOS, amd64/arm64 | ✅ | ✅ | ✅ |
-| Provider accounts and launch leases | ChatGPT accounts | Claude accounts | Grok subscription accounts |
-| Managed authentication | `auth.json` | Native `claudeAiOauth` | Server-owned refresh; access-only runtime tokens |
-| Config delivery | `config.toml` | Deep-merged `settings.json` | Fleet-owned `config.toml` keys |
-| Model / effort defaults and host overrides | ✅ | ✅ | ✅; configurable context window |
-| Security posture | Approval policy + sandbox | Native permission mode | Native permission mode; no sandbox projection |
-| Fleet Skills | MCP `skill://` | Native `~/.claude/skills/` | Native `~/.grok/skills/` |
-| Fleet instructions | `AGENTS.md` | `CLAUDE.md` | `~/.grok/AGENTS.md` |
-| Automatic interactive reception | App Server queues | MCP Channels¹ | Native ACP receiver |
-| Dashboard / Accounts usage | ChatGPT quota snapshots | Host-reported Claude usage | Server-polled subscription billing |
-| CLI quota reporting and enforcement | ✅ | ✅ | — |
-| Named profiles | ✅ separate `<name>.config.toml` files | — | — |
-| Managed subagents, commands and output styles | — | ✅ | — |
-| Quota status line | — | `cxx claude-quota-statusline` | — |
-| Experimental advisor model | — | 🧪 `advisorModel` | — |
-| Default compatible API surface | `/v1/` (OpenAI) | `/anthropic/v1/` (Anthropic) | `/grok/v1/` (OpenAI-shaped) |
-| Backend selectable for every API surface | ✅ | ✅ | ✅; text only, no streaming |
+| Capability | Codex (`cdx`) | Claude (`clx`) | Grok (`cgx`) | Kimi (`ckx`) |
+|---|---|---|---|---|
+| Wrapper / managed native command | `cdx` / `codex` | `clx` / `claude` | `cgx` / `grok` | `ckx` / `kimi` |
+| Linux and macOS, amd64/arm64 | ✅ | ✅ | ✅ | ✅ |
+| Provider accounts and launch leases | ChatGPT accounts | Claude accounts | Grok subscription accounts | Kimi Code subscription accounts |
+| Managed authentication | `auth.json` | Native `claudeAiOauth` | Server-owned refresh; access-only runtime tokens | Server-owned refresh; access-only runtime tokens |
+| Config delivery | `config.toml` | Deep-merged `settings.json` | Fleet-owned `config.toml` keys | Fleet-owned `config.toml` keys + `mcp.json` |
+| Model / effort defaults and host overrides | ✅ | ✅ | ✅; configurable context window | ✅ (low/high/max) |
+| Security posture | Approval policy + sandbox | Native permission mode | Native permission mode; no sandbox projection | Native permission mode; Kimi has no sandbox |
+| Fleet Skills | MCP `skill://` | Native `~/.claude/skills/` | Native `~/.grok/skills/` | Native `$KIMI_CODE_HOME/skills/` |
+| Fleet instructions | `AGENTS.md` | `CLAUDE.md` | `~/.grok/AGENTS.md` | `$KIMI_CODE_HOME/AGENTS.md` |
+| Automatic interactive reception | App Server queues | MCP Channels¹ | Native ACP receiver | Native hooks at turn boundaries⁴ |
+| Dashboard / Accounts usage | ChatGPT quota snapshots | Host-reported Claude usage | Server-polled subscription billing | Server-polled 5 h / weekly / monthly windows |
+| CLI quota reporting and enforcement | ✅ | ✅ | — | ✅ |
+| Named profiles | ✅ separate `<name>.config.toml` files | — | — | — |
+| Managed subagents, commands and output styles | — | ✅ | — | — |
+| Quota status line | — | `cxx claude-quota-statusline` | — | — |
+| Experimental advisor model | — | 🧪 `advisorModel` | — | — |
+| Default compatible API surface | `/v1/` (OpenAI) | `/anthropic/v1/` (Anthropic) | `/grok/v1/` (OpenAI-shaped) | `/kimi/v1/` (OpenAI-shaped, off by default⁵) |
+| Backend selectable for every API surface | ✅ | ✅ | ✅; text only, no streaming | ✅; text only, no streaming |
 
 ### Shared fleet and task lifecycle
 
-| Capability | Codex (`cdx`) | Claude (`clx`) | Grok (`cgx`) |
-|---|---|---|---|
-| Signed per-host config, version pins and background updates | ✅ | ✅ | ✅ |
-| Host / project / shared memory, projects and board | ✅ | ✅ | ✅ |
-| Secret retrieval and host-owned credential management | ✅ | ✅ | ✅ |
-| Git Director and expiring file transfers | ✅ | ✅ | ✅ |
-| Direct messages, calls and conferences | ✅ | ✅ | ✅ |
-| Groups, subscriptions and targeted publications | ✅ | ✅ | ✅ |
-| Named launches and canonical agent UUIDs | ✅ | ✅ | ✅ |
-| Operator chat, attachments and explicit Needs you notices | ✅ | ✅ | ✅ |
-| Android replies, questions, host approvals and notifications | ✅ | ✅ | ✅ |
-| Remote sessions through optional host daemons | Linux/systemd | Linux/systemd | Linux/systemd |
-| System Spawn provisioning² | ✅ | ✅ | ✅ |
-| One-time, cron and interval wakes | ✅ | ✅ | ✅ |
-| Persistent recovery of the same native session | Explicit opt-in | Explicit opt-in | Explicit opt-in |
-| Bounded task Watchdog | ✅ | ✅ | ✅ |
-| Planned reboot and one-use session resume³ | Linux | Linux | Linux |
-| Session housekeeping, dry-run and pins | ✅ | ✅ | ✅ |
-| Explicit task outcomes | ✅ | ✅ | ✅ |
-| Insecure-host cleanup and fleet engine suspension | ✅ | ✅ | ✅ |
+| Capability | Codex (`cdx`) | Claude (`clx`) | Grok (`cgx`) | Kimi (`ckx`) |
+|---|---|---|---|---|
+| Signed per-host config, version pins and background updates | ✅ | ✅ | ✅ | ✅ |
+| Host / project / shared memory, projects and board | ✅ | ✅ | ✅ | ✅ |
+| Secret retrieval and host-owned credential management | ✅ | ✅ | ✅ | ✅ |
+| Git Director and expiring file transfers | ✅ | ✅ | ✅ | ✅ |
+| Direct messages, calls and conferences | ✅ | ✅ | ✅ | ✅ |
+| Groups, subscriptions and targeted publications | ✅ | ✅ | ✅ | ✅ |
+| Named launches and canonical agent UUIDs | ✅ | ✅ | ✅ | ✅ |
+| Operator chat, attachments and explicit Needs you notices | ✅ | ✅ | ✅ | ✅ |
+| Android replies, questions, host approvals and notifications | ✅ | ✅ | ✅ | ✅ |
+| Remote sessions through optional host daemons | Linux/systemd | Linux/systemd | Linux/systemd | Linux/systemd |
+| System Spawn provisioning² | ✅ | ✅ | ✅ | ✅ |
+| One-time, cron and interval wakes | ✅ | ✅ | ✅ | ✅ |
+| Persistent recovery of the same native session | Explicit opt-in | Explicit opt-in | Explicit opt-in | Explicit opt-in |
+| Bounded task Watchdog | ✅ | ✅ | ✅ | ✅ |
+| Planned reboot and one-use session resume³ | Linux | Linux | Linux | Linux |
+| Session housekeeping, dry-run and pins | ✅ | ✅ | ✅ | ✅ |
+| Explicit task outcomes | ✅ | ✅ | ✅ | ✅ |
+| Insecure-host cleanup and fleet engine suspension | ✅ | ✅ | ✅ | ✅ |
 
 ¹ Automatic reception requires a ready managed native connection. Claude
 Channels is a research preview and can require native approval under the
@@ -318,6 +318,13 @@ Provisioning a system and starting an agent are separate operations.
 
 ³ Planned reboot requires root or passwordless sudo and active cron. It
 resumes the exact transcript once and rejects competing recovery.
+
+⁴ Kimi Code has no idle-session injection channel. `UserPromptSubmit` and
+`Stop` hooks deliver queued messages at turn boundaries; a message to an idle
+Kimi session waits for its next prompt.
+
+⁵ `kimi_api_disabled` starts on: Kimi's terms for subscription-backed
+third-party gateways are unclear, so an operator opts in explicitly.
 
 Grok usage is informational: failed refreshes retain a marked last reading,
 and the wrapper does not use it for quota enforcement or account switching.
@@ -455,7 +462,28 @@ and Claude. See the [Grok contract](docs/interface-cgx.md) for the full lifecycl
 
 ---
 
-## Day-to-day: `cdx`, `clx`, and `cgx`
+### Set up Kimi Code
+
+Enable **Kimi** in the fleet and assign it to the host. The installer and
+`ckx update` download the pinned Kimi Code CLI native binary from Moonshot's
+release manifest, verify its SHA-256 and install it privately under
+`~/.cxx/engines/kimi` on Linux or macOS (amd64/arm64). The archived Python
+`kimi-cli` is not supported.
+
+Seed credentials with the console's Kimi seed command, or run `ckx login` on a
+provisioned Kimi host and complete the device login in your browser. Both use a
+disposable `KIMI_CODE_HOME` and hand the login to the server, which becomes its
+only refresher; hosts only ever receive the access token. Both official regions
+(`kimi.com` and `kimi.ai`) are supported.
+
+Kimi receives native Skills, fleet-owned `config.toml` keys, `mcp.json` and
+`$KIMI_CODE_HOME/AGENTS.md`, joins the same MCP and messaging fleet, and its
+5-hour and weekly subscription windows take part in quota warnings and
+hard-fail. See the [Kimi contract](docs/interface-ckx.md) for the full lifecycle.
+
+---
+
+## Day-to-day: `cdx`, `clx`, `cgx`, and `ckx`
 
 Once a host is provisioned, `cdx` (or `clx`, or `cgx`) is your daily driver:
 

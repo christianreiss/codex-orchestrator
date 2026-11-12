@@ -1,3 +1,11 @@
+# 2026-11-12
+
+- **Kimi Code as fourth engine (`ckx`):** Kimi Code CLI (Moonshot's native TypeScript binary, pinned 2.5.3) joins Codex, Claude and Grok across auth, accounts, quota, native config, Skills, AGENTS.md, MCP, messaging, host daemon/Wake/reboot, dashboard, Android and the in-app manual. The archived Python `kimi-cli` is not supported.
+- **Kimi auth:** a disposable device login seeds the canonical credential; the server is the only refresher (fenced rotation in `kimi_auth_refresh_state`) and hosts and the runner receive an access-only projection that the CLI never refreshes itself. Both official regions (`kimi.com`, `kimi.ai`) are supported.
+- **Kimi quota:** the server polls Kimi's `/usages` per account; the 5-hour window is the short and the weekly window the long quota, so warnings, `quota_get` and hard-fail apply. Monthly windows are shown in Accounts and the dashboard.
+- **Kimi messaging:** receiver protocol `kimi-hooks-v1` delivers queued messages through native `UserPromptSubmit`/`Stop` hooks at turn boundaries. Kimi has no idle-session channel, so a message to an idle session waits for its next prompt.
+- **Kimi runner and gateway:** the runner executes Kimi with a tool-less agent profile in a private home and verifies credentials without refreshing them. The `/kimi/v1` surface (`sk-ckx-` keys) ships disabled; operators opt in because Kimi's terms for subscription-backed gateways are unclear.
+
 # 2026-11-11
 
 - **Fleet policy scope:** the rendered policy opens with a scope clause: it applies only when the fleet MCP tools (`agent_self`, `skill_list`) are available. Desktop apps without `cxx` read the same instruction files and now ignore the policy instead of failing on claims.
