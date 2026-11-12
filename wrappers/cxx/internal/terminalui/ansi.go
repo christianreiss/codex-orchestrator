@@ -29,6 +29,7 @@ const (
 	ThemeViolet
 	ThemeGreen
 	ThemeCyan
+	ThemeAmber
 )
 
 // Palette is the resolved ANSI colour table. All fields are valid escape
@@ -48,6 +49,7 @@ type Palette struct {
 	Orange        string
 	Pink          string
 	Violet        string
+	Amber         string
 	Cyan          string
 	Blue          string
 	Magenta       string
@@ -200,6 +202,7 @@ const (
 	hexOrange  = "#FF8A3D"
 	hexPink    = "#F472B6"
 	hexViolet  = "#A78BFA"
+	hexAmber   = "#f59e0b"
 	hexCyan    = "#22D3EE"
 	hexBlue    = "#60A5FA"
 	hexMagenta = "#E879F9"
@@ -234,6 +237,7 @@ func richPalette(p colorprofile.Profile) Palette {
 		Pink:      fg(hexPink),
 		Violet:    fg(hexViolet),
 		Cyan:      fg(hexCyan),
+		Amber:     fg(hexAmber),
 		Blue:      fg(hexBlue),
 		Magenta:   fg(hexMagenta),
 		Red:       fg(hexRed),
@@ -477,6 +481,8 @@ func (c Caps) BannerColor() string {
 		return c.Palette.Violet + c.Palette.Bold
 	case ThemeGreen:
 		return c.Palette.Green + c.Palette.Bold
+	case ThemeAmber:
+		return c.Palette.Amber + c.Palette.Bold
 	case ThemeCyan:
 		return c.Palette.Cyan + c.Palette.Bold
 	default:

@@ -17,7 +17,7 @@ func localFixture(t *testing.T, in frame, content string, until *string) frame {
 	return cacheFixture(t, in, content, func(r *cacheReply) { r.Protocol = 3; r.LocalContent = true; r.GrantUntil = until })
 }
 func TestLocalContentTenThousandHitsDoNotContactServer(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			var cache validatedRAM
 			calls := 0

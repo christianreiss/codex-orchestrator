@@ -107,13 +107,13 @@ func newMCPFixture(t *testing.T) *mcpFixture {
 	}))
 	t.Cleanup(upstream.Close)
 	f.env = append(communicatorEnvironment(os.Environ()), "XDG_RUNTIME_DIR="+runtimeRoot, "CXX_MCP_BEARER=fixture")
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: 1}, Host: config.Host{ID: 1, FQDN: "fixture.example", Secure: true}, Wrapper: config.Wrapper{Version: "0.9.76", Track: "stable", BinaryURL: upstream.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 		path := filepath.Join(root, engine+".json")
 		raw, _ := json.Marshal(cfg)
 		os.WriteFile(path, raw, 0600)
 		os.WriteFile(path+".sig", ed25519.Sign(priv, raw), 0600)
-		name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
+		name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"}[engine]
 		f.env = append(f.env, name+"="+path)
 	}
 	t.Setenv("XDG_RUNTIME_DIR", runtimeRoot)
@@ -267,7 +267,7 @@ func TestMCPFixtureIgnoresInheritedNativeBroker(t *testing.T) {
 	t.Setenv("CXX_AGENT_PORTAL_SOCKET", filepath.Join(t.TempDir(), "foreign-broker.sock"))
 	t.Setenv("CXX_AGENT_BEARER", "foreign-fixture-capability")
 	f := newMCPFixture(t)
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		c := f.start(engine)
 		c.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 		line, ok := c.next(t, 15*time.Second)
@@ -283,7 +283,7 @@ func TestMCPFixtureIgnoresInheritedNativeBroker(t *testing.T) {
 func TestMCPAdapterPreservesLargeNumericReplyIDs(t *testing.T) {
 	f := newMCPFixture(t)
 	ids := []string{"9007199254740993", "9223372036854775807"}
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		c := f.start(engine)
 		for _, id := range ids {
 			c.send(`{"jsonrpc":"2.0","id":` + id + `,"method":"tools/list"}`)
@@ -348,7 +348,7 @@ func (f *mcpFixture) waitSessions(want float64, within time.Duration) (float64, 
 // release its owner lease, for every engine.
 func TestMCPAdapterSIGTERMWithHeldStdin(t *testing.T) {
 	f := newMCPFixture(t)
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			c := f.start(engine)
 			// A completed exchange proves NotifyContext is installed and starts
@@ -382,7 +382,7 @@ func TestMCPAdapterSIGTERMWithHeldStdin(t *testing.T) {
 // outcome as unknown before exiting; a bare os.Exit would drop it.
 func TestMCPAdapterSIGTERMReportsInflightOutcome(t *testing.T) {
 	f := newMCPFixture(t)
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			c := f.start(engine)
 			c.send(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
@@ -712,7 +712,7 @@ func TestMCPAdapterPreservesLargeIDsOnTheWire(t *testing.T) {
 
 func TestMCPAdapterRejectsMalformedErrorWithoutReplay(t *testing.T) {
 	f := newMCPFixture(t)
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		c := f.start(engine)
 		for _, request := range []string{`{"jsonrpc":"2.0","id":1,"method":"bad-error"}`, `[{"jsonrpc":"2.0","id":1,"method":"bad-error"}]`} {
 			before := f.dispatched.Load()

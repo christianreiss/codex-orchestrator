@@ -138,7 +138,7 @@ func TestAbortedDeliveryStaysPending(t *testing.T) {
 
 func TestLaterChangesDoNotRepeatSeenKinds(t *testing.T) {
 	home := isolate(t)
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			agents := filepath.Join(home, engine, "AGENTS.md")
 			skills := filepath.Join(home, engine, "skills-digest")
@@ -216,7 +216,7 @@ func TestCategoryMetadataKeepsLegacyLedgerCompatible(t *testing.T) {
 }
 
 func TestPrimeDoesNotNeedPublisherLock(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			isolate(t)
 			if err := Publish(Notice{Generation: strings.Repeat("a", 64), Engine: engine, Kinds: []string{KindInstructions}}); err != nil {
@@ -234,7 +234,7 @@ func TestPrimeDoesNotNeedPublisherLock(t *testing.T) {
 }
 
 func TestPrimePinsBaselineAndPreservesConcurrentPublication(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			isolate(t)
 			baseline := Notice{Generation: strings.Repeat("a", 64), Engine: engine, Kinds: []string{KindInstructions}, Digests: Snapshot{KindInstructions: "old"}}

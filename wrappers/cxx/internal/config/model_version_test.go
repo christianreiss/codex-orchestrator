@@ -60,7 +60,7 @@ func TestKnownNativeModelMinimum(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, engine := range []string{EngineCodex, EngineClaude, EngineGrok} {
+	for _, engine := range []string{EngineCodex, EngineClaude, EngineGrok, EngineKimi} {
 		if err := CheckModelVersion(engine, "custom-provider", "", nil); err != nil {
 			t.Fatal(err)
 		}

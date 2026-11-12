@@ -29,13 +29,13 @@ func Command(args []string, engine string, in io.Reader, out, stderr io.Writer) 
 			}
 			engine = args[i]
 		default:
-			fmt.Fprintln(stderr, "usage: cxx rtk status [--engine codex|claude|grok] [--json]")
+			fmt.Fprintln(stderr, "usage: cxx rtk status [--engine codex|claude|grok|kimi] [--json]")
 			return 2
 		}
 	}
 	engines := []string{engine}
 	if engine == "" {
-		engines = []string{"codex", "claude", "grok"}
+		engines = []string{"codex", "claude", "grok", "kimi"}
 	}
 	key, e := signing.PublicKey()
 	if e != nil {
@@ -44,7 +44,7 @@ func Command(args []string, engine string, in io.Reader, out, stderr io.Writer) 
 	}
 	var result []map[string]any
 	for _, engine := range engines {
-		if engine != "codex" && engine != "claude" && engine != "grok" {
+		if engine != "codex" && engine != "claude" && engine != "grok" && engine != "kimi" {
 			return 2
 		}
 		r := map[string]any{"engine": engine, "requested": false, "available": false, "rtk_version": Version, "mode": "instructions"}

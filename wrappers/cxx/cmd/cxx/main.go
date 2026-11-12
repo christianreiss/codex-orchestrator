@@ -27,6 +27,7 @@ import (
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	kimiapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claudequota"
@@ -35,6 +36,7 @@ import (
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/emergency"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
@@ -72,6 +74,9 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 	// communicator startup or native-entry reconciliation. All engines share it.
 	if len(args) > 0 && args[0] == "workload" {
 		return workload.Command(args[1:], os.Stdin, stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == kimi.PrivateReaperCommand {
+		return kimi.RunPrivateReaper(args[1:])
 	}
 	if len(args) > 0 && args[0] == grok.PrivateReaperCommand {
 		return grok.RunPrivateReaper(args[1:])
@@ -122,13 +127,15 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 		return runPersona("claude", args, stdout, stderr)
 	case "grok":
 		return runPersona("grok", args, stdout, stderr)
+	case "kimi":
+		return runPersona("kimi", args, stdout, stderr)
 	case "common":
 		return runExplicit(args, stdout, stderr)
 	default:
 		// Update sanity checks execute a uniquely named temporary cxx artifact.
 		// Permit only explicit/global cxx grammar for such paths; never guess a
 		// persona from an arbitrary filename.
-		if len(args) > 0 && (args[0] == "codex" || args[0] == "claude" || args[0] == "grok" || strings.HasPrefix(args[0], "-") || args[0] == "help") {
+		if len(args) > 0 && (args[0] == "codex" || args[0] == "claude" || args[0] == "grok" || args[0] == "kimi" || strings.HasPrefix(args[0], "-") || args[0] == "help") {
 			return runExplicit(args, stdout, stderr)
 		}
 		fmt.Fprintf(stderr, "cxx: cannot select an engine from invocation name %q\n", invokedAs)
@@ -162,6 +169,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return runPersona("claude", args[1:], stdout, stderr)
 	case "grok":
 		return runPersona("grok", args[1:], stdout, stderr)
+	case "kimi":
+		return runPersona("kimi", args[1:], stdout, stderr)
 	case "grok-auth":
 		return grok.RunAuthAccessor(context.Background(), stdout, stderr)
 	case "cron":
@@ -205,6 +214,7 @@ func setPersonaBuildInfo() {
 	codexapp.Version, codexapp.Commit, codexapp.BuildDate = Version, Commit, BuildDate
 	claudeapp.Version, claudeapp.Commit, claudeapp.BuildDate = Version, Commit, BuildDate
 	grokapp.Version, grokapp.Commit, grokapp.BuildDate = Version, Commit, BuildDate
+	kimiapp.Version, kimiapp.Commit, kimiapp.BuildDate = Version, Commit, BuildDate
 }
 
 func runHostCron(args []string, stdout, stderr io.Writer) int {
@@ -289,7 +299,7 @@ func runHostSync(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	code := syncEngines(passthrough, stdout, stderr, codexapp.Run, claudeapp.Run, grokapp.Run)
+	code := syncEngines(passthrough, stdout, stderr, codexapp.Run, claudeapp.Run, grokapp.Run, kimiapp.Run)
 	if code == 0 {
 		if err := agentbus.ReconcileHostDaemon(stdout, stderr); err != nil {
 			fmt.Fprintln(stderr, "host daemon:", err)
@@ -314,6 +324,12 @@ func syncEngines(passthrough []string, stdout, stderr io.Writer, runCodex, runCl
 			name string
 			run  engineRunner
 		}{"grok", extra[0]})
+	}
+	if len(extra) > 1 {
+		engines = append(engines, struct {
+			name string
+			run  engineRunner
+		}{"kimi", extra[1]})
 	}
 	worst := 0
 	found := false
@@ -355,7 +371,7 @@ func configPathFor(engine string) (string, error) {
 }
 
 func explicitConfigPath(engine string) bool {
-	name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
+	name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"}[engine]
 	return strings.TrimSpace(os.Getenv(name)) != ""
 }
 
@@ -370,6 +386,8 @@ func personaForProgramName(name string) string {
 		return "codex"
 	case name == "clx" || hasVersionedAlias(name, "clx"):
 		return "claude"
+	case name == "ckx" || hasVersionedAlias(name, "ckx"):
+		return "kimi"
 	case name == "cgx" || hasVersionedAlias(name, "cgx"):
 		return "grok"
 	case name == "cxx":
@@ -416,8 +434,9 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx codex [cdx arguments]")
 	fmt.Fprintln(w, "  cxx claude [clx arguments]")
 	fmt.Fprintln(w, "  cxx grok [cgx arguments]")
-	fmt.Fprintln(w, "  cxx native codex|claude|grok -- [native arguments]")
-	fmt.Fprintln(w, "  cxx emergency codex|claude|grok [--] [native arguments]  (secure hosts: native CLI, no Orchestrator)")
+	fmt.Fprintln(w, "  cxx kimi [ckx arguments]")
+	fmt.Fprintln(w, "  cxx native codex|claude|grok|kimi -- [native arguments]")
+	fmt.Fprintln(w, "  cxx emergency codex|claude|grok|kimi [--] [native arguments]  (secure hosts: native CLI, no Orchestrator)")
 	fmt.Fprintln(w, "  cxx native-entry status|install|remove")
 	fmt.Fprintln(w, "  cxx update [--minimal]")
 	fmt.Fprintln(w, "  cxx sync")
@@ -435,7 +454,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx reboot [--request-id UUID --reason TEXT --stdin|status|disarm]")
 	fmt.Fprintln(w, "  cxx --version")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "The cdx, clx and cgx aliases select their matching engine automatically.")
+	fmt.Fprintln(w, "The cdx, clx, cgx and ckx aliases select their matching engine automatically.")
 }
 
 // Dispatch only after the first app returns, including all deferred auth cleanup.
@@ -472,6 +491,9 @@ func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "housekeeping" {
 		return housekeeping.Command(args[1:], engine, stdout, stderr)
+	}
+	if engine == "kimi" {
+		return kimiapp.Run(args, stdout, stderr)
 	}
 	if engine == "grok" {
 		return grokapp.Run(args, stdout, stderr)

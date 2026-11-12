@@ -17,13 +17,13 @@ func TestConnectionMatrixSeparatesTransportAndAuthenticatedStreams(t *testing.T)
 		"closing":  {engine: "grok", topic: "session", epoch: "one", stopping: true},
 	}}}
 	m := s.connectionMatrixLocked()
-	if !m.StateAvailable || len(m.Rows) != 5 {
+	if !m.StateAvailable || len(m.Rows) != 6 {
 		t.Fatalf("matrix=%+v", m)
 	}
 	if got := m.Rows[0]; got.Lease != 2 || got.Provider != 1 || got.Session != 1 || got.Receiver != 1 {
 		t.Fatalf("codex=%+v", got)
 	}
-	if m.Rows[2].Auth != 1 || m.Rows[3].Lease != 1 || m.Rows[4].Lease != 1 || m.Rows[4].Session != 1 || m.Rows[4].Other != 1 {
+	if m.Rows[2].Auth != 1 || m.Rows[4].Lease != 1 || m.Rows[5].Lease != 1 || m.Rows[5].Session != 1 || m.Rows[5].Other != 1 {
 		t.Fatalf("matrix=%+v", m)
 	}
 	if got := s.sessionCountsLocked(); got.ManagedSessions == nil || *got.ManagedSessions != 2 {

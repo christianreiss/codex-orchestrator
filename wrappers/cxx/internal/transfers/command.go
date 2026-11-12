@@ -72,8 +72,8 @@ func parse(args []string, selected string) (options, error) {
 	if o.engine == "" {
 		o.engine = "codex"
 	}
-	if o.engine != "codex" && o.engine != "claude" && o.engine != "grok" {
-		return o, fmt.Errorf("engine must be codex, claude or grok")
+	if o.engine != "codex" && o.engine != "claude" && o.engine != "grok" && o.engine != "kimi" {
+		return o, fmt.Errorf("engine must be codex, claude, grok or kimi")
 	}
 	if o.operand == "" || o.action == "get" && o.output == "" {
 		return o, fmt.Errorf("%s", usage)

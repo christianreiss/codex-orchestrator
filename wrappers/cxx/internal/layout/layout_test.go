@@ -485,7 +485,7 @@ func TestEnsurePathVisiblePublishesShimInstall(t *testing.T) {
 }
 
 func TestEnsureAliasesHealsPublishedTransitionShims(t *testing.T) {
-	for _, engine := range []string{EngineCodex, EngineClaude, EngineGrok} {
+	for _, engine := range []string{EngineCodex, EngineClaude, EngineGrok, EngineKimi} {
 		t.Run(engine, func(t *testing.T) {
 			_, binDir, canonical := newShimInstall(t)
 			name := aliasForEngine(engine)
@@ -629,7 +629,7 @@ func TestCommonExecutableResolvesPersonaAliasToCxx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, alias := range []string{"cdx", "clx", "cgx"} {
+	for _, alias := range []string{"cdx", "clx", "cgx", "ckx"} {
 		path := filepath.Join(bin, alias)
 		if err := os.Symlink("cxx", path); err != nil {
 			t.Fatal(err)

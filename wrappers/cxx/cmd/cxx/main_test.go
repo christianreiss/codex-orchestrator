@@ -45,7 +45,7 @@ func TestEmergencyRefusesWithoutSignedConfigAndWritesNothing(t *testing.T) {
 func TestSelectorHelpListsEmergency(t *testing.T) {
 	var out bytes.Buffer
 	printSelectorHelp(&out)
-	if !strings.Contains(out.String(), "cxx emergency codex|claude|grok") {
+	if !strings.Contains(out.String(), "cxx emergency codex|claude|grok|kimi") {
 		t.Fatalf("help = %q", out.String())
 	}
 }
@@ -179,14 +179,14 @@ func TestHostSyncWithoutAnyInstalledEngineFails(t *testing.T) {
 }
 
 func TestHostSyncReportsBrokenEngineAndContinuesHealthyEngines(t *testing.T) {
-	for _, broken := range []string{"codex", "claude", "grok"} {
+	for _, broken := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(broken, func(t *testing.T) {
 			dir := t.TempDir()
 			t.Setenv("XDG_CONFIG_HOME", dir)
 			for _, name := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"} {
 				t.Setenv(name, "")
 			}
-			for engine, name := range map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"} {
+			for engine, name := range map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"} {
 				path := filepath.Join(dir, engine+".json")
 				if engine != broken {
 					if err := os.WriteFile(path, []byte(`{}`), 0600); err != nil {
@@ -198,7 +198,7 @@ func TestHostSyncReportsBrokenEngineAndContinuesHealthyEngines(t *testing.T) {
 			calls := 0
 			run := func([]string, io.Writer, io.Writer) int { calls++; return 0 }
 			var stderr bytes.Buffer
-			if code := syncEngines(nil, io.Discard, &stderr, run, run, run); code != 1 || calls != 2 || !strings.Contains(stderr.String(), broken+" config") {
+			if code := syncEngines(nil, io.Discard, &stderr, run, run, run, run); code != 1 || calls != 3 || !strings.Contains(stderr.String(), broken+" config") {
 				t.Fatalf("exit=%d calls=%d stderr=%s", code, calls, stderr.String())
 			}
 		})
@@ -258,7 +258,7 @@ func TestHostSyncAcceptsThePostUpdateArgv(t *testing.T) {
 }
 
 func TestTransferHelpAllPersonas(t *testing.T) {
-	for _, name := range []string{"cxx", "cdx", "clx", "cgx"} {
+	for _, name := range []string{"cxx", "cdx", "clx", "cgx", "ckx"} {
 		var stdout, stderr bytes.Buffer
 		if code := run(name, []string{"transfer", "--help"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "transfer put") {
 			t.Fatalf("%s: code=%d stdout=%s stderr=%s", name, code, &stdout, &stderr)
@@ -267,7 +267,7 @@ func TestTransferHelpAllPersonas(t *testing.T) {
 }
 
 func TestProjectFileHelpAllPersonas(t *testing.T) {
-	for _, name := range []string{"cxx", "cdx", "clx", "cgx"} {
+	for _, name := range []string{"cxx", "cdx", "clx", "cgx", "ckx"} {
 		var stdout, stderr bytes.Buffer
 		if code := run(name, []string{"project", "--help"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "project file put") {
 			t.Fatalf("%s: code=%d stdout=%s stderr=%s", name, code, &stdout, &stderr)

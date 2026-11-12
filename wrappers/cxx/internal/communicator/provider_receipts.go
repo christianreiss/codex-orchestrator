@@ -59,7 +59,7 @@ func validProviderRelease(value providerRelease) bool {
 	if n := value.NativeStop; n != nil {
 		return value.SessionID == "" && value.Engine == "" && receiptUUID.MatchString(n.SessionID) && receiptUUID.MatchString(n.NativeInstanceID) && receiptUUID.MatchString(n.RequestID) && n.BindingGeneration >= 0 && (n.Result == "accepted" || n.Result == "exited" || n.Result == "refused")
 	}
-	return providerSessionID.MatchString(value.SessionID) && (value.Engine == "codex" || value.Engine == "claude" || value.Engine == "grok")
+	return providerSessionID.MatchString(value.SessionID) && (value.Engine == "codex" || value.Engine == "claude" || value.Engine == "grok" || value.Engine == "kimi")
 }
 
 // QueueProviderRelease transfers a normal-exit obligation to durable local

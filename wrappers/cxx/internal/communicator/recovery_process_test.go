@@ -40,7 +40,7 @@ func TestRecoveredAndCustomConfigsRouteEveryEngineStatus(t *testing.T) {
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v %s", err, out)
 	}
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, mode := range []string{"expired-default", "custom-path"} {
 			t.Run(engine+"/"+mode, func(t *testing.T) {
 				root, err := os.MkdirTemp("", "cc-recover-")
@@ -121,19 +121,19 @@ func TestRecoveredAndCustomConfigsRouteEveryEngineStatus(t *testing.T) {
 				if err := os.Mkdir(binDir, 0700); err != nil {
 					t.Fatal(err)
 				}
-				for _, e := range []string{"codex", "claude", "grok"} {
+				for _, e := range []string{"codex", "claude", "grok", "kimi"} {
 					if err := os.WriteFile(filepath.Join(binDir, e), []byte("#!/bin/sh\necho '1.0.50'\n"), 0700); err != nil {
 						t.Fatal(err)
 					}
 				}
 				args := []string{engine}
 				env := []string{"PATH=" + binDir + ":/usr/bin:/bin", "HOME=" + root, "XDG_CONFIG_HOME=" + root, "XDG_RUNTIME_DIR=" + root, "CODEX_HOME=" + filepath.Join(root, "codex"), "CLAUDE_CONFIG_DIR=" + filepath.Join(root, "claude"), "CGX_HOME=" + filepath.Join(root, "grok")}
-				for _, e := range []string{"codex", "claude", "grok"} {
+				for _, e := range []string{"codex", "claude", "grok", "kimi"} {
 					p := filepath.Join(root, e+"-absent.json")
 					if e == engine && mode == "expired-default" {
 						p = path
 					}
-					name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[e]
+					name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"}[e]
 					env = append(env, name+"="+p)
 				}
 				if mode == "custom-path" {

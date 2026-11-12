@@ -67,6 +67,10 @@ func targets(engine, home string, enabled bool, args []string) ([]string, error)
 				return nil, err
 			}
 		}
+	case "kimi":
+		// Kimi Code has no native auto-memory store. Its global instructions are
+		// AGENTS.md; route fleet memory there rather than inventing Grok paths.
+		add(filepath.Join(home, "AGENTS.md"))
 	default:
 		return nil, fmt.Errorf("unknown memory routing engine %q", engine)
 	}

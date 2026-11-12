@@ -498,6 +498,25 @@ func cleanJSONIndexes(root, engine string, ids map[string]bool) error {
 				return err
 			}
 		}
+	case "kimi":
+		if err := rewriteJSONL(root, filepath.Join(root, "session_index.jsonl"), ids, "sessionId"); err != nil {
+			return err
+		}
+		// These are derived indexes, rebuilt from state.json by native at startup.
+		// Remove them only under the native lifetime + housekeeping fences.
+		for _, rel := range []string{"sessions/.index-cache", "cache/query-store"} {
+			path := filepath.Join(root, rel)
+			if _, err := os.Lstat(path); os.IsNotExist(err) {
+				continue
+			}
+			if err := safePath(root, path); err != nil {
+				return err
+			}
+			if err := os.RemoveAll(path); err != nil {
+				return err
+			}
+		}
+
 	}
 	return nil
 }

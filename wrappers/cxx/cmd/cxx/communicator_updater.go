@@ -319,7 +319,7 @@ func userExecutable(resident bool) (string, error) {
 	for _, dir := range []string{filepath.Join(home, ".local", "bin"), filepath.Join(home, "bin")} {
 		path += string(os.PathListSeparator) + dir
 	}
-	for _, name := range []string{"cxx", "cdx", "clx", "cgx"} {
+	for _, name := range []string{"cxx", "cdx", "clx", "cgx", "ckx"} {
 		for _, dir := range filepath.SplitList(path) {
 			candidate := filepath.Join(dir, name)
 			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {

@@ -9,6 +9,8 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
+	"path/filepath"
 )
 
 // LocalWeekly uses the same native-home/fleet/account scope as auth sync.
@@ -20,6 +22,10 @@ func LocalWeekly(engine string, cfg *config.Config) *accountpool.WeeklyUsage {
 		path, err = codex.AuthPath()
 	case config.EngineClaude:
 		path, err = claude.AuthPath()
+	case config.EngineKimi:
+		var home string
+		home, err = kimi.Home()
+		path = filepath.Join(home, "auth.json")
 	default:
 		return nil // Grok has no weekly CLI quota observation.
 	}

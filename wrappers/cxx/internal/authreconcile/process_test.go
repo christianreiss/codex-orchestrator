@@ -71,7 +71,7 @@ func TestRealRecoveryCommandWithoutNativeLease(t *testing.T) {
 				accountpool.Load(engine, b.path, server.URL).Observe("/auth", []byte(`{"account_id":7,"verification_state":"verified","account_pool":true}`))
 				cfgPath := filepath.Join(root, engine+".json")
 				host, _ := os.Hostname()
-				cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "fixture-key", InstallationID: "fixture"}, Host: config.Host{ID: 42, FQDN: host, Secure: true, Engines: "codex,claude,grok", EnginesList: []string{"codex", "claude", "grok"}}, Wrapper: config.Wrapper{Version: "0.9.79", Track: "stable", BinaryURL: server.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
+				cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "fixture-key", InstallationID: "fixture"}, Host: config.Host{ID: 42, FQDN: host, Secure: true, Engines: "codex,claude,grok", EnginesList: []string{"codex", "claude", "grok", "kimi"}}, Wrapper: config.Wrapper{Version: "0.9.79", Track: "stable", BinaryURL: server.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 				cfg.Orchestrator.CommunicatorProtocol = protocol
 				cfg.Orchestrator.CommunicatorSyncProtocol = protocol
 				raw, _ := json.Marshal(cfg)

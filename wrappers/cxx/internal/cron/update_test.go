@@ -40,9 +40,9 @@ func TestUpdateRefreshConvergesChangedAssignments(t *testing.T) {
 			}
 			host := config.Host{ID: 7, FQDN: "host.example.com", EnginesList: []string{"codex", "claude"}}
 			seed := &config.Config{Engine: "codex", Host: host}
-			host.EnginesList = []string{"codex", "claude", "grok"}
+			host.EnginesList = []string{"codex", "claude", "grok", "kimi"}
 			if removeClaude {
-				host.EnginesList = []string{"codex", "grok"}
+				host.EnginesList = []string{"codex", "grok", "kimi"}
 			}
 			oldFetch := fetchAuthoritative
 			t.Cleanup(func() { fetchAuthoritative = oldFetch })
@@ -60,7 +60,7 @@ func TestUpdateRefreshConvergesChangedAssignments(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(probes, []string{"codex", "claude", "grok"}) || len(configs) != len(host.EnginesList) {
+			if !reflect.DeepEqual(probes, []string{"codex", "claude", "grok", "kimi"}) || len(configs) != len(host.EnginesList) {
 				t.Fatalf("probes=%v configs=%v", probes, configs)
 			}
 			for _, cfg := range configs {
@@ -72,7 +72,7 @@ func TestUpdateRefreshConvergesChangedAssignments(t *testing.T) {
 				if sig, err := os.ReadFile(path + ".sig"); err != nil || string(sig) != "verified upstream" {
 					t.Fatalf("%s signature missing: %s %v", cfg.Engine, sig, err)
 				}
-				alias := map[string]string{"codex": "cdx", "claude": "clx", "grok": "cgx"}[cfg.Engine]
+				alias := map[string]string{"codex": "cdx", "claude": "clx", "grok": "cgx", "kimi": "ckx"}[cfg.Engine]
 				if target, err := os.Readlink(filepath.Join(dir, alias)); err != nil || target != "cxx" {
 					t.Fatalf("%s alias=%q: %v", alias, target, err)
 				}

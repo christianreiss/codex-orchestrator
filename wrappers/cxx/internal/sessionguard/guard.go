@@ -13,7 +13,7 @@ func Root(engine string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	env := map[string]string{"codex": "CODEX_HOME", "claude": "CLAUDE_CONFIG_DIR", "grok": "GROK_HOME"}[engine]
+	env := map[string]string{"codex": "CODEX_HOME", "claude": "CLAUDE_CONFIG_DIR", "grok": "GROK_HOME", "kimi": "KIMI_CODE_HOME"}[engine]
 	if env == "" {
 		return "", errors.New("unknown housekeeping engine")
 	}
@@ -25,6 +25,9 @@ func Root(engine string) (string, error) {
 	}
 	if root == "" {
 		root = filepath.Join(home, "."+engine)
+		if engine == "kimi" {
+			root = filepath.Join(home, ".kimi-code")
+		}
 	}
 	return filepath.Abs(root)
 }
@@ -64,6 +67,24 @@ const GrokSessionsLockName = ".cgx-sessions.lock"
 // unproven answer and must be treated as busy.
 func GrokSessionActive(root string) (bool, error) {
 	path := filepath.Join(root, GrokSessionsLockName)
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	lock, err := ipc.TryAcquireExclusivePath(path)
+	if errors.Is(err, ipc.ErrHeld) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_ = lock.Release()
+	return false, nil
+}
+
+const KimiSessionsLockName = ".ckx-sessions.lock"
+
+func KimiSessionActive(root string) (bool, error) {
+	path := filepath.Join(root, KimiSessionsLockName)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

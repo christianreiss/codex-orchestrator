@@ -10,6 +10,16 @@ import (
 // child. Semantic config/provider validation remains owned by the native CLI.
 func ValidateAuth(engine string, args []string) error {
 	command, at := Command(engine, args)
+	if engine == "kimi" && command == "login" {
+		for i := at + 1; i < len(args); i++ {
+			name, value, end := Option(engine, args, i)
+			if name != "--region" || value == "" {
+				return fmt.Errorf("managed native login: unexpected argument %q", args[i])
+			}
+			i = end
+		}
+		return nil
+	}
 	if command != "login" && command != "logout" {
 		return nil
 	}

@@ -50,13 +50,14 @@ var specs = map[string]engineSpec{
 	config.EngineCodex:  {name: "codex", binEnv: "CDX_CODEX_BIN", cacheRel: []string{".config", "codex-orchestrator", "cdx-codex-bin"}},
 	config.EngineClaude: {name: "claude", binEnv: "CLX_CLAUDE_BIN", cacheRel: []string{".clx", "state", "claude-bin"}},
 	config.EngineGrok:   {name: "grok", binEnv: "CGX_GROK_BIN", cacheRel: []string{".cgx", "state", "grok-bin"}},
+	config.EngineKimi:   {name: "kimi", binEnv: "CKX_KIMI_BIN", cacheRel: []string{".ckx", "state", "kimi-bin"}},
 }
 
 // wrapperEnvPrefixes mark variables owned by the cxx wrappers. They steer
 // wrapper behaviour only and mean nothing to a native CLI.
-var wrapperEnvPrefixes = []string{"CDX_", "CLX_", "CGX_", "CXX_"}
+var wrapperEnvPrefixes = []string{"CDX_", "CLX_", "CGX_", "CKX_", "CXX_"}
 
-const usage = `Usage: cxx emergency codex|claude|grok [--] [native arguments]
+const usage = `Usage: cxx emergency codex|claude|grok|kimi [--] [native arguments]
 
 Runs the plain native engine CLI without the Orchestrator: no config or auth
 sync, quota checks, skills, MCP injection, leases or communicator. Only
@@ -81,7 +82,7 @@ func RunWith(args []string, stdout, stderr io.Writer, opts Options) int {
 	engine := args[0]
 	spec, ok := specs[engine]
 	if !ok {
-		fmt.Fprintf(stderr, "cxx emergency: unknown engine %q (want codex, claude or grok)\n", engine)
+		fmt.Fprintf(stderr, "cxx emergency: unknown engine %q (want codex, claude, grok or kimi)\n", engine)
 		return 2
 	}
 	native := args[1:]
@@ -108,6 +109,12 @@ func RunWith(args []string, stdout, stderr io.Writer, opts Options) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "cxx emergency: %v\n", err)
 		return 1
+	}
+	if engine == config.EngineKimi {
+		if err := requireKimiLogin(env); err != nil {
+			fmt.Fprintln(stderr, "cxx emergency:", err)
+			return 1
+		}
 	}
 	if engine == config.EngineGrok {
 		if err := requireGrokLogin(env); err != nil {
@@ -266,4 +273,16 @@ func getenv(env []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func requireKimiLogin(env []string) error {
+	home, _ := os.UserHomeDir()
+	root := getenv(env, "KIMI_CODE_HOME")
+	if root == "" {
+		root = filepath.Join(home, ".kimi-code")
+	}
+	if _, err := os.Stat(filepath.Join(root, "credentials", "kimi-code.json")); err != nil {
+		return fmt.Errorf("no native Kimi login; emergency mode requires a dedicated native kimi login")
+	}
+	return nil
 }

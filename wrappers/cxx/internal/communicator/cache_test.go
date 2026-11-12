@@ -149,10 +149,10 @@ func TestAuthOnlyBootstrapDoesNotWaitOnContentGate(t *testing.T) {
 // resident owner's background passes make the next launch warm.
 func TestResidentContentJobPrimesUserLaunchScope(t *testing.T) {
 	home := t.TempDir()
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		resident := syncJob{Owner: true, Engine: engine, Config: home + "/" + engine + ".json", Env: map[string]string{"HOME": home}}
 		launch := syncJob{Engine: engine, Config: home + "/" + engine + ".json", Env: map[string]string{"HOME": home, "XDG_CONFIG_HOME": home + "/.config"}, AccountID: 7, SessionID: "s"}
-		if engine != "grok" {
+		if engine != "grok" && engine != "kimi" {
 			launch.AuthPath = fixtureAuthPath(launch)
 		}
 		if scopeID(resident) != scopeID(launch) {

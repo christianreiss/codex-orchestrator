@@ -70,6 +70,17 @@ func NativeArgs(s Selection) []string {
 			args = append(args, "--reasoning-effort", s.Effort)
 		}
 		args = append(args, modeFlag(s.Mode)...)
+	case config.EngineKimi:
+		if s.Model != "" {
+			args = append(args, "-m", s.Model)
+		}
+		switch s.Mode {
+		case ModeContinue:
+			args = append(args, "-c")
+		case ModePick:
+			args = append(args, "-S")
+		}
+
 	}
 	return args
 }

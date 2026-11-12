@@ -103,3 +103,14 @@ and does not try. It also decodes only what the wrapper uses: `documents`,
 fixture's top-level key set equals the json tags of `config.Config` plus that
 allowlist. A new baked key nobody taught Go about fails there, and so does a new
 `Config` field the fixtures do not carry.
+
+## Kimi (`ckx`)
+
+Signed `host-kimi.json` / `.sig` fixtures are owned by the API baker. Add the
+Kimi case in `api/test/unit/contract/wrapper-config-golden.test.ts` and regenerate
+with the `UPDATE_GOLDEN=1` command above; never copy/edit a Grok signed fixture.
+The wrapper-core tests use synthetic in-memory Kimi configs where a signed baker
+fixture is unnecessary. The native option snapshot is separate:
+`cxx/internal/nativeargs/testdata/kimi-help.json` records Kimi Code 2.5.3 root and
+subcommand `--help`, captured with a throwaway `KIMI_CODE_HOME`, telemetry and
+self-updates disabled. Keep that snapshot and `kimi_context.go` in lock-step.

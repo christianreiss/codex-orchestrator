@@ -1,0 +1,1342 @@
+// Package kimi implements the ckx persona of the shared cxx executable.
+package kimi
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
+	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
+	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
+	shareduninstall "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/uninstall"
+	coreupdate "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
+)
+
+var Version, Commit, BuildDate = "dev", "unknown", "unknown"
+var HostSyncAfterUpdate bool
+var requestHostMaintenance = hostmaintenance.Request
+
+type options struct {
+	configPath                        string
+	skipBoot, concurrent, debug, ipv4 bool
+	minimal                           bool
+	nativeInvocation                  bool
+	command                           string
+	args                              []string
+}
+
+func parse(args []string) (options, error) {
+	path, err := config.DefaultPathForEngine(config.EngineKimi)
+	if err != nil {
+		return options{}, err
+	}
+	o := options{configPath: path, command: "run"}
+	for len(args) > 0 {
+		arg := args[0]
+		args = args[1:]
+		switch arg {
+		case "--config":
+			if len(args) == 0 {
+				return o, errors.New("--config requires a file")
+			}
+			o.configPath, args = args[0], args[1:]
+		case "--skip-boot", "--minimal-output", "--silent", "--no-banner":
+			o.skipBoot = true
+			if arg == "--minimal-output" {
+				o.minimal = true
+			}
+		case "--allow-concurrent-sync":
+			o.concurrent = true
+		case "-4":
+			o.ipv4 = true
+		case "--verbose", "--debug":
+			o.debug = true
+		case "--wrapper-version", "-W":
+			o.command = "version"
+			return o, nil
+		case "--wrapper-help":
+			o.command = "help"
+			return o, nil
+		case "--update", "-U":
+			args = append([]string{"update"}, args...)
+		case "--uninstall":
+			o.command = "uninstall"
+			o.args = args
+			return o, nil
+		case "--status":
+			args = append([]string{"status"}, args...)
+		case "--doctor":
+			args = append([]string{"doctor"}, args...)
+		case "--cron":
+			args = append([]string{"cron"}, args...)
+		case "--execute":
+			if len(args) == 0 {
+				return o, errors.New("--execute requires a prompt")
+			}
+			o.command = "execute"
+			o.args = args
+			return o, nil
+		case "run":
+			o.args = args
+			return o, nil
+		case "resume":
+			o.args = append([]string{"-S"}, args...)
+			return o, nil
+		case "sync", "status", "doctor", "update", "uninstall", "cron", "login", "logout", "auth-sync", "auth-upload-auto", "auth-reconcile", "help":
+			o.command = arg
+			if arg == "sync" || arg == "update" || arg == "cron" || arg == "status" || arg == "doctor" {
+				for _, value := range args {
+					if hasArg([]string{value}, "--minimal", "--minimal-output", "--silent", "--skip-boot", "--no-banner") {
+						if value == "--minimal" || value == "--minimal-output" {
+							o.minimal = true
+						}
+						o.skipBoot = true
+						continue
+					}
+					if value == "--allow-concurrent-sync" {
+						o.concurrent = true
+						continue
+					}
+					o.args = append(o.args, value)
+				}
+			} else {
+				o.args = args
+			}
+			return o, nil
+		default:
+			o.args = append([]string{arg}, args...)
+			return o, nil
+		}
+	}
+	return o, nil
+}
+
+func RunWithChoice(args []string, stdout, stderr io.Writer, _ *quotaadvice.Session) int {
+	return Run(args, stdout, stderr)
+}
+func Run(args []string, stdout, stderr io.Writer) int {
+	o, err := parse(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "ckx:", err)
+		return 2
+	}
+	return runOptions(o, stdout, stderr)
+}
+
+// RunNative preserves the native CLI grammar while retaining fleet account
+// ownership and the same session/receiver lifecycle as ckx.
+func RunNative(args []string, stdout, stderr io.Writer) int {
+	o, err := nativeOptions(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "kimi:", err)
+		return 1
+	}
+	return runOptions(o, stdout, stderr)
+}
+
+func nativeOptions(args []string) (options, error) {
+	path, err := config.DefaultPathForEngine(config.EngineKimi)
+	if err != nil {
+		return options{}, err
+	}
+	o := options{configPath: path, command: "run", args: append([]string(nil), args...), skipBoot: true, nativeInvocation: true}
+	command, at := nativeargs.Command("kimi", args)
+	if refusal := managedNativeRefusal(args); refusal == installRefusal {
+		return options{}, errors.New(installRefusal)
+	}
+	if !isHelpPassthrough(args) && !nativeAnyFlag(args, "--version") {
+		if command == "login" || command == "logout" {
+			if err := nativeargs.ValidateAuth("kimi", args); err != nil {
+				return options{}, err
+			}
+			o.command = command
+			// Native root session options/prompt do not apply to its login command.
+			// Preserve global diagnostics, which native accepts on either side.
+			o.args = []string{}
+			for i := 0; i < at; i++ {
+				name, _, end := nativeargs.Option("kimi", args, i)
+				if name == "--debug" || name == "--debug-file" || name == "--leader-socket" {
+					o.args = append(o.args, args[i:end+1]...)
+				}
+				i = end
+			}
+			o.args = append(o.args, args[at+1:]...)
+		}
+	}
+
+	return o, nil
+}
+
+const (
+	installRefusal = "Kimi installation is fleet-managed; use ckx update"
+	setupRefusal   = "kimi setup fetches and installs organization managed configuration into the native home; that configuration is host-owned and a managed session's private home is discarded at exit, so it is not supported here; native --help remains available"
+	authRefusal    = "%s requests a native Kimi sign-in, but managed sessions use the fleet-owned subscription login; use ckx login; native --help remains available"
+)
+
+// managedNativeRefusal names native argv a managed run must not execute:
+// install/update/upgrade (whatever their options, e.g. `update --version V`),
+// `setup` (its output would land in the discarded private home) and native
+// sign-in requests. Help and a root version request (--version before any
+// subcommand, which native answers before parsing the rest, or `version`)
+// still pass through; option values spelled like these stay values.
+func managedNativeRefusal(args []string) string {
+	if isHelpPassthrough(args) || nativeVersionCommand(args) {
+		return ""
+	}
+	command, at := nativeargs.Command("kimi", args)
+	root := args
+	if at >= 0 {
+		root = args[:at]
+	}
+	if nativeAnyFlag(root, "--version") {
+		return ""
+	}
+	switch command {
+	case "update", "upgrade", "install":
+		return installRefusal
+	case "setup":
+		return setupRefusal
+	}
+	for _, flag := range []string{"--force-login", "--oauth", "--reauth"} {
+		if nativeFlag(args, flag) {
+			return fmt.Sprintf(authRefusal, flag)
+		}
+	}
+	return ""
+}
+
+func runOptions(o options, stdout, stderr io.Writer) int {
+	if !o.nativeInvocation {
+		switch o.command {
+		case "login", "cron", "auth-reconcile":
+			if clihelp.Requested(o.args) {
+				PrintWrapperHelp(stdout, terminalui.DetectCapsFor(stdout, "auto"))
+				return 0
+			}
+		}
+		switch o.command {
+		case "uninstall", "logout", "sync", "auth-sync", "update", "auth-upload-auto", "status", "doctor":
+			if clihelp.Requested(o.args) {
+				PrintWrapperHelp(stdout, terminalui.DetectCapsFor(stdout, "auto"))
+				return 0
+			}
+			if len(o.args) != 0 {
+				fmt.Fprintf(stderr, "ckx %s: unexpected arguments; use --wrapper-help\n", o.command)
+				return 2
+			}
+		}
+	}
+	if o.command == "auth-reconcile" {
+		fmt.Fprintln(stderr, "ckx auth-reconcile: unsupported; Kimi credentials are server-owned")
+		return 2
+	}
+	var err error
+	if o.command == "version" {
+		terminalui.PrintVersion(stdout, terminalui.BuildInfo{Name: "ckx", Version: Version, Commit: Commit, BuildDate: BuildDate, SigningKey: signing.HasKey()})
+		return 0
+	}
+	if o.command == "help" {
+		PrintWrapperHelp(stdout, terminalui.DetectCapsFor(stdout, "auto"))
+		return 0
+	}
+	// Only `run` carries native argv; --execute words are a prompt that is sent
+	// through --prompt-file and must not be read as native commands or flags.
+	if o.command == "run" {
+		if refusal := managedNativeRefusal(o.args); refusal != "" {
+			fmt.Fprintln(stderr, "ckx:", refusal)
+			return 2
+		}
+	}
+	ctx, cancel := nativeprocess.NotifyContext(context.Background())
+	defer cancel()
+	if o.command == "run" && len(o.args) > 0 && (nativeAnyFlag(o.args, "--version") || nativeVersionCommand(o.args) || isHelpPassthrough(o.args)) {
+		path, err := native.FindCLI()
+		if err != nil {
+			fmt.Fprintln(stderr, "ckx:", err)
+			return 1
+		}
+		return execute(ctx, path, o.args, native.NativeEnv(os.Environ()), stdout, stderr)
+	}
+	if o.command == "run" {
+		if service := nativeargs.UnsupportedService("kimi", o.args); service != "" {
+			fmt.Fprintf(stderr, "ckx: %s requires a separate managed auth/session lifecycle and is not supported; native --help remains available\n", service)
+			return 2
+		}
+	}
+
+	cfg, err := load(ctx, o.configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "ckx:", err)
+		return 1
+	}
+	ctx = communicator.WithSyncConfig(ctx, cfg)
+	if cfg.EngineOptions.KimiModelOverride != nil {
+		cfg.EngineOptions.ModelOverride = cfg.EngineOptions.KimiModelOverride
+	}
+	if cfg.EngineOptions.KimiReasoningEffortOverride != nil {
+		cfg.EngineOptions.ReasoningEffortOverride = cfg.EngineOptions.KimiReasoningEffortOverride
+	}
+	o.skipBoot = o.skipBoot || cfg.EngineOptions.Silent
+	client, err := newClient(cfg, o.ipv4)
+	if err != nil {
+		fmt.Fprintln(stderr, "ckx: orchestrator connection unavailable")
+		return 1
+	}
+	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	if o.debug {
+		logger = slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	}
+	client.Logger = logger
+	switch o.command {
+	case "run", "execute", "sync", "auth-sync", "login":
+		// A cloned or mis-deployed host refuses before it syncs or leases.
+		if err := native.GuardFQDN(cfg); err != nil {
+			fmt.Fprintln(stderr, "ckx:", err)
+			return 1
+		}
+	}
+	queueHostMaintenance(o.command, cfg, logger)
+	switch o.command {
+	case "auth-upload-auto":
+		return 0 // Managed runtimes intentionally have no canonical refresh token.
+	case "login":
+		err = login(ctx, cfg, client, o.args, stdout, stderr)
+	case "logout":
+		err = clearPendingLogin()
+	case "update":
+		err = maintenance(ctx, cfg, client, true, stdout, stderr, o.concurrent)
+	case "cron":
+		return cronCommand(ctx, cfg, client, o, stdout, stderr)
+	case "uninstall":
+		err = uninstall(ctx, cfg, client, stdout, stderr)
+	case "sync", "auth-sync":
+		err = syncManaged(ctx, cfg, client, o.concurrent)
+	case "status", "doctor":
+		err = status(ctx, cfg, client, o.command == "doctor", o, stdout)
+	default:
+		code, runErr := run(ctx, cfg, client, o, stdout, stderr)
+		if runErr != nil {
+			fmt.Fprintln(stderr, "ckx:", runErr)
+		}
+		return code
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "ckx:", err)
+		return 1
+	}
+	return 0
+}
+
+func queueHostMaintenance(command string, cfg *config.Config, logger *slog.Logger) {
+	switch command {
+	case "run", "execute", "sync", "auth-sync", "status", "doctor":
+		if err := requestHostMaintenance(config.EngineKimi, cfg.SourcePath()); err != nil {
+			logger.Debug("background maintenance request deferred", "err", err)
+		}
+	}
+}
+
+func PrintWrapperHelp(w io.Writer, caps terminalui.Caps) {
+	terminalui.PrintWrapperHelp(w, caps, "ckx", "Kimi Code", []terminalui.HelpItem{
+		{Usage: "run [native arguments]", Description: "Launch Kimi with a leased subscription account and an isolated managed runtime."},
+		{Usage: "resume [UUID or title]", Description: "Resume native history; --continue resumes the latest session."},
+		{Usage: "sync", Description: "Merge fleet settings, instructions, skills access, and MCP into the native home."},
+		{Usage: "status | doctor", Description: "Show native installation and subscription authentication health."},
+		{Usage: "login", Description: "Log in through native subscription OAuth, upload to the central owner, and erase temporary credentials."},
+		{Usage: "login retry | logout", Description: "Retry an unaccepted protected login within 24 hours, or erase pending login material."},
+		{Usage: "update | cron run", Description: "Verify and install the selected native package and shared wrapper."},
+		{Usage: "uninstall", Description: "Remove ckx and its managed state while preserving native history and unwrapped credentials."},
+	}, []terminalui.HelpItem{
+		{Usage: "-W, --wrapper-version", Description: "Print this wrapper's version."},
+		{Usage: "--config FILE", Description: "Use a signed Kimi host configuration."},
+		{Usage: "--skip-boot", Description: "Suppress the wrapper's banner and footer."},
+		{Usage: "--allow-concurrent-sync", Description: "Continue when another ckx lifecycle holds the content sync lock."},
+		{Usage: "--execute PROMPT", Description: "Send one prompt and return native stream JSON."},
+		{Usage: "CKX_CONFIG_PATH / CKX_KIMI_BIN", Description: "Override the signed ckx config path or native Kimi binary."},
+		{Usage: "CKX_ALLOW_FQDN_MISMATCH=1", Description: "Explicitly bypass the baked hostname check."},
+		{Usage: "-4", Description: "Prefer IPv4 for orchestrator connections."},
+	})
+}
+
+func load(ctx context.Context, path string) (*config.Config, error) {
+	key, err := signing.PublicKey()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.LoadForEngine(path, key, false, config.EngineKimi)
+	var expired *config.ExpiredError
+	if errors.As(err, &expired) && expired.Config != nil {
+		fetched, fetchErr := fleetconfig.Fetch(ctx, expired.Config, config.EngineKimi)
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+		if err := fleetconfig.PersistTo(ctx, path, fetched); err != nil {
+			return nil, err
+		}
+		return config.LoadForEngine(path, key, false, config.EngineKimi)
+	}
+	return cfg, err
+}
+func newClient(cfg *config.Config, forceIPv4 ...bool) (*orchestrator.Client, error) {
+	ca := ""
+	if cfg.Orchestrator.CABundlePath != nil {
+		ca = *cfg.Orchestrator.CABundlePath
+	}
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: cfg.Orchestrator.BaseURL, APIKey: cfg.Orchestrator.APIKey, CABundlePath: ca, AllowInsecure: cfg.Orchestrator.AllowInsecure})
+	if client != nil {
+		if len(forceIPv4) > 0 && forceIPv4[0] {
+			if transport, ok := communicator.Direct(client.HTTP.Transport); ok {
+				dialer := &net.Dialer{Timeout: 30 * time.Second}
+				transport.DialContext = func(ctx context.Context, _, address string) (net.Conn, error) {
+					return dialer.DialContext(ctx, "tcp4", address)
+				}
+			}
+		}
+		client.UserAgent = "ckx/wrapper-v2"
+		home, err := native.Home()
+		if err != nil {
+			return nil, err
+		}
+		client.Pool = accountpool.Load(config.EngineKimi, filepath.Join(home, "auth.json"), cfg.Orchestrator.BaseURL)
+	}
+	return client, err
+}
+
+func syncManaged(ctx context.Context, cfg *config.Config, client *orchestrator.Client, concurrent ...bool) error {
+	_, err := syncMeasuredManagedWith(ctx, cfg, client, len(concurrent) > 0 && concurrent[0])
+	if err == nil {
+		agentbus.ReconcileConfiguredHostDaemon(cfg, updateprogress.Output(ctx, os.Stderr))
+	}
+	if err == nil {
+		err = rtk.Sync(ctx, cfg)
+	}
+	return err
+}
+
+func syncMeasuredManaged(ctx context.Context, cfg *config.Config, client *orchestrator.Client) (managedSyncSummary, error) {
+	return syncMeasuredManagedWith(ctx, cfg, client, false)
+}
+
+// syncMeasuredManagedWith converges instructions, config, native skills and
+// peer engines. unlocked mirrors cdx --allow-concurrent-sync: the operator
+// explicitly accepts writing while another ckx lifecycle holds the lock.
+func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *orchestrator.Client, unlocked bool) (summary managedSyncSummary, syncErr error) {
+	if communicator.SyncManaged(client.BaseURL) {
+		ctx = communicator.WithSyncConfig(ctx, cfg)
+		out, err := communicator.Sync(ctx, client.BaseURL, "kimi", "", "content", false, false, nil, 0, "")
+		if err == nil {
+			err = out.Err()
+		}
+		if len(out.Sessions) > 0 {
+			_ = json.Unmarshal(out.Sessions, &summary.Sessions)
+		}
+		skills, settings := out.Resources["skills"], out.Resources["config"]
+		summary.Skills = resourceSync{Checked: skills.Checked, Updated: skills.Updated, Failed: skills.Error != ""}
+		summary.Config = resourceSync{Checked: settings.Checked, Updated: settings.Updated, Failed: settings.Error != ""}
+		return summary, err
+	}
+
+	release, err := communicator.Fence(ctx, client.BaseURL, "kimi", "")
+	if err != nil {
+		return summary, err
+	}
+	defer release()
+	if !unlocked {
+		lock, err := ipc.TryAcquireExclusive("ckx-sync")
+		if err != nil {
+			return summary, fmt.Errorf("managed Kimi sync lock: %w", err)
+		}
+		defer lock.Release()
+	}
+	home, err := native.Home()
+	if err != nil {
+		return summary, err
+	}
+	store, err := native.Skills()
+	if err != nil {
+		return summary, err
+	}
+	bundle, err := client.SyncBootstrap(ctx, orchestrator.BundleRequest{Engine: "kimi", IncludeAuth: false, Home: home, Skills: store.Digests(), VersionProbe: func(c context.Context) string {
+		path, e := native.FindCLI()
+		if e != nil {
+			return "unknown"
+		}
+		v, _ := native.ProbeVersion(c, path)
+		return v
+	}})
+	if err != nil {
+		var refusal *orchestrator.HTTPError
+		scope, disabled := orchestrator.EngineDisabledScope(err)
+		if (errors.As(err, &refusal) && memoryrouting.TrustLost(refusal.Code)) || (disabled && scope == config.EngineDisabledScopeHost) {
+			cleanupErr := stripManagedContent(home)
+			if cleanupErr != nil {
+				return summary, errors.Join(err, cleanupErr)
+			}
+		}
+		if disabled {
+			return summary, errors.New(config.EngineDisabledMessage(config.EngineKimi, scope))
+		}
+		return summary, fmt.Errorf("Kimi managed sync unavailable: %w", err)
+	}
+	summary.Sessions = bundle.Sessions
+	// SyncBootstrap already unwraps resource objects to document bytes.
+	if body := bundle.Agents; len(body) > 0 {
+		digest := sha256.Sum256(body)
+		if documentDigest(filepath.Join(home, "AGENTS.md")) != hex.EncodeToString(digest[:]) {
+			if err := native.AtomicWrite(filepath.Join(home, "AGENTS.md"), body, 0o600); err != nil {
+				return summary, err
+			}
+			summary.Config.Updated = true
+		}
+		state, err := native.StateDir()
+		if err != nil {
+			return summary, err
+		}
+		if err := native.AtomicWrite(filepath.Join(state, "managed-agents.sha256"), []byte(hex.EncodeToString(digest[:])), 0o600); err != nil {
+			return summary, err
+		}
+	}
+	if body := bundle.Config; len(body) > 0 || bundle.ConfigOwnedPaths != nil {
+		path := filepath.Join(home, "config.toml")
+		before := documentDigest(path)
+		if err := native.SyncConfig(home, body, bundle.ConfigOwnedPaths); err != nil {
+			return summary, err
+		}
+		summary.Config.Checked = true
+		summary.Config.Updated = summary.Config.Updated || before != documentDigest(path)
+	}
+	if bundle.MemoryRouting != nil {
+		updated, err := memoryrouting.ApplyWithWarnings("kimi", home, bundle.MemoryRouting, nil, func(err error) {
+			warn(client, "memory routing reminder left unchanged", err)
+		})
+		summary.Config.Checked = true
+		summary.Config.Updated = summary.Config.Updated || updated
+		if err != nil {
+			return summary, err
+		}
+	}
+	// Kimi loads ~/.kimi-code/skills natively. Skill failures warn like cdx/clx:
+	// they never block a launch or a content sync.
+	if bundle.KimiSkills != nil {
+		updated, err := store.Apply(bundle.KimiSkills)
+		summary.Skills = resourceSync{Checked: err == nil, Updated: updated, Failed: err != nil}
+		if err != nil {
+			warn(client, "native Kimi skills sync incomplete", err)
+		}
+	} else {
+		// An older server sends no bundle; prove the MCP listing is reachable.
+		var skills map[string]any
+		if err := client.JSON(ctx, http.MethodGet, "/skills?engine=kimi", nil, &skills, 0); err != nil {
+			summary.Skills.Failed = true
+			warn(client, "Kimi skills listing unavailable", err)
+		} else {
+			summary.Skills.Checked = true
+		}
+	}
+	username := os.Getenv("USER")
+	if current, err := user.Current(); err == nil {
+		username = current.Username
+	}
+	hostname, _ := os.Hostname()
+	if username != "" {
+		_ = client.JSON(ctx, http.MethodPost, "/host/users", map[string]any{"username": username, "hostname": hostname}, nil, 0)
+	}
+	if os.Getenv("CXX_COMMUNICATOR_SYNC") != "1" {
+		if err := reconcilePeers(ctx, cfg); err != nil {
+			warn(client, "peer engine reconcile incomplete", err)
+		}
+	}
+	return summary, nil
+}
+
+func warn(client *orchestrator.Client, message string, err error) {
+	if client != nil && client.Logger != nil {
+		client.Logger.Warn(message, "err", err)
+	}
+}
+
+func documentDigest(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(raw)
+	return hex.EncodeToString(digest[:])
+}
+func reconcilePeers(ctx context.Context, cfg *config.Config) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	engines := config.EnabledEngines(cfg.Host, cfg.Engine)
+	var errs error
+	for _, engine := range engines {
+		if engine == cfg.Engine {
+			continue
+		}
+		item, err := fleetconfig.Fetch(ctx, cfg, engine)
+		if errors.Is(err, fleetconfig.ErrEngineDisabled) {
+			continue
+		}
+		if err == nil {
+			err = fleetconfig.Persist(ctx, item)
+		}
+		if err != nil {
+			errs = errors.Join(errs, fmt.Errorf("%s config: %w", engine, err))
+		}
+	}
+	_, err = layout.EnsureAliases(ctx, exe, engines)
+	return errors.Join(errs, err)
+}
+
+// Wait only at a cancellable boundary; NotifyContext must still be able to
+// stop a launch queued behind another process's exclusive content sync.
+func acquireContentLease(ctx context.Context) (*ipc.Lock, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		lock, err := ipc.TryAcquireShared("ckx-sync")
+		if !errors.Is(err, ipc.ErrHeld) {
+			return lock, err
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o options, stdout, stderr io.Writer) (exitCode int, runErr error) {
+	commStats := communicator.NewLifecycleStats(cfg.Orchestrator.BaseURL)
+	var versionProbe launchVersionProbe
+	if err := versionProbe.requireInstalled(ctx); err != nil {
+		return 1, err
+	}
+	headless := o.command == "execute" || nativeAnyFlag(o.args, "--prompt")
+	// Like cdx: another lifecycle holding the sync lock pauses managed content
+	// writes for this launch; auth freshness and the lease remain active.
+	var sync managedSyncSummary
+	var syncErr error
+	var contentLock *ipc.Lock
+	if !o.concurrent && !communicator.SyncManaged(client.BaseURL) {
+		lock, err := ipc.TryAcquireExclusive("ckx-sync")
+		if err != nil {
+			syncErr = err
+		} else {
+			contentLock = lock
+			defer lock.Release()
+		}
+	}
+	// A primed owner already holds current content (pushed invalidations keep
+	// it so): the launch needs no content exchange. Explicit syncs always run.
+	if syncErr == nil && communicator.SyncManaged(client.BaseURL) && communicator.Primed(communicator.WithSyncConfig(ctx, cfg), client.BaseURL, "kimi", "") {
+		sync.Skills = resourceSync{Checked: true}
+		sync.Config = resourceSync{Checked: true}
+	} else if syncErr == nil {
+		sync, syncErr = syncMeasuredManagedWith(ctx, cfg, client, true)
+	}
+	if syncErr != nil {
+		if communicator.StrictCache(cfg) {
+			return 1, fmt.Errorf("fresh cache confirmation failed: %w", syncErr)
+		}
+		if !errors.Is(syncErr, ipc.ErrHeld) {
+			if refusal := launchRefusal(cfg, syncErr); refusal != nil {
+				return 1, refusal
+			}
+			return 1, syncErr
+		}
+		sync = managedSyncSummary{Concurrent: true}
+	}
+	// Every launch holds its own shared content fence, including one that
+	// skipped sync behind an existing native process. The last native/reaper
+	// releases it; the first launch ending cannot expose the remaining users.
+	if contentLock != nil {
+		if err := contentLock.DowngradeToShared(); err != nil {
+			if !errors.Is(err, ipc.ErrHeld) {
+				return 1, err
+			}
+			_ = contentLock.Release()
+			contentLock = nil
+		}
+	}
+	if contentLock == nil && !communicator.SyncManaged(client.BaseURL) {
+		var err error
+		contentLock, err = acquireContentLease(ctx)
+		if err != nil {
+			return 1, err
+		}
+		defer contentLock.Release()
+	}
+	baseHome, err := native.Home()
+	if err != nil {
+		return 1, err
+	}
+	pool := accountpool.Load("kimi", filepath.Join(baseHome, "auth.json"), cfg.Orchestrator.BaseURL)
+	client.Pool = pool
+	initial, err := retrieveStartupAuth(ctx, client, headless, o.minimal, stderr)
+	if err != nil {
+		if refusal := launchRefusal(cfg, err); refusal != nil {
+			return 1, refusal
+		}
+		var httpErr *orchestrator.HTTPError
+		if errors.As(err, &httpErr) {
+			return 1, fmt.Errorf("Kimi subscription auth unavailable (%s); run ckx login", httpErr.Code)
+		}
+		return 1, err
+	}
+	// Server-side kill switch, as cdx/clx enforce it from the same block.
+	if initial.Versions != nil && initial.Versions.APIDisabled {
+		return 1, errors.New(apiDisabledReason)
+	}
+	agentbus.ReconcileConfiguredHostDaemon(cfg, stderr)
+	reconcileEngineDrift(cfg, initial, client)
+	if _, err := native.FindCLI(); err != nil {
+		// First launch on a host whose installer or cron has not yet placed the
+		// native CLI: install the fleet's verified target in the foreground.
+		target := native.PinnedVersion
+		if v := initial.Versions; v != nil {
+			for _, candidate := range []string{stringValue(v.ClientVersionOverride), stringValue(v.ClientVersion)} {
+				if candidate != "" && candidate != "latest" {
+					target = native.CoerceVersionToMinimum(candidate)
+					break
+				}
+			}
+		}
+		if !o.skipBoot {
+			terminalui.Say(stderr, "ckx", terminalui.ToneDim, "install", "installing Kimi "+target)
+		}
+		if _, err := native.Install(ctx, target); err != nil {
+			return 1, fmt.Errorf("Kimi CLI install failed: %w", err)
+		}
+	}
+	if !pool.Capable {
+		return 1, errors.New("Kimi requires centralized account leases")
+	}
+	var started time.Time
+	version, cleanupOK, minimal := "", false, o.minimal
+	// This defer runs after lease release and private-home cleanup, so the
+	// displayed footer uses the final outcome rather than a provisional exit.
+	defer func() {
+		if o.skipBoot || started.IsZero() {
+			return
+		}
+		caps := terminalui.DetectCapsFor(stderr, stringValue(cfg.EngineOptions.AdminThemeHint))
+		if minimal {
+			caps.IsTTY = false
+		}
+		authStatus, authTone := "access-only runtime removed", terminalui.ToneDim
+		if !cleanupOK {
+			authStatus, authTone = "private runtime cleanup failed", terminalui.ToneFail
+		}
+		terminalui.PrintExitFooter(stderr, caps, "ckx", terminalui.ExitFooter{RunDuration: time.Since(started), ExitCode: exitCode, AuthStatus: authStatus, AuthTone: authTone, EngineName: "kimi", EngineVersion: version})
+		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "ckx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.End(), Details: commStats.Details(), Table: commStats.Table()})
+	}()
+	rt, err := native.NewRuntime(baseHome, cfg, client, pool, contentLock)
+	if err != nil {
+		return 1, err
+	}
+	defer func() {
+		if err := rt.Close(); err != nil {
+			exitCode = 1
+			runErr = errors.New("Kimi private runtime cleanup failed")
+		} else {
+			cleanupOK = true
+		}
+	}()
+	release, lease, err := pool.Start(ctx, client, false, func(raw json.RawMessage, _ string, _ bool) (bool, error) {
+		err := rt.Apply(raw, 0)
+		return err == nil, err
+	})
+	if err != nil {
+		return 1, err
+	}
+	defer release()
+	if lease == nil {
+		return 1, errors.New("Kimi account lease unavailable")
+	}
+	if err := rt.Initialize(ctx, lease); err != nil {
+		return 1, errors.New("Kimi leased credentials unavailable")
+	}
+	initial = leasedStartupAuth(initial, lease)
+	if err := rt.StartAuthBroker(ctx); err != nil {
+		return 1, err
+	}
+	restorePool := pool.ActivateEnvironment()
+	defer restorePool()
+	args := append([]string(nil), o.args...)
+	if o.command == "execute" {
+		args = []string{"-p", strings.Join(o.args, " "), "--output-format", "stream-json"}
+	}
+	connection, portalErr := agentportal.StartConnection(ctx, cfg, agentportal.StartInput{NativeArgs: args, Engine: "kimi", InvocationKind: map[bool]string{true: "execute", false: "interactive"}[headless], Resumed: nativeargs.Resumed("kimi", args), UpstreamSessionID: agentportal.NativeResumeSessionID("kimi", args)})
+	identity, identityErr := connection.RequireIdentity(ctx, cfg)
+	if identityErr != nil {
+		_ = connection.Close("failed", "Launch identity could not be confirmed")
+		return 1, identityErr
+	}
+	if portalErr != nil {
+		fmt.Fprintln(stderr, "ckx: agent portal temporarily unavailable")
+	}
+	ctx = connection.Context()
+	defer func() {
+		state, summary := "completed", "Kimi session ended"
+		if runErr != nil || exitCode != 0 {
+			state, summary = "failed", "Kimi session failed"
+			if runErr == nil {
+				summary = fmt.Sprintf("Kimi exited with code %d", exitCode)
+			}
+		}
+		if err := connection.Close(state, summary); err != nil {
+			fmt.Fprintf(stderr, "ckx: agent portal cleanup failed: %v\n", err)
+		}
+	}()
+	args, identityErr = agentportal.AppendIdentityArgs(config.EngineKimi, args, identity)
+	if identityErr != nil {
+		return 1, identityErr
+	}
+	// Kimi spawns the rendered MCP, hook and auth-provider commands with
+	// argv[0] = exe; a ckx alias path (kept by os.Executable on macOS) would
+	// reject `agent ...` and `kimi-auth`, which only the cxx grammar serves.
+	exe, err := layout.SelfCommonExecutable()
+	if err != nil {
+		return 1, err
+	}
+	if err := rt.Configure(exe, cfg, connection.Session() != nil, args); err != nil {
+		return 1, err
+	}
+	for _, warning := range rt.Warnings {
+		fmt.Fprintf(stderr, "ckx: %s\n", warning)
+	}
+	path, err := native.FindCLI()
+	if err != nil {
+		return 1, err
+	}
+	version, err = versionProbe.supported(ctx, path)
+	if err != nil {
+		return 1, err
+	}
+	env := rt.Environment(os.Environ())
+	rtkSession, rtkErr := rtk.Prepare(ctx, cfg, args, env, rt.Home, stderr, version)
+	if rtkErr != nil {
+		fmt.Fprintln(stderr, "ckx: RTK unavailable; continuing without filtering")
+	}
+	defer rtkSession.Close()
+	args, env = rtkSession.Args, rtkSession.Env
+
+	// The cause names why the wrapper ended the session, so the native and
+	// leader exit reports can say so instead of reporting a start failure.
+	sessionCtx, stopSession := context.WithCancelCause(ctx)
+	stop := func() { stopSession(nil) }
+	activityCtx := sessionCtx
+	refreshDone := make(chan struct{})
+	authFailure := make(chan error, 1)
+	defer func() { stop(); <-refreshDone }()
+	runReadiness := func(refreshCtx context.Context) {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-refreshCtx.Done():
+				return
+			case <-ticker.C:
+				// A 404 is re-checked before it counts: a lease without a live
+				// provider attachment answers it for under a second at a time.
+				err := rt.RefreshConfirmed(refreshCtx, 6*time.Second)
+				if native.FatalAuthError(err) {
+					select {
+					case authFailure <- errKimiAuthEnded:
+					default:
+					}
+					stopSession(errKimiAuthEnded)
+					return
+				}
+			}
+		}
+	}
+	go func() {
+		defer close(refreshDone)
+		if communicator.SyncManaged(client.BaseURL) {
+			account, session := pool.Binding()
+			stopWatch, err := communicator.WatchAuth(communicator.WithSyncConfig(sessionCtx, cfg), client.BaseURL, "kimi", "", account, session, rt.Socket, func(status communicator.AuthStatus) {
+				if status.Fatal {
+					select {
+					case authFailure <- errKimiAuthEnded:
+					default:
+					}
+					stopSession(errKimiAuthEnded)
+				}
+			}, func(c context.Context) func() {
+				refreshCtx, cancel := context.WithCancel(c)
+				done := make(chan struct{})
+				go func() { defer close(done); runReadiness(refreshCtx) }()
+				return func() { cancel(); <-done }
+			})
+			if err == nil {
+				defer stopWatch()
+				<-sessionCtx.Done()
+				return
+			}
+		}
+		runReadiness(sessionCtx)
+	}()
+	args, err = applyRuntimeModelPolicy(cfg, args, rt, stderr)
+	if err != nil {
+		return 1, err
+	}
+	args = interactiveArgs(args, headless, o.skipBoot)
+	minimal = o.minimal || nativeFlag(args, "--minimal")
+	if !o.skipBoot {
+		terminalui.PrintBootScreen(stderr, startupScreen(startupInput{Config: cfg, Auth: &initial, EngineVersion: version, WrapperVersion: Version, Home: rt.Home, EffectiveHome: true, Overlay: rt.ModelPreferences(), LaunchArgs: args, Sync: sync, Minimal: minimal}))
+		caps := terminalui.DetectCapsFor(stderr, stringValue(cfg.EngineOptions.AdminThemeHint))
+		if minimal {
+			caps.IsTTY = false
+		}
+		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "ckx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.Start(), Details: commStats.Details(), Table: commStats.Table()})
+	}
+	started = time.Now()
+	code := execute(activityCtx, path, args, env, stdout, stderr, rt, rtkSession)
+	select {
+	case err := <-authFailure:
+		return 1, err
+	default:
+	}
+	return code, nil
+}
+func nativeAnyFlag(args []string, names ...string) bool {
+	for _, name := range names {
+		if nativeFlag(args, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasArg(args []string, names ...string) bool {
+	for _, arg := range args {
+		for _, name := range names {
+			if arg == name || strings.HasPrefix(arg, name+"=") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type childLeaseAttacher interface {
+	AttachChild(*exec.Cmd) (func(), error)
+}
+
+func execute(ctx context.Context, path string, args, env []string, stdout, stderr io.Writer, runtimes ...childLeaseAttacher) int {
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = env
+	cmd.Stdin = os.Stdin
+	supervisor := nativeprocess.Prepare(ctx, cmd, nativeprocess.Headless(cmd.Stdin))
+	defer supervisor.Close()
+	cmd.Stdout = schedulewatch.Writer(ctx, stdout)
+	cmd.Stderr = schedulewatch.Writer(ctx, stderr)
+	closeLease := func() {}
+	if len(runtimes) > 0 {
+		var err error
+		closeLease, err = runtimes[0].AttachChild(cmd)
+		if err != nil {
+			fmt.Fprintln(stderr, "ckx: native activity lease unavailable")
+			return 1
+		}
+	}
+	err := cmd.Start()
+	closeLease()
+	if err != nil {
+		code, resultErr := supervisor.Result(err)
+		if resultErr == nil {
+			return code
+		}
+		fmt.Fprintln(stderr, "ckx: native Kimi failed to start")
+		return 1
+	}
+	supervisor.StartControl()
+	stopWatch := schedulewatch.Start(ctx, cmd)
+	err = cmd.Wait()
+	supervisor.Close()
+	stopWatch()
+	code, resultErr := supervisor.Result(err)
+	if resultErr == nil {
+		return code
+	}
+	// Wait reports the context instead of the exit status only when the wrapper
+	// ended a running Kimi that then shut down cleanly; that is not a start failure.
+	if ctx.Err() != nil {
+		fmt.Fprintf(stderr, "ckx: native Kimi stopped: %s\n", stopReason(ctx))
+		return 1
+	}
+	fmt.Fprintf(stderr, "ckx: native Kimi supervision failed: %v\n", resultErr)
+	return 1
+}
+
+// errKimiAuthEnded is both the session's cancel cause and run's final error.
+var errKimiAuthEnded = errors.New("Kimi account lease or subscription auth ended; resume through ckx after login")
+
+// stopReason names who ended a launch whose context was cancelled without a
+// signal: a fatal auth status, a portal stop request, or the launch's own end.
+func stopReason(ctx context.Context) string {
+	cause := context.Cause(ctx)
+	if cause == nil || cause == context.Canceled {
+		return "the managed session ended"
+	}
+	return cause.Error()
+}
+
+// leaderExitReport returns the diagnostics line for the private leader's exit
+// and whether it ended on its own with an error. A leader terminated because
+// the session was already ending did not fail; its line says why it was stopped.
+
+func status(ctx context.Context, cfg *config.Config, client *orchestrator.Client, doctor bool, o options, stdout io.Writer) error {
+	path, findErr := native.FindCLI()
+	version := ""
+	if findErr == nil {
+		version, findErr = native.ProbeVersion(ctx, path)
+	}
+	var auth startupAuth
+	started := time.Now()
+	err := client.JSON(ctx, http.MethodPost, "/auth", map[string]any{"engine": "kimi", "command": "retrieve", "metadata_only": true}, &auth, 0)
+	latency := time.Since(started)
+	home, _ := native.Home()
+	screen := startupScreen(startupInput{Config: cfg, Auth: &auth, AuthErr: err, EngineVersion: version, VersionErr: findErr, WrapperVersion: Version, Home: home, StatusOnly: true, Minimal: o.minimal})
+	terminalui.PrintBootScreen(stdout, screen)
+	if doctor {
+		report := doctorReport(doctorInput{Config: cfg, Home: home, CLIPath: path, EngineVersion: version, VersionErr: findErr, Auth: &auth, AuthErr: err, Latency: latency})
+		caps := terminalui.DetectCapsFor(stdout, stringValue(cfg.EngineOptions.AdminThemeHint))
+		if o.minimal {
+			caps = terminalui.MinimalCaps(caps)
+		}
+		terminalui.PrintDoctor(stdout, caps, report)
+		if screen.ResultTone == terminalui.ToneFail || report.Result.Tone == terminalui.ToneFail {
+			return errors.New("Kimi doctor checks failed")
+		}
+		return nil
+	}
+	if screen.ResultTone == terminalui.ToneFail {
+		return errors.New("Kimi status checks failed")
+	}
+	return nil
+}
+
+// maintenance is the cron tick (force=false) and `ckx update` (force=true):
+// wrapper self-update, native CLI convergence, shell alias, observed-version
+// report and content sync. A failed sync does not suppress the version report.
+func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.Client, force bool, stdout, stderr io.Writer, concurrent ...bool) error {
+	_ = native.Prune() // Keep the just-published previous prefix until the next tick.
+	path, _ := native.FindCLI()
+	before := ""
+	if path != "" {
+		before, _ = native.ProbeVersion(ctx, path)
+	}
+	check, err := client.CronCheck(ctx, orchestrator.CronCheckRequest{Engine: "kimi", ClientVersion: before, WrapperVersion: Version})
+	if err != nil {
+		return err
+	}
+	// A scheduled tick leaves binaries to the communicator updater while agents
+	// run; an explicit update (force) always applies.
+	if !force && path != "" && agentquiet.DeferScheduledUpdates(cfg.Orchestrator.CommunicatorUpdateProtocol) {
+		check.Action, check.Wrapper = "disable", nil
+	}
+	if check.Action != "disable" && check.Wrapper != nil && check.Wrapper.Action == "update" {
+		if os.Getenv(wrapperRestartedEnv) == "1" {
+			return fmt.Errorf("wrapper update loop detected for target %s", check.Wrapper.TargetVersion)
+		}
+		if check.Wrapper.URL == "" || check.Wrapper.SHA256 == "" || check.Wrapper.TargetVersion == "" {
+			return errors.New("wrapper update requested but metadata incomplete")
+		}
+		if semverVersion.MatchString(Version) && !codex.SemverGT(check.Wrapper.TargetVersion, Version) {
+			warn(client, "skipping wrapper downgrade to "+check.Wrapper.TargetVersion+" from "+Version, nil)
+		} else {
+			installed, err := coreupdate.Install(ctx, cfg, check.Wrapper.URL, check.Wrapper.SHA256, check.Wrapper.TargetVersion, client.Logger)
+			if err != nil {
+				return err
+			}
+			// Re-run the same command on the new binary so it also converges the
+			// native CLI; the marker stops a server that keeps offering a binary
+			// which does not report the offered version.
+			engine, args := "kimi", []string{"cron", "run"}
+			if force {
+				args = []string{"update"}
+			}
+			if HostSyncAfterUpdate {
+				engine, args = "", []string{"sync"}
+			}
+			if len(concurrent) > 0 && concurrent[0] {
+				args = append(args, "--allow-concurrent-sync")
+			}
+			return syscall.Exec(installed, layout.ReexecArgv(installed, engine, args), append(os.Environ(), wrapperRestartedEnv+"=1"))
+		}
+	}
+	target := native.CoerceVersionToMinimum(check.TargetVersion)
+	version := before
+	cliUpdated := false
+	override := strings.TrimSpace(os.Getenv("CKX_KIMI_BIN")) != ""
+	if path == "" && (check.Action == "disable" || override) {
+		return errors.New("Kimi native CLI missing; no installation authorized")
+	}
+	if !override && check.Action != "disable" && (path == "" || !native.SupportedVersion(before) || check.Action == "update" || (force && before != target)) {
+		path, err = native.Install(ctx, target)
+		if err != nil {
+			return err
+		}
+		version, err = native.ProbeVersion(ctx, path)
+		if err != nil {
+			return err
+		}
+		cliUpdated = version != before
+	}
+	if err := native.EnsureShellAliases(); err != nil {
+		warn(client, "shell alias", err)
+	}
+	var reportErr error
+	reported := false
+	for attempt := 1; attempt <= 2; attempt++ {
+		if reportErr = client.CronReport(ctx, orchestrator.CronReportRequest{Engine: "kimi", ClientVersion: version, WrapperVersion: Version}); reportErr == nil {
+			reported = true
+			break
+		}
+		if attempt < 2 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+	// Publish the observed installed CLI before requesting version-gated config.
+	// Preserve sync and report failures independently so a later tick can retry.
+	syncErr := syncManaged(ctx, cfg, client, concurrent...)
+	if errors.Is(syncErr, ipc.ErrHeld) {
+		syncErr = errors.New("managed sync paused by an active session; retry when it finishes or use --allow-concurrent-sync")
+	}
+	if !hostcron.IsCoordinated() {
+		if err := hostcron.Install(ctx, cfg); err != nil {
+			syncErr = errors.Join(syncErr, err)
+		}
+	}
+	label := "cron"
+	if force {
+		label = "update"
+	}
+	switch {
+	case cliUpdated && before != "":
+		fmt.Fprintf(stdout, "%s: kimi updated %s -> %s (wrapper %s, reported=%t)\n", label, before, version, Version, reported)
+	case cliUpdated:
+		fmt.Fprintf(stdout, "%s: kimi installed %s (wrapper %s, reported=%t)\n", label, version, Version, reported)
+	default:
+		fmt.Fprintf(stdout, "%s: Kimi version unchanged (wrapper %s, kimi %s, no updates, reported=%t)\n", label, Version, version, reported)
+	}
+	if syncErr != nil {
+		fmt.Fprintln(stderr, "ckx "+label+": managed content sync failed:", syncErr)
+	}
+	if reportErr != nil {
+		reportErr = fmt.Errorf("/cron/report failed after retry: %w", reportErr)
+	}
+	return errors.Join(syncErr, reportErr)
+}
+
+const wrapperRestartedEnv = "CKX_WRAPPER_RESTARTED"
+
+var semverVersion = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+`)
+
+func loginConflictMetadata(raw []byte) (int64, int64) {
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return 0, 0
+	}
+	var find func(map[string]any) (int64, int64)
+	find = func(node map[string]any) (int64, int64) {
+		id, _ := node["account_id"].(float64)
+		generation, _ := node["canonical_generation"].(float64)
+		if id > 0 && generation > 0 {
+			return int64(id), int64(generation)
+		}
+		for _, key := range []string{"error", "errors", "details", "data"} {
+			if nested, ok := node[key].(map[string]any); ok {
+				if id, generation := find(nested); id > 0 {
+					return id, generation
+				}
+			}
+		}
+		return 0, 0
+	}
+	return find(doc)
+}
+func uninstall(ctx context.Context, cfg *config.Config, client *orchestrator.Client, stdout, stderr io.Writer) error {
+	home, err := native.Home()
+	if err != nil {
+		return err
+	}
+	guard, err := native.TryAcquireMaintenance(home)
+	if err != nil {
+		if errors.Is(err, ipc.ErrHeld) {
+			return errors.New("uninstall refused: another ckx process is using this Kimi home")
+		}
+		return err
+	}
+	defer guard.Release()
+	// Shared aliases, cxx and cron belong to every user of the host. Refuse a
+	// multi-user host unless this process can act for all of them, failing
+	// closed when the registry cannot be asked (cdx/clx semantics).
+	others, othersErr := otherHostUsers(ctx, client)
+	if othersErr != nil || len(others) > 0 {
+		reason := fmt.Sprintf("host has registered users besides this one (%v)", others)
+		if othersErr != nil {
+			reason = "the multi-user safety check could not run"
+		}
+		if os.Geteuid() != 0 && exec.CommandContext(ctx, "sudo", "-n", "true").Run() != nil {
+			fmt.Fprintf(stderr, "ckx uninstall refused: %s, but the process is not root and `sudo -n true` is unavailable.\n", reason)
+			return errors.New("uninstall refused: multi-user host without root/sudo")
+		}
+	}
+	// The server decides whether shared cxx artifacts may go. Local Kimi state
+	// is removed even when that call fails; shared artifacts are then kept.
+	result := shareduninstall.ServerResult{}
+	var raw json.RawMessage
+	if err := client.JSON(ctx, http.MethodDelete, "/auth?engine=kimi", nil, &raw, 0); err != nil {
+		terminalui.Say(stderr, "ckx", terminalui.ToneWarn, "uninstall", "server-side delete failed (best-effort): "+err.Error())
+	} else if decoded, err := shareduninstall.DecodeServerResult(strings.NewReader(string(raw))); err != nil {
+		terminalui.Say(stderr, "ckx", terminalui.ToneWarn, "uninstall", "shared artifacts preserved; delete response was not authoritative: "+err.Error())
+	} else {
+		result = decoded
+		terminalui.Say(stdout, "ckx", terminalui.ToneOK, "uninstall", "server-side delete confirmed")
+	}
+	// Cancellation must stop the destructive phase, unlike an ordinary server
+	// failure for which local uninstall remains best-effort.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var errs error
+	step := func(what string, err error) {
+		if err != nil {
+			errs = errors.Join(errs, fmt.Errorf("%s: %w", what, err))
+			terminalui.Say(stderr, "ckx", terminalui.ToneFail, "uninstall", what+": "+err.Error())
+			return
+		}
+		terminalui.Say(stdout, "ckx", terminalui.ToneOK, "uninstall", what)
+	}
+	step("removed abandoned private runtimes", native.SweepPrivateDirectories())
+	step("removed pending login", clearPendingLogin())
+	if store, err := native.Skills(); err != nil {
+		step("removed fleet skills", err)
+	} else {
+		step("removed fleet skills", store.Strip())
+	}
+	step("removed managed config keys", native.SyncConfig(home, nil, []string{}))
+	state, err := native.StateDir()
+	if err != nil {
+		return errors.Join(errs, err)
+	}
+	if digest, err := os.ReadFile(filepath.Join(state, "managed-agents.sha256")); err == nil {
+		if body, err := os.ReadFile(filepath.Join(home, "AGENTS.md")); err == nil {
+			sum := sha256.Sum256(body)
+			if strings.TrimSpace(string(digest)) == hex.EncodeToString(sum[:]) {
+				step("removed managed AGENTS.md", os.Remove(filepath.Join(home, "AGENTS.md")))
+			}
+		}
+	}
+	for _, name := range []string{"kimi-bin", "managed-keys.json", "managed-agents.sha256"} {
+		if err := os.Remove(filepath.Join(state, name)); err != nil && !os.IsNotExist(err) {
+			errs = errors.Join(errs, err)
+		}
+	}
+	step("removed signed ckx config", fleetconfig.Remove(ctx, "kimi"))
+	if storeDir, err := native.StoreDir(); err == nil {
+		// The maintenance guard above proves no ckx process still runs a copy.
+		step("removed private Kimi installs", errors.Join(native.RemoveInstalledCopies(), os.RemoveAll(storeDir)))
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return errors.Join(errs, err)
+	}
+	switch {
+	case !result.Confirmed:
+		terminalui.Say(stderr, "ckx", terminalui.ToneWarn, "uninstall", "shared cxx aliases and cron preserved because remaining engines were not confirmed")
+	default:
+		if err := shareduninstall.Apply(ctx, result, "kimi", exe); err != nil {
+			step("shared cxx cleanup", err)
+		} else if len(result.RemainingEngines) == 0 {
+			terminalui.Say(stdout, "ckx", terminalui.ToneOK, "uninstall", "removed last-engine cxx aliases, binary, and managed cron")
+		} else {
+			terminalui.Say(stdout, "ckx", terminalui.ToneOK, "uninstall", "removed ckx alias; shared cxx and cron retained")
+		}
+	}
+	return errs
+}
+
+// otherHostUsers asks the orchestrator which other accounts on this host run
+// fleet wrappers. The call also records the current user, as cdx/clx do.
+func otherHostUsers(ctx context.Context, client *orchestrator.Client) ([]string, error) {
+	username := os.Getenv("USER")
+	if current, err := user.Current(); err == nil && current.Username != "" {
+		username = current.Username
+	}
+	hostname, _ := os.Hostname()
+	type hostUser struct {
+		Username string `json:"username"`
+	}
+	var resp struct {
+		Users []hostUser `json:"users"`
+		Data  struct {
+			Users []hostUser `json:"users"`
+		} `json:"data"`
+	}
+	if err := client.JSON(ctx, http.MethodPost, "/host/users", map[string]any{"username": username, "hostname": hostname}, &resp, 0); err != nil {
+		return nil, err
+	}
+	users := resp.Users
+	if len(users) == 0 {
+		users = resp.Data.Users
+	}
+	seen := map[string]bool{username: true}
+	out := []string{}
+	for _, u := range users {
+		if u.Username != "" && !seen[u.Username] {
+			seen[u.Username] = true
+			out = append(out, u.Username)
+		}
+	}
+	return out, nil
+}

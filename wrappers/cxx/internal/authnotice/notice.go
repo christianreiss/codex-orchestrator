@@ -30,11 +30,14 @@ func (n Notice) Message() string {
 	if n.Engine == "grok" {
 		name, command = "Grok", "cgx"
 	}
+	if n.Engine == "kimi" {
+		name, command = "Kimi Code", "ckx"
+	}
 	return fmt.Sprintf("Managed %s credentials were updated on disk. The native client can reload them during token refresh or authentication recovery. If authentication remains blocked, resume the session through %s to load the current credentials.", name, command)
 }
 
 func paths(engine string) (string, error) {
-	if engine != "codex" && engine != "claude" && engine != "grok" {
+	if engine != "codex" && engine != "claude" && engine != "grok" && engine != "kimi" {
 		return "", errors.New("unknown auth notice engine")
 	}
 	home, err := os.UserHomeDir()
@@ -42,11 +45,17 @@ func paths(engine string) (string, error) {
 		return "", err
 	}
 	scope := filepath.Join(home, "."+engine)
+	if engine == "kimi" {
+		scope = filepath.Join(home, ".kimi-code")
+	}
 	if engine == "codex" && strings.TrimSpace(os.Getenv("CODEX_HOME")) != "" {
 		scope = strings.TrimSpace(os.Getenv("CODEX_HOME"))
 	}
 	if engine == "grok" && strings.TrimSpace(os.Getenv("GROK_HOME")) != "" {
 		scope = strings.TrimSpace(os.Getenv("GROK_HOME"))
+	}
+	if engine == "kimi" && strings.TrimSpace(os.Getenv("KIMI_CODE_HOME")) != "" {
+		scope = strings.TrimSpace(os.Getenv("KIMI_CODE_HOME"))
 	}
 	scope, err = filepath.Abs(scope)
 	if err != nil {

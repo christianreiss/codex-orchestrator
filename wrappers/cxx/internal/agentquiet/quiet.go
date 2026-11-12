@@ -17,7 +17,7 @@ import (
 )
 
 // Engines lists the engines checked by Busy.
-var Engines = []string{"codex", "claude", "grok"}
+var Engines = []string{"codex", "claude", "grok", "kimi"}
 
 // Busy returns the engines with a running native session. An engine whose
 // native home does not exist has none. Any probe failure other than a held
@@ -39,6 +39,12 @@ func Busy() []string {
 			continue
 		}
 		_ = lock.Release()
+		if engine == "kimi" {
+			if active, err := sessionguard.KimiSessionActive(root); active || err != nil {
+				busy = append(busy, engine)
+			}
+			continue
+		}
 		if engine != "grok" {
 			continue
 		}

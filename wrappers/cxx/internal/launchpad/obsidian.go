@@ -91,7 +91,12 @@ func (p *picker) renderObsidian() string {
 			for y := 2; y < 6; y++ {
 				body.put(mid, y, p.dim("│"))
 			}
-			p.placeCard(body, mid-panelWidth/2, 6, p.engineCard(2, panelWidth))
+			if len(p.engines) > 3 {
+				p.placeCard(body, 0, 6, p.engineCard(2, panelWidth))
+				p.placeCard(body, mid+7, 6, p.engineCard(3, panelWidth))
+			} else {
+				p.placeCard(body, mid-panelWidth/2, 6, p.engineCard(2, panelWidth))
+			}
 		}
 	} else {
 		x, y, w := 0, 0, panelWidth
@@ -182,7 +187,7 @@ func (p *picker) engineCard(i, width int) []string {
 		marker = "◆ "
 	}
 	heading := marker + e.Label()
-	arrow := []string{"←", "→", "↓"}[i]
+	arrow := []string{"←", "→", "↓", "↑"}[i]
 	heading = p.paint(p.accent(e.Name), p.bold(heading)) + "  " + p.dim(arrow)
 	if e.Disabled != "" {
 		heading = p.dim(marker + e.Label() + "  " + arrow)
@@ -379,7 +384,7 @@ func (p *picker) renderCompact(width, height int) string {
 			if i == p.focus {
 				marker = "> "
 			}
-			direction := []string{"left", "right", "down"}[i]
+			direction := []string{"left", "right", "down", "up"}[i]
 			line := marker + e.Label() + " (" + direction + ")  " + p.summary(i)
 			if e.Disabled != "" {
 				line = marker + e.Label() + " (" + direction + ") " + e.Disabled

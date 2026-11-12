@@ -84,6 +84,6 @@ func CheckModelVersion(engine, model, observed string, catalog *ModelCatalog) er
 	if strings.TrimSpace(observed) == "" {
 		observed = "unreported"
 	}
-	command := map[string]string{EngineCodex: "cdx", EngineClaude: "clx", EngineGrok: "cgx"}[engine]
+	command := map[string]string{EngineCodex: "cdx", EngineClaude: "clx", EngineGrok: "cgx", EngineKimi: "ckx"}[engine]
 	return fmt.Errorf("%s requires %s CLI %s or newer; observed %s. Run %s update (or cron run to report an installed version), then retry", model, engine, minimum, observed, command)
 }

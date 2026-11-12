@@ -145,6 +145,16 @@ func Prepare(ctx context.Context, cfg *config.Config, args, env []string, home s
 		s.Args = appendInstructionFlag(s.Args, "--append-system-prompt", instruction)
 	case "grok":
 		s.Args = appendInstructionFlag(s.Args, "--rules", instruction)
+	case "kimi":
+		path := filepath.Join(home, "AGENTS.md")
+		body, e := os.ReadFile(path)
+		if e != nil && !os.IsNotExist(e) {
+			return s, e
+		}
+		body = append(body, []byte("\n\n"+instruction+"\n")...)
+		if err = os.WriteFile(path, body, 0600); err != nil {
+			return s, err
+		}
 	default:
 		return s, errors.New("unsupported_native")
 	}
@@ -398,9 +408,14 @@ func hookConflict(engine, home string) bool {
 		paths = []string{filepath.Join(h, ".claude", "settings.json"), filepath.Join(h, ".claude", "settings.local.json")}
 	case "grok":
 		paths = []string{filepath.Join(home, "config.toml"), filepath.Join(home, "managed_config.toml"), filepath.Join(h, ".claude", "settings.json")}
+	case "kimi":
+		paths = []string{filepath.Join(home, "config.toml")}
 	}
 	dirs := []string{filepath.Join(home, "hooks")}
 	if cwd, e := os.Getwd(); e == nil {
+		if engine == "kimi" {
+			paths = append(paths, filepath.Join(cwd, ".kimi-code", "local.toml"))
+		}
 		paths = append(paths, filepath.Join(cwd, "."+engine, "hooks.json"), filepath.Join(cwd, ".claude", "settings.json"), filepath.Join(cwd, ".claude", "settings.local.json"))
 		dirs = append(dirs, filepath.Join(cwd, ".grok", "hooks"))
 	}

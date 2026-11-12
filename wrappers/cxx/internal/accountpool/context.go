@@ -140,6 +140,7 @@ func (c *Context) saveLocked() error {
 }
 
 type LeaseResponse struct {
+	KimiUsage           json.RawMessage          `json:"kimi_usage,omitempty"`
 	QuotaSnapshot       *quotaemulation.Snapshot `json:"quota_snapshot,omitempty"`
 	QuotaUnlimited      *bool                    `json:"quota_unlimited"`
 	AccountID           int64                    `json:"account_id"`

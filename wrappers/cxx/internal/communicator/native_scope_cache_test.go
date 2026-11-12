@@ -15,7 +15,7 @@ import (
 )
 
 func TestNativeCachePreservesPairedIdentityAndSessionIsolation(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			f := frame{Method: "POST", Path: "/mcp", Headers: map[string]string{"x-engine": engine, "x-agent-session-id": "session-a", "x-agent-bridge-token": "bridge-a"}, Body: []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skill_list"}}`)}
 			var cache validatedRAM

@@ -114,7 +114,7 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 	defer upstream.Close()
 	env := append(communicatorEnvironment(os.Environ()), "XDG_RUNTIME_DIR="+runtimeRoot, "CXX_MCP_BEARER=fixture")
 	configs := map[string]config.Config{}
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: 1}, Host: config.Host{ID: 1, FQDN: "fixture.example", Secure: true}, Wrapper: config.Wrapper{Version: "0.9.71", Track: "stable", BinaryURL: upstream.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 		path := filepath.Join(root, engine+".json")
 		raw, _ := json.Marshal(cfg)
@@ -124,7 +124,7 @@ func TestProcessesShareConnectionAndRecover(t *testing.T) {
 		if _, err := loadSigned(path, pub); err != nil {
 			t.Fatalf("%s first start: %v", engine, err)
 		}
-		name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
+		name := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"}[engine]
 		env = append(env, name+"="+path)
 	}
 	// An unsafe local runtime directory is a transport failure, never a signed

@@ -11,6 +11,7 @@ const (
 	EngineCodex  = "codex"
 	EngineClaude = "claude"
 	EngineGrok   = "grok"
+	EngineKimi   = "kimi"
 )
 
 type SessionHousekeepingPolicy struct {
@@ -146,6 +147,8 @@ func EngineLabel(engine string) string {
 		return "Claude"
 	case EngineGrok:
 		return "Grok"
+	case EngineKimi:
+		return "Kimi Code"
 	}
 	return "Engine"
 }
@@ -187,7 +190,7 @@ func normalizeEngines(in []string) map[string]bool {
 	out := map[string]bool{}
 	for _, engine := range in {
 		engine = strings.ToLower(strings.TrimSpace(engine))
-		if engine == EngineCodex || engine == EngineClaude || engine == EngineGrok {
+		if engine == EngineCodex || engine == EngineClaude || engine == EngineGrok || engine == EngineKimi {
 			out[engine] = true
 		}
 	}
@@ -209,6 +212,8 @@ type EngineOptions struct {
 	ReasoningEffortOverride              *string      `json:"reasoning_effort_override,omitempty"`
 	AdminThemeHint                       *string      `json:"admin_theme_hint,omitempty"`
 	ClaudeModelOverride                  *string      `json:"claude_model_override,omitempty"`
+	KimiModelOverride                    *string      `json:"kimi_model_override,omitempty"`
+	KimiReasoningEffortOverride          *string      `json:"kimi_reasoning_effort_override,omitempty"`
 	GrokModelOverride                    *string      `json:"grok_model_override,omitempty"`
 	GrokReasoningEffortOverride          *string      `json:"grok_reasoning_effort_override,omitempty"`
 	DangerouslyBypassApprovalsAndSandbox bool         `json:"dangerously_bypass_approvals_and_sandbox,omitempty"`
@@ -297,7 +302,7 @@ func EnabledEngines(host Host, selected string) []string {
 	out := make([]string, 0, 2)
 	for _, engine := range raw {
 		engine = strings.ToLower(strings.TrimSpace(engine))
-		if (engine == EngineCodex || engine == EngineClaude || engine == EngineGrok) && !seen[engine] {
+		if (engine == EngineCodex || engine == EngineClaude || engine == EngineGrok || engine == EngineKimi) && !seen[engine] {
 			seen[engine] = true
 			out = append(out, engine)
 		}

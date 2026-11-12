@@ -1839,3 +1839,14 @@ and bounded staged-write precondition checks also detect conflicting saves;
 failed primary publication does not advance its mirror or ownership sidecar.
 Native settings writers do not share that lock, so this is conflict mitigation,
 not a cross-process transaction. See [the exact limits](interface-clx.md#settingsjson-sub-blocks-deep-merge-non-clobbering).
+
+### Kimi Code wrapper (`ckx`)
+
+`ckx`, versioned `ckx-x.y.z`, `cxx kimi` and the managed `kimi` PATH shim select
+the fourth engine. Kimi Code 2.5.3+ is installed privately from its platform
+manifest with SHA-256 verification. Signed configuration uses `ckx.json`
+(`CKX_CONFIG_PATH`); `CKX_KIMI_BIN` selects an explicit native binary. A managed
+launch sets a private `KIMI_CODE_HOME`, disables telemetry/self-updates and
+projects only the leased access token. `ckx login` uses a disposable device-login
+home and uploads the canonical credential before removing it. See
+[the ckx contract](interface-ckx.md) and [communicator behavior](communicator.md).

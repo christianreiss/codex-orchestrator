@@ -47,6 +47,8 @@ func (p *picker) accent(engine string) string {
 		return p.caps.Palette.Violet
 	case config.EngineGrok:
 		return p.caps.Palette.Green
+	case config.EngineKimi:
+		return p.caps.Palette.Amber
 	}
 	return p.caps.Palette.Orange
 }
@@ -225,6 +227,10 @@ func (p *picker) hub() ([]string, int, int) {
 	}
 
 	lines := []string{centerIn(p.title(), total), ""}
+	if len(p.engines) > 3 {
+		upLabel, upSub := cells(3)
+		lines = append(lines, centerIn(upLabel, total), centerIn(upSub, total), stem("↑"), stem(g.vertical))
+	}
 	lines = append(lines,
 		padLeft(leftLabel, side)+"  "+p.dim(centre)+"  "+rightLabel,
 	)
@@ -454,9 +460,9 @@ func (p *picker) footer() string {
 }
 
 func (p *picker) slotHint() string {
-	arrows := []string{"←", "→", "↓"}
+	arrows := []string{"←", "→", "↓", "↑"}
 	if !p.caps.UTF8 {
-		arrows = []string{"left", "right", "down"}
+		arrows = []string{"left", "right", "down", "up"}
 	}
 	return strings.Join(arrows[:min(len(arrows), len(p.engines))], "/") + " engine"
 }

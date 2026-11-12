@@ -10,6 +10,9 @@ func engineCaps(caps Caps, engine string) Caps {
 		// Not green: green already means "ok" in every row of the box.
 		caps.Theme = ThemeCyan
 	}
+	if strings.EqualFold(engine, "ckx") || strings.EqualFold(engine, "kimi") {
+		caps.Theme = ThemeAmber
+	}
 	if !caps.IsTTY || caps.Dumb || caps.NoColor {
 		caps.Palette = Palette{}
 	}
@@ -26,6 +29,9 @@ func normalizeScreen(in ScreenInput) ScreenInput {
 		in.EngineName = "codex"
 		if in.Prefix == "clx" {
 			in.EngineName = "claude"
+		}
+		if in.Prefix == "ckx" {
+			in.EngineName = "kimi"
 		}
 		if in.Prefix == "cgx" {
 			in.EngineName = "grok"

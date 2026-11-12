@@ -12,6 +12,7 @@ import (
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	kimiapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
@@ -20,7 +21,7 @@ import (
 
 func runNative(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 2 || args[1] != "--" {
-		fmt.Fprintln(stderr, "usage: cxx native codex|claude|grok -- [native arguments]")
+		fmt.Fprintln(stderr, "usage: cxx native codex|claude|grok|kimi -- [native arguments]")
 		return 2
 	}
 	switch args[0] {
@@ -30,6 +31,8 @@ func runNative(args []string, stdout, stderr io.Writer) int {
 		return claudeapp.RunNative(args[2:], stdout, stderr)
 	case "grok":
 		return grokapp.RunNative(args[2:], stdout, stderr)
+	case "kimi":
+		return kimiapp.RunNative(args[2:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "cxx native: unknown engine %q\n", args[0])
 		return 2
@@ -95,7 +98,7 @@ func reconcileNativeEntries(requireAssignment ...bool) error {
 		return err
 	}
 	var assigned []string
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		path, err := configPathFor(engine)
 		if err != nil {
 			continue

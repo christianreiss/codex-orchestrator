@@ -62,7 +62,7 @@ func TestResidentProcessRunsWithoutMessagingClientsOrAccountAdmission(t *testing
 	}))
 	defer upstream.Close()
 	env := append(os.Environ(), "HOME="+root, "XDG_RUNTIME_DIR="+runtimeRoot)
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "resident-fixture", InstallationID: "resident-fixture", CommunicatorRuntimeProtocol: 1}, Host: config.Host{ID: 1, FQDN: "resident.example", Secure: true}, Wrapper: config.Wrapper{Version: "0.9.78", Track: "stable", BinaryURL: upstream.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 		path := filepath.Join(root, engine+".json")
 		body, _ := json.Marshal(cfg)
@@ -72,7 +72,7 @@ func TestResidentProcessRunsWithoutMessagingClientsOrAccountAdmission(t *testing
 		if err := os.WriteFile(path+".sig", ed25519.Sign(priv, body), 0600); err != nil {
 			t.Fatal(err)
 		}
-		env = append(env, map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]+"="+path)
+		env = append(env, map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"}[engine]+"="+path)
 	}
 
 	sum := sha256.Sum256([]byte(upstream.URL))

@@ -368,7 +368,7 @@ func runEnabledTicks(ctx context.Context, canonical string, engines []string, mi
 	var errs []error
 	for _, engine := range engines {
 		args := []string{engine, "--cron", "run"}
-		if engine == "grok" && ctx.Value(concurrentSyncKey{}) == true {
+		if (engine == "grok" || engine == "kimi") && ctx.Value(concurrentSyncKey{}) == true {
 			args = append(args, "--allow-concurrent-sync")
 		}
 		if minimal {
@@ -416,6 +416,9 @@ func refreshAssignments(ctx context.Context, seed *config.Config, executable str
 	if hasEngine(config.EnabledEngines(seed.Host, seed.Engine), config.EngineGrok) || grokConfigPresent() {
 		probes = append(probes, config.EngineGrok)
 	}
+	if hasEngine(config.EnabledEngines(seed.Host, seed.Engine), config.EngineKimi) || kimiConfigPresent() {
+		probes = append(probes, config.EngineKimi)
+	}
 	for index := 0; index < len(probes); index++ {
 		engine := probes[index]
 		item, err := fetchAuthoritative(ctx, seed, engine)
@@ -441,13 +444,17 @@ func refreshAssignments(ctx context.Context, seed *config.Config, executable str
 		if hasEngine(config.EnabledEngines(item.Config.Host, item.Config.Engine), config.EngineGrok) && !hasEngine(probes, config.EngineGrok) {
 			probes = append(probes, config.EngineGrok)
 		}
+		if hasEngine(config.EnabledEngines(item.Config.Host, item.Config.Engine), config.EngineKimi) && !hasEngine(probes, config.EngineKimi) {
+			probes = append(probes, config.EngineKimi)
+		}
+
 	}
 	// Fleet-wide "destroy engine": act before anything is persisted, and treat
 	// the destroyed engines like disabled ones for config/alias cleanup below.
 	disabled = append(disabled, applyDestroyRequests(ctx, seed, fetched, executable, warn)...)
 	configs := make([]*config.Config, 0, len(fetched))
 	engines := make([]string, 0, len(fetched))
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		item := fetched[engine]
 		if item == nil || item.Config == nil {
 			continue
@@ -500,6 +507,15 @@ func RefreshForUpdate(ctx context.Context, seed *config.Config, executable strin
 
 func grokConfigPresent() bool {
 	path, err := config.DefaultPathForEngine(config.EngineGrok)
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
+func kimiConfigPresent() bool {
+	path, err := config.DefaultPathForEngine(config.EngineKimi)
 	if err != nil {
 		return false
 	}
@@ -567,7 +583,7 @@ func loadAnySeedConfig() (*config.Config, error) {
 func loadAnySeedConfigWithKey(pubkey ed25519.PublicKey) (*config.Config, error) {
 	var errs []error
 	var expiredSeed *config.Config
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		path, pathErr := config.DefaultPathForEngine(engine)
 		if pathErr != nil {
 			errs = append(errs, pathErr)
@@ -623,6 +639,10 @@ func installUserCron(bin string, minute, hour int) error {
 	if err != nil {
 		return err
 	}
+	ckxPath, kimiHome, err := resolveCronKimiPaths(home, cdxPath)
+	if err != nil {
+		return err
+	}
 	cgxPath, grokHome, err := resolveCronGrokPaths(home, cdxPath)
 	if err != nil {
 		return err
@@ -640,6 +660,7 @@ func installUserCron(bin string, minute, hour int) error {
 		"CGX_CONFIG_PATH": cgxPath,
 		"CODEX_HOME":      codexHome,
 		"GROK_HOME":       grokHome,
+		"CKX_CONFIG_PATH": ckxPath, "KIMI_CODE_HOME": kimiHome,
 	}) + "\n"
 	return writeCrontab(body)
 }
@@ -731,6 +752,9 @@ func resolveSystemCronIdentity() (systemCronIdentity, error) {
 		return systemCronIdentity{}, err
 	}
 	home = inferConfigHome(home, cdxPath, clxPath)
+	if _, _, err := resolveCronKimiPaths(home, cdxPath); err != nil {
+		return systemCronIdentity{}, err
+	}
 	if _, _, err := resolveCronGrokPaths(home, cdxPath); err != nil {
 		return systemCronIdentity{}, err
 	}
@@ -760,8 +784,9 @@ func buildSystemCronBody(bin, cdxPath, clxPath, logFile, userName, home, codexHo
 	// Assign through the shell, whose quoting handles embedded quote characters;
 	// cron's environment-line parser is not a shell parser. Escape percent only
 	// after constructing the command, since cron processes it before /bin/sh.
+	ckxPath, kimiHome, _ := resolveCronKimiPaths(home, cdxPath)
 	cgxPath, grokHome, _ := resolveCronGrokPaths(home, cdxPath)
-	command := fmt.Sprintf("CODEX_HOME=%s GROK_HOME=%s %s cron run --due >> %s 2>&1", shellEscape(codexHome), shellEscape(grokHome), shellEscape(bin), shellEscape(logFile))
+	command := fmt.Sprintf("CODEX_HOME=%s GROK_HOME=%s KIMI_CODE_HOME=%s %s cron run --due >> %s 2>&1", shellEscape(codexHome), shellEscape(grokHome), shellEscape(kimiHome), shellEscape(bin), shellEscape(logFile))
 	command = strings.ReplaceAll(command, "%", `\%`)
 	return fmt.Sprintf(`# cxx-managed-cron - host-wide wrapper and engine maintenance. Do not edit by hand.
 SHELL=/bin/sh
@@ -770,8 +795,9 @@ HOME=%s
 CDX_CONFIG_PATH=%s
 CLX_CONFIG_PATH=%s
 CGX_CONFIG_PATH=%s
+CKX_CONFIG_PATH=%s
 %s %s %s
-`, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), shellEscape(cgxPath), cronSchedule(minute, hour), userName, command)
+`, shellEscape(home), shellEscape(cdxPath), shellEscape(clxPath), shellEscape(cgxPath), shellEscape(ckxPath), cronSchedule(minute, hour), userName, command)
 }
 
 func resolveCronGrokPaths(home, cdxPath string) (string, string, error) {
@@ -785,6 +811,21 @@ func resolveCronGrokPaths(home, cdxPath string) (string, string, error) {
 	}
 	if !filepath.IsAbs(path) || !filepath.IsAbs(nativeHome) || strings.ContainsAny(path+nativeHome, "\x00\r\n") {
 		return "", "", errors.New("cron Grok paths must be absolute and contain no control characters")
+	}
+	return path, nativeHome, nil
+}
+
+func resolveCronKimiPaths(home, cdxPath string) (string, string, error) {
+	path := strings.TrimSpace(os.Getenv("CKX_CONFIG_PATH"))
+	if path == "" {
+		path = filepath.Join(filepath.Dir(cdxPath), "ckx.json")
+	}
+	nativeHome := strings.TrimSpace(os.Getenv("KIMI_CODE_HOME"))
+	if nativeHome == "" {
+		nativeHome = filepath.Join(home, ".kimi-code")
+	}
+	if !filepath.IsAbs(path) || !filepath.IsAbs(nativeHome) || strings.ContainsAny(path+nativeHome, "\x00\r\n") {
+		return "", "", errors.New("cron Kimi paths must be absolute and contain no control characters")
 	}
 	return path, nativeHome, nil
 }
@@ -807,12 +848,14 @@ func resolveCronCodexHome(home string) (string, error) {
 func resolveCronConfigPaths(home string) (string, string, error) {
 	cdxOverride := strings.TrimSpace(os.Getenv("CDX_CONFIG_PATH"))
 	clxOverride := strings.TrimSpace(os.Getenv("CLX_CONFIG_PATH"))
-	if grokOverride := strings.TrimSpace(os.Getenv("CGX_CONFIG_PATH")); grokOverride != "" {
-		if cdxOverride == "" {
-			cdxOverride = filepath.Join(filepath.Dir(grokOverride), "cdx.json")
-		}
-		if clxOverride == "" {
-			clxOverride = filepath.Join(filepath.Dir(grokOverride), "clx.json")
+	for _, key := range []string{"CGX_CONFIG_PATH", "CKX_CONFIG_PATH"} {
+		if grokOverride := strings.TrimSpace(os.Getenv(key)); grokOverride != "" {
+			if cdxOverride == "" {
+				cdxOverride = filepath.Join(filepath.Dir(grokOverride), "cdx.json")
+			}
+			if clxOverride == "" {
+				clxOverride = filepath.Join(filepath.Dir(grokOverride), "clx.json")
+			}
 		}
 	}
 	if cdxOverride != "" && clxOverride == "" {
@@ -909,7 +952,7 @@ var rootEnrolled = func() bool {
 	if err != nil {
 		return false
 	}
-	for _, name := range []string{"cdx.json", "clx.json", "cgx.json"} {
+	for _, name := range []string{"cdx.json", "clx.json", "cgx.json", "ckx.json"} {
 		if _, err := os.Stat(filepath.Join(root.HomeDir, ".config", "codex-orchestrator", name)); err == nil {
 			return true
 		}
@@ -1128,9 +1171,9 @@ func privateInstallSchedule(userName, line, canonical, coveredUser string) bool 
 		return false
 	}
 	var configs []string
-	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH"} {
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CKX_CONFIG_PATH"} {
 		if path := env[key]; filepath.IsAbs(path) {
-			configs = append(configs, path, filepath.Join(filepath.Dir(path), "cgx.json"))
+			configs = append(configs, path, filepath.Join(filepath.Dir(path), "cgx.json"), filepath.Join(filepath.Dir(path), "ckx.json"))
 		}
 	}
 	for _, path := range configs {

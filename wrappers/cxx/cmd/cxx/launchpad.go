@@ -14,6 +14,7 @@ import (
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	kimiapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -93,6 +94,13 @@ func launchSelection(s launchpad.Selection, stdout, stderr io.Writer) int {
 	case config.EngineGrok:
 		// cgx's own `run` keeps the boot card that the native path skips.
 		return grokapp.Run(append([]string{"run"}, args...), stdout, stderr)
+	case config.EngineKimi:
+		if s.Effort != "" {
+			os.Setenv("CKX_LAUNCH_EFFORT", s.Effort)
+			defer os.Unsetenv("CKX_LAUNCH_EFFORT")
+		}
+		// ckx's own `run` keeps the boot card that the native path skips.
+		return kimiapp.Run(append([]string{"run"}, args...), stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "cxx launchpad: unknown engine %q\n", s.Engine)
 	return 2
@@ -107,6 +115,10 @@ func engineInstalled(engine string) bool {
 		_, err = codex.FindCLI()
 	case config.EngineClaude:
 		_, err = claude.FindCLI()
+	case config.EngineGrok, config.EngineKimi:
+		return true // installed on demand by these personas
+	default:
+		return false
 	}
 	return err == nil
 }

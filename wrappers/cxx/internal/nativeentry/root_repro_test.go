@@ -18,7 +18,7 @@ func TestRootLeavesForeignHomeUntouched(t *testing.T) {
 	}
 	rc := filepath.Join(home, ".bashrc")
 	before, _ := os.ReadFile(rc)
-	err := Install(Options{Home: home, WrapperPath: "/usr/bin/cxx", Engines: []string{"codex", "claude", "grok"}})
+	err := Install(Options{Home: home, WrapperPath: "/usr/bin/cxx", Engines: []string{"codex", "claude", "grok", "kimi"}})
 	t.Logf("install as root into %s: %v", home, err)
 	if err == nil {
 		t.Error("root installed native entries into another user's home")

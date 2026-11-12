@@ -235,14 +235,14 @@ func TestDaemonChannelSharesControlConnection(t *testing.T) {
 
 func TestSyncScopesKeepEngineAndEnvironmentBoundaries(t *testing.T) {
 	s := &server{jobs: map[string]syncJob{}, jobRefs: map[string]int{}}
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		req := httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(`[{"engine":"`+engine+`","config":"/signed","env":{"HOME":"/one"}}]`))
 		ids, _, err := s.registerJobs(req)
 		if err != nil || len(ids) != 1 {
 			t.Fatal(ids, err)
 		}
 	}
-	if len(s.jobs) != 3 {
+	if len(s.jobs) != 4 {
 		t.Fatal("engine scopes collapsed")
 	}
 	bad := httptest.NewRequest("POST", "/_comm/lease", strings.NewReader(`[{"engine":"codex","env":{"LD_PRELOAD":"/bad"}}]`))

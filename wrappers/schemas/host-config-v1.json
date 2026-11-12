@@ -62,7 +62,7 @@
       "additionalProperties": false
     },
     "schema_version": { "type": "integer", "const": 1 },
-    "engine": { "type": "string", "enum": ["codex", "claude", "grok"] },
+    "engine": { "type": "string", "enum": ["codex", "claude", "grok", "kimi"] },
     "issued_at": { "type": "string", "format": "date-time" },
     "expires_at": { "type": ["string", "null"], "format": "date-time" },
     "orchestrator": {
@@ -94,8 +94,8 @@
         "browseros_mcp_enabled": { "type": "boolean", "default": false },
         "agent_messaging_enabled": { "type": "boolean", "default": false },
         "engines": { "type": "string" },
-        "engines_list": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude", "grok"] } },
-        "fleet_disabled_engines": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude", "grok"] } },
+        "engines_list": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude", "grok", "kimi"] } },
+        "fleet_disabled_engines": { "type": "array", "items": { "type": "string", "enum": ["codex", "claude", "grok", "kimi"] } },
         "destroy_engines": {
           "type": "array",
           "items": {
@@ -103,7 +103,7 @@
             "additionalProperties": false,
             "required": ["engine", "request_id"],
             "properties": {
-              "engine": { "type": "string", "enum": ["codex", "claude", "grok"] },
+              "engine": { "type": "string", "enum": ["codex", "claude", "grok", "kimi"] },
               "request_id": { "type": "string", "minLength": 1 }
             }
           }
@@ -119,6 +119,8 @@
         "reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] },
         "admin_theme_hint": { "type": ["string", "null"], "enum": [null, "auto", "light", "dark"] },
         "claude_model_override": { "type": ["string", "null"] },
+        "kimi_model_override": { "type": ["string", "null"] },
+        "kimi_reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "low", "high", "max"] },
         "grok_model_override": { "type": ["string", "null"] },
         "grok_reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "low", "medium", "high", "xhigh"] },
         "dangerously_bypass_approvals_and_sandbox": { "type": "boolean", "default": false },
@@ -127,7 +129,7 @@
           "additionalProperties": false,
           "required": ["engine", "latest_only", "latest_models", "replacements"],
           "properties": {
-            "engine": { "type": "string", "enum": ["codex", "claude", "grok"] },
+            "engine": { "type": "string", "enum": ["codex", "claude", "grok", "kimi"] },
             "latest_only": { "type": "boolean" },
             "latest_models": { "type": "array", "items": { "type": "string" } },
             "replacements": { "type": "object", "additionalProperties": { "type": "string" } },

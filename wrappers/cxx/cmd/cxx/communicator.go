@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	kimiapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
@@ -47,6 +48,8 @@ func communicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out = claudelife.CommunicatorWork(ctx, cfg, req)
 	case "grok":
 		out = grokapp.CommunicatorWork(ctx, cfg, req)
+	case "kimi":
+		out = kimiapp.CommunicatorWork(ctx, cfg, req)
 	default:
 		return communicator.SyncResult{Error: &communicator.SyncError{Message: "invalid sync engine"}}
 	}

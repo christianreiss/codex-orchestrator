@@ -35,6 +35,30 @@ func (c *Context) cacheWeeklyLocked(doc map[string]json.RawMessage) {
 		SevenDayUsed     *int   `json:"seven_day_used_percent"`
 		SevenDayReset    string `json:"seven_day_resets_at"`
 	}
+	if c.Engine == "kimi" {
+		var reading struct {
+			FetchedAt string  `json:"fetched_at"`
+			ErrorCode *string `json:"error_code"`
+			Windows   []struct {
+				Kind  string   `json:"kind"`
+				Used  *float64 `json:"used_percent"`
+				Reset string   `json:"resets_at"`
+			} `json:"windows"`
+		}
+		usage := WeeklyUsage{Engine: c.Engine, AccountID: c.AccountID}
+		if json.Unmarshal(doc["kimi_usage"], &reading) == nil && reading.ErrorCode == nil {
+			usage.FetchedAt = reading.FetchedAt
+			for _, window := range reading.Windows {
+				if window.Kind == "weekly" && window.Used != nil && *window.Used >= 0 && *window.Used <= 100 {
+					used := int(*window.Used)
+					usage.Used = &used
+					usage.ResetAt = window.Reset
+				}
+			}
+		}
+		c.saveWeeklyLocked(usage)
+		return
+	}
 	field := "chatgpt"
 	if c.Engine == "claude" {
 		field = "claude_usage"
@@ -53,6 +77,9 @@ func (c *Context) cacheWeeklyLocked(doc map[string]json.RawMessage) {
 			usage.Used, usage.ResetAt = quota.SecondaryUsed, quota.SecondaryReset
 		}
 	}
+	c.saveWeeklyLocked(usage)
+}
+func (c *Context) saveWeeklyLocked(usage WeeklyUsage) {
 	raw, err := json.Marshal(usage)
 	if err != nil {
 		return

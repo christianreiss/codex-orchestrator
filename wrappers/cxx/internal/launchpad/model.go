@@ -26,7 +26,7 @@ const (
 )
 
 // Compass slots, filled in screen order by the engines present.
-var slotKeys = [][]string{{"left", "h"}, {"right", "l"}, {"down", "j"}}
+var slotKeys = [][]string{{"left", "h"}, {"right", "l"}, {"down", "j"}, {"up", "k"}}
 
 type cursor struct {
 	model, effort, offset int

@@ -1295,3 +1295,22 @@ retrying only the private broker's explicit pre-dispatch rejection, for at most
 two minutes. It never bypasses the live proof fence or replays an unknown write.
 This does not remove API cutover downtime or hot-update running MCP clients.
 See [scope coordination](agent-coordination.md#claim-reconnect-waiting-cxx-09147).
+
+### Kimi wrapper auth projection
+
+The `kimi` / `ckx` scope follows the same server-owned provider readiness path
+as Grok. Its broker is wrapper-local readiness IPC; Kimi itself reads
+`$KIMI_CODE_HOME/credentials/kimi-code.json`. A successful readiness pass rewrites
+that access-only file whenever the canonical head changes. The projection has
+an empty refresh token and zero expiry fields, so native never refreshes it.
+The communicator transports `KIMI_CODE_HOME` / `CKX_CONFIG_PATH` as scope inputs
+and strips `CXX_KIMI_*` launch identity from its background environment.
+Kimi receiver delivery uses `UserPromptSubmit` and `Stop` hooks, not a Grok
+leader process. Session history stays in the durable home while credentials
+and receiver configuration live in a private managed home.
+
+Kimi links its durable session tree and append-only `session_index.jsonl` into the private
+home. Its root `projects.json` uses native atomic replacement, so the lifetime cleaner
+merges that catalog into the durable home after the native process exits, preserving
+other sessions' projects. Credentials are removed before catalog recovery; a failed
+recovery retains only the catalog for the next maintenance sweep.

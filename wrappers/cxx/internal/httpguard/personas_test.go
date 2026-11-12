@@ -20,7 +20,7 @@ type personaClient interface {
 
 func eachPersona(t *testing.T, test func(*testing.T, func(string) personaClient)) {
 	t.Helper()
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			test(t, func(base string) personaClient {
 				if engine == "codex" {

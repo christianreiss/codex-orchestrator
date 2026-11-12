@@ -280,6 +280,9 @@ var grokCommands = strings.Fields("agent clone completions cursor-worker worker 
 // old fallback so wrapper profile/command classification remains separate.
 func Command(engine string, args []string) (string, int) {
 	commands := codexCommands
+	if engine == "kimi" {
+		commands = kimiCommands
+	}
 	if engine == "grok" {
 		commands = grokCommands
 	}
@@ -311,6 +314,12 @@ func Command(engine string, args []string) (string, int) {
 // Wrapper-internal app-server/leader starts occur after these public checks.
 func UnsupportedService(engine string, args []string) string {
 	command, at := Command(engine, args)
+	if engine == "kimi" {
+		switch command {
+		case "web", "server", "rc", "remote", "app", "vis", "acp":
+			return command
+		}
+	}
 	if engine == "codex" {
 		switch command {
 		case "app-server", "exec-server", "remote-control", "agents", "migrate-nfs-db", "queue", "archive", "unarchive", "delete":
@@ -381,6 +390,9 @@ func CodexSessionCommand(args []string) (string, int) {
 }
 
 func Resumed(engine string, args []string) bool {
+	if engine == "kimi" {
+		return Has(engine, args, "--session", "--continue")
+	}
 	if engine == "grok" {
 		return Has(engine, args, "--resume", "--continue", "--load")
 	}

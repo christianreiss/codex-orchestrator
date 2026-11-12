@@ -15,7 +15,7 @@ import (
 )
 
 func parallelUpdateFixture(t *testing.T) *updateFixture {
-	f := newUpdateFixture(t, "codex", "claude", "grok")
+	f := newUpdateFixture(t, "codex", "claude", "grok", "kimi")
 	check := f.deps.check
 	f.deps.check = func(ctx context.Context, cfg *config.Config, version string) (*orchestrator.CronCheckResponse, error) {
 		r, err := check(ctx, cfg, version)
@@ -29,14 +29,14 @@ func TestHostUpdateInstallsOverlapAfterGuardsBeforeSync(t *testing.T) {
 	f := parallelUpdateFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	entered := make(chan string, 3)
+	entered := make(chan string, 4)
 	release := make(chan struct{})
 	var active atomic.Int32
 	var guards []string
 	f.deps.protect = func(_ context.Context, cfg *config.Config) error { guards = append(guards, cfg.Engine); return nil }
 	install := f.deps.install
 	f.deps.install = func(ctx context.Context, engine, target string, exact bool) error {
-		if len(guards) != 3 {
+		if len(guards) != 4 {
 			return errors.New("installation started before all guards finished")
 		}
 		active.Add(1)
@@ -59,30 +59,30 @@ func TestHostUpdateInstallsOverlapAfterGuardsBeforeSync(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan int, 1)
 	go func() { done <- updateHost(ctx, nil, &out, ui.Caps{}, f.deps, false) }()
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		select {
 		case <-entered:
 		case <-ctx.Done():
 			t.Fatal("engine installs did not overlap")
 		}
 	}
-	if active.Load() != 3 {
+	if active.Load() != 4 {
 		t.Fatal("not all installers are running", active.Load())
 	}
 	close(release)
 	if code := <-done; code != 0 {
 		t.Fatalf("code=%d: %s", code, &out)
 	}
-	if strings.Join(guards, ",") != "codex,claude,grok" || strings.Join(f.syncs, ",") != "codex,claude,grok" || strings.Join(f.reports, ",") != "codex,claude,grok" {
+	if strings.Join(guards, ",") != "codex,claude,grok,kimi" || strings.Join(f.syncs, ",") != "codex,claude,grok,kimi" || strings.Join(f.reports, ",") != "codex,claude,grok,kimi" {
 		t.Fatalf("guards=%v syncs=%v reports=%v", guards, f.syncs, f.reports)
 	}
 }
 
 func TestHostUpdateChecksOverlapInWrapperContinuation(t *testing.T) {
-	f := newUpdateFixture(t, "codex", "claude", "grok")
+	f := newUpdateFixture(t, "codex", "claude", "grok", "kimi")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	entered := make(chan string, 3)
+	entered := make(chan string, 4)
 	release := make(chan struct{})
 	check := f.deps.check
 	f.deps.check = func(ctx context.Context, cfg *config.Config, v string) (*orchestrator.CronCheckResponse, error) {
@@ -97,7 +97,7 @@ func TestHostUpdateChecksOverlapInWrapperContinuation(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan int, 1)
 	go func() { done <- updateHost(ctx, nil, &out, ui.Caps{}, f.deps, true) }()
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		select {
 		case <-entered:
 		case <-ctx.Done():
@@ -114,7 +114,7 @@ func TestHostUpdateCancellationJoinsWorkersAndSkipsSync(t *testing.T) {
 	f := parallelUpdateFixture(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	entered := make(chan struct{}, 3)
+	entered := make(chan struct{}, 4)
 	var active atomic.Int32
 	f.deps.install = func(ctx context.Context, _, _ string, _ bool) error {
 		active.Add(1)
@@ -126,7 +126,7 @@ func TestHostUpdateCancellationJoinsWorkersAndSkipsSync(t *testing.T) {
 	var out bytes.Buffer
 	done := make(chan int, 1)
 	go func() { done <- updateHost(ctx, nil, &out, ui.Caps{}, f.deps, false) }()
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		select {
 		case <-entered:
 		case <-ctx.Done():
@@ -134,7 +134,7 @@ func TestHostUpdateCancellationJoinsWorkersAndSkipsSync(t *testing.T) {
 		}
 	}
 	cancel()
-	if code := <-done; code != 1 || active.Load() != 0 || len(f.syncs)+len(f.reports) != 0 || strings.Count(out.String(), "cancelled") != 3 {
+	if code := <-done; code != 1 || active.Load() != 0 || len(f.syncs)+len(f.reports) != 0 || strings.Count(out.String(), "cancelled") != 4 {
 		t.Fatalf("code=%d active=%d syncs=%v reports=%v output=%s", code, active.Load(), f.syncs, f.reports, &out)
 	}
 }
@@ -151,7 +151,7 @@ func TestHostUpdateGuardFailurePreservesHealthyParallelInstalls(t *testing.T) {
 	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 1 {
 		t.Fatal(code, &out)
 	}
-	if len(f.installs) != 2 || strings.Join(f.syncs, ",") != "claude,grok" || !strings.Contains(out.String(), "pending credentials | sync skipped") {
+	if len(f.installs) != 3 || strings.Join(f.syncs, ",") != "claude,grok,kimi" || !strings.Contains(out.String(), "pending credentials | sync skipped") {
 		t.Fatalf("installs=%v syncs=%v output=%s", f.installs, f.syncs, &out)
 	}
 }

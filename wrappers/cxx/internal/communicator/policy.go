@@ -37,7 +37,7 @@ func loadSigned(path string, key ed25519.PublicKey) (*config.Config, error) {
 // or disablement. Never change the host/server identity that elected the owner.
 func selectSignedConfig(seed *config.Config, paths []string, key ed25519.PublicKey) (*config.Config, error) {
 	paths = append([]string{seed.SourcePath()}, paths...)
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		if path, err := config.DefaultPathForEngine(engine); err == nil {
 			paths = append(paths, path)
 		}
