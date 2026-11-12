@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# Auth-runner image: FastAPI plus all three engine CLIs.
+# Auth-runner image: FastAPI plus all four engine CLIs.
 #
-# Every layer here fails closed. An image that builds without one of the three
+# Every layer here fails closed. An image that builds without one of the four
 # CLIs is worse than a build error — it boots, answers /health, and reports a
 # multi-engine runner that silently cannot verify part of the fleet's credentials.
 # Base pinned by multi-arch index digest; `scripts/update-base-images.sh`
@@ -93,22 +93,29 @@ RUN set -eu; GROK_VERSION="${GROK_VERSION}" node /tmp/install-grok.mjs "${TARGET
     grok --version | grep -F "grok ${GROK_VERSION} "; \
     rm /tmp/install-grok.mjs
 
+# Kimi Code native binary, pinned manifest and SHA-256 verified.
+COPY install-kimi.sh /tmp/install-kimi.sh
+ARG KIMI_VERSION=2.5.3
+RUN KIMI_VERSION="${KIMI_VERSION}" sh /tmp/install-kimi.sh "${TARGETARCH:-amd64}" \
+    && rm /tmp/install-kimi.sh
+
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py entrypoint.sh /app/
-COPY runner_engines.py grok.py images.py network_policy.py chatty.py exec_process.py /app/
+COPY runner_engines.py grok.py kimi.py images.py network_policy.py chatty.py exec_process.py /app/
 
 RUN chmod +x /app/entrypoint.sh
 
 # The versions the image was built with, so /health can report what it actually
-# ships instead of re-shelling out to three CLIs on every probe.
+# ships instead of re-shelling out to four CLIs on every probe.
 ENV RUNNER_CODEX_VERSION=${CODEX_VERSION}
 ENV RUNNER_CLAUDE_VERSION=${CLAUDE_CODE_VERSION}
 ENV RUNNER_GROK_VERSION=${GROK_VERSION}
-# All three engines are present by construction, so the runner must refuse to
+ENV RUNNER_KIMI_VERSION=${KIMI_VERSION}
+# All four engines are present by construction, so the runner must refuse to
 # start if any binary went missing between build and boot.
-ENV RUNNER_REQUIRED_ENGINES=codex,claude,grok
+ENV RUNNER_REQUIRED_ENGINES=codex,claude,grok,kimi
 ENV PYTHONUNBUFFERED=1
 ENV RUNNER_HOME_PARENT=/dev/shm
 USER nobody

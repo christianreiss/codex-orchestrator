@@ -1,13 +1,14 @@
-# Codex / Claude / Grok Auth Runner
+# Codex / Claude / Grok / Kimi Auth Runner
 
-Lightweight HTTP microservice that validates an `auth.json`, generates short summaries, and drafts/revises skills by running the Codex, Claude, or Grok CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
+Lightweight HTTP microservice that validates an `auth.json`, generates short summaries, and drafts/revises skills by running the Codex, Claude, Grok, or Kimi CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
 
-All three engines are supported:
+All four engines are supported:
 
 - **Codex** path uses `/usr/local/bin/codex exec` with the installed Codex Rust CLI.
 - **Claude** path uses `/usr/local/bin/claude --print` with the installed `@anthropic-ai/claude-code` npm CLI.
+- **Kimi** path uses Kimi Code 2.5.3 stream-json in a private `KIMI_CODE_HOME`, with access-only credential projection and all native tools denied. The server alone owns refresh.
 - **Grok** path uses the pinned official `grok` CLI with `--prompt-file` and JSON output in an isolated, access-only `GROK_HOME`; the server owns Grok refresh, so the runner never spends a refresh token.
-- Skill/memory/project endpoints accept an `engine: "codex" | "claude" | "grok"` field in the request body (defaults to `codex` for back-compat).
+- Skill/memory/project endpoints accept an `engine: "codex" | "claude" | "grok" | "kimi"` field in the request body (defaults to `codex` for back-compat).
 - A dedicated `POST /verify-claude` endpoint validates Anthropic API keys against
   `api.anthropic.com/v1/messages`, and validates Claude Code OAuth credentials
   through the native Claude CLI so account-login tokens are not treated as public
@@ -21,17 +22,18 @@ docker build -t codex-auth-runner -f runner/Dockerfile runner
 
 The image bundles:
 
+- Kimi Code 2.5.3 from the official versioned binary manifest, with SHA-256 verification and a version assertion (`install-kimi.sh`, amd64/arm64).
 - Grok Build 1.0.77 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
 
 - The Codex CLI (default `rust-v0.167.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so probes and gateway requests run the same model catalog as real hosts. Confirmed on 2026-10-15: 0.154.0 rejects `gpt-6.1-sol` with ChatGPT credentials; 0.162.1 completes the same prompt with the same refresh-stripped credentials. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
 - Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.322` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
 Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.77 with separate Linux amd64/arm64 sha512 integrity digests, verified against the exact
-platform dependencies of `@xai-official/grok@1.0.77` on 2026-11-06, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All three CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
+platform dependencies of `@xai-official/grok@1.0.77` on 2026-11-06, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All four CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
 
 These are runner execution pins, separate from host minimum-version and private-install fallback policies. Claude 2.1.322 tracks the latest normal release reviewed on 2026-11-10; the vendor conservative `stable` channel is 2.1.311. Codex 0.167.0 remains its reviewed stable release (2026-11-10). Grok 1.0.77 remains the official stable-pointer/npm-latest selection reviewed on 2026-11-10 (the `alpha` tag 1.0.80 is not used); a local channel label does not change its distribution version.
 
-The image records what it installed in `RUNNER_CODEX_VERSION`, `RUNNER_CLAUDE_VERSION`, and `RUNNER_GROK_VERSION`, and names the engines it must have in `RUNNER_REQUIRED_ENGINES` (`codex,claude,grok`). `entrypoint.sh` and `app.py` both refuse to start when one of those is absent or has drifted, so a runner can never advertise an engine it cannot actually run.
+The image records what it installed in `RUNNER_CODEX_VERSION`, `RUNNER_CLAUDE_VERSION`, and `RUNNER_GROK_VERSION`, `RUNNER_KIMI_VERSION`, and names the engines it must have in `RUNNER_REQUIRED_ENGINES` (`codex,claude,grok,kimi`). `entrypoint.sh` and `app.py` both refuse to start when one of those is absent or has drifted, so a runner can never advertise an engine it cannot actually run.
 
 ## Run (standalone)
 
@@ -45,15 +47,15 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
 - `ANTHROPIC_API_BASE` (optional) — Anthropic API base URL used by `POST /verify-claude`; defaults to `https://api.anthropic.com`.
-- `RUNNER_SHARED_SECRET` (required) — every POST (`/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`) requires header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
+- `RUNNER_SHARED_SECRET` (required) — every POST (`/verify`, `/verify-claude`, `/verify-grok`, `/verify-kimi`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`) requires header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
 - `RUNNER_HOME_PARENT` (optional) — parent directory for the isolated temporary runner `$HOME`; the bundled image sets it to `/dev/shm`, which is writable in the hardened container while still avoiding CLI homes under `/tmp`.
-- `RUNNER_REQUIRED_ENGINES` (optional) — comma-separated engines that must be installed and answering `--version` before the process serves traffic; the bundled image sets it to `codex,claude,grok`. Unset means "whatever is installed is fine", which suits a source checkout but never an image. An unknown name here is a startup error, not a warning.
+- `RUNNER_REQUIRED_ENGINES` (optional) — comma-separated engines that must be installed and answering `--version` before the process serves traffic; the bundled image sets it to `codex,claude,grok,kimi`. Unset means "whatever is installed is fine", which suits a source checkout but never an image. An unknown name here is a startup error, not a warning.
 - `RUNNER_MAX_IMAGES` (optional, default `8`) — how many images one `/exec` request may attach.
 - `RUNNER_MAX_IMAGE_BYTES` (optional, default `10485760`) — per-image ceiling. For a data URL the encoded length is checked *before* decoding, so an oversized payload is refused without being materialized in memory.
 - `RUNNER_MAX_IMAGE_TOTAL_BYTES` (optional, default `33554432`) — aggregate ceiling across one request, so many images that each fit cannot add up past it.
 
   All three are read once at import. An unparseable or out-of-range value fails startup rather than silently restoring the default.
-- `RUNNER_CODEX_VERSION` / `RUNNER_CLAUDE_VERSION` / `RUNNER_GROK_VERSION` (optional) — the versions the image installed. When set, a CLI reporting anything else is treated as unavailable, so a hand-patched container cannot silently answer probes with a different CLI than the one that was verified at build time.
+- `RUNNER_CODEX_VERSION` / `RUNNER_CLAUDE_VERSION` / `RUNNER_GROK_VERSION`, `RUNNER_KIMI_VERSION` (optional) — the versions the image installed. When set, a CLI reporting anything else is treated as unavailable, so a hand-patched container cannot silently answer probes with a different CLI than the one that was verified at build time.
 - `RUNNER_DEBUG_DUMP_AUTH=1` (optional) — enables debug dumping only when `RUNNER_ALLOW_SECRET_DUMP=1` is also set and `APP_ENV` is not `production`. Dumps land at `/tmp/last-auth.json` (Codex) and `/tmp/last-claude-auth.json` (Claude).
 - `RUNNER_ALLOW_SECRET_DUMP=1` (optional) — second explicit opt-in for debug secret dumps.
 - `APP_ENV` (optional) — when `production`, secret dump is always disabled.
@@ -73,6 +75,7 @@ so this list cannot drift from the code.
 - `POST /verify` — Codex credential probe.
 - `POST /verify-claude` — Claude credential probe.
 - `POST /verify-grok` — read-only Grok subscription credential probe.
+- `POST /verify-kimi` — read-only Kimi subscription credential probe.
 - `GET /skills/summarize` / `POST /skills/summarize` — readiness probe / skill summary.
 - `GET /memories/summarize` / `POST /memories/summarize` — readiness probe / memory summary.
 - `GET /skills/generate` / `POST /skills/generate` — readiness probe / structured skill draft.
@@ -87,7 +90,7 @@ Returns what the image actually carries, probed once at import:
 ```json
 {
   "status": "ok",
-  "required_engines": ["codex", "claude", "grok"],
+  "required_engines": ["codex", "claude", "grok", "kimi"],
   "engines": {
     "codex": {
       "available": true,
@@ -672,3 +675,34 @@ Two dedicated slots return 429 when busy. Timeout, disconnect and cancellation
 terminate the process group and remove its home. Output is bounded to 256 KiB.
 Malformed JSON is 502 `chatty_invalid_output`; native errors do not expose stderr.
 This is completed-step transport, not provider token streaming.
+
+### `POST /verify-kimi`
+
+Same request shape as `/verify-grok`: `auth_json` and optional `timeout_seconds`.
+Accepts the canonical `kimi_code` token envelope, a 32-hex `device_id`, and
+`base_url` selecting the official `.com` or `.ai` subscription endpoint.
+Checks at least 300 seconds of access-token lifetime and calls `GET {base_url}/usages`
+with the bearer, without redirects. HTTP 401/403 are definitive failures;
+network errors and malformed metadata are not. Returns `status`, `reachable`,
+`definitive`, `auth_readback: "unchanged"`, `kimi_version`, `latency_ms`, and an
+optional sanitized `reason`. Never refreshes or returns `updated_auth`.
+
+Kimi exec uses a fresh 0700 home for every request; credentials and device ID
+are 0600. Refresh tokens are empty and expiry fields are zero in the native
+projection, preventing native refresh. A canonical token must outlive the
+request timeout plus 300 seconds. Only allowlisted locale/certificate environment
+values survive; telemetry and updates are disabled. Homes are removed after
+success, failure, timeout or cancellation. `system` uses a private agent profile (and `SYSTEM.md`); the profile explicitly sets `tools: []`.
+The runner rejects images, sampling, stop sequences and output caps before launch.
+`stream-json` 2.5.3 exposes assistant text but no usage or stop reason; output
+therefore carries `usage_known: false`, `finish_reason: null` and
+`native_stop_reason: null`. Tool-call output is rejected on this inference surface.
+
+Kimi 2.5.3 rejects `-p` together with `--auto`; the runner omits that flag because print mode already uses auto permissions.
+
+For non-default subscription environments (including `.ai`), native Kimi 2.5.3
+requires a scoped OAuth slot: `oauth/kimi-code-env-<digest>`, where `digest` is
+the first 16 hex characters of SHA-256 of compact JSON `{oauthHost,baseUrl}`
+in that order. The runner retains `credentials/kimi-code.json` and writes an
+identical access-only scoped alias; config references that slot and OAuth host.
+Neither file contains a spendable refresh token.

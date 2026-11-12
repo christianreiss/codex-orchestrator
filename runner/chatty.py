@@ -20,13 +20,13 @@ class TurnRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     protocol: Literal[1]
     auth_json: dict
-    engine: Literal["codex", "claude", "grok"]
+    engine: Literal["codex", "claude", "grok", "kimi"]
     model: str = Field(min_length=1, max_length=200)
     prompt: str = Field(min_length=1, max_length=64000)
     timeout_seconds: int = Field(default=120, ge=1, le=120)
 
 
-def commands(payload, home, claude_path, grok_module):
+def commands(payload, home, claude_path, grok_module, kimi_module=None):
     """No inherited CLI customizations, tools, MCP, web search or subagents."""
     if payload.engine == "codex":
         output = os.path.join(home, "answer.txt")
@@ -43,9 +43,13 @@ def commands(payload, home, claude_path, grok_module):
                 "--strict-mcp-config", "--mcp-config", config, "--setting-sources", "",
                 "--no-session-persistence", "--output-format", "json",
                 "--max-turns", "1"], payload.prompt.encode(), None
-    cmd = grok_module.build_command(payload.prompt, home, payload.model)
-    cmd.extend(["--deny", "*"])
-    return cmd, None, None
+    if payload.engine == "kimi":
+        return kimi_module.build_command(payload.prompt, home, payload.model), None, None
+    if payload.engine == "grok":
+        cmd = grok_module.build_command(payload.prompt, home, payload.model)
+        cmd.extend(["--deny", "*"])
+        return cmd, None, None
+    raise HTTPException(400, "unknown engine")
 
 
 def validate_response(raw):
@@ -86,7 +90,7 @@ async def stop_process(proc):
         pass
 
 
-def register_chatty(app, require_auth, prepare_env, claude_path, grok_module, runtime):
+def register_chatty(app, require_auth, prepare_env, claude_path, grok_module, runtime, kimi_module=None):
     # Dedicated slots keep Chatty off the synchronous verification thread pool.
     slots = asyncio.Semaphore(2)
 
@@ -106,12 +110,13 @@ def register_chatty(app, require_auth, prepare_env, claude_path, grok_module, ru
             # Do not pass deployment secrets or unrelated provider credentials.
             allowed = {"PATH", "HOME", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"}
             allowed.update({"CODEX_HOME", "OPENAI_API_KEY"} if payload.engine == "codex" else
-                           {"CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"} if payload.engine == "claude" else {"GROK_HOME"})
+                           {"CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"} if payload.engine == "claude" else {"GROK_HOME"} if payload.engine == "grok" else
+                           {"KIMI_CODE_HOME", "KIMI_DISABLE_TELEMETRY", "KIMI_CODE_NO_AUTO_UPDATE"})
             env = {k: v for k, v in env.items() if k in allowed}
             proc = None
             tasks = []
             try:
-                cmd, stdin, output_file = commands(payload, home, claude_path, grok_module)
+                cmd, stdin, output_file = commands(payload, home, claude_path, grok_module, kimi_module)
                 proc = await asyncio.create_subprocess_exec(*cmd, cwd=home, env=env,
                     stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE, start_new_session=True)
@@ -134,11 +139,14 @@ def register_chatty(app, require_auth, prepare_env, claude_path, grok_module, ru
                         if parsed.get("is_error"):
                             raise HTTPException(502, "chatty_provider_failed")
                         raw = parsed.get("result", "")
-                    else:
-                        parsed = grok_module.parse_result(raw)
-                        if not parsed or parsed.get("native_stop_reason") != "end_turn":
+                    elif payload.engine in ("grok", "kimi"):
+                        backend = grok_module if payload.engine == "grok" else kimi_module
+                        parsed = backend.parse_result(raw)
+                        if not parsed or (payload.engine == "grok" and parsed.get("native_stop_reason") != "end_turn"):
                             raise HTTPException(502, "chatty_provider_failed")
                         raw = parsed["output"]
+                    else:
+                        raise HTTPException(502, "chatty_invalid_output")
                     return {"protocol": PROTOCOL, "response": validate_response(raw)}
                 async def disconnected():
                     while not await request.is_disconnected():

@@ -84,3 +84,41 @@ class ChattyTest(unittest.TestCase):
         client = self.app([])
         self.assertEqual(401, client.get("/chatty/capabilities").status_code)
         self.assertEqual({"protocol": 1, "engines": ["codex"]}, client.get("/chatty/capabilities", headers={"x-runner-auth": "test"}).json())
+
+
+class KimiChattyTest(unittest.TestCase):
+    def test_private_kimi_env_survives_transport_and_parses_native_output(self):
+        import kimi
+        import time
+        homes = []
+        app = FastAPI()
+        def prepare(auth, engine):
+            self.assertEqual("kimi", engine)
+            env, home, path = kimi.prepare_env(auth, tempfile.gettempdir(), 900)
+            homes.append(home)
+            env["RUNNER_SHARED_SECRET"] = "must-not-inherit"
+            return env, home, path
+        chatty.register_chatty(app, lambda _: None, prepare, "claude", grok,
+                              {"kimi": types.SimpleNamespace(available=True)}, kimi)
+        script = '''import os,json
+assert os.environ['KIMI_DISABLE_TELEMETRY'] == '1'
+assert os.environ['KIMI_CODE_NO_AUTO_UPDATE'] == '1'
+assert 'RUNNER_SHARED_SECRET' not in os.environ
+assert os.path.exists(os.path.join(os.environ['KIMI_CODE_HOME'],'credentials','kimi-code.json'))
+print(json.dumps({'role':'assistant','content':json.dumps({'kind':'answer','text':'OK'})}))
+'''
+        with patch.object(chatty, "commands", lambda *_: ([sys.executable, "-c", script], None, None)):
+            response = TestClient(app).post("/chatty/turn", json={"protocol": 1, "engine": "kimi", "model": "k3", "prompt": "hi",
+                "auth_json": {"kimi_code": {"access_token": "test", "expires_at": time.time()+1800}, "device_id": "b"*32}})
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual("OK", response.json()["response"]["text"])
+        self.assertFalse(Path(homes[0]).exists())
+
+    def test_kimi_command_selects_stream_json(self):
+        import kimi
+        with tempfile.TemporaryDirectory() as home:
+            payload = chatty.TurnRequest(protocol=1, engine="kimi", model="k3", auth_json={}, prompt="hi")
+            cmd, stdin, output = chatty.commands(payload, home, "claude", grok, kimi)
+            self.assertEqual("stream-json", cmd[cmd.index("--output-format")+1])
+            self.assertEqual("kimi-code/k3", cmd[cmd.index("-m")+1])
+            self.assertIsNone(stdin)

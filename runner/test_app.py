@@ -2377,3 +2377,19 @@ class RunnerCredentialFileTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KimiVerificationRouteTest(unittest.TestCase):
+    def test_kimi_verification_is_authenticated_and_access_only(self):
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+        with patch.object(runner_app, "RUNNER_SHARED_SECRET", "test-secret"), \
+             patch.object(runner_app.kimi, "verify", return_value={"status": "ok", "auth_readback": "unchanged"}) as verify:
+            client = TestClient(runner_app.app)
+            self.assertEqual(401, client.post("/verify-kimi", json={"auth_json": {}}).status_code)
+            verify.assert_not_called()
+            response = client.post("/verify-kimi", json={"auth_json": {"test": "canonical"}, "timeout_seconds": 5},
+                                   headers={"x-runner-auth": "test-secret"})
+            self.assertEqual(200, response.status_code)
+            verify.assert_called_once_with({"test": "canonical"}, 5)
+            self.assertNotIn("updated_auth", response.json())
