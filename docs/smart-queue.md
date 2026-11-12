@@ -1,6 +1,6 @@
 # Smart queue delivery v1
 
-cxx 0.9.87 negotiates `queue_delivery_v1` for Codex, Claude and Grok native
+cxx 0.9.87 negotiates `queue_delivery_v1` for Codex, Claude, Grok and Kimi native
 receivers. This changes presentation and reception while accepted work is held;
 it does not grant permission, complete work, or merge execution identities.
 Older wrappers and relays retain full-message FIFO delivery. The registration
@@ -100,7 +100,7 @@ example `CXX_QUEUE_DELIVERY_V1_HOST_IDS=257`, and recreate the API through the
 normal deploy workflow. Empty allowlist means all capable hosts when enabled.
 Verify the registration response capability, seven stale updates in one digest,
 retrievable original bodies, a full approval while work is accepted, and no
-second task admission. Exercise Codex, Claude and Grok before expanding the list.
+second task admission. Exercise Codex, Claude, Grok and Kimi before expanding the list.
 Measure queue age and drain turns alongside request errors/lock waits; transport
 success alone is insufficient.
 

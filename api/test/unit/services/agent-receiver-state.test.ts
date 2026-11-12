@@ -64,7 +64,7 @@ describe('receiver transport health', () => {
       expect(JSON.stringify(receiverView(s, now))).not.toContain('secret-nonce');
     }
   });
-  it.each(['codex-queue-v1', 'claude-channel-v1', 'grok-acp-v1'] as const)(
+  it.each(['codex-queue-v1', 'claude-channel-v1', 'grok-acp-v1', 'kimi-hooks-v1'] as const)(
     'exposes a fresh negotiated claim gate without changing %s transport readiness',
     (protocol) => {
       const s = { ...state(), protocol, claim_gate_v1: true, claim_gate: { state: 'thread_active', seconds: 18, observed_at: new Date(now).toISOString() } };

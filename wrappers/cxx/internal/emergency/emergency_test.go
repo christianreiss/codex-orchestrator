@@ -45,7 +45,7 @@ func newHarness(t *testing.T) *harness {
 	t.Setenv("HOME", h.home)
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("PATH", filepath.Join(h.home, "emptybin"))
-	for _, k := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CDX_CODEX_BIN", "CLX_CLAUDE_BIN", "CGX_GROK_BIN", "GROK_HOME",
+	for _, k := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CDX_CODEX_BIN", "CLX_CLAUDE_BIN", "CGX_GROK_BIN", "GROK_HOME", "CKX_CONFIG_PATH", "CKX_KIMI_BIN", "KIMI_CODE_HOME",
 		"OPENAI_BASE_URL", "OPENAI_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)

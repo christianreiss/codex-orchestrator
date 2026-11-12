@@ -291,7 +291,7 @@ uninstall/logout/write race while the child survives. Canonical writes wait or
 skip at the commit boundary; a skip is safe only for a genuinely changed usable
 generation, not an unchanged file blocked by an active child.
 This protection cannot cover a separately invoked raw `codex`, `claude`, or
-`grok` process, so use `cdx`/`clx`/`cgx` consistently on fleet-managed auth homes.
+`grok` process, so use `cdx`/`clx`/`cgx`/`ckx` consistently on fleet-managed auth homes.
 
 Grok differs here: `cgx login` runs a dedicated `grok login --device-auth` in a throwaway `GROK_HOME` and uploads that one login, then the server owns refresh. xAI rotates the refresh token on every refresh, so never upload a live `~/.grok/auth.json` that anything else still uses. Each native session receives an access-only credential in an isolated runtime home with an external-auth broker; canonical refresh tokens stay on the server. Owned Grok children inherit the original home's shared session guard, so an orphaned leader or TUI still blocks uninstall until it exits. See [the cgx contract](interface-cgx.md).
 
@@ -321,7 +321,7 @@ If you see failures about an insecure window being closed, that’s not somethin
 ### Update the wrapper / Codex CLI on a host
 
 The shared maintenance coordinator (`cxx cron`, installed by the host
-installer) auto-updates the wrapper and the Codex CLI: a `cdx`/`clx`/`cgx`/`cxx`
+installer) auto-updates the wrapper and the Codex CLI: a `cdx`/`clx`/`cgx`/`ckx`/`cxx`
 launch queues a detached tick when one is due, and on auto-update hosts only
 (cxx 0.9.82+) one nightly schedule runs between 02:00 and 04:59 local time;
 other hosts have no maintenance crontab line
@@ -400,3 +400,8 @@ From the service:
 
 - Admin **Logs** page for recent `auth.*` and `install.*` events.
 - Host row in **Hosts** for pinned IP, roaming flag, insecure window state, and runner state.
+
+Kimi Code is available as `ckx` or `cxx kimi …`. It shares wrapper maintenance,
+Skills, MCP and messaging commands, with server-owned refresh and a private
+access-only runtime. See [the Kimi contract](interface-ckx.md) for hook delivery
+and headless/gateway limits.

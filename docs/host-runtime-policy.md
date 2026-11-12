@@ -13,7 +13,7 @@ Status: authoritative operator decision (Chris, 2026-10-14). Applies from cxx
 
 ### Normal host: a tool
 
-- The wrappers (`cdx`, `clx`, `cgx`, `cxx`, the native `codex`/`claude`/`grok`
+- The wrappers (`cdx`, `clx`, `cgx`, `ckx`, `cxx`, the native `codex`/`claude`/`grok`/`kimi`
   shims) do their maintenance when the user runs them: update check, content and
   credential sync, housekeeping. Nothing is scheduled.
 - While a native agent session runs, its own wrapper, communicator owner and

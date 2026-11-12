@@ -28,7 +28,7 @@ type File struct {
 	Content string `json:"content"`
 }
 
-// Item is one entry of a server skills bundle (`grok_skills`, `claude_skills`).
+// Item is one entry of a server skills bundle (`grok_skills`, `claude_skills`, `kimi_skills`).
 // Content and Files are omitted together when the host's advertised digest
 // already matches.
 type Item struct {

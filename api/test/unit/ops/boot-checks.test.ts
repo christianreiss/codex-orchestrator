@@ -47,7 +47,7 @@ describe('boot database checks', () => {
     expect(execute).toHaveBeenCalledTimes(2);
   });
 
-  it('mirrors one common cxx target into all three engine compatibility keys', async () => {
+  it('mirrors one common cxx target into all four engine compatibility keys', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'cxx-boot-check-'));
     const payload = 'cxx test binary';
     const sha256 = createHash('sha256').update(payload).digest('hex');
@@ -106,6 +106,26 @@ describe('boot database checks', () => {
     } finally {
       await rm(dataRoot, { recursive: true, force: true });
     }
+  });
+
+  it.each(ENGINES)('publishes the legacy %s artifact under its own namespace', async engine => {
+    const dataRoot = await mkdtemp(join(tmpdir(), 'cxx-legacy-boot-'));
+    const binary = { codex: 'cdx', claude: 'clx', grok: 'cgx', kimi: 'ckx' }[engine];
+    const payload = `legacy ${engine} binary`;
+    const sha256 = createHash('sha256').update(payload).digest('hex');
+    const root = join(dataRoot, 'wrapper', 'v2', 'bin', engine, 'linux-amd64');
+    await mkdir(join(root, 'v2.0.0'), { recursive: true });
+    await writeFile(join(root, 'manifest.json'), JSON.stringify({ engine, os: 'linux', arch: 'amd64', current: '2.0.0', builds: [{ version: '2.0.0', sha256, size_bytes: Buffer.byteLength(payload) }] }));
+    await writeFile(join(root, 'v2.0.0', binary), payload);
+    const execute = vi.fn().mockResolvedValue([]);
+    const select = vi.fn(() => ({ from: () => ({ where: async () => [{ version: 'complete' }] }) }));
+    try {
+      await runBootChecks({ ...env, DATA_ROOT: dataRoot, PUBLIC_BASE_URL: 'https://fleet.test' }, { execute, select } as unknown as Database);
+      expect(execute.mock.calls.slice(4).map(([query]) => new MySqlDialect().sqlToQuery(query as SQL).params.slice(0, 2))).toEqual([
+        [`wrapper_version_${engine}`, '2.0.0'], [`wrapper_sha256_${engine}`, sha256],
+        [`wrapper_url_${engine}`, `https://fleet.test/wrapper/v2/bin/${engine}/linux-amd64/v2.0.0/${binary}`],
+      ]);
+    } finally { await rm(dataRoot, { recursive: true, force: true }); }
   });
 
   it('leaves published wrapper keys untouched for a partial cxx platform matrix', async () => {
@@ -309,11 +329,11 @@ describe('boot database checks', () => {
     }
   });
 
-  it('publishes only the two legacy split artifacts when no common cxx release exists', async () => {
+  it('publishes all four legacy split artifacts when no common cxx release exists', async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'legacy-split-boot-check-'));
     const payload = 'legacy split test binary';
     const sha256 = createHash('sha256').update(payload).digest('hex');
-    for (const [engine, binary] of [['codex', 'cdx'], ['claude', 'clx'], ['grok', 'cgx']] as const) {
+    for (const [engine, binary] of [['codex', 'cdx'], ['claude', 'clx'], ['grok', 'cgx'], ['kimi', 'ckx']] as const) {
       const root = join(dataRoot, 'wrapper', 'v2', 'bin', engine, 'linux-amd64');
       await mkdir(join(root, 'v2.0.0'), { recursive: true });
       await writeFile(join(root, 'manifest.json'), JSON.stringify({
@@ -330,6 +350,8 @@ describe('boot database checks', () => {
       expect(keys).toEqual([
         'wrapper_version_codex', 'wrapper_sha256_codex', 'wrapper_url_codex',
         'wrapper_version_claude', 'wrapper_sha256_claude', 'wrapper_url_claude',
+        'wrapper_version_grok', 'wrapper_sha256_grok', 'wrapper_url_grok',
+        'wrapper_version_kimi', 'wrapper_sha256_kimi', 'wrapper_url_kimi',
       ]);
     } finally {
       await rm(dataRoot, { recursive: true, force: true });

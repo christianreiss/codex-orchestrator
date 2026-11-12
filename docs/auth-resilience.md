@@ -113,3 +113,7 @@ active retrieval, guarded adoption, and background continuity reduce this window
 they do not constitute a distributed refresh lease. Verification uses synthetic
 generations and controlled failure/concurrency tests, without deliberately
 replaying live fleet refresh tokens.
+
+Kimi (`ckx`) also uses a central sole refresher, with rotating OAuth grants
+retained only on the server. Hosts and runner receive access-only projections
+in private `KIMI_CODE_HOME` scopes; see [the Kimi contract](interface-ckx.md).

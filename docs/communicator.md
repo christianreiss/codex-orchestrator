@@ -7,7 +7,7 @@ native source, retain each private Grok broker's auth state, and select one
 content owner per engine/native home. Only that owner's content deadline can
 wake the scheduler; every broker retains its own auth deadline. Removing a lease
 elects the next live content owner. This prevents an unused private state's zero
-content deadline from repeatedly scanning Codex, Claude and Grok files while idle.
+content deadline from repeatedly scanning Codex, Claude, Grok and Kimi files while idle.
 File-watch fallback, initial-content grace, retry deadlines and draining fences
 retain their existing behavior. The fix applies to the loaded communicator,
 not merely the installed binary; preserve live sessions and accepted work when
@@ -15,8 +15,8 @@ coordinating its retirement or supported handoff.
 
 ## Native session statistics (cxx 0.9.156)
 
-Normal cdx/clx/cgx startup and exit displays include a Communicator line,
-also for `cxx codex`, `cxx claude`, `cxx grok` and managed native entrypoints:
+Normal cdx/clx/cgx/ckx startup and exit displays include a Communicator line,
+also for `cxx codex`, `cxx claude`, `cxx grok`, `cxx kimi` and managed native entrypoints:
 
 ```text
 cdx communicator: start: already running | pid=1234 | sessions=3 | leases=8
@@ -97,7 +97,7 @@ See [the complete timing contract](agent-messaging-timing.md), including expecte
 turn fencing, Grok interjection admission, older loaded processes and receipts.
 
 cxx 0.9.72 introduces one local communicator per OS user and orchestrator base URL.
-It is started lazily by a managed request and shared by Codex, Claude and Grok.
+It is started lazily by a managed request and shared by Codex, Claude, Grok and Kimi.
 Provider inference still uses each native client's original network path.
 
 cxx 0.9.132 applies connection-owned receiver sources before deriving Portal
@@ -629,7 +629,7 @@ and start the installed binary; a request refused while draining is a definitive
 "not sent". Residents are replaced by the root handoff instead.
 
 The quiet gate is per OS user, not per owner: `agentquiet.Busy` probes the
-`.cxx-housekeeping.lock` of all three engines, plus `.cgx-sessions.lock` for Grok. On a workstation where some managed
+`.cxx-housekeeping.lock` of all four engines, plus `.cgx-sessions.lock` for Grok. On a workstation where some managed
 Codex or Claude session is always running, a replaced on-demand owner therefore never
 retires; it keeps serving its clients and starts its workers from the installed path,
 that is from the newer binary (observed 2026-10-28 on biest.eulie.de: a 0.9.127 owner,
@@ -658,7 +658,7 @@ deliberately decides by the lock alone.
 From cxx 0.9.77, reconnect and owner replacement are independent of the engine
 whose config first started the owner. If that file is missing, invalid, suspended
 or disables the transport, another signed config from active sync scopes or the
-user's Codex/Claude/Grok config paths can supply transport policy. Candidates must
+user's Codex/Claude/Grok/Kimi config paths can supply transport policy. Candidates must
 match the original host ID, FQDN and server URL. HTTPS transfers use the selected
 policy as well. Only an explicit verified rollback permits HTTPS fallback; missing
 files and foreign configs do not.
@@ -717,11 +717,11 @@ content pass alone never reaches it. Every `bootstrap`, `content` and `skills`
 worker therefore digests the files it may rewrite before and after the pass,
 per kind:
 
-| Kind | Codex | Claude | Grok |
-|---|---|---|---|
-| `instructions` | `$CODEX_HOME/AGENTS.md` | `~/.claude/CLAUDE.md` | `$GROK_HOME/AGENTS.md` |
-| `skills` | `/skills` fingerprint (`skills-digest`) | `/skills` fingerprint (`clx-skills-digest`) + `~/.claude/skills` | `~/.cgx/state/skills.json` |
-| `config` | `config.toml` | `settings.json`, `agents/`, `commands/`, `output-styles/` | `config.toml` |
+| Kind | Codex | Claude | Grok | Kimi |
+|---|---|---|---|---|
+| `instructions` | `$CODEX_HOME/AGENTS.md` | `~/.claude/CLAUDE.md` | `$GROK_HOME/AGENTS.md` | `$KIMI_CODE_HOME/AGENTS.md` (base home before private launch copy) |
+| `skills` | `/skills` fingerprint (`skills-digest`) | `/skills` fingerprint (`clx-skills-digest`) + `~/.claude/skills` | `~/.cgx/state/skills.json` | `~/.ckx/state/skills.json` |
+| `config` | `config.toml` | `settings.json`, `agents/`, `commands/`, `output-styles/` | `config.toml` | `config.toml` and `mcp.json` |
 
 When any digest moved, the worker publishes one opaque generation under
 `~/.cache/codex-orchestrator/content-notices/<engine>-<scope>` (the
@@ -1056,7 +1056,7 @@ through its normal signed-binary path. The client states its own level with
 `api_version` in the `hello` frame. The server keeps these in process memory (per
 host and per live connection) so `GET /admin/communicator/api-version` and
 Settings > Host agent rollout can show how many hosts are below the minimum and below
-the current level. This applies identically to the Codex, Claude and Grok
+the current level. This applies identically to the Codex, Claude, Grok and Kimi
 personas, since they share one binary. An operator can raise the minimum without a
 deploy (`POST /admin/communicator/api-version`, `1 <= min_api <= api_version`);
 the change publishes `settings.changed`, which already sends connected
@@ -1088,7 +1088,7 @@ the previous API image and wrapper release for a full rollback.
 
 Tests cover route/header isolation and policy revocation, concurrent request
 routing, identical-read coalescing, unknown write outcomes, signed engine
-selection, and six real MCP processes across all three engines reconnecting after
+selection, and six real MCP processes across all four engines reconnecting after
 both remote disconnect and local owner crash.
 
 ## Central sync ownership (cxx 0.9.73)
@@ -1222,7 +1222,7 @@ fixtures use isolated HOME and runtime directories.
 
 ### First-sync capabilities
 
-Starting with cxx 0.9.79, Codex, Claude and Grok HTTP clients send
+Starting with cxx 0.9.79, Codex, Claude, Grok and Kimi HTTP clients send
 `X-Wrapper-Version` from the running binary, including finite workers. The API
 uses it only for the selected engine's config-rendering capabilities, so a fresh
 installation can receive the stdio MCP adapter before its first version report.
@@ -1255,7 +1255,7 @@ or claiming work, so reconnect errors do not cause repeated registration writes.
 
 A coordinated owner cutover preserves already running native processes. The new owner captures an explicit boot manifest of their existing session, native instance, receiver, and already accepted claim identities. Legacy heartbeats renew only volatile drain credentials for those captured identities. They do not create WebSocket presence, replace a native instance, accept an old unaccepted offer, or acquire new work. A receiver may reconnect only for the same captured native transcript and binding. Security policy, host credential, engine eligibility, fixed session expiry, explicit exit, and revocation continue to fence the drain. An expired bootstrap credential requires authenticated host recovery for that same lifecycle.
 
-Pre-cutover timed provider account leases are a bounded compatibility exception: their old processes continue the existing durable expiry renewal until release or expiry. They are not silently upgraded, and historical expired rows are never revived. The owner drain diagnostic `legacy_timed_provider` counts the unexpired timed cohort; `legacy_sessions` and `legacy_relays` count captured lifecycle records. Report legacy traffic separately from the negotiated protocol cohort. Universal zero idle SQL cannot be claimed while timed legacy provider renewals remain; negotiated connection-owned Codex, Claude, and Grok idle traffic must independently produce zero SQL.
+Pre-cutover timed provider account leases are a bounded compatibility exception: their old processes continue the existing durable expiry renewal until release or expiry. They are not silently upgraded, and historical expired rows are never revived. The owner drain diagnostic `legacy_timed_provider` counts the unexpired timed cohort; `legacy_sessions` and `legacy_relays` count captured lifecycle records. Report legacy traffic separately from the negotiated protocol cohort. Universal zero idle SQL cannot be claimed while timed legacy provider renewals remain; negotiated connection-owned Codex, Claude, Grok, and Kimi idle traffic must independently produce zero SQL.
 
 Managed host MCP calls use the session's private Unix broker to inject authenticated native session headers. Bridge credentials remain in the broker, never in model-visible tool arguments. The server validates the session against the authenticated host and engine before exposing the native principal to board/resource operations. Requests without native proof retain ordinary host tools but cannot claim native-owned work.
 
@@ -1273,7 +1273,7 @@ authority. The parent connection keeps its existing 45/50-second failure bounds;
 security deadlines and revocation notifications remain independent.
 
 Older communicators and standalone state streams retain server ping/pong.
-The shared protocol applies equally to Codex, Claude, and Grok; transport
+The shared protocol applies equally to Codex, Claude, Grok, and Kimi; transport
 liveness does not prove task progress or successful execution.
 
 
@@ -1314,3 +1314,16 @@ home. Its root `projects.json` uses native atomic replacement, so the lifetime c
 merges that catalog into the durable home after the native process exits, preserving
 other sessions' projects. Credentials are removed before catalog recovery; a failed
 recovery retains only the catalog for the next maintenance sweep.
+
+## Fourth-engine contract: Kimi Code
+
+Kimi (`ENGINE_KIMI`, `ckx`) participates in the same fleet assignment, master
+switch, accounts, signed cxx configuration, sync, MCP, Skills, memory, secrets,
+portal, daemon, Wake and reboot surfaces. Native transport and auth remain
+engine-specific: `kimi-hooks-v1` has no idle push; the server alone refreshes
+OAuth and hosts use access-only private `KIMI_CODE_HOME` projections. Headless
+prompts are limited to 100000 UTF-8 bytes. Kimi headless plan starts are
+explicitly rejected because `-p` cannot combine with `--plan`.
+`/kimi/v1` is opt-in (off by default); native stream-json exposes neither token
+usage nor stop reason. See [the ckx contract](interface-ckx.md) for the hook
+lifecycle, launch identity, scoped credential and inference-only gateway agent.

@@ -890,6 +890,9 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 	if op.Engine != "codex" && op.Engine != "claude" && op.Engine != "grok" && op.Engine != "kimi" {
 		return daemonResult{Status: "failed", Reply: "Unknown engine"}
 	}
+	if err := validateHeadlessPermissionMode(op.Engine, op.PermissionMode); err != nil {
+		return daemonResult{Status: "failed", Reply: err.Error()}
+	}
 	if op.Engine == "kimi" && op.Upstream != "" {
 		if err := checkKimiTranscript(op.Upstream); err != nil {
 			return daemonResult{Status: "failed", Reply: err.Error()}

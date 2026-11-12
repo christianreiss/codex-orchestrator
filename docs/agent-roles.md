@@ -205,3 +205,6 @@ mutation audited in `admin_events` as `agent_roles.*`):
 - `PUT /admin/roles/:slug/draft` (`{manifest, files[{path, content|blob_sha256, encoding?, mime_type?, load?, description?}], changelog?}`), `DELETE /admin/roles/:slug/draft`, `POST /admin/roles/:slug/publish`.
 - `POST /admin/roles/:slug/revert` (`{version, reason}`), `POST /admin/roles/:slug/versions/:version/withdraw` (`{reason}`).
 - `GET /admin/roles/proposals/:id`, `POST /admin/roles/proposals/:id/decide` (`{verdict: accept|reject, reason, expected_version}`): `accept` publishes now past judge, review, budget and policy; `reject` closes an open proposal or, on an applied one, vetoes it by reverting to the version current before it.
+
+- **Kimi:** `SessionStart` binds the native session. Reload the active role with
+  `agent_role_current {include_core:true}` after resume; see [ckx](interface-ckx.md).

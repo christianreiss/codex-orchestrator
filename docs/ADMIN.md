@@ -325,7 +325,7 @@ Admin routes:
   and says so rather than showing a bare list.
 - The directory separates **Online** (fresh wrapper contact) from **Listening**
   (an open instruction relay) and **Working** (a recently accepted instruction).
-  Search host, user, task, branch, or directory; filter Codex, Claude and Grok engines and session
+  Search host, user, task, branch, or directory; filter Codex, Claude, Grok and Kimi engines and session
   states; open the detail pane for heartbeat and relay timestamps. Presence
   indicators use the same styling in Agents and Android.
 - Owner events refresh presence and metadata; scoped SSE refreshes the selected timeline. Reconnection resnapshots active queries. Displayed ages use the server snapshot clock.

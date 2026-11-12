@@ -62,7 +62,7 @@ describe('Codex fleet async compaction default (off)', () => {
     expect(service().render({ native_settings: { features: {} } }).content).not.toContain('async_compaction');
   });
   it('does not add a Codex feature to other engines', () => {
-    for (const engine of ['claude', 'grok'] as const) expect(service().render({}, engine).content).not.toContain('async_compaction');
+    for (const engine of ['claude', 'grok', 'kimi'] as const) expect(service().render({}, engine).content).not.toContain('async_compaction');
   });
   it.skipIf(!process.env.CODEX_NATIVE_TEST_BIN)('the actual native feature resolver reports the omitted default off, an explicit opt-in on and an opt-out off', () => {
     const home = mkdtempSync(join(tmpdir(), 'ava-compaction-native-'));

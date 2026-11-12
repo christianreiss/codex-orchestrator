@@ -32,6 +32,7 @@ Keep these aligned with implementation and executable tests.
 | [Codex](interface-cdx.md) | `cdx` lifecycle and commands |
 | [Claude](interface-clx.md) | `clx` lifecycle and commands |
 | [Grok](interface-cgx.md) | `cgx` lifecycle and commands |
+| [Kimi Code](interface-ckx.md) | `ckx` lifecycle and commands |
 | [JSON schemas](contracts/README.md) | Machine-readable wrapper/server payloads |
 | [Host runtime policy](host-runtime-policy.md) | Authoritative host execution rules |
 

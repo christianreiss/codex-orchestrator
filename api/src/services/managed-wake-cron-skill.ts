@@ -11,7 +11,7 @@ description: "${description}"
 # Fleet Wake / Cron
 
 Use the orchestrator schedule_* tools for agent Wake/Cron requests. This Skill
-is shared across Codex, Claude and Grok. Do not edit host crontabs for these jobs.
+is shared across Codex, Claude, Grok and Kimi. Do not edit host crontabs for these jobs.
 Every authorized fleet agent can manage all fleet schedules; the admin Wake / Cron
 page manages the same records. A Skill does not grant additional authority.
 

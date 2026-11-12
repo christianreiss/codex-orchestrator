@@ -139,6 +139,12 @@ const CHECKS: Check[] = [
     server: offeredModelIds('grok'),
   },
   {
+    constant: 'KIMI_MODEL_OPTIONS',
+    api: 'offered Kimi models in api/src/services/model-registry/data.ts',
+    frontend: optionValues('KIMI_MODEL_OPTIONS'),
+    server: offeredModelIds('kimi'),
+  },
+  {
     constant: 'CLAUDE_PERMISSION_MODES',
     api: 'CLAUDE_PERMISSION_MODES (api/src/services/config-normalizer.ts)',
     frontend: optionValues('CLAUDE_PERMISSION_MODES'),

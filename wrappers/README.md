@@ -1,8 +1,8 @@
 # Wrapper bakery v2
 
-One static Go binary (`cxx`) serves Codex, Claude, and Grok. Enabled hosts install relative
+One static Go binary (`cxx`) serves Codex, Claude, Grok, and Kimi. Enabled hosts install relative
 `cdx -> cxx`, `clx -> cxx`, and/or `cgx -> cxx` aliases; explicit invocation is also available
-as `cxx codex ...`, `cxx claude ...`, and `cxx grok ...`. Engine configs, auth, locks, and native
+as `cxx codex ...`, `cxx claude ...`, `cxx grok ...`, and `cxx kimi ...`. Engine configs, auth, locks, and native
 CLI state remain separate.
 
 Security, architecture and release evidence: [2026-10-26 wrapper review](../docs/wrapper-review-2026-10-26.md).
@@ -10,7 +10,7 @@ Security, architecture and release evidence: [2026-10-26 wrapper review](../docs
 Layout:
 
 - `cxx/` — the single Go module and multicall command.
-- `cxx/internal/app/{codex,claude,grok}` — compatibility CLI personas.
+- `cxx/internal/app/{codex,claude,grok,kimi}` — compatibility CLI personas.
 - `cxx/internal/grok` — the verified native installer, isolated managed runtime,
   access-only authentication broker, and TOML ownership merge.
 - `cxx/internal/{config,fleetconfig,cron,maintenance,ipc,ipv4,layout,log,signing,uninstall,update}` — shared host primitives (signed config load/recovery, the shared cron coordinator, the background maintenance lease).
@@ -24,8 +24,8 @@ Layout:
   byte-for-byte by the TypeScript baker test and loaded for real by
   `cxx/internal/config`. See `testdata/README.md`.
 
-Host-wide commands of the one binary (the `cdx`/`clx`/`cgx` aliases select an engine
-automatically; `cxx codex ...` / `cxx claude ...` / `cxx grok ...` do so explicitly):
+Host-wide commands of the one binary (the `cdx`/`clx`/`cgx`/`ckx` aliases select an engine
+automatically; `cxx codex ...` / `cxx claude ...` / `cxx grok ...` / `cxx kimi ...` do so explicitly):
 
 ```
 cxx --version                 # wrapper version, commit, signing-key status
@@ -34,7 +34,7 @@ cxx update                    # verify + install the wrapper target, then re-exe
 cxx cron [install|remove|run [--due]]   # shared nightly schedule / cooldown-aware tick
 cxx portal [status|notify|resolve|say|ask|wait|accept|leave]   # agent portal relay (#afk)
 cxx agent [list|send|request|wait|reply|message|cancel|listen|poll|status|service|worker|mcp]
-cxx emergency codex|claude|grok [--] [args]   # secure hosts only: plain native engine, no Orchestrator (see docs/interface-cdx.md)
+cxx emergency codex|claude|grok|kimi [--] [args]   # secure hosts only: plain native engine, no Orchestrator (see docs/interface-cdx.md)
 cxx claude-quota-statusline   # Claude Code statusLine command that relays quota readings
 cxx grok-auth                # internal native token accessor; requires a live private broker
 ```
@@ -135,7 +135,7 @@ and native history; the shared cxx aliases and cron are removed only on a
 confirmed server result. It holds an exclusive original-home maintenance
 lease and refuses while a managed session or its inherited native child is active.
 Shared cron discovers newly enabled engines from
-fresh signed host configs and keeps all three aliases/configs in sync.
+fresh signed host configs and keeps all four aliases/configs in sync.
 
 The release version is `VERSION` in this Makefile and is stamped into the binary
 with `-ldflags -X main.Version=...`. Bumping it is the whole release step:
@@ -202,6 +202,19 @@ python3 scripts/check-terminal-ui.py --binary bin/terminal-preview --output /tmp
 Open `/tmp/cxx-terminal-review/index.html` for a standalone review gallery with
 engine views and width/scene selectors. The driver uses deterministic sample data
 through the production renderers; it is not shipped as a `cxx` subcommand.
-The matrix checks all three engines at 20, 39, 40, 48, 64, 80, and 120 columns, plus
+The matrix checks all four engines at 20, 39, 40, 48, 64, 80, and 120 columns, plus
 `NO_COLOR`, dumb terminals, ASCII locales, explicit minimal mode, and pipes.
 ANSI/text captures and a manifest accompany the gallery for regressions.
+
+## Kimi Code (`ckx`)
+
+Kimi uses the same `cxx` binary with `ckx.json`, `CKX_CONFIG_PATH` and
+`CKX_KIMI_BIN`. The verified binary installer lives in `internal/kimi`, with
+persona commands in `internal/app/kimi`. Dedicated login seeds the server's
+single refresher; each managed start uses a private `KIMI_CODE_HOME` with an
+access-only credential, native Skills and a launch-specific AGENTS.md identity.
+`kimi-hooks-v1` rings peer and portal messages at UserPromptSubmit/Stop; idle
+push is unavailable. Headless plan turns are explicitly refused: native `-p` rejects `--plan`.
+The argv prompt ceiling is 100000 UTF-8 bytes. See the complete
+[ckx contract](../docs/interface-ckx.md), including the disabled-by-default
+gateway and its absent native usage/stop-reason telemetry.

@@ -12,9 +12,10 @@ import (
 
 func TestNativeSessionNamesUseBoundMetadataAcrossEngines(t *testing.T) {
 	home := t.TempDir()
-	for _, env := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME"} {
+	for _, env := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "KIMI_CODE_HOME"} {
 		t.Setenv(env, "")
 	}
+	t.Setenv("KIMI_CODE_HOME", filepath.Join(home, ".kimi-code"))
 	write := func(path, text string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -27,8 +28,13 @@ func TestNativeSessionNamesUseBoundMetadataAcrossEngines(t *testing.T) {
 	write(filepath.Join(home, ".codex/session_index.jsonl"), "{\"id\":\"native\",\"thread_name\":\"Old\"}\n{\"id\":\"other\",\"thread_name\":\"Wrong\"}\n{\"id\":\"native\",\"thread_name\":\"Release review\"}\n")
 	write(filepath.Join(home, ".claude/projects/project/native.jsonl"), "{\"type\":\"custom-title\",\"sessionId\":\"native\",\"customTitle\":\"Schema review\"}\n{\"type\":\"custom-title\",\"sessionId\":\"other\",\"customTitle\":\"Wrong\"}\n")
 	write(filepath.Join(home, ".grok/sessions/project/native/summary.json"), `{"info":{"id":"native"},"generated_title":"Policy review","session_summary":"Full transcript must never become a name"}`)
-	for engine, want := range map[string]string{"codex": "Release review", "claude": "Schema review", "grok": "Policy review"} {
-		if got := nativeSessionName(home, engine, "native"); got != want {
+	write(filepath.Join(home, ".kimi-code/sessions/project", testKimiID, "state.json"), `{"id":"`+testKimiID+`","title":"Kimi review"}`)
+	for engine, want := range map[string]string{"codex": "Release review", "claude": "Schema review", "grok": "Policy review", "kimi": "Kimi review"} {
+		id := "native"
+		if engine == "kimi" {
+			id = testKimiID
+		}
+		if got := nativeSessionName(home, engine, id); got != want {
 			t.Fatalf("%s name = %q, want %q", engine, got, want)
 		}
 		if got := nativeSessionName(home, engine, "../native"); got != "" {

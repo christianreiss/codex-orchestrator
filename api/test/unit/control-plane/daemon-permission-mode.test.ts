@@ -28,7 +28,7 @@ afterEach(() => queues.splice(0).forEach((q) => q.close()));
 function harness() {
   const now = new Date().toISOString();
   const seed = {
-    hosts: [{ id: 1, fqdn: 'fixture', apiKey: 'test', apiKeyHash: null, status: 'active', configVersion: 0, secure: 1, authDigest: 'a', claudeAuthDigest: 'a', grokAuthDigest: 'a',
+    hosts: [{ id: 1, fqdn: 'fixture', apiKey: 'test', apiKeyHash: null, status: 'active', configVersion: 0, secure: 1, authDigest: 'a', claudeAuthDigest: 'a', grokAuthDigest: 'a', kimiAuthDigest: 'a',
       engines: 'codex,claude,grok,kimi', internalRole: null, expiresAt: null, insecureEnabledUntil: null }],
     hostDaemons: [{ hostId: 1, settings: daemonSettingsSchema.parse({ enabled: true, username: 'user' }), runtime: null, enabledAt: now, updatedAt: now }],
     versions: [{ name: 'agent_messaging_enabled', version: '1' }],
@@ -76,6 +76,8 @@ describe('permission mode policy', () => {
   it('advertises plan only for Claude and Grok on a capable wrapper', () => {
     expect(permissionModesFor('claude', 1)).toEqual(['default', 'plan']);
     expect(permissionModesFor('grok', 1)).toEqual(['default', 'plan']);
+    expect(permissionModesFor('kimi', 1)).toEqual(['default']);
+    expect(permissionModesFor('kimi', 0)).toEqual(['default']);
     expect(permissionModesFor('codex', 1)).toEqual(['default']);
     expect(permissionModesFor('claude', 0)).toEqual(['default']);
     expect(permissionModesFor('claude', undefined)).toEqual(['default']);
@@ -91,6 +93,10 @@ describe('permission mode policy', () => {
     expect(() => assertPermissionMode('codex', 'default', null)).not.toThrow();
     expect(() => assertPermissionMode('grok', 'plan', { permission_mode_version: 1 })).not.toThrow();
   });
+  it('rejects Kimi plan mode rather than running with auto-approvals', () => {
+    expect(() => assertPermissionMode('kimi', 'plan', { permission_mode_version: 1 })).toThrow(expect.objectContaining({ status: 422, code: 'permission_mode_engine_unsupported' }));
+    expect(() => assertPermissionMode('kimi', 'default', null)).not.toThrow();
+  });
   it('stores only plan and appends the plan addendum only in plan mode', () => {
     expect(storedPermissionMode('plan')).toBe('plan');
     expect(storedPermissionMode('default')).toBeNull();
@@ -103,11 +109,12 @@ describe('permission mode policy', () => {
 });
 
 describe('owner-mode daemon sessions with a permission mode', () => {
-  it('rejects plan for Codex and for a wrapper without the capability', async () => {
+  it('rejects plan for Codex/Kimi and for a wrapper without the capability', async () => {
     const h = harness();
     await connect(h, false);
     await expect(start(h, 'claude', randomUUID(), 'plan')).rejects.toMatchObject({ status: 409, code: 'permission_mode_unsupported' });
     await expect(start(h, 'codex', randomUUID(), 'plan')).rejects.toMatchObject({ status: 422 });
+    await expect(start(h, 'kimi', randomUUID(), 'plan')).rejects.toMatchObject({ status: 422 });
     expect(h.state.snapshot().table('hostDaemonSessions').all()).toEqual([]);
   });
   it('persists plan, offers it with the addendum on every turn and keeps idempotency exact', async () => {

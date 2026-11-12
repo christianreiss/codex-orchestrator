@@ -2,7 +2,7 @@
  * Optional per-host AGENTS instructions (`hosts.agents_extra`, migration 0126).
  *
  * Operator-authored text appended to the fleet document one host receives —
- * Codex `AGENTS.md`, Claude `CLAUDE.md` and Grok `AGENTS.md` alike. It carries the
+ * Codex `AGENTS.md`, Claude `CLAUDE.md` Grok `AGENTS.md` and Kimi `AGENTS.md` alike. It carries the
  * same trust as the fleet policy (only `hosts.manage` can write it) and sits at
  * the very end, after the managed blocks, under a heading that names the host.
  *

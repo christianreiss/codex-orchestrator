@@ -22,7 +22,7 @@ import {
   type SecretsService as SecretsServiceType,
 } from '../../../src/services/secrets.js';
 import { ConflictError, NotFoundError, ValidationError } from '../../../src/http/errors.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI } from '../../../src/util/engine.js';
 import { encrypt } from '../../../src/security/secret-box.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
@@ -98,8 +98,8 @@ function makeHarness(
 }
 
 describe('fleet-wide reads', () => {
-  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('serves %s all legacy scopes and records the caller in the audit', async (caller) => {
-    for (const scope of [null, ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI])('serves %s all legacy scopes and records the caller in the audit', async (caller) => {
+    for (const scope of [null, ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI]) {
       // Legacy DB fixtures prove old scope values cannot affect reads, even
       // before the migration removes the obsolete column.
       const { service, logged } = makeHarness([{ slug: 'fixture', value: 'fixture-value', engine: scope }]);

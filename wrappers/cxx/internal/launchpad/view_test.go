@@ -24,7 +24,7 @@ func nodePosition(t *testing.T, view string) (int, int) {
 func TestDirectionalGridsKeepCompassOriginDuringReveal(t *testing.T) {
 	for _, key := range []string{"left", "right", "down"} {
 		t.Run(key, func(t *testing.T) {
-			p := newPicker([]Engine{codexEngine(), claudeEngine(), grokEngine()}, nil, terminalui.Caps{UTF8: true, IsTTY: true})
+			p := newPicker([]Engine{codexEngine(), claudeEngine(), grokEngine(), kimiEngine()}, nil, terminalui.Caps{UTF8: true, IsTTY: true})
 			p.Update(tea.WindowSizeMsg{Width: 240, Height: 40})
 			row, col := nodePosition(t, p.render())
 			press(t, p, key)
@@ -42,7 +42,7 @@ func TestGridsExpandInSelectedDirection(t *testing.T) {
 	for _, utf8 := range []bool{false, true} {
 		for _, key := range []string{"left", "right", "down"} {
 			t.Run(fmt.Sprintf("%s utf8=%v", key, utf8), func(t *testing.T) {
-				p := newPicker([]Engine{codexEngine(), claudeEngine(), grokEngine()}, nil, terminalui.Caps{UTF8: utf8})
+				p := newPicker([]Engine{codexEngine(), claudeEngine(), grokEngine(), kimiEngine()}, nil, terminalui.Caps{UTF8: utf8})
 				press(t, p, key)
 				lines := p.grid()
 				for i := range lines {

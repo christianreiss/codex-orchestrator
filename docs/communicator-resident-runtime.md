@@ -34,9 +34,9 @@ SHA256, draining state, residence/execution policy and controller workload.
 
 On-demand owners still idle out after five minutes without clients or finite
 work. Managed residence keeps content-only scopes for configured, enabled Codex,
-Claude and Grok engines. Account/session authentication is registered only by
+Claude, Grok and Kimi engines. Account/session authentication is registered only by
 existing native session lifecycles; residence never acquires provider leases,
-logs in, refreshes canonical auth or changes Grok's server-owned refresh.
+logs in, refreshes canonical auth or changes Grok/Kimi server-owned refresh.
 Transport-disabled residence uses direct HTTPS and the existing daemon WebSocket;
 turning off transport does not enable it through the residency flag.
 

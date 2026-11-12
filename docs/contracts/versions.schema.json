@@ -98,7 +98,7 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["codex", "claude", "grok"]
+            "enum": ["codex", "claude", "grok", "kimi"]
           }
         },
         "installation_id": {
@@ -111,7 +111,7 @@
           "enum": [
             "codex",
             "claude",
-            "grok"
+            "grok", "kimi"
           ]
         },
         "cgx_silent": {

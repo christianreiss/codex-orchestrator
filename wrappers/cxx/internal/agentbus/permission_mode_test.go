@@ -1,9 +1,11 @@
 package agentbus
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
@@ -14,6 +16,10 @@ func TestNativeArgsWithPermissionMode(t *testing.T) {
 		name, engine, upstream, model, mode string
 		want                                []string
 	}{
+		{
+			name: "kimi default mode", engine: config.EngineKimi,
+			want: []string{"kimi", "--skip-boot", "run", "--output-format", "stream-json"},
+		},
 		{
 			name: "claude plan first turn", engine: config.EngineClaude, mode: "plan",
 			want: []string{"claude", "--skip-boot", "run", "-p", "--output-format", "json", "--permission-mode", "plan"},
@@ -72,5 +78,23 @@ func TestHelloRejectsCapabilityOnlyForTheCapabilityField(t *testing.T) {
 	}
 	if helloRejectsCapability(errors.New("daemon request timed out permission_mode_version")) {
 		t.Fatal("transport errors are not server rejections")
+	}
+}
+
+func TestKimiHeadlessPlanIsRejectedBeforeNativeExecution(t *testing.T) {
+	if err := validateHeadlessPermissionMode("kimi", "plan"); err == nil {
+		t.Fatal("Kimi plan constraint silently dropped")
+	}
+	if err := validateHeadlessPermissionMode("kimi", "default"); err != nil {
+		t.Fatal(err)
+	}
+	delivery := &relayDelivery{Target: map[string]any{"engine": "kimi", "daemon_permission_mode": "plan"}}
+	result := (&relayClient{}).runNative(context.Background(), nil, delivery, "", false)
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "--plan") {
+		t.Fatal(result.Err)
+	}
+	out := runDaemonOperation(context.Background(), daemonOperation{Engine: "kimi", Cwd: t.TempDir(), Prompt: "read only", PermissionMode: "plan"})
+	if out.Status != "failed" || !strings.Contains(out.Reply, "--plan") {
+		t.Fatal(out)
 	}
 }

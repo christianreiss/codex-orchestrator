@@ -14,7 +14,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('Advisor role prompt', () => {
   it.each([
-    ['codex', 'gpt-6-astra'], ['claude', 'claude-opus-5-5'], ['grok', 'grok-4.7'],
+    ['codex', 'gpt-6-astra'], ['claude', 'claude-opus-5-5'], ['grok', 'grok-4.7'], ['kimi', 'k3.1-pro'],
   ] as const)('%s demonstrates evidence objects accepted by the verdict parser', async (engine, model) => {
     const callerId = randomUUID();
     const db = createDbFake(new Map([[agentBusAddresses, [{ id: callerId, launchName: 'Caller', engine }]]]));

@@ -27,7 +27,7 @@ und bestehende Ownership-Prüfungen gelten weiter.
 1. Einstellungen und Anzeige: globaler Schalter in Fleet Settings, Tri-State
    im Host-Detail, versionierte API-Verträge und idempotente Migration. Der
    Host-Standard ist `fleet`. Dieselbe zentrale Auflösung liefert den Zustand
-   an UI, Wrapper und Communicator für Codex, Claude und Grok.
+   an UI, Wrapper und Communicator für Codex, Claude, Grok und Kimi.
 2. Hostweite Zulassung: ein gemeinsames Budget für neue verwaltete Starts über
    alle Engines und Benutzer des Hosts. Frische CPU-/RAM-/temporäre
    Speicher-Messwerte und bestehende Startreservierungen bestimmen, ob ein

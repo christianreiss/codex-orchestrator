@@ -8,7 +8,7 @@ Testergebnisse früherer Runs sind keine aktuelle Referenz.
 
 Führe einen vollständigen Maintenance-Run für **alle im Repository unterstützten
 Engines** durch. Im Codex Orchestrator sind das derzeit Codex, Claude Code und
-Grok Build; ermittle die tatsächliche Liste bei jedem Run neu.
+Grok Build und Kimi Code; ermittle die tatsächliche Liste bei jedem Run neu.
 
 Arbeite autonom bis zum geprüften, integrierten Ergebnis. Implementierung,
 Subagents, eigene Git-Branches und Worktrees, Commit, Merge zurück in den
@@ -45,7 +45,7 @@ Information darf nicht als erfolgreiche Erledigung erscheinen.
 
 **Beauftrage für jede ermittelte Engine einen eigenen Recherche-Subagent.**
 Für den aktuellen Stand sind das getrennte Recherche-Aufträge für Codex,
-Claude Code und Grok Build. Der Parent koordiniert die Aufträge, prüft ihre
+Claude Code, Grok Build und Kimi Code. Der Parent koordiniert die Aufträge, prüft ihre
 Belege und führt die Ergebnisse zusammen; die Engine-Recherche erledigen die
 jeweiligen Subagents. Starte unabhängige Recherchen parallel innerhalb der
 verfügbaren Kapazität, andernfalls in Wellen. Keine Engine auslassen, weil

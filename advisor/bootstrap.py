@@ -16,7 +16,7 @@ import urllib.request
 HOME = os.environ["HOME"]
 CFG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.join(HOME, ".config")), "codex-orchestrator")
 BIN_DIR = os.environ.get("BIN_DIR", os.path.join(HOME, ".local", "bin"))
-ENGINES = (("codex", "cdx"), ("claude", "clx"), ("grok", "cgx"))
+ENGINES = (("codex", "cdx"), ("claude", "clx"), ("grok", "cgx"), ("kimi", "ckx"))
 
 
 def sort_value(value):

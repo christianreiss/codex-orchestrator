@@ -53,6 +53,7 @@ const RUNNER = resolve(ROOT, 'runner/app.py');
  * stale guard below deletes the excuse once the docs stop mentioning it.
  */
 const NON_API_VARS: Record<string, string> = {
+  ENGINE_KIMI: 'api/src/util/engine.ts (engine constant, not an environment variable)',
   KIMI_CODE_HOME: 'api/src/services/install-token.ts (generated Kimi seed script)',
   ANTHROPIC_MODEL: 'wrappers/cxx/internal/persona/claude/summary/local_settings.go',
   BIN_DIR: 'api/src/services/wrapper-transition.ts (generated installer)',

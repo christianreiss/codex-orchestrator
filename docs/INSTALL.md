@@ -1,6 +1,6 @@
 # Installation Guide
 
-Hosts may enable any nonempty subset of Codex, Claude, and Grok Build. Grok uses
+Hosts may enable any nonempty subset of Codex, Claude, Grok Build, and Kimi Code. Grok uses
 `cgx`, a signed engine-specific config, and the shared `cxx` binary. Seed Grok
 with a dedicated login: `cgx login` and the admin seed command both run
 `grok login --device-auth` in a throwaway `GROK_HOME` and erase it after upload.
@@ -365,7 +365,7 @@ in the `wrappers/Dockerfile.build` toolchain container (no Go, make or python
 build tooling needed on the host beyond `python3`), embeds the database's single
 active signing key and proves every binary carries it, publishes into the
 `/app/storage` mount's `wrapper/v2/bin`, recreates the api and checks that
-`wrapper_version_codex`/`_claude`/`_grok` moved. An already-served version is a no-op;
+`wrapper_version_codex`/`_claude`/`_grok`/`_kimi` moved. An already-served version is a no-op;
 if wrapper sources changed since the served binary's commit without a
 `VERSION` bump it warns and continues. `--skip-wrappers` opts out, and the step
 refuses to run while a signing-key rotation leaves more than one active key.
@@ -498,7 +498,7 @@ After `bin/install.sh` prints `READY`, open `/admin/setup` (the closing message 
 |------|--------------|----------|
 | Infrastructure | The six readiness checks, each with the command that fixes it. | **yes** |
 | Owner | The one-time first-owner claim; issues the session inline. | **yes** |
-| Engines | Codex, Claude, Grok: any combination, or none yet. Drives the next step. | no |
+| Engines | Codex, Claude, Grok, Kimi: any combination, or none yet. Drives the next step. | no |
 | Credentials | One canonical credential per selected engine. | no |
 | Fleet defaults | Model and effort — **and the write that activates MCP**. | no |
 | Agent policy | The seeded fleet policy, plus optional house rules. | no |
@@ -579,3 +579,8 @@ helper, then run `node retention-maintenance.js --compact --no-backup` in the AP
 image against the same configured database. The offline ownership guard refuses
 an active API. Restart the API/worker and check health and auth after maintenance.
 No archive is created; deleted history requires existing external backup recovery.
+
+Kimi Code hosts use `ckx`; [the ckx contract](interface-ckx.md) documents the
+verified native binary installer and dedicated device login. The server alone
+refreshes OAuth. The `/kimi/v1` inference gateway starts disabled and requires
+operator opt-in.

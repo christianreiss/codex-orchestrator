@@ -38,6 +38,7 @@ import {
   GROK_MODEL_REASONING_EFFORTS,
   GROK_SUPPORTED_MODELS,
 } from '../../../src/services/grok-models.js';
+import { KIMI_DEFAULT_MODEL, KIMI_SUPPORTED_MODELS, KIMI_MODEL_REASONING_EFFORTS, KIMI_MODEL_DEFAULT_REASONING_EFFORTS } from '../../../src/services/kimi-models.js';
 import { modelTier } from '../../../src/services/model-tiers.js';
 import { modelDefaultsCatalog } from '../../../src/services/model-defaults.js';
 
@@ -137,6 +138,13 @@ describe('derived views equal the registry', () => {
       expect(claudeSupportsLegacyUserEffort(entry.id)).toBe(entry.legacyUserEffort === true);
     }
     for (const target of Object.values(CLAUDE_ADVISOR_ALIASES)) expect(offeredModelIds('claude')).toContain(target);
+  });
+
+  it('kimi', () => {
+    expect(KIMI_SUPPORTED_MODELS).toEqual(offeredModelIds('kimi'));
+    expect(KIMI_DEFAULT_MODEL).toBe(MODEL_REGISTRY.kimi.defaultModel);
+    expect(KIMI_MODEL_REASONING_EFFORTS).toEqual(table('kimi', entry => entry.efforts));
+    expect(KIMI_MODEL_DEFAULT_REASONING_EFFORTS).toEqual(table('kimi', entry => entry.defaultEffort ?? undefined));
   });
 
   it('grok', () => {
