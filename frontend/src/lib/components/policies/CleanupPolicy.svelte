@@ -12,13 +12,9 @@
   const kind = "prune-policy";
   const fields = [{ key: "inactivity_window_days" as const, label: "Inactivity window" }];
   const qc = useQueryClient();
-  // Pruning reads overview because there is no dedicated GET.
   // settings.changed invalidates the existing settings query root.
   const queryKey = ["settings", kind];
-  const query = createQuery<Values>({ queryKey, queryFn: async () => {
-    const overview = await api.get<Values>("/admin/overview");
-    return { inactivity_window_days: overview.inactivity_window_days };
-  } });
+  const query = createQuery<Values>({ queryKey, queryFn: () => api.get<Values>("/admin/prune-policy") });
   let draft = $state<Record<string, number | undefined>>({});
   let baseline = $state<string | null>(null);
   const extract = (data: Values) => Object.fromEntries(fields.map((field) => [field.key, data[field.key]]));

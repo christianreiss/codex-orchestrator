@@ -6,6 +6,7 @@
    */
   import type { Snippet } from "svelte";
   import { cn } from "$lib/utils/cn";
+  import HostOverrideBadge from "./HostOverrideBadge.svelte";
 
   type Props = {
     id: string;
@@ -18,11 +19,15 @@
     /** Longer explanation behind a "More" disclosure. */
     details?: string;
     stacked?: boolean;
+    /** Hosts that override this setting; leave out when hosts cannot (or it is not yet known). */
+    overrideCount?: number | null;
+    /** What a host overrides, for the badge's accessible name. */
+    overrideNoun?: string;
     control?: Snippet;
     children?: Snippet;
     class?: string;
   };
-  let { id, label, controlId, help, term, details, stacked = false, control, children, class: className }: Props = $props();
+  let { id, label, controlId, help, term, details, stacked = false, overrideCount, overrideNoun, control, children, class: className }: Props = $props();
 </script>
 
 <div {id} class={cn("scroll-mt-24 py-3", className)}>
@@ -35,6 +40,7 @@
           <h3 class="text-body font-medium">{label}</h3>
         {/if}
         {#if term}<span class="text-caption text-muted-foreground">{term}</span>{/if}
+        <HostOverrideBadge count={overrideCount} noun={overrideNoun} />
       </div>
       <p class="text-body-sm text-muted-foreground">{help}</p>
     </div>

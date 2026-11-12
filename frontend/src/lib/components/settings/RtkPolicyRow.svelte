@@ -6,7 +6,8 @@
   import { Switch } from "$lib/components/ui/switch";
   import * as Select from "$lib/components/ui/select";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
-  let { engine, policy, hostId, canManage, stale = false }: { engine: RtkEngine; policy: RtkPolicy; hostId?: string; canManage: boolean; stale?: boolean } = $props();
+  import HostOverrideBadge from "$lib/components/policies/HostOverrideBadge.svelte";
+  let { engine, policy, hostId, canManage, stale = false, overrideCount }: { engine: RtkEngine; policy: RtkPolicy; hostId?: string; canManage: boolean; stale?: boolean; overrideCount?: number | null } = $props();
   const qc = useQueryClient();
   const uid = $props.id();
   let attempted = $state<boolean | null | undefined>(undefined);
@@ -38,7 +39,10 @@
 <div class="space-y-2 py-3" data-testid={`rtk-${engine}`}>
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="min-w-0">
-      <h3 class="text-body font-semibold capitalize">{engine}</h3>
+      <div class="flex flex-wrap items-baseline gap-x-2">
+        <h3 class="text-body font-semibold capitalize">{engine}</h3>
+        {#if !hostId}<HostOverrideBadge count={overrideCount} noun="output-filtering rule" />{/if}
+      </div>
       <p id={`${uid}-policy`} class="text-body-sm text-muted-foreground">{policy.enabled ? "Enabled" : "Disabled"}{hostId ? ` · ${policy.source === "host" ? "Host override" : "Fleet default"}` : " for new managed sessions"}</p>
     </div>
     {#if hostId}
