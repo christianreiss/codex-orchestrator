@@ -27,7 +27,7 @@ import {
 import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
-import { loadWrapperRollout, resolveHostWrapperTarget } from '../../services/wrapper-rollout.js';
+import { loadWrapperRollout, readRolloutEnabled, resolveHostWrapperTarget } from '../../services/wrapper-rollout.js';
 import { assertHostEngineEnabled, type FleetEngineState } from '../../services/host-engine-policy.js';
 import { readFleetEngineState } from '../../services/engine-switch.js';
 
@@ -161,7 +161,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       ? {
           ...fleetSnapshot,
           wrapper_version: resolveHostWrapperTarget(
-            ctx.env.CXX_WRAPPER_ROLLOUT_ENABLED ? await loadWrapperRollout(ctx.db) : null,
+            (await readRolloutEnabled(ctx.db, ctx.env)).enabled ? await loadWrapperRollout(ctx.db) : null,
             host.id,
             fleetSnapshot.wrapper_version,
             submittedWrapper,

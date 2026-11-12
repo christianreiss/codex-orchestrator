@@ -38,7 +38,7 @@ import {
   assertHostEngineAssigned,
   hostEnginesList,
 } from '../../services/host-engine-policy.js';
-import { loadWrapperRollout } from '../../services/wrapper-rollout.js';
+import { loadWrapperRollout, readRolloutEnabled } from '../../services/wrapper-rollout.js';
 
 /**
  * Wrapper bakery v2 endpoints.
@@ -103,8 +103,9 @@ export async function registerWrapperV2Routes(
     communicatorSyncEnabled: ctx.env.CXX_COMMUNICATOR_SYNC_ENABLED,
     communicatorRuntimeEnabled: ctx.env.CXX_COMMUNICATOR_RUNTIME_ENABLED,
     communicatorUpdateEnabled: ctx.env.CXX_COMMUNICATOR_UPDATE_ENABLED,
-    // The flag is the kill switch: off ignores any stored rollout entirely.
-    wrapperRollout: ctx.env.CXX_WRAPPER_ROLLOUT_ENABLED ? () => loadWrapperRollout(ctx.db) : undefined,
+    // The switch is the kill switch: off ignores any stored rollout entirely. It is read per
+    // request, so an operator toggle takes effect without a restart.
+    wrapperRollout: async () => ((await readRolloutEnabled(ctx.db, ctx.env)).enabled ? loadWrapperRollout(ctx.db) : null),
   });
   const meta = createWrapperMetaService({ binaries, schemaVersion: WRAPPER_CONFIG_SCHEMA_VERSION });
   const download = createWrapperDownloadService({ binaries });

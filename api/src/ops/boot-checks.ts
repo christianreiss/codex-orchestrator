@@ -19,7 +19,7 @@ import {
   type PlatformManifest,
   type WrapperArtifact,
 } from '../services/wrapper-bin-registry.js';
-import { rolloutSettingsFromEnv, startRolloutOnPublish } from '../services/wrapper-rollout.js';
+import { readRolloutEnabled, rolloutSettingsFromEnv, startRolloutOnPublish } from '../services/wrapper-rollout.js';
 
 export async function runBootChecks(env: Env, db: Database): Promise<void> {
   const keyring = Keyring.fromEnv(env);
@@ -89,7 +89,7 @@ async function refreshWrapperVersions(env: Env, db: Database): Promise<void> {
     );
     // Read the previous fleet version before overwriting it: a deploy recreates
     // the API, so boot is where a newly published cxx release becomes a rollout.
-    const rollout = rolloutSettingsFromEnv(env);
+    const rollout = { ...rolloutSettingsFromEnv(env), enabled: (await readRolloutEnabled(db, env)).enabled };
     const previous = rollout.enabled ? await readVersion(db, `wrapper_version_${ENGINES[0]}`) : null;
     // Keep the compatibility DB keys, but make every engine projection share
     // one source of truth. There is no per-engine cxx target to drift.
