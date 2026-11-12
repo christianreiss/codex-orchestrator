@@ -37,7 +37,7 @@ func TestScheduleRetryAtReadsStructuredProviderHints(t *testing.T) {
 }
 
 func TestScheduleRelayUsesStrictResumeAndNeverRepliesToServer(t *testing.T) {
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		for _, missing := range []bool{false, true} {
 			t.Run(engine+fmt.Sprint(missing), func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())

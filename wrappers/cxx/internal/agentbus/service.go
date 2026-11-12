@@ -40,7 +40,7 @@ var (
 
 func renderSystemdUserUnit(executable, binaryDigest string, environment map[string]string) string {
 	var environmentLines strings.Builder
-	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CODEX_HOME", "GROK_HOME"} {
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CKX_CONFIG_PATH", "CODEX_HOME", "GROK_HOME", "KIMI_CODE_HOME"} {
 		if value := strings.TrimSpace(environment[key]); value != "" {
 			environmentLines.WriteString("Environment=" + systemdQuote(key+"="+value) + "\n")
 		}
@@ -66,7 +66,7 @@ WantedBy=default.target
 
 func renderLaunchAgent(executable, binaryDigest string, environment map[string]string) string {
 	var environmentXML strings.Builder
-	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CODEX_HOME", "GROK_HOME"} {
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CKX_CONFIG_PATH", "CODEX_HOME", "GROK_HOME", "KIMI_CODE_HOME"} {
 		if value := strings.TrimSpace(environment[key]); value != "" {
 			environmentXML.WriteString("    <key>" + key + "</key><string>" + html.EscapeString(value) + "</string>\n")
 		}
@@ -554,7 +554,7 @@ func runServiceProcess(stdout, stderr io.Writer, name string, args ...string) er
 }
 
 func serviceConfigEnvironment() (map[string]string, error) {
-	environment := make(map[string]string, 3)
+	environment := make(map[string]string, 4)
 	for _, item := range []struct {
 		key    string
 		engine string
@@ -562,6 +562,7 @@ func serviceConfigEnvironment() (map[string]string, error) {
 		{key: "CDX_CONFIG_PATH", engine: config.EngineCodex},
 		{key: "CLX_CONFIG_PATH", engine: config.EngineClaude},
 		{key: "CGX_CONFIG_PATH", engine: config.EngineGrok},
+		{key: "CKX_CONFIG_PATH", engine: config.EngineKimi},
 	} {
 		path, err := config.DefaultPathForEngine(item.engine)
 		if err != nil {
@@ -591,6 +592,15 @@ func serviceConfigEnvironment() (map[string]string, error) {
 		return nil, errors.New("CODEX_HOME contains an invalid character")
 	}
 	environment["CODEX_HOME"] = home
+	kimiBase := strings.TrimSpace(os.Getenv("CXX_KIMI_BASE_HOME"))
+	if kimiBase == "" {
+		kimiBase = kimiHome()
+	}
+	kimiBase, err = filepath.Abs(kimiBase)
+	if err != nil || strings.ContainsAny(kimiBase, "\x00\r\n") {
+		return nil, errors.New("KIMI_CODE_HOME must be an absolute path without control characters")
+	}
+	environment["KIMI_CODE_HOME"] = kimiBase
 	return environment, nil
 }
 

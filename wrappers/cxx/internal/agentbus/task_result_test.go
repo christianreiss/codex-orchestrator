@@ -79,7 +79,7 @@ func TestCompletionFailureRetainsClaimUntilRetry(t *testing.T) {
 
 func TestAllNativeFormatsPreserveTaskOutcome(t *testing.T) {
 	report := `{"content":"Fixture verified","task_result":{"status":"succeeded","summary":"Fixture verified","evidence":[{"description":"fixture","reference":"/tmp/fixture"}]}}`
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		t.Run(engine, func(t *testing.T) {
 			var output []byte
 			switch engine {
@@ -87,6 +87,8 @@ func TestAllNativeFormatsPreserveTaskOutcome(t *testing.T) {
 				output, _ = json.Marshal(map[string]any{"type": "item.completed", "item": map[string]any{"type": "agent_message", "text": report}})
 			case config.EngineClaude:
 				output, _ = json.Marshal(map[string]any{"type": "result", "result": report, "session_id": "native"})
+			case config.EngineKimi:
+				output, _ = json.Marshal(map[string]any{"role": "assistant", "content": report})
 			case config.EngineGrok:
 				output, _ = json.Marshal(map[string]any{"text": report, "sessionId": "native", "stopReason": "end_turn"})
 			}

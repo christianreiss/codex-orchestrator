@@ -16,11 +16,15 @@ type titleRecorder struct{ id, title string }
 func (w *titleRecorder) setSessionName(id, title string) error { w.id, w.title = id, title; return nil }
 
 func TestNativeNamingUsesConfirmedCurrentIdentityAndBareTaskTitle(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			home := t.TempDir()
-			for _, key := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME"} {
+			for _, key := range []string{"CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "KIMI_CODE_HOME"} {
 				t.Setenv(key, home)
+			}
+			native := "native"
+			if engine == "kimi" {
+				native = "session_11111111-1111-4111-8111-111111111111"
 			}
 			var path, raw string
 			switch engine {
@@ -30,6 +34,9 @@ func TestNativeNamingUsesConfirmedCurrentIdentityAndBareTaskTitle(t *testing.T) 
 			case "claude":
 				path = filepath.Join(home, "projects", "project", "native.jsonl")
 				raw = `{"type":"custom-title","sessionId":"native","customTitle":"(Tanja) Review"}` + "\n"
+			case "kimi":
+				path = filepath.Join(home, "sessions", "project", native, "state.json")
+				raw = `{"id":"` + native + `","title":"(Tanja) Review"}`
 			case "grok":
 				path = filepath.Join(home, "sessions", "project", "native", "summary.json")
 				raw = `{"info":{"id":"native"},"title":"(Tanja) Review"}`
@@ -44,7 +51,7 @@ func TestNativeNamingUsesConfirmedCurrentIdentityAndBareTaskTitle(t *testing.T) 
 			events := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if strings.HasSuffix(r.URL.Path, "/self") {
-					id := "native"
+					id := native
 					if !valid {
 						id = "foreign"
 					}
@@ -66,13 +73,13 @@ func TestNativeNamingUsesConfirmedCurrentIdentityAndBareTaskTitle(t *testing.T) 
 			reporter := &sessionNameReporter{}
 			writer := &titleRecorder{}
 			valid = false
-			reporter.report(context.Background(), client, engine, "native", writer)
+			reporter.report(context.Background(), client, engine, native, writer)
 			if writer.title != "" || events != 0 {
 				t.Fatal("stale self response renamed a session")
 			}
 			valid = true
-			reporter.report(context.Background(), client, engine, "native", writer)
-			if writer.id != "native" || writer.title != "(Claudia) Review" || events != 1 {
+			reporter.report(context.Background(), client, engine, native, writer)
+			if writer.id != native || writer.title != "(Claudia) Review" || events != 1 {
 				t.Fatalf("identity/title not synchronized: %+v events=%d", writer, events)
 			}
 		})

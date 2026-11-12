@@ -86,16 +86,18 @@ func ExplicitResumeSessionID(args []string) string {
 	return candidate
 }
 
-// NativeResumeSessionID extracts only a canonical explicit native UUID using
+// NativeResumeSessionID extracts only a canonical explicit native ID using
 // dispatch boundaries. Picker titles and forks cannot prove prior identity.
 func NativeResumeSessionID(engine string, args []string) string {
 	candidate := ""
-	if engine == "grok" {
+	if engine == "kimi" {
+		candidate = kimiResumeID(args)
+	} else if engine == "grok" {
 		if nativeargs.Has(engine, args, "--fork-session") {
 			return ""
 		}
 		candidate = nativeargs.Value(engine, args, "--resume", "--load")
-	} else {
+	} else if engine == "codex" {
 		cmd, at := nativeargs.CodexSessionCommand(args)
 		if cmd != "resume" {
 			return ""
@@ -114,9 +116,11 @@ func NativeResumeSessionID(engine string, args []string) string {
 			candidate = args[i]
 			break
 		}
+	} else {
+		return ""
 	}
 	candidate = strings.TrimSpace(candidate)
-	if !isCanonicalUUID(candidate) {
+	if (engine == "kimi" && !validKimiNativeID(candidate)) || (engine != "kimi" && !isCanonicalUUID(candidate)) {
 		return ""
 	}
 	return candidate

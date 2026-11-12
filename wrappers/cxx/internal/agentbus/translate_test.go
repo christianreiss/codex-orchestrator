@@ -84,7 +84,7 @@ func TestTranslationErrorsAndEmptyResponse(t *testing.T) {
 }
 
 func TestHostTranslationUsesHostKeyWithoutRegisteringALaunch(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			count := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

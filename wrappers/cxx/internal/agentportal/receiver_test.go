@@ -249,11 +249,14 @@ func TestNativeIdentityIsLocalAndRequiresReceiverGrant(t *testing.T) {
 }
 
 func TestDaemonChildUsesParentWriterOnlyForItsExactNativeIdentity(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("CXX_AGENT_MESSAGING_MESSAGE_ID", "")
-			const id = "22222222-2222-4222-8222-222222222222"
+			id := "22222222-2222-4222-8222-222222222222"
+			if engine == "kimi" {
+				id = "session_" + id
+			}
 			parent, err := nativewriter.Acquire(engine, id)
 			if err != nil {
 				t.Fatal(err)
@@ -287,14 +290,17 @@ func TestDaemonChildUsesParentWriterOnlyForItsExactNativeIdentity(t *testing.T) 
 // without it the receiver never binds, so the launch keeps a second identity
 // and the relay keeps resuming the transcript headlessly.
 func TestPickedTranscriptClaimsWriterAfterHeadlessTurn(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		// Claude polls its identity; Grok's queue may report the transcript
 		// itself and claim the pending writer with its registration.
 		for _, claim := range []string{"poll", "register"} {
 			t.Run(engine+"/"+claim, func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
 				t.Setenv("CXX_AGENT_MESSAGING_MESSAGE_ID", "")
-				const id = "44444444-4444-4444-8444-444444444444"
+				id := "44444444-4444-4444-8444-444444444444"
+				if engine == "kimi" {
+					id = "session_" + id
+				}
 				relay, err := nativewriter.Acquire(engine, id)
 				if err != nil {
 					t.Fatal(err)

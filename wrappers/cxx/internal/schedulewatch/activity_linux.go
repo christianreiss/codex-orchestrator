@@ -50,7 +50,7 @@ func activity(pid int) processActivity {
 				text := strings.ReplaceAll(string(command), "\x00", " ")
 				// cxx MCP, runtime accessors and the shared Codex app-server are adapters;
 				// a subprocess below them (sleep/build/test/ssh/etc.) still counts as work.
-				adapter := strings.Contains(text, "agent mcp") || strings.Contains(text, "app-server") || strings.Contains(text, "auth-accessor")
+				adapter := strings.Contains(text, "agent mcp") || strings.Contains(text, "app-server") || strings.Contains(text, "auth-accessor") || isKimiProcess(command)
 				if !adapter && !strings.Contains(text, "cxx") {
 					result.tool = true
 				}
@@ -62,3 +62,9 @@ func activity(pid int) processActivity {
 	return result
 }
 func terminate(p *os.Process) error { return p.Signal(syscall.SIGTERM) }
+
+// The native CLI is an adapter, while its tool subprocesses count as work.
+func isKimiProcess(cmdline []byte) bool {
+	name := strings.SplitN(string(cmdline), "\x00", 2)[0]
+	return filepath.Base(name) == "kimi"
+}

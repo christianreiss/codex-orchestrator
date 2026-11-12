@@ -279,7 +279,7 @@ func migrateResidentService(configs map[string]*config.Config, client *relayClie
 		return err
 	}
 	seed := ""
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		if cfg := configs[engine]; cfg != nil {
 			seed = cfg.SourcePath()
 			break
@@ -433,7 +433,7 @@ func rollbackResidentService(stdout, stderr io.Writer) error {
 		return err
 	}
 	seed := ""
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		if cfg := configs[engine]; cfg != nil {
 			seed = cfg.SourcePath()
 			break

@@ -24,7 +24,7 @@ func TestContentNoticeRidesMCPResultBesideAuthNoticeOnce(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("GROK_HOME", "")
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		publishTestContentNotice(t, engine)
 		if engine != "grok" {
 			publishTestNotice(t, engine)

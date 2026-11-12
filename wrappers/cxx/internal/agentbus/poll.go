@@ -62,6 +62,7 @@ type mailboxPeer struct {
 
 type mailboxEntry struct {
 	MessageID      string `json:"message_id"`
+	Source         string `json:"source,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Kind           string `json:"kind"`
 	// DeliveryClass is absent from an older server; an entry without one is
@@ -108,6 +109,7 @@ func (p mailboxPeer) name() string {
 
 func runPoll(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent poll", stderr)
+	dialect := flags.String("dialect", "claude", "hook protocol: claude or kimi")
 	hook := flags.String("hook", "", "emit Claude Code hook JSON for an event: Stop or UserPromptSubmit")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -120,6 +122,12 @@ func runPoll(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return errorsUsage("cxx agent poll", "--hook must be "+hookEventStop+" or "+hookEventPrompt)
 	}
 
+	if *dialect != "claude" && *dialect != "kimi" {
+		return errorsUsage("cxx agent poll", "--dialect must be claude or kimi")
+	}
+	if *dialect == "kimi" && event != "" {
+		return runKimiPoll(event, stdin, stdout, stderr)
+	}
 	if event != "" && ringHooksDisabled() {
 		// Empty stdout with exit 0 is "no decision" for the native hook runner.
 		return nil
@@ -195,7 +203,7 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 	var authContext string
 	var authDelivery *authnotice.Delivery
 	if event == hookEventPrompt {
-		if delivery, err := authnotice.Prepare("claude", os.Getenv(envSessionID)); err == nil && delivery != nil {
+		if delivery, err := authnotice.Prepare(hookEngine(), os.Getenv(envSessionID)); err == nil && delivery != nil {
 			authDelivery = delivery
 			authContext = delivery.Notice.Message()
 		}
@@ -204,7 +212,7 @@ func emitHook(stdout io.Writer, event string, box *mailbox, end *turnEnd) error 
 	var contentContext string
 	var contentDelivery *contentnotice.Delivery
 	if event == hookEventPrompt {
-		if delivery, err := contentnotice.Prepare("claude", os.Getenv(envSessionID)); err == nil && delivery != nil {
+		if delivery, err := contentnotice.Prepare(hookEngine(), os.Getenv(envSessionID)); err == nil && delivery != nil {
 			contentDelivery = delivery
 			contentContext = delivery.Notice.Message()
 		}

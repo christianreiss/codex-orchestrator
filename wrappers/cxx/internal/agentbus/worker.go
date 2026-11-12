@@ -130,7 +130,7 @@ func RunWorker(parent context.Context, version string, stdout, stderr io.Writer)
 	var policyWatchDone, authWatchDone sync.WaitGroup
 	policyWatchDone.Add(1)
 	go func() { defer policyWatchDone.Done(); watchWorkerPolicy(ctx, revoke, stderr) }()
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		authWatchDone.Add(1)
 		go func() { defer authWatchDone.Done(); runPersistentAuthWatch(ctx, engine, slog.Default()) }()
 	}
@@ -213,7 +213,7 @@ func loadMessagingConfigs() (map[string]*config.Config, *config.Config, error) {
 	}
 	loaded := map[string]*config.Config{}
 	var loadErrors []error
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		path, pathErr := config.DefaultPathForEngine(engine)
 		if pathErr != nil {
 			loadErrors = append(loadErrors, pathErr)
@@ -234,7 +234,7 @@ func loadMessagingConfigs() (map[string]*config.Config, *config.Config, error) {
 		loaded[engine] = cfg
 	}
 	var seed *config.Config
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		if loaded[engine] != nil {
 			seed = loaded[engine]
 			break
@@ -298,7 +298,7 @@ func newRelayClient(cfg *config.Config) (*relayClient, error) {
 
 func (c *relayClient) register(ctx context.Context, username, instanceID, version string) (*relayRegistration, error) {
 	var out relayRegistration
-	capabilities := map[string]any{"host_daemon": c.daemon, "execution_contract_version": 2, "watchdog_protocol_version": 1, "supervisor_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true}
+	capabilities := map[string]any{"host_daemon": c.daemon, "execution_contract_version": 2, "watchdog_protocol_version": 1, "supervisor_protocol_version": 1, "headless": true, "codex_exec_resume": true, "claude_print_resume": true, "grok_json_resume": true, "kimi_stream_json_resume": true}
 	if c.stateProtocol == 1 {
 		capabilities["control_state_protocol"] = 1
 	}
@@ -571,6 +571,13 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 		return result
 	}
 	engine := stringArg(delivery.Target, "engine")
+	if engine == config.EngineKimi && upstream != "" {
+		if err := checkKimiTranscript(upstream); err != nil {
+			result.Err = err
+			result.MissingTranscript = errors.Is(err, errNativeTranscriptMissing)
+			return result
+		}
+	}
 	if engine == config.EngineGrok && upstream != "" {
 		if err := checkGrokTranscript(upstream); err != nil {
 			result.Err = err
@@ -606,6 +613,9 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 		}
 		args = append(args, "--prompt-file", file.Name())
 	}
+	if engine == config.EngineKimi {
+		args = append(args, "-p", prompt)
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, exe, args...)
@@ -622,7 +632,7 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 	}
 	cmd.Dir = stringArg(delivery.Target, "cwd")
 	cmd.Stdin = strings.NewReader(prompt)
-	if engine == config.EngineGrok {
+	if engine == config.EngineGrok || engine == config.EngineKimi {
 		cmd.Stdin = nil
 	}
 	var output tailBuffer
@@ -749,6 +759,16 @@ func nativeArgs(engine, upstream string, model ...string) []string {
 		}
 		return append(args, "--json", "--skip-git-repo-check", "-")
 	}
+	if engine == config.EngineKimi {
+		args = append(args, "--output-format", "stream-json")
+		if pinned != "" {
+			args = append(args, "-m", pinned)
+		}
+		if upstream != "" {
+			args = append(args, "-S", upstream)
+		}
+		return args
+	}
 	if engine == config.EngineGrok {
 		args = append(args, "--no-leader", "--output-format", "json")
 		if pinned != "" {
@@ -758,6 +778,9 @@ func nativeArgs(engine, upstream string, model ...string) []string {
 			args = append(args, "--resume", upstream)
 		}
 		return args
+	}
+	if engine != config.EngineClaude {
+		return nil
 	}
 	if upstream != "" {
 		// Use the wrapper's resume subcommand. Passing --resume after `run`
@@ -931,6 +954,9 @@ func noReplyMarker(delivery *relayDelivery) string {
 }
 
 func parseNativeOutput(engine string, raw []byte) (reply, sessionID string) {
+	if engine == config.EngineKimi {
+		return parseKimiOutput(raw)
+	}
 	if engine == config.EngineGrok {
 		var result struct {
 			Text       string `json:"text"`
@@ -953,6 +979,9 @@ func parseNativeOutput(engine string, raw []byte) (reply, sessionID string) {
 		if json.Unmarshal(bytes.TrimSpace(raw), &result) == nil && !result.IsError && (result.Subtype == "" || result.Subtype == "success") {
 			return result.Result, result.SessionID
 		}
+		return "", ""
+	}
+	if engine != config.EngineCodex {
 		return "", ""
 	}
 	failed := false

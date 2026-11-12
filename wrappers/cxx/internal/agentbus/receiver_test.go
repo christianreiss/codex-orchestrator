@@ -272,7 +272,7 @@ func TestAutomaticListenReleasesHeldDeliveryWithoutClaiming(t *testing.T) {
 }
 
 func TestNativePeerReplyCanFinishWithoutAnOutboundAcknowledgement(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
 			delivery := map[string]any{"message_id": "held", "kind": "reply", "content": "Austausch beendet."}
@@ -450,7 +450,7 @@ func TestPortalReplyRequiresOwnedMessage(t *testing.T) {
 }
 
 func TestPortalReplySummaryKeepsCorrelationAndSupportsOlderCallers(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, summary := range []string{"", "DNS fixed; approval needed."} {
 			t.Run(engine+"/"+summary, func(t *testing.T) {
 				t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
@@ -514,7 +514,7 @@ func TestChannelDeliveryPreservesFullContentAndMessageID(t *testing.T) {
 
 // Exercise real adapter loops: health and reconnects must never become model turns.
 func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, legacyProbe := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/legacy=%v", engine, legacyProbe), func(t *testing.T) {
 				t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
@@ -640,7 +640,7 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 							if claims.Add(1) == 2 {
 								cancel()
 							}
-						case "status", "stop", "get", "self", "activity-hook":
+						case "status", "stop", "get", "self", "activity-hook", "activity":
 							// Watchdog status is transport metadata, never a chat probe.
 							if path.Base(req.URL.Path) == "get" {
 								out["watchdog"] = nil
@@ -656,13 +656,13 @@ func TestReceiverHealthAndReconnectsDoNotDeliverChatProbes(t *testing.T) {
 					err := r.connection(ctx)
 					cancel()
 					server.Close()
-					if legacyProbe && (err == nil || !strings.Contains(err.Error(), "update the server")) {
+					if engine != "kimi" && legacyProbe && (err == nil || !strings.Contains(err.Error(), "update the server")) {
 						t.Fatalf("legacy probe not refused: %v", err)
 					}
-					if !legacyProbe && claims.Load() != 2 {
+					if engine != "kimi" && !legacyProbe && claims.Load() != 2 {
 						t.Fatalf("sources not polled: %v", err)
 					}
-					if heartbeats.Load() == 0 {
+					if engine != "kimi" && heartbeats.Load() == 0 {
 						t.Fatal("no background heartbeat")
 					}
 				}
@@ -697,7 +697,7 @@ func (w receiverHealthWriter) Write(data []byte) (int, error) {
 }
 
 func TestAuthenticatedPeerGuidanceAcrossEnginesAndDeliveryPaths(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
 			for _, kind := range []string{"request", "task", "reply", "publication"} {
@@ -767,7 +767,7 @@ func TestNativePresenceNoticeFinishesWithoutReply(t *testing.T) {
 }
 
 func TestPortalStatusIsExplicitOwnedIdempotentAndDoesNotReleaseDelivery(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
 			var events []map[string]any

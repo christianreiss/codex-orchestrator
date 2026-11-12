@@ -24,7 +24,7 @@ import (
 // A normal exit must not trigger session disconnect before the terminal write.
 // Only session presence stays live; native ownership has already ended.
 func TestCloseRetainsSessionAttachmentUntilTerminalReceipt(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, failure := range []bool{false, true} {
 			t.Run(engine+map[bool]string{false: "/success", true: "/failed_receipt"}[failure], func(t *testing.T) {
 				socket := filepath.Join(t.TempDir(), "state.sock")
@@ -153,7 +153,7 @@ func TestCloseRetainsSessionAttachmentUntilTerminalReceipt(t *testing.T) {
 }
 
 func TestCloseUsesOnlyFinishAndRecognizesNestedEndedConflict(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, code := range []string{"agent_session_finished", "agent_identity_conflict"} {
 			t.Run(engine+"/"+code, func(t *testing.T) {
 				var calls atomic.Int32
@@ -239,7 +239,7 @@ func TestSessionEndObservationStaysLocalUntilFinish(t *testing.T) {
 }
 
 func TestFinishRetriesCommunicatorUnknownWithoutReplayingOtherWrites(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			var calls atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

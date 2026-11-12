@@ -6,7 +6,7 @@ import (
 )
 
 func TestSupervisorPinsNativeModelAcrossEngines(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			cfg := &config.Config{EngineOptions: config.EngineOptions{ModelCatalog: &config.ModelCatalog{DefaultModel: "original"}}}
 			if got := supervisorModel(cfg, StartInput{Engine: engine}); got != "original" {

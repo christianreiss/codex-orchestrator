@@ -49,6 +49,19 @@ func nativeSessionName(home, engine, id string) string {
 				name, _ = row["customTitle"].(string)
 			}
 		})
+	case "kimi":
+		path := kimiSessionPath(id, "state.json")
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return ""
+		}
+		var row struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		if json.Unmarshal(raw, &row) == nil && row.ID == id {
+			name = row.Title
+		}
 	case "grok":
 		root := os.Getenv("GROK_HOME")
 		if root == "" {

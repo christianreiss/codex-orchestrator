@@ -32,6 +32,9 @@ func rebootTmuxAttach(r rebootresume.Record) string {
 }
 
 func rebootInteractiveArgs(engine, id, prompt string) []string {
+	if engine == "kimi" {
+		return []string{engine, "--skip-boot", "run", "-S", id, "-p", prompt, "--output-format", "stream-json"}
+	}
 	return []string{engine, "--skip-boot", "resume", id, prompt}
 }
 

@@ -186,6 +186,10 @@ func (r *autoReceiver) health() map[string]any {
 	}
 	out := map[string]any{"state": state, "sources": slices.Clone(r.sources)}
 	out["delivery_timing_v1"] = r.deliveryTimingV1 && !r.immediateUnsupported
+	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
+		out["delivery_timing"] = "after_turn"
+		out["idle_push"] = false
+	}
 	if r.lastTimingFallback != "" {
 		out["timing_fallback_reason"] = r.lastTimingFallback
 	}
@@ -249,6 +253,9 @@ func (r *autoReceiver) run(ctx context.Context, stderr io.Writer) {
 }
 
 func (r *autoReceiver) connection(parent context.Context) error {
+	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
+		return r.kimiConnection(parent)
+	}
 	r.initializeImmediateBudget()
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
@@ -810,7 +817,7 @@ func (r *autoReceiver) deliver(id, content string) error {
 	if queue != nil {
 		return queue.send(id, content)
 	}
-	if engine := os.Getenv("CXX_AGENT_PORTAL_ENGINE"); engine == "codex" || engine == "grok" {
+	if engine := os.Getenv("CXX_AGENT_PORTAL_ENGINE"); engine == "codex" || engine == "grok" || engine == "kimi" {
 		return errors.New(engine + " native queue is disconnected")
 	}
 	return r.output.send(map[string]any{"jsonrpc": "2.0", "method": "notifications/claude/channel", "params": map[string]any{"content": content, "meta": map[string]string{"message_id": id}}})
@@ -977,7 +984,7 @@ func reportNativeSession(stdin io.Reader, stdout io.Writer) error {
 	if err := json.NewDecoder(io.LimitReader(stdin, 1<<20)).Decode(&input); err != nil {
 		return err
 	}
-	claude := input.SessionID != ""
+	claude := input.SessionID != "" && os.Getenv("CXX_AGENT_PORTAL_ENGINE") != "kimi"
 	if input.SessionID == "" {
 		input.SessionID = input.GrokID
 	}
@@ -991,7 +998,7 @@ func reportNativeSession(stdin io.Reader, stdout io.Writer) error {
 	if err := client.receiver(context.Background(), "native", map[string]string{"native_session_id": input.SessionID}, nil); err != nil {
 		return err
 	}
-	if claude {
+	if claude || os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
 		// Parallel SessionStart hooks race: the activity hook is refused until
 		// this identity is bound, so report the idle prompt from here, after it.
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

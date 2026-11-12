@@ -22,7 +22,7 @@ import (
 )
 
 func TestNativeControlRoundTripForEveryEngine(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			var exits atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +160,7 @@ func TestNativeControlShutdownCancelsInitialSnapshotForEveryEngine(t *testing.T)
 	oldDial, oldAvailable := dialPortalState, portalStateAvailable
 	defer func() { dialPortalState, portalStateAvailable = oldDial, oldAvailable }()
 	portalStateAvailable = func(context.Context, string) bool { return true }
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			entered, release := make(chan struct{}), make(chan struct{})
 			defer close(release)

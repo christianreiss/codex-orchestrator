@@ -131,7 +131,7 @@ func removeLegacyUserUnit(home string) (bool, error) {
 	return true, nil
 }
 
-// listWorkerProcesses finds `<cxx|cdx|clx|cgx> agent worker --foreground`.
+// listWorkerProcesses finds `<cxx|cdx|clx|cgx|ckx> agent worker --foreground`.
 func listWorkerProcesses(procRoot string) []workerProcess {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
@@ -162,7 +162,7 @@ func isWorkerCommandLine(raw []byte) bool {
 		return false
 	}
 	switch filepath.Base(strings.TrimSuffix(args[0], " (deleted)")) {
-	case "cxx", "cdx", "clx", "cgx":
+	case "cxx", "cdx", "clx", "cgx", "ckx":
 		return true
 	}
 	return false

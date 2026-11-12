@@ -296,12 +296,12 @@ func daemonService(action string, stdout, stderr io.Writer) error {
 		old, _ := os.ReadFile(installed)
 		changed := string(old) != string(body)
 		var env strings.Builder
-		for _, engine := range []string{"codex", "claude", "grok"} {
+		for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 			cfg := configs[engine]
 			if cfg == nil {
 				continue
 			}
-			key := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]
+			key := map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"}[engine]
 			path, ok := daemonAccountConfigPath(cfg.SourcePath(), engine, account.HomeDir)
 			if !ok {
 				continue
@@ -887,8 +887,13 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 	if err != nil || !info.IsDir() {
 		return daemonResult{Status: "failed", Reply: "Working directory does not exist"}
 	}
-	if op.Engine != "codex" && op.Engine != "claude" && op.Engine != "grok" {
+	if op.Engine != "codex" && op.Engine != "claude" && op.Engine != "grok" && op.Engine != "kimi" {
 		return daemonResult{Status: "failed", Reply: "Unknown engine"}
+	}
+	if op.Engine == "kimi" && op.Upstream != "" {
+		if err := checkKimiTranscript(op.Upstream); err != nil {
+			return daemonResult{Status: "failed", Reply: err.Error()}
+		}
 	}
 	if op.Upstream != "" {
 		lockPath, err := writerLockPath(op.Engine, op.Upstream)
@@ -920,10 +925,13 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 		file.Close()
 		args = append(args, "--prompt-file", file.Name())
 	}
+	if op.Engine == config.EngineKimi {
+		args = append(args, "-p", prompt)
+	}
 	cmd := exec.Command(exe, args...)
 	cmd.Dir = op.Cwd
 	cmd.Stdin = strings.NewReader(prompt)
-	if op.Engine == config.EngineGrok {
+	if op.Engine == config.EngineGrok || op.Engine == config.EngineKimi {
 		cmd.Stdin = nil
 	}
 	cmd.Env = append(os.Environ(), "CXX_DAEMON_OPERATION_ID="+op.ID, "CXX_DAEMON_CLAIM_ID="+op.Claim)
@@ -992,6 +1000,8 @@ func daemonReadyEngines(configs map[string]*config.Config) []string {
 			_, err = claude.FindCLI()
 		case config.EngineGrok:
 			_, err = grok.FindCLI()
+		case config.EngineKimi:
+			_, err = findKimiCLI()
 		default:
 			continue
 		}
@@ -1024,7 +1034,7 @@ func daemonAccountConfigPath(loaded, engine, home string) (string, bool) {
 	if home != "" && strings.HasPrefix(filepath.Clean(loaded), filepath.Clean(home)+string(filepath.Separator)) {
 		return loaded, true
 	}
-	name := map[string]string{"codex": "cdx.json", "claude": "clx.json", "grok": "cgx.json"}[engine]
+	name := map[string]string{"codex": "cdx.json", "claude": "clx.json", "grok": "cgx.json", "kimi": "ckx.json"}[engine]
 	if name == "" || home == "" {
 		return "", false
 	}

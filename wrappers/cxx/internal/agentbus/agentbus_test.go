@@ -907,6 +907,10 @@ func TestNativeAdapterArgumentsKeepPeerContentOnStdin(t *testing.T) {
 			want: []string{"claude", "--skip-boot", "run", "-p", "--output-format", "json", "--model", "claude-fable-5-1"},
 		},
 		{
+			engine: config.EngineKimi, upstream: testKimiID, model: "kimi-code/k3",
+			want: []string{"kimi", "--skip-boot", "run", "--output-format", "stream-json", "-m", "kimi-code/k3", "-S", testKimiID},
+		},
+		{
 			engine: config.EngineGrok, upstream: "grok-session", model: "grok-4.7",
 			want: []string{"grok", "--skip-boot", "run", "--no-leader", "--output-format", "json", "--model", "grok-4.7", "--resume", "grok-session"},
 		},

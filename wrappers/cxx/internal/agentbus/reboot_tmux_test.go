@@ -40,6 +40,7 @@ func tmuxFixture(t *testing.T, engine string) (rebootresume.Record, string) {
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
 	t.Setenv("GROK_HOME", filepath.Join(home, ".grok"))
+	t.Setenv("KIMI_CODE_HOME", filepath.Join(home, ".kimi-code"))
 	t.Setenv("CXX_TEST_REBOOT_TMUX", "1")
 	t.Setenv("TMUX", "")
 	t.Setenv("TMUX_PANE", "")
@@ -62,12 +63,17 @@ func tmuxFixture(t *testing.T, engine string) (rebootresume.Record, string) {
 		t.Skip("Linux boot ID unavailable")
 	}
 	r := rebootresume.Record{ID: uuid.NewString(), Engine: engine, NativeID: uuid.NewString(), SessionID: uuid.NewString(), Address: "agent:" + uuid.NewString(), BootID: uuid.NewString(), ResumeBootID: boot, Reason: "test", Continuation: "UNIQUE-CHECKPOINT\nquotes: ' ` $()", UID: uint32(os.Getuid()), GID: uint32(os.Getgid()), Home: home, Cwd: cwd, Executable: filepath.Join(cwd, "fake cxx"), ExecutionMode: "tmux"}
+	if engine == "kimi" {
+		r.NativeID = "session_" + r.NativeID
+	}
 	var transcript string
 	switch engine {
 	case "codex":
 		transcript = filepath.Join(home, ".codex", "sessions", "rollout-"+r.NativeID+".jsonl")
 	case "claude":
 		transcript = filepath.Join(home, ".claude", "projects", "test", r.NativeID+".jsonl")
+	case "kimi":
+		transcript = filepath.Join(home, ".kimi-code", "sessions", "test", r.NativeID, "agents", "main", "wire.jsonl")
 	case "grok":
 		transcript = filepath.Join(home, ".grok", "sessions", "test", r.NativeID, "summary.json")
 	}
@@ -139,7 +145,7 @@ func waitRebootFile(t *testing.T, path string) {
 }
 
 func TestRebootTmuxInteractiveTerminalAndCompletion(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			r, tmux := tmuxFixture(t, engine)
 			var output bytes.Buffer

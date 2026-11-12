@@ -166,7 +166,7 @@ func TestSlowClaimRenewalDoesNotStarveSiblings(t *testing.T) {
 // Claim clients may retry only this rejection because it is guaranteed to occur
 // before upstream dispatch. Keep that guarantee true for every engine/operation.
 func TestClaimAttachmentRejectionNeverDispatches(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			var upstream atomic.Int32
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { upstream.Add(1) }))
@@ -189,7 +189,7 @@ func TestClaimAttachmentRejectionNeverDispatches(t *testing.T) {
 // The broker must pass a claim refusal's structured diagnosis on to the
 // session MCP, and the server's fields must not override status, code or message.
 func TestClaimRefusalKeepsServerErrorDetails(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
