@@ -416,6 +416,8 @@ func cleanDetails(details []string) []string {
 func promptTheme(caps Caps, prefix string) huh.Theme {
 	accentHex := hexOrange
 	switch {
+	case caps.Theme == ThemeAmber || strings.EqualFold(prefix, "ckx"):
+		accentHex = "#f59e0b"
 	case caps.Theme == ThemeViolet || strings.EqualFold(prefix, "clx"):
 		accentHex = hexViolet
 	case caps.Theme == ThemeCyan || caps.Theme == ThemeGreen || strings.EqualFold(prefix, "cgx"):

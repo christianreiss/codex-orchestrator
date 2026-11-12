@@ -34,7 +34,7 @@ func newUpdateFixture(t *testing.T, installed ...string) *updateFixture {
 	for _, key := range []string{"CDX_CODEX_BIN", "CLX_CLAUDE_BIN", "CGX_GROK_BIN"} {
 		t.Setenv(key, "")
 	}
-	f := &updateFixture{versions: map[string]string{"codex": "1.0.0", "claude": "2.0.0", "grok": "3.0.0"}}
+	f := &updateFixture{versions: map[string]string{"codex": "1.0.0", "claude": "2.0.0", "grok": "3.0.0", "kimi": "3.5.0"}}
 	f.deps = hostUpdateDeps{
 		resolve: func(engine string) (string, error) {
 			for _, name := range installed {
@@ -87,7 +87,7 @@ func newUpdateFixture(t *testing.T, installed ...string) *updateFixture {
 }
 
 func TestHostUpdateEqualVersionChecksEveryEngineWithoutReplacingWrapper(t *testing.T) {
-	f := newUpdateFixture(t, "codex", "claude", "grok")
+	f := newUpdateFixture(t, "codex", "claude", "grok", "kimi")
 	var out bytes.Buffer
 	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 0 {
 		t.Fatalf("code=%d: %s", code, &out)
@@ -97,19 +97,19 @@ func TestHostUpdateEqualVersionChecksEveryEngineWithoutReplacingWrapper(t *testi
 	}
 	checks := append([]string(nil), f.checks...)
 	sort.Strings(checks)
-	if strings.Join(checks, ",") != "claude,codex,grok" || strings.Join(f.syncs, ",") != "codex,claude,grok" {
+	if strings.Join(checks, ",") != "claude,codex,grok,kimi" || strings.Join(f.syncs, ",") != "codex,claude,grok,kimi" {
 		t.Fatalf("checks=%v syncs=%v", f.checks, f.syncs)
 	}
-	if len(strings.Split(strings.TrimSpace(out.String()), "\n")) != 4 || !strings.Contains(out.String(), "Grok") || strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "unwanted") {
+	if len(strings.Split(strings.TrimSpace(out.String()), "\n")) != 5 || !strings.Contains(out.String(), "Grok") || strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "unwanted") {
 		t.Fatalf("output=%q", out.String())
 	}
 }
 
 func TestHostUpdateRefreshesAssignmentsBeforeUpdatingEngines(t *testing.T) {
-	for _, added := range []string{"codex", "claude", "grok"} {
+	for _, added := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(added, func(t *testing.T) {
 			installed := []string{}
-			for _, name := range []string{"codex", "claude", "grok"} {
+			for _, name := range []string{"codex", "claude", "grok", "kimi"} {
 				if name != added {
 					installed = append(installed, name)
 				}
@@ -120,7 +120,7 @@ func TestHostUpdateRefreshesAssignmentsBeforeUpdatingEngines(t *testing.T) {
 				if seed.Engine != installed[0] || len(f.checks) != 0 {
 					t.Fatal("assignment refresh did not use the installed seed before update checks")
 				}
-				return []*config.Config{{Engine: "codex"}, {Engine: "claude"}, {Engine: "grok"}}, nil
+				return []*config.Config{{Engine: "codex"}, {Engine: "claude"}, {Engine: "grok"}, {Engine: "kimi"}}, nil
 			}
 			check := f.deps.check
 			f.deps.check = func(ctx context.Context, cfg *config.Config, version string) (*orchestrator.CronCheckResponse, error) {
@@ -134,7 +134,7 @@ func TestHostUpdateRefreshesAssignmentsBeforeUpdatingEngines(t *testing.T) {
 			if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 0 {
 				t.Fatalf("code=%d: %s", code, &out)
 			}
-			if strings.Join(f.installs, ",") != added || strings.Join(f.syncs, ",") != "codex,claude,grok" || !strings.Contains(out.String(), "installed | synced") {
+			if strings.Join(f.installs, ",") != added || strings.Join(f.syncs, ",") != "codex,claude,grok,kimi" || !strings.Contains(out.String(), "installed | synced") {
 				t.Fatalf("installs=%v syncs=%v output=%s", f.installs, f.syncs, &out)
 			}
 		})
@@ -173,7 +173,7 @@ func TestHostUpdateAssignmentFailureStopsMutation(t *testing.T) {
 }
 
 func TestHostUpdateNativeUpdatesAndKeepsPartialFailureVisible(t *testing.T) {
-	f := newUpdateFixture(t, "codex", "claude", "grok")
+	f := newUpdateFixture(t, "codex", "claude", "grok", "kimi")
 	check := f.deps.check
 	f.deps.check = func(ctx context.Context, cfg *config.Config, version string) (*orchestrator.CronCheckResponse, error) {
 		r, err := check(ctx, cfg, version)
@@ -192,7 +192,7 @@ func TestHostUpdateNativeUpdatesAndKeepsPartialFailureVisible(t *testing.T) {
 	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 1 {
 		t.Fatalf("code=%d", code)
 	}
-	if len(f.installs) != 3 || len(f.syncs) != 3 || len(f.reports) != 3 {
+	if len(f.installs) != 4 || len(f.syncs) != 4 || len(f.reports) != 4 {
 		t.Fatalf("installs=%v syncs=%v reports=%v", f.installs, f.syncs, f.reports)
 	}
 	for _, text := range []string{"sync paused: active session", "Claude", "Grok", "updated | synced"} {
@@ -203,12 +203,12 @@ func TestHostUpdateNativeUpdatesAndKeepsPartialFailureVisible(t *testing.T) {
 }
 
 func TestHostUpdatePolicyAndOverrides(t *testing.T) {
-	f := newUpdateFixture(t, "codex", "claude", "grok")
+	f := newUpdateFixture(t, "codex", "claude", "grok", "kimi")
 	load := f.deps.load
 	f.deps.load = func(ctx context.Context, path, engine string) (*config.Config, error) {
 		c, err := load(ctx, path, engine)
-		if engine == "grok" {
-			c.Host.FleetDisabledEngines = []string{"grok"}
+		if engine == "grok" || engine == "kimi" {
+			c.Host.FleetDisabledEngines = []string{engine}
 		}
 		return c, err
 	}
@@ -345,7 +345,7 @@ func TestHostUpdateFailedNativeInstallStillSyncsAndContinues(t *testing.T) {
 func TestHostUpdateWrapperVerificationAndExecFailuresStopRemainingWork(t *testing.T) {
 	for _, stage := range []string{"verification", "exec"} {
 		t.Run(stage, func(t *testing.T) {
-			f := newUpdateFixture(t, "codex", "claude", "grok")
+			f := newUpdateFixture(t, "codex", "claude", "grok", "kimi")
 			check := f.deps.check
 			f.deps.check = func(ctx context.Context, cfg *config.Config, v string) (*orchestrator.CronCheckResponse, error) {
 				r, err := check(ctx, cfg, v)
@@ -371,7 +371,7 @@ func TestHostUpdateWrapperVerificationAndExecFailuresStopRemainingWork(t *testin
 }
 
 func TestHostUpdateReconcilesDaemonWhenAlreadyCurrent(t *testing.T) {
-	f := newUpdateFixture(t, "codex", "claude", "grok")
+	f := newUpdateFixture(t, "codex", "claude", "grok", "kimi")
 	load := f.deps.load
 	f.deps.load = func(ctx context.Context, path, engine string) (*config.Config, error) {
 		cfg, err := load(ctx, path, engine)
@@ -381,7 +381,7 @@ func TestHostUpdateReconcilesDaemonWhenAlreadyCurrent(t *testing.T) {
 	calls := 0
 	f.deps.reconcile = func(cfg *config.Config, output io.Writer) {
 		calls++
-		if len(f.syncs) != 3 {
+		if len(f.syncs) != 4 {
 			t.Fatal("daemon reconciled before engine sync", f.syncs)
 		}
 		io.WriteString(output, "daemon installation pending\n")

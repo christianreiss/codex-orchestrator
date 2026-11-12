@@ -124,7 +124,7 @@ func TestLegacyOwnerWritesKeepTheirOriginalBodyAndRoute(t *testing.T) {
 }
 
 func TestLegacyOwnerLaunchReadsUseFreshProofBeforeDispatch(t *testing.T) {
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		t.Run(engine, func(t *testing.T) {
 			var oldRequests, confirmations, knownRequests atomic.Int32
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -46,6 +46,9 @@ func grokTable(path string) map[string]spec {
 }
 
 func optionTable(engine string, args []string, at int) map[string]spec {
+	if engine == "kimi" {
+		return kimiOptionTable(args, at)
+	}
 	if engine != "grok" {
 		return codex
 	}

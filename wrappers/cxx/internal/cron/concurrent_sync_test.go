@@ -14,10 +14,10 @@ func TestCoordinatorForwardsGrokConcurrentSyncOverride(t *testing.T) {
 		seen = append(seen, strings.Join(args, " "))
 		return nil
 	}
-	if err := runEnabledTicks(WithConcurrentSync(context.Background(), true), "fixture", []string{"codex", "claude", "grok"}, false, io.Discard, io.Discard); err != nil {
+	if err := runEnabledTicks(WithConcurrentSync(context.Background(), true), "fixture", []string{"codex", "claude", "grok", "kimi"}, false, io.Discard, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if len(seen) != 3 || seen[0] != "codex --cron run" || seen[1] != "claude --cron run" || seen[2] != "grok --cron run --allow-concurrent-sync" {
+	if len(seen) != 4 || seen[0] != "codex --cron run" || seen[1] != "claude --cron run" || seen[2] != "grok --cron run --allow-concurrent-sync" || seen[3] != "kimi --cron run --allow-concurrent-sync" {
 		t.Fatalf("flags: %v", seen)
 	}
 }

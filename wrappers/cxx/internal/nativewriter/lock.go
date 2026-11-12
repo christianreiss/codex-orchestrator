@@ -12,7 +12,7 @@ import (
 
 func Path(engine, session string) (string, error) {
 	engine = strings.ToLower(strings.TrimSpace(engine))
-	if engine != "codex" && engine != "claude" && engine != "grok" {
+	if engine != "codex" && engine != "claude" && engine != "grok" && engine != "kimi" {
 		return "", fmt.Errorf("unsupported engine %q", engine)
 	}
 	home, e := os.UserHomeDir()

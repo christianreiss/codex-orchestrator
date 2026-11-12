@@ -13,6 +13,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	kimiapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchpad"
 	clx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
 	cdx "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
@@ -21,12 +22,12 @@ import (
 )
 
 func main() {
-	engine := flag.String("engine", "codex", "codex, claude, or grok")
+	engine := flag.String("engine", "codex", "codex, claude, grok, or kimi")
 	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, progress, host-update, prompt, or launchpad")
 	minimal := flag.Bool("minimal", false, "portable ASCII output")
-	engines := flag.String("engines", "codex,claude,grok", "launchpad scene: comma-separated engines on the compass")
+	engines := flag.String("engines", "codex,claude,grok,kimi", "launchpad scene: comma-separated engines on the compass")
 	flag.Parse()
-	if (*engine != "codex" && *engine != "claude" && *engine != "grok") || flag.NArg() != 0 {
+	if (*engine != "codex" && *engine != "claude" && *engine != "grok" && *engine != "kimi") || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "terminal-preview: use -engine codex, -engine claude, or -engine grok")
 		os.Exit(2)
 	}
@@ -61,6 +62,7 @@ func previewLaunchpad(list string, minimal bool) {
 			{ID: "claude-sonnet-5-5", Efforts: append(efforts, "max"), DefaultEffort: "medium"},
 			{ID: "claude-haiku-4-5-20251001"},
 		}},
+		"kimi": {Name: "kimi", Model: "kimi-code/kimi-for-coding", Effort: "high", Models: []launchpad.Model{{ID: "kimi-code/kimi-for-coding", Efforts: []string{"low", "high", "max"}, DefaultEffort: "high"}}},
 		"grok": {Name: "grok", Model: "grok-4.7", Effort: "high", Models: []launchpad.Model{
 			{ID: "grok-4.7", Efforts: efforts, DefaultEffort: "high"},
 			{ID: "grok-4.7-build-fast", Efforts: efforts, DefaultEffort: "high"},
@@ -95,6 +97,9 @@ func preview(engine, scene string, minimal bool) {
 		caps = clx.DetectCapsFor(os.Stdout, "auto")
 		prefix, model, version = "clx", "claude-opus-4-6", "2.1.71"
 	}
+	if engine == "kimi" {
+		prefix, model, version = "ckx", "kimi-code/kimi-for-coding", "2.5.3"
+	}
 	if engine == "grok" {
 		prefix, model, version = "cgx", "grok-4.7", "1.0.46"
 		caps.Theme = terminalui.ThemeGreen
@@ -107,8 +112,8 @@ func preview(engine, scene string, minimal bool) {
 		row := terminalui.StartUpdateRow(os.Stdout, caps, "cxx", "0.9.38")
 		time.Sleep(180 * time.Millisecond)
 		row.Finish(terminalui.ToneOK, "0.9.38", "up to date")
-		display := terminalui.StartUpdateRun(os.Stdout, caps, []string{"Codex", "Claude", "Grok"})
-		codex, claude, grok := display.Row(0), display.Row(1), display.Row(2)
+		display := terminalui.StartUpdateRun(os.Stdout, caps, []string{"Codex", "Claude", "Grok", "Kimi Code"})
+		codex, claude, grok, kimi := display.Row(0), display.Row(1), display.Row(2), display.Row(3)
 		codex.SetVersion("0.161.0 → 0.162.0")
 		claude.SetVersion("2.1.294 → 2.1.295")
 		grok.SetVersion("1.0.46 → 1.0.50")
@@ -121,7 +126,7 @@ func preview(engine, scene string, minimal bool) {
 		codex.Observe(updateprogress.Event{Phase: "downloading", Artifact: "companion", Bytes: 5 << 20, Total: 10 << 20})
 		grok.Observe(updateprogress.Event{Phase: "verifying"})
 		time.Sleep(180 * time.Millisecond)
-		for _, row := range []*terminalui.UpdateRow{codex, claude, grok} {
+		for _, row := range []*terminalui.UpdateRow{codex, claude, grok, kimi} {
 			row.Observe(updateprogress.Event{Phase: "waiting for sync"})
 		}
 		time.Sleep(180 * time.Millisecond)
@@ -134,10 +139,15 @@ func preview(engine, scene string, minimal bool) {
 		grok.Observe(updateprogress.Event{Phase: "syncing"})
 		time.Sleep(180 * time.Millisecond)
 		grok.Finish(terminalui.ToneOK, "1.0.46 → 1.0.50", "updated · synced")
+		kimi.Finish(terminalui.ToneOK, "2.5.3", "up to date · synced")
 		display.Close()
 		return
 
 	case "help":
+		if engine == "kimi" {
+			kimiapp.PrintWrapperHelp(os.Stdout, caps)
+			return
+		}
 		if engine == "grok" {
 			grokapp.PrintWrapperHelp(os.Stdout, caps)
 			return

@@ -24,7 +24,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
 )
 
-const usage = "cxx project file put SLUG FILE [--stored-name NAME] [--description TEXT] [--mime-type TYPE] [--engine codex|claude|grok] [--json]\nReplaces the project file with the same stored name. Maximum decoded size: 4 MiB."
+const usage = "cxx project file put SLUG FILE [--stored-name NAME] [--description TEXT] [--mime-type TYPE] [--engine codex|claude|grok|kimi] [--json]\nReplaces the project file with the same stored name. Maximum decoded size: 4 MiB."
 const maxBytes = 4 << 20
 
 type options struct {
@@ -71,8 +71,8 @@ func parse(args []string, engine string) (options, error) {
 	if o.engine == "" {
 		o.engine = "codex"
 	}
-	if o.engine != "codex" && o.engine != "claude" && o.engine != "grok" {
-		return o, fmt.Errorf("engine must be codex, claude or grok")
+	if o.engine != "codex" && o.engine != "claude" && o.engine != "grok" && o.engine != "kimi" {
+		return o, fmt.Errorf("engine must be codex, claude, grok or kimi")
 	}
 	return o, nil
 }

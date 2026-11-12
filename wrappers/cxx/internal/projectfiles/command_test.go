@@ -17,7 +17,7 @@ import (
 )
 
 func TestPutUploadsExactBinaryAndVerifiesReceiptAcrossEngines(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			raw := bytes.Repeat([]byte{0, 255, 9, 3}, 20<<10)
 			sum := sha256.Sum256(raw)
@@ -85,7 +85,7 @@ func TestPutRejectsIncorrectReceiptWithoutReplay(t *testing.T) {
 	}
 }
 func TestCommandEngineParityAndHelp(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		o, err := parse([]string{"file", "put", "demo", "/tmp/file", "--description", "text", "--stored-name", "report.bin", "--json"}, engine)
 		if err != nil || o.engine != engine || o.name != "report.bin" {
 			t.Fatalf("options=%+v err=%v", o, err)

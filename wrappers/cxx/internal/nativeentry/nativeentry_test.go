@@ -24,7 +24,7 @@ func TestInstallRoundTripAndArguments(t *testing.T) {
 	}
 	wrapper := filepath.Join(home, "wrapper with ' quote")
 	os.WriteFile(wrapper, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0700)
-	opts := Options{Home: home, WrapperPath: wrapper, Engines: []string{"codex", "claude", "grok"}}
+	opts := Options{Home: home, WrapperPath: wrapper, Engines: []string{"codex", "claude", "grok", "kimi"}}
 	if e := Install(opts); e != nil {
 		t.Fatal(e)
 	}
@@ -192,7 +192,7 @@ func TestShellBlocksSourceIdempotentlyWithQuotedHome(t *testing.T) {
 
 func TestConcurrentAdditiveInstallsAndPartialRemoval(t *testing.T) {
 	home := t.TempDir()
-	engines := []string{"codex", "claude", "grok"}
+	engines := []string{"codex", "claude", "grok", "kimi"}
 	start := make(chan struct{})
 	failures := make(chan error, len(engines))
 	var group sync.WaitGroup
@@ -294,7 +294,7 @@ func TestForeignHomeIsNeverModified(t *testing.T) {
 	home := t.TempDir()
 	rc := filepath.Join(home, ".bashrc")
 	os.WriteFile(rc, []byte("# user\n"), 0600)
-	opts := Options{Home: home, WrapperPath: "/usr/bin/cxx", Engines: []string{"codex", "claude", "grok"}}
+	opts := Options{Home: home, WrapperPath: "/usr/bin/cxx", Engines: []string{"codex", "claude", "grok", "kimi"}}
 	snapshot := func() map[string]string {
 		files := map[string]string{}
 		filepath.Walk(home, func(path string, info os.FileInfo, err error) error {

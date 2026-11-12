@@ -16,7 +16,7 @@ func TestIndependentRootPrewriteProtection(t *testing.T) {
 	if home == "" {
 		t.Skip("requires disposable fixture path")
 	}
-	opts := Options{Home: home, WrapperPath: "/fixture/cxx", Engines: []string{"codex", "claude", "grok"}}
+	opts := Options{Home: home, WrapperPath: "/fixture/cxx", Engines: []string{"codex", "claude", "grok", "kimi"}}
 	if os.Geteuid() != 0 {
 		if err := Install(opts); err != nil {
 			t.Fatal(err)

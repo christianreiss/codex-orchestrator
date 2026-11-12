@@ -139,3 +139,25 @@ func TestBusyFollowsTheNativeLaunchGuard(t *testing.T) {
 		t.Fatalf("released guard must be quiet again, got %v", got)
 	}
 }
+
+func TestBusySeesKimiLifetimeLease(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("KIMI_CODE_HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("GROK_HOME", "")
+	root, err := sessionguard.Root("kimi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := ipc.TryAcquireSharedPath(filepath.Join(root, sessionguard.KimiSessionsLockName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Busy(); len(got) != 1 || got[0] != "kimi" {
+		t.Fatal(got)
+	}
+	_ = lease.Release()
+	if got := Busy(); len(got) != 0 {
+		t.Fatal(got)
+	}
+}

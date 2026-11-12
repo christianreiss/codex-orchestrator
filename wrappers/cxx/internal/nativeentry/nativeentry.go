@@ -28,7 +28,7 @@ type Options struct {
 
 func BinDir(home string) string { return filepath.Join(home, ".cxx", "native-bin") }
 func quote(s string) string     { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
-func validEngine(e string) bool { return e == "codex" || e == "claude" || e == "grok" }
+func validEngine(e string) bool { return e == "codex" || e == "claude" || e == "grok" || e == "kimi" }
 
 // AssignedEngines requires an explicit signed assignment; absent lists never
 // create a Codex fallback. Suspension keeps the shim and is enforced at launch.
@@ -117,7 +117,7 @@ func install(opts Options, authoritative bool) error {
 	if info, err := os.Lstat(dir); err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.IsDir()) {
 		return fmt.Errorf("native entry directory is not a real directory: %s", dir)
 	}
-	for _, e := range []string{"codex", "claude", "grok"} {
+	for _, e := range []string{"codex", "claude", "grok", "kimi"} {
 		path := filepath.Join(dir, e)
 		if info, err := os.Lstat(path); err == nil {
 			if info.Mode()&os.ModeSymlink != 0 || !IsManagedShim(path) {
@@ -132,7 +132,7 @@ func install(opts Options, authoritative bool) error {
 			return err
 		}
 	}
-	for _, e := range []string{"codex", "claude", "grok"} {
+	for _, e := range []string{"codex", "claude", "grok", "kimi"} {
 		path := filepath.Join(dir, e)
 		if info, err := os.Lstat(path); err == nil && (info.Mode()&os.ModeSymlink != 0 || !IsManagedShim(path)) {
 			return fmt.Errorf("refusing to overwrite unmanaged native entry %s", path)
@@ -172,7 +172,7 @@ func Remove(opts Options) error {
 	}
 	engines := opts.Engines
 	if len(engines) == 0 {
-		engines = []string{"codex", "claude", "grok"}
+		engines = []string{"codex", "claude", "grok", "kimi"}
 	}
 	for _, e := range engines {
 		if !validEngine(e) {
@@ -191,7 +191,7 @@ func Remove(opts Options) error {
 }
 
 func hasInstalled(home string) bool {
-	for _, e := range []string{"codex", "claude", "grok"} {
+	for _, e := range []string{"codex", "claude", "grok", "kimi"} {
 		if IsManagedShim(filepath.Join(BinDir(home), e)) {
 			return true
 		}
@@ -231,7 +231,7 @@ type Status struct {
 // refreshed separately by the owning shell and are not visible to this process.
 func Diagnose(home string) Status {
 	status := Status{}
-	for _, e := range []string{"codex", "claude", "grok"} {
+	for _, e := range []string{"codex", "claude", "grok", "kimi"} {
 		if IsManagedShim(filepath.Join(BinDir(home), e)) {
 			status.Installed = append(status.Installed, e)
 		}

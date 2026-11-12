@@ -162,7 +162,7 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 		case "--engine":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stderr, "--engine needs codex, claude or grok")
+				fmt.Fprintln(stderr, "--engine needs codex, claude, grok or kimi")
 				return 2
 			}
 			engine = args[i]
@@ -207,7 +207,7 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 		}
 		return grokreap.Command(dry, jsonOut, suspended, stdout, stderr)
 	}
-	if engine != "" && engine != "codex" && engine != "claude" && engine != "grok" {
+	if engine != "" && engine != "codex" && engine != "claude" && engine != "grok" && engine != "kimi" {
 		fmt.Fprintln(stderr, "unknown housekeeping engine")
 		return 2
 	}
@@ -244,7 +244,7 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 	}
 	engines := []string{engine}
 	if engine == "" {
-		engines = []string{"codex", "claude", "grok"}
+		engines = []string{"codex", "claude", "grok", "kimi"}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 	defer cancel()

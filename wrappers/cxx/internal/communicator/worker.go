@@ -88,7 +88,7 @@ func WorkerCommand(ctx context.Context, in io.Reader, out io.Writer, dispatch fu
 	os.Setenv("CXX_PROVIDER_SESSION_ID", req.Job.SessionID)
 	// Persist only a digest before an auth-capable transaction. A killed worker
 	// or lost ACK is reconciled by a read before the same candidate is offered again.
-	authWork := req.Job.Engine != "grok" && (req.Operation == "auth" || (req.Operation == "bootstrap" && req.IncludeAuth))
+	authWork := req.Job.Engine != "grok" && req.Job.Engine != "kimi" && (req.Operation == "auth" || (req.Operation == "bootstrap" && req.IncludeAuth))
 	generation := fileGeneration(req.Job.AuthPath)
 	if authWork && generation != "" {
 		pending := pendingGeneration(req.Job)

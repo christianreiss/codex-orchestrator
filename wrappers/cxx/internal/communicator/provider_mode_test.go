@@ -22,7 +22,7 @@ func (p *ownershipProbe) JSON(_ context.Context, _ string, path string, in any, 
 }
 
 func TestProviderOwnershipNegotiatedFromSignedCapability(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, required := range []bool{false, true} {
 			t.Run(engine+map[bool]string{false: "/legacy", true: "/connection"}[required], func(t *testing.T) {
 				base, _, _ := comm.NewCallerRetryOwner(t, func(*websocket.Conn, comm.CallerRetryFrame) {}, http.NotFoundHandler(), false)

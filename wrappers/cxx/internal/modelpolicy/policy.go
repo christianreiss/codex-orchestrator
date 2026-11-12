@@ -75,6 +75,13 @@ func ApplyWithPreferences(cfg *config.Config, args []string, home string, option
 	if engine == "claude" && opts.ClaudeModelOverride != nil {
 		model = *opts.ClaudeModelOverride
 	}
+	if engine == "kimi" && opts.KimiModelOverride != nil {
+		model = *opts.KimiModelOverride
+	}
+	if engine == "kimi" && opts.KimiReasoningEffortOverride != nil {
+		effort = *opts.KimiReasoningEffortOverride
+		explicitEffort = true
+	}
 	if engine == "grok" && opts.GrokModelOverride != nil {
 		model = *opts.GrokModelOverride
 	}
@@ -171,7 +178,20 @@ func ApplyWithPreferences(cfg *config.Config, args []string, home string, option
 	}
 	prefix := []string{"--model", next + modifier}
 	if effort != "" {
-		if engine == "codex" {
+		if engine == "kimi" {
+			tree, err := toml.LoadFile(filepath.Join(home, "config.toml"))
+			if err != nil {
+				return nil, err
+			}
+			tree.Set("thinking.effort", effort)
+			body, err := tree.ToTomlString()
+			if err != nil {
+				return nil, err
+			}
+			if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(body), 0600); err != nil {
+				return nil, err
+			}
+		} else if engine == "codex" {
 			prefix = append(prefix, "--config", "model_reasoning_effort="+effort)
 		} else if engine == "claude" {
 			prefix = append(prefix, "--effort", effort)
@@ -251,6 +271,11 @@ func loadPreferences(engine, home string, args []string, end OptionEnd) (map[str
 	tree, err := toml.LoadBytes(raw)
 	if err != nil {
 		return nil, fmt.Errorf("fleet model policy: invalid %s config: %w", engine, err)
+	}
+	if engine == "kimi" {
+		result["model"] = tree.Get("default_model")
+		result["effort"] = tree.Get("thinking.effort")
+		return result, nil
 	}
 	if engine == "grok" {
 		result["model"] = tree.Get("models.default")

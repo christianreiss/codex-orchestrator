@@ -433,7 +433,7 @@ func (s *server) refreshResidentScopes() {
 	}
 	anchor := s.configSnapshot()
 	wanted := map[string]syncJob{}
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		path, err := config.DefaultPathForEngine(engine)
 		if err != nil {
 			continue

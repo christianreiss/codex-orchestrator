@@ -24,7 +24,7 @@ type leaseClass struct {
 
 func matrixEngine(engine string) string {
 	switch engine {
-	case "codex", "claude", "grok", "shared":
+	case "codex", "claude", "grok", "kimi", "shared":
 		return engine
 	default:
 		return "unknown"
@@ -48,9 +48,9 @@ func (s *server) classifyLeaseLocked(ids []string) leaseClass {
 }
 
 func (s *server) connectionMatrixLocked() ConnectionMatrix {
-	out := ConnectionMatrix{Rows: make([]ConnectionRow, 5)}
+	out := ConnectionMatrix{Rows: make([]ConnectionRow, 6)}
 	rows := map[string]*ConnectionRow{}
-	for i, engine := range []string{"codex", "claude", "grok", "shared", "unknown"} {
+	for i, engine := range []string{"codex", "claude", "grok", "kimi", "shared", "unknown"} {
 		out.Rows[i].Engine = engine
 		rows[engine] = &out.Rows[i]
 	}

@@ -107,7 +107,7 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 						if req.Engine == "claude" {
 							configText = `{"model":"fixture"}`
 						}
-						if req.Engine == "grok" {
+						if req.Engine == "grok" || req.Engine == "kimi" {
 							configText = "[models]\ndefault='fixture'\n"
 						}
 						body, _ = json.Marshal(map[string]any{"status": "ok", "data": map[string]any{"status": "ok", "agents": map[string]any{"content": "# managed " + req.Engine}, "config": map[string]any{"content": configText}, "claude_skills": []any{}, "grok_skills": []any{}}})
@@ -142,7 +142,7 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 	env = append(env, "HOME="+root, "XDG_RUNTIME_DIR="+runtimeRoot, "CODEX_ALLOW_FQDN_MISMATCH=1")
 	jobs := map[string]syncJob{}
 	hostname, _ := os.Hostname()
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		cfg := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-13T00:00:00Z", Orchestrator: config.Orchestrator{BaseURL: remote.URL, APIKey: "fixture-host-key", InstallationID: "fixture", CommunicatorProtocol: 1, CommunicatorSyncProtocol: 1}, Host: config.Host{ID: 1, FQDN: hostname, Secure: true}, Wrapper: config.Wrapper{Version: "0.9.73", Track: "stable", BinaryURL: remote.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 		path := filepath.Join(root, engine+".json")
 		raw, _ := json.Marshal(cfg)
@@ -150,7 +150,7 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 		_ = os.WriteFile(path+".sig", ed25519.Sign(priv, raw), 0600)
 		job := syncJob{Engine: engine, Config: path, Env: map[string]string{"HOME": root}}
 		jobs[engine] = job
-		env = append(env, map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[engine]+"="+path)
+		env = append(env, map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"}[engine]+"="+path)
 		_ = os.MkdirAll(jobHome(job), 0700)
 		_ = os.WriteFile(filepath.Join(jobHome(job), "auth.json"), []byte("credential sentinel"), 0600)
 	}
@@ -178,7 +178,7 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	var wg sync.WaitGroup
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go func(engine string) {
@@ -204,10 +204,10 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 		}
 	}
 	wg.Wait()
-	if count := requests.Load(); count != 3 {
-		t.Errorf("30 callers should share three content operations, got %d", count)
+	if count := requests.Load(); count != 4 {
+		t.Errorf("40 callers should share four content operations, got %d", count)
 	}
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		name := "AGENTS.md"
 		if engine == "claude" {
 			name = "CLAUDE.md"
@@ -367,5 +367,5 @@ func TestDedicatedWorkersConvergeAllEnginesWithoutMaintenance(t *testing.T) {
 			body.Close()
 		}
 	}
-	t.Logf("30 concurrent callers, %d engine content operations; native credentials retained", requests.Load())
+	t.Logf("40 concurrent callers, %d engine content operations; native credentials retained", requests.Load())
 }

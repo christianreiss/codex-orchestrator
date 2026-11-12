@@ -257,7 +257,7 @@ func TestDownloadUnknownLengthStillVerifiesBytes(t *testing.T) {
 	}
 }
 func TestCommandOptions(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		o, err := parse([]string{"get", "id", "--output", "file", "--resume", "--json"}, engine)
 		if err != nil || o.engine != engine || !o.resume || !o.json {
 			t.Fatalf("%s: %+v %v", engine, o, err)

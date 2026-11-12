@@ -47,7 +47,7 @@ func (r Record) Validate() error {
 	if !uuid.MatchString(r.ID) || !uuid.MatchString(r.NativeID) || !uuid.MatchString(r.SessionID) || !uuid.MatchString(r.BootID) || !uuid.MatchString(strings.TrimPrefix(r.Address, "agent:")) {
 		return errors.New("canonical request, session, agent and boot UUIDs required")
 	}
-	if r.Engine != "codex" && r.Engine != "claude" && r.Engine != "grok" {
+	if r.Engine != "codex" && r.Engine != "claude" && r.Engine != "grok" && r.Engine != "kimi" {
 		return errors.New("unsupported engine")
 	}
 	for _, p := range []string{r.Home, r.Cwd, r.Executable} {

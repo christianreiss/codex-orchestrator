@@ -7,7 +7,7 @@ import (
 )
 
 func TestWorkloadHelpBypassesFleetAndNativeBootForEveryEngine(t *testing.T) {
-	for _, name := range []string{"cxx", "cdx", "clx", "cgx"} {
+	for _, name := range []string{"cxx", "cdx", "clx", "cgx", "ckx"} {
 		t.Run(name, func(t *testing.T) {
 			var out, err bytes.Buffer
 			if code := run(name, []string{"workload", "--help"}, &out, &err); code != 0 || err.Len() != 0 || !strings.Contains(out.String(), "cooperative jobs") {

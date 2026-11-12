@@ -64,13 +64,15 @@ func (n Notice) Message() string {
 	if n.has(KindInstructions) {
 		file := n.Instructions
 		if file == "" {
-			file = map[string]string{"codex": "~/.codex/AGENTS.md", "claude": "~/.claude/CLAUDE.md", "grok": "~/.grok/AGENTS.md"}[n.Engine]
+			file = map[string]string{"codex": "~/.codex/AGENTS.md", "claude": "~/.claude/CLAUDE.md", "grok": "~/.grok/AGENTS.md", "kimi": "~/.kimi-code/AGENTS.md"}[n.Engine]
 		}
 		parts = append(parts, "The fleet instructions in "+file+" changed since this session's last notice. Re-read that file now; where it differs from what you loaded earlier, the file is current.")
 	}
 	if n.has(KindSkills) {
 		if n.Engine == "grok" {
 			parts = append(parts, "Fleet Skills under ~/.grok/skills changed. Re-read a Skill's SKILL.md before relying on what you loaded earlier.")
+		} else if n.Engine == "kimi" {
+			parts = append(parts, "Fleet Skills under ~/.kimi-code/skills changed. Re-read a Skill's SKILL.md before relying on what you loaded earlier.")
 		} else {
 			parts = append(parts, "Fleet Skills changed. Call skill_list again and re-read a Skill before relying on what you loaded earlier.")
 		}
@@ -82,7 +84,7 @@ func (n Notice) Message() string {
 }
 
 func paths(engine string) (string, error) {
-	if engine != "codex" && engine != "claude" && engine != "grok" {
+	if engine != "codex" && engine != "claude" && engine != "grok" && engine != "kimi" {
 		return "", errors.New("unknown content notice engine")
 	}
 	home, err := os.UserHomeDir()
@@ -90,11 +92,17 @@ func paths(engine string) (string, error) {
 		return "", err
 	}
 	scope := filepath.Join(home, "."+engine)
+	if engine == "kimi" {
+		scope = filepath.Join(home, ".kimi-code")
+	}
 	if engine == "codex" && strings.TrimSpace(os.Getenv("CODEX_HOME")) != "" {
 		scope = strings.TrimSpace(os.Getenv("CODEX_HOME"))
 	}
 	if engine == "grok" && strings.TrimSpace(os.Getenv("GROK_HOME")) != "" {
 		scope = strings.TrimSpace(os.Getenv("GROK_HOME"))
+	}
+	if engine == "kimi" && strings.TrimSpace(os.Getenv("KIMI_CODE_HOME")) != "" {
+		scope = strings.TrimSpace(os.Getenv("KIMI_CODE_HOME"))
 	}
 	scope, err = filepath.Abs(scope)
 	if err != nil {

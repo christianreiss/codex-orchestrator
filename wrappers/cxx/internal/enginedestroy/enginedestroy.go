@@ -24,6 +24,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
 )
 
 // Options injects everything that touches the outside world, so tests run
@@ -63,7 +64,7 @@ type run struct {
 func Run(ctx context.Context, engine string, opt Options) (Result, error) {
 	res := Result{Engine: engine, Removed: []string{}, Residue: []string{}}
 	switch engine {
-	case config.EngineCodex, config.EngineClaude, config.EngineGrok:
+	case config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi:
 	default:
 		return res, fmt.Errorf("unsupported engine %q", engine)
 	}
@@ -123,6 +124,9 @@ func (r *run) glob(pattern string) {
 	}
 	for _, m := range matches {
 		removed, err := grok.RemoveIdlePrivateDirectory(m)
+		if strings.HasPrefix(filepath.Base(m), "ckx-") {
+			removed, err = kimi.RemoveIdlePrivateDirectory(m)
+		}
 		if err != nil {
 			r.residue(m, err)
 		} else if removed {
@@ -167,6 +171,18 @@ func (r *run) destroy(ctx context.Context, engine string) {
 		r.glob(filepath.Join(tmp, "cgx-login-*"))
 		for _, rc := range []string{".bashrc", ".zshrc"} {
 			r.stripAlias(filepath.Join(home, rc))
+		}
+	case config.EngineKimi:
+		kimiHome := r.opt.Getenv("KIMI_CODE_HOME")
+		if kimiHome == "" {
+			kimiHome = filepath.Join(home, ".kimi-code")
+		}
+		r.tree(kimiHome)
+		r.tree(filepath.Join(home, ".ckx"))
+		r.glob(filepath.Join(tmp, "ckx-runtime-*"))
+		r.glob(filepath.Join(tmp, "ckx-login-*"))
+		for _, rc := range []string{".bashrc", ".zshrc"} {
+			r.stripKimiAlias(filepath.Join(home, rc))
 		}
 	case config.EngineClaude:
 		r.stripManagedMCP(filepath.Join(home, ".claude.json"), filepath.Join(home, ".clx", "state", "managed-mcp.json"))
@@ -327,3 +343,42 @@ func MarkDone(home, engine, requestID string) error {
 	b, _ := json.Marshal(map[string]string{"request_id": requestID})
 	return os.WriteFile(p, b, 0o600)
 }
+
+func (r *run) stripKimiAlias(path string) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		r.residue(path, err)
+		return
+	}
+	lines := strings.Split(string(b), "\n")
+	out := make([]string, 0, len(lines))
+	changed := false
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if t == "alias kimi='ckx'" || t == "# Added by ckx" {
+			changed = true
+			continue
+		}
+		out = append(out, line)
+	}
+	if !changed {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		r.residue(path, err)
+		return
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(out, "\n")), info.Mode().Perm()); err != nil {
+		r.residue(path, err)
+		return
+	}
+	r.res.Removed = append(r.res.Removed, path+" (kimi alias lines)")
+}
+
+// stripManagedMCP drops the fleet-managed mcpServers recorded in the sidecar
+// from ~/.claude.json, keeping every user-authored server. It runs before the
+// sidecar's directory is deleted.

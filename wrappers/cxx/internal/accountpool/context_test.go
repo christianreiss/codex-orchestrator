@@ -42,7 +42,7 @@ func (f *blockedReleaseClient) JSON(ctx context.Context, method, path string, in
 }
 
 func TestLeaseReleaseUsesDurableHandoffAndSynchronousFallback(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, mode := range []string{"durable", "journal_unwritable", "unmanaged"} {
 			t.Run(engine+"/"+mode, func(t *testing.T) {
 				home := t.TempDir()
@@ -348,7 +348,7 @@ func (f *gatewayClient) JSON(ctx context.Context, method, path string, in any, o
 	return f.fakeClient.JSON(ctx, method, path, in, out, retries)
 }
 func TestLaunchRetriesGatewayFailureWithSameLeaseAndActiveAccount(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			c := Load(engine, filepath.Join(t.TempDir(), "auth.json"), "https://fleet")
 			c.Capable, c.AccountID = true, 3

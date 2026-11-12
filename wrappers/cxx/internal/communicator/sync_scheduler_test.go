@@ -135,7 +135,7 @@ func TestSyncWakeKeepsEveryGrokBrokerAuthDeadline(t *testing.T) {
 }
 
 func TestSyncWakePreservesEngineDeadlinesAndGates(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			job := syncJob{Engine: engine, Auth: true, Env: map[string]string{"HOME": t.TempDir()}}
 			content := job
@@ -144,7 +144,7 @@ func TestSyncWakePreservesEngineDeadlinesAndGates(t *testing.T) {
 			state := s.stateLocked(job)
 			future := time.Now().Add(time.Hour)
 			state.nextAuth, state.nextContent = future, future
-			if engine == "grok" {
+			if engine == "grok" || engine == "kimi" {
 				s.stateLocked(content).nextContent = future
 			}
 			if delay, _ := s.nextSyncWake(true); delay < 59*time.Minute {
@@ -154,7 +154,7 @@ func TestSyncWakePreservesEngineDeadlinesAndGates(t *testing.T) {
 				t.Fatalf("missing-watch fallback lost: %s", delay)
 			}
 			contentState := s.scopes[stateID(content)]
-			if engine != "grok" {
+			if engine != "grok" && engine != "kimi" {
 				contentState = state
 			}
 			contentState.nextContent = time.Time{}

@@ -16,12 +16,17 @@ import (
 )
 
 func TestProviderReleaseSurvivesOfflineOwnerAndReplaysAfterRestart(t *testing.T) {
+	for _, engine := range []string{"grok", "kimi"} {
+		t.Run(engine, func(t *testing.T) { testProviderReleaseSurvivesRestart(t, engine) })
+	}
+}
+func testProviderReleaseSurvivesRestart(t *testing.T, engine string) {
 	t.Setenv("HOME", t.TempDir())
 	base := "https://receipt-fixture.invalid"
 	id := strings.Repeat("a", 32)
 	registry.Store(base, &endpoint{base: base, setupErr: errors.New("offline")})
 	defer registry.Delete(base)
-	queued, err := QueueProviderRelease(base, "grok", id)
+	queued, err := QueueProviderRelease(base, engine, id)
 	if err != nil || !queued {
 		t.Fatalf("journal=%v %v", queued, err)
 	}
@@ -32,7 +37,7 @@ func TestProviderReleaseSurvivesOfflineOwnerAndReplaysAfterRestart(t *testing.T)
 		t.Fatal(err)
 	}
 	var receipt providerRelease
-	if json.Unmarshal(raw, &receipt) != nil || receipt.SessionID != id || receipt.Engine != "grok" {
+	if json.Unmarshal(raw, &receipt) != nil || receipt.SessionID != id || receipt.Engine != engine {
 		t.Fatalf("receipt=%s", raw)
 	}
 	cfg := &config.Config{Orchestrator: config.Orchestrator{BaseURL: base}}

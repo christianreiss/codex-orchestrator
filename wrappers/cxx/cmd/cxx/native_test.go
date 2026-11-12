@@ -21,7 +21,7 @@ func TestNativeDispatchRejectsAmbiguousDescriptor(t *testing.T) {
 }
 
 func TestNativeVersionDispatchesVendorForAllEngines(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
@@ -32,7 +32,7 @@ func TestNativeVersionDispatchesVendorForAllEngines(t *testing.T) {
 			if err := os.WriteFile(cli, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			env := map[string]string{"codex": "CDX_CODEX_BIN", "claude": "CLX_CLAUDE_BIN", "grok": "CGX_GROK_BIN"}[engine]
+			env := map[string]string{"codex": "CDX_CODEX_BIN", "claude": "CLX_CLAUDE_BIN", "grok": "CGX_GROK_BIN", "kimi": "CKX_KIMI_BIN"}[engine]
 			t.Setenv(env, cli)
 			var out, errout bytes.Buffer
 			if code := runNative([]string{engine, "--", "--version"}, &out, &errout); code != 0 || out.String() != "--version\n" {

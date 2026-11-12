@@ -172,7 +172,7 @@ func ambiguous(result SyncResult) bool {
 // PendingAuth prevents a finalizer from replaying an upload whose result was
 // lost. A new native generation is independent and can be offered normally.
 func PendingAuth(base, engine, path string) bool {
-	if os.Getenv("CXX_COMMUNICATOR_SYNC") == "1" || engine == "grok" {
+	if os.Getenv("CXX_COMMUNICATOR_SYNC") == "1" || engine == "grok" || engine == "kimi" {
 		return false
 	}
 	if path == "" {

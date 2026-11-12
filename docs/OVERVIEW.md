@@ -1861,3 +1861,14 @@ projects Kimi TOML owned paths and manual/yolo/auto permission modes, with no OS
 sandbox claim. `kimi-hooks-v1` uses UserPromptSubmit/Stop turn boundaries for
 message delivery; activity reports use `kimi-hooks`.
 See [the Kimi contract](interface-ckx.md) and [API routes](API.md).
+
+### Kimi Code wrapper (`ckx`)
+
+`ckx`, versioned `ckx-x.y.z`, `cxx kimi` and the managed `kimi` PATH shim select
+the fourth engine. Kimi Code 2.5.3+ is installed privately from its platform
+manifest with SHA-256 verification. Signed configuration uses `ckx.json`
+(`CKX_CONFIG_PATH`); `CKX_KIMI_BIN` selects an explicit native binary. A managed
+launch sets a private `KIMI_CODE_HOME`, disables telemetry/self-updates and
+projects only the leased access token. `ckx login` uses a disposable device-login
+home and uploads the canonical credential before removing it. See
+[the ckx contract](interface-ckx.md) and [communicator behavior](communicator.md).

@@ -52,6 +52,9 @@ func Name(engine string) string {
 	if engine == "codex" {
 		return "OpenAI (cdx)"
 	}
+	if engine == "kimi" {
+		return "Kimi Code (ckx)"
+	}
 	if engine == "grok" {
 		return "Grok (cgx)"
 	}

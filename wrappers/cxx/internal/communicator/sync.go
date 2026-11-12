@@ -84,7 +84,7 @@ const contentPeriod = 5 * time.Minute
 // plus one scheduler tick.
 const initialContentGrace = 1500 * time.Millisecond
 
-var syncEnvKeys = []string{"HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"}
+var syncEnvKeys = []string{"HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "KIMI_CODE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CKX_CONFIG_PATH"}
 
 func RegisterSync(engine string) {
 	if os.Getenv("CXX_COMMUNICATOR_SYNC") == "1" {
@@ -132,6 +132,11 @@ func jobHome(job syncJob) string {
 			return h
 		}
 		return filepath.Join(home, ".grok")
+	case "kimi":
+		if h := job.Env["KIMI_CODE_HOME"]; h != "" {
+			return h
+		}
+		return filepath.Join(home, ".kimi-code")
 	}
 	return ""
 }
@@ -158,7 +163,7 @@ func jobID(job syncJob) string {
 	return hex.EncodeToString(sum[:])
 }
 func validateJob(job syncJob) error {
-	if job.Engine != "codex" && job.Engine != "claude" && job.Engine != "grok" {
+	if job.Engine != "codex" && job.Engine != "claude" && job.Engine != "grok" && job.Engine != "kimi" {
 		return errors.New("invalid engine")
 	}
 	if !filepath.IsAbs(job.Config) || !filepath.IsAbs(job.Env["HOME"]) || !filepath.IsAbs(jobHome(job)) {
@@ -184,10 +189,10 @@ func validateJob(job syncJob) error {
 			return errors.New("auth source does not match native home")
 		}
 	}
-	if job.Auth && job.Engine != "grok" && job.AuthPath == "" {
+	if job.Auth && job.Engine != "grok" && job.Engine != "kimi" && job.AuthPath == "" {
 		return errors.New("auth scope missing native source")
 	}
-	if job.Broker != "" && (job.Engine != "grok" || !filepath.IsAbs(job.Broker)) {
+	if job.Broker != "" && (job.Engine != "grok" && job.Engine != "kimi" || !filepath.IsAbs(job.Broker)) {
 		return errors.New("invalid runtime broker")
 	}
 	return nil
@@ -202,7 +207,7 @@ func (s *server) registerJobs(r *http.Request) (ids []string, fresh bool, err er
 	if err := json.NewDecoder(io.LimitReader(r.Body, 65536)).Decode(&jobs); err != nil {
 		return nil, false, err
 	}
-	if len(jobs) > 3 {
+	if len(jobs) > 4 {
 		return nil, false, errors.New("too many sync scopes")
 	}
 	for _, job := range jobs {
@@ -480,7 +485,7 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 			state.auth.Error = "Auth synchronization failed; inspect local doctor"
 			// A 404 is not final here: confirmGrokNotFound re-checks it and sets
 			// Fatal only if the lease still has no live provider attachment.
-			state.auth.Fatal = in.Job.Engine == "grok" && revokedGrokAuth(out.Error.HTTP) && !grokSessionNotFound(out.Error.HTTP)
+			state.auth.Fatal = (in.Job.Engine == "grok" || in.Job.Engine == "kimi") && revokedGrokAuth(out.Error.HTTP) && !grokSessionNotFound(out.Error.HTTP)
 		case out.Deferred:
 			state.auth.State = "deferred"
 		case out.Adopted:
@@ -558,7 +563,7 @@ func isGrokSyncNotFound(err error) bool {
 // repeating the operation; only a 404 that persists marks the auth Fatal
 // (revoked). Any other answer replaces the result and is classified as before.
 func (s *server) confirmGrokNotFound(ctx context.Context, in SyncRequest, out SyncResult, execute func(context.Context, SyncRequest) SyncResult) SyncResult {
-	if in.Job.Engine != "grok" || out.Error == nil || !grokSessionNotFound(out.Error.HTTP) {
+	if (in.Job.Engine != "grok" && in.Job.Engine != "kimi") || out.Error == nil || !grokSessionNotFound(out.Error.HTTP) {
 		return out
 	}
 	err := ConfirmNotFound(ctx, grokNotFoundRecheck, func(c context.Context) error {
@@ -813,7 +818,7 @@ func (s *server) primedLocked(home string) bool {
 
 func stateID(job syncJob) string {
 	id := scopeID(job)
-	if job.Engine == "grok" && job.Auth {
+	if (job.Engine == "grok" || job.Engine == "kimi") && job.Auth {
 		sum := sha256.Sum256([]byte(job.Broker))
 		id += "/" + hex.EncodeToString(sum[:8])
 	}
@@ -891,7 +896,7 @@ func (s *server) syncPlanLocked() syncPlan {
 	for _, key := range keys {
 		job := s.jobs[key]
 		id := scopeID(job)
-		if job.Engine == "grok" && job.Auth {
+		if (job.Engine == "grok" || job.Engine == "kimi") && job.Auth {
 			id += "/" + job.Broker
 		}
 		prev, ok := plan.jobs[id]

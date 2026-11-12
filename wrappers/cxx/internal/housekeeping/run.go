@@ -215,12 +215,16 @@ func Run(ctx context.Context, o Options) (r Result, err error) {
 		return r, e
 	}
 	defer pinsLock.Release()
-	if o.Engine == "grok" && !o.DryRun {
-		nativeLock, e := ipc.TryAcquireExclusivePath(filepath.Join(o.Root, ".cgx-sessions.lock"))
+	if (o.Engine == "grok" || o.Engine == "kimi") && !o.DryRun {
+		lockName := ".cgx-sessions.lock"
+		if o.Engine == "kimi" {
+			lockName = ".ckx-sessions.lock"
+		}
+		nativeLock, e := ipc.TryAcquireExclusivePath(filepath.Join(o.Root, lockName))
 		if e != nil {
 			r.Outcome = "skipped"
 			r.Reason = "active_native_runtime"
-			r.Detail = lockHolders(filepath.Join(o.Root, ".cgx-sessions.lock"))
+			r.Detail = lockHolders(filepath.Join(o.Root, lockName))
 			return r, nil
 		}
 		defer nativeLock.Release()

@@ -21,7 +21,7 @@ import (
 
 // Engines in screen order: the first present engine sits left of the centre,
 // the second right, the third below.
-var engineOrder = []string{config.EngineCodex, config.EngineClaude, config.EngineGrok}
+var engineOrder = []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi}
 
 // Fallback efforts when a signed config predates model_catalog. The menu then
 // holds only the configured model, so no per-model catalog is duplicated here.
@@ -29,6 +29,7 @@ var fallbackEfforts = map[string][]string{
 	config.EngineCodex:  {"low", "medium", "high", "xhigh"},
 	config.EngineClaude: {"low", "medium", "high", "xhigh", "max"},
 	config.EngineGrok:   {"low", "medium", "high", "xhigh"},
+	config.EngineKimi:   {"low", "high", "max"},
 }
 
 // Model is one selectable model and the efforts it accepts.
@@ -186,7 +187,7 @@ func menu(engine string, cfg *config.Config, src Sources) []Model {
 			if _, exists := findModel(models, id); exists || config.ModelMinimum(engine, id, catalog) == "" {
 				continue
 			}
-			command := map[string]string{config.EngineCodex: "cdx", config.EngineClaude: "clx", config.EngineGrok: "cgx"}[engine]
+			command := map[string]string{config.EngineCodex: "cdx", config.EngineClaude: "clx", config.EngineGrok: "cgx", config.EngineKimi: "ckx"}[engine]
 			reason := id + " is unavailable in the signed catalog; run " + command + " update or " + command + " cron run to refresh it"
 			if err := config.CheckModelVersion(engine, id, observed, catalog); err != nil {
 				reason = err.Error()
@@ -308,6 +309,10 @@ func overrideModel(engine string, cfg *config.Config) string {
 		if v := deref(opts.GrokModelOverride); v != "" {
 			return v
 		}
+	case config.EngineKimi:
+		if v := deref(opts.KimiModelOverride); v != "" {
+			return v
+		}
 	}
 	return deref(opts.ModelOverride)
 }
@@ -320,6 +325,10 @@ func overrideEffort(engine string, cfg *config.Config) string {
 		return ""
 	case config.EngineGrok:
 		if v := deref(opts.GrokReasoningEffortOverride); v != "" {
+			return v
+		}
+	case config.EngineKimi:
+		if v := deref(opts.KimiReasoningEffortOverride); v != "" {
 			return v
 		}
 	}
@@ -391,6 +400,13 @@ func LocalPreferences(engine string) (model, effort string) {
 		}
 		model, _ = tree.Get("models.default").(string)
 		effort, _ = tree.Get("models.default_reasoning_effort").(string)
+	case config.EngineKimi:
+		tree, err := toml.LoadFile(filepath.Join(root, "config.toml"))
+		if err != nil {
+			return "", ""
+		}
+		model, _ = tree.Get("default_model").(string)
+		effort, _ = tree.Get("thinking.effort").(string)
 	}
 	return strings.TrimSpace(model), strings.TrimSpace(effort)
 }

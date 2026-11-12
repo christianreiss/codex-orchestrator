@@ -73,7 +73,7 @@ func TestSelectionAgeBudgetAndProtection(t *testing.T) {
 	}
 }
 func TestThreeEngineBundlesAndIndexes(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			root := t.TempDir()
 			var old, keep string
@@ -90,6 +90,20 @@ func TestThreeEngineBundlesAndIndexes(t *testing.T) {
 				_ = fileAt(t, root, "projects/project/"+idOld+"/subagents/agent-child.jsonl", 40)
 				_ = fileAt(t, root, "projects/project/memory/MEMORY.md", 40)
 				_ = writeJSON(filepath.Join(root, "projects/project/sessions-index.json"), map[string]any{"version": 1, "entries": []any{map[string]any{"sessionId": idOld}, map[string]any{"sessionId": idKeep}}})
+			case "kimi":
+				old = fileAt(t, root, "sessions/project/"+idOld+"/agents/main/wire.jsonl", 40)
+				keep = fileAt(t, root, "sessions/project/"+idKeep+"/agents/main/wire.jsonl", 1)
+				for _, v := range []struct {
+					id  string
+					age int
+				}{{idOld, 40}, {idKeep, 1}} {
+					path := fileAt(t, root, "sessions/project/"+v.id+"/state.json", v.age)
+					_ = os.WriteFile(path, []byte(`{"id":"`+v.id+`","version":2}`), 0600)
+					mt := time.Now().Add(-time.Duration(v.age) * 24 * time.Hour)
+					_ = os.Chtimes(path, mt, mt)
+				}
+				_ = os.WriteFile(filepath.Join(root, "session_index.jsonl"), []byte(`{"sessionId":"`+idOld+`"}`+"\n"+`{"sessionId":"`+idKeep+`"}`+"\n"), 0600)
+
 			case "grok":
 				old = fileAt(t, root, "sessions/project/"+idOld+"/events.jsonl", 40)
 				keep = fileAt(t, root, "sessions/project/"+idKeep+"/events.jsonl", 1)

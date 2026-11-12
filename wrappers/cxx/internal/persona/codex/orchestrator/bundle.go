@@ -72,6 +72,7 @@ type BundleResponse struct {
 	Sessions         *FleetSessions `json:"sessions,omitempty"`
 	// GrokSkills is the complete live skill set for Grok's native
 	// ~/.grok/skills store. Nil means the server sent none (older server).
+	KimiSkills []skillstore.Item `json:"kimi_skills"`
 	GrokSkills []skillstore.Item `json:"grok_skills,omitempty"`
 }
 

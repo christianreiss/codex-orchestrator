@@ -18,11 +18,13 @@ import (
 	claudeapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/claude"
 	codexapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/codex"
 	grokapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/grok"
+	kimiapp "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/app/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	claudelifecycle "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
 	codexlifecycle "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
@@ -123,7 +125,7 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 		wrapperRow = ui.StartUpdateRow(w, caps, "cxx", Version)
 	}
 	var engines []engineUpdate
-	for _, name := range []string{"codex", "claude", "grok"} {
+	for _, name := range []string{"codex", "claude", "grok", "kimi"} {
 		path, err := deps.resolve(name)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
@@ -295,7 +297,7 @@ func protectHostUpdate(ctx context.Context, engines []engineUpdate, deps hostUpd
 }
 
 func nativeOverride(engine string) bool {
-	return strings.TrimSpace(os.Getenv(map[string]string{"codex": "CDX_CODEX_BIN", "claude": "CLX_CLAUDE_BIN", "grok": "CGX_GROK_BIN"}[engine])) != ""
+	return strings.TrimSpace(os.Getenv(map[string]string{"codex": "CDX_CODEX_BIN", "claude": "CLX_CLAUDE_BIN", "grok": "CGX_GROK_BIN", "kimi": "CKX_KIMI_BIN"}[engine])) != ""
 }
 
 func updateClient(cfg *config.Config) (*orchestrator.Client, error) {
@@ -359,13 +361,22 @@ func defaultHostUpdateDeps() hostUpdateDeps {
 				return knownNativeVersion(codex.Version(probe))
 			case "claude":
 				return knownNativeVersion(claude.Version(probe))
-			default:
+			case "grok":
 				path, err := grok.FindCLI()
 				if err != nil {
 					return ""
 				}
 				version, _ := grok.ProbeVersion(probe, path)
 				return version
+			case "kimi":
+				path, err := kimi.FindCLI()
+				if err != nil {
+					return ""
+				}
+				version, _ := kimi.ProbeVersion(probe, path)
+				return version
+			default:
+				return ""
 			}
 		},
 		protect: func(ctx context.Context, cfg *config.Config) error {
@@ -374,8 +385,10 @@ func defaultHostUpdateDeps() hostUpdateDeps {
 				return codexapp.ProtectUpdateAuth(ctx, cfg, logger)
 			case "claude":
 				return claudeapp.ProtectUpdateAuth(ctx, cfg, logger)
+			case "grok", "kimi":
+				return nil // Access-only host projections.
 			default:
-				return nil // Grok hosts hold access-only projections.
+				return fmt.Errorf("unsupported engine %q", cfg.Engine)
 			}
 		},
 		installWrapper: func(ctx context.Context, cfg *config.Config, artifact *orchestrator.CronWrapperBlock) (string, error) {
@@ -409,7 +422,7 @@ func defaultHostUpdateDeps() hostUpdateDeps {
 				return codex.EnsureCodexBackground(ctx, target, exact, logger)
 			case "claude":
 				return claude.EnsureClaudeBackground(ctx, target, exact, logger)
-			default:
+			case "grok":
 				current := ""
 				if path, err := grok.FindCLI(); err == nil {
 					current, _ = grok.ProbeVersion(ctx, path)
@@ -419,6 +432,18 @@ func defaultHostUpdateDeps() hostUpdateDeps {
 				}
 				_, err := grok.Install(ctx, target)
 				return err
+			case "kimi":
+				current := ""
+				if path, err := kimi.FindCLI(); err == nil {
+					current, _ = kimi.ProbeVersion(ctx, path)
+				}
+				if !exact && current != "" && !codex.SemverGT(target, current) {
+					return nil
+				}
+				_, err := kimi.Install(ctx, target)
+				return err
+			default:
+				return fmt.Errorf("unsupported engine %q", engine)
 			}
 		},
 		sync: func(ctx context.Context, cfg *config.Config) error {
@@ -429,8 +454,12 @@ func defaultHostUpdateDeps() hostUpdateDeps {
 			case "claude":
 				_, err := claudelifecycle.Run(ctx, claudelifecycle.Options{Config: cfg, SyncOnly: true, SkipBoot: true, Headless: true, Logger: logger, WrapperVersion: Version})
 				return err
-			default:
+			case "grok":
 				return grokapp.SyncForUpdate(ctx, cfg, logger)
+			case "kimi":
+				return kimiapp.SyncForUpdate(ctx, cfg, logger)
+			default:
+				return fmt.Errorf("unsupported engine %q", cfg.Engine)
 			}
 		},
 		report: func(ctx context.Context, cfg *config.Config, version string) error {
@@ -456,8 +485,12 @@ func guardUpdateHost(cfg *config.Config) error {
 		return codex.GuardFQDN(cfg)
 	case "claude":
 		return claude.GuardFQDN(cfg)
-	default:
+	case "grok":
 		return grok.GuardFQDN(cfg)
+	case "kimi":
+		return kimi.GuardFQDN(cfg)
+	default:
+		return fmt.Errorf("unsupported engine %q", cfg.Engine)
 	}
 }
 

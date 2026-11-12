@@ -226,6 +226,68 @@ func scan(root, engine string) ([]session, error) {
 				result = append(result, s)
 			}
 		}
+	case "kimi":
+		projects, err := os.ReadDir(filepath.Join(root, "sessions"))
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range projects {
+			if !p.IsDir() || strings.HasPrefix(p.Name(), ".") {
+				continue
+			}
+			base := filepath.Join(root, "sessions", p.Name())
+			if err = safePath(root, base); err != nil {
+				return nil, err
+			}
+			dirs, err := os.ReadDir(base)
+			if err != nil {
+				return nil, err
+			}
+			for _, d := range dirs {
+				if !d.IsDir() || !uuidRE.MatchString(d.Name()) {
+					continue
+				}
+				path := filepath.Join(base, d.Name())
+				item := session{ID: d.Name(), IDs: []string{d.Name()}}
+				if err = addTree(root, path, &item); err != nil {
+					return nil, err
+				}
+				raw, err := os.ReadFile(filepath.Join(path, "state.json"))
+				if os.IsNotExist(err) {
+					raw, err = os.ReadFile(filepath.Join(path, "session-meta", "state.json"))
+				}
+				if os.IsNotExist(err) {
+					item.Protected = true
+					item.Reason = "incomplete_native_metadata"
+				} else if err != nil {
+					return nil, err
+				} else {
+					var meta struct {
+						ID      string `json:"id"`
+						Version int    `json:"version"`
+						Custom  struct {
+							Parent string `json:"parent_session_id"`
+							Pinned bool   `json:"pinned"`
+						} `json:"custom"`
+					}
+					if json.Unmarshal(raw, &meta) != nil || meta.ID != item.ID || meta.Version != 2 {
+						return nil, errors.New("unsupported Kimi session state")
+					}
+					if meta.Custom.Parent != "" && !uuidRE.MatchString(meta.Custom.Parent) {
+						return nil, errors.New("invalid Kimi parent session")
+					}
+					item.Parent = meta.Custom.Parent
+					if meta.Custom.Pinned {
+						item.Protected = true
+						item.Reason = "native_pin"
+					}
+				}
+				result = append(result, item)
+			}
+		}
 	default:
 		return nil, errors.New("unsupported engine")
 	}
@@ -329,6 +391,8 @@ func preflightIndexes(root, engine string) error {
 		objects, _ = filepath.Glob(filepath.Join(root, "projects", "*", "sessions-index.json"))
 	case "grok":
 		jsonl, _ = filepath.Glob(filepath.Join(root, "sessions", "*", "prompt_history.jsonl"))
+	case "kimi":
+		jsonl = []string{filepath.Join(root, "session_index.jsonl")}
 	}
 	for _, path := range append(append([]string{}, jsonl...), objects...) {
 		if _, err := os.Lstat(path); os.IsNotExist(err) {

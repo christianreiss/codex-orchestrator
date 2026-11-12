@@ -56,6 +56,8 @@ func personaPrefix(engine string) string {
 		return "clx"
 	case config.EngineGrok:
 		return "cgx"
+	case config.EngineKimi:
+		return "ckx"
 	}
 	return "cdx"
 }

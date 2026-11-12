@@ -183,7 +183,7 @@ func Configure(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		path, err := config.DefaultPathForEngine(engine)
 		if err != nil {
 			continue
@@ -706,7 +706,7 @@ func communicatorEnvironment(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
 		blocked := false
-		for _, prefix := range []string{"CXX_AGENT_", "CXX_DAEMON_", "CXX_REBOOT_", "CXX_WATCHDOG_", "CXX_NATIVE_", "CXX_PROVIDER_", "CXX_GROK_"} {
+		for _, prefix := range []string{"CXX_AGENT_", "CXX_DAEMON_", "CXX_REBOOT_", "CXX_WATCHDOG_", "CXX_NATIVE_", "CXX_PROVIDER_", "CXX_GROK_", "CXX_KIMI_"} {
 			if strings.HasPrefix(entry, prefix) {
 				blocked = true
 				break

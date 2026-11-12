@@ -10,7 +10,7 @@ import (
 )
 
 func TestRemoteStopLeavesNeighbourAndReportsOnlyAfterWait(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			neighbour := exec.Command("sleep", "30")
 			if err := neighbour.Start(); err != nil {

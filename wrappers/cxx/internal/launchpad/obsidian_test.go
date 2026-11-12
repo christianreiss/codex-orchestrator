@@ -15,10 +15,10 @@ import (
 func TestObsidianFitsViewportAndKeepsSelection(t *testing.T) {
 	for _, size := range [][2]int{{160, 48}, {120, 36}, {80, 24}, {60, 18}, {30, 10}, {20, 8}} {
 		for _, caps := range []terminalui.Caps{{IsTTY: true, UTF8: true}, {IsTTY: true, UTF8: true, NoColor: true}, terminalui.MinimalCaps(terminalui.Caps{})} {
-			for n := 1; n <= 3; n++ {
-				for _, key := range []string{"", "left", "right", "down"} {
+			for n := 1; n <= 4; n++ {
+				for _, key := range []string{"", "left", "right", "down", "up"} {
 					t.Run(fmt.Sprintf("%dx%d/utf8=%v/n=%d/%s", size[0], size[1], caps.UTF8, n, key), func(t *testing.T) {
-						engines := []Engine{codexEngine(), claudeEngine(), grokEngine()}[:n]
+						engines := []Engine{codexEngine(), claudeEngine(), grokEngine(), kimiEngine()}[:n]
 						for i := range engines {
 							for j := 0; j < 25; j++ {
 								engines[i].Models = append(engines[i].Models, Model{ID: fmt.Sprintf("model-%02d-界界-e\u0301-long-catalog-name", j), Efforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}})
