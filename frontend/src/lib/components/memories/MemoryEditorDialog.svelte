@@ -455,6 +455,7 @@
                 <Select.Item value="codex" label="Codex">Codex</Select.Item>
                 <Select.Item value="claude" label="Claude">Claude</Select.Item>
                 <Select.Item value="grok" label="Grok">Grok</Select.Item>
+                <Select.Item value="kimi" label="Kimi Code">Kimi Code</Select.Item>
               </Select.Content>
             </Select.Root>
           </div>

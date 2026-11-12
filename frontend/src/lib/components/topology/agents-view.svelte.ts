@@ -13,7 +13,7 @@ import { emptyGhostState, filterGraph, graphModel, summarize, trackGhosts, type 
 import type TopologyGraph from "./TopologyGraph.svelte";
 
 export type AgentsViewName = "live" | "graph";
-type Engine = "all" | "codex" | "claude" | "grok";
+type Engine = "all" | "codex" | "claude" | "grok" | "kimi";
 
 const PREFS_KEY = "topology-view-v1";
 

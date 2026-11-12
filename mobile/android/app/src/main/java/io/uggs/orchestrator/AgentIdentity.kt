@@ -23,6 +23,7 @@ import java.util.Locale
         "codex" -> R.drawable.ic_engine_codex to "Codex"
         "claude" -> R.drawable.ic_engine_claude to "Claude"
         "grok" -> R.drawable.ic_engine_grok to "Grok"
+        "kimi" -> R.drawable.ic_engine_kimi to "Kimi Code"
         else -> null to engine.ifBlank { unknownEngine }
     }
     val description = stringResource(R.string.engine_description, label)

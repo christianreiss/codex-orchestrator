@@ -103,3 +103,7 @@ Everything that can vary by engine takes an `Engine` value from `api/src/util/en
 - runner/app.py (FastAPI verify / exec endpoints)
 - wrappers/cxx (common Go module and Codex/Claude/Grok personas)
 - bin/install.sh and api/src/ops/setup-signing-key.ts (installation signing-key lifecycle)
+
+## Kimi Code
+
+Kimi Code uses the existing engine-scoped services with a server-owned OAuth refresher and server-polled usage. The host receives access-only credentials. Its independent `/kimi/v1` surface is disabled by default. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

@@ -16,7 +16,7 @@ below points to central knowledge without copying its contents locally.
 
 ## Local reminders for agents
 
-From wrapper 0.9.35, managed Codex, Claude and Grok launches keep a short reminder
+From wrapper 0.9.35, managed Codex, Claude, Grok and Kimi Code launches keep a short reminder
 beside native local memories: look up and save durable knowledge in the central
 Orchestrator through MCP. Startup, `sync` and content cron refresh it. Existing
 local notes are preserved; they are not automatically migrated into the Atlas.
@@ -79,3 +79,7 @@ Host, project, and shared memory mutations (`memory.*`, `project.memory.*`, `sha
 - frontend/src/routes/(library)/library/+page.svelte, frontend/src/lib/components/library/memories/MemoriesPanel.svelte, frontend/src/lib/components/library/memories/memories-state.svelte.ts (List / Map switch, 150-node canvas cap, 25-row pages)
 - frontend/src/lib/components/memories/MemoryInspector.svelte (inspector tabs)
 - frontend/src/lib/ws/events.ts (memory events → `memories` invalidation)
+
+## Kimi Code
+
+Kimi Code uses the same fleet shared-memory and project-memory MCP surfaces. Engine selection does not move a host-local record into shared storage or change the existing record ownership rules. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

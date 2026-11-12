@@ -57,7 +57,7 @@ describe("Chatty action buttons", () => {
     );
     for (const [action, plan] of [
       ["host.engine.enable", { host_id: 7, engine: "claude", engines_before: ["codex"], engines_after: ["claude"] }],
-      ["host.engine.enable", { host_id: 7, engine: "claude", engines_before: ["codex"], engines_after: ["codex", "claude", "grok"] }],
+      ["host.engine.enable", { host_id: 7, engine: "claude", engines_before: ["codex"], engines_after: ["codex", "claude", "grok", "kimi"] }],
       ["host.engine.disable", { host_id: 7, engine: "claude", engines_before: ["claude"], engines_after: [] }],
       ["host.engine.disable", { host_id: 7, engine: "claude", engines_before: ["codex", "claude"], engines_after: ["grok"] }],
       ["host.engine.enable", { host_id: "7", engine: "claude", engines_before: ["codex"], engines_after: ["codex", "claude"] }],

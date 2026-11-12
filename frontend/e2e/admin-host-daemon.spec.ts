@@ -60,7 +60,7 @@ test("daemon indicators are separate, enabled-only, and update live", async ({
     if (path === "/admin/host-daemons") return json({ hosts: daemons });
     if (path === "/admin/engines/state")
       return json({
-        engines: ["codex", "claude", "grok"].map((engine) => ({
+        engines: ["codex", "claude", "grok", "kimi"].map((engine) => ({
           engine,
           enabled: true,
         })),
@@ -123,7 +123,7 @@ test('closed-window daemon remains online and can be opened from host details', 
       grants++; daemon.access={allowed:true,reason:null,secure:false,enabled_until:new Date(Date.now()+600_000).toISOString()};
       daemon.health={...daemon.health,state:'green',reasons:[]};return json({host:{id:1}});
     }
-    if(path==='/admin/engines/state') return json({engines:['codex','claude','grok'].map(engine=>({engine,enabled:true}))});
+    if(path==='/admin/engines/state') return json({engines:['codex','claude','grok','kimi'].map(engine=>({engine,enabled:true}))});
     if(path==='/admin/insecure-approvals/pending') return json({requests:[]});
     return json({});
   });

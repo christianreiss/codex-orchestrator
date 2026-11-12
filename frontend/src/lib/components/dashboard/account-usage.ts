@@ -5,6 +5,13 @@ export function accountQuotaRows(account: Pick<ProviderAccount, "engine" | "usag
   const { usage, engine } = account;
   if (engine === "grok" || usage.supported === false) return [];
   const emulated = account.quota_snapshot?.short?.source === "emulated" ? account.quota_snapshot.short : null;
+  if (engine === "kimi") return (usage.windows ?? []).map(window => ({
+    key: window.kind,
+    value: window.kind === "five_hour" && emulated ? emulated.used_percent : window.used_percent,
+    reset: window.kind === "five_hour" && emulated ? emulated.resets_at : window.resets_at,
+    label: window.kind === "five_hour" && emulated ? `Emulated ${Math.round((emulated.limit_seconds ?? 18000) / 3600)}-hour window`
+      : { five_hour: "5-hour window", weekly: "Weekly window", month_total: "Monthly total", month_code: "Monthly code" }[window.kind],
+  }));
   const windows = [
     { key: "short", value: emulated?.used_percent ?? usage.short_used_percent, reset: emulated?.resets_at ?? usage.short_resets_at, seconds: emulated?.limit_seconds ?? usage.short_limit_seconds, fallback: engine === "claude" ? "5-hour window" : "Short window" },
     { key: "weekly", value: usage.weekly_used_percent, reset: usage.weekly_resets_at, seconds: usage.weekly_limit_seconds, fallback: "Weekly window" },

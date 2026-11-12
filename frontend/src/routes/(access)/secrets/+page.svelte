@@ -3,6 +3,6 @@
   import SecretsSection from "$lib/components/secrets/SecretsSection.svelte";
 </script>
 
-<PageShell title="Secrets" description="Working credentials that Codex, Claude and Grok agents can read over MCP.">
+<PageShell title="Secrets" description="Working credentials that Codex, Claude, Grok and Kimi Code agents can read over MCP.">
   <SecretsSection />
 </PageShell>

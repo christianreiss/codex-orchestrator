@@ -69,3 +69,7 @@ Reading the document, versions, previews, and profiles is `content.read` (every 
 - frontend/src/lib/api/agents.ts (queries and mutations)
 - frontend/src/lib/components/settings/SecurityLevelsPanel.svelte, frontend/src/lib/components/settings/ResponseVerbosityPanel.svelte (posture sliders, verbosity dial)
 - frontend/src/lib/components/settings/AddressFormPanel.svelte, frontend/src/lib/components/library/agent-rules/PostureSection.svelte (address form choice and its save bar)
+
+## Kimi Code
+
+Kimi Code receives the fleet `AGENTS.md` in its private `KIMI_CODE_HOME`. The existing per-engine preview includes Kimi; Claude-native artifacts remain Claude-only. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

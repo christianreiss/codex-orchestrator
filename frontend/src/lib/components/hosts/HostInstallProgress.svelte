@@ -48,7 +48,7 @@
   const qc = useQueryClient();
 
   function syncedAt(host: HostDetail | undefined): string | null {
-    return host?.last_refresh || host?.claude_last_refresh || host?.grok_last_refresh || null;
+    return host?.last_refresh || host?.claude_last_refresh || host?.grok_last_refresh || host?.kimi_last_refresh || null;
   }
 
   // The host is fixed for this instance; containers remount for a new one.
@@ -89,7 +89,7 @@
     if (!canonical) return [];
     return engines.filter(
       (engine): engine is AuthEngine =>
-        (engine === "codex" || engine === "claude" || engine === "grok") &&
+        (engine === "codex" || engine === "claude" || engine === "grok" || engine === "kimi") &&
         !canonical[engine] &&
         $fleet.isEnabled(engine),
     );

@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 
 test('each engine limits choices and restores saved older preferences', async ({ page }) => {
-  const models = { codex: ['gpt-6-sol', 'gpt-6.1-sol'], claude: ['claude-opus-5', 'claude-opus-5-5'], grok: ['grok-4.6', 'grok-4.7'] };
+  const models = { codex: ['gpt-6-sol', 'gpt-6.1-sol'], claude: ['claude-opus-5', 'claude-opus-5-5'], grok: ['grok-4.6', 'grok-4.7'], kimi: ['kimi-k2', 'k3'] };
   type Engine = keyof typeof models;
-  const flags: Record<Engine, boolean> = { codex: false, claude: false, grok: false };
+  const flags: Record<Engine, boolean> = { codex: false, claude: false, grok: false, kimi: false };
   const writes: string[] = [];
   await page.route('**/admin/**', async route => {
     const req = route.request();
@@ -15,14 +15,14 @@ test('each engine limits choices and restores saved older preferences', async ({
     if (path === '/admin/ws/info') return json({ enabled: false });
     if (path === '/admin/engines/state') return json({ engines: Object.keys(models).map(engine => ({ engine, enabled: true })) });
     if (path === '/admin/chatty/status') return json({ visible: false, engines: [] });
-    const policy = path.match(/^\/admin\/model-policy\/(codex|claude|grok)$/);
+    const policy = path.match(/^\/admin\/model-policy\/(codex|claude|grok|kimi)$/);
     if (policy) {
       const engine = policy[1] as Engine;
       if (req.method() === 'PUT') { flags[engine] = req.postDataJSON().latest_only; writes.push(engine); }
       const [old, current] = models[engine];
       return json({ engine, latest_only: flags[engine], latest_models: [current], replacements: { [old!]: current, [current!]: current } });
     }
-    const defaults = path.match(/^\/admin\/model-defaults\/(codex|claude|grok)$/);
+    const defaults = path.match(/^\/admin\/model-defaults\/(codex|claude|grok|kimi)$/);
     if (defaults) {
       const engine = defaults[1] as Engine;
       const [old, current] = models[engine];
@@ -34,13 +34,13 @@ test('each engine limits choices and restores saved older preferences', async ({
   await page.goto('/admin/engines');
   for (const engine of Object.keys(models) as Engine[]) {
     const [old, current] = models[engine];
-    await page.getByRole('tab', { name: engine[0]!.toUpperCase() + engine.slice(1) }).click();
+    await page.getByRole('tab', { name: (engine === "kimi" ? "Kimi Code" : engine[0]!.toUpperCase() + engine.slice(1)) }).click();
     const toggle = page.locator(`#${engine}-model-policy`).getByRole('switch', { name: 'Only current models' });
     await expect(toggle).toBeEnabled();
     await expect(toggle).not.toBeChecked();
     await toggle.click();
     await expect(toggle).toBeChecked();
-    const region = page.getByRole('region', { name: engine[0]!.toUpperCase() + engine.slice(1), exact: true });
+    const region = page.getByRole('region', { name: (engine === "kimi" ? "Kimi Code" : engine[0]!.toUpperCase() + engine.slice(1)), exact: true });
     const choice = (model: string) => region.locator(`input[type="radio"][name="${engine}-quick-model"][value="${model}"]`);
     await expect(choice(current!)).toBeChecked();
     await expect(choice(old!)).toHaveCount(0);
@@ -48,5 +48,5 @@ test('each engine limits choices and restores saved older preferences', async ({
     await expect(toggle).not.toBeChecked();
     await expect(choice(old!)).toBeChecked();
   }
-  expect(writes).toEqual(['codex', 'codex', 'claude', 'claude', 'grok', 'grok']);
+  expect(writes).toEqual(['codex', 'codex', 'claude', 'claude', 'grok', 'grok', 'kimi', 'kimi']);
 });

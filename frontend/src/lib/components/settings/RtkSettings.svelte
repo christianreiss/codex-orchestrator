@@ -19,7 +19,7 @@
   });
   const canManage = $derived($authStore.can(targetHost ? "hosts.manage" : "settings.manage"));
 </script>
-<Section id={targetHost ? "host-rtk" : "rtk"} title="Command output filtering" description="RTK can condense supported command output. All three engines receive instructions to use RTK; agents choose when to apply it. Changes save immediately and apply to new sessions after host sync; running sessions keep their launch policy.">
+<Section id={targetHost ? "host-rtk" : "rtk"} title="Command output filtering" description="RTK can condense supported command output. All four engines receive instructions to use RTK; agents choose when to apply it. Changes save immediately and apply to new sessions after host sync; running sessions keep their launch policy.">
   {#if !canManage}<p class="text-body-sm text-muted-foreground">Read only. Changing these rules requires {targetHost ? "hosts.manage" : "settings.manage"}.</p>{/if}
   {#if $query.isPending}<p role="status" class="text-body-sm text-muted-foreground">Loading output filtering policies…</p>{/if}
   {#if $query.error}<div class="space-y-2"><p role="alert" class="text-body-sm text-destructive">Could not refresh output filtering: {$query.error.message}. {$query.data ? "Retained policies may be stale; editing is paused." : "No policy is available."}</p><Button size="sm" variant="outline" onclick={() => void $query.refetch()}>Reload output filtering</Button></div>{/if}

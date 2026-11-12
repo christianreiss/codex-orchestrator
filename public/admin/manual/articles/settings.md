@@ -24,7 +24,7 @@ Use these canonical destinations from the sidebar or command palette:
 
 | Destination | URL | Contents |
 |---|---|---|
-| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), then Codex, Claude and Grok tabs with each engine's state and usage, default model and effort, the **Only current models** policy, the CLI version, and a collapsed **Advanced** block (native settings, Codex silent mode and compaction, Claude client settings). |
+| **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), then Codex, Claude, Grok and Kimi Code tabs with each engine's state and usage, default model and effort, the **Only current models** policy, the CLI version, and a collapsed **Advanced** block (native settings, Codex silent mode and compaction, Claude client settings). |
 | **Usage limits** | `/limits` | Quota enforcement (`#quota-enforcement`), quota warnings, provider recommendations and usage-based scaling (`#scaling-rules`). |
 | **Settings** | `/settings` | Fleet-wide behaviour in three sections. **Hosts** (`#hosts`): update hosts automatically (auto-update), look up host names (reverse DNS), allow temporary-access requests (insecure approval), let agents set up new hosts, and remove inactive hosts. **Agents** (`#agents`): agent sessions, how agents treat API keys pasted in chat, the model-tier self-check, and role checks (authorization mode). **Data retention** (`#retention`): remove old logs automatically and session housekeeping. |
 | **API keys** (in Access & Settings) | `/api-keys` | Issued keys first; **Configure** opens *Service availability & routing*: the **Routing** table, **Backend defaults**, and the global **All API traffic** control. |
@@ -38,7 +38,7 @@ Old `/settings?tab=…`, `/policies`, `/quick-settings`, and `/authoring/setting
 ### Only current models
 
 Under **Engines → Current models**, enable **Only current models** separately
-for Codex, Claude or Grok. The default is off. Each model family keeps its newest
+for Codex, Claude, Grok or Kimi Code. The default is off. Each model family keeps its newest
 version, so Sol, Astra, Luna and Terra remain available independently; the same
 applies to Claude families and Grok Standard/Fast variants.
 
@@ -64,7 +64,7 @@ provider binaries are outside this policy.
 
 #### API keys in chat
 
-`GET /admin/api-keys-in-chat`, `POST /admin/api-keys-in-chat` — boolean flag under *Settings → Agents*, shown as **Tell agents how to treat keys pasted in chat**. A fleet instruction injected into the managed Codex, Claude, and Grok documents; see [Agent rules](/admin/manual/instructions).
+`GET /admin/api-keys-in-chat`, `POST /admin/api-keys-in-chat` — boolean flag under *Settings → Agents*, shown as **Tell agents how to treat keys pasted in chat**. A fleet instruction injected into the managed Codex, Claude, Grok, and Kimi Code documents; see [Agent rules](/admin/manual/instructions).
 
 #### Access control
 
@@ -421,7 +421,7 @@ The following variables are read from the process environment at startup. They c
 
 ### Session housekeeping
 
-**Settings → Data retention → Session housekeeping** (`/settings#retention`) sets retention and disk budgets separately for Codex, Claude and Grok. Defaults are automatic removal enabled, 30 days retention, 5 GiB per engine/local user and a minimum of 7 days inactivity when under budget pressure. A host's detail page can inherit the fleet rule or save a full override. Disabling removal preserves configured values.
+**Settings → Data retention → Session housekeeping** (`/settings#retention`) sets retention and disk budgets separately for Codex, Claude, Grok and Kimi Code. Defaults are automatic removal enabled, 30 days retention, 5 GiB per engine/local user and a minimum of 7 days inactivity when under budget pressure. A host's detail page can inherit the fleet rule or save a full override. Disabling removal preserves configured values.
 
 cxx performs deletion locally during idle maintenance, including associated session history and search indexes. Active sessions, pins, open goals, queued work and fleet resume/wake bindings remain protected. Protected or young sessions can exceed the budget. Removed sessions cannot be resumed. Preview with `cxx housekeeping run --dry-run`; use `cxx housekeeping pin UUID --engine ENGINE` for sessions you want to retain.
 
@@ -448,3 +448,7 @@ API/MySQL diagnostic logs rotate at three 10 MB files per container. This is a
 size limit, not a seven-day age guarantee. Routine success/access logs stay off.
 Database cleanup creates no additional dump, storage archive or volume snapshot.
 Deleted history requires existing external backups for recovery.
+
+## Kimi Code
+
+The Kimi Code tab on Engines has independent model, effort, CLI version and native settings. Kimi supports `low`, `high` and `max` thinking effort. Its gateway starts off and requires an explicit operator opt-in under Access → Configure → Routing. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

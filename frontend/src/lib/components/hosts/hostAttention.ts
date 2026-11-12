@@ -46,6 +46,7 @@ const INSTALL_HINT = "Gets a fresh install command to run on the host.";
 function installedVersion(host: HostListItem, engine: HostEngine): string | null {
   if (engine === "claude") return host.claude_client_version_override ?? host.claude_client_version ?? null;
   if (engine === "grok") return host.grok_client_version_override ?? host.grok_client_version ?? null;
+  if (engine === "kimi") return host.kimi_client_version_override ?? host.kimi_client_version ?? null;
   return host.client_version_override ?? host.client_version ?? null;
 }
 

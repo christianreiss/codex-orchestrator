@@ -169,7 +169,7 @@
                 <Select.Root type="single" value={format} onValueChange={(v) => { if (v) format = v as ApiKeyEngine; }} disabled={creating}>
                   <Select.Trigger id="key-format" class="w-full">{FORMAT_LABEL[format]}</Select.Trigger>
                   <Select.Content>
-                    {#each ["openai", "claude", "grok"] as value}
+                    {#each ["openai", "claude", "grok", "kimi"] as value}
                       <Select.Item value={value} label={FORMAT_LABEL[value as ApiKeyEngine]} />
                     {/each}
                   </Select.Content>

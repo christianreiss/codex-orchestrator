@@ -29,7 +29,7 @@ Use the arrow keys to select a result, `Enter` to open it, and `Esc` to close. F
 
 ### Overview
 
-API keys grant programmatic access to the OpenAI-compatible, Anthropic-compatible, and Grok gateway endpoints. All three key types are stored in the single `openai_api_keys` database table; the `engine` column (`codex` for OpenAI-compat, `claude` for Anthropic-compat, `grok` for the Grok gateway) distinguishes them. The admin list endpoints filter by engine: `GET /admin/openai/keys` returns only `engine=codex` rows; `GET /admin/claude/keys` returns only `engine=claude` rows; `GET /admin/grok/keys` returns only `engine=grok` rows.
+API keys grant programmatic access to the OpenAI-compatible, Anthropic-compatible, and Grok gateway endpoints. All four key types are stored in the single `openai_api_keys` database table; the `engine` column (`codex` for OpenAI-compat, `claude` for Anthropic-compat, `grok` for the Grok gateway) distinguishes them. The admin list endpoints filter by engine: `GET /admin/openai/keys` returns only `engine=codex` rows; `GET /admin/claude/keys` returns only `engine=claude` rows; `GET /admin/grok/keys` returns only `engine=grok` rows.
 
 Key prefixes differ by engine:
 
@@ -57,7 +57,7 @@ Open **Configure** in the section header for *Service availability & routing*: r
 |--------|---------|
 | API | `OpenAI-compatible` (`/v1`), `Anthropic-compatible` (`/anthropic/v1`) or `Grok (OpenAI-compatible)` (`/grok/v1`), with its wire format |
 | Base URL | `{origin}` + the base path, with a **Copy** button; derived from the browser origin |
-| Default engine | Which engine answers keys without an assignment: **Codex**, **Claude** or **Grok**. A **rerouted** badge marks an API not on its own engine. Changes apply to the next request — no restart. An engine switched off under **Engines → Engine master switches** cannot be picked, and a row whose default engine is off shows **backend off**. Unassigned keys answer `503 api_disabled` until it is enabled or the default changes; keys assigned to another enabled engine keep working |
+| Default engine | Which engine answers keys without an assignment: **Codex**, **Claude**, **Grok** or **Kimi Code**. A **rerouted** badge marks an API not on its own engine. Changes apply to the next request — no restart. An engine switched off under **Engines → Engine master switches** cannot be picked, and a row whose default engine is off shows **backend off**. Unassigned keys answer `503 api_disabled` until it is enabled or the default changes; keys assigned to another enabled engine keep working |
 | Enabled | The API's own kill switch (`openai_api_disabled`, `claude_api_disabled`, `grok_api_disabled`); off returns `503 api_disabled` on that API only |
 | Keys | Active keys for that API; the link opens its keys in the list |
 
@@ -76,13 +76,13 @@ Lists the keys for the selected API (or all) with columns: Name, API, Engine (as
 Click **New key** (or run "New API key" from the command palette). The dialog form has:
 
 - **API format** — OpenAI-compatible, Anthropic-compatible, or Grok (OpenAI-compatible), preselected from the active filter
-- **Engine** — explicitly select Codex, Claude, or Grok for this key; fleet-disabled engines cannot be selected. This assignment applies only to the new key and is independent of API format.
+- **Engine** — explicitly select Codex, Claude, Grok, or Kimi Code for this key; fleet-disabled engines cannot be selected. This assignment applies only to the new key and is independent of API format.
 - **Name** — required text field
 - **Expires** — toggle off for no expiry; toggle on to reveal a datetime picker
 
 The connection preview shows the base URL and current availability before creation. On success, the wider dialog shows the full key, assigned engine, expiration and availability, with individual copy buttons for the key, SDK base URL, models URL and generation URLs. Expand the curl example and replace its model placeholder with an ID from the models endpoint. Long values wrap; only the body scrolls when needed on small screens. Save the key before closing — the full key is shown only once.
 
-Existing keys and older API callers that omit `backend_engine` retain endpoint-default routing. New UI-created keys keep their assigned engine when the endpoint default changes. To change an assigned engine, create a replacement key. `POST /admin/{openai|claude|grok}/keys` accepts optional `backend_engine: codex|claude|grok`; creation and list records return its nullable value. Invalid assignments return 400 and disabled engines return 409.
+Existing keys and older API callers that omit `backend_engine` retain endpoint-default routing. New UI-created keys keep their assigned engine when the endpoint default changes. To change an assigned engine, create a replacement key. `POST /admin/{openai|claude|grok}/keys` accepts optional `backend_engine: codex|claude|grok|kimi`; creation and list records return its nullable value. Invalid assignments return 400 and disabled engines return 409.
 
 ## Admin HTTP routes
 
@@ -502,3 +502,7 @@ Each of the three surfaces is served by a backend engine chosen in **Access → 
 - frontend/src/routes/+layout.svelte (shortcut + Cmd-K wiring)
 - frontend/src/lib/components/shortcuts/ShortcutsModal.svelte (shortcuts help modal)
 - frontend/src/lib/components/command-palette/commands.ts (command palette registry)
+
+## Kimi Code
+
+Kimi Code has the OpenAI-shaped `/kimi/v1` surface and orchestrator keys prefixed `sk-ckx-`. It starts disabled; explicitly enable it under Routing after reviewing subscription gateway terms. Surface enablement and backend selection are independent of managed `ckx` launches. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

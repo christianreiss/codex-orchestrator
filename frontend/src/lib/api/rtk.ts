@@ -1,5 +1,5 @@
-export type RtkEngine = "codex" | "claude" | "grok";
-export const RTK_ENGINES: RtkEngine[] = ["codex", "claude", "grok"];
+export type RtkEngine = "codex" | "claude" | "grok" | "kimi";
+export const RTK_ENGINES: RtkEngine[] = ["codex", "claude", "grok", "kimi"];
 export interface RtkObservation {
   engine: RtkEngine; ready: boolean; wrapper_version: string; native_version: string;
   rtk_version: string; policy_revision: string; observed_at: string; error_code?: string;

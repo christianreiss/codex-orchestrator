@@ -104,7 +104,7 @@
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div>
       <h2 class="text-h2">Groups &amp; subscriptions</h2>
-      <p class="text-body-sm text-muted-foreground">Persistent audiences across Codex, Claude, and Grok. Agents choose which groups and individual agents they follow.</p>
+      <p class="text-body-sm text-muted-foreground">Persistent audiences across Codex, Claude, Grok, and Kimi Code. Agents choose which groups and individual agents they follow.</p>
     </div>
     {#if canManage}<Button variant="outline" disabled={!enabled} aria-expanded={createOpen} onclick={() => (createOpen = !createOpen)}>{createOpen ? "Close new group" : "New group"}</Button>{/if}
   </div>

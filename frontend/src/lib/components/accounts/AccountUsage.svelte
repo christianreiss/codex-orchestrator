@@ -2,6 +2,7 @@
   /** Compact usage for one account: a thin bar and percent per window, with the reset as relative text. */
   import type { ProviderAccount } from "$lib/api/accounts";
   import { resetsIn } from "$lib/utils/format";
+  import { accountQuotaRows } from "$lib/components/dashboard/account-usage";
   import { cn } from "$lib/utils/cn";
 
   let { account }: { account: ProviderAccount } = $props();
@@ -10,6 +11,7 @@
   const usage = $derived(account.usage);
   const emulated = $derived(account.quota_snapshot?.short?.source === 'emulated' ? account.quota_snapshot.short : null);
   const meters = $derived.by<Meter[]>(() => {
+    if (account.engine === "kimi") return accountQuotaRows(account).map(row => ({ label: row.label, used: row.value, reset: row.reset }));
     if (account.engine === "grok") {
       const window = usage.current_window;
       return [...(emulated ? [{ label: `Emulated ${Math.round((emulated.limit_seconds ?? 18000) / 3600)}h`, used: Math.round(emulated.used_percent), reset: emulated.resets_at }] : []), ...(window ? [{ label: window.period === "monthly" ? "Monthly" : window.period === "weekly" ? "Weekly" : "Current period", used: window.used_percent, reset: window.resets_at }] : [])];
@@ -21,7 +23,7 @@
     ];
   });
   const note = $derived.by(() => {
-    if (account.engine === "grok") return meters.length ? "" : usage.checked_at ? "Usage unavailable" : "Waiting for usage data";
+    if (account.engine === "grok" || account.engine === "kimi") return meters.length ? "" : usage.checked_at ? "Usage unavailable" : "Waiting for usage data";
     return usage.supported === false ? "Quota not reported by this provider" : "";
   });
   const tone = (used: number) => (used >= 95 ? "bg-destructive" : used >= 80 ? "bg-warning" : "bg-primary");
@@ -29,7 +31,7 @@
     const when = resetsIn(value);
     if (when === "passed") return "reset passed";
     if (when) return `resets ${when}`;
-    return account.engine === "grok" ? "Reset time unavailable" : "";
+    return (account.engine === "grok" || account.engine === "kimi") ? "Reset time unavailable" : "";
   }
 </script>
 

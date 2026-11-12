@@ -72,6 +72,7 @@ const {
   createHostEnginesMutation,
   createSecureToggleMutation,
   createGrokVersionMutation,
+  createKimiVersionMutation,
   createModelOverrideMutation,
 } = (await import(hostsModule)) as typeof import("./hosts");
 
@@ -580,6 +581,38 @@ describe("Grok host integration", () => {
       { method: "POST", path: "/admin/hosts/42/model", body: { grok_model_override: "grok-4.6" } },
       { method: "POST", path: "/admin/hosts/42/model", body: { grok_reasoning_effort_override: null } },
       { method: "POST", path: "/admin/hosts/42/grok-version", body: { selection: "1.0.46" } },
+    ]);
+  });
+});
+
+describe("Kimi Code host integration", () => {
+  const kimi = () => makeHost({ engines: "kimi", engines_list: ["kimi"], canonical_digest: null,
+    kimi_canonical_digest: "kimi-auth", kimi_wrapper_version: "0.8.0", kimi_last_refresh: iso(NOW), updated_at: iso(NOW - 120_000) });
+  it("recognizes Kimi Code-only authentication and refresh telemetry", () => {
+    assert.equal(hostHasRequiredAuth(kimi()), true);
+    assert.equal(hostHasRequiredAuth({ ...kimi(), kimi_canonical_digest: null }), false);
+    assert.equal(hostLatestRefresh(kimi()), iso(NOW));
+    assert.equal(hostLastSeenMs({ ...kimi(), last_contact_at: iso(NOW - 86400000) }), NOW - 86400000);
+    assert.deepEqual(hostCxxWrapperState(kimi()), { display: "0.8.0", drift: false });
+  });
+  it("requires every enabled engine auth and names Kimi Code wrapper drift", () => {
+    const host = { ...kimi(), engines_list: ["codex", "kimi"], canonical_digest: "codex-auth", wrapper_version: "0.7.0" };
+    assert.equal(hostHasRequiredAuth(host), true);
+    assert.equal(hostHasRequiredAuth({ ...host, kimi_canonical_digest: null }), false);
+    assert.deepEqual(hostCxxWrapperState(host), { display: "Codex 0.7.0 · Kimi Code 0.8.0 (migration drift)", drift: true });
+  });
+  it("sends only the intended Kimi Code model override or effort clear", async () => {
+    calls.length = 0;
+    const qc = { invalidateQueries() {} } as unknown as QueryClient;
+    const mutation = createModelOverrideMutation(qc) as unknown as { mutationFn: (vars: unknown) => Promise<unknown> };
+    await mutation.mutationFn({ id: 42, engine: "kimi", model: "kimi-k3" });
+    await mutation.mutationFn({ id: 42, engine: "kimi", reasoning_effort: null });
+    const version = createKimiVersionMutation(qc) as unknown as { mutationFn: (vars: unknown) => Promise<unknown> };
+    await version.mutationFn({ id: 42, version: "1.0.46" });
+    assert.deepEqual(calls, [
+      { method: "POST", path: "/admin/hosts/42/model", body: { kimi_model_override: "kimi-k3" } },
+      { method: "POST", path: "/admin/hosts/42/model", body: { kimi_reasoning_effort_override: null } },
+      { method: "POST", path: "/admin/hosts/42/kimi-version", body: { selection: "1.0.46" } },
     ]);
   });
 });

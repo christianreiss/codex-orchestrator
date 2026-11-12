@@ -9,6 +9,7 @@ describe("advancedEngineForHash", () => {
     assert.equal(advancedEngineForHash("#claude-client"), "claude");
     assert.equal(advancedEngineForHash("#codex-native-settings"), "codex");
     assert.equal(advancedEngineForHash("grok-advanced"), "grok");
+    assert.equal(advancedEngineForHash("#kimi-native-settings"), "kimi");
     assert.equal(advancedEngineForHash("#codex-profile-settings"), "codex");
     assert.equal(advancedEngineForHash("#cdx-silent"), "codex");
   });
@@ -23,6 +24,7 @@ describe("tabEngineForHash", () => {
   it("selects the engine tab for defaults and Advanced anchors", () => {
     assert.equal(tabEngineForHash("#codex-defaults"), "codex");
     assert.equal(tabEngineForHash("grok-defaults"), "grok");
+    assert.equal(tabEngineForHash("#kimi-defaults"), "kimi");
     assert.equal(tabEngineForHash("#claude-danger"), "claude");
     assert.equal(tabEngineForHash("#claude-client"), "claude");
     assert.equal(tabEngineForHash("#codex-native-settings"), "codex");

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const reset = "2026-10-01T12:00:00Z";
-function account(id: number, engine: "claude" | "codex" | "grok", label: string, percent: number | null) {
+function account(id: number, engine: "claude" | "codex" | "grok" | "kimi", label: string, percent: number | null) {
   return { id, engine, label, state: "enabled", verification_state: "verified", verification_reason: null, verification_checked_at: reset, generation: 1, refresh_state: "idle",
     usage: { supported: true, fetched_at: engine === "grok" ? null : reset, checked_at: reset, stale: engine === "grok", current_window: null, short_used_percent: percent, short_resets_at: engine === "grok" ? null : reset, weekly_used_percent: percent, weekly_resets_at: engine === "grok" ? null : reset }, sessions: [] };
 }
@@ -169,7 +169,7 @@ for (const mobile of [false, true]) {
   });
 }
 
-for (const engine of ["codex", "claude", "grok"] as const) {
+for (const engine of ["codex", "claude", "grok", "kimi"] as const) {
   for (const theme of ["light", "dark"] as const) {
     test(`provider credential layout ${engine} ${theme}`, async ({ page }, testInfo) => {
       await fixtures(page);
@@ -182,7 +182,7 @@ for (const engine of ["codex", "claude", "grok"] as const) {
       await page.goto("/admin/accounts");
       await page.getByRole("button", { name: "Add account", exact: true }).click();
       const dialog = page.getByRole("dialog");
-      const label = engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Grok";
+      const label = engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : engine === "grok" ? "Grok" : "Kimi Code";
       await dialog.getByRole("radio", { name: label, exact: true }).click();
       if (engine === "codex") await dialog.getByText("ChatGPT session", { exact: true }).click();
       await expect(dialog.getByLabel("Or choose a credentials file")).toBeVisible();

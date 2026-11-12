@@ -4,14 +4,14 @@
   import { useQueryClient } from "@tanstack/svelte-query";
   import Check from "@lucide/svelte/icons/check";
   import { Button } from "$lib/components/ui/button";
-  import { CODEX_MODELS, CLAUDE_MODEL_OPTIONS, GROK_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
+  import { CODEX_MODELS, CLAUDE_MODEL_OPTIONS, GROK_MODEL_OPTIONS, KIMI_MODEL_OPTIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
   import { modelDefaultsMutation, modelDefaultsQuery, modelDefaultsQueryKey } from "$lib/api/settings";
   import type { ModelDefaultsEngine, ModelDefaultsUpdate, ModelDefaultsValue } from "$lib/api/types";
 
   let { engine }: { engine: ModelDefaultsEngine } = $props();
   const stableEngine = untrack(() => engine);
   const label = labelForEngine(stableEngine);
-  const labels = stableEngine === "codex" ? CODEX_MODELS : stableEngine === "grok" ? GROK_MODEL_OPTIONS : CLAUDE_MODEL_OPTIONS;
+  const labels = { codex: CODEX_MODELS, claude: CLAUDE_MODEL_OPTIONS, grok: GROK_MODEL_OPTIONS, kimi: KIMI_MODEL_OPTIONS }[stableEngine];
   const query = modelDefaultsQuery(stableEngine);
   const mutation = modelDefaultsMutation(stableEngine);
   const client = useQueryClient();

@@ -23,7 +23,7 @@ export interface AccountStatus {
 /** Highest usage percent across the windows an account reports, or null. */
 export function peakUsage(account: ProviderAccount): number | null {
   const { usage } = account;
-  const values = [usage.short_used_percent, usage.weekly_used_percent, usage.current_window?.used_percent]
+  const values = [usage.short_used_percent, usage.weekly_used_percent, usage.current_window?.used_percent, ...(usage.windows ?? []).map(window => window.used_percent)]
     .filter((value): value is number => typeof value === "number");
   return values.length ? Math.max(...values) : null;
 }
@@ -56,7 +56,7 @@ export function accountStatus(account: ProviderAccount, engineOn: boolean, login
   return { tone: "ok", label: "Active" };
 }
 
-const ENGINE_ORDER = ["codex", "claude", "grok"];
+const ENGINE_ORDER = ["codex", "claude", "grok", "kimi"];
 
 /** Problems first, then by engine, then by name: the list leads with what needs attention. */
 export function sortAccounts(accounts: ProviderAccount[]): ProviderAccount[] {

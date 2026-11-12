@@ -39,3 +39,9 @@ it("ignores unavailable and non-finite readings, preserves stale observations", 
   assert.equal(accountQuotaRows(account("claude", { stale: true, weekly_used_percent: 24 }))[0].value, 24);
   assert.deepEqual(accountQuotaRows(account("grok", { weekly_used_percent: 87 })), []);
 });
+
+it("keeps every Kimi window, including zero and optional weekly absence", () => {
+  const usage = { windows: [{ kind: "five_hour", used_percent: 0, resets_at: null }, { kind: "month_total", used_percent: 42, resets_at: null }, { kind: "month_code", used_percent: 18, resets_at: null }] };
+  const rows = accountQuotaRows({ engine: "kimi", usage } as Parameters<typeof accountQuotaRows>[0]);
+  assert.deepEqual(rows.map(row => [row.key, row.label, row.value]), [["five_hour", "5-hour window", 0], ["month_total", "Monthly total", 42], ["month_code", "Monthly code", 18]]);
+});

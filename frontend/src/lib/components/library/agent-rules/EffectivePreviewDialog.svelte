@@ -17,7 +17,7 @@
 
   let { preview }: { preview: RulesPreviewState } = $props();
 
-  const engineLabel = (engine: string) => (engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Grok");
+  const engineLabel = (engine: string) => (engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : engine === "grok" ? "Grok" : engine === "kimi" ? "Kimi Code" : engine);
   const query = $derived(preview.renderQuery);
   const rendered = $derived(preview.rendered);
 </script>

@@ -38,7 +38,7 @@ export function ownerStateInvalidations(payload: unknown): QueryKey[] {
     else if (name.startsWith("agentChat")) events=["agent_chat.attachment.changed","agent_portal.sessions.changed"];
     else if (name.startsWith("hostDaemon") || name==="advisorSessions") events=["host.daemon.changed"];
     else if (name.startsWith("host") || name==="engineDestroyHosts") events=["host.updated"];
-    else if (name.startsWith("auth") || name.startsWith("providerAccount") || name==="grokAuthRefreshState" || name==="quotaEmulationStates" || name.endsWith("UsageSnapshots")) events=["accounts.updated"];
+    else if (name.startsWith("auth") || name.startsWith("providerAccount") || (name==="grokAuthRefreshState" || name==="kimiAuthRefreshState") || name==="quotaEmulationStates" || name.endsWith("UsageSnapshots")) events=["accounts.updated"];
     else if (name.startsWith("skill")) events=["skill.updated"];
     else if (name==="claudeArtifacts") events=["claude_artifact.updated"];
     else if (name.startsWith("agentsDocument")) events=["agents.stored"];
@@ -165,22 +165,22 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "api-key.changed": [
     ["keys", "openai"],
     ["keys", "claude"],
-    ["keys", "grok"],
+    ["keys", "grok"], ["keys", "kimi"],
   ],
   "apikey.created": [
     ["keys", "openai"],
     ["keys", "claude"],
-    ["keys", "grok"],
+    ["keys", "grok"], ["keys", "kimi"],
   ],
   "apikey.toggled": [
     ["keys", "openai"],
     ["keys", "claude"],
-    ["keys", "grok"],
+    ["keys", "grok"], ["keys", "kimi"],
   ],
   "apikey.deleted": [
     ["keys", "openai"],
     ["keys", "claude"],
-    ["keys", "grok"],
+    ["keys", "grok"], ["keys", "kimi"],
   ],
 
   // Fleet secrets. The module card shows a live count, so every mutation
@@ -214,7 +214,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "quota.policy.updated": [["settings", "quota-policy"], ["accounts"]],
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
   "host.spawn.state_changed": [["settings", "host-spawn"], ["hosts"]],
-  "settings.changed": [["supervisor"], ["settings"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"]],
+  "settings.changed": [["supervisor"], ["settings"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"], ["keys", "kimi", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the
   // exposed API surfaces; hosts, overview, accounts, setup, messaging and the
   // runner card all render per-engine state that the switch suspends.

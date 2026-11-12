@@ -15,8 +15,8 @@ import { reactiveOptions } from "$lib/components/projects/reactive-options.svelt
 import type { RulesDocState } from "./rules-doc.svelte";
 import type { RulesPostureState } from "./rules-posture.svelte";
 
-type Engine = "codex" | "claude" | "grok";
-const ENGINES: Engine[] = ["codex", "claude", "grok"];
+type Engine = "codex" | "claude" | "grok" | "kimi";
+const ENGINES: Engine[] = ["codex", "claude", "grok", "kimi"];
 export type PreviewMode = "effective" | "canonical";
 export type ActiveSetting =
   | { kind: "module"; id: string }

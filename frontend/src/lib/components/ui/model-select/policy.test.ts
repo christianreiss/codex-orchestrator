@@ -7,6 +7,8 @@ describe('model choice policy', () => {
     assert.equal(modelOptionsEngine([{ value: 'gpt-6.1-sol', label: 'Sol' }]), 'codex');
     assert.equal(modelOptionsEngine([{ value: 'claude-opus-5', label: 'Opus' }]), 'claude');
     assert.equal(modelOptionsEngine([{ value: 'grok-4.7', label: 'Grok' }]), 'grok');
+    assert.equal(modelOptionsEngine([{ value: 'k3', label: 'K3' }]), 'kimi');
+    assert.equal(modelOptionsEngine([{ value: 'kimi-k3', label: 'Kimi K3' }]), 'kimi');
     assert.equal(modelOptionsEngine([{ value: 'low', label: 'Low' }]), null);
   });
   it('filters old versions, preserves inherit/clear sentinels, and restores the full list when off', () => {

@@ -8,7 +8,7 @@ export type FeedbackStatus = typeof feedbackStatuses[number];
 export type FeedbackPriority = typeof feedbackPriorities[number];
 export interface FeedbackConfiguration {
   mode: 'source_developer' | 'user'; auto_publish: boolean; runner_enabled: boolean;
-  engine: 'codex' | 'claude' | 'grok' | null; model: string | null;
+  engine: 'codex' | 'claude' | 'grok' | 'kimi' | null; model: string | null;
   revision: string; token_configured: boolean; repository: string;
 }
 export interface FeedbackProbe { endpoint: 'health' | 'versions'; pointer: string; equals: string | number | boolean | null }

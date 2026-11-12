@@ -17,6 +17,7 @@
     createRunCodexRunnerMutation,
     createRunClaudeRunnerMutation,
     createRunGrokRunnerMutation,
+    createRunKimiRunnerMutation,
     type RunnerEngineStatus,
     type RunnerRunResult,
     type RunnerStatus,
@@ -32,6 +33,7 @@
   const runCodex = createRunCodexRunnerMutation();
   const runClaude = createRunClaudeRunnerMutation();
   const runGrok = createRunGrokRunnerMutation();
+  const runKimi = createRunKimiRunnerMutation();
   // The server refuses runner verification for a fleet-disabled engine (409).
   const fleet = useFleetEngines();
 
@@ -45,7 +47,7 @@
   });
 
   function mutationFor(engine: Engine) {
-    return engine === "codex" ? $runCodex : engine === "claude" ? $runClaude : $runGrok;
+    return { codex: $runCodex, claude: $runClaude, grok: $runGrok, kimi: $runKimi }[engine];
   }
   const pending = (engine: Engine): boolean => mutationFor(engine).isPending;
 

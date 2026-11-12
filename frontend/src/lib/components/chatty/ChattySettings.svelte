@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { ENGINES, engineLabel } from '$lib/constants/engines';
+  import { Button } from '$lib/components/ui/button';
   import { toStore } from 'svelte/store';
   import { createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { authStore } from '$lib/stores/auth';
@@ -15,15 +17,29 @@
     catch (e) { error = e instanceof Error ? e.message : 'Saving failed'; }
     finally { busy = false; }
   }
+  const order = $derived([...($settings.data?.engine_order ?? []), ...ENGINES.filter(engine => !$settings.data?.engine_order.includes(engine))]);
+  function move(index: number, offset: number) {
+    const next = [...order];
+    [next[index], next[index + offset]] = [next[index + offset]!, next[index]!];
+    void update({ engine_order: next });
+  }
 </script>
 {#if $authStore.can('chatty.manage')}
   <Section id="chatty" title="Chatty" description="Personal product assistant for owners and admins. Uses verified accounts of the enabled engines.">
     {#if $settings.data}
       <div class="flex flex-wrap items-end gap-4 p-4">
         <label class="flex items-center gap-2"><input type="checkbox" checked={$settings.data.enabled} disabled={busy} onchange={(e) => void update({ enabled: e.currentTarget.checked })}/> Enable Chatty</label>
-        <label class="text-body">Automatic priority<select class="ml-2 rounded-md border bg-background p-2" value={$settings.data.engine_order.join(',')} disabled={busy} onchange={(e) => void update({ engine_order: e.currentTarget.value.split(',') })}>
-          {#each ['codex,claude,grok','codex,grok,claude','claude,codex,grok','claude,grok,codex','grok,codex,claude','grok,claude,codex'] as order}<option value={order}>{order.replaceAll(',', ' → ')}</option>{/each}
-        </select></label>
+        <div class="space-y-1" role="group" aria-label="Automatic priority">
+          <p class="text-body">Automatic priority</p>
+          <ol class="space-y-1">
+            {#each order as engine, index (engine)}
+              <li class="flex items-center gap-2"><span class="min-w-24">{index + 1}. {engineLabel(engine)}</span>
+                <Button size="sm" variant="outline" disabled={busy || index === 0} aria-label={`Move ${engineLabel(engine)} up`} onclick={() => move(index, -1)}>Up</Button>
+                <Button size="sm" variant="outline" disabled={busy || index === order.length - 1} aria-label={`Move ${engineLabel(engine)} down`} onclick={() => move(index, 1)}>Down</Button>
+              </li>
+            {/each}
+          </ol>
+        </div>
         <label class="text-body">Parallel requests<input aria-label="Parallel Chatty requests" class="ml-2 w-16 rounded-md border bg-background p-2" type="number" min="1" max="2" value={$settings.data.concurrency} disabled={busy} onchange={(e) => void update({ concurrency: Number(e.currentTarget.value) })}/></label>
       </div>
       <p class="px-4 pb-4 text-body-sm text-muted-foreground">Disabling stops requests in progress. Conversations are kept and changes already made stay in place.</p>

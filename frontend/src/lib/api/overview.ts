@@ -18,9 +18,13 @@ export interface OverviewVersions {
   cdx_version_stale?: boolean;
   client_version_checked_at?: string | null;
   grok_version?: string | null;
+  kimi_version?: string | null;
   grok_version_available?: string | null;
+  kimi_version_available?: string | null;
   grok_version_checked_at?: string | null;
+  kimi_version_checked_at?: string | null;
   grok_version_stale?: boolean;
+  kimi_version_stale?: boolean;
   claude_version?: string | null;
   claude_version_available?: string | null;
   claude_version_checked_at?: string | null;
@@ -39,6 +43,7 @@ export interface VersionDistribution {
   codex: VersionCount[];
   claude: VersionCount[];
   grok?: VersionCount[];
+  kimi?: VersionCount[];
   engine_counts?: EngineInstallCounts;
   install_combinations?: Array<{ engines: string[]; count: number }>;
   install: { both: number; codex_only: number; claude_only: number; neither: number };
@@ -48,6 +53,7 @@ export interface EngineInstallCounts {
   codex: number;
   claude: number;
   grok?: number;
+  kimi?: number;
 }
 
 /**

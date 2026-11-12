@@ -52,7 +52,7 @@ describe("client directory", () => {
   });
   it("keeps ended attention out of actionable counts and filters", () => {
     const rows = [row("ended", { ended_at: new Date(NOW).toISOString(), attention: { since: "x", summary: null } }), row("offline", { presence: "offline", attention: { since: "x", summary: null } }), row("idle", { presence: "idle", engine: "claude" })];
-    assert.deepEqual(clientCounts(rows, NOW), { online: 1, attention: 1, offline: 1, ended: 1, codex: 2, claude: 1, grok: 0 });
+    assert.deepEqual(clientCounts(rows, NOW), { online: 1, attention: 1, offline: 1, ended: 1, codex: 2, claude: 1, grok: 0, kimi: 0 });
     assert.deepEqual(visibleClients(rows, { ...options, filter: "attention" }, NOW).map((r) => r.id), ["offline"]);
     assert.deepEqual(visibleClients(rows, { ...options, filter: "online" }, NOW).map((r) => r.id), ["idle"]);
   });

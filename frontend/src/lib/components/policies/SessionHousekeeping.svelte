@@ -10,7 +10,7 @@
   import { Switch } from "$lib/components/ui/switch";
   import * as Dialog from "$lib/components/ui/dialog";
   import PolicyRow from "./PolicyRow.svelte";
-  type Engine = "codex" | "claude" | "grok";
+  type Engine = "codex" | "claude" | "grok" | "kimi";
   type Policy = { enabled: boolean; retention_days: number; max_bytes: number; min_age_days: number };
   type Effective = Policy & { source: "fleet" | "host"; override: Policy | null; fleet: Policy };
   type Policies = Record<Engine, Effective>;
@@ -21,7 +21,7 @@
   const queryKey = targetHost ? ["hosts", targetHost, "session-housekeeping"] : ["settings", "session-housekeeping"];
   const query = createQuery<{ policies: Policies; last_run: string | null }>({ queryKey, queryFn: async () => {
     const result = targetHost ? await api.get<{ policies: Policies; last_run: string | null }>(endpoint) : { policies: await api.get<Policies>(endpoint), last_run: null };
-    if (!result.policies?.codex || !result.policies.claude || !result.policies.grok) throw new Error("Session housekeeping rules are unavailable.");
+    if (!result.policies?.codex || !result.policies.claude || !result.policies.grok || !result.policies.kimi) throw new Error("Session housekeeping rules are unavailable.");
     return result;
   } });
   const lastRun = $derived.by(() => { try { return $query.data?.last_run ? JSON.parse($query.data.last_run) as { engine: string; observed_at: string; freed_bytes: number; outcome: string } : null; } catch { return null; } });
@@ -83,7 +83,7 @@
   {:else if $query.error}<p role="alert" class="text-body text-destructive">{$query.error.message}</p>
   {:else if $query.data}
     <div class="divide-y">
-      {#each ["codex", "claude", "grok"] as item}
+      {#each ["codex", "claude", "grok", "kimi"] as item}
         {@const key = item as Engine}
         {@const policy = $query.data.policies[key]}
         <div class="flex flex-wrap items-center justify-between gap-2 py-3">
@@ -131,7 +131,7 @@
   <div class="flex flex-wrap items-center gap-3">
     <label for="housekeeping-engine-fleet" class="text-body-sm font-medium">Engine</label>
     <select id="housekeeping-engine-fleet" class="h-9 rounded-md border bg-background px-3 text-body-sm" bind:value={engine} disabled={$save.isPending}>
-      <option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option>
+      <option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option><option value="kimi">Kimi Code</option>
     </select>
     {#if $query.data}<span class="text-caption text-muted-foreground">{$query.data.policies[engine].source === "host" ? "Host override" : "Fleet rule"}</span>{/if}
   </div>

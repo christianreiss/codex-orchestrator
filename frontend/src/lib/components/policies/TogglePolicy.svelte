@@ -26,7 +26,7 @@
     "api-keys-in-chat": { query: apiKeysInChatQuery, mutation: apiKeysInChatMutation,
       label: "Tell agents how to treat keys pasted in chat", term: "API keys in chat",
       help: "Agents use keys an operator supplies for the task, without lectures, and avoid echoing or storing them.",
-      details: "Applies to Codex, Claude and Grok. Managed documents update on the next sync or launch; this does not change API permissions." },
+      details: "Applies to Codex, Claude, Grok and Kimi Code. Managed documents update on the next sync or launch; this does not change API permissions." },
     "model-tier-check": { query: modelTierCheckQuery, mutation: modelTierCheckMutation,
       label: "Agents check their model against the task", term: "model-tier self-check",
       help: "Before starting, agents compare their model tier with the assignment and recommend a stronger model if it falls short.",

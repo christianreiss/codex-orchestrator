@@ -1,6 +1,6 @@
 <script lang="ts" module>
   export type HostOption = "trusted" | "curl_insecure" | "temporary" | "vip" | "daemon";
-  export type HostFormEngine = "codex" | "claude" | "grok";
+  export type HostFormEngine = "codex" | "claude" | "grok" | "kimi";
 
   /**
    * Each chip maps to exactly one register flag; none implies another.
@@ -13,13 +13,14 @@
     { id: "curl_insecure", key: "2", label: "Skip TLS verification", desc: "For self-signed certificates" },
     { id: "temporary", key: "3", label: "Temporary", desc: "Expires after 2 hours" },
     { id: "vip", key: "4", label: "VIP", desc: "Quota limits only warn" },
-    { id: "daemon", key: "8", label: "Persistent daemon", desc: "Linux/systemd remote sessions" },
+    { id: "daemon", key: "9", label: "Persistent daemon", desc: "Linux/systemd remote sessions" },
   ];
 
   export const HOST_ENGINE_OPTIONS: { id: HostFormEngine; key: string; label: string; desc: string }[] = [
     { id: "codex", key: "5", label: "Codex", desc: "OpenAI Codex CLI (cdx)" },
     { id: "claude", key: "6", label: "Claude", desc: "Claude Code (clx)" },
     { id: "grok", key: "7", label: "Grok", desc: "Grok Build (cgx)" },
+    { id: "kimi", key: "8", label: "Kimi Code", desc: "Kimi CLI (ckx)" },
   ];
 </script>
 
@@ -78,7 +79,7 @@
 
   const schema = z.object({
     fqdn: z.string().trim().min(1, "Hostname is required"),
-    engines: z.array(z.enum(["codex", "claude", "grok"])).min(1, "Pick at least one engine"),
+    engines: z.array(z.enum(["codex", "claude", "grok", "kimi"])).min(1, "Pick at least one engine"),
   });
 
   let fqdn = $state("");

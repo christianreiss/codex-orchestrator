@@ -221,7 +221,7 @@ describe("STATIC_COMMANDS", () => {
     assert.ok(engines);
     assert.ok(rules);
     assert.ok(accounts);
-    for (const engine of ["codex", "claude", "grok"]) {
+    for (const engine of ["codex", "claude", "grok", "kimi"]) {
       assert.ok(engines.keywords?.includes(engine));
       assert.ok(rules.keywords?.includes(engine));
       assert.ok(accounts.keywords?.includes(engine === "codex" ? "chatgpt" : engine));

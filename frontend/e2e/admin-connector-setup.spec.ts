@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { installFixtures } from './admin-fixtures';
 
 const scope = { categories: { hosts: 'ro', projects: 'ro' }, tools: [], hosts: [], projects: [], global: false, sensitive: [] };
-const policy = { enabled: true, providers: { chatgpt: true, claude: true, grok: true }, ceiling: scope };
+const policy = { enabled: true, providers: { chatgpt: true, claude: true, grok: true, kimi: true }, ceiling: scope };
 const config = { policy, can_manage: true, issuer: 'https://connector.example', mcp_url: 'https://connector.example/connectors/mcp', ready: true, hosts: [{ id: 1, name: 'test-host' }], projects: ['test-project'], catalog: [] };
 const connection = { id: 'connection-1', provider: 'chatgpt', userId: 1, createdAt: '2026-11-09T00:00:00Z', last_call_at: null, operations: ['host_list'], scope };
 

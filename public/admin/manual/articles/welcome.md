@@ -9,7 +9,7 @@ sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
-Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex**, **Anthropic Claude Code** and **xAI Grok Build** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx`, `clx` and `cgx` aliases select the enabled persona without sharing a token across machines.
+Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex**, **Anthropic Claude Code**, **xAI Grok Build** and **Kimi Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx`, `clx`, `cgx` and `ckx` aliases select the enabled persona without sharing a token across machines.
 
 This manual is the in-app operator reference. Every article is written from the live codebase — filenames in each *Source references* footer point at the exact code the article describes.
 
@@ -61,7 +61,7 @@ Then dip into whichever section you need. The left rail is grouped so you can fi
 
 - **Paths** like `api/src/services/host-auth.ts` refer to files in this repository. They are deliberate pointers you can open in your editor.
 - **Routes** are shown as method + path as registered in `api/src/routes/**`. Mounted by `api/src/routes/index.ts`.
-- **Engines** — Codex, Claude and Grok — follow the `Engine` union in `api/src/util/engine.ts`: `ENGINE_CODEX`, `ENGINE_CLAUDE` and `ENGINE_GROK`. A host may run any nonempty subset.
+- **Engines** — Codex, Claude, Grok and Kimi Code — follow the `Engine` union in `api/src/util/engine.ts`: `ENGINE_CODEX`, `ENGINE_CLAUDE`, `ENGINE_GROK` and `ENGINE_KIMI`. A host may run any nonempty subset.
 
 ## When an article is wrong
 
@@ -86,3 +86,7 @@ Each article is stamped with a `verified:` date visible as the pill at the top. 
 - frontend/src/lib/utils/shortcuts.ts (global shortcut key bindings)
 - frontend/src/lib/components/shortcuts/ShortcutsModal.svelte (shortcuts list dialog)
 - frontend/src/routes/+layout.svelte (wires shortcuts + Mod+K to app actions)
+
+## Kimi Code
+
+Kimi Code adds the fourth engine (`kimi`) and wrapper `ckx`. It shares the fleet console, accounts, hosts, instructions, skills and MCP, while retaining its own credentials and quota readings. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

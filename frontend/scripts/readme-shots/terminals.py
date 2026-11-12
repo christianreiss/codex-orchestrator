@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="readme-preview-", dir=MODULE) as work:
     (work / "main.go").write_text(source)
     binary = work / "preview"
     subprocess.run(["go", "build", "-o", str(binary), "."], cwd=work, check=True)
-    for engine, persona in (("codex", "cdx"), ("claude", "clx"), ("grok", "cgx")):
+    for engine, persona in (("codex", "cdx"), ("claude", "clx"), ("grok", "cgx"), ("kimi", "ckx")):
         ansi = terminal.capture(binary, engine, "startup", 88, "rich")
         terminal.verify(ansi, 88, "rich")
         (HERE / f"{persona}.ansi").write_text(ansi)

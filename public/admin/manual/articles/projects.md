@@ -179,3 +179,7 @@ The MCP tool schemas live in `api/src/services/mcp-tools.ts`.
 - api/src/services/host-skills.ts (merges the managed coco skill into host-facing skill list/retrieve/bundle)
 - api/src/db/schema.ts (coord_projects, coord_project_notes, coord_project_boards, coord_project_board_columns, coord_project_cards, coord_project_todos — retained, no longer written — coord_project_files, coord_project_feedback, coord_project_memories, coord_project_events)
 - api/src/db/migrations/0003_add_coord_project_memories.sql (coord_project_memories DDL — source of truth incl. the full-text index Drizzle cannot express)
+
+## Kimi Code
+
+Kimi Code sessions bind to projects and worktrees through the same project MCP tools. Their context, files and handoffs remain subject to project permissions and resource claims. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

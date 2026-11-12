@@ -20,6 +20,7 @@
   import ModelPolicySection from "$lib/components/settings/ModelPolicySection.svelte";
   import CodexVersionSection from "$lib/components/settings/CodexVersionSection.svelte";
   import ClaudeVersionSection from "$lib/components/settings/ClaudeVersionSection.svelte";
+  import KimiVersionSection from "$lib/components/settings/KimiVersionSection.svelte";
   import GrokVersionSection from "$lib/components/settings/GrokVersionSection.svelte";
   import CdxSilentSection from "$lib/components/settings/CdxSilentSection.svelte";
   import CodexCompactionSection from "$lib/components/settings/CodexCompactionSection.svelte";
@@ -76,7 +77,8 @@
     <div class="py-1" class:opacity-70={off}>
       {#if engine === "codex"}<CodexVersionSection headingLevel={3} />
       {:else if engine === "claude"}<ClaudeVersionSection headingLevel={3} />
-      {:else}<GrokVersionSection headingLevel={3} />{/if}
+      {:else if engine === "grok"}<GrokVersionSection headingLevel={3} />
+      {:else if engine === "kimi"}<KimiVersionSection headingLevel={3} />{/if}
     </div>
 
     <div class="pt-1" class:opacity-70={off}>

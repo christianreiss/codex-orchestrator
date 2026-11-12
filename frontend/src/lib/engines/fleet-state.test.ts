@@ -25,7 +25,7 @@ describe("fleetEngineView", () => {
     for (const data of [undefined, null, {}, { status: "ok" }, { engines: "nope" }, { engines: [] }]) {
       const view = fleetEngineView(data);
       assert.equal(view.known, false);
-      assert.deepEqual(view.enabled, ["codex", "claude", "grok"]);
+      assert.deepEqual(view.enabled, ["codex", "claude", "grok", "kimi"]);
       assert.deepEqual(view.disabled, []);
       assert.equal(view.isEnabled("grok"), true);
       assert.equal(view.row("grok"), null);
@@ -33,10 +33,10 @@ describe("fleetEngineView", () => {
   });
 
   it("splits the engines by their switch, in canonical order", () => {
-    const view = fleetEngineView({ engines: [row("grok", false), row("codex", true), row("claude", false)] });
+    const view = fleetEngineView({ engines: [row("grok", false), row("codex", true), row("claude", false), row("kimi", false)] });
     assert.equal(view.known, true);
     assert.deepEqual(view.enabled, ["codex"]);
-    assert.deepEqual(view.disabled, ["claude", "grok"]);
+    assert.deepEqual(view.disabled, ["claude", "grok", "kimi"]);
     assert.equal(view.isEnabled("codex"), true);
     assert.equal(view.isEnabled("claude"), false);
     assert.equal(view.row("claude")?.enabled, false);
@@ -50,9 +50,9 @@ describe("fleetEngineView", () => {
   });
 
   it("allows every engine to be off at once", () => {
-    const view = fleetEngineView({ engines: [row("codex", false), row("claude", false), row("grok", false)] });
+    const view = fleetEngineView({ engines: [row("codex", false), row("claude", false), row("grok", false), row("kimi", false)] });
     assert.deepEqual(view.enabled, []);
-    assert.deepEqual(view.disabled, ["codex", "claude", "grok"]);
+    assert.deepEqual(view.disabled, ["codex", "claude", "grok", "kimi"]);
   });
 });
 

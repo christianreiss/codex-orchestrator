@@ -134,7 +134,7 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "agent-messaging", group: "coordination", route: "/agent-messaging", label: "Messages",
-    description: "Conversations between agents", keywords: ["agents", "codex", "claude", "grok", "relay", "messaging", "conference"], icon: MessageSquareShare,
+    description: "Conversations between agents", keywords: ["agents", "codex", "claude", "grok", "kimi", "kimi", "relay", "messaging", "conference"], icon: MessageSquareShare,
   },
   {
     id: "schedules", group: "coordination", route: "/schedules", label: "Timed wake-ups",
@@ -152,7 +152,7 @@ const REGISTRY: NavDefinition[] = [
     id: "external-clients", group: "coordination", route: "/external-clients", label: "External clients",
     description: "Bots and bridges outside the fleet that take part in messaging", keywords: ["bot", "hermes", "bridge", "trust", "key", "non-fleet", "external", "communication interface"], icon: Bot,
   },
-  { id: "connectors", group: "coordination", route: "/connectors", label: "Connectors", description: "OAuth access for ChatGPT, Claude and Grok", keywords: ["oauth", "chatgpt", "claude", "grok"], icon: Bot },
+  { id: "connectors", group: "coordination", route: "/connectors", label: "Connectors", description: "OAuth access for ChatGPT, Claude, Grok and Kimi Code", keywords: ["oauth", "chatgpt", "claude", "grok"], icon: Bot },
   { id: "workflows", group: "coordination", route: "/workflows", label: "Workflows", description: "Reusable instructions, shared runs and reports", keywords: ["tasks", "runs", "evaluation", "reports"], icon: Waypoints },
   {
     id: "activity", group: "activity", route: "/activity", label: "Activity",
@@ -164,12 +164,12 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "provider-accounts", group: "providers", route: "/accounts", label: "Accounts",
-    description: "ChatGPT, Claude and Grok logins and their usage", keywords: ["accounts", "chatgpt", "claude", "grok", "quota", "credentials", "balance"], icon: UserRoundCog,
+    description: "ChatGPT, Claude, Grok and Kimi Code logins and their usage", keywords: ["accounts", "chatgpt", "claude", "grok", "kimi", "quota", "credentials", "balance"], icon: UserRoundCog,
   },
   {
     id: "engines", group: "providers", route: "/engines", label: "Engines",
     description: "Switch engines on or off; default models and versions",
-    keywords: ["models", "effort", "defaults", "versions", "codex", "claude", "grok", "sync", "native config", "danger"], icon: SlidersHorizontal,
+    keywords: ["models", "effort", "defaults", "versions", "codex", "claude", "grok", "kimi", "kimi", "sync", "native config", "danger"], icon: SlidersHorizontal,
   },
   {
     id: "limits", group: "providers", route: "/limits", label: "Usage limits",
@@ -188,7 +188,7 @@ const REGISTRY: NavDefinition[] = [
   },
   {
     id: "api-keys", group: "access", route: "/api-keys", label: "API keys",
-    description: "Keys for the OpenAI, Anthropic and Grok gateways", keywords: ["keys", "access", "gateway", "openai", "anthropic", "grok", "proxy", "availability", "routing"], icon: KeyRound,
+    description: "Keys for the OpenAI, Anthropic, Grok and Kimi Code gateways", keywords: ["keys", "access", "gateway", "openai", "anthropic", "grok", "proxy", "availability", "routing"], icon: KeyRound,
   },
   {
     id: "secrets", group: "access", route: "/secrets", label: "Secrets",

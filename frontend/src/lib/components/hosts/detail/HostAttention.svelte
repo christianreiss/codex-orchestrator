@@ -30,7 +30,7 @@
     hostAttention(data.host, {
       pendingApproval: waiting,
       disabledEngines: $fleet.disabled,
-      versions: { codex: data.overview?.versions.client_version, claude: data.overview?.versions.claude_version, grok: data.overview?.versions.grok_version },
+      versions: { codex: data.overview?.versions.client_version, claude: data.overview?.versions.claude_version, grok: data.overview?.versions.grok_version, kimi: data.overview?.versions.kimi_version },
     }),
   );
 

@@ -383,7 +383,7 @@ export function createModelOverrideMutation(qc: QueryClient) {
     ApiError,
     {
       id: number | string;
-      engine?: "codex" | "claude" | "grok";
+      engine?: "codex" | "claude" | "grok" | "kimi";
       model?: string | null;
       reasoning_effort?: string | null;
     }
@@ -395,7 +395,9 @@ export function createModelOverrideMutation(qc: QueryClient) {
       // "leave alone" and an explicit `null` as "clear", so collapsing
       // `undefined` into a forced `null` here would corrupt that contract.
       const body =
-        engine === "grok"
+        engine === "kimi"
+          ? { ...(model !== undefined ? { kimi_model_override: model } : {}), ...(reasoning_effort !== undefined ? { kimi_reasoning_effort_override: reasoning_effort } : {}) }
+          : engine === "grok"
           ? { ...(model !== undefined ? { grok_model_override: model } : {}), ...(reasoning_effort !== undefined ? { grok_reasoning_effort_override: reasoning_effort } : {}) }
           : engine === "claude"
           ? { ...(model !== undefined ? { claude_model_override: model } : {}) }
@@ -447,6 +449,16 @@ export function createClaudeVersionMutation(qc: QueryClient) {
 export function createGrokVersionMutation(qc: QueryClient) {
   return createMutation<unknown, ApiError, { id: number | string; version: string | null }>({
     mutationFn: ({ id, version }) => api.post(`/admin/hosts/${id}/grok-version`, { selection: version }),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
+      void qc.invalidateQueries({ queryKey: hostsKeys.list() });
+    },
+  });
+}
+
+export function createKimiVersionMutation(qc: QueryClient) {
+  return createMutation<unknown, ApiError, { id: number | string; version: string | null }>({
+    mutationFn: ({ id, version }) => api.post(`/admin/hosts/${id}/kimi-version`, { selection: version }),
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
@@ -526,9 +538,9 @@ export interface HostCxxWrapperState {
 
 /** A shared cxx binary is reported through the engine telemetry fields. */
 export function hostCxxWrapperState(
-  host: Pick<HostListItem, "engines_list" | "engines" | "wrapper_version" | "claude_wrapper_version" | "grok_wrapper_version">,
+  host: Pick<HostListItem, "engines_list" | "engines" | "wrapper_version" | "claude_wrapper_version" | "grok_wrapper_version" | "kimi_wrapper_version">,
 ): HostCxxWrapperState {
-  const versions = { codex: host.wrapper_version, claude: host.claude_wrapper_version, grok: host.grok_wrapper_version };
+  const versions = { codex: host.wrapper_version, claude: host.claude_wrapper_version, grok: host.grok_wrapper_version, kimi: host.kimi_wrapper_version };
   const enabled = hostEngines(host).filter((engine): engine is HostEngine => engine in versions);
   const reported = enabled.map((engine) => versions[engine] ?? null);
   const drift = reported.some(Boolean) && new Set(reported).size > 1;
@@ -547,16 +559,16 @@ function parseHostTime(value: string | null | undefined): number | null {
 }
 
 export function hostLatestRefreshMs(
-  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh" | "grok_last_refresh">,
+  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh" | "grok_last_refresh" | "kimi_last_refresh">,
 ): number | null {
   const value = hostLatestRefresh(host);
   return parseHostTime(value);
 }
 
 export function hostLatestRefresh(
-  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh" | "grok_last_refresh">,
+  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh" | "grok_last_refresh" | "kimi_last_refresh">,
 ): string | null {
-  const values = [host.last_refresh, host.claude_last_refresh, host.grok_last_refresh];
+  const values = [host.last_refresh, host.claude_last_refresh, host.grok_last_refresh, host.kimi_last_refresh];
   return values.filter((value): value is string => parseHostTime(value) !== null)
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
 }
@@ -572,12 +584,13 @@ export function hostLastSeen(host: Partial<HostListItem>): string | null {
 }
 
 export function hostHasRequiredAuth(
-  host: Pick<HostListItem, "engines_list" | "engines" | "canonical_digest" | "claude_canonical_digest" | "grok_canonical_digest" | "authed">,
+  host: Pick<HostListItem, "engines_list" | "engines" | "canonical_digest" | "claude_canonical_digest" | "grok_canonical_digest" | "kimi_canonical_digest" | "authed">,
 ): boolean {
   if (host.authed === false) return false;
   const engines = hostEngines(host);
   return (engines.length ? engines : ["codex"]).every((engine) => {
     if (engine === "grok") return Boolean(host.grok_canonical_digest);
+    if (engine === "kimi") return Boolean(host.kimi_canonical_digest);
     if (engine === "claude") return Boolean(host.claude_canonical_digest);
     if (engine === "codex") return Boolean(host.canonical_digest);
     return true;

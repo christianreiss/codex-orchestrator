@@ -27,7 +27,7 @@
    } catch(e) {error=e;await check();}
  }
 </script>
-<Section id="agent-supervisor" title="Agent supervisor" description="External recovery for stalled work and missing handoffs across Codex, Claude and Grok.">
+<Section id="agent-supervisor" title="Agent supervisor" description="External recovery for stalled work and missing handoffs across Codex, Claude, Grok and Kimi Code.">
  {#if !$authStore.can('agent_messaging.read')}
   <p class="text-body-sm text-muted-foreground">Viewing supervision requires agent_messaging.read.</p>
  {:else if $query.isPending}<StateBlock state="loading" rows={2}/>

@@ -86,7 +86,7 @@ describe("neutral theme contrast", () => {
   it("keeps white legible on all persona colours", () => {
     assert.equal(light["persona-foreground"], "0 0% 100%", "--persona-foreground is the white the avatars use");
     assert.equal(darkBlock["persona-foreground"], undefined, "persona fills do not change with the theme, so neither does their text");
-    for (const persona of ["persona-codex", "persona-claude", "persona-grok"]) {
+    for (const persona of ["persona-codex", "persona-claude", "persona-grok", "persona-kimi"]) {
       const value = light[persona];
       assert.ok(value, `missing --${persona}`);
       assert.ok(

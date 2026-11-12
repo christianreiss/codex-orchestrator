@@ -24,7 +24,7 @@ pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
 
 ## Returning to the shell
 
-From cxx 0.9.153, exiting Codex, Claude or Grok cancels pending control
+From cxx 0.9.153, exiting Codex, Claude, Grok or Kimi Code cancels pending control
 connections immediately instead of waiting for their 15-second timeout. The
 final session report can still take up to four seconds if the server is slow.
 Run `cxx update` to install the published wrapper; existing sessions keep the
@@ -449,7 +449,7 @@ keeping the timeline, relay, and any open question), `say --text`,
 
 Two host-local escape hatches need no server:
 
-- `cxx emergency codex|claude|grok [--] [args]` (cxx 0.9.141) replaces itself
+- `cxx emergency codex|claude|grok|kimi [--] [args]` (cxx 0.9.141) replaces itself
   with the plain native engine CLI when the Orchestrator or a sync is broken:
   no network call, sync, quota check, lease, communicator, MCP/Skill injection
   or argument/environment rewriting, and nothing written to disk. It runs only
@@ -480,7 +480,7 @@ at 85% and red at 100%. Opening the picker makes no network call.
 ## Updating the host
 
 Run `cxx update` to refresh host engine assignments and check the shared wrapper
-and all assigned Codex, Claude and Grok CLIs. From wrapper 0.9.68, newly enabled
+and all assigned Codex, Claude, Grok and Kimi Code CLIs. From wrapper 0.9.68, newly enabled
 host engines are installed during this run; engines removed from the host lose
 their managed config and wrapper alias. Provider binaries and user sessions remain.
 Fleet-wide suspension keeps the installation; failed assignment probes preserve
@@ -630,3 +630,7 @@ The Agents page shows the handoff and links both launches.
 Chat lists and headers show Working, Idle, Waiting for you or Unknown. This includes work started in the terminal. Connection readiness separately says whether the session can receive messages. Offline and Ended retain their meaning; Idle does not mean a task succeeded.
 
 Unknown means that a current native observation is unavailable or expired, not that the engine has stopped. Codex and Grok expose native status; Claude uses lifecycle hooks, which expire after 45 seconds without new evidence because interruptions are not always observable. Approval waits still require the native approval flow; the status badge does not approve anything.
+
+## Kimi Code
+
+`ckx` selects Kimi Code in the shared `cxx` binary; `cxx kimi …` is equivalent. Managed `kimi` starts through the native PATH shim. Use `ckx login`, `ckx status`, `ckx sync` and `ckx update`. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

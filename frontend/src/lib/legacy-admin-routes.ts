@@ -57,7 +57,7 @@ function withQuery(path: string, search: URLSearchParams, extra?: Record<string,
 }
 
 /** Hashes of the API keys page's "Configure" panel; the page opens it and scrolls to the target. */
-const API_KEY_CONFIG_ANCHORS = new Set(["configuration", "service-availability", "api-state", "exposed-apis", "backend-settings", "claude-proxy", "claude-engine", "grok-proxy", "grok-engine"]);
+const API_KEY_CONFIG_ANCHORS = new Set(["configuration", "service-availability", "api-state", "exposed-apis", "backend-settings", "claude-proxy", "claude-engine", "grok-proxy", "grok-engine", "kimi-proxy", "kimi-engine"]);
 
 /** `/access` was one page with `#people`, `#api-keys` and `#secrets` sections; each is a page now. */
 function accessTarget(search: URLSearchParams, hash: string): string {

@@ -20,7 +20,7 @@ class RoomChatsTest {
         assertFalse(roomHasActiveAgent(JSONObject()))
         assertFalse(roomHasActiveAgent(room()))
         assertFalse(roomHasActiveAgent(room(JSONObject(), member("claude", false))))
-        for (engine in listOf("codex", "claude", "grok")) {
+        for (engine in listOf("codex", "claude", "grok", "kimi")) {
             val online = member(engine, true)
             val mixed = room(member("codex", false), online, member("grok", false))
             assertTrue(roomHasActiveAgent(mixed))

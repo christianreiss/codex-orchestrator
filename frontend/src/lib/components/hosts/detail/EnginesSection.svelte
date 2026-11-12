@@ -19,11 +19,13 @@
   function installed(engine: HostEngine): string | null {
     if (engine === "claude") return host.claude_client_version;
     if (engine === "grok") return host.grok_client_version ?? null;
+    if (engine === "kimi") return host.kimi_client_version ?? null;
     return host.client_version;
   }
   function pinned(engine: HostEngine): string | null {
     if (engine === "claude") return host.claude_client_version_override;
     if (engine === "grok") return host.grok_client_version_override ?? null;
+    if (engine === "kimi") return host.kimi_client_version_override ?? null;
     return host.client_version_override;
   }
   function note(engine: HostEngine): string {

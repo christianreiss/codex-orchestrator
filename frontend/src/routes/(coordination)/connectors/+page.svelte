@@ -26,7 +26,7 @@
   let approving = $state(true);
   let draft = $state<Policy | null>(null),
     consentScope = $state(emptyScope()),
-    provider = $state<"chatgpt" | "claude" | "grok">("chatgpt");
+    provider = $state<"chatgpt" | "claude" | "grok" | "kimi">("chatgpt");
   let reviewed = $state<{
       scope: Scope;
       operations: string[];
@@ -224,7 +224,7 @@
     {:else}
       <Section title="Set up a chat app">
         <div class="flex flex-wrap gap-2" role="group" aria-label="Choose chat app">
-          {#each [{ id: "chatgpt", name: "ChatGPT" }, { id: "claude", name: "Claude" }, { id: "grok", name: "Grok" }] as app}
+          {#each [{ id: "chatgpt", name: "ChatGPT" }, { id: "claude", name: "Claude" }, { id: "grok", name: "Grok" }, { id: "kimi", name: "Kimi Code" }] as app}
             <Button variant={provider === app.id ? "default" : "outline"} aria-pressed={provider === app.id} onclick={() => { provider = app.id as typeof provider; $register.reset(); }}>{app.name}</Button>
           {/each}
         </div>
@@ -235,7 +235,7 @@
           <div class="space-y-4">
             <div>
               <h3 class="font-semibold">1. Open the connector setup</h3>
-              <p class="mt-1 text-body-sm text-muted-foreground">{provider === "chatgpt" ? "In ChatGPT, open Settings → Apps and enable developer mode if required. Add a custom MCP server." : provider === "claude" ? "In Claude, open Customize → Connectors → Add custom connector." : "In Grok, open grok.com/connectors → New Connector → Custom."} Workspace accounts may need an administrator to add it first.</p>
+              <p class="mt-1 text-body-sm text-muted-foreground">{provider === "chatgpt" ? "In ChatGPT, open Settings → Apps and enable developer mode if required. Add a custom MCP server." : provider === "claude" ? "In Claude, open Customize → Connectors → Add custom connector." : provider === "grok" ? "In Grok, open grok.com/connectors → New Connector → Custom." : "For Kimi Code, configure an MCP server in mcp.json. Use the endpoint and authorization scopes below; managed hosts receive the fleet MCP configuration through ckx sync."} Workspace accounts may need an administrator to add it first.</p>
             </div>
             <div>
               <h3 class="font-semibold">2. Copy the connection details</h3>
@@ -369,7 +369,7 @@
                 ><input type="checkbox" bind:checked={draft.enabled} />Enable
                 connector access (switching off revokes all connections)</label
               >
-              {#each ["chatgpt", "claude", "grok"] as p}<label
+              {#each ["chatgpt", "claude", "grok", "kimi"] as p}<label
                   class="flex min-h-10 items-center gap-2"
                   ><input
                     type="checkbox"

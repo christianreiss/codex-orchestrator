@@ -20,7 +20,7 @@
   const noVersion = $derived(
     distribution?.install_combinations
       ? distribution.install_combinations.filter((item) => item.engines.length === 0).reduce((sum, item) => sum + item.count, 0)
-      : counts?.grok == null ? distribution?.install?.neither : undefined,
+      : counts?.grok == null && counts?.kimi == null ? distribution?.install?.neither : undefined,
   );
 
   function latest(engine: Engine): { version: string | null; checked: string | null } {

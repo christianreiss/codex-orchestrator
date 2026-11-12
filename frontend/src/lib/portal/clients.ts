@@ -31,7 +31,7 @@ export function isOnlineActiveAgent(row: AgentSessionRow, now: number, timings: 
 }
 
 export function clientCounts(rows: AgentSessionRow[], now: number, timings: PresenceTimings = {}) {
-  const counts = { online: 0, attention: 0, offline: 0, ended: 0, codex: 0, claude: 0, grok: 0 };
+  const counts = { online: 0, attention: 0, offline: 0, ended: 0, codex: 0, claude: 0, grok: 0, kimi: 0 };
   for (const row of rows) {
     const presence = livePresence(row, now, timings);
     counts[row.engine]++;
@@ -48,7 +48,7 @@ export function clientCounts(rows: AgentSessionRow[], now: number, timings: Pres
 
 export function visibleClients(
   rows: AgentSessionRow[],
-  options: { search: string; engine: "all" | "codex" | "claude" | "grok"; filter: ClientFilter; sort: ClientSort },
+  options: { search: string; engine: "all" | "codex" | "claude" | "grok" | "kimi"; filter: ClientFilter; sort: ClientSort },
   now: number,
   timings: PresenceTimings = {},
 ): AgentSessionRow[] {

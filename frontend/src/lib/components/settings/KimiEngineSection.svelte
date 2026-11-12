@@ -1,0 +1,45 @@
+<script lang="ts">
+  import { StateBlock } from "$lib/components/page";
+  import { toast } from "svelte-sonner";
+  import { Button } from "$lib/components/ui/button";
+  import { Label } from "$lib/components/ui/label";
+  import { ModelSelect } from "$lib/components/ui/model-select";
+  import { DEFAULT_MODELS, KIMI_MODEL_OPTIONS } from "$lib/constants/models";
+  import SectionCard from "./SectionCard.svelte";
+  import SwitchRow from "./SwitchRow.svelte";
+  import { kimiSettingsQuery, kimiSettingsMutation, kimiModelsQuery, kimiModelToggleMutation } from "$lib/api/settings";
+  const settings = kimiSettingsQuery();
+  const save = kimiSettingsMutation({ onSuccess: () => toast.success("Kimi Code gateway defaults saved"), onError: (error) => toast.error(error.message) });
+  let model = $state("");
+  let initialized = false;
+  $effect(() => { if (!initialized && $settings.data) { model = $settings.data.default_model; initialized = true; } });
+  const models = kimiModelsQuery();
+  const modelLabel = (id: string) => KIMI_MODEL_OPTIONS.find((option) => option.value === id)?.label ?? id;
+  const modelToggle = kimiModelToggleMutation({ onSuccess: (result) => toast.success(`${modelLabel(result.model)} ${result.enabled ? "enabled" : "disabled"}`), onError: (error) => toast.error(error.message) });
+  const catalog = $derived($models.data?.models ?? []);
+  // Until the catalog loads, offer every known model rather than an empty picker.
+  const enabledOptions = $derived(catalog.length ? catalog.filter((entry) => entry.enabled).map((entry) => ({ label: modelLabel(entry.id), value: entry.id })) : KIMI_MODEL_OPTIONS);
+  const modelDisabled = $derived(catalog.some((entry) => entry.id === model && !entry.enabled));
+</script>
+<SectionCard status={$settings.isError || $models.isError || $save.isError || $modelToggle.isError ? "error" : "idle"} id="kimi-engine" title="Kimi Code API gateway" description="Applies to every API routed to Kimi Code." error={$settings.error?.message ?? $models.error?.message ?? $save.error?.message ?? $modelToggle.error?.message}>
+  {#if $settings.isError || $models.isError}<Button variant="outline" size="sm" onclick={() => { void $settings.refetch(); void $models.refetch(); }}>Retry Kimi Code gateway settings</Button>{/if}
+  <p class="text-body-sm text-muted-foreground">The /kimi/v1 surface is off by default. Enable it explicitly under Routing after reviewing whether subscription-backed third-party gateway use fits your terms. Managed ckx hosts work independently of this opt-in.</p>
+  <div class="grid gap-2">
+    <Label for="kimi-proxy-model">Gateway default model</Label>
+    <ModelSelect id="kimi-proxy-model" bind:value={model} options={enabledOptions} label="Gateway default model" placeholder={DEFAULT_MODELS.kimi} />
+    {#if modelDisabled}<p class="text-xs text-destructive">{modelLabel(model)} is disabled; requests without a model fail until the default is an enabled model.</p>{/if}
+    <p class="text-xs text-muted-foreground">Supports text messages and system instructions. Streaming, tools, images, sampling controls, and token limits are unavailable.</p>
+    <div><Button size="sm" disabled={$save.isPending || $settings.isPending || $settings.isError || $models.isPending || $models.isError || !model || modelDisabled} onclick={() => $save.mutate({ default_model: model })}>Save gateway default</Button></div>
+  </div>
+  <div class="grid gap-2 border-t pt-4">
+    <p class="text-sm font-medium">Gateway models</p>
+    <p class="text-xs text-muted-foreground">Disabled models leave the model list of every API routed to Kimi Code and are rejected at inference. Managed Kimi Code hosts are unaffected.</p>
+    {#if $models.isPending}
+      <StateBlock state="loading" rows={3} />
+    {:else}
+      {#each catalog as entry (entry.id)}
+        <SwitchRow id={`kimi-model-${entry.id}`} label={modelLabel(entry.id)} description={entry.enabled ? `${entry.id} is offered by the gateway.` : `${entry.id} is disabled.`} checked={entry.enabled} disabled={$modelToggle.isPending} onCheckedChange={(enabled) => $modelToggle.mutate({ model: entry.id, enabled })} />
+      {/each}
+    {/if}
+  </div>
+</SectionCard>

@@ -39,10 +39,10 @@ describe("account status", () => {
 describe("account list helpers", () => {
   it("sorts problems first, then engine and name", () => {
     const sorted = sortAccounts([
-      account({ id: 1, label: "B", engine: "grok" }), account({ id: 2, label: "A", engine: "codex" }),
+      account({ id: 5, label: "Kimi", engine: "kimi" }), account({ id: 1, label: "B", engine: "grok" }), account({ id: 2, label: "A", engine: "codex" }),
       account({ id: 3, label: "Z", engine: "claude", verification_state: "failed" }), account({ id: 4, label: "P", state: "paused" }),
     ]);
-    assert.deepEqual(sorted.map((a) => a.id), [3, 4, 2, 1]);
+    assert.deepEqual(sorted.map((a) => a.id), [3, 4, 2, 1, 5]);
   });
   it("searches label, id, engine and skips the runner host", () => {
     assert.equal(matchesSearch(account({ id: 7, label: "Team Alpha" }), "alpha"), true);

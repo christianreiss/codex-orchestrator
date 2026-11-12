@@ -9,6 +9,7 @@ class HostsTest {
         assertEquals("codex", defaultHostEngine(JSONObject("""{"engines":["grok","codex"]}""")))
         assertEquals("claude", defaultHostEngine(JSONObject("""{"engines":["claude"]}""")))
         assertEquals("grok", defaultHostEngine(JSONObject("""{"engines":["grok"]}""")))
+        assertEquals("kimi", defaultHostEngine(JSONObject("""{"engines":["kimi"]}""")))
         assertNull(defaultHostEngine(JSONObject("""{"engines":[]}""")))
     }
     @Test fun explainsUnavailableHostsAndUnknownExecutions() {

@@ -37,7 +37,7 @@ internal fun remoteStatus(t: Texts, status: String) = t.string(when (status) {
 
 internal fun defaultHostEngine(host: JSONObject): String? {
     val engines = host.optJSONArray("engines")?.strings() ?: emptySet()
-    return if ("codex" in engines) "codex" else listOf("claude", "grok").firstOrNull { it in engines }
+    return if ("codex" in engines) "codex" else listOf("claude", "grok", "kimi").firstOrNull { it in engines }
 }
 
 internal fun hostReason(t: Texts, host: JSONObject): String {
@@ -128,8 +128,8 @@ internal fun hostReason(t: Texts, host: JSONObject): String {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(stringResource(R.string.start_title), style = MaterialTheme.typography.titleLarge)
             Text(host.optString("fqdn"), style = MaterialTheme.typography.bodyMedium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("codex", "claude", "grok").filter { it in engines }.forEach { value -> FilterChip(selected = engine == value, onClick = { engine = value }, label = { Text(value.replaceFirstChar { it.uppercase() }) }, enabled = !model.busy && model.pendingStart == null) }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("codex", "claude", "grok", "kimi").filter { it in engines }.forEach { value -> FilterChip(selected = engine == value, onClick = { engine = value }, label = { Text(engineLabel(value)) }, enabled = !model.busy && model.pendingStart == null) }
             }
             OutlinedTextField(task, { task = it.take(32768) }, label = { Text(stringResource(R.string.start_task)) }, placeholder = { Text(stringResource(R.string.start_task_hint)) }, modifier = Modifier.fillMaxWidth().testTag("spawn-task"), minLines = 2, maxLines = 5, enabled = !model.busy && model.pendingStart == null)
             Text(stringResource(if (task.isBlank()) R.string.start_greet_only else R.string.start_greet_task), style = MaterialTheme.typography.bodySmall)

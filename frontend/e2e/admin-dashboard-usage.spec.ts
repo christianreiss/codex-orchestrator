@@ -16,10 +16,12 @@ function providers() {
     account(2, "codex", "ChatGPT", { weekly_used_percent: 15, weekly_limit_seconds: 604800 }),
     account(1, "claude", "Claude", { short_used_percent: 0, short_limit_seconds: 18000, weekly_used_percent: 24, weekly_limit_seconds: 604800, stale: true }),
     account(7, "grok", "Grok account", { current_window: { used_percent: 87, period: "weekly", starts_at: null, resets_at: reset, shared: true } }),
+    account(8, "kimi", "Kimi account", { windows: [{ kind: "five_hour", used_percent: 0, resets_at: reset }, { kind: "weekly", used_percent: 12, resets_at: reset }, { kind: "month_total", used_percent: 24, resets_at: reset }, { kind: "month_code", used_percent: 18, resets_at: reset }] }),
   ];
   accounts[0].plan = { name: 'Pro', source: 'chatgpt_usage', observed_at: now, stale: false };
   accounts[1].plan = { name: 'Max 20×', source: 'claude_login', observed_at: now, stale: true };
   accounts[2].plan = { name: 'SuperGrok Heavy', source: 'grok_settings', observed_at: now, stale: false };
+  accounts[3].plan = { name: 'Kimi subscription', source: 'kimi_userinfo', observed_at: now, stale: false };
   return accounts;
 }
 async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait?: Promise<void>; fail?: boolean; off?: boolean } = {}) {
@@ -34,7 +36,7 @@ async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait
     else if (path === "/admin/overview") data = { totals: { hosts: 3 }, last_refresh: now, versions: {},
       version_distribution: { codex: [], claude: [], grok: [], engine_counts: { codex: 1, claude: 1, grok: 1 }, install: { both: 0, codex_only: 1, claude_only: 1, neither: 1 } } };
     else if (path === "/admin/runner") data = { runner: { configured: false, ready: false, detail: "Not configured" } };
-    else if (path === "/admin/engines/state") data = { engines: ["codex", "claude", "grok"].map(engine => ({ engine, enabled: !(options.off && engine === "codex") })) };
+    else if (path === "/admin/engines/state") data = { engines: ["codex", "claude", "grok", "kimi"].map(engine => ({ engine, enabled: !(options.off && engine === "codex") })) };
     else if (path === "/admin/accounts") {
       if (options.wait) await options.wait;
       if (options.fail) return route.fulfill({ status: 503, json: { status: "error", error: { message: "Account service unavailable" } } });
@@ -46,7 +48,7 @@ async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait
 
 const USAGE = "Provider accounts and their quota usage";
 
-test("three providers share one usage table in light/dark desktop, tablet and mobile layouts", async ({ page }, info) => {
+test("four providers share one usage table in light/dark desktop, tablet and mobile layouts", async ({ page }, info) => {
   test.setTimeout(90_000);
   await fixtures(page, providers());
   const errors: string[] = [];
@@ -57,7 +59,7 @@ test("three providers share one usage table in light/dark desktop, tablet and mo
     await page.goto("/admin/dashboard");
     const table = page.getByRole("table", { name: USAGE });
     const rows = table.locator("tbody tr");
-    await expect(rows).toHaveCount(3);
+    await expect(rows).toHaveCount(4);
     await expect(rows.nth(0).getByTestId("provider-plan")).toContainText("Pro");
     await expect(rows.nth(1).getByTestId("provider-plan")).toContainText("Max 20×");
     await expect(rows.nth(1).getByTestId("provider-plan")).toContainText("(last known)");
@@ -68,6 +70,9 @@ test("three providers share one usage table in light/dark desktop, tablet and mo
     await expect(rows.nth(1)).not.toContainText("Last known reading");
     await expect(rows.nth(2).getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "87");
     await expect(rows.nth(2)).toContainText("in 1 day");
+    await expect(rows.nth(3).getByRole("meter")).toHaveCount(4);
+    await expect(rows.nth(3).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
+    await expect(rows.nth(3).getByRole("meter", { name: "Monthly code" })).toHaveAttribute("aria-valuenow", "18");
     // One compact table: every meter has the same height and the page never scrolls sideways.
     const heights = await table.getByRole("meter").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
     expect(new Set(heights).size).toBe(1);
@@ -126,7 +131,7 @@ test("unknown, unavailable and login-required accounts never show zero quota", a
   await page.goto("/admin/dashboard");
   const table = page.getByRole("table", { name: USAGE });
   const rows = table.locator("tbody tr");
-  await expect(rows).toHaveCount(3);
+  await expect(rows).toHaveCount(4);
   await expect(table.getByRole("meter")).toHaveCount(0);
   await expect(rows.nth(0)).toContainText("Waiting for usage data");
   await expect(rows.nth(0).getByTestId("provider-plan")).toContainText("Plan unavailable");

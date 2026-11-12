@@ -174,3 +174,7 @@ Review endpoints:
 - `frontend/src/routes/hosts/+page.svelte`, `frontend/src/lib/components/hosts/HostsFilters.svelte`, `frontend/src/lib/components/hosts/HostsActions.svelte`, `frontend/src/lib/components/hosts/hostsListState.svelte.ts` — list page, header actions, status and attribute filters
 - `frontend/src/routes/hosts/[id]/+page.svelte`, `frontend/src/lib/components/hosts/detail/HostAttention.svelte`, `frontend/src/lib/components/hosts/hostAttention.ts`, `frontend/src/lib/api/hosts.ts` — detail page controls, the Needs attention block, and their mutations
 - `frontend/src/lib/components/hosts/InsecureApprovalsDialog.svelte`, `frontend/src/lib/components/hosts/InsecureApprovalsAutoPopup.svelte`, `frontend/src/lib/stores/insecure-resolutions.ts` — the insecure access dialog, its auto-open/beep/notification behaviour, and the resolved-row shadows
+
+## Kimi Code
+
+Select Kimi Code (hotkey **8**) to install `ckx` and the managed `kimi` command. Persistent daemon selection uses **9**. Host exceptions support a Kimi version, model and reasoning-effort override. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

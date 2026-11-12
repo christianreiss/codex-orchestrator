@@ -71,7 +71,7 @@
     },
     {
       "slug": "hosts",
-      "title": "Hosts — secure, insecure, unprovisioned",
+      "title": "Hosts \u2014 secure, insecure, unprovisioned",
       "section": "Fleet operations",
       "summary": "Filter chips, host detail page, registration, pruning, and the insecure access dialog with its approval queue, domain allows, and fleet window.",
       "tags": [
@@ -107,7 +107,7 @@
     },
     {
       "slug": "clx",
-      "title": "clx — the Claude Code wrapper",
+      "title": "clx \u2014 the Claude Code wrapper",
       "section": "Fleet operations",
       "summary": "The Claude persona of cxx: config schema, subcommands and flags, startup sequence, auth model, cron, settings deep-merge, and Claude-native collections.",
       "tags": [
@@ -147,7 +147,7 @@
       "slug": "settings",
       "title": "Engines, Settings, and API keys",
       "section": "Admin workspace",
-      "summary": "Every fleet configuration control under Engines, Settings, and API keys — what each one changes and which endpoint it touches.",
+      "summary": "Every fleet configuration control under Engines, Settings, and API keys \u2014 what each one changes and which endpoint it touches.",
       "tags": [
         "settings",
         "engines",
@@ -271,7 +271,7 @@
     },
     {
       "slug": "logs",
-      "title": "Activity — admin changes and tool calls",
+      "title": "Activity \u2014 admin changes and tool calls",
       "section": "Admin workspace",
       "summary": "Where each log stream originates, retention, filtering, and the admin-ws live feed.",
       "tags": [
@@ -330,6 +330,20 @@
         "gateway"
       ],
       "verified": "2026-10-01"
+    },
+    {
+      "slug": "ckx",
+      "title": "Kimi Code (ckx)",
+      "section": "Fleet operations",
+      "summary": "Dedicated device login, centralized renewal, quota windows, hook reception and opt-in gateway.",
+      "tags": [
+        "kimi",
+        "ckx",
+        "login",
+        "quota",
+        "gateway"
+      ],
+      "verified": "2026-11-12"
     },
     {
       "slug": "workflows",

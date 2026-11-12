@@ -76,6 +76,7 @@ export interface DerivedEnforcement {
   claude: { permission_mode: DerivedKnob<string> };
   /** Grok's native `[ui].permission_mode`: default, auto, or always-approve. */
   grok: { permission_mode: DerivedKnob<string> };
+  kimi: { permission_mode: DerivedKnob<string> };
   not_enforced: Array<{ key: string; reason: string }>;
 }
 

@@ -4,7 +4,7 @@
    * Fleet-wide engine master switches: one compact row, each switch confirmed in
    * both directions. Turning an engine off suspends it on every host and stops
    * every server task for it; nothing is uninstalled and no credential is
-   * deleted. The admin console itself never depends on an engine, so all three
+   * deleted. The admin console itself never depends on an engine, so all four
    * may be off at once.
    */
   import { toast } from "svelte-sonner";

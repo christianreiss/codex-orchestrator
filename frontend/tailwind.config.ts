@@ -76,6 +76,7 @@ const config: Config = {
           codex: "hsl(var(--persona-codex))",
           claude: "hsl(var(--persona-claude))",
           grok: "hsl(var(--persona-grok))",
+        kimi: "hsl(var(--persona-kimi))",
           foreground: "hsl(var(--persona-foreground))",
         },
         border: "hsl(var(--border))",

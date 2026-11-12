@@ -329,7 +329,7 @@ export interface PasswordChangeResponse {
 
 // api-keys feature ↓
 
-export type ApiKeyEngine = "openai" | "claude" | "grok";
+export type ApiKeyEngine = "openai" | "claude" | "grok" | "kimi";
 
 /**
  * Shape of a row returned by `GET /admin/{openai|claude}/keys`.
@@ -542,7 +542,7 @@ export interface AgentsRenderedDocument {
   status: "ok" | "missing" | string;
   host_id: number;
   host_fqdn: string;
-  engine: "codex" | "claude" | "grok" | string;
+  engine: "codex" | "claude" | "grok" | "kimi" | string;
   version_id?: number;
   sha256?: string;
   base_sha256?: string;
@@ -772,7 +772,7 @@ export interface CliAuthApprove {
 // register / quick-register endpoints. These supersede the minimal `Host`
 // stub above for everything under /hosts.
 
-export type HostEngine = "codex" | "claude" | "grok";
+export type HostEngine = "codex" | "claude" | "grok" | "kimi";
 
 export type HostAutoUpdateState =
   | "disabled"
@@ -868,13 +868,21 @@ export interface HostListItem {
     [key: string]: unknown;
   }>;
   grok_last_refresh?: string | null;
+  kimi_last_refresh?: string | null;
   grok_client_version?: string | null;
+  kimi_client_version?: string | null;
   grok_client_version_override?: string | null;
+  kimi_client_version_override?: string | null;
   grok_wrapper_version?: string | null;
+  kimi_wrapper_version?: string | null;
   grok_model_override?: string | null;
+  kimi_model_override?: string | null;
   grok_reasoning_effort_override?: string | null;
+  kimi_reasoning_effort_override?: string | null;
   grok_canonical_digest?: string | null;
+  kimi_canonical_digest?: string | null;
   grok_recent_digests?: string[];
+  kimi_recent_digests?: string[];
 }
 
 export interface HostDetail extends HostListItem {}
@@ -902,6 +910,7 @@ export interface HostDetailResponse {
       client_version_checked_at: string | null;
       claude_version: string | null;
     grok_version?: string | null;
+    kimi_version?: string | null;
     };
     reverse_dns_enabled: boolean;
     auto_update_enabled: boolean;
@@ -1068,9 +1077,9 @@ export interface ApiStateValue {
 }
 
 /** Exposed API surface id (`/v1`, `/anthropic/v1`, `/grok/v1`). */
-export type ApiSurfaceId = "openai" | "anthropic" | "grok";
+export type ApiSurfaceId = "openai" | "anthropic" | "grok" | "kimi";
 /** Backend engine that answers a surface's requests. */
-export type ApiBackendEngine = "codex" | "claude" | "grok";
+export type ApiBackendEngine = "codex" | "claude" | "grok" | "kimi";
 
 /** GET /admin/api/surfaces row. Keys and the kill switch belong to the surface. */
 export interface ApiSurfaceRow {
@@ -1096,7 +1105,7 @@ export interface ApiSurfaceUpdate {
 }
 
 /** Engine id of a fleet-wide master switch. */
-export type FleetEngineId = "codex" | "claude" | "grok";
+export type FleetEngineId = "codex" | "claude" | "grok" | "kimi";
 
 /**
  * GET /admin/engines/state row. `enabled: false` turns the engine off for the
@@ -1114,7 +1123,7 @@ export interface EngineStateRow {
 }
 
 export interface EngineStateValue {
-  /** Always three rows, canonical order codex, claude, grok. */
+  /** Always four rows, canonical order codex, claude, grok, kimi. */
   engines: EngineStateRow[];
 }
 
@@ -1155,7 +1164,7 @@ export interface ClaudeSettingsValue {
   disabled: boolean;
 }
 
-export type ModelDefaultsEngine = "codex" | "claude" | "grok";
+export type ModelDefaultsEngine = "codex" | "claude" | "grok" | "kimi";
 
 export interface ModelDefaultsCatalogEntry {
   model: string;
@@ -1239,7 +1248,9 @@ export interface CodexVersionsCheckResult {
   } | null;
   claude_versions?: CodexVersionsSummary | null;
   grok_versions?: CodexVersionsCheckResult["claude_versions"];
+  kimi_versions?: CodexVersionsCheckResult["claude_versions"];
   grok_available_client?: CodexVersionsCheckResult["claude_available_client"];
+  kimi_available_client?: CodexVersionsCheckResult["claude_available_client"];
 }
 
 export type ScalingReasoningEffort =
@@ -1326,7 +1337,7 @@ export interface AdminSecret {
   description: string | null;
   /** Host that created it over MCP; null means an operator did, via this UI. */
   source_host_id: number | null;
-  source_engine: "codex" | "claude" | "grok" | null;
+  source_engine: "codex" | "claude" | "grok" | "kimi" | null;
   tags: string[];
   created_at: string;
   updated_at: string;

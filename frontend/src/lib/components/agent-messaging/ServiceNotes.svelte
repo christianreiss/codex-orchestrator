@@ -10,7 +10,7 @@
 <Section
   id="service-state"
   title="Service settings"
-  description="Codex, Claude, Grok and Server communicate through stable addresses, opt-in groups and follows, encrypted content, and ordered at-least-once delivery. The initial default is off."
+  description="Codex, Claude, Grok, Kimi Code and Server communicate through stable addresses, opt-in groups and follows, encrypted content, and ordered at-least-once delivery. The initial default is off."
 >
   <ul class="space-y-1 text-body-sm text-muted-foreground">
     <li>The service is currently <strong class="text-foreground">{enabled ? "on" : "off"}</strong>. Use the switch in the page header to change it; both directions ask for confirmation.</li>

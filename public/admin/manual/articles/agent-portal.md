@@ -106,3 +106,7 @@ Open the **Graph** view of the Agents page (`/agents?view=graph`; previously Liv
 The server link is solid for reported **Persistent** runtime, dashed for **On demand**, and dotted when the mode is **Unknown**. Connection health is separate. Old reports are labeled as last reported rather than assumed current.
 
 **Ask to close** is cooperative. **Stop the process** uses the owning wrapper when supported (cxx 0.9.85), sending TERM and escalating to KILL after five seconds. The dialog waits for the wrapper’s exit receipt; **unknown** means no recent receipt, not success. Recovery of the stopped execution is disabled. **End the session record**, under More actions, changes the server record without signaling the process. Communicator disconnect and communicator stop have their own separate effects and confirmation dialogs.
+
+## Kimi Code
+
+Kimi Code sessions appear in the same directory with their own icon and label. Their hook receiver accepts queued messages at the next prompt or turn end (`after_turn`); an idle session does not receive an injected turn. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

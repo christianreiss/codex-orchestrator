@@ -5,7 +5,8 @@
   import codexLogo from "$lib/assets/engines/codex.svg?no-inline";
   import claudeLogo from "$lib/assets/engines/claude.svg?no-inline";
   import grokLogo from "$lib/assets/engines/grok.svg?no-inline";
-  const logos = { codex: codexLogo, claude: claudeLogo, grok: grokLogo };
+  import kimiLogo from "$lib/assets/engines/kimi.svg?no-inline";
+  const logos = { codex: codexLogo, claude: claudeLogo, grok: grokLogo, kimi: kimiLogo };
 
   let {
     engine,

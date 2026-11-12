@@ -53,7 +53,7 @@ test("working secrets are shared across engines without a scope selector", async
   expect(saved).not.toHaveProperty("engine");
 });
 
-function quickDefaults(): Record<"codex" | "claude" | "grok", ModelDefaultsValue> {
+function quickDefaults(): Record<"codex" | "claude" | "grok" | "kimi", ModelDefaultsValue> {
   return {
     grok: {
       engine: "grok", model: "grok-4.6", reasoning_effort: "high", context_window: 256_000,
@@ -88,7 +88,7 @@ test("quick settings save model and catalog effort together for both engines and
   const defaults = quickDefaults();
   const writes: unknown[] = [];
   await installFixtures(page, (path, body) => {
-    const engine = path.split("/").at(-1) as "codex" | "claude" | "grok";
+    const engine = path.split("/").at(-1) as "codex" | "claude" | "grok" | "kimi";
     if (!path.startsWith("/admin/model-defaults/")) return;
     if (body) { writes.push({ engine, body }); Object.assign(defaults[engine], body); }
     return { ...defaults[engine] };
@@ -177,7 +177,7 @@ test("quick settings save Grok context windows, retain them across model and eff
   await engineTab(page, "Grok");
   const window500 = grok.getByRole("radio", { name: "500k tokens", exact: true });
   await expect(window256).toBeChecked();
-  for (const engine of ["Codex", "Claude"] as const) {
+  for (const engine of ["Codex", "Claude", "Kimi Code"] as const) {
     await engineTab(page, engine);
     await expect(page.getByRole("region", { name: engine, exact: true }).getByRole("group", { name: "Context window" })).toHaveCount(0);
   }
@@ -251,7 +251,7 @@ test("quick settings isolate saving, follow live updates, and ignore stale reads
   await page.routeWebSocket("**/quick-ws", (ws) => { ownerStream(ws); emit = (data) => ws.send(data); });
   await installFixtures(page, (path) => {
     if (path === "/admin/ws/info") return { enabled: true, url: "ws://127.0.0.1:4173/quick-ws" };
-    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude" | "grok"] };
+    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude" | "grok" | "kimi"] };
   });
   await page.route("**/admin/model-defaults/codex", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -290,7 +290,7 @@ test("quick settings recover failed saves and keep controls locked until authori
   let failed = false;
   let readsFail = true;
   await installFixtures(page, (path) => {
-    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude" | "grok"] };
+    if (path.startsWith("/admin/model-defaults/")) return { ...defaults[path.split("/").at(-1) as "codex" | "claude" | "grok" | "kimi"] };
   });
   await page.route("**/admin/model-defaults/codex", async (route) => {
     if (route.request().method() === "POST") {
@@ -318,7 +318,7 @@ test("quick settings support keyboard selection, mobile layout, themes, and pale
   const defaults = quickDefaults();
   await installFixtures(page, (path, body) => {
     if (!path.startsWith("/admin/model-defaults/")) return;
-    const engine = path.split("/").at(-1) as "codex" | "claude" | "grok";
+    const engine = path.split("/").at(-1) as "codex" | "claude" | "grok" | "kimi";
     if (body) Object.assign(defaults[engine], body);
     return { ...defaults[engine] };
   });
@@ -494,7 +494,7 @@ test("a completed fleet returns from a bare setup URL while a new fleet keeps it
   let total = 130;
   await installFixtures(page, path => path === "/admin/setup/status" ? {
     ...fixture(path), owner_created: true, hosts: { total, synced: total },
-    canonical_auth: { codex: true, claude: true, grok: true }, default_engines: ["codex"],
+    canonical_auth: { codex: true, claude: true, grok: true, kimi: true }, default_engines: ["codex"],
     wizard: { completed_at: total ? "2026-08-03T20:03:33Z" : null, dismissed_at: null, last_step: "host", engines: [] },
   } : undefined);
   await page.goto("/admin/setup");
@@ -1190,7 +1190,7 @@ test("accounts lists every provider with an always-visible engine filter", async
   let total = 6;
   await installFixtures(page, path => path === "/admin/auth/status" ? { ...fixture(path), capabilities: ["auth.manage"] } : path === "/admin/accounts" ? {
     accounts: Array.from({ length: total }, (_, i) => ({
-      id: i + 1, engine: ["codex", "claude", "grok"][i % 3], label: `Subscription ${i + 1}`,
+      id: i + 1, engine: ["codex", "claude", "grok", "kimi"][i % 3], label: `Subscription ${i + 1}`,
       state: i === 5 ? "paused" : "enabled", verification_state: "verified",
       verification_reason: null, verification_checked_at: null, generation: 1, sessions: [],
       usage: { supported: false, fetched_at: null, stale: false, short_used_percent: null,
@@ -1225,7 +1225,7 @@ test("accounts lists every provider with an always-visible engine filter", async
 test("host table engine chips show assignments and fleet suspension on desktop and mobile", async ({ page }) => {
   let suspended = false;
   await installFixtures(page, path => path === "/admin/engines/state" ? {
-    engines: ["codex", "claude", "grok"].map(engine => ({
+    engines: ["codex", "claude", "grok", "kimi"].map(engine => ({
       engine, enabled: !(suspended && engine === "claude"), updated_at: null, updated_by: null, assigned_hosts: 1,
     })),
   } : undefined);
@@ -1338,12 +1338,12 @@ test("control usage preserves missing windows and bounds over-limit meter semant
   await expect(usage.getByRole("meter")).toHaveAttribute("aria-valuetext", "108% used");
 });
 
-for (const engine of ["codex", "claude"] as const) {
+for (const engine of ["codex", "claude", "grok", "kimi"] as const) {
   test(`control ${engine} verification stays engine-scoped and prevents overlapping runs`, async ({ page }) => {
     await installFixtures(page, controlFixture);
-    const label = engine === "codex" ? "Codex" : "Claude";
+    const label = { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi Code" }[engine];
     const other = engine === "codex" ? "Claude" : "Codex";
-    const endpoint = engine === "codex" ? "run" : "run-claude";
+    const endpoint = engine === "codex" ? "run" : `run-${engine}`;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     await page.route(`**/admin/runner/${endpoint}`, async (route) => {
@@ -1627,7 +1627,7 @@ test("engine deep links open the owning tab, its Advanced block and scroll to th
 
 test("engine master switch confirms both edges and reverts on cancel", async ({ page }) => {
   const writes: Array<{ path: string; body: unknown }> = [];
-  const state = { grok: true };
+  const state = { grok: true, kimi: true };
   await installFixtures(page, (path, body) => {
     if (path === "/admin/auth/status") return { ...fixture(path), capabilities: ["settings.read", "settings.manage"] };
     if (path === "/admin/engines/state") {
@@ -1687,7 +1687,7 @@ test("host engine switches support all seven combinations and preserve one enabl
   await page.goto("/admin/hosts/1");
   await expect(page.getByRole("switch", { name: "Grok engine", exact: true })).toBeChecked();
   await expect(page.getByRole("switch", { name: "Grok engine", exact: true })).toBeDisabled();
-  const all = ["Codex", "Claude", "Grok"];
+  const all = ["Codex", "Claude", "Grok", "Kimi Code"];
   for (const target of [["Codex", "Grok"], ["Codex"], ["Codex", "Claude"], ["Claude"], ["Claude", "Grok"], all, ["Grok"]]) {
     for (const name of target) { const control = page.getByRole("switch", { name: `${name} engine`, exact: true }); if (!await control.isChecked()) await control.click(); await expect(control).toBeChecked(); }
     for (const name of all.filter(name => !target.includes(name))) { const control = page.getByRole("switch", { name: `${name} engine`, exact: true }); if (await control.isChecked()) await control.click(); await expect(control).not.toBeChecked(); }
@@ -1710,7 +1710,7 @@ test("Grok host provisioning names its missing credentials and opens subscriptio
   await installFixtures(page, (path, body) => {
     if (path === "/admin/setup/status") return {
       ...fixture(path), default_engines: ["grok"],
-      canonical_auth: { codex: true, claude: true, grok: false },
+      canonical_auth: { codex: true, claude: true, grok: false, kimi: false },
     };
     if (path === "/admin/hosts/register") {
       registered = body;
@@ -1735,7 +1735,7 @@ test("setup saves a Grok-only fleet choice and offers subscription credentials",
   await installFixtures(page, (path, body) => {
     if (path === "/admin/setup/status") return {
       setup_complete: true, critical_complete: true, owner_created: true, checks: [], next_actions: [],
-      canonical_auth: { codex: false, claude: false, grok: false }, default_engines: ["codex"],
+      canonical_auth: { codex: false, claude: false, grok: false, kimi: false }, default_engines: ["codex"],
       wizard: { engines: null, last_step: "engines", completed_at: null, dismissed_at: null },
     };
     if (path === "/admin/setup/wizard") { writes.push(body); return {}; }
@@ -1750,16 +1750,16 @@ test("setup saves a Grok-only fleet choice and offers subscription credentials",
   expect(writes).toContainEqual({ last_step: "auth", engines: ["grok"] });
 });
 
-test("messaging shows all nine engine directions", async ({ page }) => {
+test("messaging shows all sixteen engine directions", async ({ page }) => {
   await installFixtures(page, path => {
     if (path !== "/admin/agent-messaging/state") return;
-    return { ...fixture(path), directions: ["codex", "claude", "grok"].flatMap(source_engine =>
-      ["codex", "claude", "grok"].map(target_engine => ({ source_engine, target_engine, total: 1, pending: 0, completed: 1, dead: 0, ambiguous: 0 }))) };
+    return { ...fixture(path), directions: ["codex", "claude", "grok", "kimi"].flatMap(source_engine =>
+      ["codex", "claude", "grok", "kimi"].map(target_engine => ({ source_engine, target_engine, total: 1, pending: 0, completed: 1, dead: 0, ambiguous: 0 }))) };
   });
   await page.goto("/admin/agent-messaging");
   const matrix = page.locator("details").filter({ has: page.locator("summary", { hasText: "Traffic by engine" }) });
   await matrix.locator("summary").click();
-  for (const source of ["codex", "claude", "grok"]) for (const target of ["codex", "claude", "grok"]) {
+  for (const source of ["codex", "claude", "grok", "kimi"]) for (const target of ["codex", "claude", "grok", "kimi"]) {
     await expect(matrix.getByText(`${source} → ${target}`, { exact: true })).toBeVisible();
   }
 });
@@ -1970,7 +1970,7 @@ test("appearance menu restores the previous theme when saving fails", async ({ p
 });
 
 
-test("new host persistent daemon defaults off, supports key 8 and resets", async ({ page }) => {
+test("new host Kimi key 8 and daemon key 9 stay independent and reset", async ({ page }) => {
   const registrations: Record<string, unknown>[] = [];
   const detail = fixture("/admin/hosts/1/detail") as { host: Record<string, unknown> };
   await installFixtures(page, (path, body) => {
@@ -1984,12 +1984,18 @@ test("new host persistent daemon defaults off, supports key 8 and resets", async
   await expect(daemon).not.toBeChecked();
   await page.getByLabel("Hostname (FQDN)").fill("daemon.example.test");
   await daemon.focus();
+  const kimi = page.getByRole("checkbox", { name: /Kimi Code/ });
+  await expect(kimi).not.toBeChecked();
   await page.keyboard.press("8");
+  await expect(kimi).toBeChecked();
+  await expect(daemon).not.toBeChecked();
+  await page.keyboard.press("9");
   await expect(daemon).toBeChecked();
   await expect(page.getByText("Requires root and enabled Agent Messaging.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Register host", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Host registered", exact: true })).toBeVisible();
   expect(registrations[0]).toMatchObject({ daemon_enabled: true });
+  expect(registrations[0].engines).toContain("kimi");
   await expect(page.getByText("Persistent daemon", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Register another", exact: true }).click();
   await expect(daemon).not.toBeChecked();

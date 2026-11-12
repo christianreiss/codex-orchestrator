@@ -189,7 +189,7 @@ export function fixture(pathname: string): Record<string, unknown> {
     case "/admin/connectors/config": return {
       policy: {
         enabled: false,
-        providers: { chatgpt: false, claude: false, grok: false },
+        providers: { chatgpt: false, claude: false, grok: false, kimi: false },
         ceiling: { categories: {}, tools: [], hosts: [], projects: [], global: false, sensitive: [] },
       },
       can_manage: true,
@@ -213,8 +213,9 @@ export function fixture(pathname: string): Record<string, unknown> {
         { surface: "openai", label: "OpenAI-compatible", base_path: "/v1", wire: "openai", backend: "codex", identity_backend: "codex", disabled: false, key_count: 0 },
         { surface: "anthropic", label: "Anthropic-compatible", base_path: "/anthropic/v1", wire: "anthropic", backend: "claude", identity_backend: "claude", disabled: false, key_count: 0 },
         { surface: "grok", label: "Grok (OpenAI-compatible)", base_path: "/grok/v1", wire: "openai", backend: "grok", identity_backend: "grok", disabled: false, key_count: 0 },
+        { surface: "kimi", label: "Kimi Code", base_path: "/kimi/v1", wire: "openai", backend: "kimi", identity_backend: "kimi", disabled: true, key_count: 0 },
       ],
-      backends: [{ engine: "codex", label: "Codex" }, { engine: "claude", label: "Claude" }, { engine: "grok", label: "Grok" }],
+      backends: [{ engine: "codex", label: "Codex" }, { engine: "claude", label: "Claude" }, { engine: "grok", label: "Grok" }, { engine: "kimi", label: "Kimi Code" }],
     };
     case "/admin/auth/status":
       return { authenticated: true, enforced: true, user, roles: ["owner"], capabilities: [...CAPABILITIES] };
@@ -286,7 +287,7 @@ export function fixture(pathname: string): Record<string, unknown> {
       };
     case "/admin/accounts": return { accounts: [] };
     case "/admin/chatty/status": return { visible: false, ready: false, enabled: false, knowledge_version: "test", engines: [] };
-    case "/admin/chatty/settings": return { enabled: false, engine_order: ["codex", "claude", "grok"], concurrency: 1, queue_limit: 10, steps: 10, timeout_seconds: 120 };
+    case "/admin/chatty/settings": return { enabled: false, engine_order: ["codex", "claude", "grok", "kimi"], concurrency: 1, queue_limit: 10, steps: 10, timeout_seconds: 120 };
     case "/admin/authorization": return { mode: "compatible", updated_at: null, would_deny: [] };
     case "/admin/watchdogs": return { watchdogs: [] };
     case "/admin/schedules": return { schedules: [], next_cursor: null };
@@ -335,9 +336,9 @@ export function fixture(pathname: string): Record<string, unknown> {
     // so it answers as a disable; tests that need the other edge override it.
     case "/admin/engines/state":
       return {
-        engines: (["codex", "claude", "grok"] as const).map((engine) => ({
+        engines: (["codex", "claude", "grok", "kimi"] as const).map((engine) => ({
           engine,
-          label: engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Grok",
+          label: engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : engine === "grok" ? "Grok" : "Kimi Code",
           enabled: true,
           updated_at: null,
           updated_by: null,
@@ -346,11 +347,12 @@ export function fixture(pathname: string): Record<string, unknown> {
       };
     case "/admin/engines/codex/state":
     case "/admin/engines/claude/state":
-    case "/admin/engines/grok/state": {
+    case "/admin/engines/grok/state":
+    case "/admin/engines/kimi/state": {
       const engine = pathname.split("/")[3]!;
       return {
         engine,
-        label: engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Grok",
+        label: engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : "Kimi Code",
         enabled: false,
         updated_at: "2026-10-03T08:00:00Z",
         updated_by: "chris",
@@ -360,15 +362,23 @@ export function fixture(pathname: string): Record<string, unknown> {
       };
     }
     case "/admin/grok/state": return { disabled: false };
+    case "/admin/kimi/state": return { disabled: true };
     case "/admin/grok/settings": return { default_model: "grok-4.6", disabled: false };
+    case "/admin/kimi/settings": return { default_model: "kimi-4.6", disabled: false };
     case "/admin/grok/keys": return [];
+    case "/admin/kimi/keys": return [];
     case "/admin/grok/models": return { models: ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"].map(id => ({ id, enabled: true, ownedBy: "xai" })) };
+    case "/admin/kimi/models": return { models: [{ id: "k3", enabled: true, ownedBy: "moonshotai" }] };
     case "/admin/model-defaults/grok": return {
       engine: "grok", model: "grok-4.6", reasoning_effort: "high", context_window: 256_000,
       catalog: [
         { model: "grok-4.6", persistent_efforts: ["low", "medium", "high", "xhigh"], default_effort: "high", context_windows: [256_000, 500_000], default_context_window: 256_000 },
         { model: "grok-4.5", persistent_efforts: ["low", "medium", "high"], default_effort: "high", context_windows: [256_000, 500_000], default_context_window: 256_000 },
       ],
+    };
+    case "/admin/model-defaults/kimi": return {
+      engine: "kimi", model: "k3", reasoning_effort: "high",
+      catalog: [{ model: "k3", persistent_efforts: ["low", "high", "max"], default_effort: "high" }],
     };
     case "/admin/model-defaults/codex":
       return {
@@ -738,7 +748,7 @@ export function fixture(pathname: string): Record<string, unknown> {
       };
     case "/admin/rtk":
     case "/admin/hosts/1/rtk":
-      return { engines: Object.fromEntries(["codex", "claude", "grok"].map(engine => [engine, { enabled: false, fleet: false, override: null, source: "fleet", policy_revision: null, adapter_mode: "instructions", assigned: true, observation: null }])) };
+      return { engines: Object.fromEntries(["codex", "claude", "grok", "kimi"].map(engine => [engine, { enabled: false, fleet: false, override: null, source: "fleet", policy_revision: null, adapter_mode: "instructions", assigned: true, observation: null }])) };
     case "/admin/hosts/1/agents-extra":
       return { host_id: 1, fqdn: "console.example.test", content: null, size_bytes: 0, sha256: null, max_bytes: 32768 };
     case "/admin/hosts/1/detail":

@@ -1,11 +1,12 @@
 /** Engine identity shared by the admin console and the operator portal. */
-export const ENGINES = ["codex", "claude", "grok"] as const;
+export const ENGINES = ["codex", "claude", "grok", "kimi"] as const;
 export type Engine = (typeof ENGINES)[number];
 
 export const ENGINE_META = {
   codex: { label: "Codex", account: "ChatGPT", command: "cdx", avatar: "CX", color: "bg-persona-codex" },
   claude: { label: "Claude", account: "Claude", command: "clx", avatar: "CL", color: "bg-persona-claude" },
   grok: { label: "Grok", account: "Grok", command: "cgx", avatar: "GX", color: "bg-persona-grok" },
+  kimi: { label: "Kimi Code", account: "Kimi Code", command: "ckx", avatar: "KM", color: "bg-persona-kimi" },
 } satisfies Record<Engine, { label: string; account: string; command: string; avatar: string; color: string }>;
 
 export function isEngine(value: string): value is Engine {

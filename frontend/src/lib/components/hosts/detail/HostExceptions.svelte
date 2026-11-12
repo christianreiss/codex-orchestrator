@@ -7,11 +7,12 @@
     createClaudeVersionMutation,
     createCodexVersionMutation,
     createGrokVersionMutation,
+    createKimiVersionMutation,
     createModelOverrideMutation,
     hostEngines,
   } from "$lib/api/hosts";
   import { modelDefaultsQuery } from "$lib/api/settings";
-  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, DEFAULT_MODELS, GROK_MODEL_OPTIONS, MODEL_EFFORTS, MODEL_MIN_CLI_VERSIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
+  import { CLAUDE_MODEL_OPTIONS, CODEX_MODELS, DEFAULT_MODELS, GROK_MODEL_OPTIONS, KIMI_MODEL_OPTIONS, MODEL_EFFORTS, MODEL_MIN_CLI_VERSIONS, REASONING_EFFORT_OPTIONS } from "$lib/constants/models";
   import type { HostDetailResponse } from "$lib/api/types";
   import EnginePanel from "../EnginePanel.svelte";
   import InputDialog from "../InputDialog.svelte";
@@ -25,17 +26,25 @@
   const codexVersion = createCodexVersionMutation(qc);
   const claudeVersion = createClaudeVersionMutation(qc);
   const grokVersion = createGrokVersionMutation(qc);
+  const kimiVersion = createKimiVersionMutation(qc);
   const modelOverride = createModelOverrideMutation(qc);
   const agentsVersion = createAgentsVersionMutation(qc);
   const grokDefaults = modelDefaultsQuery("grok");
+  const kimiDefaults = modelDefaultsQuery("kimi");
   const codexDefaults = modelDefaultsQuery("codex");
 
   const engines = $derived(hostEngines(host));
   const digest = (value: string | null | undefined) => (value ? value.slice(0, 16) + "…" : "—");
   const grokModel = $derived(host.grok_model_override ?? $grokDefaults.data?.model ?? DEFAULT_MODELS.grok);
+  const kimiModel = $derived(host.kimi_model_override ?? $kimiDefaults.data?.model ?? DEFAULT_MODELS.kimi);
   const grokEfforts = $derived(
     ($grokDefaults.data?.catalog.find((model) => model.model === grokModel)?.persistent_efforts
       ?? MODEL_EFFORTS.grok[grokModel] ?? ["low", "medium", "high", "xhigh"])
+      .map((value) => ({ value, label: REASONING_EFFORT_OPTIONS.find((option) => option.value === value)?.label ?? value })),
+  );
+  const kimiEfforts = $derived(
+    ($kimiDefaults.data?.catalog.find((model) => model.model === kimiModel)?.persistent_efforts
+      ?? MODEL_EFFORTS.kimi[kimiModel] ?? ["low", "high", "max"])
       .map((value) => ({ value, label: REASONING_EFFORT_OPTIONS.find((option) => option.value === value)?.label ?? value })),
   );
   const codexModels = $derived(CODEX_MODELS.map(option => {
@@ -66,8 +75,8 @@
   const claudeUpgradeNeeded = $derived(claudeModels.some(option => option.disabled));
   let agentsOpen = $state(false);
 
-  const model = (engine: "codex" | "claude" | "grok") => (value: string | null) => runQuiet($modelOverride.mutateAsync({ id, engine, model: value }));
-  const effort = (engine: "codex" | "grok") => (value: string | null) => runQuiet($modelOverride.mutateAsync({ id, engine, reasoning_effort: value }));
+  const model = (engine: "codex" | "claude" | "grok" | "kimi") => (value: string | null) => runQuiet($modelOverride.mutateAsync({ id, engine, model: value }));
+  const effort = (engine: "codex" | "grok" | "kimi") => (value: string | null) => runQuiet($modelOverride.mutateAsync({ id, engine, reasoning_effort: value }));
 </script>
 
 <div>
@@ -98,6 +107,13 @@
         <OverridePopover label="Version" override={host.grok_client_version_override ?? null} inheritedValue={host.grok_client_version} inheritedLabel="detected" placeholder={overview?.versions.grok_version ?? "1.0.50"} pending={$grokVersion.isPending} onSave={(v) => runQuiet($grokVersion.mutateAsync({ id, version: v }))} />
         <OverridePopover label="Model" override={host.grok_model_override ?? null} options={GROK_MODEL_OPTIONS} pending={$modelOverride.isPending} onSave={model("grok")} />
         <OverridePopover label="Reasoning effort" override={host.grok_reasoning_effort_override ?? null} options={grokEfforts} pending={$modelOverride.isPending} onSave={effort("grok")} />
+      </EnginePanel>
+    {/if}
+    {#if engines.includes("kimi")}
+      <EnginePanel engine="kimi" digest={digest(host.kimi_canonical_digest)}>
+        <OverridePopover label="Version" override={host.kimi_client_version_override ?? null} inheritedValue={host.kimi_client_version} inheritedLabel="detected" placeholder={overview?.versions.kimi_version ?? "2.5.3"} pending={$kimiVersion.isPending} onSave={(v) => runQuiet($kimiVersion.mutateAsync({ id, version: v }))} />
+        <OverridePopover label="Model" override={host.kimi_model_override ?? null} options={KIMI_MODEL_OPTIONS} pending={$modelOverride.isPending} onSave={model("kimi")} />
+        <OverridePopover label="Reasoning effort" override={host.kimi_reasoning_effort_override ?? null} options={kimiEfforts} pending={$modelOverride.isPending} onSave={effort("kimi")} />
       </EnginePanel>
     {/if}
   </div>

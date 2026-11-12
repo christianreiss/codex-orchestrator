@@ -19,6 +19,7 @@ const user = { id: 1, username: "ada", name: "Ada Operator", access_level: "owne
 const CODEX = "0.158.0";
 const CLAUDE = "2.1.184";
 const GROK = "1.0.46";
+const KIMI = "2.5.3";
 const WRAPPER = "0.9.57";
 
 interface DemoHost {
@@ -35,8 +36,8 @@ interface DemoHost {
 }
 
 const HOSTS: DemoHost[] = [
-  { id: 1, fqdn: "atlas.example.net", engines: "codex,claude,grok", vip: true, seen: 40, ip4: "192.0.2.10" },
-  { id: 2, fqdn: "crane.example.net", engines: "codex,claude,grok", seen: 95, ip4: "192.0.2.11" },
+  { id: 1, fqdn: "atlas.example.net", engines: "codex,claude,grok,kimi", vip: true, seen: 40, ip4: "192.0.2.10" },
+  { id: 2, fqdn: "crane.example.net", engines: "codex,claude,grok,kimi", seen: 95, ip4: "192.0.2.11" },
   { id: 3, fqdn: "forge.example.net", engines: "codex", seen: 300, ip4: "192.0.2.12" },
   { id: 4, fqdn: "harbor.example.net", engines: "claude,grok", seen: 620, ip4: "192.0.2.13" },
   { id: 5, fqdn: "build-02.example.net", engines: "codex,claude", seen: 1800, codex: "0.156.0", ip4: "198.51.100.4" },
@@ -49,6 +50,7 @@ function hostRow(h: DemoHost) {
   const hasCodex = h.engines.includes("codex");
   const hasClaude = h.engines.includes("claude");
   const hasGrok = h.engines.includes("grok");
+  const hasKimi = h.engines.includes("kimi");
   return {
     id: h.id,
     fqdn: h.fqdn,
@@ -56,16 +58,19 @@ function hostRow(h: DemoHost) {
     last_refresh: ago(h.seen),
     claude_last_refresh: hasClaude ? ago(h.seen + 30) : null,
     grok_last_refresh: hasGrok ? ago(h.seen + 15) : null,
+    kimi_last_refresh: hasKimi ? ago(h.seen + 15) : null,
     updated_at: ago(h.seen),
     created_at: ago(86400 * 40 + h.id * 3600),
     client_version: hasCodex ? (h.codex ?? CODEX) : null,
     claude_client_version: hasClaude ? (h.claude ?? CLAUDE) : null,
     grok_client_version: hasGrok ? GROK : null,
+    kimi_client_version: hasKimi ? KIMI : null,
     client_version_override: null,
     claude_client_version_override: null,
     wrapper_version: hasCodex ? WRAPPER : null,
     claude_wrapper_version: hasClaude ? WRAPPER : null,
     grok_wrapper_version: hasGrok ? WRAPPER : null,
+    kimi_wrapper_version: hasKimi ? WRAPPER : null,
     ip4: h.ip4,
     ip6: null,
     allow_roaming_ips: false,
@@ -75,11 +80,12 @@ function hostRow(h: DemoHost) {
     canonical_digest: hasCodex ? "5f2c9a1e7b3d4c60" : null,
     claude_canonical_digest: hasClaude ? "a81d0e44c2b9f713" : null,
     grok_canonical_digest: hasGrok ? "d42a28d062338ca1" : null,
+    kimi_canonical_digest: hasKimi ? "d42a28d062338ca1" : null,
     engines: h.engines,
-    engine_readiness: Object.fromEntries(["codex", "claude", "grok"].map((engine) => {
+    engine_readiness: Object.fromEntries(["codex", "claude", "grok", "kimi"].map((engine) => {
       const assigned = h.engines.includes(engine);
-      const target = engine === "codex" ? CODEX : engine === "claude" ? CLAUDE : GROK;
-      const installed = engine === "codex" ? (h.codex ?? CODEX) : engine === "claude" ? (h.claude ?? CLAUDE) : GROK;
+      const target = engine === "codex" ? CODEX : engine === "claude" ? CLAUDE : engine === "grok" ? GROK : KIMI;
+      const installed = engine === "codex" ? (h.codex ?? CODEX) : engine === "claude" ? (h.claude ?? CLAUDE) : engine === "grok" ? GROK : KIMI;
       const outdated = installed !== target;
       return [engine, { state: !assigned ? "inactive" : outdated ? "attention" : "ready",
         reasons: !assigned ? ["not_assigned"] : outdated ? ["cli_outdated"] : [],
@@ -396,6 +402,7 @@ const ACCOUNTS = [
   { id: 1, engine: "codex", label: "ChatGPT · Engineering", short: 28, weekly: 61, hosts: [2, 3] },
   { id: 2, engine: "claude", label: "Claude · Engineering", short: 34, weekly: 47, hosts: [1, 5] },
   { id: 3, engine: "grok", label: "Grok · Reviews", short: null, weekly: null, hosts: [4] },
+  { id: 4, engine: "kimi", label: "Kimi Code · Coding", short: 24, weekly: 31, hosts: [1, 2] },
   { id: 4, engine: "codex", label: "ChatGPT · Build pool", short: 9, weekly: 23, hosts: [] },
 ].map((account) => ({
   id: account.id, engine: account.engine, label: account.label, state: "enabled",
@@ -403,6 +410,7 @@ const ACCOUNTS = [
   usage: { supported: true, fetched_at: ago(180), checked_at: ago(180), stale: false,
     short_used_percent: account.short, short_resets_at: account.short === null ? null : ahead(9120),
     weekly_used_percent: account.weekly, weekly_resets_at: account.weekly === null ? null : ahead(3600 * 61),
+    windows: account.engine === "kimi" ? [{ kind: "five_hour", used_percent: 24, resets_at: ahead(7200) }, { kind: "weekly", used_percent: 31, resets_at: ahead(86400 * 3) }, { kind: "month_total", used_percent: 18, resets_at: ahead(86400 * 20) }, { kind: "month_code", used_percent: 16, resets_at: ahead(86400 * 20) }] : undefined,
     current_window: account.engine === "grok" ? { used_percent: 38, period: "monthly", starts_at: ago(86400 * 10), resets_at: ahead(86400 * 20), shared: true } : null,
   },
   sessions: account.hosts.map((host_id) => ({ id: `lease-${account.id}-${host_id}`, host_id, expires_at: ahead(1800) })),
@@ -427,7 +435,7 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
   if (schedule) return { schedule, runs: [{ id: "run-1", due_at: ago(3600), status: "completed", task_result_status: "succeeded", recovery_count: 0, last_error: null, next_attempt_at: ago(3600) }] };
   switch (pathname) {
     case "/admin/chatty/status":
-      return { visible: true, ready: true, enabled: true, knowledge_version: "demo", engines: ["codex", "claude", "grok"].map((engine) => ({ engine, ready: true, reason: null, default_model: null, models: [] })) };
+      return { visible: true, ready: true, enabled: true, knowledge_version: "demo", engines: ["codex", "claude", "grok", "kimi"].map((engine) => ({ engine, ready: true, reason: null, default_model: null, models: [] })) };
     case "/admin/response-verbosity":
       return { level: 2, levels: [{ level: 1, label: "Concise" }, { level: 2, label: "Balanced" }, { level: 3, label: "Detailed" }] };
     case "/admin/accounts":
@@ -445,19 +453,26 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
     case `/admin/daemon-sessions/${REMOTE_SESSION.id}`:
       return REMOTE_SESSION;
     case "/admin/engines/state":
-      return { engines: ["codex", "claude", "grok"].map((engine) => ({ engine, label: engine[0].toUpperCase() + engine.slice(1), enabled: true, updated_at: ago(86400), updated_by: "ada", assigned_hosts: HOSTS.filter((h) => h.engines.includes(engine)).length })) };
+      return { engines: ["codex", "claude", "grok", "kimi"].map((engine) => ({ engine, label: engine === "kimi" ? "Kimi Code" : engine[0].toUpperCase() + engine.slice(1), enabled: true, updated_at: ago(86400), updated_by: "ada", assigned_hosts: HOSTS.filter((h) => h.engines.includes(engine)).length })) };
     case "/admin/api/surfaces":
       return { surfaces: [
         { surface: "openai", label: "OpenAI", base_path: "/v1", wire: "openai", backend: "codex", identity_backend: "codex", disabled: false, key_count: 3 },
         { surface: "anthropic", label: "Anthropic", base_path: "/anthropic/v1", wire: "anthropic", backend: "claude", identity_backend: "claude", disabled: false, key_count: 1 },
         { surface: "grok", label: "Grok", base_path: "/grok/v1", wire: "openai", backend: "grok", identity_backend: "grok", disabled: false, key_count: 1 },
-      ], backends: ["codex", "claude", "grok"].map((engine) => ({ engine, label: engine[0].toUpperCase() + engine.slice(1) })) };
+        { surface: "kimi", label: "Kimi Code", base_path: "/kimi/v1", wire: "openai", backend: "kimi", identity_backend: "kimi", disabled: true, key_count: 1 },
+      ], backends: ["codex", "claude", "grok", "kimi"].map((engine) => ({ engine, label: engine === "kimi" ? "Kimi Code" : engine[0].toUpperCase() + engine.slice(1) })) };
     case "/admin/grok/settings":
       return { default_model: "grok-4.7", disabled: false };
+    case "/admin/kimi/settings":
+      return { default_model: "k3", disabled: false };
     case "/admin/grok/models":
       return { models: [{ id: "grok-4.7", enabled: true, ownedBy: "xai" }] };
+    case "/admin/kimi/models":
+      return { models: [{ id: "k3", enabled: true, ownedBy: "xai" }] };
     case "/admin/grok/keys":
       return [{ id: 5, name: "Contract review helper", key_prefix: "sk-cgx-DEMO", is_active: true, use_count: 218, last_used_at: ago(480), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) }];
+    case "/admin/kimi/keys":
+      return [{ id: 5, name: "Contract review helper", key_prefix: "sk-ckx-DEMO", is_active: true, use_count: 218, last_used_at: ago(480), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) }];
     case "/admin/git-director/commit-settings":
       return { message_style: "long", ai_attribution: true };
     case "/admin/auth/status":
@@ -477,7 +492,8 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
           codex: [{ version: CODEX, count: 5 }, { version: "0.156.0", count: 1 }],
           claude: [{ version: CLAUDE, count: 5 }, { version: "2.1.170", count: 1 }],
           grok: [{ version: GROK, count: 3 }],
-          engine_counts: { codex: 6, claude: 6, grok: 3 },
+          kimi: [{ version: KIMI, count: 3 }],
+          engine_counts: { codex: 6, claude: 6, grok: 3, kimi: 2 },
           install: { both: 4, codex_only: 2, claude_only: 2, neither: 0 },
         },
       };
@@ -507,6 +523,7 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
         codex: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "not_applicable", expires_at: null, days_remaining: null } },
         claude: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "ok", expires_at: ahead(86400 * 24), days_remaining: 24 } },
         grok: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "ok", expires_at: ahead(86400 * 24), days_remaining: 24 } },
+        kimi: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "ok", expires_at: ahead(86400 * 24), days_remaining: 24 } },
       } } };
     case "/admin/insecure-approvals/pending":
       return { requests: [] };
@@ -571,6 +588,7 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
     case "/admin/claude/state":
     case "/admin/grok/state":
       return { disabled: false, api_disabled: false };
+    case "/admin/kimi/state": return { disabled: true };
     case "/admin/agents":
       return {
         status: "ok", mode: "latest", active_id: 58, served_id: 58, latest_id: 58, backup_limit: 20,
@@ -600,10 +618,14 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
       return { engine: "claude", model: "claude-opus-5-5", reasoning_effort: "high", catalog: [{ model: "claude-opus-5-5", persistent_efforts: ["medium", "high"], default_effort: "high" }] };
     case "/admin/model-defaults/grok":
       return { engine: "grok", model: "grok-4.7", reasoning_effort: null, catalog: [{ model: "grok-4.7", persistent_efforts: [], default_effort: null }] };
+    case "/admin/model-defaults/kimi":
+      return { engine: "kimi", model: "k3", reasoning_effort: "high", catalog: [{ model: "k3", persistent_efforts: ["low", "high", "max"], default_effort: "high" }] };
     case "/admin/versions/check":
       return {
         available_client: { version: CODEX, updated_at: ago(720), source: "github" },
         versions: { client_version: CODEX, client_version_enforce_exact: false, reported_client_version: CODEX },
+        kimi_available_client: { version: KIMI },
+        kimi_versions: { client_version: KIMI, client_version_enforce_exact: false, reported_client_version: KIMI },
         claude_available_client: { version: CLAUDE },
         claude_versions: { client_version: CLAUDE, client_version_enforce_exact: false, reported_client_version: CLAUDE },
       };
@@ -626,8 +648,8 @@ export function setupStatus(done: boolean) {
   ].map(([id, label, detail]) => ({ id, label, ok: true, critical: true, detail }));
   return {
     critical_complete: true, owner_created: true, setup_complete: true, checks,
-    configured_engines: done ? ["codex", "claude", "grok"] : [],
-    canonical_auth: { codex: done, claude: done, grok: done },
+    configured_engines: done ? ["codex", "claude", "grok", "kimi"] : [],
+    canonical_auth: { codex: done, claude: done, grok: done, kimi: done },
     hosts: { total: done ? HOSTS.length : 0, synced: done ? 6 : 0 },
     public_base_url: "https://orchestrator.example.net",
     warnings: [],

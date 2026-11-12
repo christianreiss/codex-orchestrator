@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { mkdir } from 'node:fs/promises';
 import { installFixtures } from './admin-fixtures';
-const engines = ['codex', 'claude', 'grok'] as const;
+const engines = ['codex', 'claude', 'grok', 'kimi'] as const;
 for (const width of [320, 390, 768, 1440, 1920]) for (const dark of [false, true]) {
   test(`RTK saving and accessible layout ${width} ${dark ? 'dark' : 'light'}`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1024 });

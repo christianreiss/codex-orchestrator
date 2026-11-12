@@ -5,3 +5,5 @@ Local engine logo assets used by Active Clients. They are bundled with the WebUI
 - `grok.svg`: Grok mark, Lobe Icons (`packages/static-svg/icons/grok.svg`, MIT), retrieved 2026-10-09. Inline presentation style removed.
 
 Sources: https://github.com/simple-icons/simple-icons and https://github.com/lobehub/lobe-icons. Brand marks remain subject to their owners' trademark rights.
+
+- `kimi.svg`: original K-shaped glyph drawn for this console (2026-11-12); not the Moonshot trademark logo.
