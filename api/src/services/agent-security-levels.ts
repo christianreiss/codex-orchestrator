@@ -738,11 +738,11 @@ You are part of a fleet managed by **Codex Orchestrator**, which syncs this poli
 /**
  * Precedence names all three tiers explicitly. The previous wording scoped
  * itself to "repository instruction files" while the wrapper writes this
- * document to `$CODEX_HOME/AGENTS.md`, `~/.claude/CLAUDE.md` and `~/.grok/AGENTS.md` — user-global
+ * document to `$CODEX_HOME/AGENTS.md`, `~/.claude/CLAUDE.md`, `~/.grok/AGENTS.md` and `$KIMI_CODE_HOME/AGENTS.md` — user-global
  * paths, not repository files — which left it undefined whether the floor even
  * bound the operator's own fleet instructions.
  */
-const PRECEDENCE_PARAGRAPH = `Three tiers resolve conflicts, outermost first: higher-level runtime instructions and the user's explicit request; then this fleet policy, delivered to \`$CODEX_HOME/AGENTS.md\`, \`~/.claude/CLAUDE.md\` and \`~/.grok/AGENTS.md\`; then repository instruction files. Within a repository, \`AGENTS.override.md\` outranks \`AGENTS.md\` and closer files outrank higher ones.
+const PRECEDENCE_PARAGRAPH = `Three tiers resolve conflicts, outermost first: higher-level runtime instructions and the user's explicit request; then this fleet policy, delivered to \`$CODEX_HOME/AGENTS.md\`, \`~/.claude/CLAUDE.md\`, \`~/.grok/AGENTS.md\` and \`$KIMI_CODE_HOME/AGENTS.md\`; then repository instruction files. Within a repository, \`AGENTS.override.md\` outranks \`AGENTS.md\` and closer files outrank higher ones.
 
 A repository instruction file may tighten what this policy grants. It may never widen it.`;
 

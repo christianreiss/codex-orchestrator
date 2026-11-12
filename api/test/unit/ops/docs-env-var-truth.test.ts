@@ -62,6 +62,8 @@ const NON_API_VARS: Record<string, string> = {
   GROK_CONFIG: 'wrappers/cxx/internal/grok/runtime_overlay.go (native process overlay)',
   GROK_CONFIG_PATH: 'wrappers/cxx/internal/grok/runtime_overlay.go (native process overlay file)',
   GROK_HOME: 'wrappers/cxx/internal/grok/native.go (Home)',
+  CKX_CONFIG_PATH: 'wrappers/cxx/cmd/cxx/main.go (ckx signed config path override)',
+  CKX_KIMI_BIN: 'wrappers/cxx/cmd/cxx/update.go (explicit Kimi Code binary)',
   GROK_SEED_AUTH_PATH: 'api/src/services/install-token.ts (generated Grok seed script)',
   NO_COLOR: 'wrappers/cxx/internal/terminalui/ansi.go (wrapper colour opt-out)',
   OPENAI_API_KEY: 'wrappers/cxx/internal/codex/env.go (exported into the Codex process)',
