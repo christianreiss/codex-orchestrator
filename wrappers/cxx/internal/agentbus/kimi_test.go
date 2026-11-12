@@ -181,7 +181,7 @@ func TestKimiPollCommandsUseNativeExitProtocol(t *testing.T) {
 		case "native", "activity-hook":
 			_, _ = io.WriteString(w, "{}")
 		case "mailbox":
-			_, _ = io.WriteString(w, `{"pending":[{"message_id":"peer-pending","kind":"message","from":{"alias":"Peer","engine":"kimi"}}]}`)
+			_, _ = io.WriteString(w, `{"pending":[{"message_id":"peer-pending","kind":"message","from":{"alias":"Peer","engine":"kimi"}},{"source":"portal","message_id":"portal-pending","kind":"portal","from":{"address":"admin:7","alias":"Operator","engine":"operator","fqdn":null},"expires_at":null}]}`)
 		default:
 			t.Errorf("hook attempted unexpected operation %s", r.URL.Path)
 			w.WriteHeader(400)
@@ -196,10 +196,10 @@ func TestKimiPollCommandsUseNativeExitProtocol(t *testing.T) {
 		args := []string{"poll", "--hook", event, "--dialect", "kimi"}
 		code := RunCommand(args, strings.NewReader(payload), &out, &diag, "test")
 		if event == hookEventStop {
-			if code != 2 || out.Len() != 0 || !strings.Contains(diag.String(), "peer-pending") {
+			if code != 2 || out.Len() != 0 || (!strings.Contains(diag.String(), "peer-pending") || !strings.Contains(diag.String(), "portal-pending")) {
 				t.Fatal(code, out.String(), diag.String())
 			}
-		} else if code != 0 || diag.Len() != 0 || !strings.Contains(out.String(), "peer-pending") {
+		} else if code != 0 || diag.Len() != 0 || (!strings.Contains(out.String(), "peer-pending") || !strings.Contains(out.String(), "portal-pending")) {
 			t.Fatal(code, out.String(), diag.String())
 		}
 		out.Reset()
@@ -360,5 +360,30 @@ func TestKimiBrokenSessionStoreNeverAuthorizesReplacement(t *testing.T) {
 	}
 	if err := checkKimiTranscript(testKimiID); err == nil || errors.Is(err, errNativeTranscriptMissing) {
 		t.Fatal("broken store misclassified as a missing transcript", err)
+	}
+}
+
+func TestKimiPromptByteBound(t *testing.T) {
+	for _, prompt := range []string{strings.Repeat("a", 100000), strings.Repeat("é", 50000), strings.Repeat("😀", 25000)} {
+		if err := checkKimiPrompt(prompt); err != nil {
+			t.Fatal(err)
+		}
+		if err := checkKimiPrompt(prompt + "a"); err == nil {
+			t.Fatal("oversize UTF-8 prompt accepted")
+		}
+	}
+}
+
+func TestKimiWorkersRejectOversizeArgvBeforeExec(t *testing.T) {
+	content := strings.Repeat("界", 40000)
+	result := (&relayClient{}).runNative(context.Background(), &config.Config{}, &relayDelivery{
+		Target: map[string]any{"engine": "kimi"}, Content: content,
+	}, "", false)
+	if result.Err == nil || result.Err.Error() != "Kimi prompt exceeds 100000 UTF-8 bytes" {
+		t.Fatalf("relay result: %+v", result)
+	}
+	daemon := runDaemonOperation(context.Background(), daemonOperation{Engine: "kimi", Cwd: t.TempDir(), Prompt: content})
+	if daemon.Status != "failed" || daemon.Reply != "Kimi prompt exceeds 100000 UTF-8 bytes" {
+		t.Fatalf("daemon result: %+v", daemon)
 	}
 }

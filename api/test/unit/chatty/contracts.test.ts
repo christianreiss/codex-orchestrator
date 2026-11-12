@@ -79,6 +79,10 @@ describe('Chatty contracts', () => {
       ),
     ).toBe(false);
   });
+  it('accepts all four engines in the host assignment tool', () => {
+    const tool = administrationTools().find(t => t.name === 'host_engines')!;
+    expect(tool.parse({ id: 1, engines: ['codex', 'claude', 'grok', 'kimi'] })).toEqual({ id: 1, engines: ['codex', 'claude', 'grok', 'kimi'] });
+  });
   it('provides unique schemas and no tool capable of dispatching host work', () => {
     const tools = administrationTools();
     expect(new Set(tools.map((t) => t.name)).size).toBe(tools.length);

@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { agentBusMessages, hosts } from '../../../src/db/schema.js';
+import { agentBusMessages, agentMessages, adminUsers, versions, hosts } from '../../../src/db/schema.js';
 import { runMigrations } from '../../../src/db/migrator.js';
 import type { Env } from '../../../src/env.js';
 import {
@@ -50,6 +50,7 @@ describe.skipIf(!handle)('mailbox peek against a real database', { timeout: 120_
     await exec(
       `DELETE FROM agent_bus_conversations WHERE address_a_id IN (${scoped}) OR address_b_id IN (${scoped})`,
     );
+    await exec(`DELETE FROM agent_messages WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id = ${hostId})`);
     await exec(`DELETE FROM agent_sessions WHERE host_id = ${hostId}`);
     await exec(`DELETE FROM agent_bus_addresses WHERE host_id = ${hostId}`);
     await exec(`DELETE FROM admin_events WHERE host_id = ${hostId}`);
@@ -67,7 +68,7 @@ describe.skipIf(!handle)('mailbox peek against a real database', { timeout: 120_
       `INSERT INTO hosts (
          fqdn, api_key, status, secure, engines, agent_messaging_enabled, created_at, updated_at
        ) VALUES (
-         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude', 1, '${now}', '${now}'
+         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude,grok,kimi', 1, '${now}', '${now}'
        )`,
     );
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, HOST_FQDN)).limit(1))[0]!;
@@ -113,6 +114,36 @@ describe.skipIf(!handle)('mailbox peek against a real database', { timeout: 120_
     const address = result.address as Record<string, unknown>;
     return { sessionId, bridgeToken, address: String(address.address), addressId: String(address.id) };
   }
+
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('rings queued portal commands for %s without bodies or queue mutations', async engine => {
+    const target = await register(engine, 'portal-target');
+    const now = new Date().toISOString();
+    const [inserted] = await db.insert(adminUsers).values({ name: 'Operator', username: randomUUID(), email: `${randomUUID()}@fixture.test`, passwordHash: 'fixture', accessLevel: 'owner', active: 1, createdAt: now, updatedAt: now });
+    const adminId = Number(inserted.insertId);
+    await db.insert(versions).values({ name: 'agent_portal_enabled', version: '1', updatedAt: now }).onDuplicateKeyUpdate({ set: { version: '1' } });
+    const messageId = randomUUID();
+    try {
+      await db.insert(agentMessages).values({ sessionId: target.sessionId, messageId, adminUserId: adminId,
+        clientMessageId: randomUUID(), contentEnc: 'PRIVATE PORTAL BODY', status: 'queued', nextAttemptAt: now, createdAt: now, updatedAt: now });
+      const before = await db.select().from(agentMessages).where(eq(agentMessages.messageId, messageId));
+      for (let n = 0; n < 2; n++) {
+        const box = await service.peekMailbox(target.sessionId, target.bridgeToken);
+        expect(box.pending).toEqual([{ source: 'portal', message_id: messageId, kind: 'portal',
+          from: { address: `admin:${adminId}`, alias: 'Operator', engine: 'operator', fqdn: null }, expires_at: null }]);
+        expect(JSON.stringify(box)).not.toContain('PRIVATE PORTAL BODY');
+      }
+      expect(await db.select().from(agentMessages).where(eq(agentMessages.messageId, messageId))).toEqual(before);
+      await db.update(adminUsers).set({ active: 0 }).where(eq(adminUsers.id, adminId));
+      expect((await service.peekMailbox(target.sessionId, target.bridgeToken)).pending).toEqual([]);
+      await db.update(adminUsers).set({ active: 1 }).where(eq(adminUsers.id, adminId));
+      await db.update(agentMessages).set({ status: 'accepted' }).where(eq(agentMessages.messageId, messageId));
+      expect((await service.peekMailbox(target.sessionId, target.bridgeToken)).pending).toEqual([]);
+    } finally {
+      await db.delete(agentMessages).where(eq(agentMessages.messageId, messageId));
+      await db.delete(adminUsers).where(eq(adminUsers.id, adminId));
+      await db.update(versions).set({ version: '0' }).where(eq(versions.name, 'agent_portal_enabled'));
+    }
+  });
 
   it('reports a waiting caller without ever having bound receive-capable', async () => {
     const caller = await register('claude', 'caller');

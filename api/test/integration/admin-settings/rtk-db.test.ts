@@ -1,3 +1,4 @@
+import { ENGINES } from '../../../src/util/engine.js';
 import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { drizzle } from 'drizzle-orm/mysql2';
@@ -27,7 +28,7 @@ describe.skipIf(!handle)(
     afterAll(async () => {
       await handle?.pool.end();
     });
-    it('persists all three policies atomically, rejects report authentication and suspended engines, and rolls back audit failures', async () => {
+    it('persists every engine policy atomically, rejects report authentication and suspended engines, and rolls back audit failures', async () => {
       const raw = handle!.db,
         env = loadTestEnv(),
         keyring = testKeyring(),
@@ -100,7 +101,7 @@ describe.skipIf(!handle)(
         };
         bindOwnerRuntime(db, runtime);
         bindOwnerPresence(runtime, presence);
-        for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
+        for (const engine of ENGINES) {
           await storeRtkPolicy(db, engine, true);
           expect(await rtkPolicy(db, engine, hostId)).toMatchObject({
             enabled: true,
@@ -191,7 +192,7 @@ describe.skipIf(!handle)(
           .select()
           .from(schema.logs)
           .where(and(eq(schema.logs.hostId, hostId), eq(schema.logs.action, 'admin.rtk')));
-        expect(audit).toHaveLength(6);
+        expect(audit).toHaveLength(ENGINES.length * 2);
       } finally {
         await app?.close();
         await executor?.drain();

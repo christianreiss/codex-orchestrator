@@ -926,6 +926,9 @@ func runDaemonOperation(ctx context.Context, op daemonOperation) daemonResult {
 		args = append(args, "--prompt-file", file.Name())
 	}
 	if op.Engine == config.EngineKimi {
+		if err := checkKimiPrompt(prompt); err != nil {
+			return daemonResult{Status: "failed", Reply: err.Error()}
+		}
 		args = append(args, "-p", prompt)
 	}
 	cmd := exec.Command(exe, args...)

@@ -161,3 +161,36 @@ func TestValidNativeIDIsEngineSpecific(t *testing.T) {
 		}
 	}
 }
+
+func TestNativeIDValidationByEngine(t *testing.T) {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
+		t.Run(engine, func(t *testing.T) {
+			_, r := fixture(t)
+			r.Engine = engine
+			if engine == "kimi" {
+				r.NativeID = "session_" + r.NativeID
+			}
+			original := r.NativeID
+			if err := r.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			if r.NativeID != original {
+				t.Fatal("validation changed the durable native ID")
+			}
+			for _, bad := range []string{"invalid", "session_invalid", "session_session_" + oldBoot} {
+				r.NativeID = bad
+				if err := r.Validate(); err == nil {
+					t.Fatalf("invalid native ID accepted: %q", bad)
+				}
+			}
+			if engine == "kimi" {
+				r.NativeID = oldBoot
+			} else {
+				r.NativeID = "session_" + oldBoot
+			}
+			if err := r.Validate(); err == nil {
+				t.Fatal("another engine's ID form accepted")
+			}
+		})
+	}
+}

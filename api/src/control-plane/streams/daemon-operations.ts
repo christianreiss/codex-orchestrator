@@ -1,3 +1,4 @@
+import { assertHeadlessPrompt } from '../../services/headless-prompt.js';
 import { stagePortalEvent } from '../state/portal-events.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { eq, inArray, and, desc } from 'drizzle-orm';
@@ -147,6 +148,7 @@ export class DaemonOperations extends DaemonState {
     portalInput?: PortalDaemonInput,
     options: { internal?: boolean; model?: string } = {},
   ) {
+    assertHeadlessPrompt(input.engine, input.prompt);
     const host = this.workAccess(c.snapshot, input.host_id, input.engine);
     if (isInternalHost(host) !== Boolean(options.internal)) throw new NotFoundError('Host not found');
     const config = this.eligible(input.host_id, input.engine, false, c.snapshot),
@@ -383,6 +385,7 @@ export class DaemonOperations extends DaemonState {
         guard?.(c);
         const locked = c.snapshot.table('hostDaemonSessions').get(id);
         if (!locked) throw new NotFoundError('Remote session not found');
+        assertHeadlessPrompt(locked.engine, prompt);
         if (actor && locked.owner !== actor)
           throw new ForbiddenError('Only the creating agent may control this helper');
         hostId = locked.hostId;

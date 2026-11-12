@@ -1,3 +1,4 @@
+import { assertHeadlessPrompt } from '../../services/headless-prompt.js';
 import { randomUUID } from 'node:crypto';
 import { agentBusConversations } from '../../db/schema.js';
 import { ApiError } from '../../http/errors.js';
@@ -23,6 +24,7 @@ export function stageCoordinationNotice(
     ttlSeconds?: number;
   } = {},
 ): string | undefined {
+  assertHeadlessPrompt(session.engine, content);
   if (!session.agentBusAddressId || session.endedAt) return;
   const target = ctx.draft.table('agentBusAddresses').get(session.agentBusAddressId);
   if (

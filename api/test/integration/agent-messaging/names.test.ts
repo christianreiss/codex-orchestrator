@@ -1,3 +1,6 @@
+import mysql from 'mysql2/promise';
+import { drizzle } from 'drizzle-orm/mysql2';
+import * as schema from '../../../src/db/schema.js';
 import Fastify from 'fastify';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { registerAgentMessagingRoutes } from '../../../src/routes/agent-messaging/index.js';
@@ -24,12 +27,15 @@ import { releaseAgentMessagingBindingsLocked } from '../../../src/services/agent
 import { agentNameKey, namedSessionTitle } from '../../../src/services/agent-messaging/names.js';
 import { isoOffsetSeconds, nowIso } from '../../../src/util/timestamp.js';
 import type { Engine } from '../../../src/util/engine.js';
-import { getTestDb } from '../../helpers/test-db.js';
+import { getTestDb, readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 const handle = await getTestDb();
+const baseHandle = handle;
+let scoped = handle;
+const database = 'name_pool_' + randomUUID().replaceAll('-', '');
 describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_000 }, () => {
-  const db = handle?.db;
+  let db = scoped?.db;
   let host: typeof hosts.$inferSelect;
   let service: AgentMessagingService;
   const sentinel = randomUUID();
@@ -67,7 +73,13 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     identities.length = 0;
   }
   beforeAll(async () => {
-    await runMigrations(handle!.pool);
+    // This suite deliberately exhausts the entire global name pool. Four-engine
+    // lifecycle suites can already consume every slot in the shared test DB.
+    await baseHandle!.pool.query(`CREATE DATABASE \`${database}\``);
+    const pool = mysql.createPool({ ...readDbConfig()!, database });
+    db = drizzle(pool, { schema, mode: 'default' }) as NonNullable<typeof baseHandle>['db'];
+    scoped = { pool, db };
+    await runMigrations(pool, { initSchema: true, appliedBy: 'names-fixture' });
     await db!.insert(hosts).values({
       fqdn: `ztest-names-${randomUUID()}.example`,
       apiKey: 'a'.repeat(64),
@@ -93,7 +105,11 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
   afterAll(async () => {
     await cleanup();
     await db!.delete(hosts).where(eq(hosts.id, host.id));
-    await handle?.pool.end();
+    await scoped?.pool.end();
+    if (baseHandle) {
+      await baseHandle.pool.query(`DROP DATABASE IF EXISTS \`${database}\``);
+      await baseHandle.pool.end();
+    }
   });
 
   async function launch(
@@ -110,7 +126,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
       username: resume?.username ?? randomUUID(),
       cwd: '/tmp/cxx-names',
       invocationKind: 'interactive' as const,
-      upstreamSessionId: resume ? resume.native : randomUUID(),
+      upstreamSessionId: resume ? resume.native : engine === 'kimi' ? `session_${randomUUID()}` : randomUUID(),
       requestedAddress: resume?.address,
     };
     const result = await service.registerSession(host, input);
@@ -142,9 +158,9 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     for (const statement of migration.statements) await exec(statement);
     expect((await service.translate(agent.address.name!)).uuid).toBe(agent.address.id);
   });
-  it('allocates unique names across concurrent launches and all three engines', async () => {
+  it('allocates unique names across concurrent launches and all supported engines', async () => {
     const agents = await Promise.all(
-      Array.from({ length: 12 }, (_, i) => launch((['codex', 'claude', 'grok', 'kimi'] as const)[i % 3])),
+      Array.from({ length: 12 }, (_, i) => launch((['codex', 'claude', 'grok', 'kimi'] as const)[i % 4])),
     );
     expect(new Set(agents.map((a) => a.address.name)).size).toBe(12);
     for (const agent of agents) {
@@ -399,7 +415,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
       expect(picker.address.name).not.toBe(first.address.name);
       const receiver = new AgentReceiverService(db!, loadTestEnv(), testKeyring());
       const protocol =
-        engine === 'codex' ? 'codex-queue-v1' : engine === 'claude' ? 'claude-channel-v1' : 'grok-acp-v1';
+        engine === 'codex' ? 'codex-queue-v1' : engine === 'claude' ? 'claude-channel-v1' : engine === 'grok' ? 'grok-acp-v1' : 'kimi-hooks-v1';
       await receiver.register(picker.sessionId, picker.token, {
         generation: randomUUID(),
         protocol,
@@ -497,7 +513,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
       await exec(
         `INSERT INTO ${table} (session_id, name_key, name, address_id, started_at) VALUES ('launch', 'paula', 'Paula', 'address', '2026-10-02T00:00:00Z')`,
       );
-      const [rows] = await handle!.pool.query(`SELECT name FROM ${table} ORDER BY id`);
+      const [rows] = await scoped!.pool.query(`SELECT name FROM ${table} ORDER BY id`);
       expect(rows).toEqual([{ name: 'Claudia' }, { name: 'Paula' }]);
     } finally {
       await exec(`DROP TABLE IF EXISTS ${table}`);

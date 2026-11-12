@@ -1,3 +1,4 @@
+import { ENGINES } from '../../../src/util/engine.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -42,7 +43,7 @@ describe.skipIf(!config)('internal provider tasks after owner restart', () => {
           payload: {},
           prepare({ draft, write }) {
             const now = new Date().toISOString();
-            for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
+            for (const engine of ENGINES) {
               for (const internal of [true, false]) {
                 write(async (tx) => {
                   const values = {
@@ -91,7 +92,7 @@ describe.skipIf(!config)('internal provider tasks after owner restart', () => {
             return null;
           },
         });
-        expect(leases).toHaveLength(12);
+        expect(leases).toHaveLength(ENGINES.length * 4);
         owner.ownership.lose(new Error('fixture lost database ownership'));
         await expect(acquireStorageOwnership(directory)).rejects.toThrow('still owns');
         expect(
@@ -104,7 +105,7 @@ describe.skipIf(!config)('internal provider tasks after owner restart', () => {
                 leases.map((row) => row.id),
               ),
             ),
-        ).toHaveLength(12);
+        ).toHaveLength(ENGINES.length * 4);
         await owner.close();
         owner = undefined;
         await storage.close();
@@ -112,7 +113,7 @@ describe.skipIf(!config)('internal provider tasks after owner restart', () => {
 
         storage = await acquireStorageOwnership(directory);
         owner = await start();
-        expect(owner.reconciledProviderTasks).toBe(3);
+        expect(owner.reconciledProviderTasks).toBe(ENGINES.length);
         for (const lease of leases) {
           const current = owner.runtime.state.snapshot().table('providerAccountSessions').get(lease.id);
           if (lease.hostId === 0 && lease.ownershipMode === 'connection') expect(current).toBeUndefined();
@@ -128,7 +129,7 @@ describe.skipIf(!config)('internal provider tasks after owner restart', () => {
                 leases.map((row) => row.id),
               ),
             ),
-        ).toHaveLength(9);
+        ).toHaveLength(ENGINES.length * 3);
         await drainOwnedProviders(owner.runtime);
         for (const account of accounts) {
           expect(owner.runtime.state.snapshot().accounts.get(account.id)?.state).toBe(

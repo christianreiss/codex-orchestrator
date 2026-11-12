@@ -1487,6 +1487,26 @@ The Admin WebUI includes a personal product assistant for Owner/Admin after the 
 
 Automatic MCP instances within one managed launch share an elected local receiver and receipt tracker from cxx 0.9.44. See [shared receiver ownership](interface-cdx.md#shared-receiver-ownership-cxx-0944).
 
+The session mailbox ring includes due queued operator Portal commands for all
+engines, with `source: "portal"` and sender identity, never a body or lease.
+Kimi's `kimi-hooks-v1` receiver consumes that ring at native prompt/Stop hooks
+and claims operator commands through the Portal source on `agent_listen`.
+
+System Spawn and Chatty host engine assignment accept all four supported engines
+in one request, including Kimi.
+
+### Kimi headless prompt size
+
+Kimi Code accepts headless prompts only through argv. Kimi daemon starts and
+follow-up turns reject input above **100000 UTF-8 bytes** at acceptance with
+HTTP 422 (`validation_failed`, `param: prompt`). The limit applies to agent,
+WebUI, companion and internally staged starts. Other engines keep their existing
+limits. Wake/Schedules already accept at most 30000 UTF-8 bytes and peer
+instructions at most 32 KiB. Generated workflow coordination prompts also enforce
+the Kimi byte limit before queue acceptance. Both wrapper workers also check the
+fully rendered Kimi prompt (including delivery framing and session titles) before
+exec and report `Kimi prompt exceeds 100000 UTF-8 bytes` on failure.
+
 ### Daemon working directory
 
 Remote starts use an explicitly supplied `cwd`, then the host daemon's configured

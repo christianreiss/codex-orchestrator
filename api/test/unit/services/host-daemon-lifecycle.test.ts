@@ -73,6 +73,16 @@ describe('host daemon service decisions', () => {
       })
     ).generation;
   });
+  it('bounds Kimi starts and follow-up turns in UTF-8 bytes before queuing', async () => {
+    const tooLarge = '界'.repeat(33_334);
+    await expect(service.start({ ...request(), engine: 'kimi', prompt: tooLarge }, 'owner'))
+      .rejects.toMatchObject({ status: 422, param: 'prompt', message: 'Kimi prompt exceeds 100000 UTF-8 bytes' });
+    expect(fake.tables.get(hostDaemonOperations) ?? []).toHaveLength(0);
+    const started = await service.start({ ...request(), engine: 'kimi', prompt: '😀'.repeat(25_000) }, 'owner');
+    row(hostDaemonSessions).status = 'idle';
+    await expect(service.turn(started.session_id, tooLarge, randomUUID(), 'owner')).rejects.toThrow('100000 UTF-8 bytes');
+    expect(fake.tables.get(hostDaemonOperations)).toHaveLength(1);
+  });
   it.each([true, false])('changes only daemon enablement (%s), preserving settings under the lock', async (enabled) => {
     const settings = daemonSettingsSchema.parse({ enabled: true, username: 'worker', default_cwd: '/srv/work', max_parallel: 3, idle_minutes: 25, question_minutes: 120 });
     row(hostDaemons).settings = settings;

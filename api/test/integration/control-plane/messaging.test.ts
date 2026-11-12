@@ -240,6 +240,29 @@ describe.skipIf(!handle)('owned messaging lifecycle on MySQL', () => {
           expect((await bus.peekMailbox(peerId, peerToken)).pending).toHaveLength(1);
         }
         expect(budget.snapshot()).toEqual([]);
+        // Portal and peer rings share metadata, never bodies or receipt ownership.
+        const portalId = randomUUID(), portalAdminId = 900000001;
+        await mutateOwnerState(runtime, {
+          kind: 'fixture.portal.ring', payload: { portalId },
+          prepare(ctx) {
+            ctx.draft.upsert('versions', { name: 'agent_portal_enabled', version: '1', updatedAt: now });
+            ctx.draft.upsert('adminUsers', { id: portalAdminId, name: 'Operator', active: 1 } as schema.AdminUser);
+            ctx.draft.upsert('agentMessages', { id: portalAdminId, messageId: portalId, sessionId: peerId,
+              adminUserId: portalAdminId, status: 'queued', nextAttemptAt: now } as schema.AgentMessage);
+            return null;
+          },
+        });
+        budget.reset();
+        const beforePeek = store.revision();
+        const box = await bus.peekMailbox(peerId, peerToken);
+        expect(box.pending).toContainEqual({ source: 'portal', message_id: portalId, kind: 'portal',
+          from: { address: `admin:${portalAdminId}`, alias: 'Operator', engine: 'operator', fqdn: null }, expires_at: null });
+        expect(store.revision()).toEqual(beforePeek);
+        expect(budget.snapshot()).toEqual([]);
+        await mutateOwnerState(runtime, {
+          kind: 'fixture.portal.clear', payload: { portalId },
+          prepare(ctx) { ctx.draft.remove('agentMessages', portalAdminId); ctx.draft.remove('adminUsers', portalAdminId); return null; },
+        });
         const claimId = randomUUID(),
           delivery = await bus.claimForSession(peerId, peerToken, claimId);
         expect(delivery).toMatchObject({

@@ -165,7 +165,7 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
     });
   }
 
-  it('routes each of Codex, Claude and Grok to the two other group members, then Server to all three', async () => {
+  it('routes every engine to the other group members, then Server to all engines', async () => {
     const agents = await Promise.all(ENGINES.map((engine) => register(engine, engine)));
     for (const agent of agents)
       await service.heartbeatSession(agent.sessionId, agent.token, { receiveCapable: true });
@@ -178,7 +178,7 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
         content: `from ${ENGINES[source]}`,
         clientMessageId: randomUUID(),
       });
-      expect(result.recipient_count).toBe(2);
+      expect(result.recipient_count).toBe(ENGINES.length - 1);
       expect(result.deliveries.map((r) => r.address_id).sort()).toEqual(
         agents
           .filter((a) => a !== sender)
@@ -207,7 +207,7 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
       content: 'from Server',
       clientMessageId: randomUUID(),
     });
-    expect(published.recipient_count).toBe(3);
+    expect(published.recipient_count).toBe(ENGINES.length);
     expect(published.deliveries.some((r) => r.address_id === outsider.addressId)).toBe(false);
     for (const receipt of published.deliveries)
       expect(await message(receipt.message_id)).toMatchObject({

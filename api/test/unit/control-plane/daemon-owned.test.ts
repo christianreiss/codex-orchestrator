@@ -145,6 +145,17 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
   return { state, runtime, presence, fake, ctx, service };
 }
 describe('connection-owned daemon commands', () => {
+  it('rejects oversized Kimi start/turn prompts before owner mutations', async () => {
+    const h = harness({ hostDaemonSessions: [{ id: 'kimi-session', hostId: 1, engine: 'kimi', owner: 'owner', status: 'idle' }] });
+    const before = h.state.revision();
+    await expect(h.service.start({ host_id: 1, engine: 'kimi', title: 'Helper', prompt: '界'.repeat(33_334), client_message_id: randomUUID() }, 'owner'))
+      .rejects.toMatchObject({ status: 422, param: 'prompt' });
+    await expect(h.service.turn('kimi-session', '界'.repeat(33_334), randomUUID(), 'owner'))
+      .rejects.toMatchObject({ status: 422, param: 'prompt' });
+    expect(h.state.revision()).toEqual(before);
+    expect(h.state.snapshot().table('hostDaemonOperations').all()).toEqual([]);
+  });
+
   it.each(['codex', 'claude', 'grok', 'kimi'] as const)('persists %s canonical identity changes but not repeated auth contact', async (engine) => {
     const h = harness(), stamp = '2026-10-24T10:00:00Z', digest = 'a'.repeat(64);
     await touchHostAuthState(h.ctx.db, 1, 11, digest, engine);

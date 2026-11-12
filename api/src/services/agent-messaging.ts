@@ -1,3 +1,5 @@
+import { assertHeadlessPrompt } from './headless-prompt.js';
+import { portalMailboxEntry } from './agent-messaging/portal-mailbox.js';
 import { emulationBlocks } from './quota-emulation.js';
 import { conferenceAdmissionOpenSql } from './agent-messaging/conference-protocol.js';
 import { readMessagePage } from './agent-messaging/read-page.js';
@@ -66,6 +68,8 @@ import {
 
 import type { Database } from '../db/client.js';
 import {
+  adminUsers,
+  agentMessages,
   agentWatchdogs,
   agentScheduleRuns,
   agentSchedules,
@@ -932,6 +936,17 @@ export class AgentMessagingService {
       } else {
         missed.push({ from, expired_at: row.message.expiredAt });
       }
+    }
+    // Ring portal commands as well, without exposing or leasing their bodies.
+    const [portalFlag] = await this.db.select({ value: versions.version }).from(versions)
+      .where(eq(versions.name, 'agent_portal_enabled')).limit(1);
+    if (isTruthyFlagValue(portalFlag?.value, false)) {
+      const portalRows = await this.db.select({ messageId: agentMessages.messageId, adminId: adminUsers.id, name: adminUsers.name })
+        .from(agentMessages).innerJoin(adminUsers, eq(adminUsers.id, agentMessages.adminUserId))
+        .where(and(eq(agentMessages.sessionId, sessionId), eq(agentMessages.status, 'queued'),
+          lte(agentMessages.nextAttemptAt, now), eq(adminUsers.active, 1)))
+        .orderBy(asc(agentMessages.id)).limit(AGENT_MESSAGING_MAILBOX_PAGE_SIZE);
+      pending.push(...portalRows.map(row => portalMailboxEntry(row.messageId, row.adminId, row.name)));
     }
     return { pending, missed };
   }
@@ -2453,6 +2468,7 @@ export class AgentMessagingService {
   }
 
   async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number; expiresAt?: string } = {}): Promise<string | undefined> {
+    assertHeadlessPrompt(session.engine, content);
     if (!session.agentBusAddressId || session.endedAt) return;
     const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
     if (target.currentSessionId !== session.id) return;

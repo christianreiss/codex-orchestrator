@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import { beforeAll, afterAll, afterEach, describe, it, expect } from 'vitest';
-import { agentBusAddresses, agentBusConversations, agentBusMessages, agentSchedules, agentScheduleRuns, agentWatchdogs, agentSessions, providerAccounts, chatgptUsageSnapshots, claudeUsageSnapshots, grokUsageSnapshots, hosts, versions, hostDaemons } from '../../../src/db/schema.js';
+import { agentBusAddresses, agentBusConversations, agentBusMessages, agentSchedules, agentScheduleRuns, agentWatchdogs, agentSessions, providerAccounts, chatgptUsageSnapshots, claudeUsageSnapshots, grokUsageSnapshots, kimiUsageSnapshots, hosts, versions, hostDaemons } from '../../../src/db/schema.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
 import { WatchdogsService } from '../../../src/services/watchdogs.js';
 import { SchedulesService } from '../../../src/services/schedules.js';
@@ -35,8 +35,9 @@ describe.skipIf(!handle)('quota recovery on MySQL', { timeout: 120000 }, () => {
     const reset = new Date(Date.now() + 60000).toISOString();
     if (engine === 'claude') await db.insert(claudeUsageSnapshots).values({ accountId: account.id, fiveHourUsedPercent: 100, fiveHourResetsAt: reset, sevenDayUsedPercent: 20, sevenDayResetsAt: new Date(Date.now() + 86400000).toISOString(), fetchedAt: now, createdAt: now });
     else if (engine === 'codex') await db.insert(chatgptUsageSnapshots).values({ accountId: account.id, primaryUsedPercent: 100, primaryLimitSeconds: 18000, primaryResetAt: reset, status: 'ok', nextEligibleAt: now, fetchedAt: now, createdAt: now });
-    else await db.insert(grokUsageSnapshots).values({ accountId: account.id, usedPercent: 100, periodType: 'weekly', periodResetsAt: reset, fetchedAt: now, checkedAt: now });
-    const id = randomUUID(), token = randomBytes(32).toString('base64url'), native = randomUUID(); sessionIds.push(id);
+    else if (engine === 'grok') await db.insert(grokUsageSnapshots).values({ accountId: account.id, usedPercent: 100, periodType: 'weekly', periodResetsAt: reset, fetchedAt: now, checkedAt: now });
+    else await db.insert(kimiUsageSnapshots).values({ accountId: account.id, fiveHourUsedPercent: 100, fiveHourResetsAt: reset, fetchedAt: now, checkedAt: now });
+    const id = randomUUID(), token = randomBytes(32).toString('base64url'), native = engine === 'kimi' ? `session_${randomUUID()}` : randomUUID(); sessionIds.push(id);
     const registered = await bus.registerSession(host, { engine, username: 'quota-test', cwd: '/tmp/quota-test', sessionId: id, bridgeToken: token, invocationKind: 'interactive', upstreamSessionId: native, continuity: 'native', adapterProtocol: 'cxx-agent-listen-v1', adapterCapabilities: { execution_contract_version: 2, watchdog_protocol_version: 1 } });
     const address = registered.address as { id: string }; addressIds.push(address.id);
     await db.update(agentSessions).set({ providerAccountId: account.id }).where(eq(agentSessions.id, id));
@@ -48,7 +49,7 @@ describe.skipIf(!handle)('quota recovery on MySQL', { timeout: 120000 }, () => {
     if (ids.length) { await db.delete(agentWatchdogs).where(inArray(agentWatchdogs.scheduleId, ids)); await db.delete(agentScheduleRuns).where(inArray(agentScheduleRuns.scheduleId, ids)); await db.delete(agentSchedules).where(inArray(agentSchedules.id, ids)); }
     if (addressIds.length) { await db.delete(agentBusMessages).where(inArray(agentBusMessages.targetAddressId, addressIds)); await db.delete(agentBusConversations).where(inArray(agentBusConversations.addressBId, addressIds)); await db.delete(agentBusAddresses).where(inArray(agentBusAddresses.id, addressIds)); }
     if (sessionIds.length) await db.delete(agentSessions).where(inArray(agentSessions.id, sessionIds));
-    for (const id of accountIds) { await db.delete(versions).where(eq(versions.name, `quota_policy_account_${id}`)); await db.delete(chatgptUsageSnapshots).where(eq(chatgptUsageSnapshots.accountId, id)); await db.delete(claudeUsageSnapshots).where(eq(claudeUsageSnapshots.accountId, id)); await db.delete(grokUsageSnapshots).where(eq(grokUsageSnapshots.accountId, id)); await db.delete(providerAccounts).where(eq(providerAccounts.id, id)); }
+    for (const id of accountIds) { await db.delete(versions).where(eq(versions.name, `quota_policy_account_${id}`)); await db.delete(chatgptUsageSnapshots).where(eq(chatgptUsageSnapshots.accountId, id)); await db.delete(claudeUsageSnapshots).where(eq(claudeUsageSnapshots.accountId, id)); await db.delete(grokUsageSnapshots).where(eq(grokUsageSnapshots.accountId, id)); await db.delete(kimiUsageSnapshots).where(eq(kimiUsageSnapshots.accountId, id)); await db.delete(providerAccounts).where(eq(providerAccounts.id, id)); }
     sessionIds.length = addressIds.length = accountIds.length = 0;
   });
   afterAll(async () => {
