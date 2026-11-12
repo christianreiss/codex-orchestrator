@@ -50,7 +50,7 @@
     onSettled: () => { void qc.invalidateQueries({ queryKey }); },
   });
 </script>
-<DraftGuard {dirty} />
+<DraftGuard {dirty} preserveOnSamePath />
 <PolicyRow
   id="session-housekeeping"
   stacked
@@ -63,9 +63,10 @@
 >
   <div class="flex flex-wrap items-center gap-3">
     <label for="housekeeping-engine-fleet" class="text-body-sm font-medium">Engine</label>
-    <select id="housekeeping-engine-fleet" class="h-9 rounded-md border bg-background px-3 text-body-sm" bind:value={engine} disabled={$save.isPending}>
+    <select id="housekeeping-engine-fleet" class="h-9 rounded-md border bg-background px-3 text-body-sm" bind:value={engine} disabled={$save.isPending || dirty} aria-describedby="housekeeping-engine-hint">
       <option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option>
     </select>
+    <span id="housekeeping-engine-hint" class="text-caption text-muted-foreground empty:hidden">{dirty ? "Save or reload this rule before switching engine." : ""}</span>
   </div>
   {#if $query.isPending}<p role="status" class="text-body-sm text-muted-foreground">Loading rules…</p>
   {:else if $query.error}

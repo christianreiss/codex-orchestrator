@@ -1,6 +1,7 @@
 import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { SETTINGS_ANCHOR_IDS } from '../src/lib/components/settings/settings-anchors';
 function state() {
   return { values: {
     'auto-update': { enabled: false }, 'reverse-dns': { enabled: true },
@@ -18,7 +19,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
     if (!req.headers().accept?.includes('application/json')) return route.continue();
     const path = new URL(req.url()).pathname, key = path.split('/').pop()!;
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
-    if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: [manage ? 'owner' : 'viewer'] }, capabilities: ['admin.read', 'settings.read', ...(manage ? ['settings.manage', 'security.manage_authorization'] : [])] });
+    if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: [manage ? 'owner' : 'viewer'] }, capabilities: ['admin.read', 'settings.read', ...(manage ? ['settings.manage', 'security.manage_authorization', 'agent_messaging.read', 'agent_messaging.manage', 'agent_portal.manage', 'hosts.read', 'hosts.manage', 'chatty.manage'] : [])] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-09T08:00:00Z', dismissed_at: null } });
     if (path === '/admin/ws/info') return json({ enabled: true, url: new URL('/policies-ws', req.url()).href.replace(/^http/, 'ws') });
     if (path === '/admin/overview') return shared.readFail === 'prune-policy' ? json({ status: 'error', message: 'Read unavailable' }, 503) : json(shared.values['prune-policy']);
@@ -34,7 +35,8 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
   });
   return async () => { await expect.poll(() => Boolean(emit)).toBe(true); emit!(JSON.stringify({ type: 'settings.changed', payload: {}, ts: new Date().toISOString() })); };
 }
-const ANCHORS = ['hosts', 'agents', 'retention', 'auto-update', 'reverse-dns', 'insecure-approval', 'host-spawn', 'api-keys-in-chat', 'model-tier-check', 'authorization', 'host-lifecycle', 'prune-policy', 'session-housekeeping'];
+// Every id the page maps to a tab, so a map entry without a matching element fails here.
+const ANCHORS = SETTINGS_ANCHOR_IDS;
 const GROUPS = [['hosts', 'Hosts'], ['agents', 'Agents'], ['rollout', 'Rollout & tools'], ['retention', 'Retention']] as const;
 test('four tabs mount lazily, keep drafts, resolve every anchor to its tab and have no duplicate IDs', async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto('/admin/settings');
@@ -42,12 +44,17 @@ test('four tabs mount lazily, keep drafts, resolve every anchor to its tab and h
   for (const [, label] of GROUPS) await expect(tabs.getByRole('tab', { name: label, exact: true })).toBeVisible();
   await expect(tabs.getByRole('tab', { name: 'Hosts', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('heading', { name: 'Hosts', exact: true })).toBeVisible();
-  // Only the open tab is mounted.
+  // A tab that was never opened is not mounted.
   await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toHaveCount(0);
   await expect(page.locator('#retention')).toHaveCount(0);
   const days = page.getByLabel('Inactivity window (days)');
   await expect(days).toHaveValue('30'); await days.fill('12');
   await page.getByRole('switch', { name: 'Look up host names', exact: true }).focus();
+  await expect(days).toHaveValue('12');
+  // A draft survives a visit to another tab.
+  await tabs.getByRole('tab', { name: 'Agents', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible();
+  await tabs.getByRole('tab', { name: 'Hosts', exact: true }).click();
   await expect(days).toHaveValue('12');
   await page.locator('#prune-policy').getByRole('button', { name: 'Reset', exact: true }).click(); await expect(days).toHaveValue('30');
   // A tab click is reflected in the URL and survives a reload.

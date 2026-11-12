@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { hasFocus, restoreFocus } from "$lib/utils/restore-focus";
   import { formatDateTime } from "$lib/utils/format";
   import { Section, StateBlock } from "$lib/components/page";
   import { authStore } from "$lib/stores/auth";
@@ -60,6 +61,7 @@
     },
   };
 
+  let confirmingOff = $state(false);
   let pending = $state<RolloutAction | null>(null);
   let confirming = $state(false);
   let actionError = $state<string | null>(null);
@@ -89,11 +91,14 @@
   async function setEnabled(enabled: boolean) {
     toggleError = null;
     toggleDone = false;
+    const refocus = hasFocus("wrapper-rollout-toggle");
     try {
       await $toggle.mutateAsync(enabled);
       toggleDone = true;
     } catch (error) {
       toggleError = (error as Error).message;
+    } finally {
+      if (refocus) await restoreFocus("wrapper-rollout-toggle");
     }
   }
 
@@ -123,13 +128,15 @@
             {$query.data.enabled_source === "env" ? "Using the server default; the first change here is stored and then wins." : "Set here; takes effect on the next host check-in, no restart."}
           </p>
         </div>
-        <Switch
-          id="wrapper-rollout-toggle"
-          checked={$query.data.enabled}
-          disabled={!canManage || busy}
-          aria-describedby="wrapper-rollout-help wrapper-rollout-toggle-status"
-          onCheckedChange={(enabled) => void setEnabled(enabled)}
-        />
+        {#key `${$toggle.status}:${$query.data.enabled}`}
+          <Switch
+            id="wrapper-rollout-toggle"
+            checked={$query.data.enabled}
+            disabled={!canManage || busy}
+            aria-describedby="wrapper-rollout-help wrapper-rollout-toggle-status"
+            onCheckedChange={(enabled) => (!enabled && live ? (confirmingOff = true) : void setEnabled(enabled))}
+          />
+        {/key}
       </div>
       <div id="wrapper-rollout-toggle-status" role="status" aria-live="polite" class="text-body-sm empty:hidden">
         {#if $toggle.isPending}<span class="text-muted-foreground">Saving…</span>
@@ -185,6 +192,17 @@
     </div>
   {/if}
 </Section>
+
+<ConfirmDialog
+  bind:open={confirmingOff}
+  title="Stop staging new releases?"
+  description="A rollout is in progress. With staging off, every host is offered the newest host-agent release at once; the remaining stages and soak times no longer apply."
+  confirmLabel="Turn staging off"
+  destructive
+  busy={$toggle.isPending}
+  error={toggleError}
+  onConfirm={async () => { await setEnabled(false); if (!toggleError) confirmingOff = false; }}
+/>
 
 {#if pending}
   <ConfirmDialog

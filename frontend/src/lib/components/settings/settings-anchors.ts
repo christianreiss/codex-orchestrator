@@ -33,15 +33,17 @@ const GROUP_OF_ID: Record<string, SettingsGroup> = {
   "agent-coordination": "agents",
   "agent-supervisor": "agents",
   chatty: "agents",
-  rollout: "rollout",
   "cxx-rollout": "rollout",
   "wrapper-rollout": "rollout",
+  "rollout-protocol": "rollout",
   "communicator-api": "rollout",
   rtk: "rollout",
   retention: "retention",
-  "server-retention": "retention",
   "session-housekeeping": "retention",
 };
+
+/** Every row id the page can be linked to, for the e2e check that each one exists in the DOM. */
+export const SETTINGS_ANCHOR_IDS = Object.keys(GROUP_OF_ID);
 
 export function isSettingsGroup(value: unknown): value is SettingsGroup {
   return typeof value === "string" && (SETTINGS_GROUPS as readonly string[]).includes(value);

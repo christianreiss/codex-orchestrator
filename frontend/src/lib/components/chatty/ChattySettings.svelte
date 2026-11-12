@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { hasFocus, restoreFocus } from '$lib/utils/restore-focus';
   import { toStore } from 'svelte/store';
   import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { authStore } from '$lib/stores/auth';
   import { api } from '$lib/api/client';
   import { Section, StateBlock } from '$lib/components/page';
+  import DraftGuard from '$lib/components/page/DraftGuard.svelte';
   import { Switch } from '$lib/components/ui/switch';
   import { Input } from '$lib/components/ui/input';
   import { Button } from '$lib/components/ui/button';
@@ -24,6 +26,12 @@
   const busy = $derived($save.isPending);
   const disabled = $derived(!canManage || busy || !$settings.isSuccess || $settings.isFetching);
 
+  async function toggleEnabled(enabled: boolean) {
+    const refocus = hasFocus('chatty-enabled');
+    try { await $save.mutateAsync({ enabled }); } catch { /* shown below */ }
+    if (refocus) await restoreFocus('chatty-enabled');
+  }
+
   // Parallel requests is typed: it saves on "Save", never half-typed.
   let concurrency = $state<number | undefined>(undefined);
   let adopted: number | undefined;
@@ -35,6 +43,7 @@
   const concurrencyDirty = $derived($settings.data !== undefined && concurrency !== $settings.data.concurrency);
 </script>
 {#if canManage}
+  <DraftGuard dirty={concurrencyDirty} preserveOnSamePath />
   <Section id="chatty" title="Chatty" description="Personal product assistant for owners and admins. Uses verified accounts of the enabled engines.">
     {#if $settings.isPending}
       <StateBlock state="loading" rows={2} />
@@ -48,7 +57,7 @@
             <p id="chatty-enabled-help" class="text-body-sm text-muted-foreground">Disabling stops requests in progress. Conversations are kept and changes already made stay in place.</p>
           </div>
           {#key `${$save.status}:${$settings.data.enabled}`}
-            <Switch id="chatty-enabled" checked={$settings.data.enabled} {disabled} aria-describedby="chatty-enabled-help chatty-status" onCheckedChange={(enabled) => $save.mutate({ enabled })} />
+            <Switch id="chatty-enabled" checked={$settings.data.enabled} {disabled} aria-describedby="chatty-enabled-help chatty-status" onCheckedChange={(enabled) => void toggleEnabled(enabled)} />
           {/key}
         </div>
         <div class="space-y-1.5 py-3">
@@ -73,7 +82,7 @@
       </div>
       <div id="chatty-status" role="status" aria-live="polite" class="mt-2 text-body-sm empty:hidden">
         {#if busy}<span class="text-muted-foreground">Saving…</span>
-        {:else if $save.isError}<span role="alert" class="text-destructive">Save failed: {$save.error.message}. The values above are the server's current ones.</span>
+        {:else if $save.isError}<span role="alert" class="text-destructive">Save failed: {$save.error.message}</span>
         {:else if $save.isSuccess}<span class="text-muted-foreground">Saved</span>{/if}
       </div>
     {/if}

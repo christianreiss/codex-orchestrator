@@ -48,7 +48,7 @@
     $saveMutation.mutate({ ...$query.data, ...draft });
   }
 </script>
-<DraftGuard {dirty} />
+<DraftGuard {dirty} preserveOnSamePath />
 <PolicyRow
   id={kind}
   label="Remove inactive hosts"

@@ -184,7 +184,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 | Page inset | 16 px narrow; 24 px from 768 px viewport width | One owner for outer padding; avoid doubled shell/page gutters |
 | Data workspace | Available width (`PageShell` wide) | Tables, boards, graphs, comparison and editor-with-preview |
 | Standard workspace | 72rem maximum (`PageShell` default) | Mixed task pages |
-| Settings / detail form | 48rem maximum (`PageShell` narrow) | Reading labels and completing related fields |
+| Settings / detail form | 48rem maximum (`PageShell` narrow); the tabbed Settings page uses the standard workspace with its tab content capped at 56rem | Reading labels and completing related fields; label and switch stay within one eye span |
 | Article / long prose | 65ch maximum text measure | A code block/table may be wider within a bounded region |
 | Auth form / setup | 24rem / 56rem maximum | Narrow sign-in and wider staged setup respectively |
 | Desktop controls | 36 px normal; 32 px compact table/toolbar | Minimum heights; multiline content may grow |
@@ -683,8 +683,8 @@ Connector setup presents a provider-specific, clearly labeled reference form wit
 idioms and no navigation. It is now one `Tabs` row (Hosts, Agents, Rollout &
 tools, Retention) selected by `?group=`; every row keeps its anchor and a hash
 opens the tab that holds it (`settings-anchors.ts`). It moves from `PageShell`
-narrow to the standard 72rem workspace so rows and override badges fit beside
-their controls, so no width exception is registered. Applicable rules: NAV-1/3/4,
+narrow to the standard 72rem workspace for the tab strip, with each tab’s content capped at 56rem so a label and its switch stay close; rows and override
+badges fit beside their controls, so no width exception is registered. Applicable rules: NAV-1/3/4,
 VIS-1, INT-2/3/5/7, ACC-1/3/4. Scope is shown per row ("N hosts override" links
 to Hosts); failures render at the control, never toast-only; a missing
 capability is named in place instead of hiding the row; destructive or

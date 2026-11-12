@@ -7,7 +7,7 @@
 
 <WrapperRolloutSection />
 
-<Section id="rollout-protocol" title="Host agent protocol" description="Which communicator API level hosts speak. Read only: the minimum follows the built-in default.">
+<Section id="rollout-protocol" title="Host agent protocol" description="Which communicator API level hosts speak. Read only here.">
   <CommunicatorApiSection headingLevel={3} />
 </Section>
 

@@ -52,3 +52,12 @@ test('read-only operators cannot change housekeeping', async ({ page }) => {
   await fixture(page, false); await page.goto('/admin/settings#session-housekeeping');
   const card = page.locator('#session-housekeeping'); await expect(card.getByLabel('Retention (days)')).toHaveValue('30'); await expect(card.getByLabel('Enable automatic housekeeping')).toBeDisabled(); await expect(card.getByRole('button', { name: 'Save rule', exact: true })).toBeDisabled();
 });
+test('an unsaved rule cannot be dropped by switching engine', async ({ page }) => {
+  await fixture(page); await page.goto('/admin/settings#session-housekeeping');
+  const card = page.locator('#session-housekeeping'); await expect(card.getByLabel('Retention (days)')).toHaveValue('30');
+  await card.getByLabel('Retention (days)').fill('45');
+  await expect(card.getByLabel('Engine', { exact: true })).toBeDisabled();
+  await expect(card).toContainText('Save or reload this rule before switching engine.');
+  await card.getByRole('button', { name: 'Reload saved rule' }).click();
+  await expect(card.getByLabel('Engine', { exact: true })).toBeEnabled();
+});

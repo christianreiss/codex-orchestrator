@@ -7,6 +7,7 @@
    * coordination and the agent supervisor.
    */
   import { untrack, type Snippet } from "svelte";
+  import { hasFocus, restoreFocus } from "$lib/utils/restore-focus";
   import { createMutation, useQueryClient, type CreateQueryResult } from "@tanstack/svelte-query";
   import { authStore } from "$lib/stores/auth";
   import type { Capability } from "$lib/auth/capabilities";
@@ -69,6 +70,8 @@
   }
   async function save(enabled: boolean) {
     if (!canManage || pending) return;
+    // The switch is re-created when the confirmed state changes; give it back its keyboard focus.
+    const refocus = hasFocus(`${id}-toggle`);
     attempted = enabled; saveError = null; saved = false; recovered = false;
     await client.cancelQueries({ queryKey: [...queryKey] });
     try {
@@ -79,6 +82,8 @@
     } catch (error) {
       saveError = error;
       await reconcile();
+    } finally {
+      if (refocus) await restoreFocus(`${id}-toggle`);
     }
   }
 </script>

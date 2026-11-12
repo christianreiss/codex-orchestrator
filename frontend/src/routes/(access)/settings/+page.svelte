@@ -14,9 +14,13 @@
   const canManage = $derived($authStore.can("settings.manage"));
 
   // One group at a time; the tab lives in the URL so a reload or shared link lands on it.
-  // Only the open tab is mounted, so its queries are the only ones that fire.
+  // Tabs mount on first visit, so only the tabs you opened fire their queries.
   const requested = $derived(page.url.searchParams.get("group") ?? "");
   const current = $derived<SettingsGroup>(isSettingsGroup(requested) ? requested : "hosts");
+
+  // A tab mounts on first visit and then stays, so a draft in one tab survives a look at another.
+  let visited = $state<Set<SettingsGroup>>(new Set());
+  $effect(() => { if (!visited.has(current)) visited = new Set([...visited, current]); });
 
   function selectGroup(group: string) {
     if (!isSettingsGroup(group)) return;
@@ -67,9 +71,9 @@
       </Tabs.List>
     </div>
 
-    <Tabs.Content value="hosts" class="space-y-8">{#if current === "hosts"}<HostsTab />{/if}</Tabs.Content>
-    <Tabs.Content value="agents" class="space-y-8">{#if current === "agents"}<AgentsTab />{/if}</Tabs.Content>
-    <Tabs.Content value="rollout" class="space-y-8">{#if current === "rollout"}<RolloutTab />{/if}</Tabs.Content>
-    <Tabs.Content value="retention" class="space-y-8">{#if current === "retention"}<RetentionTab />{/if}</Tabs.Content>
+    <Tabs.Content value="hosts" class="max-w-4xl space-y-8">{#if visited.has("hosts") || current === "hosts"}<HostsTab />{/if}</Tabs.Content>
+    <Tabs.Content value="agents" class="max-w-4xl space-y-8">{#if visited.has("agents") || current === "agents"}<AgentsTab />{/if}</Tabs.Content>
+    <Tabs.Content value="rollout" class="max-w-4xl space-y-8">{#if visited.has("rollout") || current === "rollout"}<RolloutTab />{/if}</Tabs.Content>
+    <Tabs.Content value="retention" class="max-w-4xl space-y-8">{#if visited.has("retention") || current === "retention"}<RetentionTab />{/if}</Tabs.Content>
   </Tabs.Root>
 </PageShell>

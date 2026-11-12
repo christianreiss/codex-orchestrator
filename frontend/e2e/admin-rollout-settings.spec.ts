@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 type Posts = Array<{ path: string; body: unknown }>;
 
-async function fixture(page: Page, opts: { manage?: boolean; failHalt?: boolean } = {}) {
+async function fixture(page: Page, opts: { manage?: boolean; failHalt?: boolean; failEnabled?: boolean } = {}) {
   const manage = opts.manage ?? true;
   const state = { enabled: false, source: 'env' as 'env' | 'setting', status: 'active' as 'active' | 'halted' };
   const posts: Posts = [];
@@ -27,6 +27,7 @@ async function fixture(page: Page, opts: { manage?: boolean; failHalt?: boolean 
     if (path === '/admin/wrapper/rollout') return json(rollout());
     if (path === '/admin/wrapper/rollout/enabled' && req.method() === 'POST') {
       posts.push({ path, body: req.postDataJSON() });
+      if (opts.failEnabled) return json({ status: 'error', message: 'Setting store unavailable' }, 503);
       state.enabled = req.postDataJSON().enabled; state.source = 'setting';
       return json({ enabled: state.enabled, source: state.source });
     }
@@ -77,4 +78,29 @@ test('read-only operators see the permission instead of an editable switch', asy
   await expect(page.getByRole('switch', { name: 'Stage new releases' })).toBeDisabled();
   await expect(page.locator('#wrapper-rollout')).toContainText('hosts.manage');
   await expect(page.getByRole('button', { name: 'Halt', exact: true })).toBeDisabled();
+});
+
+test('a failed switch save shows the error at the control and keeps the server value', async ({ page }) => {
+  const f = await fixture(page, { failEnabled: true });
+  await page.goto('/admin/settings?group=rollout');
+  const toggle = page.getByRole('switch', { name: 'Stage new releases' });
+  await toggle.click();
+  await expect(page.locator('#wrapper-rollout')).toContainText('Save failed: Setting store unavailable');
+  await expect(toggle).not.toBeChecked();
+  await expect(toggle).toBeEnabled();
+  expect(f.posts).toHaveLength(1);
+});
+
+test('turning staging off during a live rollout asks first', async ({ page }) => {
+  const f = await fixture(page);
+  f.state.enabled = true; f.state.source = 'setting';
+  await page.goto('/admin/settings?group=rollout');
+  await page.getByRole('switch', { name: 'Stage new releases' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Stop staging new releases?' });
+  await expect(dialog).toBeVisible();
+  expect(f.posts).toEqual([]);
+  await dialog.getByRole('button', { name: 'Turn staging off' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(f.posts).toEqual([{ path: '/admin/wrapper/rollout/enabled', body: { enabled: false } }]);
+  await expect(page.getByRole('switch', { name: 'Stage new releases' })).not.toBeChecked();
 });

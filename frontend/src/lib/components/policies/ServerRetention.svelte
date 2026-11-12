@@ -39,7 +39,7 @@
   function confirmRun() { activation=!$query.data?.policy.armed; confirmOpen=true; }
 </script>
 
-<DraftGuard {dirty} />
+<DraftGuard {dirty} preserveOnSamePath />
 <section class="space-y-4 py-4" aria-labelledby="server-retention-title">
   <div>
     <h3 id="server-retention-title" class="text-h2">Server history</h3>
