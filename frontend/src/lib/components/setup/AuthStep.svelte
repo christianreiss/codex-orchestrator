@@ -19,7 +19,7 @@
 
   type Props = {
     engines: AuthEngine[];
-    canonical: { codex: boolean; claude: boolean; grok?: boolean };
+    canonical: { codex: boolean; claude: boolean; grok?: boolean; kimi?: boolean };
     runnerHealthy: boolean;
   };
 
@@ -31,7 +31,7 @@
   const engines = $derived(chosen.filter((engine) => $fleet.isEnabled(engine)));
   const skipped = $derived(chosen.filter((engine) => !$fleet.isEnabled(engine)));
 
-  let panels = $state<Record<AuthEngine, SeedAuthPanel | null>>({ codex: null, claude: null, grok: null });
+  let panels = $state<Record<AuthEngine, SeedAuthPanel | null>>({ codex: null, claude: null, grok: null, kimi: null });
 
   export function isBusy(): boolean {
     return engines.some((engine) => panels[engine]?.isBusy() ?? false);

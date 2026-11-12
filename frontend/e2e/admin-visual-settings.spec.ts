@@ -61,10 +61,10 @@ test("completed setup steps stay inside their local rail at phone widths", async
     await installFixtures(page, path => path === "/admin/setup/status" ? {
       setup_complete: true, critical_complete: true, owner_created: true,
       checks: [{ id: "runner", label: "Authentication runner", ok: true, critical: true, detail: "Runner reachable" }],
-      configured_engines: ["codex", "claude", "grok"], default_engines: ["codex", "claude", "grok"],
-      canonical_auth: { codex: false, claude: false, grok: false }, hosts: { total: 0, synced: 0 },
+      configured_engines: ["codex", "claude", "grok", "kimi"], default_engines: ["codex", "claude", "grok", "kimi"],
+      canonical_auth: { codex: false, claude: false, grok: false, kimi: false }, hosts: { total: 0, synced: 0 },
       public_base_url: "https://console.example.test", warnings: [], next_actions: [],
-      wizard: { completed_at: null, dismissed_at: null, last_step: "host", engines: ["codex", "claude", "grok"] },
+      wizard: { completed_at: null, dismissed_at: null, last_step: "host", engines: ["codex", "claude", "grok", "kimi"] },
     } : undefined);
     for (const step of setupSteps) {
       await page.goto(`/admin/setup?step=${step}`);

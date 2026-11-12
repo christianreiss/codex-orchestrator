@@ -9,6 +9,10 @@ import java.time.ZoneId
 class ToolsModelsTest {
     private val utc = ZoneId.of("UTC")
 
+    @Test fun kimiHasItsCanonicalEngineLabel() {
+        assertEquals("Kimi Code", engineLabel("kimi"))
+    }
+
     @Test fun flagsAreReadPerFeatureAndMissingMeansHidden() {
         assertEquals(ToolsFlags.NONE, ToolsFlags.from(JSONObject("{}")))
         val flags = ToolsFlags.from(JSONObject("""{"workflows_protocol":1,"schedules_protocol":1,"feedback_protocol":1,"remote_stop_protocol":1}"""))
@@ -153,7 +157,7 @@ class ToolsModelsTest {
         assertFalse(feedbackRetryKeepsId(409))
     }
 
-    private fun host(modes: String) = JSONObject("""{"host_id":1,"engines":["codex","claude","grok"],"permission_modes":$modes}""")
+    private fun host(modes: String) = JSONObject("""{"host_id":1,"engines":["codex","claude","grok","kimi"],"permission_modes":$modes}""")
 
     @Test fun planIsOfferedOnlyWhereTheHostListsIt() {
         val h = host("""{"codex":["default"],"claude":["default","plan"],"grok":["default"]}""")

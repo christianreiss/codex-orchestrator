@@ -20,6 +20,7 @@
       host.model_override, host.reasoning_effort_override, host.client_version_override,
       host.claude_model_override, host.claude_client_version_override,
       host.grok_model_override, host.grok_reasoning_effort_override, host.grok_client_version_override,
+      host.kimi_model_override, host.kimi_reasoning_effort_override, host.kimi_client_version_override,
       host.agents_document_id_override,
     ].filter((value) => value != null && value !== "").length,
   );

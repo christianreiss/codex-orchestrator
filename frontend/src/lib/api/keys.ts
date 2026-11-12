@@ -3,7 +3,7 @@
  *
  * Endpoint-scoped: the backend exposes parallel routes under
  * `/admin/openai/...` (OpenAI), `/admin/claude/...` (Anthropic), and
- * `/admin/grok/...` (Grok). We thin-wrap all three behind a single typed
+ * `/admin/grok/...` (Grok). We thin-wrap all four behind a single typed
  * surface so the route can render each endpoint's section without duplicating
  * fetch logic. `backend_engine` selects the answering engine independently.
  */
@@ -20,6 +20,7 @@ const PREFIX: Record<ApiKeyEngine, string> = {
   openai: "/admin/openai",
   claude: "/admin/claude",
   grok: "/admin/grok",
+  kimi: "/admin/kimi",
 };
 
 /** Stable query keys; mirrors the WS invalidation entries in `lib/ws/events.ts`. */
@@ -52,7 +53,7 @@ export const keysApi = {
 
 /** Pretty label for the engine — used by toast copy + section headers. */
 export function engineLabel(engine: ApiKeyEngine): string {
-  return engine === "openai" ? "OpenAI" : engine === "grok" ? "Grok" : "Claude";
+  return { openai: "OpenAI", claude: "Claude", grok: "Grok", kimi: "Kimi Code" }[engine];
 }
 
 /** Coerce DB-flavoured truthy values into a real boolean. */

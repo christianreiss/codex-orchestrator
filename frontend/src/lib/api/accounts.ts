@@ -19,11 +19,13 @@ export interface ProviderAccount {
   refresh_state?: "idle" | "refreshing" | "pending_verification" | "uncertain" | "login_required";
   plan?: {
     name: string | null;
-    source: "chatgpt_usage" | "claude_login" | "grok_settings";
+    source: "chatgpt_usage" | "claude_login" | "grok_settings" | "kimi_userinfo";
     observed_at: string | null;
     stale: boolean;
   };
   usage: {
+    plan_name?: string | null;
+    windows?: Array<{ kind: "five_hour" | "weekly" | "month_total" | "month_code"; used_percent: number; resets_at: string | null }>;
     supported?: boolean;
     fetched_at: string | null;
     stale: boolean;

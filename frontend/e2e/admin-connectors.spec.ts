@@ -14,7 +14,7 @@ async function fixture(page: Page, enabled = false) {
   await installFixtures(page);
   let policy = {
     enabled,
-    providers: { chatgpt: enabled, claude: enabled, grok: enabled },
+    providers: { chatgpt: enabled, claude: enabled, grok: enabled, kimi: enabled },
     ceiling: empty,
   };
   await page.route("**/admin/connectors/**", async (route) => {
@@ -161,7 +161,7 @@ test("manual client IDs stay associated with their original provider and callbac
         data: {
           policy: {
             enabled: true,
-            providers: { chatgpt: true, claude: true, grok: true },
+            providers: { chatgpt: true, claude: true, grok: true, kimi: true },
             ceiling: empty,
           },
           can_manage: true,

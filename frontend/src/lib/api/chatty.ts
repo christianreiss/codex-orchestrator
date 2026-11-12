@@ -1,6 +1,6 @@
 import { api } from './client';
 import type { ChattyActionElement } from '$lib/components/chatty/actions';
-export type Engine = 'codex' | 'claude' | 'grok';
+export type Engine = 'codex' | 'claude' | 'grok' | 'kimi';
 export interface Selection { engine: Engine | null; model: string | null }
 export interface ChattyStatus {
   visible: boolean; ready: boolean; enabled: boolean; knowledge_version: string;

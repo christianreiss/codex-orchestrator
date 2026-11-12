@@ -143,7 +143,7 @@
           <Select.Item value="off">Off</Select.Item>
         </Select.Content>
       </Select.Root>
-      <p class="text-body-sm text-muted-foreground">Compares OpenAI and Claude usage and time until reset; Grok subscription quota is unavailable and is not compared. Automated starts only show a hint. A switch opens a new session.</p>
+      <p class="text-body-sm text-muted-foreground">Compares OpenAI, Claude and Kimi Code usage and time until reset; Grok subscription quota is unavailable and is not compared. Automated starts only show a hint. A switch opens a new session.</p>
     </div>
     <div class="grid gap-1.5">
       <Label for="advice-high">High usage (%)</Label>

@@ -36,12 +36,14 @@
     { value: "openai", label: "OpenAI" },
     { value: "claude", label: "Anthropic" },
     { value: "grok", label: "Grok" },
+    { value: "kimi", label: "Kimi Code" },
   ];
 
   const qc = useQueryClient();
   const openaiQuery = createQuery<AdminApiKey[]>({ queryKey: keyQueryKeys.list("openai"), queryFn: () => keysApi.list("openai") });
   const claudeQuery = createQuery<AdminApiKey[]>({ queryKey: keyQueryKeys.list("claude"), queryFn: () => keysApi.list("claude") });
   const grokQuery = createQuery<AdminApiKey[]>({ queryKey: keyQueryKeys.list("grok"), queryFn: () => keysApi.list("grok") });
+  const kimiQuery = createQuery<AdminApiKey[]>({ queryKey: keyQueryKeys.list("kimi"), queryFn: () => keysApi.list("kimi") });
 
   let revokeOpen = $state(false);
   let revokeTarget = $state<KeyRow | null>(null);
@@ -54,6 +56,7 @@
     { engine: "openai" as const, q: $openaiQuery },
     { engine: "claude" as const, q: $claudeQuery },
     { engine: "grok" as const, q: $grokQuery },
+    { engine: "kimi" as const, q: $kimiQuery },
   ]);
   const scoped = $derived(sources.filter((entry) => vendor === "all" || entry.engine === vendor));
   const loading = $derived(scoped.some((entry) => entry.q.isLoading));
@@ -170,7 +173,7 @@
     items={rows}
     {loading}
     {error}
-    onRetry={() => { void $openaiQuery.refetch(); void $claudeQuery.refetch(); void $grokQuery.refetch(); }}
+    onRetry={() => { void $openaiQuery.refetch(); void $claudeQuery.refetch(); void $grokQuery.refetch(); void $kimiQuery.refetch(); }}
     key={(r) => `${r.format}:${r.id}`}
     filtered={q !== ""}
     onClearFilters={() => filterState.clear()}

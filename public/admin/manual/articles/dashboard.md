@@ -12,7 +12,7 @@ The **Overview** page (`/dashboard`, the first entry of the sidebar) has three t
 
 ## Active Clients
 
-The **Agents** page (`/agents`, previously Active Clients; its Live / Graph toggle also covers the old Topology page) is its own destination under *Operate*; the full reference — presence states, its agent-session switch, roles, and the wrapper side — is in [Agents and agent sessions](/admin/manual/agent-portal). In short: open its Live view for the session directory across Codex, Claude, and Grok. The
+The **Agents** page (`/agents`, previously Active Clients; its Live / Graph toggle also covers the old Topology page) is its own destination under *Operate*; the full reference — presence states, its agent-session switch, roles, and the wrapper side — is in [Agents and agent sessions](/admin/manual/agent-portal). In short: open its Live view for the session directory across Codex, Claude, Grok, and Kimi Code. The
 summary counts distinguish online clients, outstanding attention, offline
 clients, and recently ended history. Search by host, user, task, branch, or
 working directory, then filter by engine and state. Selecting a client opens
@@ -87,7 +87,7 @@ What chatgpt.com returns is not fixed: on 2026-07-11 it dropped the normal lane'
 
 ## Runner
 
-The **Runner** tab (Verification runner) polls `GET /admin/runner` every 15 seconds and shows a row for each of Codex, Claude, and Grok; each engine's runner health is recorded independently. Each row contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness.
+The **Runner** tab (Verification runner) polls `GET /admin/runner` every 15 seconds and shows a row for each of Codex, Claude, Grok, and Kimi Code; each engine's runner health is recorded independently. Each row contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness.
 
 The Codex button calls `POST /admin/runner/run`; the Claude button calls `POST /admin/runner/run-claude`; the Grok button calls `POST /admin/runner/run-grok`. While any of these requests runs, its row shows **Verifying…** and all three buttons are disabled to prevent overlapping manual checks from this page. Completion refreshes runner state. If status cannot refresh, the last result stays visible with a stale warning and **Retry runner state**; verification buttons remain disabled until state can be read successfully.
 
@@ -123,3 +123,7 @@ Failed first loads show an error and a retry control rather than a successful ze
 The Claude row of the **Verification runner** section warns when the fleet login expires within three days and shows its exact UTC expiry. A successful verification can appear alongside this warning: the credential can work now while approaching expiry. The countdown remains available when the runner is unconfigured; missing expiry metadata is shown as unknown. After expiry the row says **Claude login expired**; the expiry is also visible on the Accounts page.
 
 Run `/login` inside Claude launched through `clx`. Existing credential synchronization uploads and verifies the renewed login. The Overview clears the warning on its next 15-second poll after renewal becomes canonical. The warning itself does not refresh credentials or block requests.
+
+## Kimi Code
+
+Kimi Code provider usage reports 5-hour, optional weekly, monthly total and monthly code windows. Missing readings are unknown; a failed refresh preserves its dated last reading. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

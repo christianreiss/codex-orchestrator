@@ -18,7 +18,7 @@ for (const width of [320, 1440]) test(`Codex Terra uses its native default and p
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'owner', roles: ['owner'] }, capabilities: ['admin.read', 'settings.read', 'settings.manage', 'content.read'] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-26T00:00:00Z' } });
     if (path === '/admin/ws/info') return json({ enabled: false });
-    if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, enabled: true })) });
+    if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok', 'kimi'].map(engine => ({ engine, enabled: true })) });
     if (path === '/admin/chatty/status') return json({ visible: false, engines: [] });
     if (path === '/admin/model-defaults/codex') {
       if (req.method() === 'POST') { selected = req.postDataJSON(); writes.push(selected); }

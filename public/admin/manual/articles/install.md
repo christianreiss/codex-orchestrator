@@ -293,3 +293,7 @@ Without the encryption keys you cannot decrypt `auth_payloads`. The app will sti
 - api/src/routes/admin/hosts/index.ts (register, quick-register)
 - api/src/security/keyring.ts (encryption keyring)
 - bin/install.sh and api/src/ops/setup-signing-key.ts (installation signing-key lifecycle)
+
+## Kimi Code
+
+Choose Kimi Code during setup or host registration to install the native Kimi Code binary and the `ckx` wrapper persona. Seed a dedicated device login with `ckx login`; the archived Python `kimi-cli` is not supported. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

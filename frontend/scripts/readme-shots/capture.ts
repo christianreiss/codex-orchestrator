@@ -37,7 +37,7 @@ interface Shot {
   scheme?: Scheme;
   viewport?: { width: number; height: number };
   /** Terminal persona instead of a browser page. */
-  terminal?: "cdx" | "clx" | "cgx";
+  terminal?: "cdx" | "clx" | "cgx" | "ckx";
   prepare?: (page: Page) => Promise<void>;
 }
 
@@ -54,6 +54,7 @@ const SHOTS: Shot[] = [
   { name: "cdx-launch", title: "~ — cdx", terminal: "cdx" },
   { name: "clx-launch", title: "~ — clx", terminal: "clx" },
   { name: "cgx-launch", title: "~ — cgx", terminal: "cgx" },
+  { name: "ckx-launch", title: "~ — ckx", terminal: "ckx" },
   { name: "hosts", title: "Hosts", path: "/hosts" },
   { name: "active-clients", title: "Active Clients", path: "/clients?session=33333333-3333-4333-8333-333333333333", viewport: { width: 1440, height: 1050 } },
   { name: "accounts", title: "Accounts", path: "/accounts", viewport: { width: 1440, height: 1080 } },
@@ -210,9 +211,9 @@ function ansiToHtml(ansi: string): string {
   return html;
 }
 
-function terminalHtml(persona: "cdx" | "clx" | "cgx"): string {
+function terminalHtml(persona: "cdx" | "clx" | "cgx" | "ckx"): string {
   const ansi = readFileSync(resolve(HERE, `${persona}.ansi`), "utf8");
-  const engine = persona === "cdx" ? "codex" : persona === "clx" ? "claude" : "grok";
+  const engine = persona === "cdx" ? "codex" : persona === "clx" ? "claude" : persona === "cgx" ? "grok" : "kimi";
   return `<div class="terminal"><pre><span class="prompt">ada@atlas</span> <span class="path">~/src/checkout</span> <span class="dollar">$</span> ${persona}
 ${ansiToHtml(ansi)}
 <span class="dim">Launching ${engine}…</span></pre></div>`;

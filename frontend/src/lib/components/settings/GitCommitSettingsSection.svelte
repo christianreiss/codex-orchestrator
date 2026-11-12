@@ -33,7 +33,7 @@
 <Section
   id="git-commit-messages"
   title="Commit messages"
-  description="How agents write commit messages. Applies to Codex, Claude and Grok, independent of the Director switch."
+  description="How agents write commit messages. Applies to Codex, Claude, Grok and Kimi Code, independent of the Director switch."
 >
   {#snippet actions()}
     <SaveIndicator {status} savedAt={lastSavedAt} error={$mutation.error?.message ?? $query.error?.message} />
@@ -86,7 +86,7 @@
         <h3 class="text-body-sm font-medium">Preview</h3>
         <div class="flex items-center gap-2">
           <Label for="git-preview-engine" class="text-caption text-muted-foreground">Engine</Label>
-          <select id="git-preview-engine" bind:value={previewEngine} class="{filterClass} h-8">{#each ["Codex", "Claude", "Grok"] as engine}<option>{engine}</option>{/each}</select>
+          <select id="git-preview-engine" bind:value={previewEngine} class="{filterClass} h-8">{#each ["Codex", "Claude", "Grok", "Kimi Code"] as engine}<option>{engine}</option>{/each}</select>
         </div>
       </div>
       <pre aria-label="Commit preview" class="whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-3 font-mono text-caption">{preview(previewEngine)}</pre>

@@ -140,7 +140,7 @@ describe("engineInstallCounts", () => {
   it("uses independent server engine counts across all install combinations", () => {
     assert.deepEqual(overview.engineInstallCounts({ codex: [], claude: [], grok: [],
       engine_counts: { codex: 4, claude: 3, grok: 5 },
-      install_combinations: [{ engines: ["codex", "claude", "grok"], count: 2 }, { engines: ["grok"], count: 3 }],
+      install_combinations: [{ engines: ["codex", "claude", "grok", "kimi"], count: 2 }, { engines: ["grok"], count: 3 }],
       install: { both: 0, codex_only: 0, claude_only: 0, neither: 0 },
     }), { codex: 4, claude: 3, grok: 5 });
   });

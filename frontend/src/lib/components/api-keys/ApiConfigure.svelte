@@ -6,6 +6,7 @@
    */
   import ExposedApisTable from "./ExposedApisTable.svelte";
   import ApiStateSection from "$lib/components/settings/ApiStateSection.svelte";
+  import KimiEngineSection from "$lib/components/settings/KimiEngineSection.svelte";
   import GrokEngineSection from "$lib/components/settings/GrokEngineSection.svelte";
   import ClaudeEngineSection from "$lib/components/settings/ClaudeEngineSection.svelte";
   import type { ApiKeyEngine } from "$lib/api/types";
@@ -14,8 +15,9 @@
     onShowKeys?: (vendor: ApiKeyEngine) => void;
     claudeOpen?: boolean;
     grokOpen?: boolean;
+    kimiOpen?: boolean;
   };
-  let { onShowKeys, claudeOpen = $bindable(false), grokOpen = $bindable(false) }: Props = $props();
+  let { onShowKeys, claudeOpen = $bindable(false), grokOpen = $bindable(false), kimiOpen = $bindable(false) }: Props = $props();
 </script>
 
 <div id="configuration" class="scroll-mt-20 space-y-5 rounded-md border p-4">
@@ -34,6 +36,10 @@
     <details id="grok-proxy" bind:open={grokOpen} class="scroll-mt-20 border-b">
       <summary class="cursor-pointer py-3 text-body">Grok <span class="ml-2 text-caption text-muted-foreground">Default model &amp; available models</span></summary>
       <GrokEngineSection />
+    </details>
+    <details id="kimi-proxy" bind:open={kimiOpen} class="scroll-mt-20 border-b">
+      <summary class="cursor-pointer py-3 text-body">Kimi <span class="ml-2 text-caption text-muted-foreground">Default model &amp; available models</span></summary>
+      <KimiEngineSection />
     </details>
   </section>
 

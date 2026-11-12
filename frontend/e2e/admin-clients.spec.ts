@@ -414,7 +414,7 @@ for (const width of [1440, 390]) {
       await expect(card).toContainText(row.preview!.summary);
       const bounds = await card.boundingBox();
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
-      const logo = card.getByRole("img", { name: row.engine === "codex" ? "Codex" : row.engine === "claude" ? "Claude" : "Grok", exact: true });
+      const logo = card.getByRole("img", { name: row.engine === "codex" ? "Codex" : row.engine === "claude" ? "Claude" : row.engine === "grok" ? "Grok" : "Kimi Code", exact: true });
       await expect(logo).toBeVisible();
       expect(await logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
       expect(new URL(await logo.getAttribute("src") ?? "", page.url()).origin).toBe(new URL(page.url()).origin);

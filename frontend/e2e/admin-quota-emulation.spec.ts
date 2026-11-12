@@ -10,7 +10,7 @@ async function setup(page: Page) {
     const req = route.request();
     if (!req.headers().accept?.includes('application/json')) return route.continue();
     const path = new URL(req.url()).pathname;
-    const match = path.match(/^\/admin\/quota-policy\/(codex|claude|grok)$/);
+    const match = path.match(/^\/admin\/quota-policy\/(codex|claude|grok|kimi)$/);
     if (match) {
       const engine = match[1]!;
       if (req.method() === 'PUT') { const body = req.postDataJSON(); writes.push({ engine, body }); saved[engine] = body.emulation; }
@@ -104,7 +104,7 @@ test('Accounts and Overview identify emulated readings, including stale usage ab
     if (!route.request().headers().accept?.includes('application/json')) return route.fallback();
     return route.fulfill({ json: { accounts: [a] } });
   });
-  for (const engine of ['codex', 'claude', 'grok']) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
   a.engine = engine;
   await page.goto('/admin/accounts');
   await expect(page.getByText('Emulated 8h', { exact: true })).toBeVisible();

@@ -79,3 +79,7 @@ replaced. With automatic resume off, open **Messages → Delivery log** and choo
 it does not bypass an exhausted limit. Turning emulation off releases new starts
 and stops automatic release of earlier holds, which remain available for an explicit
 retry. Accounts and Overview identify local meters as **Emulated**.
+
+## Kimi Code
+
+Kimi Code accounts use a dedicated `ckx login` device login. The server owns renewal; hosts receive access-only credentials. Accounts shows 5-hour, optional weekly, monthly total and monthly code readings, with unknown windows left absent. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

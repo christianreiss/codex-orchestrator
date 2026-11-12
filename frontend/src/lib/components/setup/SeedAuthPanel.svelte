@@ -1,6 +1,7 @@
 <script lang="ts" module>
   /** What `submit()` did. `empty` means there was nothing to upload. */
   export type SeedOutcome = "verified" | "pending" | "failed" | "error" | "empty";
+
 </script>
 
 <script lang="ts">
@@ -66,7 +67,7 @@
 
   let {
     accountId, accountLabel, accountManagement = false,
-    allowedEngines = ["codex", "claude", "grok"],
+    allowedEngines = ["codex", "claude", "grok", "kimi"],
     defaultEngine = "codex",
     runnerHealthy = true,
     footer,
@@ -232,6 +233,17 @@
       toast.error(msg);
     }
   }
+
+  const authTitles: Record<AuthEngine, string> = {
+    codex: "ChatGPT session auth JSON", claude: "Canonical Claude auth JSON or API key",
+    grok: "Grok subscription login JSON", kimi: "Kimi Code subscription login JSON",
+  };
+  const authExamples: Record<AuthEngine, string> = {
+    codex: '{ "tokens": { "access_token": "…", "refresh_token": "…" }, … }',
+    claude: '{ "claudeAiOauth": { "accessToken": "sk-ant-oat…" } }',
+    grok: '{ "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": { "auth_mode": "oidc", "key": "<access-token>", "refresh_token": "<refresh-token>", "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828", "expires_at": "2026-10-01T11:00:00Z", "create_time": "2026-10-01T10:00:00Z", "user_id": "<user-id>" } }',
+    kimi: '{ "kimi_code": { "access_token": "…", "refresh_token": "…", "expires_at": 1794470400, "expires_in": 900, "scope": "kimi-code", "token_type": "Bearer" }, "device_id": "0123456789abcdef0123456789abcdef", "oauth_host": "https://auth.kimi.com", "base_url": "https://api.kimi.com/coding/v1", "last_refresh": "2026-11-12T09:00:00Z" }',
+  };
 </script>
 
 {#snippet enginePicker(idPrefix: string)}
@@ -366,14 +378,12 @@
     {:else}
       <div class="space-y-1.5">
         <Label for="{idPrefix}-seed-upload-payload">
-          {engine === "codex" ? "ChatGPT session auth JSON" : engine === "grok" ? "Grok subscription login JSON" : "Canonical Claude auth JSON or API key"}
+          {authTitles[engine]}
         </Label>
         <Textarea
           id="{idPrefix}-seed-upload-payload"
           class="h-40 font-mono text-body-sm"
-          placeholder={engine === "codex"
-            ? '{ "tokens": { "access_token": "…", "refresh_token": "…" }, … }'
-            : engine === "grok" ? '{ "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": { "auth_mode": "oidc", "key": "<access-token>", "refresh_token": "<refresh-token>", "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "b1a00492-073a-47ea-816f-4c329264a828", "expires_at": "2026-10-01T11:00:00Z", "create_time": "2026-10-01T10:00:00Z", "user_id": "<user-id>" } }' : '{ "claudeAiOauth": { "accessToken": "sk-ant-oat…" } }'}
+          placeholder={authExamples[engine]}
           bind:value={payload}
         />
         {#if engine === "codex"}
@@ -385,7 +395,9 @@
           <p class="text-body-sm text-muted-foreground">
             Prefer <code class="font-mono">cgx login</code> or the one-time command: both run a dedicated login whose refresh the orchestrator owns. xAI rotates the refresh token on every refresh, so pasting a <code class="font-mono">~/.grok/auth.json</code> that a native <code class="font-mono">grok</code> or any other tool still uses breaks whichever copy refreshes second. Paste only a login used nowhere else. Subscription login credentials include refresh material; an xAI API key or access token alone is not accepted.
           </p>
-        {:else}
+        {:else if engine === "kimi"}
+          <p class="text-body-sm text-muted-foreground">Prefer <code>ckx login</code> or the one-time command. They run a dedicated device login in a throwaway <code>KIMI_CODE_HOME</code>, upload <code>credentials/kimi-code.json</code> with its <code>device_id</code>, then delete that home. The server is the only refresher. Do not upload credentials still used by another CLI.</p>
+        {:else if engine === "claude"}
           <p class="text-body-sm text-muted-foreground">
             Paste the native Claude credentials JSON. A genuine Anthropic API key is also accepted.
           </p>
@@ -436,6 +448,9 @@
         Generate a short-lived command, then run it once in your host's terminal
         to connect {engineLabel(engine)}. Return here after completing the login.
       </p>
+    {/if}
+    {#if engine === "kimi"}
+      <p class="text-body-sm text-muted-foreground">For Kimi Code the command runs a dedicated device login in a throwaway <code>KIMI_CODE_HOME</code>, uploads the credentials and device ID, then removes that home. The server owns renewal.</p>
     {/if}
     {#if engine === "grok"}
       <p class="text-body-sm text-muted-foreground">

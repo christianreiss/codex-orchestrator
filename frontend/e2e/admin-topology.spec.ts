@@ -386,7 +386,7 @@ test("embedded chat preserves drafts and spawn preselects the communicator host"
   await page.route('**/admin/agent-sessions', route => route.fulfill({ json: { enabled: true, generated_at: stamp(), timings: { heartbeat_fresh_seconds: 45, relay_fresh_seconds: 60 }, sessions } }));
   await page.route('**/admin/agent-sessions/events?*', route => route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' }));
   await page.route('**/admin/agent-sessions/*/events*', route => route.fulfill({ json: { events: [], next_cursor: 0 } }));
-  await page.route('**/admin/host-daemons', route => route.fulfill({ json: { hosts: [{ host_id: 4, fqdn: 'web01.example', enabled: true, username: 'alice', default_cwd: '/srv/work', max_parallel: 4, idle_minutes: 60, question_minutes: 60, health: { state: 'green', reasons: [], used_slots: 0, max_slots: 4, heartbeat_at: stamp(), evaluated_at: stamp() }, access: { allowed: true, reason: null }, engines: ['codex', 'claude', 'grok'], sessions: [] }] } }));
+  await page.route('**/admin/host-daemons', route => route.fulfill({ json: { hosts: [{ host_id: 4, fqdn: 'web01.example', enabled: true, username: 'alice', default_cwd: '/srv/work', max_parallel: 4, idle_minutes: 60, question_minutes: 60, health: { state: 'green', reasons: [], used_slots: 0, max_slots: 4, heartbeat_at: stamp(), evaluated_at: stamp() }, access: { allowed: true, reason: null }, engines: ['codex', 'claude', 'grok', 'kimi'], sessions: [] }] } }));
   await open(page);
   await page.locator(`[data-node="${A1}"] .hit`).click();
   await page.getByRole('button', { name: 'Chat', exact: true }).click();

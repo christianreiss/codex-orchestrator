@@ -55,7 +55,7 @@
           <div class="grid gap-3 sm:grid-cols-2">
             <FormField id="feedback-engine" label="Review engine">
               <select id="feedback-engine" class={controlClass} bind:value={draft.engine}>
-                <option value={null}>Select engine</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option>
+                <option value={null}>Select engine</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option><option value="kimi">Kimi Code</option>
               </select>
             </FormField>
             <FormField id="feedback-model" label="Review model">

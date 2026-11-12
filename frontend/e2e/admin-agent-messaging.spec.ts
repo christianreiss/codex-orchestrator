@@ -4,6 +4,7 @@ import AxeBuilder from "@axe-core/playwright";
 const CODEX = "11111111-1111-4111-8111-111111111111";
 const CLAUDE = "22222222-2222-4222-8222-222222222222";
 const GROK = "33333333-3333-4333-8333-333333333333";
+const KIMI = "55555555-5555-4555-8555-555555555555";
 const SERVER = "agent:00000000-0000-4000-8000-000000000001";
 function peer(id: string, engine: string) {
   const now = new Date().toISOString();
@@ -11,7 +12,7 @@ function peer(id: string, engine: string) {
 }
 async function fixtures(page: Page, manage = true) {
   const now = new Date().toISOString();
-  const peers = [peer(CODEX, "codex"), peer(CLAUDE, "claude"), peer(GROK, "grok")];
+  const peers = [peer(CODEX, "codex"), peer(CLAUDE, "claude"), peer(GROK, "grok"), peer(KIMI, "kimi")];
   const groups = [{ id: "release", slug: "release", title: "Release review", description: "A scoped release audience", topic: "group:release", member_count: 2, created_at: now, updated_at: now }, { id: "security", slug: "security", title: "Security", description: "Only security subscribers", topic: "group:security", member_count: 1, created_at: now, updated_at: now }];
   const state = { messages: [] as Array<Record<string, unknown>>, enabled: true, dropPublish: 0, failGroups: false, bodies: [] as Array<{path: string; body: Record<string, unknown>}>, calls: [] as string[], errors: [] as string[], groups, watchdogs: [] as Array<Record<string,unknown>> };
   page.on("pageerror", (error) => state.errors.push(error.message));
@@ -178,16 +179,16 @@ test("direction receipts include every engine and Server while groups keep focus
   await page.route("**/admin/agent-messaging/state", (route) => route.fulfill({ json: {
     enabled: true, addresses: 3, live_addresses: 3, relays: 1, open_conversations: 0,
     messages: { queued: 0, leased: 0, accepted: 0, dead: 0, ambiguous: 0 },
-    directions: ["codex", "claude", "grok"].flatMap(source_engine => ["codex", "claude", "grok"].map(target_engine => ({ source_engine, target_engine, total: 2, completed: 1, pending: 1, dead: 0, ambiguous: 0 }))),
-    server_directions: ["codex", "claude", "grok"].flatMap(engine => [{ source_engine: "server", target_engine: engine, total: 2, completed: 2, pending: 0, dead: 0, ambiguous: 0 }, { source_engine: engine, target_engine: "server", total: 3, completed: 3, pending: 0, dead: 0, ambiguous: 0 }]),
+    directions: ["codex", "claude", "grok", "kimi"].flatMap(source_engine => ["codex", "claude", "grok", "kimi"].map(target_engine => ({ source_engine, target_engine, total: 2, completed: 1, pending: 1, dead: 0, ambiguous: 0 }))),
+    server_directions: ["codex", "claude", "grok", "kimi"].flatMap(engine => [{ source_engine: "server", target_engine: engine, total: 2, completed: 2, pending: 0, dead: 0, ambiguous: 0 }, { source_engine: engine, target_engine: "server", total: 3, completed: 3, pending: 0, dead: 0, ambiguous: 0 }]),
   } }));
   await open(page);
   await expect(page.getByText("server → codex", { exact: true })).not.toBeVisible();
   await page.locator("summary").filter({ hasText: "Traffic by engine" }).click();
-  for (const engine of ["codex", "claude", "grok"]) {
+  for (const engine of ["codex", "claude", "grok", "kimi"]) {
     await expect(page.getByText(`server → ${engine}`, { exact: true })).toBeVisible();
     await expect(page.getByText(`${engine} → server`, { exact: true })).toBeVisible();
-    for (const target of ["codex", "claude", "grok"]) await expect(page.getByText(`${engine} → ${target}`, { exact: true })).toBeVisible();
+    for (const target of ["codex", "claude", "grok", "kimi"]) await expect(page.getByText(`${engine} → ${target}`, { exact: true })).toBeVisible();
   }
 });
 

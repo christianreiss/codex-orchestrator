@@ -13,13 +13,14 @@
   import NewKeyDialog from "./NewKeyDialog.svelte";
   import ApiConfigure from "./ApiConfigure.svelte";
 
-  const CONFIG_ANCHORS = new Set(["configuration", "service-availability", "api-state", "exposed-apis", "backend-settings", "claude-proxy", "claude-engine", "grok-proxy", "grok-engine"]);
+  const CONFIG_ANCHORS = new Set(["configuration", "service-availability", "api-state", "exposed-apis", "backend-settings", "claude-proxy", "claude-engine", "grok-proxy", "grok-engine", "kimi-proxy", "kimi-engine"]);
 
   const apiState = apiStateQuery();
   let vendor = $state<ApiKeyEngine | "all">("all");
   let configOpen = $state(false);
   let claudeOpen = $state(false);
   let grokOpen = $state(false);
+  let kimiOpen = $state(false);
   let dialogOpen = $state(false);
   let dialogEngine = $state<ApiKeyEngine>("openai");
 
@@ -40,6 +41,7 @@
     configOpen = true;
     if (anchor === "claude-proxy" || anchor === "claude-engine") claudeOpen = true;
     if (anchor === "grok-proxy" || anchor === "grok-engine") grokOpen = true;
+    if (anchor === "kimi-proxy" || anchor === "kimi-engine") kimiOpen = true;
     void tick().then(() => document.getElementById(anchor)?.scrollIntoView({ block: "start" }));
   });
 
@@ -47,8 +49,8 @@
   $effect(() => {
     if (page.url.searchParams.get("dialog") !== "new") return;
     const requested = page.url.searchParams.get("engine");
-    const engine: ApiKeyEngine = requested === "grok" ? "grok" : requested === "claude" ? "claude" : "openai";
-    if (requested === "grok" || requested === "claude" || requested === "openai") vendor = engine;
+    const engine: ApiKeyEngine = requested === "kimi" ? "kimi" : requested === "grok" ? "grok" : requested === "claude" ? "claude" : "openai";
+    if (requested === "kimi" || requested === "grok" || requested === "claude" || requested === "openai") vendor = engine;
     openDialog(engine);
   });
 
@@ -80,7 +82,7 @@
 
       <Collapsible.Content>
         <h3 class="mb-2 text-h2">Service availability &amp; routing</h3>
-        <ApiConfigure onShowKeys={showKeys} bind:claudeOpen bind:grokOpen />
+        <ApiConfigure onShowKeys={showKeys} bind:claudeOpen bind:grokOpen bind:kimiOpen />
       </Collapsible.Content>
 
       <KeysList bind:vendor onCreate={() => openDialog()} />

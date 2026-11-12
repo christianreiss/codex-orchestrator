@@ -31,9 +31,9 @@
       : $fleet.enabled.map((engine) => engineLabel(engine)).join(" + "),
   );
   let result = $state<HostRegisterResponse | null>(null);
-  let pending = $state<"codex" | "claude" | "grok" | "all" | null>(null);
+  let pending = $state<"codex" | "claude" | "grok" | "kimi" | "all" | null>(null);
 
-  async function spin(engines: ("codex" | "claude" | "grok")[], key: "codex" | "claude" | "grok" | "all"): Promise<void> {
+  async function spin(engines: ("codex" | "claude" | "grok" | "kimi")[], key: "codex" | "claude" | "grok" | "kimi" | "all"): Promise<void> {
     pending = key;
     try {
       const data = await $mutation.mutateAsync({ engines });
@@ -104,10 +104,21 @@
           <span class="text-body-sm text-muted-foreground">{$fleet.isEnabled("grok") ? "Grok Build · cgx" : FLEET_DISABLED_TAG}</span>
           {#if pending === "grok"}<span class="text-body-sm text-muted-foreground">Working…</span>{/if}
         </button>
+        <button type="button"
+          class="flex flex-col items-center justify-center gap-2 rounded-md border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
+          disabled={pending !== null || !$fleet.isEnabled("kimi")}
+          title={$fleet.isEnabled("kimi") ? undefined : fleetDisabledTitle("Kimi Code")}
+          onclick={() => spin(["kimi"], "kimi")}>
+          <Zap class="h-7 w-7 text-persona-kimi" />
+          <span class="text-body font-semibold">Kimi Code only</span>
+          <span class="text-body-sm text-muted-foreground">{$fleet.isEnabled("kimi") ? "Kimi Code Build · ckx" : FLEET_DISABLED_TAG}</span>
+          {#if pending === "kimi"}<span class="text-body-sm text-muted-foreground">Working…</span>{/if}
+        </button>
         <button
           type="button"
           class="flex flex-col items-center justify-center gap-2 rounded-md border border-input bg-background p-4 transition-colors hover:bg-accent disabled:opacity-50"
           disabled={pending !== null || $fleet.enabled.length === 0}
+          style="grid-column: 1 / -1"
           onclick={() => spin([...$fleet.enabled], "all")}
         >
           <Layers class="h-7 w-7 text-primary" />

@@ -99,7 +99,7 @@ const queryClient = {
 const asMutation = (built: unknown): BuiltMutation => built as unknown as BuiltMutation;
 
 /** Both engines the operator dialogs can repair, driven through every builder. */
-const ENGINES: AuthEngine[] = ["codex", "claude", "grok"];
+const ENGINES: AuthEngine[] = ["codex", "claude", "grok", "kimi"];
 
 /** A canonical Codex auth blob, as the upload dialog hands it over: raw text. */
 const PAYLOAD = '{"tokens":{"access_token":"a.b.c"}}';

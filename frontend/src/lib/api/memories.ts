@@ -7,7 +7,7 @@
 import { api, apiFetch } from "./client";
 
 export type MemoryScope = "host" | "project" | "shared";
-export type MemoryEngine = "codex" | "claude" | "grok" | string;
+export type MemoryEngine = "codex" | "claude" | "grok" | "kimi" | string;
 
 export interface MemoryCapabilities {
   read: boolean;

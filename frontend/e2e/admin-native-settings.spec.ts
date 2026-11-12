@@ -1,9 +1,9 @@
 import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from "@playwright/test";
 
-type Engine = "codex" | "claude" | "grok";
+type Engine = "codex" | "claude" | "grok" | "kimi";
 type Config = { status: "ok" | "missing"; revision: string | null; sha256?: string; settings: Record<string, unknown>; content?: string; validation_error?: { code: "validation_failed"; message: string; param?: string } };
-const LABEL: Record<Engine, string> = { codex: "Codex", claude: "Claude", grok: "Grok" };
+const LABEL: Record<Engine, string> = { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi Code" };
 /** /engines shows one engine per tab; the tab lives in the URL and survives a reload. */
 async function selectEngine(page: Page, engine: Engine) {
   const tab = page.getByRole("tab", { name: LABEL[engine] });
@@ -24,7 +24,7 @@ async function openAdvanced(page: Page, engines: Engine[] = ["codex"]) {
   }
 }
 function state() {
-  const configs = Object.fromEntries((["codex", "claude", "grok"] as Engine[]).map(engine => [engine, {
+  const configs = Object.fromEntries((["codex", "claude", "grok", "kimi"] as Engine[]).map(engine => [engine, {
     status: "ok", revision: "1", sha256: "a".repeat(64), settings: {
       model: `${engine}-current`, native_settings: { language: "en" },
       ...(engine === "claude" ? { effortLevel: "high", statusLine: { type: "command", command: "old", padding: 2 }, hooks: { Stop: [{ hooks: [{ type: "http", url: "https://example.test/hook" }] }] } } : {}),
@@ -45,7 +45,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
     if (path === "/admin/ws/info") return json({ enabled: true, url: new URL("/native-settings-ws", req.url()).href.replace(/^http/, "ws") });
     if (path === "/admin/chatty/status") return json({ visible: false, engines: [] });
     if (path.startsWith("/admin/model-defaults/")) return json({ model: "current", reasoning_effort: null, catalog: [] });
-    const match = path.match(/^\/admin\/(?:(claude|grok)\/)?config(?:\/(render|store))?$/);
+    const match = path.match(/^\/admin\/(?:(claude|grok|kimi)\/)?config(?:\/(render|store))?$/);
     if (match) {
       const engine = (match[1] ?? "codex") as Engine;
       const current = shared.configs[engine];
@@ -127,8 +127,8 @@ test("the command palette finds Async compaction and opens its collapsed section
 });
 
 test("native JSON validates, previews and saves each engine without losing separate settings", async ({ page }) => {
-  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["codex", "claude", "grok"]);
-  for (const engine of ["codex", "claude", "grok"] as Engine[]) {
+  const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["codex", "claude", "grok", "kimi"]);
+  for (const engine of ["codex", "claude", "grok", "kimi"] as Engine[]) {
     await selectEngine(page, engine);
     const card = page.locator(`#${engine}-native-settings`), editor = card.getByRole("textbox");
     await expect(editor).toHaveValue(/"language": "en"/);
@@ -275,8 +275,8 @@ test("Claude form preserves richer hooks and native settings while saving a chan
 });
 
 test("read-only operators can view native settings but cannot edit or save", async ({ page }) => {
-  const shared = state(); await fixture(page, shared, false); await page.goto("/admin/engines"); await openAdvanced(page, ["codex", "claude", "grok"]);
-  for (const engine of ["codex", "claude", "grok"] as Engine[]) {
+  const shared = state(); await fixture(page, shared, false); await page.goto("/admin/engines"); await openAdvanced(page, ["codex", "claude", "grok", "kimi"]);
+  for (const engine of ["codex", "claude", "grok", "kimi"] as Engine[]) {
     await selectEngine(page, engine);
     const card = page.locator(`#${engine}-native-settings`);
     await expect(card.getByRole("textbox")).toHaveAttribute("readonly", "");
@@ -320,7 +320,7 @@ test("Grok 1.0.70 native defaults preserve false values, argument arrays and rem
   await expect.poll(() => shared.configs.grok.settings.native_settings).toEqual({});
 });
 
-for (const engine of ["codex", "claude", "grok"] as Engine[]) test(`${engine} invalid saved native settings remain editable and recover without dropping values`, async ({ page }) => {
+for (const engine of ["codex", "claude", "grok", "kimi"] as Engine[]) test(`${engine} invalid saved native settings remain editable and recover without dropping values`, async ({ page }) => {
   const shared = state();
   const native = { unknown_saved_option: "preserve this authored value" };
   shared.configs[engine].settings.native_settings = native;

@@ -125,6 +125,7 @@ interface MutationCase {
 
 const MUTATION_CASES: MutationCase[] = [
   { name: "createRunGrokRunnerMutation", build: () => asMutation(runner.createRunGrokRunnerMutation()), path: "/admin/runner/run-grok" },
+  { name: "createRunKimiRunnerMutation", build: () => asMutation(runner.createRunKimiRunnerMutation()), path: "/admin/runner/run-kimi" },
   {
     name: "createRunCodexRunnerMutation",
     build: () => asMutation(runner.createRunCodexRunnerMutation()),

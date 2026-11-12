@@ -93,7 +93,7 @@
     filtered={search.trim() !== "" && scoped.length > 0}
     onClearFilters={() => { filterState.values.q = ""; }}
     emptyTitle={scope === "all" ? "No accounts" : `No ${ENGINE_META[scope].account} accounts`}
-    emptyDescription={`Add credentials here, or log in through ${scope === "all" ? "cdx, clx or cgx" : ENGINE_META[scope].command} on a registered host.`}
+    emptyDescription={`Add credentials here, or log in through ${scope === "all" ? "cdx, clx, cgx or ckx" : ENGINE_META[scope].command} on a registered host.`}
     caption="Provider accounts"
   >
     {#snippet emptyAction()}

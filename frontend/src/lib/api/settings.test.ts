@@ -144,10 +144,15 @@ interface QueryCase {
 const QUERY_CASES: QueryCase[] = [
   { name: 'hostSpawnQuery', build: () => asQuery(settings.hostSpawnQuery()), queryKey: ['settings', 'host-spawn'], method: 'GET', path: '/admin/host-spawn/state' },
   { name: "grokStateQuery", build: () => asQuery(settings.grokStateQuery()), queryKey: ["settings", "grok-state"], method: "GET", path: "/admin/grok/state" },
+  { name: "kimiStateQuery", build: () => asQuery(settings.kimiStateQuery()), queryKey: ["settings", "kimi-state"], method: "GET", path: "/admin/kimi/state" },
   { name: "grokSettingsQuery", build: () => asQuery(settings.grokSettingsQuery()), queryKey: ["settings", "grok-settings"], method: "GET", path: "/admin/grok/settings" },
+  { name: "kimiSettingsQuery", build: () => asQuery(settings.kimiSettingsQuery()), queryKey: ["settings", "kimi-settings"], method: "GET", path: "/admin/kimi/settings" },
   { name: "grokModelsQuery", build: () => asQuery(settings.grokModelsQuery()), queryKey: ["settings", "grok-models"], method: "GET", path: "/admin/grok/models" },
+  { name: "kimiModelsQuery", build: () => asQuery(settings.kimiModelsQuery()), queryKey: ["settings", "kimi-models"], method: "GET", path: "/admin/kimi/models" },
   { name: "grokVersionsQuery", build: () => asQuery(settings.grokVersionsQuery()), queryKey: KEYS.versionsCheck, method: "POST", path: "/admin/versions/check" },
+  { name: "kimiVersionsQuery", build: () => asQuery(settings.kimiVersionsQuery()), queryKey: KEYS.versionsCheck, method: "POST", path: "/admin/versions/check" },
   { name: "modelDefaultsQuery", label: "modelDefaultsQuery('grok')", build: () => asQuery(settings.modelDefaultsQuery("grok")), queryKey: ["settings", "model-defaults", "grok"], method: "GET", path: "/admin/model-defaults/grok" },
+  { name: "modelDefaultsQuery", label: "modelDefaultsQuery('kimi')", build: () => asQuery(settings.modelDefaultsQuery("kimi")), queryKey: ["settings", "model-defaults", "kimi"], method: "GET", path: "/admin/model-defaults/kimi" },
   {
     name: "authorizationQuery",
     build: () => asQuery(settings.authorizationQuery()),
@@ -317,17 +322,29 @@ const MUTATION_CASES: MutationCase[] = [
     request: { method: 'POST', path: '/admin/host-spawn/state', body: { enabled: true } }, invalidates: [['settings', 'host-spawn']] },
   { name: "grokStateMutation", build: opts => asMutation(settings.grokStateMutation(opts)), variables: true,
     request: { method: "POST", path: "/admin/grok/state", body: { disabled: true } }, invalidates: [["settings", "grok-state"], ["keys", "grok", "state"]] },
+  { name: "kimiStateMutation", build: opts => asMutation(settings.kimiStateMutation(opts)), variables: true,
+    request: { method: "POST", path: "/admin/kimi/state", body: { disabled: true } }, invalidates: [["settings", "kimi-state"], ["keys", "kimi", "state"]] },
   { name: "grokSettingsMutation", build: opts => asMutation(settings.grokSettingsMutation(opts)), variables: { default_model: "grok-4.6" },
     request: { method: "POST", path: "/admin/grok/settings", body: { default_model: "grok-4.6" } }, invalidates: [["settings", "grok-settings"]] },
+  { name: "kimiSettingsMutation", build: opts => asMutation(settings.kimiSettingsMutation(opts)), variables: { default_model: "kimi-4.6" },
+    request: { method: "POST", path: "/admin/kimi/settings", body: { default_model: "kimi-4.6" } }, invalidates: [["settings", "kimi-settings"]] },
   // Disabling a model can strand the gateway default, so the settings card re-reads too.
   { name: "grokModelToggleMutation", build: opts => asMutation(settings.grokModelToggleMutation(opts)), variables: { model: "grok-4.7-build-fast", enabled: false },
     request: { method: "POST", path: "/admin/grok/models/grok-4.7-build-fast/toggle", body: { enabled: false } }, invalidates: [["settings", "grok-models"], ["settings", "grok-settings"]] },
+  { name: "kimiModelToggleMutation", build: opts => asMutation(settings.kimiModelToggleMutation(opts)), variables: { model: "kimi-4.7-build-fast", enabled: false },
+    request: { method: "POST", path: "/admin/kimi/models/kimi-4.7-build-fast/toggle", body: { enabled: false } }, invalidates: [["settings", "kimi-models"], ["settings", "kimi-settings"]] },
   { name: "grokVersionsCheckMutation", build: opts => asMutation(settings.grokVersionsCheckMutation(opts)), variables: undefined,
+    request: { method: "POST", path: "/admin/versions/check", body: undefined }, invalidates: [KEYS.versionsCheck] },
+  { name: "kimiVersionsCheckMutation", build: opts => asMutation(settings.kimiVersionsCheckMutation(opts)), variables: undefined,
     request: { method: "POST", path: "/admin/versions/check", body: undefined }, invalidates: [KEYS.versionsCheck] },
   { name: "grokVersionMutation", build: opts => asMutation(settings.grokVersionMutation(opts)), variables: "1.0.46",
     request: { method: "POST", path: "/admin/grok/version", body: { selection: "1.0.46" } }, invalidates: [KEYS.versionsCheck] },
+  { name: "kimiVersionMutation", build: opts => asMutation(settings.kimiVersionMutation(opts)), variables: "2.5.3",
+    request: { method: "POST", path: "/admin/kimi/version", body: { selection: "2.5.3" } }, invalidates: [KEYS.versionsCheck] },
   { name: "modelDefaultsMutation", label: "modelDefaultsMutation('grok')", build: opts => asMutation(settings.modelDefaultsMutation("grok", opts)), variables: { model: "grok-4.6", reasoning_effort: "xhigh" },
     request: { method: "POST", path: "/admin/model-defaults/grok", body: { model: "grok-4.6", reasoning_effort: "xhigh" } }, invalidates: [["settings", "model-defaults", "grok"]] },
+  { name: "modelDefaultsMutation", label: "modelDefaultsMutation('kimi')", build: opts => asMutation(settings.modelDefaultsMutation("kimi", opts)), variables: { model: "kimi-4.6", reasoning_effort: "max" },
+    request: { method: "POST", path: "/admin/model-defaults/kimi", body: { model: "kimi-4.6", reasoning_effort: "max" } }, invalidates: [["settings", "model-defaults", "kimi"]] },
   {
     // Switching the posture changes what this very session may do, so it has
     // to invalidate the auth status alongside its own key or the console keeps
@@ -637,17 +654,29 @@ describe("module surface", () => {
     "engineStateQuery",
     "engineStateQueryKey",
     "grokModelToggleMutation",
+    "kimiModelToggleMutation",
     "grokModelsQuery",
+    "kimiModelsQuery",
     "grokModelsQueryKey",
+    "kimiModelsQueryKey",
     "grokSettingsMutation",
+    "kimiSettingsMutation",
     "grokSettingsQuery",
+    "kimiSettingsQuery",
     "grokSettingsQueryKey",
+    "kimiSettingsQueryKey",
     "grokStateMutation",
+    "kimiStateMutation",
     "grokStateQuery",
+    "kimiStateQuery",
     "grokStateQueryKey",
+    "kimiStateQueryKey",
     "grokVersionMutation",
+    "kimiVersionMutation",
     "grokVersionsCheckMutation",
+    "kimiVersionsCheckMutation",
     "grokVersionsQuery",
+    "kimiVersionsQuery",
     "hostSpawnMutation",
     "hostSpawnQuery",
     "insecureApprovalMutation",
@@ -679,7 +708,7 @@ describe("module surface", () => {
   ];
 
   it("exports exactly the documented surface", () => {
-    assert.deepEqual(Object.keys(settings).sort(), EXPECTED_EXPORTS);
+    assert.deepEqual(Object.keys(settings).sort(), EXPECTED_EXPORTS.toSorted());
   });
 
   it("drives every exported query and mutation builder", () => {

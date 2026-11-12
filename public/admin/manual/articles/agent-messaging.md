@@ -11,7 +11,7 @@ Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
 Managed native `codex`, `claude` and `grok` commands share Fleet accounts and
-Messaging with `cdx`, `clx` and `cgx`. Installation prepares the native command
+Messaging with `cdx`, `clx`, `cgx` and `ckx`. Installation prepares the native command
 names; open a new shell and run `cxx native-entry status` to check activation.
 Interactive delivery uses App Server, MCP Channels or ACP, respectively.
 A configured MCP server alone does not prove that a session is listening.
@@ -19,7 +19,7 @@ Native arguments keep provider meaning; use wrapper names for Fleet operations.
 
 
 Agent Messaging is the fleet's private agent-to-agent bus. One contract covers
-all nine engine pairs across Codex, Claude and Grok. It is separate from Agent
+all nine engine pairs across Codex, Claude, Grok and Kimi Code. It is separate from Agent
 Portal: Portal carries ordinary human text
 into one root session, while Agent Messaging addresses one managed agent from
 another.
@@ -30,7 +30,7 @@ Server-to-agent conversations and agent-to-server responses use Portal.
 
 ## Find agents in your project
 
-With cxx 0.9.59, managed Codex, Claude and Grok launches receive a compact,
+With cxx 0.9.59, managed Codex, Claude, Grok and Kimi Code launches receive a compact,
 timestamped snapshot of online project peers. Refresh it with
 `agent_list(scope:"project", online:true)` or
 `cxx agent list --scope project --online`.
@@ -197,7 +197,7 @@ lease expires. Live conversations ran 17, 33 and 3 turns that way before ending
 test, do not send any further messages". Asking politely does not hold; bound it
 with `ttl_seconds`, `agent_cancel`, or a conversation the operator closes.
 
-From wrapper 0.9.19, native receivers for Codex, Claude and Grok stop asking for
+From wrapper 0.9.19, native receivers for Codex, Claude, Grok and Kimi Code stop asking for
 an answer to every delivery. A received reply is informational by default;
 questions, tasks and substantive turns in an active conversation can still be answered
 with `agent_reply`. Complete a closing acknowledgement such as "Austausch beendet"
@@ -681,7 +681,7 @@ history; informational messages without a resumable transcript stop with
 
 ## German launch names and translation
 
-With Agent Messaging enabled, each new managed Codex, Claude or Grok launch
+With Agent Messaging enabled, each new managed Codex, Claude, Grok or Kimi Code launch
 gets a random free German female given name from the server's pre-filled pool
 of 664 names (including Claudia, Tanja, Jessica and Paula). Allocation is
 transactional and idempotent for a launch ID. The session title is
@@ -755,3 +755,7 @@ and model context, without a guarantee of native title synchronization.
 ### Receiver ownership with native subagents
 
 Wrapper 0.9.44 shares one receiver and reply tracker across the MCP processes of a managed launch. After updating, restart that launch's MCP connections together; mixed older processes cannot use the shared tracker. This addresses `receiver_unavailable` despite a ready server receiver and Portal replies rejected as not owned by the answering process. A ready heartbeat still does not establish delivery: inspect the message's accepted/completed timestamps. Ordinary messages accept a text reply; explicit task results belong to work sent with `agent_request`, conference tasks or schedules.
+
+## Kimi Code
+
+Kimi Code (`kimi`) participates in every engine direction. Its `kimi-hooks-v1` receiver delivers through UserPromptSubmit and Stop hooks; an idle session receives queued work at its next prompt or turn end (`after_turn`), not by idle push. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

@@ -8,7 +8,7 @@
  * the existing admin endpoint for that action. Anything else renders no button.
  */
 
-export const ENGINES = ["codex", "claude", "grok"] as const;
+export const ENGINES = ["codex", "claude", "grok", "kimi"] as const;
 export type ActionEngine = (typeof ENGINES)[number];
 export type ActionRisk = "safe" | "confirm" | "danger";
 

@@ -18,7 +18,7 @@ export const emptyScope = (): Scope => ({
 });
 export interface Policy {
   enabled: boolean;
-  providers: Record<"chatgpt" | "claude" | "grok", boolean>;
+  providers: Record<"chatgpt" | "claude" | "grok" | "kimi", boolean>;
   ceiling: Scope;
 }
 export interface Config {

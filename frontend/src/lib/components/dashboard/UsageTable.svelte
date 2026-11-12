@@ -11,6 +11,7 @@
   import { resetsIn } from "$lib/utils/format";
   import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import { cn } from "$lib/utils/cn";
+  import KimiUsage from "./KimiUsage.svelte";
   import GrokUsage from "./GrokUsage.svelte";
   import UsageMeter from "./UsageMeter.svelte";
   import { accountQuotaRows } from "./account-usage";
@@ -47,7 +48,7 @@
   key={(account) => account.id}
   caption="Provider accounts and their quota usage"
   emptyTitle="No provider accounts yet"
-  emptyDescription="Add a ChatGPT, Claude or Grok login to see quota usage here."
+  emptyDescription="Add a ChatGPT, Claude, Grok or Kimi Code login to see quota usage here."
 >
   {#snippet emptyAction()}<Button variant="outline" href={`${base}/accounts`}>Go to Accounts</Button>{/snippet}
   {#snippet head()}
@@ -81,6 +82,8 @@
       <Table.Cell>
         {#if account.usage.supported === false}
           <span class="text-body-sm text-muted-foreground">Subscription quota unavailable</span>
+        {:else if account.engine === "kimi"}
+          <KimiUsage inline quotaSnapshot={account.quota_snapshot} usage={account.usage} label={account.label} showUpdated={false} />
         {:else if account.engine === "grok"}
           <GrokUsage inline usage={account.usage} label={account.label} showStatus={false} showUpdated={false} />
         {:else if rows.length}

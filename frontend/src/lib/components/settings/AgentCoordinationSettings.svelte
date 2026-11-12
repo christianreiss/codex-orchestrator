@@ -67,7 +67,7 @@
       <div class="flex items-start justify-between gap-4 border-y py-3">
         <div class="min-w-0 space-y-1">
           <label for="agent-coordination-toggle" class="text-body font-medium">Enable agent coordination</label>
-          <p id="agent-coordination-help" class="text-body-sm text-muted-foreground">Applies to Codex, Claude and Grok across all managed hosts. Enables automatic room membership and coordination of resource claims.</p>
+          <p id="agent-coordination-help" class="text-body-sm text-muted-foreground">Applies to Codex, Claude, Grok and Kimi Code across all managed hosts. Enables automatic room membership and coordination of resource claims.</p>
           <p class="text-body-sm">{$query.isError ? 'Last confirmed state' : 'Effective state'}: <strong>{$query.data.enabled ? 'Enabled' : 'Disabled'}</strong></p>
         </div>
         {#key `${$mutation.status}:${$query.data.enabled}`}

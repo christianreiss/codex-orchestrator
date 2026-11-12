@@ -11,7 +11,7 @@ Every host gets its credentials by asking the orchestrator; the orchestrator is 
 
 - `POST /auth` — the main host-facing auth endpoint. Accepts a `command` field: `retrieve` (default) or `store`. Both paths authenticate the caller via API key extracted from HTTP **headers**.
 - `POST /sync/status` / `POST /sync/bootstrap` — sync endpoints the wrappers hit on every run. Both inline an auth check (unless `include_auth=false`) and embed the result in the response — see *Sync routes* below for how the two differ.
-- `DELETE /auth` — self-uninstall. `?engine=codex|claude|grok` transactionally removes only that engine's host auth state, overrides, and pending installer tokens when another engine remains; removing the final engine or using the legacy no-engine route deletes the host. Both paths audit and publish an event.
+- `DELETE /auth` — self-uninstall. `?engine=codex|claude|grok|kimi` transactionally removes only that engine's host auth state, overrides, and pending installer tokens when another engine remains; removing the final engine or using the legacy no-engine route deletes the host. Both paths audit and publish an event.
 
 API keys are read from HTTP **headers** in all cases via `extractApiKey(req.headers)` in `host-auth.ts`. There is no body-based API key flavor.
 
@@ -164,7 +164,7 @@ or compatible API gateways.
 
 ## Background auth verification
 
-Host startup never waits on a live runner probe. Instead `api/src/ops/auth-verification-worker.ts` starts an in-process worker (only when `AUTH_RUNNER_URL` is configured) that keeps the latest Codex, Claude, and Grok canonical payloads verified in the background:
+Host startup never waits on a live runner probe. Instead `api/src/ops/auth-verification-worker.ts` starts an in-process worker (only when `AUTH_RUNNER_URL` is configured) that keeps the latest Codex, Claude, Grok, and Kimi Code canonical payloads verified in the background:
 
 - The first tick fires ~1 second after boot; subsequent ticks run every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300s, floor 30s). A tick is only a wake-up — whether it probes is decided by the dynamic schedule.
 - The re-check interval equals the credential's proven-good age (`verification_checked_at − created_at`), clamped between `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900s) and `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (default 21600s) — a factor-2 ladder. Successful gateway execs with the canonical credential touch `verification_checked_at` too (traffic counts as proof), so probes only fire when the fleet is idle. Pending quarantine rows and runner-outage retries follow the same ladder, and a credential whose access token expired while its refresh token is live is never probed (a probe could only pass by spending the refresh token). When a probe is due, the worker calls `canonical-auth-store.ts`'s `ensureServedVerification`.
@@ -232,7 +232,7 @@ the refresh token on every refresh, so whichever copy refreshes second fails wit
 
 - **Fleet kill-switch**: `assertApiNotDisabled` checks a single `api_disabled` flag in the `versions` table. Flipping it refuses auth for all engines. The `/auth` endpoint itself is not disabled, but hosts see refusal responses.
 - **Delete a host**: `DELETE /admin/hosts/{id}`. The host's API key is invalidated; future `/auth` calls fail authentication.
-- **Host self-uninstall**: `DELETE /auth?engine=codex|claude|grok` removes that engine
+- **Host self-uninstall**: `DELETE /auth?engine=codex|claude|grok|kimi` removes that engine
   while preserving the remaining engines on a multi-engine host. The legacy route
   without `engine` deletes the host. Both are logged and broadcast.
 - **Purge insecure creds immediately**: `POST /admin/hosts/{id}/insecure/disable` — closes the window, forcing the host back into the approval queue.
@@ -257,3 +257,7 @@ the refresh token on every refresh, so whichever copy refreshes second fails wit
 ## Multiple provider accounts
 
 Each account has an independent canonical head, verification lineage and usage snapshots. Providers → Accounts manages enrollment and lifecycle; cxx 0.9.7 reserves a balanced account at launch and scopes subsequent auth requests and usage reports to it. Overlapping native sessions keep their account. See [Provider accounts](accounts) for management, quota policy and rollout behavior.
+
+## Kimi Code
+
+Kimi Code canonical auth contains `kimi_code`, `device_id`, `oauth_host`, `base_url` and `last_refresh`. A dedicated device login supplies the refresh token; only the server rotates it. Managed hosts receive access-only credentials with zero expiry. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

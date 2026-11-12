@@ -7,7 +7,7 @@ import {
 } from "@tanstack/svelte-query";
 import { api } from "./client";
 
-export type AgentEngine = "codex" | "claude" | "grok";
+export type AgentEngine = "codex" | "claude" | "grok" | "kimi";
 export type AgentActor = AgentEngine | "server";
 export interface AgentDeliveryDirection {
   source_engine: AgentActor;

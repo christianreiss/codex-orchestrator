@@ -31,7 +31,7 @@
     <BrandMark class="h-8 w-8 rounded-md" />
     <span class="min-w-0 md:max-lg:hidden">
       <span class="block truncate text-body font-semibold tracking-tight text-foreground">Codex Orchestrator</span>
-      <span class="block text-caption text-muted-foreground">Codex · Claude · Grok</span>
+      <span class="block text-caption text-muted-foreground">Codex · Claude · Grok · Kimi Code</span>
     </span>
   </a>
 

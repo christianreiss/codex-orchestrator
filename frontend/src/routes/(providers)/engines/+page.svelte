@@ -25,7 +25,7 @@
   // Which engine's Advanced disclosure is open. Closed content is not rendered,
   // so a hash that points inside one (`#claude-client`) must open it before
   // the browser can scroll there.
-  let advanced = $state<Record<Engine, boolean>>({ codex: false, claude: false, grok: false });
+  let advanced = $state<Record<Engine, boolean>>({ codex: false, claude: false, grok: false, kimi: false });
 
   function selectEngine(engine: string) {
     if (!isEngine(engine)) return;

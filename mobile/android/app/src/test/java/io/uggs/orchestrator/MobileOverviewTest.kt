@@ -22,7 +22,7 @@ class MobileOverviewTest {
     }
     private fun agent(json: String) = JSONObject(json)
     @Test fun allShowsOnlineActiveAgentsAcrossEnginesWithoutRequiringAnOpenRelay() {
-        for (engine in listOf("codex", "claude", "grok")) {
+        for (engine in listOf("codex", "claude", "grok", "kimi")) {
             for (presence in listOf("listening", "working", "idle", "offline", "ended", "unknown", "")) {
                 val row = agent("""{"engine":"$engine","presence":"$presence","relay_ready":false,"status":"active"}""")
                 assertEquals(presence, presence in listOf("listening", "working", "idle"), isOnlineActiveAgent(row))

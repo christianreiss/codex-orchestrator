@@ -15,7 +15,7 @@ import type { Engine } from "../constants/engines";
 import type { EngineStateRow } from "../api/types";
 
 /** Canonical engine order; mirrors `ENGINES` in `constants/engines.ts`. */
-const ORDER: readonly Engine[] = ["codex", "claude", "grok"];
+const ORDER: readonly Engine[] = ["codex", "claude", "grok", "kimi"];
 
 export interface FleetEngineView {
   /** True once the server answered with engine rows. */

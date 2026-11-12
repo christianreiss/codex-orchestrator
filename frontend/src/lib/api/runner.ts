@@ -42,6 +42,7 @@ export interface RunnerStatus {
     codex?: RunnerEngineStatus | null;
     claude?: RunnerEngineStatus | null;
     grok?: RunnerEngineStatus | null;
+    kimi?: RunnerEngineStatus | null;
   } | null;
 }
 
@@ -80,7 +81,7 @@ export interface RunnerStateResponse {
  */
 export interface RunnerRunResult {
   status: "ok" | "fail" | "unconfigured";
-  engine?: "codex" | "claude" | "grok";
+  engine?: "codex" | "claude" | "grok" | "kimi";
   verdict?: "verified" | "failed" | "unknown";
   applied?: boolean;
   probed?: boolean;
@@ -135,6 +136,15 @@ export function createRunGrokRunnerMutation() {
   const qc = useQueryClient();
   return createMutation<RunnerRunResult, ApiError, void>({
     mutationFn: () => api.post<RunnerRunResult>("/admin/runner/run-grok", {}),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: runnerKeys.state() });
+    },
+  });
+}
+export function createRunKimiRunnerMutation() {
+  const qc = useQueryClient();
+  return createMutation<RunnerRunResult, ApiError, void>({
+    mutationFn: () => api.post<RunnerRunResult>("/admin/runner/run-kimi", {}),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: runnerKeys.state() });
     },

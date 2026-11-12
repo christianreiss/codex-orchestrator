@@ -15,7 +15,7 @@ The page header carries the **Enable git merges** switch (Director activation) a
 
 ## Commit messages
 
-The **Commit messages** section of the Settings tab applies one shared preference to Codex, Claude and Grok, even when the Git Director or Skills are disabled:
+The **Commit messages** section of the Settings tab applies one shared preference to Codex, Claude, Grok and Kimi Code, even when the Git Director or Skills are disabled:
 
 - **Short** (default): one precise subject line, without an explanatory body.
 - **Long**: a subject, blank line, then what changed and why, with relevant verification results. Unperformed checks must never be presented as passed.
@@ -91,3 +91,7 @@ its tools while retaining registrations and leases. Operator decisions do not
 implicitly revoke other leases. A merge-completion notice is an unverified agent
 report; releasing a lease alone does not mean the merge succeeded. Notice queue
 and skip counts are recorded as `git_director.notifications` audit events.
+
+## Kimi Code
+
+Kimi Code sessions use the same Git Director registrations, declared paths, resource claims and merge leases as other engines. A separate engine grants no exemption from shared-worktree coordination. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

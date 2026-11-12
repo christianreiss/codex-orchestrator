@@ -16,7 +16,7 @@
   let { onShowKeys }: Props = $props();
 
   /** Key tabs are per surface; their ids predate the surface naming. */
-  const KEY_TAB: Record<ApiSurfaceId, ApiKeyEngine> = { openai: "openai", anthropic: "claude", grok: "grok" };
+  const KEY_TAB: Record<ApiSurfaceId, ApiKeyEngine> = { openai: "openai", anthropic: "claude", grok: "grok", kimi: "kimi" };
   const WIRE_LABEL = { openai: "OpenAI wire", anthropic: "Anthropic wire" } as const;
 
   const query = apiSurfacesQuery();

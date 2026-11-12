@@ -43,7 +43,7 @@
       <Dialog.Header>
         <Dialog.Title>{client ? `Edit ${client.name}` : "New external client"}</Dialog.Title>
         <Dialog.Description>
-          A bot or bridge that takes part in agent messaging without being a cdx/clx/cgx session. It only ever gets the communication surface.
+          A bot or bridge that takes part in agent messaging without being a cdx/clx/cgx/ckx session. It only ever gets the communication surface.
         </Dialog.Description>
       </Dialog.Header>
       <FormField id="ec-name" label="Name" hint="How agents see and address it. Unique; one line.">

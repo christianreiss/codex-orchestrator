@@ -15,7 +15,7 @@ The **Store enabled** switch in the Secrets section header (`GET`/`POST /admin/s
 
 ## The table
 
-`GET /admin/secrets` (`secrets.read_metadata`, held by every role; `?include_deleted=1` adds retired rows) lists each secret's slug, description, tags and owner (the table's **Secret**, **Used for**, **Managed by**, and **Rotated** columns). Every working credential is available to Codex, Claude and Grok. The owner shows as **Operator** for a secret created here (`source_host_id` is null — agents cannot rotate or delete it) or **Host #N** for one an agent stored through `secret_store` from that host. Values are never in the listing.
+`GET /admin/secrets` (`secrets.read_metadata`, held by every role; `?include_deleted=1` adds retired rows) lists each secret's slug, description, tags and owner (the table's **Secret**, **Used for**, **Managed by**, and **Rotated** columns). Every working credential is available to Codex, Claude, Grok and Kimi Code. The owner shows as **Operator** for a secret created here (`source_host_id` is null — agents cannot rotate or delete it) or **Host #N** for one an agent stored through `secret_store` from that host. Values are never in the listing.
 
 Controls, and the capability each needs:
 
@@ -45,3 +45,7 @@ The MCP tools are `secret_list` (no arguments; its `status` and `capabilities` r
 - frontend/src/lib/components/secrets/SecretsList.svelte, frontend/src/lib/components/secrets/NewSecretDialog.svelte (rows, reveal, edit, revoke, creation form)
 - frontend/src/lib/api/secrets.ts (queries, owner labelling, tool-name hints)
 - frontend/src/lib/ws/events.ts (`secret.*` invalidations; `secret.revealed` intentionally absent)
+
+## Kimi Code
+
+Kimi Code uses the existing fleet secret tools and permission checks through MCP. Selecting it as the engine does not expand a session's authority to read or write a credential. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

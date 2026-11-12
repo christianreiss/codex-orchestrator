@@ -348,7 +348,7 @@ internal fun parseQuotaPush(data: Map<String, String>): QuotaPush? {
     )
 }
 
-internal fun engineLabel(engine: String) = when (engine) { "codex" -> "Codex"; "claude" -> "Claude"; "grok" -> "Grok"; else -> engine.replaceFirstChar { it.uppercase() } }
+internal fun engineLabel(engine: String) = when (engine) { "codex" -> "Codex"; "claude" -> "Claude"; "grok" -> "Grok"; "kimi" -> "Kimi Code"; else -> engine.replaceFirstChar { it.uppercase() } }
 
 internal fun quotaPushWindow(t: Texts, window: String) = t.string(when (window) {
     "weekly" -> R.string.quota_window_weekly

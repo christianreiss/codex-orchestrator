@@ -47,7 +47,7 @@ export type LibraryTypeMeta = {
   icon: Component;
 };
 
-const CLAUDE_ONLY_NOTE = "Claude-only: synced to Claude Code hosts, ignored by Codex and Grok.";
+const CLAUDE_ONLY_NOTE = "Claude-only: synced to Claude Code hosts, ignored by Codex, Grok and Kimi Code.";
 
 export const LIBRARY_TYPES: readonly LibraryTypeMeta[] = [
   {

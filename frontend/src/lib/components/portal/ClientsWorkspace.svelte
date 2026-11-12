@@ -57,7 +57,7 @@
     spawnOpen?: boolean;
     /** Directory filters, owned by the Agents page toolbar. */
     search?: string;
-    engine?: "all" | "codex" | "claude" | "grok";
+    engine?: "all" | "codex" | "claude" | "grok" | "kimi";
     /** "agents" or "remote" (daemon-launched sessions). */
     workspace?: "agents" | "remote";
     /** Open the "start remote session" dialog. */

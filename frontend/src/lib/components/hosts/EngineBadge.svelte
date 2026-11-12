@@ -3,6 +3,7 @@
   import { cn } from "$lib/utils/cn";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Cpu from "@lucide/svelte/icons/cpu";
+  import KeyRound from "@lucide/svelte/icons/key-round";
   import Zap from "@lucide/svelte/icons/zap";
 
   type Props = {
@@ -32,7 +33,8 @@
         ? "border-persona-grok/30 bg-persona-grok/10 text-foreground"
         : engine === "claude"
         ? "border-persona-claude/30 bg-persona-claude/10 text-foreground"
-        : "border-persona-codex/30 bg-persona-codex/10 text-foreground",
+        : engine === "kimi" ? "border-persona-kimi/30 bg-persona-kimi/10 text-foreground"
+        : engine === "codex" ? "border-persona-codex/30 bg-persona-codex/10 text-foreground" : "",
     className,
   )}
 >
@@ -40,7 +42,9 @@
     <Sparkles class="h-3 w-3" />
   {:else if engine === "grok"}
     <Zap class="h-3 w-3" />
-  {:else}
+  {:else if engine === "kimi"}
+    <KeyRound class="h-3 w-3" />
+  {:else if engine === "codex"}
     <Cpu class="h-3 w-3" />
   {/if}
   {label}

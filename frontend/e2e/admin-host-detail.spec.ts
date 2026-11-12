@@ -7,7 +7,7 @@ async function fixture(page: Page, overrides = false, manage = true, singleEngin
   const host = {
     presence: 'online', presence_heartbeat_at: stamp, presence_observed_at: stamp, presence_fresh_seconds: 45, last_contact_at: stamp,
     id: 1, fqdn: 'workstation.example.test', secure: true, status: 'active', authed,
-    engines: singleEngine ? 'codex' : 'codex,claude,grok', engines_list: singleEngine ? ['codex'] : ['codex', 'claude', 'grok'],
+    engines: singleEngine ? 'codex' : 'codex,claude,grok', engines_list: singleEngine ? ['codex'] : ['codex', 'claude', 'grok', 'kimi'],
     ip4: '192.0.2.10', ip6: '2001:db8::10', last_refresh: stamp, last_cron_check: stamp,
     updated_at: stamp, users: [], api_calls: 42, client_version: '1.2.3', claude_client_version: '2.3.4',
     grok_client_version: '1.0.50', model_override: overrides ? 'gpt-6.1-sol' : null,
@@ -25,9 +25,9 @@ async function fixture(page: Page, overrides = false, manage = true, singleEngin
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: [manage ? 'owner' : 'viewer'] }, capabilities: ['admin.read', 'hosts.read', 'settings.read', ...(manage ? ['hosts.manage', 'agent_messaging.manage'] : [])] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: stamp } });
     if (path === '/admin/ws/info') return json({ enabled: true, url: 'ws://127.0.0.1:4173/host-detail-ws' });
-    if (path === '/admin/hosts/1/rtk') return json({ engines: Object.fromEntries(['codex','claude','grok'].map(engine => [engine, { enabled:false, fleet:false, override:null, source:'fleet', policy_revision:null, assigned:!singleEngine || engine === 'codex', adapter_mode:'instructions', observation:null }])) });
+    if (path === '/admin/hosts/1/rtk') return json({ engines: Object.fromEntries(['codex','claude','grok','kimi'].map(engine => [engine, { enabled:false, fleet:false, override:null, source:'fleet', policy_revision:null, assigned:!singleEngine || engine === 'codex', adapter_mode:'instructions', observation:null }])) });
     if (path === '/admin/hosts/1/detail') return json({ host });
-    if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, enabled: engine !== 'grok' })) });
+    if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok', 'kimi'].map(engine => ({ engine, enabled: engine !== 'grok' })) });
     if (path === '/admin/model-defaults/grok') return json({ model: 'grok-4.7', catalog: [] });
     if (path === '/admin/hosts/1/installer') {
       writes.push({ path, value: req.postDataJSON() });

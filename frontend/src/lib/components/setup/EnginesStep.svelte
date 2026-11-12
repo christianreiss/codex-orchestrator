@@ -21,7 +21,7 @@
 </script>
 
 <div class="space-y-3">
-  <div role="group" aria-label="Engines" class="grid gap-3 sm:grid-cols-3">
+  <div role="group" aria-label="Engines" class="grid gap-3 sm:grid-cols-2">
     {#each ENGINES as engine (engine)}
       {@const off = !$fleet.isEnabled(engine)}
       <ChoiceCard

@@ -19,9 +19,9 @@ test('Chatty gates availability, persists the conversation and confirms concrete
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'owner', roles: ['owner'] }, capabilities: ['admin.read', 'chatty.use', 'chatty.manage'] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-09', dismissed_at: null } });
     if (path === '/admin/ws/info') return json({ enabled: false });
-    if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, enabled: true })) });
+    if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok', 'kimi'].map(engine => ({ engine, enabled: true })) });
     if (path === '/admin/hosts') return json({ hosts: [] });
-    if (path === '/admin/chatty/status') return json({ visible: true, ready, enabled: true, knowledge_version: 'test', engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, ready, models: [{ id: 'model', display_name: 'Testmodell' }, { id: 'model-large', display_name: 'Ein Modell mit einem langen Anzeigenamen für schmale Bildschirme' }], default_model: 'model', reason: null })) });
+    if (path === '/admin/chatty/status') return json({ visible: true, ready, enabled: true, knowledge_version: 'test', engines: ['codex', 'claude', 'grok', 'kimi'].map(engine => ({ engine, ready, models: [{ id: 'model', display_name: 'Testmodell' }, { id: 'model-large', display_name: 'Ein Modell mit einem langen Anzeigenamen für schmale Bildschirme' }], default_model: 'model', reason: null })) });
     if (path === '/admin/chatty/session' && req.method() === 'DELETE') { generation++; events = []; active = null; cleared++; return json({ generation }); }
     if (path === '/admin/chatty/session') return json({ generation, selection, events, active, has_older: false });
     if (path === '/admin/chatty/selection' && req.method() === 'PUT') {
@@ -218,7 +218,7 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
         return { ...check(`Claude auf ${host} aktivieren?`, 'Claude aktivieren', { host_id: 1, engine: 'claude', engines_before: ['codex'], engines_after: ['codex', 'claude'] }), action: 'host.engine.enable', label: `Claude auf ${host} aktivieren` };
       if (proposal === token('disable')) {
         // The host changed between opening the dialog and confirming: the second check returns a new plan.
-        const before = ++disableChecks === 1 ? ['codex', 'claude'] : ['codex', 'claude', 'grok'];
+        const before = ++disableChecks === 1 ? ['codex', 'claude'] : ['codex', 'claude', 'grok', 'kimi'];
         return { ...check(`Codex auf ${host} deaktivieren?`, 'Codex deaktivieren', { host_id: 1, engine: 'codex', engines_before: before, engines_after: before.filter(e => e !== 'codex') }, { risk: 'danger', confirm_text: host }), action: 'host.engine.disable', label: `Codex auf ${host} deaktivieren` };
       }
       return { available: false, reason: 'expired', detail: 'Dieser Vorschlag ist abgelaufen.' };

@@ -25,7 +25,7 @@ test('residence is saved independently of remote starts and survives reload', as
       return json(daemon);
     }
     if (path === '/admin/host-daemons') return json({hosts:[daemon]});
-    if (path === '/admin/engines/state') return json({engines:['codex','claude','grok'].map(engine=>({engine,enabled:true}))});
+    if (path === '/admin/engines/state') return json({engines:['codex','claude','grok','kimi'].map(engine=>({engine,enabled:true}))});
     if (path === '/admin/insecure-approvals/pending') return json({requests:[]});
     if (path === '/admin/communicators') return json({enabled:false,connections:[]});
     return json({});

@@ -50,7 +50,7 @@
   const status = setupStatusQuery();
   const wizardMutation = createSetupWizardMutation(qc);
 
-  type Engine = "codex" | "claude" | "grok";
+  type Engine = "codex" | "claude" | "grok" | "kimi";
 
   let current = $state<SetupStep>("infrastructure");
   let engines = $state<Engine[]>(["codex"]);

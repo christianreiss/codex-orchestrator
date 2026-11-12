@@ -38,7 +38,7 @@
   import StepQueryState from "./StepQueryState.svelte";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
 
-  type Props = { engines: ("codex" | "claude" | "grok")[] };
+  type Props = { engines: ("codex" | "claude" | "grok" | "kimi")[] };
   let { engines }: Props = $props();
 
   const qc = useQueryClient();
@@ -54,15 +54,18 @@
   const codexQuery = modelDefaultsQuery("codex");
   const claudeQuery = modelDefaultsQuery("claude");
   const grokQuery = modelDefaultsQuery("grok");
+  const kimiQuery = modelDefaultsQuery("kimi");
   const codexMutation = modelDefaultsMutation("codex", {});
   const claudeMutation = modelDefaultsMutation("claude", {});
   const grokMutation = modelDefaultsMutation("grok", {});
+  const kimiMutation = modelDefaultsMutation("kimi", {});
 
   type Draft = { model: string; effort: string; init: boolean };
   let drafts = $state<Record<ModelDefaultsEngine, Draft>>({
     codex: { model: "", effort: "", init: false },
     claude: { model: "", effort: "", init: false },
     grok: { model: "", effort: "", init: false },
+    kimi: { model: "", effort: "", init: false },
   });
 
   function defaultEffort(entry: ModelDefaultsCatalogEntry | null): string {
@@ -90,12 +93,13 @@
   $effect(() => seed("codex", $codexQuery.data));
   $effect(() => seed("claude", $claudeQuery.data));
   $effect(() => seed("grok", $grokQuery.data));
+  $effect(() => seed("kimi", $kimiQuery.data));
 
   // ModelSelect only binds the model; keep the effort valid for whichever
   // model is now selected.
   $effect(() => {
     for (const engine of targets) {
-      const data = engine === "codex" ? $codexQuery.data : engine === "grok" ? $grokQuery.data : $claudeQuery.data;
+      const data = { codex: $codexQuery.data, claude: $claudeQuery.data, grok: $grokQuery.data, kimi: $kimiQuery.data }[engine];
       const draft = drafts[engine];
       if (!data || !draft.init) continue;
       const entry = data.catalog.find((item) => item.model === draft.model) ?? null;
@@ -108,22 +112,22 @@
   });
 
   const loading = $derived(
-    $codexQuery.isLoading || (targets.includes("claude") && $claudeQuery.isLoading) || (targets.includes("grok") && $grokQuery.isLoading),
+    $codexQuery.isLoading || (targets.includes("claude") && $claudeQuery.isLoading) || (targets.includes("grok") && $grokQuery.isLoading) || (targets.includes("kimi") && $kimiQuery.isLoading),
   );
   const loadError = $derived(
     $codexQuery.error?.message ??
       (targets.includes("claude") ? ($claudeQuery.error?.message ?? null) : null) ??
-      (targets.includes("grok") ? ($grokQuery.error?.message ?? null) : null),
+      (targets.includes("grok") ? ($grokQuery.error?.message ?? null) : null) ?? (targets.includes("kimi") ? ($kimiQuery.error?.message ?? null) : null),
   );
 
   /** Function, not `$derived`: derived state cannot be exported from a
   * component. The caller's own `$derived` still tracks what this reads. */
   export function isBusy(): boolean {
-    return $codexMutation.isPending || $claudeMutation.isPending || $grokMutation.isPending;
+    return $codexMutation.isPending || $claudeMutation.isPending || $grokMutation.isPending || $kimiMutation.isPending;
   }
 
   async function save(engine: ModelDefaultsEngine): Promise<void> {
-    const query = engine === "codex" ? $codexQuery : engine === "grok" ? $grokQuery : $claudeQuery;
+    const query = { codex: $codexQuery, claude: $claudeQuery, grok: $grokQuery, kimi: $kimiQuery }[engine];
     // Skip can land here before the catalog arrived; fetch it rather than
     // POSTing an empty model.
     const data = query.data ?? (await query.refetch()).data;
@@ -132,7 +136,7 @@
     const model = draft.init && draft.model ? draft.model : data.model;
     const entry = data.catalog.find((item) => item.model === model) ?? null;
     const effort = draft.init && draft.model === model ? draft.effort : effortFor(data, model, data.reasoning_effort);
-    const mutation = engine === "codex" ? $codexMutation : engine === "grok" ? $grokMutation : $claudeMutation;
+    const mutation = { codex: $codexMutation, claude: $claudeMutation, grok: $grokMutation, kimi: $kimiMutation }[engine];
     await mutation.mutateAsync({
       model,
       reasoning_effort: (entry?.persistent_efforts.length ?? 0) > 0 ? effort || null : null,
@@ -225,6 +229,7 @@
         void $codexQuery.refetch();
         if (targets.includes("claude")) void $claudeQuery.refetch();
         if (targets.includes("grok")) void $grokQuery.refetch();
+        if (targets.includes("kimi")) void $kimiQuery.refetch();
       }}
     />
   {:else}
@@ -236,6 +241,9 @@
     {/if}
     {#if targets.includes("grok")}
       <div class="border-t pt-4">{@render engineBlock("grok", $grokQuery.data)}</div>
+    {/if}
+    {#if targets.includes("kimi")}
+      <div class="border-t pt-4">{@render engineBlock("kimi", $kimiQuery.data)}</div>
     {/if}
   {/if}
 

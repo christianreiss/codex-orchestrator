@@ -5,9 +5,9 @@
  *
  * Pure and import-free at runtime so `node --test` can load it.
  */
-export type AnchorEngine = "codex" | "claude" | "grok";
+export type AnchorEngine = "codex" | "claude" | "grok" | "kimi";
 
-const ENGINE_ANCHOR = /^(codex|claude|grok)-(advanced|native-settings|profile-settings)$/;
+const ENGINE_ANCHOR = /^(codex|claude|grok|kimi)-(advanced|native-settings|profile-settings)$/;
 const CODEX_ONLY = new Set(["codex-async-compaction", "cdx-silent"]);
 
 /** The engine whose Advanced disclosure holds `#hash`, or null when the hash is not inside one. */
@@ -19,7 +19,7 @@ export function advancedEngineForHash(hash: string): AnchorEngine | null {
   return match ? (match[1] as AnchorEngine) : null;
 }
 
-const ENGINE_TAB_ANCHOR = /^(codex|claude|grok)-(defaults|danger)$/;
+const ENGINE_TAB_ANCHOR = /^(codex|claude|grok|kimi)-(defaults|danger)$/;
 
 /**
  * The engine tab that holds `#hash`: everything {@link advancedEngineForHash}

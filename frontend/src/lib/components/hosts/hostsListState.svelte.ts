@@ -54,6 +54,7 @@ function matchesQuery(h: HostListItem, q: string): boolean {
     h.client_version_override ?? h.client_version,
     h.claude_client_version_override ?? h.claude_client_version,
     h.grok_client_version_override ?? h.grok_client_version,
+    h.kimi_client_version_override ?? h.kimi_client_version,
     h.status,
     hostStatusLabel(h),
   ];

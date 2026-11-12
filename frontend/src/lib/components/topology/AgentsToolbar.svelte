@@ -55,7 +55,7 @@
       <option value="all">All engines</option>
       <option value="codex">Codex</option>
       <option value="claude">Claude</option>
-      <option value="grok">Grok</option>
+      <option value="grok">Grok</option><option value="kimi">Kimi Code</option>
     </select>
   {/if}
   {#if agents.view === "graph"}

@@ -15,8 +15,8 @@
   const query = apiSurfacesQuery();
   const apiState = apiStateQuery();
   const engines = engineStateQuery();
-  const keyVendor: Record<ApiSurfaceId, ApiKeyEngine> = { openai: "openai", anthropic: "claude", grok: "grok" };
-  const labels: Record<ApiSurfaceId, string> = { openai: "OpenAI", anthropic: "Anthropic", grok: "Grok" };
+  const keyVendor: Record<ApiSurfaceId, ApiKeyEngine> = { openai: "openai", anthropic: "claude", grok: "grok", kimi: "kimi" };
+  const labels: Record<ApiSurfaceId, string> = { openai: "OpenAI", anthropic: "Anthropic", grok: "Grok", kimi: "Kimi Code" };
   const origin = $derived(typeof window === "undefined" ? "" : window.location.origin);
   let open = $state(false);
 

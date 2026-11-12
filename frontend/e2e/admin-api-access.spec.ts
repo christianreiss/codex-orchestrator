@@ -7,6 +7,7 @@ const surfaces = [
   { surface: 'openai', label: 'OpenAI-compatible', base_path: '/v1', wire: 'openai', backend: 'grok', identity_backend: 'codex', disabled: false, key_count: 0 },
   { surface: 'anthropic', label: 'Anthropic-compatible', base_path: '/anthropic/v1', wire: 'anthropic', backend: 'claude', identity_backend: 'claude', disabled: false, key_count: 0 },
   { surface: 'grok', label: 'Grok (OpenAI-compatible)', base_path: '/grok/v1', wire: 'openai', backend: 'grok', identity_backend: 'grok', disabled: false, key_count: 0 },
+  { surface: 'kimi', label: 'Kimi Code (OpenAI-compatible)', base_path: '/kimi/v1', wire: 'openai', backend: 'kimi', identity_backend: 'kimi', disabled: true, key_count: 0 },
 ];
 async function fixture(page: Page, options: { disabledEngine?: string; failSettings?: boolean; failCreate?: boolean; hold?: boolean; longUrl?: boolean; delayedSurfaces?: boolean } = {}) {
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
@@ -26,9 +27,9 @@ async function fixture(page: Page, options: { disabledEngine?: string; failSetti
       if (options.failSettings) return json({ message: 'Connection settings unavailable' }, 503);
       return json({ surfaces: surfaces.map(row => options.longUrl ? { ...row, base_path: `${'/long-proxy-prefix'.repeat(8)}${row.base_path}` } : row), backends: [] });
     }
-    if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok'].map(engine => ({ engine, label: engine === 'codex' ? 'Codex' : engine === 'claude' ? 'Claude' : 'Grok', enabled: options.disabledEngine !== engine })) });
+    if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok', 'kimi'].map(engine => ({ engine, label: engine === 'codex' ? 'Codex' : engine === 'claude' ? 'Claude' : engine === 'grok' ? 'Grok' : 'Kimi Code', enabled: options.disabledEngine !== engine })) });
     if (path === '/admin/api/state') return json({ disabled: false });
-    if (/\/admin\/(openai|claude|grok)\/keys$/.test(path)) {
+    if (/\/admin\/(openai|claude|grok|kimi)\/keys$/.test(path)) {
       // The key list merges the three endpoints, so each one answers only for its own keys.
       if (req.method() === 'GET') return json(record && recordPath === path ? [record] : []);
       const body = req.postDataJSON(); writes.push({ path, body });
@@ -52,7 +53,7 @@ async function assertNoOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 }
 
-for (const format of ['openai', 'claude', 'grok']) {
+for (const format of ['openai', 'claude', 'grok', 'kimi']) {
   test(`${format}: explicitly selects an engine and copies exact connection values`, async ({ page, context }) => {
     const { writes } = await fixture(page, { delayedSurfaces: true });
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -68,7 +69,7 @@ for (const format of ['openai', 'claude', 'grok']) {
     await assertNoOverflow(page);
     expect(await dialog.evaluate(el => [...el.querySelectorAll('*')].every(child => child.scrollHeight <= child.clientHeight + 1 || getComputedStyle(child).overflowY !== 'auto'))).toBe(true);
     await page.screenshot({ path: `test-results/api-access-${format}-created-desktop.png` });
-    const baseUrl = `http://127.0.0.1:4173${format === 'openai' ? '/v1' : format === 'claude' ? '/anthropic/v1' : '/grok/v1'}`;
+    const baseUrl = `http://127.0.0.1:4173${format === 'openai' ? '/v1' : format === 'claude' ? '/anthropic/v1' : format === 'grok' ? '/grok/v1' : '/kimi/v1'}`;
     const urls = {
       'Base URL': baseUrl, 'Models URL': `${baseUrl}/models`, 'Responses URL': `${baseUrl}/responses`,
       ...(format === 'claude' ? { 'Messages URL': `${baseUrl}/messages`, 'Completions URL': `${baseUrl}/complete` }

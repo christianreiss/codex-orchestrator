@@ -1,12 +1,12 @@
 import type { ApiKeyEngine, ApiSurfaceId } from "$lib/api/types";
 
 export const KEY_SURFACE: Record<ApiKeyEngine, ApiSurfaceId> = {
-  openai: "openai", claude: "anthropic", grok: "grok",
+  openai: "openai", claude: "anthropic", grok: "grok", kimi: "kimi",
 };
 export const FORMAT_LABEL: Record<ApiKeyEngine, string> = {
-  openai: "OpenAI-compatible", claude: "Anthropic-compatible", grok: "Grok (OpenAI-compatible)",
+  openai: "OpenAI-compatible", claude: "Anthropic-compatible", grok: "Grok (OpenAI-compatible)", kimi: "Kimi Code (OpenAI-compatible)",
 };
-export const BACKEND_LABEL = { codex: "Codex", claude: "Claude", grok: "Grok" } as const;
+export const BACKEND_LABEL = { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi Code" } as const;
 
 export function connectionUrls(format: ApiKeyEngine, baseUrl: string) {
   const generation = format === "claude"

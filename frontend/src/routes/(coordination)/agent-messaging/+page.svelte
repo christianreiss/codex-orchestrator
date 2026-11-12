@@ -43,7 +43,7 @@
 
 <PageShell
   title="Messages"
-  description="Conversations between Codex, Claude, Grok and Server agents (agent messaging)."
+  description="Conversations between Codex, Claude, Grok, Kimi Code and Server agents (agent messaging)."
   toggle={{ label: "Enable messages", checked: service.checked, disabled: service.disabled, onChange: (next) => service.request(next) }}
 >
   {#snippet actions()}

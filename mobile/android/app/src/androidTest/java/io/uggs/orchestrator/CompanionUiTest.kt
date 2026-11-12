@@ -532,7 +532,7 @@ class CompanionUiTest {
                 })
                 if (path == "/agents/$session/attachments/test-photo/content") return MockResponse().setHeader("Content-Type", "image/png").setBody(okio.Buffer().write(photoBytes))
                 val body = when {
-                    path == "/quotas" -> """{"engines":[{"engine":"codex","label":"Codex","enabled":true,"accounts":[{"id":1,"label":"Main subscription","state":"enabled","fetched_at":"${Instant.now()}","stale":false,"windows":[{"kind":"weekly","used_percent":25,"resets_at":"${Instant.now().plusSeconds(3600)}","limit_seconds":604800}]}]},{"engine":"claude","label":"Claude","enabled":true,"accounts":[]},{"engine":"grok","label":"Grok","enabled":true,"accounts":[]}]}"""
+                    path == "/quotas" -> """{"engines":[{"engine":"codex","label":"Codex","enabled":true,"accounts":[{"id":1,"label":"Main subscription","state":"enabled","fetched_at":"${Instant.now()}","stale":false,"windows":[{"kind":"weekly","used_percent":25,"resets_at":"${Instant.now().plusSeconds(3600)}","limit_seconds":604800}]}]},{"engine":"claude","label":"Claude","enabled":true,"accounts":[]},{"engine":"grok","label":"Grok","enabled":true,"accounts":[]},{"engine":"kimi","label":"Kimi Code","enabled":true,"accounts":[]}]}"""
 
                     path == "/rooms/create" -> { roomCreated.set(JSONObject(request.body.readUtf8())); sharedRooms.set(true); JSONObject().put("room_id", roomId).toString() }
                     path == "/rooms/manage" -> { roomClosed.set(true); "{}" }
@@ -926,7 +926,7 @@ class CompanionUiTest {
         waitForAgentRows(session)
         val projects = listOf("customer-portal", "billing-service", "inventory-api", "release-tools", "network-policy", "mobile-companion")
         projects.forEachIndexed { index, project ->
-            extraAgents.add(agentFixture("dense-$index", project, "worker-${index + 1}.production.uggs.io", "Latest result for $project.", listOf("codex", "claude", "grok")[index % 3]))
+            extraAgents.add(agentFixture("dense-$index", project, "worker-${index + 1}.production.uggs.io", "Latest result for $project.", listOf("codex", "claude", "grok", "kimi")[index % 4]))
         }
         changed("agents")
         waitForAgentRows(session, "dense-0")
@@ -944,6 +944,7 @@ class CompanionUiTest {
                 assertCompleteTitle(project)
                 compose.onNodeWithContentDescription("Host: worker-${index + 1}.production.uggs.io", useUnmergedTree = true).assertIsDisplayed()
             }
+            compose.onNode(hasContentDescription("Engine: Kimi Code") and hasAnyAncestor(hasTestTag("agent:dense-3")), useUnmergedTree = true).assertExists()
         }
         screenshot("chat-home-dense")
         compose.onNodeWithTag("chat-list").performScrollToIndex(projects.size)
@@ -953,7 +954,7 @@ class CompanionUiTest {
         Assert.assertTrue("The last chat can scroll completely above the floating review action", lastRow.bottom <= reviewButton.top)
         assertCompleteTitle("mobile-companion")
         compose.onNodeWithContentDescription("Host: worker-6.production.uggs.io", useUnmergedTree = true).assertIsDisplayed()
-        compose.onNode(hasContentDescription("Engine: Grok") and hasAnyAncestor(hasTestTag("agent:dense-5")), useUnmergedTree = true).assertIsDisplayed()
+        compose.onNode(hasContentDescription("Engine: Claude") and hasAnyAncestor(hasTestTag("agent:dense-5")), useUnmergedTree = true).assertIsDisplayed()
         Assert.assertFalse("Inspecting a long list does not load a transcript", transcriptRequested.get())
         Assert.assertEquals(setOf(session), unreadIds())
         screenshot("chat-home-dense-scrolled")

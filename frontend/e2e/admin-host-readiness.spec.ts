@@ -1,22 +1,22 @@
 import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-const engines = ['codex', 'claude', 'grok'];
+const engines = ['codex', 'claude', 'grok', 'kimi'];
 function readiness(state = 'ready', reasons: string[] = []) {
   return { state, reasons, cli_version: '1.2.3', cli_target: '1.2.3', wrapper_version: '0.9.40', wrapper_target: '0.9.40' };
 }
 function state() {
-  const common = { status: 'active', engines: 'codex,claude,grok', engines_list: engines,
+  const common = { status: 'active', engines: 'codex,claude,grok,kimi', engines_list: engines,
     last_refresh: new Date().toISOString(), updated_at: new Date().toISOString(), claude_last_refresh: null,
     client_version: '1.2.3', client_version_override: null, wrapper_version: '0.9.40',
     secure: true, vip: false, ip4: '192.0.2.10', insecure_enabled_until: null,
-    canonical_digest: 'old-auth', claude_canonical_digest: null, grok_canonical_digest: 'old-auth',
+    canonical_digest: 'old-auth', claude_canonical_digest: null, grok_canonical_digest: 'old-auth', kimi_canonical_digest: 'old-auth',
     authed: false, auth_outdated: true, users: [],
   };
   return { suspended: [] as string[], rows: [
-    { ...common, id: 1, fqdn: 'secure.test', engine_readiness: { codex: readiness(), claude: readiness('attention', ['auth_missing']), grok: readiness('attention', ['wrapper_outdated']) } },
-    { ...common, id: 2, fqdn: 'insecure.test', secure: false, canonical_digest: null, engine_readiness: { codex: readiness(), claude: readiness(), grok: readiness('attention', ['cli_unknown']) } },
-    { ...common, id: 3, fqdn: 'unassigned.test', engines: 'codex', engines_list: ['codex'], engine_readiness: { codex: readiness(), claude: readiness('inactive', ['not_assigned']), grok: readiness('inactive', ['not_assigned']) } },
+    { ...common, id: 1, fqdn: 'secure.test', engine_readiness: { codex: readiness(), claude: readiness('attention', ['auth_missing']), grok: readiness('attention', ['wrapper_outdated']), kimi: readiness() } },
+    { ...common, id: 2, fqdn: 'insecure.test', secure: false, canonical_digest: null, engine_readiness: { codex: readiness(), claude: readiness(), grok: readiness('attention', ['cli_unknown']), kimi: readiness() } },
+    { ...common, id: 3, fqdn: 'unassigned.test', engines: 'codex', engines_list: ['codex'], engine_readiness: { codex: readiness(), claude: readiness('inactive', ['not_assigned']), grok: readiness('inactive', ['not_assigned']), kimi: readiness('inactive', ['not_assigned']) } },
     { ...common, id: 4, fqdn: 'legacy.test', engine_readiness: undefined },
   ] };
 }
