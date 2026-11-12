@@ -41,7 +41,9 @@
     onSettled: () => { void qc.invalidateQueries({ queryKey }); },
   });
   const busy = $derived($saveMutation.isPending);
-  const disabled = $derived(!$authStore.can("settings.manage") || !$query.isSuccess || $query.isFetching || busy);
+  // A background refresh of data that is already loaded must not lock the control: the fleet
+  // pushes `settings.changed` often, and locking on every refetch makes the page flicker.
+  const disabled = $derived(!$authStore.can("settings.manage") || !$query.isSuccess || busy);
   function reset() { if ($query.data) adopt($query.data); $saveMutation.reset(); }
   function save() {
     if (disabled || !valid || !dirty || conflict) return;

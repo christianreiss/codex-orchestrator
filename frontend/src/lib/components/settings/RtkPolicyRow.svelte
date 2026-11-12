@@ -53,7 +53,9 @@
         </Select.Root>
       </div>
     {:else}
-      <Switch checked={policy.enabled} onCheckedChange={(v) => void change(v)} {disabled} aria-describedby={describedBy} aria-label={`${engine} output filtering`} />
+      {#key `${$save.status}:${policy.enabled}`}
+        <Switch checked={policy.enabled} onCheckedChange={(v) => void change(v)} {disabled} aria-describedby={describedBy} aria-label={`${engine} output filtering`} />
+      {/key}
     {/if}
   </div>
   {#if policy.adapter_mode === "instructions"}<p id={`${uid}-mode`} class="text-body-sm text-muted-foreground">Instruction mode: the agent chooses when to use RTK. Commands are not rewritten automatically.</p>{:else if policy.adapter_mode === "hook"}<p id={`${uid}-mode`} class="text-body-sm text-muted-foreground">Hook mode: supported commands can be rewritten before execution.</p>{/if}

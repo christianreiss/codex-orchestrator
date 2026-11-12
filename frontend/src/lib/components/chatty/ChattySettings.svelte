@@ -24,7 +24,8 @@
     onSettled: () => void qc.invalidateQueries({ queryKey: ['chatty'] }),
   });
   const busy = $derived($save.isPending);
-  const disabled = $derived(!canManage || busy || !$settings.isSuccess || $settings.isFetching);
+  // Background refreshes do not lock the controls (see TogglePolicy).
+  const disabled = $derived(!canManage || busy || !$settings.isSuccess);
 
   async function toggleEnabled(enabled: boolean) {
     const refocus = hasFocus('chatty-enabled');

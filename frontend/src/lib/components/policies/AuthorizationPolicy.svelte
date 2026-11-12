@@ -9,7 +9,9 @@
   const query = authorizationQuery();
   const mutation = authorizationMutation();
   const canManage = $derived($authStore.can("security.manage_authorization"));
-  const disabled = $derived(!canManage || !$query.isSuccess || $query.isFetching || $mutation.isPending);
+  // A background refresh of data that is already loaded must not lock the control: the fleet
+  // pushes `settings.changed` often, and locking on every refetch makes the page flicker.
+  const disabled = $derived(!canManage || !$query.isSuccess || $mutation.isPending);
   const wouldDeny = $derived($query.data?.would_deny ?? []);
 </script>
 

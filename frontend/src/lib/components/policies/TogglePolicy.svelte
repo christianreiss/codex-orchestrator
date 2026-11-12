@@ -50,7 +50,9 @@
   const overrideKey = untrack(() => (overridable as Record<string, "auto_update" | "reverse_dns">)[id]);
   const overrides = overrideKey ? hostOverridesQuery() : null;
   const overrideCount = $derived(overrideKey && overrides ? ($overrides?.data?.[overrideKey] ?? null) : undefined);
-  const disabled = $derived(!$authStore.can("settings.manage") || !$query.isSuccess || $query.isFetching || $mutation.isPending);
+  // A background refresh of data that is already loaded must not lock the control: the fleet
+  // pushes `settings.changed` often, and locking on every refetch makes the page flicker.
+  const disabled = $derived(!$authStore.can("settings.manage") || !$query.isSuccess || $mutation.isPending);
 </script>
 
 <PolicyRow {id} label={policy.label} term={policy.term} help={policy.help} details={policy.details} {overrideCount} overrideNoun="setting" controlId={`${id}-toggle`}>

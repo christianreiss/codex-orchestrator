@@ -106,7 +106,7 @@
           {@render extra?.($query.data)}
         </div>
         {#key `${$mutation.status}:${$query.data.enabled}`}
-          <Switch id={`${id}-toggle`} checked={$query.data.enabled} disabled={!canManage || pending || $query.isError || $query.isFetching || attempted !== null} aria-describedby={`${id}-help ${id}-status`} onCheckedChange={(enabled) => void save(enabled)} />
+          <Switch id={`${id}-toggle`} checked={$query.data.enabled} disabled={!canManage || pending || $query.isError || attempted !== null} aria-describedby={`${id}-help ${id}-status`} onCheckedChange={(enabled) => void save(enabled)} />
         {/key}
       </div>
     {/if}
@@ -120,7 +120,7 @@
         <Button variant="outline" size="sm" onclick={() => void reconcile(canManage)}>{canManage ? "Check state and retry" : "Check current state"}</Button>
       {:else if saved}<SaveState saved />
         {#if recovered}<p class="text-body-sm text-muted-foreground">The save response failed, but a fresh server read confirmed the requested state. No repeat write was needed.</p>{/if}
-      {:else if $query.isFetching}<p role="status" class="text-body-sm text-muted-foreground">Refreshing current state…</p>{/if}
+      {/if}
     </div>
   {/if}
 </Section>
