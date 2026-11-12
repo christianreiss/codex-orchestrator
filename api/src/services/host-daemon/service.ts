@@ -1,3 +1,4 @@
+import { assertHeadlessPrompt } from '../headless-prompt.js';
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { DaemonOperations } from '../../control-plane/streams/daemon-operations.js';
 import { ownerPresence } from '../../control-plane/presence.js';
@@ -448,6 +449,7 @@ export class HostDaemonService {
     portalInput?: PortalDaemonInput,
     options: { internal?: boolean; model?: string } = {},
   ) {
+    assertHeadlessPrompt(input.engine, input.prompt);
     // `default` and absence are one request: both pass no native flag.
     if (input.permission_mode !== 'plan') {
       const { permission_mode: _default, ...rest } = input;
@@ -552,6 +554,7 @@ export class HostDaemonService {
   async turn(id: string, prompt: string, clientId: string, owner?: string, portalInput?: PortalDaemonInput) {
     if(this.owned)return this.owned.turn(id,prompt,clientId,owner,portalInput);
     const row = await this.session(id, owner);
+    assertHeadlessPrompt(row.engine, prompt);
     await this.eligible(row.hostId, row.engine as Engine);
     const key = `${owner ?? 'admin'}:${clientId}`;
     const result = await this.db.transaction(async (tx) => {

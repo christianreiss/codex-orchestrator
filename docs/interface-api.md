@@ -1813,7 +1813,15 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
   attempt burned) and, unlike `deliveries/claim`, it does **not** require
   receive-capability — an agent that has never called `agent_listen` is exactly
   who needs it. Carries sender identity, `kind`, `delivery_class` and `expires_at`, never
-  message bodies. The Claude Stop ringer uses `kind`/`delivery_class` to skip
+  message bodies. Pending, due operator Portal commands also appear for every engine
+  as `{source:"portal", message_id, kind:"portal", from, expires_at:null}`.
+  `from` identifies the active administrator (`address: "admin:<id>", alias,
+  engine: "operator", fqdn:null`). Portal commands have no per-message expiry.
+  Disabled Portal, inactive authors and already leased/accepted commands do not
+  ring. Portal metadata uses a separate bounded page so peer traffic cannot hide it;
+  it neither reveals encrypted bodies nor claims a receipt. Kimi's hooks ring on
+  this metadata and `agent_listen` claims through the Portal receiver source.
+  The Claude Stop ringer uses `kind`/`delivery_class` to skip
   `presence_notice`, `publication`, `digest` and `progress`/`notice` mail (a client that
   sees no `delivery_class` treats the entry as needing an answer).
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/open` — open a conference
@@ -3108,6 +3116,18 @@ Route-level Zod validation errors return HTTP 422 with `validation_failed`, incl
 
 See [Android companion](android-companion.md#hosts-and-remote-conversations-0410) for the device-bearer host/start contract and logical Portal conversation projection. Migration 0052 adds `host_daemon_portal_bindings`, `companion_daemon_follows` and encrypted `host_daemon_operations.portal_content_enc`; it preserves existing sessions and permits safe retries. Remote conversations are owned by the paired administrator and retain real Portal events across native launches.
 
+### Kimi headless prompt size
+
+Kimi Code accepts headless prompts only through argv. Kimi daemon starts and
+follow-up turns reject input above **100000 UTF-8 bytes** at acceptance with
+HTTP 422 (`validation_failed`, `param: prompt`). The limit applies to agent,
+WebUI, companion and internally staged starts. Other engines keep their existing
+limits. Wake/Schedules already accept at most 30000 UTF-8 bytes and peer
+instructions at most 32 KiB. Generated workflow coordination prompts also enforce
+the Kimi byte limit before queue acceptance. Both wrapper workers also check the
+fully rendered Kimi prompt (including delivery framing and session titles) before
+exec and report `Kimi prompt exceeds 100000 UTF-8 bytes` on failure.
+
 ### Daemon working directory
 
 Remote starts use an explicitly supplied `cwd`, then the host daemon's configured
@@ -3201,6 +3221,9 @@ receiver readiness nor claims or resubmits new work. Headless and piped Claude
 launches retain `StopFailure`/`SessionEnd` reporting; channel identity hooks remain
 specific to receiver launches.
 
+Kimi reboot journals validate native ids as `session_<UUID>` and preserve the
+prefix through the one-use handoff; other engines retain UUID native ids.
+
 Active Clients session rows include nullable `reboot` with `request_id`, `state`,
 `old_session_id`, `new_session_id`. Planned work is `reboot_hold` until transfer;
 it blocks later FIFO delivery and never falls into normal lease-loss redelivery.
@@ -3215,7 +3238,7 @@ The server prepares installation material; the calling agent performs SSH itself
 No SSH credentials are sent to the server and provisioning never starts an agent task.
 
 `host_spawn_prepare({fqdn, engines, secure?, client_message_id, daemon?})` creates
-only new hosts. Engines must be a nonempty subset of `codex|claude|grok` and obey
+only new hosts. Engines must be a nonempty subset of `codex|claude|grok|kimi` (all four together are supported) and obey
 fleet master switches. `secure` defaults to true; false uses the existing initial
 30-minute insecure window. Known FQDNs fail without rotation or modification.
 A stable UUID and identical normalized input replay the same operation. Different

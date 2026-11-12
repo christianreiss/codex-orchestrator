@@ -26,7 +26,7 @@ const daemon = z.discriminatedUnion('mode', [
 export const hostSpawnSchema = z.object({
   fqdn: z.string().trim().toLowerCase().min(1).max(255)
     .refine(v => v.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)), 'Use a valid hostname or FQDN'),
-  engines: z.array(engine).min(1).max(3).transform(v => [...new Set(v)].sort()),
+  engines: z.array(engine).min(1).max(engine.options.length).transform(v => [...new Set(v)].sort()),
   secure: z.boolean().default(true),
   client_message_id: z.string().uuid(),
   daemon: daemon.default({ mode: 'none' }),

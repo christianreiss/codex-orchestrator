@@ -8,6 +8,11 @@ import { hostSpawnSchema, hostSpawnStatusSchema, hostSpawnSetupScript, hostSpawn
 import { daemonAccepting, daemonExpired } from '../../../src/services/host-daemon/policy.js';
 const base = () => ({ fqdn: 'new.example.test', engines: ['codex'], client_message_id: randomUUID() });
 describe('system spawn contracts', () => {
+  it('accepts all four engines for a single provisioned host', () => {
+    expect(hostSpawnSchema.parse({ ...base(), engines: ['codex', 'claude', 'grok', 'kimi'] }).engines)
+      .toEqual(['claude', 'codex', 'grok', 'kimi']);
+  });
+
   it('defaults to secure without a daemon and normalizes identity', () => {
     expect(hostSpawnSchema.parse({ ...base(), fqdn: 'NEW.Example.Test', engines: ['grok', 'codex', 'codex'] }))
       .toMatchObject({ fqdn: 'new.example.test', secure: true, daemon: { mode: 'none' }, engines: ['codex', 'grok'] });

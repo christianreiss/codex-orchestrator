@@ -1,3 +1,5 @@
+import { portalMailboxEntry } from './portal-mailbox.js';
+import { isTruthyFlagValue } from '../settings.js';
 import { and, asc, desc, eq, gt } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { agentBusMessages, agentTaskResults } from '../../db/schema.js';
@@ -202,6 +204,18 @@ export function peekOwnedMailbox(
         expires_at: row.expiresAt,
       });
     else missed.push({ from, expired_at: row.expiredAt });
+  }
+  if (isTruthyFlagValue(snapshot.setting('agent_portal_enabled'), false)) {
+    const portalRows = snapshot.table('agentMessages').by('sessionId', sessionId)
+      .filter(row => row.status === 'queued' && row.nextAttemptAt <= now)
+      .sort((a, b) => a.id - b.id);
+    let count = 0;
+    for (const row of portalRows) {
+      const admin = row.adminUserId === null ? undefined : snapshot.table('adminUsers').get(row.adminUserId);
+      if (!admin || admin.active !== 1) continue;
+      pending.push(portalMailboxEntry(row.messageId, admin.id, admin.name));
+      if (++count >= AGENT_MESSAGING_MAILBOX_PAGE_SIZE) break;
+    }
   }
   return { pending, missed };
 }

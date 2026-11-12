@@ -377,3 +377,13 @@ func (r *autoReceiver) validateKimiNative(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Guard the rendered argv too: delivery framing and titles add bytes to the input.
+const kimiPromptMaxBytes = 100000
+
+func checkKimiPrompt(prompt string) error {
+	if len(prompt) > kimiPromptMaxBytes {
+		return errors.New("Kimi prompt exceeds 100000 UTF-8 bytes")
+	}
+	return nil
+}

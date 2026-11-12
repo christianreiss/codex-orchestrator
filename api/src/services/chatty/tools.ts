@@ -193,7 +193,7 @@ export function administrationTools(): ChattyTool[] {
       'host_engines',
       'Set the engines assigned to an existing host.',
       'hosts.security_transition',
-      { id, engines: z.array(engineSchema).min(1).max(3) },
+      { id, engines: z.array(engineSchema).min(1).max(engineSchema.options.length) },
       async (c, a) => modelSafe(await host(c).setEngines(a.id, a.engines)),
       { confirm: true, snapshot: hostSnapshot },
     ),

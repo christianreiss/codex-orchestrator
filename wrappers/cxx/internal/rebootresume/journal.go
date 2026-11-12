@@ -44,7 +44,14 @@ type Record struct {
 }
 
 func (r Record) Validate() error {
-	if !uuid.MatchString(r.ID) || !uuid.MatchString(r.NativeID) || !uuid.MatchString(r.SessionID) || !uuid.MatchString(r.BootID) || !uuid.MatchString(strings.TrimPrefix(r.Address, "agent:")) {
+	nativeID := r.NativeID
+	if r.Engine == "kimi" {
+		if !strings.HasPrefix(nativeID, "session_") {
+			return errors.New("Kimi native session ID must use session_<UUID>")
+		}
+		nativeID = strings.TrimPrefix(nativeID, "session_")
+	}
+	if !uuid.MatchString(r.ID) || !uuid.MatchString(nativeID) || !uuid.MatchString(r.SessionID) || !uuid.MatchString(r.BootID) || !uuid.MatchString(strings.TrimPrefix(r.Address, "agent:")) {
 		return errors.New("canonical request, session, agent and boot UUIDs required")
 	}
 	if r.Engine != "codex" && r.Engine != "claude" && r.Engine != "grok" && r.Engine != "kimi" {

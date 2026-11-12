@@ -614,6 +614,10 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 		args = append(args, "--prompt-file", file.Name())
 	}
 	if engine == config.EngineKimi {
+		if err := checkKimiPrompt(prompt); err != nil {
+			result.Err = err
+			return result
+		}
 		args = append(args, "-p", prompt)
 	}
 	runCtx, cancel := context.WithCancel(ctx)
