@@ -67,7 +67,8 @@ test("three providers share one usage table in light/dark desktop, tablet and mo
     await expect(rows.nth(1).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
     await expect(rows.nth(1)).not.toContainText("Last known reading");
     await expect(rows.nth(2).getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "87");
-    await expect(rows.nth(2)).toContainText("in 1 day");
+    await expect(rows.nth(2).getByTestId("reset-in")).toContainText("in 1 day");
+    await expect(table.getByRole("columnheader", { name: "Reset in" })).toBeVisible();
     // One compact table: every meter has the same height and the page never scrolls sideways.
     const heights = await table.getByRole("meter").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
     expect(new Set(heights).size).toBe(1);
@@ -87,7 +88,8 @@ test("ChatGPT renders a supplied five-hour zero reading and retains account navi
   const row = page.getByRole("row", { name: /ChatGPT/ });
   await expect(row.getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
   await expect(row.getByRole("meter")).toHaveCount(2);
-  await expect(row.locator(`p:has-text("Resets in 1 day")`)).toBeVisible();
+  await expect(row.getByTestId("reset-in")).toContainText("5-hour window:in 1 day");
+  await expect(row.getByTestId("reset-in")).toContainText("Weekly window:Unknown");
   await row.getByRole("link", { name: "ChatGPT" }).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/admin\/accounts$/);
@@ -100,7 +102,7 @@ test("a Grok window without a reset does not invent a day count", async ({ page 
   await page.goto("/admin/dashboard");
   const row = page.getByRole("row", { name: /Grok account/ });
   await expect(row.getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "10");
-  await expect(row).toContainText("Reset time unavailable");
+  await expect(row.getByTestId("reset-in")).toContainText("Unknown");
   await expect(row).not.toContainText("in 0 days");
 });
 

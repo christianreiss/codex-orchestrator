@@ -33,9 +33,16 @@
     return { label: "Active", variant: "success" };
   }
 
-  function resetText(value: string | null | undefined): string {
-    const when = resetsIn(value);
-    return when === "passed" ? "Reset passed" : when ? `Resets ${when}` : "";
+  /** One line per quota window for the "Reset in" column; unknown stays unknown. */
+  function resetLines(account: ProviderAccount, rows: ReturnType<typeof accountQuotaRows>): { key: string; label: string | null; when: string; at: string | null }[] {
+    const window = account.engine === "grok" ? account.usage.current_window : null;
+    const sources = account.engine === "grok"
+      ? window ? [{ key: "grok", label: null, at: window.resets_at }] : []
+      : rows.map((quota) => ({ key: quota.key, label: rows.length > 1 ? quota.label : null, at: quota.reset ?? null }));
+    return sources.map((source) => {
+      const when = resetsIn(source.at);
+      return { key: source.key, label: source.label, at: source.at, when: when === "passed" ? "Reset passed" : when || "Unknown" };
+    });
   }
 </script>
 
@@ -54,6 +61,7 @@
     <Table.Head>Account</Table.Head>
     <Table.Head>Status</Table.Head>
     <Table.Head class="min-w-72">Usage</Table.Head>
+    <Table.Head class="whitespace-nowrap">Reset in</Table.Head>
     <Table.Head>Updated</Table.Head>
   {/snippet}
   {#snippet row(account)}
@@ -61,6 +69,7 @@
     {@const rows = accountQuotaRows(account)}
     {@const grok = account.engine === "grok" ? account.usage.current_window : null}
     {@const state = status(account)}
+    {@const resets = resetLines(account, rows)}
     <Table.Row class={cn(off && "opacity-70")}>
       <Table.Cell>
         <a href={`${base}/accounts`} class="flex items-center gap-2 font-medium hover:underline">
@@ -82,14 +91,11 @@
         {#if account.usage.supported === false}
           <span class="text-body-sm text-muted-foreground">Subscription quota unavailable</span>
         {:else if account.engine === "grok"}
-          <GrokUsage inline usage={account.usage} label={account.label} showStatus={false} showUpdated={false} />
+          <GrokUsage inline usage={account.usage} label={account.label} showStatus={false} showUpdated={false} showReset={false} />
         {:else if rows.length}
           <div class="space-y-1">
             {#each rows as quota (quota.key)}
               <UsageMeter inline label={quota.label} usedPercent={quota.value} valueLabel={`${quota.value}% used`} />
-              {#if resetText(quota.reset)}
-                <p class="-mt-0.5 ml-2 pl-28 text-caption text-muted-foreground">{resetText(quota.reset)}</p>
-              {/if}
             {/each}
           </div>
         {:else}
@@ -105,6 +111,15 @@
             <p class="text-caption text-muted-foreground">Emulated quota unavailable — work allowed</p>
           {/if}
         {/if}
+      </Table.Cell>
+      <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground" data-testid="reset-in">
+        {#if resets.length}
+          <div class="space-y-1">
+            {#each resets as reset (reset.key)}
+              <p>{#if reset.label}<span class="mr-1 text-caption">{reset.label}:</span>{/if}<time datetime={reset.at ?? undefined} title={reset.at ?? undefined}>{reset.when}</time></p>
+            {/each}
+          </div>
+        {:else}<span aria-label="No reset time">—</span>{/if}
       </Table.Cell>
       <Table.Cell class={cn("whitespace-nowrap text-body-sm", account.usage.stale && account.usage.fetched_at ? "text-warning" : "text-muted-foreground")}
         title={account.usage.stale && account.usage.fetched_at ? "Last known reading; the latest update did not succeed" : undefined}>
