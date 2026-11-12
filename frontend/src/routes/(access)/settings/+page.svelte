@@ -56,7 +56,7 @@
   });
 </script>
 
-<PageShell title="Settings" description="Fleet-wide behaviour. Switches save immediately; forms use Save changes. Individual hosts can override some settings; a badge shows how many.">
+<PageShell title="Settings" description="Fleet-wide behaviour. A switch on its own saves immediately; fields and switches inside a form are saved with that form's Save button. Individual hosts can override some settings; a badge shows how many.">
   {#if !canManage}
     <p class="text-body-sm text-muted-foreground">Read only. Changing these settings requires <code class="font-mono">settings.manage</code>. Agent coordination, the supervisor and the rollout have their own permissions, shown beside each.</p>
   {/if}

@@ -37,7 +37,8 @@
   let adopted: number | undefined;
   $effect(() => {
     const server = $settings.data?.concurrency;
-    if (server !== undefined && server !== adopted) { adopted = server; concurrency = server; }
+    // Never replace a value the operator is typing; a changed server value shows once the draft is saved or reset.
+    if (server !== undefined && server !== adopted && (!concurrencyDirty || concurrency === adopted)) { adopted = server; concurrency = server; }
   });
   const concurrencyError = $derived(Number.isInteger(concurrency) && concurrency! >= 1 && concurrency! <= 2 ? '' : 'Enter 1 or 2.');
   const concurrencyDirty = $derived($settings.data !== undefined && concurrency !== $settings.data.concurrency);
