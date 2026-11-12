@@ -1,3 +1,7 @@
+# 2026-11-12
+
+- **Provider plans:** ChatGPT plans from newer Codex builds (`prolite`, `promax`, business, enterprise and edu variants) now show their name instead of "Plan unavailable"; a future provider-reported slug is shown humanised rather than blank. Claude's login-reported plan is no longer flagged "last known" after ten minutes (it changes only on token refresh, so it is stale after 48 hours). Grok billing readings at a fresh period start, where the provider omits a zero percentage, read as 0% used instead of `usage_unavailable`.
+
 # 2026-11-11
 
 - **Fleet policy scope:** the rendered policy opens with a scope clause: it applies only when the fleet MCP tools (`agent_self`, `skill_list`) are available. Desktop apps without `cxx` read the same instruction files and now ignore the policy instead of failing on claims.

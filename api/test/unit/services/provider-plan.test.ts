@@ -10,8 +10,15 @@ describe('provider plan display metadata', () => {
   it('uses only explicit known ChatGPT plans', () => {
     expect(chatGptPlanName('pro')).toBe('Pro');
     expect(chatGptPlanName('business')).toBe('Business');
-    for (const value of [null, {}, '', 'future-plan', 'constructor', '__proto__'])
+    for (const value of [null, {}, '', 'unknown', 'future-plan', '__proto__', 'Pro', 'x'.repeat(41)])
       expect(chatGptPlanName(value)).toBeNull();
+  });
+  it('names the Codex Pro Lite and Pro Max plans and humanises new provider slugs', () => {
+    expect(chatGptPlanName('prolite')).toBe('Pro Lite');
+    expect(chatGptPlanName('promax')).toBe('Pro Max');
+    expect(chatGptPlanName('self_serve_business_usage_based')).toBe('Business (usage-based)');
+    expect(chatGptPlanName('edu_pro')).toBe('Edu Pro');
+    expect(chatGptPlanName('super_max')).toBe('Super Max');
   });
   it('distinguishes Claude Max tiers without treating a Team limit as Max', () => {
     const auth = (subscriptionType: string, rateLimitTier?: string) => ({
@@ -38,7 +45,14 @@ describe('provider plan display metadata', () => {
   it('marks missing, failed and old observations stale independently of quota', () => {
     const now = new Date().toISOString();
     expect(providerPlan('Pro', 'chatgpt_usage', now).stale).toBe(false);
-    expect(providerPlan('Max', 'claude_login', new Date(Date.now() - 601_000).toISOString()).stale).toBe(
+    expect(providerPlan('Pro', 'chatgpt_usage', new Date(Date.now() - 601_000).toISOString()).stale).toBe(
+      true,
+    );
+    // Login metadata only moves on token refresh: hours old is current, days old is last known.
+    expect(providerPlan('Max', 'claude_login', new Date(Date.now() - 8 * 3_600_000).toISOString()).stale).toBe(
+      false,
+    );
+    expect(providerPlan('Max', 'claude_login', new Date(Date.now() - 49 * 3_600_000).toISOString()).stale).toBe(
       true,
     );
     expect(providerPlan('SuperGrok', 'grok_settings', now, true).stale).toBe(true);

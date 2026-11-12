@@ -53,6 +53,19 @@ export function parseGrokUsage(body: unknown): GrokUsageWindow | null {
   if (!config) return null;
   let used = config.creditUsagePercent;
   let legacy = false;
+  const currentPeriod = record(config.currentPeriod);
+  if (
+    (used === undefined || used === null) &&
+    config.monthlyLimit === undefined &&
+    config.used === undefined &&
+    (currentPeriod?.type === 'USAGE_PERIOD_TYPE_WEEKLY' ||
+      currentPeriod?.type === 'USAGE_PERIOD_TYPE_MONTHLY') &&
+    timestamp(currentPeriod.end)
+  ) {
+    // Protobuf JSON omits a zero-valued double: a fresh period with a valid window and
+    // no legacy budget fields is 0% used, not an unreadable body (seen at weekly rollover).
+    used = 0;
+  }
   if (used === undefined || used === null) {
     const limit = cents(config.monthlyLimit),
       spent = cents(config.used);
