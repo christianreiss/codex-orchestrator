@@ -854,8 +854,8 @@ Abnahme und Deploy. Der folgende Ablauf bleibt verbindlich:
 1. Aktuellen Deployment-Runbook über `shared://deploy.crane` und den tatsächlichen
    Produktionscheckout prüfen; der Slug ist historisch und kein Hostname.
 2. Geprüften, sauberen Commit auf dem Ziel bereitstellen; gültige Claims/Leases,
-   aktuelle Host-/Compose-Konfiguration und DB-Backup prüfen.
-3. `scripts/deploy.sh --backup --no-cleanup` mit den tatsächlich benötigten
+   aktuelle Host-/Compose-Konfiguration prüfen.
+3. `scripts/deploy.sh --no-cleanup` mit den tatsächlich benötigten
    bestehenden Compose-Profilen ausführen. Wrapper nicht überspringen:
    neue MCP-Werkzeuge benötigen den neuen gebauten/veröffentlichten `cxx`.
 4. Migrationstatus, API-Gesundheit, servierte SPA, Wrapper-Manifest und laufende

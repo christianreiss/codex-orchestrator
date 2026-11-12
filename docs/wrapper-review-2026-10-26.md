@@ -97,8 +97,8 @@ production during rollout, separately from these source checks.
 
 Publish through `scripts/deploy.sh --no-backup --no-cleanup --service api` on
 `docker01.uggs.io`, using the existing
-`/var/docker_data/codex-auth.uggs.io/app` checkout. Retain the current API image
-under a rollback tag before building. Bareos remains the backup system; this
+`/var/docker_data/codex-auth.uggs.io/app` checkout. No rollback image tags:
+git is the rollback. Bareos remains the backup system; this
 release creates no local database/storage/credential backup archive. Deployment
 health/version SQL probes pass their password through process-scoped `MYSQL_PWD`
 instead of placing it in the process argument list.

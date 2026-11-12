@@ -1,7 +1,7 @@
 # Owner cutover and recovery
 
-The cutover host requires Docker Compose, Bash, Python 3, flock, GNU coreutils
-and tar. The preflight verifies these tools before stopping writers.
+The cutover host requires Docker Compose, Bash, Python 3, flock and GNU
+coreutils. The preflight verifies these tools before stopping writers.
 Both API runtime images also include `flock`. The API holds a separate kernel lock
 on the shared store through database fencing and effect drain. Starting another
 API directly cannot bypass this storage exclusion; never delete its lock file.
@@ -18,9 +18,10 @@ fresh execution to make the drain finish.
 
 The deploy script builds images and stages wrapper artifacts while the old API
 runs. It then records the currently running API, retired quota-cron and media
-worker containers, pins their image IDs, stops those writers, and snapshots both
-MySQL and application storage. Wrapper publication and migrations follow the
-snapshot. The replacement starts once; provider quota jobs now belong to the API.
+worker containers and their image IDs, stops those writers, and writes private
+recovery metadata. Wrapper publication and migrations follow. No database dump,
+storage archive, credential copy or rollback image tag is created: Bareos backs
+up the host and git is the rollback. The replacement starts once; provider quota jobs now belong to the API.
 An API-only deployment also resumes a previously running media worker.
 
 For older clients, the cutover holds database READ locks on coordination,
@@ -34,79 +35,23 @@ explicit renewal are required before a captured grant can resume. Repeated
 healthy renewals stay in RAM, and the original security deadline cannot extend.
 The file contains identity hashes and scope metadata, not credential values.
 Failed pre-change cutovers remove their new eligibility file before restarting
-the old writers. This applies with or without a backup.
+the old writers.
 
-When the operator explicitly declines a backup, use `scripts/deploy.sh --no-backup`.
-This retains the deployment lock, target verification, old image tags and
-stop-before-start ordering. It skips SQL dumps, storage archives, backup sizing
-and credential/environment copies. A private metadata-only directory under
-`$INSTANCE_ROOT/cutovers` (or `CODEX_DEPLOY_CUTOVER_DIR`) records the stopped
-containers, sanitized configuration and phase. No database/storage rollback copy
-is created; the snapshot restore procedure below does not apply. After durable
-changes or new work admission, use forward repair. `--backup` and `--no-backup`
-are mutually exclusive. The default backup behavior is unchanged.
+## Recovery metadata
 
-`CODEX_DEPLOY_BACKUP_DIR` chooses the bundle directory (default
-`$INSTANCE_ROOT/backups`). Keep it outside the application storage mount, with
-space for a complete SQL dump and compressed storage. Before stopping writers,
-the script checks apparent store size plus five times the database table/index
-bytes and a 1 GiB reserve (`CODEX_DEPLOY_BACKUP_RESERVE_BYTES` can increase it).
-This conservative bound can require an external backup disk. Failed snapshot
-attempts remove only their incomplete `.tmp` payloads before recovery; completed
-backups remain available. Bundles are private:
-directory mode 0700, files restricted to their creator. They intentionally contain
-credentials, signing material, database contents and container configuration.
-Do not attach them to tickets, print them, or commit them. Retain old image tags
-and bundles until the release's recovery window closes.
+A private directory under `$INSTANCE_ROOT/cutovers` (or `CODEX_DEPLOY_CUTOVER_DIR`,
+mode 0700) records the stopped containers (`running-writers.txt`), their image
+IDs (`previous-images.tsv`), sanitized Compose and container configuration
+without environment values, and the cutover `phase`. A verified deploy deletes
+it; a failed one keeps it for diagnosis. `--no-backup` is accepted and ignored;
+`--backup` was removed and fails.
 
-Each bundle contains `database.sql`, `store.tar.gz`, `SHA256SUMS`, resolved
-`compose.json`, `runtime.env`, original container inspections,
-`previous-images.tsv`, `running-writers.txt`, and a `phase` file. The SQL dump
-includes DROP/CREATE DATABASE so a pre-start restore also removes newly added
-migration tables. The store archive preserves the matching encrypted objects,
-files and wrapper artifacts. `AUTH_ENCRYPTION_KEY` must match the restored data.
-
-A failed snapshot resumes only the containers that were running before the
+A failed quiesce resumes only the containers that were running before the
 attempt. Inspect the failure and their health before retrying. A migration or
-publication failure leaves writers stopped and the bundle intact; it does not
-attempt an automatic database rollback.
-
-## Restore before any replacement starts
-
-A completed backup is required; `--no-backup` metadata is not restorable.
-Only `quiescent` or `changing` is eligible. This procedure replaces the entire
-application database and storage with the matched snapshot and discards changes
-made since that snapshot. The old stopped containers must still exist. Confirm
-no alternate owner or external writer has started. Use the same instance/Compose
-selection as deployment; below `compose` means that exact command, including its
-env file, project name and compose files. Check these against the saved private
-configuration without printing secrets.
-
-```bash
-bundle=/absolute/path/to/cutover-bundle
-case "$(cat "$bundle/phase")" in quiescent|changing) ;; *) exit 1 ;; esac
-(cd "$bundle" && sha256sum -c SHA256SUMS)
-# Verify all recorded writer containers remain stopped before restoring.
-while IFS= read -r id; do
-  test "$(docker inspect --format '{{.State.Running}}' "$id")" = false || exit 1
-done < "$bundle/running-writers.txt"
-# Use root credentials only inside the MySQL container.
-compose exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot' < "$bundle/database.sql"
-store="$(cat "$bundle/store-path.txt")"
-# Retain the changed store for investigation, then restore the complete snapshot.
-mv -- "$store" "$store.pre-restore-$(date -u +%Y%m%dT%H%M%SZ)"
-mkdir -- "$store"
-tar --same-owner -xzf "$bundle/store.tar.gz" -C "$store"
-printf 'replacement-started\n' > "$bundle/phase"
-while IFS= read -r id; do docker start "$id"; done < "$bundle/running-writers.txt"
-```
-
-Run as the owner capable of preserving archive ownership. Verify readiness,
-receipt/claim continuity, signing identity, and exact resumed native bindings.
-Do not run `compose up` with the new image/config as part of this restore; starting
-the recorded old containers preserves their original image, environment and
-mounts. If any old container was removed, stop and reconstruct its exact
-configuration from the saved inspection and pinned image before starting it.
+publication failure leaves writers stopped; there is no automatic database
+rollback. While the phase is still `quiescent` or `changing`, the recorded old
+containers can be started again with `docker start`, since nothing new has
+admitted work yet. Their images stay present as long as those containers exist.
 
 ## After replacement startup: preserve receipts and repair forward
 
@@ -115,14 +60,14 @@ point assume new work may already have been accepted, even if startup or health
 checks fail. `verified` keeps the same restriction. Do not restore the old dump
 or simply start the old binary against the new schema. Stop admission, retain
 current receipts/outbox/results and storage, diagnose the failure, and deploy a
-compatible repair under the same exclusive-owner protocol. New backup bundles
-must not replace or obscure the original evidence.
+compatible repair under the same exclusive-owner protocol. To return to an
+earlier release, deploy its commit; restoring data is a Bareos operation.
 
 With an existing API container, the installer permits a complete wrapper matrix
 check but refuses wrapper regeneration/publication; use `scripts/deploy.sh` for
-that upgrade so publication follows its quiescent backup.
+that upgrade so publication follows its quiescent cutover.
 
-Installation also snapshots before schema/signing mutations. `--only schema`
+Installation also quiesces before schema/signing mutations. `--only schema`
 leaves the API stopped deliberately: complete signing and app-tier startup before
 admitting work. Successful `--only signer` resumes the exact previously running
 containers. A normal install imports the signing key before starting the API.

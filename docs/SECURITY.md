@@ -76,7 +76,7 @@ We acknowledge within 3 business days and share an assessment/fix ETA shortly af
 
 ## Backup & Recovery
 
-- Back up the MySQL database **and** `.env` (contains `AUTH_ENCRYPTION_KEY` or `AUTH_ENCRYPTION_KEYS`). Without key material, encrypted auth payloads, API keys, Agent Messaging bodies/errors, and other secretbox data cannot be decrypted. `scripts/deploy.sh --backup` writes the MySQL dump (default destination `./backups`, see `docs/INSTALL.md`); it does not cover `.env`.
+- Back up the MySQL database **and** `.env` (contains `AUTH_ENCRYPTION_KEY` or `AUTH_ENCRYPTION_KEYS`). Without key material, encrypted auth payloads, API keys, Agent Messaging bodies/errors, and other secretbox data cannot be decrypted. The host backup system (Bareos on production) must cover both; `scripts/deploy.sh` creates no dumps of its own.
 - The `store` directory under `DATA_ROOT` (mounted as `/app/storage` in the API container) holds the published wrapper binaries, the wrapper public key (the plaintext private key is deleted once the `signer` step has imported it into `wrapper_signing_keys`) and every file-transfer payload (`transfers/`). None of that is in the database dump; transfers are expiring scratch by design, but the wrapper matrix has to be rebuilt (`bin/install.sh --only wrappers --force wrappers`) if it is lost.
 - Wrapper signing key (stored in the `wrapper_signing_keys` table and loaded by `api/src/services/wrapper-signing-key.ts`) must be included in your backup set. Losing it means every host has to be re-keyed (operator provisions a new key, rebuilds the Go binaries with the new public key embedded, and the hosts self-update). Wrapper binaries under `storage/wrapper/v2/bin/` can be reproduced from a `wrappers/` checkout and CI tag.
 

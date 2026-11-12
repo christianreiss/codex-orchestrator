@@ -40,8 +40,7 @@ the existing push connection and scoped cache families. See [REDESIGN.md](../RED
 
 The single-server Compose deployment disables unused MySQL binary logging and
 rotates API/MySQL container logs at three 10 MB files. External backups provide
-recovery history; `scripts/deploy.sh --backup` explicitly opts into an additional
-local DB/storage archive. Migration `0102_remove_routine_audit_noise.sql` removes
+recovery history; `scripts/deploy.sh` creates no local DB/storage archive. Migration `0102_remove_routine_audit_noise.sql` removes
 redundant successful version/delivery audit copies without changing tables or
 canonical host/message data. New writes omit those same audit actions.
 

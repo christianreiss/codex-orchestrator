@@ -44,7 +44,7 @@ Upload a local file with `agent_attachment_upload` (`upload_id`, `path`, `mime_t
 
 ## Rollout and rollback
 
-Build/check the API and WebUI, build/vet/test cxx, and build/lint/test Android. `scripts/deploy.sh --backup --no-cleanup` publishes cxx 0.9.57, applies idempotent migration 0057 and rebuilds/restarts the Compose stack including the worker. Keep the previous API/worker image tags and database/store backup. For rollback stop the worker and deploy the previous source/image; the added nullable/default columns and tables can remain. Do not drop them while rich messages exist. Android 0.4.13 is a signed APK; physical Pixel installation is deferred.
+Build/check the API and WebUI, build/vet/test cxx, and build/lint/test Android. `scripts/deploy.sh --no-cleanup` publishes cxx 0.9.57, applies idempotent migration 0057 and rebuilds/restarts the Compose stack including the worker. For rollback stop the worker and deploy the previous commit; the added nullable/default columns and tables can remain. Do not drop them while rich messages exist. Android 0.4.13 is a signed APK; physical Pixel installation is deferred.
 
 ## Shared conversations in Agents → Chats
 

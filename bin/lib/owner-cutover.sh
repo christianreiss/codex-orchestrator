@@ -33,14 +33,10 @@ PYSTORAGE
 }
 
 owner_cutover_prepare() {
-  local base="${CODEX_DEPLOY_BACKUP_DIR:-$INSTANCE_ROOT/backups}" project store command
+  # Recovery metadata only. Backups are Bareos' job and rollback is git: no
+  # database dumps, storage archives, credential copies or rollback image tags.
+  local base="${CODEX_DEPLOY_CUTOVER_DIR:-$INSTANCE_ROOT/cutovers}" project store command
   local -a required=(python3 flock realpath)
-  [[ "${OWNER_CUTOVER_NO_BACKUP:-0}" =~ ^[01]$ ]] || { printf '[cutover] invalid backup mode\n' >&2; return 1; }
-  if [[ "${OWNER_CUTOVER_NO_BACKUP:-0}" == 1 ]]; then
-    base="${CODEX_DEPLOY_CUTOVER_DIR:-$INSTANCE_ROOT/cutovers}"
-  else
-    required+=(tar du df awk sha256sum)
-  fi
   for command in "${required[@]}"; do
     command -v "$command" >/dev/null || { printf '[cutover] required command missing: %s\n' "$command" >&2; return 1; }
   done
@@ -62,15 +58,12 @@ _owner_cutover_snapshot() {
   (
     set -euo pipefail
     umask 077
-    local container service image rollback phase containers store_bytes db_bytes available_bytes required_bytes reserve_bytes api_user config_json container_json
-    local no_backup="${OWNER_CUTOVER_NO_BACKUP:-0}"
-    printf '%s\n' "$no_backup" > "$OWNER_CUTOVER_DIR/no-backup"
+    local container service image phase containers api_user config_json container_json
     # A failed snapshot has changed no durable application state. Resume only
     # the exact containers that were running before this invocation.
     trap 'code=$?; if (( code != 0 )); then
       phase="$(cat "$OWNER_CUTOVER_DIR/phase" 2>/dev/null || true)"
-      rm -f -- "$OWNER_CUTOVER_DIR/database.sql.tmp" "$OWNER_CUTOVER_DIR/store.tar.gz.tmp" || true
-      if [[ "$phase" == quiescing || "$phase" == snapshotting ]]; then
+      if [[ "$phase" == quiescing ]]; then
         if [[ -f "$OWNER_CUTOVER_DIR/legacy-drain-created" ]]; then
           rm -f -- "$(cat "$OWNER_CUTOVER_DIR/legacy-drain-created")"
         fi
@@ -81,27 +74,13 @@ _owner_cutover_snapshot() {
     config_json="$("${INSTANCE_COMPOSE[@]}" config --format json)"
     printf '%s' "$config_json" | python3 -c 'import json,sys
 c=json.load(sys.stdin)
-if sys.argv[1] == "1": c={"name":c["name"],"services":{name:{key:value[key] for key in ["image","user","volumes"] if key in value} for name,value in c["services"].items()}}
-json.dump(c,sys.stdout)' "$no_backup" > "$OWNER_CUTOVER_DIR/compose.json"
+c={"name":c["name"],"services":{name:{key:value[key] for key in ["image","user","volumes"] if key in value} for name,value in c["services"].items()}}
+json.dump(c,sys.stdout)' > "$OWNER_CUTOVER_DIR/compose.json"
     project="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["name"])' "$OWNER_CUTOVER_DIR/compose.json")"
     store="$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1]));print(next(v["source"] for v in c["services"]["api"]["volumes"] if v.get("target")=="/app/storage"))' "$OWNER_CUTOVER_DIR/compose.json")"
     [[ -n "$project" && -d "$store" ]] || { printf '[cutover] missing project/store\n' >&2; exit 1; }
-    case "$(realpath "$OWNER_CUTOVER_DIR")/" in "$(realpath "$store")/"*) printf '[cutover] backup directory must be outside application storage\n' >&2; exit 1;; esac
+    case "$(realpath "$OWNER_CUTOVER_DIR")/" in "$(realpath "$store")/"*) printf '[cutover] cutover directory must be outside application storage\n' >&2; exit 1;; esac
     printf '%s\n' "$store" > "$OWNER_CUTOVER_DIR/store-path.txt"
-    if [[ "$no_backup" == 0 ]]; then
-    [[ ! -f "$ENV_PATH" ]] || cp "$ENV_PATH" "$OWNER_CUTOVER_DIR/runtime.env"
-    # Size before stopping writers. Hex dump expansion, archive overhead and a
-    # fixed free-space reserve intentionally overestimate the required bytes.
-    store_bytes="$(du --apparent-size -sb -- "$store" | awk '{print $1}')"
-    db_bytes="$("${INSTANCE_COMPOSE[@]}" exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B "$MYSQL_DATABASE" -e "SELECT COALESCE(SUM(data_length + index_length), 0) FROM information_schema.tables WHERE table_schema = DATABASE()"')"
-    available_bytes="$(df -PB1 -- "$OWNER_CUTOVER_DIR" | awk 'NR == 2 {print $4}')"
-    reserve_bytes="${CODEX_DEPLOY_BACKUP_RESERVE_BYTES:-1073741824}"
-    [[ "$store_bytes" =~ ^[0-9]+$ && "$db_bytes" =~ ^[0-9]+$ && "$available_bytes" =~ ^[0-9]+$ && "$reserve_bytes" =~ ^[0-9]+$ ]] || { printf '[cutover] could not determine backup headroom\n' >&2; exit 1; }
-    (( reserve_bytes >= 1073741824 )) || { printf '[cutover] backup reserve must be at least 1 GiB\n' >&2; exit 1; }
-    required_bytes=$((store_bytes + store_bytes / 5 + db_bytes * 5 + reserve_bytes))
-    printf 'store=%s database=%s required=%s available=%s reserve=%s\n' "$store_bytes" "$db_bytes" "$required_bytes" "$available_bytes" "$reserve_bytes" > "$OWNER_CUTOVER_DIR/space-budget.txt"
-    (( available_bytes >= required_bytes )) || { printf '[cutover] insufficient backup headroom; select an external CODEX_DEPLOY_BACKUP_DIR (required %s, available %s bytes)\n' "$required_bytes" "$available_bytes" >&2; exit 1; }
-    fi
     : > "$OWNER_CUTOVER_DIR/running-writers.txt"
     : > "$OWNER_CUTOVER_DIR/previous-images.tsv"
     for service in api quota-cron media-worker; do
@@ -112,8 +91,8 @@ json.dump(c,sys.stdout)' "$no_backup" > "$OWNER_CUTOVER_DIR/compose.json"
         container_json="$(docker inspect "$container")"
         printf '%s' "$container_json" | python3 -c 'import json,sys
 rows=json.load(sys.stdin)
-if sys.argv[1] == "1": rows=[{key:row[key] for key in ["Id","Image","Mounts"] if key in row} for row in rows]
-json.dump(rows,sys.stdout)' "$no_backup" > "$OWNER_CUTOVER_DIR/container-$service-$container.json"
+rows=[{key:row[key] for key in ["Id","Image","Mounts"] if key in row} for row in rows]
+json.dump(rows,sys.stdout)' > "$OWNER_CUTOVER_DIR/container-$service-$container.json"
         if [[ "$service" == api ]]; then
           printf '%s\0%s' "$config_json" "$container_json" | python3 -c 'import json, os, sys
 raw_config, raw_previous = sys.stdin.read().split(chr(0), 1)
@@ -128,9 +107,7 @@ if os.path.realpath(expected) != os.path.realpath(actual) or any(str(env.get(key
     sys.exit('"'"'[cutover] active API storage/database differs from deployment configuration; reconcile the target before stopping writers'"'"')'
         fi
         image="$(docker inspect --format '{{.Image}}' "$container")"
-        rollback="codex-orchestrator/rollback:${service}-$(basename "$OWNER_CUTOVER_DIR" | tr '[:upper:]' '[:lower:]')"
-        docker tag "$image" "$rollback"
-        printf '%s\t%s\t%s\t%s\n' "$service" "$container" "$image" "$rollback" >> "$OWNER_CUTOVER_DIR/previous-images.tsv"
+        printf '%s\t%s\t%s\n' "$service" "$container" "$image" >> "$OWNER_CUTOVER_DIR/previous-images.tsv"
       done <<< "$containers"
     done
     api_user="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["services"]["api"].get("user") or "10001:10001")' "$OWNER_CUTOVER_DIR/compose.json")"
@@ -148,23 +125,9 @@ if os.path.realpath(expected) != os.path.realpath(actual) or any(str(env.get(key
       --store "$store" --writers "$OWNER_CUTOVER_DIR/running-writers.txt" \
       --project "$project" --user "$api_user" --journal "$OWNER_CUTOVER_DIR" \
       -- "${capture_compose[@]}"
-    if [[ "$no_backup" == 0 ]]; then
-    owner_cutover_phase snapshotting
-    # Root owns the complete dump; MYSQL_PWD is process-scoped, never an argv value.
-    "${INSTANCE_COMPOSE[@]}" exec -T mysql sh -lc 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqldump -uroot --single-transaction --routines --triggers --events --hex-blob --set-gtid-purged=OFF --no-tablespaces --add-drop-database --databases "$MYSQL_DATABASE"' > "$OWNER_CUTOVER_DIR/database.sql.tmp"
-    [[ -s "$OWNER_CUTOVER_DIR/database.sql.tmp" ]]
-    mv "$OWNER_CUTOVER_DIR/database.sql.tmp" "$OWNER_CUTOVER_DIR/database.sql"
-    tar -C "$store" -czf "$OWNER_CUTOVER_DIR/store.tar.gz.tmp" .
-    mv "$OWNER_CUTOVER_DIR/store.tar.gz.tmp" "$OWNER_CUTOVER_DIR/store.tar.gz"
-    (cd "$OWNER_CUTOVER_DIR"; sha256sum database.sql store.tar.gz compose.json > SHA256SUMS)
-    fi
     date -u +%Y-%m-%dT%H:%M:%SZ > "$OWNER_CUTOVER_DIR/quiescent-at.txt"
     owner_cutover_phase quiescent
-    if [[ "$no_backup" == 1 ]]; then
-      printf '[cutover] quiescent without backup; no DB/storage rollback copy: %s\n' "$OWNER_CUTOVER_DIR" >&2
-    else
-      printf '[cutover] quiescent rollback bundle: %s\n' "$OWNER_CUTOVER_DIR" >&2
-    fi
+    printf '[cutover] quiescent; recovery metadata: %s\n' "$OWNER_CUTOVER_DIR" >&2
   )
 }
 

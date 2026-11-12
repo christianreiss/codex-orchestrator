@@ -344,20 +344,20 @@ For normal instance updates use `bin/orchestrator update` above. The lower-level
 deploy helper remains available for service-specific or upstream-based delivery:
 
 ```bash
-scripts/deploy.sh --backup
+scripts/deploy.sh
 ```
 
 It checks the git worktree, fast-forwards from the configured upstream,
-quiesces writers for cutover, optionally creates a database/storage rollback
-bundle with `--backup`, builds the compose services, restarts with
+quiesces writers for cutover, builds the compose services, restarts with
 `--wait` when supported, verifies MySQL, `auth-runner` and `/healthz`, scans
 fresh logs for critical failures, and prunes unused Docker build artifacts. Add
 `--caddy` when this checkout owns the bundled Caddy profile, `--service api` for
 an API-only restart, or `--skip-git` only when intentionally deploying a local
 uncommitted tree.
 
-The default and `--no-backup` create no database/storage archive or credential
-copy. Use `--backup` explicitly when a local rollback bundle is required.
+It creates no database dump, storage archive, credential copy or rollback image
+tag. Backups belong to the host backup system and git is the rollback: deploy an
+earlier commit. `--no-backup` is accepted and ignored; `--backup` was removed.
 
 It also publishes the `cxx` wrapper matrix. When `VERSION` in
 `wrappers/Makefile` is not yet the served version, it builds all four platforms
@@ -476,14 +476,9 @@ running old and new anchors side by side until every client has the new one.
 
 ## Backups
 
-- `scripts/deploy.sh --backup` quiesces writers and creates a private rollback
-  bundle with a transactional database dump (`database.sql`), application
-  storage archive (`store.tar.gz`), resolved Compose configuration, previous
-  container/image metadata, and the runtime env file when present. It writes
-  checksums for the database, storage, and Compose files. Set
-  `CODEX_DEPLOY_BACKUP_DIR` to choose a destination; the default is `./backups`.
-- Without `--backup`, deployment still quiesces writers but creates no
-  database/storage archive or credential copy. This differs from
+- `scripts/deploy.sh` creates no backups and no rollback image tags. It
+  quiesces writers and keeps only private recovery metadata, deleted after a
+  verified deploy (see `docs/owner-cutover.md`). This differs from
   `bin/orchestrator update`, whose rollback bundle is described above.
 - For external backups, retain the matching database, `.env` (including the
   encryption key every secretbox column depends on), and `${DATA_ROOT}/store`,

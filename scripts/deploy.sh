@@ -11,8 +11,6 @@ declare -a INSTANCE_PROFILES=()
 instance_env_path
 
 original_args=("$@")
-backup=0
-no_backup=0
 cleanup=1
 pull_rebase=0
 skip_git=0
@@ -32,9 +30,7 @@ Usage: scripts/deploy.sh [options]
 Build, restart, and verify the codex-orchestrator Docker stack.
 
 Options:
-  --backup             Explicitly create a quiescent DB/storage rollback bundle.
-  --no-backup          Quiesce without DB/storage archives or credential copies.
-                       Default: no database/storage rollback copy is created.
+  --no-backup          Accepted for compatibility; deploys never create backups.
   --no-cleanup         Skip Docker image/builder pruning after deploy.
   --pull-rebase        Run git pull --rebase before deploying.
   --skip-git           Skip clean-worktree and git pull checks.
@@ -52,8 +48,10 @@ Wrappers:
   embed the active signing key from the database; the api is then recreated so
   hosts are offered the new version. Bump VERSION to ship wrapper changes.
 
-Environment:
-  CODEX_DEPLOY_BACKUP_DIR  Private rollback bundles (default: ./backups).
+Backups and rollback:
+  None. Bareos backs up the host and git is the rollback: deploy an earlier
+  commit. The deploy creates no database dumps, storage archives, credential
+  copies or rollback image tags, and removes its cutover metadata on success.
 EOF
 }
 
@@ -73,10 +71,9 @@ require_cmd() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --backup)
-      backup=1
+      fail "--backup was removed: Bareos backs up this host and git is the rollback"
       ;;
     --no-backup)
-      no_backup=1
       ;;
     --no-cleanup)
       cleanup=0
@@ -117,9 +114,6 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-(( backup == 0 || no_backup == 0 )) || fail "--backup and --no-backup are mutually exclusive"
-(( backup != 0 )) || no_backup=1
-export OWNER_CUTOVER_NO_BACKUP="$no_backup"
 
 cd "${repo_root}"
 
@@ -417,11 +411,6 @@ else
   log "skipping database migrations (api not in --service list)"
 fi
 
-if [[ "$deploys_api" -eq 0 && "$backup" -eq 1 ]]; then
-  owner_cutover_prepare || fail "quiescent backup failed"
-  owner_cutover_resume_previous
-fi
-
 up_args=(up -d)
 [[ "$deploys_api" -eq 0 ]] || up_args+=(--remove-orphans)
 if [[ "${no_wait}" -eq 0 ]] && docker compose up --help | grep -q -- '--wait'; then
@@ -490,5 +479,6 @@ if [[ "${cleanup}" -eq 1 ]]; then
   docker builder prune -f --filter until=24h >/dev/null
 fi
 
-[[ -z "$OWNER_CUTOVER_DIR" ]] || owner_cutover_phase verified
+# A verified deploy needs no recovery metadata; keep it only on failure.
+[[ -z "$OWNER_CUTOVER_DIR" ]] || rm -rf -- "$OWNER_CUTOVER_DIR"
 log "deploy complete"

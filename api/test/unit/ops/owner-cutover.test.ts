@@ -18,7 +18,7 @@ const fixtures: string[] = [];
 afterEach(() => {
   for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
-function fixture(failure = '', noBackup = false) {
+function fixture(failure = '') {
   const dir = mkdtempSync(join(tmpdir(), 'cutover-'));
   fixtures.push(dir);
   mkdirSync(join(dir, 'bin'));
@@ -45,7 +45,7 @@ elif a[0]=='exec':
    if 'SELECT JSON_OBJECT' in line: print(json.dumps({'database':'test','tables':0}),flush=True)
    elif 'DATE_FORMAT' in line: print(datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'),flush=True)
    elif 'UNLOCK TABLES' in line: break
-  sys.exit(0)
+  sys.exit(9 if os.environ['FAILURE']=='drain' else 0)
  if 'SUM(data_length + index_length)' in a[-1]: print('4096'); sys.exit(0)
  if os.environ['FAILURE']=='dump' and 'mysqldump' in a[-1]: sys.exit(9)
  print('CREATE DATABASE test;')
@@ -63,15 +63,13 @@ elif a[0]=='exec':
         ...process.env,
         FIXTURE: dir,
         FAILURE: failure,
-        OWNER_CUTOVER_NO_BACKUP: noBackup ? '1' : '0',
-        CODEX_DEPLOY_BACKUP_RESERVE_BYTES: failure === 'space' ? '999999999999999' : '1073741824',
         HELPER: join(root, 'bin/lib/owner-cutover.sh'),
         PATH: `${dir}/bin:${process.env.PATH}`,
       },
       encoding: 'utf8',
     },
   );
-  const base = join(dir, noBackup ? 'cutovers' : 'backups');
+  const base = join(dir, 'cutovers');
   const bundle = join(base, readdirSync(base)[0]!);
   return { dir, bundle, result, calls: readFileSync(join(dir, 'calls'), 'utf8') };
 }
@@ -118,41 +116,31 @@ assert lock.read_bytes()==b'preserve existing inode'
     );
     expect(result.status, result.stderr).toBe(0);
   });
-  it('stops the exact old writer before snapshot and protects rollback secrets', () => {
+  it('quiesces with private metadata only: no dumps, archives, credential copies or rollback tags', () => {
     const { bundle, result, calls } = fixture();
     expect(result.status, result.stderr).toBe(0);
-    expect(calls.indexOf('stop --timeout 120 previous-api')).toBeLessThan(calls.indexOf('mysqldump -uroot'));
-    expect(calls).toContain('tag sha256:old codex-orchestrator/rollback:api-');
-    expect(statSync(bundle).mode & 0o777).toBe(0o700);
-    for (const file of ['database.sql', 'compose.json', 'runtime.env', 'store.tar.gz'])
-      expect(statSync(join(bundle, file)).mode & 0o077).toBe(0);
-    expect(readFileSync(join(bundle, 'phase'), 'utf8')).toBe('changing\n');
-  });
-  it('quiesces explicitly without archives, credential copies or backup sizing', () => {
-    const { bundle, result, calls } = fixture('dump', true);
-    expect(result.status, result.stderr).toBe(0);
     expect(calls).toContain('stop --timeout 120 previous-api');
-    expect(calls).toContain('tag sha256:old codex-orchestrator/rollback:api-');
+    expect(calls).not.toMatch(/^tag /m);
     expect(calls).not.toContain('SUM(data_length + index_length)');
     expect(calls).not.toContain('mysqldump');
-    for (const file of ['database.sql', 'store.tar.gz', 'runtime.env', 'space-budget.txt', 'SHA256SUMS'])
+    expect(statSync(bundle).mode & 0o777).toBe(0o700);
+    for (const file of ['database.sql', 'store.tar.gz', 'runtime.env', 'space-budget.txt', 'SHA256SUMS', 'no-backup'])
       expect(existsSync(join(bundle, file))).toBe(false);
-    expect(readFileSync(join(bundle, 'compose.json'), 'utf8')).not.toContain('environment');
     expect(readFileSync(join(bundle, 'compose.json'), 'utf8')).not.toContain('private-config');
-    expect(readFileSync(join(bundle, 'container-api-previous-api.json'), 'utf8')).not.toContain('Env');
     expect(readFileSync(join(bundle, 'container-api-previous-api.json'), 'utf8')).not.toContain('private-container');
-    expect(readFileSync(join(bundle, 'no-backup'), 'utf8')).toBe('1\n');
-    expect(result.stderr).toContain('no DB/storage rollback copy');
+    expect(readFileSync(join(bundle, 'previous-images.tsv'), 'utf8')).toMatch(/^api\tprevious-api\tsha256:old\n$/);
+    expect(readFileSync(join(bundle, 'phase'), 'utf8')).toBe('changing\n');
   });
-  it('rejects conflicting explicit backup flags before deployment', () => {
-    const result = spawnSync('bash', [join(root, 'scripts/deploy.sh'), '--backup', '--no-backup'], { encoding: 'utf8' });
+  it('refuses the removed --backup flag and accepts --no-backup as a no-op', () => {
+    const result = spawnSync('bash', [join(root, 'scripts/deploy.sh'), '--backup'], { encoding: 'utf8' });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('--backup and --no-backup are mutually exclusive');
+    expect(result.stderr).toContain('--backup was removed');
+    const help = spawnSync('bash', [join(root, 'scripts/deploy.sh'), '--no-backup', '--help'], { encoding: 'utf8' });
+    expect(help.status).toBe(0);
   });
-  it('resumes the previous writer if backup fails, including conditional callers', () => {
-    const { result, calls, bundle } = fixture('dump');
-    expect(result.status).toBe(9);
-    expect(existsSync(join(bundle, 'database.sql.tmp'))).toBe(false);
+  it('resumes the previous writer if quiescing fails, including conditional callers', () => {
+    const { result, calls } = fixture('drain');
+    expect(result.status).not.toBe(0);
     expect(calls).toContain('start previous-api');
   });
   it('rejects a changed storage target before stopping the old API', () => {
@@ -160,16 +148,9 @@ assert lock.read_bytes()==b'preserve existing inode'
     expect(result.status).toBe(1);
     expect(calls).not.toContain('stop --timeout');
   });
-  it('rejects insufficient backup headroom before stopping writers', () => {
-    const { result, calls } = fixture('space');
-    expect(result.status).toBe(1);
-    expect(calls).not.toContain('stop --timeout');
-    expect(calls).not.toContain('mysqldump -uroot');
-  });
   it('fails closed when writer discovery fails', () => {
     const { result, calls } = fixture('discovery');
     expect(result.status).toBe(8);
-    expect(calls).not.toContain('mysqldump -uroot');
     expect(calls).not.toContain('stop --timeout');
   });
   it('does not restart an old writer automatically after durable changes begin', () => {
