@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"io"
 	"strings"
 	"sync"
@@ -124,10 +125,12 @@ func (j *engineUpdateJob) prepare(deps hostUpdateDeps) {
 		}
 		if target == "" {
 			j.err = errors.New("update requested without target version")
-		} else if target != j.before {
+		} else if target != j.before || libcselect.EngineEnabled(j.e.name) {
 			j.target = target
 			j.row.SetVersion(j.before + " → " + target)
 		}
+	case check.Action == "no_update" && j.before != "" && libcselect.EngineEnabled(j.e.name):
+		j.target = j.before
 	}
 }
 
@@ -162,6 +165,9 @@ func (j *engineUpdateJob) install(deps hostUpdateDeps) {
 	if j.err != nil && !j.syncAllowed {
 		j.finish(1, ui.ToneFail, "update failed: "+j.err.Error()+" · sync skipped")
 		return
+	}
+	if detail := libcselect.Description(j.e.name); detail != "" {
+		j.status += " · " + detail
 	}
 	j.row.SetVersion(j.version)
 	j.row.Observe(updateprogress.Event{Phase: "waiting for sync"})

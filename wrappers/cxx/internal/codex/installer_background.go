@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/enginestore"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
-	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -27,7 +26,50 @@ import (
 // but only once the superseded prefix has not been the pointer target for a
 // full tick and no live process runs from it. A pre-install shortage may invoke
 // the same protected sweep before this installer creates or publishes a stage.
-func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) (retErr error) {
+func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
+	if runtime.GOOS != "linux" || strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")) != "" {
+		return ensureCodexBackground(ctx, target, enforceExact, logger)
+	}
+	root, err := ManagedCodexRoot()
+	if err != nil {
+		return err
+	}
+	version := strings.TrimPrefix(strings.TrimPrefix(target, "rust-"), "v")
+	current := func() (string, string) { p, _ := FindCLI(); return p, strings.TrimSpace(Version(ctx)) }
+	var resolved *Release
+	if version == "" || version == "latest" {
+		version = "latest"
+		ctx = libcselect.WithResolver(ctx, func(resolveCtx context.Context) (string, error) {
+			rel, e := fetchRelease(resolveCtx, target)
+			if e != nil {
+				return "", e
+			}
+			_, installed := current()
+			if !enforceExact && installed != "" && installed != "unknown" && semverGT(installed, releaseVersion(rel)) {
+				return installed, nil
+			}
+			resolved = &rel
+			return releaseVersion(rel), nil
+		})
+	} else {
+		_, installed := current()
+		if !enforceExact && installed != "" && installed != "unknown" && installed != version && !semverGT(version, installed) {
+			return nil
+		}
+	}
+	ctx = libcselect.WithHealth(ctx, func(cli string) bool {
+		info, e := os.Stat(filepath.Join(filepath.Dir(cli), codeModeHostBinName))
+		return e == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 && info.Size() > 0
+	})
+	return libcselect.Run(ctx, root, version, current, func(attempt context.Context) error {
+		if resolved != nil {
+			attempt = context.WithValue(attempt, reconcileReleaseKey{}, *resolved)
+		}
+		return ensureCodexBackground(attempt, libcselect.Target(attempt), enforceExact, logger)
+	}, logger)
+}
+
+func ensureCodexBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) (retErr error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -50,7 +92,7 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	currentCtx, currentCancel := context.WithTimeout(ctx, 5*time.Second)
 	current := strings.TrimSpace(Version(currentCtx))
 	currentCancel()
-	rel, err := fetchRelease(ctx, target)
+	rel, err := releaseForReconcile(ctx, target)
 	if err != nil {
 		return err
 	}
@@ -65,18 +107,18 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	if !enforceExact && current != "" && current != "unknown" && current != version && !semverGT(version, current) {
 		return nil
 	}
-	if current == version {
+	if current == version && !libcselect.Attempting(ctx) {
 		if cli, err := FindCLI(); err == nil && strings.HasPrefix(cli, root+string(os.PathSeparator)) {
 			if info, err := os.Stat(filepath.Join(filepath.Dir(cli), codeModeHostBinName)); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 && info.Size() > 0 {
 				return nil
 			}
 		}
 	}
-	asset, err := pickAsset(rel, runtime.GOOS, runtime.GOARCH)
+	asset, err := pickAssetForLibc(ctx, rel, "codex")
 	if err != nil {
 		return err
 	}
-	companion, err := pickAssetFor(rel, codeModeHostBinName, runtime.GOOS, runtime.GOARCH)
+	companion, err := pickAssetForLibc(ctx, rel, codeModeHostBinName)
 	if err != nil {
 		return fmt.Errorf("Codex %s companion: %w", version, err)
 	}
@@ -117,7 +159,7 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(probeCtx, cli, "--version").Output()
+	out, err := libcselect.Probe(probeCtx, cli, "--version")
 	if err != nil {
 		return fmt.Errorf("validate staged Codex: %w", err)
 	}
@@ -126,11 +168,13 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	}
 	// Upstream code-mode-host (rust-v0.153.4) parses clap CLI arguments before
 	// creating transports; --help validates execution without opening a listener.
-	probe := exec.CommandContext(probeCtx, companionPath, "--help")
-	probe.Stdout, probe.Stderr = io.Discard, io.Discard
-	if err := probe.Run(); err != nil {
+	if _, err := libcselect.Probe(probeCtx, companionPath, "--help"); err != nil {
 		return fmt.Errorf("validate staged Codex companion: %w", err)
 	}
+	if err := libcselect.Publication(ctx, cli, asset.Name+":"+asset.Digest+"/"+companion.Name+":"+companion.Digest); err != nil {
+		return err
+	}
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -147,4 +191,13 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	}
 	logger.Info("Codex background update ready for new sessions", "version", version)
 	return nil
+}
+
+type reconcileReleaseKey struct{}
+
+func releaseForReconcile(ctx context.Context, target string) (Release, error) {
+	if rel, ok := ctx.Value(reconcileReleaseKey{}).(Release); ok {
+		return rel, nil
+	}
+	return fetchRelease(ctx, target)
 }

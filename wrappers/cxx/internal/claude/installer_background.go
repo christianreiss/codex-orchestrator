@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/enginestore"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -73,7 +75,27 @@ func managedClaudeEnv(cli string, env []string) []string {
 // the superseded prefix has not been the pointer target for a full tick and no
 // live process runs from it. A pre-install shortage may invoke the same protected
 // sweep before this installer creates or publishes a stage.
-func EnsureClaudeBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) (retErr error) {
+func EnsureClaudeBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
+	target = strings.TrimSpace(target)
+	if runtime.GOOS != "linux" || strings.TrimSpace(os.Getenv("CLX_CLAUDE_BIN")) != "" {
+		return ensureClaudeBackground(ctx, target, enforceExact, logger)
+	}
+	root, err := managedClaudeRoot()
+	if err != nil {
+		return err
+	}
+	if target == "" || versionTokenRE.FindString(target) != target {
+		return ensureClaudeBackground(ctx, target, enforceExact, logger)
+	}
+	current := func() (string, string) { p, _ := FindCLI(); return p, strings.TrimSpace(Version(ctx)) }
+	_, installed := current()
+	if !enforceExact && IsDowngrade(installed, target) {
+		return nil
+	}
+	return libcselect.Run(ctx, root, target, current, func(attempt context.Context) error { return ensureClaudeBackground(attempt, target, true, logger) }, logger)
+}
+
+func ensureClaudeBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) (retErr error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -99,7 +121,7 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 	}
 
 	current := strings.TrimSpace(Version(ctx))
-	if current == target || (!enforceExact && IsDowngrade(current, target)) {
+	if !libcselect.Attempting(ctx) && (current == target || (!enforceExact && IsDowngrade(current, target))) {
 		return nil
 	}
 	// Cleanup runs before taking the engine installer lock.
@@ -142,7 +164,7 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 		return publishNativeClaude(ctx, stage, target, "without npm", &published, logger)
 	}
 	if err := installStagedClaudeNpm(ctx, npm, stage, target, &published, logger); err != nil {
-		if published || ctx.Err() != nil || installspace.StopsFallback(err) {
+		if published || ctx.Err() != nil || installspace.StopsFallback(err) || errors.Is(err, libcselect.ErrIntegrity) {
 			return err
 		}
 		// This unpublished stage belongs to this failed npm invocation only.
@@ -156,7 +178,9 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 		// A broken or too-old Node.js/npm must not strand the host either.
 		logger.Warn("npm install of Claude CLI failed; trying the native package", "target", target, "err", err)
 		if nativeErr := publishNativeClaude(ctx, stage, target, "after npm failure", &published, logger); nativeErr != nil {
-			return fmt.Errorf("%w; %w", err, nativeErr)
+			// The last verified transport owns fallback eligibility. An earlier
+			// npm incompatibility must not mask native integrity/transient errors.
+			return fmt.Errorf("%v; %w", err, nativeErr)
 		}
 	}
 	return nil
@@ -171,8 +195,14 @@ func publishNativeClaude(ctx context.Context, stage, target, why string, publish
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	version := versionFromCLI(probeCtx, native)
 	cancel()
+	if _, err := libcselect.Probe(ctx, native, "--version"); err != nil {
+		return err
+	}
 	if version != target {
 		return fmt.Errorf("native Claude CLI reports version %q, want %s", version, target)
+	}
+	if err := libcselect.Publication(ctx, native, claudePlatformPackageFor(ctx)+"@"+target); err != nil {
+		return err
 	}
 	if err := enginestore.InvalidatePressureAdmission(filepath.Dir(stage)); err != nil {
 		return fmt.Errorf("invalidate pressure-cleanup admission: %w", err)
@@ -187,6 +217,9 @@ func publishNativeClaude(ctx context.Context, stage, target, why string, publish
 
 func installStagedClaudeNpm(ctx context.Context, npm, stage, target string, published *bool, logger *slog.Logger) error {
 	spec := "@anthropic-ai/claude-code@" + target
+	if libcselect.Attempting(ctx) {
+		spec = claudePlatformPackageFor(ctx) + "@" + target
+	}
 	cmd := exec.CommandContext(ctx, npm, "install", "--prefix", stage, "--no-save", "--no-audit", "--no-fund", spec)
 	cmd.Dir = stage
 	// Explicit --prefix scopes package writes; --global=false neutralizes an
@@ -206,6 +239,9 @@ func installStagedClaudeNpm(ctx context.Context, npm, stage, target string, publ
 	cmd.Stdout, cmd.Stderr = output, output
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "installing"})
 	if err := cmd.Run(); err != nil {
+		if strings.Contains(strings.ToUpper(string(output.Bytes())), "EINTEGRITY") {
+			return libcselect.ErrIntegrity
+		}
 		return installspace.WriteError("Claude npm", stage, fmt.Errorf("staged npm install %s failed: %w: %s", spec, err, strings.TrimSpace(string(output.Bytes()))))
 	}
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
@@ -223,12 +259,18 @@ func installStagedClaudeNpm(ctx context.Context, npm, stage, target string, publ
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if _, err := libcselect.Probe(ctx, candidate, "--version"); err != nil {
+		return err
+	}
 	// Cache publication may rename successfully and then fail its directory
 	// durability flush. Once validation succeeds, this function never removes a
 	// prefix that a newly started process might already have selected; the next
 	// sweep reclaims whichever prefix the pointer did not select.
 	if err := enginestore.InvalidatePressureAdmission(filepath.Dir(stage)); err != nil {
 		return fmt.Errorf("invalidate pressure-cleanup admission: %w", err)
+	}
+	if err := libcselect.Publication(ctx, candidate, claudePlatformPackageFor(ctx)+"@"+target); err != nil {
+		return err
 	}
 	*published = true
 	if err := cacheClaudeContext(ctx, candidate); err != nil {
@@ -241,6 +283,7 @@ func installStagedClaudeNpm(ctx context.Context, npm, stage, target string, publ
 func runnableStagedClaude(ctx context.Context, stage, target string) string {
 	root := filepath.Join(stage, "node_modules")
 	for _, candidate := range []string{
+		filepath.Join(root, filepath.FromSlash(claudePlatformPackageFor(ctx)), "claude"),
 		filepath.Join(root, ".bin", "claude"),
 		filepath.Join(root, ".bin", "claude-code"),
 		filepath.Join(root, "@anthropic-ai", "claude-code", "bin", "claude.exe"),

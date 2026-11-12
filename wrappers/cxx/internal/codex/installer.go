@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
@@ -880,4 +881,30 @@ func ensureCodeModeHost(ctx context.Context, codexVersion string, rel *Release, 
 		return
 	}
 	_ = writeCodeModeHostState(codeModeHostState{InstalledFor: codexVersion})
+}
+
+// pickAssetForLibc retains the upstream platform mapping outside reconciliation.
+func pickAssetForLibc(ctx context.Context, rel Release, name string) (Asset, error) {
+	variant := libcselect.Requested(ctx)
+	if variant == "" || variant == libcselect.Musl {
+		return pickAssetFor(rel, name, runtime.GOOS, runtime.GOARCH)
+	}
+	triple, err := archTriple(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return Asset{}, err
+	}
+	prefix := name + "-" + strings.TrimSuffix(triple, "musl") + "gnu"
+	var raw Asset
+	for _, a := range rel.Assets {
+		if a.Name == prefix+".tar.gz" {
+			return a, nil
+		}
+		if a.Name == prefix {
+			raw = a
+		}
+	}
+	if raw.Name != "" {
+		return raw, nil
+	}
+	return Asset{}, fmt.Errorf("%w: no glibc %s for %s", libcselect.ErrUnavailable, name, rel.TagName)
 }

@@ -2088,3 +2088,17 @@ explicitly rejected because `-p` cannot combine with `--plan`.
 `/kimi/v1` is opt-in (off by default); native stream-json exposes neither token
 usage nor stop reason. See [the ckx contract](interface-ckx.md) for the hook
 lifecycle, launch identity, scoped credential and inference-only gateway agent.
+
+## Linux libc preference
+
+From cxx 0.9.177:
+
+Linux background installs prefer an explicit GNU/glibc platform package declared
+by the pinned xAI manifest. The currently published musl distribution remains
+the verified fallback when no compatible GNU package is offered. Same-version
+maintenance still evaluates this selection.
+
+The persistent selection receipt, 24-hour fallback recheck, failure backoff,
+explicit-update retry, overrides and live-session retention follow the shared
+[Linux engine libc selection contract](OVERVIEW.md#linux-engine-libc-selection).
+Local status/update output reports the selected variant and reason.

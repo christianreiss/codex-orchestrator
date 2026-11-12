@@ -12,6 +12,8 @@ import (
 )
 
 func TestEnsureClaudeFailsWhenNpmMissing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLX_CLAUDE_BIN", "")
 	// PATH=empty guarantees no npm is found.
 	t.Setenv("PATH", "")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))

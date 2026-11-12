@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"io"
 	"log/slog"
 	"net/http"
@@ -24,10 +25,11 @@ import (
 )
 
 type backgroundReleaseFixture struct {
-	native, companion string
-	badDigest         bool
-	missingCompanion  bool
-	beforeNative      func(*http.Request)
+	native, companion       string
+	gnuNative, gnuCompanion string
+	badDigest               bool
+	missingCompanion        bool
+	beforeNative            func(*http.Request)
 }
 
 func backgroundFixture(t *testing.T, fixture backgroundReleaseFixture) (string, string) {
@@ -77,7 +79,17 @@ func backgroundFixture(t *testing.T, fixture backgroundReleaseFixture) (string, 
 			if !fixture.missingCompanion {
 				assets = append(assets, asset(companionPrefix, "http://"+r.Host+"/companion", fixture.companion))
 			}
+			if fixture.gnuNative != "" {
+				assets = append(assets, asset(strings.Replace(cliPrefix, "-musl", "-gnu", 1), "http://"+r.Host+"/gnu-native", fixture.gnuNative))
+			}
+			if fixture.gnuCompanion != "" {
+				assets = append(assets, asset(strings.Replace(companionPrefix, "-musl", "-gnu", 1), "http://"+r.Host+"/gnu-companion", fixture.gnuCompanion))
+			}
 			_ = json.NewEncoder(w).Encode(Release{TagName: "rust-v9.9.9", Assets: assets})
+		case r.URL.Path == "/gnu-native":
+			_, _ = io.WriteString(w, fixture.gnuNative)
+		case r.URL.Path == "/gnu-companion":
+			_, _ = io.WriteString(w, fixture.gnuCompanion)
 		case r.URL.Path == "/native":
 			if fixture.beforeNative != nil {
 				fixture.beforeNative(r)
@@ -469,5 +481,42 @@ func TestBackgroundCodexDoesNotPublishIfCleanupInvalidationFails(t *testing.T) {
 		if entry.IsDir() && entry.Name() != ".pressure-cleanup.json" {
 			t.Fatalf("failed stage retained: %s", entry.Name())
 		}
+	}
+}
+
+func TestBackgroundCodexReplacesSameVersionMUSLAndStopsReinstalling(t *testing.T) {
+	_, _ = backgroundFixture(t, backgroundReleaseFixture{gnuNative: "#!/bin/sh\necho 'codex 9.9.9'\n# GNU fixture\n", gnuCompanion: "#!/bin/sh\necho GNU companion\n"})
+	muslCtx := libcselect.WithHost(context.Background(), libcselect.Host{GNU: false, Fingerprint: "musl-host"})
+	if err := EnsureCodexBackground(muslCtx, "9.9.9", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := FindCLI()
+	gnuCtx := libcselect.WithHost(context.Background(), libcselect.Host{GNU: true, Fingerprint: "gnu-host"})
+	if err := EnsureCodexBackground(gnuCtx, "9.9.9", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	selected, _ := FindCLI()
+	if selected == old {
+		t.Fatal("same-version musl was retained despite GNU artifacts")
+	}
+	content, _ := os.ReadFile(selected)
+	if !strings.Contains(string(content), "GNU fixture") {
+		t.Fatal("selected wrong artifact")
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Fatal("live old prefix removed", err)
+	}
+	for range 3 {
+		if err := EnsureCodexBackground(gnuCtx, "9.9.9", true, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, _ := FindCLI()
+	if after != selected {
+		t.Fatal("converged GNU installation looped")
+	}
+	root, _ := ManagedCodexRoot()
+	if libcselect.Status(root).Variant != libcselect.GNU {
+		t.Fatal("GNU selection not recorded")
 	}
 }

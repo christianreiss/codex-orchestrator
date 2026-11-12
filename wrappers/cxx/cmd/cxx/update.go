@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentbus"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"io"
 	"log/slog"
 	"net/url"
@@ -85,6 +86,7 @@ func runHostUpdate(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Minute)
 	defer cancel()
+	ctx = libcselect.Force(ctx)
 	lease, err := maintenance.Begin(ctx, false)
 	if err != nil {
 		fmt.Fprintln(stderr, "cxx update:", err)
@@ -427,7 +429,7 @@ func defaultHostUpdateDeps() hostUpdateDeps {
 				if path, err := grok.FindCLI(); err == nil {
 					current, _ = grok.ProbeVersion(ctx, path)
 				}
-				if !exact && current != "" && !codex.SemverGT(target, current) {
+				if !exact && current != "" && current != target && !codex.SemverGT(target, current) {
 					return nil
 				}
 				_, err := grok.Install(ctx, target)

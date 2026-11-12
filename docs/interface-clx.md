@@ -415,7 +415,8 @@ install binaries.
 
 The shared background coordinator checks both enabled engines, honors the
 fleet/host auto-update policy, verifies wrapper SHA256, and stages Claude with
-`npm install --prefix <private-stage> --global=false @anthropic-ai/claude-code@<target>`.
+`npm install --prefix <private-stage> --global=false <selected-platform-package>@<target>`
+on Linux (the main `@anthropic-ai/claude-code` package remains the macOS path).
 It validates the runnable version before atomically publishing its cached CLI
 path. The prefix it supersedes under `~/.cxx/engines/claude` survives the
 install itself, so a running session keeps its original files; a later
@@ -2859,3 +2860,16 @@ explicitly rejected because `-p` cannot combine with `--plan`.
 `/kimi/v1` is opt-in (off by default); native stream-json exposes neither token
 usage nor stop reason. See [the ckx contract](interface-ckx.md) for the hook
 lifecycle, launch identity, scoped credential and inference-only gateway agent.
+
+## Linux libc preference
+
+From cxx 0.9.177:
+
+Linux background installs pin the explicit libc-specific native npm package,
+using glibc first on GNU-capable hosts. The npm-less path selects the same
+package. Existing musl installations can migrate without a version change.
+
+The persistent selection receipt, 24-hour fallback recheck, failure backoff,
+explicit-update retry, overrides and live-session retention follow the shared
+[Linux engine libc selection contract](OVERVIEW.md#linux-engine-libc-selection).
+Local status/update output reports the selected variant and reason.

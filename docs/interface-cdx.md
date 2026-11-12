@@ -2836,3 +2836,16 @@ explicitly rejected because `-p` cannot combine with `--plan`.
 `/kimi/v1` is opt-in (off by default); native stream-json exposes neither token
 usage nor stop reason. See [the ckx contract](interface-ckx.md) for the hook
 lifecycle, launch identity, scoped credential and inference-only gateway agent.
+
+## Linux libc preference
+
+From cxx 0.9.177:
+
+Codex background installation prefers the official GNU CLI and code-mode-host
+release assets when available and runnable, falling back to the musl pair.
+Same-version musl installations are eligible for replacement.
+
+The persistent selection receipt, 24-hour fallback recheck, failure backoff,
+explicit-update retry, overrides and live-session retention follow the shared
+[Linux engine libc selection contract](OVERVIEW.md#linux-engine-libc-selection).
+Local status/update output reports the selected variant and reason.

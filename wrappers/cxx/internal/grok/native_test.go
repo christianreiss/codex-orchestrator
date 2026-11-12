@@ -9,11 +9,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/andybalholm/brotli"
@@ -211,5 +214,62 @@ func TestInstallerCapacityFailureNeverDownloadsOrChangesPointer(t *testing.T) {
 	after, _ := os.ReadFile(pointer)
 	if string(after) != "previous-selected-binary\n" {
 		t.Fatal("pointer changed")
+	}
+}
+
+func TestReconcileGrokSameVersionFallbackThenDeclaredGNU(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GROK_HOME", filepath.Join(t.TempDir(), "native"))
+	t.Setenv("CGX_GROK_BIN", "")
+	archive, integrity := archiveFixture(t, []byte("#!/bin/sh\necho 'grok "+PinnedVersion+"'\n"), "package/bin/grok.br")
+	var gnu atomic.Bool
+	var archives atomic.Int32
+	pkg, _ := PlatformPackage(runtime.GOOS, runtime.GOARCH)
+	client := &http.Client{Transport: fixtureTransport(func(req *http.Request) (*http.Response, error) {
+		var body []byte
+		if strings.HasSuffix(req.URL.Path, ".tgz") {
+			archives.Add(1)
+			body = archive
+		} else if strings.Contains(req.URL.Path, "/grok/") && !strings.Contains(req.URL.Path, "/grok-") {
+			deps := map[string]string{pkg: PinnedVersion}
+			if gnu.Load() {
+				deps[pkg+"-gnu"] = PinnedVersion
+			}
+			body, _ = json.Marshal(map[string]any{"optionalDependencies": deps})
+		} else {
+			m := packageMetadata{Version: PinnedVersion}
+			m.Dist.Integrity = integrity
+			m.Dist.Tarball = "https://registry.npmjs.org/native.tgz"
+			body, _ = json.Marshal(m)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body))}, nil
+	})}
+	ctx := libcselect.WithHost(context.Background(), libcselect.Host{GNU: true, Fingerprint: "gnu"})
+	musl, e := reconcileInstall(ctx, PinnedVersion, client)
+	if e != nil {
+		t.Fatal(e)
+	}
+	for range 3 {
+		if _, e := reconcileInstall(ctx, PinnedVersion, client); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if archives.Load() != 1 {
+		t.Fatal("fallback repeatedly downloaded")
+	}
+	gnu.Store(true)
+	selected, e := reconcileInstall(libcselect.Force(ctx), PinnedVersion, client)
+	if e != nil {
+		t.Fatal(e)
+	}
+	root, _ := StoreDir()
+	if selected == musl || libcselect.Status(root).Variant != libcselect.GNU {
+		t.Fatal("declared GNU package did not replace same-version fallback")
+	}
+	if _, e := reconcileInstall(ctx, PinnedVersion, client); e != nil {
+		t.Fatal(e)
+	}
+	if archives.Load() != 2 {
+		t.Fatal("GNU selection looped")
 	}
 }
