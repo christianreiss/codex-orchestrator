@@ -34,7 +34,7 @@ export async function registerAdminEngineRoutes(app: FastifyInstance, ctx: Route
     const { engine } = req.params as { engine?: string };
     const normalized = typeof engine === 'string' ? engine.trim().toLowerCase() : '';
     if (!isEngine(normalized)) {
-      throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
+      throw new ValidationError('engine must be "codex", "claude", "grok" or "kimi"', { param: 'engine' });
     }
     const body = (req.body ?? {}) as { enabled?: unknown };
     if (typeof body.enabled !== 'boolean') {
@@ -51,7 +51,7 @@ export async function registerAdminEngineRoutes(app: FastifyInstance, ctx: Route
     const { engine } = req.params as { engine?: string };
     const normalized = typeof engine === 'string' ? engine.trim().toLowerCase() : '';
     if (!isEngine(normalized)) {
-      throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
+      throw new ValidationError('engine must be "codex", "claude", "grok" or "kimi"', { param: 'engine' });
     }
     return normalized;
   };

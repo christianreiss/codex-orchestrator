@@ -5,7 +5,7 @@ vi.mock('../../../src/services/quota-observation.js', () => ({ quotaSnapshot: as
 
 vi.mock('../../../src/control-plane/state/runtime.js', () => ({ ownerRuntimeFor: () => null }));
 vi.mock('../../../src/services/engine-switch.js', () => ({
-  readFleetEngineState: async () => ({ codex: true, claude: true, grok: false }),
+  readFleetEngineState: async () => ({ codex: true, claude: true, grok: false, kimi: false }),
 }));
 vi.mock('../../../src/services/provider-accounts.js', () => ({
   ProviderAccountsService: class {
@@ -30,7 +30,7 @@ vi.mock('../../../src/services/provider-accounts.js', () => ({
 
 describe('companion quota projection', () => {
   it('keeps zero usage and provider window meanings, excludes removed accounts and private metadata', async () => {
-    const rows = ['codex', 'claude', 'grok'].map((engine, index) => ({
+    const rows = ['codex', 'claude', 'grok', 'kimi'].map((engine, index) => ({
       id: index + 1,
       engine,
       label: engine,
@@ -43,7 +43,7 @@ describe('companion quota projection', () => {
       keyring: {},
     } as unknown as RouteContext;
     const result = await companionQuotas(ctx);
-    expect(result.engines.map((e) => e.engine)).toEqual(['codex', 'claude', 'grok']);
+    expect(result.engines.map((e) => e.engine)).toEqual(['codex', 'claude', 'grok', 'kimi']);
     expect(result.engines[0]!.accounts).toHaveLength(1);
     expect(result.engines[0]!.accounts[0]!.windows).toEqual([
       { kind: 'weekly', used_percent: 0, resets_at: null, limit_seconds: 604800 },

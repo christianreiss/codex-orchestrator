@@ -45,7 +45,7 @@ import {
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_HOST_FIELDS, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, ENGINE_HOST_FIELDS, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
 import { wsPublisher } from '../../../ws/publisher.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
@@ -239,7 +239,7 @@ export async function registerAdminOverviewRoutes(
     const hostRows = await visibleHosts();
     const latestLogAt = await dashboard.latestLogAt();
 
-    const [versionSummary, claudeVersionSummary, codexAvailable, claudeAvailable, grokVersionSummary, grokAvailable] = await Promise.all([
+    const [versionSummary, claudeVersionSummary, codexAvailable, claudeAvailable, grokVersionSummary, grokAvailable, kimiVersionSummary, kimiAvailable] = await Promise.all([
       clientVersions.versionSummary('codex'),
       clientVersions.versionSummary('claude'),
       // Live upstream latest (GitHub for Codex, npm for Claude); cached 1h so
@@ -248,6 +248,8 @@ export async function registerAdminOverviewRoutes(
       clientVersions.availableClientVersion(false, 'claude'),
       clientVersions.versionSummary('grok'),
       clientVersions.availableClientVersion(false, 'grok'),
+      clientVersions.versionSummary('kimi'),
+      clientVersions.availableClientVersion(false, 'kimi'),
     ]);
 
     let lastRefresh: string | null = null;
@@ -304,7 +306,8 @@ export async function registerAdminOverviewRoutes(
     const codexVersionCounts = new Map<string, number>();
     const claudeVersionCounts = new Map<string, number>();
     const grokVersionCounts = new Map<string, number>();
-    const engineCounts = { codex: 0, claude: 0, grok: 0 };
+    const kimiVersionCounts = new Map<string, number>();
+    const engineCounts = { codex: 0, claude: 0, grok: 0, kimi: 0 };
     const combinations = new Map<string, number>();
     let installBoth = 0, installCodexOnly = 0, installClaudeOnly = 0, installNeither = 0;
     for (const h of hostRows) {
@@ -313,7 +316,8 @@ export async function registerAdminOverviewRoutes(
       codexVersionCounts.set(cv, (codexVersionCounts.get(cv) ?? 0) + 1);
       if (clv) claudeVersionCounts.set(clv, (claudeVersionCounts.get(clv) ?? 0) + 1);
       if (h.grokClientVersion) grokVersionCounts.set(h.grokClientVersion, (grokVersionCounts.get(h.grokClientVersion) ?? 0) + 1);
-      const installed = (['codex', 'claude', 'grok'] as const).filter(engine => h[ENGINE_HOST_FIELDS[engine].clientVersion] != null);
+      if (h.kimiClientVersion) kimiVersionCounts.set(h.kimiClientVersion, (kimiVersionCounts.get(h.kimiClientVersion) ?? 0) + 1);
+      const installed = (['codex', 'claude', 'grok', 'kimi'] as const).filter(engine => h[ENGINE_HOST_FIELDS[engine].clientVersion] != null);
       for (const engine of installed) engineCounts[engine]++;
       const combination = installed.join(',');
       combinations.set(combination, (combinations.get(combination) ?? 0) + 1);
@@ -336,6 +340,7 @@ export async function registerAdminOverviewRoutes(
         codex: toSortedArr(codexVersionCounts),
         claude: toSortedArr(claudeVersionCounts),
         grok: toSortedArr(grokVersionCounts),
+        kimi: toSortedArr(kimiVersionCounts),
         engine_counts: engineCounts,
         install_combinations: [...combinations].sort(([a], [b]) => a.localeCompare(b)).map(([engines, count]) => ({ engines: engines ? engines.split(',') : [], count })),
         install: {
@@ -349,10 +354,15 @@ export async function registerAdminOverviewRoutes(
         ...versionSummary,
         claude_version: claudeVersionSummary.client_version,
         grok_version: grokVersionSummary.client_version,
+kimi_version: kimiVersionSummary.client_version,
         grok_wrapper_version: grokVersionSummary.wrapper_version,
+        kimi_wrapper_version: kimiVersionSummary.wrapper_version,
         grok_version_available: grokAvailable?.version ?? null,
+kimi_version_available: kimiAvailable?.version ?? null,
         grok_version_checked_at: grokAvailable?.fetched_at ?? null,
+kimi_version_checked_at: kimiAvailable?.fetched_at ?? null,
         grok_version_stale: isClientVersionStale(grokAvailable?.fetched_at),
+kimi_version_stale: isClientVersionStale(kimiAvailable?.fetched_at),
         claude_wrapper_version: claudeVersionSummary.wrapper_version,
         cdx_version_available: codexAvailable?.version ?? null,
         cdx_version_checked_at: codexAvailable?.fetched_at ?? null,
@@ -411,11 +421,11 @@ export async function registerAdminOverviewRoutes(
     await pruneHosts(ctx.db);
     // Cached targets only: this list must never probe providers or refresh releases.
     const snapshots = createVersionSnapshotService({ db: ctx.db, installationId: null });
-    const [codexTarget, claudeTarget, grokTarget] = await Promise.all([
-      snapshots.summary(ENGINE_CODEX), snapshots.summary(ENGINE_CLAUDE), snapshots.summary(ENGINE_GROK),
+    const [codexTarget, claudeTarget, grokTarget, kimiTarget] = await Promise.all([
+      snapshots.summary(ENGINE_CODEX), snapshots.summary(ENGINE_CLAUDE), snapshots.summary(ENGINE_GROK), snapshots.summary(ENGINE_KIMI),
     ]);
-    const targets = { codex: codexTarget, claude: claudeTarget, grok: grokTarget };
-    const [rows, codexCanonical, claudeCanonical, tokenRows, grokCanonical] = await Promise.all([
+    const targets = { codex: codexTarget, claude: claudeTarget, grok: grokTarget, kimi: kimiTarget };
+    const [rows, codexCanonical, claudeCanonical, tokenRows, grokCanonical, kimiCanonical] = await Promise.all([
       visibleHosts().then(rows=>[...rows].sort((a,b)=>a.fqdn.localeCompare(b.fqdn))),
       canonicalMetadata(ENGINE_CODEX),
       canonicalMetadata(ENGINE_CLAUDE),
@@ -430,6 +440,7 @@ export async function registerAdminOverviewRoutes(
         })
         .from(installTokens),
       canonicalMetadata(ENGINE_GROK),
+      canonicalMetadata(ENGINE_KIMI),
     ]);
     const presence = await hostPresenceViews(ctx.db, rows);
     const latestInstaller = new Map<number, InstallerTokenRow>();
@@ -441,6 +452,7 @@ export async function registerAdminOverviewRoutes(
       [ENGINE_CODEX]: codexCanonical?.sha256 ?? null,
       [ENGINE_CLAUDE]: claudeCanonical?.sha256 ?? null,
       [ENGINE_GROK]: grokCanonical?.sha256 ?? null,
+      [ENGINE_KIMI]: kimiCanonical?.sha256 ?? null,
     };
     return ok({
       hosts: rows.map((h) => {
@@ -482,12 +494,19 @@ export async function registerAdminOverviewRoutes(
           claude_model_override: h.claudeModelOverride,
           claude_reasoning_effort_override: h.claudeReasoningEffortOverride,
           grok_client_version: h.grokClientVersion,
+          kimi_client_version: h.kimiClientVersion,
           grok_client_version_override: h.grokClientVersionOverride,
+          kimi_client_version_override: h.kimiClientVersionOverride,
           grok_wrapper_version: h.grokWrapperVersion,
+          kimi_wrapper_version: h.kimiWrapperVersion,
           grok_canonical_digest: h.grokAuthDigest,
+kimi_canonical_digest: h.kimiAuthDigest,
           grok_model_override: h.grokModelOverride,
+          kimi_model_override: h.kimiModelOverride,
           grok_reasoning_effort_override: h.grokReasoningEffortOverride,
+          kimi_reasoning_effort_override: h.kimiReasoningEffortOverride,
           grok_last_refresh: h.grokLastRefresh,
+          kimi_last_refresh: h.kimiLastRefresh,
           engines: h.engines,
           engines_list: hostEngines(h.engines),
           auto_update_override: h.autoUpdateOverride === null ? null : h.autoUpdateOverride === 1,
@@ -496,6 +515,7 @@ export async function registerAdminOverviewRoutes(
           recent_digests: [],
           claude_recent_digests: [],
           grok_recent_digests: [],
+kimi_recent_digests: [],
           authed: auth.authed,
           auth_outdated: auth.auth_outdated,
           config_version: Number(h.configVersion ?? 0),
@@ -551,15 +571,19 @@ export async function registerAdminOverviewRoutes(
           .orderBy(desc(installTokens.id))
           .limit(1),
       ]);
-    const [grokCanonical, grokVersions, grokAvailable] = await Promise.all([
+    const [grokCanonical, kimiCanonical, grokVersions, grokAvailable, kimiVersions, kimiAvailable] = await Promise.all([
       canonicalMetadata(ENGINE_GROK),
+      canonicalMetadata(ENGINE_KIMI),
       clientVersions.versionSummary(ENGINE_GROK),
       clientVersions.availableClientVersion(false, ENGINE_GROK),
+      clientVersions.versionSummary(ENGINE_KIMI),
+      clientVersions.availableClientVersion(false, ENGINE_KIMI),
     ]);
     const auth = hostAuthSummary(h, {
       [ENGINE_CODEX]: codexCanonical?.sha256 ?? null,
       [ENGINE_CLAUDE]: claudeCanonical?.sha256 ?? null,
       [ENGINE_GROK]: grokCanonical?.sha256 ?? null,
+      [ENGINE_KIMI]: kimiCanonical?.sha256 ?? null,
     });
     return ok({
       host: {
@@ -587,18 +611,26 @@ export async function registerAdminOverviewRoutes(
         last_cron_check: h.lastCronCheck,
         reverse_dns_mode: h.reverseDnsMode,
         grok_client_version: h.grokClientVersion,
+        kimi_client_version: h.kimiClientVersion,
         grok_client_version_override: h.grokClientVersionOverride,
+        kimi_client_version_override: h.kimiClientVersionOverride,
         grok_wrapper_version: h.grokWrapperVersion,
+        kimi_wrapper_version: h.kimiWrapperVersion,
         grok_canonical_digest: h.grokAuthDigest,
+kimi_canonical_digest: h.kimiAuthDigest,
         grok_model_override: h.grokModelOverride,
+        kimi_model_override: h.kimiModelOverride,
         grok_reasoning_effort_override: h.grokReasoningEffortOverride,
+        kimi_reasoning_effort_override: h.kimiReasoningEffortOverride,
         grok_last_refresh: h.grokLastRefresh,
+        kimi_last_refresh: h.kimiLastRefresh,
         engines: h.engines,
         canonical_digest: h.authDigest,
         claude_canonical_digest: h.claudeAuthDigest,
         recent_digests: [],
         claude_recent_digests: [],
         grok_recent_digests: [],
+kimi_recent_digests: [],
         authed: auth.authed,
         auth_outdated: auth.auth_outdated,
         lane_preference: h.lanePreference,
@@ -623,9 +655,13 @@ export async function registerAdminOverviewRoutes(
           client_version_checked_at: codexVersions.client_version_checked_at,
           claude_version: resolveAliasedVersion(claudeVersions.client_version, claudeAvailable),
           grok_version: resolveAliasedVersion(grokVersions.client_version, grokAvailable),
+kimi_version: resolveAliasedVersion(kimiVersions.client_version, kimiAvailable),
           grok_version_available: grokAvailable?.version ?? null,
+kimi_version_available: kimiAvailable?.version ?? null,
           grok_version_checked_at: grokAvailable?.fetched_at ?? null,
+kimi_version_checked_at: kimiAvailable?.fetched_at ?? null,
           grok_version_stale: isClientVersionStale(grokAvailable?.fetched_at),
+kimi_version_stale: isClientVersionStale(kimiAvailable?.fetched_at),
         },
         reverse_dns_enabled: reverseDnsEnabled,
         auto_update_enabled: autoUpdateEnabled,
@@ -947,6 +983,10 @@ export async function registerAdminOverviewRoutes(
     await assertFleetEngineEnabledForAdmin(ctx.db, 'grok');
     return ok(await runnerProxy.run(runRequest(req.body), 'grok'));
   });
+app.post('/admin/runner/run-kimi', { preHandler: app.requireAdmin }, async (req) => {
+    await assertFleetEngineEnabledForAdmin(ctx.db, 'kimi');
+    return ok(await runnerProxy.run(runRequest(req.body), 'kimi'));
+  });
 
   // ── /admin/auth/seed-command ──────────────────────────────────────────────
   app.post('/admin/auth/seed-command', { preHandler: app.requireAdmin }, async (req) => {
@@ -975,7 +1015,7 @@ export async function registerAdminOverviewRoutes(
     const body = (req.body ?? {}) as { engine?: unknown; payload?: unknown; account_id?: number };
     const engineRaw = typeof body.engine === 'string' ? body.engine.trim().toLowerCase() : '';
     if (!isEngine(engineRaw)) {
-      throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
+      throw new ValidationError('engine must be "codex", "claude", "grok" or "kimi"', { param: 'engine' });
     }
     const engine: Engine = engineRaw;
     if (typeof body.payload !== 'string' || body.payload.trim() === '') {

@@ -3,7 +3,7 @@ import { createWorkflowCollaboration } from '../../src/services/agent-messaging/
 import type { AgentMessagingService } from '../../src/services/agent-messaging.js';
 import type { WorkflowTx } from '../../src/services/workflows/contract.js';
 
-for (const engine of ['codex', 'claude', 'grok']) describe(`${engine} workflow start message`, () => {
+for (const engine of ['codex', 'claude', 'grok', 'kimi']) describe(`${engine} workflow start message`, () => {
   function fixture() {
     const session = {id:'session',hostId:1,engine,bindingGeneration:3,adapterCapabilities:{workflow_protocol_version:2}};
     const address = {id:'address',hostId:1,engine,bindingGeneration:3};

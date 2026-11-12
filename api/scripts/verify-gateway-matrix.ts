@@ -119,7 +119,7 @@ const keys = new OpenAiKeyService({ db, keyring: Keyring.fromEnv(env) });
 const issued: Partial<Record<Engine, Awaited<ReturnType<typeof keys.issue>>>> = {};
 const legacyIssued: typeof issued = {};
 const cleanupKeys: Array<{ id: number; engine: Engine }> = [];
-const model: Record<Engine, string> = { codex: 'gpt-6.1-sol', claude: 'claude-sonnet-5', grok: 'grok-4.7' };
+const model: Record<Engine, string> = { codex: 'gpt-6.1-sol', claude: 'claude-sonnet-5', grok: 'grok-4.7', kimi: 'k3.1-pro' };
 let base = '';
 let runnerHealth: unknown;
 

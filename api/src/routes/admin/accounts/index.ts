@@ -12,7 +12,7 @@ import type { Engine } from '../../../util/engine.js';
 
 const create = z
   .object({
-    engine: z.enum(['codex', 'claude', 'grok']),
+    engine: z.enum(['codex', 'claude', 'grok', 'kimi']),
     label: z.string().trim().min(1).max(191).optional(),
     payload: z.string().min(1).max(262144),
   })

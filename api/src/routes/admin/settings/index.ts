@@ -18,8 +18,10 @@ import {
   ClientVersionsService,
   coerceCodexVersionToMinimum,
   GROK_MIN_CLIENT_VERSION,
+  KIMI_MIN_CLIENT_VERSION,
   isSemanticVersion,
   isSupportedGrokVersion,
+  isSupportedKimiVersion,
   normalizeVersion,
 } from '../../../services/client-versions.js';
 import {
@@ -540,13 +542,15 @@ export async function registerAdminSettingsRoutes(
 
   // ── versions/check ────────────────────────────────────────────────────────
   app.post('/admin/versions/check', { preHandler: app.requireAdmin }, async () => {
-    const [availableCodex, availableClaude, availableGrok, summaryCodex, summaryClaude, summaryGrok] = await Promise.all([
+    const [availableCodex, availableClaude, availableGrok, availableKimi, summaryCodex, summaryClaude, summaryGrok, summaryKimi] = await Promise.all([
       clientVersions.availableClientVersion(true, 'codex'),
       clientVersions.availableClientVersion(true, 'claude'),
       clientVersions.availableClientVersion(true, 'grok'),
+      clientVersions.availableClientVersion(true, 'kimi'),
       clientVersions.versionSummary('codex'),
       clientVersions.versionSummary('claude'),
       clientVersions.versionSummary('grok'),
+      clientVersions.versionSummary('kimi'),
     ]);
     return ok({
       available_client: availableCodex,
@@ -554,7 +558,9 @@ export async function registerAdminSettingsRoutes(
       claude_available_client: availableClaude,
       claude_versions: summaryClaude,
       grok_available_client: availableGrok,
+kimi_available_client: availableKimi,
       grok_versions: summaryGrok,
+kimi_versions: summaryKimi,
     });
   });
 
@@ -599,8 +605,15 @@ export async function registerAdminSettingsRoutes(
   app.get('/admin/grok/version', { preHandler: app.requireAdmin }, async () => {
     return ok(await clientVersions.versionSummary('grok'));
   });
+  app.get('/admin/kimi/version', { preHandler: app.requireAdmin }, async () => {
+    return ok(await clientVersions.versionSummary('kimi'));
+  });
   app.get('/admin/grok/version/lock', { preHandler: app.requireAdmin }, async () => {
     const lock = await settings.getWithMeta('client_version_lock_grok');
+    return ok({ locked_version: lock.value, locked_at: lock.updatedAt });
+  });
+app.get('/admin/kimi/version/lock', { preHandler: app.requireAdmin }, async () => {
+    const lock = await settings.getWithMeta('client_version_lock_kimi');
     return ok({ locked_version: lock.value, locked_at: lock.updatedAt });
   });
   app.post('/admin/grok/version', { preHandler: app.requireAdmin }, async (req) => {
@@ -625,6 +638,30 @@ export async function registerAdminSettingsRoutes(
       logSelection = normalized;
     }
     await recordLog(ctx, 'admin.grok_version', { selection: logSelection, locked_version: lock.locked_version });
+    return ok(lock);
+  });
+  app.post('/admin/kimi/version', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { selection?: unknown };
+    if (typeof body.selection !== 'string' || body.selection.trim() === '') {
+      throw new ValidationError(`selection must be latest, or a version at least ${KIMI_MIN_CLIENT_VERSION}`, { param: 'selection' });
+    }
+    const selection = body.selection.trim();
+    let lock: { locked_version: string | null; locked_at: string | null };
+    let logSelection: string;
+    if (['latest', 'auto'].includes(selection.toLowerCase())) {
+      await settings.set('client_version_kimi', 'latest');
+      lock = await clientVersions.setKimiVersionLock(null);
+      void clientVersions.availableClientVersion(true, 'kimi');
+      logSelection = 'latest';
+    } else {
+      const normalized = normalizeVersion(selection);
+      if (!normalized || !isSupportedKimiVersion(normalized)) {
+        throw new ValidationError(`selection must be a supported semantic version at least ${KIMI_MIN_CLIENT_VERSION}`, { param: 'selection' });
+      }
+      lock = await clientVersions.setKimiVersionLock(normalized);
+      logSelection = normalized;
+    }
+    await recordLog(ctx, 'admin.kimi_version', { selection: logSelection, locked_version: lock.locked_version });
     return ok(lock);
   });
 

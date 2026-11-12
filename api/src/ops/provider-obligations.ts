@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
 import type { OwnerWorkObligation } from './owner-worker.js';
 import { GROK_USAGE_INTERVAL_MS } from '../services/grok-usage.js';
+import { KIMI_USAGE_INTERVAL_MS } from '../services/kimi-usage.js';
 import { MATTPOCOCK_STATE_KEY } from '../services/mattpocock-skills.js';
 import { FEEDBACK_CONFIG_KEY, FEEDBACK_MODE_KEY } from '../services/feedback/contract.js';
 import type { BuildIdentity } from '../services/feedback/build-identity.js';
@@ -24,6 +25,23 @@ export function grokUsageObligations(snapshot: OwnerStateSnapshot): OwnerWorkObl
         key: String(account.id),
         revision: `${account.updatedAt}:${previous?.checkedAt ?? 'new'}`,
         dueAt: Number.isFinite(checked) ? checked + GROK_USAGE_INTERVAL_MS : 0,
+      };
+    });
+}
+export function kimiUsageObligations(snapshot: OwnerStateSnapshot): OwnerWorkObligation[] {
+  if (!enabled(snapshot, 'kimi')) return [];
+  return snapshot.accounts
+    .all()
+    .filter(
+      (account) => account.engine === 'kimi' && account.state === 'enabled' && !account.mergedIntoAccountId,
+    )
+    .map((account) => {
+      const previous = snapshot.table('kimiUsageSnapshots').get(account.id);
+      const checked = stamp(previous?.checkedAt);
+      return {
+        key: String(account.id),
+        revision: `${account.updatedAt}:${previous?.checkedAt ?? 'new'}`,
+        dueAt: Number.isFinite(checked) ? checked + KIMI_USAGE_INTERVAL_MS : 0,
       };
     });
 }

@@ -13,11 +13,11 @@ const runtime: DaemonRuntime = {
   version: 'test',
   heartbeat_at: new Date(now).toISOString(),
   connected: true,
-  engines: ['codex', 'claude', 'grok'],
+  engines: ['codex', 'claude', 'grok', 'kimi'],
   error: null,
 };
 const health = (delta = 0, patch: Partial<DaemonRuntime> = {}, used = 0) =>
-  daemonHealth(settings, { ...runtime, ...patch }, null, used, ['codex', 'claude', 'grok'], now + delta);
+  daemonHealth(settings, { ...runtime, ...patch }, null, used, ['codex', 'claude', 'grok', 'kimi'], now + delta);
 describe('optional host daemon policy', () => {
   it('defaults to disabled, root, eight slots, 60m idle and 24h questions', () =>
     expect(daemonSettingsSchema.parse({})).toEqual({

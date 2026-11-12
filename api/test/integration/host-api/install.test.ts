@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 describe('GET + POST /install/:token', () => {
-  it.each(['codex', 'claude', 'grok'])('keeps a %s token retryable after script generation fails', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('keeps a %s token retryable after script generation fails', async engine => {
     const db = createDbFake();
     db.tables.set(hostsTable, [{ id: 9, fqdn: 'retry.test', engines: engine, status: 'active' }]);
     db.tables.set(installTokens, [{ id: 1, token: installToken, hostId: 9, apiKey: 'sk-test', baseUrl: 'https://o.example', engine, expiresAt: futureExpiry, usedAt: null }]);
@@ -62,7 +62,7 @@ describe('GET + POST /install/:token', () => {
       expect((await app.inject({ url: `/install/${installToken}` })).headers['x-installer-error']).toBe('installer_used');
     } finally { await app.close(); }
   });
-  it.each(['codex', 'claude', 'grok'])('refuses a stale %s token after host assignment changes', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('refuses a stale %s token after host assignment changes', async engine => {
     const db = createDbFake();
     db.tables.set(hostsTable, [{ id: 9, fqdn: 'removed.test', engines: engine === 'codex' ? 'claude' : 'codex' }]);
     db.tables.set(installTokens, [{ id: 1, token: installToken, hostId: 9, apiKey: 'sk-test', baseUrl: 'https://o.example', engine, expiresAt: futureExpiry, usedAt: null }]);

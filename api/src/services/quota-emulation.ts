@@ -75,6 +75,11 @@ export function emulationObservation(engine: Engine, value: object): EmulationOb
     nativeShort = typeof r.fiveHourUsedPercent === 'number';
     weeklyUsed = r.sevenDayUsedPercent;
     reset = r.sevenDayResetsAt;
+  } else if (engine === 'kimi') {
+    if (r.errorCode) return null;
+    nativeShort = typeof r.fiveHourUsedPercent === 'number';
+    weeklyUsed = r.weeklyUsedPercent;
+    reset = r.weeklyResetsAt;
   } else {
     if (r.errorCode || r.periodType !== 'weekly') return null;
     weeklyUsed = r.usedPercent;
@@ -226,7 +231,7 @@ export function ownedEmulation(s: OwnerStateSnapshot, engine: Engine, accountId:
       ? 'chatgptUsageSnapshots'
       : engine === 'claude'
         ? 'claudeUsageSnapshots'
-        : 'grokUsageSnapshots';
+        : engine === 'kimi' ? 'kimiUsageSnapshots' : 'grokUsageSnapshots';
   const rows = [...s.table(table).by('accountId', accountId)];
   const latest = rows.sort((a, b) => ('id' in b ? Number(b.id) : 0) - ('id' in a ? Number(a.id) : 0))[0];
   const observation = latest ? emulationObservation(engine, latest) : null;

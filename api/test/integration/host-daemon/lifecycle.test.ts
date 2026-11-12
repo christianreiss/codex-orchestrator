@@ -32,12 +32,13 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
       apiKey: 'd'.repeat(64),
       apiKeyHash: createHash('sha256').update('daemon-test-key').digest('hex'),
       reverseDnsMode: 0,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       secure: 1,
       agentMessagingEnabled: 1,
       authDigest: 'test',
       claudeAuthDigest: 'test',
       grokAuthDigest: 'test',
+      kimiAuthDigest: 'test',
       status: 'active',
       createdAt: now,
       updatedAt: now,
@@ -58,7 +59,7 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
         instance_id: randomUUID(),
         username: 'root',
         version: 'test',
-        engines: ['codex', 'claude', 'grok'],
+        engines: ['codex', 'claude', 'grok', 'kimi'],
         error: null,
       })
     ).generation;
@@ -79,7 +80,7 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     const connection = vi.spyOn(handle!.pool, 'getConnection');
     const sweep = vi.spyOn(service, 'sweep');
     try {
-      const result = await service.heartbeat(id, generation, ['codex', 'claude', 'grok'], null);
+      const result = await service.heartbeat(id, generation, ['codex', 'claude', 'grok', 'kimi'], null);
       expect(result).toMatchObject({ settings: { enabled: true }, stop: [] });
       expect(connection).not.toHaveBeenCalled();
       expect(sweep).not.toHaveBeenCalled();
@@ -125,7 +126,7 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
       return query(options, values);
     });
     try {
-      await expect(service.heartbeat(id, generation, ['codex', 'claude', 'grok'], null))
+      await expect(service.heartbeat(id, generation, ['codex', 'claude', 'grok', 'kimi'], null))
         .rejects.toThrow('generation changed');
       expect(changed).toBe(true);
       expect((await service.settings(id)).runtime?.generation).toBe(replacement);
@@ -146,7 +147,7 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     try {
       await parent.beginTransaction();
       await parent.query('SELECT id FROM hosts WHERE id = ? FOR UPDATE', [id]);
-      beat = service.heartbeat(id, generation, ['codex', 'claude', 'grok'], null);
+      beat = service.heartbeat(id, generation, ['codex', 'claude', 'grok', 'kimi'], null);
       void beat.catch(() => {});
       await writing;
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -182,7 +183,7 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     await service.accept(id, op.operation_id, op.claim_id);
     for (let i = 0; i < 4; i++) {
       await Promise.all([
-        service.heartbeat(id, generation, ['codex', 'claude', 'grok'], null, [start.session_id]),
+        service.heartbeat(id, generation, ['codex', 'claude', 'grok', 'kimi'], null, [start.session_id]),
         service.configureEnabled(id, true),
       ]);
     }
@@ -353,7 +354,7 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     }
   });
   it('rejects all three suspended fleet engines before launching', async () => {
-    for (const engine of ['codex', 'claude', 'grok'] as const) {
+    for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
       const name = engine + '_engine_disabled';
       await handle!.db
         .insert(versions)

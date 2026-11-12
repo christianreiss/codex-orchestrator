@@ -4,10 +4,10 @@ import { ENGINES, ENGINE_HOST_FIELDS, type Engine } from '../../../src/util/engi
 import { hostEngineReadiness } from '../../../src/services/host-engine-readiness.js';
 import type { VersionSnapshot } from '../../../src/services/version-snapshot.js';
 function host(overrides: Partial<Host> = {}): Host {
-  return { engines: 'codex,claude,grok', secure: 1,
-    clientVersion: '1.2.3', claudeClientVersion: '1.2.3', grokClientVersion: '1.2.3',
-    wrapperVersion: '0.9.40', claudeWrapperVersion: '0.9.40', grokWrapperVersion: '0.9.40',
-    authDigest: 'old-codex-auth', claudeAuthDigest: 'old-claude-auth', grokAuthDigest: 'old-grok-auth',
+  return { engines: 'codex,claude,grok,kimi', secure: 1,
+    clientVersion: '1.2.3', claudeClientVersion: '1.2.3', grokClientVersion: '1.2.3', kimiClientVersion: '1.2.3',
+    wrapperVersion: '0.9.40', claudeWrapperVersion: '0.9.40', grokWrapperVersion: '0.9.40', kimiWrapperVersion: '0.9.40',
+    authDigest: 'old-codex-auth', claudeAuthDigest: 'old-claude-auth', grokAuthDigest: 'old-grok-auth', kimiAuthDigest: 'old-kimi-auth',
     ...overrides } as Host;
 }
 function targets(overrides: Partial<VersionSnapshot> = {}): Record<Engine, VersionSnapshot> {
@@ -36,9 +36,10 @@ describe('per-engine host readiness', () => {
       }
     });
     it(`${engine}: host pin overrides fleet pin and compares installed rather than configured version`, () => {
-      const pinned = host({ [fields.clientVersionOverride]: '1.0.50', [fields.clientVersion]: 'v1.0.50' });
+      const pin = engine === 'kimi' ? '2.5.3' : '1.0.50';
+      const pinned = host({ [fields.clientVersionOverride]: pin, [fields.clientVersion]: `v${pin}` });
       expect(hostEngineReadiness(pinned, targets({ client_version_override: '1.1.0', client_version_enforce_exact: true }))[engine])
-        .toMatchObject({ state: 'ready', cli_target: '1.0.50', cli_version: 'v1.0.50' });
+        .toMatchObject({ state: 'ready', cli_target: pin, cli_version: `v${pin}` });
       expect(hostEngineReadiness({ ...pinned, [fields.clientVersion]: '1.2.3' }, targets())[engine].reasons).toContain('cli_outdated');
     });
     it(`${engine}: fleet suspension and missing assignment are gray`, () => {

@@ -1,3 +1,5 @@
+import { KIMI_MIN_CLIENT_VERSION } from './kimi-auth.js';
+export { KIMI_MIN_CLIENT_VERSION } from './kimi-auth.js';
 /**
  * Reads and writes engine client/wrapper version metadata from the `versions`
  * table. /admin/versions/check additionally queries the upstream release
@@ -80,7 +82,7 @@ export class ClientVersionsService {
       this.settings.getFlag(`client_version_enforce_exact${suffix}`, false),
     ]);
     return {
-      client_version: engine === 'grok'
+      client_version: engine === 'kimi' ? coerceKimiVersionToMinimum(lock.value ?? client ?? 'latest') : engine === 'grok'
         ? coerceGrokVersionToMinimum(lock.value ?? client ?? 'latest')
         : client,
       wrapper_version: wrapper,
@@ -92,7 +94,7 @@ export class ClientVersionsService {
   }
 
   async availableClientVersion(force = false, engine: Engine = 'codex'): Promise<AvailableRelease | null> {
-    const releaseName = engine === 'grok' ? 'grok-cli' : engine === 'claude' ? 'claude-cli' : 'codex-cli';
+    const releaseName = engine === 'kimi' ? 'kimi-cli' : engine === 'grok' ? 'grok-cli' : engine === 'claude' ? 'claude-cli' : 'codex-cli';
     const cacheKey = `github_release_${releaseName}`;
     const cached = await this.settings.getWithMeta(cacheKey);
     const cachedAgeSeconds =
@@ -136,6 +138,15 @@ export class ClientVersionsService {
   }
 
   private async fetchUpstream(name: string): Promise<AvailableRelease | null> {
+    if (name === 'kimi-cli') {
+      try {
+        const response = await fetch('https://code.kimi.com/kimi-code/latest', { redirect: 'follow', signal: AbortSignal.timeout(10000) });
+        if (!response.ok) return null;
+        const version = normalizeVersion((await response.text()).trim());
+        if (!version || !isSupportedKimiVersion(version)) return null;
+        return { name, version, url: `https://code.kimi.com/kimi-code/binaries/${version}/manifest.json`, published_at: null, fetched_at: nowIso(), cached: false };
+      } catch { return null; }
+    }
     // Claude Code ships on npm, not GitHub.
     if (name === 'claude-cli') return this.fetchNpm('@anthropic-ai/claude-code', name);
     if (name === 'grok-cli') return this.fetchNpm('@xai-official/grok', name);
@@ -253,6 +264,18 @@ export class ClientVersionsService {
     const meta = await this.settings.getWithMeta('client_version_lock_grok');
     return { locked_version: meta.value, locked_at: meta.updatedAt };
   }
+  async setKimiVersionLock(
+    value: string | null,
+  ): Promise<{ locked_version: string | null; locked_at: string | null }> {
+    if (value === null) {
+      await this.settings.delete('client_version_lock_kimi');
+    } else {
+      await this.settings.set('client_version_lock_kimi', value);
+    }
+    wsPublisher.publish('settings.changed', { key: 'client_version_lock_kimi' });
+    const meta = await this.settings.getWithMeta('client_version_lock_kimi');
+    return { locked_version: meta.value, locked_at: meta.updatedAt };
+  }
 }
 
 export function isSupportedGrokVersion(version: string): boolean {
@@ -298,4 +321,18 @@ export function normalizeVersion(s: string | null | undefined): string | null {
   const trimmed = String(s).trim();
   if (trimmed === '') return null;
   return trimmed.match(/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/)?.[0] ?? trimmed.replace(/^v/i, '');
+}
+
+export function isSupportedKimiVersion(version: string): boolean {
+  if (!isSemanticVersion(version)) return false;
+  const compared = comparableVersion(version);
+  const minimum = comparableVersion(KIMI_MIN_CLIENT_VERSION);
+  return compared > minimum || (compared === minimum && !version.split('+', 1)[0]!.includes('-'));
+}
+
+/** Resolve an older stored pin to the supported floor without rewriting its history. */
+export function coerceKimiVersionToMinimum(version: string): string {
+  return isSemanticVersion(version) && !isSupportedKimiVersion(version)
+    ? KIMI_MIN_CLIENT_VERSION
+    : version;
 }

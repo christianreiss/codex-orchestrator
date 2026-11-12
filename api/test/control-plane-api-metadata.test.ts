@@ -44,7 +44,7 @@ describe('owned API metadata', () => {
   it('serves empty installation defaults for all engines without SQL', async () => {
     const f = fixture();
     const versions = createVersionSnapshotService({ db: f.db, installationId: 'install' });
-    for (const engine of ['codex', 'claude', 'grok'] as const) {
+    for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
       expect((await versions.summary(engine)).engine).toBe(engine);
       expect(await makeOpenAiKillSwitch(f.db, `${engine}_api_disabled`).isDisabled()).toBe(false);
     }

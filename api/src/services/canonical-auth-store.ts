@@ -1,5 +1,5 @@
 import {persistAuditLog} from './audit-log.js';
-import { canonicalTransaction, canonicalContext, canonicalState, insertCanonicalPayload, patchCanonicalPayload, setOwnedGrokState } from '../control-plane/streams/canonical-state.js';
+import { canonicalTransaction, canonicalContext, canonicalState, insertCanonicalPayload, patchCanonicalPayload, setOwnedGrokState, setOwnedKimiState } from '../control-plane/streams/canonical-state.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
 import { wsPublisher } from '../ws/publisher.js';
@@ -14,6 +14,7 @@ import {
   hostAuthStates,
   hosts as hostsTable,
   grokAuthRefreshState,
+  kimiAuthRefreshState,
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Keyring } from '../security/keyring.js';
@@ -35,9 +36,11 @@ import type {
   NormalizedAuthEntry,
   RunnerValidationService,
 } from './runner-validation.js';
-import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_HOST_FIELDS } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, ENGINE_HOST_FIELDS } from '../util/engine.js';
 import { normalizeGrokAuth, projectGrokAuth, selectGrokCredential } from './grok-auth.js';
+import { normalizeKimiAuth, projectKimiAuth, selectKimiCredential } from './kimi-auth.js';
 import { withGrokAccountLock } from './grok-auth-lock.js';
+import { withKimiAccountLock } from './kimi-auth-lock.js';
 import { ProviderAccountsService } from './provider-accounts.js';
 import { createRunnerValidationService } from './runner-validation.js';
 import {
@@ -100,7 +103,7 @@ export interface StoreAuthCandidateInput {
   runnerFailureReason?: string;
   /** Internal CAS guard for runner-refreshed replacements. */
   expectedCanonicalDigest?: string;
-  sourceKind?: 'host' | 'admin' | 'seed' | 'runner' | 'legacy' | 'grok_refresh';
+  sourceKind?: 'host' | 'admin' | 'seed' | 'runner' | 'legacy' | 'grok_refresh' | 'kimi_refresh';
   baseCanonicalGeneration?: number | null;
 }
 
@@ -179,7 +182,9 @@ export interface CanonicalAuthStoreService {
   ensureServedVerification(input: EnsureServedVerificationInput): Promise<EnsureServedVerificationResult>;
   /** Internal owner-only ledger operations; no provider calls before the candidate is durable. */
   recordGrokRefreshCandidate(auth: Record<string, unknown>, base: CanonicalPayloadRow): Promise<CanonicalPayloadRow>;
+  recordKimiRefreshCandidate(auth: Record<string, unknown>, base: CanonicalPayloadRow): Promise<CanonicalPayloadRow>;
   promoteGrokRefreshCandidate(payloadId: number, base: CanonicalPayloadRow): Promise<boolean>;
+  promoteKimiRefreshCandidate(payloadId: number, base: CanonicalPayloadRow): Promise<boolean>;
 }
 
 export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ownerAccountId?: number, ownerSourceHostId?: number): CanonicalAuthStoreService {
@@ -226,6 +231,15 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
         return store.storeCandidate({ ...input, accountId: account.id, auth });
       }, Date.now() + 30_000);
     }
+    if (input.engine === ENGINE_KIMI && ownerAccountId === undefined) {
+      const auth = normalizeKimiAuth(input.auth, true);
+      const account = await new ProviderAccountsService(db, keyring).resolveCandidate(auth, ENGINE_KIMI, input.accountId, input.sourceHostId, input.accountHint, input.enrollAccount);
+      return withKimiAccountLock(db, account.id, async owner => {
+        const validation = createRunnerValidationService({ db: owner.db, keyring });
+        const store = createCanonicalAuthStoreService({ ...deps, db: owner.db, runnerValidation: validation }, account.id, input.sourceHostId ?? undefined);
+        return store.storeCandidate({ ...input, accountId: account.id, auth });
+      }, Date.now() + 30_000);
+    }
     return withEngineStoreLock(`${input.engine}:${input.accountId ?? 'legacy'}`, () => storeCandidateLocked(input));
   }
 
@@ -244,6 +258,26 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       const state = canonicalState(db) ? canonicalState(db)!.table('grokAuthRefreshState').get(accountId!) : (await db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, accountId!)))[0];
       if (state && state.state !== 'idle' && identity?.refresh === existing?.refresh) {
         throw new ConflictError('This Grok refresh credential is fenced; a distinct subscription login is required', 'grok_login_required');
+      }
+      // An explicit new login is a new lineage, even when its issue timestamp
+      // predates a just-completed server renewal. Historical-pair checks remain.
+      if (current && identity?.refresh !== existing?.refresh && compareRfc3339(String(input.auth.last_refresh), current.last_refresh)! <= 0) {
+        input = { ...input, auth: { ...input.auth, last_refresh: nextCanonicalStamp(current.last_refresh, true) } };
+      }
+    }
+    if (engine === ENGINE_KIMI) {
+      if (accountId !== ownerAccountId) throw new ConflictError('Kimi canonical store requires its account owner', 'kimi_owner_required');
+      input = { ...input, auth: normalizeKimiAuth(input.auth, true) };
+      const head = await runnerValidation.resolveCanonicalPayload(engine, accountId);
+      const current = runnerValidation.validateCanonicalPayload(head);
+      const identity = selectKimiCredential(input.auth);
+      const existing = current ? selectKimiCredential(current.auth) : null;
+      if (head && input.sourceHostId !== null && input.baseCanonicalGeneration !== head.generation && identity?.access !== existing?.access) {
+        throw new ConflictError('Kimi canonical generation changed; retrieve before retrying the login upload', 'kimi_generation_conflict', { account_id: accountId, canonical_generation: head.generation });
+      }
+      const state = canonicalState(db) ? canonicalState(db)!.table('kimiAuthRefreshState').get(accountId!) : (await db.select().from(kimiAuthRefreshState).where(eq(kimiAuthRefreshState.accountId, accountId!)))[0];
+      if (state && state.state !== 'idle' && identity?.refresh === existing?.refresh) {
+        throw new ConflictError('This Kimi refresh credential is fenced; a distinct subscription login is required', 'kimi_login_required');
       }
       // An explicit new login is a new lineage, even when its issue timestamp
       // predates a just-completed server renewal. Historical-pair checks remain.
@@ -355,7 +389,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     const isExplicitDescendant =
       sourceKind === 'runner' || input.runnerVerified || input.runnerPending || input.runnerFailed;
     if (
-      sourceKind === 'host' && engine !== ENGINE_GROK &&
+      sourceKind === 'host' && engine !== ENGINE_GROK && engine !== ENGINE_KIMI &&
       !isExplicitDescendant &&
       !quarantinedIdentityMatch &&
       currentIdentity &&
@@ -467,6 +501,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
         engine === ENGINE_CLAUDE
           ? await runner.verifyClaude({ authJson: canonical })
           : engine === ENGINE_GROK ? await (runner.verifyGrok?.({ authJson: projectGrokAuth(canonical) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
+          : engine === ENGINE_KIMI ? await (runner.verifyKimi?.({ authJson: projectKimiAuth(canonical) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
           : await runner.verify({ authJson: canonical });
       const readbackFailure = runnerReadbackFailure(verdict);
       const applied = prepareRunnerUpdatedAuth(
@@ -705,7 +740,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     }
     const result: StoreAuthCandidateResult = {
       status: promotesCanonical ? 'updated' : 'outdated',
-      ...(promotesCanonical ? { auth: engine === ENGINE_GROK ? projectGrokAuth(canonicalToStore) : canonicalToStore } : {}),
+      ...(promotesCanonical ? { auth: engine === ENGINE_GROK ? projectGrokAuth(canonicalToStore) : engine === ENGINE_KIMI ? projectKimiAuth(canonicalToStore) : canonicalToStore } : {}),
       canonical_last_refresh: finalLastRefresh,
       canonical_digest: digestToStore,
       verification_state: verificationState,
@@ -719,6 +754,9 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     };
     if (engine === ENGINE_GROK && promotesCanonical) {
       await setOwnedGrokState(db,accountId!,{ state: 'idle', attemptId: null, basePayloadId: null, baseGeneration: null, pendingPayloadId: null, responseEnc: null, nextAttemptAt: null, errorCode: null, updatedAt: now });
+    }
+    if (engine === ENGINE_KIMI && promotesCanonical) {
+      await setOwnedKimiState(db,accountId!,{ state: 'idle', attemptId: null, basePayloadId: null, baseGeneration: null, pendingPayloadId: null, responseEnc: null, nextAttemptAt: null, errorCode: null, updatedAt: now });
     }
     if (postPersistError) throw postPersistError;
     return result;
@@ -870,7 +908,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     const { row, auth, digest, lastRefresh } = input;
     const unchanged: EnsureServedVerificationResult = {
       state: 'unknown',
-      auth: input.engine === ENGINE_GROK ? projectGrokAuth(auth) : auth,
+      auth: input.engine === ENGINE_GROK ? projectGrokAuth(auth) : input.engine === ENGINE_KIMI ? projectKimiAuth(auth) : auth,
       digest,
       lastRefresh,
       refreshed: false,
@@ -898,6 +936,14 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
         return createCanonicalAuthStoreService({ ...deps, db: owner.db, runnerValidation: validation }, payload.accountId!).ensureServedVerification(input);
       }, Date.now() + 30_000);
     }
+    if (input.engine === ENGINE_KIMI && ownerAccountId === undefined) {
+      const payload = (await db.select().from(authPayloads).where(eq(authPayloads.id, input.row.id)))[0];
+      if (!payload?.accountId) return { state: 'unknown', auth: projectKimiAuth(input.auth), digest: input.digest, lastRefresh: input.lastRefresh, refreshed: false };
+      return withKimiAccountLock(db, payload.accountId, async owner => {
+        const validation = createRunnerValidationService({ db: owner.db, keyring });
+        return createCanonicalAuthStoreService({ ...deps, db: owner.db, runnerValidation: validation }, payload.accountId!).ensureServedVerification(input);
+      }, Date.now() + 30_000);
+    }
     const {
       engine,
       hostId,
@@ -911,7 +957,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     } = input;
     const unchanged: EnsureServedVerificationResult = {
       state: 'unknown',
-      auth: engine === ENGINE_GROK ? projectGrokAuth(auth) : auth,
+      auth: engine === ENGINE_GROK ? projectGrokAuth(auth) : engine === ENGINE_KIMI ? projectKimiAuth(auth) : auth,
       digest,
       lastRefresh,
       refreshed: false,
@@ -1000,6 +1046,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
         engine === ENGINE_CLAUDE
           ? await runner.verifyClaude({ authJson: auth })
           : engine === ENGINE_GROK ? await (runner.verifyGrok?.({ authJson: projectGrokAuth(auth) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
+          : engine === ENGINE_KIMI ? await (runner.verifyKimi?.({ authJson: projectKimiAuth(auth) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
           : await runner.verify({ authJson: auth });
 
       probeInfo = {
@@ -1212,7 +1259,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     });
 
     const probe = attempt.then((result) => {
-      const served = engine === ENGINE_GROK ? { ...result, auth: projectGrokAuth(result.auth) } : result;
+      const served = engine === ENGINE_GROK ? { ...result, auth: projectGrokAuth(result.auth) } : engine === ENGINE_KIMI ? { ...result, auth: projectKimiAuth(result.auth) } : result;
       return probeInfo ? { ...served, probe: probeInfo } : served;
     });
 
@@ -1380,7 +1427,33 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
     return promotePendingQuarantine(payloadId, ENGINE_GROK, base, nowIso(), base.accountId);
   }
 
-  return { storeCandidate, servedVerificationSnapshot, ensureServedVerification, recordGrokRefreshCandidate, promoteGrokRefreshCandidate };
+  async function recordKimiRefreshCandidate(auth: Record<string, unknown>, base: CanonicalPayloadRow): Promise<CanonicalPayloadRow> {
+    if (!base.accountId || ownerAccountId !== base.accountId) throw new ConflictError('Kimi refresh requires its account owner', 'kimi_owner_required');
+    const canonical = normalizeKimiAuth(auth, true);
+    const encoded = JSON.stringify(canonical);
+    const entries = runnerValidation.normalizeAuthEntries(canonical, ENGINE_KIMI);
+    const identity = inspectCredential(canonical, ENGINE_KIMI)!;
+    const now = nowIso();
+    let payloadId = 0;
+    await canonicalTransaction(db, 'auth.kimi.candidate', async tx => {
+      await lockAccount(tx, ENGINE_KIMI, base.accountId!);
+      const heads = await readHeads(tx, ENGINE_KIMI, base.accountId!);
+      if (heads[0]?.payloadId !== base.id || heads[0]?.generation !== base.generation) throw new ConflictError('Kimi generation changed during refresh', 'kimi_generation_conflict');
+      const history = canonicalState(db)?.table('authPayloads').all().filter(row=>row.accountId===base.accountId) ?? await tx.select().from(authPayloads).where(eq(authPayloads.accountId, base.accountId!));
+      const generation = Math.max(base.generation ?? 0, ...history.map(row => row.generation ?? 0)) + 1;
+      payloadId = await insertCanonicalPayload(tx, { accountId: base.accountId, engine: ENGINE_KIMI, lastRefresh: String(canonical.last_refresh), sha256: runnerValidation.calculateDigest(encoded), body: encrypt(encoded, keyring), sourceHostId: null, createdAt: now, generation, parentPayloadId: base.id, sourceKind: 'kimi_refresh', verificationState: 'pending', ...credentialMetadata(identity, keyring.active()) }, keyring);
+      await persistEntries(tx, payloadId, entries, now);
+      await persistAuditLog(tx, { action: 'kimi.auth.refresh.candidate', engine: ENGINE_KIMI, details: JSON.stringify({ account_id: base.accountId, payload_id: payloadId, base_generation: base.generation, generation }), createdAt: now });
+    });
+    return (await db.select().from(authPayloads).where(eq(authPayloads.id, payloadId)))[0]!;
+  }
+
+  async function promoteKimiRefreshCandidate(payloadId: number, base: CanonicalPayloadRow): Promise<boolean> {
+    if (!base.accountId || ownerAccountId !== base.accountId) throw new ConflictError('Kimi refresh requires its account owner', 'kimi_owner_required');
+    return promotePendingQuarantine(payloadId, ENGINE_KIMI, base, nowIso(), base.accountId);
+  }
+
+  return { storeCandidate, servedVerificationSnapshot, ensureServedVerification, recordGrokRefreshCandidate, promoteGrokRefreshCandidate, recordKimiRefreshCandidate, promoteKimiRefreshCandidate };
 }
 
 export async function touchHostAuthFields(
@@ -1507,7 +1580,7 @@ function projectNativeOauthBearer(
   engine: Engine,
 ): Record<string, unknown> {
   if (identity.kind === 'api_key') return auth;
-  const target = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : engine === ENGINE_GROK ? 'cli-chat-proxy.grok.com' : 'api.openai.com';
+  const target = engine === ENGINE_CLAUDE ? 'api.anthropic.com' : engine === ENGINE_GROK ? 'cli-chat-proxy.grok.com' : engine === ENGINE_KIMI ? 'api.kimi.com' : 'api.openai.com';
   const rawAuths = isObjectRecord(auth.auths) ? auth.auths : {};
   const rawNativeEntry = isObjectRecord(rawAuths[target]) ? rawAuths[target] : {};
   return {

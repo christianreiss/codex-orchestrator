@@ -463,7 +463,7 @@ export async function hydrateOwnerState(
   const settings = seed.versions ?? [];
   const actorKeys = new Set(settings.map((row) => String((row as { name: string }).name)));
   const missingActors = new Set(
-    ['codex', 'claude', 'grok'].filter((engine) => !actorKeys.has(`owner_engine_actor_${engine}`)),
+    ['codex', 'claude', 'grok', 'kimi'].filter((engine) => !actorKeys.has(`owner_engine_actor_${engine}`)),
   );
   if (missingActors.size) {
     const audit = await transaction

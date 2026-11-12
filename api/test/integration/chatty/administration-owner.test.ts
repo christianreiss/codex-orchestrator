@@ -288,7 +288,7 @@ describe.skipIf(!config)('Chatty administration owner on real MySQL', () => {
           short_auto_resume: false,
           long_auto_resume: false,
         };
-        for (const engine of ['codex', 'claude', 'grok']) {
+        for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
           await execute('quota_policy_update', { engine, policy: quotaPolicy });
           expect(
             JSON.parse(

@@ -422,3 +422,15 @@ describe('securityLevelEnforcement', () => {
     expect(AXES.find((a) => a.id === 'verification_waiver')?.enforcement).toBe('prose_only');
   });
 });
+
+
+describe('Kimi permission projection', () => {
+  it('maps the approval posture to manual, yolo and auto without claiming a sandbox', () => {
+    for (const [level, mode] of [[0, 'manual'], [1, 'manual'], [2, 'manual'], [3, 'yolo'], [4, 'auto']] as const) {
+      const levels = Object.fromEntries(Object.keys(DEFAULT_SECURITY_LEVELS).map(key => [key, level])) as typeof DEFAULT_SECURITY_LEVELS;
+      const derived = securityLevelEnforcement(levels);
+      expect(derived.kimi.permission_mode).toMatchObject({ value: mode });
+      expect(derived.kimi).not.toHaveProperty('sandbox_mode');
+    }
+  });
+});

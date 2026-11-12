@@ -177,7 +177,7 @@ export async function registerConnectorRoutes(app: FastifyInstance, ctx: RouteCo
       .enum(providers)
       .parse(
         (req.query as { provider?: string }).provider ??
-          (label.includes('claude') ? 'claude' : label.includes('grok') ? 'grok' : 'chatgpt'),
+          (label.includes('claude') ? 'claude' : label.includes('grok') ? 'grok' : label.includes('kimi') ? 'kimi' : 'chatgpt'),
       );
     const c = await oauth.register(req.body, provider);
     await audit('client_registered', { client_id: c.id, provider });

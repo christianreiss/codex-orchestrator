@@ -5,8 +5,8 @@ import { normalizeSettings } from '../../../src/services/config-normalizer.js';
 import { renderTomlForHost } from '../../../src/services/client-config.js';
 
 describe('independent caller capability downgrade', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('%s never borrows a newer stored version for a malformed or old caller', engine => {
-    const host = Object.freeze({ id: 42, engines: 'codex,claude,grok', status: 'active', secure: 1,
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s never borrows a newer stored version for a malformed or old caller', engine => {
+    const host = Object.freeze({ id: 42, engines: 'codex,claude,grok,kimi', status: 'active', secure: 1,
       apiKey: 'fixture-key', wrapperVersion: '0.9.79', claudeWrapperVersion: '0.9.79', grokWrapperVersion: '0.9.79' }) as Host;
     for (const version of ['0.9.70', '', 'dev', '2025.11.03', 'bad,0.9.79', 'x'.repeat(129), ['0.9.79', '0.9.70']]) {
       const caller = hostWithCallerWrapper(host, engine, version);

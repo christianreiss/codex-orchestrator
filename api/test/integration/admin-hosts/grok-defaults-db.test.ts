@@ -69,7 +69,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
       if (operation === 'register') {
         host = tracked((await management.register({ fqdn, secure: true, engines: ['grok'] })).host);
       } else if (operation === 'quick-register') {
-        host = tracked((await management.quickRegister({ engines: ['codex', 'claude', 'grok'] })).host);
+        host = tracked((await management.quickRegister({ engines: ['codex', 'claude', 'grok', 'kimi'] })).host);
       } else if (operation === 'engine-switch' || operation === 'installer-add') {
         const current = tracked((await management.register({ fqdn, secure: true, engines: ['codex'] })).host);
         expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });

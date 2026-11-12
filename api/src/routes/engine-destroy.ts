@@ -18,7 +18,7 @@ export async function registerEngineDestroyRoutes(app: FastifyInstance, ctx: Rou
   app.post('/host/engine-destroy/report', async (req) => {
     const host = await auth.authenticate(req);
     const body = (req.body ?? {}) as { engine?: unknown; request_id?: unknown; status?: unknown; residue?: unknown };
-    if (!isEngine(body.engine)) throw new ValidationError('engine must be codex, claude or grok', { param: 'engine' });
+    if (!isEngine(body.engine)) throw new ValidationError('engine must be codex, claude, grok or kimi', { param: 'engine' });
     if (typeof body.request_id !== 'string' || !/^[0-9a-f-]{36}$/.test(body.request_id)) {
       throw new ValidationError('request_id must be a UUID', { param: 'request_id' });
     }

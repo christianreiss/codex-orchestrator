@@ -614,7 +614,7 @@ describe.skipIf(!handle)('git director against a real database', () => {
       await exec(`DELETE FROM agent_bus_addresses WHERE id = '${ids.addressId}'`);
     };
 
-    it.each(['codex', 'claude', 'grok'])('binds a unique live %s caller without a username and reclaims it on exit', async (engine) => {
+    it.each(['codex', 'claude', 'grok', 'kimi'])('binds a unique live %s caller without a username and reclaims it on exit', async (engine) => {
       const ids = await bindLiveSession(isoSeconds(new Date()), engine, 'chris', false);
       try {
         await register(MAIN_WT, { engine, username: undefined });

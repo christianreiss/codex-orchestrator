@@ -27,7 +27,7 @@ describe('/admin/api/surfaces', () => {
       { surface: 'anthropic', label: 'Anthropic-compatible', base_path: '/anthropic/v1', wire: 'anthropic', backend: 'claude', identity_backend: 'claude', disabled: false, key_count: 1 },
       { surface: 'grok', label: 'Grok (OpenAI-compatible)', base_path: '/grok/v1', wire: 'openai', backend: 'grok', identity_backend: 'grok', disabled: false, key_count: 0 },
     ]);
-    expect(body.backends.map((b: { engine: string }) => b.engine)).toEqual(['codex', 'claude', 'grok']);
+    expect(body.backends.map((b: { engine: string }) => b.engine)).toEqual(['codex', 'claude', 'grok', 'kimi']);
     await app.close();
   });
 

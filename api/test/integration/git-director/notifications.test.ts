@@ -51,7 +51,7 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
       apiKey: randomBytes(32).toString('hex'),
       status: 'active',
       secure: 1,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       createdAt: stamp,
       updatedAt: stamp,
     });
@@ -75,7 +75,7 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
   });
 
   async function peer(
-    engine: 'codex' | 'claude' | 'grok' = 'codex',
+    engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'codex',
     common = `${root}/.git`,
     remote = `ssh://git@example.test/${suffix}.git`,
   ) {
@@ -154,7 +154,7 @@ describe.skipIf(!handle)('Git Director transactional agent notifications', () =>
     );
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'keeps scope rechecks for exactly bound current %s waiters',
     async (engine) => {
       const common = `${root}/scope-wait-${engine}/.git`;

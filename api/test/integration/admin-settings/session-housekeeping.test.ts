@@ -18,7 +18,7 @@ describe('session housekeeping', () => {
   it('defaults equally across all engines and resolves/reset host overrides', async () => {
     const { app, db } = await build();
     const fleet = (await app.inject({ method: 'GET', url: '/admin/session-housekeeping' })).json();
-    for (const engine of ['codex', 'claude', 'grok']) expect(fleet[engine]).toMatchObject({ ...rule, source: 'fleet' });
+    for (const engine of ['codex', 'claude', 'grok', 'kimi']) expect(fleet[engine]).toMatchObject({ ...rule, source: 'fleet' });
     const set = await app.inject({ method: 'POST', url: '/admin/hosts/32/session-housekeeping/grok', payload: { ...rule, retention_days: 60 } });
     expect(set.statusCode).toBe(200);
     expect(set.json()).toMatchObject({ retention_days: 60, source: 'host' });

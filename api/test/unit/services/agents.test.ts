@@ -238,10 +238,10 @@ describe('agents served-version resolution', () => {
     expect(stateRows(db)[0]).toMatchObject({ id: 1, mode: 'latest', activeDocumentId: null });
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('heals a historical %s lock pointing at another engine', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('heals a historical %s lock pointing at another engine', async (engine) => {
     const db = makeDb();
     const foreign = engine === 'codex' ? 'claude' : 'codex';
-    const stateId = { codex: 1, claude: 2, grok: 3 }[engine];
+    const stateId = { codex: 1, claude: 2, grok: 3, kimi: 4 }[engine];
     seedDocs(db, [{ id: 1, body: 'own policy', engine }, { id: 2, body: 'foreign policy', engine: foreign }]);
     seedState(db, [{ id: stateId, mode: 'locked', activeDocumentId: 2, engine }]);
 
@@ -318,7 +318,7 @@ describe('agents store', () => {
     // in the engine field wrote the document against the wrong engine's fleet
     // policy and reported success.
     await expect(svc.store('beta', null, null, 'gemini')).rejects.toThrow(
-      /engine must be "codex", "claude" or "grok"/,
+      /engine must be "codex", "claude", "grok" or "kimi"/,
     );
     expect((db.tables.get(agentsDocuments) ?? []).length).toBe(1);
 
@@ -370,10 +370,10 @@ describe('agents store', () => {
 });
 
 describe('agents serve mode', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('refuses a foreign document in a %s lock without changing state', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('refuses a foreign document in a %s lock without changing state', async (engine) => {
     const db = makeDb();
     const foreign = engine === 'codex' ? 'claude' : 'codex';
-    const stateId = { codex: 1, claude: 2, grok: 3 }[engine];
+    const stateId = { codex: 1, claude: 2, grok: 3, kimi: 4 }[engine];
     seedDocs(db, [{ id: 1, body: 'own policy', engine }, { id: 2, body: 'foreign policy', engine: foreign }]);
     seedState(db, [{ id: stateId, mode: 'latest', activeDocumentId: null, engine }]);
     const svc = makeService(db);

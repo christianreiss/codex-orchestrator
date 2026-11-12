@@ -15,7 +15,7 @@ export const stateScopeSchema = z
       .string()
       .regex(/^[a-f0-9]{32}$/)
       .optional(),
-    engine: z.enum(['codex', 'claude', 'grok']).optional(),
+    engine: z.enum(['codex', 'claude', 'grok', 'kimi']).optional(),
   })
   .strict();
 export const stateFrameSchema = z

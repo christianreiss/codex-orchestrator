@@ -26,6 +26,8 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   authCanonicalHeads,
+  kimiAuthRefreshState,
+  kimiUsageSnapshots,
   authEntries,
   authPayloads,
   authSeedTokens,
@@ -48,7 +50,7 @@ import { readFleetEngineState } from './engine-switch.js';
 export const ENGINE_DESTROY_FLAGS: Readonly<Record<Engine, string>> = Object.freeze({
   codex: 'codex_engine_destroy',
   claude: 'claude_engine_destroy',
-  grok: 'grok_engine_destroy',
+  grok: 'grok_engine_destroy', kimi: 'kimi_engine_destroy',
 });
 export const ENGINE_DESTROY_AUDIT_ACTION = 'admin.engine.destroy';
 export const DESTROY_STATUSES = ['running', 'done', 'failed'] as const;
@@ -304,6 +306,7 @@ export async function purgeEngineServerData(
     await tx.delete(authPayloads).where(eq(authPayloads.engine, engine));
     const accounts = await tx.select({ id: providerAccounts.id }).from(providerAccounts).where(eq(providerAccounts.engine, engine));
     await tx.delete(providerAccountSessions).where(eq(providerAccountSessions.engine, engine));
+    if (engine === 'kimi') for (const account of accounts) { await tx.delete(kimiAuthRefreshState).where(eq(kimiAuthRefreshState.accountId, account.id)); await tx.delete(kimiUsageSnapshots).where(eq(kimiUsageSnapshots.accountId, account.id)); }
     await tx.delete(providerAccounts).where(eq(providerAccounts.engine, engine));
     await tx.delete(authSeedTokens).where(eq(authSeedTokens.engine, engine));
     await tx.delete(hostAuthDigests).where(eq(hostAuthDigests.engine, engine));

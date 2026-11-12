@@ -407,6 +407,7 @@ export async function loadRolloutHosts(db: Database): Promise<RolloutHost[]> {
       wrapperVersion: hostsTable.wrapperVersion,
       claudeWrapperVersion: hostsTable.claudeWrapperVersion,
       grokWrapperVersion: hostsTable.grokWrapperVersion,
+      kimiWrapperVersion: hostsTable.kimiWrapperVersion,
     })
     .from(hostsTable);
   return rows.map((r) => ({
@@ -422,8 +423,9 @@ export function hostRunningWrapperVersion(host: {
   wrapperVersion?: string | null;
   claudeWrapperVersion?: string | null;
   grokWrapperVersion?: string | null;
+  kimiWrapperVersion?: string | null;
 }): string | null {
-  return highestVersion([host.wrapperVersion, host.claudeWrapperVersion, host.grokWrapperVersion]);
+  return highestVersion([host.wrapperVersion, host.claudeWrapperVersion, host.grokWrapperVersion, host.kimiWrapperVersion]);
 }
 
 function pushHistory(state: WrapperRolloutState, event: string, by: string, detail?: string): void {

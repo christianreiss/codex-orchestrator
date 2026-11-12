@@ -17,7 +17,7 @@ export class FeedbackConfiguration {
     const [raw, mode, token] = await Promise.all([
       this.settings.getRaw(FEEDBACK_CONFIG_KEY), this.settings.getRaw(FEEDBACK_MODE_KEY), this.settings.getRaw(FEEDBACK_TOKEN_KEY),
     ]);
-    const data = raw ? JSON.parse(raw) as { revision: string; auto_publish: boolean; runner_enabled: boolean; engine: 'codex' | 'claude' | 'grok' | null; model: string | null } : {
+    const data = raw ? JSON.parse(raw) as { revision: string; auto_publish: boolean; runner_enabled: boolean; engine: 'codex' | 'claude' | 'grok' | 'kimi' | null; model: string | null } : {
       revision: 'initial', auto_publish: false, runner_enabled: false, engine: null, model: null,
     };
     return { ...configSchema.parse({ mode: mode === 'user' ? 'user' : 'source_developer', auto_publish: data.auto_publish,

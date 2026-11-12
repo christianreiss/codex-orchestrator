@@ -216,7 +216,7 @@ describe('Claude usage in authentication and startup responses', () => {
 
   it('uses engine-correct alternative account IDs for Grok quota advice', async () => {
     const db = seedDb(null);
-    db.tables.get(hosts)![0]!.engines = 'codex,claude,grok';
+    db.tables.get(hosts)![0]!.engines = 'codex,claude,grok,kimi';
     db.tables.set(providerAccounts, [
       // The lightweight fake flattens joined columns onto the base row.
       { id: 2, engine: 'codex', state: 'enabled', payloadId: 11, verificationState: 'verified' },

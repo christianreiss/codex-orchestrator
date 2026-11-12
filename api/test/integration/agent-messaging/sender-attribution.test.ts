@@ -21,7 +21,7 @@ describe.skipIf(!handle)('message sender attribution', () => {
   beforeAll(async () => {
     const db = handle!.db, now = new Date().toISOString();
     const fqdn = `attribution-${randomUUID()}.test`;
-    await db.insert(hosts).values({ fqdn, apiKey: 'a'.repeat(64), engines: 'codex,claude,grok', status: 'active', secure: 1, createdAt: now, updatedAt: now });
+    await db.insert(hosts).values({ fqdn, apiKey: 'a'.repeat(64), engines: 'codex,claude,grok,kimi', status: 'active', secure: 1, createdAt: now, updatedAt: now });
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!;
     await db.execute(sql`INSERT INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','1',${now}) ON DUPLICATE KEY UPDATE version=VALUES(version)`);
     service = new AgentMessagingService(db, loadTestEnv(), testKeyring());

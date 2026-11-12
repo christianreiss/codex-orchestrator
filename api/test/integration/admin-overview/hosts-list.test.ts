@@ -26,7 +26,7 @@ describe('GET /admin/hosts', () => {
       ['wrapper_version', '0.9.40'],
     ]) mock.insertRow('versions', { name, version });
     for (const secure of [0, 1]) mock.insertRow('hosts', {
-      id: secure + 1, fqdn: `secure-${secure}.test`, engines: 'codex,claude,grok', secure,
+      id: secure + 1, fqdn: `secure-${secure}.test`, engines: 'codex,claude,grok,kimi', secure,
       client_version: '1.2.3', claude_client_version: '1.0.0', grok_client_version: '1.1.0',
       grok_client_version_override: '1.1.0', wrapper_version: '0.9.40',
       claude_wrapper_version: '0.9.40', grok_wrapper_version: '0.9.40',

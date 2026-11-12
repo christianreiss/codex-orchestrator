@@ -3,7 +3,7 @@ import type { Keyring } from '../../security/keyring.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
-import { authPayloads, grokAuthRefreshState } from '../../db/schema.js';
+import { authPayloads, grokAuthRefreshState, kimiAuthRefreshState } from '../../db/schema.js';
 import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../state/runtime.js';
 import { stageUpdate } from '../state/rows.js';
 import { ConflictError } from '../../http/errors.js';
@@ -210,6 +210,120 @@ export async function setOwnedGrokState(
         };
         c.draft.upsert('grokAuthRefreshState', row);
         c.write((tx) => tx.insert(grokAuthRefreshState).values(row));
+      }
+      return null;
+    },
+  });
+}
+
+type KimiRefreshPatch = Partial<typeof kimiAuthRefreshState.$inferSelect>;
+type KimiRefreshProof = Pick<
+  typeof kimiAuthRefreshState.$inferSelect,
+  'state' | 'attemptId' | 'basePayloadId' | 'baseGeneration'
+>;
+function assertKimiResponseAttempt(prior: KimiRefreshProof | undefined, patch: KimiRefreshPatch): void {
+  if (
+    !prior ||
+    prior.state !== 'refreshing' ||
+    !patch.attemptId ||
+    patch.basePayloadId == null ||
+    patch.baseGeneration == null ||
+    prior.attemptId !== patch.attemptId ||
+    prior.basePayloadId !== patch.basePayloadId ||
+    prior.baseGeneration !== patch.baseGeneration
+  )
+    throw new ConflictError(
+      'Kimi refresh attempt changed before response capture',
+      'kimi_generation_conflict',
+    );
+}
+/** A response is write-once evidence of this exact spend, not permission to
+ * advance a head. Never overwrite another attempt or previously captured bytes. */
+async function persistKimiResponse(tx: Pick<Database, 'update'>, accountId: number, patch: KimiRefreshPatch) {
+  const [result] = await tx
+    .update(kimiAuthRefreshState)
+    .set({
+      responseEnc: patch.responseEnc,
+      updatedAt: patch.updatedAt ?? new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(kimiAuthRefreshState.accountId, accountId),
+        eq(kimiAuthRefreshState.state, 'refreshing'),
+        eq(kimiAuthRefreshState.attemptId, patch.attemptId!),
+        eq(kimiAuthRefreshState.basePayloadId, patch.basePayloadId!),
+        eq(kimiAuthRefreshState.baseGeneration, patch.baseGeneration!),
+        isNull(kimiAuthRefreshState.responseEnc),
+      ),
+    );
+  if (result.affectedRows !== 1)
+    throw new ConflictError(
+      'Kimi refresh attempt changed or response is already captured',
+      'kimi_generation_conflict',
+    );
+}
+
+export async function setOwnedKimiState(
+  db: Database,
+  accountId: number,
+  patch: Partial<typeof kimiAuthRefreshState.$inferSelect>,
+) {
+  const owner = ownerRuntimeFor(db);
+  if (patch.accountId !== undefined && patch.accountId !== accountId)
+    throw new ConflictError('Kimi refresh account changed', 'kimi_generation_conflict');
+  const capture = patch.state === 'refreshing' && typeof patch.responseEnc === 'string';
+  if (!owner) {
+    if (capture) {
+      const [prior] = await db.select().from(kimiAuthRefreshState).where(eq(kimiAuthRefreshState.accountId, accountId));
+      assertKimiResponseAttempt(prior, patch);
+      await persistKimiResponse(db, accountId, patch);
+      return;
+    }
+    await db
+      .insert(kimiAuthRefreshState)
+      .values({ accountId, state: 'idle', updatedAt: new Date().toISOString(), ...patch })
+      .onDuplicateKeyUpdate({ set: patch });
+    return;
+  }
+  await mutateOwnerState(owner, {
+    kind: 'auth.kimi.refresh-state',
+    payload: { accountId, state: patch.state ?? null, attemptId: patch.attemptId ?? null },
+    prepare(c) {
+      const account = c.snapshot.table('providerAccounts').get(accountId);
+      if (!account || account.engine !== 'kimi' || account.state === 'removed' || account.mergedIntoAccountId)
+        throw new ConflictError('Kimi account changed', 'kimi_generation_conflict');
+      const prior = c.snapshot.table('kimiAuthRefreshState').get(accountId);
+      if (capture) {
+        // Rotation already happened. Persist its known response against the
+        // original attempt even if the canonical head advanced in the meantime.
+        assertKimiResponseAttempt(prior, patch);
+        c.draft.upsert('kimiAuthRefreshState', { ...prior!, updatedAt: patch.updatedAt ?? new Date().toISOString() });
+        c.write(tx => persistKimiResponse(tx, accountId, patch));
+        return null;
+      }
+      if (
+        patch.state === 'refreshing' &&
+        (account.payloadId !== patch.basePayloadId || account.generation !== patch.baseGeneration)
+      )
+        throw new ConflictError('Kimi canonical changed before refresh', 'kimi_generation_conflict');
+      if (prior) stageUpdate(c, 'kimiAuthRefreshState', accountId, patch);
+      else {
+        const row = {
+          accountId,
+          state: 'idle',
+          attemptId: null,
+          basePayloadId: null,
+          baseGeneration: null,
+          pendingPayloadId: null,
+          responseEnc: null,
+          nextAttemptAt: null,
+          errorCode: null,
+          startedAt: null,
+          updatedAt: new Date().toISOString(),
+          ...patch,
+        };
+        c.draft.upsert('kimiAuthRefreshState', row);
+        c.write((tx) => tx.insert(kimiAuthRefreshState).values(row));
       }
       return null;
     },

@@ -15,7 +15,7 @@ import {
 } from '../../../src/services/host-engine-policy.js';
 
 const ALL = ALL_ENGINES_ENABLED;
-const CLAUDE_OFF: FleetEngineState = { codex: true, claude: false, grok: true };
+const CLAUDE_OFF: FleetEngineState = { codex: true, claude: false, grok: true, kimi: true };
 
 const hostWith = (engines: unknown): Host => ({ id: 1, fqdn: 'host.example', engines }) as unknown as Host;
 
@@ -121,7 +121,7 @@ describe('fleet engine switch', () => {
 
   it('lists disabled and enabled engines in canonical order', () => {
     expect(disabledEngines(CLAUDE_OFF)).toEqual(['claude']);
-    expect(enabledEngines(CLAUDE_OFF)).toEqual(['codex', 'grok']);
+    expect(enabledEngines(CLAUDE_OFF)).toEqual(['codex', 'grok', 'kimi']);
     expect(disabledEngines(ALL)).toEqual([]);
   });
 

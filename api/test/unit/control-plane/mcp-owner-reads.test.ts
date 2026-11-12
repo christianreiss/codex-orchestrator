@@ -47,7 +47,7 @@ function fixture(
         fqdn: 'fixture',
         status: 'active',
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         apiKey: 'fixture-host',
         expiresAt: null,
         insecureEnabledUntil: null,
@@ -135,7 +135,7 @@ function fixture(
 }
 
 describe('native MCP owner reads', () => {
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'translates %s names and UUIDs without any SQL or writer',
     async (engine) => {
       const f = fixture(engine);
@@ -176,7 +176,7 @@ describe('native MCP owner reads', () => {
     }
   });
 
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'reads %s workflow memberships through the real owner-aware route without SQL',
     async (engine) => {
       const f = fixture(engine);

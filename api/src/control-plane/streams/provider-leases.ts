@@ -6,6 +6,7 @@ import {
   authPayloads,
   authEntries,
   grokAuthRefreshState,
+  kimiAuthRefreshState,
 } from '../../db/schema.js';
 import type { OwnerRuntime } from '../state/runtime.js';
 import { mutateOwnerState } from '../state/runtime.js';
@@ -53,7 +54,10 @@ function score(s: OwnerStateSnapshot, engine: Engine, id: number) {
   const now = Date.now();
   if (engine === 'grok') return null; // Grok usage is display-only, as in existing selection.
   let values: Array<number | null>;
-  if (engine === 'claude') {
+  if (engine === 'kimi') {
+    const r = s.table('kimiUsageSnapshots').get(id);
+    values = r?.errorCode ? [] : [quotaWindowScore(r?.fiveHourUsedPercent ?? null, r?.fiveHourResetsAt ?? null, now), quotaWindowScore(r?.weeklyUsedPercent ?? null, r?.weeklyResetsAt ?? null, now)];
+  } else if (engine === 'claude') {
     const r = [...s.table('claudeUsageSnapshots').by('accountId', id)].sort((a, b) => b.id - a.id)[0];
     values = [
       quotaWindowScore(r?.fiveHourUsedPercent ?? null, r?.fiveHourResetsAt ?? null, now),
@@ -230,6 +234,7 @@ export async function drainOwnedProviders(owner: OwnerRuntime) {
           updatedAt: new Date().toISOString(),
         });
         if (a.engine === 'grok') draft.remove('grokAuthRefreshState', a.id);
+        if (a.engine === 'kimi') draft.remove('kimiAuthRefreshState', a.id);
         write(async (tx) => {
           if (payloads.length)
             await tx.delete(authEntries).where(
@@ -246,6 +251,7 @@ export async function drainOwnedProviders(owner: OwnerRuntime) {
             .update(providerAccounts)
             .set({ state: 'removed', payloadId: null, updatedAt: new Date().toISOString() })
             .where(eq(providerAccounts.id, a.id));
+          if (a.engine === 'kimi') await tx.delete(kimiAuthRefreshState).where(eq(kimiAuthRefreshState.accountId, a.id));
           if (a.engine === 'grok')
             await tx.delete(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id));
         });

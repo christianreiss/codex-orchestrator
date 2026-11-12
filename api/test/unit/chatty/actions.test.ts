@@ -31,7 +31,7 @@ const baseHost: ActionHost = {
   autoUpdateOverride: null,
 };
 const lookups = (
-  overrides: { host?: Partial<ActionHost> | null; fleet?: Partial<Record<'codex' | 'claude' | 'grok', boolean>>; window?: boolean; account?: ActionLookups['account'] } = {},
+  overrides: { host?: Partial<ActionHost> | null; fleet?: Partial<Record<'codex' | 'claude' | 'grok' | 'kimi', boolean>>; window?: boolean; account?: ActionLookups['account'] } = {},
 ): ActionLookups => ({
   host: async (ref) =>
     overrides.host === null
@@ -44,7 +44,7 @@ const lookups = (
   account:
     overrides.account ??
     (async (id) => (id === 3 ? { id: 3, label: 'Claude Team', engine: 'claude', state: 'enabled' } : null)),
-  fleetEngines: async () => ({ codex: true, claude: true, grok: true, ...overrides.fleet }),
+  fleetEngines: async () => ({ codex: true, claude: true, grok: true, kimi: true, ...overrides.fleet }),
   fleetInsecureWindowOpen: async () => overrides.window ?? false,
 });
 const all = () => true;
@@ -137,7 +137,7 @@ describe('Chatty action registry', () => {
       [{ action: 'host.engine.enable', params: { host: 7, engine: 'claude' } }, lookups(), 'forbidden', (c) => roleHasCapability('viewer', c)],
       [{ action: 'host.engine.enable', params: { host: 'missing.example', engine: 'claude' } }, lookups(), 'not_found', all],
       [{ action: 'host.engine.enable', params: { host: 7, engine: 'codex' } }, lookups(), 'no_change', all],
-      [{ action: 'host.engine.enable', params: { host: 7, engine: 'grok' } }, lookups({ fleet: { grok: false } }), 'engine_disabled', all],
+      [{ action: 'host.engine.enable', params: { host: 7, engine: 'grok' } }, lookups({ fleet: { grok: false, kimi: false } }), 'engine_disabled', all],
       [{ action: 'host.engine.disable', params: { host: 7, engine: 'codex' } }, lookups(), 'precondition', all],
       [{ action: 'host.engine.disable', params: { host: 7, engine: 'grok' } }, lookups(), 'no_change', all],
       [{ action: 'host.auto_update', params: { host: 7, enabled: true } }, lookups({ host: { autoUpdateOverride: true } }), 'no_change', all],
@@ -162,7 +162,7 @@ describe('Chatty action registry', () => {
       await resolveAction(
         { action: 'host.engine.disable', params: { host: 7, engine: 'grok' } },
         all,
-        lookups({ host: { engines: ['codex', 'grok'] }, fleet: { grok: false } }),
+        lookups({ host: { engines: ['codex', 'grok'] }, fleet: { grok: false, kimi: false } }),
       ),
     ).toMatchObject({ ok: true, plan: { engines_after: ['codex'] } });
   });

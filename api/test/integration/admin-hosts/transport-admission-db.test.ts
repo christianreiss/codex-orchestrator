@@ -47,7 +47,7 @@ describe.skipIf(!handle)('fresh combined transport admission on MySQL', () => {
         secure: 1,
         ip4: '192.0.2.11',
         reverseDnsMode: null,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         lastContactAt: now,
         createdAt: now,
         updatedAt: now,
@@ -77,7 +77,7 @@ describe.skipIf(!handle)('fresh combined transport admission on MySQL', () => {
   });
 
   it('uses one fresh query and isolates concurrent credentials through the same compiled plan', async () => {
-    const peers = await Promise.all(['codex', 'claude', 'grok'].map((engines) => seed({ engines })));
+    const peers = await Promise.all(['codex', 'claude', 'grok', 'kimi'].map((engines) => seed({ engines })));
     const queries = vi.spyOn(handle!.pool, 'query');
     const connections = vi.spyOn(handle!.pool, 'getConnection');
     try {
@@ -87,7 +87,7 @@ describe.skipIf(!handle)('fresh combined transport admission on MySQL', () => {
       expect(result.map((host) => host.id)).toEqual(
         [...peers, ...[...peers].reverse()].map((peer) => peer.id),
       );
-      expect(queries).toHaveBeenCalledTimes(6);
+      expect(queries).toHaveBeenCalledTimes(8);
       expect(connections).not.toHaveBeenCalled();
     } finally {
       queries.mockRestore();

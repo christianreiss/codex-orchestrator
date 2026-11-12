@@ -8,7 +8,7 @@ export const configSchema = z.object({
   mode: z.enum(['source_developer', 'user']),
   auto_publish: z.boolean(),
   runner_enabled: z.boolean(),
-  engine: z.enum(['codex', 'claude', 'grok']).nullable(),
+  engine: z.enum(['codex', 'claude', 'grok', 'kimi']).nullable(),
   model: z.string().trim().min(1).max(200).nullable(),
 }).strict().refine((c) => !c.runner_enabled || (c.engine !== null && c.model !== null), {
   message: 'Select an engine and model before enabling the feedback runner',

@@ -44,7 +44,7 @@ describe.skipIf(!config)('scheduled owner lifecycle on real MySQL', () => {
           apiKeyHash: sha256('fixture-key'),
           secure: 1,
           status: 'active',
-          engines: 'codex,claude,grok',
+          engines: 'codex,claude,grok,kimi',
           createdAt: now,
           updatedAt: now,
         });
@@ -77,7 +77,7 @@ describe.skipIf(!config)('scheduled owner lifecycle on real MySQL', () => {
         });
         const service = new SchedulesService(db, keyring),
           watchdogs = new WatchdogsService(db, keyring);
-        for (const engine of ['codex', 'claude', 'grok'] as const) {
+        for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
           const id = randomUUID(),
             token = `fixture-${randomUUID()}-${randomUUID()}`;
           sessions.push(id);

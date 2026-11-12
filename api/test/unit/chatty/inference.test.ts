@@ -22,7 +22,7 @@ vi.mock('../../../src/services/gateway-backends.js', () => ({
   }),
 }));
 vi.mock('../../../src/services/engine-switch.js', () => ({
-  readFleetEngineState: async () => ({ codex: true, claude: true, grok: true }),
+  readFleetEngineState: async () => ({ codex: true, claude: true, grok: true, kimi: true }),
   assertFleetEngineEnabledForAdmin: async () => {},
 }));
 vi.mock('../../../src/services/provider-accounts.js', () => ({
@@ -59,7 +59,7 @@ function setup(responses: Response[]) {
   const db = { select: () => ({ from: () => ({ innerJoin: () => ({ where: async () => candidates }) }) }) };
   const request = vi.fn(async (url: string | URL | Request, _options?: RequestInit) =>
     String(url).endsWith('/capabilities')
-      ? Response.json({ protocol: 1, engines: ['codex', 'claude', 'grok'] })
+      ? Response.json({ protocol: 1, engines: ['codex', 'claude', 'grok', 'kimi'] })
       : responses.shift()!,
   );
   const inference = new ChattyInference(

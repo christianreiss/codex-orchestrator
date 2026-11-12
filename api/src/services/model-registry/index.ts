@@ -14,6 +14,8 @@ import {
   CODEX_MODELS,
   GROK_DEFAULT_MODEL,
   GROK_MODELS,
+  KIMI_MODELS,
+  KIMI_DEFAULT_MODEL,
 } from './data.js';
 import type { EngineRegistry, ModelEntry, ModelTier } from './types.js';
 
@@ -22,11 +24,13 @@ export { CLAUDE_ADVISOR_ALIASES, CODEX_DEFAULT_EFFORT, CODEX_FORCED_UPGRADES_FRO
 
 export type ClaudeModel = (typeof CLAUDE_MODELS)[number]['id'];
 export type GrokModel = (typeof GROK_MODELS)[number]['id'];
+export type KimiModel = (typeof KIMI_MODELS)[number]['id'];
 
 export const MODEL_REGISTRY: Readonly<Record<Engine, EngineRegistry>> = {
   codex: { models: CODEX_MODELS, defaultModel: CODEX_DEFAULT_MODEL },
   claude: { models: CLAUDE_MODELS, defaultModel: CLAUDE_DEFAULT_MODEL },
   grok: { models: GROK_MODELS, defaultModel: GROK_DEFAULT_MODEL },
+  kimi: { models: KIMI_MODELS, defaultModel: KIMI_DEFAULT_MODEL },
 };
 
 const own = <T>(map: Readonly<Record<string, T>>, key: string): T | undefined =>

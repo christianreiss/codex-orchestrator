@@ -179,7 +179,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       }
       const engine = req.query.engine ?? ENGINE_CODEX;
       if (!isEngine(engine)) {
-        throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
+        throw new ValidationError('engine must be codex, claude, grok, or kimi', { param: 'engine' });
       }
       const host = await loadAdminAgentPreviewHost(db, hostId);
       if (!host) throw new NotFoundError('Host not found');
@@ -225,7 +225,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       }
       const engine = body.engine ?? ENGINE_CODEX;
       if (!isEngine(engine)) {
-        throw new ValidationError('engine must be codex, claude, or grok', { param: 'engine' });
+        throw new ValidationError('engine must be codex, claude, grok, or kimi', { param: 'engine' });
       }
       const host = await loadAdminAgentPreviewHost(db, hostId);
       if (!host) throw new NotFoundError('Host not found');

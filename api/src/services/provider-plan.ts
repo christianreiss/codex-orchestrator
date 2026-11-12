@@ -1,7 +1,7 @@
 /** Display metadata only. Never infer a subscription from quota size or model access. */
 export interface ProviderPlan {
   name: string | null;
-  source: 'chatgpt_usage' | 'claude_login' | 'grok_settings';
+  source: 'chatgpt_usage' | 'claude_login' | 'grok_settings' | 'kimi_userinfo';
   observed_at: string | null;
   stale: boolean;
 }
@@ -73,4 +73,10 @@ export function grokPlanName(body: unknown): string | null {
     supergrok_heavy: 'SuperGrok Heavy',
   };
   return typeof tier === 'string' && Object.hasOwn(names, tier) ? names[tier]! : null;
+}
+
+/** The managed /me response names the membership directly; never infer it from limits. */
+export function kimiPlanName(body: unknown): string | null {
+  const name = record(body)?.user_level_name;
+  return typeof name === 'string' && name.trim() && name.length <= 128 && !/\p{Cc}/u.test(name) ? name.trim() : null;
 }

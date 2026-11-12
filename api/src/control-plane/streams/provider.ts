@@ -195,6 +195,7 @@ export class OwnerStateProvider implements StateProvider {
             state.setting('codex_engine_disabled'),
             state.setting('claude_engine_disabled'),
             state.setting('grok_engine_disabled'),
+            state.setting('kimi_engine_disabled'),
           ]),
         );
         if (lastWork !== fingerprint) {
@@ -244,6 +245,7 @@ export class OwnerStateProvider implements StateProvider {
           'codex_engine_disabled',
           'claude_engine_disabled',
           'grok_engine_disabled',
+          'kimi_engine_disabled',
         ].map((key) => state.setting(key)),
       ];
       if (scope.topic === 'session' || scope.topic === 'receiver') {

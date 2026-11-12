@@ -32,7 +32,7 @@ beforeEach(() => apiLevelTracker.clear());
 afterEach(() => apiLevelTracker.clear());
 
 describe('communicator API level on GET /versions', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('serves integer api_version and min_api for %s', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('serves integer api_version and min_api for %s', async (engine) => {
     const db = createDbFake();
     const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
     try {

@@ -1,5 +1,5 @@
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_COMMANDS, ENGINE_LABELS } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINE_COMMANDS, ENGINE_LABELS } from '../util/engine.js';
 import type { VersionSnapshot } from './version-snapshot.js';
 
 export function isLegacyShellWrapperVersion(value: unknown): boolean {
@@ -75,6 +75,7 @@ NEEDS_CLAUDE=${needsClaude ? '1' : '0'}
 HAS_CODEX=${hasCodex ? '1' : '0'}
 HAS_CLAUDE=${needsClaude ? '1' : '0'}
 HAS_GROK=${requestedEngines.includes(ENGINE_GROK) ? '1' : '0'}
+HAS_KIMI=${requestedEngines.includes(ENGINE_KIMI) ? '1' : '0'}
 INSTALL_CONTEXT=installer
 CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${defaultCurlInsecure}}
 
@@ -95,6 +96,7 @@ if [ "$INSTALL_FAILED" = "0" ]; then
     ui_hint_cmd clx run "Start Claude Code"
   fi
   if [ "$HAS_GROK" = "1" ]; then ui_hint_cmd cgx run "Start Grok Build"; fi
+  if [ "$HAS_KIMI" = "1" ]; then ui_hint_cmd ckx run "Start Kimi Code"; fi
   if [ "$HAS_CODEX" = "1" ]; then
     ui_hint_cmd cdx doctor "Verify Codex setup"
   fi
@@ -102,6 +104,7 @@ if [ "$INSTALL_FAILED" = "0" ]; then
     ui_hint_cmd clx doctor "Verify Claude setup"
   fi
   if [ "$HAS_GROK" = "1" ]; then ui_hint_cmd cgx doctor "Verify Grok setup"; fi
+  if [ "$HAS_KIMI" = "1" ]; then ui_hint_cmd ckx doctor "Verify Kimi setup"; fi
   if [ "$BIN_ROOT_ON_PATH" = "0" ]; then
     ui_warn "setup" "PATH" "$BIN_ROOT" "not active in the parent shell"
     ui_path_hint
@@ -117,6 +120,7 @@ fi
 RETRY_NAME=cdx
 if [ "$HAS_CODEX" = "0" ]; then RETRY_NAME=clx; fi
 if [ "$HAS_CODEX" = "0" ] && [ "$HAS_CLAUDE" = "0" ]; then RETRY_NAME=cgx; fi
+if [ "$HAS_CODEX" = "0" ] && [ "$HAS_CLAUDE" = "0" ] && [ "$HAS_GROK" = "0" ]; then RETRY_NAME=ckx; fi
 ui_hint "Retry host cron:    $RETRY_NAME cron install"
 ui_hint "Retry engine CLIs:  $RETRY_NAME cron run"
 ui_hint "If wrapper/config installation failed, mint a fresh single-use installer."
@@ -154,6 +158,7 @@ NEEDS_CLAUDE=${hasClaude ? '1' : '0'}
 HAS_CODEX=${hasCodex ? '1' : '0'}
 HAS_CLAUDE=${hasClaude ? '1' : '0'}
 HAS_GROK=${requestedEngines.includes(ENGINE_GROK) ? '1' : '0'}
+HAS_KIMI=${requestedEngines.includes(ENGINE_KIMI) ? '1' : '0'}
 CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${opts.allowInsecure ? '1' : '0'}}
 BIN_DIR=\${BIN_DIR:-/usr/local/bin}
 INSTALL_CONTEXT=transition
@@ -188,6 +193,7 @@ INSTALL_FINISHED=0
 CODEX_BUNDLE=
 CLAUDE_BUNDLE=
 GROK_BUNDLE=
+KIMI_BUNDLE=
 BIN_TMP=
 STEP_LOG=
 NODE_SHIM_TMP=
@@ -281,6 +287,7 @@ ui_badge() {
     cdx) printf '%s%s%s' "$UI_ORANGE$UI_BOLD" "$1" "$UI_RESET" ;;
     clx) printf '%s%s%s' "$UI_VIOLET$UI_BOLD" "$1" "$UI_RESET" ;;
     cgx) printf '%s%s%s' "$UI_GREEN$UI_BOLD" "$1" "$UI_RESET" ;;
+    ckx) printf '%s%s%s' "$UI_GREEN$UI_BOLD" "$1" "$UI_RESET" ;;
     setup) printf '%s%s%s' "$UI_BOLD" "cxx" "$UI_RESET" ;;
     *) printf '%s%s%s' "$UI_BOLD" "$1" "$UI_RESET" ;;
   esac
@@ -383,6 +390,10 @@ ui_header() {
       if [ -n "$UI_ENGINES" ]; then UI_ENGINES="$UI_ENGINES $UI_DIM+$UI_RESET "; fi
       UI_ENGINES="$UI_ENGINES$UI_GREEN\${UI_BOLD}Grok$UI_RESET"
     fi
+    if [ "$HAS_KIMI" = "1" ]; then
+      if [ -n "$UI_ENGINES" ]; then UI_ENGINES="$UI_ENGINES $UI_DIM+$UI_RESET "; fi
+      UI_ENGINES="$UI_ENGINES$UI_GREEN\${UI_BOLD}Kimi$UI_RESET"
+    fi
     printf '\\n'
     ui_card_edge '╭' '╮'
     ui_card_row "$UI_ACCENT\${UI_BOLD}CODEX ORCHESTRATOR$UI_RESET $UI_DIM· host setup$UI_RESET" 31
@@ -455,7 +466,7 @@ show_step_log() {
 }
 
 cleanup() {
-  for CLEAN_PATH in "$CODEX_BUNDLE" "$CLAUDE_BUNDLE" "$GROK_BUNDLE" "$BIN_TMP" "$STEP_LOG" "$NODE_SHIM_TMP" "$NPM_SHIM_TMP"; do
+  for CLEAN_PATH in "$CODEX_BUNDLE" "$CLAUDE_BUNDLE" "$GROK_BUNDLE" "$KIMI_BUNDLE" "$BIN_TMP" "$STEP_LOG" "$NODE_SHIM_TMP" "$NPM_SHIM_TMP"; do
     if [ -n "$CLEAN_PATH" ]; then rm -f "$CLEAN_PATH"; fi
   done
   for CLEAN_PATH in "$INSTALL_BIN_TMP" "$ALIAS_TMP"; do
@@ -492,6 +503,7 @@ DATA_HOME=\${XDG_DATA_HOME:-$HOME/.local/share}
 CODEX_CONFIG_PATH=\${CDX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/cdx.json}
 CLAUDE_CONFIG_PATH=\${CLX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/clx.json}
 GROK_CONFIG_PATH=\${CGX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/cgx.json}
+KIMI_CONFIG_PATH=\${CKX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/ckx.json}
 
 CURL_INSECURE_FLAG=
 if [ "\${CODEX_INSTALL_CURL_INSECURE:-0}" = "1" ]; then
@@ -702,6 +714,7 @@ cached_engine_cli() {
     cdx) CLI_CACHE="$HOME/.config/codex-orchestrator/cdx-codex-bin" ;;
     clx) CLI_CACHE="$HOME/.clx/state/claude-bin" ;;
     cgx) CLI_CACHE="$HOME/.cgx/state/grok-bin" ;;
+    ckx) CLI_CACHE="$HOME/.ckx/state/kimi-bin" ;;
     *) return 1 ;;
   esac
   if [ ! -r "$CLI_CACHE" ]; then return 1; fi
@@ -820,6 +833,7 @@ preflight
 if [ "$HAS_CODEX" = "1" ]; then mkdir -p "$(dirname "$CODEX_CONFIG_PATH")"; fi
 if [ "$HAS_CLAUDE" = "1" ]; then mkdir -p "$(dirname "$CLAUDE_CONFIG_PATH")"; fi
 if [ "$HAS_GROK" = "1" ]; then mkdir -p "$(dirname "$GROK_CONFIG_PATH")"; fi
+if [ "$HAS_KIMI" = "1" ]; then mkdir -p "$(dirname "$KIMI_CONFIG_PATH")"; fi
 BIN_ROOT_ON_PATH=0
 case ":$PARENT_PATH:" in
   *":$BIN_ROOT:"*) BIN_ROOT_ON_PATH=1 ;;
@@ -827,6 +841,7 @@ esac
 ORIGINAL_CODEX_BIN=$(command -v cdx 2>/dev/null || true)
 ORIGINAL_CLAUDE_BIN=$(command -v clx 2>/dev/null || true)
 ORIGINAL_GROK_BIN=$(command -v cgx 2>/dev/null || true)
+ORIGINAL_KIMI_BIN=$(command -v ckx 2>/dev/null || true)
 PATH="$BIN_ROOT:\${PATH:-}"
 export PATH
 if [ "$INSTALL_CONTEXT" = "installer" ]; then
@@ -842,6 +857,9 @@ if [ "$HAS_CLAUDE" = "1" ]; then
 fi
 if [ "$HAS_GROK" = "1" ]; then
   GROK_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/cgx.config.XXXXXX")
+fi
+if [ "$HAS_KIMI" = "1" ]; then
+  KIMI_BUNDLE=$(mktemp "\${TMPDIR:-/tmp}/ckx.config.XXXXXX")
 fi
 
 
@@ -867,11 +885,18 @@ if [ "$HAS_GROK" = "1" ]; then
     "$BASE_URL/wrapper/v2/config?engine=grok" \\
     -o "$GROK_BUNDLE"
 fi
+if [ "$HAS_KIMI" = "1" ]; then
+  curl $CURL_INSECURE_FLAG -fsSL \\
+    -H "X-API-Key: $HOST_API_KEY" \\
+    -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
+    "$BASE_URL/wrapper/v2/config?engine=kimi" \\
+    -o "$KIMI_BUNDLE"
+fi
 
 # Validate every requested config before writing any of them. A multi-engine
 # install is allowed only when all logical configs identify the same cxx
 # version and SHA; otherwise no binary or alias is changed.
-PY_OUT=$(python3 - "$BIN_ROOT" "$CODEX_BUNDLE" "$CODEX_CONFIG_PATH" "$CLAUDE_BUNDLE" "$CLAUDE_CONFIG_PATH" "$GROK_BUNDLE" "$GROK_CONFIG_PATH" <<'PY'
+PY_OUT=$(python3 - "$BIN_ROOT" "$CODEX_BUNDLE" "$CODEX_CONFIG_PATH" "$CLAUDE_BUNDLE" "$CLAUDE_CONFIG_PATH" "$GROK_BUNDLE" "$GROK_CONFIG_PATH" "$KIMI_BUNDLE" "$KIMI_CONFIG_PATH" <<'PY'
 import json
 import os
 import re
@@ -879,7 +904,7 @@ import shlex
 import sys
 from urllib.parse import urlsplit
 
-bin_root, codex_bundle, codex_config, claude_bundle, claude_config, grok_bundle, grok_config = sys.argv[1:8]
+bin_root, codex_bundle, codex_config, claude_bundle, claude_config, grok_bundle, grok_config, kimi_bundle, kimi_config = sys.argv[1:10]
 
 def sort_value(value):
     if isinstance(value, list):
@@ -893,6 +918,7 @@ for engine, bundle_path, config_path in (
     ("codex", codex_bundle, codex_config),
     ("claude", claude_bundle, claude_config),
     ("grok", grok_bundle, grok_config),
+    ("kimi", kimi_bundle, kimi_config),
 ):
     if not bundle_path:
         continue
@@ -1090,10 +1116,12 @@ fi
 if [ "$HAS_CODEX" = "1" ]; then install_alias cdx; fi
 if [ "$HAS_CLAUDE" = "1" ]; then install_alias clx; fi
 if [ "$HAS_GROK" = "1" ]; then install_alias cgx; fi
+if [ "$HAS_KIMI" = "1" ]; then install_alias ckx; fi
 if [ "$INSTALL_CONTEXT" = "installer" ]; then
   if [ "$HAS_CODEX" = "0" ]; then remove_disabled_alias cdx; fi
   if [ "$HAS_CLAUDE" = "0" ]; then remove_disabled_alias clx; fi
   if [ "$HAS_GROK" = "0" ]; then remove_disabled_alias cgx; fi
+  if [ "$HAS_KIMI" = "0" ]; then remove_disabled_alias ckx; fi
 fi
 cleanup_known_relics
 ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
@@ -1103,7 +1131,7 @@ ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
 if [ "$NATIVE_ENTRY_SUPPORTED" = "1" ]; then
   if "$TARGET_BIN" native-entry install >"$STEP_LOG" 2>&1; then
     ui_ok "cxx" "native commands" "" "managed starts prepared"
-    ui_hint "Open a new shell to activate native commands; cdx, clx and cgx remain available."
+    ui_hint "Open a new shell to activate native commands; cdx, clx, cgx and ckx remain available."
   else
     ui_warn "cxx" "native commands" "retry: cxx native-entry install" "integration not prepared"
     INSTALL_FAILED=1
@@ -1145,6 +1173,10 @@ if [ "$HAS_GROK" = "1" ] && [ -n "$ORIGINAL_GROK_BIN" ] && [ "$ORIGINAL_GROK_BIN
   ui_warn "cgx" "PATH" "$ORIGINAL_GROK_BIN" "expected $BIN_ROOT/cgx"
   ui_hint "Refresh the parent shell: hash -r; or run directly: $BIN_ROOT/cgx run"
 fi
+if [ "$HAS_KIMI" = "1" ] && [ -n "$ORIGINAL_KIMI_BIN" ] && [ "$ORIGINAL_KIMI_BIN" != "$BIN_ROOT/ckx" ]; then
+  ui_warn "ckx" "PATH" "$ORIGINAL_KIMI_BIN" "expected $BIN_ROOT/ckx"
+  ui_hint "Refresh the parent shell: hash -r; or run directly: $BIN_ROOT/ckx run"
+fi
 
 # One credentialed sync per engine so the host holds canonical auth before
 # the operator's first run. Non-fatal: the operator can retry explicitly, so a
@@ -1168,11 +1200,13 @@ if ! bootstrap_host; then INSTALL_FAILED=1; fi
 if [ "$HAS_CODEX" = "1" ] && ! verify_engine_cli "cdx" "codex"; then INSTALL_FAILED=1; fi
 if [ "$HAS_CLAUDE" = "1" ] && ! verify_engine_cli "clx" "claude"; then INSTALL_FAILED=1; fi
 if [ "$HAS_GROK" = "1" ] && ! verify_engine_cli "cgx" "grok"; then INSTALL_FAILED=1; fi
+if [ "$HAS_KIMI" = "1" ] && ! verify_engine_cli "ckx" "kimi"; then INSTALL_FAILED=1; fi
 # \`cxx cron run\` above already installed the background worker service.
 if [ "$INSTALL_FAILED" = "0" ]; then
   if [ "$HAS_CODEX" = "1" ]; then sync_engine cdx; fi
   if [ "$HAS_CLAUDE" = "1" ]; then sync_engine clx; fi
   if [ "$HAS_GROK" = "1" ]; then sync_engine cgx; fi
+  if [ "$HAS_KIMI" = "1" ]; then sync_engine ckx; fi
 fi
 # These are consumed by the installer suffix. Keep the shared transition body
 # independently ShellCheck-clean even though its successful path execs above.

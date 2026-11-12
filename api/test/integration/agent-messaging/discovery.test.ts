@@ -80,7 +80,7 @@ describe.skipIf(!handle)('directory, checkout and project discovery on MySQL', {
           apiKey: randomBytes(32).toString('hex'),
           secure: 1,
           status: 'active',
-          engines: 'codex,claude,grok',
+          engines: 'codex,claude,grok,kimi',
           createdAt: nowIso(),
           updatedAt: nowIso(),
         });
@@ -105,7 +105,7 @@ describe.skipIf(!handle)('directory, checkout and project discovery on MySQL', {
   async function launch(
     ws: WorkspaceInput | undefined = workspace(),
     host = testHosts[0]!,
-    engine: 'codex' | 'claude' | 'grok' = 'codex',
+    engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'codex',
     cwd = '/repo',
   ) {
     const input = {
@@ -233,7 +233,7 @@ describe.skipIf(!handle)('directory, checkout and project discovery on MySQL', {
     try {
       expect((await list(caller, { scope: 'project' })).total).toBe(0);
     } finally {
-      await db!.update(hosts).set({ engines: 'codex,claude,grok' }).where(eq(hosts.id, peer.host.id));
+      await db!.update(hosts).set({ engines: 'codex,claude,grok,kimi' }).where(eq(hosts.id, peer.host.id));
     }
   });
 

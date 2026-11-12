@@ -209,6 +209,8 @@ export async function purgeOwnedEngine(
         if (row.engine === engine) stageDelete(c, 'providerAccountSessions', row.id);
       for (const row of accounts) {
         stageDelete(c, 'grokAuthRefreshState', row.id);
+        stageDelete(c, 'kimiAuthRefreshState', row.id);
+        stageDelete(c, 'kimiUsageSnapshots', row.id);
         stageDelete(c, 'providerAccounts', row.id);
       }
       for (const name of ['authSeedTokens', 'hostAuthDigests', 'installTokens'] as const)

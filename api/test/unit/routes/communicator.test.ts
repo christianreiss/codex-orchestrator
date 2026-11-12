@@ -483,7 +483,7 @@ it('targets only previously authorized account metadata', async () => {
 it('preserves account acquisition, heartbeat and release for all native engines', async () => {
   await setup();
   const ws = await open();
-  for (const engine of ['codex', 'claude', 'grok']) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
     for (const path of ['/auth/sessions', '/auth/sessions/heartbeat', '/auth/sessions/release']) {
       const id = randomUUID();
       const body = { engine, session_id: randomUUID(), scope_id: 'isolated-native-home' };

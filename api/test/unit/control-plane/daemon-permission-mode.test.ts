@@ -29,7 +29,7 @@ function harness() {
   const now = new Date().toISOString();
   const seed = {
     hosts: [{ id: 1, fqdn: 'fixture', apiKey: 'test', apiKeyHash: null, status: 'active', configVersion: 0, secure: 1, authDigest: 'a', claudeAuthDigest: 'a', grokAuthDigest: 'a',
-      engines: 'codex,claude,grok', internalRole: null, expiresAt: null, insecureEnabledUntil: null }],
+      engines: 'codex,claude,grok,kimi', internalRole: null, expiresAt: null, insecureEnabledUntil: null }],
     hostDaemons: [{ hostId: 1, settings: daemonSettingsSchema.parse({ enabled: true, username: 'user' }), runtime: null, enabledAt: now, updatedAt: now }],
     versions: [{ name: 'agent_messaging_enabled', version: '1' }],
   };
@@ -62,11 +62,11 @@ const connect = (h: ReturnType<typeof harness>, capable: boolean) =>
     instance_id: randomUUID(),
     username: 'user',
     version: capable ? '0.9.146' : '0.9.145',
-    engines: ['codex', 'claude', 'grok'],
+    engines: ['codex', 'claude', 'grok', 'kimi'],
     error: null,
     ...(capable ? { permission_mode_version: 1 } : {}),
   });
-const start = (h: ReturnType<typeof harness>, engine: 'codex' | 'claude' | 'grok', key: string, mode?: 'plan' | 'default') =>
+const start = (h: ReturnType<typeof harness>, engine: 'codex' | 'claude' | 'grok' | 'kimi', key: string, mode?: 'plan' | 'default') =>
   h.service.start(
     { host_id: 1, engine, title: 'plan', prompt: 'Refactor the parser', client_message_id: key, ...(mode ? { permission_mode: mode } : {}) },
     'admin:1',

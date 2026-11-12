@@ -34,6 +34,7 @@ describe('/admin/engines', () => {
       { engine: 'codex', label: 'Codex', enabled: true, updated_at: null, updated_by: null, assigned_hosts: 1 },
       { engine: 'claude', label: 'Claude', enabled: true, updated_at: null, updated_by: null, assigned_hosts: 2 },
       { engine: 'grok', label: 'Grok', enabled: true, updated_at: null, updated_by: null, assigned_hosts: 0 },
+      { engine: 'kimi', label: 'Kimi Code', enabled: true, updated_at: null, updated_by: null, assigned_hosts: 0 },
     ]);
     await app.close();
   });

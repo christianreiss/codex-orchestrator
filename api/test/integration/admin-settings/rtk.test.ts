@@ -10,7 +10,7 @@ async function build() {
   app.decorate('requireHost', async () => {});
   const db = createDbFake();
   db.tables.set(hosts, [
-    { id: 32, engines: 'codex,claude,grok' },
+    { id: 32, engines: 'codex,claude,grok,kimi' },
     { id: 33, engines: 'codex' },
   ]);
   await registerRtkRoutes(app, { db, env: {}, keyring: {} } as unknown as RouteContext);
@@ -21,7 +21,7 @@ describe('RTK policy routes', () => {
     const { app, db } = await build();
     try {
       const fleet = (await app.inject({ method: 'GET', url: '/admin/rtk' })).json();
-      for (const engine of ['codex', 'claude', 'grok'])
+      for (const engine of ['codex', 'claude', 'grok', 'kimi'])
         expect(fleet.engines[engine]).toMatchObject({
           enabled: false,
           fleet: false,

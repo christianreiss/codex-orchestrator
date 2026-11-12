@@ -12,6 +12,7 @@ export type OwnerMaintenanceOperation =
   | 'transfer-orphans'
   | 'auth-retention'
   | 'grok-usage'
+  | 'kimi-usage'
   | 'chatgpt-usage'
   | 'skill-source'
   | 'feedback'

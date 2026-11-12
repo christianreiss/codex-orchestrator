@@ -14,7 +14,7 @@ import { daemonSettingsSchema, daemonExpired } from './host-daemon/policy.js';
 import { wsPublisher } from '../ws/publisher.js';
 
 export const HOST_SPAWN_ENABLED_KEY = 'host_spawn_enabled';
-const engine = z.enum(['codex', 'claude', 'grok']);
+const engine = z.enum(['codex', 'claude', 'grok', 'kimi']);
 const daemon = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('none') }).strict(),
   z.object({ mode: z.literal('permanent'), username: daemonSettingsSchema.shape.username.removeDefault(),

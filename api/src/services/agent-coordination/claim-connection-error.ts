@@ -34,7 +34,7 @@ export function claimConnectionError(
   const original = expectedNativeInstanceId
     ? native.some((attachment) => attachment.scope.native_instance_id === expectedNativeInstanceId)
     : null;
-  const alias = session.engine === 'claude' ? 'clx' : session.engine === 'grok' ? 'cgx' : 'cdx';
+  const alias = session.engine === 'kimi' ? 'ckx' : session.engine === 'claude' ? 'clx' : session.engine === 'grok' ? 'cgx' : 'cdx';
   // A pre-proof wrapper can never attach the proof: say so instead of sending the
   // agent to reconnect a process that is working exactly as built.
   const outdated = native.length ? null : preProofCommunicatorVersion(session);

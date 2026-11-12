@@ -352,7 +352,7 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
                     instance_id: z.string().uuid(),
                     username: z.string(),
                     version: z.string().max(64),
-                    engines: z.array(z.enum(['codex', 'claude', 'grok'])),
+                    engines: z.array(z.enum(['codex', 'claude', 'grok', 'kimi'])),
                     error: z.string().max(200).nullable().default(null),
                     // cxx 0.9.146+: per-session --permission-mode support.
                     permission_mode_version: z.number().int().min(0).max(1000).optional(),
@@ -370,7 +370,7 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
                 if (msg.type === 'heartbeat') {
                   const body = z
                     .object({
-                      engines: z.array(z.enum(['codex', 'claude', 'grok'])),
+                      engines: z.array(z.enum(['codex', 'claude', 'grok', 'kimi'])),
                       error: z.string().max(200).nullable().default(null),
                       active_sessions: z.array(z.string().uuid()).max(64).default([]),
                     })

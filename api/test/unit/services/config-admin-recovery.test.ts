@@ -10,7 +10,7 @@ import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 
 for (const owned of [false, true]) describe(`invalid saved native config (${owned ? 'owner RAM' : 'database'})`, () => {
-  it.each(['codex', 'claude', 'grok'] as const)('%s remains readable and strict until corrected', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s remains readable and strict until corrected', async engine => {
     const settings = { native_settings: { unknown_saved_option: 'private-value-not-for-errors' } };
     const body = '# historical saved snapshot\n';
     const sha256 = createHash('sha256').update(body).digest('hex');

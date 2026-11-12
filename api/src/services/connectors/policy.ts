@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { capabilitiesForRole, type Capability } from '../../security/capabilities.js';
 
-export const providers = ['chatgpt', 'claude', 'grok'] as const;
+export const providers = ['chatgpt', 'claude', 'grok', 'kimi'] as const;
 export const categories = [
   'hosts',
   'projects',
@@ -26,8 +26,8 @@ export const policySchema = z
   .object({
     enabled: z.boolean().default(false),
     providers: z
-      .object({ chatgpt: z.boolean(), claude: z.boolean(), grok: z.boolean() })
-      .default({ chatgpt: false, claude: false, grok: false }),
+      .object({ chatgpt: z.boolean(), claude: z.boolean(), grok: z.boolean(), kimi: z.boolean().default(false) })
+      .default({ chatgpt: false, claude: false, grok: false, kimi: false }),
     ceiling: grantSchema.default({}),
   })
   .strict();

@@ -73,6 +73,7 @@ export async function composeOwnerServices(
       return { observed: true };
     },
     'grok-usage': (work) => providerUsage('grok-usage', work),
+    'kimi-usage': (work) => providerUsage('kimi-usage', work),
     'chatgpt-usage': (work) => providerUsage('chatgpt-usage', work),
   } satisfies Partial<Record<OwnerMaintenanceOperation, OwnerMaintenanceHandler>>;
   const operations: OwnerMaintenanceOperation[] = [
@@ -82,6 +83,7 @@ export async function composeOwnerServices(
     'transfer-orphans',
     'auth-retention',
     'grok-usage',
+    'kimi-usage',
     'chatgpt-usage',
     'skill-source',
     'feedback',

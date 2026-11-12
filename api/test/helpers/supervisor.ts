@@ -41,7 +41,7 @@ export function supervisorFixture(engine = 'codex', overrides: StateSeed = {}, d
         apiKey: key,
         status: 'active',
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         internalRole: null,
         expiresAt: null,
         createdAt: now,

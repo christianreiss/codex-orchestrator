@@ -926,6 +926,41 @@ Selection runs once per native CLI launch. It prefers verified enabled accounts 
 - `POST /admin/hosts/:id/grok-version` — Set/clear a host-specific Grok CLI pin.
 - `POST /admin/runner/run-grok` — Run a read-only subscription verification with no credential bytes returned.
 
+### Kimi Code admin API
+
+- `GET /admin/kimi/keys` — List Kimi gateway keys without credential bodies.
+- `POST /admin/kimi/keys` — Issue a scoped sk-ckx- gateway key, returned once.
+- `POST /admin/kimi/keys/:id/toggle` — Change a Kimi gateway key active state.
+- `DELETE /admin/kimi/keys/:id` — Remove a Kimi gateway key.
+- `GET /admin/kimi/state` — Read the independent Kimi API switch.
+- `POST /admin/kimi/state` — Set the independent Kimi API switch.
+- `GET /admin/kimi/settings` — Read gateway default_model and disabled.
+- `POST /admin/kimi/settings` — Change gateway default model/switch; unsupported parameters rejected.
+- `GET /admin/kimi/models` — List native catalog with enabled flags.
+- `POST /admin/kimi/models/:model/toggle` — Enable/disable a Kimi gateway model.
+- `GET /admin/kimi/config` — Read engine-specific managed config metadata.
+- `GET /admin/kimi/config/retrieve` — Retrieve engine-specific managed config.
+- `POST /admin/kimi/config/render` — Preview native TOML config.
+- `POST /admin/kimi/config/store` — Save managed Kimi config.
+- `GET /admin/kimi/version` — Read Kimi CLI version metadata.
+- `GET /admin/kimi/version/lock` — Read the independent exact CLI pin.
+- `POST /admin/kimi/version` — Set/clear the independent exact CLI pin.
+- `POST /admin/hosts/:id/kimi-version` — Set/clear a host-specific Kimi CLI pin.
+- `POST /admin/runner/run-kimi` — Run a read-only subscription verification with no credential bytes returned.
+
+Kimi uses `kimi` / `ckx`; the native Kimi Code minimum is 2.5.3. The gateway
+switch defaults off (`kimi_api_disabled=1`). `/auth` and session leases serve an
+access-only `kimi_code` projection with `refresh_token=""`, `expires_at=0`,
+`expires_in=0` and the canonical `device_id`. Only the server's fenced owner
+spends refresh grants; runner `/verify-kimi` verifies that bearer without rotation.
+
+`kimi_skills` in sync bundles contains native Skill files. Account usage uses
+`plan_name`, `windows` (`five_hour`, `weekly`, `month_total`, `month_code` with
+`used_percent` / `resets_at`), `fetched_at`, `checked_at`, `error_code`.
+The optional weekly window is absent on newer plans. Quota short maps to 5 h,
+long maps to 7 d. Monthly windows are displayed separately.
+
+
 ## Android companion
 
 The native Kotlin app uses `/companion/v1` with a separate Bearer device credential;

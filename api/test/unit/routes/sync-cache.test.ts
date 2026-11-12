@@ -187,7 +187,7 @@ describe('strict communicator cache route', () => {
     }
   });
 
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'preserves paired %s native identity through the original authenticated MCP route',
     async (engine) => {
       const { seen } = await setup(undefined, { session: 'fixture-session', token: 'fixture-bridge' });

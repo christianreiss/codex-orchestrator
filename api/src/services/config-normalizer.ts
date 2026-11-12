@@ -424,7 +424,7 @@ function normalizeMcpServers(value: unknown): Array<Record<string, unknown>> {
  */
 export function normalizeSettings(
   raw: unknown,
-  opts: { applyCodexDefaults?: boolean; engine?: 'codex' | 'claude' | 'grok' } = {},
+  opts: { applyCodexDefaults?: boolean; engine?: 'codex' | 'claude' | 'grok' | 'kimi' } = {},
 ): NormalizedSettings {
   const applyCodexDefaults = opts.applyCodexDefaults ?? true;
   const engine = opts.engine ?? (applyCodexDefaults ? 'codex' : 'claude');

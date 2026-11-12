@@ -99,6 +99,9 @@ describe('boot database checks', () => {
         ['wrapper_version_grok', '2.0.0'],
         ['wrapper_sha256_grok', sha256],
         ['wrapper_url_grok', commonUrl],
+        ['wrapper_version_kimi', '2.0.0'],
+        ['wrapper_sha256_kimi', sha256],
+        ['wrapper_url_kimi', commonUrl],
       ]);
     } finally {
       await rm(dataRoot, { recursive: true, force: true });

@@ -91,7 +91,7 @@ describe.skipIf(!config)('retention policy on MySQL', () => {
     let plane:Awaited<ReturnType<typeof createOwnedControlPlane>>|undefined;
     let userId=0,hostId=0;
     try {
-      const [host]=await db.insert(schema.hosts).values({fqdn:randomUUID()+'.test',apiKey:randomUUID(),secure:1,status:'active',engines:'codex,claude,grok',createdAt:old,updatedAt:old}).$returningId();
+      const [host]=await db.insert(schema.hosts).values({fqdn:randomUUID()+'.test',apiKey:randomUUID(),secure:1,status:'active',engines:'codex,claude,grok,kimi',createdAt:old,updatedAt:old}).$returningId();
       hostId=host!.id;
       const [user]=await db.insert(schema.adminUsers).values({name:'retention fixture',username:randomUUID(),email:randomUUID()+'@test.invalid',passwordHash:'unused',accessLevel:'owner',createdAt:old,updatedAt:old}).$returningId();
       userId=user!.id;
@@ -161,7 +161,7 @@ describe.skipIf(!config)('retention policy on MySQL', () => {
     const ids=[randomUUID(),randomUUID(),randomUUID()],old=new Date(Date.now()-3*3600000).toISOString(),future=new Date(Date.now()+86400000).toISOString(),now=new Date().toISOString();
     let hostId=0,plane:Awaited<ReturnType<typeof createOwnedControlPlane>>|undefined;
     try {
-      const [host]=await db.insert(schema.hosts).values({fqdn:randomUUID()+'.test',apiKey:randomUUID(),secure:1,status:'active',engines:'codex,claude,grok',createdAt:now,updatedAt:now}).$returningId();hostId=host!.id;
+      const [host]=await db.insert(schema.hosts).values({fqdn:randomUUID()+'.test',apiKey:randomUUID(),secure:1,status:'active',engines:'codex,claude,grok,kimi',createdAt:now,updatedAt:now}).$returningId();hostId=host!.id;
       await db.insert(schema.agentSessions).values(ids.map((id,i)=>({id,hostId,engine:'codex',username:'root',cwd:'/fixture',invocationKind:'native',status:i===0?'active':'ended',hostAuthFingerprint:'0'.repeat(64),bridgeTokenHash:'0'.repeat(64),bridgeExpiresAt:future,startedAt:old,heartbeatAt:old,endedAt:i===0?null:old,expiresAt:future,createdAt:old,updatedAt:old})));
       await db.insert(schema.agentMessages).values({sessionId:ids[2]!,messageId:randomUUID(),clientMessageId:randomUUID(),contentEnc:encrypt('{}',keyring),status:'queued',nextAttemptAt:future,createdAt:old,updatedAt:old});
       const env={...loadTestEnv(),DB_DATABASE:String(config!.database)};

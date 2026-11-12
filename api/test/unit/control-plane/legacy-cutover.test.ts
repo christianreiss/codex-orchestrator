@@ -29,7 +29,7 @@ function fixture() {
         id: 1,
         status: 'active',
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         apiKey: 'fixture',
         apiKeyHash: null,
         expiresAt: null,

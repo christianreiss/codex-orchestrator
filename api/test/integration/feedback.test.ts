@@ -332,7 +332,7 @@ describe.skipIf(!handle)('central feedback with real MySQL', () => {
     expect(audit!.payload).toMatchObject({ statuses: ['resolved', 'dismissed'], older_than: '2001-12-31T00:00:00.000Z' });
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('%s: MCP discovery/calls follow the switch in the same registry', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s: MCP discovery/calls follow the switch in the same registry', async (engine) => {
     const registry = new McpToolsRegistry({ feedback: service } as unknown as ToolDeps);
     const host = { id: 700 } as Host;
     expect((await registry.listAvailable()).filter((t) => t.name.startsWith('feedback_'))).toHaveLength(7);

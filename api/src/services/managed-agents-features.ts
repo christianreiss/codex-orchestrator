@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import { AUTHENTICATED_PEER_GUIDANCE } from './agent-messaging-guidance.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINES, type Engine } from '../util/engine.js';
 import { buildManagedMemoryBlock, MANAGED_MEMORY_HEADING } from './managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from './managed-agents-memory-legacy.js';
 import { API_KEYS_IN_CHAT_GUIDANCE } from './api-keys-in-chat.js';
@@ -282,12 +282,12 @@ ${reflection}`,
       'native',
     );
   }
-  if (context.engine === ENGINE_GROK) {
+  if (context.engine === ENGINE_GROK || context.engine === ENGINE_KIMI) {
     return present(
       context.skills,
       `## Skills
 
-Fleet Skills are synced as native Grok skills under \`~/.grok/skills/<slug>/SKILL.md\`. Read the
+Fleet Skills are synced as native ${context.engine === ENGINE_KIMI ? "Kimi skills under $KIMI_CODE_HOME/skills/<slug>/SKILL.md" : "Grok skills under ~/.grok/skills/<slug>/SKILL.md"}. Read the
 matching \`SKILL.md\` when a Skill's description or trigger applies, and follow its instructions.
 To create, update, delete, or explain fleet Skills, follow the \`skill-manager\` Skill instead of
 \`/create-skill\`. Bundled scripts are content too; inspect them before any task-authorized local
@@ -357,7 +357,7 @@ requires interactive browser automation or live page inspection.`,
 }
 
 /**
- * One text for all three engines, with no engine branch. Unlike Skills — where
+ * One text for all four engines, with no engine branch. Unlike Skills — where
  * Claude Code has a native `~/.claude/skills/` loader to defer to — neither
  * engine ships a credential store of its own, so there is nothing to
  * differentiate and the rendered bytes are identical either way.
@@ -401,7 +401,7 @@ function apiKeysInChatSection(context: ManagedAgentFeatureContext): RenderedSect
 }
 
 /**
- * One text for all three engines, with no engine branch: the `agent_*` tools are the
+ * One text for all four engines, with no engine branch: the `agent_*` tools are the
  * same `cxx-agent` stdio server, so there is nothing to differentiate.
  *
  * Tool names come from `AGENT_MESSAGING_TOOLS` (see that module) and are held to
@@ -437,7 +437,7 @@ Recover unfinished work in its original session; finish its watchdog. Keep subag
 
 ## Agent Messaging
 
-Fleet agents (Codex, Claude, Grok) can reach you and you them. Delivery is ordered and
+Fleet agents (Codex, Claude, Grok, Kimi) can reach you and you them. Delivery is ordered and
 at-least-once; "queued" means stored, never read; untaken messages expire.
 
 **Session name.** On every first turn, even a question, and after resume, call \`agent_self\` and
@@ -545,8 +545,8 @@ on this protocol. Never mutate with an invalid claim. Git Director merges need p
 }
 
 /**
- * One text for all three engines. Nothing here is engine-specific: the `git_*` tools
- * are the same orchestrator MCP surface on all three engines, and the block names no Skill.
+ * One text for all four engines. Nothing here is engine-specific: the `git_*` tools
+ * are the same orchestrator MCP surface on all four engines, and the block names no Skill.
  *
  * This section is the entire enforcement mechanism. The Director is advisory —
  * any agent with a shell can merge regardless — so a paragraph that merely
@@ -623,7 +623,7 @@ Report commit and target SHAs; never claim completion while a merge is pending.`
 }
 
 /**
- * One text for all three engines. Nothing here is engine-specific: the `transfer_*`
+ * One text for all four engines. Nothing here is engine-specific: the `transfer_*`
  * tools are the same orchestrator MCP surface on both, and the block names no
  * Skill.
  *

@@ -50,7 +50,7 @@ export interface ModelOption {
   value: string;
 }
 
-export type ModelEngine = "codex" | "claude" | "grok";
+export type ModelEngine = "codex" | "claude" | "grok" | "kimi";
 
 /** Claude models the fleet offers, in picker order. */
 export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
@@ -65,6 +65,11 @@ ${options('codex')}
 /** Grok Build subscription models the fleet offers, in picker order. */
 export const GROK_MODEL_OPTIONS: ModelOption[] = [
 ${options('grok')}
+];
+
+/** Kimi Code models the fleet offers. */
+export const KIMI_MODEL_OPTIONS: ModelOption[] = [
+${options('kimi')}
 ];
 
 /** Native Claude advisor aliases (settings.json \`advisorModel\`). */

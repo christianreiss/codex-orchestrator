@@ -13,7 +13,7 @@ import type { Engine } from '../../../src/util/engine.js';
 import { markPersistentHost, persistRelayUsers } from '../../helpers/persistent-host.js';
 
 const handle = await getTestDb();
-const protocols = { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' } as const;
+const protocols = { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1', kimi: 'kimi-hooks-v1' } as const;
 interface Peer { id: string; token: string; address: string; addressId: string; generation: number; native: string; engine: Engine; username: string; }
 
 describe.skipIf(!handle)('presence receipts and session-bound return notices', () => {
@@ -23,7 +23,7 @@ describe.skipIf(!handle)('presence receipts and session-bound return notices', (
   beforeAll(async () => {
     const db = handle!.db, now = new Date().toISOString();
     const fqdn = `presence-${randomUUID()}.test`;
-    await db.insert(hosts).values({ fqdn, apiKey: 'e'.repeat(64), engines: 'codex,claude,grok', status: 'active', secure: 1, createdAt: now, updatedAt: now });
+    await db.insert(hosts).values({ fqdn, apiKey: 'e'.repeat(64), engines: 'codex,claude,grok,kimi', status: 'active', secure: 1, createdAt: now, updatedAt: now });
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!;
     await markPersistentHost(db, host.id);
     await db.execute(sql`INSERT INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','1',${now}), ('agent_portal_enabled','0',${now}) ON DUPLICATE KEY UPDATE version=VALUES(version)`);

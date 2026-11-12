@@ -29,7 +29,7 @@ function harness(extra: StateSeed = {}) {
     apiKeyHash: null,
     status: 'active',
     secure: 1,
-    engines: 'codex,claude,grok',
+    engines: 'codex,claude,grok,kimi',
     ip4: null,
     ip6: null,
     allowRoamingIps: 0,

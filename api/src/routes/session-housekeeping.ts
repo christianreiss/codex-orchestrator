@@ -16,7 +16,7 @@ import { SettingsService } from '../services/settings.js';
 import { nowIso } from '../util/timestamp.js';
 
 function engineOf(value: unknown): Engine {
-  if (!ENGINES.includes(value as Engine)) throw new ValidationError('engine must be codex, claude or grok');
+  if (!ENGINES.includes(value as Engine)) throw new ValidationError('engine must be codex, claude, grok or kimi');
   return value as Engine;
 }
 export async function registerHousekeepingRoutes(app: FastifyInstance, ctx: RouteContext) {

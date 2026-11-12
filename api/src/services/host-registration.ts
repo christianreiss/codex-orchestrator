@@ -25,7 +25,7 @@ import type { InsecureWindowService } from './insecure-window.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { revokeHostMcpSessionsLocked, stageRevokeHostMcpSessions } from './mcp-session.js';
 import { NotFoundError } from '../http/errors.js';
-import { ENGINE_CODEX, ENGINE_GROK } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI } from '../util/engine.js';
 import { ModelDefaultsService } from './model-defaults.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { hostEnginesList } from './host-engine-policy.js';
@@ -71,6 +71,7 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
     const engines = enginesIn ?? current?.engines ?? (usable.length ? usable : defaults).join(',');
     assertEnginesAddable(hostEnginesList(engines), current ? hostEnginesList(current.engines) : [], fleet);
     if (hostEnginesList(engines).includes(ENGINE_GROK)) new ModelDefaultsService(db).stageGrokDefaults(ctx);
+if (hostEnginesList(engines).includes(ENGINE_KIMI)) new ModelDefaultsService(db).stageKimiDefaults(ctx);
     const { key: apiKey, hash: apiKeyHash } = generateApiKey('sk-codex-');
     const patch = { apiKey: apiKeyHash, apiKeyHash, apiKeyEnc: encrypt(apiKey, keyring), secure: secure ? 1 : 0, engines, updatedAt: now };
     const finish = (hostId: number, created: boolean) => {
@@ -180,6 +181,9 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
         if (engines.split(',').some(engine => engine.trim().toLowerCase() === ENGINE_GROK)) {
           await new ModelDefaultsService(db).ensureGrokDefaults();
         }
+if (engines.split(',').some(engine => engine.trim().toLowerCase() === ENGINE_KIMI)) {
+          await new ModelDefaultsService(db).ensureKimiDefaults();
+        }
         if (!secure) {
           await insecure.openInitial(host.id, insecureWindowMinutes);
           const refreshed = await db.select().from(hostsTable).where(eq(hostsTable.id, prev.id)).limit(1);
@@ -209,6 +213,9 @@ export function createHostRegistrationService(deps: HostRegistrationDeps): HostR
       let host = inserted[0]!;
       if (engines.split(',').some(engine => engine.trim().toLowerCase() === ENGINE_GROK)) {
         await new ModelDefaultsService(db).ensureGrokDefaults();
+      }
+if (engines.split(',').some(engine => engine.trim().toLowerCase() === ENGINE_KIMI)) {
+        await new ModelDefaultsService(db).ensureKimiDefaults();
       }
       if (!secure) {
         await insecure.openInitial(host.id, insecureWindowMinutes);

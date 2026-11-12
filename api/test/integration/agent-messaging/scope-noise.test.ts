@@ -29,7 +29,7 @@ describe.skipIf(!handle)(
         apiKey: randomBytes(32).toString('hex'),
         status: 'active',
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         createdAt: now,
         updatedAt: now,
       });
@@ -83,7 +83,7 @@ describe.skipIf(!handle)(
       await db.delete(s.hosts).where(eq(s.hosts.id, host.id));
       await handle!.pool.end();
     });
-    async function peer(engine: 'codex' | 'claude' | 'grok' = 'codex', batch = false, smart = true) {
+    async function peer(engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'codex', batch = false, smart = true) {
       const id = randomUUID(),
         token = randomBytes(32).toString('base64url'),
         native = randomUUID(),
@@ -100,7 +100,7 @@ describe.skipIf(!handle)(
       });
       const address = out.address as { id: string; address: string };
       const protocol = (
-        { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' } as const
+        { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1', kimi: 'kimi-hooks-v1' } as const
       )[engine];
       await receiver.register(id, token, {
         generation,
@@ -127,7 +127,7 @@ describe.skipIf(!handle)(
         outcome: 'completed',
       });
     }
-    for (const engine of ['codex', 'claude', 'grok'] as const)
+    for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const)
       it(`${engine}: old routine notices vanish before delivery, direct CLAIM and room chat survive`, async () => {
         const p = await peer(engine, false, false),
           old = await notice(p),

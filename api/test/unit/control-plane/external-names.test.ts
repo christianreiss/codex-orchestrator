@@ -39,7 +39,7 @@ const host = (id: number, extra: Record<string, unknown>) => ({
   status: 'active',
   configVersion: 0,
   secure: 1,
-  engines: 'codex,claude,grok',
+  engines: 'codex,claude,grok,kimi',
   internalRole: null,
   expiresAt: null,
   insecureEnabledUntil: null,

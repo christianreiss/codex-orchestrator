@@ -4,7 +4,9 @@ import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtim
 import { stageDelete } from '../control-plane/state/rows.js';
 import { ChatGptUsageService } from '../services/chatgpt-usage.js';
 import { GrokUsageService } from '../services/grok-usage.js';
+import { KimiUsageService } from '../services/kimi-usage.js';
 import { createGrokAuthOwner } from '../services/grok-auth-owner.js';
+import { createKimiAuthOwner } from '../services/kimi-auth-owner.js';
 import { createRunnerClient } from '../services/runner-client.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -87,6 +89,8 @@ export async function registerQuotaRoutes(app: FastifyInstance, ctx: RouteContex
     if (!session.providerAccountId) return { status: 'unavailable', reason: 'account_binding_unknown', short: null, long: null };
     if (session.engine === 'codex') {
       await new ChatGptUsageService(ctx.db, app.log, { env: ctx.env, keyring: ctx.keyring, accountId: session.providerAccountId }).fetchLatest(false).catch(() => undefined);
+    } else if (session.engine === 'kimi') {
+      await new KimiUsageService({ db: ctx.db, authOwner: createKimiAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) }) }).refreshAccount(session.providerAccountId).catch(() => undefined);
     } else if (session.engine === 'grok') {
       await new GrokUsageService({ db: ctx.db, authOwner: createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) }) }).refreshAccount(session.providerAccountId).catch(() => undefined);
     }

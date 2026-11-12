@@ -68,11 +68,12 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
       .insert(hosts)
       .values({
         fqdn: `${unique}.test`,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         secure: 1,
         authDigest: 'test',
         claudeAuthDigest: 'test',
         grokAuthDigest: 'test',
+        kimiAuthDigest: 'test',
         apiKey: randomBytes(32).toString('hex'),
         status: 'active',
         createdAt: nowIso(),
@@ -90,7 +91,7 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
         instance_id: randomUUID(),
         username: 'root',
         version: 'test',
-        engines: ['codex', 'claude', 'grok'],
+        engines: ['codex', 'claude', 'grok', 'kimi'],
         error: null,
       })
     ).generation;
@@ -124,7 +125,7 @@ describe.skipIf(!handle)('companion remote conversations with MySQL', () => {
     await ctx.db.update(hostDaemons).set({ runtime: cfg.runtime }).where(eq(hostDaemons.hostId, hostId));
     await ctx.db.update(hosts).set({ engines: 'codex' }).where(eq(hosts.id, hostId));
     expect((await app.inject({ method: 'POST', url: '/companion/v1/daemon-sessions', headers: headers(), payload: { ...request(), engine: 'claude' } })).statusCode).toBe(403);
-    await ctx.db.update(hosts).set({ engines: 'codex,claude,grok' }).where(eq(hosts.id, hostId));
+    await ctx.db.update(hosts).set({ engines: 'codex,claude,grok,kimi' }).where(eq(hosts.id, hostId));
   });
   it('starts contact once, follows before registration and rejects occupied slots', async () => {
     const payload = request();

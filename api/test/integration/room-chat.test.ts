@@ -33,7 +33,7 @@ describe.skipIf(!handle)('shared room chats with MySQL', { timeout: 120000 }, ()
     await runMigrations(handle!.pool);
     const now = new Date().toISOString();
     await db.execute(
-      sql`INSERT INTO hosts (fqdn,api_key,status,secure,engines,agent_messaging_enabled,created_at,updated_at) VALUES ('ztest-room-chat.example',${'9'.repeat(64)},'active',1,'codex,claude,grok',1,${now},${now})`,
+      sql`INSERT INTO hosts (fqdn,api_key,status,secure,engines,agent_messaging_enabled,created_at,updated_at) VALUES ('ztest-room-chat.example',${'9'.repeat(64)},'active',1,'codex,claude,grok,kimi',1,${now},${now})`,
     );
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, 'ztest-room-chat.example')))[0]!;
     await markPersistentHost(db, host.id);
@@ -41,7 +41,7 @@ describe.skipIf(!handle)('shared room chats with MySQL', { timeout: 120000 }, ()
     bus = persistRelayUsers(db, new AgentMessagingService(db, env, testKeyring()));
     await bus.setEnabled(true);
     service = new AgentRoomChat(db, env, testKeyring(), bus);
-    for (const engine of ['codex', 'claude', 'grok'] as const) {
+    for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
       const sessionId = randomUUID(),
         token = randomBytes(32).toString('base64url');
       const out = await bus.registerSession(host, {

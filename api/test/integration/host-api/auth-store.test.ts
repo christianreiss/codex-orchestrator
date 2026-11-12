@@ -269,7 +269,7 @@ describe('POST /auth command=store', () => {
 });
 
 describe('DELETE /auth uninstall scope', () => {
-  it.each(['codex', 'claude', 'grok'])('removes installer ciphertext on last-engine %s uninstall', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('removes installer ciphertext on last-engine %s uninstall', async engine => {
     const apiKey = `sk-last-${engine}`; const db = seedDb(apiKey);
     db.tables.set(hostsTable, [hostRow(apiKey, { engines: engine })]);
     db.tables.set(installTokens, [{ id: 1, hostId: 1, engine, tokenEnc: 'encrypted-token', apiKeyEnc: 'encrypted-key' }]);
@@ -502,7 +502,7 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
     const apiKey = 'sk-retrieve-engine-host-metadata';
     const db = seedDb(apiKey);
     db.tables.set(hostsTable, [hostRow(apiKey, {
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       lastRefresh: '2026-09-29T10:00:00Z',
       clientVersion: '0.153.4',
       wrapperVersion: '0.9.10',
@@ -510,12 +510,19 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
       claudeClientVersion: '2.1.89',
       claudeWrapperVersion: '0.9.9',
       grokLastRefresh: '2026-10-01T12:00:00Z',
+      kimiLastRefresh: '2026-10-01T12:00:00Z',
       grokClientVersion: '1.0.46',
+      kimiClientVersion: '1.0.46',
       grokClientVersionOverride: '1.0.46',
+      kimiClientVersionOverride: '1.0.46',
       grokWrapperVersion: '0.9.11',
+      kimiWrapperVersion: '0.9.11',
       grokAuthDigest: 'grok-canonical-digest',
+      kimiAuthDigest: 'kimi-canonical-digest',
       grokModelOverride: 'grok-4.5',
+      kimiModelOverride: 'kimi-4.5',
       grokReasoningEffortOverride: 'medium',
+      kimiReasoningEffortOverride: 'medium',
     })]);
     const app = await buildHostApiTestApp({ db: db as unknown as Database, env: baseEnv, keyring: makeKeyring() });
     try {
@@ -529,7 +536,7 @@ describe('POST /auth command=retrieve quota lane shaping', () => {
       const body = JSON.parse(r.payload);
       assertContract('auth-retrieve.schema.json', body);
       expect(body.host).toMatchObject({
-        engines_list: ['codex', 'claude', 'grok'],
+        engines_list: ['codex', 'claude', 'grok', 'kimi'],
         last_refresh: '2026-09-29T10:00:00Z',
         client_version: '0.153.4',
         wrapper_version: '0.9.10',

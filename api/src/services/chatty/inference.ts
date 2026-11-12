@@ -10,6 +10,7 @@ import { ProviderAccountsService } from '../provider-accounts.js';
 import { createRunnerValidationService } from '../runner-validation.js';
 import { createRunnerClient } from '../runner-client.js';
 import { createGrokAuthOwner } from '../grok-auth-owner.js';
+import { createKimiAuthOwner } from '../kimi-auth-owner.js';
 import { SettingsService } from '../settings.js';
 import { inspectCredential } from '../auth-generation.js';
 import {
@@ -183,8 +184,8 @@ export class ChattyInference {
         }, 30000);
         timer?.unref();
         let auth: unknown;
-        if (engine === 'grok') {
-          const owner = createGrokAuthOwner({
+        if (engine === 'grok' || engine === 'kimi') {
+          const owner = (engine === 'kimi' ? createKimiAuthOwner : createGrokAuthOwner)({
             db: this.ctx.db,
             keyring: this.ctx.keyring,
             runner: createRunnerClient({ env: this.ctx.env }),

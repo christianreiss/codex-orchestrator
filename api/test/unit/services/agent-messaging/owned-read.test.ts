@@ -21,7 +21,7 @@ import { newQueuedMessage } from '../../../../src/services/agent-messaging/views
 import { createDbFake } from '../../../helpers/db-fake.js';
 
 const keyring = Keyring.fromEnv({ ENCRYPTION_ACTIVE_KEY: Buffer.alloc(32, 17).toString('base64') } as Env);
-const engines = ['codex', 'claude', 'grok'] as const;
+const engines = ['codex', 'claude', 'grok', 'kimi'] as const;
 function fixture(
   engine: (typeof engines)[number] = 'codex',
   count = 1,

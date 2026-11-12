@@ -33,6 +33,7 @@ export function fleetEngines(snapshot: OwnerStateSnapshot) {
     codex: !isTruthyFlagValue(snapshot.setting('codex_engine_disabled')),
     claude: !isTruthyFlagValue(snapshot.setting('claude_engine_disabled')),
     grok: !isTruthyFlagValue(snapshot.setting('grok_engine_disabled')),
+    kimi: !isTruthyFlagValue(snapshot.setting('kimi_engine_disabled')),
   };
 }
 export function assertEngine(
@@ -45,7 +46,7 @@ export function assertEngine(
     !isEngine(engine) ||
     !activeHostEngines(
       host.engines,
-      allowSuspended ? { codex: true, claude: true, grok: true } : fleetEngines(snapshot),
+      allowSuspended ? { codex: true, claude: true, grok: true, kimi: true } : fleetEngines(snapshot),
     ).includes(engine)
   )
     throw new ForbiddenError('Engine unavailable', 'state_engine_unavailable');

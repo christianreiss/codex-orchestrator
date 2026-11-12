@@ -76,7 +76,7 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
         status: 'active',
         configVersion: 0,
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         internalRole: null,
         expiresAt: null,
         insecureEnabledUntil: null,
@@ -145,7 +145,7 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
   return { state, runtime, presence, fake, ctx, service };
 }
 describe('connection-owned daemon commands', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('persists %s canonical identity changes but not repeated auth contact', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('persists %s canonical identity changes but not repeated auth contact', async (engine) => {
     const h = harness(), stamp = '2026-10-24T10:00:00Z', digest = 'a'.repeat(64);
     await touchHostAuthState(h.ctx.db, 1, 11, digest, engine);
     await touchHostAuthFields(h.ctx.db, 1, stamp, digest, engine);
@@ -910,7 +910,7 @@ describe('explicit legacy process drain', () => {
 });
 
 describe('owned engine destruction', () => {
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'requires %s suspension and completed host cleanup before purge',
     async (engine) => {
       const h = harness({ versions: [{ name: `${engine}_engine_disabled`, version: '1' }] });
@@ -983,7 +983,7 @@ describe('owned advisor composition', () => {
   it('does not observe a transient messaging flag absent from its policy snapshot', async () => {
     const h = harness({
       hosts: [{ id: 1, fqdn: 'advisor.internal', secure: 1, status: 'active',
-        internalRole: 'advisor', engines: 'codex,claude,grok', expiresAt: null }],
+        internalRole: 'advisor', engines: 'codex,claude,grok,kimi', expiresAt: null }],
       versions: [],
     });
     const proof = h.state.snapshot();
@@ -1004,7 +1004,7 @@ describe('owned advisor composition', () => {
     ['runner_last_check', '2026-11-01T20:00:00Z', false, false],
     ['agent_messaging_enabled', '0', true, false],
     ['agent_messaging_enabled', '0', true, true],
-    ...(['codex', 'claude', 'grok'] as const).flatMap(
+    ...(['codex', 'claude', 'grok', 'kimi'] as const).flatMap(
       (engine) =>
         [
           [`${engine}_engine_disabled`, '1', true, false],
@@ -1022,7 +1022,7 @@ describe('owned advisor composition', () => {
           secure: 1,
           status: 'active',
           internalRole: 'advisor',
-          engines: 'codex,claude,grok',
+          engines: 'codex,claude,grok,kimi',
           expiresAt: null,
         },
       ],
@@ -1055,7 +1055,7 @@ describe('owned advisor composition', () => {
       expect(h.state.snapshot().table('hostDaemonSessions').all()).toHaveLength(1);
     }
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     '%s creates advisor and daemon atomically and closes without nested commands',
     async (engine) => {
       const callerId = randomUUID(),
@@ -1067,7 +1067,7 @@ describe('owned advisor composition', () => {
               secure: 1,
               status: 'active',
               internalRole: 'advisor',
-              engines: 'codex,claude,grok',
+              engines: 'codex,claude,grok,kimi',
               expiresAt: null,
             },
           ],

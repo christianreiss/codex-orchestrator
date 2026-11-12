@@ -28,13 +28,13 @@ import type { Engine } from '../../../src/util/engine.js';
  * the credential snapshot, the model catalog and what the CLI can honour.
  */
 
-const BACKENDS: Engine[] = ['codex', 'claude', 'grok'];
-const SNAPSHOTS: Record<Engine, Record<string, unknown>> = {
+const BACKENDS: Array<Exclude<Engine, 'kimi'>> = ['codex', 'claude', 'grok'];
+const SNAPSHOTS: Record<Exclude<Engine, 'kimi'>, Record<string, unknown>> = {
   codex: { tokens: { access_token: 'codex-access' } },
   claude: { claudeAiOauth: { accessToken: 'claude-access' } },
   grok: { grok_auth: { selected: { key: 'grok-access' } } },
 };
-const RUNNER_RESULTS: Record<Engine, Record<string, unknown>> = {
+const RUNNER_RESULTS: Record<Exclude<Engine, 'kimi'>, Record<string, unknown>> = {
   codex: { status: 'ok', output: 'from codex' },
   claude: { status: 'ok', output: 'from claude', input_tokens: 10, output_tokens: 4, cache_read_input_tokens: 6, cache_creation_input_tokens: 0 },
   grok: {
@@ -67,7 +67,7 @@ function stubModels(engine: 'claude' | 'grok'): GatewayBackendModels {
   };
 }
 
-async function harness(backend: Engine, opts: { assigned?: Engine; disabled?: Engine[]; endpointDisabled?: boolean } = {}) {
+async function harness(backend: Exclude<Engine, 'kimi'>, opts: { assigned?: Engine; disabled?: Engine[]; endpointDisabled?: boolean } = {}) {
   const app = Fastify({ logger: false });
   await app.register(cookie);
   await app.register(requestIdPlugin);
@@ -76,7 +76,7 @@ async function harness(backend: Engine, opts: { assigned?: Engine; disabled?: En
   app.addHook('onRequest', async (req) => { req.clientIp = '127.0.0.1'; });
 
   const runner = vi.fn(async (_url: unknown, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body)) as { engine: Engine };
+    const body = JSON.parse(String(init?.body)) as { engine: Exclude<Engine, 'kimi'> };
     return new Response(JSON.stringify(RUNNER_RESULTS[body.engine]));
   });
   vi.stubGlobal('fetch', runner);
@@ -123,7 +123,7 @@ async function harness(backend: Engine, opts: { assigned?: Engine; disabled?: En
   return { app, runner, dispatched, execs, routingCalls };
 }
 
-const DEFAULT_MODEL: Record<Engine, string> = { codex: OPENAI_DEFAULT_MODEL, claude: 'claude-sonnet-5', grok: 'grok-4.7' };
+const DEFAULT_MODEL: Record<Exclude<Engine, 'kimi'>, string> = { codex: OPENAI_DEFAULT_MODEL, claude: 'claude-sonnet-5', grok: 'grok-4.7' };
 
 async function close(app: FastifyInstance) {
   await app.close();

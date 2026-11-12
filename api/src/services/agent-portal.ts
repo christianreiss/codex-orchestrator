@@ -353,7 +353,7 @@ export class AgentPortalService {
     const cwd = normalizeRequiredText(input.cwd, 'cwd', 1024);
     const workspace = normalizeWorkspace(input.workspace);
     if (!isEngine(input.engine)) {
-      throw new ValidationError('engine must be codex, claude or grok', { param: 'engine' });
+      throw new ValidationError('engine must be codex, claude, grok or kimi', { param: 'engine' });
     }
     const sessionId = input.sessionId ? normalizeUuid(input.sessionId, 'session_id') : randomUUID();
     const bridgeToken = input.bridgeToken ? normalizeBridgeToken(input.bridgeToken) : randomBytes(32).toString('base64url');

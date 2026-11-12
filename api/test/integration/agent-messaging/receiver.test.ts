@@ -32,7 +32,7 @@ describe.skipIf(!handle).each(engines)('$engine receiver connection health and f
     await db.insert(hosts).values({
       fqdn: `receiver-${id}.test`,
       apiKey: 'd'.repeat(64),
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       status: 'active',
       secure: 1,
       createdAt: now,

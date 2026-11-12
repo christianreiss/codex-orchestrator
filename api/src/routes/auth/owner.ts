@@ -103,7 +103,9 @@ export async function uninstallOwnedHost(
             stageDelete(c, table, JSON.parse(c.draft.table(table).keyFor(row)) as Array<string | number>);
       if (partial) {
         const patch =
-          engine === 'grok'
+          engine === 'kimi'
+            ? { kimiAuthDigest: null, kimiLastRefresh: null, kimiClientVersion: null, kimiClientVersionOverride: null, kimiWrapperVersion: null, kimiModelOverride: null, kimiReasoningEffortOverride: null }
+            : engine === 'grok'
             ? {
                 grokAuthDigest: null,
                 grokLastRefresh: null,

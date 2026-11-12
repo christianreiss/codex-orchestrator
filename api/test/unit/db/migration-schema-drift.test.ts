@@ -258,6 +258,8 @@ describe('migrations against the test baseline', () => {
       'slop_job_files',
       'slop_runs',
       'connector_records',
+      'kimi_auth_refresh_state',
+      'kimi_usage_snapshots',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -403,6 +405,13 @@ describe('migrations against the test baseline', () => {
       'agent_bus_messages.quota_emulation_wait',
       'hosts.agents_extra',
       'agent_bus_messages.connector_grant_id',
+      'hosts.kimi_client_version',
+      'hosts.kimi_client_version_override',
+      'hosts.kimi_wrapper_version',
+      'hosts.kimi_auth_digest',
+      'hosts.kimi_model_override',
+      'hosts.kimi_reasoning_effort_override',
+      'hosts.kimi_last_refresh',
     ]);
   });
 

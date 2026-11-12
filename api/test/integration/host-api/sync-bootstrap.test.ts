@@ -77,10 +77,10 @@ function makeKeyring(): Keyring {
 }
 
 describe('first-sync wrapper capabilities', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('%s renders MCP for the running wrapper before its first version report', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s renders MCP for the running wrapper before its first version report', async engine => {
     const db = createDbFake();
     const apiKey = 'sk-first-sync';
-    const host = hostRow(apiKey, { engines: 'codex,claude,grok', wrapperVersion: null, claudeWrapperVersion: null, grokWrapperVersion: null });
+    const host = hostRow(apiKey, { engines: 'codex,claude,grok,kimi', wrapperVersion: null, claudeWrapperVersion: null, grokWrapperVersion: null });
     db.tables.set(hostsTable, [host]);
     db.tables.set(clientConfigDocuments, [{ id: 1, engine, body: '', sha256: 'first-sync',
       settings: { orchestrator_mcp_enabled: true, mcp_servers: [] },
@@ -122,7 +122,7 @@ describe('Claude Skill delivery transport', () => {
   it.each([true, false, null])('uses the same effective MCP gate without an agents document (MCP=%s)', async enabled => {
     const db = createDbFake();
     const apiKey = 'sk-claude-skill-transport';
-    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok' })]);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok,kimi' })]);
     if (enabled !== null) db.tables.set(clientConfigDocuments, [{
       id: 1, engine: 'claude', body: '', sha256: 'skill-transport',
       settings: { orchestrator_mcp_enabled: enabled, mcp_servers: [] },
@@ -154,11 +154,11 @@ describe('Claude Skill delivery transport', () => {
 });
 
 describe('native memory routing bootstrap', () => {
-  it.each(['codex', 'claude', 'grok'])('%s follows the effective MCP gate even without an agents document', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('%s follows the effective MCP gate even without an agents document', async (engine) => {
     for (const enabled of [true, false]) {
       const db = createDbFake();
       const apiKey = 'sk-memory-routing-test';
-      db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok' })]);
+      db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok,kimi' })]);
       db.tables.set(clientConfigDocuments, [{
         id: 1, engine, body: '', sha256: 'memory-test',
         settings: { orchestrator_mcp_enabled: enabled, mcp_servers: [] },
@@ -1469,10 +1469,10 @@ describe('POST /sync/bootstrap inlines agents + config', () => {
 });
 
 describe('POST /sync/bootstrap include_content:false (communicator warm cache)', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('%s returns only the pre-exec blocks and renders no content', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s returns only the pre-exec blocks and renders no content', async (engine) => {
     const apiKey = 'sk-bootstrap-no-content';
     const db = createDbFake();
-    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok' })]);
+    db.tables.set(hostsTable, [hostRow(apiKey, { engines: 'codex,claude,grok,kimi' })]);
     db.tables.set(versionsTable, []);
     db.tables.set(mcpSessionTokens, []);
     db.tables.set(clientConfigDocuments, [{ id: 1, engine, body: '', sha256: 'no-content',

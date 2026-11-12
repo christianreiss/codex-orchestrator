@@ -41,7 +41,7 @@ const all = harness().registry.list('operator');
 const ajv = new Ajv({ strict: false, allErrors: true });
 const addFormats = createRequire(import.meta.url)('ajv-formats') as (instance: Ajv) => void;
 addFormats(ajv);
-describe.each(['codex', 'claude', 'grok'] as const)('%s MCP full server catalogue', (engine) => {
+describe.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s MCP full server catalogue', (engine) => {
   const context = { host: { id: 7 } as Host, engine,
     capability: 'operator' as const, clientIp: null, serverVersion: 'test' };
   it('includes all host tools and the optional operator filesystem tools', () => {

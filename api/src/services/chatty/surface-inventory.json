@@ -120,7 +120,10 @@
     "POST /admin/workflow-definitions/state": "workflow_state_set",
     "PUT /admin/accounts/:id/quota-policy": "account_quota_policy_update",
     "PUT /admin/quota-policy/:engine": "quota_policy_update",
-    "PUT /admin/roles/:slug/draft": "role_draft_save"
+    "PUT /admin/roles/:slug/draft": "role_draft_save",
+    "DELETE /admin/kimi/keys/:id": "gateway_key_delete",
+    "GET /admin/kimi/keys": "gateway_keys_list",
+    "POST /admin/kimi/keys/:id/toggle": "gateway_key_active"
   },
   "interactive_handoff": {
     "reason": "Existing authenticated UI owns this operation, validation or interactive flow. Chatty explains and links; it does not claim execution.",
@@ -362,7 +365,23 @@
       "GET /admin/connectors/consent/:id",
       "POST /admin/connectors/consent/:id",
       "POST /admin/connectors/preview",
-      "POST /admin/connectors/clients"
+      "POST /admin/connectors/clients",
+      "GET /admin/kimi/config",
+      "GET /admin/kimi/config/retrieve",
+      "GET /admin/kimi/models",
+      "GET /admin/kimi/settings",
+      "GET /admin/kimi/state",
+      "GET /admin/kimi/version",
+      "GET /admin/kimi/version/lock",
+      "POST /admin/kimi/config/render",
+      "POST /admin/kimi/config/store",
+      "POST /admin/kimi/keys",
+      "POST /admin/kimi/models/:model/toggle",
+      "POST /admin/kimi/settings",
+      "POST /admin/kimi/state",
+      "POST /admin/kimi/version",
+      "POST /admin/hosts/:id/kimi-version",
+      "POST /admin/runner/run-kimi"
     ]
   },
   "excluded": {

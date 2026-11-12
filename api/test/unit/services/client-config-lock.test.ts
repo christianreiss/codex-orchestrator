@@ -89,7 +89,7 @@ describe('Canonical config write locking', () => {
     expect(db.tables.get(clientConfigDocuments)).toHaveLength(1);
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('guards the %s missing state and keeps omitted revisions compatible', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('guards the %s missing state and keeps omitted revisions compatible', async engine => {
     const db = createDbFake();
     const configs = new ClientConfigService(db as never);
     expect(await configs.adminFetch(engine)).toEqual({ status: 'missing', revision: null });

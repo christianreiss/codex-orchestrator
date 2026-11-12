@@ -244,7 +244,7 @@ describe.skipIf(!handle)('durable workflows on real MySQL', { timeout: 30000 }, 
       apiKey: randomUUID(),
       status: 'active',
       secure: 1,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       createdAt: now,
       updatedAt: now,
     });

@@ -16,7 +16,7 @@ describe.skipIf(!handle)('correct invalid authored native settings on MySQL', ()
       await handle.pool.end();
     }
   }, 120_000);
-  it.each(['codex', 'claude', 'grok'] as const)('%s preserves the invalid snapshot and enforces correction/revision checks', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s preserves the invalid snapshot and enforces correction/revision checks', async engine => {
     const service = new ClientConfigService(handle!.db);
     const settings = { native_settings: { unknown_saved_option: 'keep raw authored value' } };
     const body = `# historical ${engine} snapshot\n`, sha256 = createHash('sha256').update(body).digest('hex');

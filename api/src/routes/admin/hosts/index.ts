@@ -36,7 +36,7 @@ import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services
 import { hostEnginesList } from '../../../services/host-engine-policy.js';
 import { summarizeHostAgentsExtra } from '../../../services/host-agents-extra.js';
 import { hostAuthDigests, type Host } from '../../../db/schema.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Zod schemas
@@ -100,7 +100,7 @@ const enginesSchema = z
     const out: Engine[] = [];
     for (const p of parts) {
       const t = String(p).trim().toLowerCase();
-      if (t === ENGINE_CODEX || t === ENGINE_CLAUDE || t === ENGINE_GROK) {
+      if (t === ENGINE_CODEX || t === ENGINE_CLAUDE || t === ENGINE_GROK || t === ENGINE_KIMI) {
         if (!out.includes(t as Engine)) out.push(t as Engine);
       }
     }
@@ -143,7 +143,9 @@ const modelOverridesSchema = z
     reasoning_effort_override: z.union([z.string(), z.null()]).optional(),
     claude_model_override: z.union([z.string(), z.null()]).optional(),
     grok_model_override: z.union([z.string(), z.null()]).optional(),
+    kimi_model_override: z.union([z.string(), z.null()]).optional(),
     grok_reasoning_effort_override: z.union([z.string(), z.null()]).optional(),
+    kimi_reasoning_effort_override: z.union([z.string(), z.null()]).optional(),
   })
   .strict();
 
@@ -152,6 +154,7 @@ const versionSelectionSchema = z.object({
   client_version_override: z.union([z.string(), z.null()]).optional(),
   claude_client_version_override: z.union([z.string(), z.null()]).optional(),
   grok_client_version_override: z.union([z.string(), z.null()]).optional(),
+  kimi_client_version_override: z.union([z.string(), z.null()]).optional(),
   agents_document_id_override: z.union([z.string(), z.number(), z.null()]).optional(),
 });
 
@@ -224,12 +227,18 @@ function hostToWire(h: Omit<Host, 'apiKey' | 'apiKeyEnc'>): Record<string, unkno
       h.insecureGraceUntil instanceof Date ? h.insecureGraceUntil.toISOString() : h.insecureGraceUntil,
     insecure_window_minutes: h.insecureWindowMinutes,
     grok_client_version: h.grokClientVersion,
+    kimi_client_version: h.kimiClientVersion,
     grok_client_version_override: h.grokClientVersionOverride,
+    kimi_client_version_override: h.kimiClientVersionOverride,
     grok_wrapper_version: h.grokWrapperVersion,
+    kimi_wrapper_version: h.kimiWrapperVersion,
     grok_canonical_digest: h.grokAuthDigest,
     grok_model_override: h.grokModelOverride,
+    kimi_model_override: h.kimiModelOverride,
     grok_reasoning_effort_override: h.grokReasoningEffortOverride,
+    kimi_reasoning_effort_override: h.kimiReasoningEffortOverride,
     grok_last_refresh: h.grokLastRefresh,
+    kimi_last_refresh: h.kimiLastRefresh,
     engines: h.engines,
     engines_list: hostEnginesList(h.engines),
     expires_at: h.expiresAt,
@@ -304,9 +313,9 @@ export async function registerAdminHostsRoutes(
         .orderBy(desc(hostAuthDigests.lastSeen))
         .limit(3);
       const engineLastRefresh =
-        engine === ENGINE_GROK ? host.grokLastRefresh ?? null : engine === ENGINE_CLAUDE ? host.claudeLastRefresh ?? null : host.lastRefresh ?? null;
+        engine === ENGINE_KIMI ? host.kimiLastRefresh ?? null : engine === ENGINE_GROK ? host.grokLastRefresh ?? null : engine === ENGINE_CLAUDE ? host.claudeLastRefresh ?? null : host.lastRefresh ?? null;
       const engineDigest =
-        engine === ENGINE_GROK ? host.grokAuthDigest ?? null : engine === ENGINE_CLAUDE ? host.claudeAuthDigest ?? null : host.authDigest ?? null;
+        engine === ENGINE_KIMI ? host.kimiAuthDigest ?? null : engine === ENGINE_GROK ? host.grokAuthDigest ?? null : engine === ENGINE_CLAUDE ? host.claudeAuthDigest ?? null : host.authDigest ?? null;
       return {
         canonical_last_refresh: validated?.last_refresh ?? engineLastRefresh,
         canonical_digest: validated?.digest ?? engineDigest,
@@ -461,7 +470,7 @@ export async function registerAdminHostsRoutes(
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(setEnginesSchema, req.body ?? {});
       if (!body.engines || body.engines.length === 0) {
-        throw new ValidationError('engines must contain at least one of: codex, claude, grok', {
+        throw new ValidationError('engines must contain at least one of: codex, claude, grok, kimi', {
           param: 'engines',
         });
       }
@@ -793,7 +802,9 @@ export async function registerAdminHostsRoutes(
           body.claude_model_override === undefined ? undefined : body.claude_model_override,
         includeClaudeOverride: includesClaude,
         grok_model_override: body.grok_model_override,
+        kimi_model_override: body.kimi_model_override,
         grok_reasoning_effort_override: body.grok_reasoning_effort_override,
+        kimi_reasoning_effort_override: body.kimi_reasoning_effort_override,
       });
       return { host: hostToWire(host) };
     },
@@ -841,6 +852,14 @@ export async function registerAdminHostsRoutes(
     const selection = typeof raw === 'string' ? raw.trim() : null;
     const global = selection === null || selection === '' || ['global', 'fleet', 'default'].includes(selection.toLowerCase());
     return { host: hostToWire(await hostService.setGrokVersionOverride(id, global ? null : selection)) };
+  });
+  app.post('/admin/hosts/:id/kimi-version', { preHandler: app.requireAdmin }, async req => {
+    const id = parseId((req.params as { id: string }).id);
+    const body = parseZod(versionSelectionSchema, req.body);
+    const raw = body.selection ?? body.kimi_client_version_override ?? null;
+    const selection = typeof raw === 'string' ? raw.trim() : null;
+    const global = selection === null || selection === '' || ['global', 'fleet', 'default'].includes(selection.toLowerCase());
+    return { host: hostToWire(await hostService.setKimiVersionOverride(id, global ? null : selection)) };
   });
   app.route({
     method: 'POST',

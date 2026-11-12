@@ -38,7 +38,7 @@ const resource = (kind: string) =>
       ? { kind, common_dir: '/tmp/claim-default/.git', branch: 'main' }
       : { kind, service: 'claim-fixture' };
 describe('authenticated current-host resource defaults', () => {
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     '%s defaults local resource host and preserves idempotent explicit retry',
     async (engine) => {
       for (const kind of ['path', 'git', 'service']) {
@@ -58,7 +58,7 @@ describe('authenticated current-host resource defaults', () => {
       }
     },
   );
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     '%s keeps explicit fleet targets and remote targets distinct',
     async (engine) => {
       const f = fixture(engine);

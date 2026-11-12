@@ -18,7 +18,7 @@ describe.skipIf(!handle)('native activity persistence and authenticated HTTP', (
   beforeAll(async () => {
     const now = new Date().toISOString();
     await db!.execute(
-      sql`INSERT INTO hosts (fqdn,api_key,status,engines,created_at,updated_at) VALUES ('ztest-native-activity.example',${'c'.repeat(64)},'active','codex,claude,grok',${now},${now})`,
+      sql`INSERT INTO hosts (fqdn,api_key,status,engines,created_at,updated_at) VALUES ('ztest-native-activity.example',${'c'.repeat(64)},'active','codex,claude,grok,kimi',${now},${now})`,
     );
     host = (await db!.select().from(hosts).where(eq(hosts.fqdn, 'ztest-native-activity.example')))[0]!;
     const env = loadTestEnv();
@@ -40,7 +40,7 @@ describe.skipIf(!handle)('native activity persistence and authenticated HTTP', (
     await service?.setEnabled(false);
     await handle?.pool.end();
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     '%s reports terminal work without a portal turn',
     async (engine) => {
       const registered = await service.registerAgent(host, {
@@ -78,7 +78,7 @@ describe.skipIf(!handle)('native activity persistence and authenticated HTTP', (
         sequence: 1,
         state: 'working',
         wait_reason: null,
-        source: { codex: 'codex-thread', claude: 'claude-hooks', grok: 'grok-session' }[engine],
+        source: { codex: 'codex-thread', claude: 'claude-hooks', grok: 'grok-session', kimi: 'kimi-hooks' }[engine],
         evidence_age_ms: 0,
       };
       const request = (payload = body, token = registered.bridge_token) =>

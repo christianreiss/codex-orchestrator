@@ -8,8 +8,9 @@ import type { Keyring } from '../security/keyring.js';
 import { ValidationError } from '../http/errors.js';
 import { compareRfc3339, isRfc3339, parseRfc3339Millis, parseRfc3339Nanos } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, isEngine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, isEngine } from '../util/engine.js';
 import { GROK_AUTH_TARGET, normalizeGrokAuth, projectGrokAuth } from './grok-auth.js';
+import { KIMI_AUTH_TARGET, normalizeKimiAuth, projectKimiAuth } from './kimi-auth.js';
 import { resolveProviderAccount } from './provider-account-reference.js';
 import {
   fingerprintMatches,
@@ -26,6 +27,7 @@ const AUTH_TARGETS: Record<Engine, string> = {
   codex: 'api.openai.com',
   claude: 'api.anthropic.com',
   grok: GROK_AUTH_TARGET,
+  kimi: KIMI_AUTH_TARGET,
 };
 
 /**
@@ -276,13 +278,20 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
         const candidate = pairFingerprints(identity, deps.keyring).get(row.fingerprintKid);
         if (!fingerprintMatches(row.pairFingerprint, candidate)) return null;
       }
-      return engine === ENGINE_GROK ? projectGrokAuth(validated.auth) : validated.auth;
+      return engine === ENGINE_GROK ? projectGrokAuth(validated.auth) : engine === ENGINE_KIMI ? projectKimiAuth(validated.auth) : validated.auth;
     },
 
     ensureAuthsFallback(payload, engine) {
       if (engine === ENGINE_GROK) {
         try {
           return normalizeGrokAuth(payload);
+        } catch {
+          return { ...payload, auths: {} };
+        }
+      }
+      if (engine === ENGINE_KIMI) {
+        try {
+          return normalizeKimiAuth(payload);
         } catch {
           return { ...payload, auths: {} };
         }
@@ -399,6 +408,7 @@ export function createRunnerValidationService(deps: RunnerValidationDeps): Runne
     canonicalizeAuthPayload(payload, entries, lastRefresh, engine) {
       assertCanonicalEngineConsistent(entries, engine);
       if (engine === ENGINE_GROK) return normalizeGrokAuth({ ...payload, last_refresh: lastRefresh });
+      if (engine === ENGINE_KIMI) return normalizeKimiAuth({ ...payload, last_refresh: lastRefresh });
       const nativeTarget = AUTH_TARGETS[engine];
       const canonical: Record<string, unknown> = {
         last_refresh: lastRefresh,

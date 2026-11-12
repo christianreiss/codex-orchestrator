@@ -15,7 +15,7 @@ export type DaemonPermissionMode = (typeof DAEMON_PERMISSION_MODES)[number];
 export const PERMISSION_MODE_VERSION = 1;
 
 /** Engines whose native CLI accepts `--permission-mode plan` per invocation. */
-const PLAN_ENGINES = new Set(['claude', 'grok']);
+const PLAN_ENGINES = new Set(['claude', 'grok', 'kimi']);
 
 export function permissionModesFor(engine: string, runtimeVersion: number | undefined): DaemonPermissionMode[] {
   return PLAN_ENGINES.has(engine) && (runtimeVersion ?? 0) >= PERMISSION_MODE_VERSION ? ['default', 'plan'] : ['default'];

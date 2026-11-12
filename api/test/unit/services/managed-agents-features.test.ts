@@ -201,7 +201,7 @@ describe('fleet commit guidance', () => {
         it(`${engine}: ${message_style}, attribution ${ai_attribution}`, () => {
           const settings = { message_style, ai_attribution };
           const out = renderManagedAgentFeatures('# Base\n', context(engine, { gitCommitSettings: settings }));
-          const name = { codex: 'Codex', claude: 'Claude', grok: 'Grok' }[engine];
+          const name = { codex: 'Codex', claude: 'Claude', grok: 'Grok', kimi: 'Kimi Code' }[engine];
           expect(out.body).toContain('## Git commit messages');
           expect(out.body).toContain(message_style === 'short' ? 'one precise subject line' : 'explain what changed and why');
           expect(out.body.includes(`AI-Assisted-By: ${name}`)).toBe(ai_attribution);

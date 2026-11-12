@@ -53,7 +53,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       apiKey: randomBytes(32).toString('hex'),
       status: 'active',
       secure: 1,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       createdAt: now,
       updatedAt: now,
     });
@@ -71,7 +71,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       .onDuplicateKeyUpdate({ set: { version: '1' } });
     await service.setEnabled(true);
   });
-  async function register(engine: 'codex' | 'claude' | 'grok', root = `/tmp/scopes-${suffix}`) {
+  async function register(engine: 'codex' | 'claude' | 'grok' | 'kimi', root = `/tmp/scopes-${suffix}`) {
     const id = randomUUID(),
       token = randomBytes(32).toString('base64url');
     sessions.push(id);
@@ -720,7 +720,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     await registerAgentPortalAdminHostRoutes(app, { db: handle!.db, env, keyring });
     const names = Array.from({ length: 10 }, (_, index) => `Scope-${suffix.slice(0, 8)}-${index}`);
     await handle!.db.insert(agentNamePool).values(names.map((name) => ({ nameKey: name.toLowerCase(), name })));
-    const launch = async (engine: 'codex' | 'claude' | 'grok' = 'codex') => {
+    const launch = async (engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'codex') => {
       const id = randomUUID();
       sessions.push(id);
       return app.inject({ method: 'POST', url: '/host/agent-sessions', headers: { 'x-api-key': host.apiKey }, payload: {
@@ -733,7 +733,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       await handle!.pool.query(`ALTER TABLE agent_scope_members MODIFY session_id CHAR(36) CHARACTER SET utf8mb4 COLLATE ${mismatch} NOT NULL`);
       await expect(service.context(a.id, a.token)).rejects.toMatchObject({ cause: { code: 'ER_CANT_AGGREGATE_2COLLATIONS' } });
       expect(await service.state()).toMatchObject({ enabled: true });
-      for (const engine of ['codex', 'claude', 'grok'] as const) {
+      for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
         const degraded = await launch(engine);
         expect(degraded.statusCode, degraded.body).toBe(200);
         expect(degraded.json()).toMatchObject({ enabled: true, name_status: 'assigned',
@@ -741,7 +741,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
           scope_context: { enabled: true, available: false, reason: 'snapshot_unavailable' } });
       }
       for (const statement of migration) await handle!.pool.query(statement);
-      for (const engine of ['codex', 'claude', 'grok'] as const) {
+      for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
         const restored = await launch(engine);
         expect(restored.statusCode, restored.body).toBe(200);
         expect(restored.json()).toMatchObject({ enabled: true, name_status: 'assigned',
@@ -770,7 +770,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       apiKey: randomBytes(32).toString('hex'),
       status: 'active',
       secure: 1,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       internalRole: 'advisor',
       createdAt: now,
       updatedAt: now,
@@ -782,7 +782,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     const names = Array.from({ length: 6 }, (_, index) => `Advisor-${suffix.slice(0, 8)}-${index}`);
     await db.insert(agentNamePool).values(names.map((name) => ({ nameKey: name.toLowerCase(), name })));
     try {
-      for (const engine of ['codex', 'claude', 'grok'] as const) {
+      for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
         const id = randomUUID(),
           token = randomBytes(32).toString('base64url');
         advisorSessions.push(id);
@@ -1084,11 +1084,11 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     await service.context(a.id, a.token);
     await handle!.db.insert(versions).values({ name: 'codex_engine_disabled', version: '1', updatedAt: new Date().toISOString() }).onDuplicateKeyUpdate({ set: { version: '1' } });
     const engineSwitch = await import('../../../src/services/engine-switch.js');
-    const fallback = vi.spyOn(engineSwitch, 'readFleetEngineState').mockResolvedValue({ codex: true, claude: true, grok: true });
+    const fallback = vi.spyOn(engineSwitch, 'readFleetEngineState').mockResolvedValue({ codex: true, claude: true, grok: true, kimi: true });
     try {
       const reconciled = vi.spyOn(service, 'reconcile');
       await service.tick();
-      expect(reconciled.mock.calls.at(-1)?.[2]).toEqual({ codex: false, claude: true, grok: true });
+      expect(reconciled.mock.calls.at(-1)?.[2]).toEqual({ codex: false, claude: true, grok: true, kimi: true });
       reconciled.mockRestore();
       expect(await handle!.db.select().from(agentScopeMembers).where(and(eq(agentScopeMembers.sessionId, a.id), eq(agentScopeMembers.state, 'active')))).toHaveLength(0);
     } finally {

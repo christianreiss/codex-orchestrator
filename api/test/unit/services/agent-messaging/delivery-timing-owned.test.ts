@@ -174,7 +174,7 @@ function fixture(engine: string, count = 2) {
   };
 }
 
-describe.each(['codex', 'claude', 'grok'])('%s explicit work acceptance', (engine) => {
+describe.each(['codex', 'claude', 'grok', 'kimi'])('%s explicit work acceptance', (engine) => {
   function prepare(f: ReturnType<typeof fixture>, overrides: Record<string, unknown> = {}) {
     const draft = f.state.begin();
     for (const row of draft.table('agentBusMessages').all()) draft.upsert('agentBusMessages', {
@@ -295,7 +295,7 @@ it('lets a Claude turn the owner still sees as busy take immediate information t
   }
 });
 
-describe.each(['codex', 'claude', 'grok'])('%s owned immediate admission', (engine) => {
+describe.each(['codex', 'claude', 'grok', 'kimi'])('%s owned immediate admission', (engine) => {
   it('batches legacy after-turn information without delivery-timing negotiation', async () => {
     const f = fixture(engine);
     try {

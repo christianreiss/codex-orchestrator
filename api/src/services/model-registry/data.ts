@@ -149,3 +149,14 @@ export const GROK_MODELS = [
 ] as const satisfies readonly ModelEntry[];
 
 export const GROK_DEFAULT_MODEL = 'grok-4.7';
+
+/** Kimi Code 2.5.3 managed subscription catalog (2026-11-12). */
+export const KIMI_MODELS = [
+  { id: 'k3.1-pro', label: 'K3.1 Pro', family: 'k3-1', tier: 3, status: 'active', efforts: ['low', 'high', 'max'], defaultEffort: 'max', minCliVersion: '2.5.3' },
+  { id: 'k3.1-pro-highspeed', label: 'K3.1 Pro HighSpeed', family: 'k3-1', tier: 3, status: 'active', efforts: ['low', 'high', 'max'], defaultEffort: 'max', minCliVersion: '2.5.3' },
+  { id: 'k3', label: 'K3', family: 'k3', tier: 2, status: 'active', efforts: ['low', 'high', 'max'], defaultEffort: 'max', minCliVersion: '2.5.3' },
+  { id: 'k3-256k', label: 'K3 256K', family: 'k3', tier: 2, status: 'active', efforts: ['low', 'high', 'max'], defaultEffort: 'max', minCliVersion: '2.5.3' },
+  { id: 'kimi-for-coding', label: 'Kimi for Coding', family: 'kimi', tier: 2, status: 'active', efforts: ['low', 'high', 'max'], defaultEffort: 'high', minCliVersion: '2.5.3' },
+  { id: 'kimi-for-coding-highspeed', label: 'Kimi for Coding HighSpeed', family: 'kimi', tier: 2, status: 'active', efforts: ['low', 'high', 'max'], defaultEffort: 'high', minCliVersion: '2.5.3' },
+] as const satisfies readonly ModelEntry[];
+export const KIMI_DEFAULT_MODEL = 'k3.1-pro';

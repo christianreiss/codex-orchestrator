@@ -1,3 +1,4 @@
+import { kimiNativeOwnedPaths, normalizeKimiNativeSettings, renderKimiNativeToml } from './kimi-native-settings.js';
 import type { ModelPolicy } from './model-policy.js';
 import { assertCodexSettingsModelSupport } from './codex-model-support.js';
 import { assertClaudeSettingsModelSupport } from './claude-model-support.js';
@@ -78,7 +79,7 @@ import {
   settingsHash,
   DEFAULT_CLAUDE_PERMISSION_MODE,
 } from './config-normalizer.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_COMMANDS, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINE_COMMANDS, type Engine } from '../util/engine.js';
 import {
   GROK_DEFAULT_MODEL,
   GROK_DEFAULT_CONTEXT_WINDOW,
@@ -88,6 +89,16 @@ import {
   normalizeGrokEffort,
   normalizeGrokModel,
 } from './grok-models.js';
+import {
+  KIMI_DEFAULT_MODEL,
+  KIMI_MODEL_CONTEXT_WINDOWS,
+  KIMI_DEFAULT_CONTEXT_WINDOW,
+  KIMI_MODEL_DEFAULT_REASONING_EFFORTS,
+  KIMI_SUPPORTED_MODELS,
+  normalizeKimiContextWindow,
+  normalizeKimiEffort,
+  normalizeKimiModel,
+} from './kimi-models.js';
 import { isSafeVersion, versionCompare } from './wrapper-bin-registry.js';
 import {
   AGENT_MESSAGING_TOOLS,
@@ -377,6 +388,42 @@ export function renderToml(normalized: NormalizedSettings, opts: { profileTables
   return lines.join('\n') + (lines.length > 0 ? '\n' : '');
 }
 
+export function normalizeKimiSettings(raw: unknown): NormalizedSettings {
+  const input = asRecord(raw);
+  const native = normalizeKimiNativeSettings(input.native_settings);
+  const model = normalizeKimiModel(input.model ?? input.default_model ?? native?.default_model?.toString().replace(/^kimi-code\//, '')) ?? KIMI_DEFAULT_MODEL;
+  const out = normalizeSettings({ ...input, native_settings: undefined, model: null }, { applyCodexDefaults: false, engine: 'kimi' });
+  out.native_settings = native;
+  out.model = model;
+  out.reasoning_effort = normalizeKimiEffort(input.reasoning_effort ?? asRecord(native?.thinking).effort, model) ?? KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  if (input.context_window !== undefined && input.context_window !== null && (normalizeKimiContextWindow(input.context_window) === null || Number(input.context_window) > KIMI_MODEL_CONTEXT_WINDOWS[model])) throw new ValidationError('context_window exceeds the selected Kimi model context', { param: 'settings.context_window' });
+  out.context_window = normalizeKimiContextWindow(input.context_window) ?? KIMI_MODEL_CONTEXT_WINDOWS[model];
+  out.model_reasoning_effort = null;
+  out.profiles = [];
+  const mode = input.default_permission_mode ?? input.permissionMode ?? native?.default_permission_mode;
+  out.permissionMode = ['manual', 'yolo', 'auto'].includes(String(mode)) ? String(mode) : 'manual';
+  return out;
+}
+function kimiSettingsDocument(settings: NormalizedSettings, transportMcp = true): Record<string, unknown> {
+  const document = structuredClone(settings.native_settings ?? {});
+  const model = normalizeKimiModel(settings.model) ?? KIMI_DEFAULT_MODEL;
+  document.default_model = `kimi-code/${model}`;
+  document.default_permission_mode = settings.permissionMode ?? 'manual';
+  document.telemetry = false;
+  document.auto_session_title = false;
+  document.disable_feedback_survey = true;
+  document.providers = { ...asRecord(document.providers), 'managed:kimi-code': { type: 'kimi', base_url: 'https://api.kimi.com/coding/v1', oauth: { storage: 'file', key: 'oauth/kimi-code' } } };
+  const models = asRecord(document.models);
+  for (const id of KIMI_SUPPORTED_MODELS) models[`kimi-code/${id}`] = { ...asRecord(models[`kimi-code/${id}`]), provider: 'managed:kimi-code', model: id, max_context_size: id === model ? normalizeKimiContextWindow(settings.context_window) ?? KIMI_MODEL_CONTEXT_WINDOWS[id] : KIMI_MODEL_CONTEXT_WINDOWS[id], support_efforts: ['low', 'high', 'max'], default_effort: KIMI_MODEL_DEFAULT_REASONING_EFFORTS[id] };
+  document.models = models;
+  document.thinking = { ...asRecord(document.thinking), effort: settings.reasoning_effort ?? KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model] };
+  // Sync transport only: the Kimi writer moves this table into mcp.json and
+  // removes it before publishing native config.toml.
+  if (transportMcp && settings.mcp_servers.length) document.mcp_servers = Object.fromEntries(settings.mcp_servers.map(server => { const { name, http_headers, ...fields } = server; return [String(name), { ...fields, ...(http_headers ? { headers: http_headers } : {}) }]; }));
+  return document;
+}
+export function renderKimiSettings(settings: NormalizedSettings): string { return renderKimiNativeToml(kimiSettingsDocument(settings)); }
+
 export function normalizeGrokSettings(raw: unknown): NormalizedSettings {
   const input = asRecord(raw);
   const native = normalizeGrokNativeSettings(input.native_settings);
@@ -587,7 +634,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   if (engine === ENGINE_CODEX) assertCodexSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
   if (engine === ENGINE_CLAUDE) assertClaudeSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
   const normalized =
-    engine === ENGINE_GROK
+    engine === ENGINE_KIMI ? normalizeKimiSettings(settingsWithOverrides) : engine === ENGINE_GROK
       ? normalizeGrokSettings(settingsWithOverrides)
       : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
   let withManaged = injectManagedMcp(engine === ENGINE_GROK ? withGrokNativeMcp(normalized) : normalized, {
@@ -606,7 +653,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     withManaged = injectManagedCodexNativeSkillPolicy(withManaged);
   const profileFiles = engine === ENGINE_CODEX && codexUsesProfileFiles(opts.host?.clientVersion);
   let content =
-    engine === ENGINE_GROK
+    engine === ENGINE_KIMI ? renderKimiSettings(withManaged) : engine === ENGINE_GROK
       ? renderGrokNativeToml(grokSettingsDocument(withManaged, false))
       : engine === ENGINE_CLAUDE
         ? renderClaudeSettings(withManaged)
@@ -647,9 +694,9 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     content = injectTrustedProjectToml(content, normalizeHomePath(opts.home, opts.username));
   }
   const grokOwnedPaths =
-    engine === ENGINE_GROK ? grokNativeOwnedPaths(grokSettingsDocument(withManaged, false)) : undefined;
+    engine === ENGINE_GROK ? grokNativeOwnedPaths(grokSettingsDocument(withManaged, false)) : engine === ENGINE_KIMI ? kimiNativeOwnedPaths(kimiSettingsDocument(withManaged)) : undefined;
   if (
-    grokOwnedPaths?.some((path) => path.startsWith('json:')) &&
+    engine === ENGINE_GROK && grokOwnedPaths?.some((path) => path.startsWith('json:')) &&
     opts.host &&
     (!opts.host.grokWrapperVersion || versionCompare(opts.host.grokWrapperVersion, '0.9.66') < 0)
   ) {
@@ -662,7 +709,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
     content,
     sha256: createHash('sha256').update(content).digest('hex'),
     size_bytes: Buffer.byteLength(content, 'utf8'),
-    settings: normalized,
+    settings: engine === ENGINE_KIMI ? withManaged : normalized,
     ...(profiles !== undefined && { profiles }),
     ...(grokOwnedPaths !== undefined && { owned_paths: grokOwnedPaths }),
   };
@@ -788,6 +835,10 @@ export function applyPostureToSettings(
   const derived = securityLevelEnforcement(levels);
   const out = { ...settings };
 
+  if (engine === ENGINE_KIMI) {
+    out['default_permission_mode'] = derived.kimi.permission_mode.value;
+    return out;
+  }
   if (engine === ENGINE_GROK) {
     out['permission_mode'] = derived.grok.permission_mode.value;
     return out;
@@ -843,6 +894,17 @@ function applyHostModelOverrides(
       normalizeGrokEffort(host.grokReasoningEffortOverride, model) ??
       normalizeGrokEffort(out.reasoning_effort, model) ??
       GROK_MODEL_DEFAULT_REASONING_EFFORTS[model];
+    return out;
+  }
+  if (engine === ENGINE_KIMI) {
+    const out = { ...settings };
+    const model =
+      normalizeKimiModel(host.kimiModelOverride) ?? normalizeKimiModel(out.model) ?? KIMI_DEFAULT_MODEL;
+    out.model = model;
+    out.reasoning_effort =
+      normalizeKimiEffort(host.kimiReasoningEffortOverride, model) ??
+      normalizeKimiEffort(out.reasoning_effort, model) ??
+      KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model];
     return out;
   }
   // Claude reads model/effort overrides from the claude_* columns. Unlike
@@ -948,7 +1010,7 @@ function injectManagedMcp(
       const wrapperVersion =
         opts.engine === ENGINE_CLAUDE
           ? opts.host?.claudeWrapperVersion
-          : opts.engine === ENGINE_GROK
+          : opts.engine === ENGINE_KIMI ? opts.host?.kimiWrapperVersion : opts.engine === ENGINE_GROK
             ? opts.host?.grokWrapperVersion
             : opts.host?.wrapperVersion;
       const communicator = communicatorWrapperReady(wrapperVersion);
@@ -1652,7 +1714,7 @@ export class ClientConfigService {
     try {
       // Preserve supported historical read migrations before applying current
       // rendering checks; authoring-only coercion rules still govern new writes.
-      const normalized = engine === ENGINE_GROK ? normalizeGrokSettings(settings)
+      const normalized = engine === ENGINE_KIMI ? normalizeKimiSettings(settings) : engine === ENGINE_GROK ? normalizeGrokSettings(settings)
         : normalizeSettings(settings, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
       const rendered = this.render(normalized, engine);
       return { settings: rendered.settings, rendered };
@@ -1675,11 +1737,11 @@ export class ClientConfigService {
       validateClaudeFastModeAuthoring(settingsInput);
     }
     const normalized =
-      engine === ENGINE_GROK
+      engine === ENGINE_KIMI ? normalizeKimiSettings(settingsInput) : engine === ENGINE_GROK
         ? normalizeGrokSettings(settingsInput)
         : normalizeSettings(settingsInput, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
     const content =
-      engine === ENGINE_GROK
+      engine === ENGINE_KIMI ? renderKimiSettings(normalized) : engine === ENGINE_GROK
         ? renderGrokSettings(normalized)
         : engine === ENGINE_CLAUDE
           ? renderClaudeSettings(normalized)
@@ -1689,6 +1751,7 @@ export class ClientConfigService {
       sha256: createHash('sha256').update(content).digest('hex'),
       size_bytes: Buffer.byteLength(content, 'utf8'),
       settings: normalized,
+      ...(engine === ENGINE_KIMI && { owned_paths: kimiNativeOwnedPaths(kimiSettingsDocument(normalized)) }),
       ...(engine === ENGINE_CODEX && {
         profiles: sortEntriesByName(normalized.profiles).flatMap((profile) => {
           const name = normalizeName(profile.name);

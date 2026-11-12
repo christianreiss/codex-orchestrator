@@ -4,11 +4,11 @@ import { ENGINE_CODEX, ENGINE_EXTERNAL, ENGINE_LABELS, ENGINES, isEngine, type E
 
 /**
  * Fleet-wide engine master switch state (`services/engine-switch.ts`).
- * `true` = enabled; always carries all three engines.
+ * `true` = enabled; always carries all four engines.
  */
 export type FleetEngineState = Readonly<Record<Engine, boolean>>;
 
-export const ALL_ENGINES_ENABLED: FleetEngineState = Object.freeze({ codex: true, claude: true, grok: true });
+export const ALL_ENGINES_ENABLED: FleetEngineState = Object.freeze({ codex: true, claude: true, grok: true, kimi: true });
 
 /** A host's engine *assignment*. Falls back to Codex for an empty column. */
 export function hostEnginesList(raw: unknown): Engine[] {

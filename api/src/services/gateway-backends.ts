@@ -284,6 +284,7 @@ const NATIVE_MODEL_FAMILY: Record<Engine, RegExp> = {
   [ENGINE_CODEX]: /^(gpt-|chatgpt-|codex-|o[1-9])/i,
   [ENGINE_CLAUDE]: /^claude-/i,
   [ENGINE_GROK]: /^grok-/i,
+  kimi: /^(?:kimi-|k3)/i,
 };
 
 function isModelNotFound(err: unknown): boolean {

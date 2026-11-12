@@ -55,7 +55,7 @@ function fixture(engine: string) {
   return { message, context, write, state, runtime, sessionId, token, keyring: testKeyring() };
 }
 
-describe.each(['codex', 'claude', 'grok'])('%s ambiguous original-owner result reconciliation', (engine) => {
+describe.each(['codex', 'claude', 'grok', 'kimi'])('%s ambiguous original-owner result reconciliation', (engine) => {
   it('refuses a new owned result despite retained original claim and acceptance, with actionable guidance', () => {
     const f = fixture(engine);
     expect(() => stageOwnedTaskResult(f.context, f.message, result, f.keyring, now)).toThrow(
