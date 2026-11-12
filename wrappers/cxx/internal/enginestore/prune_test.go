@@ -1,6 +1,7 @@
 package enginestore
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -157,5 +158,75 @@ func TestInUseTracksTheRunningProcess(t *testing.T) {
 	}
 	if inUse(t.TempDir()) {
 		t.Fatal("an empty directory nothing runs from reported busy")
+	}
+}
+
+func TestPressureCleanupPreservesPublicationGraceAndUnadmittedStages(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "current", "stale")
+	selected := filepath.Join(root, "current", "codex")
+	resolve := func() (string, error) { return selected, nil }
+	// An old installation with no maintenance admission is never guessed safe.
+	if removed, err := PruneEngineResolved(root, testLock, nil, resolve, true); err != nil || len(removed) != 0 {
+		t.Fatalf("no admission: %v %v", removed, err)
+	}
+	// A regular tick can remove stale and records its admitted identity.
+	if _, err := PruneEngineResolved(root, testLock, nil, resolve, false); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, root, "new-stage")
+	if removed, err := PruneEngineResolved(root, testLock, nil, resolve, true); err != nil || len(removed) != 0 {
+		t.Fatalf("unadmitted stage: %v %v", removed, err)
+	}
+	// Publication invalidates the prior admission, preserving the old selected CLI
+	// for a launcher paused between selection and exec.
+	selected = filepath.Join(root, "new-stage", "codex")
+	if removed, err := PruneEngineResolved(root, testLock, nil, resolve, true); err != nil || len(removed) != 0 {
+		t.Fatalf("new publication: %v %v", removed, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "current")); err != nil {
+		t.Fatal("just-retired prefix removed")
+	}
+}
+
+func TestPublicationIsResolvedInsideTheSweepLock(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "selected")
+	called := false
+	_, err := PruneEngineResolved(root, testLock, nil, func() (string, error) {
+		called = true
+		lock, err := ipc.TryAcquireExclusivePath(filepath.Join(root, testLock))
+		if lock != nil {
+			_ = lock.Release()
+		}
+		if !errors.Is(err, ipc.ErrHeld) {
+			t.Fatalf("pointer resolved outside lock: %v", err)
+		}
+		return filepath.Join(root, "selected", "codex"), nil
+	}, false)
+	if err != nil || !called {
+		t.Fatalf("sweep: called=%v err=%v", called, err)
+	}
+}
+
+func TestPublicationInvalidationPreventsAdmissionReactivation(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "current", "previous")
+	info, _ := os.Stat(filepath.Join(root, "current"))
+	old, _ := os.Stat(filepath.Join(root, "previous"))
+	// Model a previous tick's remaining non-selected candidate without deleting it.
+	if err := writeAdmission(root, sweepAdmission{Keep: "current", KeepIdentity: directoryIdentity(info), Candidates: map[string]string{"previous": directoryIdentity(old)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := InvalidatePressureAdmission(root); err != nil {
+		t.Fatal(err)
+	}
+	// Even an A -> B -> A publication of the very same directory cannot reuse it.
+	resolve := func() (string, error) { return filepath.Join(root, "current", "codex"), nil }
+	if removed, err := PruneEngineResolved(root, testLock, nil, resolve, true); err != nil || len(removed) != 0 {
+		t.Fatalf("old admission reactivated: %v %v", removed, err)
+	}
+	if err := InvalidatePressureAdmission(root); err != nil {
+		t.Fatal("missing admission must be harmless", err)
 	}
 }

@@ -22,10 +22,8 @@ const SETTINGS_SECTION_DESTINATIONS: Record<string, string> = {
   quotas: "/limits#quota-enforcement",
   scaling: "/limits#scaling-rules",
   "claude-fleet-settings": "/engines#claude-client",
-  "auto-update": "/settings#hosts",
-  "reverse-dns": "/settings#hosts",
-  "insecure-approval": "/settings#hosts",
-  "prune-policy": "/settings#hosts",
+  // Rows of the current Settings page (auto-update, reverse-dns, insecure-approval, prune-policy, ...)
+  // are not listed: the page itself opens the tab that holds the hash (settings-anchors.ts).
   "log-retention": "/settings#retention",
 };
 

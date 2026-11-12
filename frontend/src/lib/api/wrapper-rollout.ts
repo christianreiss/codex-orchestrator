@@ -27,6 +27,8 @@ export interface WrapperRollout {
 
 export interface WrapperRolloutStatus {
   enabled: boolean;
+  /** Who decided `enabled`: the stored admin switch or the server's environment default. */
+  enabled_source: "setting" | "env";
   settings: { stages: string[]; soak_minutes: number };
   rollout: WrapperRollout | null;
   hosts: Array<{ id: number; canary: boolean; excluded: boolean; running: string | null; admitted: boolean }>;
@@ -47,6 +49,14 @@ export function wrapperRolloutActionMutation() {
     mutationFn: ({ action, reason }) =>
       api.post<WrapperRolloutStatus>(`/admin/wrapper/rollout/${action}`, reason ? { reason } : {}),
     onSuccess: (data) => qc.setQueryData(wrapperRolloutQueryKey, data),
+  });
+}
+
+export function wrapperRolloutEnabledMutation() {
+  const qc = useQueryClient();
+  return createMutation<{ enabled: boolean; source: "setting" | "env" }, Error, boolean>({
+    mutationFn: (enabled) => api.post("/admin/wrapper/rollout/enabled", { enabled }),
+    onSettled: () => void qc.invalidateQueries({ queryKey: wrapperRolloutQueryKey }),
   });
 }
 

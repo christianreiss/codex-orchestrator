@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
@@ -116,6 +117,14 @@ func isManagedByNpm(ctx context.Context) bool {
 }
 
 func ensureCodexNpm(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseSpace()
+	if err := installspace.CheckNpmGlobal(ctx, []string{"npm"}); err != nil {
+		return err
+	}
 	spec := "codex-cli"
 	if target != "" && target != "latest" {
 		spec = "codex-cli@" + target
@@ -132,6 +141,9 @@ func ensureCodexNpm(ctx context.Context, target string, enforceExact bool, logge
 	// Permission failure → retry under sudo when available (non-interactive).
 	if isPermErr(out, err) {
 		if _, lerr := exec.LookPath("sudo"); lerr == nil {
+			if err := installspace.CheckNpmGlobal(ctx, []string{"sudo", "-n", "npm"}); err != nil {
+				return err
+			}
 			logger.Debug("EnsureCodex: retrying npm install under sudo -n")
 			args = append([]string{"-n", "npm"}, args...)
 			cmd = exec.CommandContext(ctx, "sudo", args...)
@@ -387,6 +399,17 @@ func installVerifiedReleaseAsset(ctx context.Context, rel Release, asset Asset, 
 		return fmt.Errorf("%s release %s: asset %s has no sha256 digest", name, rel.TagName, asset.Name)
 	}
 
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseSpace()
+	temporary, expanded := releaseAssetSpace(asset)
+	if err := installspace.Ensure(ctx, name, nil,
+		installspace.Need{Path: os.TempDir(), Bytes: temporary, Inodes: 128},
+		installspace.Need{Path: filepath.Dir(dest), Bytes: expanded, Inodes: 128}); err != nil {
+		return err
+	}
 	tmpDir, err := os.MkdirTemp("", "cdx-codex-*")
 	if err != nil {
 		return err
@@ -412,15 +435,25 @@ func installVerifiedReleaseAsset(ctx context.Context, rel Release, asset Asset, 
 	var installErr error
 	if strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".tgz") {
 		stem := strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.gz"), ".tgz")
-		installErr = installFromTarballNamed(dlPath, dest, []string{name, stem}, name)
+		installErr = installFromTarballNamedContext(ctx, dlPath, dest, []string{name, stem}, name)
 	} else {
 		// Raw binary.
 		if err := chmodExec(dlPath); err != nil {
 			return err
 		}
-		installErr = installBinary(dlPath, dest)
+		installErr = installBinaryContext(ctx, dlPath, dest)
 	}
 	return installErr
+}
+
+// Raw releases have a known final size; compressed releases need room for both
+// the archive and an expanded binary until the verified copy is installed.
+func releaseAssetSpace(asset Asset) (temporary, expanded uint64) {
+	size := installspace.Size(asset.Size, installspace.Wrapper)
+	if strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".tgz") {
+		return size + installspace.Native, installspace.Native
+	}
+	return size, size
 }
 
 func releaseVersion(rel Release) string {
@@ -499,6 +532,10 @@ func installFromTarball(path, dest string) error {
 // "codex-code-mode-host-x86_64-unknown-linux-musl") — confirmed by
 // extracting a real downloaded release asset.
 func installFromTarballNamed(path, dest string, exactNames []string, prefix string) error {
+	return installFromTarballNamedContext(context.Background(), path, dest, exactNames, prefix)
+}
+
+func installFromTarballNamedContext(ctx context.Context, path, dest string, exactNames []string, prefix string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -545,6 +582,14 @@ func installFromTarballNamed(path, dest string, exactNames []string, prefix stri
 			// for an exact entry without extracting more decoys.
 			continue
 		}
+		if hdr.Size < 0 {
+			return fmt.Errorf("invalid tar member size")
+		}
+		if err := installspace.Check(ctx, prefix,
+			installspace.Need{Path: extractDir, Bytes: uint64(hdr.Size), Inodes: 1},
+			installspace.Need{Path: filepath.Dir(dest), Bytes: uint64(hdr.Size), Inodes: 1}); err != nil {
+			return err
+		}
 		out := filepath.Join(extractDir, base)
 		fp, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
 		if err != nil {
@@ -552,7 +597,7 @@ func installFromTarballNamed(path, dest string, exactNames []string, prefix stri
 		}
 		if _, err := io.Copy(fp, tr); err != nil {
 			fp.Close()
-			return err
+			return installspace.WriteError(prefix, out, err)
 		}
 		fp.Close()
 		if isExact {
@@ -570,12 +615,23 @@ func installFromTarballNamed(path, dest string, exactNames []string, prefix stri
 	if err := chmodExec(extracted); err != nil {
 		return err
 	}
-	return installBinary(extracted, dest)
+	return installBinaryContext(ctx, extracted, dest)
 }
 
 // installBinary copies src to dest, using sudo when the destination directory
 // is not writable by the caller.
 func installBinary(src, dest string) error {
+	return installBinaryContext(context.Background(), src, dest)
+}
+
+func installBinaryContext(ctx context.Context, src, dest string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := installspace.Check(ctx, "Codex binary copy", installspace.Need{Path: filepath.Dir(dest), Bytes: uint64(info.Size()), Inodes: 1}); err != nil {
+		return err
+	}
 	dir := filepath.Dir(dest)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		// Try to create the directory. If we can, the user owns it.
@@ -649,15 +705,18 @@ func downloadFile(ctx context.Context, url, dest string) error {
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("download %s -> %d", url, resp.StatusCode)
 	}
+	if err := installspace.Check(ctx, "Codex download", installspace.Need{Path: filepath.Dir(dest), Bytes: installspace.Size(resp.ContentLength, installspace.Wrapper), Inodes: 1}); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(f, updateprogress.Reader(ctx, resp.Body, resp.ContentLength)); err != nil {
 		f.Close()
-		return err
+		return installspace.WriteError("Codex download", dest, err)
 	}
-	return f.Close()
+	return installspace.WriteError("Codex download", dest, f.Close())
 }
 
 func sha256File(p string) (string, error) {
@@ -816,52 +875,8 @@ func ensureCodeModeHost(ctx context.Context, codexVersion string, rel *Release, 
 		fail(fmt.Errorf("pick asset: %w", err))
 		return
 	}
-	expected := strings.TrimPrefix(asset.Digest, "sha256:")
-	if len(expected) != 64 {
-		fail(fmt.Errorf("%s release %s: asset %s has no sha256 digest", codeModeHostBinName, release.TagName, asset.Name))
-		return
-	}
-
-	tmpDir, err := os.MkdirTemp("", "cdx-code-mode-host-*")
-	if err != nil {
+	if err := installVerifiedReleaseAsset(ctx, *release, asset, codeModeHostBinName, dest, logger); err != nil {
 		fail(err)
-		return
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dlPath := filepath.Join(tmpDir, asset.Name)
-	if err := downloadFile(ctx, asset.DownloadURL, dlPath); err != nil {
-		fail(err)
-		return
-	}
-	gotSHA, err := sha256File(dlPath)
-	if err != nil {
-		fail(err)
-		return
-	}
-	if !strings.EqualFold(gotSHA, expected) {
-		fail(fmt.Errorf("%s release %s: sha mismatch (want %s, got %s)", codeModeHostBinName, release.TagName, expected, gotSHA))
-		return
-	}
-
-	logger.Debug("EnsureCodex: installing codex-code-mode-host", "version", release.TagName, "asset", asset.Name, "dest", dest)
-
-	var installErr error
-	if strings.HasSuffix(asset.Name, ".tar.gz") || strings.HasSuffix(asset.Name, ".tgz") {
-		// Tarball entries for this binary are named with the full asset stem
-		// (e.g. "codex-code-mode-host-x86_64-unknown-linux-musl"), not the
-		// bare binary name — confirmed against a real downloaded release.
-		exactNames := []string{codeModeHostBinName, strings.TrimSuffix(strings.TrimSuffix(asset.Name, ".tar.gz"), ".tgz")}
-		installErr = installFromTarballNamed(dlPath, dest, exactNames, codeModeHostBinName)
-	} else {
-		if err := chmodExec(dlPath); err != nil {
-			fail(err)
-			return
-		}
-		installErr = installBinary(dlPath, dest)
-	}
-	if installErr != nil {
-		fail(installErr)
 		return
 	}
 	_ = writeCodeModeHostState(codeModeHostState{InstalledFor: codexVersion})

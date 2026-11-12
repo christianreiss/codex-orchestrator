@@ -195,6 +195,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/hosts/:id/vip': cap('hosts.manage'),
   'POST /admin/hosts/:id/wrapper-canary': cap('hosts.manage'),
   'GET /admin/wrapper/rollout': cap('hosts.read'),
+  'GET /admin/wrapper/rollout/enabled': cap('hosts.read'),
+  'POST /admin/wrapper/rollout/enabled': cap('hosts.manage'),
   'POST /admin/wrapper/rollout/:action': cap('hosts.manage'),
 
   // The four transitions that mint or revoke host credentials, plus the CLI
@@ -319,7 +321,9 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/server-retention/run': cap('settings.manage'),
   'GET /admin/server-retention/runs/:id': cap('settings.read'),
   'POST /admin/log-retention': cap('settings.manage'),
+  'GET /admin/prune-policy': cap('settings.read'),
   'POST /admin/prune-policy': cap('settings.manage'),
+  'GET /admin/settings/host-overrides': cap('settings.read'),
   'GET /admin/response-verbosity': cap('settings.read'),
   'POST /admin/response-verbosity': cap('settings.manage'),
   'GET /admin/address-form': cap('settings.read'),

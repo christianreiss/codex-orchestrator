@@ -72,6 +72,7 @@ import {
   RESPONSE_VERBOSITY_SETTINGS_KEY,
   normalizeResponseVerbosityLevel,
 } from '../../../services/agent-response-style.js';
+import { readHostOverrideCounts } from '../../../services/host-override-counts.js';
 import {
   ADDRESS_FORMS,
   ADDRESS_FORM_DEFINITIONS,
@@ -457,6 +458,14 @@ export async function registerAdminSettingsRoutes(
   });
 
   // ── prune-policy ──────────────────────────────────────────────────────────
+  app.get('/admin/prune-policy', { preHandler: app.requireAdmin }, async () => {
+    const days = Math.max(0, Math.min(60, await settings.getInt('inactivity_window_days', 30)));
+    return ok({ inactivity_window_days: days });
+  });
+  // How many hosts override each fleet-wide setting (counts only, no host detail).
+  app.get('/admin/settings/host-overrides', { preHandler: app.requireAdmin }, async () => {
+    return ok(await readHostOverrideCounts(ctx.db));
+  });
   app.post('/admin/prune-policy', { preHandler: app.requireAdmin }, async (req) => {
     const body = (req.body ?? {}) as { inactivity_days?: unknown };
     const n = Number(body.inactivity_days);

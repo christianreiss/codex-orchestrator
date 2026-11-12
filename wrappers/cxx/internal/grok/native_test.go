@@ -8,6 +8,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"io"
 	"net/http"
 	"os"
@@ -184,4 +185,31 @@ func TestPrunePreservesPrefixesSelectedBeforeNativeExec(t *testing.T) {
 		t.Fatal("selected pre-exec prefix was removed")
 	}
 	_ = r.Close()
+}
+
+func TestInstallerCapacityFailureNeverDownloadsOrChangesPointer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CGX_GROK_BIN", "")
+	state, _ := StateDir()
+	pointer := filepath.Join(state, "grok-bin")
+	if err := AtomicWrite(pointer, []byte("previous-selected-binary\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	client := &http.Client{Transport: fixtureTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		t.Fatal("download started with no space")
+		return nil, nil
+	})}
+	ctx := installspace.WithProbe(context.Background(), func(string) (installspace.Capacity, error) { return installspace.Capacity{}, nil })
+	if _, err := installWithClient(ctx, PinnedVersion, client); !installspace.IsCapacity(err) {
+		t.Fatalf("capacity failure: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("downloads %d", calls)
+	}
+	after, _ := os.ReadFile(pointer)
+	if string(after) != "previous-selected-binary\n" {
+		t.Fatal("pointer changed")
+	}
 }

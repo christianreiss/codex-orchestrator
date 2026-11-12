@@ -1,6 +1,7 @@
 import {persistAuditLog} from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
+import { SettingsService, isTruthyFlagValue } from './settings.js';
 /**
  * Staged cxx rollout: canary hosts first, then percentage waves.
  *
@@ -164,6 +165,26 @@ export function parseRolloutStages(raw: string | undefined | null): RolloutStage
   }
   if (last !== 100) stages.push({ kind: 'percent', percent: 100 });
   return stages;
+}
+
+/** `versions` row holding the operator's on/off choice; absent means "use the environment default". */
+export const WRAPPER_ROLLOUT_ENABLED_KEY = 'wrapper_rollout_enabled';
+
+/** Effective switch from a stored row value: an explicit operator choice wins over the env default. */
+export function effectiveRolloutEnabled(
+  stored: string | null | undefined,
+  env: RolloutEnv,
+): { enabled: boolean; source: 'setting' | 'env' } {
+  const fromEnv = env.CXX_WRAPPER_ROLLOUT_ENABLED === true;
+  if (stored == null || stored.trim() === '') return { enabled: fromEnv, source: 'env' };
+  return { enabled: isTruthyFlagValue(stored, fromEnv), source: 'setting' };
+}
+
+export async function readRolloutEnabled(
+  db: Database,
+  env: RolloutEnv,
+): Promise<{ enabled: boolean; source: 'setting' | 'env' }> {
+  return effectiveRolloutEnabled(await new SettingsService(db).getRaw(WRAPPER_ROLLOUT_ENABLED_KEY), env);
 }
 
 export function rolloutSettingsFromEnv(env: RolloutEnv): RolloutSettings {
@@ -663,6 +684,8 @@ export async function setHostWrapperCanary(db: Database, hostId: number, enabled
 
 export interface RolloutStatusView {
   enabled: boolean;
+  /** Whether the effective switch comes from an operator setting or the environment default. */
+  enabled_source: 'setting' | 'env';
   settings: { stages: string[]; soak_minutes: number };
   rollout: (WrapperRolloutState & {
     stage: string;
@@ -673,13 +696,18 @@ export interface RolloutStatusView {
   hosts: Array<{ id: number; canary: boolean; excluded: boolean; running: string | null; admitted: boolean }>;
 }
 
-export async function rolloutStatus(db: Database, settings: RolloutSettings): Promise<RolloutStatusView> {
+export async function rolloutStatus(
+  db: Database,
+  settings: RolloutSettings,
+  enabledSource: 'setting' | 'env' = 'env',
+): Promise<RolloutStatusView> {
   const state = await loadWrapperRollout(db, { fresh: true });
   const hosts = await loadRolloutHosts(db);
   const admitted = new Set(state?.admitted_host_ids ?? []);
   const live = [...communicatorRegistry.views.values()].map((v) => ({ host_id: v.host_id, version: v.version }));
   return {
     enabled: settings.enabled,
+    enabled_source: enabledSource,
     settings: { stages: settings.stages.map(stageLabel), soak_minutes: settings.soakMinutes },
     rollout: state
       ? {

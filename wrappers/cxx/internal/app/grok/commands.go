@@ -30,14 +30,14 @@ func cronCommand(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	switch action {
 	case "install":
 		if err := hostcron.Install(ctx, cfg); err != nil {
-			fmt.Fprintln(stderr, "cgx cron install:", err)
+			terminalui.Failure(stderr, "cgx", "cron install", err)
 			return 1
 		}
 		terminalui.Say(stdout, "cgx", terminalui.ToneOK, "cron", "installed")
 		return 0
 	case "remove":
 		if err := hostcron.Remove(ctx); err != nil {
-			fmt.Fprintln(stderr, "cgx cron remove:", err)
+			terminalui.Failure(stderr, "cgx", "cron remove", err)
 			return 1
 		}
 		terminalui.Say(stdout, "cgx", terminalui.ToneOK, "cron", "removed")
@@ -45,7 +45,7 @@ func cronCommand(ctx context.Context, cfg *config.Config, client *orchestrator.C
 	case "run":
 		if !hostcron.IsEngineOnly() {
 			if err := hostcron.Run(hostcron.WithConcurrentSync(ctx, o.concurrent), cfg, o.minimal, stdout, stderr); err != nil {
-				fmt.Fprintln(stderr, "cgx cron:", err)
+				terminalui.Failure(stderr, "cgx", "cron", err)
 				return 1
 			}
 			return 0
@@ -57,7 +57,7 @@ func cronCommand(ctx context.Context, cfg *config.Config, client *orchestrator.C
 			return 0
 		}
 		if err := maintenance(ctx, cfg, client, false, stdout, stderr, o.concurrent); err != nil {
-			fmt.Fprintln(stderr, "cgx cron:", err)
+			terminalui.Failure(stderr, "cgx", "cron", err)
 			return 1
 		}
 		return 0

@@ -5,12 +5,14 @@
 package enginestore
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 )
@@ -57,15 +59,31 @@ func KeepFor(root, cli string) string {
 //
 // Only directories are considered; the lock files live in the same root.
 func Prune(root, keep, lockName string, logger *slog.Logger) ([]string, error) {
+	if keep == "" {
+		return nil, nil
+	}
+	return sweep(root, lockName, logger, func() (string, error) { return keep, nil }, false)
+}
+
+// PruneEngineResolved reads the published pointer under the install lock. Pressure
+// cleanup may only revisit candidates admitted by a prior maintenance sweep for
+// this same current prefix; a new publication invalidates that admission.
+func PruneEngineResolved(root, lockName string, logger *slog.Logger, resolve func() (string, error), pressure bool) ([]string, error) {
+	return sweep(root, lockName, logger, func() (string, error) {
+		cli, err := resolve()
+		if err != nil {
+			return "", nil
+		} // Unknown publication must never authorize deletion.
+		return KeepFor(root, cli), nil
+	}, pressure)
+}
+
+func sweep(root, lockName string, logger *slog.Logger, resolve func() (string, error), pressure bool) ([]string, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if strings.TrimSpace(root) == "" {
 		return nil, errors.New("engine store prune requires a root")
-	}
-	if keep == "" {
-		logger.Warn("engine store sweep skipped: no published version to keep", "root", root)
-		return nil, nil
 	}
 	if _, err := os.Stat(root); err != nil {
 		if os.IsNotExist(err) {
@@ -83,14 +101,57 @@ func Prune(root, keep, lockName string, logger *slog.Logger) ([]string, error) {
 	}
 	defer lock.Release()
 
+	keep, err := resolve()
+	if err != nil {
+		return nil, err
+	}
+	if keep == "" {
+		logger.Warn("engine store sweep skipped: no published version to keep", "root", root)
+		return nil, nil
+	}
+
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, err
+	}
+	currentInfo, err := os.Stat(filepath.Join(root, keep))
+	if err != nil {
+		return nil, err
+	}
+	admission := sweepAdmission{Keep: keep, KeepIdentity: directoryIdentity(currentInfo), Candidates: map[string]string{}}
+	if pressure {
+		raw, err := os.ReadFile(filepath.Join(root, admissionName))
+		var prior sweepAdmission
+		if err != nil || json.Unmarshal(raw, &prior) != nil || admission.KeepIdentity == "" || prior.Keep != keep || prior.KeepIdentity != admission.KeepIdentity {
+			logger.Info("engine pressure cleanup skipped: no prior maintenance admission for current prefix", "root", root)
+			return nil, nil
+		}
+		admission = prior
+	} else {
+		for _, entry := range entries {
+			if !entry.IsDir() || entry.Name() == keep {
+				continue
+			}
+			if info, err := entry.Info(); err == nil {
+				admission.Candidates[entry.Name()] = directoryIdentity(info)
+			}
+		}
+		if err := writeAdmission(root, admission); err != nil {
+			// A full disk must not prevent the regular sweep from freeing space. A
+			// missing/stale admission only restricts subsequent pressure cleanup.
+			logger.Warn("engine sweep could not record pressure-cleanup admission", "root", root, "err", err)
+		}
 	}
 	var removed []string
 	for _, entry := range entries {
 		if !entry.IsDir() || entry.Name() == keep {
 			continue
+		}
+		if pressure {
+			info, err := entry.Info()
+			if err != nil || admission.Candidates[entry.Name()] == "" || admission.Candidates[entry.Name()] != directoryIdentity(info) {
+				continue
+			}
 		}
 		dir := filepath.Join(root, entry.Name())
 		if inUse(dir) {
@@ -114,4 +175,53 @@ func Prune(root, keep, lockName string, logger *slog.Logger) ([]string, error) {
 // PruneEngine resolves keep from a published CLI path and sweeps root.
 func PruneEngine(root, cli, lockName string, logger *slog.Logger) ([]string, error) {
 	return Prune(root, KeepFor(root, cli), lockName, logger)
+}
+
+const admissionName = ".pressure-cleanup.json"
+
+type sweepAdmission struct {
+	Keep         string            `json:"keep"`
+	KeepIdentity string            `json:"keep_identity"`
+	Candidates   map[string]string `json:"candidates"`
+}
+
+func directoryIdentity(info os.FileInfo) string {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", st.Dev, st.Ino)
+}
+func writeAdmission(root string, admission sweepAdmission) error {
+	raw, err := json.Marshal(admission)
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(root, ".pressure-cleanup-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, err = f.Write(raw)
+	if err == nil {
+		err = f.Sync()
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), filepath.Join(root, admissionName))
+}
+
+// InvalidatePressureAdmission runs under the engine install lock before every
+// managed publication. Even republishing an existing prefix must not reactivate
+// an older sweep's admission after an intervening selection.
+func InvalidatePressureAdmission(root string) error {
+	err := os.Remove(filepath.Join(root, admissionName))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }

@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,7 +85,7 @@ func GuardFQDN(cfg *config.Config) error {
 	if strings.HasPrefix(baked, got+".") || strings.HasPrefix(got, baked+".") {
 		return nil
 	}
-	return fmt.Errorf("cdx: hostname %q does not match baked FQDN %q (set CODEX_ALLOW_FQDN_MISMATCH=1 to override)", real, cfg.Host.FQDN)
+	return &operatorerror.HostnameMismatch{Current: real, Expected: cfg.Host.FQDN, Override: "CODEX_ALLOW_FQDN_MISMATCH"}
 }
 
 // EnsureProjectTrust adds [projects."<cwd>"] trust_level="trusted" to

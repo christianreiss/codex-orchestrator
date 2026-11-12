@@ -143,6 +143,8 @@ interface QueryCase {
 
 const QUERY_CASES: QueryCase[] = [
   { name: 'hostSpawnQuery', build: () => asQuery(settings.hostSpawnQuery()), queryKey: ['settings', 'host-spawn'], method: 'GET', path: '/admin/host-spawn/state' },
+  { name: "hostOverridesQuery", build: () => asQuery(settings.hostOverridesQuery()), queryKey: ["settings", "host-overrides"], method: "GET", path: "/admin/settings/host-overrides" },
+  { name: "prunePolicyQuery", build: () => asQuery(settings.prunePolicyQuery()), queryKey: ["settings", "prune-policy"], method: "GET", path: "/admin/prune-policy" },
   { name: "grokStateQuery", build: () => asQuery(settings.grokStateQuery()), queryKey: ["settings", "grok-state"], method: "GET", path: "/admin/grok/state" },
   { name: "kimiStateQuery", build: () => asQuery(settings.kimiStateQuery()), queryKey: ["settings", "kimi-state"], method: "GET", path: "/admin/kimi/state" },
   { name: "grokSettingsQuery", build: () => asQuery(settings.grokSettingsQuery()), queryKey: ["settings", "grok-settings"], method: "GET", path: "/admin/grok/settings" },
@@ -552,7 +554,7 @@ const MUTATION_CASES: MutationCase[] = [
       path: "/admin/prune-policy",
       body: { inactivity_days: 30 },
     },
-    // No GET endpoint exists, so there is no paired key to invalidate.
+    // The widget owns its own query cache entry and refreshes it on settle.
     invalidates: [],
   },
 ];
@@ -676,6 +678,8 @@ describe("module surface", () => {
     "grokVersionsCheckMutation",
     "kimiVersionsCheckMutation",
     "grokVersionsQuery",
+    "hostOverridesQuery",
+    "hostOverridesQueryKey",
     "kimiVersionsQuery",
     "hostSpawnMutation",
     "hostSpawnQuery",
@@ -692,6 +696,8 @@ describe("module surface", () => {
     "openaiStateQuery",
     "openaiStateQueryKey",
     "prunePolicyMutation",
+    "prunePolicyQuery",
+    "prunePolicyQueryKey",
     "quotaModeMutation",
     "quotaModeQuery",
     "quotaModeQueryKey",

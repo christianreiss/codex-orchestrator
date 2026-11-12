@@ -12,13 +12,9 @@
   const kind = "prune-policy";
   const fields = [{ key: "inactivity_window_days" as const, label: "Inactivity window" }];
   const qc = useQueryClient();
-  // Pruning reads overview because there is no dedicated GET.
   // settings.changed invalidates the existing settings query root.
   const queryKey = ["settings", kind];
-  const query = createQuery<Values>({ queryKey, queryFn: async () => {
-    const overview = await api.get<Values>("/admin/overview");
-    return { inactivity_window_days: overview.inactivity_window_days };
-  } });
+  const query = createQuery<Values>({ queryKey, queryFn: () => api.get<Values>("/admin/prune-policy") });
   let draft = $state<Record<string, number | undefined>>({});
   let baseline = $state<string | null>(null);
   const extract = (data: Values) => Object.fromEntries(fields.map((field) => [field.key, data[field.key]]));
@@ -45,14 +41,16 @@
     onSettled: () => { void qc.invalidateQueries({ queryKey }); },
   });
   const busy = $derived($saveMutation.isPending);
-  const disabled = $derived(!$authStore.can("settings.manage") || !$query.isSuccess || $query.isFetching || busy);
+  // A background refresh of data that is already loaded must not lock the control: the fleet
+  // pushes `settings.changed` often, and locking on every refetch makes the page flicker.
+  const disabled = $derived(!$authStore.can("settings.manage") || !$query.isSuccess || busy);
   function reset() { if ($query.data) adopt($query.data); $saveMutation.reset(); }
   function save() {
     if (disabled || !valid || !dirty || conflict) return;
     $saveMutation.mutate({ ...$query.data, ...draft });
   }
 </script>
-<DraftGuard {dirty} />
+<DraftGuard {dirty} preserveOnSamePath />
 <PolicyRow
   id={kind}
   label="Remove inactive hosts"

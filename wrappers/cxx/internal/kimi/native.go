@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/enginestore"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/skillstore"
@@ -226,13 +227,23 @@ func Install(ctx context.Context, version string) (string, error) {
 	}})
 }
 
-func installWithClient(ctx context.Context, version string, client *http.Client) (string, error) {
+func installWithClient(ctx context.Context, version string, client *http.Client) (result string, retErr error) {
 	version = CoerceVersionToMinimum(version)
 	if !versionPattern.MatchString(version) || versionPattern.FindString(version) != version {
 		return "", errors.New("invalid Kimi version")
 	}
 	root, err := StoreDir()
 	if err != nil {
+		return "", err
+	}
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer releaseSpace()
+	defer func() { retErr = installspace.WriteError("Kimi", root, retErr) }()
+	// Cleanup runs before taking the engine installer lock.
+	if err := installspace.Ensure(ctx, "Kimi", func() error { return prune(true) }, installspace.Need{Path: root, Bytes: installspace.Native, Inodes: 128}); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
@@ -260,12 +271,18 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	if !ok || asset.Filename == "" || filepath.Base(asset.Filename) != asset.Filename || strings.ContainsAny(asset.Filename, "\\?#") {
 		return "", errors.New("invalid Kimi manifest platform")
 	}
+	if err := installspace.Check(ctx, "Kimi", installspace.Need{Path: root, Bytes: installspace.Native, Inodes: 128}); err != nil {
+		return "", err
+	}
 	binary, err := download(updateprogress.WithArtifact(ctx, "binary"), client, base+asset.Filename, 512<<20)
 	if err != nil {
 		return "", err
 	}
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	if err := VerifyBinary(binary, asset.Checksum); err != nil {
+		return "", err
+	}
+	if err := installspace.Check(ctx, "Kimi", installspace.Need{Path: root, Bytes: uint64(len(binary)), Inodes: 128}); err != nil {
 		return "", err
 	}
 	stage, err := os.MkdirTemp(root, version+"-")
@@ -310,7 +327,9 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	return path, nil
 }
 
-func Prune() error {
+func Prune() error { return prune(false) }
+
+func prune(pressure bool) error {
 	home, err := Home()
 	if err != nil {
 		return err
@@ -327,11 +346,7 @@ func Prune() error {
 	if err != nil {
 		return err
 	}
-	path, err := FindCLI()
-	if err != nil {
-		return err
-	}
-	_, err = enginestore.PruneEngine(root, path, "install.lock", nil)
+	_, err = enginestore.PruneEngineResolved(root, "install.lock", nil, FindCLI, pressure)
 	return err
 }
 

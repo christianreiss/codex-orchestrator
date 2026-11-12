@@ -241,7 +241,7 @@ func runHostCron(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "cxx cron %s: %v\n", action, err)
+		terminalui.Failure(stderr, "cxx", "cron "+action, err)
 		return 1
 	}
 	if action != "run" {

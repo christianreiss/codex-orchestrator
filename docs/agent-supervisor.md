@@ -2,7 +2,7 @@
 
 The supervisor is an external control-plane service for missing handoffs and failed
 native sessions. It is disabled by default. Settings → Agent supervisor is its
-single editable home (`/admin/settings#agent-supervisor`). Enabling it covers all
+single editable home (`/admin/settings?group=agents#agent-supervisor`). The page holds only the switch; per-agent incidents and pause controls are on the Agents graph. Enabling it covers all
 managed Codex, Claude and Grok agents; it does not authorize additional work.
 
 ## What it observes

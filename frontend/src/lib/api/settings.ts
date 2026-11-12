@@ -29,6 +29,7 @@ import type {
   EngineStateChange,
   EngineStateUpdate,
   EngineStateValue,
+  HostOverrideCounts,
   InsecureApprovalValue,
   ModelDefaultsEngine,
   ModelDefaultsUpdate,
@@ -336,6 +337,27 @@ export function reverseDnsMutation(opts: MutationOpts<ReverseDnsValue, boolean> 
       void qc.invalidateQueries({ queryKey: reverseDnsQueryKey });
       opts.onSettled?.(...args);
     },
+  });
+}
+
+/* ─────────────────── 4b. Host override overview ──────────────────── */
+
+export const hostOverridesQueryKey = ["settings", "host-overrides"] as const;
+
+/** Counts only: which fleet settings individual hosts override. */
+export function hostOverridesQuery() {
+  return createQuery<HostOverrideCounts>({
+    queryKey: hostOverridesQueryKey,
+    queryFn: () => api.get<HostOverrideCounts>("/admin/settings/host-overrides"),
+  });
+}
+
+export const prunePolicyQueryKey = ["settings", "prune-policy"] as const;
+
+export function prunePolicyQuery() {
+  return createQuery<PrunePolicyValue>({
+    queryKey: prunePolicyQueryKey,
+    queryFn: () => api.get<PrunePolicyValue>("/admin/prune-policy"),
   });
 }
 

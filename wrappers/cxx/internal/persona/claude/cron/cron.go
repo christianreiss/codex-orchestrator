@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"log/slog"
 	"os"
 	"strings"
@@ -238,9 +239,14 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		syncErr = syncManagedContent(ctx, cfg, minimal)
 	}
 	if syncErr != nil {
-		logger.Warn("cron: managed content sync failed", "err", syncErr)
+		var mismatch *operatorerror.HostnameMismatch
+		if errors.As(syncErr, &mismatch) {
+			logger.Debug("configuration sync stopped by host identity check", "err", syncErr)
+		} else {
+			logger.Warn("cron: managed content sync failed", "err", syncErr)
+		}
 		res.SyncAction = "failed"
-		syncErr = fmt.Errorf("cron: managed content sync failed: %w", syncErr)
+		syncErr = operatorerror.InStep("Configuration sync", syncErr)
 	}
 
 	// Keep the peer wrapper + engine current too: a dual-engine host must have

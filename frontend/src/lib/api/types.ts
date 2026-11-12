@@ -1215,6 +1215,14 @@ export interface PrunePolicyValue {
   inactivity_window_days: number;
 }
 
+/** GET /admin/settings/host-overrides: how many hosts diverge from each fleet-wide setting. */
+export interface HostOverrideCounts {
+  auto_update: number;
+  reverse_dns: number;
+  rtk: Record<"codex" | "claude" | "grok" | "kimi", number>;
+  session_housekeeping: Record<"codex" | "claude" | "grok" | "kimi", number>;
+}
+
 export interface CodexVersionLockValue {
   locked_version: string | null;
   locked_at: string | null;

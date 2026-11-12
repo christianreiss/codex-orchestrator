@@ -14,10 +14,12 @@
     /** Trailing label rendered to the right of the bar (e.g. "47%"). */
     valueLabel?: string;
     inline?: boolean;
+    /** How far "now" is through the quota period (0-100); draws a marker so usage can be read against time. */
+    elapsedPercent?: number | null;
     class?: string;
   };
 
-  let { usedPercent, cachedPercent = null, label, valueLabel, inline = false, class: className }: Props = $props();
+  let { usedPercent, cachedPercent = null, label, valueLabel, inline = false, elapsedPercent = null, class: className }: Props = $props();
 
   const clamped = $derived(Math.max(0, Math.min(110, Number.isFinite(usedPercent) ? usedPercent : 0)));
   const cached = $derived(
@@ -25,15 +27,18 @@
   );
   const live = $derived(Math.max(0, clamped - cached));
   const overLimit = $derived(clamped > 100);
+  const elapsed = $derived(elapsedPercent !== null && Number.isFinite(elapsedPercent) ? Math.max(0, Math.min(100, elapsedPercent)) : null);
+  const elapsedText = $derived(elapsed === null ? null : `${Math.round(elapsed)}% of the period elapsed`);
   const meterTone = $derived(overLimit || clamped >= 90 ? "bg-destructive" : clamped >= 70 ? "bg-warning" : "bg-primary");
 </script>
 
 {#snippet bar()}
+  <div class="relative w-full">
   <div
     class={cn("relative w-full overflow-hidden rounded-full bg-muted", inline ? "h-1.5" : "h-2")}
     role="meter"
     aria-valuenow={Math.round(Math.min(100, clamped))}
-    aria-valuetext={valueLabel ?? `${Math.round(clamped)}% used`}
+    aria-valuetext={elapsedText ? `${valueLabel ?? `${Math.round(clamped)}% used`}, ${elapsedText}` : (valueLabel ?? `${Math.round(clamped)}% used`)}
     aria-valuemin={0}
     aria-valuemax={100}
     aria-label={label ?? "usage"}
@@ -49,6 +54,17 @@
       ></div>
     {/if}
     {#if overLimit}<div class="absolute inset-y-0 right-0 w-px bg-destructive/80" aria-hidden="true"></div>{/if}
+  </div>
+  {#if elapsed !== null}
+    <!-- "Today": where the period stands. Outside the clipped track so it stays visible over any fill. -->
+    <div
+      class="pointer-events-none absolute -inset-y-0.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground ring-1 ring-background"
+      style="left: {elapsed}%"
+      data-testid="elapsed-marker"
+      title={elapsedText}
+      aria-hidden="true"
+    ></div>
+  {/if}
   </div>
 {/snippet}
 

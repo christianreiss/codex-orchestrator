@@ -1,19 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '../db/client.js';
 import type { Env } from '../env.js';
-import { rolloutSettingsFromEnv, WRAPPER_ROLLOUT_KEY, type WrapperRolloutState } from '../services/wrapper-rollout.js';
+import { effectiveRolloutEnabled, WRAPPER_ROLLOUT_ENABLED_KEY, WRAPPER_ROLLOUT_KEY, type WrapperRolloutState } from '../services/wrapper-rollout.js';
 import { startOwnerWorker } from './owner-worker.js';
 import { requireOwnerMaintenanceCommands } from './owner-maintenance.js';
 import { dependencyRevision } from './schedule-obligations.js';
 
 export function startWrapperRolloutWorker(app: FastifyInstance, db: Database, env: Env): void {
-  if (!rolloutSettingsFromEnv(env).enabled) return;
   const commands = requireOwnerMaintenanceCommands(db);
   const tables = ['versions', 'hosts', 'hostDaemons', 'agentPolicyProfiles', 'agentPolicyProfileAssignments'] as const;
   startOwnerWorker(app, db, {
     name: 'wrapper-rollout', tables,
     subscribe: wake => commands.subscribeFacts(wake),
     select(snapshot) {
+      // The worker always runs; the operator switch is read from the owner snapshot so a toggle
+      // wakes it (the `versions` table is a dependency) and no restart is needed.
+      if (!effectiveRolloutEnabled(snapshot.setting(WRAPPER_ROLLOUT_ENABLED_KEY), env).enabled) return [];
       const raw = snapshot.setting(WRAPPER_ROLLOUT_KEY);
       if (!raw) return [];
       const state = JSON.parse(raw) as WrapperRolloutState;

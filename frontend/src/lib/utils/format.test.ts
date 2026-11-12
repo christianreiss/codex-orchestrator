@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 // import needs the ".ts" extension that TypeScript rejects on a static import;
 // hiding it behind a variable keeps both happy. Types come from the cast.
 const formatModule: string = "./format.ts";
-const { relativeTime, resetsIn, formatBytes, formatDateTime, formatTime, toDate } = (await import(formatModule)) as typeof import("./format");
+const { relativeTime, resetsIn, periodElapsedPercent, formatBytes, formatDateTime, formatTime, toDate } = (await import(formatModule)) as typeof import("./format");
 
 /** The clock every relativeTime expectation below is measured against. */
 const NOW = Date.UTC(2026, 6, 29, 12, 0, 0);
@@ -142,5 +142,25 @@ describe("formatDateTime / formatTime", () => {
   it("is empty for missing input instead of 'Invalid Date'", () => {
     assert.equal(formatDateTime(null), "");
     assert.equal(formatTime("garbage"), "");
+  });
+});
+
+describe("periodElapsedPercent", () => {
+  const end = new Date(NOW + 3 * DAY).toISOString();
+  it("derives the start from the limit and clamps to the period", () => {
+    assert.equal(periodElapsedPercent(end, { limitSeconds: 6 * 86400 }, NOW), 50);
+    assert.equal(periodElapsedPercent(end, { limitSeconds: 86400 }, NOW), 0);
+    assert.ok((periodElapsedPercent(end, { limitSeconds: 6 * 86400 }, NOW + 3 * DAY - 1) ?? 0) > 99.99);
+  });
+  it("prefers the provider start over the limit", () => {
+    const start = new Date(NOW - DAY).toISOString();
+    assert.equal(periodElapsedPercent(end, { startsAt: start, limitSeconds: 86400 }, NOW), 25);
+  });
+  it("is unknown without a usable end, length or an unexpired period", () => {
+    for (const value of [null, undefined, "", "bad"]) assert.equal(periodElapsedPercent(value, { limitSeconds: 86400 }, NOW), null);
+    assert.equal(periodElapsedPercent(new Date(NOW - 1).toISOString(), { limitSeconds: 86400 }, NOW), null);
+    assert.equal(periodElapsedPercent(end, {}, NOW), null);
+    assert.equal(periodElapsedPercent(end, { limitSeconds: 0 }, NOW), null);
+    assert.equal(periodElapsedPercent(end, { startsAt: end }, NOW), null);
   });
 });

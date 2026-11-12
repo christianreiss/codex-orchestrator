@@ -141,3 +141,23 @@ test.describe('touch and system appearance', () => {
     await expect(toggle).toBeChecked(); expect(shared.writes).toEqual([true]);
   });
 });
+
+test('the switch keeps keyboard focus after a confirmed save', async ({ page }) => {
+  const shared = { enabled: false, writes: [] as boolean[], readFails: false } as any;
+  await page.route('**/admin/**', route => {
+    const req = route.request();
+    if (!req.headers().accept?.includes('application/json')) return route.continue();
+    const path = new URL(req.url()).pathname, json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
+    if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: ['owner'] }, capabilities: ['admin.read', 'settings.read', 'agent_messaging.read', 'agent_messaging.manage'] });
+    if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-21T08:00:00Z', dismissed_at: null } });
+    if (path === '/admin/ws/info') return json({ enabled: false });
+    if (path === '/admin/agent-messaging/scopes/state') { if (req.method() === 'POST') shared.enabled = req.postDataJSON().enabled; return json({ enabled: shared.enabled }); }
+    return json({});
+  });
+  await page.goto('/admin/settings#agent-coordination');
+  const toggle = page.locator('#agent-coordination').getByRole('switch', { name: 'Enable agent coordination' });
+  await expect(toggle).toBeEnabled();
+  await toggle.focus(); await page.keyboard.press('Space');
+  await expect(toggle).toBeChecked();
+  await expect(toggle).toBeFocused();
+});

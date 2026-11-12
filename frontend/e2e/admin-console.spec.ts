@@ -1139,7 +1139,8 @@ test("Grok account usage shows real periods and follows live updates without inv
     const group = page.getByRole("group", { name: "Personal Grok usage" });
     await expect(group.getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "5");
     await expect(group).not.toContainText("Shared across");
-    await expect(group.locator("time").first()).toHaveAttribute("datetime", resetsAt);
+    // The reset time has its own "Reset in" column next to the bars, not inside the usage group.
+    await expect(page.getByRole("row", { name: /Personal/ }).locator("time").first()).toHaveAttribute("datetime", resetsAt);
     await expect(group).not.toContainText("Short window");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expectNoSeriousAxeFindings(page);
@@ -1621,7 +1622,7 @@ test("engine deep links open the owning tab, its Advanced block and scroll to th
   await expect(page.getByRole("tab", { name: "Grok" })).toHaveAttribute("aria-selected", "true");
   // Sections that moved off this page keep their old bookmarks.
   await page.goto("/admin/engines#cxx-rollout");
-  await expect(page).toHaveURL(/\/admin\/settings#cxx-rollout$/);
+  await expect(page).toHaveURL(/\/admin\/settings\?group=rollout#cxx-rollout$/);
   await expect(page.locator("#cxx-rollout")).toBeVisible();
 });
 

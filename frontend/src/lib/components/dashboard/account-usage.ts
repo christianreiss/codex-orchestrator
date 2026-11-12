@@ -9,6 +9,8 @@ export function accountQuotaRows(account: Pick<ProviderAccount, "engine" | "usag
     key: window.kind,
     value: window.kind === "five_hour" && emulated ? emulated.used_percent : window.used_percent,
     reset: window.kind === "five_hour" && emulated ? emulated.resets_at : window.resets_at,
+    // Window length for the dashboard's elapsed-time marker; calendar months have none fixed.
+    seconds: window.kind === "five_hour" ? (emulated?.limit_seconds ?? 18000) : window.kind === "weekly" ? 604800 : undefined as number | undefined,
     label: window.kind === "five_hour" && emulated ? `Emulated ${Math.round((emulated.limit_seconds ?? 18000) / 3600)}-hour window`
       : { five_hour: "5-hour window", weekly: "Weekly window", month_total: "Monthly total", month_code: "Monthly code" }[window.kind],
   }));

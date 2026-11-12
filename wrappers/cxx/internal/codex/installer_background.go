@@ -3,6 +3,8 @@ package codex
 import (
 	"context"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/enginestore"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
@@ -23,8 +25,9 @@ import (
 // It never reclaims the prefix it supersedes. That is PruneEngineStore's job,
 // from a later maintenance tick: the fleet keeps exactly one version on disk,
 // but only once the superseded prefix has not been the pointer target for a
-// full tick and no live process runs from it.
-func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
+// full tick and no live process runs from it. A pre-install shortage may invoke
+// the same protected sweep before this installer creates or publishes a stage.
+func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) (retErr error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -35,16 +38,15 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	if err != nil {
 		return err
 	}
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseSpace()
+	defer func() { retErr = installspace.WriteError("Codex", root, retErr) }()
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return err
 	}
-	// Only maintenance writers contend on this lock. Foreground lookup and
-	// launch never acquire it, including while downloads are slow or offline.
-	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(root, codexInstallLock))
-	if err != nil {
-		return fmt.Errorf("Codex background installer: %w", err)
-	}
-	defer lock.Release()
 	currentCtx, currentCancel := context.WithTimeout(ctx, 5*time.Second)
 	current := strings.TrimSpace(Version(currentCtx))
 	currentCancel()
@@ -78,6 +80,22 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	if err != nil {
 		return fmt.Errorf("Codex %s companion: %w", version, err)
 	}
+	// Downloads/extraction are sequential; both final siblings coexist.
+	temporary, expanded := releaseAssetSpace(asset)
+	companionTemporary, companionExpanded := releaseAssetSpace(companion)
+	// Cleanup runs before taking the engine installer lock.
+	if err := installspace.Ensure(ctx, "Codex", func() error { _, err := PruneEngineStoreForInstall(logger); return err }, installspace.Need{Path: root, Bytes: expanded + companionExpanded, Inodes: 128},
+		installspace.Need{Path: os.TempDir(), Bytes: max(temporary, companionTemporary), Inodes: 128}); err != nil {
+		return err
+	}
+	// Only maintenance writers contend on this lock. Foreground lookup and
+	// launch never acquire it, including while downloads are slow or offline.
+	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(root, codexInstallLock))
+	if err != nil {
+		return fmt.Errorf("Codex background installer: %w", err)
+	}
+	defer lock.Release()
+
 	dir, err := os.MkdirTemp(root, version+"-")
 	if err != nil {
 		return err
@@ -120,6 +138,9 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 	// From this point the selected path is uncertain, so keep the validated
 	// prefix even if publication fails; a concurrent launch may already use it.
 	// The next sweep reclaims whichever prefix the pointer did not select.
+	if err := enginestore.InvalidatePressureAdmission(root); err != nil {
+		return fmt.Errorf("invalidate pressure-cleanup admission: %w", err)
+	}
 	published = true
 	if err := cacheCodexContext(ctx, cli); err != nil {
 		return fmt.Errorf("publish staged Codex: %w", err)

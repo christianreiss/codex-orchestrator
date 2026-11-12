@@ -69,7 +69,7 @@ Sources were opened and reviewed on **2026-10-18**. “2026” describes the res
 | Overview | Exceptions needing action, concise health/usage context, links to owners. Each metric must answer an operator question and disclose its time/scope. | `PageShell`, `Section`, `StatStrip`, attention/usage components | V/M |
 | List | Title/action, search and filters, result count, comparable rows, scoped actions and pagination when needed. | `Toolbar`, `DataTable`, `SortableHead`, `RowActions` | A/V/M |
 | Detail | Identity and problems, task sections, infrequent options, destructive section last. | `PageShell`, `Section`, domain sections | V/M |
-| Settings | Named groups, persistent labels, effective scope and save status; one vertical task sequence. Related fields stay together. | `Section`, `FormField`, domain settings | A/M |
+| Settings | Named groups (one tab per group when there are more than a handful of rows), persistent labels, effective scope (fleet value plus how many hosts override it) and save status at the control; one vertical task sequence per group. Related fields stay together; the destructive action comes last. | `Section`, `FormField`, `Tabs`, `HostOverrideBadge`, domain settings | A/M |
 | Editor | Named document, editable content, optional preview, explicit save state; metadata/history separate. Two columns only if both remain usable. | `DocumentEditor`, domain editors | A/V/M |
 | Event history | Time, actor, action, object and result; expandable diagnostics. Filters distinguish event kinds. | `EventFeed`, event rows, scoped tables | A/M |
 | Conversation | Directory, selected conversation, timeline, composer and attention/recovery state; preserve draft and reading position. | `ClientsWorkspace`, `Timeline`, `Composer`, `AttentionCard` | A/V/M |
@@ -184,7 +184,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 | Page inset | 16 px narrow; 24 px from 768 px viewport width | One owner for outer padding; avoid doubled shell/page gutters |
 | Data workspace | Available width (`PageShell` wide) | Tables, boards, graphs, comparison and editor-with-preview |
 | Standard workspace | 72rem maximum (`PageShell` default) | Mixed task pages |
-| Settings / detail form | 48rem maximum (`PageShell` narrow) | Reading labels and completing related fields |
+| Settings / detail form | 48rem maximum (`PageShell` narrow); the tabbed Settings page uses the standard workspace with its tab content capped at 56rem | Reading labels and completing related fields; label and switch stay within one eye span |
 | Article / long prose | 65ch maximum text measure | A code block/table may be wider within a bounded region |
 | Auth form / setup | 24rem / 56rem maximum | Narrow sign-in and wider staged setup respectively |
 | Desktop controls | 36 px normal; 32 px compact table/toolbar | Minimum heights; multiline content may grow |
@@ -300,7 +300,7 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | `/admin/people` | Manage admin users; list | `PageShell`, people section, wipe-all danger zone | Role/permission denial, last-owner protection, wipe confirmation |
 | `/admin/api-keys` | Issue and revoke gateway keys; list + configuration | `PageShell`, API-key section, Configure panel | Reveal/copy, revoke, disabled surface/backend, legacy anchors |
 | `/admin/secrets` | Manage agent-readable credentials; list | `PageShell`, secrets section, secret dialog | Reveal/copy, store switch off/empty, permission denial |
-| `/admin/settings` | Set fleet behavior, server retention and local housekeeping; settings | Narrow `PageShell`, `Section`, policy/session/retention controls, Agent coordination and Agent supervisor | Immediate-save truth, read-only/stale states, scope clarity; reconcile coordination state before retrying an ambiguous save |
+| `/admin/settings` | Set fleet behavior, server retention and local housekeeping; settings in four tabs (`?group=hosts|agents|rollout|retention`) | Standard `PageShell`, one `Tabs` row (NAV-4), `Section`, policy/session/retention controls, `ConfirmedSwitchSetting` (coordination, supervisor), rollout switch with confirm dialogs, `HostOverrideBadge` | Immediate-save truth, read-only/stale states with the missing capability named, fleet-vs-host scope badges, deep links to rows, lazy tab content; reconcile switch state before retrying an ambiguous save |
 | `/admin/account` | Manage own identity/security; tabbed settings | `PageShell`, one `Tabs` row (Profile/Security/Appearance/Devices), `Section`, existing account components; hash-selected, draft-preserving panels | Direct links/history, hidden panels inert, password disclosure, active-only device list/revoke confirmation, receipt-correlated pairing timeline/completion/expiry, inline failures, all theme modes |
 | `/admin/manual` | Find help; help index | `PageShell`, `Section`, `StateBlock`, `ManualSidebar` | Findability and missing content |
 | `/admin/manual/[slug]` | Read help; article | `PageShell`, `ManualSidebar`, `ArticleView` | Heading structure, code, long links, unknown slug |
@@ -676,3 +676,18 @@ are recorded in [verification](docs/verification/slop-remediation-2026-11-08.md)
 The optional public connector origin reuses the existing sign-in and `/admin/connectors` browser surfaces. It preserves role checks and parent-domain passkey scope; its setup guide must distinguish public certificate trust from fleet-local CA trust.
 
 Connector setup presents a provider-specific, clearly labeled reference form with copyable values and a separate authorization and test step. Applicable rules: NAV-2/3, VIS-1/3/4, INT-5/6 and ACC-1/3/4. No design exception.
+
+### Settings tabs redo (2026-11-12)
+
+`/admin/settings` was one flat column of about twenty widgets with five save
+idioms and no navigation. It is now one `Tabs` row (Hosts, Agents, Rollout &
+tools, Retention) selected by `?group=`; every row keeps its anchor and a hash
+opens the tab that holds it (`settings-anchors.ts`). It moves from `PageShell`
+narrow to the standard 72rem workspace for the tab strip, with each tab’s content capped at 56rem so a label and its switch stay close; rows and override
+badges fit beside their controls, so no width exception is registered. Applicable rules: NAV-1/3/4,
+VIS-1, INT-2/3/5/7, ACC-1/3/4. Scope is shown per row ("N hosts override" links
+to Hosts); failures render at the control, never toast-only; a missing
+capability is named in place instead of hiding the row; destructive or
+fleet-wide rollout actions are confirmed with a button that names the action.
+The agent supervisor shows its switch only; per-agent incidents stay on the
+Agents graph. No design exception.

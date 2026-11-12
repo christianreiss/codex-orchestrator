@@ -9,6 +9,7 @@ import {
   WRAPPER_ROLLOUT_KEY,
   churningHosts,
   computeAdmitted,
+  effectiveRolloutEnabled,
   confirmedHostIds,
   evaluateRollout,
   haltRollout,
@@ -254,5 +255,18 @@ describe('rollout lifecycle', () => {
     await startRolloutOnPublish(db as never, settings, '0.9.80', '0.9.81');
     expect(await setHostWrapperCanary(db as never, 3, true, 'ops')).toBe(true);
     expect((await fresh()).admitted_host_ids).toEqual([1, 3]);
+  });
+});
+
+describe('operator rollout switch', () => {
+  it('uses the environment default until an operator choice is stored', () => {
+    expect(effectiveRolloutEnabled(null, { CXX_WRAPPER_ROLLOUT_ENABLED: true })).toEqual({ enabled: true, source: 'env' });
+    expect(effectiveRolloutEnabled(undefined, {})).toEqual({ enabled: false, source: 'env' });
+    expect(effectiveRolloutEnabled('  ', { CXX_WRAPPER_ROLLOUT_ENABLED: true })).toEqual({ enabled: true, source: 'env' });
+  });
+  it('lets a stored choice win in both directions', () => {
+    expect(effectiveRolloutEnabled('1', {})).toEqual({ enabled: true, source: 'setting' });
+    expect(effectiveRolloutEnabled('0', { CXX_WRAPPER_ROLLOUT_ENABLED: true })).toEqual({ enabled: false, source: 'setting' });
+    expect(effectiveRolloutEnabled('off', { CXX_WRAPPER_ROLLOUT_ENABLED: true }).enabled).toBe(false);
   });
 });

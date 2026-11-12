@@ -78,7 +78,7 @@
       </table>
     </div>
     <p class="text-caption text-muted-foreground">
-      Below current includes below minimum. Hosts running builds that predate the API level report nothing and are listed separately. Raise the minimum with <code class="font-mono">POST /admin/communicator/api-version</code>.
+      Below current includes below minimum. Hosts running builds that predate the API level report nothing and are listed separately.
     </p>
   {/if}
 </SectionCard>

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"io"
 	"net/http"
 	"os"
@@ -95,5 +96,31 @@ func TestRuntimeEnvironmentRejectsAmbientProviderOverrides(t *testing.T) {
 		if strings.Contains(item, "ambient") {
 			t.Fatal(item)
 		}
+	}
+}
+
+func TestInstallerCapacityFailureNeverDownloadsOrChangesPointer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CKX_KIMI_BIN", "")
+	state, _ := StateDir()
+	pointer := filepath.Join(state, "kimi-bin")
+	if err := AtomicWrite(pointer, []byte("previous-selected-binary\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	client := &http.Client{Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+		calls++
+		t.Fatal("download started with no space")
+		return nil, nil
+	})}
+	ctx := installspace.WithProbe(context.Background(), func(string) (installspace.Capacity, error) { return installspace.Capacity{}, nil })
+	if _, err := installWithClient(ctx, PinnedVersion, client); !installspace.IsCapacity(err) {
+		t.Fatalf("capacity failure: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("downloads %d", calls)
+	}
+	if after, _ := os.ReadFile(pointer); string(after) != "previous-selected-binary\n" {
+		t.Fatal("pointer changed")
 	}
 }

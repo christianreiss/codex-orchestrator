@@ -7,7 +7,7 @@
   import { autoUpdateQuery, autoUpdateMutation, reverseDnsQuery, reverseDnsMutation,
     apiKeysInChatQuery, apiKeysInChatMutation, modelTierCheckQuery, modelTierCheckMutation,
     subagentModelSelectionQuery, subagentModelSelectionMutation,
-    insecureApprovalQuery, insecureApprovalMutation, hostSpawnQuery, hostSpawnMutation } from "$lib/api/settings";
+    insecureApprovalQuery, insecureApprovalMutation, hostSpawnQuery, hostSpawnMutation, hostOverridesQuery } from "$lib/api/settings";
 
   // Plain label + one line of help; `term` keeps the canonical name that docs and the CLI use.
   const policies = {
@@ -40,15 +40,22 @@
       help: "Hosts without a secure connection can ask an admin to open a time-limited access window.",
       details: "The approval workflow requires a connected admin client. Turning it off disables that request workflow; it does not revoke active access windows or domain allowances. Manage individual access windows and requests on Hosts." },
   };
+  /** Settings an individual host may override; the count comes from /admin/settings/host-overrides. */
+  const overridable = { "auto-update": "auto_update", "reverse-dns": "reverse_dns" } as const;
   let { id }: { id: keyof typeof policies } = $props();
   // Each instance has a fixed policy identity for its entire mounted lifetime.
   const policy = untrack(() => policies[id]);
   const query = policy.query();
   const mutation = policy.mutation();
-  const disabled = $derived(!$authStore.can("settings.manage") || !$query.isSuccess || $query.isFetching || $mutation.isPending);
+  const overrideKey = untrack(() => (overridable as Record<string, "auto_update" | "reverse_dns">)[id]);
+  const overrides = overrideKey ? hostOverridesQuery() : null;
+  const overrideCount = $derived(overrideKey && overrides ? ($overrides?.data?.[overrideKey] ?? null) : undefined);
+  // A background refresh of data that is already loaded must not lock the control: the fleet
+  // pushes `settings.changed` often, and locking on every refetch makes the page flicker.
+  const disabled = $derived(!$authStore.can("settings.manage") || !$query.isSuccess || $mutation.isPending);
 </script>
 
-<PolicyRow {id} label={policy.label} term={policy.term} help={policy.help} details={policy.details} controlId={`${id}-toggle`}>
+<PolicyRow {id} label={policy.label} term={policy.term} help={policy.help} details={policy.details} {overrideCount} overrideNoun="setting" controlId={`${id}-toggle`}>
   {#snippet control()}
     {#key `${$mutation.status}:${$query.data?.enabled}`}
       <Switch id={`${id}-toggle`} checked={$query.data?.enabled ?? false} {disabled} aria-describedby={`${id}-status`} onCheckedChange={(enabled) => $mutation.mutate(enabled)} />

@@ -121,9 +121,11 @@ RETRY_NAME=cdx
 if [ "$HAS_CODEX" = "0" ]; then RETRY_NAME=clx; fi
 if [ "$HAS_CODEX" = "0" ] && [ "$HAS_CLAUDE" = "0" ]; then RETRY_NAME=cgx; fi
 if [ "$HAS_CODEX" = "0" ] && [ "$HAS_CLAUDE" = "0" ] && [ "$HAS_GROK" = "0" ]; then RETRY_NAME=ckx; fi
-ui_hint "Retry host cron:    $RETRY_NAME cron install"
-ui_hint "Retry engine CLIs:  $RETRY_NAME cron run"
-ui_hint "If wrapper/config installation failed, mint a fresh single-use installer."
+if [ "$SCHEDULE_FAILED" = "1" ]; then ui_hint "Retry maintenance schedule: $RETRY_NAME cron install"; fi
+if [ "$MAINTENANCE_FAILED" = "1" ]; then
+  ui_hint "After fixing the cause above, retry maintenance: cxx cron run"
+fi
+ui_hint "Installed CLIs may be available even when configuration sync or another setup step failed."
 exit 1
 `;
 }
@@ -189,6 +191,8 @@ if [ -z "$PARENT_PATH" ]; then
 fi
 
 INSTALL_FAILED=0
+SCHEDULE_FAILED=0
+MAINTENANCE_FAILED=0
 INSTALL_FINISHED=0
 CODEX_BUNDLE=
 CLAUDE_BUNDLE=
@@ -460,7 +464,17 @@ ui_path_hint() {
 show_step_log() {
   if [ -n "$STEP_LOG" ] && [ -s "$STEP_LOG" ]; then
     printf '%s' "$UI_DIM" >&2
-    tail -n 20 "$STEP_LOG" | sed 's/^/      /' >&2
+    python3 - "$STEP_LOG" <<'PY_STEP_LOG' >&2
+import sys
+with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
+    lines = fh.read().splitlines()
+# Preserve complete actionable records; never truncate a path, hostname or
+# repair command to the terminal width. Bound unusually verbose subprocesses.
+if len(lines) > 80:
+    lines = lines[:40] + [f"... {len(lines) - 80} additional diagnostic lines omitted ..."] + lines[-40:]
+for line in lines:
+    print("      " + line)
+PY_STEP_LOG
     printf '%s' "$UI_RESET" >&2
   fi
 }
@@ -511,6 +525,8 @@ if [ "\${CODEX_INSTALL_CURL_INSECURE:-0}" = "1" ]; then
   printf '%s\\n' 'Warning: TLS certificate verification is disabled (CODEX_INSTALL_CURL_INSECURE=1). Set it to 0 and use a trusted certificate to restore verification.' >&2
 fi
 
+${installSpaceFunctions()}
+
 ${preflightFunctions()}
 preflight() {
   preflight_checks
@@ -524,6 +540,8 @@ install_bin() {
     echo "Cannot replace binary directory $dst" >&2
     return 1
   fi
+  COPY_SIZE=$(wc -c < "$src" | tr -d ' ')
+  space_gate "cxx install" "$(dirname "$dst")" "$COPY_SIZE" 128 || return 1
   INSTALL_BIN_TMP="$dst.cxx-install.$$"
   if [ "$INSTALL_WITH_SUDO" = "1" ]; then
     sudo rm -f "$INSTALL_BIN_TMP"
@@ -617,6 +635,14 @@ package_manager() {
 install_os_component() {
   PACKAGE_KIND=$1
   PACKAGE_TOOL=$(package_manager) || return 1
+  if [ "$PACKAGE_TOOL" = "brew" ]; then
+    PACKAGE_PREFIX=$(brew --prefix) || return 1
+    PACKAGE_CACHE=$(brew --cache) || return 1
+  else
+    PACKAGE_PREFIX=/usr
+    PACKAGE_CACHE=/var/cache
+  fi
+  space_gate "Node.js/npm prerequisites" "$PACKAGE_PREFIX" 2147483648 10000 "$PACKAGE_CACHE" 2147483648 10000 /var/lib 134217728 1024 "\${TMPDIR:-/tmp}" 536870912 128 || return 1
   case "$PACKAGE_TOOL:$PACKAGE_KIND" in
     apt-get:node) PACKAGE_NAMES='nodejs' ;;
     apt-get:npm) PACKAGE_NAMES='npm' ;;
@@ -676,6 +702,7 @@ install_corepack_npm() {
     *) NPM_PREFIX="$DATA_HOME/codex-orchestrator/npm" ;;
   esac
   COREPACK_HOME="$NPM_PREFIX/lib/codex-orchestrator/corepack"
+  space_gate "Corepack npm" "$COREPACK_HOME" 2147483648 10000 "\${TMPDIR:-/tmp}" 536870912 128 || return 1
   NPM_SHIM_TMP=$(mktemp "\${TMPDIR:-/tmp}/npm.shim.XXXXXX")
   python3 - "$NPM_SHIM_TMP" "$COREPACK_BIN" "$COREPACK_HOME" "$NPM_PREFIX" <<'PY'
 import os
@@ -777,17 +804,19 @@ bootstrap_host() {
   if "$TARGET_BIN" cron install --minimal >"$STEP_LOG" 2>&1; then
     ui_ok "cxx" "maintenance" "" "nightly if auto-update"
   else
-    ui_fail "cxx" "maintenance" "" "schedule failed"
+    SCHEDULE_FAILED=1
+    ui_fail "cxx" "maintenance schedule" "" "could not be installed"
     show_step_log
     HOST_BOOT_FAILED=1
   fi
 
-  ui_progress "cxx" "engine CLIs" "" "installing…"
+  ui_progress "cxx" "engine maintenance" "" "updating CLIs + syncing configuration…"
   : > "$STEP_LOG"
   if "$TARGET_BIN" cron run --minimal >"$STEP_LOG" 2>&1; then
-    ui_ok "cxx" "engine CLIs" "" "updated"
+    ui_ok "cxx" "engine maintenance" "" "completed"
   else
-    ui_fail "cxx" "engine CLIs" "" "update failed"
+    MAINTENANCE_FAILED=1
+    ui_fail "cxx" "engine maintenance" "" "did not finish; see the cause below"
     show_step_log
     HOST_BOOT_FAILED=1
   fi
@@ -811,7 +840,8 @@ verify_engine_cli() {
     return 1
   fi
   BOOT_VERSION=$(printf '%s\n' "$BOOT_VERSION" | head -n 1)
-  ui_ok "$BOOT_NAME" "$BOOT_CLI" "$BOOT_VERSION" "ready"
+  # Availability is independent of the update/configuration-sync outcome.
+  ui_ok "$BOOT_NAME" "$BOOT_CLI" "$BOOT_VERSION" "available"
 }
 
 if [ "$INSTALL_CONTEXT" = "transition" ]; then
@@ -830,6 +860,23 @@ else
 fi
 
 preflight
+bootstrap_space
+mkdir -p "$HOME/.cxx"
+exec 9>"$HOME/.cxx/install-space.lock"
+# flock belongs to the shared open file description; fd 9 keeps it held in sh.
+python3 - <<'PY_SPACE_LOCK'
+import fcntl, os, time
+limit = time.monotonic() + 300
+while True:
+    try:
+        fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        break
+    except BlockingIOError:
+        if time.monotonic() >= limit:
+            raise SystemExit("cxx installer: timed out waiting for another installation")
+        time.sleep(0.05)
+PY_SPACE_LOCK
+bootstrap_space
 if [ "$HAS_CODEX" = "1" ]; then mkdir -p "$(dirname "$CODEX_CONFIG_PATH")"; fi
 if [ "$HAS_CLAUDE" = "1" ]; then mkdir -p "$(dirname "$CLAUDE_CONFIG_PATH")"; fi
 if [ "$HAS_GROK" = "1" ]; then mkdir -p "$(dirname "$GROK_CONFIG_PATH")"; fi
@@ -1095,6 +1142,7 @@ if [ -x "$TARGET_BIN" ] && [ ! -L "$TARGET_BIN" ]; then
 fi
 
 if [ "$SKIP_DOWNLOAD" = "0" ]; then
+  space_gate "cxx download" "\${TMPDIR:-/tmp}" 536870912 128 "$BIN_ROOT" 536870912 128
   curl $CURL_INSECURE_FLAG -fsSL \\
     -H "X-API-Key: $HOST_API_KEY" \\
     -H "X-Wrapper-Platform: $WRAPPER_PLATFORM" \\
@@ -1125,6 +1173,7 @@ if [ "$INSTALL_CONTEXT" = "installer" ]; then
 fi
 cleanup_known_relics
 ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
+exec 9>&-
 
 # New wrappers install native names without replacing provider binaries. Older
 # served wrappers may remain during the API-first part of a rolling upgrade.
@@ -1353,4 +1402,69 @@ function shellQuote(value: string): string {
 
 function commentValue(value: string): string {
   return value.replace(/[\r\n]/g, ' ').trim();
+}
+
+/** Minimal gate used before the downloaded Go wrapper can enforce installspace. */
+function installSpaceFunctions(): string {
+  return `bootstrap_space() {
+  # Config responses are small. Budget the large binary only when its checksum
+  # differs, after metadata has identified whether a download is necessary.
+  set -- "cxx bootstrap" "\${TMPDIR:-/tmp}" 1048576 32 "$BIN_ROOT" 1048576 32 "$HOME/.cxx" 1048576 32
+  if [ "$HAS_CODEX" = "1" ]; then set -- "$@" "$(dirname "$CODEX_CONFIG_PATH")" 1048576 32; fi
+  if [ "$HAS_CLAUDE" = "1" ]; then set -- "$@" "$(dirname "$CLAUDE_CONFIG_PATH")" 1048576 32; fi
+  if [ "$HAS_GROK" = "1" ]; then set -- "$@" "$(dirname "$GROK_CONFIG_PATH")" 1048576 32; fi
+  space_gate "$@"
+}
+
+space_check() {
+  python3 - "$@" <<'PY_INSTALL_SPACE'
+import os, sys
+component = sys.argv[1]
+groups = {}
+try:
+    args = sys.argv[2:]
+    if len(args) % 3:
+        raise ValueError("invalid space budget")
+    for i in range(0, len(args), 3):
+        target, size, inodes = args[i:i+3]
+        path = os.path.abspath(target)
+        while True:
+            try:
+                stat = os.stat(path)
+                break
+            except FileNotFoundError:
+                parent = os.path.dirname(path)
+                if parent == path:
+                    raise
+                path = parent
+        if not os.path.isdir(path):
+            path = os.path.dirname(path)
+            stat = os.stat(path)
+        fs = os.statvfs(path)
+        g = groups.setdefault(stat.st_dev, [target, 0, 0, fs.f_bavail * (fs.f_frsize or fs.f_bsize), fs.f_favail, fs.f_files > 0])
+        g[1] += int(size)
+        g[2] += int(inodes)
+        g[3] = min(g[3], fs.f_bavail * (fs.f_frsize or fs.f_bsize))
+        g[4] = min(g[4], fs.f_favail)
+    for target, size, inodes, free, ifree, iknown in groups.values():
+        needed = size + max(128 * 1024 * 1024, size // 10)
+        if free < needed or (iknown and ifree < inodes):
+            print(f"{component}: insufficient space at {target}: need {(needed + 1048575) // 1048576} MiB, available {free // 1048576} MiB; inodes need {inodes}, available {ifree}", file=sys.stderr)
+            sys.exit(73)
+except (OSError, ValueError) as err:
+    print(f"{component}: cannot measure install space: {err}", file=sys.stderr)
+    sys.exit(74)
+PY_INSTALL_SPACE
+}
+
+space_gate() {
+  SPACE_STATUS=0
+  space_check "$@" || SPACE_STATUS=$?
+  if [ "$SPACE_STATUS" = "0" ]; then return 0; fi
+  if [ "$SPACE_STATUS" != "73" ]; then return "$SPACE_STATUS"; fi
+  # Before cxx is installed no old stage can be proven inactive. Only this
+  # invocation's temporary files are owned, and those are still needed.
+  printf '%s\\n' "$1: cleanup attempted; no eligible owned bootstrap artifacts" >&2
+  space_check "$@"
+}`;
 }

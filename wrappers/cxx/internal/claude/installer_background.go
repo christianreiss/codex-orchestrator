@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/enginestore"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"log/slog"
 	"os"
@@ -69,8 +71,9 @@ func managedClaudeEnv(cli string, env []string) []string {
 // lazily load its files. Reclaiming is PruneEngineStore's job, from a later
 // maintenance tick: the fleet keeps exactly one version on disk, but only once
 // the superseded prefix has not been the pointer target for a full tick and no
-// live process runs from it.
-func EnsureClaudeBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
+// live process runs from it. A pre-install shortage may invoke the same protected
+// sweep before this installer creates or publishes a stage.
+func EnsureClaudeBackground(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) (retErr error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -85,8 +88,36 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 	if err != nil {
 		return err
 	}
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseSpace()
+	defer func() { retErr = installspace.WriteError("Claude", root, retErr) }()
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return fmt.Errorf("create managed Claude directory: %w", err)
+	}
+
+	current := strings.TrimSpace(Version(ctx))
+	if current == target || (!enforceExact && IsDowngrade(current, target)) {
+		return nil
+	}
+	// Cleanup runs before taking the engine installer lock.
+	needs := []installspace.Need{{Path: root, Bytes: installspace.Native + maxClaudeTarball, Inodes: 128}}
+	npm, npmErr := exec.LookPath("npm")
+	if npmErr == nil {
+		cache, err := installspace.NpmCache(ctx, npm, root)
+		if err != nil {
+			return err
+		}
+		needs = []installspace.Need{
+			{Path: root, Bytes: installspace.Package, Inodes: 10000},
+			{Path: cache, Bytes: installspace.Native, Inodes: 10000},
+			{Path: os.TempDir(), Bytes: installspace.Wrapper, Inodes: 128},
+		}
+	}
+	if err := installspace.Ensure(ctx, "Claude", func() error { _, err := PruneEngineStoreForInstall(logger); return err }, needs...); err != nil {
+		return err
 	}
 	unlock, err := lockClaudeInstall(ctx, filepath.Join(root, "install.lock"))
 	if err != nil {
@@ -94,10 +125,6 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 	}
 	defer unlock()
 
-	current := strings.TrimSpace(Version(ctx))
-	if current == target || (!enforceExact && IsDowngrade(current, target)) {
-		return nil
-	}
 	stage, err := os.MkdirTemp(root, target+"-")
 	if err != nil {
 		return fmt.Errorf("create Claude install stage: %w", err)
@@ -111,12 +138,19 @@ func EnsureClaudeBackground(ctx context.Context, target string, enforceExact boo
 	// Without npm (e.g. XCP-ng dom0, whose OS has no Node.js new enough for
 	// the package) install the platform's native binary straight from the
 	// registry; the npm package only wraps that same binary.
-	npm, err := exec.LookPath("npm")
-	if err != nil {
+	if npmErr != nil {
 		return publishNativeClaude(ctx, stage, target, "without npm", &published, logger)
 	}
 	if err := installStagedClaudeNpm(ctx, npm, stage, target, &published, logger); err != nil {
-		if published || ctx.Err() != nil {
+		if published || ctx.Err() != nil || installspace.StopsFallback(err) {
+			return err
+		}
+		// This unpublished stage belongs to this failed npm invocation only.
+		// Drop its partial files before trying the native package.
+		if err := os.RemoveAll(stage); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(stage, 0o700); err != nil {
 			return err
 		}
 		// A broken or too-old Node.js/npm must not strand the host either.
@@ -140,6 +174,9 @@ func publishNativeClaude(ctx context.Context, stage, target, why string, publish
 	if version != target {
 		return fmt.Errorf("native Claude CLI reports version %q, want %s", version, target)
 	}
+	if err := enginestore.InvalidatePressureAdmission(filepath.Dir(stage)); err != nil {
+		return fmt.Errorf("invalidate pressure-cleanup admission: %w", err)
+	}
 	*published = true
 	if err := cacheClaudeContext(ctx, native); err != nil {
 		return fmt.Errorf("publish staged Claude CLI: %w", err)
@@ -155,11 +192,21 @@ func installStagedClaudeNpm(ctx context.Context, npm, stage, target string, publ
 	// Explicit --prefix scopes package writes; --global=false neutralizes an
 	// inherited npm global setting without changing the operator's npmrc.
 	cmd.Args = append(cmd.Args, "--global=false")
+	cache, err := installspace.NpmCache(ctx, npm, stage)
+	if err != nil {
+		return err
+	}
+	if err := installspace.Check(ctx, "Claude npm",
+		installspace.Need{Path: stage, Bytes: installspace.Package, Inodes: 10000},
+		installspace.Need{Path: cache, Bytes: installspace.Native, Inodes: 10000},
+		installspace.Need{Path: os.TempDir(), Bytes: installspace.Wrapper, Inodes: 128}); err != nil {
+		return err
+	}
 	output := newRingBuffer(32 << 10)
 	cmd.Stdout, cmd.Stderr = output, output
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "installing"})
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("staged npm install %s failed: %w: %s", spec, err, strings.TrimSpace(string(output.Bytes())))
+		return installspace.WriteError("Claude npm", stage, fmt.Errorf("staged npm install %s failed: %w: %s", spec, err, strings.TrimSpace(string(output.Bytes()))))
 	}
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	candidate := runnableStagedClaude(ctx, stage, target)
@@ -180,6 +227,9 @@ func installStagedClaudeNpm(ctx context.Context, npm, stage, target string, publ
 	// durability flush. Once validation succeeds, this function never removes a
 	// prefix that a newly started process might already have selected; the next
 	// sweep reclaims whichever prefix the pointer did not select.
+	if err := enginestore.InvalidatePressureAdmission(filepath.Dir(stage)); err != nil {
+		return fmt.Errorf("invalidate pressure-cleanup admission: %w", err)
+	}
 	*published = true
 	if err := cacheClaudeContext(ctx, candidate); err != nil {
 		return fmt.Errorf("publish staged Claude CLI: %w", err)

@@ -19,24 +19,24 @@ async function fixture(page:Page,manage=true,ambiguous=false) {
  });
  return {writes:()=>writes};
 }
-test('supervision confirms an ambiguous save and pauses the selected incident',async({page})=>{
- const state=await fixture(page,true,true);await page.goto('/admin/settings#agent-supervisor');
+test('supervision confirms an ambiguous save and shows only the switch, no incident list',async({page})=>{
+ const state=await fixture(page,true,true);await page.goto('/admin/settings?group=agents#agent-supervisor');
  const area=page.locator('#agent-supervisor'),toggle=area.getByRole('switch',{name:'Enable fleet supervision'});
  await expect(toggle).toBeEnabled();await toggle.click();await expect(toggle).toBeChecked();
  await expect(area).toContainText('Saved. Confirmed by the server.');expect(state.writes()).toBe(1);
- await expect(area).toContainText('2 / 5');await expect(area).toContainText('Waiting for the test worker');
- await area.getByRole('button',{name:'Pause recovery'}).click();await expect(area).toContainText('Recovery paused');
+ // The per-agent cards (target, attempts, reason, pause) were removed; incidents live on the Agents graph.
+ await expect(area).not.toContainText('Waiting for the test worker');await expect(area).not.toContainText('Recovery attempts');await expect(area).not.toContainText(target);
+ await expect(area.getByRole('button',{name:'Pause recovery'})).toHaveCount(0);
 });
 test('read-only supervision keeps the recovery limits and permission boundary visible',async({page})=>{
- await fixture(page,false);await page.goto('/admin/settings#agent-supervisor');const area=page.locator('#agent-supervisor');
- await expect(area.getByRole('switch')).toBeDisabled();await expect(area.getByRole('button',{name:'Pause recovery'})).toBeDisabled();
+ await fixture(page,false);await page.goto('/admin/settings?group=agents#agent-supervisor');const area=page.locator('#agent-supervisor');
+ await expect(area.getByRole('switch')).toBeDisabled();await expect(area.getByRole('button',{name:'Pause recovery'})).toHaveCount(0);
  await expect(area).toContainText('five times within two hours');await expect(area).toContainText('Read only.');
 });
 for(const theme of ['light','dark'])test(`supervisor reflows at 320px in ${theme}`,async({page})=>{
  await page.setViewportSize({width:320,height:844});await page.emulateMedia({colorScheme:theme as 'light'|'dark'});
- await fixture(page);await page.goto('/admin/settings#agent-supervisor');const area=page.locator('#agent-supervisor');await expect(area).toBeVisible();
+ await fixture(page);await page.goto('/admin/settings?group=agents#agent-supervisor');const area=page.locator('#agent-supervisor');await expect(area).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
- expect(await area.locator('dl').evaluateAll(nodes=>nodes.every(n=>n.scrollWidth<=n.clientWidth))).toBe(true);
- const axe=await new AxeBuilder({page}).include('#agent-supervisor').analyze();expect(axe.violations).toEqual([]);
+  const axe=await new AxeBuilder({page}).include('#agent-supervisor').analyze();expect(axe.violations).toEqual([]);
  await area.screenshot({path:`test-results/supervisor-${theme}-320.png`});
 });

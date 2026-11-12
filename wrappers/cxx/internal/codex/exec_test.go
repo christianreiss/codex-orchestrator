@@ -69,7 +69,7 @@ func TestRunCaptureReturnsPreExecError(t *testing.T) {
 	if len(out) != 0 {
 		t.Fatalf("captured output = %q, want empty", string(out))
 	}
-	if !strings.Contains(err.Error(), "does not match baked FQDN") {
+	if !strings.Contains(err.Error(), "does not match this installation") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

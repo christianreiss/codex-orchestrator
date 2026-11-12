@@ -741,7 +741,9 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `POST /admin/hosts/{id}/secure` — toggle the host’s security mode (`secure:
   true` keeps native auth locally; `false` makes the last exiting auth-aware
   cdx/clx process purge credentials while retaining explicit logout intent).
-- `GET /admin/wrapper/rollout` — staged cxx rollout status (`hosts.read`): `enabled`, configured `settings` (`stages`, `soak_minutes`), the current `rollout` (state plus `stage`, `next_stage`, `soak_ends_at`, `confirmed_host_ids`) or `null`, and every host's `canary` / `excluded` / `running` / `admitted`.
+- `GET /admin/wrapper/rollout` — staged cxx rollout status (`hosts.read`): `enabled` (the effective switch), `enabled_source` (`setting` when an operator chose, `env` for the `CXX_WRAPPER_ROLLOUT_ENABLED` default), configured `settings` (`stages`, `soak_minutes`), the current `rollout` (state plus `stage`, `next_stage`, `soak_ends_at`, `confirmed_host_ids`) or `null`, and every host's `canary` / `excluded` / `running` / `admitted`.
+- `GET /admin/wrapper/rollout/enabled` — `{enabled, source}` of the rollout switch (`hosts.read`).
+- `POST /admin/wrapper/rollout/enabled` — `{enabled: boolean}` (`hosts.manage`); persists an operator choice in the `versions` row `wrapper_rollout_enabled`, which overrides the `CXX_WRAPPER_ROLLOUT_ENABLED` environment default. Read per request: a toggle applies to `/cron/check` and the signed config at once, no restart. Audit action `admin.wrapper_rollout_enabled`. Turning it off ignores any stored rollout; turning it on affects the next published cxx release.
 - `POST /admin/wrapper/rollout/:action` — `halt` (optional `reason`), `resume` (restarts the current stage's soak), `promote` (next stage now) or `complete` (release to every host now); `hosts.manage`. Returns the status body; `409` when no rollout is active or halted. Halting never reverts an updated host.
 - `POST /admin/hosts/:id/wrapper-canary` — `{enabled: boolean}`; marks a host as a rollout canary (`hosts.manage`). A canary added during a rollout is admitted immediately.
 - `POST /admin/hosts/{id}/vip` — toggle VIP status (`vip: true` means quota kill switch is never enforced for this host; warn-only even when the global policy is deny).
@@ -820,6 +822,8 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set how the capability matrix is enforced. Body `{mode: "compatible"|"strict"}`. The GET returns `{mode, updated_at, would_deny}`, where `would_deny` lists the distinct `{role, capability, route, first_seen, last_seen}` triples this installation served under `compatible` that `strict` would refuse — the answer to "what breaks if I switch", drawn from the fleet's own traffic over the last 30 days. Requires `security.manage_authorization`, which is enforced under **both** modes: `compatible` grants `settings.manage` to every role, so a posture any account could change would not be one. Migration `0022` sets `compatible` on installations that already had users and `strict` on fresh ones; see [ADMIN.md](ADMIN.md#roles--capabilities).
 - `GET /admin/log-retention` / `POST /admin/log-retention` — retired compatibility endpoint: always returns `{enabled:false,supported:false,reason:"use_server_retention_api",replacement:"/admin/server-retention"}`. Old durations are ignored and no setting is persisted.
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` through `/admin/hosts/{id}/scaling-exempt` are excluded.
+- `GET /admin/prune-policy` — `{inactivity_window_days}` (`settings.read`; default 30, clamped 0..60). Replaces the Settings page's former read of `/admin/overview`.
+- `GET /admin/settings/host-overrides` — `settings.read`; counts of hosts that override a fleet setting: `{auto_update, reverse_dns, rtk:{<engine>:n}, session_housekeeping:{<engine>:n}}`. Counts only, no host detail; rows of removed hosts are ignored. Backs the "N hosts override" badges on Settings.
 - `POST /admin/prune-policy` — set host inactivity pruning window. Body `{inactivity_days: 0..60}`.
 - `POST /admin/codex-version` — set the fleet Codex CLI version policy. Body: `{selection: "latest"|"<x.y.z>"}`. `latest` keeps the GitHub-latest flow; explicit versions below the internal minimum `0.125.0` are coerced upward to `0.125.0`. Exact downgrade behavior only applies when `client_version_enforce_exact=true` (that is, the fleet pin is above the floor).
 - `GET /admin/logs?limit=` — recent audit events.
@@ -2332,10 +2336,15 @@ observed_at: string|null, stale: boolean}`. ChatGPT plan names come from that
 account's successful usage snapshot `plan_type`; Claude names come only from
 `claudeAiOauth.subscriptionType` in its verified canonical login, with
 `rateLimitTier` distinguishing Max 5×/20×. Claude observation time is the stored
-payload's creation time, not a live billing check. Unknown types remain null;
-quota sizes, selected models and account labels never determine a plan.
-Metadata older than ten minutes, missing timestamps and failed settings polls
-are stale. No credential fields are returned in `plan`.
+payload's creation time, not a live billing check. ChatGPT slugs are the Codex
+`PlanType` wire values (`free`, `go`, `plus`, `pro`, `prolite`→Pro Lite,
+`promax`→Pro Max, `team`, `business`, `enterprise`, `edu` and their
+`self_serve_business_*`, `enterprise_cbp_*`, `edu_pro` variants); a well-formed
+slug the table does not know is shown humanised, `unknown` and malformed values
+stay null. Quota sizes, selected models and account labels never determine a
+plan. ChatGPT and Grok metadata older than ten minutes, Claude login metadata
+older than 48 hours (it changes only on a token refresh), missing timestamps and
+failed settings polls are stale. No credential fields are returned in `plan`.
 
 Migration `0069_provider_plan.sql` adds Grok's cached plan name, observation time
 and sanitized plan error to `grok_usage_snapshots`. The existing five-minute
@@ -2349,7 +2358,7 @@ No additional Claude provider request or wrapper update is needed.
 
 ### Grok subscription usage
 
-`GET /admin/accounts` adds `usage.current_window` for Grok: `{used_percent, period: weekly|monthly|null, starts_at, resets_at, shared}` or `null` when no provider reading exists. `usage.supported` is true; `fetched_at` is the last successful reading, `checked_at` the last attempt, and `error_code` is a sanitized failure code. `stale` is true after ten minutes, after the provider period expires, or on a failed poll; failed polls retain the last successful window. Missing percentages never become zero. Legacy `short_*`/`weekly_*` fields stay null for Grok: this is a dashboard observation and does not change account selection or wrapper quota contracts.
+`GET /admin/accounts` adds `usage.current_window` for Grok: `{used_percent, period: weekly|monthly|null, starts_at, resets_at, shared}` or `null` when no provider reading exists. `usage.supported` is true; `fetched_at` is the last successful reading, `checked_at` the last attempt, and `error_code` is a sanitized failure code. `stale` is true after ten minutes, after the provider period expires, or on a failed poll; failed polls retain the last successful window. Missing percentages never become zero, with one exception: a body with no `creditUsagePercent` and no legacy budget fields but a recognised `currentPeriod` type and a valid `end` is a fresh period whose zero the provider omitted, and reads as 0%. Legacy `short_*`/`weekly_*` fields stay null for Grok: this is a dashboard observation and does not change account selection or wrapper quota contracts.
 
 The API background worker polls `https://cli-chat-proxy.grok.com/v1/billing?format=credits` at most once per five minutes per account, with a ten-second request deadline and redirects refused. It wakes every thirty seconds for new accounts; disabled engines, paused/removed/merged accounts are skipped. Bearers come only from the existing fenced Grok auth owner. `accounts.updated` invalidates the existing admin queries after each observation. No billing write or top-up operation is performed. The endpoint is provider-owned and not a stable public xAI API contract; unavailable/changed responses remain visibly unknown or stale.
 
