@@ -25,7 +25,7 @@ describe('boot database checks', () => {
   it('probes the required Claude artifact table before optional boot work', async () => {
     const execute = vi.fn().mockResolvedValue([]);
     const select = vi.fn(() => ({
-      from: () => ({ where: async () => [{ version: 'complete' }] }),
+      from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }),
     }));
 
     await runBootChecks(env, { execute, select } as unknown as Database);
@@ -72,7 +72,7 @@ describe('boot database checks', () => {
 
     const execute = vi.fn().mockResolvedValue([]);
     const select = vi.fn(() => ({
-      from: () => ({ where: async () => [{ version: 'complete' }] }),
+      from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }),
     }));
 
     try {
@@ -118,7 +118,7 @@ describe('boot database checks', () => {
     await writeFile(join(root, 'manifest.json'), JSON.stringify({ engine, os: 'linux', arch: 'amd64', current: '2.0.0', builds: [{ version: '2.0.0', sha256, size_bytes: Buffer.byteLength(payload) }] }));
     await writeFile(join(root, 'v2.0.0', binary), payload);
     const execute = vi.fn().mockResolvedValue([]);
-    const select = vi.fn(() => ({ from: () => ({ where: async () => [{ version: 'complete' }] }) }));
+    const select = vi.fn(() => ({ from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }) }));
     try {
       await runBootChecks({ ...env, DATA_ROOT: dataRoot, PUBLIC_BASE_URL: 'https://fleet.test' }, { execute, select } as unknown as Database);
       expect(execute.mock.calls.slice(4).map(([query]) => new MySqlDialect().sqlToQuery(query as SQL).params.slice(0, 2))).toEqual([
@@ -158,7 +158,7 @@ describe('boot database checks', () => {
 
     const execute = vi.fn().mockResolvedValue([]);
     const select = vi.fn(() => ({
-      from: () => ({ where: async () => [{ version: 'complete' }] }),
+      from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }),
     }));
 
     try {
@@ -203,7 +203,7 @@ describe('boot database checks', () => {
 
     const execute = vi.fn().mockResolvedValue([]);
     const select = vi.fn(() => ({
-      from: () => ({ where: async () => [{ version: 'complete' }] }),
+      from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }),
     }));
 
     try {
@@ -269,7 +269,7 @@ describe('boot database checks', () => {
 
     const execute = vi.fn().mockResolvedValue([]);
     const select = vi.fn(() => ({
-      from: () => ({ where: async () => [{ version: 'complete' }] }),
+      from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }),
     }));
 
     try {
@@ -315,7 +315,7 @@ describe('boot database checks', () => {
 
     const execute = vi.fn().mockResolvedValue([]);
     const select = vi.fn(() => ({
-      from: () => ({ where: async () => [{ version: 'complete' }] }),
+      from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }),
     }));
 
     try {
@@ -343,7 +343,7 @@ describe('boot database checks', () => {
       await writeFile(join(root, 'v2.0.0', binary), payload);
     }
     const execute = vi.fn().mockResolvedValue([]);
-    const select = vi.fn(() => ({ from: () => ({ where: async () => [{ version: 'complete' }] }) }));
+    const select = vi.fn(() => ({ from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }) }));
     try {
       await runBootChecks({ ...env, DATA_ROOT: dataRoot, PUBLIC_BASE_URL: 'https://orchestrator.example/' }, { execute, select } as unknown as Database);
       const keys = execute.mock.calls.slice(4).map(([query]) => new MySqlDialect().sqlToQuery(query as SQL).params[0]);
@@ -367,7 +367,7 @@ describe('boot runner health projections', () => {
     const fetch = vi.fn().mockResolvedValue({ ok, json: async () => body });
     vi.stubGlobal('fetch', fetch);
     const execute = vi.fn().mockResolvedValue([]);
-    const select = vi.fn(() => ({ from: () => ({ where: async () => [{ version: 'complete' }] }) }));
+    const select = vi.fn(() => ({ from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }) }));
     await runBootChecks(healthEnv, { execute, select } as unknown as Database);
     expect(fetch).toHaveBeenCalledWith('http://runner.example/health', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     return new Map(execute.mock.calls.slice(4).map(([query]) => {
@@ -412,7 +412,7 @@ describe('boot runner health projections', () => {
   it('fails all three engines and records failure timestamps when health cannot be fetched', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('runner unreachable')));
     const execute = vi.fn().mockResolvedValue([]);
-    const select = vi.fn(() => ({ from: () => ({ where: async () => [{ version: 'complete' }] }) }));
+    const select = vi.fn(() => ({ from: () => ({ where: () => Object.assign(Promise.resolve([{ version: 'complete' }]), { limit: async () => [] }) }) }));
     await runBootChecks(healthEnv, { execute, select } as unknown as Database);
     const writes = new Map(execute.mock.calls.slice(4).map(([query]) => {
       const params = new MySqlDialect().sqlToQuery(query as SQL).params;

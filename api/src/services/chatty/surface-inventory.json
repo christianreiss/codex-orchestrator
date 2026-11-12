@@ -381,7 +381,11 @@
       "POST /admin/kimi/state",
       "POST /admin/kimi/version",
       "POST /admin/hosts/:id/kimi-version",
-      "POST /admin/runner/run-kimi"
+      "POST /admin/runner/run-kimi",
+      "GET /admin/prune-policy",
+      "GET /admin/settings/host-overrides",
+      "GET /admin/wrapper/rollout/enabled",
+      "POST /admin/wrapper/rollout/enabled"
     ]
   },
   "excluded": {

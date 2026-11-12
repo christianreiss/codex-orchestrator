@@ -66,7 +66,6 @@ const RUNTIME_PATH_CALLERS: Record<string, string> = {
   'frontend/src/lib/portal/chat-files.ts': 'attachmentBase selects session or room uploads, chunks and sealing; room API and existing attachment tests exercise the contracts.',
 
   'frontend/src/lib/api/nativeSettings.ts': 'Engine selects /admin/config, /admin/claude/config /admin/grok/config or /admin/kimi/config; the table below executes GET plus POST /render and /store for every engine and checks registered routes.',
-  'frontend/src/lib/components/policies/SessionHousekeeping.svelte': 'endpoint chooses fleet or host session-housekeeping routes; engine completes the POST path',
   'frontend/src/lib/api/watchdogs.ts': 'Reactive target queries and versioned disable IDs use Watchdog routes; API and browser tests cover activation and disable.',
   'frontend/src/lib/api/schedules.ts': 'Schedule list pagination and detail IDs derive from reactive stores; schedule API and route tests cover methods, versions and target paths.',
   'frontend/src/lib/api/agentSessions.ts': 'A shared bounded GET helper receives the literal session list and encoded session timeline paths from the query builders; browser tests cover both routes and selection changes.',
