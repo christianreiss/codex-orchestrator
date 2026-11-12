@@ -63,7 +63,11 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   contains Accounts, Engines and Usage limits; Activity contains Activity and Reports.
   Access & Settings contains separate People, API keys, Secrets and Settings pages.
   Manual and Account stay in the sidebar footer.
-- Settings is a live page at `/admin/settings`. Retired Clients, Topology,
+- Settings is a live page at `/admin/settings`: four tabs (`?group=hosts|agents|rollout|retention`),
+  where a link to any row (`#agent-coordination`, `#rtk`, …) opens the tab holding it
+  (`frontend/src/lib/components/settings/settings-anchors.ts`). Rows that hosts can override
+  show a count from `GET /admin/settings/host-overrides`; the host-agent rollout switch is
+  `GET/POST /admin/wrapper/rollout/enabled`. Retired Clients, Topology,
   Instructions, Memories and Authoring URLs map to their current owners through
   `frontend/src/lib/legacy-admin-routes.ts`; old Settings section links are mapped
   individually rather than redirecting every Settings URL.
@@ -310,7 +314,7 @@ Admin routes:
 
 ## Agent session operations
 
-- Agents (`/admin/agents`) combines Live conversations and a Graph view. Agent-session controls live under Settings → Agents (`/admin/settings#agents`); Remote sessions are available from Agents.
+- Agents (`/admin/agents`) combines Live conversations and a Graph view. Agent-session controls live under Settings → Agents (`/admin/settings?group=agents#agents`); Remote sessions are available from Agents.
 - The legacy `/go` webchat, magic links and portal-user APIs are removed.
 - Account → Android devices pairs the native companion for FCM, chat and host approvals.
 - Disabling shared sessions cancels queued/leased operator input without replay.

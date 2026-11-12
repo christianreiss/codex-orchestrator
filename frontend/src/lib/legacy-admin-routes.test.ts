@@ -13,7 +13,7 @@ describe("legacy admin destinations", () => {
     assert.equal(settingsLegacyTarget(q("tab=fleet-policy")), "/settings");
     assert.equal(settingsLegacyTarget(q("tab=claude-config")), "/engines#claude-client");
     assert.equal(settingsLegacyTarget(q("tab=availability")), "/api-keys");
-    assert.equal(settingsLegacyTarget(q(), "#log-retention"), "/settings?group=retention#retention");
+    assert.equal(settingsLegacyTarget(q(), "#log-retention"), "/settings#retention");
     // Current rows are resolved by the page, not redirected.
     assert.equal(settingsLegacyTarget(q(), "#auto-update"), null);
     assert.equal(settingsLegacyTarget(q(), "#prune-policy"), null);

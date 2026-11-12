@@ -85,7 +85,7 @@
 
 <Section {id} {title} {description}>
   {#if !canRead}
-    <p class="text-body-sm text-muted-foreground">Read only: viewing this setting requires <code class="font-mono">{readPermission}</code>. Ask an administrator for access.</p>
+    <p class="text-body-sm text-muted-foreground">Viewing this setting requires <code class="font-mono">{readPermission}</code>. Ask an administrator for access.</p>
   {:else if $query.isPending}
     <StateBlock state="loading" rows={2} />
   {:else}
@@ -107,7 +107,7 @@
     {/if}
     <div id={`${id}-status`} class="mt-2 space-y-2">
       <p class="text-body-sm text-muted-foreground">Changes save immediately. {footnote}</p>
-      {#if !canManage}<p class="text-body-sm text-muted-foreground">Read only: changes require <code class="font-mono">{managePermission}</code>.</p>{/if}
+      {#if !canManage}<p class="text-body-sm text-muted-foreground">Read only. Changes require <code class="font-mono">{managePermission}</code>.</p>{/if}
       {#if pending}<p role="status" class="text-body-sm text-muted-foreground">{checking ? "Checking the current server state…" : "Saving… Waiting for server confirmation."}</p>
       {:else if saveError}
         <SaveState error={saveError} />

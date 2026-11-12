@@ -58,7 +58,7 @@
   term="session housekeeping"
   help="Keep recent conversations and remove older sessions to reclaim disk space, per engine and local user."
   details="Deletion permanently removes transcripts and their session history. Active sessions, pins, open goals, queued work and fleet resume or wake bindings stay protected. Protected or young sessions may exceed the budget. cxx waits for an idle engine and checks at most daily after a successful run."
-  overrideCount={$overrides.data?.session_housekeeping[engine] ?? null}
+  overrideCount={$overrides.data?.session_housekeeping?.[engine] ?? null}
   overrideNoun={`${engine} rule`}
 >
   <div class="flex flex-wrap items-center gap-3">
