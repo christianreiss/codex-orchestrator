@@ -176,11 +176,13 @@
 
 <SectionCard id="quota-policy" title="Quota warnings and resume" description="Defaults for provider accounts; account overrides are edited under Accounts." {headingLevel}>
   <Tabs.Root bind:value={policyEngine} class="flex flex-col gap-3">
-    <Tabs.List class="w-fit" aria-label="Engine quota policy">
-      {#each ENGINES as engine (engine)}
-        <Tabs.Trigger value={engine}>{ENGINE_META[engine].label}</Tabs.Trigger>
-      {/each}
-    </Tabs.List>
+    <div class="-m-1 max-w-full overflow-x-auto p-1">
+      <Tabs.List class="w-max" aria-label="Engine quota policy">
+        {#each ENGINES as engine (engine)}
+          <Tabs.Trigger value={engine} class="shrink-0">{ENGINE_META[engine].label}</Tabs.Trigger>
+        {/each}
+      </Tabs.List>
+    </div>
     {#each ENGINES as engine (engine)}
       <Tabs.Content value={engine} id={`quota-policy-${engine}`} class="scroll-mt-20">
         <QuotaPolicyEditor {engine} />

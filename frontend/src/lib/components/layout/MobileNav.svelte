@@ -64,7 +64,7 @@
 
 <Sheet.Root bind:open={menuOpen}>
   <Sheet.Content side="bottom" class="max-h-[86dvh] overflow-y-auto overscroll-contain rounded-t-md border-x border-t bg-background px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-5">
-    <Sheet.Header class="text-left"><Sheet.Title>Navigation</Sheet.Title><Sheet.Description>Control, coordinate, and sync Codex, Claude, Grok, and Kimi Code.</Sheet.Description></Sheet.Header>
+    <Sheet.Header class="text-left"><Sheet.Title>Navigation</Sheet.Title><Sheet.Description>Control, coordinate, and sync every engine in the fleet.</Sheet.Description></Sheet.Header>
     <div class="mt-4 space-y-4">
       <InsecureApprovalsNavAlert variant="sheet" onnavigate={() => (menuOpen = false)} />
       {#each menuSections as section (section.id)}

@@ -123,7 +123,7 @@
         {@const view = TOKENS[token]}
         {@const expiry = engine === "claude" ? status?.login_expiry : undefined}
         <li class={cn("flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2", token === "disabled" && "opacity-70")}>
-          <span class="flex w-24 items-center gap-2 font-medium">
+          <span class="flex min-w-24 shrink-0 items-center gap-2 font-medium">
             <span class="h-2 w-2 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>{ENGINE_META[engine].label}
           </span>
           <Badge variant={view.variant}>

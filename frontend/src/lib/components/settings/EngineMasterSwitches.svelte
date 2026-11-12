@@ -140,12 +140,12 @@
       </AlertDescription>
     </Alert>
   {/if}
-  <div class="grid divide-y rounded-md border md:grid-cols-3 md:divide-x md:divide-y-0">
+  <div class="grid gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]">
     {#each ENGINES as engine (engine)}
       {@const on = view.isEnabled(engine)}
-      <div class="flex items-center justify-between gap-3 px-3 py-2">
+      <div class="flex items-center justify-between gap-3 bg-background px-3 py-2">
         <div class="min-w-0">
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
             <span class="h-2 w-2 shrink-0 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>
             <Label for="engine-switch-{engine}" class="text-body font-medium">{label(engine)}</Label>
             <code class="text-caption text-muted-foreground">{ENGINE_META[engine].command}</code>
