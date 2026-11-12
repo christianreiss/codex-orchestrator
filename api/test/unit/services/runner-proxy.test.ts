@@ -31,6 +31,23 @@ function statusFromVersions(entries: Record<string, string>) {
 }
 
 describe('RunnerProxyService.status', () => {
+  it('includes verified Kimi telemetry without inventing a login expiry', async () => {
+    const svc = makeRunnerProxy(readyRunnerEnv(), {
+      runnerValidation: fakeRunnerValidation({ kimi: canonicalRow({ engine: 'kimi', auth: {
+        kimi_code: { access_token: 'test-access', expires_at: 2000000000, expires_in: 900 }, device_id: 'a'.repeat(32), last_refresh: '2026-11-12T10:00:00Z',
+      } }) }),
+      readTelemetry: async () => new Map([
+        ['runner_state_kimi', 'fail'], ['runner_last_check_kimi', '2026-11-12T10:00:00Z'],
+        ['runner_last_fail_kimi', '2026-11-12T10:00:00Z'],
+      ]),
+    });
+    const status = await svc.status();
+    expect(status.state).toBe('fail');
+    expect(status.last_run).toBe('2026-11-12T10:00:00Z');
+    expect(status.last_error).toContain('Kimi runner failed');
+    expect(status.engines?.kimi).toMatchObject({ state: 'fail', login_expiry: { state: 'not_applicable', expires_at: null } });
+  });
+
   it('reports unconfigured when AUTH_RUNNER_URL is missing', async () => {
     const s = await makeRunnerProxy(makeRunnerEnv()).status();
     expect(s.configured).toBe(false);
@@ -89,7 +106,7 @@ describe('RunnerProxyService.status', () => {
     expect(s.state).toBe('idle');
     expect(s.engines?.codex).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
     expect(s.engines?.claude).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
-    expect(s.detail).toBe('configured; no verified canonical auth for Codex or Claude or Grok');
+    expect(s.detail).toBe('configured; no verified canonical auth for Codex or Claude or Grok or Kimi');
   });
 
   it('preserves verified Codex telemetry while projecting missing Claude auth as idle', async () => {
@@ -115,7 +132,7 @@ describe('RunnerProxyService.status', () => {
     expect(s.last_run).toBe('2026-05-20T10:09:50Z');
     expect(s.engines?.codex).toMatchObject({ state: 'ok', last_ok: '2026-05-20T10:09:50Z' });
     expect(s.engines?.claude).toMatchObject({ state: 'idle', last_ok: null, last_run: null });
-    expect(s.detail).toBe('configured; no verified canonical auth for Claude or Grok');
+    expect(s.detail).toBe('configured; no verified canonical auth for Claude or Grok or Kimi');
   });
 
   it('folds a failing Codex engine into a fail state even when Claude is ok', async () => {

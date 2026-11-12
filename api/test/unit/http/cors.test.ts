@@ -12,9 +12,9 @@ import { loadTestEnv } from '../../helpers/test-keyring.js';
  * credentialed admin access.
  */
 
-const OPEN_ROUTES = ['/v1/messages', '/anthropic/v1/messages'];
+const OPEN_ROUTES = ['/v1/messages', '/anthropic/v1/messages', '/grok/v1/messages', '/kimi/v1/messages'];
 /** Paths that merely start with the prefix *text* are not the open surface. */
-const NEAR_MISS_ROUTES = ['/v1x/thing', '/anthropic/v1x/thing'];
+const NEAR_MISS_ROUTES = ['/v1x/thing', '/anthropic/v1x/thing', '/kimi/v1x/thing', '/kimix/v1/thing'];
 const RESTRICTED_ROUTES = ['/admin/hosts', ...NEAR_MISS_ROUTES];
 
 const LISTED = 'https://console.example.com';

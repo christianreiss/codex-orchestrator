@@ -35,8 +35,8 @@ import type { Engine } from '../../util/engine.js';
  * stubbed services without touching MySQL or a runner.
  */
 export interface OpenAiCompatOverrides {
-  /** Which OpenAI-wire surface this mounts: `/v1` (default) or `/grok/v1`. */
-  surface?: Extract<ApiSurfaceId, 'openai' | 'grok'>;
+  /** Which OpenAI-wire surface this mounts: `/v1` (default), `/grok/v1` or `/kimi/v1`. */
+  surface?: Extract<ApiSurfaceId, 'openai' | 'grok' | 'kimi'>;
   /** Shared backends + routing; built per registration when absent. */
   gateway?: GatewayWiring;
   // The overrides below replace pieces of the surface's identity backend only.
@@ -67,7 +67,7 @@ export async function registerOpenAiCompatRoutes(
   const surface = API_SURFACES[overrides.surface ?? 'openai'];
   const gateway = overrides.gateway ?? defaultGatewayWiring(ctx, app.log);
   const keys = overrides.keys ?? new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring });
-  const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db, surface.disabledFlag, surface.id === 'grok' ? 'Grok' : 'OpenAI');
+  const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db, surface.disabledFlag, surface.id === 'grok' ? 'Grok' : surface.id === 'kimi' ? 'Kimi Code' : 'OpenAI', surface.id === 'kimi');
   const keyResolver = makeOpenAiKeyResolver({ keys, engine: surface.keyEngine });
   const killSwitchHook = makeKillSwitchPreHandler(killSwitch);
   const backendHook: preHandlerHookHandler = async (req) => {

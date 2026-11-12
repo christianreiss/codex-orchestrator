@@ -396,13 +396,28 @@ requires `codex,claude,grok,kimi` and records `RUNNER_KIMI_VERSION` for readines
 Each request has a private `KIMI_CODE_HOME`, canonical `device_id`, provider/model
 TOML blocks and an access-only `credentials/kimi-code.json` (empty refresh token,
 zero expiry fields). Canonical expiry must exceed timeout plus 300 seconds.
-Telemetry and auto-update are disabled, all native tools denied, and `system`
-is written to private `SYSTEM.md` and an explicit agent profile with `tools: []`. Kimi rejects images, sampling controls, stop
+Telemetry and auto-update are disabled. Native tools are removed through
+`--agent-file` with `tools: []`; `permission.rules` deny `*` alone does **not**
+block Bash in `-p` mode. `system` is written to private `SYSTEM.md` and an explicit agent profile with `tools: []`. Kimi rejects images, sampling controls, stop
 sequences and output caps. Its 2.5.3 stream-json supplies assistant/tool/meta
 messages, no usage or stop reason: `usage_known: false`, `finish_reason: null`.
 Private homes are removed on success, error, timeout and cancellation.
 
-Kimi 2.5.3 rejects `-p` together with `--auto`; the runner omits that flag because print mode already uses auto permissions.
+Kimi 2.5.3 rejects `-p` together with `--auto`; runner invocations never combine
+`-p` with `--auto` or `--yolo`. Print mode already uses Never Ask permissions.
+
+The API's OpenAI and Anthropic gateway adapters send `engine: "kimi"` to the
+shared `/exec` endpoint, which dispatches to `kimi.build_command` and always
+uses the tool-free agent profile. Clients cannot supply an agent file or CLI
+flags. Gateway prompts (rendered transcript plus system instructions) are capped
+at 100000 UTF-8 bytes before auth access; oversize input returns
+`413 prompt_too_large`, and NUL input returns `400 invalid_prompt`.
+The gateway obtains a fresh access-only snapshot from the shared Kimi auth owner,
+with timeout plus 300 seconds of validity, and includes the true expiry bound
+for the runner's lifetime check. The runner writes expiry zero only in its
+private CLI credential projection. No refresh token is sent to `/exec`.
+Kimi usage/finish metadata stays unknown: OpenAI uses null usage and finish
+reason; Anthropic uses required zero usage integers and a null stop reason.
 
 For non-default subscription environments (including `.ai`), native Kimi 2.5.3
 requires a scoped OAuth slot: `oauth/kimi-code-env-<digest>`, where `digest` is

@@ -178,10 +178,12 @@ export function collectRegisteredRoutes(): RegisteredRoute[] {
       if (url && method) routes.push({ method: method[2]!.toUpperCase(), path: url[2]! });
     }
   }
-  const grokMount = stripComments(readFileSync(join(API_ROUTES, 'grok-v1/index.ts'), 'utf8'));
-  const prefix = /app\.register\([\s\S]*?registerOpenAiCompatRoutes\([\s\S]*?prefix:\s*(['"])([^'"]+)\1/.exec(grokMount)?.[2];
-  if (prefix) {
-    routes.push(...routes.filter(route => route.path.startsWith('/v1/')).map(route => ({ ...route, path: `${prefix}${route.path}` })));
+  for (const mount of ['grok-v1', 'kimi-v1']) {
+    const source = stripComments(readFileSync(join(API_ROUTES, mount, 'index.ts'), 'utf8'));
+    const prefix = /app\.register\([\s\S]*?registerOpenAiCompatRoutes\([\s\S]*?prefix:\s*(['"])([^'"]+)\1/.exec(source)?.[2];
+    if (prefix) {
+      routes.push(...routes.filter(route => route.path.startsWith('/v1/')).map(route => ({ ...route, path: `${prefix}${route.path}` })));
+    }
   }
   return routes;
 }

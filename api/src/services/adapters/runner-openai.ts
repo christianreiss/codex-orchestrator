@@ -1,3 +1,4 @@
+import { assertRunnerPrompt } from './runner-prompt.js';
 import { withRunnerCancellation } from './runner-cancellation.js';
 import { randomBytes } from 'node:crypto';
 import { ApiError } from '../../http/errors.js';
@@ -6,7 +7,7 @@ import {
   capabilitiesFor,
   stopReasonFor,
 } from '../transport-capabilities.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINE_LABELS, type Engine } from '../../util/engine.js';
 import type { Env } from '../../env.js';
 
 /**
@@ -161,7 +162,7 @@ export function makeRunnerConfig(env: Env, engine: Engine = ENGINE_CODEX): Runne
 export function runnerExecUrl(url: string): string {
   const trimmed = url.replace(/\/$/, '');
   if (trimmed.endsWith('/exec')) return trimmed;
-  if (/\/verify(?:-grok|-claude)?$/.test(trimmed)) return trimmed.replace(/\/verify(?:-grok|-claude)?$/, '/exec');
+  if (/\/verify(?:-grok|-claude|-kimi)?$/.test(trimmed)) return trimmed.replace(/\/verify(?:-grok|-claude|-kimi)?$/, '/exec');
   return `${trimmed}/exec`;
 }
 
@@ -198,7 +199,7 @@ export class RunnerOpenAiAdapter {
         {
           index: 0,
           message: { role: 'assistant', content: stringOrEmpty(result.output) },
-          finish_reason: stopReasonFor(this.capabilities, result.finish_reason),
+          finish_reason: stopReasonFor(this.capabilities, this.config.engine === ENGINE_KIMI ? null : result.finish_reason),
         },
       ],
       usage,
@@ -233,7 +234,7 @@ export class RunnerOpenAiAdapter {
           text: stringOrEmpty(result.output),
           index: 0,
           logprobs: null,
-          finish_reason: stopReasonFor(this.capabilities, result.finish_reason),
+          finish_reason: stopReasonFor(this.capabilities, this.config.engine === ENGINE_KIMI ? null : result.finish_reason),
         },
       ],
       usage,
@@ -248,8 +249,9 @@ export class RunnerOpenAiAdapter {
     signal?: AbortSignal,
   ): Promise<RunnerResponse> {
     signal?.throwIfAborted();
-    if (this.config.engine === ENGINE_GROK && images.length > 0) {
-      throw new ApiError('Image inputs are not supported by the Grok CLI transport', {
+    assertRunnerPrompt(this.config.engine ?? ENGINE_CODEX, prompt, params.system);
+    if ((this.config.engine === ENGINE_GROK || this.config.engine === ENGINE_KIMI) && images.length > 0) {
+      throw new ApiError(`Image inputs are not supported by the ${ENGINE_LABELS[this.config.engine]} CLI transport`, {
         status: 400, code: 'unsupported_generation_control', type: 'invalid_request_error', param: 'images',
       });
     }
@@ -377,6 +379,7 @@ function extractUsage(result: RunnerResponse, engine: Engine): {
   prompt_tokens_details?: { cached_tokens: number };
   completion_tokens_details?: { reasoning_tokens: number };
 } | null {
+  if (engine === ENGINE_KIMI) return null;
   const requireExact = engine === ENGINE_GROK;
   if (requireExact && (result.usage_known !== true || ![result.input_tokens, result.output_tokens].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0))) return null;
   if (engine === ENGINE_CLAUDE) {

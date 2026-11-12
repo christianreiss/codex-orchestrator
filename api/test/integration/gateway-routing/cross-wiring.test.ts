@@ -6,6 +6,7 @@ import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { ApiError } from '../../../src/http/errors.js';
 import { registerOpenAiCompatRoutes } from '../../../src/routes/v1/index.js';
+import { registerKimiCompatRoutes } from '../../../src/routes/kimi-v1/index.js';
 import { registerGrokCompatRoutes } from '../../../src/routes/grok-v1/index.js';
 import { registerAnthropicCompatRoutes } from '../../../src/routes/anthropic-v1/index.js';
 import {
@@ -28,13 +29,15 @@ import type { Engine } from '../../../src/util/engine.js';
  * the credential snapshot, the model catalog and what the CLI can honour.
  */
 
-const BACKENDS: Array<Exclude<Engine, 'kimi'>> = ['codex', 'claude', 'grok'];
-const SNAPSHOTS: Record<Exclude<Engine, 'kimi'>, Record<string, unknown>> = {
+const BACKENDS: Array<Engine> = ['codex', 'claude', 'grok', 'kimi'];
+const SNAPSHOTS: Record<Engine, Record<string, unknown>> = {
+  kimi: { kimi_code: { access_token: 'kimi-access', refresh_token: '', expires_at: 2000000000 }, device_id: 'test-device' },
   codex: { tokens: { access_token: 'codex-access' } },
   claude: { claudeAiOauth: { accessToken: 'claude-access' } },
   grok: { grok_auth: { selected: { key: 'grok-access' } } },
 };
-const RUNNER_RESULTS: Record<Exclude<Engine, 'kimi'>, Record<string, unknown>> = {
+const RUNNER_RESULTS: Record<Engine, Record<string, unknown>> = {
+  kimi: { status: 'ok', output: 'from kimi', usage_known: false, finish_reason: null },
   codex: { status: 'ok', output: 'from codex' },
   claude: { status: 'ok', output: 'from claude', input_tokens: 10, output_tokens: 4, cache_read_input_tokens: 6, cache_creation_input_tokens: 0 },
   grok: {
@@ -42,15 +45,16 @@ const RUNNER_RESULTS: Record<Exclude<Engine, 'kimi'>, Record<string, unknown>> =
     input_tokens: 16, output_tokens: 4, cache_read_input_tokens: 6, cache_creation_input_tokens: 0,
   },
 };
-const CATALOGS: Record<'claude' | 'grok', string[]> = {
+const CATALOGS: Record<'claude' | 'grok' | 'kimi', string[]> = {
   claude: ['claude-sonnet-5', 'claude-opus-5'],
   grok: ['grok-4.7', 'grok-4.6'],
+  kimi: ['k3.1-pro', 'kimi-for-coding'],
 };
-const KEYS: Record<string, string> = { codex: 'sk-cdx-test', claude: 'sk-ant-test', grok: 'sk-cgx-test' };
+const KEYS: Record<string, string> = { codex: 'sk-cdx-test', claude: 'sk-ant-test', grok: 'sk-cgx-test', kimi: 'sk-ckx-test' };
 
-function stubModels(engine: 'claude' | 'grok'): GatewayBackendModels {
+function stubModels(engine: 'claude' | 'grok' | 'kimi'): GatewayBackendModels {
   const ids = CATALOGS[engine];
-  const owner = engine === 'claude' ? 'anthropic' : 'xai';
+  const owner = engine === 'claude' ? 'anthropic' : engine === 'grok' ? 'xai' : 'moonshotai';
   const info = (id: string) => ({
     id, display_name: id, created: 1_767_225_600, owned_by: owner,
     ...(engine === 'claude' ? { line: CLAUDE_MODEL_LINES[id as ClaudeModel] } : {}),
@@ -67,7 +71,7 @@ function stubModels(engine: 'claude' | 'grok'): GatewayBackendModels {
   };
 }
 
-async function harness(backend: Exclude<Engine, 'kimi'>, opts: { assigned?: Engine; disabled?: Engine[]; endpointDisabled?: boolean } = {}) {
+async function harness(backend: Engine, opts: { assigned?: Engine; disabled?: Engine[]; endpointDisabled?: boolean } = {}) {
   const app = Fastify({ logger: false });
   await app.register(cookie);
   await app.register(requestIdPlugin);
@@ -76,7 +80,7 @@ async function harness(backend: Exclude<Engine, 'kimi'>, opts: { assigned?: Engi
   app.addHook('onRequest', async (req) => { req.clientIp = '127.0.0.1'; });
 
   const runner = vi.fn(async (_url: unknown, init?: RequestInit) => {
-    const body = JSON.parse(String(init?.body)) as { engine: Exclude<Engine, 'kimi'> };
+    const body = JSON.parse(String(init?.body)) as { engine: Engine };
     return new Response(JSON.stringify(RUNNER_RESULTS[body.engine]));
   });
   vi.stubGlobal('fetch', runner);
@@ -117,13 +121,14 @@ async function harness(backend: Exclude<Engine, 'kimi'>, opts: { assigned?: Engi
 
   await registerOpenAiCompatRoutes(app, ctx, { gateway, keys, killSwitch });
   await registerGrokCompatRoutes(app, ctx, { gateway, keys, killSwitch });
+  await registerKimiCompatRoutes(app, ctx, { gateway, keys, killSwitch });
   await registerAnthropicCompatRoutes(app, ctx, { gateway, keyResolver, killSwitch: claudeKillSwitch });
   await app.ready();
   const dispatched = () => JSON.parse(String(runner.mock.calls.at(-1)?.[1]?.body)) as Record<string, unknown>;
   return { app, runner, dispatched, execs, routingCalls };
 }
 
-const DEFAULT_MODEL: Record<Exclude<Engine, 'kimi'>, string> = { codex: OPENAI_DEFAULT_MODEL, claude: 'claude-sonnet-5', grok: 'grok-4.7' };
+const DEFAULT_MODEL: Record<Engine, string> = { codex: OPENAI_DEFAULT_MODEL, claude: 'claude-sonnet-5', grok: 'grok-4.7', kimi: 'k3.1-pro' };
 
 async function close(app: FastifyInstance) {
   await app.close();
@@ -133,6 +138,7 @@ describe('any-to-any gateway routing', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   const OPENAI_SURFACES = [
+    { surface: 'kimi', base: '/kimi/v1', key: KEYS.kimi, identity: 'kimi' as Engine, model: 'kimi-for-coding' },
     { surface: 'openai', base: '/v1', key: KEYS.codex, identity: 'codex' as Engine, model: OPENAI_DEFAULT_MODEL },
     { surface: 'grok', base: '/grok/v1', key: KEYS.grok, identity: 'grok' as Engine, model: 'grok-4.6' },
   ];
@@ -156,7 +162,7 @@ describe('any-to-any gateway routing', () => {
         expect(reply.statusCode, reply.body).toBe(200);
         expect(dispatched()).toMatchObject({ engine: assigned, auth_json: SNAPSHOTS[assigned] });
         expect(routingCalls).not.toHaveBeenCalled();
-        if (assigned === 'grok') {
+        if (assigned === 'grok' || assigned === 'kimi') {
           const streaming = await app.inject({ method: 'POST', url: `${surface.base}${surface.generate}`, headers,
             payload: { stream: true, messages: [{ role: 'user', content: 'hi' }], max_tokens: 64 } });
           expect(streaming.statusCode).toBe(400);
@@ -178,6 +184,16 @@ describe('any-to-any gateway routing', () => {
   }
 
   for (const surface of ALL_SURFACES) {
+    it(`${surface.base}: bounds UTF-8 prompts when an assigned key selects Kimi`, async () => {
+      const { app, runner } = await harness('codex', { assigned: 'kimi' });
+      try {
+        const reply = await app.inject({ method: 'POST', url: `${surface.base}${surface.generate}`, headers: surface.headers,
+          payload: { messages: [{ role: 'user', content: '😀'.repeat(25000) }], ...(surface.surface === 'anthropic' ? { max_tokens: 64 } : {}) } });
+        expect(reply.statusCode, reply.body).toBe(413);
+        expect(reply.json().error.code).toBe('prompt_too_large');
+        expect(runner).not.toHaveBeenCalled();
+      } finally { await close(app); }
+    });
     it(`${surface.base}: endpoint switch still blocks assigned keys`, async () => {
       const { app, runner } = await harness('codex', { assigned: 'claude', endpointDisabled: true });
       try {
@@ -259,9 +275,10 @@ describe('any-to-any gateway routing', () => {
           expect(sent.system).toBe('Be brief');
         }
         // Grok cannot take the output cap the Anthropic wire requires: not sent.
-        expect(sent.max_tokens).toBe(backend === 'grok' ? undefined : 64);
+        expect(sent.max_tokens).toBe(backend === 'grok' || backend === 'kimi' ? undefined : 64);
 
         const usage = {
+          kimi: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 },
           codex: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 },
           claude: { input_tokens: 10, output_tokens: 4, cache_read_input_tokens: 6 },
           grok: { input_tokens: 10, output_tokens: 4, cache_read_input_tokens: 6 },

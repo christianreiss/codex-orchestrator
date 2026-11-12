@@ -438,7 +438,7 @@ Grok subscription usage from the official billing endpoint, refreshed every five
 minutes, with provider-defined periods and explicit stale/unknown states. CLI
 quota enforcement and account assignment are unchanged. See [Grok interface](interface-cgx.md).
 
-The three inference gateways (`/v1`, `/anthropic/v1`, `/grok/v1`) are surfaces
+The four inference gateways (`/v1`, `/anthropic/v1`, `/grok/v1`, `/kimi/v1`) are surfaces
 whose answering engine is selected per key, with a configurable endpoint default for unassigned keys (API Access → Configuration → Routing & availability,
 `versions.api_surface_backend_*`, identity by default). Keys, URL, wire format
 and kill switch stay with the surface; credentials, capabilities and the model
@@ -1876,7 +1876,14 @@ separate 5 h, optional weekly and monthly quota windows. Short/long quota policy
 account selection, quota_get and warnings use 5 h / 7 d respectively.
 
 `/admin/kimi/*` mirrors the Grok administration surface. The independent gateway
-switch starts disabled; operators may enable it explicitly. Native config
+surface `/kimi/v1` uses `sk-ckx-` keys and starts disabled
+(`kimi_api_disabled=1`); operators may enable it explicitly. Kimi can serve any
+surface with its own model catalog and central auth owner. Text/system prompts
+are limited to 100000 UTF-8 bytes before credentials are read. Its runner
+invocations remove native tools with `--agent-file` / `tools: []`, since deny
+permission rules do not block Bash in print mode. Sampling, caps, tools, images
+and streaming are rejected; usage and stop reasons remain unknown. See
+[the gateway contract](interface-api.md#kimi-inference-gateway). Native config
 projects Kimi TOML owned paths and manual/yolo/auto permission modes, with no OS
 sandbox claim. `kimi-hooks-v1` uses UserPromptSubmit/Stop turn boundaries for
 message delivery; activity reports use `kimi-hooks`.

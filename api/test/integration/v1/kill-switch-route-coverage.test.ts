@@ -4,6 +4,7 @@ import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { registerOpenAiCompatRoutes } from '../../../src/routes/v1/index.js';
 import { registerAnthropicCompatRoutes } from '../../../src/routes/anthropic-v1/index.js';
+import { registerKimiCompatRoutes } from '../../../src/routes/kimi-v1/index.js';
 import { registerGrokCompatRoutes } from '../../../src/routes/grok-v1/index.js';
 import { ApiError } from '../../../src/http/errors.js';
 import type { KillSwitch } from '../../../src/services/openai-kill-switch.js';
@@ -26,7 +27,7 @@ import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.
  * hooks skip OPTIONS by design so CORS preflight keeps working, and both
  * handlers 204 without reaching a backend. Nothing else belongs here.
  */
-const PREFLIGHT_ALLOWLIST = new Set(['OPTIONS /v1/*', 'OPTIONS /anthropic/v1/*', 'OPTIONS /grok/v1/*']);
+const PREFLIGHT_ALLOWLIST = new Set(['OPTIONS /v1/*', 'OPTIONS /anthropic/v1/*', 'OPTIONS /grok/v1/*', 'OPTIONS /kimi/v1/*']);
 
 interface RegisteredRoute {
   method: string;
@@ -103,6 +104,7 @@ async function buildApp(): Promise<{ app: FastifyInstance; routes: RegisteredRou
   await registerOpenAiCompatRoutes(app, ctx, { killSwitch: disabledOpenAiKillSwitch() });
   await registerAnthropicCompatRoutes(app, ctx, { killSwitch: disabledClaudeKillSwitch() });
   await registerGrokCompatRoutes(app, ctx, { killSwitch: disabledOpenAiKillSwitch() });
+  await registerKimiCompatRoutes(app, ctx, { killSwitch: disabledOpenAiKillSwitch() });
 
   await app.ready();
   return { app, routes };
@@ -139,10 +141,11 @@ describe('kill-switch coverage across every registered proxy route', () => {
 
     // Both families are mounted, so a registration that silently dropped one of
     // them cannot leave this suite trivially green.
-    expect(guarded.every((r) => ['/v1/', '/anthropic/v1/', '/grok/v1/'].some((p) => r.url.startsWith(p)))).toBe(true);
+    expect(guarded.every((r) => ['/v1/', '/anthropic/v1/', '/grok/v1/', '/kimi/v1/'].some((p) => r.url.startsWith(p)))).toBe(true);
     expect(guarded.some((r) => r.url.startsWith('/v1/'))).toBe(true);
     expect(guarded.some((r) => r.url.startsWith('/anthropic/v1/'))).toBe(true);
     expect(guarded.some((r) => r.url.startsWith('/grok/v1/'))).toBe(true);
+    expect(guarded.some((r) => r.url.startsWith('/kimi/v1/'))).toBe(true);
 
     // Every HEAD route is one Fastify cloned off a GET (preHandlers included),
     // which is what lets the probe below swap the verb. A hand-declared HEAD

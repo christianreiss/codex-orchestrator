@@ -22,10 +22,10 @@ import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { eq, inArray } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { openaiApiKeys, versions } from '../db/schema.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, isEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, isEngine, type Engine } from '../util/engine.js';
 import { isTruthyFlagValue } from './settings.js';
 
-export type ApiSurfaceId = 'openai' | 'anthropic' | 'grok';
+export type ApiSurfaceId = 'openai' | 'anthropic' | 'grok' | 'kimi';
 export type ApiWire = 'openai' | 'anthropic';
 
 export interface ApiSurface {
@@ -43,7 +43,7 @@ export interface ApiSurface {
   backendFlag: string;
 }
 
-export const API_SURFACE_IDS: readonly ApiSurfaceId[] = ['openai', 'anthropic', 'grok'];
+export const API_SURFACE_IDS: readonly ApiSurfaceId[] = ['openai', 'anthropic', 'grok', 'kimi'];
 
 export const API_SURFACES: Record<ApiSurfaceId, ApiSurface> = {
   openai: {
@@ -75,6 +75,11 @@ export const API_SURFACES: Record<ApiSurfaceId, ApiSurface> = {
     identityBackend: ENGINE_GROK,
     disabledFlag: 'grok_api_disabled',
     backendFlag: 'api_surface_backend_grok',
+  },
+  kimi: {
+    id: 'kimi', label: 'Kimi Code (OpenAI-compatible)', basePath: '/kimi/v1', wire: 'openai',
+    keyEngine: ENGINE_KIMI, identityBackend: ENGINE_KIMI,
+    disabledFlag: 'kimi_api_disabled', backendFlag: 'api_surface_backend_kimi',
   },
 };
 
@@ -179,7 +184,7 @@ export async function listApiSurfaces(db: Database): Promise<ApiSurfaceRow[]> {
     wire: s.wire,
     backend: storedBackend(flags.get(s.backendFlag), s.id),
     identity_backend: s.identityBackend,
-    disabled: isTruthyFlagValue(flags.get(s.disabledFlag)),
+    disabled: isTruthyFlagValue(flags.get(s.disabledFlag) ?? (s.id === 'kimi' ? '1' : undefined)),
     key_count: keys.get(s.keyEngine) ?? 0,
   }));
 }

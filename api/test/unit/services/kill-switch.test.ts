@@ -282,3 +282,17 @@ describe('createClaudeKillSwitch', () => {
     expect(stub.selects).toBe(selectsAfterWrite + 1);
   });
 });
+
+describe('Kimi opt-in surface switch', () => {
+  it('stays disabled until explicitly enabled, including on a failed metadata read', async () => {
+    const stub = createVersionsDb();
+    const kill = makeOpenAiKillSwitch(stub.db, 'kimi_api_disabled', 'Kimi Code', true);
+    expect(await kill.isDisabled()).toBe(true);
+    stub.rows.push({ name: 'kimi_api_disabled', version: '0' });
+    expect(await kill.isDisabled()).toBe(false);
+    stub.rows[0]!.version = '1';
+    await expect(kill.throwIfDisabled()).rejects.toMatchObject({ status: 503, code: 'api_disabled' });
+    stub.rejectSelects = true;
+    expect(await kill.isDisabled()).toBe(true);
+  });
+});

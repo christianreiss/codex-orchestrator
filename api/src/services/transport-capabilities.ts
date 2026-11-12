@@ -1,5 +1,5 @@
 import { ApiError } from '../http/errors.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, type Engine } from '../util/engine.js';
 
 /**
  * What each transport can actually do with a generation control.
@@ -74,7 +74,7 @@ const RUNNER_CLI_CONTROLS: Record<Engine, Record<GenerationControl, ControlSuppo
     top_p: 'unsupported', top_k: 'unsupported', stop_sequences: 'unsupported',
     system: 'enforced', stream: 'unsupported', tools: 'unsupported',
   },
-  kimi: {
+  [ENGINE_KIMI]: {
     model: 'enforced', max_tokens: 'unsupported', temperature: 'unsupported',
     top_p: 'unsupported', top_k: 'unsupported', stop_sequences: 'unsupported',
     system: 'enforced', stream: 'unsupported', tools: 'unsupported',
@@ -111,8 +111,8 @@ export function capabilitiesFor(
     transport,
     engine,
     controls: RUNNER_CLI_CONTROLS[engine],
-    // The CLI reports token counts only on the Claude path, and neither CLI
-    // says why it stopped.
+    // Kimi stream-json reports neither usage nor a stop reason.
+    // Claude and Grok provide counts; only Grok reports a stop reason.
     reportsExactUsage: engine === ENGINE_CLAUDE || engine === ENGINE_GROK,
     reportsStopReason: engine === ENGINE_GROK,
   };

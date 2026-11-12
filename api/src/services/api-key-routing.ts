@@ -7,7 +7,7 @@ import { assertFleetEngineEnabledForAdmin } from './engine-switch.js';
 export async function parseKeyBackend(db: Database, value: unknown): Promise<Engine | null> {
   if (value === undefined) return null;
   if (!isEngine(value)) {
-    throw new ApiError('backend_engine must be codex, claude, or grok', {
+    throw new ApiError('backend_engine must be codex, claude, grok, or kimi', {
       status: 400, code: 'invalid_request', type: 'invalid_request_error', param: 'backend_engine',
     });
   }

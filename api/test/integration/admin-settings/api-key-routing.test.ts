@@ -6,6 +6,7 @@ import { testKeyring } from '../../helpers/test-keyring.js';
 import { openaiApiKeys, versions } from '../../../src/db/schema.js';
 import { registerAdminOpenAiKeyRoutes } from '../../../src/routes/admin/keys/openai.js';
 import { registerAdminClaudeKeyRoutes } from '../../../src/routes/admin/keys/claude.js';
+import { registerAdminKimiRoutes } from '../../../src/routes/admin/kimi/index.js';
 import { registerAdminGrokRoutes } from '../../../src/routes/admin/grok/index.js';
 import { createClaudeKeyResolver } from '../../../src/services/claude-key-resolver.js';
 import { OpenAiKeyService } from '../../../src/services/openai-keys.js';
@@ -24,11 +25,12 @@ async function harness() {
   await registerAdminOpenAiKeyRoutes(app, ctx);
   await registerAdminClaudeKeyRoutes(app, ctx);
   await registerAdminGrokRoutes(app, ctx);
+  await registerAdminKimiRoutes(app, ctx);
   return { app, db, ctx };
 }
 
 describe('per-key engine creation across API formats', () => {
-  for (const namespace of ['openai', 'claude', 'grok']) {
+  for (const namespace of ['openai', 'claude', 'grok', 'kimi']) {
     it(`${namespace}: persists the assigned engine in creation, listing and authentication`, async () => {
       const { app, db, ctx } = await harness();
       try {
@@ -36,6 +38,7 @@ describe('per-key engine creation across API formats', () => {
         expect(reply.statusCode, reply.body).toBe(200);
         const body = reply.json();
         expect(body.record).toMatchObject({ backend_engine: 'claude', name: 'independent' });
+        if (namespace === 'kimi') expect(body.key).toMatch(/^sk-ckx-[a-f0-9]{64}$/);
         const stored = db.tables.get(openaiApiKeys)![0]!;
         expect(stored).toMatchObject({ backendEngine: 'claude', engine: namespace === 'openai' ? 'codex' : namespace });
         expect(stored.keyHash).toBe(sha256(body.key));
@@ -46,9 +49,17 @@ describe('per-key engine creation across API formats', () => {
           const resolved = await createClaudeKeyResolver(ctx.db).resolve({ headers: { 'x-api-key': body.key } } as unknown as FastifyRequest);
           expect(resolved.backendEngine).toBe('claude');
         } else {
-          const resolved = await new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring }).findActiveByBearer(body.key, namespace === 'openai' ? 'codex' : 'grok');
+          const resolved = await new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring }).findActiveByBearer(body.key, namespace === 'openai' ? 'codex' : namespace as 'grok' | 'kimi');
           expect(resolved?.backendEngine).toBe('claude');
         }
+      } finally { await app.close(); }
+    });
+    it(`${namespace}: can pin Kimi as its backend`, async () => {
+      const { app } = await harness();
+      try {
+        const reply = await app.inject({ method: 'POST', url: `/admin/${namespace}/keys`, payload: { name: 'kimi-backend', backend_engine: 'kimi' } });
+        expect(reply.statusCode, reply.body).toBe(200);
+        expect(reply.json().record.backend_engine).toBe('kimi');
       } finally { await app.close(); }
     });
     it(`${namespace}: legacy callers keep endpoint-default routing`, async () => {
