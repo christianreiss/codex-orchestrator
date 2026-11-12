@@ -25,10 +25,12 @@ describe('countHostOverrides', () => {
         { name: 'rtk_grok_host_1', version: '' }, // cleared
         { name: 'session_housekeeping_grok_host_2', version: '{"enabled":true}' },
         { name: 'session_housekeeping_grok', version: '{"enabled":true}' }, // fleet value
+        { name: 'rtk_kimi_host_2', version: '1' },
+        { name: 'session_housekeeping_kimi_host_1', version: '{"enabled":false}' },
       ],
     );
-    expect(counts.rtk).toMatchObject({ claude: 2, codex: 1, grok: 0 });
-    expect(counts.session_housekeeping).toMatchObject({ grok: 1, claude: 0, codex: 0 });
+    expect(counts.rtk).toEqual({ claude: 2, codex: 1, grok: 0, kimi: 1 });
+    expect(counts.session_housekeeping).toEqual({ grok: 1, claude: 0, codex: 0, kimi: 1 });
   });
   it('is all zero for an empty fleet', () => {
     expect(countHostOverrides([], [])).toMatchObject({ auto_update: 0, reverse_dns: 0 });
