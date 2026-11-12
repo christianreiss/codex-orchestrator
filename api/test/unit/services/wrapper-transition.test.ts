@@ -46,6 +46,8 @@ function runDualInstallerFixture(
   options: {
     engines?: Engine[];
     failClaude?: boolean;
+    hostnameMismatch?: boolean;
+    failSchedule?: boolean;
     emptyClaudeVersion?: boolean;
     brokenNpm?: boolean;
     mismatchedClaudeMetadata?: boolean;
@@ -56,6 +58,7 @@ function runDualInstallerFixture(
     wrapperVersion?: string;
     failNativeEntry?: boolean;
     unwritableBin?: boolean;
+    capacityFault?: 'bytes' | 'inodes' | 'measurement' | 'recover';
   } = {},
 ): {
   status: number | null;
@@ -102,7 +105,9 @@ case "$*" in
     if [ "\${FAIL_NATIVE_ENTRY:-0}" = "1" ]; then echo "forced native entry failure" >&2; exit 50; fi
     exit 0
     ;;
-  "cron install --minimal") exit 0 ;;
+  "cron install --minimal")
+    if [ "\${FAIL_SCHEDULE:-0}" = "1" ]; then echo "permission denied writing maintenance schedule" >&2; exit 43; fi
+    exit 0 ;;
   "cron run --minimal")
     if [ -n "\${CLX_CONFIG_PATH:-}" ] && [ ! -s "$CLX_CONFIG_PATH" ]; then
       echo "custom Claude config path was not populated" >&2
@@ -125,6 +130,10 @@ case "$*" in
     chmod 755 "$codex_path" "$claude_path"
     printf '%s\n' "$codex_path" > "$codex_cache"
     printf '%s\n' "$claude_path" > "$claude_cache"
+    if [ "\${HOSTNAME_MISMATCH:-0}" = "1" ]; then
+      printf '%s\\n' 'cdx cron: Configuration sync failed' '  Host name does not match this installation' '  This machine: "unfi"' '  Configured host: "unifi.son.je"' '  Check: hostname; hostname -f' '  If this is "unifi.son.je", correct its host name (short name "unifi"). Otherwise use an installer registered for this machine.' '  After correcting the host identity, run: cxx cron run' >&2
+      exit 44
+    fi
     if [ "\${FAIL_CLAUDE:-0}" = "1" ]; then
       echo "forced Claude failure" >&2
       exit 44
@@ -227,10 +236,36 @@ printf '%s\n' "$url" >> "$CURL_LOG"
       }),
       'utf8',
     );
+    const pythonHooks = join(dir, 'python-hooks');
+    mkdirSync(pythonHooks);
+    writeFileSync(join(pythonHooks, 'sitecustomize.py'), `
+import os
+original = os.statvfs
+def simulated(path):
+    mode = os.environ.get("CAPACITY_FAULT", "")
+    if mode == "measurement":
+        raise PermissionError("simulated measurement failure")
+    values = list(original(path))
+    if mode == "bytes":
+        values[4] = 0
+    if mode == "inodes":
+        values[5] = 100000
+        values[7] = 0
+    if mode == "recover":
+        marker = os.environ["SPACE_RECOVER_MARKER"]
+        if not os.path.exists(marker):
+            open(marker, "w").close()
+            values[4] = 0
+    return os.statvfs_result(values)
+os.statvfs = simulated
+`, 'utf8');
     const result = spawnSync('sh', [installer], {
       encoding: 'utf8',
       env: {
         ...fixtureEnvironment(home),
+        PYTHONPATH: pythonHooks,
+        CAPACITY_FAULT: options.capacityFault ?? '',
+        SPACE_RECOVER_MARKER: join(dir, 'space-recovery'),
         BIN_DIR: options.unwritableBin ? join(dir, 'not-a-dir', 'bin') : installBin,
         PATH: `${fakeBin}:/usr/bin:/bin`,
         TERM: 'dumb',
@@ -244,6 +279,8 @@ printf '%s\n' "$url" >> "$CURL_LOG"
         CLX_CONFIG_PATH: enabled.includes('claude') ? join(home, 'custom', 'clx.json') : '',
         CGX_CONFIG_PATH: enabled.includes('grok') ? join(home, 'custom', 'cgx.json') : '',
         FAIL_CLAUDE: options.failClaude ? '1' : '0',
+        HOSTNAME_MISMATCH: options.hostnameMismatch ? '1' : '0',
+        FAIL_SCHEDULE: options.failSchedule ? '1' : '0',
         EMPTY_CLAUDE_VERSION: options.emptyClaudeVersion ? '1' : '0',
         BROKEN_NPM: options.brokenNpm ? '1' : '0',
         FAIL_CXX_SWAP: options.failBinarySwap ? '1' : '0',
@@ -887,8 +924,8 @@ describe('wrapper transition helpers', () => {
     expect(out).toContain('ui_result_ok "READY"');
     expect(out).toContain('ui_result_fail "INCOMPLETE"');
     expect(out).toContain('INSTALL_FAILED=1');
-    expect(out).toContain('Retry host cron:    $RETRY_NAME cron install');
-    expect(out).toContain('Retry engine CLIs:  $RETRY_NAME cron run');
+    expect(out).toContain('Retry maintenance schedule: $RETRY_NAME cron install');
+    expect(out).toContain('After fixing the cause above, retry maintenance: cxx cron run');
     expect(out).not.toContain('if [ "$INSTALL_FAILED" = "0" ]; then install_background_worker; fi');
     expect(out).toContain('"$@" --allow-concurrent-sync sync </dev/null');
     expect(out).toContain('set -- timeout 60 "$BIN_ROOT/$SYNC_NAME"');
@@ -910,8 +947,8 @@ describe('wrapper transition helpers', () => {
     // `cxx cron run` installs the worker service itself; no second install.
     expect(output).not.toContain('background worker');
     expect(output).not.toContain('agent relay');
-    expect(output.match(/^cdx codex: ready$/gm)).toHaveLength(1);
-    expect(output.match(/^clx claude: ready$/gm)).toHaveLength(1);
+    expect(output.match(/^cdx codex: available$/gm)).toHaveLength(1);
+    expect(output.match(/^clx claude: available$/gm)).toHaveLength(1);
     expect(output).toContain('cdx sync: credentials synced');
     expect(output).toContain('clx sync: credentials synced');
     expect(result.binaryDownloads).toBe(1);
@@ -931,6 +968,34 @@ describe('wrapper transition helpers', () => {
     expect(output).not.toContain('\x1b');
   });
 
+  it.each(['bytes', 'inodes'] as const)('stops bootstrap before download for insufficient %s and preserves the old wrapper', (capacityFault) => {
+    const result = runDualInstallerFixture({ capacityFault, failBinarySwap: true });
+    const output = result.stdout + result.stderr;
+    expect(result.status).not.toBe(0);
+    expect(output).toContain('insufficient space');
+    expect(output).toContain('cleanup attempted; no eligible owned bootstrap artifacts');
+    expect(result.binaryDownloads).toBe(0);
+    expect(result.wrapperInvocations).toEqual([]);
+    expect(result.cxxBody).toContain('preserved-old-cxx');
+    expect(output).not.toContain('READY |');
+  });
+
+  it('fails closed when the filesystem cannot be measured', () => {
+    const result = runDualInstallerFixture({ capacityFault: 'measurement' });
+    const output = result.stdout + result.stderr;
+    expect(result.status).not.toBe(0);
+    expect(output).toContain('cannot measure install space');
+    expect(output).not.toContain('cleanup attempted');
+    expect(result.binaryDownloads).toBe(0);
+  });
+
+  it('rechecks capacity after the cleanup attempt before proceeding', () => {
+    const result = runDualInstallerFixture({ capacityFault: 'recover' });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain('cleanup attempted');
+    expect(result.binaryDownloads).toBe(1);
+  });
+
   it('keeps READY when the credential sync fails and names the retry', () => {
     const result = runDualInstallerFixture({ failSync: true });
     const output = result.stdout + result.stderr;
@@ -946,6 +1011,8 @@ describe('wrapper transition helpers', () => {
     const output = result.stdout + result.stderr;
     expect(result.status).not.toBe(0);
     expect(output).toContain('forced Claude failure');
+    expect(output).toContain('cxx engine maintenance: did not finish; see the cause below');
+    expect(output).not.toContain('clx claude: ready');
     expect(output).toContain('INCOMPLETE | One or more requested components failed');
     expect(output).toContain('Before running: export PATH=');
     expect(output).not.toContain('READY |');
@@ -973,6 +1040,31 @@ describe('wrapper transition helpers', () => {
     expect(result.cxxExists).toBe(false);
     expect(result.cdxLink).toBeNull();
     expect(result.clxLink).toBeNull();
+  });
+
+  it('distinguishes installed CLIs from a failed hostname check during configuration sync', () => {
+    const result = runDualInstallerFixture({ hostnameMismatch: true });
+    const output = result.stdout + result.stderr;
+    expect(result.status).not.toBe(0);
+    expect(output).toContain('cxx engine maintenance: did not finish; see the cause below');
+    expect(output).not.toContain('engine CLIs update failed');
+    expect(output).toContain('cdx codex: available');
+    expect(output).toContain('clx claude: available');
+    expect(output).toMatch(/\n\s+This machine: "unfi"/);
+    expect(output).toContain('Configured host: "unifi.son.je"');
+    expect(output).toContain('After correcting the host identity, run: cxx cron run');
+    expect(output.match(/This machine: "unfi"/g)).toHaveLength(1);
+    expect(output).not.toContain('Retry maintenance schedule:');
+    expect(output).not.toContain('mint a fresh single-use installer');
+  });
+
+  it('only recommends reinstalling the schedule when scheduling actually failed', () => {
+    const result = runDualInstallerFixture({ failSchedule: true });
+    const output = result.stdout + result.stderr;
+    expect(result.status).not.toBe(0);
+    expect(output).toContain('Retry maintenance schedule: cdx cron install');
+    expect(output).not.toContain('retry maintenance: cxx cron run');
+    expect(output).toContain('cxx engine maintenance: completed');
   });
 
   it('migrates legacy regular wrapper binaries to enabled relative aliases', () => {

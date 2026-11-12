@@ -1,7 +1,7 @@
 package grok
 
 import (
-	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"os"
 	"strings"
 
@@ -26,5 +26,5 @@ func GuardFQDN(cfg *config.Config) error {
 		strings.HasPrefix(baked, got+".") || strings.HasPrefix(got, baked+".") {
 		return nil
 	}
-	return fmt.Errorf("hostname %q does not match baked FQDN %q (set GROK_ALLOW_FQDN_MISMATCH=1 to override)", real, cfg.Host.FQDN)
+	return &operatorerror.HostnameMismatch{Current: real, Expected: cfg.Host.FQDN, Override: "GROK_ALLOW_FQDN_MISMATCH"}
 }

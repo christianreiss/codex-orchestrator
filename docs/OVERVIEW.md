@@ -1,5 +1,9 @@
 # Overview
 
+cxx 0.9.175 gates host installation and updates on available bytes and inodes,
+tries safe owned-artifact cleanup on shortage, then rechecks before proceeding.
+See [host installation space checks](#host-installation-space-checks).
+
 cxx 0.9.174 makes scope-history coverage explicit and points to the matching
 unified chat reader without mixing cursors. All engines receive guidance for
 [shared VM reservations](agent-coordination.md#shared-lab-vms) and incomplete
@@ -1839,3 +1843,57 @@ and bounded staged-write precondition checks also detect conflicting saves;
 failed primary publication does not advance its mirror or ownership sidecar.
 Native settings writers do not share that lock, so this is conflict mitigation,
 not a cross-process transaction. See [the exact limits](interface-clx.md#settingsjson-sub-blocks-deep-merge-non-clobbering).
+
+## Host installation space checks
+
+From cxx 0.9.175, the generated host bootstrap, shared wrapper install/prefetch,
+Codex (including its companion), Claude, Grok, RTK and Node/npm prerequisite
+installation check their actual write filesystems before large writes. This
+covers cron, manual updates, sync and first-launch installation through the common
+installers; it does not change server installation or Docker deployment.
+
+Checks group simultaneous additional bytes by filesystem: download, extraction,
+npm cache, private prefix and atomic destination copies. Existing binaries are
+not counted as reclaimable space. Available space is measured for the current
+user, resolving missing paths through an existing parent. Known download sizes,
+native package unpacked sizes and tar member sizes refine later checks. Unknown
+sizes use conservative per-location budgets: 512 MiB for wrapper/download staging,
+1 GiB for native expansion and 2 GiB for npm/package installation; cache and
+additional copies add their own budgets. Every affected filesystem retains the
+larger of 128 MiB or 10% of its additional-byte budget. Inode checks require 128
+for native staging and 10,000 for npm/package paths when inode counts are meaningful;
+exact extraction/copy steps recheck their actual remaining byte and inode needs.
+
+On shortage, engine installers attempt ownership-aware version-store cleanup
+before creating a stage, then measure again. A regular maintenance sweep records
+its non-selected candidate directory identities in `.pressure-cleanup.json` under
+the engine lock, bound to that sweep's selected prefix identity. Pressure cleanup
+may only revisit those candidates while the selected prefix still matches. A new
+publication invalidates admission before changing the selected pointer (failure
+blocks publication); a missing admission or replaced directory also prevents deletion,
+preserving the existing maintenance-tick grace for a launcher that resolved the
+previous CLI but has not executed it yet. Pointer resolution occurs under the
+engine lock. The selected prefix, active processes, unknown pointers and existing
+locks remain protected; no cleanup runs after publication. Bootstrap has no provably abandoned old files
+to reclaim and reports that explicitly. Global npm caches, unrelated temporary
+files and session history are never deleted by this gate. Failed unpublished
+stages are removed, including partial npm files before a non-capacity native
+fallback. A filesystem measurement failure stops the operation.
+
+Large installer writes are serialized per user using
+`~/.cxx/install-space.lock`, acquired before engine and destination locks. The
+shell bootstrap uses the same lock and releases it before invoking Go-based
+installers. Foreground use of an existing CLI does not take this lock. Other
+users and uncooperative writers can still consume space after a check; actual
+`ENOSPC` remains an error, and Claude does not retry through the native package
+after npm reports a capacity failure. Diagnostics put the component, affected
+path, required/available capacity and cleanup outcome ahead of verbose details.
+An incomplete engine update never turns into an unqualified bootstrap `ready`
+merely because an existing older CLI still runs. No new public API or schema is
+introduced.
+
+### Installer and maintenance diagnostics (cxx 0.9.175)
+
+Bootstrap reports **engine maintenance** (CLI updates plus configuration sync) separately from each CLI's **available** version. A working installed binary does not prove that configuration or authentication sync succeeded. Failed maintenance stays `INCOMPLETE`; retry hints name only the scheduling or maintenance step that failed. Diagnostic lines retain complete names, paths and repair commands, including in minimal output; unusually verbose subprocess logs show the first and last 40 lines with an explicit omission count.
+
+A host-name mismatch reports both identities and asks you to check `hostname` and `hostname -f`. Correct the machine name if the registered identity is right, otherwise install the configuration registered for that machine, then retry `cxx cron run`. The identity guard and its explicit advanced overrides are unchanged; disabling verification is not the normal repair.

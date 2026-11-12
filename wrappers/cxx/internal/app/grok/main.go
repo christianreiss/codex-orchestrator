@@ -11,6 +11,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"io"
 	"log/slog"
 	"net"
@@ -289,7 +290,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 	if o.command == "run" && len(o.args) > 0 && (nativeAnyFlag(o.args, "--version") || nativeVersionCommand(o.args) || isHelpPassthrough(o.args)) {
 		path, err := native.FindCLI()
 		if err != nil {
-			fmt.Fprintln(stderr, "cgx:", err)
+			terminalui.Failure(stderr, "cgx", o.command, err)
 			return 1
 		}
 		return execute(ctx, path, o.args, native.NativeEnv(os.Environ()), stdout, stderr)
@@ -303,7 +304,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 
 	cfg, err := load(ctx, o.configPath)
 	if err != nil {
-		fmt.Fprintln(stderr, "cgx:", err)
+		terminalui.Failure(stderr, "cgx", o.command, err)
 		return 1
 	}
 	ctx = communicator.WithSyncConfig(ctx, cfg)
@@ -328,7 +329,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 	case "run", "execute", "sync", "auth-sync", "login":
 		// A cloned or mis-deployed host refuses before it syncs or leases.
 		if err := native.GuardFQDN(cfg); err != nil {
-			fmt.Fprintln(stderr, "cgx:", err)
+			terminalui.Failure(stderr, "cgx", o.command, err)
 			return 1
 		}
 	}
@@ -358,7 +359,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 		return code
 	}
 	if err != nil {
-		fmt.Fprintln(stderr, "cgx:", err)
+		terminalui.Failure(stderr, "cgx", o.command, err)
 		return 1
 	}
 	return 0
@@ -1254,7 +1255,7 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 		fmt.Fprintf(stdout, "%s: Grok version unchanged (wrapper %s, grok %s, no updates, reported=%t)\n", label, Version, version, reported)
 	}
 	if syncErr != nil {
-		fmt.Fprintln(stderr, "cgx "+label+": managed content sync failed:", syncErr)
+		syncErr = operatorerror.InStep("Configuration sync", syncErr)
 	}
 	if reportErr != nil {
 		reportErr = fmt.Errorf("/cron/report failed after retry: %w", reportErr)

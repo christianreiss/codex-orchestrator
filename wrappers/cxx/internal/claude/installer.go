@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -56,6 +57,14 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 		return nil
 	}
 
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseSpace()
+	if err := installspace.CheckNpmGlobal(ctx, []string{"npm"}); err != nil {
+		return err
+	}
 	spec := "@anthropic-ai/claude-code"
 	if target != "" && target != "latest" {
 		spec = "@anthropic-ai/claude-code@" + target
@@ -70,6 +79,9 @@ func EnsureClaude(ctx context.Context, target string, enforceExact bool, logger 
 	}
 	if isPermErr(out, err) {
 		if _, lerr := exec.LookPath("sudo"); lerr == nil {
+			if err := installspace.CheckNpmGlobal(ctx, []string{"sudo", "-n", "npm"}); err != nil {
+				return err
+			}
 			logger.Debug("EnsureClaude: retrying npm install under sudo -n")
 			sudoArgs := append([]string{"-n", "npm"}, args...)
 			cmd = exec.CommandContext(ctx, "sudo", sudoArgs...)

@@ -1,3 +1,9 @@
+# 2026-11-12
+
+- **cxx 0.9.175 — actionable installer failures:** separate engine maintenance from CLI availability; configuration-sync hostname errors show the current and configured names plus repair commands. Preserve complete diagnostic lines in minimal/redirected output and only suggest retries for failed maintenance/scheduling steps. Host-name verification remains enforced.
+
+- **cxx 0.9.175 — host installation space gates:** bootstrap, wrapper updates/prefetch, Codex and its companion, Claude, Grok, RTK and Node/npm prerequisites check available bytes and inodes before large writes. Group peak needs per filesystem with reserve, attempt protected engine-store cleanup on shortage, then recheck. Serialize installer writes per user, preserve selected CLIs on failed staged updates, stop Claude's native fallback after npm `ENOSPC`, and distinguish available older CLIs from completed bootstrap updates. No server deployment changes.
+
 # 2026-11-11
 
 - **Fleet policy scope:** the rendered policy opens with a scope clause: it applies only when the fleet MCP tools (`agent_self`, `skill_list`) are available. Desktop apps without `cxx` read the same instruction files and now ignore the policy instead of failing on claims.

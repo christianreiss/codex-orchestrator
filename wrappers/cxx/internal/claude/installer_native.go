@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"net/http"
@@ -77,8 +78,9 @@ func installNativeClaude(ctx context.Context, stage, target string) (string, err
 	registry := claudeRegistry()
 	var meta struct {
 		Dist struct {
-			Tarball   string `json:"tarball"`
-			Integrity string `json:"integrity"`
+			Tarball      string `json:"tarball"`
+			Integrity    string `json:"integrity"`
+			UnpackedSize int64  `json:"unpackedSize"`
 		} `json:"dist"`
 	}
 	if err := fetchClaudeJSON(ctx, registry+"/"+pkg+"/"+target, &meta); err != nil {
@@ -93,6 +95,9 @@ func installNativeClaude(ctx context.Context, stage, target string) (string, err
 		return "", fmt.Errorf("%s@%s metadata has malformed integrity", pkg, target)
 	}
 
+	if err := installspace.Check(ctx, "Claude native", installspace.Need{Path: stage, Bytes: installspace.Size(meta.Dist.UnpackedSize, installspace.Native) + maxClaudeTarball, Inodes: 128}); err != nil {
+		return "", err
+	}
 	tarball := filepath.Join(stage, "package.tgz")
 	if err := downloadClaudeTarball(ctx, meta.Dist.Tarball, tarball, digest); err != nil {
 		return "", fmt.Errorf("download %s@%s: %w", pkg, target, err)
@@ -181,6 +186,12 @@ func extractClaudeBinary(tarball, dest string) error {
 		}
 		if hdr.Name != "package/claude" || hdr.Typeflag != tar.TypeReg {
 			continue
+		}
+		if hdr.Size < 0 || hdr.Size > maxClaudeTarball {
+			return errors.New("invalid Claude binary size")
+		}
+		if err := installspace.Check(context.Background(), "Claude extraction", installspace.Need{Path: filepath.Dir(dest), Bytes: uint64(hdr.Size), Inodes: 1}); err != nil {
+			return err
 		}
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return err

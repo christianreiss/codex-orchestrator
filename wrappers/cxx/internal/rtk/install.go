@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"io"
 	"net/http"
 	"os"
@@ -35,7 +36,7 @@ func binaryPath() (string, error) {
 
 // Install verifies the signed policy's archive before extracting its one regular
 // executable. No archive paths, links or configuration files are installed.
-func Install(ctx context.Context, cfg *config.Config) (string, error) {
+func Install(ctx context.Context, cfg *config.Config) (result string, retErr error) {
 	if cfg == nil || cfg.RTK == nil || cfg.RTK.Version != Version || cfg.RTK.Protocol != 1 {
 		return "", errors.New("unsupported_policy")
 	}
@@ -55,6 +56,15 @@ func Install(ctx context.Context, cfg *config.Config) (string, error) {
 	// host shares this cache, including simultaneous sync and native launches.
 	if verifiedCache(dest, a.SHA256) {
 		return dest, nil
+	}
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer releaseSpace()
+	defer func() { retErr = installspace.WriteError("RTK", dir, retErr) }()
+	if err := installspace.Ensure(ctx, "RTK", nil, installspace.Need{Path: dir, Bytes: archiveLimit + binaryLimit, Inodes: 128}); err != nil {
+		return "", err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -98,7 +108,10 @@ func Install(ctx context.Context, cfg *config.Config) (string, error) {
 	defer tmp.Close()
 	h := sha256.New()
 	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, archiveLimit+1))
-	if err != nil || n > archiveLimit {
+	if err != nil {
+		return "", installspace.WriteError("RTK archive", tmp.Name(), err)
+	}
+	if n > archiveLimit {
 		return "", errors.New("invalid_archive")
 	}
 	if hex.EncodeToString(h.Sum(nil)) != strings.ToLower(a.SHA256) {

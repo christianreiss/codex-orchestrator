@@ -113,7 +113,7 @@ func TestBackgroundClaudeNativeRejectsIntegrityMismatch(t *testing.T) {
 func TestBackgroundClaudeFallsBackToNativeWhenNpmFails(t *testing.T) {
 	_, bin := stagedInstallFixture(t)
 	t.Setenv("PATH", bin)
-	writeScript(t, filepath.Join(bin, "npm"), "#!/bin/sh\necho 'npm ERR! engine unsupported' >&2\nexit 1\n")
+	writeScript(t, filepath.Join(bin, "npm"), "#!/bin/sh\nif [ \"$1 $2 $3\" = \"config get cache\" ]; then echo \"$HOME/.npm\"; exit 0; fi\necho 'npm ERR! engine unsupported' >&2\nexit 1\n")
 	body := nativeClaudeTarball(t, "2.1.2")
 	nativeRegistry(t, "2.1.2", body, body)
 	if err := EnsureClaudeBackground(context.Background(), "2.1.2", true, nil); err != nil {

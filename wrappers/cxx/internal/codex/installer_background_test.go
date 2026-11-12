@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"io"
 	"log/slog"
 	"net/http"
@@ -360,5 +361,113 @@ func TestPruneEngineStoreKeepsOnlyTheSelectedRelease(t *testing.T) {
 	}
 	if got := Version(context.Background()); got != "9.9.9" {
 		t.Fatalf("selected release no longer runs after the sweep: %q", got)
+	}
+}
+
+func TestBackgroundCodexSpaceGatePreventsArtifactDownload(t *testing.T) {
+	downloaded := false
+	_, before := backgroundFixture(t, backgroundReleaseFixture{beforeNative: func(*http.Request) { downloaded = true }})
+	ctx := installspace.WithProbe(context.Background(), func(string) (installspace.Capacity, error) { return installspace.Capacity{}, nil })
+	err := EnsureCodexBackground(ctx, "9.9.9", true, backgroundLogger())
+	if !installspace.IsCapacity(err) || downloaded {
+		t.Fatalf("space gate: downloaded=%v, error=%v", downloaded, err)
+	}
+	if after, _ := FindCLI(); after != before {
+		t.Fatal("space failure changed selected CLI")
+	}
+}
+
+func TestBackgroundCodexCleanupCanMakeRoomWithoutRemovingCurrent(t *testing.T) {
+	systemPath := os.Getenv("PATH")
+	sleep, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skip("sleep unavailable")
+	}
+	home, original := backgroundFixture(t, backgroundReleaseFixture{})
+	t.Setenv("PATH", filepath.Join(home, "bin")+string(os.PathListSeparator)+systemPath)
+	root := filepath.Join(home, ".cxx", "engines", "codex")
+	current := filepath.Join(root, "1.0.0-current", "codex")
+	body, err := os.ReadFile(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeBackgroundExecutable(t, current, string(body))
+	if err := cacheCodex(current); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(root, "0.1.0-stale")
+	if err := os.MkdirAll(stale, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// A regular tick observes the stale prefix as a non-selected live process.
+	// Its later exit allows pressure cleanup without skipping publication grace.
+	sleeper, err := os.ReadFile(sleep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(stale, "held")
+	if err := os.WriteFile(executable, sleeper, 0700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(executable, "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	if _, err := PruneEngineStore(backgroundLogger()); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal("regular sweep removed a live prefix")
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	ctx := installspace.WithProbe(context.Background(), func(string) (installspace.Capacity, error) {
+		free := uint64(16 * installspace.Native)
+		if _, err := os.Stat(stale); err == nil {
+			free = 0
+		}
+		return installspace.Capacity{Bytes: free}, nil
+	})
+	if err := EnsureCodexBackground(ctx, "9.9.9", true, backgroundLogger()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale prefix was not reclaimed: %v", err)
+	}
+	if _, err := os.Stat(current); err != nil {
+		t.Fatalf("previous current prefix lost: %v", err)
+	}
+	if after, _ := FindCLI(); after == current {
+		t.Fatal("new CLI was not published")
+	}
+}
+
+func TestBackgroundCodexDoesNotPublishIfCleanupInvalidationFails(t *testing.T) {
+	home, before := backgroundFixture(t, backgroundReleaseFixture{})
+	root := filepath.Join(home, ".cxx", "engines", "codex")
+	marker := filepath.Join(root, ".pressure-cleanup.json")
+	if err := os.MkdirAll(marker, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(marker, "blocking-file"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	err := EnsureCodexBackground(context.Background(), "9.9.9", true, backgroundLogger())
+	if err == nil || !strings.Contains(err.Error(), "invalidate pressure-cleanup admission") {
+		t.Fatalf("publication did not fail closed: %v", err)
+	}
+	if after, _ := FindCLI(); after != before {
+		t.Fatal("failed invalidation changed selected CLI")
+	}
+	entries, _ := os.ReadDir(root)
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() != ".pressure-cleanup.json" {
+			t.Fatalf("failed stage retained: %s", entry.Name())
+		}
 	}
 }
