@@ -128,7 +128,10 @@ observation, `quota_get`, warnings and hard-fail like Codex and Claude.
 
 ### Non-interactive use (runner, host daemon, Wake)
 
-`kimi -p "<prompt>" --output-format stream-json [-m <alias>] [--auto] [-S <session>]`.
+`kimi -p "<prompt>" --output-format stream-json [-m <alias>] [-S <session>]`.
+Prompt mode already runs in Never Ask mode: 2.5.3 rejects `-p` combined with
+`--auto` (`Cannot combine --prompt with --auto.`), so headless starts never pass
+`--auto`/`--yolo`. The prompt travels as argv (no prompt-file option).
 Exit 1 with a one-line `error:` on stderr on failure. stdout begins with
 `{"role":"meta","type":"system.version","version":"…"}`.
 
