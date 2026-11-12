@@ -17,16 +17,17 @@ Verifiziert ([V]/[T]) sind nur Aussagen zu Material 3, Apple HIG, Fluent 2, Carb
 
 | System | Wert | Bemerkung |
 |---|---|---|
-| WCAG 2.2, SC 2.5.8 (AA) | 24×24 CSS-px | rechtliche Untergrenze im Web, mit Ausnahmen (siehe [01, Abschnitt 3](01-grundlagen-ui-ux.md#3-barrierefreiheit-wcag-22)) |
+| WCAG 2.2, SC 2.5.8 Target Size (Minimum), AA | 24×24 CSS-px | für Zeigerziele, mit Ausnahmen (Spacing, Equivalent, Inline, User Agent, Essential). Norm: [WCAG 2.2](https://www.w3.org/TR/WCAG22/#target-size-minimum), informative Erläuterung: [Understanding 2.5.8](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html). Siehe auch [01, Abschnitt 3](01-grundlagen-ui-ux.md#3-barrierefreiheit-wcag-22) |
 | WCAG 2.2, SC 2.5.5 (AAA) | 44×44 CSS-px | |
 | Material 3 | 48×48 dp interaktives Ziel | auch wenn das sichtbare Element kleiner ist, z. B. ein 40-dp-State-Layer bei Icon-Buttons |
 | Fluent 2 | 44×44 auf iOS und im Web, 48×48 auf Android | Angabe steht im Abschnitt zu Abständen, mit Blick auf Mobilgeräte |
-| Apple HIG, iOS/iPadOS | 44×44 pt Standard, 28×28 pt Minimum | Apple spricht von „control size“, nicht von Trefferfläche |
+| Apple HIG, iOS/iPadOS | 44×44 pt Standard, 28×28 pt Minimum | Apple spricht hier (Seite Accessibility) von „control size“, nicht von Trefferfläche |
 | Apple HIG, macOS | 28×28 pt Standard, 20×20 pt Minimum | |
 | Apple HIG, visionOS / tvOS / watchOS | 60/28 · 66/56 · 44/28 pt | Standard/Minimum |
 
 - Um Bedienelemente mit Rahmen (Bezel) empfiehlt Apple etwa 12 pt Abstand, um rahmenlose etwa 24 pt. [V]
-- 44 und 48 sind Entscheidungen der Systeme, keine gesetzlichen Mindestwerte. Für eine Web-App heißt das: 24 px ist Pflicht (AA). 44 bzw. 48 px sind sinnvoll, sobald Touch eine Rolle spielt. Welchen der beiden Werte man nimmt, legt man in `DESIGN.md` fest und nennt das Bezugssystem dazu.
+- Apple nennt zwei Werte mit unterschiedlichem Geltungsbereich, die man nicht gleichsetzen sollte: die empfohlene „control size“ je Plattform aus [Accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility) (Tabelle oben, etwa macOS 28/20 pt) und als allgemeine Regel für Buttons eine Trefferfläche („hit region“) von mindestens 44×44 pt, in visionOS 60×60 pt, unabhängig von der Eingabeart, aus [Buttons](https://developer.apple.com/design/human-interface-guidelines/buttons) (siehe Abschnitt 9). [A]
+- 44 und 48 sind Entscheidungen der Systeme, keine Mindestwerte von WCAG AA. 44×44 CSS-px steht in WCAG nur im AAA-Kriterium 2.5.5. Für eine Web-App, die WCAG 2.2 AA erfüllen soll, heißt das: 24×24 CSS-px nach SC 2.5.8, mit dessen Ausnahmen. 44 bzw. 48 px sind sinnvoll, sobald Touch eine Rolle spielt. Welchen der beiden Werte man nimmt, legt man in `DESIGN.md` fest und nennt das Bezugssystem dazu.
 - Fluents Desktop-Wert für Windows (40×40 effektive px) ist nur aus zweiter Hand belegt und hier nicht geprüft.
 - Widerlegt (0-3): „Material 3 verlangt 48 dp auch unter Density-Skalierung“. Material sagt nur, dass Dichte nicht *standardmäßig* aktiv sein darf, wenn Ziele dadurch unter 48×48 fallen (Abschnitt 6).
 
@@ -159,7 +160,7 @@ Diese Quellen stützen sich auf Nutzerforschung. Sie wurden abgerufen und korrek
 - Fehlermeldungen sind nicht für fehlende Berechtigung, fehlende Voraussetzungen oder Fehler im System gedacht, die der Nutzer nicht beheben kann. Dafür gibt es eigene Seiten bzw. die Zustände aus [01, Abschnitt 4.2](01-grundlagen-ui-ux.md#42-zustände-jeder-screen-hat-mehr-als-einen-vf).
 - GOV.UK berichtet, die Regeln seien in Live-Diensten mit allen Nutzergruppen getestet worden, etwa bei den Steuergutschriften.
 
-**Deaktivierte Elemente (USWDS)**: möglichst vermeiden, besonders bei Textfeldern. Wo nötig, `aria-disabled="true"` statt des `disabled`-Attributs, damit Screenreader- und Tastaturnutzer das Element weiter erreichen. USWDS verweist dafür auf eine eigene Literaturauswertung von 2023. Das stützt die Regel „Absenden-Button nicht kommentarlos deaktivieren“ in [01, Abschnitt 4.4](01-grundlagen-ui-ux.md#44-formulare-f).
+**Deaktivierte Elemente (USWDS)**: möglichst vermeiden, besonders bei Textfeldern. Wo nötig, `aria-disabled="true"` statt des `disabled`-Attributs, damit Screenreader- und Tastaturnutzer das Element weiter erreichen. USWDS verweist dafür auf eine eigene Literaturauswertung von 2023. Wichtig: `aria-disabled` deaktiviert kein Verhalten, das Element bleibt per Klick, Enter oder Leertaste auslösbar. USWDS verlangt deshalb ausdrücklich, die Aktivierung zusätzlich per JavaScript zu unterbinden ([Disabled states](https://designsystem.digital.gov/components/form/#disabled-states-for-components-in-forms)). Im Ablauf mit der Tastatur prüfen, dass nichts ausgelöst wird, auch kein Absenden des Formulars per Enter aus einem Feld. Die native `disabled`-Semantik nicht pauschal verdrängen: Sie unterbindet das Verhalten ohne Zusatzcode, `aria-disabled` nur zusammen mit diesem Skript. Das stützt die Regel „Absenden-Button nicht kommentarlos deaktivieren“ in [01, Abschnitt 4.4](01-grundlagen-ui-ux.md#44-formulare-f).
 
 ## 9. Native Apps: macOS, GNOME, KDE [A]
 
@@ -169,7 +170,7 @@ Relevant für die Swift-, QML- und Qt-Prüfung des Slop Detectors (siehe [README
 - Höchstens ein bis zwei hervorgehobene Buttons (Akzentfarbe) pro Ansicht. Die bevorzugte Option unterscheidet sich durch den Stil, nicht durch die Größe.
 - Die primäre Rolle (Akzentfarbe, Return-Taste) nie auf eine destruktive Aktion legen, auch wenn sie die wahrscheinlichste Wahl ist. Menschen drücken den primären Button oft, ohne ihn zu lesen. Destruktive Buttons in System-Rot.
 - macOS: Ein Button, der ein weiteres Fenster, eine Ansicht oder eine App öffnet, bekommt im Titel ein Auslassungszeichen („Exportieren…“). Beschriftungen sind kurz und beginnen mit einem Verb.
-- Allgemeine Trefferfläche mindestens 44×44 pt (visionOS 60×60 pt), für jede Eingabeart. Bild-Buttons auf macOS brauchen etwa 10 px Abstand zwischen Bild und Klickrand.
+- Allgemeine Trefferfläche mindestens 44×44 pt (visionOS 60×60 pt), für jede Eingabeart. Das ist nicht die „control size“ je Plattform aus Abschnitt 1. Bild-Buttons auf macOS brauchen etwa 10 px Abstand zwischen Bild und Klickrand.
 
 **GNOME HIG: Header Bars**
 - Feste Aufteilung: Hauptaktionen (Neu, Hinzufügen, Öffnen, Zurück) am Anfang, Fenstertitel in der Mitte, Menüs am Ende.

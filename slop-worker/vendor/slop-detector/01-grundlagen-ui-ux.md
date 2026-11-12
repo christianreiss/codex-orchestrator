@@ -61,7 +61,7 @@ Hartcodierte Werte umgehen Tokens, und KI-Agenten hartcodieren nachweislich trot
 - Kein reines `#000` als Fläche. Elevation über hellere Flächen statt über Schatten.
 - Farben für dunkle Flächen entsättigen. Kontrast separat prüfen, er ist nicht automatisch gleich dem im hellen Theme.
 - Dark Mode als eigenes Theme über dieselben semantischen Tokens umsetzen [V], nicht über Einzelüberschreibungen.
-- Die Entscheidung früh treffen. [A] (kent-tokyo) Sie folgt aus der Nutzungssituation, nicht aus der Kategorie. [V] (anti-slop-design)
+- Die Entscheidung früh treffen. [A] (kent-tokyo) Sie folgt aus der Nutzungssituation, nicht aus der Kategorie. [V] (anti-slop-design) Die Situation bestimmt dabei höchstens den Default. Gibt es beide Themes, gilt die Wahl der Nutzer bzw. die Systempräferenz.
 
 ### Bewegung
 - Bewegung erklärt Zustandswechsel: öffnen, erweitern, bestätigen. [V] (Anthropic Skill)
@@ -87,7 +87,7 @@ WCAG 2.2 ist seit dem 05.10.2023 W3C-Recommendation und bringt 9 neue Kriterien;
 
 Ergänzend [F]:
 - Ein sichtbarer Fokusring (`:focus-visible`), nie `outline: none` ohne Ersatz.
-- Für Touch sind 44×44 bzw. 48×48 die praktische Untergrenze: Apple HIG 44×44 pt (iOS), Fluent 2 44×44 px (Web), Material 3 48×48 dp, WCAG 2.5.5 (AAA) 44×44 CSS-px. [V] Die Systeme widersprechen sich im Web, macOS erlaubt kleinere Werte. Tabelle in [06, Abschnitt 1](06-design-systeme.md#1-zielgrößen-nach-system-und-plattform-v).
+- Für Touch sind 44×44 bzw. 48×48 die praktische Untergrenze: Apple HIG 44×44 pt (iOS-Control-Size; die allgemeine Button-Trefferfläche von 44×44 pt hat einen anderen Geltungsbereich, siehe 06 §1), Fluent 2 44×44 px (Web), Material 3 48×48 dp, WCAG 2.5.5 (AAA) 44×44 CSS-px. [V] Die Systeme widersprechen sich im Web, macOS erlaubt kleinere Werte. Tabelle in [06, Abschnitt 1](06-design-systeme.md#1-zielgrößen-nach-system-und-plattform-v).
 - Semantisches HTML zuerst (`button`, `a`, `label`, `nav`, `main`), ARIA nur zur Ergänzung.
 - Jedes Formularfeld hat ein sichtbares `label`. Ein Platzhalter ist kein Label.
 - Fehlermeldungen sind programmatisch mit dem Feld verknüpft (`aria-describedby`), Statusmeldungen werden per `role="status"` bzw. `aria-live` angesagt.
@@ -111,14 +111,14 @@ Automatisierte Tests mit axe finden nur einen Teil der Probleme. Deque schätzt 
 10. Hilfe und Dokumentation: kontextbezogen, an derselben Stelle (WCAG 3.2.6).
 
 ### 4.2 Zustände: jeder Screen hat mehr als einen [V]/[F]
-Für jede Ansicht mit Daten diese Zustände gestalten und testen:
+Für jede Ansicht mit Daten die zutreffenden dieser Zustände gestalten und testen:
 
 | Zustand | Regel |
 |---|---|
 | Lädt (< 1 s) | Nichts oder ein dezenter Indikator, um Flackern zu vermeiden [F] |
 | Lädt (1–10 s) | Skeleton in der Form des späteren Inhalts [F] |
 | Lädt (> 10 s) | Fortschritt, Abbrechen, Hintergrundverarbeitung [F] |
-| Leer, erste Nutzung | Erklären, was hierher gehört, und eine primäre Aktion anbieten [V] (PatternFly) |
+| Leer, erste Nutzung | Erklären, was hierher gehört [V] (PatternFly). Eine Aktion nur, wenn sie berechtigt ist; read-only ohne Aktion ist gültig. Aufbau und Gewicht der Aktion folgen dem gewählten System, siehe [06, Abschnitt 7](06-design-systeme.md#7-leerzustände-systeme-widersprechen-sich-v) |
 | Keine Ergebnisse | Filter oder Suche benennen, „Filter zurücksetzen“ anbieten [V] |
 | Konfiguration nötig | Was fehlt und wo man es einrichtet [V] |
 | Kein Zugriff | Wer Zugriff gewähren kann [V] |
@@ -126,7 +126,7 @@ Für jede Ansicht mit Daten diese Zustände gestalten und testen:
 | Teilweise geladen oder veraltet | Zeitstempel „Stand: …“, Hinweis auf Teilausfall [F] |
 | Erfolg | Kurz bestätigen, mit derselben Bezeichnung wie die Aktion [V] |
 
-PatternFly-Schreibregel für Leerzustände [V]: *„State what isn't there, and then give the user a next step.“* Genau eine primäre Handlungsaufforderung, sekundäre optional darunter. Die Größe richtet sich nach dem Kontext (Karte, Tabelle, ganze Seite), das Icon nach dem Typ. [T]
+PatternFly-Schreibregel für Leerzustände [V]: *„State what isn't there, and then give the user a next step.“* PatternFly sieht genau eine primäre Handlungsaufforderung vor, sekundäre optional darunter. Die Größe richtet sich nach dem Kontext (Karte, Tabelle, ganze Seite), das Icon nach dem Typ. [T] Das ist PatternFlys Vorgabe, keine allgemeine Norm: Cloudscape setzt den Button immer sekundär, Carbon richtet den Block linksbündig aus ([06, Abschnitt 7](06-design-systeme.md#7-leerzustände-systeme-widersprechen-sich-v)). Ein read-only-Leerzustand ohne Aktion ist gültig.
 
 PatternFly-Textregeln für Alerts und Leerzustände [A]: kein „success/successfully“, keine Ausrufezeichen, kein „bitte“, nie dem Nutzer die Schuld geben, Satzschreibung.
 
@@ -215,7 +215,7 @@ Ziel: schnell, dicht, vorhersehbar. Eigenständige Optik ist hier zweitrangig, a
 - Alarmzustände bleiben, bis sie behoben oder quittiert sind (siehe PatternFly, 4.3).
 - Datenaktualität anzeigen: „Stand: 14:02:31 UTC“, Auto-Refresh pausierbar.
 - Konsolen und Logs: Suchen, Filtern, Pausieren, Zeilen umbrechen, Download. Tastaturbedienung vollständig.
-- Dark Mode, wenn die Nutzungssituation es verlangt (Leitstand, Nachtschicht). [V] (anti-slop-design, Beispiel „SRE um 2 Uhr nachts“)
+- Dark Mode, wenn die Nutzungssituation es verlangt (Leitstand, Nachtschicht). [V] (anti-slop-design, Beispiel „SRE um 2 Uhr nachts“) Gemeint ist der Default: Das Theme folgt der Wahl der Nutzer bzw. der Systempräferenz.
 - Gefährliche Aktionen (Deploy, Restart, Failover) zeigen Zielumgebung und Host deutlich an, etwa als Produktions-Banner.
 
 ### 5.3 Frontends für Endnutzer (Register: Product, mit Brand-Anteil)

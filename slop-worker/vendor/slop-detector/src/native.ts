@@ -8,6 +8,7 @@ import {
   blank,
   finding,
   loadProjectConfig,
+  parseJson,
   type Finding,
   type Report,
 } from "./core.js";
@@ -399,14 +400,17 @@ function tail(text: string | Buffer | null | undefined) {
 }
 
 /**
- * Share of pure-black (#000000) pixels and of the most frequent color. Alpha is
- * ignored. Counts runs of equal pixels, so flat UI screenshots stay cheap.
+ * Share of opaque pure-black (#000000) pixels, of fully transparent (alpha 0)
+ * pixels and of the most frequent color (alpha ignored). Counts runs of equal
+ * pixels, so flat UI screenshots stay cheap.
  */
 function renderStats(img: Pixels) {
   const { data, channels } = img,
     total = img.width * img.height,
     counts = new Map<number, number>();
+  const alpha = channels === 2 || channels === 4 ? channels - 1 : -1;
   let black = 0,
+    transparent = 0,
     run = -1,
     length = 0;
   for (let i = 0, at = 0; i < total; i++, at += channels) {
@@ -415,7 +419,8 @@ function renderStats(img: Pixels) {
         channels < 3
           ? (r << 16) | (r << 8) | r
           : (r << 16) | (data[at + 1] << 8) | data[at + 2];
-    if (packed === 0) black++;
+    if (alpha >= 0 && data[at + alpha] === 0) transparent++;
+    else if (packed === 0) black++;
     if (packed === run) length++;
     else {
       if (length) counts.set(run, (counts.get(run) ?? 0) + length);
@@ -433,6 +438,7 @@ function renderStats(img: Pixels) {
     }
   return {
     black: black / total,
+    transparent: transparent / total,
     uniform: most / total,
     color: hex([color >> 16, (color >> 8) & 0xff, color & 0xff]),
   };
@@ -604,7 +610,8 @@ export async function native(
     path.relative(out, file).split(path.sep).join("/");
   const digest = (b: Buffer) => createHash("sha256").update(b).digest("hex");
   const shots = new Map<string, string>();
-  const a11yPlatforms = new Set<string>();
+  const a11yPlatforms = new Set<string>(),
+    a11yInvalid = new Set<string>();
 
   async function importA11y(
     file: string,
@@ -614,7 +621,7 @@ export async function native(
   ) {
     if ((await stat(file)).size > maxA11y) throw Error("a11y export too large");
     const text = await readFile(file);
-    const data = A11yExport.parse(JSON.parse(text.toString("utf8")));
+    const data = A11yExport.parse(parseJson(text.toString("utf8")));
     r.artifacts[artifactKey(file)] = digest(text);
     a11yPlatforms.add(combo.platform);
     const label = path.basename(png),
@@ -739,33 +746,47 @@ export async function native(
         notes.push(await importA11y(a11y, file, pixels, combo));
       } catch (e) {
         r.errors.push(
-          `${path.basename(a11y)}: ${missing(e) ? "missing a11y file" : `invalid a11y export: ${tail(String(e))}`}`,
+          `${path.basename(a11y)}: ${missing(e) ? "missing a11y file" : `invalid a11y export: ${tail(e instanceof z.ZodError ? z.prettifyError(e).replace(/\s*\n\s*/g, "; ") : String(e))}`}`,
         );
-        notes.push("invalid a11y data");
+        a11yInvalid.add(combo.platform);
+        notes.push("a11y export rejected, see errors");
       }
     r.coverage.push(
       `${label}: ${describe(combo)}; ${origin} PNG ${png.width}x${png.height}${notes.map((n) => `; ${n}`).join("")}.`,
     );
   }
 
-  /** Flag captures that are mostly pure black or one color (broken offscreen/dpr render). */
+  /**
+   * Flag captures that are mostly pure black, transparent or one color (broken
+   * offscreen/dpr render). Opaque black and alpha-0 pixels share the maxBlack
+   * threshold, but are named separately.
+   */
   function checkRender(img: Pixels, combo: Combo, location: string) {
     if (!render) return;
     const stats = renderStats(img),
-      black = stats.black >= render.maxBlack,
+      empty = stats.black + stats.transparent,
+      black = empty >= render.maxBlack,
       uniform = stats.uniform >= render.maxUniform;
     if (!black && !uniform) return;
-    const variant = variantOf(combo);
+    const variant = variantOf(combo),
+      clear = stats.transparent > 0,
+      what =
+        stats.transparent > stats.black
+          ? "fully transparent (alpha 0)"
+          : "pure black",
+      covered = clear
+        ? `Pure black #000000 covers ${percent(stats.black)} and fully transparent (alpha 0) pixels cover ${percent(stats.transparent)} of ${img.width}x${img.height} px (together ${percent(empty)}, threshold ${percent(render.maxBlack)})`
+        : `Pure black #000000 covers ${percent(stats.black)} of ${img.width}x${img.height} px (threshold ${percent(render.maxBlack)})`;
     r.findings.push({
       ...finding(
         "render-suspect",
         location,
-        `Pure black #000000 covers ${percent(stats.black)} of ${img.width}x${img.height} px (threshold ${percent(render.maxBlack)}); the most frequent color ${stats.color} covers ${percent(stats.uniform)} (threshold ${percent(render.maxUniform)}).`,
+        `${covered}; the most frequent color ${stats.color} covers ${percent(stats.uniform)} (threshold ${percent(render.maxUniform)}).`,
         black
-          ? `Screenshot may be a broken render: ${percent(stats.black)} is pure black (cropped, offset or unpainted area).`
+          ? `Screenshot may be a broken render: ${percent(empty)} is ${clear && stats.black > 0 ? "pure black or fully transparent" : what} (cropped, offset or unpainted area).`
           : `Screenshot may be a broken render: ${percent(stats.uniform)} is the single color ${stats.color} (blank window).`,
-        `Check the renderer at dpr ${combo.dpr}: with an offscreen platform plus a scale factor (e.g. QT_QPA_PLATFORM=offscreen, QT_SCALE_FACTOR=${combo.dpr}) the window must fill all ${img.width}x${img.height} device pixels without black margins or a layout shifted to the top left; then recapture.`,
-        `Recapture state ${combo.state} (${variant}) on ${combo.platform}: pure black below ${percent(render.maxBlack)} and no single color at or above ${percent(render.maxUniform)}, or confirm by inspection that the surface is intentional.`,
+        `Check the renderer at dpr ${combo.dpr}: with an offscreen platform plus a scale factor (e.g. QT_QPA_PLATFORM=offscreen, QT_SCALE_FACTOR=${combo.dpr}) the window must fill all ${img.width}x${img.height} device pixels without black margins or a layout shifted to the top left${clear ? "; transparent pixels mean nothing painted there (missing window background or a grab of an unpainted area), so capture an opaque window" : ""}; then recapture.`,
+        `Recapture state ${combo.state} (${variant}) on ${combo.platform}: pure black${clear ? " plus transparent" : ""} below ${percent(render.maxBlack)} and no single color at or above ${percent(render.maxUniform)}, or confirm by inspection that the surface is intentional.`,
         "review",
         "P1",
       ),
@@ -961,7 +982,7 @@ export async function native(
     );
     if (!a11yPlatforms.has(platform))
       r.coverage.push(
-        `${platform}: accessibility not measured (no a11y export); review it with the platform's accessibility inspector.`,
+        `${platform}: accessibility not measured (${a11yInvalid.has(platform) ? "a11y export rejected, see errors" : "no a11y export"}); review it with the platform's accessibility inspector.`,
       );
   }
   c.notApplicable.forEach((n, i) => {

@@ -1,6 +1,6 @@
 # Quellen und Belegstärke
 
-Stand: 06.11.2026.
+Stand: 12.11.2026.
 
 ## Methode
 
@@ -17,9 +17,11 @@ In Welle 3 betreffen die 25 geprüften Aussagen nur Material 3, Apple HIG, Fluen
 
 In Welle 4 wurden Sternzahlen, Lizenzen und Aktivität über die GitHub-API geprüft (Stand 06.11.2026). Ohne geprüfte Aussage blieben: Leonxlnx/taste-skill, die Systemprompt-Sammlung x1xhlol/system-prompts-and-models-of-ai-tools (v0, Lovable, Bolt, Emergent), awesome-cursorrules, awesome-claude-code, awesome-claude-skills und superdesign-skill. Die Sternzahl von ui-ux-pro-max-skill wurde nicht erfasst. Die GitHub-Codesuche war gedrosselt, der Schriftvergleich in [03, B6](03-community-howtos-und-ideen.md#b6-was-die-repos-gemeinsam-haben-und-wo-sie-sich-widersprechen) kann deshalb unvollständig sein.
 
-Ergänzend wurde Anthropics `frontend-design`-Skill direkt von GitHub gelesen (Commit #1713 vom 03.09.2026), zusätzlich zur Verifikation in Welle 2.
+Ergänzend wurde Anthropics `frontend-design`-Skill direkt von GitHub gelesen (Stand nach PR #1713, gemergt am 03.09.2026, Merge-Commit `41bbe19`), zusätzlich zur Verifikation in Welle 2.
 
 **Was das bedeutet:** Mit [V]/[T] markierte Aussagen haben die Prüfung überstanden. [A] markiert Aussagen, die aus abgerufenen Quellen extrahiert, aber aus Budgetgründen nicht adversarial geprüft wurden. Sie sind korrekt zitiert, inhaltlich aber Einzelberichte. [F] ist Fachwissen, das in dieser Recherche nicht eigens geprüft wurde.
+
+**Review der Leitfäden (ZK-Arbitration, 06.11.2026):** Agnes (Codex, gpt-6-astra) und Eva-Marie (Claude Opus 5.5) haben die Dateien 00–06 und die Templates auf Basis von Commit `31f4e28` zuerst getrennt begutachtet und ihre Befunde danach abgeglichen. Das war eine Text- und Strukturanalyse mit Stichproben an Primärquellen (in der Tabelle „Primärquellen“ als „live geprüft 06.11.2026“ markiert), keine Prüfung mit Nutzern und kein Review des Toolings. Die Befunde sind redaktionelle Korrekturen. Sie sind keine weitere Verifikationswelle im Sinne der Tabelle oben und kein Beleg für die Wirksamkeit der Regeln.
 
 ## Hinweis zur Version des frontend-design-Skills
 
@@ -29,15 +31,20 @@ Es gibt mindestens drei Fassungen, und die Community zitiert oft die älteste:
 |---|---|
 | Anthropic-Artikel/Cookbook, Nov. 2025 | Nennt Inter, lila Verläufe auf Weiß, minimale Animation. Detailangaben zum Prompt (ca. 400 Tokens, Gewichtspaare 100/200 gegen 800/900, genaue Verbotsliste) wurden mit **0-3 widerlegt**: Sie stehen so nicht in der Quelle. |
 | Lokale Plugin-Kopie (`claude-plugins-official`, Version unbekannt, gelesen am 05.11.2026) | 3 Cluster (Creme/Terrakotta, Fast-Schwarz/Acid, Broadsheet) |
-| GitHub `anthropics/skills`, Commit #1713, 03.09.2026 | 5 Cluster (zusätzlich SaaS-Card-Kit und Template-Chrome), typografische Tells, Bewegungsregeln. **Diese Fassung zitiert die Dokumentation.** |
+| GitHub `anthropics/skills`, PR #1713 (Merge-Commit `41bbe19`), 03.09.2026 | 5 Cluster (zusätzlich SaaS-Card-Kit und Template-Chrome), typografische Tells, Bewegungsregeln. **Diese Fassung zitiert die Dokumentation.** |
 
 ## Primärquellen
 
 | Quelle | Thema | Qualität |
 |---|---|---|
-| [W3C: What's new in WCAG 2.2](https://w3.org/WAI/standards-guidelines/wcag/new-in-22/) | Neue Kriterien | normativ |
-| [W3C: Understanding 2.5.8 Target Size](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html) | Zielgrößen | normativ |
-| [W3C: Understanding 2.4.11 Focus Not Obscured](https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum.html) | Fokus | normativ |
+| [W3C: WCAG 2.2, SC 2.5.8 Target Size (Minimum)](https://www.w3.org/TR/WCAG22/#target-size-minimum) | Zielgrößen, AA, 24×24 CSS-px mit Ausnahmen | normativ (W3C Recommendation), live geprüft 06.11.2026 |
+| [W3C: WCAG 2.2, SC 1.4.10 Reflow](https://www.w3.org/TR/WCAG22/#reflow) | Reflow, AA | normativ (W3C Recommendation), live geprüft 06.11.2026 |
+| [W3C: What's new in WCAG 2.2](https://w3.org/WAI/standards-guidelines/wcag/new-in-22/) | Neue Kriterien | informativ (Übersicht) |
+| [W3C: Understanding 2.5.8 Target Size](https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html) | Zielgrößen | informativ (Erläuterung), live geprüft 06.11.2026 |
+| [W3C: Understanding 1.4.10 Reflow](https://www.w3.org/WAI/WCAG22/Understanding/reflow.html) | 320 CSS-px, 400 % bei 1280 px, erforderliche zweidimensionale Bereiche | informativ (Erläuterung), live geprüft 06.11.2026 |
+| [W3C: Understanding 2.4.11 Focus Not Obscured](https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum.html) | Fokus | informativ (Erläuterung) |
+| [W3C ARIA APG: Dialog (Modal)](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/) | Fokusführung und Fokus-Rückgabe bei Modals | informativ (Praxisleitfaden), live geprüft 06.11.2026 |
+| [USWDS: Disabled states for components in forms](https://designsystem.digital.gov/components/form/#disabled-states-for-components-in-forms) | `aria-disabled` nur mit Skript, das die Aktivierung unterbindet | Designsystem, live geprüft 06.11.2026 |
 | [W3C Design Tokens Format 2025.10](https://www.w3.org/community/reports/design-tokens/CG-FINAL-format-20251028/) | Token-Format | CG Final Report, kein Standard |
 | [Atlassian: Design tokens](https://atlassian.design/foundations/tokens/design-tokens/) | Tokens | Designsystem |
 | [IBM Carbon: Themes](https://www.carbondesignsystem.com/building-blocks/foundations/themes) | Tokens, Themes | Designsystem |
@@ -177,3 +184,16 @@ Nicht auswertbar: recapio.com (YouTube-Zusammenfassung, Inhalt wird per JavaScri
 ## Zahlen mit Verfallsdatum (Stand 06.11.2026)
 
 anthropics/skills: ca. 188k Sterne (ganzes Repo) · Impeccable: ca. 104k Sterne, v4.8.0, 62 Regeln, 23 Befehle plus Alias `craft` · awesome-design-md: ca. 126k Sterne, 84 Dateien · superdesign: ca. 7,6k · 21st MCP: ca. 6,4k · Taste Skill: ca. 110k Sterne, v2.5.0 (Stand 05.11.) · avoid-ai-design: 145 Sterne · anti-slop-design: 126 Sterne (Stand 05.11.) · pixelslop: 9 Sterne · Lovable Knowledge: 10.000 Zeichen · v0: Funktionsname „Knowledge“ vermutlich überholt.
+
+
+## Kuratierte Brand-Review-Ergänzung (12.11.2026)
+
+[A] Quelle: [dtransla-maker/Anti-AI-Design-Slop](https://github.com/dtransla-maker/Anti-AI-Design-Slop/tree/473b78ba257b8b07e3c98892b7ce2a35e55e2285), Revision `473b78ba257b8b07e3c98892b7ce2a35e55e2285`, abgerufen am 12.11.2026. Lizenz: [MIT, Copyright (c) 2026 Daniel Translateur](https://github.com/dtransla-maker/Anti-AI-Design-Slop/blob/473b78ba257b8b07e3c98892b7ce2a35e55e2285/LICENSE).
+
+Ausgewertet: `README.md`, `checklists/website-hero-checklist.md` und `scoring/dimension-rubric.md`. Die Quelle liefert redaktionelle Heuristiken für Marketingvisuals, keine empirisch validierte Qualitätsmetrik. Dies ist keine zusätzliche adversariale Verifikationswelle.
+
+Übernommen als eigenständig formulierte Fragen in `src/core.ts`: Erkennbarkeit von Zielgruppe, Problem, belegtem Vertrauensgrund und nächster Aktion; Aussagefunktion des Motivs; Passung zur dokumentierten Marke über das Logo hinaus; mobile Darstellung. Die Anwendung ist auf `profile=brand` begrenzt und verlangt konkrete Evidenz sowie eine plausible alternative Erklärung. Fehlendes Briefing oder fehlende Ansichten bleiben offene Prüfabdeckung.
+
+Nicht übernommen: 0–5-Originalitätsscores, L4-Publikationsschwelle, pauschale Ablehnung vertrauter Gestaltung und eine behauptete Fünf-Sekunden-Messung. Product-UIs dürfen bewusst konventionell sein. Subjektive Befunde bleiben `kind=review` und blockieren CI nicht. Es gibt keine neue Abhängigkeit, kein Submodule und keinen automatischen Upstream-Import.
+
+Die [Kalibrierungsbeispiele](templates/brand-review-examples.md) sind eigene hypothetische Lehrbeispiele, keine kopierten Upstream-Beispiele oder geprüften Nutzerergebnisse. Künftige Updates werden gegen diese Revision verglichen und einzeln auf Nutzen, Evidenz und Konflikte mit unseren Vorrangregeln geprüft.

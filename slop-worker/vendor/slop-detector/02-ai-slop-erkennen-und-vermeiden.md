@@ -85,7 +85,7 @@ Diese Liste ist breit bestätigt: Vier unabhängige Kataloge nennen weitgehend d
 
 Das ist die wichtigste Erkenntnis dieser Recherche. Wer nur verbietet oder „mach es weniger KI-artig“ sagt, bekommt das nächste Klischee. [V] (Anthropic Skill #1713, avoid-ai-design, capitalandcompute.net)
 
-Anthropics `frontend-design`-Skill (GitHub-Stand Commit #1713 vom 03.09.2026) nennt Inter und Lila nicht mehr namentlich. Er beschreibt stattdessen diese fünf Cluster:
+Anthropics `frontend-design`-Skill (GitHub-Stand nach PR #1713, gemergt am 03.09.2026) nennt Inter und Lila nicht mehr namentlich. Er beschreibt stattdessen diese fünf Cluster:
 
 1. Warmer Creme-Hintergrund (um `#F4F1EA`) mit kontrastreicher Serifen-Display-Schrift und einem Terrakotta- oder Tonakzent (oft um `#D97757`). Laut Skill ist das Anthropics eigener Claude-Akzent, der auf einem fremden Briefing deshalb als Tell gilt.
 2. Fast-Schwarz mit einem einzigen grellen Akzent in Acid-Grün oder Zinnober.
@@ -128,9 +128,9 @@ Die Reihenfolge ist wichtig. Jede Ebene fängt ab, was die vorherige durchlässt
 **Richtung vor Code, nach der anti-slop-design-Skill.** [V]
 - Register festlegen: Brand (Marketing) oder Product (Werkzeug).
 - Eine benannte Tonalität wählen, nie „modern and clean“.
-- Hell oder Dunkel aus einem Satz zur Nutzungsszene ableiten, nicht aus der Produktkategorie. „SRE schaut um 2 Uhr nachts im dunklen Raum auf Incident-Schwere“ erzwingt Dark Mode. „Kategorie Observability“ erzwingt nichts.
-- Ein einziges einprägsames Element.
-- **Category-Reflex-Check**: Lässt sich die Palette allein aus dem Kategorienamen erraten (Healthcare: Teal auf Weiß, Fintech: Navy und Gold), ist das Ergebnis polierter Slop.
+- Hell oder Dunkel aus einem Satz zur Nutzungsszene ableiten, nicht aus der Produktkategorie. „SRE schaut um 2 Uhr nachts im dunklen Raum auf Incident-Schwere“ erzwingt laut Skill Dark Mode. „Kategorie Observability“ erzwingt nichts. Diese Sammlung liest das enger: Das Theme folgt der Wahl der Nutzer bzw. der Systempräferenz, die Szene bestimmt höchstens den Default.
+- Ein einziges einprägsames Element. Diese Sammlung behandelt es als optional, auch im Brand-Register.
+- **Category-Reflex-Check**: Lässt sich die Palette allein aus dem Kategorienamen erraten (Healthcare: Teal auf Weiß, Fintech: Navy und Gold), ist das Ergebnis laut Skill polierter Slop. Der Check bleibt eine Frage, keine automatische Neuwahl: Eine vorhandene Identität und Markenfarben sind oft richtig.
 
 **Konkrete Referenz statt Adjektiv.** [A], vielfach genannt. Prompts wie „modern and clean“ oder „make it look nice“ erzeugen uneinheitliche, generische Ergebnisse. Besser sind:
 - Ein reales Produkt als Referenz, etwa „Stripe-Dashboard“, „eher Linear oder Vercel als ein Template“.
@@ -189,9 +189,9 @@ Linter erkennen nur Muster, die im Code oder gerendert sicher erkennbar sind. Ge
 - **Screenshot-Schleife.** Der Agent rendert die Seite, macht Screenshots (Playwright-MCP oder Browser-MCP), vergleicht sie mit Referenz oder Plan, listet die Unterschiede auf und behebt sie erst dann. [V] Anthropic Skill: „a picture is worth 1000 tokens“. Mehrere Erfahrungsberichte bestätigen das. [A]
 - **Pro Runde nur 2–3 visuell prüfbare Änderungen.** Komponente für Komponente bauen und bestätigen statt alles in einem Durchgang. [A] (kent-tokyo)
 - **Viewports.** 1440, 1024, 768, 390 px; bei 320 px kein horizontales Scrollen. [A]/[F]
-- **Reverse-Squint-Test.** Einen frischen Chat fragen, welcher AI-Builder den Screenshot erzeugt hat. Fällt die Antwort leicht, ist die Seite Slop. [A]
+- **Reverse-Squint-Test.** Einen frischen Chat fragen, welcher AI-Builder den Screenshot erzeugt hat. Fällt die Antwort leicht, gilt die Seite in der Quelle als Slop. [A] Hier ist das ein Experiment zur Diagnose, nie ein Abnahmetest: Die geratene Herkunft sagt nichts über die Qualität.
 - **Schwarz-Weiß-Silhouette.** Den Screenshot entsättigen und prüfen, ob die Hierarchie ohne Farbe trägt. [A] (avoid-ai-design)
-- **Chanel-Regel.** Vor dem Abschluss ein Accessoire entfernen. [V] (Anthropic Skill)
+- **Chanel-Regel.** Vor dem Abschluss ein Accessoire entfernen. [V] (Anthropic Skill) Als Prüffrage gelesen: Dient jedes Element dem Briefing? Entfernt wird nur, was die Oberfläche dadurch besser macht. Ein Pflicht-Entfernen ist keine Abnahme.
 
 Ein statischer Screenshot prüft keine Zustände (Login, fehlende Rechte, Netzwerkfehler). Kritische Abläufe müssen in einem echten Browser durchgespielt werden. [A] (besthub.dev)
 

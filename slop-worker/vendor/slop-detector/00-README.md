@@ -24,19 +24,19 @@ Die ausführbare CLI mit automatischem Agenten-Feedback, Browser-Belegen und pr�
 
 ## Schnellstart für ein Projekt
 
-1. `templates/DESIGN.md` ins Projekt kopieren und ausfüllen. Checkliste 1 in [04](04-checklisten.md#1-vor-dem-ersten-prompt-richtung) hilft dabei.
+1. `templates/DESIGN.md` ins Projekt kopieren und ausfüllen: zuerst das bestehende Produkt- und Plattformsystem übernehmen, dann nur die offenen Fragen entscheiden. Checkliste 1 in [04](04-checklisten.md#1-vor-dem-ersten-prompt-richtung) hilft dabei.
 2. `templates/CLAUDE-design-section.md` in `CLAUDE.md` einfügen. Für Cursor stattdessen `templates/cursor-design-rule.mdc` nach `.cursor/rules/`.
-3. Tokens im Theme-Layer setzen (z. B. shadcn `globals.css`). `templates/stylelint-tokens.json` erzwingt sie.
+3. Tokens in der maßgeblichen Token-Quelle des Projekts pflegen (Web z. B. CSS-Variablen im Theme-Layer, nativ die Theme- oder Palettendateien). Für CSS erzwingt `templates/stylelint-tokens.json` sie.
 4. `templates/slop-grep.sh` nach `scripts/` und `templates/hooks/design-check.sh` nach `.claude/hooks/` kopieren, ausführbar machen, und den Hook aus `templates/claude-settings-hook.json` in `.claude/settings.json` eintragen. Damit sieht Claude Funde noch im selben Turn.
 5. `templates/a11y-and-states.spec.ts` anpassen (URL, API, Texte) und `templates/ci-design-gate.yml` als GitHub Action ablegen.
 6. Am Ende jeder UI-Aufgabe den Abnahme-Prompt aus [04, Abschnitt 8](04-checklisten.md#8-abnahme-prompt-für-den-agenten) verwenden.
 
 | Vorlage | Zweck | Getestet |
 |---|---|---|
-| `DESIGN.md` | Einzige Quelle für Designentscheidungen | – |
+| `DESIGN.md` | Leere Entscheidungsfelder für Designentscheidungen, ohne vorbelegte Werte | – |
 | `CLAUDE-design-section.md` | Regeln für Claude Code | – |
 | `cursor-design-rule.mdc` | Regeln für Cursor | – |
-| `slop-grep.sh` | Regex-Detektor ohne Abhängigkeiten, Exit 2 bei Funden, Ausnahme per `slop-ok` | ja, an Beispieldatei |
+| `slop-grep.sh` | Regex-Detektor ohne Abhängigkeiten, Exit 2 bei Funden, Ausnahme per `slop-ok` nur für Stil-Hinweise (technisch noch nicht erzwungen: `slop-ok` unterdrückt jede Zeile) | ja, an Beispieldatei |
 | `hooks/design-check.sh` + `claude-settings-hook.json` | PostToolUse-Hook für Claude Code (braucht `jq`) | ja, mit simuliertem Hook-Input |
 | `stylelint-tokens.json` | Token-Disziplin in CSS | nein |
 | `a11y-and-states.spec.ts` | Playwright + axe pro Zustand, Overflow, Zielgrößen, Fokus, visuelle Regression | nein, nicht kompiliert |

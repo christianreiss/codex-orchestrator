@@ -12,6 +12,7 @@ import {
   markdown,
   rubric,
   hash,
+  parseJson,
 } from "./core.js";
 import { capture } from "./capture.js";
 import { native, decodePng, estimateContrast } from "./native.js";
@@ -19,7 +20,7 @@ import { verify } from "./patch.js";
 import { validateEvidence } from "./validate.js";
 async function json(file: string) {
   try {
-    return JSON.parse(await readFile(file, "utf8"));
+    return parseJson(await readFile(file, "utf8"));
   } catch (e) {
     throw Error(`${file}: ${String(e)}`);
   }
@@ -183,7 +184,7 @@ async function main() {
       .object({
         tool_input: z.object({ file_path: z.string().optional() }).optional(),
       })
-      .parse(JSON.parse(input));
+      .parse(parseJson(input));
     const file = payload.tool_input?.file_path;
     if (!file) return;
     const report = await scan(root, [file], { skipTestTargets: true });
