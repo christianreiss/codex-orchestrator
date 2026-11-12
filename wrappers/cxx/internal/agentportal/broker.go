@@ -175,6 +175,10 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			NativeID string `json:"native_session_id"`
 		}
 		_ = json.Unmarshal(raw, &identity)
+		if b.session.Engine == "kimi" && identity.NativeID != "" && !validKimiNativeID(identity.NativeID) {
+			writeBrokerError(w, 400, "native_identity_invalid", "Kimi native session identity must be session_<UUID>")
+			return
+		}
 		report := strings.HasSuffix(r.URL.Path, "/receiver/native")
 		if identity.NativeID == "" && report {
 			// SessionStart fires once. A transcript picked while a headless
@@ -232,7 +236,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			NativeID string `json:"native_session_id"`
 		}
 		_ = json.Unmarshal(raw, &input)
-		if input.NativeID != "" && !isCanonicalUUID(input.NativeID) {
+		if input.NativeID != "" && !validNativeIdentity(b.session.Engine, input.NativeID) {
 			writeBrokerError(w, 400, "native_identity_invalid", "Native session identity must be a UUID")
 			return
 		}
@@ -713,7 +717,7 @@ func (b *Broker) forwardManagedMCP(w http.ResponseWriter, r *http.Request) {
 // lock for a reported transcript. A daemon child or reboot resume runs under
 // its parent's lock for that exact transcript.
 func needsNativeWriter(nativeID string) bool {
-	if nativeID == "" || !isCanonicalUUID(nativeID) || os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") != "" {
+	if nativeID == "" || !(isCanonicalUUID(nativeID) || validKimiNativeID(nativeID)) || os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") != "" {
 		return false
 	}
 	daemonOwnsWriter := nativeID == os.Getenv("CXX_DAEMON_NATIVE_WRITER_ID") && os.Getenv("CXX_DAEMON_OPERATION_ID") != "" && os.Getenv("CXX_DAEMON_CLAIM_ID") != ""

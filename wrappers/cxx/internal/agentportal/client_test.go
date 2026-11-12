@@ -101,7 +101,7 @@ func TestStartKeepsMessagingRecoveryOffWhenSignedPolicyIsOff(t *testing.T) {
 }
 
 func TestStartLabelsRecoveryModelAsLaunchConfiguration(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any

@@ -190,6 +190,9 @@ func (e *turnEnd) pushesPending(event string) bool {
 // the owner release them. Any failure returns nil: the hook then behaves exactly
 // as it did before this existed.
 func releaseAtTurnEnd(transcriptPath string, timeout time.Duration) *turnEnd {
+	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
+		return nil
+	}
 	socket := strings.TrimSpace(os.Getenv(envSocket))
 	session := strings.TrimSpace(os.Getenv(envSessionID))
 	if socket == "" || session == "" {

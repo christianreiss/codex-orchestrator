@@ -11,6 +11,9 @@ func supervisorModel(cfg *config.Config, input StartInput) string {
 		if (arg == "--model" || arg == "-m") && i+1 < len(input.NativeArgs) {
 			return input.NativeArgs[i+1]
 		}
+		if input.Engine == "kimi" && strings.HasPrefix(arg, "-m=") {
+			return strings.TrimPrefix(arg, "-m=")
+		}
 		if strings.HasPrefix(arg, "--model=") {
 			return strings.TrimPrefix(arg, "--model=")
 		}
@@ -26,6 +29,10 @@ func supervisorModel(cfg *config.Config, input StartInput) string {
 		override = cfg.EngineOptions.ClaudeModelOverride
 	case "grok":
 		override = cfg.EngineOptions.GrokModelOverride
+	case "kimi":
+		override = kimiModelOverride(cfg)
+	default:
+		return ""
 	}
 	if override != nil && strings.TrimSpace(*override) != "" {
 		return strings.TrimSpace(*override)

@@ -11,6 +11,7 @@ const (
 	EngineCodex  = "codex"
 	EngineClaude = "claude"
 	EngineGrok   = "grok"
+	EngineKimi   = "kimi"
 )
 
 type SessionHousekeepingPolicy struct {

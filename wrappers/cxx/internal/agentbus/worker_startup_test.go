@@ -14,7 +14,7 @@ import (
 func TestNativeFailureReportsOnlyStructuredStartupEvidence(t *testing.T) {
 	old := startNativeCommand
 	t.Cleanup(func() { startNativeCommand = old })
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "wrapper")

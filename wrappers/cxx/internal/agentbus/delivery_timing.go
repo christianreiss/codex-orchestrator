@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -95,6 +96,9 @@ func (r *autoReceiver) immediateClaimAllowed(gate string) bool {
 // only an `immediate` message can reach it, so neither agent_listen nor a ring
 // can bring the rest in earlier.
 func (r *autoReceiver) deliversAfterTurn() bool {
+	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
+		return true
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.deliveryTimingV1 && r.queue == nil

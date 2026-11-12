@@ -62,7 +62,7 @@ func TestDaemonRejectsUnknownEngine(t *testing.T) {
 func TestDaemonNativeFailureDoesNotForwardUnrecognizedDiagnostics(t *testing.T) {
 	original := daemonExecutable
 	t.Cleanup(func() { daemonExecutable = original })
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			dir := t.TempDir()
 			script := filepath.Join(dir, "native-fixture")
@@ -82,7 +82,7 @@ func TestDaemonNativeFailureDoesNotForwardUnrecognizedDiagnostics(t *testing.T) 
 func TestDaemonNativeFailureReportsBoundedStartupEvidence(t *testing.T) {
 	original := daemonExecutable
 	t.Cleanup(func() { daemonExecutable = original })
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			dir := t.TempDir()
 			probe := filepath.Join(dir, "diagnostic-path")
@@ -115,6 +115,7 @@ func TestDaemonNativeAdaptersProduceResumableResults(t *testing.T) {
 		"codex":  "{\"type\":\"thread.started\",\"thread_id\":\"native-1\"}\n{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"hello\"}}",
 		"claude": "{\"result\":\"hello\",\"session_id\":\"native-1\",\"subtype\":\"success\"}",
 		"grok":   "{\"text\":\"hello\",\"sessionId\":\"native-1\",\"stopReason\":\"end_turn\"}",
+		"kimi":   `{"role":"assistant","content":"hello"}` + "\n" + `{"role":"meta","type":"session.resume_hint","session_id":"` + testKimiID + `"}`,
 	} {
 		t.Run(engine, func(t *testing.T) {
 			dir := t.TempDir()
@@ -129,6 +130,16 @@ Session title: test" ] || exit 43; found=true; break; fi
  shift
 done
 [ "$found" = true ] || exit 45
+elif [ "$1" = kimi ]; then
+ [ -z "$(cat)" ] || exit 46
+ found=false
+ while [ "$#" -gt 0 ]; do
+ if [ "$1" = -p ]; then shift; [ "$1" = "hello
+
+Session title: test" ] || exit 47; found=true; break; fi
+ shift
+ done
+ [ "$found" = true ] || exit 48
 else
  [ "$(cat)" = "hello
 
@@ -141,7 +152,7 @@ fi
 			}
 			daemonExecutable = func() (string, error) { return script, nil }
 			result := runDaemonOperation(context.Background(), daemonOperation{ID: newUUID(), Claim: newUUID(), Cwd: dir, Engine: engine, Prompt: "hello", Title: "test"})
-			if result.Status != "completed" || result.Reply != "hello" || result.Upstream != "native-1" {
+			if result.Status != "completed" || result.Reply != "hello" || result.Upstream != map[bool]string{true: testKimiID, false: "native-1"}[engine == "kimi"] {
 				t.Fatal(result)
 			}
 		})
@@ -160,6 +171,7 @@ func TestDaemonWorkingDirectoryDefaultsToServiceHome(t *testing.T) {
 		"codex":  "{\"type\":\"thread.started\",\"thread_id\":\"native-home\"}\n{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"ok\"}}",
 		"claude": "{\"result\":\"ok\",\"session_id\":\"native-home\",\"subtype\":\"success\"}",
 		"grok":   "{\"text\":\"ok\",\"sessionId\":\"native-home\",\"stopReason\":\"end_turn\"}",
+		"kimi":   `{"role":"assistant","content":"ok"}` + "\n" + `{"role":"meta","type":"session.resume_hint","session_id":"` + testKimiID + `"}`,
 	} {
 		t.Run(engine, func(t *testing.T) {
 			dir := t.TempDir()
@@ -196,12 +208,14 @@ func TestDaemonWorkingDirectoryDefaultsToServiceHome(t *testing.T) {
 }
 
 func TestConfiguredDaemonReconciliation(t *testing.T) {
+	t.Setenv("CXX_DAEMON_OPERATION_ID", "")
+	t.Setenv("CXX_AGENT_MESSAGING_MESSAGE_ID", "")
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux service")
 	}
 	original := reconcileHostDaemon
 	t.Cleanup(func() { reconcileHostDaemon = original })
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.json")
 			fixture := config.Config{SchemaVersion: 1, Engine: engine, IssuedAt: "2026-10-11T00:00:00Z",

@@ -3,6 +3,7 @@ package agentbus
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -83,6 +84,9 @@ func openActivityReader(ctx context.Context, engine, nativeID string) (activityR
 		}
 		return q, nil
 	}
+	if engine != "codex" {
+		return nil, fmt.Errorf("no passive native queue for engine %q", engine)
+	}
 	q, err := openNativeQueue(ctx, os.Getenv("CXX_CODEX_SOCKET"))
 	if err != nil {
 		return nil, err
@@ -106,10 +110,10 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
-		source := map[string]string{"codex": "codex-thread", "grok": "grok-session", "claude": "claude-hooks"}[engine]
+		source := map[string]string{"codex": "codex-thread", "grok": "grok-session", "claude": "claude-hooks", "kimi": "kimi-hooks"}[engine]
 		a := activityObservation{State: "unknown", Source: source}
 		var err error
-		if engine == "claude" {
+		if engine == "claude" || engine == "kimi" {
 			err = r.client.receiver(ctx, "activity-hook", agentportal.ActivityHook{NativeID: nativeID, Observer: true}, &a)
 		} else {
 			if reader == nil {
@@ -126,7 +130,7 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 		if err != nil {
 			a = activityObservation{State: "unknown", Source: source}
 		}
-		if engine == "claude" {
+		if engine == "claude" || engine == "kimi" {
 			r.mu.Lock()
 			currentGeneration := r.generation
 			r.mu.Unlock()
@@ -134,6 +138,13 @@ func (r *autoReceiver) observeActivity(ctx context.Context, engine, nativeID, ge
 				return
 			}
 			r.observeClaudeTurn(a)
+			if engine == "kimi" {
+				if a.State == "working" {
+					r.setGate("thread_active")
+				} else {
+					r.setGate("thread_waiting")
+				}
+			}
 		}
 		reason := func(v *string) string {
 			if v == nil {

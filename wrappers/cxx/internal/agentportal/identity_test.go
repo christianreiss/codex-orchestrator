@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ import (
 
 func TestIdentityConfirmationOverlapsPeerDiscovery(t *testing.T) {
 	const uuid = "12345678-1234-4123-8123-123456789abc"
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			// The self response waits for the independent peer request. This
 			// proves overlap without a wall-clock speed assertion.
@@ -64,7 +65,7 @@ func TestIdentityProviderProcess(t *testing.T) {
 }
 
 func TestIdentityGateExplainsFailedRegistrationWithoutServerBody(t *testing.T) {
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		t.Run(engine, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
@@ -102,7 +103,7 @@ func TestIdentityGateNamesKnownRegistrationRefusal(t *testing.T) {
 		{"unknown-code", `{"code":"private_fixture_code","message":"private-fixture-body"}`, "registration unavailable (HTTP 409); native launch refused (api_rejected)", "private-fixture", 409},
 		{"url-message", `{"code":"agent_session_conflict","message":"see https://private-fixture/token"}`, "registration unavailable (HTTP 409); native launch refused (agent_session_conflict)", "private-fixture", 409},
 	}
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		for _, tc := range cases {
 			t.Run(engine+"/"+tc.name, func(t *testing.T) {
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -131,11 +132,12 @@ func TestIdentityGateNamesKnownRegistrationRefusal(t *testing.T) {
 
 func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
 	const uuid = "12345678-1234-4123-8123-123456789abc"
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, resumed := range []bool{false, true} {
 			for _, failure := range []string{"", "offline", "disabled", "unnamed", "foreign", "wrong-name", "self-offline", "exhausted"} {
 				t.Run(engine+"/resume="+map[bool]string{true: "yes", false: "no"}[resumed]+"/"+failure, func(t *testing.T) {
 					t.Setenv("CODEX_HOME", t.TempDir())
+					t.Setenv("KIMI_CODE_HOME", t.TempDir())
 					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						if strings.HasSuffix(r.URL.Path, "/agent-messaging/list") {
 							_ = json.NewEncoder(w).Encode(map[string]any{"scope": "project", "effective_scope": "project", "observed_at": "2026-10-11T12:00:00Z", "total": 1, "addresses": []any{map[string]any{"name": "PeerFixture", "address": "agent:peer", "task_title": "Review workspace"}}})
@@ -198,7 +200,11 @@ func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
 					if engine == "codex" {
 						args = append([]string{"exec"}, args...)
 					}
-					args, err = AppendIdentityArgs(engine, args, identity)
+					if engine == "kimi" {
+						args, err = AppendKimiIdentityArgs(args, identity, os.Getenv("KIMI_CODE_HOME"))
+					} else {
+						args, err = AppendIdentityArgs(engine, args, identity)
+					}
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -217,6 +223,13 @@ func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
 						t.Fatal(err)
 					}
 					context := strings.Join(child.Args, " ")
+					if engine == "kimi" {
+						raw, readErr := os.ReadFile(filepath.Join(os.Getenv("KIMI_CODE_HOME"), "AGENTS.md"))
+						if readErr != nil {
+							t.Fatal(readErr)
+						}
+						context += string(raw)
+					}
 					for _, value := range []string{"Claudia", runtime.Session().ID, "agent_self", "Keep this user prompt", "PeerFixture", "Review workspace", "snapshot only"} {
 						if !strings.Contains(context, value) {
 							t.Fatalf("child context missing %s", value)
@@ -300,7 +313,7 @@ func TestIdentityContextRequiresSetupOnEveryFirstTurn(t *testing.T) {
 
 func TestLateResumeIdentityConvergesRecovery(t *testing.T) {
 	const uuid = "12345678-1234-4123-8123-123456789abc"
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				var body map[string]any

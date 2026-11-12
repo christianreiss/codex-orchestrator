@@ -19,7 +19,7 @@ func TestCompactSummary(t *testing.T) {
 }
 
 func TestSayAndAskSummariesAcrossEngines(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, command := range []string{"say", "ask"} {
 			t.Run(engine+"/"+command, func(t *testing.T) {
 				stub := &portalStub{}

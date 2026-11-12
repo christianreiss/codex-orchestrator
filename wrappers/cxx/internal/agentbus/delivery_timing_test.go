@@ -80,7 +80,7 @@ func TestNativeImmediateSteersOnlyExpectedTurnOnce(t *testing.T) {
 }
 
 func TestImmediateClaimRetainsExistingWorkAndCapsInformation(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			tracker := newChannelTracker(nil)
 			r := &autoReceiver{tracker: tracker, deliveryTimingV1: true, claudeActivity: activityObservation{State: "working", TurnProof: &agentportal.ClaudeTurnProof{State: "active"}}}

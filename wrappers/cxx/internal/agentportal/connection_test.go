@@ -144,7 +144,7 @@ func TestPendingConnectionRecoversWithoutChangingCapability(t *testing.T) {
 }
 
 func TestIdentityGateRetainsPermanentRegistrationCauseAcrossEngines(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusForbidden)

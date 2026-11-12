@@ -105,14 +105,18 @@ func TestRebootRestorePreservesClaimsWithoutReinjecting(t *testing.T) {
 	}
 }
 func TestRebootTranscriptMissingCannotBecomeFreshSession(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			t.Setenv("CODEX_HOME", "")
 			t.Setenv("CLAUDE_CONFIG_DIR", "")
 			t.Setenv("GROK_HOME", "")
+			t.Setenv("KIMI_CODE_HOME", "")
 			id := "11111111-1111-4111-8111-111111111111"
+			if engine == "kimi" {
+				id = "session_" + id
+			}
 			if err := checkRebootTranscript(engine, id); err == nil {
 				t.Fatal("missing transcript allowed")
 			}
@@ -122,6 +126,8 @@ func TestRebootTranscriptMissingCannotBecomeFreshSession(t *testing.T) {
 				path = filepath.Join(home, ".codex", "sessions", "2026", "rollout-test-"+id+".jsonl")
 			case "claude":
 				path = filepath.Join(home, ".claude", "projects", "test", id+".jsonl")
+			case "kimi":
+				path = filepath.Join(home, ".kimi-code", "sessions", "test", id, "agents", "main", "wire.jsonl")
 			case "grok":
 				path = filepath.Join(home, ".grok", "sessions", "test", id, "summary.json")
 			}

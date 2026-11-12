@@ -13,7 +13,7 @@ import (
 )
 
 func TestManagedMCPExpiryRepairsNextCallWithoutReplayingMutation(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			var calls, registrations, writes atomic.Int32
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

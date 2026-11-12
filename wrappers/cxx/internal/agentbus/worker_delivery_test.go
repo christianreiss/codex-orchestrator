@@ -12,7 +12,7 @@ import (
 )
 
 func TestRelayRepliesOnlyWhenAnAnswerIsNeeded(t *testing.T) {
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		for _, tc := range []struct {
 			name, kind   string
 			answerNeeded bool
@@ -88,7 +88,7 @@ func TestNativeOutputRejectsFailedTurns(t *testing.T) {
 }
 
 func TestRelayNeverLaunchesForPresenceNotice(t *testing.T) {
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		t.Run(engine, func(t *testing.T) {
 			oldAdapter := runNativeAdapter
 			t.Cleanup(func() { runNativeAdapter = oldAdapter })

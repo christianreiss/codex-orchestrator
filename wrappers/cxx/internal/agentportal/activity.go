@@ -62,11 +62,14 @@ func (b *Broker) activityHook(w http.ResponseWriter, raw []byte) {
 	b.nativeMu.Lock()
 	defer b.nativeMu.Unlock()
 	if h.Event != "" {
-		if b.session.Engine != "claude" || h.NativeID == "" || h.NativeID != b.nativeID {
+		if (b.session.Engine != "claude" && b.session.Engine != "kimi") || h.NativeID == "" || h.NativeID != b.nativeID {
 			writeBrokerError(w, 409, "activity_hook_stale", "Native identity changed")
 			return
 		}
 		b.hookActivity = ClaudeActivity(h)
+		if b.session.Engine == "kimi" {
+			b.hookActivity = KimiActivity(h)
+		}
 		b.hookActivityAt = time.Now()
 		b.hookActivityNativeID = h.NativeID
 	}
@@ -74,7 +77,16 @@ func (b *Broker) activityHook(w http.ResponseWriter, raw []byte) {
 	// No turn has been observed in this epoch (or the idle boundary is already
 	// armed): the only state a SessionStart may legitimately turn into idle.
 	quiet := b.turnProof.Epoch == "" || b.turnProofNativeID != b.nativeID || b.turnProof.Sequence <= 1 || b.sessionIdle > 0
-	proof := b.updateClaudeTurnProof(h.NativeID, instance, binding, h.Event)
+	proofEvent := h.Event
+	if b.session.Engine == "kimi" {
+		switch h.Event {
+		case "TurnStarted", "PermissionResult":
+			proofEvent = "UserPromptSubmit"
+		case "StopFailure", "Interrupt", "SessionEnd":
+			proofEvent = "Stop"
+		}
+	}
+	proof := b.updateClaudeTurnProof(h.NativeID, instance, binding, proofEvent)
 	proof = b.advanceSessionIdle(h, proof, instance, binding, quiet)
 	a := b.hookActivity
 	if b.hookActivityAt.IsZero() || b.hookActivityNativeID != b.nativeID || (h.NativeID != "" && h.NativeID != b.nativeID) {
@@ -88,6 +100,9 @@ func (b *Broker) activityHook(w http.ResponseWriter, raw []byte) {
 		if a.EvidenceAgeMS > 86400000 {
 			a.EvidenceAgeMS = 86400000
 		}
+	}
+	if b.session.Engine == "kimi" {
+		a.Source = "kimi-hooks"
 	}
 	a.TurnProof = &proof
 	_ = json.NewEncoder(w).Encode(a)
@@ -287,4 +302,19 @@ func (b *Broker) channelDeliver(w http.ResponseWriter, request *http.Request, ra
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"delivered": true, "message_id": input.MessageID, "turn_proof": proof})
+}
+
+// Kimi uses its own lifecycle event names, with the same metadata-only shape.
+func KimiActivity(h ActivityHook) ActivityObservation {
+	a := ClaudeActivity(h)
+	a.Source = "kimi-hooks"
+	switch h.Event {
+	case "TurnStarted", "PermissionResult":
+		a.State = "working"
+		a.WaitReason = nil
+	case "StopFailure", "Interrupt", "SessionEnd":
+		a.State = "idle"
+		a.WaitReason = nil
+	}
+	return a
 }

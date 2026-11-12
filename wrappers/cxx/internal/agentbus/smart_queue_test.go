@@ -15,7 +15,7 @@ import (
 )
 
 func TestSmartListenAllowsCoordinationWithoutCompletingWork(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
 			var posted []string
@@ -28,13 +28,21 @@ func TestSmartListenAllowsCoordinationWithoutCompletingWork(t *testing.T) {
 			work := tracker.track(ctx, "work", "work-claim", map[string]any{"work_kind": "request"})
 			tracker.track(ctx, "digest", "info-claim", map[string]any{"kind": "digest"})
 			out, err := agentListen(ctx, c, tracker, map[string]any{})
-			if err != nil || out["status"] != "automatic" || out["coordination_reception"] != true {
+			wantStatus, wantCoordination := "automatic", true
+			if engine == "kimi" {
+				wantStatus, wantCoordination = "hook_wait", true
+			}
+			if err != nil || out["status"] != wantStatus || out["coordination_reception"] != wantCoordination {
 				t.Fatalf("coordination unavailable: %v %v", out, err)
 			}
 			if tracker.get("work") != work || tracker.get("digest") != nil {
 				t.Fatal("listen changed accepted work or retained digest")
 			}
-			if len(posted) != 1 || posted[0] != "deliveries/digest/ack" {
+			if engine == "kimi" {
+				if strings.Join(posted, ",") != "deliveries/digest/ack,bind,mailbox,deliveries/claim" || bodies[len(bodies)-1]["informational_only"] != true {
+					t.Fatalf("Kimi coordination claim lost work guard: %v %v", posted, bodies)
+				}
+			} else if len(posted) != 1 || posted[0] != "deliveries/digest/ack" {
 				t.Fatalf("unexpected operations %v", posted)
 			}
 			report := tracker.heldReport()
@@ -46,7 +54,7 @@ func TestSmartListenAllowsCoordinationWithoutCompletingWork(t *testing.T) {
 }
 
 func TestDigestPromptFetchesOriginalsAndNeverReplies(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
 			prompt := nativePeerPrompt(map[string]any{"message_id": "digest", "kind": "digest", "content": `{"entries":[{"message_id":"old"}]}`})
@@ -205,7 +213,7 @@ func TestQueueMetadataRespectsServerSyntaxIndependentlyOfActivation(t *testing.T
 }
 
 func TestFullPeerBatchPreservesActionableOriginals(t *testing.T) {
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)
 			prompt := nativePeerPrompt(map[string]any{"message_id": "presentation", "kind": "digest", "content": `{"presentation":"peer_batch_v1","entries":[{"message_id":"question","content":"Which target?"},{"message_id":"advisor","content":"ADVISOR/1 full answer"}]}`})

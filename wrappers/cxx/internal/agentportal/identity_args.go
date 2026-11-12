@@ -14,7 +14,7 @@ import (
 
 // AppendIdentityArgs keeps launch identity out of shared managed files. Native
 // system/developer additions also apply when a resume has no new user prompt.
-func AppendIdentityArgs(engine string, args []string, identity Identity) ([]string, error) {
+func AppendIdentityArgs(engine string, args []string, identity Identity, runtimeHome ...string) ([]string, error) {
 	if identity.Name == "" {
 		return args, nil
 	}
@@ -46,6 +46,11 @@ func AppendIdentityArgs(engine string, args []string, identity Identity) ([]stri
 		out := append([]string{}, clean[:at]...)
 		out = append(out, "-c", "developer_instructions="+string(encoded))
 		return append(out, clean[at:]...), nil
+	case "kimi":
+		if len(runtimeHome) != 1 {
+			return nil, fmt.Errorf("Kimi identity requires its private per-launch runtime home")
+		}
+		return AppendKimiIdentityArgs(args, identity, runtimeHome[0])
 	case "claude", "grok":
 		flag := "--append-system-prompt"
 		if engine == "grok" {

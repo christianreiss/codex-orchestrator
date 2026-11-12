@@ -66,7 +66,7 @@ func loadResidentConfigs() (map[string]*config.Config, *config.Config, error) {
 	}
 	configs := map[string]*config.Config{}
 	var seed *config.Config
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		path, err := config.DefaultPathForEngine(engine)
 		if err != nil {
 			continue

@@ -167,7 +167,7 @@ func (f *combinedResidentFixture) handle(ws *websocket.Conn) {
 					f.check(err)
 					return
 				}
-				if payload.Operation != f.op.ID || payload.Claim != f.op.Claim || payload.Result.Status != "completed" || payload.Result.Reply != "hello" || payload.Result.Upstream != "native-fixture" {
+				if payload.Operation != f.op.ID || payload.Claim != f.op.Claim || payload.Result.Status != "completed" || payload.Result.Reply != "hello" || payload.Result.Upstream != f.op.Upstream {
 					f.check(fmt.Errorf("completion changed: %+v", payload))
 					return
 				}
@@ -206,7 +206,7 @@ func TestResidentCombinedAdaptersDrainAndRecoverLostCompletionWithoutReplay(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, engine := range []string{"codex", "claude", "grok"} {
+	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			home := t.TempDir()
 			runtimeRoot, err := os.MkdirTemp("", "cc-combined-")
@@ -215,6 +215,16 @@ func TestResidentCombinedAdaptersDrainAndRecoverLostCompletionWithoutReplay(t *t
 			}
 			defer os.RemoveAll(runtimeRoot)
 			fixture := &combinedResidentFixture{op: daemonOperation{ID: uuid.NewString(), Claim: uuid.NewString(), Session: uuid.NewString(), Engine: engine, Cwd: home, Title: "test", Prompt: "hello", Upstream: "native-fixture"}, settings: daemonSettings{Enabled: true, ResidentEnabled: true, Username: currentUserName(), MaxParallel: 1}, replySeen: make(chan struct{}, 1), stopReply: make(chan bool, 1), errors: make(chan error, 8)}
+			if engine == "kimi" {
+				fixture.op.Upstream = testKimiID
+				path := filepath.Join(home, ".kimi-code", "sessions", "wd_probe", testKimiID, "agents", "main", "wire.jsonl")
+				if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("{}\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/host/communicator/connect" {
 					websocket.Handler(fixture.handle).ServeHTTP(w, r)
@@ -245,12 +255,13 @@ func TestResidentCombinedAdaptersDrainAndRecoverLostCompletionWithoutReplay(t *t
 				t.Fatal(err)
 			}
 			script := `#!/bin/sh
-[ "$CXX_DAEMON_NATIVE_WRITER_ID" = "native-fixture" ] || exit 47
+[ "$CXX_DAEMON_NATIVE_WRITER_ID" = "$CXX_RESIDENT_NATIVE_ID" ] || exit 47
 printf '%s\n' "$1" >> "$CXX_RESIDENT_FIXTURE_ROOT/launches"
 while [ ! -f "$CXX_RESIDENT_FIXTURE_ROOT/release" ]; do sleep 0.02; done
 case "$1" in
  codex) printf '%s\n' '{"type":"thread.started","thread_id":"native-fixture"}' '{"type":"item.completed","item":{"type":"agent_message","text":"hello"}}' ;;
  claude) printf '%s\n' '{"result":"hello","session_id":"native-fixture","subtype":"success"}' ;;
+ kimi) printf '%s\n' '{"role":"assistant","content":"hello"}' '{"role":"meta","type":"session.resume_hint","session_id":"session_11111111-1111-4111-8111-111111111111"}' ;;
  grok) printf '%s\n' '{"text":"hello","sessionId":"native-fixture","stopReason":"end_turn"}' ;;
 esac
 `
@@ -258,13 +269,13 @@ esac
 			if err := os.WriteFile(native, []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
-			for _, e := range []string{"codex", "claude", "grok"} {
+			for _, e := range []string{"codex", "claude", "grok", "kimi"} {
 				if err := os.Symlink(native, filepath.Join(binDir, e)); err != nil {
 					t.Fatal(err)
 				}
 			}
-			env := []string{"HOME=" + home, "XDG_RUNTIME_DIR=" + runtimeRoot, "PATH=" + binDir + ":/usr/bin:/bin", "CXX_RESIDENT_INTEGRATION_CHILD=1", "CXX_RESIDENT_NATIVE_FIXTURE=" + native, "CXX_RESIDENT_FIXTURE_ROOT=" + home, "CODEX_HOME=" + filepath.Join(home, "codex"), "CLAUDE_CONFIG_DIR=" + filepath.Join(home, "claude"), "CGX_HOME=" + filepath.Join(home, "grok")}
-			for _, e := range []string{"codex", "claude", "grok"} {
+			env := []string{"HOME=" + home, "XDG_RUNTIME_DIR=" + runtimeRoot, "PATH=" + binDir + ":/usr/bin:/bin", "CXX_RESIDENT_INTEGRATION_CHILD=1", "CXX_RESIDENT_NATIVE_FIXTURE=" + native, "CXX_RESIDENT_FIXTURE_ROOT=" + home, "CODEX_HOME=" + filepath.Join(home, "codex"), "CLAUDE_CONFIG_DIR=" + filepath.Join(home, "claude"), "CGX_HOME=" + filepath.Join(home, "grok"), "KIMI_CODE_HOME=" + filepath.Join(home, ".kimi-code"), "CXX_RESIDENT_NATIVE_ID=" + fixture.op.Upstream}
+			for _, e := range []string{"codex", "claude", "grok", "kimi"} {
 				cfg := config.Config{SchemaVersion: 1, Engine: e, IssuedAt: time.Now().UTC().Format(time.RFC3339), Orchestrator: config.Orchestrator{BaseURL: upstream.URL, APIKey: "fixture-key", InstallationID: "fixture", CommunicatorProtocol: 1, CommunicatorRuntimeProtocol: 1}, Host: config.Host{ID: 1, FQDN: "fixture.example", Secure: true}, Wrapper: config.Wrapper{Version: "resident-test", Track: "stable", BinaryURL: upstream.URL + "/download", BinarySHA256: strings.Repeat("0", 64)}}
 				cfg.AgentMessaging = config.AgentMessaging{Enabled: true, RelayPollSeconds: 1, QueuedTTLSeconds: 300}
 				path := filepath.Join(home, e+".json")
@@ -275,7 +286,7 @@ esac
 				if err := os.WriteFile(path+".sig", ed25519.Sign(priv, raw), 0600); err != nil {
 					t.Fatal(err)
 				}
-				env = append(env, map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH"}[e]+"="+path)
+				env = append(env, map[string]string{"codex": "CDX_CONFIG_PATH", "claude": "CLX_CONFIG_PATH", "grok": "CGX_CONFIG_PATH", "kimi": "CKX_CONFIG_PATH"}[e]+"="+path)
 			}
 			cmd := exec.Command(helper, "-test.run=^TestResidentCombinedProcessHelper$", "-test.timeout=35s")
 			cmd.Env = env

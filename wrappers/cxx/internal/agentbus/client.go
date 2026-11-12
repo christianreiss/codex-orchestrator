@@ -90,7 +90,7 @@ func sessionClientFromEnv(timeout time.Duration) (*sessionClient, error) {
 	socket := strings.TrimSpace(os.Getenv(envSocket))
 	id := strings.TrimSpace(os.Getenv(envSessionID))
 	if socket == "" || id == "" {
-		return nil, errors.New("agent messaging is available only inside a managed cdx/clx/cgx lifecycle; " + hostInventoryHint)
+		return nil, errors.New("agent messaging is available only inside a managed cdx/clx/cgx/ckx lifecycle; " + hostInventoryHint)
 	}
 	return sessionClientAt(socket, id, timeout), nil
 }

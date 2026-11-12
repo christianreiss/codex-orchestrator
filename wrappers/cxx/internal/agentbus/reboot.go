@@ -158,8 +158,14 @@ func rebootEnvironment(engine string) ([]string, error) {
 	var env []string
 	// Exclude bridge tokens, provider credentials and old receiver sockets.
 	// Normal signed-config/auth setup runs anew after the reboot.
-	for _, key := range []string{"PATH", "LANG", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH"} {
+	for _, key := range []string{"PATH", "LANG", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GROK_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CKX_CONFIG_PATH", "KIMI_CODE_HOME"} {
 		v, ok := os.LookupEnv(key)
+		if key == "KIMI_CODE_HOME" && engine == "kimi" {
+			v, ok = os.LookupEnv("CXX_KIMI_BASE_HOME")
+			if !ok || !filepath.IsAbs(v) {
+				return nil, errors.New("durable Kimi home unavailable; start a current managed wrapper before requesting reboot")
+			}
+		}
 		if key == "GROK_HOME" && engine == "grok" {
 			v, ok = os.LookupEnv("CXX_GROK_BASE_HOME")
 			if !ok || !filepath.IsAbs(v) {
@@ -308,7 +314,7 @@ func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) (r
 			}
 			// The resumed user cannot repair this root-owned layout. Freeze the
 			// relative persona aliases too, before normal peer reconciliation runs.
-			if _, err = layout.EnsureAliases(context.Background(), r.Executable, []string{"codex", "claude", "grok"}); err != nil {
+			if _, err = layout.EnsureAliases(context.Background(), r.Executable, []string{"codex", "claude", "grok", "kimi"}); err != nil {
 				return err
 			}
 			directory, err := os.Open(filepath.Dir(r.Executable))
@@ -571,10 +577,13 @@ func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdo
 		}
 		args = append(args, "--prompt-file", f.Name())
 	}
+	if !interactive && r.Engine == "kimi" {
+		args = append(args, "-p", prompt)
+	}
 	cmd := exec.Command(r.Executable, args...)
 	cmd.Dir = r.Cwd
 	cmd.Stdin = strings.NewReader(prompt)
-	if r.Engine == "grok" {
+	if r.Engine == "grok" || r.Engine == "kimi" {
 		cmd.Stdin = nil
 	}
 	var output tailBuffer
@@ -652,6 +661,9 @@ func rebootHostCall(ctx context.Context, engine, operation string, body any, out
 }
 
 func checkRebootTranscript(engine, id string) error {
+	if engine == "kimi" {
+		return checkKimiTranscript(id)
+	}
 	root, err := sessionguard.Root(engine)
 	if err != nil {
 		return err

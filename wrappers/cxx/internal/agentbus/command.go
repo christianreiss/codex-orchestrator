@@ -77,6 +77,9 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 	if errors.Is(err, flag.ErrHelp) {
 		return 0
 	}
+	if errors.Is(err, errKimiStopBlocked) {
+		return 2
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "cxx agent:", err)
 		return 1
@@ -86,7 +89,7 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 
 func runList(args []string, stdout, stderr io.Writer) error {
 	flags := newFlagSet("cxx agent list", stderr)
-	engine := flags.String("engine", "", "codex, claude or grok")
+	engine := flags.String("engine", "", "codex, claude, grok or kimi")
 	scope := flags.String("scope", "fleet", "fleet, directory, checkout, project or host")
 	limit := flags.Int("limit", 50, "page size (1–50)")
 	offset := flags.Int("offset", 0, "page offset")
@@ -137,7 +140,7 @@ func runHostList(flags *flag.FlagSet, engine string, online bool, stdout io.Writ
 		}
 	})
 	if len(refused) > 0 {
-		return errorsUsage("cxx agent list", strings.Join(refused, ", ")+" needs a managed cdx/clx/cgx lifecycle; outside one the listing is host scope only")
+		return errorsUsage("cxx agent list", strings.Join(refused, ", ")+" needs a managed cdx/clx/cgx/ckx lifecycle; outside one the listing is host scope only")
 	}
 	cfg, err := hostMessagingConfig()
 	if err != nil {
@@ -451,8 +454,8 @@ func emptyToNil(value string) any {
 func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx agent translate <name|uuid> [--json]  German launch name ↔ agent UUID")
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  cxx agent list [--scope fleet|directory|checkout|project] [--engine codex|claude|grok] [--online] [--limit 50] [--offset 0]")
-	fmt.Fprintln(w, "  cxx agent list --scope host [--engine codex|claude|grok] [--online]  (default outside a lifecycle; read-only, this host only)")
+	fmt.Fprintln(w, "  cxx agent list [--scope fleet|directory|checkout|project] [--engine codex|claude|grok|kimi] [--online] [--limit 50] [--offset 0]")
+	fmt.Fprintln(w, "  cxx agent list --scope host [--engine codex|claude|grok|kimi] [--online]  (default outside a lifecycle; read-only, this host only)")
 	fmt.Fprintln(w, "  cxx agent send --to agent:<id> --stdin [--conversation <id>] [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent request --to agent:<id> --stdin [--wait-seconds 25] [--client-message-id <uuid>]")
 	fmt.Fprintln(w, "  cxx agent wait --conversation <id> [--after <sequence>] [--seconds 25]")
@@ -460,7 +463,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx agent message <id>")
 	fmt.Fprintln(w, "  cxx agent cancel --conversation <id>")
 	fmt.Fprintln(w, "  cxx agent listen [--seconds 25] (informational messages only; work uses native MCP)")
-	fmt.Fprintln(w, "  cxx agent poll [--hook Stop|UserPromptSubmit]")
+	fmt.Fprintln(w, "  cxx agent poll [--hook Stop|UserPromptSubmit] [--dialect claude|kimi]")
 	fmt.Fprintln(w, "  cxx agent status")
 	fmt.Fprintln(w, "  cxx agent service install|remove|start|stop|restart|status")
 	fmt.Fprintln(w, "  cxx agent worker --foreground")

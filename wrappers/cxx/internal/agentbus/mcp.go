@@ -479,6 +479,9 @@ func (t *channelTracker) ensureListenBind(ctx context.Context) error {
 		// The server preserves the stored adapter_protocol when the field is
 		// omitted, so the pump's identity survives a listen bind untouched.
 		body["adapter_protocol"] = "cxx-agent-listen-v1"
+		if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
+			body["adapter_protocol"] = "kimi-hooks-v1"
+		}
 		body["adapter_capabilities"] = map[string]any{"listen": true, "scope_protocol_version": 1, "shared_room_chat_version": 1, "workflow_protocol_version": 2, "execution_contract_version": 2, "watchdog_protocol_version": 1, "supervisor_protocol_version": 1, "reboot_protocol_version": 1, "suspend_recovery_version": 1}
 	}
 	var ignored map[string]any
@@ -552,10 +555,10 @@ func toolCatalogJSON() []byte {
 	tools := []map[string]any{
 		tool("quota_get", "Read short and long quota for this session’s bound provider account before heavy workloads or large delegations. Includes observation age, reset times, effective policy and PayG/unlimited; unavailable is not zero.", map[string]any{}, nil),
 		tool("host_insecure_enable", "Open an insecure host access window from an authenticated agent on an active secure host. Defaults to the target host window duration; this is audited and does not start work.", map[string]any{"host_id": map[string]any{"type": "integer", "minimum": 1}, "duration_minutes": map[string]any{"type": "integer", "minimum": 0, "maximum": 480}}, []string{"host_id"}),
-		tool("agent_spawn", "Start a helper on an enabled remote host. Keep client_message_id for retries. Returns operation_id and session_id; use agent_spawn_status, then existing messaging with its address.", map[string]any{"host_id": map[string]any{"type": "integer"}, "engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}}, "cwd": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "client_message_id": map[string]any{"type": "string", "description": "Stable UUID for idempotent retries"}}, []string{"host_id", "engine", "title", "prompt", "client_message_id"}),
+		tool("agent_spawn", "Start a helper on an enabled remote host. Keep client_message_id for retries. Returns operation_id and session_id; use agent_spawn_status, then existing messaging with its address.", map[string]any{"host_id": map[string]any{"type": "integer"}, "engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok", "kimi"}}, "cwd": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "client_message_id": map[string]any{"type": "string", "description": "Stable UUID for idempotent retries"}}, []string{"host_id", "engine", "title", "prompt", "client_message_id"}),
 		tool("agent_spawn_status", "Read the state and result of your remote helper; omit session_id to discover enabled remote hosts.", map[string]any{"session_id": map[string]any{"type": "string"}}, nil),
 		tool("agent_stop", "Stop a remote helper you created. Process termination is confirmed by its host.", map[string]any{"session_id": map[string]any{"type": "string"}}, []string{"session_id"}),
-		tool("advisor_ask", "Ask the server-hosted Fleet Advisor for a second opinion (verify, tier_check, classify, general). Without advisor_session_id it opens a new advisor on the engine/model you pick (default: strongest available); with it, asks a follow-up. The answer arrives later as a peer message headed ADVISOR/1. Put diffs and errors in question; pass larger files as cxx transfer ids.", map[string]any{"question": map[string]any{"type": "string", "minLength": 1, "maxLength": 90000}, "kind": map[string]any{"type": "string", "enum": []string{"verify", "tier_check", "classify", "general"}}, "transfer_ids": map[string]any{"type": "array", "maxItems": 10, "items": map[string]any{"type": "string"}}, "advisor_session_id": map[string]any{"type": "string", "description": "Continue this advisor instead of opening a new one"}, "engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}, "description": "Optional; see advisor_status for what is available"}, "model": map[string]any{"type": "string", "description": "Optional; default is the strongest available model"}, "client_message_id": map[string]any{"type": "string", "description": "Stable UUID for idempotent retries"}}, []string{"question", "client_message_id"}),
+		tool("advisor_ask", "Ask the server-hosted Fleet Advisor for a second opinion (verify, tier_check, classify, general). Without advisor_session_id it opens a new advisor on the engine/model you pick (default: strongest available); with it, asks a follow-up. The answer arrives later as a peer message headed ADVISOR/1. Put diffs and errors in question; pass larger files as cxx transfer ids.", map[string]any{"question": map[string]any{"type": "string", "minLength": 1, "maxLength": 90000}, "kind": map[string]any{"type": "string", "enum": []string{"verify", "tier_check", "classify", "general"}}, "transfer_ids": map[string]any{"type": "array", "maxItems": 10, "items": map[string]any{"type": "string"}}, "advisor_session_id": map[string]any{"type": "string", "description": "Continue this advisor instead of opening a new one"}, "engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok", "kimi"}, "description": "Optional; see advisor_status for what is available"}, "model": map[string]any{"type": "string", "description": "Optional; default is the strongest available model"}, "client_message_id": map[string]any{"type": "string", "description": "Stable UUID for idempotent retries"}}, []string{"question", "client_message_id"}),
 		tool("advisor_close", "Confirm you are done with an advisor and close it. Advisors also close after their idle timeout.", map[string]any{"advisor_session_id": map[string]any{"type": "string"}}, []string{"advisor_session_id"}),
 		tool("advisor_status", "List your advisors with state and latest verdict, or read one by advisor_session_id; also reports availability and the engines/models you may pick.", map[string]any{"advisor_session_id": map[string]any{"type": "string"}}, nil),
 		tool("agent_work_state", "Read your supervisor state with empty arguments. To report, send state (working, waiting_agent, waiting_user, completed or canceled) for your current authorized task plus task_key or message_id: task_key is a stable name for this task (keep it across recovery, new key for new work); when omitted it derives from message_id (the accepted work message, as message:<id>) and a wait without task_key continues the current task. A wait needs waiting_for or message_id. Register dependencies before waiting and notify dependents using original work IDs. Does not authorize new work.", map[string]any{"task_key": map[string]any{"type": "string", "maxLength": 255, "description": "Stable name of the current task. Optional when message_id is given."}, "state": map[string]any{"type": "string", "enum": []string{"working", "waiting_agent", "waiting_user", "completed", "canceled"}, "description": "Required when reporting; omit all arguments to read state."}, "reason": map[string]any{"type": "string", "maxLength": 1000}, "waiting_for": map[string]any{"type": "string", "description": "agent:UUID awaited by waiting_agent."}, "message_id": map[string]any{"type": "string", "description": "Accepted work message UUID; derives task_key when that is omitted."}, "coordinator": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}}, nil),
@@ -571,7 +574,7 @@ func toolCatalogJSON() []byte {
 		tool("agent_task_result", "Finish an accepted work delivery with an explicit domain outcome. Wake jobs need this result and no peer reply. Succeeded is an agent report, not independent verification. If the lease was lost and the work is now ambiguous (accepted_lease_lost), this is refused for good: never rerun the work; send the measured outcome to the requester with agent_send in the same conversation, naming the message id.", map[string]any{"message_id": map[string]any{"type": "string"}, "task_result": taskResultProperties()}, []string{"message_id", "task_result"}),
 		tool("agent_list", "Discover peers, excluding yourself. scope=directory matches your canonical directory on this host; scope=checkout matches the same Git root on this host including subdirectories, excluding other worktrees; scope=project includes subdirectories, linked worktrees and clones sharing origin across hosts. Default scope=fleet. online=true returns present sessions, not proof of editing. Returns task titles and match reasons; coverage reports missing workspace metadata. Use name to filter and next_offset as offset to page. No messages are returned.", map[string]any{
 			"scope":  map[string]any{"type": "string", "enum": []string{"fleet", "directory", "checkout", "project"}},
-			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok"}},
+			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok", "kimi"}},
 			"online": map[string]any{"type": "boolean"},
 			"name":   map[string]any{"type": "string", "minLength": 1, "maxLength": 96},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 50},
@@ -717,13 +720,16 @@ func runMCPCommand(args []string, stdin io.Reader, stdout, stderr io.Writer) err
 	// (notably when cwd is the real home). A legacy `agent mcp` entry must
 	// still use the private leader supplied by this managed lifecycle.
 	// Bridge authentication below remains required; an unmanaged CLI stays manual.
-	automatic := os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "grok" && strings.TrimSpace(os.Getenv("CXX_GROK_SOCKET")) != ""
+	automatic := os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" || os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "grok" && strings.TrimSpace(os.Getenv("CXX_GROK_SOCKET")) != ""
 	for _, arg := range args {
 		switch arg {
 		case "--auto":
 			automatic = true
 			channel = os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "claude"
 		case "--channel":
+			if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
+				return errors.New("Kimi reception uses native hooks; --channel is Claude-only")
+			}
 			channel = true
 		default:
 			return fmt.Errorf("unknown mcp argument %q", arg)
@@ -1447,7 +1453,7 @@ func copyQueuePolicy(args, body map[string]any, state *channelTracker) {
 // The visible semantic is therefore at-least-once; `attempts` rides along on the
 // delivery so a redelivery is detectable.
 func agentListen(ctx context.Context, client *sessionClient, state *channelTracker, args map[string]any) (map[string]any, error) {
-	if state != nil && state.receiver != nil {
+	if state != nil && state.receiver != nil && os.Getenv("CXX_AGENT_PORTAL_ENGINE") != "kimi" {
 		// Still never claims -- the receiver owns claiming. But listening means "done
 		// with the previous message" here too: the receiver holds one delivery at a
 		// time and the server one per address, so a message finished without
@@ -1482,6 +1488,30 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 	if state == nil {
 		return nil, errors.New("agent messaging delivery state is unavailable")
 	}
+	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
+		if state.receiver != nil {
+			if err := state.receiver.validateKimiNative(ctx); err != nil {
+				return nil, err
+			}
+		}
+		state.mu.Lock()
+		hadDelivery := len(state.items) > 0
+		state.mu.Unlock()
+		if err := state.completeOutstanding(ctx); err != nil {
+			return nil, err
+		}
+		if state.receiver != nil {
+			state.receiver.mu.Lock()
+			portal := state.receiver.pendingPortal
+			state.receiver.mu.Unlock()
+			if portal != nil {
+				return map[string]any{"status": "portal_pending", "message_id": stringArg(portal, "message_id"), "message": "Finish the operator Portal instruction with agent_receiver_reply before listening again."}, nil
+			}
+		}
+		if hadDelivery && len(state.heldWork()) == 0 {
+			return map[string]any{"status": "hook_wait", "held_work": state.heldWork(), "coordination_reception": false, "message": "The previous informational delivery is finished. Kimi has no idle push; pending messages ring at the next prompt or Stop hook. Continue current work or end this turn."}, nil
+		}
+	}
 	// -1 stands in for "absent" because 0 is a legal wait.
 	waitSeconds := intArg(args, "wait_seconds", -1)
 	if waitSeconds == -1 {
@@ -1494,7 +1524,7 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 	if err := state.completeOutstanding(ctx); err != nil {
 		return nil, err
 	}
-	if held := state.heldWork(); len(held) > 0 {
+	if held := state.heldWork(); len(held) > 0 && (os.Getenv("CXX_AGENT_PORTAL_ENGINE") != "kimi" || state.receiver == nil || !state.receiver.coordinationEnabled()) {
 		return workHeldResult(held, nil), nil
 	}
 	if err := state.ensureListenBind(ctx); err != nil {
@@ -1504,11 +1534,34 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 	var claimed struct {
 		Delivery map[string]any `json:"delivery"`
 	}
-	if err := client.post(ctx, "deliveries/claim", map[string]any{"claim_id": claimID, "wait_seconds": waitSeconds}, &claimed); err != nil {
+	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" && state.receiver != nil {
+		if result, handled, err := state.receiver.kimiPortalListen(ctx); handled || err != nil {
+			return result, err
+		}
+	}
+	claim := map[string]any{"claim_id": claimID, "wait_seconds": waitSeconds}
+	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" && state.receiver != nil {
+		if state.receiver.awaitReady(ctx, receiverReadyWait)["state"] != "ready" {
+			return nil, errors.New("Kimi hook receiver unavailable")
+		}
+		claim["informational_only"] = len(state.heldWork()) > 0
+		state.receiver.mu.Lock()
+		claim["receiver_generation"] = state.receiver.generation
+		state.receiver.mu.Unlock()
+		state.receiver.setGate("open")
+		defer state.receiver.setGate("thread_waiting")
+	}
+	if err := client.post(ctx, "deliveries/claim", claim, &claimed); err != nil {
 		return nil, err
 	}
 	if claimed.Delivery == nil {
+		if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
+			return map[string]any{"status": "hook_wait", "message": nil, "timed_out": true, "held_work": state.heldWork(), "coordination_reception": state.receiver != nil && state.receiver.coordinationEnabled(), "waited_seconds": waitSeconds}, nil
+		}
 		return map[string]any{"message": nil, "timed_out": true, "waited_seconds": waitSeconds}, nil
+	}
+	if claim["informational_only"] == true && stringArg(claimed.Delivery, "work_kind") != "" {
+		return nil, errors.New("Kimi coordination claim refused new work while accepted work is held")
 	}
 	messageID := stringArg(claimed.Delivery, "message_id")
 	pending := state.track(ctx, messageID, claimID, claimed.Delivery)

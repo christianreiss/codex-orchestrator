@@ -177,7 +177,7 @@ func applyResidentUpdate(running string, stdout, stderr io.Writer) error {
 		return err
 	}
 	var signed *config.Config
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		path, err := config.DefaultPathForEngine(engine)
 		if err != nil {
 			continue

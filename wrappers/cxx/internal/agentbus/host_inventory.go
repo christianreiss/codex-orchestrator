@@ -26,12 +26,12 @@ func hostMessagingConfig() (*config.Config, error) {
 		return cfg, nil
 	}
 	searched := []string{}
-	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok} {
+	for _, engine := range []string{config.EngineCodex, config.EngineClaude, config.EngineGrok, config.EngineKimi} {
 		if path, pathErr := config.DefaultPathForEngine(engine); pathErr == nil {
 			searched = append(searched, path)
 		}
 	}
-	return nil, fmt.Errorf("no signed fleet configuration with agent messaging enabled (searched %s); run cdx/clx/cgx sync, or run as the user that owns the install", strings.Join(searched, ", "))
+	return nil, fmt.Errorf("no signed fleet configuration with agent messaging enabled (searched %s); run cdx/clx/cgx/ckx sync, or run as the user that owns the install", strings.Join(searched, ", "))
 }
 
 // listHostWithConfig is the host-authenticated inventory read. It sends only
