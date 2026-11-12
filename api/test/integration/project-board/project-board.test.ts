@@ -259,7 +259,7 @@ describe.skipIf(!handle)('project board against a real database', () => {
     return { addressId, sessionId };
   };
 
-  it.each(['codex', 'claude', 'grok'])('leaves a fresh bound %s session holding its card', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('leaves a fresh bound %s session holding its card', async (engine) => {
     await claim(1, 'code', agent('chris', '/srv/a'));
     await bindSession(engine);
 
@@ -268,7 +268,7 @@ describe.skipIf(!handle)('project board against a real database', () => {
     expect((await cardRow(1))['claim_released_at']).toBeNull();
   });
 
-  it.each(['codex', 'claude', 'grok'])('reclaims a stale-heartbeat %s claim without waiting for its TTL', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('reclaims a stale-heartbeat %s claim without waiting for its TTL', async (engine) => {
     await claim(1, 'code', agent('chris', '/srv/a'));
     await bindSession(engine, new Date(Date.now() - 600_000).toISOString());
 
@@ -279,7 +279,7 @@ describe.skipIf(!handle)('project board against a real database', () => {
     expect(reclaims).toHaveLength(1);
   });
 
-  it.each(['codex', 'claude', 'grok'])('projects ended %s claims as unheld in discovery without changing rows', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('projects ended %s claims as unheld in discovery without changing rows', async (engine) => {
     const who = agent('chris', '/srv/a');
     await claim(1, 'code', who);
     const ids = await bindSession(engine);

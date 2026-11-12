@@ -62,7 +62,7 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
         status: 'active',
         configVersion: 0,
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         internalRole: null,
         expiresAt: null,
         insecureEnabledUntil: null,
@@ -161,7 +161,7 @@ describe('connection-owned workflow state', () => {
     expect(notifyStart).toHaveBeenCalledTimes(2);
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'holds %s work across disconnect without renewal SQL or timeout takeover',
     async (engine) => {
       const id = randomUUID(),

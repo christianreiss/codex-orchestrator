@@ -3,11 +3,13 @@ import { eq } from 'drizzle-orm';
 import { versions as versionsTable } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINES } from '../util/engine.js';
 import { ENGINE_DISABLED_FLAGS } from './engine-switch.js';
 import { COMMUNICATOR_MIN_API_KEY, communicatorApiLevels } from './communicator-api-version.js';
 import {
   coerceGrokVersionToMinimum,
+  coerceKimiVersionToMinimum,
+  KIMI_MIN_CLIENT_VERSION,
   GROK_MIN_CLIENT_VERSION,
   isSemanticVersion,
   normalizeVersion,
@@ -102,6 +104,7 @@ export interface HostClientVersionPin {
   clientVersionOverride?: string | null;
   claudeClientVersionOverride?: string | null;
   grokClientVersionOverride?: string | null;
+  kimiClientVersionOverride?: string | null;
 }
 
 /**
@@ -122,7 +125,7 @@ export function applyHostClientVersionPin<T extends VersionSnapshot>(
   engine: Engine,
 ): T {
   const raw =
-    engine === ENGINE_GROK
+    engine === ENGINE_KIMI ? host?.kimiClientVersionOverride : engine === ENGINE_GROK
       ? host?.grokClientVersionOverride
       : engine === ENGINE_CLAUDE
         ? host?.claudeClientVersionOverride
@@ -131,7 +134,7 @@ export function applyHostClientVersionPin<T extends VersionSnapshot>(
   if (!pin) return snapshot;
   return {
     ...snapshot,
-    client_version_override: engine === ENGINE_GROK ? coerceGrokVersionToMinimum(pin) : pin,
+    client_version_override: engine === ENGINE_KIMI ? coerceKimiVersionToMinimum(pin) : engine === ENGINE_GROK ? coerceGrokVersionToMinimum(pin) : pin,
     client_version_enforce_exact: true,
   };
 }
@@ -212,7 +215,7 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
       const clientTarget = () =>
         get(`client_version${suffix}`) ??
         (engine === ENGINE_CODEX ? get('client_version') : undefined) ??
-        (engine === ENGINE_GROK ? 'latest' : null);
+        (engine === ENGINE_GROK || engine === ENGINE_KIMI ? 'latest' : null);
       let rawClient = clientTarget();
       const usesReleaseCache = isLatestAlias(rawClient);
       if (usesReleaseCache && deps.refreshLatestClientVersion) {
@@ -226,13 +229,13 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
           : semanticOrNull(get(`client_version_lock_${engine}`));
       const explicitOverride = semanticOrNull(get(`client_version_override${suffix}`));
       const effectiveVersion = (value: string | null) =>
-        engine === ENGINE_GROK && value !== null ? coerceGrokVersionToMinimum(value) : value;
+        engine === ENGINE_KIMI && value !== null ? coerceKimiVersionToMinimum(value) : engine === ENGINE_GROK && value !== null ? coerceGrokVersionToMinimum(value) : value;
       const clientOverride = effectiveVersion(exactLock ?? explicitOverride);
       return {
         // Grok follows the latest release unless pinned; if the release cache is empty
         // (first boot, upstream down) the native floor is the safe target.
         client_version: effectiveVersion(
-          resolveClientVersion(rawClient, map, engine) ?? (engine === ENGINE_GROK ? GROK_MIN_CLIENT_VERSION : null),
+          resolveClientVersion(rawClient, map, engine) ?? (engine === ENGINE_KIMI ? KIMI_MIN_CLIENT_VERSION : engine === ENGINE_GROK ? GROK_MIN_CLIENT_VERSION : null),
         ),
         client_version_override: clientOverride,
         client_version_enforce_exact:

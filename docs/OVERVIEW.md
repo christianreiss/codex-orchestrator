@@ -1839,3 +1839,25 @@ and bounded staged-write precondition checks also detect conflicting saves;
 failed primary publication does not advance its mirror or ownership sidecar.
 Native settings writers do not share that lock, so this is conflict mitigation,
 not a cross-process transaction. See [the exact limits](interface-clx.md#settingsjson-sub-blocks-deep-merge-non-clobbering).
+
+
+## Kimi Code (`ckx`)
+
+Kimi Code is the fourth fleet engine (`kimi`), alongside Codex, Claude and Grok.
+It uses provider account pools, engine master suspension, private managed homes,
+AGENTS.md, native Skills, model/effort overrides and version pins. Kimi Code CLI
+2.5.3 is the minimum supported native binary; the archived Python CLI is excluded.
+
+A dedicated disposable device login enrolls encrypted canonical credentials.
+Only the server refreshes them, with durable rotation fencing; hosts and runner
+receive an access-only zero-expiry projection and canonical device identity.
+The usage worker polls `/usages` and `/me`, showing provider plan names and
+separate 5 h, optional weekly and monthly quota windows. Short/long quota policy,
+account selection, quota_get and warnings use 5 h / 7 d respectively.
+
+`/admin/kimi/*` mirrors the Grok administration surface. The independent gateway
+switch starts disabled; operators may enable it explicitly. Native config
+projects Kimi TOML owned paths and manual/yolo/auto permission modes, with no OS
+sandbox claim. `kimi-hooks-v1` uses UserPromptSubmit/Stop turn boundaries for
+message delivery; activity reports use `kimi-hooks`.
+See [the Kimi contract](interface-ckx.md) and [API routes](API.md).

@@ -108,7 +108,7 @@ async function setup() {
   });
   await oauth.setPolicy({
     enabled: true,
-    providers: { chatgpt: true, claude: true, grok: true },
+    providers: { chatgpt: true, claude: true, grok: true, kimi: true },
     ceiling: scope,
   });
   const client = await oauth.register({ redirect_uris: ['https://client.example/callback'] }, 'claude');

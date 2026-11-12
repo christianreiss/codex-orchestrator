@@ -41,12 +41,12 @@ describe.skipIf(!handle)(
         status: 'active',
         secure: 1,
         reverseDnsMode: 0,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         createdAt: now,
         updatedAt: now,
       });
       const hostId = Number(insert.insertId);
-      const settingsKeys = ['codex', 'claude', 'grok'].flatMap((engine) => [
+      const settingsKeys = ['codex', 'claude', 'grok', 'kimi'].flatMap((engine) => [
         rtkPolicyKey(engine as 'codex', hostId),
         rtkPolicyKey(engine as 'codex'),
         rtkReportKey(engine as 'codex', hostId),
@@ -100,7 +100,7 @@ describe.skipIf(!handle)(
         };
         bindOwnerRuntime(db, runtime);
         bindOwnerPresence(runtime, presence);
-        for (const engine of ['codex', 'claude', 'grok'] as const) {
+        for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
           await storeRtkPolicy(db, engine, true);
           expect(await rtkPolicy(db, engine, hostId)).toMatchObject({
             enabled: true,

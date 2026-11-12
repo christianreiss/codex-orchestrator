@@ -32,7 +32,7 @@ const DIRECTIONS = ENGINES.flatMap(source => ENGINES.map(target => ({ source, ta
 const RECEIVER_PROTOCOLS = {
   codex: 'codex-queue-v1',
   claude: 'claude-channel-v1',
-  grok: 'grok-acp-v1',
+  grok: 'grok-acp-v1', kimi: 'kimi-hooks-v1',
 } as const;
 const handle = await getTestDb();
 
@@ -91,7 +91,7 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
       `INSERT INTO hosts (
          fqdn, api_key, status, secure, engines, agent_messaging_enabled, created_at, updated_at
        ) VALUES (
-         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude,grok', 1, '${now}', '${now}'
+         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude,grok,kimi', 1, '${now}', '${now}'
        )`,
     );
     const rows = await db.select().from(hosts).where(eq(hosts.fqdn, HOST_FQDN)).limit(1);

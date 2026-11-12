@@ -34,12 +34,13 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
       apiKey: 'f'.repeat(64),
       apiKeyHash: createHash('sha256').update(fqdn).digest('hex'),
       reverseDnsMode: 0,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       secure: 1,
       agentMessagingEnabled: 1,
       authDigest: 'fixture',
       claudeAuthDigest: 'fixture',
       grokAuthDigest: 'fixture',
+      kimiAuthDigest: 'fixture',
       status: 'active',
       createdAt: stamp,
       updatedAt: stamp,
@@ -62,7 +63,7 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
         instance_id: randomUUID(),
         username: 'root',
         version: 'fixture',
-        engines: ['codex', 'claude', 'grok'],
+        engines: ['codex', 'claude', 'grok', 'kimi'],
         error: null,
       })
     ).generation;
@@ -94,7 +95,7 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     });
     return { relayId: String(relay.relay_id), token: String(relay.relay_token) };
   };
-  const actor = async (username: string, engine: 'codex' | 'claude' | 'grok' = 'codex') => {
+  const actor = async (username: string, engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'codex') => {
     const sessionId = randomUUID(),
       token = randomBytes(32).toString('base64url');
     const registered = await messaging.registerSession(await host(), {
@@ -111,7 +112,7 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     return { sessionId, token, address: registered.address as { id: string; address: string } };
   };
   /** An idle remote-start session bound to a dormant mailbox with one queued peer message. */
-  const idleRemoteSessionWithMail = async (engine: 'codex' | 'claude' | 'grok' = 'codex', request = false) => {
+  const idleRemoteSessionWithMail = async (engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'codex', request = false) => {
     await service.start(
       { host_id: id, engine, cwd: '/tmp', title: 'Fixture', prompt: 'Fixture', client_message_id: randomUUID() },
       'fixture-owner',
@@ -144,7 +145,7 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
     });
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('binds an accepted %s daemon delivery to its exact native user and transcript', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('binds an accepted %s daemon delivery to its exact native user and transcript', async (engine) => {
     const { target } = await idleRemoteSessionWithMail(engine, true);
     const relay = await registerDaemonRelay();
     const claimId = randomUUID();

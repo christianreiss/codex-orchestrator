@@ -28,6 +28,7 @@ import { startAgentTransfersWorker } from './ops/agent-transfers-worker.js';
 import { startSlopJobsWorker } from './services/slop-jobs.js';
 import { startAgentMessagingWorker } from './ops/agent-messaging-worker.js';
 import { startGrokUsageWorker } from './ops/grok-usage-worker.js';
+import { startKimiUsageWorker } from './ops/kimi-usage-worker.js';
 import { attachShutdown } from './ops/shutdown.js';
 import { initTracing, shutdownTracing } from './observability/tracing.js';
 import { MattPocockSkillsService } from './services/mattpocock-skills.js';
@@ -160,6 +161,7 @@ export async function buildServer() {
   startAgentTransfersWorker(app, db, env);
   startSlopJobsWorker(app, { db, env, keyring });
   startGrokUsageWorker(app, db, env, keyring);
+  startKimiUsageWorker(app, db, env, keyring);
   startChatGptUsageWorker(app, db, env);
   startFeedbackWorker(app, { db, env, keyring });
 

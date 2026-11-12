@@ -151,7 +151,7 @@ describe('owned scheduled recovery', () => {
       }),
     ).toEqual([]);
   });
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'does not restart %s work because transport and bootstrap credentials are stale',
     async (engine) => {
       const f = fixture(engine);

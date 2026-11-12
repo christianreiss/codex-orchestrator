@@ -33,7 +33,7 @@ vi.mock('../../../src/services/host-auth.js', () => ({
     authenticate: async (req: { headers: Record<string, string> }) => {
       const key = req.headers['x-api-key'];
       if (key !== 'sender' && key !== 'receiver') throw new UnauthorizedError('Invalid host credential');
-      return { id: key === 'sender' ? 7 : 8, secure: 1, engines: 'codex,claude,grok' };
+      return { id: key === 'sender' ? 7 : 8, secure: 1, engines: 'codex,claude,grok,kimi' };
     },
   }),
 }));
@@ -62,7 +62,7 @@ beforeEach(async () => {
   db.rows.set(versions, [{ name: 'transfers_module_enabled', version: '1' }]);
   db.rows.set(
     clientConfigDocuments,
-    ['codex', 'claude', 'grok'].map((engine, id) => ({ id, engine, settings: {} })),
+    ['codex', 'claude', 'grok', 'kimi'].map((engine, id) => ({ id, engine, settings: {} })),
   );
   app = Fastify({ bodyLimit: 32 * 1024 * 1024 });
   await app.register(envelopePlugin);
@@ -73,7 +73,7 @@ afterEach(async () => {
   await rm(dataRoot, { recursive: true, force: true });
 });
 
-it.each(['codex', 'claude', 'grok'])(
+it.each(['codex', 'claude', 'grok', 'kimi'])(
   'streams arbitrary bytes and resumable ranges for %s',
   async (engine) => {
     const data = Buffer.from([0, 255, 128, 13, 10, 0, 7]);
@@ -151,7 +151,7 @@ it('authorizes binary metadata from owned configuration and observes revocation 
   bindOwnerRuntime(db, owner);
   const select = vi.spyOn(db, 'select');
   try {
-    for (const engine of ['codex', 'claude', 'grok']) {
+    for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
       const missing = await app.inject({ method: 'GET', url: url(`/${randomUUID()}`, engine), headers });
       expect(missing.statusCode, missing.body).toBe(404);
     }

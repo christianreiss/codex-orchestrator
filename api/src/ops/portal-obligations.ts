@@ -84,9 +84,13 @@ export function portalObligations(
         host.claudeAuthDigest,
         host.claudeLastRefresh,
         host.grokClientVersion,
+        host.kimiClientVersion,
         host.grokWrapperVersion,
+        host.kimiWrapperVersion,
         host.grokAuthDigest,
+        host.kimiAuthDigest,
         host.grokLastRefresh,
+        host.kimiLastRefresh,
       ].some(Boolean);
     if (!observed.connected && !provisioned)
       add(`host:provision:${host.id}`, Math.max(Date.parse(host.createdAt), contact) + 1_800_001);

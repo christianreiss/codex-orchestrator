@@ -19,7 +19,7 @@ import {
 import type { Host } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
 import { buildManagedMemoryRouting } from './managed-memory-routing.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINES, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, ENGINES, type Engine } from '../util/engine.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
 import { McpSessionService } from './mcp-session.js';
@@ -50,6 +50,7 @@ import { daemonExecutionEnabled } from './host-daemon/policy.js';
 import { compareWrapperVersions, highestVersion, hostRunningWrapperVersion } from './wrapper-rollout.js';
 import { DEFAULT_CODEX_MODEL } from './codex-model-upgrades.js';
 import { GROK_DEFAULT_MODEL } from './grok-models.js';
+import { KIMI_DEFAULT_MODEL } from './kimi-models.js';
 import { normalizeClaudeModel, normalizeStoredModel } from './config-normalizer.js';
 import {
   AGENTS_GENERATION_MODE_KEY,
@@ -789,7 +790,7 @@ export class HostAgentsService {
       }
     }
 
-    const stateId = engine === 'grok' ? 3 : engine === ENGINE_CLAUDE ? STATE_ID_CLAUDE : STATE_ID_CODEX;
+    const stateId = engine === 'kimi' ? 4 : engine === 'grok' ? 3 : engine === ENGINE_CLAUDE ? STATE_ID_CLAUDE : STATE_ID_CODEX;
     const state = await this.db
       .select()
       .from(agentsDocumentState)
@@ -880,6 +881,12 @@ function configuredModel(
       (value) => typeof value === 'string' && value.trim() !== '',
     );
     return { engine, model: typeof pick === 'string' ? pick.trim() : GROK_DEFAULT_MODEL };
+  }
+if (engine === ENGINE_KIMI) {
+    const pick = [host.kimiModelOverride, fleet].find(
+      (value) => typeof value === 'string' && value.trim() !== '',
+    );
+    return { engine, model: typeof pick === 'string' ? pick.trim() : KIMI_DEFAULT_MODEL };
   }
   return {
     engine,

@@ -78,7 +78,7 @@ it.skipIf(!handle)(
         oauth = new ConnectorOAuth(records, 'https://fleet.example');
       await oauth.setPolicy({
         enabled: true,
-        providers: { chatgpt: true, claude: true, grok: true },
+        providers: { chatgpt: true, claude: true, grok: true, kimi: true },
         ceiling: { categories: { hosts: 'ro' }, hosts: [1] },
       });
       const client = await oauth.register({ redirect_uris: ['https://client.example/callback'] }, 'grok'),

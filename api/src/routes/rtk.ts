@@ -25,7 +25,7 @@ import { createRtkArtifactCache, loadRtkArtifact } from '../services/rtk-artifac
 import { wsPublisher } from '../ws/publisher.js';
 
 const engineOf = (value: string): Engine => {
-  if (!isEngine(value)) throw new ValidationError('engine must be codex, claude or grok');
+  if (!isEngine(value)) throw new ValidationError('engine must be codex, claude, grok or kimi');
   return value;
 };
 export async function registerRtkRoutes(app: FastifyInstance, ctx: RouteContext) {

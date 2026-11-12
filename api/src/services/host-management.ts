@@ -28,8 +28,9 @@ import type { Host } from '../db/schema.js';
 import { decryptOrNull, encrypt as sboxEncrypt } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso, isoOffsetSeconds } from '../util/timestamp.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINES, ENGINE_LABELS, isEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, ENGINES, ENGINE_LABELS, isEngine, type Engine } from '../util/engine.js';
 import { normalizeGrokEffort, normalizeGrokModel } from './grok-models.js';
+import { normalizeKimiEffort, normalizeKimiModel } from './kimi-models.js';
 import { normalizeClaudeModelReference } from './claude-models.js';
 import { NotFoundError, ValidationError, ApiError, ConflictError } from '../http/errors.js';
 import type { AdminEventsWriter } from './admin-events-writer.js';
@@ -47,7 +48,7 @@ import {
   REASONING_EFFORTS,
   SUPPORTED_MODELS,
 } from './config-normalizer.js';
-import { coerceCodexVersionToMinimum, GROK_MIN_CLIENT_VERSION, isSemanticVersion, isSupportedGrokVersion } from './client-versions.js';
+import { coerceCodexVersionToMinimum, GROK_MIN_CLIENT_VERSION, KIMI_MIN_CLIENT_VERSION, isSemanticVersion, isSupportedGrokVersion, isSupportedKimiVersion } from './client-versions.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { revokeHostMcpSessionsLocked, stageRevokeHostMcpSessions } from './mcp-session.js';
 import { PROVISIONING_WINDOW_MINUTES } from './insecure-window.js';
@@ -299,6 +300,7 @@ export class HostManagementService {
       assertEnginesAddable(engines, previous ? parseEnginesInput(previous.engines, [ENGINE_CODEX]) : [], fleet);
       if (!engines.some(engine => fleet[engine])) throw fleetEngineConflictError(engines[0] ?? ENGINE_CODEX);
       if (engines.includes(ENGINE_GROK)) new ModelDefaultsService(this.db).stageGrokDefaults(ctx);
+if (engines.includes(ENGINE_KIMI)) new ModelDefaultsService(this.db).stageKimiDefaults(ctx);
       const now = nowIso(); const secure = req.secure ?? (previous ? previous.secure === 1 : true);
       const patch: Partial<Host> = { ...optional, apiKey: apiKeyHash, apiKeyHash, apiKeyEnc, secure: secure ? 1 : 0, engines: serializeEngines(engines), updatedAt: now };
       if (!secure) {
@@ -499,6 +501,9 @@ export class HostManagementService {
     if (engines.includes(ENGINE_GROK)) {
       await new ModelDefaultsService(this.db).ensureGrokDefaults();
     }
+if (engines.includes(ENGINE_KIMI)) {
+      await new ModelDefaultsService(this.db).ensureKimiDefaults();
+    }
 
     // Open the initial insecure window for newly-provisioned insecure hosts.
     if (!secure) {
@@ -589,7 +594,7 @@ export class HostManagementService {
           ? usableDefaults
           : defaults;
     if (!engines.length) {
-      throw new ValidationError('engines must contain at least one of: codex, claude, grok', { param: 'engines' });
+      throw new ValidationError('engines must contain at least one of: codex, claude, grok, kimi', { param: 'engines' });
     }
     const fqdn = await this.generateQuickHostName();
     const result = await this.register({
@@ -639,6 +644,9 @@ export class HostManagementService {
     if (engines.includes(ENGINE_GROK) && !ownerRuntimeFor(this.db)) {
       await new ModelDefaultsService(this.db).ensureGrokDefaults();
     }
+if (engines.includes(ENGINE_KIMI) && !ownerRuntimeFor(this.db)) {
+      await new ModelDefaultsService(this.db).ensureKimiDefaults();
+    }
     const enginesChanged = serializeEngines(engines) !== serializeEngines(currentEngines);
     const curlInsecureChanged =
       typeof options.curlInsecure === 'boolean' && (host.curlInsecure === 1) !== options.curlInsecure;
@@ -662,6 +670,7 @@ export class HostManagementService {
           if (curlInsecureChanged) ctx.write(async tx => persistAuditLog(tx, { hostId: id, action: 'admin.host.curl_insecure', details: JSON.stringify({ fqdn: current.fqdn, curl_insecure: options.curlInsecure, source: 'installer_mint' }), createdAt: nowIso() }));
         }
         if (engines.includes(ENGINE_GROK)) new ModelDefaultsService(this.db).stageGrokDefaults(ctx);
+if (engines.includes(ENGINE_KIMI)) new ModelDefaultsService(this.db).stageKimiDefaults(ctx);
         installer = this.stageInstaller(ctx, updated, apiKeyPlain, engines, token, additionalEngines);
         adminAudit(ctx, 'host.installer.minted', { host_id: id, fqdn: current.fqdn, engines: serializeEngines(engines), installer_mode: installer.mode, expires_at: installer.expires_at, engines_changed: enginesChanged, curl_insecure: updated.curlInsecure === 1 }, nowIso(), id);
         return null;
@@ -876,7 +885,7 @@ export class HostManagementService {
       await mutateOwnerState(owner, { kind: 'host.auth.clear', payload: { id }, prepare(ctx) {
         const current = ctx.draft.table('hosts').get(id);
         if (!current) throw new NotFoundError('Host not found', 'host_not_found');
-        const patch = { lastRefresh: null, authDigest: null, claudeLastRefresh: null, claudeAuthDigest: null, grokLastRefresh: null, grokAuthDigest: null, updatedAt: nowIso() };
+        const patch = { lastRefresh: null, authDigest: null, claudeLastRefresh: null, claudeAuthDigest: null, grokLastRefresh: null, grokAuthDigest: null, kimiLastRefresh: null, kimiAuthDigest: null, updatedAt: nowIso() };
         for (const row of ctx.draft.table('hostAuthDigests').by('hostId', id)) ctx.draft.removeRow('hostAuthDigests', row);
         ctx.draft.upsert('hosts', { ...current, ...patch });
         ctx.write(async tx => tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id)));
@@ -897,7 +906,9 @@ export class HostManagementService {
         claudeLastRefresh: null,
         claudeAuthDigest: null,
         grokLastRefresh: null,
+        kimiLastRefresh: null,
         grokAuthDigest: null,
+        kimiAuthDigest: null,
         updatedAt: nowIso(),
       })
       .where(eq(hosts.id, id));
@@ -1074,13 +1085,16 @@ export class HostManagementService {
     const host = await this.requireById(id);
     const engines = enginesIn.length ? enginesIn : [];
     if (!engines.length) {
-      throw new ValidationError('engines must contain at least one of: codex, claude, grok', { param: 'engines' });
+      throw new ValidationError('engines must contain at least one of: codex, claude, grok, kimi', { param: 'engines' });
     }
     let previous = serializeEngines(parseEnginesInput(host.engines, [ENGINE_CODEX]));
     assertEnginesAddable(engines, parseEnginesInput(host.engines, [ENGINE_CODEX]), await readFleetEngineState(this.db));
     const next = serializeEngines(engines);
     if (engines.includes(ENGINE_GROK)) {
       await new ModelDefaultsService(this.db).ensureGrokDefaults();
+    }
+if (engines.includes(ENGINE_KIMI)) {
+      await new ModelDefaultsService(this.db).ensureKimiDefaults();
     }
     const disabled = ENGINES.filter((engine) => !engines.includes(engine));
     const owner = ownerRuntimeFor(this.db);
@@ -1158,7 +1172,9 @@ export class HostManagementService {
       reasoning_effort_override?: string | null | undefined;
       claude_model_override?: string | null | undefined;
       grok_model_override?: string | null | undefined;
+      kimi_model_override?: string | null | undefined;
       grok_reasoning_effort_override?: string | null | undefined;
+      kimi_reasoning_effort_override?: string | null | undefined;
       includeClaudeOverride?: boolean;
     },
   ): Promise<ManagedHost> {
@@ -1217,11 +1233,23 @@ export class HostManagementService {
       if (value && !model) throw new ValidationError('Unsupported Grok model override', { param: 'grok_model_override' });
       patch.grokModelOverride = model;
     }
+if (payload.kimi_model_override !== undefined) {
+      const value = payload.kimi_model_override?.trim() ?? '';
+      const model = value ? normalizeKimiModel(value) : null;
+      if (value && !model) throw new ValidationError('Unsupported Kimi model override', { param: 'kimi_model_override' });
+      patch.kimiModelOverride = model;
+    }
     if (payload.grok_reasoning_effort_override !== undefined) {
       const value = payload.grok_reasoning_effort_override?.trim() ?? '';
       const effort = value ? normalizeGrokEffort(value, patch.grokModelOverride ?? host.grokModelOverride) : null;
       if (value && !effort) throw new ValidationError('Unsupported Grok reasoning effort override', { param: 'grok_reasoning_effort_override' });
       patch.grokReasoningEffortOverride = effort;
+    }
+if (payload.kimi_reasoning_effort_override !== undefined) {
+      const value = payload.kimi_reasoning_effort_override?.trim() ?? '';
+      const effort = value ? normalizeKimiEffort(value, patch.kimiModelOverride ?? host.kimiModelOverride) : null;
+      if (value && !effort) throw new ValidationError('Unsupported Kimi reasoning effort override', { param: 'kimi_reasoning_effort_override' });
+      patch.kimiReasoningEffortOverride = effort;
     }
     if (ownerRuntimeFor(this.db)) return this.patchOwned(id, patch, 'admin.host.model_overrides', {
       fqdn: host.fqdn,
@@ -1229,7 +1257,9 @@ export class HostManagementService {
       reasoning_effort_override: patch.reasoningEffortOverride ?? host.reasoningEffortOverride ?? null,
       ...(payload.includeClaudeOverride ? { claude_model_override: patch.claudeModelOverride ?? null } : {}),
       ...(payload.grok_model_override !== undefined ? { grok_model_override: patch.grokModelOverride } : {}),
+      ...(payload.kimi_model_override !== undefined ? { kimi_model_override: patch.kimiModelOverride } : {}),
       ...(payload.grok_reasoning_effort_override !== undefined ? { grok_reasoning_effort_override: patch.grokReasoningEffortOverride } : {}),
+      ...(payload.kimi_reasoning_effort_override !== undefined ? { kimi_reasoning_effort_override: patch.kimiReasoningEffortOverride } : {}),
     }, host);
     await this.db.update(hosts).set(patch).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.model_overrides', {
@@ -1238,7 +1268,9 @@ export class HostManagementService {
       reasoning_effort_override: patch.reasoningEffortOverride ?? host.reasoningEffortOverride ?? null,
       ...(payload.includeClaudeOverride ? { claude_model_override: patch.claudeModelOverride ?? null } : {}),
       ...(payload.grok_model_override !== undefined ? { grok_model_override: patch.grokModelOverride } : {}),
+      ...(payload.kimi_model_override !== undefined ? { kimi_model_override: patch.kimiModelOverride } : {}),
       ...(payload.grok_reasoning_effort_override !== undefined ? { grok_reasoning_effort_override: patch.grokReasoningEffortOverride } : {}),
+      ...(payload.kimi_reasoning_effort_override !== undefined ? { kimi_reasoning_effort_override: patch.kimiReasoningEffortOverride } : {}),
     });
     return await this.publishUpdate(id, host.fqdn, { model_overrides_changed: true });
   }
@@ -1310,6 +1342,16 @@ export class HostManagementService {
     await this.db.update(hosts).set({ grokClientVersionOverride: stored, updatedAt: nowIso() }).where(eq(hosts.id, id));
     await this.writeLog(id, 'admin.host.grok_client_version_override', { fqdn: host.fqdn, grok_client_version_override: stored });
     return this.publishUpdate(id, host.fqdn, { grok_client_version_override: stored });
+  }
+async setKimiVersionOverride(id: number, selection: string | null): Promise<ManagedHost> {
+    const host = await this.requireById(id);
+    const stored = selection === null ? null : normalizeSemver(selection);
+    if (stored !== null && !isSemanticVersion(stored)) throw new ValidationError(`selection must be a semantic version like ${KIMI_MIN_CLIENT_VERSION}`, { param: 'selection' });
+    if (stored !== null && !isSupportedKimiVersion(stored)) throw new ValidationError(`Kimi requires version ${KIMI_MIN_CLIENT_VERSION} or later`, { param: 'selection' });
+    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { kimiClientVersionOverride: stored, updatedAt: nowIso() }, 'admin.host.kimi_client_version_override', { fqdn: host.fqdn, kimi_client_version_override: stored }, host);
+    await this.db.update(hosts).set({ kimiClientVersionOverride: stored, updatedAt: nowIso() }).where(eq(hosts.id, id));
+    await this.writeLog(id, 'admin.host.kimi_client_version_override', { fqdn: host.fqdn, kimi_client_version_override: stored });
+    return this.publishUpdate(id, host.fqdn, { kimi_client_version_override: stored });
   }
 
   async setAgentsDocumentOverride(id: number, selection: string | number | null): Promise<ManagedHost> {

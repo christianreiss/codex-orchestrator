@@ -10,6 +10,6 @@ import type { Engine } from '../util/engine.js';
 export function hostWithCallerWrapper(host: Host, engine: Engine, version: string | string[] | undefined): Host {
   if (version === undefined) return host;
   const value = typeof version === 'string' && version.length <= 128 ? version.trim() : '';
-  const field = engine === 'claude' ? 'claudeWrapperVersion' : engine === 'grok' ? 'grokWrapperVersion' : 'wrapperVersion';
+  const field = engine === 'kimi' ? 'kimiWrapperVersion' : engine === 'claude' ? 'claudeWrapperVersion' : engine === 'grok' ? 'grokWrapperVersion' : 'wrapperVersion';
   return { ...host, [field]: value };
 }

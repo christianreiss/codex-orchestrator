@@ -49,13 +49,13 @@ describe.skipIf(!handle)('owner role lifecycle on MySQL', () => {
             apiKey: key,
             secure: 1,
             status: 'active',
-            engines: 'codex,claude,grok',
+            engines: 'codex,claude,grok,kimi',
             createdAt: now,
             updatedAt: now,
           })
           .$returningId();
       hostId = inserted!.id;
-      for (const engine of ['codex', 'claude', 'grok']) {
+      for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
         const id = randomUUID(),
           addressId = randomUUID(),
           token = randomUUID();

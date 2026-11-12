@@ -42,7 +42,7 @@ describe.skipIf(!config)('internal provider tasks after owner restart', () => {
           payload: {},
           prepare({ draft, write }) {
             const now = new Date().toISOString();
-            for (const engine of ['codex', 'claude', 'grok']) {
+            for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
               for (const internal of [true, false]) {
                 write(async (tx) => {
                   const values = {

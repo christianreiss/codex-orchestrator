@@ -68,7 +68,7 @@ async function uncertainWork(f: ReturnType<typeof fixture>) {
 }
 
 describe('external fleet task supervisor', () => {
-  it.each(['codex', 'claude', 'grok'])('retires completed native %s observation at confirmed idle and observes the next working turn', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('retires completed native %s observation at confirmed idle and observes the next working turn', async engine => {
     const f = fixture(engine), a = f.agents[0]!;
     await f.service.tick();
     await observe(f, 'idle');
@@ -142,7 +142,7 @@ describe('external fleet task supervisor', () => {
     await f.service.tick();
     expect(f.service.list(`agent:${a.addressId}`).states[0]?.state).toBe('working');
   });
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'cleans up abandoned %s observation without starting recovery or generating deadline attention',
     async (engine) => {
       const f = fixture(engine), a = f.agents[0]!;
@@ -176,7 +176,7 @@ describe('external fleet task supervisor', () => {
     expect(f.state.snapshot().table('agentWatchdogs').get(work.watchdogId!)?.status).toBe('recovering');
     expect(f.state.snapshot().table('agentWorkStates').get(a.addressId)?.incidentAt).toBe(f.now);
   });
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'automatically arms %s once and preserves the launch model',
     async (engine) => {
       const f = fixture(engine);

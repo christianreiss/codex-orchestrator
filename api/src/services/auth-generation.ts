@@ -1,10 +1,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { KeyEntry, Keyring } from '../security/keyring.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CLAUDE, ENGINE_GROK } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI } from '../util/engine.js';
 import { selectGrokCredential } from './grok-auth.js';
+import { selectKimiCredential } from './kimi-auth.js';
 
-export type CredentialKind = 'codex_oauth' | 'claude_oauth' | 'grok_oauth' | 'api_key';
+export type CredentialKind = 'codex_oauth' | 'claude_oauth' | 'grok_oauth' | 'kimi_oauth' | 'api_key';
 
 export interface CredentialIdentity {
   kind: CredentialKind;
@@ -106,6 +107,10 @@ export function inspectCredential(auth: Record<string, unknown>, engine: Engine)
   if (engine === ENGINE_GROK) {
     const selected = selectGrokCredential(auth, true);
     return selected ? { kind: 'grok_oauth', access: selected.access, refresh: selected.refresh ?? '', issuedAt: selected.issuedAt, accessExpiresAt: selected.expiresAt, refreshExpiresAt: null } : null;
+  }
+  if (engine === ENGINE_KIMI) {
+    const selected = selectKimiCredential(auth, true);
+    return selected ? { kind: 'kimi_oauth', access: selected.access, refresh: selected.refresh ?? '', issuedAt: selected.issuedAt, accessExpiresAt: selected.expiresAt, refreshExpiresAt: null } : null;
   }
   if (engine === ENGINE_CLAUDE) {
     const oauth = record(auth.claudeAiOauth);

@@ -28,7 +28,7 @@ import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 const handle = await getTestDb();
 const PREFIX = 'ztest-publications';
-const ENGINES: Engine[] = ['codex', 'claude', 'grok'];
+const ENGINES: Engine[] = ['codex', 'claude', 'grok', 'kimi'];
 interface Identity {
   sessionId: string;
   token: string;
@@ -82,7 +82,7 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
         apiKey: 'f'.repeat(64),
         status: 'active',
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         createdAt: now,
         updatedAt: now,
       })
@@ -146,7 +146,7 @@ describe.skipIf(!handle)('persistent opt-in publications against MySQL', { timeo
     expect(JSON.stringify(mailbox)).not.toContain('Server notice');
   });
 
-  for (const engine of ['codex', 'claude', 'grok'] as const) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
     it(`${engine}: publication timing persists and reports mixed receiver capability per recipient`, async () => {
       const sender = await register(engine, 'timing-sender'), capable = await register('codex', 'timing-capable');
       const legacy = await register('grok', 'timing-legacy'), topic = await group([sender, capable, legacy]);

@@ -66,9 +66,13 @@ function pruneReason(host: Omit<Host, 'apiKey' | 'apiKeyEnc'>, days: number, now
       host.claudeAuthDigest,
       host.claudeLastRefresh,
       host.grokClientVersion,
+      host.kimiClientVersion,
       host.grokWrapperVersion,
+      host.kimiWrapperVersion,
       host.grokAuthDigest,
+      host.kimiAuthDigest,
       host.grokLastRefresh,
+      host.kimiLastRefresh,
     ].some(Boolean);
   if (
     !provisioned &&

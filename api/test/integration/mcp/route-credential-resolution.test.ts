@@ -28,7 +28,7 @@ const HOST_KEY = 'sk-codex-' + 'a'.repeat(32);
 
 type Headers = Record<string, string | string[] | undefined>;
 
-function makeHost(fqdn: string, status = 'active', engines = 'codex,claude,grok'): Host {
+function makeHost(fqdn: string, status = 'active', engines = 'codex,claude,grok,kimi'): Host {
   return {
     id: 7,
     fqdn,
@@ -137,7 +137,7 @@ describe('POST /mcp credential resolution', () => {
     vi.restoreAllMocks();
   });
 
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'binds communicator HTTPS MCP credentials to the same host for %s',
     async (engine) => {
       const foreign = { ...makeHost('foreign.example'), id: 8 };
@@ -296,7 +296,7 @@ describe('POST /mcp credential resolution', () => {
     await h.app.close();
   });
 
-  it.each(['codex', 'claude', 'grok'])('routes an enabled %s-only host with that request engine', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('routes an enabled %s-only host with that request engine', async (engine) => {
     const h = await buildHarness({ hostFromKey: makeHost('single-engine.example', 'active', engine) });
     const r = await post(h.app, { 'x-api-key': HOST_KEY, 'x-engine': engine });
 

@@ -28,7 +28,7 @@ const stable = {
   fingerprint: 'same',
   pending: false,
   enabled: true,
-  fleet: { codex: true, claude: true, grok: true },
+  fleet: { codex: true, claude: true, grok: true, kimi: true },
 };
 
 describe('coordination background idle certificate', () => {

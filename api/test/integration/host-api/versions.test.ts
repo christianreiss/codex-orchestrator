@@ -724,7 +724,7 @@ describe('cron report content invalidation', () => {
   it('publishes a content-relevant host event only when the stored CLI version changes', async () => {
     const db = createDbFake();
     const apiKey = 'sk-cron-report-invalidation';
-    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'codex,claude,grok', claudeClientVersion: '2.1.233' }]);
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), engines: 'codex,claude,grok,kimi', claudeClientVersion: '2.1.233' }]);
     const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
     const events: Array<Record<string, unknown>> = [];
     const unsubscribe = wsPublisher.subscribe((e) => { if (e.type === 'host.updated') events.push(e.payload as Record<string, unknown>); });
@@ -755,10 +755,11 @@ describe('cron engine routing', () => {
     const db = createDbFake();
     const apiKey = 'sk-grok-engine-report-test';
     db.tables.set(hostsTable, [{
-      ...hostRow(apiKey), engines: 'codex,claude,grok',
+      ...hostRow(apiKey), engines: 'codex,claude,grok,kimi',
       clientVersion: '0.154.0', wrapperVersion: 'codex-wrapper',
       claudeClientVersion: '2.1.233', claudeWrapperVersion: 'claude-wrapper',
       grokClientVersion: '1.0.45', grokWrapperVersion: '0.9.9',
+      kimiClientVersion: '1.0.45', kimiWrapperVersion: '0.9.9',
     }]);
     const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
     try {
@@ -771,7 +772,9 @@ describe('cron engine routing', () => {
         clientVersion: '0.154.0', wrapperVersion: 'codex-wrapper',
         claudeClientVersion: '2.1.233', claudeWrapperVersion: 'claude-wrapper',
         grokClientVersion: payload.client_version ?? '1.0.45',
+        kimiClientVersion: '1.0.45',
         grokWrapperVersion: payload.wrapper_version ?? '0.9.9',
+        kimiWrapperVersion: '0.9.9',
       });
     } finally {
       await app.close();

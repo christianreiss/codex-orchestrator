@@ -740,6 +740,7 @@ export class SchedulesService {
         codexDisabled: flag(ENGINE_DISABLED_FLAGS.codex),
         claudeDisabled: flag(ENGINE_DISABLED_FLAGS.claude),
         grokDisabled: flag(ENGINE_DISABLED_FLAGS.grok),
+        kimiDisabled: flag(ENGINE_DISABLED_FLAGS.kimi),
         schedule: sql<unknown>`(SELECT JSON_ARRAY(${agentSchedules.progressTimeoutSeconds}, ${agentSchedules.nextDueAt})
           FROM ${agentSchedules}
           WHERE ${agentSchedules.targetAddressId} = ${agentBusAddresses.id} AND ${agentSchedules.enabled} = 1 AND ${watchdogFree}
@@ -786,6 +787,7 @@ export class SchedulesService {
       codex: !isTruthyFlagValue(row.codexDisabled),
       claude: !isTruthyFlagValue(row.claudeDisabled),
       grok: !isTruthyFlagValue(row.grokDisabled),
+      kimi: !isTruthyFlagValue(row.kimiDisabled),
     };
     if (
       !host?.id ||

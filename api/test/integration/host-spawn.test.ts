@@ -22,7 +22,7 @@ describe.skipIf(!handle)('durable system provisioning', () => {
     service = new HostSpawnService(ctx); daemon = new HostDaemonService(ctx); settings = new SettingsService(ctx.db);
     await settings.setFlag(HOST_SPAWN_ENABLED_KEY, true);
     await settings.setFlag('agent_messaging_enabled', true);
-    for (const engine of ['codex', 'claude', 'grok']) await settings.setFlag(`${engine}_engine_disabled`, false);
+    for (const engine of ['codex', 'claude', 'grok', 'kimi']) await settings.setFlag(`${engine}_engine_disabled`, false);
     invalidateFleetEngineState(ctx.db);
     const result = await ctx.db.insert(hosts).values({ fqdn: `source-${randomUUID()}.test`,
       apiKey: randomUUID(), status: 'active', vip: 1, secure: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
@@ -34,7 +34,7 @@ describe.skipIf(!handle)('durable system provisioning', () => {
     await handle!.db.delete(hosts).where(inArray(hosts.id, [source, ...created]));
     await handle!.pool.end();
   });
-  it.each(['codex', 'claude', 'grok'])('provisions %s securely without granting VIP', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('provisions %s securely without granting VIP', async engine => {
     const result = await service.prepare(request(engine), source); created.push(result.host_id);
     const [target] = await handle!.db.select().from(hosts).where(eq(hosts.id, result.host_id));
     expect(target).toMatchObject({ secure: 1, vip: 0, engines: engine });

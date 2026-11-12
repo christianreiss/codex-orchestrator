@@ -7,7 +7,7 @@ import type { StateSeed } from '../../../src/control-plane/state/catalog.js';
 import type { ScopeSession } from '../../../src/control-plane/state/coordination.js';
 import { claimConnectionError } from '../../../src/services/agent-coordination/claim-connection-error.js';
 
-describe.each(['codex', 'claude', 'grok'])('%s claim connection diagnostics', (engine) => {
+describe.each(['codex', 'claude', 'grok', 'kimi'])('%s claim connection diagnostics', (engine) => {
   it.each(['missing', 'no-native', 'wrong-instance', 'connected', 'foreign', 'old-generation'] as const)(
     'reports only caller proof for %s without changing ownership',
     (proof) => {
@@ -72,7 +72,7 @@ describe.each(['codex', 'claude', 'grok'])('%s claim connection diagnostics', (e
       expect(error.message).toContain('doctor');
       const details = JSON.stringify(error.extra);
       expect(details).toContain('cxx communicator status');
-      expect(details).toContain(`${engine === 'codex' ? 'cdx' : engine === 'claude' ? 'clx' : 'cgx'} doctor`);
+      expect(details).toContain(`${engine === 'codex' ? 'cdx' : engine === 'claude' ? 'clx' : engine === 'kimi' ? 'ckx' : 'cgx'} doctor`);
       expect(details).toContain('same client_request_id');
       expect(details).toContain('Do not take over');
       for (const secret of ['secret-host-sentinel', 'secret-bridge-sentinel', expected, foreignSession])

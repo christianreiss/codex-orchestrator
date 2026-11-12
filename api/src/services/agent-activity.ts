@@ -25,7 +25,7 @@ export const activityInputSchema = z
     sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     state: z.enum(['working', 'idle', 'waiting', 'unknown']),
     wait_reason: z.enum(['approval', 'input']).nullable(),
-    source: z.enum(['codex-thread', 'grok-session', 'claude-hooks']),
+    source: z.enum(['codex-thread', 'grok-session', 'claude-hooks', 'kimi-hooks']),
     evidence_age_ms: z.number().int().nonnegative().max(86_400_000),
     // The observer reports changes only, so the observation stays current for
     // as long as the same receiver remains current. Without it (older
@@ -64,7 +64,7 @@ export function acceptActivity(
   receiverConnected?: boolean,
 ): ActivityRecord | null {
   const receiver = receiverState(session.receiver);
-  const source = { codex: 'codex-thread', claude: 'claude-hooks', grok: 'grok-session' }[session.engine];
+  const source = { codex: 'codex-thread', claude: 'claude-hooks', grok: 'grok-session', kimi: 'kimi-hooks' }[session.engine];
   if (
     session.endedAt ||
     input.source !== source ||

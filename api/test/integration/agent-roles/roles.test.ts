@@ -94,7 +94,7 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     await runMigrations(handle!.pool);
     messaging = new AgentMessagingService(db!, loadTestEnv(), keyring);
     const fqdn = `ztest-roles-${randomUUID()}.example`;
-    await db!.insert(hosts).values({ fqdn, apiKey: randomBytes(32).toString('hex'), secure: 1, status: 'active', engines: 'codex,claude,grok', createdAt: nowIso(), updatedAt: nowIso() });
+    await db!.insert(hosts).values({ fqdn, apiKey: randomBytes(32).toString('hex'), secure: 1, status: 'active', engines: 'codex,claude,grok,kimi', createdAt: nowIso(), updatedAt: nowIso() });
     host = (await db!.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!;
     await db!.execute(sql`INSERT INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','1',${nowIso()}) ON DUPLICATE KEY UPDATE version='1'`);
   }, 120_000);
@@ -119,7 +119,7 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     await handle?.pool.end();
   });
 
-  async function launch(engine: 'codex' | 'claude' | 'grok' = 'claude', upstream = randomUUID(), resumed = false) {
+  async function launch(engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'claude', upstream = randomUUID(), resumed = false) {
     const input = {
       sessionId: randomUUID(),
       bridgeToken: randomBytes(32).toString('base64url'),
@@ -238,7 +238,7 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     expect(judge.briefs[0]!.title).toBe('Add focus checklist');
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('keeps %s role updates pull-only after the holder ends', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('keeps %s role updates pull-only after the holder ends', async (engine) => {
     await publishedRole();
     const holder = await launch(engine);
     await activate(holder);
@@ -249,7 +249,7 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     expect((await roles.catalog()).roles.find((role) => role.slug === 'ztest-design')?.current_version).toBe(2);
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('keeps faulty-role withdrawal alerts bound to the current live %s holder', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('keeps faulty-role withdrawal alerts bound to the current live %s holder', async (engine) => {
     await publishedRole();
     const live = await launch(engine), ended = await launch(engine), rebound = await launch(engine);
     await activate(live); await activate(ended); await activate(rebound);
@@ -291,7 +291,7 @@ describe.skipIf(!handle)('agent roles on MySQL', { timeout: 120_000 }, () => {
     expect((secret.proposal.gate_results as { checks: Array<{ gate: string; ok: boolean }> }).checks).toContainEqual(expect.objectContaining({ gate: 'no_secrets', ok: false }));
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('keeps explicit core review requests for an independent %s holder', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('keeps explicit core review requests for an independent %s holder', async (engine) => {
     await publishedRole();
     const author = await launch('claude');
     const other = await launch(engine);

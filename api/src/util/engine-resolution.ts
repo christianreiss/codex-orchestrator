@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { ValidationError } from '../http/errors.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, isEngine, type Engine } from './engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, isEngine, type Engine } from './engine.js';
 
 /**
  * One resolver for every engine-scoped route.
@@ -49,7 +49,7 @@ export interface ResolveEngineOptions {
 }
 
 export function invalidEngineError(source: string): ValidationError {
-  return new ValidationError(`${source} must be "codex", "claude" or "grok"`, { param: 'engine' });
+  return new ValidationError(`${source} must be "codex", "claude", "grok" or "kimi"`, { param: 'engine' });
 }
 
 /**
@@ -112,6 +112,10 @@ function firstHeader(value: string | string[] | undefined): string | undefined {
  * agreed explicit hint, opted-in user-agent inference, a single-engine host, or
  * an explicitly configured `fallback`.
  */
+export function isKimiUserAgent(userAgent: string | undefined): boolean {
+  return typeof userAgent === 'string' && /(?:^|[\s/])ckx(?:[\s/-]|$)/i.test(userAgent);
+}
+
 export function resolveRequestEngine(
   req: Pick<FastifyRequest, 'query' | 'headers'>,
   payload: Record<string, unknown> | undefined,
@@ -138,7 +142,7 @@ export function resolveRequestEngine(
   // quietly served as Codex.
   if (options.legacyUserAgentInference) {
     const userAgent = firstHeader(req.headers['user-agent']);
-    const inferred = isGrokUserAgent(userAgent) ? ENGINE_GROK : isClaudeUserAgent(userAgent)
+    const inferred = isKimiUserAgent(userAgent) ? ENGINE_KIMI : isGrokUserAgent(userAgent) ? ENGINE_GROK : isClaudeUserAgent(userAgent)
       ? ENGINE_CLAUDE
       : ENGINE_CODEX;
     assertEngineAllowed(inferred, hostEngines);

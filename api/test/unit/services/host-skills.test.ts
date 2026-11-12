@@ -13,7 +13,7 @@ import type { Host } from '../../../src/db/schema.js';
 const host: Host = { id: 1, fqdn: 'host.example' } as unknown as Host;
 
 describe('HostSkillsService reboot-safe delivery', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('lists and retrieves the canonical Skill for %s without project enablement', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('lists and retrieves the canonical Skill for %s without project enablement', async (engine) => {
     const stale = skillRow({ slug: 'reboot-safe', manifest: 'Old stored instructions' });
     const service = makeService(false, [stale]);
     const expected = buildManagedRebootSafeSkill('2026-07-31T00:00:00Z');
@@ -622,7 +622,7 @@ describe('HostSkillsService source-owned skills', () => {
 
 
 describe('root skill manifest file alias', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('resolves source-managed SKILL.md backlinks for %s', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('resolves source-managed SKILL.md backlinks for %s', async engine => {
     const manifest = '---\nname: backlink\ndescription: fixture\n---\n\nCanonical manifest\n';
     const service = makeService(false, [skillRow({ slug: 'backlink', manifest, engine, sourceType: 'github:mattpocock/skills',
       bundleSha256: computeSkillBundleDigest([{ path: 'SKILL.md', sha256: createHash('sha256').update(manifest).digest('hex') }]) })]);

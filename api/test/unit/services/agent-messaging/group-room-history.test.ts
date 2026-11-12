@@ -15,7 +15,7 @@ import type { Env } from '../../../../src/env.js';
 import type { AgentMessagingService } from '../../../../src/services/agent-messaging.js';
 
 describe('group history follows immutable room identity', () => {
-  for (const engine of ['codex', 'claude', 'grok']) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
     for (const [kind, publicationAt] of [
       ['old bound event', '2026-10-24T12:00:00.000Z'],
       ['unbound old publication', '2026-10-24T12:00:00.000Z'],

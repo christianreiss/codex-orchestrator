@@ -348,7 +348,7 @@ describe('HostAgentsService document resolution', () => {
 
   it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('ignores a historical foreign lock for %s', async (engine) => {
     const foreign = engine === ENGINE_CODEX ? ENGINE_CLAUDE : ENGINE_CODEX;
-    const stateId = { codex: 1, claude: 2, grok: 3 }[engine];
+    const stateId = { codex: 1, claude: 2, grok: 3, kimi: 4 }[engine];
     const db = makeDb([
       [agentsDocuments, [agentsRow(9, 'foreign policy', foreign), agentsRow(5, 'own policy', engine)]],
       [agentsDocumentState, [{ id: stateId, mode: 'locked', activeDocumentId: 9, engine }]],
@@ -376,7 +376,7 @@ describe('HostAgentsService commit preferences', () => {
     const service = makeService(db);
     const first = await service.retrieve(null, makeHost(), engine);
     expect(first['content']).toContain('explain what changed and why');
-    expect(first['content']).toContain(`AI-Assisted-By: ${{ codex: 'Codex', claude: 'Claude', grok: 'Grok' }[engine]}`);
+    expect(first['content']).toContain(`AI-Assisted-By: ${{ codex: 'Codex', claude: 'Claude', grok: 'Grok', kimi: 'Kimi Code' }[engine]}`);
     expect(first['sections']).toMatchObject({ git_commit_messages: { present: true }, git_director: { present: false } });
     expect((await service.retrieve(String(first['sha256']), makeHost(), engine))['status']).toBe('unchanged');
     db.tables.set(versions, [{ name: GIT_COMMIT_SETTINGS_KEY, version: JSON.stringify({ message_style: 'short', ai_attribution: false }) }]);
@@ -429,7 +429,7 @@ describe('HostAgentsService Model Class Check', () => {
       [clientConfigDocuments, [configRow(1, engine, { orchestrator_mcp_enabled: false })]],
     ]);
     const configured = { codex: 'gpt-6.1-sol', claude: 'claude-sonnet-5-5', grok: 'grok-4.7-build-fast' };
-    const host = makeHost({ engines: 'codex,claude,grok', status: 'active', modelOverride: configured.codex,
+    const host = makeHost({ engines: 'codex,claude,grok,kimi', status: 'active', modelOverride: configured.codex,
       claudeModelOverride: configured.claude, grokModelOverride: configured.grok });
     const out = await makeService(db).renderCurrent(host, engine);
     const body = String(out['content']);
@@ -448,7 +448,7 @@ describe('HostAgentsService Model Class Check', () => {
       [agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]],
       [versions, [{ name: 'grok_engine_disabled', version: '1' }]],
     ]);
-    const host = makeHost({ engines: 'codex,claude,grok', modelOverride: 'gpt-6.1-sol' });
+    const host = makeHost({ engines: 'codex,claude,grok,kimi', modelOverride: 'gpt-6.1-sol' });
 
     const out = await makeService(db).retrieve(null, host);
 
@@ -476,7 +476,7 @@ describe('HostAgentsService Model Class Check', () => {
       [agentsDocuments, [agentsRow(4, 'Canonical body\n')]],
       [versions, [{ name: 'model_tier_check_enabled', version: '0' }, { name: 'subagent_model_selection_enabled', version: '1' }]],
     ]);
-    const out = await makeService(db).renderCurrent(makeHost({ engines: 'codex,claude,grok', status: 'active' }), engine);
+    const out = await makeService(db).renderCurrent(makeHost({ engines: 'codex,claude,grok,kimi', status: 'active' }), engine);
     expect(out['content']).toContain('## Subagent Model Selection');
     expect(out['content']).not.toContain('## Model Class Check');
     expect(out['content']).toContain(`Available ${engine} models by fleet tier:`);

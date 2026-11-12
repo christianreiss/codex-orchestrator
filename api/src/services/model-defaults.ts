@@ -19,8 +19,9 @@ import { claudeSessionEfforts } from './claude-effort.js';
 import { CLAUDE_DEFAULT_MODEL, CLAUDE_MODEL_MIN_CLI_VERSIONS, CLAUDE_SUPPORTED_MODELS } from './claude-models.js';
 import { ClientConfigService } from './client-config.js';
 import { withClientConfigWriteLock, type ConfigWriteContext } from './client-config-lock.js';
-import { ENGINE_CLAUDE, ENGINE_GROK, type Engine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, type Engine } from '../util/engine.js';
 import { GROK_CONTEXT_WINDOWS, GROK_DEFAULT_CONTEXT_WINDOW, GROK_DEFAULT_MODEL, GROK_MODEL_DEFAULT_REASONING_EFFORTS, GROK_MODEL_REASONING_EFFORTS, GROK_SUPPORTED_MODELS, normalizeGrokContextWindow } from './grok-models.js';
+import { KIMI_CONTEXT_WINDOWS, KIMI_DEFAULT_CONTEXT_WINDOW, KIMI_DEFAULT_MODEL, KIMI_MODEL_DEFAULT_REASONING_EFFORTS, KIMI_MODEL_CONTEXT_WINDOWS, KIMI_MODEL_REASONING_EFFORTS, KIMI_SUPPORTED_MODELS, normalizeKimiContextWindow } from './kimi-models.js';
 
 export interface ModelDefaultsCatalogEntry {
   model: string;
@@ -100,11 +101,20 @@ export function modelDefaultsCatalog(engine: Engine): ModelDefaultsCatalogEntry[
     default_context_window: GROK_DEFAULT_CONTEXT_WINDOW,
     ...(liveCatalogRequired('grok', model) ? { live_catalog_required: true as const } : {}),
   }));
+  if (engine === ENGINE_KIMI) return KIMI_SUPPORTED_MODELS.map(model => ({
+    model,
+    persistent_efforts: [...KIMI_MODEL_REASONING_EFFORTS[model]],
+    default_effort: KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model],
+    context_windows: KIMI_CONTEXT_WINDOWS.filter(window => window <= KIMI_MODEL_CONTEXT_WINDOWS[model]),
+    default_context_window: KIMI_MODEL_CONTEXT_WINDOWS[model],
+    ...(liveCatalogRequired('kimi', model) ? { live_catalog_required: true as const } : {}),
+  }));
   return copyCatalog(engine === ENGINE_CLAUDE ? CLAUDE_CATALOG : CODEX_CATALOG);
 }
 
 function defaultModel(engine: Engine): string {
   if (engine === ENGINE_GROK) return GROK_DEFAULT_MODEL;
+  if (engine === ENGINE_KIMI) return KIMI_DEFAULT_MODEL;
   return engine === ENGINE_CLAUDE ? CLAUDE_DEFAULT_MODEL : DEFAULT_CODEX_MODEL;
 }
 
@@ -199,7 +209,7 @@ function selectedCatalogEntry(
 
 function responseFromSettings(engine: Engine, settings: Record<string, unknown>): ModelDefaultsResponse {
   const { entry, catalog } = selectedCatalogEntry(engine, settings.model);
-  const rawEffort = engine === ENGINE_CLAUDE ? settings.effortLevel : engine === ENGINE_GROK ? settings.reasoning_effort : settings.model_reasoning_effort;
+  const rawEffort = engine === ENGINE_CLAUDE ? settings.effortLevel : (engine === ENGINE_GROK || engine === ENGINE_KIMI) ? settings.reasoning_effort : settings.model_reasoning_effort;
   const reasoningEffort =
     typeof rawEffort === 'string' && entry.persistent_efforts.includes(rawEffort)
       ? rawEffort
@@ -208,6 +218,7 @@ function responseFromSettings(engine: Engine, settings: Record<string, unknown>)
     engine,
     model: entry.model,
     reasoning_effort: reasoningEffort,
+    ...(engine === ENGINE_KIMI && { context_window: normalizeKimiContextWindow(settings.context_window) ?? KIMI_MODEL_CONTEXT_WINDOWS[entry.model as keyof typeof KIMI_MODEL_CONTEXT_WINDOWS] ?? KIMI_DEFAULT_CONTEXT_WINDOW }),
     ...(engine === ENGINE_GROK && { context_window: normalizeGrokContextWindow(settings.context_window)
       ?? normalizeGrokContextWindow(asRecord(asRecord(asRecord(settings.native_settings).model)[entry.model]).context_window)
       ?? GROK_DEFAULT_CONTEXT_WINDOW }),
@@ -225,7 +236,7 @@ function parseUpdate(
 } {
   const body = asRecord(input);
   const allowedKeys = new Set(['model', 'reasoning_effort']);
-  if (engine === ENGINE_GROK) allowedKeys.add('context_window');
+  if (engine === ENGINE_GROK || engine === ENGINE_KIMI) allowedKeys.add('context_window');
   const extra = Object.keys(body).find((key) => !allowedKeys.has(key));
   if (extra) {
     throw new ValidationError(`Unexpected field: ${extra}`, { param: extra });
@@ -244,8 +255,8 @@ function parseUpdate(
   }
 
   const contextWindow = body.context_window === null ? entry.default_context_window
-    : body.context_window === undefined ? undefined : normalizeGrokContextWindow(body.context_window);
-  if (contextWindow === null) {
+    : body.context_window === undefined ? undefined : (engine === ENGINE_KIMI ? normalizeKimiContextWindow(body.context_window) : normalizeGrokContextWindow(body.context_window));
+  if (contextWindow === null || (contextWindow !== undefined && entry.context_windows && !entry.context_windows.includes(contextWindow))) {
     throw new ValidationError(`context_window must be one of: ${entry.context_windows?.join(', ')}`, { param: 'context_window' });
   }
   const rawEffort = body.reasoning_effort;
@@ -310,6 +321,40 @@ export class ModelDefaultsService {
     });
   }
 
+  stageKimiDefaults(ctx: OwnerMutationContext): void {
+    if (ctx.draft.table('clientConfigDocuments').by('engine', ENGINE_KIMI).length) return;
+    const rendered = this.clientConfig.render({ model: KIMI_DEFAULT_MODEL, reasoning_effort: KIMI_MODEL_DEFAULT_REASONING_EFFORTS[KIMI_DEFAULT_MODEL] }, ENGINE_KIMI);
+    const now = new Date().toISOString();
+    const values = { sha256: rendered.sha256, body: rendered.content, settings: rendered.settings as unknown as Record<string, unknown>, sourceHostId: null, engine: ENGINE_KIMI, createdAt: now, updatedAt: now };
+    ctx.write(async tx => {
+      const [inserted] = await tx.insert(clientConfigDocuments).values(values);
+      ctx.draft.upsert('clientConfigDocuments', { ...values, id: Number(inserted.insertId) });
+    });
+  }
+
+  async ensureKimiDefaults(): Promise<boolean> {
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      owner.assertOwner();
+      if (owner.state.snapshot().table('clientConfigDocuments').by('engine', ENGINE_KIMI).length) return false;
+      try {
+        await this.clientConfig.store({ settings: { model: KIMI_DEFAULT_MODEL, reasoning_effort: KIMI_MODEL_DEFAULT_REASONING_EFFORTS[KIMI_DEFAULT_MODEL] }, expected_revision: null }, null, ENGINE_KIMI);
+        return true;
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'config_revision_conflict' && owner.state.snapshot().table('clientConfigDocuments').by('engine', ENGINE_KIMI).length) return false;
+        throw error;
+      }
+    }
+    return withClientConfigWriteLock(this.db, ENGINE_KIMI, async (tx, existing, context) => {
+      if (existing) return false;
+      await new ModelDefaultsService(tx, context).set(ENGINE_KIMI, {
+        model: KIMI_DEFAULT_MODEL,
+        reasoning_effort: KIMI_MODEL_DEFAULT_REASONING_EFFORTS[KIMI_DEFAULT_MODEL],
+      });
+      return true;
+    });
+  }
+
   async get(engine: Engine): Promise<ModelDefaultsResponse> {
     const current = await this.clientConfig.adminFetch(engine);
     return this.effectiveResponse(engine, asRecord(current.settings));
@@ -337,7 +382,7 @@ export class ModelDefaultsService {
       model: update.model,
     };
 
-    if (engine === ENGINE_GROK) {
+    if (engine === ENGINE_GROK || engine === ENGINE_KIMI) {
       delete settings.model_reasoning_effort;
       delete settings.effortLevel;
       settings.reasoning_effort = update.reasoningEffort;

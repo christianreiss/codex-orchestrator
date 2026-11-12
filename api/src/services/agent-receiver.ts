@@ -74,7 +74,7 @@ export class AgentReceiverService {
   ) {
     const owner=ownerRuntimeFor(this.db);if(owner){const result=await registerOwnedReceiver(owner,this.env,id,token,input);this.changed(id);return result;}
     const auth = await this.authenticate(id, token);
-    if ({ codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[auth.engine] !== input.protocol)
+    if ({ codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1', kimi: 'kimi-hooks-v1' }[auth.engine] !== input.protocol)
       throw new ForbiddenError('Receiver engine mismatch', 'receiver_engine_mismatch');
     const sources: ReceiverSource[] = [];
     const activityEnabled = await this.portal.isEnabled();

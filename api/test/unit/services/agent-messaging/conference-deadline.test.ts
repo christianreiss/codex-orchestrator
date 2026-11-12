@@ -29,7 +29,7 @@ describe('conference delivery deadline', () => {
       '2026-11-01T12:00:00Z',
     );
   });
-  for (const engine of ['codex', 'claude', 'grok']) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
     for (const status of ['open', 'adjourning', 'adjourned']) {
       it(`${engine}: fences old long-expiry rows at the deadline in ${status} rooms`, () => {
         const sender = { id: randomUUID(), engine } as AgentBusAddress;
@@ -73,7 +73,7 @@ describe('conference delivery deadline', () => {
 });
 
 describe('conference late ACK preserves accepted work', () => {
-  for (const engine of ['codex', 'claude', 'grok']) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
     for (const status of ['leased', 'accepted'] as const) {
       it(`${engine}: ${status} ACK after deadline`, async () => {
         const sessionId = randomUUID(),
@@ -196,7 +196,7 @@ describe('conference late ACK preserves accepted work', () => {
 });
 
 describe('conference expiry does not stall independent work', () => {
-  for (const engine of ['codex', 'claude', 'grok']) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
     for (const smartQueue of [false, true]) {
       for (const status of ['queued', 'leased', 'accepted'] as const) {
         it(`${engine}: smart=${smartQueue}, expired ${status} FIFO predecessor`, () => {

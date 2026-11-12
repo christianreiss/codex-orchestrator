@@ -19,7 +19,7 @@ describe('safe CLI discovery and truthful readiness', () => {
     }));
   }
   for (const [name, source] of [
-    ...(['codex', 'claude', 'grok'] as const).map(engine => [`seed-${engine}`, buildSeedAuthScript({ baseUrl: 'https://fixture.invalid', token: 'fixture', engine })] as const),
+    ...(['codex', 'claude', 'grok', 'kimi'] as const).map(engine => [`seed-${engine}`, buildSeedAuthScript({ baseUrl: 'https://fixture.invalid', token: 'fixture', engine })] as const),
     ['host-none', hostSpawnSetupScript('https://fixture.invalid/install', { mode: 'none' })],
     ['host-permanent', hostSpawnSetupScript('https://fixture.invalid/install', { mode: 'permanent', username: 'fixture', default_cwd: '/fixture' })],
     ['host-timed', hostSpawnSetupScript('https://fixture.invalid/install', { mode: 'timed', username: 'fixture', default_cwd: '/fixture', duration_minutes: 10 })],
@@ -55,10 +55,17 @@ describe('safe CLI discovery and truthful readiness', () => {
   function readiness(body: string, fn: string) { return spawnSync('bash', ['-c', `compose() { while [ "$1" != node ]; do shift; done; "$@"; }\n${functions}\n${fn} "$BODY"`], { encoding: 'utf8', env: { ...process.env, BODY: body } }); }
   it.each(['{"ok":false,"checks":[{"id":"db","ok":true}]}', '{}', 'garbled', '{"ok":true,"checks":null}'])('rejects malformed or not-ready response %s', body => { expect(readiness(body, 'readyz_overall_ok').status).not.toBe(0); expect(readiness(body, 'readyz_failures').stdout).not.toBe(''); });
   it('accepts valid healthy readiness', () => { const body = '{"ok":true,"checks":[{"id":"db","ok":true}]}'; expect(readiness(body, 'readyz_overall_ok').status).toBe(0); expect(readiness(body, 'readyz_failures').stdout).toBe(''); });
-  it.each(['codex', 'claude', 'grok'] as const)('reports current sanitized rejection and cleans response for %s', engine => scratch(dir => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('reports current sanitized rejection and cleans response for %s', engine => scratch(dir => {
     const bin = join(dir, 'bin'); mkdirSync(bin); for (const p of ['.codex', '.claude']) mkdirSync(join(dir, p));
     writeFileSync(join(dir, '.codex/auth.json'), '{}'); writeFileSync(join(dir, '.claude/.credentials.json'), '{}'); const auth = join(dir, 'grok.json'); writeFileSync(auth, '{}');
     executable(join(bin, 'curl'), '#!/bin/sh\nout=\nprev=\nfor a in "$@"; do [ "$prev" != -o ] || out=$a; prev=$a; done\nprintf \'{"error":{"code":"seed_token_expired"},"private":"never-print-me"}\' > "$out"\nprintf 404\n');
+    if (engine === 'kimi') executable(join(bin, 'kimi'), `#!/usr/bin/python3
+import os,pathlib,json
+home=pathlib.Path(os.environ['KIMI_CODE_HOME'])
+(home/'credentials').mkdir(parents=True,exist_ok=True)
+(home/'credentials/kimi-code.json').write_text(json.dumps({'access_token':'fixture-access','refresh_token':'fixture-refresh','expires_at':2000000000,'expires_in':3600}))
+(home/'device_id').write_text('a'*32)
+`);
     const script = join(dir, 'seed'); writeFileSync(script, buildSeedAuthScript({ baseUrl: 'https://fixture.invalid', token: 'fixture', engine }));
     const r = spawnSync('/bin/sh', [script], { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:/usr/bin:/bin`, HOME: dir, TMPDIR: dir, GROK_SEED_AUTH_PATH: auth } });
     expect(r.status, r.stderr).toBe(1); expect(r.stderr).toContain('seed token missing or expired'); expect(r.stderr).toContain('seed_token_expired'); expect(r.stderr + r.stdout).not.toContain('never-print-me'); expect(readdirSync(dir).filter(n => n.includes('seed-response'))).toEqual([]);

@@ -35,7 +35,7 @@ describe.skipIf(!handle)('per-key routing persistence against MySQL', () => {
   });
   for (const namespace of ['openai', 'claude', 'grok']) {
     const engine = namespace === 'openai' ? 'codex' : namespace as Engine;
-    for (const backend of [undefined, 'codex', 'claude', 'grok']) {
+    for (const backend of [undefined, 'codex', 'claude', 'grok', 'kimi']) {
       it(`${namespace} persists ${backend ?? 'endpoint default'} through issuance, listing and authentication`, async () => {
         const reply = await app.inject({ method: 'POST', url: `/admin/${namespace}/keys`, payload: {
           name: `db-routing-${namespace}-${backend ?? 'legacy'}`, ...(backend ? { backend_engine: backend } : {}),

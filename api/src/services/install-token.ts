@@ -11,7 +11,7 @@ import { decryptOrNull } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
-import { ENGINE_CLAUDE, ENGINE_GROK, parseEngine } from '../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, parseEngine } from '../util/engine.js';
 import { buildInstallerLauncherScript, buildWrapperV2InstallerScript } from './wrapper-transition.js';
 
 /**
@@ -199,6 +199,7 @@ export function buildSeedAuthScript(opts: { baseUrl: string; token: string; engi
   }
   const postUrl = `${baseUrl}/seed/v2/auth/${token}`;
   if (opts.engine === ENGINE_GROK) return buildGrokSeedAuthScript(postUrl);
+  if (opts.engine === ENGINE_KIMI) return buildKimiSeedAuthScript(postUrl);
   const authPath = opts.engine === ENGINE_CLAUDE ? '$HOME/.claude/.credentials.json' : '$HOME/.codex/auth.json';
   const label = opts.engine === ENGINE_CLAUDE ? 'Claude credentials' : 'Codex auth.json';
   const postUrlQ = shellQuote(postUrl);
@@ -377,4 +378,137 @@ CXX_GROK_SEED_PY
 
 export function shellErrorScript(message: string): string {
   return `echo "${message.replace(/"/g, '\\"')}" >&2\nexit 1\n`;
+}
+
+export function buildKimiSeedAuthScript(postUrl: string): string {
+  return `#!/bin/sh
+# Codex Orchestrator wrapper-v2 seed-auth uploader (kimi).
+set -eu
+${seedArgumentGuard()}command -v python3 >/dev/null 2>&1 || { echo "python3 is required for private Kimi seed cleanup" >&2; exit 1; }
+exec python3 - ${shellQuote(postUrl)} <<'CXX_KIMI_SEED_PY'
+import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
+
+post_url = sys.argv[1]
+existing = ''  # Seeding always creates a dedicated login, never shares a native token chain.
+private = None
+lease = None
+reaper = None
+
+def active(path):
+    # A native process may close the inherited pipe; its private environment
+    # independently fences cleanup until that process has exited.
+    if pathlib.Path('/proc').is_dir():
+        for entry in pathlib.Path('/proc').iterdir():
+            if not entry.name.isdigit() or int(entry.name) == os.getpid():
+                continue
+            try:
+                env = (entry / 'environ').read_bytes().split(bytes([0]))
+            except (OSError, PermissionError):
+                continue
+            for item in env:
+                key, sep, value = item.partition(b'=')
+                if key in (b'KIMI_CODE_HOME', b'KIMI_CODE_AUTH_PATH') and (value == os.fsencode(path) or value.startswith(os.fsencode(path + '/'))):
+                    return True
+        return False
+    try:
+        rows = subprocess.check_output(['ps', 'eww', '-U', str(os.getuid()), '-o', 'command='], stderr=subprocess.DEVNULL).decode()
+        return 'KIMI_CODE_HOME=' + path in rows or 'KIMI_CODE_AUTH_PATH=' + path in rows
+    except (OSError, subprocess.CalledProcessError):
+        return True
+
+try:
+    if existing:
+        auth_path = existing
+        if not pathlib.Path(auth_path).is_file():
+            raise RuntimeError('Kimi subscription credentials not found')
+        print('!! Uploading an existing Kimi login; do not use it elsewhere after upload.', file=sys.stderr)
+        env = dict(os.environ)
+    else:
+        hint = pathlib.Path.home() / '.ckx/state/kimi-bin'
+        binary = hint.read_text().strip() if hint.is_file() else ''
+        if not binary or not os.access(binary, os.X_OK):
+            binary = shutil.which('kimi')
+        if not binary:
+            raise RuntimeError('Kimi CLI not found; install ckx (or the official kimi CLI)')
+        private = tempfile.mkdtemp(prefix='ckx-seed-')
+        read_fd, lease = os.pipe()
+        ack_read, ack_write = os.pipe()
+        reaper = os.fork()
+        if reaper == 0:
+            os.setsid()
+            os.close(lease)
+            os.close(ack_read)
+            # Detach terminal/pipeline handles before acknowledging readiness.
+            null = os.open(os.devnull, os.O_RDWR)
+            for fd in (0, 1, 2):
+                os.dup2(null, fd)
+            os.close(null)
+            os.write(ack_write, b'1')
+            os.close(ack_write)
+            while os.read(read_fd, 4096):
+                pass
+            os.close(read_fd)
+            while active(private):
+                time.sleep(0.1)
+            shutil.rmtree(private)
+            os._exit(0)
+        os.close(read_fd)
+        os.close(ack_write)
+        if os.read(ack_read, 1) != b'1':
+            raise RuntimeError('Kimi seed cleanup helper did not become ready')
+        os.close(ack_read)
+        env = dict(os.environ)
+        for key in ('KIMI_API_KEY', 'KIMI_CODE_HOME', 'KIMI_CODE_AUTH_PATH', 'KIMI_CODE_OAUTH_HOST', 'KIMI_CODE_BASE_URL'):
+            env.pop(key, None)
+        env.update(KIMI_CODE_HOME=private, KIMI_DISABLE_TELEMETRY='1', KIMI_CODE_NO_AUTO_UPDATE='1')
+        print('>> Starting a dedicated Kimi subscription login; the orchestrator will own its refresh', flush=True)
+        try:
+            login_in = open('/dev/tty', 'rb')
+        except OSError:
+            login_in = open(os.devnull, 'rb')
+        with login_in:
+            subprocess.run([binary, 'login'], stdin=login_in, env=env, pass_fds=(lease,), check=True)
+        auth_path = private + '/credentials/kimi-code.json'
+        if not pathlib.Path(auth_path).is_file():
+            raise RuntimeError('Kimi login did not produce credentials')
+    credential = json.loads(pathlib.Path(auth_path).read_text())
+    device_id = (pathlib.Path(private) / 'device_id').read_text().strip()
+    region_path = pathlib.Path(private) / 'region'
+    region = region_path.read_text().strip() if region_path.exists() else ''
+    global_region = 'global' in region.lower()
+    suffix = 'ai' if global_region else 'com'
+    canonical = {'kimi_code': credential, 'device_id': device_id, 'oauth_host': 'https://auth.kimi.' + suffix, 'base_url': 'https://api.kimi.' + suffix + '/coding/v1', 'last_refresh': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
+    auth_path = private + '/canonical.json'
+    pathlib.Path(auth_path).write_text(json.dumps(canonical))
+    os.chmod(auth_path, 0o600)
+    print('>> Uploading Kimi subscription credentials to orchestrator', flush=True)
+    response = tempfile.NamedTemporaryFile(prefix='ckx-seed-response-', delete=False)
+    response.close()
+    try:
+        request = subprocess.run(['curl', '-sSL', '-w', '%{http_code}', '-X', 'POST', '-H', 'Content-Type: application/json', '--data-binary', '@' + auth_path, '-o', response.name, post_url], env=env, pass_fds=(() if lease is None else (lease,)), stdout=subprocess.PIPE, text=True, check=True)
+        status = request.stdout.strip()
+        if not re.fullmatch(r'2[0-9]{2}', status):
+            reason = {'401': 'authorization rejected', '403': 'authorization rejected', '404': 'seed token missing or expired', '409': 'seed token already used or state conflict', '422': 'credentials rejected by verification'}.get(status, 'server rejected upload')
+            try:
+                data = json.loads(pathlib.Path(response.name).read_text())
+                code = data.get('code', data.get('error', ''))
+                if isinstance(code, dict): code = code.get('code', '')
+                if isinstance(code, str) and re.fullmatch(r'[a-z][a-z0-9_.-]{0,100}', code): reason += ': ' + code
+            except (OSError, ValueError, AttributeError): pass
+            raise RuntimeError('Upload failed (HTTP ' + status + '): ' + reason)
+        print('Upload accepted (HTTP ' + status + ').')
+    finally:
+        os.unlink(response.name)
+except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+    print(str(error), file=sys.stderr)
+    sys.exit(1)
+finally:
+    if lease is not None:
+        os.close(lease)
+        if reaper is not None:
+            os.waitpid(reaper, 0)
+        elif private is not None:
+            shutil.rmtree(private)
+CXX_KIMI_SEED_PY
+`;
 }

@@ -56,7 +56,7 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       apiKey: 'e'.repeat(64),
       status: 'active',
       secure: 1,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -149,7 +149,7 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
     await service.remove({ id: schedule.id, version: 2 }, 'host:other');
     await expect(service.get(schedule.id)).rejects.toMatchObject({ code: 'schedule_not_found' });
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'dispatches persistent %s work once across concurrent ticks with a native target',
     async (engine) => {
       const target = await agent(engine),
@@ -374,7 +374,7 @@ describe.skipIf(!handle)('durable Wake/Cron schedules on MySQL', { timeout: 1200
       code: 'schedule_bridge_invalid',
     });
   });
-  it.each(['codex','claude','grok'] as const)('stores encrypted %s outcomes idempotently, with an atomic peer reply', async engine => {
+  it.each(['codex','claude','grok','kimi'] as const)('stores encrypted %s outcomes idempotently, with an atomic peer reply', async engine => {
     const sender=await agent(engine), target=await agent(engine);
     const sent=await bus.sendMessage(sender.id,sender.token,{to:target.address.address,content:'check fixture',kind:'request',clientMessageId:randomUUID()});
     const messageId=String((sent.message as Record<string,unknown>).id), claimId=randomUUID();

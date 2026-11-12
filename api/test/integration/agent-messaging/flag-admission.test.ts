@@ -101,14 +101,14 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
       const fqdn = `${prefix}-${i}.example`;
       const now = new Date().toISOString();
       await exec(
-        `INSERT INTO hosts (fqdn, api_key, status, secure, engines, agent_messaging_enabled, created_at, updated_at) VALUES ('${fqdn}', '${randomBytes(32).toString('hex')}', 'active', 1, 'codex,claude,grok', 1, '${now}', '${now}')`,
+        `INSERT INTO hosts (fqdn, api_key, status, secure, engines, agent_messaging_enabled, created_at, updated_at) VALUES ('${fqdn}', '${randomBytes(32).toString('hex')}', 'active', 1, 'codex,claude,grok,kimi', 1, '${now}', '${now}')`,
       );
       const [host] = await db.select().from(hosts).where(eq(hosts.fqdn, fqdn));
       await markPersistentHost(db, host!.id, `${prefix}-${i}`);
       hostIds.push(host!.id);
       const sessionId = randomUUID();
       const token = randomBytes(32).toString('base64url');
-      const engine: Engine = (['codex', 'claude', 'grok', 'codex'] as const)[i]!;
+      const engine: Engine = (['codex', 'claude', 'grok', 'kimi', 'codex'] as const)[i]!;
       const result = await service.registerSession(host!, {
         engine,
         sessionId,
@@ -198,10 +198,10 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     return { id: String(relay.relay_id), token: String(relay.relay_token) };
   }
 
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'empty %s relay poll bypasses a held exclusive flag lock',
     async (engine) => {
-      const index = { codex: 0, claude: 1, grok: 2 }[engine];
+      const index = { codex: 0, claude: 1, grok: 2, kimi: 3 }[engine];
       const relay = await relayFor(index);
       const connection = await pool.getConnection();
       await connection.beginTransaction();
@@ -437,10 +437,10 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     expect(events.filter((e) => e === 'agent_messaging.message.changed')).toHaveLength(1);
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'committed disable rejects waiting %s admission without message or publication',
     async (engine) => {
-      const index = { codex: 0, claude: 1, grok: 2 }[engine];
+      const index = { codex: 0, claude: 1, grok: 2, kimi: 3 }[engine];
       const connection = await pool.getConnection();
       await connection.beginTransaction();
       await connection.query('UPDATE versions SET version=? WHERE name=?', [

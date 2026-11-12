@@ -87,7 +87,7 @@ describe('Grok admin version controls', () => {
       grok_available_client: { name: 'grok-cli', version: '1.0.50' },
       grok_versions: { client_version: 'latest', client_version_lock: null },
     });
-    expect(upstream).toHaveBeenCalledTimes(3);
+    expect(upstream).toHaveBeenCalledTimes(4);
     await app.close();
   });
 });

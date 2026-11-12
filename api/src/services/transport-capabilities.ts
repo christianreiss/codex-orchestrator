@@ -74,6 +74,11 @@ const RUNNER_CLI_CONTROLS: Record<Engine, Record<GenerationControl, ControlSuppo
     top_p: 'unsupported', top_k: 'unsupported', stop_sequences: 'unsupported',
     system: 'enforced', stream: 'unsupported', tools: 'unsupported',
   },
+  kimi: {
+    model: 'enforced', max_tokens: 'unsupported', temperature: 'unsupported',
+    top_p: 'unsupported', top_k: 'unsupported', stop_sequences: 'unsupported',
+    system: 'enforced', stream: 'unsupported', tools: 'unsupported',
+  },
   [ENGINE_CODEX]: {
     model: 'enforced',
     max_tokens: 'accepted-unenforceable',

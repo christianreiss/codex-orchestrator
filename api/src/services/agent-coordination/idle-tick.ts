@@ -78,7 +78,7 @@ export async function coordinationTickInput(
       'expiresAt', ${agentResourceClaims.expiresAt})) FROM ${agentResourceClaims} WHERE ${agentResourceClaims.state} = 'active')`,
       flags: sql<unknown>`(SELECT JSON_ARRAYAGG(JSON_OBJECT('key', ${versions.name}, 'value', ${versions.version}))
       FROM ${versions} WHERE ${versions.name} IN ('agent_coordination_enabled', 'agent_messaging_enabled',
-        'codex_engine_disabled', 'claude_engine_disabled', 'grok_engine_disabled'))`,
+        'codex_engine_disabled', 'claude_engine_disabled', 'grok_engine_disabled', 'kimi_engine_disabled'))`,
       pending: sql<number>`EXISTS (SELECT 1 FROM ${agentScopeEvents} WHERE ${agentScopeEvents.dispatched} = 0
       AND ${agentScopeEvents.createdAt} < ${new Date(now - 2000).toISOString()} LIMIT 1)`,
     })

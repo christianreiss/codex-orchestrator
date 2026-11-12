@@ -97,7 +97,7 @@ export class SetupStatusService {
       database.ok ? read() : Promise.resolve(fallback);
     const skipped = (id: string, label: string): SetupCheck =>
       ({ id, label, ok: false, critical: true, detail: 'skipped: database unreachable' });
-    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, grokAuth, hostRows, wizard, fleetDefaults] =
+    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, grokAuth, kimiAuth, hostRows, wizard, fleetDefaults] =
       await Promise.all([
         whenDb(() => this.migrationCheck(), skipped('migrations', 'Migrations')),
         this.runnerCheck(),
@@ -107,9 +107,10 @@ export class SetupStatusService {
         whenDb(() => this.hasCanonicalAuth('codex'), false),
         whenDb(() => this.hasCanonicalAuth('claude'), false),
         whenDb(() => this.hasCanonicalAuth('grok'), false),
+        whenDb(() => this.hasCanonicalAuth('kimi'), false),
         whenDb(
-          () => owner ? Promise.resolve(owner.state.snapshot().hosts.all().filter(row => !row.internalRole).map(row => ({id:row.id,codex:row.lastRefresh,claude:row.claudeLastRefresh,grok:row.grokLastRefresh}))) : this.db
-            .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh, grok: hosts.grokLastRefresh })
+          () => owner ? Promise.resolve(owner.state.snapshot().hosts.all().filter(row => !row.internalRole).map(row => ({id:row.id,codex:row.lastRefresh,claude:row.claudeLastRefresh,grok:row.grokLastRefresh,kimi:row.kimiLastRefresh}))) : this.db
+            .select({ id: hosts.id, codex: hosts.lastRefresh, claude: hosts.claudeLastRefresh, grok: hosts.grokLastRefresh, kimi: hosts.kimiLastRefresh })
             .from(hosts)
             .where(visibleHost),
           [],
@@ -139,7 +140,7 @@ export class SetupStatusService {
     ];
     const criticalComplete = checks.filter((check) => check.critical).every((check) => check.ok);
     const ownerCreated = users.length > 0;
-    const syncedHosts = hostRows.filter((row) => Boolean(row.codex || row.claude || row.grok)).length;
+    const syncedHosts = hostRows.filter((row) => Boolean(row.codex || row.claude || row.grok || row.kimi)).length;
     const configuredEngines = parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
     const chosenEngines = wizard.engines && wizard.engines.length > 0 ? wizard.engines : configuredEngines;
     // Engines switched off fleet-wide are neither offered as defaults nor
@@ -156,7 +157,7 @@ export class SetupStatusService {
     const nextActions = [
       ...defaultEngines.filter((engine) => fleet[engine]).map((engine) => ({
         id: `auth_${engine}`,
-        complete: ({ codex: codexAuth, claude: claudeAuth, grok: grokAuth })[engine],
+        complete: ({ codex: codexAuth, claude: claudeAuth, grok: grokAuth, kimi: kimiAuth })[engine],
         label: `Seed canonical ${ENGINE_LABELS[engine]} authentication`,
         // The wizard's auth step, not /admin/api-keys — that page manages proxy
         // bearer keys and has never had any canonical-auth UI, so this link
@@ -180,7 +181,7 @@ export class SetupStatusService {
       checks,
       configured_engines: configuredEngines,
       default_engines: defaultEngines,
-      canonical_auth: { codex: codexAuth, claude: claudeAuth, grok: grokAuth },
+      canonical_auth: { codex: codexAuth, claude: claudeAuth, grok: grokAuth, kimi: kimiAuth },
       hosts: { total: hostRows.length, synced: syncedHosts },
       public_base_url: publicBaseUrl,
       warnings,

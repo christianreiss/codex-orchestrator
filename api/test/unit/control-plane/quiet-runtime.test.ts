@@ -107,17 +107,17 @@ describe('quiet owner runtime', () => {
     expect(f.owner.state.revision().sequence).toBe(0n);
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('%s activity uses its attached receiver, not a stale heartbeat, with no SQL', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s activity uses its attached receiver, not a stale heartbeat, with no SQL', async (engine) => {
     const id = randomUUID(), generation = randomUUID(), native = randomUUID(), token = 'fixture-token';
     const old = new Date(Date.now() - 3600_000).toISOString();
     const f = runtime({
       versions: [{ name: 'agent_portal_enabled', version: '1' }],
-      hosts: [{ id: 1, fqdn: 'fixture', status: 'active', secure: 1, engines: 'codex,claude,grok', apiKey: 'fixture-host' }],
+      hosts: [{ id: 1, fqdn: 'fixture', status: 'active', secure: 1, engines: 'codex,claude,grok,kimi', apiKey: 'fixture-host' }],
       agentSessions: [{ id, hostId: 1, engine, endedAt: null, bindingGeneration: 1,
         upstreamSessionId: native, bridgeTokenHash: sha256(token), hostAuthFingerprint: sha256('fixture-host'),
         bridgeExpiresAt: new Date(Date.now() + 3600_000).toISOString(),
         receiver: { generation, native_session_id: native,
-          protocol: { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[engine],
+          protocol: { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1', kimi: 'kimi-hooks-v1' }[engine],
           heartbeat_at: old, failure: null, probes: { portal: {} } },
       }],
     });
@@ -127,7 +127,7 @@ describe('quiet owner runtime', () => {
     const service = new OwnedPortal(f.owner, db, {} as Env, {} as Keyring);
     const input = { generation, binding_generation: 1, native_session_id: native, sequence: 1,
       state: 'working' as const, wait_reason: null, evidence_age_ms: 0, receiver_bound: true,
-      source: { codex: 'codex-thread', claude: 'claude-hooks', grok: 'grok-session' }[engine] as 'codex-thread' | 'claude-hooks' | 'grok-session' };
+      source: { codex: 'codex-thread', claude: 'claude-hooks', grok: 'grok-session', kimi: 'kimi-hooks' }[engine] as 'codex-thread' | 'claude-hooks' | 'grok-session' };
     await expect(service.activity(id, token, input)).resolves.toEqual({ accepted: true });
     await expect(service.activity(id, token, input)).resolves.toEqual({ accepted: false });
     expect((await service.list()).sessions[0]).toMatchObject({ activity: { state: 'working', expires_at: null } });

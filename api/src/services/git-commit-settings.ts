@@ -25,7 +25,7 @@ export async function readGitCommitSettings(settings: SettingsService): Promise<
 }
 
 export function renderGitCommitGuidance(settings: GitCommitSettings, engine: Engine): string {
-  const name = { codex: 'Codex', claude: 'Claude', grok: 'Grok' }[engine];
+  const name = { codex: 'Codex', claude: 'Claude', grok: 'Grok', kimi: 'Kimi Code' }[engine];
   return `## Git commit messages
 
 These fleet-wide preferences apply even when the Git Director or Skills are disabled.

@@ -29,12 +29,13 @@ describe.skipIf(!handle)('resident migration admission with MySQL', () => {
       apiKey: 'f'.repeat(64),
       apiKeyHash: createHash('sha256').update(fqdn).digest('hex'),
       reverseDnsMode: 0,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       secure: 1,
       agentMessagingEnabled: 1,
       authDigest: 'fixture',
       claudeAuthDigest: 'fixture',
       grokAuthDigest: 'fixture',
+      kimiAuthDigest: 'fixture',
       status: 'active',
       createdAt: stamp,
       updatedAt: stamp,
@@ -55,7 +56,7 @@ describe.skipIf(!handle)('resident migration admission with MySQL', () => {
         instance_id: randomUUID(),
         username: 'root',
         version: 'fixture',
-        engines: ['codex', 'claude', 'grok'],
+        engines: ['codex', 'claude', 'grok', 'kimi'],
         error: null,
       })
     ).generation;

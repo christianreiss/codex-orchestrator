@@ -61,12 +61,12 @@ describe('host lifecycle', () => {
     expect(db.tables.get(authPayloads)).toEqual([{ sourceHostId: 1, accountId: 7 }]);
     expect(db.tables.get(logs)?.map(log => JSON.parse(log.details as string).reason)).toEqual(['never_provisioned', 'expired']);
   });
-  it.each(['codex', 'claude', 'grok'])('retains %s provisioning metadata and pooled-account contacts', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('retains %s provisioning metadata and pooled-account contacts', async engine => {
     const version = engine === 'codex' ? 'wrapperVersion' : `${engine}WrapperVersion`;
     const db = setup([row({ engines: engine, [version]: '0.9.45' }), row({ id: 2, engines: engine, apiCalls: 1 })]);
     expect(await pruneHosts(db as any, settings, now)).toBe(0);
   });
-  it.each(['codex', 'claude', 'grok'])('renews %s temporary contact for two hours and refuses resurrection', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('renews %s temporary contact for two hours and refuses resurrection', async engine => {
     const live = row({ engines: engine, expiresAt: '2026-10-11T16:01:00Z' });
     const db = setup([live]);
     const touched = await recordHostContact(db as any, live, now);

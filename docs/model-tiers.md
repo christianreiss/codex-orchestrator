@@ -7,8 +7,8 @@
 | --- | --- | --- |
 | 5 | Astra, Fable | Frontier reasoning, exceptional complexity |
 | 4 | Opus | Advanced reasoning, architecture, complex engineering |
-| 3 | Sol, Sonnet | Strong autonomous engineering, complex implementation |
-| 2 | Terra, Grok 4.7, Grok 4.7 Fast, Grok 4.6 | Routine to moderately complex tasks |
+| 3 | Sol, Sonnet, K3-1 | Strong autonomous engineering, complex implementation |
+| 2 | Terra, Grok 4.7, Grok 4.7 Fast, Grok 4.6, K3, Kimi | Routine to moderately complex tasks |
 | 1 | Luna, Haiku, Grok 4.5 | Simple, bounded tasks |
 <!-- END GENERATED: model tier table -->
 

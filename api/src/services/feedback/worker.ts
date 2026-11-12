@@ -150,13 +150,13 @@ INPUT:\n${input}`;
     this.upstream = { sha, expires: Date.now() + 15 * 60000 };
     let versionState = classifyVersion(identity, sha);
     if (versionState === 'old_version' && !await github.isBehind(identity.commit!, sha)) versionState = 'unknown';
-    if (/wrapper|cxx|cdx|clx|cgx/i.test(item.component)) {
+    if (/wrapper|cxx|cdx|clx|cgx|ckx/i.test(item.component)) {
       const hostId = Number(item.source.host_id);
       const host = Number.isSafeInteger(hostId) && hostId > 0
         ? owner ? owner.state.snapshot().hosts.get(hostId) : (await this.ctx.db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1))[0] : undefined;
       // Free-form report.versions is not authoritative host telemetry.
       const actual = item.source.engine === 'claude' ? host?.claudeWrapperVersion
-        : item.source.engine === 'grok' ? host?.grokWrapperVersion : host?.wrapperVersion;
+        : item.source.engine === 'kimi' ? host?.kimiWrapperVersion : item.source.engine === 'grok' ? host?.grokWrapperVersion : host?.wrapperVersion;
       const latest = await github.wrapperVersion();
       if (!actual) versionState = 'unknown';
       else if (actual.replace(/^v/, '') !== latest.replace(/^v/, '')) versionState = 'old_version';

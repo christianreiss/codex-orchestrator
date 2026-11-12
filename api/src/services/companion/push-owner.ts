@@ -59,9 +59,10 @@ const TABLES = [
   'chatgptUsageSnapshots',
   'claudeUsageSnapshots',
   'grokUsageSnapshots',
+  'kimiUsageSnapshots',
 ] as const;
 /** Quota obligations re-run when an account or a usage snapshot changes (not on every setting write). */
-const QUOTA_TABLES = ['providerAccounts', 'chatgptUsageSnapshots', 'claudeUsageSnapshots', 'grokUsageSnapshots'] as const;
+const QUOTA_TABLES = ['providerAccounts', 'chatgptUsageSnapshots', 'claudeUsageSnapshots', 'grokUsageSnapshots', 'kimiUsageSnapshots'] as const;
 type Device = Readonly<StateRow<'companionDevices'>>;
 type Job = Readonly<StateRow<'companionNotifications'>>;
 

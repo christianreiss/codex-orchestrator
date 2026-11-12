@@ -84,12 +84,19 @@ function fakeHost(): Host {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     grokClientVersion: null,
+    kimiClientVersion: null,
     grokClientVersionOverride: null,
+    kimiClientVersionOverride: null,
     grokWrapperVersion: null,
+    kimiWrapperVersion: null,
     grokAuthDigest: null,
+    kimiAuthDigest: null,
     grokModelOverride: null,
+    kimiModelOverride: null,
     grokReasoningEffortOverride: null,
+    kimiReasoningEffortOverride: null,
     grokLastRefresh: null,
+    kimiLastRefresh: null,
     configVersion: 0,
     wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
     createdAt: '2026-05-01T00:00:00Z',
@@ -1190,7 +1197,7 @@ describe('wrapper-v2 routes', () => {
         const host = fakeHost();
         const app = await productionApp(host);
         try {
-          for (const engine of ['codex', 'claude', 'grok']) {
+          for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
             const r = await app.inject({ method: 'GET', url: `${url}?engine=${engine}` });
             // fakeHost only assigns codex; an unassigned engine is refused before the body exists.
             if (r.statusCode !== 200) continue;

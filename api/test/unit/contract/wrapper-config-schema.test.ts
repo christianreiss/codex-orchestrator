@@ -134,12 +134,19 @@ function fakeHost(): Host {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     grokClientVersion: null,
+    kimiClientVersion: null,
     grokClientVersionOverride: null,
+    kimiClientVersionOverride: null,
     grokWrapperVersion: null,
+    kimiWrapperVersion: null,
     grokAuthDigest: null,
+    kimiAuthDigest: null,
     grokModelOverride: null,
+    kimiModelOverride: null,
     grokReasoningEffortOverride: null,
+    kimiReasoningEffortOverride: null,
     grokLastRefresh: null,
+    kimiLastRefresh: null,
     configVersion: 4,
     wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
     createdAt: '2026-05-01T00:00:00Z',
@@ -162,6 +169,7 @@ function fakeDb(): Database {
       { slug: 'codex-skill', sha256: 'd'.repeat(64), deletedAt: null, engine: 'codex' },
       { slug: 'claude-skill', sha256: 'e'.repeat(64), deletedAt: null, engine: 'claude' },
       { slug: 'grok-skill', sha256: 'f'.repeat(64), deletedAt: null, engine: 'grok' },
+      { slug: 'kimi-skill', sha256: 'f'.repeat(64), deletedAt: null, engine: 'kimi' },
     ],
   };
 
@@ -280,7 +288,7 @@ const CLOSED = [
 ];
 
 describe('baked wrapper config against host-config-v1.json', () => {
-  for (const engine of ['codex', 'claude', 'grok'] as const) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
     it(`emits only declared keys for engine=${engine}`, async () => {
       const diff = diffAgainstSchema(await bake(engine));
       // Every catalog entry is one closed object; count the shape once.

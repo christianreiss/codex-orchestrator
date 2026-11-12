@@ -25,7 +25,7 @@ const candidate = { last_refresh: '2026-07-01T00:00:00Z', auths: { 'api.openai.c
 function fixture(engine: Engine, latest = false) {
   const db = createDbFake();
   db.tables.set(hosts, [{ id: 1, fqdn: 'host.example', apiKey, apiKeyHash: hashApiKey(apiKey),
-    status: 'active', secure: 1, engines: 'codex,claude,grok', apiCalls: 0,
+    status: 'active', secure: 1, engines: 'codex,claude,grok,kimi', apiCalls: 0,
     autoUpdateOverride: null, reverseDnsMode: 0 }]);
   const runnerKey = engine === 'codex' ? 'runner_state' : `runner_state_${engine}`;
   const rows = [
@@ -34,7 +34,7 @@ function fixture(engine: Engine, latest = false) {
     { name: `github_release_${engine}-cli`, version: JSON.stringify({ version: '2.1.300' }) },
   ];
   db.tables.set(versions, rows);
-  const payload = { engine, include_content: false, metadata_only: engine === 'grok' };
+  const payload = { engine, include_content: false, metadata_only: engine === 'grok' || engine === 'kimi' };
   const inject = { method: 'POST' as const, url: '/sync/bootstrap', headers: { authorization: `Bearer ${apiKey}` }, payload };
   const app = () => buildHostApiTestApp({ db: db as never, env, keyring: Keyring.fromEnv(env) });
   return { db, rows, runnerKey, inject, app };
@@ -43,11 +43,11 @@ function fixture(engine: Engine, latest = false) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('bootstrap request version snapshot', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('%s refreshes and projects once per request, including nested auth', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s refreshes and projects once per request, including nested auth', async engine => {
     const f = fixture(engine, true);
     // The minimal Drizzle fake does not implement the unrelated pool-count join.
-    if (engine === 'grok') vi.spyOn(ProviderAccountsService.prototype, 'countLeasable').mockResolvedValue(0);
-    let expectedVersion = '2.1.301';
+    if (engine === 'grok' || engine === 'kimi') vi.spyOn(ProviderAccountsService.prototype, 'countLeasable').mockResolvedValue(0);
+    let expectedVersion = engine === 'kimi' ? '2.5.4' : '2.1.301';
     const refresh = vi.spyOn(ClientVersionsService.prototype, 'availableClientVersion').mockImplementation(async (_force, requestedEngine) => {
       expect(requestedEngine).toBe(engine);
       f.rows.find(row => row.name === `github_release_${engine}-cli`)!.version = JSON.stringify({ version: expectedVersion });
@@ -63,7 +63,7 @@ describe('bootstrap request version snapshot', () => {
         expect(body.versions.client_version).toBe(expectedVersion);
         if (includeAuth) expect(body.auth.versions).toEqual(body.versions);
         else expect(body.auth).toBeUndefined();
-        expectedVersion = '2.1.302';
+        expectedVersion = engine === 'kimi' ? '2.5.5' : '2.1.302';
       }
       expect(refresh).toHaveBeenCalledTimes(2);
       expect(projection).toHaveBeenCalledTimes(2);

@@ -14,7 +14,7 @@ import { readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 const config = readDbConfig();
-const protocols = { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' } as const;
+const protocols = { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1', kimi: 'kimi-hooks-v1' } as const;
 
 describe.skipIf(!config)('session idle polls preserve admission on real MySQL', { timeout: 30_000 }, () => {
   const pool = mysql.createPool({ ...config, connectionLimit: 2 });

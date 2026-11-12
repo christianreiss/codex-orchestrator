@@ -217,7 +217,7 @@ describe('owned reboot and replacement lifecycle', () => {
     expect(h.state.snapshot().table('agentRebootHandoffs').get(h.id)).not.toHaveProperty('continuationEnc');
     expect(h.select).not.toHaveBeenCalled();
   });
-  for (const engine of ['codex', 'claude', 'grok'])
+  for (const engine of ['codex', 'claude', 'grok', 'kimi'])
     it(`${engine}: arm preserves claims; finish records uncertainty without requeue; reads use RAM`, async () => {
       const h = fixture(engine);
       await h.service.arm(h.sessionId, h.id);
@@ -301,7 +301,7 @@ describe('owned host auth routes', () => {
     expect(h.state.revision().sequence).toBe(after);
     expect(h.select).not.toHaveBeenCalled();
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'uninstalls only %s and retains other-engine bindings',
     async (engine) => {
       const host = {
@@ -310,28 +310,28 @@ describe('owned host auth routes', () => {
         apiKey: 'key',
         status: 'active',
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
       } as schema.Host;
       const h = harness({
         hosts: [host as unknown as Record<string, unknown>],
-        hostAuthStates: ['codex', 'claude', 'grok'].map((e) => ({
+        hostAuthStates: ['codex', 'claude', 'grok', 'kimi'].map((e) => ({
           hostId: 1,
           engine: e,
           payloadId: 1,
           seenDigest: 'x',
           seenAt: 'now',
         })),
-        hostAuthDigests: ['codex', 'claude', 'grok'].map((e, i) => ({ id: i + 1, hostId: 1, engine: e })),
-        installTokens: ['codex', 'claude', 'grok'].map((e, i) => ({ id: i + 1, hostId: 1, engine: e })),
+        hostAuthDigests: ['codex', 'claude', 'grok', 'kimi'].map((e, i) => ({ id: i + 1, hostId: 1, engine: e })),
+        installTokens: ['codex', 'claude', 'grok', 'kimi'].map((e, i) => ({ id: i + 1, hostId: 1, engine: e })),
       });
       await uninstallOwnedHost(h.owner, host, engine, false);
       expect(h.state.snapshot().hosts.get(1)?.engines).toBe(
-        ['codex', 'claude', 'grok'].filter((e) => e !== engine).join(','),
+        ['codex', 'claude', 'grok', 'kimi'].filter((e) => e !== engine).join(','),
       );
       expect(h.state.snapshot().table('hostAuthStates').has([1, engine])).toBe(false);
-      expect(h.state.snapshot().table('hostAuthStates').all()).toHaveLength(2);
-      expect(h.state.snapshot().table('hostAuthDigests').all()).toHaveLength(2);
-      expect(h.state.snapshot().table('installTokens').all()).toHaveLength(2);
+      expect(h.state.snapshot().table('hostAuthStates').all()).toHaveLength(3);
+      expect(h.state.snapshot().table('hostAuthDigests').all()).toHaveLength(3);
+      expect(h.state.snapshot().table('installTokens').all()).toHaveLength(3);
       expect(h.select).not.toHaveBeenCalled();
     },
   );

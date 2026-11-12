@@ -37,7 +37,7 @@ export async function companionQuotas(ctx: RouteContext) {
             .map(async (a) => {
               const usage = await service.usage(a.id, engine);
               const windows =
-                engine === 'grok' && 'current_window' in usage
+                engine === 'kimi' && 'windows' in usage ? usage.windows.map(w => ({ ...w, limit_seconds: w.kind === 'five_hour' ? 18000 : w.kind === 'weekly' ? 604800 : null })) : engine === 'grok' && 'current_window' in usage
                   ? usage.current_window
                     ? [
                         {

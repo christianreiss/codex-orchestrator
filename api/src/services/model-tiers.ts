@@ -21,6 +21,7 @@ const FAMILY_TIERS: Readonly<Record<Engine, Readonly<Record<string, ModelTier>>>
   codex: familyTiers('codex'),
   claude: familyTiers('claude'),
   grok: {},
+  kimi: {},
 };
 
 /** Exact ids and active aliases (not retired ids) -> tier. */
@@ -41,6 +42,7 @@ export const ENGINE_VENDOR: Readonly<Record<Engine, string>> = {
   codex: 'OpenAI',
   claude: 'Anthropic',
   grok: 'xAI',
+  kimi: 'MoonshotAI',
 };
 
 export const MODEL_TIER_WORK: Readonly<Record<ModelTier, string>> = {

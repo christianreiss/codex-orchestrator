@@ -22,7 +22,7 @@ describe.skipIf(!handle)('quota recovery on MySQL', { timeout: 120000 }, () => {
     saved = await db.select().from(versions).where(inArray(versions.name, flagNames));
     for (const name of flagNames) await db.insert(versions).values({ name, updatedAt: new Date().toISOString(), version: name === 'agent_messaging_enabled' ? '1' : '0' }).onDuplicateKeyUpdate({ set: { version: name === 'agent_messaging_enabled' ? '1' : '0' } });
     const fqdn = `quota-test-${randomUUID()}.example`, now = new Date().toISOString();
-    await db.insert(hosts).values({ fqdn, apiKey: randomBytes(32).toString('hex'), secure: 1, status: 'active', engines: 'codex,claude,grok', createdAt: now, updatedAt: now });
+    await db.insert(hosts).values({ fqdn, apiKey: randomBytes(32).toString('hex'), secure: 1, status: 'active', engines: 'codex,claude,grok,kimi', createdAt: now, updatedAt: now });
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!;
     await markPersistentHost(db, host.id, 'quota-test');
     bus = new AgentMessagingService(db, loadTestEnv(), keyring); watchdogs = new WatchdogsService(db, keyring); schedules = new SchedulesService(db, keyring);
@@ -56,7 +56,7 @@ describe.skipIf(!handle)('quota recovery on MySQL', { timeout: 120000 }, () => {
     await db.delete(versions).where(inArray(versions.name, flagNames)); for (const row of saved) await db.insert(versions).values(row);
     await handle!.pool.end();
   });
-  it.each(['codex', 'claude', 'grok'] as const)('%s arms one bound reset recovery and user stop prevents it', async engine => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s arms one bound reset recovery and user stop prevents it', async engine => {
     const a = await agent(engine);
     const body = { failure: 'capacity', last_progress_at: new Date().toISOString(), native_session_id: a.native };
     await watchdogs.activity(a.id, a.token, body); await watchdogs.activity(a.id, a.token, body);

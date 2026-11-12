@@ -48,7 +48,7 @@ export function quotaNoticeContent(q: NonNullable<QuotaSnapshot>, w: QuotaWindow
 
 export function startQuotaWorker(app: FastifyInstance, db: Database, _env: Env, _keyring: Keyring) {
   const commands = requireOwnerMaintenanceCommands(db);
-  const tables = ['versions', 'agentSessions', 'agentBusAddresses', 'providerAccounts', 'chatgptUsageSnapshots', 'claudeUsageSnapshots', 'grokUsageSnapshots', 'quotaEmulationStates'] as const;
+  const tables = ['versions', 'agentSessions', 'agentBusAddresses', 'providerAccounts', 'chatgptUsageSnapshots', 'claudeUsageSnapshots', 'grokUsageSnapshots', 'kimiUsageSnapshots', 'quotaEmulationStates'] as const;
   startOwnerWorker(app, db, {
     name: 'quota-notices', tables,
     subscribe: wake => commands.subscribeFacts(wake),

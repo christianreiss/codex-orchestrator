@@ -43,13 +43,14 @@ describe('host daemon service decisions', () => {
               id: 1,
               fqdn: 'daemon.test',
             apiKey: 'test-daemon-key',
-              engines: 'codex,claude,grok',
+              engines: 'codex,claude,grok,kimi',
               secure: 1,
               agentMessagingEnabled: 1,
               status: 'active',
               authDigest: 'test',
               claudeAuthDigest: 'test',
               grokAuthDigest: 'test',
+              kimiAuthDigest: 'test',
             },
           ],
         ],
@@ -67,7 +68,7 @@ describe('host daemon service decisions', () => {
         instance_id: 'daemon',
         username: 'root',
         version: 'test',
-        engines: ['codex', 'claude', 'grok'],
+        engines: ['codex', 'claude', 'grok', 'kimi'],
         error: null,
       })
     ).generation;
@@ -116,7 +117,7 @@ describe('host daemon service decisions', () => {
     expect(expired.settings.resident_enabled).toBe(true);
     expect(expired.settings.expires_at).toBe('2026-01-01T00:00:00Z');
   });
-  it.each(['codex', 'claude', 'grok'] as const)('preserves cwd precedence and resolves omitted %s cwd on the host', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('preserves cwd precedence and resolves omitted %s cwd on the host', async (engine) => {
     const settings = row(hostDaemons).settings as Record<string, unknown>;
     for (const cwd of [undefined, '']) {
       const start = await service.start({ ...request(), engine, cwd }, 'owner');
@@ -269,7 +270,7 @@ describe('host daemon service decisions', () => {
       await app.close();
     }
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'starts %s with immutable results and retry keys',
     async (engine) => {
       const input = { ...request(), engine };

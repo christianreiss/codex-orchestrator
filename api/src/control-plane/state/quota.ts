@@ -55,3 +55,7 @@ export function sameQuotaObservation(before: object, after: object): boolean {
     (key) => volatile.has(key) || JSON.stringify(a[key] ?? null) === JSON.stringify(b[key] ?? null),
   );
 }
+
+export function stageKimiQuota(draft: OwnerStateDraft, row: StateRow<'kimiUsageSnapshots'>): void {
+  draft.upsert('kimiUsageSnapshots', row);
+}

@@ -73,7 +73,7 @@ describe.skipIf(!handle)('a console session as message author', { timeout: 120_0
     await exec(`DELETE FROM hosts WHERE fqdn = '${HOST_FQDN}'`);
     await exec(
       `INSERT INTO hosts (fqdn, api_key, status, engines, created_at, updated_at)
-       VALUES ('${HOST_FQDN}', '${'b'.repeat(64)}', 'active', 'codex,claude,grok', '${now}', '${now}')`,
+       VALUES ('${HOST_FQDN}', '${'b'.repeat(64)}', 'active', 'codex,claude,grok,kimi', '${now}', '${now}')`,
     );
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, HOST_FQDN)).limit(1))[0]!;
     env = {

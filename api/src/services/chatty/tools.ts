@@ -120,7 +120,7 @@ export function hostListRow(row: object): Record<string, unknown> {
     : rest;
 }
 
-async function configRead(c: ToolContext, engine: 'codex' | 'claude' | 'grok') {
+async function configRead(c: ToolContext, engine: 'codex' | 'claude' | 'grok' | 'kimi') {
   const { content: _content, ...view } = await new ClientConfigService(c.db).adminFetch(engine);
   return modelSafe(view);
 }

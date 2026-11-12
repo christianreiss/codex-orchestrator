@@ -27,7 +27,7 @@ describe.skipIf(!handle)('host lifecycle and installer transactions on MySQL', (
     const id = Number(result[0].insertId); ids.push(id);
     return (await handle!.db.select().from(hosts).where(eq(hosts.id, id)))[0]!;
   }
-  it.each(['codex', 'claude', 'grok'])('renews %s pooled hosts and removes abandoned/expired hosts with dependent state', async engines => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('renews %s pooled hosts and removes abandoned/expired hosts with dependent state', async engines => {
     const db = handle!.db;
     const live = await seed({ engines, apiCalls: 1, expiresAt: '2026-10-11T16:01:00Z' });
     const abandoned = await seed({ engines });

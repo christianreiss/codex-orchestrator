@@ -90,7 +90,7 @@ describe.skipIf(!handle)('complete owner server composition', () => {
         issued = await tokens.issue(host.id);
       const keys = new OpenAiKeyService({ db: app.db, keyring: app.keyring });
       const issuedKeys = await Promise.all(
-        (['codex', 'claude', 'grok'] as const).map(async (engine) => ({
+        (['codex', 'claude', 'grok', 'kimi'] as const).map(async (engine) => ({
           engine,
           ...(await keys.issue({ engine, name: engine + ' fixture' })),
         })),
@@ -126,7 +126,7 @@ describe.skipIf(!handle)('complete owner server composition', () => {
         db: app.db,
         keyring: app.keyring,
         insecure: createInsecureWindowService({ db: app.db, env: app.env }),
-        defaultHostEngines: 'codex,claude,grok',
+        defaultHostEngines: 'codex,claude,grok,kimi',
       });
       const login = createCliAuthService({ db: app.db, keyring: app.keyring, registration });
       const started = await login.start({
@@ -153,7 +153,7 @@ describe.skipIf(!handle)('complete owner server composition', () => {
         { id: randomUUID(), principal, revalidateTarget() {} },
         () => login.approve(started.user_code, 1, 'test'),
       );
-      expect(runtime.state.snapshot().hosts.get(approved.host_id)?.engines).toBe('codex,claude,grok');
+      expect(runtime.state.snapshot().hosts.get(approved.host_id)?.engines).toBe('codex,claude,grok,kimi');
       expect(
         new Date(runtime.state.snapshot().hosts.get(approved.host_id)!.insecureEnabledUntil!).getTime(),
       ).toBeGreaterThan(Date.now());
@@ -202,7 +202,7 @@ describe.skipIf(!handle)('complete owner server composition', () => {
       const spawn = new HostSpawnService({ db: app.db, keyring: app.keyring, env: app.env } as RouteContext);
       const spawnInput = {
         fqdn: 'spawn-target.fixture.test',
-        engines: ['codex', 'claude', 'grok'],
+        engines: ['codex', 'claude', 'grok', 'kimi'],
         secure: true,
         client_message_id: randomUUID(),
         daemon: { mode: 'permanent', username: 'root', default_cwd: '/tmp' },

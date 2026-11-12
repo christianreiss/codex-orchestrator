@@ -47,8 +47,8 @@ export async function registerTransfersRoutes(app: FastifyInstance, ctx: RouteCo
       const raw = await auth.authenticate(req);
       const host = raw.secure === 1 ? raw : await insecure.enforce(raw, 'binary_transfer', req.clientIp);
       const engine = (req.query as { engine?: string }).engine;
-      if (engine !== 'codex' && engine !== 'claude' && engine !== 'grok')
-        throw new ValidationError('engine must be codex, claude or grok');
+      if (engine !== 'codex' && engine !== 'claude' && engine !== 'grok' && engine !== 'kimi')
+        throw new ValidationError('engine must be codex, claude, grok or kimi');
       assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
       const owner = ownerRuntimeFor(ctx.db);
       owner?.assertOwner();

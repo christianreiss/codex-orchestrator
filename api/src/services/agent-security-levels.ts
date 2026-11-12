@@ -1070,6 +1070,7 @@ export interface DerivedEnforcement {
   claude: {
     permission_mode: DerivedKnob<(typeof CLAUDE_PERMISSION_MODES_BY_LEVEL)[number]>;
   };
+  kimi: { permission_mode: DerivedKnob<'manual' | 'yolo' | 'auto'> };
   grok: {
     permission_mode: DerivedKnob<(typeof GROK_PERMISSION_MODES_BY_LEVEL)[number]>;
   };
@@ -1194,11 +1195,13 @@ export function securityLevelEnforcement(levels: SecurityLevels): DerivedEnforce
     claude: {
       permission_mode: knob(CLAUDE_PERMISSION_MODES_BY_LEVEL[claudeLevel]!, governing(levels, claudeSubset)),
     },
+    kimi: { permission_mode: knob(claudeLevel <= 2 ? 'manual' : claudeLevel === 3 ? 'yolo' : 'auto', governing(levels, claudeSubset), 'partial') },
     grok: {
       permission_mode: knob(GROK_PERMISSION_MODES_BY_LEVEL[claudeLevel]!, governing(levels, claudeSubset),
         claudeLevel <= 2 ? 'partial' : 'full'),
     },
     not_enforced: [
+      { key: 'kimi sandbox', reason: 'Kimi has no OS sandbox; only permission mode and native permission rules apply.' },
       {
         key: 'security_controls',
         reason:

@@ -2,7 +2,7 @@ import { readEmulation, emulationObservation, emulatedWindow } from './quota-emu
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { and, desc, eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
-import { providerAccounts, chatgptUsageSnapshots, claudeUsageSnapshots, grokUsageSnapshots, quotaEmulationStates } from '../db/schema.js';
+import { providerAccounts, chatgptUsageSnapshots, claudeUsageSnapshots, grokUsageSnapshots, kimiUsageSnapshots, quotaEmulationStates } from '../db/schema.js';
 import { isEngine, type Engine } from '../util/engine.js';
 import { readQuotaPolicy } from './quota-policy.js';
 
@@ -51,6 +51,11 @@ export async function quotaSnapshot(db: Pick<Database, 'select'>, accountId: num
     latest = r;
     add('short', r?.fiveHourUsedPercent, r?.fiveHourResetsAt, 18000, r?.fetchedAt, 'claude_statusline');
     add('long', r?.sevenDayUsedPercent, r?.sevenDayResetsAt, 604800, r?.fetchedAt, 'claude_statusline');
+  } else if (engine === 'kimi') {
+    const r = state ? state.table('kimiUsageSnapshots').get(accountId) : (await db.select().from(kimiUsageSnapshots).where(eq(kimiUsageSnapshots.accountId, accountId)).limit(1))[0];
+    latest = r;
+    add('short', r?.fiveHourUsedPercent, r?.fiveHourResetsAt, 18000, r?.fetchedAt ?? undefined, 'kimi_usage', !!r?.errorCode);
+    add('long', r?.weeklyUsedPercent, r?.weeklyResetsAt, 604800, r?.fetchedAt ?? undefined, 'kimi_usage', !!r?.errorCode);
   } else {
     const r = state ? state.table('grokUsageSnapshots').all().find(row => row.accountId === accountId) : (await db.select().from(grokUsageSnapshots).where(eq(grokUsageSnapshots.accountId, accountId)).limit(1))[0];
     latest = r;

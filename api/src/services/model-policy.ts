@@ -5,6 +5,7 @@ import { ApiError } from '../http/errors.js';
 import { SettingsService } from './settings.js';
 import { SUPPORTED_MODELS, LEGACY_MODEL_UPGRADES } from './config-normalizer.js';
 import { CLAUDE_SUPPORTED_MODELS, CLAUDE_LEGACY_MODEL_UPGRADES } from './claude-models.js';
+import { KIMI_SUPPORTED_MODELS } from './kimi-models.js';
 import { GROK_SUPPORTED_MODELS } from './grok-models.js';
 import { liveCatalogRequired, registryEntry } from './model-registry/index.js';
 
@@ -20,6 +21,7 @@ export function modelPolicyKey(engine: Engine): string { return `${engine}_model
 
 /** Family from the registry; the version ordering within it is parsed from the id. */
 function familyVersion(engine: Engine, model: string): { family: string; version: number[] } {
+  if (engine === 'kimi') { const entry = registryEntry(engine, model); if (!entry) throw new Error(`Unknown Kimi model ${model}`); return { family: model.includes('highspeed') ? `${entry.family}-highspeed` : entry.family, version: (model.match(/\d+(?:\.\d+)*/)??['0'])[0].split('.').map(Number) }; }
   const family = registryEntry(engine, model)?.family;
   const match = engine === 'codex' ? /^gpt-(\d+(?:\.\d+)*?)-(.+)$/.exec(model)
     : engine === 'claude' ? /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(model)
@@ -31,7 +33,7 @@ function familyVersion(engine: Engine, model: string): { family: string; version
 }
 
 export function buildModelPolicy(engine: Engine, latest_only = false): ModelPolicy {
-  const models: readonly string[] = engine === 'codex' ? SUPPORTED_MODELS : engine === 'claude' ? CLAUDE_SUPPORTED_MODELS : GROK_SUPPORTED_MODELS;
+  const models: readonly string[] = engine === 'codex' ? SUPPORTED_MODELS : engine === 'claude' ? CLAUDE_SUPPORTED_MODELS : engine === 'kimi' ? KIMI_SUPPORTED_MODELS : GROK_SUPPORTED_MODELS;
   const latest = new Map<string, { model: string; version: number[] }>();
   // An unverified (live-catalog-gated) model is never a family-latest target:
   // latest-only must not rewrite working selections to an id an account may lack.

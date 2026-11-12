@@ -37,7 +37,7 @@ describe.skipIf(!handle)('conference admission across deployed mixed ID collatio
         `CREATE TABLE agent_room_deliveries (event_id CHAR(36) COLLATE utf8mb4_0900_ai_ci, message_id CHAR(36) COLLATE utf8mb4_unicode_ci, KEY(message_id)) CHARACTER SET utf8mb4`,
       );
       const db = drizzle(connection, { schema, mode: 'default' });
-      for (const engine of ['codex', 'claude', 'grok']) {
+      for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
         const questionId = randomUUID(),
           roomId = randomUUID(),
           eventId = randomUUID(),

@@ -44,7 +44,7 @@ describe('insecure persistent daemon', () => {
               fqdn: 'insecure.test',
               secure: 0,
               status: 'active',
-              engines: 'codex,claude,grok',
+              engines: 'codex,claude,grok,kimi',
               insecureEnabledUntil: new Date(Date.now() + 60_000),
               insecureWindowMinutes: 10,
               insecureSessionRenewalBlocked: 0,
@@ -62,7 +62,7 @@ describe('insecure persistent daemon', () => {
         instance_id: randomUUID(),
         username: 'root',
         version: 'test',
-        engines: ['codex', 'claude', 'grok'],
+        engines: ['codex', 'claude', 'grok', 'kimi'],
         error: null,
       })
     ).generation;
@@ -88,7 +88,7 @@ describe('insecure persistent daemon', () => {
     await expect(svc.offer(1, generation)).rejects.toThrow('window is closed');
     expect(fake.tables.get(hostDaemonOperations) ?? []).toHaveLength(0);
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'renews %s work only with evidence of an accepted active process',
     async (engine) => {
       await svc.start({ ...input(), engine }, 'owner');

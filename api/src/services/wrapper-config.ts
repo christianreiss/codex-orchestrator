@@ -421,6 +421,17 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         model_catalog: modelLaunchCatalog(engine, policy),
         ...(policy.latest_only ? { model_policy: policy } : {}),
       };
+if (engine === 'kimi')
+      return {
+        silent: opts.silent,
+        model_override: host.kimiModelOverride ?? null,
+        reasoning_effort_override: host.kimiReasoningEffortOverride ?? null,
+        kimi_model_override: host.kimiModelOverride ?? null,
+        kimi_reasoning_effort_override: host.kimiReasoningEffortOverride ?? null,
+        admin_theme_hint: opts.adminTheme,
+        model_catalog: modelLaunchCatalog(engine, policy),
+        ...(policy.latest_only ? { model_policy: policy } : {}),
+      };
     if (engine === 'claude') {
       return {
         silent: opts.silent,

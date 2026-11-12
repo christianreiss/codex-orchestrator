@@ -15,7 +15,7 @@ function fixture(engine: string, status: string, state: string, reasons: string[
   ]));
   const remote = new CompanionRemote({ db } as unknown as RouteContext);
   vi.spyOn(remote, 'hosts').mockResolvedValue([{
-    host_id: 7, fqdn: 'test', engines: ['codex', 'claude', 'grok'], startable: false,
+    host_id: 7, fqdn: 'test', engines: ['codex', 'claude', 'grok', 'kimi'], startable: false,
     health: { state, reasons },
   }] as never);
   const project = () => remote.project(1, [{
@@ -25,7 +25,7 @@ function fixture(engine: string, status: string, state: string, reasons: string[
   return { project, db };
 }
 
-describe.each(['codex', 'claude', 'grok'])('%s remote presence', (engine) => {
+describe.each(['codex', 'claude', 'grok', 'kimi'])('%s remote presence', (engine) => {
   it.each(['queued', 'running', 'stopping'])('does not label stale %s work as live', async (status) => {
     const { project, db } = fixture(engine, status, 'red', ['heartbeat_expired']);
     expect((await project()).sessions[0]).toMatchObject({

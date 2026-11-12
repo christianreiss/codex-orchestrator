@@ -72,7 +72,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
       `INSERT INTO hosts (
          fqdn, api_key, status, secure, engines, agent_messaging_enabled, created_at, updated_at
        ) VALUES (
-         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude,grok', 1, '${now}', '${now}'
+         '${HOST_FQDN}', '${HOST_KEY}', 'active', 1, 'codex,claude,grok,kimi', 1, '${now}', '${now}'
        )`,
     );
     host = (await db.select().from(hosts).where(eq(hosts.fqdn, HOST_FQDN)).limit(1))[0]!;
@@ -226,7 +226,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     expect((await service.listConferences(invitee.sessionId, invitee.bridgeToken)).conferences).toEqual([]);
   });
 
-  for (const engine of ['codex', 'claude', 'grok'] as const) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
     for (const phase of ['queued', 'leased', 'accepted'] as const) {
       it(`${engine}: conference deadline fences ${phase} admission while conserving accepted work`, async () => {
         const { chair, conferenceId, pin } = await room();
@@ -776,7 +776,7 @@ describe.skipIf(!handle)('conferences against a real database', { timeout: 120_0
     expect(row?.pin).toBeNull();
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)('refuses a %s chair without fresh listening presence and permits retry after recovery', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('refuses a %s chair without fresh listening presence and permits retry after recovery', async (engine) => {
     const chair = await register(engine, 'chair');
     const member = await register('claude', 'new-member');
     const opened = await service.openConference(chair.sessionId, chair.bridgeToken, {});

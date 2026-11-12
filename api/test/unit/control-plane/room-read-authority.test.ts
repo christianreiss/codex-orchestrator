@@ -42,7 +42,7 @@ function fixture(
         fqdn: 'fixture',
         status: 'active',
         secure: 1,
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         apiKey: 'fixture-host',
         expiresAt: null,
         insecureEnabledUntil: null,
@@ -225,7 +225,7 @@ function roomFixture(engine: string, count = 1, content = 'PRIVATE HISTORY') {
   };
 }
 describe('private room history authority', () => {
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'rejects %s membership revocation during a cold read',
     async (engine) => {
       const f = roomFixture(engine),
@@ -236,7 +236,7 @@ describe('private room history authority', () => {
       await expect(pending).rejects.toMatchObject({ status: 403 });
     },
   );
-  it.each(['codex', 'claude', 'grok'])(
+  it.each(['codex', 'claude', 'grok', 'kimi'])(
     'fences %s membership revocation at final response',
     async (engine) => {
       const f = roomFixture(engine);
@@ -270,7 +270,7 @@ it('asks the owner to record an agent read position and neither fails nor claims
   expect(out.room.members.find((m) => m.id === f.address)?.read_through).toBeNull();
 });
 
-it.each(['codex', 'claude', 'grok'])(
+it.each(['codex', 'claude', 'grok', 'kimi'])(
   'bounds %s room history by bytes without truncating events',
   async (engine) => {
     const content = 'x'.repeat(30000),

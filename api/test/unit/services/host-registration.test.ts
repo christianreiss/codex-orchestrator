@@ -118,13 +118,13 @@ describe('registerOrRotate: new host', () => {
   });
 
   it('drops suspended engines from configured defaults on a new host', async () => {
-    const h = setup([], 'codex,claude,grok');
+    const h = setup([], 'codex,claude,grok,kimi');
     h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }, { name: 'grok_engine_disabled', version: '1' }]);
     const out = await h.service.registerOrRotate({ fqdn: 'new.example.com' });
-    expect(out.host.engines).toBe('claude');
+    expect(out.host.engines).toBe('claude,kimi');
   });
 
-  it.each(['codex', 'claude', 'grok'])('refuses an explicitly suspended %s assignment', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'])('refuses an explicitly suspended %s assignment', async (engine) => {
     const h = setup();
     h.db.tables.set(versions, [{ name: `${engine}_engine_disabled`, version: '1' }]);
     await expect(h.service.registerOrRotate({ fqdn: 'new.example.com', engines: engine })).rejects.toMatchObject({ code: 'engine_disabled' });

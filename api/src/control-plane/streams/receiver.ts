@@ -202,7 +202,7 @@ export async function registerOwnedReceiver(
   if (legacy && legacy.nativeSessionId !== input.native_session_id)
     throw new ConflictError('Legacy native identity cannot be replaced', 'legacy_drain_fenced');
   if (
-    { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1' }[auth.engine] !==
+    { codex: 'codex-queue-v1', claude: 'claude-channel-v1', grok: 'grok-acp-v1', kimi: 'kimi-hooks-v1' }[auth.engine] !==
     input.protocol
   )
     throw new ForbiddenError('Receiver engine mismatch', 'receiver_engine_mismatch');

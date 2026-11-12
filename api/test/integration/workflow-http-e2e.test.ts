@@ -142,7 +142,7 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
     cookie = `${auth.sessionCookieName()}=${session.token}`;
     const bus = new AgentMessagingService(db, env, keyring);
     await bus.setEnabled(true);
-    for (const [index, engine] of (['codex', 'claude', 'grok', 'codex'] as const).entries()) {
+    for (const [index, engine] of (['codex', 'claude', 'grok', 'kimi', 'codex'] as const).entries()) {
       const host = `${prefix}-${index}.example`;
       const apiKey = randomBytes(32).toString('hex');
       await db.insert(hosts).values({
@@ -155,6 +155,7 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
         wrapperVersion: '0.9.111',
         claudeWrapperVersion: '0.9.111',
         grokWrapperVersion: '0.9.111',
+        kimiWrapperVersion: '0.9.111',
         agentMessagingEnabled: 1,
         createdAt: now,
         updatedAt: now,

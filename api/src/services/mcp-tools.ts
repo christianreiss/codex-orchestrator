@@ -531,7 +531,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       name: 'host_spawn_prepare',
       description: 'Register a NEW system and return one-time setup material for installation over SSH by the calling agent. Requires System Spawn enabled and an active VIP source host. Never rotates existing hosts or starts an agent. Keep client_message_id for retries.',
       inputSchema: { type: 'object', additionalProperties: false, properties: {
-        fqdn: { type: 'string' }, engines: { type: 'array', minItems: 1, items: { type: 'string', enum: ['codex', 'claude', 'grok'] } },
+        fqdn: { type: 'string' }, engines: { type: 'array', minItems: 1, items: { type: 'string', enum: ['codex', 'claude', 'grok', 'kimi'] } },
         secure: { type: 'boolean', default: true }, client_message_id: { type: 'string' },
         daemon: { type: 'object', properties: { mode: { type: 'string', enum: ['none', 'permanent', 'timed'] }, username: { type: 'string' }, default_cwd: { type: 'string' }, duration_minutes: { type: 'integer', minimum: 1, maximum: 10080 } }, required: ['mode'] },
       }, required: ['fqdn', 'engines', 'client_message_id'] },
@@ -672,7 +672,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'shared_memory_write',
         description:
-          'Record something the whole fleet should know, in a document every host and all three engines can find. Use this instead of writing a local notes file. Writing an EXISTING slug replaces its ENTIRE body. Never replace from a search excerpt, preview, chunk, or partial read. First reconstruct the complete body with shared_memory_read from offset 0 through every next_offset, require one stable memory.sha256, preserve unaffected content, and pass that digest as expected_sha256. On conflict or a changed page digest, restart the full read and reapply the correction. To add new material to an accurate document, prefer shared_memory_append. Search before creating a near-duplicate slug. Up to 1 MiB.',
+          'Record something the whole fleet should know, in a document every host and all four engines can find. Use this instead of writing a local notes file. Writing an EXISTING slug replaces its ENTIRE body. Never replace from a search excerpt, preview, chunk, or partial read. First reconstruct the complete body with shared_memory_read from offset 0 through every next_offset, require one stable memory.sha256, preserve unaffected content, and pass that digest as expected_sha256. On conflict or a changed page digest, restart the full read and reapply the correction. To add new material to an accurate document, prefer shared_memory_append. Search before creating a near-duplicate slug. Up to 1 MiB.',
         inputSchema: {
           type: 'object',
           properties: {

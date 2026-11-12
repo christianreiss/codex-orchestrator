@@ -8,7 +8,7 @@ export interface ModelOption {
   value: string;
 }
 
-export type ModelEngine = "codex" | "claude" | "grok";
+export type ModelEngine = "codex" | "claude" | "grok" | "kimi";
 
 /** Claude models the fleet offers, in picker order. */
 export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
@@ -49,6 +49,16 @@ export const GROK_MODEL_OPTIONS: ModelOption[] = [
   { label: "Grok 4.5", value: "grok-4.5" },
 ];
 
+/** Kimi Code models the fleet offers. */
+export const KIMI_MODEL_OPTIONS: ModelOption[] = [
+  { label: "K3.1 Pro", value: "k3.1-pro" },
+  { label: "K3.1 Pro HighSpeed", value: "k3.1-pro-highspeed" },
+  { label: "K3", value: "k3" },
+  { label: "K3 256K", value: "k3-256k" },
+  { label: "Kimi for Coding", value: "kimi-for-coding" },
+  { label: "Kimi for Coding HighSpeed", value: "kimi-for-coding-highspeed" },
+];
+
 /** Native Claude advisor aliases (settings.json `advisorModel`). */
 export const ADVISOR_MODEL_OPTIONS: ModelOption[] = [
   { label: "Opus", value: "opus" },
@@ -61,6 +71,7 @@ export const DEFAULT_MODELS: Record<ModelEngine, string> = {
   codex: "gpt-6-astra",
   claude: "claude-sonnet-5",
   grok: "grok-4.7",
+  kimi: "k3.1-pro",
 };
 
 /** Persisted native efforts per model. */
@@ -98,6 +109,14 @@ export const MODEL_EFFORTS: Record<ModelEngine, Record<string, string[]>> = {
     "grok-4.6": ["low","medium","high","xhigh"],
     "grok-4.5": ["low","medium","high"],
   },
+  kimi: {
+    "k3.1-pro": ["low","high","max"],
+    "k3.1-pro-highspeed": ["low","high","max"],
+    "k3": ["low","high","max"],
+    "k3-256k": ["low","high","max"],
+    "kimi-for-coding": ["low","high","max"],
+    "kimi-for-coding-highspeed": ["low","high","max"],
+  },
 };
 
 /** Oldest native CLI that offers a model; absent means no documented floor. */
@@ -113,4 +132,12 @@ export const MODEL_MIN_CLI_VERSIONS: Record<ModelEngine, Record<string, string>>
     "claude-haiku-5-5": "2.1.293",
   },
   grok: {},
+  kimi: {
+    "k3.1-pro": "2.5.3",
+    "k3.1-pro-highspeed": "2.5.3",
+    "k3": "2.5.3",
+    "k3-256k": "2.5.3",
+    "kimi-for-coding": "2.5.3",
+    "kimi-for-coding-highspeed": "2.5.3",
+  },
 };

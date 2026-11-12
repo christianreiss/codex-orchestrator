@@ -94,12 +94,19 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     grokClientVersion: null,
+    kimiClientVersion: null,
     grokClientVersionOverride: null,
+    kimiClientVersionOverride: null,
     grokWrapperVersion: null,
+    kimiWrapperVersion: null,
     grokAuthDigest: null,
+    kimiAuthDigest: null,
     grokModelOverride: null,
+    kimiModelOverride: null,
     grokReasoningEffortOverride: null,
+    kimiReasoningEffortOverride: null,
     grokLastRefresh: null,
+    kimiLastRefresh: null,
     configVersion: 4,
     wrapperTrack: 'v2',
     wrapperCanary: 0,
@@ -312,7 +319,7 @@ describe('wrapper-config', () => {
     else expect(terra).toBeUndefined();
   });
 
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'negotiates strict cache only with capable %s wrappers',
     async (engine) => {
       const { privateKey } = generateKeyPairSync('ed25519');
@@ -324,10 +331,11 @@ describe('wrapper-config', () => {
       };
       for (const version of ['0.9.121', '0.9.122', '0.9.123', '0.9.128', '2025.11.03', 'dev']) {
         const host = fakeHost({
-          engines: 'codex,claude,grok',
+          engines: 'codex,claude,grok,kimi',
           wrapperVersion: version,
           claudeWrapperVersion: version,
           grokWrapperVersion: version,
+          kimiWrapperVersion: version,
         });
         const svc = createWrapperConfigService({
           db: makeFakeDb({
@@ -352,7 +360,7 @@ describe('wrapper-config', () => {
       }
     },
   );
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'signs the independent resident capability for %s only when enabled',
     async (engine) => {
       const { privateKey } = generateKeyPairSync('ed25519');
@@ -362,7 +370,7 @@ describe('wrapper-config', () => {
         publicKey: 'pk',
         sign: (payload) => cryptoSign(null, Buffer.from(payload), privateKey),
       };
-      const host = fakeHost({ engines: 'codex,claude,grok' });
+      const host = fakeHost({ engines: 'codex,claude,grok,kimi' });
       for (const enabled of [undefined, false, true]) {
         const svc = createWrapperConfigService({
           db: makeFakeDb({
@@ -386,7 +394,7 @@ describe('wrapper-config', () => {
       }
     },
   );
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'signs the cache capability for %s with central sync and the update capability on its flag',
     async (engine) => {
       const { privateKey } = generateKeyPairSync('ed25519');
@@ -396,7 +404,7 @@ describe('wrapper-config', () => {
         publicKey: 'pk',
         sign: (payload) => cryptoSign(null, Buffer.from(payload), privateKey),
       };
-      const host = fakeHost({ engines: 'codex,claude,grok' });
+      const host = fakeHost({ engines: 'codex,claude,grok,kimi' });
       for (const transport of [false, true])
         for (const sync of [false, true])
           for (const flag of [false, true]) {
@@ -952,7 +960,7 @@ describe('wrapper-config', () => {
       } as unknown as Database;
     }
 
-    async function bakeWith(engine: 'codex' | 'claude' | 'grok', flags: Record<string, string>) {
+    async function bakeWith(engine: 'codex' | 'claude' | 'grok' | 'kimi', flags: Record<string, string>) {
       const { privateKey } = generateKeyPairSync('ed25519');
       const signer: WrapperSigner = {
         kid: '1',
@@ -961,7 +969,7 @@ describe('wrapper-config', () => {
         sign: (payload) =>
           cryptoSign(null, Buffer.from(typeof payload === 'string' ? payload : payload), privateKey),
       };
-      const host = fakeHost({ engines: 'codex,claude,grok' });
+      const host = fakeHost({ engines: 'codex,claude,grok,kimi' });
       const db = withVersions(
         makeFakeDb({
           hosts: [host],
@@ -985,7 +993,7 @@ describe('wrapper-config', () => {
 
     const ON = { agent_messaging_enabled: '1', agent_portal_enabled: '1' };
 
-    it.each(['codex', 'claude', 'grok'] as const)('signs %s RTK policy with scoped artifacts and honors host overrides and suspension', async engine => {
+    it.each(['codex', 'claude', 'grok', 'kimi'] as const)('signs %s RTK policy with scoped artifacts and honors host overrides and suspension', async engine => {
       const enabled = await bakeWith(engine, { [`rtk_${engine}`]: 'true' });
       expect(enabled.rtk).toMatchObject({ enabled: true, protocol: 1, version: '1.2.0', adapter_mode: 'instructions' });
       expect(enabled.rtk?.artifacts['linux/amd64']?.url).toBe(`https://api.example.com/wrapper/v2/rtk/v1.2.0/linux-amd64?engine=${engine}`);
@@ -1000,7 +1008,7 @@ describe('wrapper-config', () => {
     it('still bakes a suspended engine, carrying the switch and no way to run', async () => {
       const payload = await bakeWith('claude', { ...ON, claude_engine_disabled: '1' });
       // Assignment unchanged: the wrapper must not read suspension as removal.
-      expect(payload.host.engines_list).toEqual(['codex', 'claude', 'grok']);
+      expect(payload.host.engines_list).toEqual(['codex', 'claude', 'grok', 'kimi']);
       expect(payload.host.fleet_disabled_engines).toEqual(['claude']);
       expect(payload.agent_messaging.enabled).toBe(false);
       expect(payload.agent_messaging.receiver_enabled).toBe(false);
@@ -1056,7 +1064,7 @@ describe('owner semantic config identity', () => {
 });
 
 describe('owned wrapper bakery', () => {
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     '%s signs current RAM metadata without SQL or a config-change write',
     async (engine) => {
       const { privateKey } = generateKeyPairSync('ed25519'),
@@ -1066,7 +1074,7 @@ describe('owned wrapper bakery', () => {
           publicKey: 'pk',
           sign: (payload) => cryptoSign(null, Buffer.from(payload), privateKey),
         };
-      const host = fakeHost({ engines: 'codex,claude,grok' }),
+      const host = fakeHost({ engines: 'codex,claude,grok,kimi' }),
         db = makeFakeDb({
           hosts: [host],
           agents: [],

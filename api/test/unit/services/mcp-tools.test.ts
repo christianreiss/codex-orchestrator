@@ -202,7 +202,7 @@ describe('oversized-result guards', () => {
 });
 
 describe('Git Director caller engine', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('binds %s from dispatch, including an omitted or conflicting model argument', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('binds %s from dispatch, including an omitted or conflicting model argument', async (engine) => {
     const calls: Record<string, unknown>[] = [];
     const registry = new McpToolsRegistry({
       memories: stubMemories,

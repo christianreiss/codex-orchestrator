@@ -101,12 +101,19 @@ export const hosts = mysqlTable(
     claudeReasoningEffortOverride: varchar('claude_reasoning_effort_override', { length: 32 }),
     claudeLastRefresh: varchar('claude_last_refresh', { length: 100 }),
     grokClientVersion: varchar('grok_client_version', { length: 64 }),
+    kimiClientVersion: varchar('kimi_client_version', { length: 64 }),
     grokClientVersionOverride: varchar('grok_client_version_override', { length: 64 }),
+    kimiClientVersionOverride: varchar('kimi_client_version_override', { length: 64 }),
     grokWrapperVersion: varchar('grok_wrapper_version', { length: 64 }),
+    kimiWrapperVersion: varchar('kimi_wrapper_version', { length: 64 }),
     grokAuthDigest: varchar('grok_auth_digest', { length: 128 }),
+    kimiAuthDigest: varchar('kimi_auth_digest', { length: 128 }),
     grokModelOverride: varchar('grok_model_override', { length: 128 }),
+    kimiModelOverride: varchar('kimi_model_override', { length: 128 }),
     grokReasoningEffortOverride: varchar('grok_reasoning_effort_override', { length: 32 }),
+    kimiReasoningEffortOverride: varchar('kimi_reasoning_effort_override', { length: 32 }),
     grokLastRefresh: varchar('grok_last_refresh', { length: 100 }),
+    kimiLastRefresh: varchar('kimi_last_refresh', { length: 100 }),
     configVersion: bigint('config_version', { mode: 'number', unsigned: true }).notNull().default(0),
     wrapperTrack: varchar('wrapper_track', { length: 16 }).notNull().default('v2'),
     /** Receives a staged cxx rollout before every wave (services/wrapper-rollout.ts). */
@@ -250,6 +257,20 @@ export const providerAccountSessions = mysqlTable(
 
 /** Durable fencing survives owner-process or advisory-lock loss. Tokens remain encrypted. */
 export const grokAuthRefreshState = mysqlTable('grok_auth_refresh_state', {
+  accountId: bigint('account_id', { mode: 'number', unsigned: true }).primaryKey(),
+  state: varchar('state', { length: 24 }).notNull().default('idle'),
+  attemptId: varchar('attempt_id', { length: 64 }),
+  basePayloadId: bigint('base_payload_id', { mode: 'number', unsigned: true }),
+  baseGeneration: bigint('base_generation', { mode: 'number', unsigned: true }),
+  pendingPayloadId: bigint('pending_payload_id', { mode: 'number', unsigned: true }),
+  responseEnc: longtext('response_enc'),
+  nextAttemptAt: varchar('next_attempt_at', { length: 100 }),
+  errorCode: varchar('error_code', { length: 100 }),
+  startedAt: varchar('started_at', { length: 100 }),
+  updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+});
+
+export const kimiAuthRefreshState = mysqlTable('kimi_auth_refresh_state', {
   accountId: bigint('account_id', { mode: 'number', unsigned: true }).primaryKey(),
   state: varchar('state', { length: 24 }).notNull().default('idle'),
   attemptId: varchar('attempt_id', { length: 64 }),
@@ -3206,3 +3227,22 @@ export const connectorRecords = mysqlTable('connector_records', {
   expiresAt: varchar('expires_at', { length: 100 }),
   createdAt: varchar('created_at', { length: 100 }).notNull(),
 }, t => ({ kind: index('idx_connector_records_kind').on(t.kind), expiry: index('idx_connector_records_expiry').on(t.expiresAt) }));
+
+export const kimiUsageSnapshots = mysqlTable('kimi_usage_snapshots', {
+  accountId: bigint('account_id', { mode: 'number', unsigned: true }).primaryKey(),
+  planName: varchar('plan_name', { length: 128 }),
+  planFetchedAt: varchar('plan_fetched_at', { length: 100 }),
+  planErrorCode: varchar('plan_error_code', { length: 48 }),
+  fiveHourUsedPercent: double('five_hour_used_percent'),
+  fiveHourResetsAt: varchar('five_hour_resets_at', { length: 100 }),
+  weeklyUsedPercent: double('weekly_used_percent'),
+  weeklyResetsAt: varchar('weekly_resets_at', { length: 100 }),
+  monthTotalUsedPercent: double('month_total_used_percent'),
+  monthTotalResetsAt: varchar('month_total_resets_at', { length: 100 }),
+  monthCodeUsedPercent: double('month_code_used_percent'),
+  monthCodeResetsAt: varchar('month_code_resets_at', { length: 100 }),
+  extraUsageJson: text('extra_usage_json'),
+  fetchedAt: varchar('fetched_at', { length: 100 }),
+  checkedAt: varchar('checked_at', { length: 100 }).notNull(),
+  errorCode: varchar('error_code', { length: 48 }),
+});

@@ -154,6 +154,7 @@ export class ConnectionCredentials {
         'codex_engine_disabled',
         'claude_engine_disabled',
         'grok_engine_disabled',
+        'kimi_engine_disabled',
       ].map((key) => snapshot.setting(key)),
     ];
     let previous = inputs(runtime.state.snapshot());

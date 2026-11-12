@@ -63,7 +63,7 @@ function host(overrides: Record<string, unknown> = {}) {
     lastContactAt: now,
     createdAt: now,
     updatedAt: now,
-    engines: 'codex,claude,grok',
+    engines: 'codex,claude,grok,kimi',
     configVersion: 1,
     apiCalls: 1,
     ...overrides,

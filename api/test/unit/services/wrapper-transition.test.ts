@@ -39,6 +39,7 @@ function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
     CDX_CONFIG_PATH: join(configRoot, 'cdx.json'),
     CLX_CONFIG_PATH: join(configRoot, 'clx.json'),
     CGX_CONFIG_PATH: join(configRoot, 'cgx.json'),
+    CKX_CONFIG_PATH: join(configRoot, 'ckx.json'),
   };
 }
 
@@ -66,6 +67,7 @@ function runDualInstallerFixture(
   cdxLink: string | null;
   clxLink: string | null;
   cgxLink: string | null;
+  ckxLink: string | null;
   configEngines: string[];
   cxxBody: string | null;
   installTemps: string[];
@@ -114,6 +116,12 @@ case "$*" in
     cp "$FAKE_CLI" "$grok_path"
     chmod 755 "$grok_path"
     printf '%s\n' "$grok_path" > "$grok_cache"
+    kimi_path="$HOME/.local/bin/kimi"
+    kimi_cache="$HOME/.ckx/state/kimi-bin"
+    mkdir -p "$(dirname "$kimi_path")" "$(dirname "$kimi_cache")"
+    cp "$FAKE_CLI" "$kimi_path"
+    chmod 755 "$kimi_path"
+    printf '%s\n' "$kimi_path" > "$kimi_cache"
     codex_path="$HOME/.local/bin/codex"
     codex_cache="$HOME/.config/codex-orchestrator/cdx-codex-bin"
     claude_path="$HOME/.local/share/codex-orchestrator/npm/bin/claude"
@@ -194,6 +202,7 @@ case "$url" in
   */wrapper/v2/config*engine=codex*) cp "$FAKE_BUNDLE" "$out" ;;
   */wrapper/v2/config*engine=claude*) cp "$FAKE_CLAUDE_BUNDLE" "$out" ;;
   */wrapper/v2/config*engine=grok*) cp "$FAKE_BUNDLE" "$out" ;;
+  */wrapper/v2/config*engine=kimi*) cp "$FAKE_BUNDLE" "$out" ;;
   */wrapper/v2/bin/cxx/*/cxx) cp "$FAKE_WRAPPER" "$out" ;;
   *) echo "unexpected curl URL: $url" >&2; exit 46 ;;
 esac
@@ -212,7 +221,7 @@ printf '%s\n' "$url" >> "$CURL_LOG"
     const fakeCli = join(dir, 'fake-cli');
     writeExecutable(
       fakeCli,
-      '#!/bin/sh\ncase "$(basename "$0")" in codex) echo "codex-cli 0.144.6" ;; claude) if [ "${EMPTY_CLAUDE_VERSION:-0}" = "1" ]; then exit 0; fi; echo "2.1.215 (Claude Code)" ;; grok) echo "grok 1.0.46 (stable)" ;; esac\n',
+      '#!/bin/sh\ncase "$(basename "$0")" in codex) echo "codex-cli 0.144.6" ;; claude) if [ "${EMPTY_CLAUDE_VERSION:-0}" = "1" ]; then exit 0; fi; echo "2.1.215 (Claude Code)" ;; grok) echo "grok 1.0.46 (stable)" ;; kimi) echo "2.5.3" ;; esac\n',
     );
 
     const installer = join(dir, 'installer.sh');
@@ -243,6 +252,7 @@ printf '%s\n' "$url" >> "$CURL_LOG"
         CURL_LOG: curlLog,
         CLX_CONFIG_PATH: enabled.includes('claude') ? join(home, 'custom', 'clx.json') : '',
         CGX_CONFIG_PATH: enabled.includes('grok') ? join(home, 'custom', 'cgx.json') : '',
+        CKX_CONFIG_PATH: enabled.includes('kimi') ? join(home, 'custom', 'ckx.json') : '',
         FAIL_CLAUDE: options.failClaude ? '1' : '0',
         EMPTY_CLAUDE_VERSION: options.emptyClaudeVersion ? '1' : '0',
         BROKEN_NPM: options.brokenNpm ? '1' : '0',
@@ -269,6 +279,7 @@ printf '%s\n' "$url" >> "$CURL_LOG"
       cdxLink: linkTarget('cdx'),
       clxLink: linkTarget('clx'),
       cgxLink: linkTarget('cgx'),
+      ckxLink: linkTarget('ckx'),
       configEngines: curlUrls.filter(url => url.includes('/wrapper/v2/config')).map(url => new URL(url).searchParams.get('engine')!),
       cxxBody: existsSync(join(installBin, 'cxx'))
         ? readFileSync(join(installBin, 'cxx'), 'utf8')
@@ -411,7 +422,7 @@ describe('wrapper transition helpers', () => {
   });
 
   it('prepares native commands once with a supported wrapper for all three engines', () => {
-    const result = runDualInstallerFixture({ wrapperVersion: '0.9.24', engines: ['codex', 'claude', 'grok'] });
+    const result = runDualInstallerFixture({ wrapperVersion: '0.9.24', engines: ['codex', 'claude', 'grok', 'kimi'] });
     expect(result.status, result.stderr).toBe(0);
     expect(result.wrapperInvocations.filter(command => command === 'native-entry install')).toHaveLength(1);
     expect(result.stdout).toContain('managed starts prepared');
@@ -428,18 +439,18 @@ describe('wrapper transition helpers', () => {
     expect(result.stdout).not.toContain('installed successfully');
   });
 
-  it.each<Engine[]>([['codex'], ['claude'], ['grok'], ['codex', 'claude'], ['codex', 'grok'], ['claude', 'grok'], ['codex', 'claude', 'grok']])('installs and syncs exactly the selected engine combination %j', (...engines) => {
+  it.each<Engine[]>([['codex'], ['claude'], ['grok'], ['codex', 'claude'], ['codex', 'grok'], ['claude', 'grok'], ['codex', 'claude', 'grok', 'kimi']])('installs and syncs exactly the selected engine combination %j', (...engines) => {
     const result = runDualInstallerFixture({ engines });
     expect(result.status, result.stderr).toBe(0);
     expect(result.binaryDownloads).toBe(1);
     expect(result.configEngines).toEqual(engines);
-    for (const engine of ['codex', 'claude', 'grok'] as const) {
-      expect(result[({ codex: 'cdxLink', claude: 'clxLink', grok: 'cgxLink' } as const)[engine]]).toBe(engines.includes(engine) ? 'cxx' : null);
+    for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
+      expect(result[({ codex: 'cdxLink', claude: 'clxLink', grok: 'cgxLink', kimi: 'ckxLink' } as const)[engine]]).toBe(engines.includes(engine) ? 'cxx' : null);
     }
     expect(result.wrapperInvocations.filter(command => command.includes('sync'))).toHaveLength(engines.length);
   });
 
-  it.each(['installer', 'codex', 'claude', 'grok'] as const)(
+  it.each(['installer', 'codex', 'claude', 'grok', 'kimi'] as const)(
     '%s fixture preserves inherited host config files', (mode) => {
       const external = mkdtempSync(join(tmpdir(), 'wrapper-host-canaries-'));
       const canaries: string[] = [];
@@ -459,7 +470,7 @@ describe('wrapper transition helpers', () => {
           }
         }
         const result = mode === 'installer'
-          ? runDualInstallerFixture({ engines: ['codex', 'claude', 'grok'] })
+          ? runDualInstallerFixture({ engines: ['codex', 'claude', 'grok', 'kimi'] })
           : runLegacyTransitionFixture(mode);
         for (const file of canaries) expect(readFileSync(file, 'utf8'), file).toBe('preserve-host-config');
         expect(result.status, result.stderr).toBe(0);
@@ -646,7 +657,7 @@ describe('wrapper transition helpers', () => {
         helpers,
         [
           'set -eu',
-          'HAS_CODEX=1 HAS_CLAUDE=1 HAS_GROK=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
+          'HAS_CODEX=1 HAS_CLAUDE=1 HAS_GROK=0 HAS_KIMI=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
           "INSTALL_LABEL='Codex + Claude'",
           'UI_TTY=1 UI_UTF8=1',
           script.slice(start, end),
@@ -713,7 +724,7 @@ describe('wrapper transition helpers', () => {
           helpers,
           [
             'set -eu',
-            `${flags} HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=`,
+            `${flags} HAS_KIMI=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=`,
             `INSTALL_LABEL='${label}'`,
             'UI_TTY=1 UI_UTF8=1',
             // The accent is chosen at script top level, after the palette.
@@ -760,7 +771,7 @@ describe('wrapper transition helpers', () => {
         helpers,
         [
           'set -eu',
-          'HAS_CODEX=1 HAS_CLAUDE=0 HAS_GROK=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
+          'HAS_CODEX=1 HAS_CLAUDE=0 HAS_GROK=0 HAS_KIMI=0 HOST_LABEL=h.example BIN_DIR=/usr/local/bin BIN_ROOT=/usr/local/bin STEP_LOG=',
           "INSTALL_LABEL='Codex'",
           'UI_TTY=1 UI_UTF8=0',
           script.slice(start, end),

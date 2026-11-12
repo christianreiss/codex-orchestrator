@@ -247,7 +247,7 @@ export class AgentCoordination {
           !r.host.internalRole &&
           messagingHostEligible(r.host) &&
           activeHostEngines(r.host.engines, engines).includes(
-            r.session.engine as 'codex' | 'claude' | 'grok',
+            r.session.engine as 'codex' | 'claude' | 'grok' | 'kimi',
           ),
       );
   }
@@ -291,7 +291,7 @@ export class AgentCoordination {
       const host = hostsById.get(session.hostId);
       return Boolean(this.present(session, now) && session.agentBusAddressId && host?.status === 'active' &&
         !host.internalRole && messagingHostEligibleAt(host, now) &&
-        activeHostEngines(host.engines, fleet).includes(session.engine as 'codex' | 'claude' | 'grok'));
+        activeHostEngines(host.engines, fleet).includes(session.engine as 'codex' | 'claude' | 'grok' | 'kimi'));
     };
     const liveSessions = sessions.filter(liveSession);
     const identities = [...new Set(liveSessions.map(repositoryIdentity))];

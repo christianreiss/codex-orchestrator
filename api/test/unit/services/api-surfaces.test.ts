@@ -72,7 +72,7 @@ describe('gateway backends', () => {
     expect(backends.get('codex')).not.toBe(backends.get('grok'));
   });
 
-  function backend(engine: 'codex' | 'claude' | 'grok', ids: string[]): GatewayBackend {
+  function backend(engine: 'codex' | 'claude' | 'grok' | 'kimi', ids: string[]): GatewayBackend {
     return {
       engine,
       authSnapshot: async () => null,

@@ -24,7 +24,7 @@ import { DAEMON_PERMISSION_MODES, permissionModesFor } from '../host-daemon/perm
 export const companionStartSchema = z
   .object({
     host_id: z.number().int().positive(),
-    engine: z.enum(['codex', 'claude', 'grok']),
+    engine: z.enum(['codex', 'claude', 'grok', 'kimi']),
     cwd: z.string().max(1024).optional(),
     title: z.string().trim().max(160).default(''),
     task: z.string().trim().max(32768).default(''),

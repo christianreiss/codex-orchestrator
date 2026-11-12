@@ -27,7 +27,7 @@ function harness(options: { expired?: boolean; insecureUntil?: number } = {}) {
         id: 1,
         status: 'active',
         apiKeyHash: 'a'.repeat(64),
-        engines: 'codex,claude,grok',
+        engines: 'codex,claude,grok,kimi',
         secure: options.insecureUntil === undefined ? 1 : 0,
         insecureEnabledUntil: options.insecureUntil === undefined ? null : new Date(options.insecureUntil),
         expiresAt: null,

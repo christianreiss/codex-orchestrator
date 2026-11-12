@@ -73,7 +73,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
       apiKey: 'a'.repeat(64),
       secure: 1,
       status: 'active',
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       createdAt: nowIso(),
       updatedAt: nowIso(),
     });
@@ -144,7 +144,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
   });
   it('allocates unique names across concurrent launches and all three engines', async () => {
     const agents = await Promise.all(
-      Array.from({ length: 12 }, (_, i) => launch((['codex', 'claude', 'grok'] as const)[i % 3])),
+      Array.from({ length: 12 }, (_, i) => launch((['codex', 'claude', 'grok', 'kimi'] as const)[i % 3])),
     );
     expect(new Set(agents.map((a) => a.address.name)).size).toBe(12);
     for (const agent of agents) {
@@ -156,7 +156,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     }
   });
   it('confirms only the authenticated active launch identity for all engines', async () => {
-    for (const engine of ['codex', 'claude', 'grok'] as const) {
+    for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
       const agent = await launch(engine);
       expect(await service.self(agent.sessionId, agent.token)).toMatchObject({
         identity_version: 1,
@@ -310,7 +310,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     const recovered = await service.registerSession(host, agent.input);
     expect((recovered.address as { name: string }).name).toBe(agent.address.name);
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'preserves the original name and UUID across repeated %s resumes',
     async (engine) => {
       const first = await launch(engine);
@@ -390,7 +390,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
     await expireCooldown(other.sessionId);
     expect((await resume()).address).toMatchObject({ id: first.address.id, name: 'Claudia' });
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'restores the name after late %s picker binding and retains provisional history',
     async (engine) => {
       const first = await launch(engine);

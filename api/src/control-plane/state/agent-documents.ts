@@ -5,7 +5,7 @@ import { stageDelete, stageUpdate } from './rows.js';
 import { ValidationError } from '../../http/errors.js';
 import type { Engine } from '../../util/engine.js';
 
-export const agentDocumentStateId = (engine: Engine) => ({ codex: 1, claude: 2, grok: 3 })[engine];
+export const agentDocumentStateId = (engine: Engine) => ({ codex: 1, claude: 2, grok: 3, kimi: 4 })[engine];
 export function servedAgentDocument(state: OwnerStateSnapshot, engine: Engine, override?: number | null) {
   const docs = state.table('agentsDocuments'),
     pin = override ? docs.get(override) : undefined;

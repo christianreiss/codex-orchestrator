@@ -49,7 +49,7 @@ export {
 export const ENGINE_DISABLED_FLAGS: Readonly<Record<Engine, string>> = Object.freeze({
   codex: 'codex_engine_disabled',
   claude: 'claude_engine_disabled',
-  grok: 'grok_engine_disabled',
+  grok: 'grok_engine_disabled', kimi: 'kimi_engine_disabled',
 });
 
 export const ENGINE_STATE_AUDIT_ACTION = 'admin.engine.state';

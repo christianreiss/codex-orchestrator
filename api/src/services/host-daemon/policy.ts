@@ -87,7 +87,7 @@ export function daemonHealth(
 export const daemonStartSchema = z
   .object({
     host_id: z.number().int().positive(),
-    engine: z.enum(['codex', 'claude', 'grok']),
+    engine: z.enum(['codex', 'claude', 'grok', 'kimi']),
     cwd: z.string().max(1024).optional(),
     title: z.string().trim().min(1).max(160),
     prompt: z.string().trim().min(1).max(100_000),

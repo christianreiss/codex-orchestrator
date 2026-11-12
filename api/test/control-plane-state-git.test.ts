@@ -31,7 +31,7 @@ const closers: Array<() => void> = [];
 afterEach(() => {
   for (const close of closers.splice(0)) close();
 });
-function setup(engine: 'codex' | 'claude' | 'grok' = 'codex', beforeCommit: () => void = () => {}) {
+function setup(engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'codex', beforeCommit: () => void = () => {}) {
   const sessionId = randomUUID(),
     addressId = randomUUID(),
     instance = randomUUID(),
@@ -166,7 +166,7 @@ function setup(engine: 'codex' | 'claude' | 'grok' = 'codex', beforeCommit: () =
   };
 }
 describe('connection-owned Git registrations', () => {
-  it.each(['codex', 'claude', 'grok'] as const)('preserves explicitly rebound %s workspace when its launch reconnects', async (engine) => {
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)('preserves explicitly rebound %s workspace when its launch reconnects', async (engine) => {
     const h = setup(engine), token = `reconnect-${randomUUID()}`;
     const launchWorkspace = { cwd: '/repo', git_status: 'repository' as const, git_root: '/repo', git_common_dir: '/repo/.git' };
     await mutateOwnerState(h.owner, { kind: 'test.portal-reconnect', payload: {}, prepare(ctx) {
@@ -390,7 +390,7 @@ describe('exact transcript Git continuation', () => {
   });
 });
 
-it.each(['codex','claude','grok'] as const)('%s explains missing native Git proof without creating registrations',async engine=>{
+it.each(['codex','claude','grok','kimi'] as const)('%s explains missing native Git proof without creating registrations',async engine=>{
  const h=setup(engine),args={worktree_path:'/repo',clone_dir:'/repo/.git',repo_root:'/repo',engine,username:'root',branch:'work'};
  await expect(h.git.register(args,h.host)).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('cxx communicator status')});
  await expect(h.git.register(args,h.host)).rejects.toMatchObject({code:'git_director_owner_required',message:expect.stringContaining('Desktop Code-tab')});
@@ -400,7 +400,7 @@ it.each(['codex','claude','grok'] as const)('%s explains missing native Git proo
  expect(h.state.snapshot().table('gitWorktrees').all()).toHaveLength(0);
 });
 
-it.each(['codex', 'claude', 'grok'] as const)('%s distinguishes a registration username mismatch from workspace binding', async engine => {
+it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s distinguishes a registration username mismatch from workspace binding', async engine => {
   const h = setup(engine);
   const register = (username?: string) => withNativePrincipal(
     { sessionId: h.sessionId, bridgeToken: h.token },
@@ -416,7 +416,7 @@ it.each(['codex', 'claude', 'grok'] as const)('%s distinguishes a registration u
   expect(h.state.snapshot().table('gitWorktrees').all()[0]?.username).toBe('root');
 });
 
-it.each(['codex', 'claude', 'grok'] as const)('%s registers its matching checked-in workspace without another context update', async engine => {
+it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s registers its matching checked-in workspace without another context update', async engine => {
   const h = setup(engine);
   await mutateOwnerState(h.owner, { kind: 'test.checked-in-workspace', payload: {}, prepare(ctx) {
     ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(h.sessionId)!, workspace: {
@@ -467,7 +467,7 @@ describe('Git Director feedback sweep (registration state, remotes, nesting, lis
       return null;
     } });
 
-  it.each((['codex', 'claude', 'grok'] as const).flatMap(engine => ['owner_restart', 'disconnected'].map(reason => ({ engine, reason }))))('restores the exact $engine native registration after $reason without re-registering', async ({ engine, reason }) => {
+  it.each((['codex', 'claude', 'grok', 'kimi'] as const).flatMap(engine => ['owner_restart', 'disconnected'].map(reason => ({ engine, reason }))))('restores the exact $engine native registration after $reason without re-registering', async ({ engine, reason }) => {
     const h = setup(engine);
     await claimRepo(h);
     const registered = await as(h, () => h.git.register({ ...base, engine }, h.host));

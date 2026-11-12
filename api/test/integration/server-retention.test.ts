@@ -28,7 +28,7 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
   const ids: string[] = [];
   beforeAll(async () => {
     const fqdn = `retention-${randomUUID()}.test`;
-    await db!.insert(hosts).values({ fqdn, apiKey: randomBytes(32).toString('hex'), engines: 'codex,claude,grok', status: 'active', secure: 1, createdAt: now, updatedAt: now });
+    await db!.insert(hosts).values({ fqdn, apiKey: randomBytes(32).toString('hex'), engines: 'codex,claude,grok,kimi', status: 'active', secure: 1, createdAt: now, updatedAt: now });
     host = (await db!.select().from(hosts).where(eq(hosts.fqdn, fqdn)))[0]!;
     await db!.execute(sql`INSERT INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','1',${now}),('agent_portal_enabled','1',${now}) ON DUPLICATE KEY UPDATE version='1'`);
     bus = new AgentMessagingService(db!, loadTestEnv(), testKeyring());
@@ -47,7 +47,7 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
     await handle!.pool.end();
   });
 
-  async function agent(engine: 'codex' | 'claude' | 'grok' = 'codex') {
+  async function agent(engine: 'codex' | 'claude' | 'grok' | 'kimi' = 'codex') {
     const id = randomUUID(), bridgeToken = randomBytes(32).toString('base64url');
     const registered = await bus.registerSession(host, { sessionId: id, bridgeToken, engine, username: 'test', cwd: '/tmp/retention', invocationKind: 'interactive', upstreamSessionId: randomUUID() });
     ids.push(id);
@@ -103,7 +103,7 @@ describe.skipIf(!handle)('24h server history retention', { timeout: 120_000 }, (
     await portal.purgeExpired();
     await retention.purge(instant);
   });
-  it.each(['codex','claude','grok'] as const)('purges ended %s identities including rebooted sessions and stale notices', async engine => {
+  it.each(['codex','claude','grok','kimi'] as const)('purges ended %s identities including rebooted sessions and stale notices', async engine => {
     const a = await agent(engine);
     const heldSlots = async () => {
       const [result] = await db!.execute(sql`SELECT name_key FROM agent_name_pool WHERE current_session_id=${a.id}`);

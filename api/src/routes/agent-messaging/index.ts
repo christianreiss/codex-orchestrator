@@ -261,7 +261,7 @@ export async function registerAgentMessagingRoutes(
     const body = z
       .object({
         scope: z.enum(['fleet', 'directory', 'checkout', 'project']).optional(),
-        engine: z.enum(['codex', 'claude', 'grok']).optional(),
+        engine: z.enum(['codex', 'claude', 'grok', 'kimi']).optional(),
         host_id: z.number().int().positive().optional(),
         include_offline: z.boolean().optional(),
         name: z.string().trim().min(1).max(96).optional(),
@@ -539,7 +539,7 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-messaging/list', async req => {
     const host = await hostAuth.authenticate(req);
     const body = z
-      .object({ engine: z.enum(['codex', 'claude', 'grok']).optional(), include_offline: z.boolean().optional() })
+      .object({ engine: z.enum(['codex', 'claude', 'grok', 'kimi']).optional(), include_offline: z.boolean().optional() })
       .strict()
       .parse(req.body ?? {});
     return await messaging.listAddressesForHost(host, {

@@ -22,9 +22,11 @@ import {
 import type { RouteContext } from '../index.js';
 import { ApiError, ValidationError, ServiceUnavailableError } from '../../http/errors.js';
 import { compareRfc3339, nowIso } from '../../util/timestamp.js';
-import { isEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../../util/engine.js';
+import { isEngine, type Engine, ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI } from '../../util/engine.js';
 import { createGrokAuthOwner } from '../../services/grok-auth-owner.js';
+import { createKimiAuthOwner } from '../../services/kimi-auth-owner.js';
 import { grokProjectionMetadata } from '../../services/grok-auth.js';
+import { kimiProjectionMetadata } from '../../services/kimi-auth.js';
 import { wsPublisher } from '../../ws/publisher.js';
 
 import { ClientVersionsService } from '../../services/client-versions.js';
@@ -54,6 +56,7 @@ import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-pr
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
 import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../services/claude-usage.js';
 import { grokUsageAuthFields, readGrokUsage } from '../../services/grok-usage.js';
+import { kimiUsageAuthFields, readKimiUsage } from '../../services/kimi-usage.js';
 import {
   activeHostEngines,
   assertHostEngineAssigned,
@@ -233,6 +236,36 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
         throw error;
       }
     }
+if (engine === ENGINE_KIMI) {
+      try {
+        const snapshot = await createKimiAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({
+          accountId: lease.account.id,
+          sourceHostId: host.id,
+          sessionId,
+          bootstrapSession: true,
+        });
+        return {
+          account_id: lease.account.id,
+          account_label: lease.account.label,
+          session_id: sessionId,
+          ownership_mode: 'ownership_mode' in lease ? lease.ownership_mode : 'timed',
+          expires_at: lease.expires_at,
+          access_expires_at: snapshot.expires_at,
+          auth: snapshot.auth,
+          canonical_digest: snapshot.digest,
+          canonical_last_refresh: snapshot.last_refresh,
+          canonical_generation: snapshot.canonical_generation,
+          access_token_digest: snapshot.access_token_digest,
+          verification_state: 'verified',
+          refresh_state: snapshot.refresh_state,
+          usage: await readKimiUsage(ctx.db, lease.account.id),
+          ...quota,
+        };
+      } catch (error) {
+        await accounts.release(host.id, engine, sessionId);
+        throw error;
+      }
+    }
     const row = await runnerValidation.resolveCanonicalPayload(engine, lease.account.id);
     const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
     if (!row || !auth) {
@@ -265,9 +298,9 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, true);
     const sessionId = opaqueId(payload.session_id, 'session_id');
     const heartbeat = await accounts.heartbeat(host.id, engine, sessionId);
-    if (engine !== ENGINE_GROK) return heartbeat;
+    if (engine !== ENGINE_GROK && engine !== ENGINE_KIMI) return heartbeat;
     if (!(await readFleetEngineState(ctx.db))[engine]) return { ...heartbeat, refresh_state: 'suspended' };
-    const snapshot = await createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({
+    const snapshot = await (engine === ENGINE_KIMI ? createKimiAuthOwner : createGrokAuthOwner)({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({
       accountId: heartbeat.account_id,
       sourceHostId: host.id,
       sessionId,
@@ -335,13 +368,13 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     if (owner) {
       const requested = explicitEngine ? query.engine!.trim().toLowerCase() : undefined;
       if (requested && !isEngine(requested))
-        throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
+        throw new ValidationError('engine must be "codex", "claude", "grok" or "kimi"', { param: 'engine' });
       return uninstallOwnedHost(owner, host, requested as Engine | undefined, force);
     }
     if (explicitEngine) {
       const engine = query.engine!.trim().toLowerCase();
       if (!isEngine(engine)) {
-        throw new ValidationError('engine must be "codex", "claude" or "grok"', { param: 'engine' });
+        throw new ValidationError('engine must be "codex", "claude", "grok" or "kimi"', { param: 'engine' });
       }
       // Uninstalling a suspended engine is cleanup, not use: host check only.
       assertHostEngineAssigned(host, engine);
@@ -372,7 +405,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
             .update(hostsTable)
             .set({
               engines: remaining.join(','),
-              ...(engine === ENGINE_GROK
+              ...(engine === ENGINE_KIMI ? { kimiAuthDigest: null, kimiLastRefresh: null, kimiClientVersion: null, kimiClientVersionOverride: null, kimiWrapperVersion: null, kimiModelOverride: null, kimiReasoningEffortOverride: null } : engine === ENGINE_GROK
                 ? {
                     grokAuthDigest: null,
                     grokLastRefresh: null,
@@ -627,6 +660,9 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     if (engine === ENGINE_GROK) {
       out.grok_skills = await skillsService.bundle(enforced, engine, readSkillDigests(payload));
     }
+if (engine === ENGINE_KIMI) {
+      out.kimi_skills = await skillsService.bundle(enforced, engine, readSkillDigests(payload));
+    }
 
     // Fleet-wide managed-sync activity for the cdx/clx boot-screen activity
     // block. The response key remains `sessions` for compatibility; wrappers
@@ -769,6 +805,64 @@ async function handleRetrieve(
         weekly_used_percent: null,
         weekly_resets_at: null,
       },
+    };
+  }
+if (engine === ENGINE_KIMI) {
+    if (payload.metadata_only === true) {
+      // Startup must reach account selection even when the old/default head
+      // needs login. Doctor must never spend a rotating refresh credential.
+      const row = await runnerValidation.resolveCanonicalPayload(engine, accountIdFrom(payload.account_id));
+      const snapshot = row ? runnerValidation.validateCanonicalPayload(row) : null;
+      const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
+      base.kimi_usage = await readKimiUsageSnapshot(ctx, row?.accountId ?? accountIdFrom(payload.account_id));
+      return {
+        ...base,
+        account_pool: true,
+        metadata_only: true,
+        status: snapshot ? 'available' : 'missing',
+        verification_state: row?.verificationState ?? 'unknown',
+        canonical_generation: row?.generation ?? null,
+        canonical_last_refresh: snapshot?.last_refresh ?? null,
+        ...(snapshot ? kimiProjectionMetadata(snapshot.auth) : {}),
+        // status/verification_state describe one head; a launch leases from the
+        // pool, so status also needs to know whether any account is leasable.
+        pool_verified_accounts: await new ProviderAccountsService(ctx.db, ctx.keyring).countLeasable(engine),
+        usage: row?.accountId ? await readKimiUsage(ctx.db, row.accountId) : { supported: false },
+      };
+    }
+    const refresh = payload.refresh_if_generation;
+    if (refresh !== undefined && (!Number.isSafeInteger(refresh) || Number(refresh) < 0))
+      throw new ValidationError('refresh_if_generation must be a non-negative integer', {
+        param: 'refresh_if_generation',
+      });
+    const snapshot = await createKimiAuthOwner({
+      db: ctx.db,
+      keyring: ctx.keyring,
+      runner: createRunnerClient({ env: ctx.env }),
+    }).ensureFresh({
+      accountId: accountIdFrom(payload.account_id),
+      sourceHostId: host.id,
+      sessionId: typeof payload.session_id === 'string' ? payload.session_id : undefined,
+      refreshIfGeneration: refresh === undefined ? undefined : Number(refresh),
+    });
+    projectVersions.invalidate();
+    const base = await buildRetrieveBaseResponse(ctx, host, payload, engine, projectVersions);
+    base.kimi_usage = await readKimiUsageSnapshot(ctx, snapshot.row.accountId ?? undefined);
+    await touchHostAuthState(ctx.db, host.id, snapshot.row.id, snapshot.digest, engine);
+    await touchHostAuthFields(ctx.db, host.id, snapshot.last_refresh, snapshot.digest, engine);
+    return {
+      ...base,
+      account_pool: true,
+      account_id: snapshot.row.accountId,
+      canonical_digest: snapshot.digest,
+      canonical_last_refresh: snapshot.last_refresh,
+      canonical_generation: snapshot.canonical_generation,
+      access_token_digest: snapshot.access_token_digest, expires_at: snapshot.expires_at,
+      verification_state: 'verified',
+      refresh_state: snapshot.refresh_state,
+      status: extractDigest(payload, false) === snapshot.digest ? 'valid' : 'outdated',
+      auth: snapshot.auth,
+      usage: await readKimiUsage(ctx.db, snapshot.row.accountId!),
     };
   }
   const providedDigest = extractDigest(payload, false);
@@ -936,6 +1030,8 @@ async function buildRetrieveBaseResponse(
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
   else if (engine === ENGINE_GROK)
     baseResponse.grok_usage = await readGrokUsageSnapshot(ctx, accountIdFrom(payload.account_id));
+if (engine === ENGINE_KIMI)
+    baseResponse.kimi_usage = await readKimiUsageSnapshot(ctx, accountIdFrom(payload.account_id));
   baseResponse.quota_advice = quotaAdviceSnapshot(
     quota.quota_unlimited ? { ...advice, mode: 'off' } : advice,
     activeHostEngines(host.engines, await readFleetEngineState(ctx.db)),
@@ -1290,6 +1386,7 @@ async function handleStore(
   if (engine === ENGINE_CODEX) Object.assign(response, codexUsageFields(chatgpt, payload));
   else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
   else if (engine === ENGINE_GROK) response.grok_usage = await readGrokUsageSnapshot(ctx, stored.account_id);
+if (engine === ENGINE_KIMI) response.kimi_usage = await readKimiUsageSnapshot(ctx, stored.account_id);
   response.quota_advice = quotaAdviceSnapshot(
     quota.quota_unlimited ? { ...advice, mode: 'off' } : advice,
     activeHostEngines(host.engines, await readFleetEngineState(ctx.db)),
@@ -1476,12 +1573,19 @@ function buildHostPayload(host: Host, fleet: FleetEngineState): Record<string, u
     claude_model_override: host.claudeModelOverride ?? null,
     claude_reasoning_effort_override: host.claudeReasoningEffortOverride ?? null,
     grok_last_refresh: host.grokLastRefresh ?? null,
+    kimi_last_refresh: host.kimiLastRefresh ?? null,
     grok_client_version: host.grokClientVersion ?? null,
+    kimi_client_version: host.kimiClientVersion ?? null,
     grok_client_version_override: host.grokClientVersionOverride ?? null,
+    kimi_client_version_override: host.kimiClientVersionOverride ?? null,
     grok_wrapper_version: host.grokWrapperVersion ?? null,
+    kimi_wrapper_version: host.kimiWrapperVersion ?? null,
     grok_auth_digest: host.grokAuthDigest ?? null,
+    kimi_auth_digest: host.kimiAuthDigest ?? null,
     grok_model_override: host.grokModelOverride ?? null,
+    kimi_model_override: host.kimiModelOverride ?? null,
     grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null,
+    kimi_reasoning_effort_override: host.kimiReasoningEffortOverride ?? null,
   };
 }
 
@@ -1617,6 +1721,17 @@ async function readGrokUsageSnapshot(
   if (!accountId) return { status: 'unavailable' };
   try {
     return grokUsageAuthFields(await readGrokUsage(ctx.db, accountId));
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+async function readKimiUsageSnapshot(
+  ctx: RouteContext,
+  accountId?: number,
+): Promise<Record<string, unknown>> {
+  if (!accountId) return { status: 'unavailable' };
+  try {
+    return kimiUsageAuthFields(await readKimiUsage(ctx.db, accountId));
   } catch {
     return { status: 'unavailable' };
   }

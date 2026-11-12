@@ -10,7 +10,7 @@ describe('/admin/model-policy/:engine', () => {
     const db = createDbFake();
     await registerAdminSettingsRoutes(app, { db, env: {}, keyring: {} } as unknown as RouteContext);
     try {
-      for (const engine of ['codex', 'claude', 'grok']) {
+      for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
         const initial = await app.inject({ url: `/admin/model-policy/${engine}` });
         expect(initial.statusCode).toBe(200);
         expect(initial.json()).toMatchObject({ engine, latest_only: false });
@@ -18,7 +18,7 @@ describe('/admin/model-policy/:engine', () => {
         expect(saved.statusCode).toBe(200);
         expect(saved.json()).toMatchObject({ engine, latest_only: true });
       }
-      expect(db.tables.get(versions)?.filter(row => row.name?.toString().endsWith('_models_latest_only'))).toHaveLength(3);
+      expect(db.tables.get(versions)?.filter(row => row.name?.toString().endsWith('_models_latest_only'))).toHaveLength(4);
       expect(db.inserts.some(entry => entry.table === logs)).toBe(true);
       const invalid = await app.inject({ method: 'PUT', url: '/admin/model-policy/codex', payload: { latest_only: 'true' } });
       expect(invalid.statusCode).toBe(422);

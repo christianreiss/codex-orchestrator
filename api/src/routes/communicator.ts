@@ -691,7 +691,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                           .object({
                             type: z.literal('auth_state'),
                             scope: z.string().max(100),
-                            engine: z.enum(['codex', 'claude', 'grok']),
+                            engine: z.enum(['codex', 'claude', 'grok', 'kimi']),
                             account_id: z.number().int().positive().optional(),
                             generation: z.string().max(128).optional(),
                             state: z.string().max(32),
@@ -799,7 +799,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 if (
                   result?.verification_state === 'verified' &&
                   typeof result.account_id === 'number' &&
-                  ['codex', 'claude', 'grok'].includes(result.engine)
+                  ['codex', 'claude', 'grok', 'kimi'].includes(result.engine)
                 ) {
                   knownAccounts.set(`${result.engine}:${result.account_id}`, Date.now() + 60_000);
                 }

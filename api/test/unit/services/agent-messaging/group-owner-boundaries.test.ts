@@ -68,7 +68,7 @@ function fixture(engine: string, hostChanges: Record<string, unknown>) {
 }
 
 describe('owned publication recipient eligibility', () => {
-  for (const engine of ['codex', 'claude', 'grok']) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
     for (const [reason, host] of [
       ['inactive', { status: 'inactive' }],
       ['expired', { expiresAt: '2000-01-01T00:00:00Z' }],
@@ -102,7 +102,7 @@ describe('owned publication recipient eligibility', () => {
 });
 
 describe('group metadata response authorization', () => {
-  for (const engine of ['codex', 'claude', 'grok']) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
     function setup() {
       const db = createDbFake(),
         sessionId = randomUUID(),

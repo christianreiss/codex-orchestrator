@@ -33,7 +33,7 @@ function adapter(wire: 'openai' | 'anthropic', engine: Engine, auth = vi.fn(asyn
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 for (const wire of ['openai', 'anthropic'] as const) {
-  for (const engine of ['codex', 'claude', 'grok'] as const) {
+  for (const engine of ['codex', 'claude', 'grok', 'kimi'] as const) {
     describe(`${wire} adapter cancellation on ${engine}`, () => {
       it('refuses an already cancelled call without reading credentials or executing', async () => {
         const fetcher = vi.fn();

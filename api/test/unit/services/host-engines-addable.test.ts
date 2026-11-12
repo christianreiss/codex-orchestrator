@@ -3,7 +3,7 @@ import { ConflictError } from '../../../src/http/errors.js';
 import { assertEnginesAddable } from '../../../src/services/host-management.js';
 import type { FleetEngineState } from '../../../src/services/host-engine-policy.js';
 
-const GROK_OFF: FleetEngineState = { codex: true, claude: true, grok: false };
+const GROK_OFF: FleetEngineState = { codex: true, claude: true, grok: false, kimi: false };
 
 describe('assertEnginesAddable', () => {
   it('refuses to newly assign an engine switched off fleet-wide', () => {

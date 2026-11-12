@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 export const CHATTY_PROTOCOL = 1;
-export const engineSchema = z.enum(['codex', 'claude', 'grok']);
+export const engineSchema = z.enum(['codex', 'claude', 'grok', 'kimi']);
 export const selectionSchema = z
   .object({
     engine: engineSchema.nullable().default(null),
@@ -27,11 +27,10 @@ export const messageSchema = z
 export const settingsSchema = z
   .object({
     enabled: z.boolean().default(true),
-    engine_order: z
-      .array(engineSchema)
-      .length(3)
-      .refine((v) => new Set(v).size === 3)
-      .default(['codex', 'claude', 'grok']),
+    engine_order: z.preprocess(
+      value => Array.isArray(value) && value.length === 3 && ['codex', 'claude', 'grok'].every(engine => value.includes(engine)) ? [...value, 'kimi'] : value,
+      z.array(engineSchema).length(4).refine(value => new Set(value).size === 4),
+    ).default(['codex', 'claude', 'grok', 'kimi']),
     concurrency: z.number().int().min(1).max(2).default(2),
     queue_limit: z.number().int().min(1).max(100).default(20),
     steps: z.number().int().min(2).max(24).default(12),

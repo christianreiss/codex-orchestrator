@@ -16,6 +16,7 @@ import {
   chatgptUsageSnapshots,
   claudeUsageSnapshots,
   grokAuthRefreshState,
+  kimiAuthRefreshState,
 } from '../db/schema.js';
 import type { Keyring } from '../security/keyring.js';
 import { ConflictError, NotFoundError, ServiceUnavailableError, ValidationError } from '../http/errors.js';
@@ -29,11 +30,13 @@ import { decrypt } from '../security/secret-box.js';
 import { createRunnerValidationService } from './runner-validation.js';
 import { resolveProviderAccount } from './provider-account-reference.js';
 import { withGrokAccountLock } from './grok-auth-lock.js';
+import { withKimiAccountLock } from './kimi-auth-lock.js';
 import { readGrokUsage } from './grok-usage.js';
+import { readKimiUsage } from './kimi-usage.js';
 import { chatGptPlanName, claudePlanName, providerPlan } from './provider-plan.js';
 
 type Account = typeof providerAccounts.$inferSelect;
-const PROVIDER_LABELS: Record<Engine, string> = { codex: 'ChatGPT', claude: 'Claude', grok: 'Grok' };
+const PROVIDER_LABELS: Record<Engine, string> = { codex: 'ChatGPT', claude: 'Claude', grok: 'Grok', kimi: 'Kimi Code' };
 export function providerIdentity(auth: Record<string, unknown>, engine: Engine): string | null {
   const tokens = auth.tokens as Record<string, unknown> | undefined;
   const value = engine === 'codex' ? tokens?.account_id : engine === 'grok' ? selectGrokCredential(auth, true)?.native.user_id : auth.account_identity;
@@ -295,13 +298,13 @@ export class ProviderAccountsService {
               plan = providerPlan(claudePlanName(JSON.parse(decrypt(body, this.keyring))), 'claude_login', payload.createdAt);
             } catch { /* Unreadable metadata stays unavailable; account listing still works. */ }
           }
-          const refresh = a.engine === 'grok' ? owner ? owner.state.snapshot().table('grokAuthRefreshState').get(a.id) : (await this.db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id)))[0] : null;
+          const refresh = a.engine === 'kimi' ? owner ? owner.state.snapshot().table('kimiAuthRefreshState').get(a.id) : (await this.db.select().from(kimiAuthRefreshState).where(eq(kimiAuthRefreshState.accountId, a.id)))[0] : a.engine === 'grok' ? owner ? owner.state.snapshot().table('grokAuthRefreshState').get(a.id) : (await this.db.select().from(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id)))[0] : null;
           return {
             id: a.id,
             engine: a.engine,
             label: a.label,
             state: a.state,
-            ...(a.engine === 'grok' ? { refresh_state: refresh?.state ?? 'idle', refresh_error: refresh?.errorCode ?? null } : {}),
+            ...(['grok','kimi'].includes(a.engine) ? { refresh_state: refresh?.state ?? 'idle', refresh_error: refresh?.errorCode ?? null } : {}),
             verification_state: payload?.verificationState ?? 'pending',
             verification_reason: payload?.verificationReason ?? null,
             verification_checked_at: payload?.verificationCheckedAt ?? null,
@@ -325,6 +328,7 @@ export class ProviderAccountsService {
     const now = Date.now();
     const owner = ownerRuntimeFor(reader); owner?.assertOwner();
     if (engine === 'grok') return readGrokUsage(reader, accountId);
+    if (engine === 'kimi') return readKimiUsage(reader, accountId);
     if (engine === 'claude') {
       const rows = owner ? [...owner.state.snapshot().table('claudeUsageSnapshots').by('accountId',accountId)].sort((a,b)=>b.id-a.id).slice(0,1) : await reader
         .select()
@@ -512,7 +516,7 @@ export class ProviderAccountsService {
       .update(providerAccountSessions)
       .set({ expiresAt })
       .where(and(eq(providerAccountSessions.id, id), eq(providerAccountSessions.hostId, hostId), eq(providerAccountSessions.engine, engine), gt(providerAccountSessions.expiresAt, nowIso())));
-    if (engine === 'grok') await this.session(hostId, engine, id);
+    if (engine === 'grok' || engine === 'kimi') await this.session(hostId, engine, id);
     return { account_id: session.accountId, expires_at: expiresAt };
   }
 
@@ -605,13 +609,17 @@ export class ProviderAccountsService {
           .set({ state: 'removed', payloadId: null, updatedAt: nowIso() })
           .where(eq(providerAccounts.id, a.id));
         if (a.engine === 'grok') await tx.delete(grokAuthRefreshState).where(eq(grokAuthRefreshState.accountId, a.id));
+        if (a.engine === 'kimi') await tx.delete(kimiAuthRefreshState).where(eq(kimiAuthRefreshState.accountId, a.id));
         // Leave the legacy pointer as a tombstone, never resurrect old history.
       }
     });
     for (const account of candidates.filter(a => a.engine === 'grok')) {
       await withGrokAccountLock(this.db, account.id, owner => drain(owner.db, [account]));
     }
-    const otherAccounts = candidates.filter(a => a.engine !== 'grok');
+    for (const account of candidates.filter(a => a.engine === 'kimi')) {
+      await withKimiAccountLock(this.db, account.id, owner => drain(owner.db, [account]));
+    }
+    const otherAccounts = candidates.filter(a => a.engine !== 'grok' && a.engine !== 'kimi');
     if (otherAccounts.length) await drain(this.db, otherAccounts);
   }
 }

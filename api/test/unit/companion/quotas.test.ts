@@ -30,7 +30,7 @@ describe('companion quota boundary', () => {
   });
   it('returns all engines after both authorization checks', async () => {
     const app = Fastify();
-    const snapshot = { engines: ['codex', 'claude', 'grok'].map((engine) => ({ engine, accounts: [] })) };
+    const snapshot = { engines: ['codex', 'claude', 'grok', 'kimi'].map((engine) => ({ engine, accounts: [] })) };
     const authorize = vi.fn().mockResolvedValue(undefined);
     registerCompanionQuotas(app, { authorize, read: async () => snapshot });
     expect((await app.inject('/companion/v1/quotas')).json()).toEqual(snapshot);

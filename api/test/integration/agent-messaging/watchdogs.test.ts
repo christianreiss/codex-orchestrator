@@ -63,7 +63,7 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
       apiKey: 'e'.repeat(64),
       status: 'active',
       secure: 1,
-      engines: 'codex,claude,grok',
+      engines: 'codex,claude,grok,kimi',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     });
@@ -156,7 +156,7 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
     if (!scheduleIds.includes(row!.scheduleId)) scheduleIds.push(row!.scheduleId);
     return w;
   }
-  describe.each(['codex', 'claude', 'grok'] as const)('%s terminal watchdog receipt', (engine) => {
+  describe.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s terminal watchdog receipt', (engine) => {
     it.each(['messaging', 'portal'] as const)('stops atomically through %s when the standalone STOP was lost', async (surface) => {
       const a = await agent(engine), w = await enable(a);
       const finish = async () => {
@@ -264,7 +264,7 @@ describe.skipIf(!handle)('bounded task watchdogs on MySQL', { timeout: 120000 },
     expect((await watchdogs.get(first.id)).status).toBe('disabled');
     expect((await watchdogs.get(second.id)).status).toBe('watching');
   });
-  it.each(['codex', 'claude', 'grok'] as const)(
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'arms %s without waking a healthy agent; retries never extend the deadline',
     async (engine) => {
       const a = await agent(engine),

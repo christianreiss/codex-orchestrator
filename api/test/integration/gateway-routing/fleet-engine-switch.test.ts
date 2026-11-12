@@ -39,7 +39,7 @@ async function harness(backends: Record<'openai' | 'anthropic', Engine>, disable
     keyring: {} as never,
     env: { AUTH_RUNNER_URL: 'http://runner/verify', AUTH_RUNNER_SHARED_SECRET: 'secret', AUTH_RUNNER_EXEC_TIMEOUT: 600 } as never,
   };
-  const overrides = Object.fromEntries((['codex', 'claude', 'grok'] as Engine[]).map((engine) => [engine, {
+  const overrides = Object.fromEntries((['codex', 'claude', 'grok', 'kimi'] as Engine[]).map((engine) => [engine, {
     authSnapshot: async () => ({ tokens: { access_token: 'x' } }),
     onExecSuccess: () => undefined,
   }]));

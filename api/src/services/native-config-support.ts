@@ -100,6 +100,11 @@ function grokZdrApplies(native: Record<string, unknown>, observed: string): bool
 
 export function assertNativeConfigSupport(settings: unknown, host: Host | null, engine: Engine): void {
   if (!host) return;
+  if (engine === 'kimi') {
+    const observed = host.kimiClientVersion;
+    if (observed && versionCompare(observed, '2.5.3') < 0) throw new ValidationError('Kimi native settings require CLI 2.5.3 or newer', { param: 'settings.native_settings' });
+    return;
+  }
   if (engine === 'grok') {
     const native = record(record(settings).native_settings);
     const raw = host.grokClientVersion;

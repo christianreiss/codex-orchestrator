@@ -202,6 +202,7 @@ export async function purgeCold(
         'owner_engine_actor_codex',
         'owner_engine_actor_claude',
         'owner_engine_actor_grok',
+        'owner_engine_actor_kimi',
         'owner_admin_event_id',
       ]) {
         const row = context.draft.table('versions').get(key);

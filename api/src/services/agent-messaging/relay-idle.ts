@@ -106,6 +106,7 @@ export function relayProofQuery(db: Database, relayId: string, identity: RelayId
       codexDisabled: flag(ENGINE_DISABLED_FLAGS.codex),
       claudeDisabled: flag(ENGINE_DISABLED_FLAGS.claude),
       grokDisabled: flag(ENGINE_DISABLED_FLAGS.grok),
+      kimiDisabled: flag(ENGINE_DISABLED_FLAGS.kimi),
       remote: sql<unknown>`(SELECT JSON_ARRAYAGG(JSON_ARRAY(${hostDaemonSessions.addressId}, ${hostDaemonSessions.status}))
         FROM ${hostDaemonSessions} WHERE ${hostDaemonSessions.hostId} = ${identity.hostId} AND ${hostDaemonSessions.addressId} IS NOT NULL)`,
       // Only candidates WITH pending work: driven from the few pending rows, not from every dormant address
@@ -146,6 +147,7 @@ function certifyRelayIdle(row: RelayProofRow | undefined, relayId: string, ident
     codex: !isTruthyFlagValue(row.codexDisabled),
     claude: !isTruthyFlagValue(row.claudeDisabled),
     grok: !isTruthyFlagValue(row.grokDisabled),
+    kimi: !isTruthyFlagValue(row.kimiDisabled),
   };
   const engines = activeHostEngines(host.engines, fleet);
   const remote = parsed(row.remote) as Array<[string, string]>;

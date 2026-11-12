@@ -4315,3 +4315,59 @@ Default off; see [connector contract](connectors.md). Admin routes require a das
 - `POST /connectors/mcp`
 
 `CONNECTOR_PUBLIC_BASE_URL` optionally selects a separate public-trusted OAuth issuer; `PUBLIC_BASE_URL` remains the fleet/dashboard origin. Consent and policy mutations accept only these configured origins. Connector subdomains of the existing WebAuthn RP ID reuse its passkeys without widening RP scope. See [public connector deployment](connectors.md#separate-public-origin).
+
+
+## Kimi Code server engine (`kimi`, `ckx`)
+
+The fourth engine participates in engine assignment, master suspension, auth
+account pools/leases, host overrides, AGENTS.md (state id 4), native Skills,
+managed configuration, receiver/activity and quota policy. See
+[the frozen Kimi contract](interface-ckx.md) for exact host files and payloads.
+
+- Canonical `kimi_code` credentials retain rotating refresh material encrypted
+  server-side. Retrieve/session bootstrap/communicator serve only access material
+  with zero expiry and the original `device_id`; refresh material never reaches
+  the runner. The single refresh owner serializes each account, records intent,
+  captures a successful provider response before verification, and promotes only
+  the fenced successor generation. Unknown spends require a new device login.
+- `/verify-kimi` uses the `/verify-grok` request/response shape and static bearer
+  verification. Dedicated seed logins use disposable `KIMI_CODE_HOME` directories.
+- `GET {base_url}/usages` and `/me` are polled per enabled account every five
+  minutes. Provider outages retain the last reading and expose error/freshness.
+  `user_level_name` is the plan source, never inferred from quota size.
+- Account usage returns `plan_name`, `windows` (kind `five_hour`, `weekly`,
+  `month_total`, `month_code`, plus `used_percent`, `resets_at`), `fetched_at`,
+  `checked_at`, `error_code`. Missing `limit_7d` produces no weekly window.
+  Quota observation, warnings and hard-fail use 5 h short / 7 d long windows.
+- `/admin/kimi/*` mirrors Grok keys, state, settings, models, config and version
+  routes; `/admin/hosts/:id/kimi-version` controls a host pin. Key prefix is
+  `sk-ckx-`; the independent API switch is seeded off. Client discovery uses the
+  official plain-text latest pointer and honors `client_version_lock_kimi`.
+- `kimi_skills` carries native Skill bundles. Config TOML uses Kimi's
+  `default_model`, `[thinking].effort`, native provider/model tables and a
+  `default_permission_mode` of `manual`, `yolo` or `auto`. Kimi has no OS sandbox.
+  Sync `content` carries an additional `mcp_servers` transport table with command/args/env or url/headers, and `owned_paths` includes each `mcp_servers.<name>`. The Kimi wrapper extracts those entries into native `mcp.json` (`mcpServers`) and removes that table before publishing native `config.toml`.
+- Receiver protocol is `kimi-hooks-v1`, activity source `kimi-hooks`. Idle
+  delivery waits for a native hook turn boundary or model-initiated listening.
+
+### Kimi Code admin API
+
+- `GET /admin/kimi/keys` — List Kimi gateway keys without credential bodies.
+- `POST /admin/kimi/keys` — Issue a scoped sk-ckx- gateway key, returned once.
+- `POST /admin/kimi/keys/:id/toggle` — Change a Kimi gateway key active state.
+- `DELETE /admin/kimi/keys/:id` — Remove a Kimi gateway key.
+- `GET /admin/kimi/state` — Read the independent Kimi API switch.
+- `POST /admin/kimi/state` — Set the independent Kimi API switch.
+- `GET /admin/kimi/settings` — Read gateway default_model and disabled.
+- `POST /admin/kimi/settings` — Change gateway default model/switch; unsupported parameters rejected.
+- `GET /admin/kimi/models` — List native catalog with enabled flags.
+- `POST /admin/kimi/models/:model/toggle` — Enable/disable a Kimi gateway model.
+- `GET /admin/kimi/config` — Read engine-specific managed config metadata.
+- `GET /admin/kimi/config/retrieve` — Retrieve engine-specific managed config.
+- `POST /admin/kimi/config/render` — Preview native TOML config.
+- `POST /admin/kimi/config/store` — Save managed Kimi config.
+- `GET /admin/kimi/version` — Read Kimi CLI version metadata.
+- `GET /admin/kimi/version/lock` — Read the independent exact CLI pin.
+- `POST /admin/kimi/version` — Set/clear the independent exact CLI pin.
+- `POST /admin/hosts/:id/kimi-version` — Set/clear a host-specific Kimi CLI pin.
+- `POST /admin/runner/run-kimi` — Run a read-only subscription verification with no credential bytes returned.
