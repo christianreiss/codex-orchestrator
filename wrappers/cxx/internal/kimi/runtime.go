@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -71,9 +72,10 @@ type Runtime struct {
 	server                                *http.Server
 	listener                              net.Listener
 	// Selection snapshot for startup/status, independent of mutable process env.
-	overlay          string
-	sessionLease     *ipc.Lock
-	privateDirectory *PrivateDirectory
+	oauthHost, baseURL string
+	overlay            string
+	sessionLease       *ipc.Lock
+	privateDirectory   *PrivateDirectory
 	// Warnings are launch notices for degraded but working private homes.
 	Warnings []string
 }
@@ -83,17 +85,44 @@ type Runtime struct {
 var runtimeLinkedAssets = []string{"sessions", "skills", "agents", "store", "blobs", "cache"}
 var runtimeCopiedAssets = []string{"AGENTS.md", "SYSTEM.md", "config.toml", "tui.toml", "mcp.json", "projects.json"}
 
+var deviceIDPattern = regexp.MustCompile(`(?i)^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$`)
+
 func nativeProjection(raw json.RawMessage) (AuthEnvelope, Credential, error) {
 	var envelope AuthEnvelope
 	if json.Unmarshal(raw, &envelope) != nil {
 		return envelope, Credential{}, errors.New("invalid Kimi auth envelope")
 	}
 	c := envelope.KimiCode
-	device, err := hex.DecodeString(envelope.DeviceID)
-	if c.Key == "" || strings.ContainsAny(c.Key, "\r\n\x00") || c.RefreshToken != "" || c.ExpiresAt != 0 || c.ExpiresIn != 0 || c.Scope != "kimi-code" || c.TokenType != "Bearer" || err != nil || len(device) != 16 {
+	if c.Key == "" || strings.ContainsAny(c.Key, "\r\n\x00") || c.RefreshToken != "" || c.ExpiresAt != 0 || c.ExpiresIn != 0 || c.Scope != "kimi-code" || c.TokenType != "Bearer" || !deviceIDPattern.MatchString(envelope.DeviceID) {
 		return envelope, c, errors.New("Kimi runtime requires an access-only projection and canonical device id")
 	}
+	if _, _, _, err := runtimeAuth(envelope.OAuthHost, envelope.BaseURL); err != nil {
+		return envelope, c, err
+	}
 	return envelope, c, nil
+}
+
+// Match resolveKimiCodeRuntimeAuth in kimi-code 2.5.3 and runner/kimi.py.
+func runtimeAuth(oauthHost, baseURL string) (string, string, string, error) {
+	if oauthHost == "" {
+		oauthHost = "https://auth.kimi.com"
+	}
+	if baseURL == "" {
+		baseURL = "https://api.kimi.com/coding/v1"
+	}
+	if oauthHost == "https://auth.kimi.com" && baseURL == "https://api.kimi.com/coding/v1" {
+		return oauthHost, baseURL, "oauth/kimi-code", nil
+	}
+	if oauthHost != "https://auth.kimi.ai" || baseURL != "https://api.kimi.ai/coding/v1" {
+		return "", "", "", errors.New("kimi_endpoint_unsupported")
+	}
+	// Struct order and camelCase keys are the JSON.stringify hash contract.
+	identity, _ := json.Marshal(struct {
+		OAuthHost string `json:"oauthHost"`
+		BaseURL   string `json:"baseUrl"`
+	}{oauthHost, baseURL})
+	sum := sha256.Sum256(identity)
+	return oauthHost, baseURL, "oauth/kimi-code-env-" + hex.EncodeToString(sum[:])[:16], nil
 }
 
 func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client, pool *accountpool.Context, lifetimeLeases ...*ipc.Lock) (*Runtime, error) {
@@ -253,6 +282,13 @@ func (r *Runtime) Apply(raw json.RawMessage, generation int64) error {
 	if err := AtomicWrite(r.AuthPath, data, 0600); err != nil {
 		return err
 	}
+	oauthHost, baseURL, key, _ := runtimeAuth(envelope.OAuthHost, envelope.BaseURL)
+	if key != "oauth/kimi-code" {
+		if err := AtomicWrite(filepath.Join(r.Home, "credentials", strings.TrimPrefix(key, "oauth/")+".json"), data, 0600); err != nil {
+			return err
+		}
+	}
+	r.oauthHost, r.baseURL = oauthHost, baseURL
 	if generation > 0 {
 		r.record(credential, generation)
 	}
@@ -470,6 +506,8 @@ func (r *Runtime) ModelPreferences() ModelPreferences {
 	return prefs
 }
 func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, launchArgs ...[]string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	m := map[string]any{}
 	if raw, err := os.ReadFile(filepath.Join(r.Home, "config.toml")); err == nil {
 		tree, err := toml.LoadBytes(raw)
@@ -485,7 +523,11 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 	if providers == nil {
 		providers = map[string]any{}
 	}
-	providers["managed:kimi-code"] = map[string]any{"type": "kimi", "base_url": "https://api.kimi.com/coding/v1", "oauth": map[string]any{"storage": "file", "key": "oauth/kimi-code"}}
+	oauthHost, baseURL, key, err := runtimeAuth(r.oauthHost, r.baseURL)
+	if err != nil {
+		return err
+	}
+	providers["managed:kimi-code"] = map[string]any{"type": "kimi", "base_url": baseURL, "oauth": map[string]any{"storage": "file", "key": key, "oauth_host": oauthHost}}
 	m["providers"] = providers
 	model := cfg.EngineOptions.ModelOverride
 	if cfg.EngineOptions.KimiModelOverride != nil {
@@ -537,16 +579,21 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 	}
 	if portal {
 		hooks, _ := m["hooks"].([]any)
-		kept := make([]any, 0, len(hooks)+2)
+		kept := make([]any, 0, len(hooks)+12)
 		for _, h := range hooks {
 			entry, _ := h.(map[string]any)
 			command, _ := entry["command"].(string)
-			if !strings.Contains(command, " agent poll --hook ") {
+			if !strings.Contains(command, " agent poll --hook ") && !strings.HasSuffix(command, " agent native-session") && !strings.HasSuffix(command, " agent activity-event") {
 				kept = append(kept, h)
 			}
 		}
 		for _, event := range []string{"UserPromptSubmit", "Stop"} {
 			kept = append(kept, map[string]any{"event": event, "command": shellQuote(executable) + " agent poll --hook " + event + " --dialect kimi", "timeout": int64(30)})
+		}
+		kept = append(kept, map[string]any{"event": "SessionStart", "command": shellQuote(executable) + " agent native-session", "timeout": int64(30)})
+		// Every event is in the 2.5.3 HOOK_EVENT_TYPES enum and hooks.md.
+		for _, event := range []string{"TurnStarted", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "PermissionResult", "StopFailure", "Interrupt", "SessionEnd"} {
+			kept = append(kept, map[string]any{"event": event, "command": shellQuote(executable) + " agent activity-event", "timeout": int64(30)})
 		}
 		m["hooks"] = kept
 	}
@@ -554,6 +601,9 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 	prefs.Effort, _ = thinking["effort"].(string)
 	overlay, _ := json.Marshal(prefs)
 	r.overlay = string(overlay)
+	// The sync table transports MCP only; Kimi reads servers from mcp.json.
+	nativeServers, _ := m["mcp_servers"].(map[string]any)
+	delete(m, "mcp_servers")
 	tree, err := toml.TreeFromMap(m)
 	if err != nil {
 		return err
@@ -578,10 +628,8 @@ func (r *Runtime) Configure(executable string, cfg *config.Config, portal bool, 
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if nativeServers, ok := m["mcp_servers"].(map[string]any); ok {
-		for name, value := range nativeServers {
-			servers[name] = value
-		}
+	for name, value := range nativeServers {
+		servers[name] = value
 	}
 	if portal {
 		servers["cxx-agent"] = map[string]any{"command": executable, "args": []string{"agent", "mcp", "--auto"}}

@@ -173,3 +173,129 @@ func TestConfigureKimiContractAndOwnedConfig(t *testing.T) {
 		t.Fatal("ambient provider credential retained")
 	}
 }
+
+func TestGlobalProjectionMatchesNativeScopedCredential(t *testing.T) {
+	home := t.TempDir()
+	r := &Runtime{Home: home, AuthPath: filepath.Join(home, "credentials", "kimi-code.json")}
+	var envelope AuthEnvelope
+	_ = json.Unmarshal(accessEnvelope("first"), &envelope)
+	envelope.DeviceID = "11111111-1111-4111-8111-111111111111"
+	envelope.OAuthHost, envelope.BaseURL = "https://auth.kimi.ai", "https://api.kimi.ai/coding/v1"
+	// Independently derived with node:crypto over JSON.stringify({oauthHost,baseUrl}).
+	const key = "oauth/kimi-code-env-0e4f99c69cc27850"
+	for _, token := range []string{"first", "successor"} {
+		envelope.KimiCode.Key = token
+		raw, _ := json.Marshal(envelope)
+		if err := r.Apply(raw, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.Configure("/usr/bin/cxx", &config.Config{}, true); err != nil {
+			t.Fatal(err)
+		}
+		tree, err := toml.LoadFile(filepath.Join(home, "config.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for field, want := range map[string]string{"base_url": envelope.BaseURL, "oauth.key": key, "oauth.oauth_host": envelope.OAuthHost} {
+			if got := tree.GetPath(append([]string{"providers", "managed:kimi-code"}, strings.Split(field, ".")...)); got != want {
+				t.Fatalf("%s = %v, want %s", field, got, want)
+			}
+		}
+		plain, _ := os.ReadFile(r.AuthPath)
+		scoped := filepath.Join(home, "credentials", strings.TrimPrefix(key, "oauth/")+".json")
+		got, err := os.ReadFile(scoped)
+		if err != nil || string(got) != string(plain) {
+			t.Fatalf("scoped credential differs: %s, %v", got, err)
+		}
+		info, err := os.Stat(scoped)
+		if err != nil || info.Mode().Perm() != 0600 {
+			t.Fatal("scoped credential permissions", err)
+		}
+		device, _ := os.ReadFile(filepath.Join(home, "device_id"))
+		if string(device) != envelope.DeviceID {
+			t.Fatal("device id changed")
+		}
+	}
+	checkNativeConfig(t, r)
+	for _, pair := range [][2]string{{"https://auth.kimi.ai", "https://api.kimi.com/coding/v1"}, {"https://evil.invalid", "https://api.kimi.ai/coding/v1"}} {
+		envelope.OAuthHost, envelope.BaseURL = pair[0], pair[1]
+		raw, _ := json.Marshal(envelope)
+		if err := r.Apply(raw, 0); err == nil {
+			t.Fatal("accepted unsupported endpoint pair", pair)
+		}
+	}
+}
+
+func checkNativeConfig(t *testing.T, r *Runtime) {
+	t.Helper()
+	if bin := os.Getenv("CKX_TEST_NATIVE_BIN"); bin != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bin, "doctor", "config", filepath.Join(r.Home, "config.toml"))
+		cmd.Env = r.Environment(os.Environ())
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("native config validation: %v: %s", err, out)
+		}
+	}
+}
+
+func TestServerRendererMCPAndHooksGolden(t *testing.T) {
+	home := t.TempDir()
+	body, err := os.ReadFile("testdata/server-sync.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = append(body, []byte("\n[[hooks]]\nevent='Notification'\ncommand='user-hook'\ntimeout=5\n")...)
+	if err := SyncConfig(home, body, []string{"default_model", "models", "providers", "thinking", "mcp_servers"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AtomicWrite(filepath.Join(home, "mcp.json"), []byte(`{"mcpServers":{"user":{"command":"user-mcp"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := &Runtime{Home: home}
+	const executable = "/opt/cxx's bin/cxx"
+	var first []byte
+	for i := 0; i < 2; i++ {
+		if err := r.Configure(executable, &config.Config{}, true); err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(filepath.Join(home, "config.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			first = got
+		} else if string(got) != string(first) {
+			t.Fatal("reconfigure duplicates or drops hooks")
+		}
+		if strings.Contains(string(got), "mcp_servers") {
+			t.Fatal("transport-only MCP table retained")
+		}
+	}
+	if os.Getenv("CKX_UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile("testdata/managed-config.golden.toml", first, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile("testdata/managed-config.golden.toml")
+	if err != nil || string(first) != string(want) {
+		t.Fatalf("managed config differs from golden: %v\n%s", err, first)
+	}
+	raw, err := os.ReadFile(filepath.Join(home, "mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Servers map[string]map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Servers) != 4 || m.Servers["fleet"]["url"] != "https://fleet.invalid/mcp" || m.Servers["local"]["command"] != "/usr/bin/example-mcp" || m.Servers["user"]["command"] != "user-mcp" || m.Servers["cxx-agent"]["command"] != executable {
+		t.Fatalf("MCP transport lost: %s", raw)
+	}
+	if m.Servers["fleet"]["headers"].(map[string]any)["X-API-Key"] != "fixture-only" || m.Servers["local"]["env"].(map[string]any)["MODE"] != "fixture" {
+		t.Fatalf("MCP transport details lost: %s", raw)
+	}
+	checkNativeConfig(t, r)
+}

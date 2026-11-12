@@ -1,0 +1,77 @@
+default_model = "kimi-code/k3.1-pro"
+default_permission_mode = "manual"
+telemetry = false
+auto_session_title = false
+disable_feedback_survey = true
+
+[providers]
+
+[providers."managed:kimi-code"]
+type = "kimi"
+base_url = "https://api.kimi.com/coding/v1"
+
+[providers."managed:kimi-code".oauth]
+storage = "file"
+key = "oauth/kimi-code"
+
+[models]
+
+[models."kimi-code/k3.1-pro"]
+provider = "managed:kimi-code"
+model = "k3.1-pro"
+max_context_size = 1048576
+support_efforts = ["low", "high", "max"]
+default_effort = "max"
+
+[models."kimi-code/k3.1-pro-highspeed"]
+provider = "managed:kimi-code"
+model = "k3.1-pro-highspeed"
+max_context_size = 1048576
+support_efforts = ["low", "high", "max"]
+default_effort = "max"
+
+[models."kimi-code/k3"]
+provider = "managed:kimi-code"
+model = "k3"
+max_context_size = 1048576
+support_efforts = ["low", "high", "max"]
+default_effort = "max"
+
+[models."kimi-code/k3-256k"]
+provider = "managed:kimi-code"
+model = "k3-256k"
+max_context_size = 262144
+support_efforts = ["low", "high", "max"]
+default_effort = "max"
+
+[models."kimi-code/kimi-for-coding"]
+provider = "managed:kimi-code"
+model = "kimi-for-coding"
+max_context_size = 262144
+support_efforts = ["low", "high", "max"]
+default_effort = "high"
+
+[models."kimi-code/kimi-for-coding-highspeed"]
+provider = "managed:kimi-code"
+model = "kimi-for-coding-highspeed"
+max_context_size = 262144
+support_efforts = ["low", "high", "max"]
+default_effort = "high"
+
+[thinking]
+effort = "max"
+
+[mcp_servers]
+
+[mcp_servers.fleet]
+url = "https://fleet.invalid/mcp"
+
+[mcp_servers.fleet.headers]
+X-API-Key = "fixture-only"
+
+[mcp_servers.local]
+command = "/usr/bin/example-mcp"
+args = ["--stdio"]
+
+[mcp_servers.local.env]
+MODE = "fixture"

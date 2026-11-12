@@ -1,6 +1,7 @@
 package accountpool
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,5 +60,29 @@ func TestWeeklyCacheRequiresVerifiedAccountAndPreservesScope(t *testing.T) {
 	c.Observe("/auth", []byte(`{"account_id":8,"verification_state":"verified","chatgpt":{"status":"unavailable"}}`))
 	if q := c.CachedWeekly(); q == nil || q.Used != nil {
 		t.Fatal("unavailable snapshot retained old usage", q)
+	}
+}
+
+func TestKimiWeeklyCacheUsesServerShapes(t *testing.T) {
+	for _, fixture := range []string{"server-usage.json", "server-lease.json"} {
+		t.Run(fixture, func(t *testing.T) {
+			raw, err := os.ReadFile("../kimi/testdata/" + fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				t.Fatal(err)
+			}
+			doc["account_id"] = json.RawMessage(`7`)
+			doc["verification_state"] = json.RawMessage(`"verified"`)
+			body, _ := json.Marshal(doc)
+			c := Load("kimi", filepath.Join(t.TempDir(), "auth.json"), "https://fleet.example")
+			c.Observe("/auth", body)
+			got := c.CachedWeekly()
+			if got == nil || got.Used == nil || *got.Used != 62 || got.ResetAt != "2099-01-08T00:00:00.000Z" || got.FetchedAt != "2099-01-01T00:00:00.000Z" {
+				t.Fatalf("server weekly reading lost: %+v", got)
+			}
+		})
 	}
 }
