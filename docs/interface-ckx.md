@@ -59,26 +59,30 @@ differences are listed under *Intentional deltas*.
     "expires_at": 1762950000, "expires_in": 900,
     "scope": "kimi-code", "token_type": "Bearer"
   },
-  "device_id": "<32 hex, from the seeding login's KIMI_CODE_HOME/device_id>",
+  "device_id": "<as minted in the seeding login's KIMI_CODE_HOME/device_id>",
   "oauth_host": "https://auth.kimi.com",
   "base_url": "https://api.kimi.com/coding/v1",
   "last_refresh": "RFC3339"
 }
 ```
 
-- Only the default region is supported: `oauth_host` must be
-  `https://auth.kimi.com` and `base_url` `https://api.kimi.com/coding/v1`.
-  kimi-code derives a scoped credential key (`oauth/kimi-code-env-<hash>`) for
-  any other endpoint (`resolveKimiCodeRuntimeAuth`), so the canonical
-  `credentials/kimi-code.json` projection would not apply; such payloads are
-  rejected with `kimi_endpoint_unsupported`.
+- Both official regions are supported: `auth.kimi.com` + `api.kimi.com/coding/v1`
+  (default) and `auth.kimi.ai` + `api.kimi.ai/coding/v1` (global). Any other
+  endpoint pair is rejected with `kimi_endpoint_unsupported`. kimi-code derives
+  a scoped credential key for every endpoint except the default one
+  (`resolveKimiCodeRuntimeAuth`: `oauth/kimi-code-env-<sha256(JSON.stringify({oauthHost,baseUrl}))[:16]>`),
+  so for the global region the wrapper and runner write the identical
+  access-only projection both as `credentials/kimi-code.json` and under the
+  scoped key, and the provider's `oauth.key` names the scoped key.
+- `device_id` is stored as minted by kimi-code (`identity.ts`, a UUID); refresh
+  sends `X-Msh-Platform: kimi_code_cli`.
 - Seeding always uses a dedicated device login in a throwaway `KIMI_CODE_HOME`
   (`ckx login` / seed script), then uploads `credentials/kimi-code.json` plus
   `device_id`. The seeding home is deleted afterwards so exactly one refresher
   (the server) holds the refresh token.
 - Refresh (server only, `kimi-auth-owner`): `POST {oauth_host}/api/oauth/token`,
   form `client_id=17e5f671-d194-4dfb-9706-5516cb48c098&grant_type=refresh_token&refresh_token=…`,
-  headers `X-Msh-Platform: kimi_code`, `X-Msh-Version`, `X-Msh-Device-Id: <device_id>`,
+  headers `X-Msh-Platform: kimi_code_cli`, `X-Msh-Version`, `X-Msh-Device-Id: <device_id>`,
   `X-Msh-Device-Name`, `X-Msh-Device-Model`, `X-Msh-Os-Version`. The response
   rotates the refresh token (a response without `refresh_token` is an error).
   The owner refreshes when fewer than `max(300 s, expires_in/2)` remain, fenced
