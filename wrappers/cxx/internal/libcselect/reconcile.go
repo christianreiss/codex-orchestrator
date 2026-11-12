@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
@@ -329,7 +330,8 @@ func Description(engine string) string {
 	}
 	text := "libc: " + s.Variant
 	if s.Reason != "" {
-		text += "; " + s.Reason
+		// Not an error: the glibc build is optional and musl is the supported fallback.
+		text += " (fallback, not an error: " + strings.TrimPrefix(s.Reason, ErrUnavailable.Error()+": ") + ")"
 	}
 	if !s.NextCheck.IsZero() {
 		text += "; next check " + s.NextCheck.UTC().Format(time.RFC3339)
