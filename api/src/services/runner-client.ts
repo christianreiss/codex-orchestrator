@@ -1,7 +1,7 @@
 import type { Env } from '../env.js';
 import type { Engine } from '../util/engine.js';
 import { projectGrokAuth } from './grok-auth.js';
-import { projectKimiAuth } from './kimi-auth.js';
+import { projectKimiRunnerAuth } from './kimi-auth.js';
 
 /**
  * Port of RunnerVerifier.php. POSTs canonical auth payloads to the runner's
@@ -262,7 +262,7 @@ export function createRunnerClient(deps: RunnerClientDeps): RunnerClient {
     },
     async verifyKimi(input) {
       const timeout = (input.timeoutSeconds ?? env.AUTH_RUNNER_TIMEOUT ?? 8) * 1000;
-      return send(url.replace(/\/verify\/?$/, '/verify-kimi'), { auth_json: projectKimiAuth(input.authJson), timeout_seconds: timeout / 1000 }, timeout);
+      return send(url.replace(/\/verify\/?$/, '/verify-kimi'), { auth_json: projectKimiRunnerAuth(input.authJson), timeout_seconds: timeout / 1000 }, timeout);
     },
     async generateSkillDraft(input) {
       const target = deriveFeatureUrl(url, '/skills/generate');

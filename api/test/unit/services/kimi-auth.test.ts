@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeKimiAuth,
   projectKimiAuth,
+  projectKimiRunnerAuth,
   selectKimiCredential,
   kimiDeviceHeaders,
   kimiProjectionMetadata,
@@ -29,6 +30,15 @@ const auth = () => ({
   last_refresh: new Date().toISOString(),
 });
 describe('Kimi canonical and runtime contracts', () => {
+  it('gives the auth runner the real expiry but never the refresh token', () => {
+    const canonical = normalizeKimiAuth(auth(), true);
+    const runner = projectKimiRunnerAuth(canonical);
+    const native = canonical.kimi_code as Record<string, unknown>;
+    expect(runner.kimi_code).toMatchObject({ refresh_token: '', expires_at: native.expires_at, expires_in: 900 });
+    expect((runner.kimi_code as { expires_at: number }).expires_at).toBeGreaterThan(0);
+    expect(JSON.stringify(runner)).not.toContain('fixture-secret-refresh');
+    expect(runner.device_id).toBe('90de1de4-1b37-4a4c-aac2-597d6404285a');
+  });
   it('keeps the refresh credential only in canonical storage and pins runtime expiry to zero', () => {
     const canonical = normalizeKimiAuth(auth(), true);
     const projection = projectKimiAuth(canonical);

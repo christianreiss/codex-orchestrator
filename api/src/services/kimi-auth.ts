@@ -117,6 +117,21 @@ export function projectKimiAuth(auth: Record<string, unknown>): Record<string, u
     auths: { [KIMI_AUTH_TARGET]: { token: selected.access, token_type: 'bearer' } },
   };
 }
+/**
+ * Access-only payload for the auth runner. Unlike the host projection it keeps
+ * the real expiry: the runner refuses tokens it cannot prove are still fresh,
+ * and never refreshes them itself (the server is the single refresher).
+ */
+export function projectKimiRunnerAuth(auth: Record<string, unknown>): Record<string, unknown> {
+  const selected = selectKimiCredential(auth, true);
+  if (!selected) throw new ValidationError('Kimi canonical credential is invalid', { param: 'auth' });
+  const projected = projectKimiAuth(auth);
+  const native = projected.kimi_code as Record<string, unknown>;
+  return {
+    ...projected,
+    kimi_code: { ...native, expires_at: selected.native.expires_at, expires_in: selected.expiresIn },
+  };
+}
 export function kimiProjectionMetadata(auth: Record<string, unknown>) {
   const selected = selectKimiCredential(auth);
   return selected

@@ -145,3 +145,14 @@ def test_global_environment_uses_native_scoped_access_only_alias(tmp_path):
         assert scoped.stat().st_mode & 0o777 == 0o600
     finally:
         shutil.rmtree(home)
+
+
+def test_native_uuid_device_id_is_accepted(tmp_path):
+    # Kimi Code 2.5.3 mints device_id with randomUUID().
+    payload = auth()
+    payload["device_id"] = "0f8fad5b-d9cb-469f-a165-70867728950e"
+    env, home, _ = kimi.prepare_env(payload, str(tmp_path), 900)
+    try:
+        assert (Path(env["KIMI_CODE_HOME"]) / "device_id").read_text() == payload["device_id"]
+    finally:
+        shutil.rmtree(home, ignore_errors=True)

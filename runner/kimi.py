@@ -25,8 +25,10 @@ def selected_credential(auth: dict) -> tuple[str, dict]:
     credential = auth.get("kimi_code")
     if not isinstance(credential, dict) or not isinstance(credential.get("access_token"), str) or not credential["access_token"].strip():
         raise HTTPException(400, "canonical Kimi subscription credentials are required")
-    if not isinstance(auth.get("device_id"), str) or not re.fullmatch(r"[a-fA-F0-9]{32}", auth["device_id"]):
-        raise HTTPException(400, "Kimi device_id must contain 32 hexadecimal characters")
+    # Kimi Code mints device_id with randomUUID(); older clients wrote 32 hex.
+    if not isinstance(auth.get("device_id"), str) or not re.fullmatch(
+            r"[a-fA-F0-9]{32}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}", auth["device_id"]):
+        raise HTTPException(400, "Kimi device_id must be a UUID or 32 hexadecimal characters")
     base = auth.get("base_url", "https://api.kimi.com/coding/v1")
     # Canonical subscription endpoints only: verification must not forward a
     # bearer to an arbitrary URL supplied in an upload.
