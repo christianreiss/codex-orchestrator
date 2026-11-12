@@ -145,6 +145,23 @@ writes into `config.toml`:
   before ending the turn.
 - Model-initiated `agent_listen` stays available.
 
+Hook commands (written by the wrapper as `[[hooks]]` entries, `timeout = 30`):
+`cxx agent poll --hook UserPromptSubmit --dialect kimi` and
+`cxx agent poll --hook Stop --dialect kimi`. The `kimi` dialect maps the
+existing Claude ring onto Kimi's hook protocol: `UserPromptSubmit` prints the
+pending-message notice as plain text on stdout and exits 0; `Stop` with pending
+deliveries prints the continuation text on stderr and exits 2 (block);
+nothing pending, or any error, is an empty exit 0 (Kimi hooks fail open).
+
+### Admin API and dashboard shapes
+
+- `/admin/kimi/*` mirrors `/admin/grok/*` (keys, state, settings, models,
+  config, version and lock) with `kimi` substituted; `/admin/hosts/:id/kimi-version`
+  mirrors the Grok route.
+- Account usage for `engine = "kimi"` (Accounts, Dashboard, `/quota`):
+  `{"plan_name": string|null, "windows": [{"kind": "five_hour"|"weekly"|"month_total"|"month_code", "used_percent": number, "resets_at": string|null}], "fetched_at": string|null, "checked_at": string, "error_code": string|null}`.
+  `five_hour` maps to the short quota window and `weekly` to the long one.
+
 ## Intentional deltas
 
 - No idle push: a message to an idle interactive Kimi session waits until the
