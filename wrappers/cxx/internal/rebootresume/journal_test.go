@@ -144,3 +144,20 @@ func TestPreparedCannotLaunchAndPathsCannotInjectCron(t *testing.T) {
 		t.Fatal("cron injection accepted")
 	}
 }
+
+func TestValidNativeIDIsEngineSpecific(t *testing.T) {
+	const id = "0f8fad5b-d9cb-469f-a165-70867728950e"
+	for _, c := range []struct {
+		engine, native string
+		ok             bool
+	}{
+		{"codex", id, true}, {"claude", id, true}, {"grok", id, true},
+		{"kimi", "session_" + id, true},
+		{"kimi", id, false}, {"kimi", "session_nope", false},
+		{"codex", "session_" + id, false},
+	} {
+		if got := ValidNativeID(c.engine, c.native); got != c.ok {
+			t.Errorf("ValidNativeID(%q, %q) = %v, want %v", c.engine, c.native, got, c.ok)
+		}
+	}
+}

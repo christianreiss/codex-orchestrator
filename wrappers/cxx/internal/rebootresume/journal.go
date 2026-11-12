@@ -44,7 +44,7 @@ type Record struct {
 }
 
 func (r Record) Validate() error {
-	if !uuid.MatchString(r.ID) || !uuid.MatchString(r.NativeID) || !uuid.MatchString(r.SessionID) || !uuid.MatchString(r.BootID) || !uuid.MatchString(strings.TrimPrefix(r.Address, "agent:")) {
+	if !uuid.MatchString(r.ID) || !ValidNativeID(r.Engine, r.NativeID) || !uuid.MatchString(r.SessionID) || !uuid.MatchString(r.BootID) || !uuid.MatchString(strings.TrimPrefix(r.Address, "agent:")) {
 		return errors.New("canonical request, session, agent and boot UUIDs required")
 	}
 	if r.Engine != "codex" && r.Engine != "claude" && r.Engine != "grok" && r.Engine != "kimi" {
@@ -59,6 +59,17 @@ func (r Record) Validate() error {
 		return errors.New("reason and continuation required (1000 / 32768 bytes maximum)")
 	}
 	return nil
+}
+
+// ValidNativeID reports whether id is the canonical native session ID of
+// engine. Codex, Claude and Grok use a bare UUID; Kimi Code names sessions
+// "session_<UUID>" and resumes them with exactly that ID, so the prefix is kept.
+func ValidNativeID(engine, id string) bool {
+	if engine == "kimi" {
+		rest, ok := strings.CutPrefix(id, "session_")
+		return ok && uuid.MatchString(rest)
+	}
+	return uuid.MatchString(id)
 }
 
 type Journal struct{ Dir, Cron string }
