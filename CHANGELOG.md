@@ -1,6 +1,7 @@
 # 2026-11-12
 
 - **Admin UI slop pass:** every web area was scanned and reviewed with slop-detector; the sidebar brand subtitle and the mobile navigation description no longer list engines in one row (so a fifth engine cannot wrap or clip them), the dashboard runner engine label grows with its text, and Settings engine master switches and quota tabs wrap or scroll with any number of engines. Remaining scan signals were reviewed as false positives.
+- **cxx 0.9.179 — libc status wording:** a musl fallback is now shown as `libc: musl (fallback, not an error: …)` instead of appending the raw `libc artifact unavailable` error text to status and update output.
 - Add global speech input defaults (on) and per-engine inheritance in Settings, with native control limitations shown for Codex, Grok and Kimi. Claude dictation and Grok voice shortcuts follow the effective policy after sync.
 
 
