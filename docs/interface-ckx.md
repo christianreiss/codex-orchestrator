@@ -132,6 +132,15 @@ observation, `quota_get`, warnings and hard-fail like Codex and Claude.
 Prompt mode already runs in Never Ask mode: 2.5.3 rejects `-p` combined with
 `--auto` (`Cannot combine --prompt with --auto.`), so headless starts never pass
 `--auto`/`--yolo`. The prompt travels as argv (no prompt-file option).
+
+Native session ids have the form `session_<UUID>` (keep the prefix everywhere:
+resume `-S session_<UUID>`, transcript checks, server native-id validation).
+Store layout: `$KIMI_CODE_HOME/sessions/wd_<cwd-slug>_<sha12>/session_<UUID>/state.json`
+plus `agents/main/wire.jsonl`. The final stream-json `meta` event
+`session.resume_hint` carries `session_id` and the resume command. stream-json
+reports no token usage and no stop reason. Hook stdin `prompt` is an array of
+content parts (`[{"type":"text","text":"…"}]`), not a string. (Verified with
+2.5.3 against a mock provider, 2026-11-12.)
 Exit 1 with a one-line `error:` on stderr on failure. stdout begins with
 `{"role":"meta","type":"system.version","version":"…"}`.
 
