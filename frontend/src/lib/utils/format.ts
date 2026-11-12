@@ -54,6 +54,28 @@ export function resetsIn(input: Date | string | number | null | undefined, now =
   return minutes >= 60 ? "in 1 hour" : `in ${counted(minutes, "minute")}`;
 }
 
+/**
+ * How far "now" is through a quota period, 0-100, for the usage-bar marker. The period
+ * is `startsAt`..`resetsAt` when the provider supplies a start, otherwise `limitSeconds`
+ * long and ending at `resetsAt`. Null when it cannot be known, including a reset that
+ * has already passed (a stale reading) — the marker is omitted, never guessed.
+ */
+export function periodElapsedPercent(
+  resetsAt: Date | string | number | null | undefined,
+  period: { startsAt?: Date | string | number | null; limitSeconds?: number | null } = {},
+  now = Date.now(),
+): number | null {
+  if (resetsAt === null || resetsAt === undefined || resetsAt === "") return null;
+  const end = new Date(typeof resetsAt === "number" ? (resetsAt < 1e12 ? resetsAt * 1000 : resetsAt) : resetsAt).getTime();
+  if (Number.isNaN(end) || end <= now) return null;
+  const given = period.startsAt === null || period.startsAt === undefined || period.startsAt === "" ? NaN : new Date(period.startsAt).getTime();
+  const start = Number.isNaN(given)
+    ? typeof period.limitSeconds === "number" && period.limitSeconds > 0 ? end - period.limitSeconds * 1000 : NaN
+    : given;
+  if (Number.isNaN(start) || end <= start) return null;
+  return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
+}
+
 type DateInput = Date | string | number | null | undefined;
 
 /** Date, ISO string or Unix timestamp (seconds or ms); null when missing or unparseable. */

@@ -67,7 +67,8 @@ test("three providers share one usage table in light/dark desktop, tablet and mo
     await expect(rows.nth(1).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
     await expect(rows.nth(1)).not.toContainText("Last known reading");
     await expect(rows.nth(2).getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "87");
-    await expect(rows.nth(2)).toContainText("in 1 day");
+    await expect(rows.nth(2).getByTestId("reset-in")).toContainText("in 1 day");
+    await expect(table.getByRole("columnheader", { name: "Reset in" })).toBeVisible();
     // One compact table: every meter has the same height and the page never scrolls sideways.
     const heights = await table.getByRole("meter").evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().height));
     expect(new Set(heights).size).toBe(1);
@@ -87,7 +88,8 @@ test("ChatGPT renders a supplied five-hour zero reading and retains account navi
   const row = page.getByRole("row", { name: /ChatGPT/ });
   await expect(row.getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
   await expect(row.getByRole("meter")).toHaveCount(2);
-  await expect(row.locator(`p:has-text("Resets in 1 day")`)).toBeVisible();
+  await expect(row.getByTestId("reset-in")).toContainText("5-hour window:in 1 day");
+  await expect(row.getByTestId("reset-in")).toContainText("Weekly window:Unknown");
   await row.getByRole("link", { name: "ChatGPT" }).focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/admin\/accounts$/);
@@ -100,7 +102,7 @@ test("a Grok window without a reset does not invent a day count", async ({ page 
   await page.goto("/admin/dashboard");
   const row = page.getByRole("row", { name: /Grok account/ });
   await expect(row.getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "10");
-  await expect(row).toContainText("Reset time unavailable");
+  await expect(row.getByTestId("reset-in")).toContainText("Unknown");
   await expect(row).not.toContainText("in 0 days");
 });
 
@@ -148,4 +150,38 @@ test("loading shows a placeholder and an account error cannot silently switch to
   await expect(usage.getByText("Could not load provider accounts", { exact: false })).toBeVisible({ timeout: 20_000 });
   await expect(usage.getByRole("button", { name: "Retry" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "ChatGPT usage", exact: true })).toHaveCount(0);
+});
+
+test("a today marker places each bar against its quota period and never guesses", async ({ page }, info) => {
+  const accounts = providers();
+  const day = 86400_000;
+  Object.assign(accounts[0].usage, { weekly_resets_at: new Date(Date.now() + 3.5 * day).toISOString() });
+  accounts[2].usage.current_window = { used_percent: 87, period: "weekly", starts_at: new Date(Date.now() - day).toISOString(), resets_at: new Date(Date.now() + 3 * day).toISOString(), shared: true };
+  await fixtures(page, accounts);
+  await page.goto("/admin/dashboard");
+  const markerLeft = async (name: RegExp) =>
+    parseFloat(await page.getByRole("row", { name }).getByTestId("elapsed-marker").evaluate(node => (node as HTMLElement).style.left));
+  expect(await markerLeft(/ChatGPT/)).toBeCloseTo(50, 0);
+  expect(await markerLeft(/Grok account/)).toBeCloseTo(25, 0);
+  await expect(page.getByRole("row", { name: /ChatGPT/ }).getByTestId("elapsed-marker")).toHaveAttribute("title", "50% of the period elapsed");
+  await expect(page.getByRole("row", { name: /ChatGPT/ }).getByRole("meter")).toHaveAttribute("aria-valuetext", "15% used, 50% of the period elapsed");
+  // Claude reports no reset time: its bars keep their plain reading and carry no marker.
+  const claude = page.getByRole("row", { name: /Claude/ });
+  await expect(claude.getByTestId("elapsed-marker")).toHaveCount(0);
+  await expect(claude.getByRole("meter", { name: "Weekly window" })).toHaveAttribute("aria-valuetext", "24% used");
+  const findings = await new AxeBuilder({ page }).include("section#usage").analyze();
+  expect(findings.violations.filter(v => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.locator("section#usage").screenshot({ path: info.outputPath(`marker-${scheme}.png`) });
+  }
+});
+
+test("a passed reset removes the marker instead of pinning it at the end", async ({ page }) => {
+  const accounts = providers();
+  Object.assign(accounts[0].usage, { weekly_resets_at: new Date(Date.now() - 60_000).toISOString() });
+  await fixtures(page, accounts);
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("row", { name: /ChatGPT/ }).getByRole("meter")).toBeVisible();
+  await expect(page.getByRole("row", { name: /ChatGPT/ }).getByTestId("elapsed-marker")).toHaveCount(0);
 });

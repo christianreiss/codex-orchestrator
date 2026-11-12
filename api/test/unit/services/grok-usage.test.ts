@@ -37,6 +37,24 @@ describe('Grok provider billing normalization', () => {
     });
   });
 
+  it('reads a fresh period whose omitted zero percentage is protobuf default, but only with a valid window', () => {
+    const currentPeriod = {
+      type: 'USAGE_PERIOD_TYPE_WEEKLY',
+      start: '2026-11-12T05:58:03.312Z',
+      end: '2026-11-19T05:58:03.312Z',
+    };
+    expect(parseGrokUsage({ config: { currentPeriod, isUnifiedBillingUser: true } })).toEqual({
+      used_percent: 0,
+      period: 'weekly',
+      starts_at: '2026-11-12T05:58:03.312Z',
+      resets_at: '2026-11-19T05:58:03.312Z',
+      shared: true,
+    });
+    expect(parseGrokUsage({ config: { currentPeriod: { ...currentPeriod, end: 'bad' } } })).toBeNull();
+    expect(parseGrokUsage({ config: { currentPeriod: { type: 'other', end: currentPeriod.end } } })).toBeNull();
+    expect(parseGrokUsage({ config: { currentPeriod, monthlyLimit: {}, used: {} } })).toBeNull();
+  });
+
   it('uses the new percentage over legacy amounts and distinguishes monthly periods', () => {
     expect(
       parseGrokUsage({
