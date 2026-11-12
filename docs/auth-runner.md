@@ -26,14 +26,15 @@ new route has to be documented here before it can ship.
 
 - `GET /health` returns `status` (`ok` / `degraded`), `required_engines`, a `problems` list, and per-engine `available`, `binary`, `version`, `expected_version`, and `version_matches`. `available` means the binary resolved *and* answered `--version`; it is not a `which` lookup. Used by Docker health checks and by the API boot check, which reads each engine's entry on its own rather than the top-level `status` — one drifted CLI must not mark another engine dead.
 - `POST /verify` validates Codex credentials. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
+- `POST /verify-kimi` validates canonical Kimi subscription credentials with access-only `GET {base_url}/usages`, without redirects or OAuth refresh; same request as `/verify-grok`, returning `kimi_version` and `auth_readback: "unchanged"`. Never returns `updated_auth`.
 - `POST /verify-grok` validates modern Grok subscription OIDC through the fixed read-only user metadata endpoint, without native execution or OAuth refresh. Same request body as `/verify`; returns `grok_version` and allowlisted provider metadata. Legacy web-login and metered API-key auth are rejected.
 - `POST /verify-claude` validates Claude credentials. Same body as `/verify`. Native Claude Code OAuth/account-login payloads use the Claude CLI; genuine Anthropic API keys use the Messages API.
-- `POST /skills/summarize` generates a short AGENTS-safe skill summary. Body: `auth_json` (required object), `slug` (required string), `manifest` (required string), optional `engine` (`codex` | `claude` | `grok`, default `codex`), and optional `timeout_seconds`. **No API caller today:** nothing under `api/src` requests this route.
+- `POST /skills/summarize` generates a short AGENTS-safe skill summary. Body: `auth_json` (required object), `slug` (required string), `manifest` (required string), optional `engine` (`codex` | `claude` | `grok` | `kimi`, default `codex`), and optional `timeout_seconds`. **No API caller today:** nothing under `api/src` requests this route.
 - `POST /memories/summarize` generates a short AGENTS-safe memory summary. Body: `auth_json` (required object), `memory_key` (required string), `content` (required string), optional `engine`, and optional `timeout_seconds`. **No API caller today:** nothing under `api/src` requests this route either.
 - `POST /skills/generate` generates a structured skill draft. Body: `auth_json` (required object), `prompt` (required string), optional `slug_hint`, optional `engine`, and optional `timeout_seconds`.
 - `POST /skills/assist` revises a structured skill draft from a conversation. Body: `auth_json` (required object), `messages` (required array), `skill` (required object), optional `mode`, optional `slug_locked`, optional `engine`, and optional `timeout_seconds`.
 - `POST /projects/assist` revises a project roster draft. Body: `auth_json` (required object), `slug` (required string), `project` (required object), optional `engine`, and optional `timeout_seconds`.
-- `POST /exec` runs one prompt through the engine CLI. Body: `auth_json` (required object) and `prompt` (required string), plus optional `images[]` (`url`, optional `detail`), `model`, `engine` (`codex` | `claude` | `grok`, default `codex`), `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `system`, and `timeout_seconds` (default `30`). The compatibility APIs send `AUTH_RUNNER_EXEC_TIMEOUT` (default `600` seconds); credential probes retain the independent `AUTH_RUNNER_TIMEOUT` default of `8` seconds. The runner still accepts `temperature`, `top_p`, `top_k` and `stop_sequences` on the wire, but **the API no longer sends them**: `api/src/services/transport-capabilities.ts` marks them `unsupported` for the CLI transport and both compat adapters refuse such a request with `400 unsupported_generation_control` before dispatch, rather than forwarding a control the CLI drops. `system` is forwarded on the `claude` and `grok` paths. Grok rejects sampling, stop sequences, output caps, and images; its gateway also rejects tool and streaming controls. Grok native JSON `text`, `stopReason`, and optional `usage` are parsed explicitly, with absent or incomplete usage reported as unknown. `max_tokens` is forwarded but labelled `accepted-unenforceable` — Anthropic's Messages API requires the field on every request, so refusing it would break the official SDK against this surface; nothing reports a `max_tokens` stop reason on this transport as a result.
+- `POST /exec` runs one prompt through the engine CLI. Body: `auth_json` (required object) and `prompt` (required string), plus optional `images[]` (`url`, optional `detail`), `model`, `engine` (`codex` | `claude` | `grok` | `kimi`, default `codex`), `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `system`, and `timeout_seconds` (default `30`). The compatibility APIs send `AUTH_RUNNER_EXEC_TIMEOUT` (default `600` seconds); credential probes retain the independent `AUTH_RUNNER_TIMEOUT` default of `8` seconds. The runner still accepts `temperature`, `top_p`, `top_k` and `stop_sequences` on the wire, but **the API no longer sends them**: `api/src/services/transport-capabilities.ts` marks them `unsupported` for the CLI transport and both compat adapters refuse such a request with `400 unsupported_generation_control` before dispatch, rather than forwarding a control the CLI drops. `system` is forwarded on the `claude` and `grok` paths. Grok rejects sampling, stop sequences, output caps, and images; its gateway also rejects tool and streaming controls. Grok native JSON `text`, `stopReason`, and optional `usage` are parsed explicitly, with absent or incomplete usage reported as unknown. `max_tokens` is forwarded but labelled `accepted-unenforceable` — Anthropic's Messages API requires the field on every request, so refusing it would break the official SDK against this surface; nothing reports a `max_tokens` stop reason on this transport as a result.
 
   Every caller-controlled field is bounded: `prompt` ≤ 1,000,000 characters, `system` ≤ 100,000, `model` ≤ 200, `stop_sequences` ≤ 16 entries, `timeout_seconds` in `[1, 600]`, and `temperature`/`top_p`/`top_k`/`max_tokens` to their valid ranges. Image handling is bounded by `RUNNER_MAX_IMAGES`, `RUNNER_MAX_IMAGE_BYTES` and `RUNNER_MAX_IMAGE_TOTAL_BYTES` (see `runner/README.md`), the content must actually be a PNG/JPEG/GIF/WebP by magic bytes rather than by its declared MIME type, and remote downloads go through `runner/network_policy.py`: one DNS resolution, a socket opened to that exact approved address with the original `Host` header and TLS SNI, the connected peer re-verified before any bytes are written, only globally routable addresses permitted, no redirects, and `Accept-Encoding: identity` so the byte cap bounds real bytes rather than compressed ones.
 - `RUNNER_SHARED_SECRET` is mandatory. Every POST — `/verify`, `/verify-claude`,
@@ -386,3 +387,26 @@ Two dedicated slots return 429 when busy. Timeout, disconnect and cancellation
 terminate the process group and remove its home. Output is bounded to 256 KiB.
 Malformed JSON is 502 `chatty_invalid_output`; native errors do not expose stderr.
 This is completed-step transport, not provider token streaming.
+
+## Kimi execution isolation
+
+Kimi Code 2.5.3 is installed from its versioned binary manifest with SHA-256
+verification and exact version assertion for Linux amd64/arm64. The image
+requires `codex,claude,grok,kimi` and records `RUNNER_KIMI_VERSION` for readiness.
+Each request has a private `KIMI_CODE_HOME`, canonical `device_id`, provider/model
+TOML blocks and an access-only `credentials/kimi-code.json` (empty refresh token,
+zero expiry fields). Canonical expiry must exceed timeout plus 300 seconds.
+Telemetry and auto-update are disabled, all native tools denied, and `system`
+is written to private `SYSTEM.md` and an explicit agent profile with `tools: []`. Kimi rejects images, sampling controls, stop
+sequences and output caps. Its 2.5.3 stream-json supplies assistant/tool/meta
+messages, no usage or stop reason: `usage_known: false`, `finish_reason: null`.
+Private homes are removed on success, error, timeout and cancellation.
+
+Kimi 2.5.3 rejects `-p` together with `--auto`; the runner omits that flag because print mode already uses auto permissions.
+
+For non-default subscription environments (including `.ai`), native Kimi 2.5.3
+requires a scoped OAuth slot: `oauth/kimi-code-env-<digest>`, where `digest` is
+the first 16 hex characters of SHA-256 of compact JSON `{oauthHost,baseUrl}`
+in that order. The runner retains `credentials/kimi-code.json` and writes an
+identical access-only scoped alias; config references that slot and OAuth host.
+Neither file contains a spendable refresh token.

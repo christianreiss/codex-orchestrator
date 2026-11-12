@@ -9,7 +9,7 @@ dual-engine runner with no `claude` on it at all.
 This module owns the honest answer instead: resolve the binary, ask it for its
 version, compare that against the version the image was built with, and refuse
 to start when a required engine is missing. `RUNNER_REQUIRED_ENGINES` names the
-engines that must be present; the bundled image sets it to `codex,claude,grok`.
+engines that must be present; the bundled image sets it to `codex,claude,grok,kimi`.
 """
 
 from __future__ import annotations
@@ -24,7 +24,8 @@ from typing import Callable, Iterable, Mapping, Optional
 ENGINE_CODEX = "codex"
 ENGINE_CLAUDE = "claude"
 ENGINE_GROK = "grok"
-ENGINES: tuple[str, ...] = (ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK)
+ENGINE_KIMI = "kimi"
+ENGINES: tuple[str, ...] = (ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI)
 
 #: `codex --version` prints `codex-cli 0.144.1`; `claude --version` prints
 #: `2.1.233 (Claude Code)`. Both reduce to the first dotted number in the line.
@@ -37,6 +38,7 @@ _EXPECTED_VERSION_ENV = {
     ENGINE_CODEX: "RUNNER_CODEX_VERSION",
     ENGINE_CLAUDE: "RUNNER_CLAUDE_VERSION",
     ENGINE_GROK: "RUNNER_GROK_VERSION",
+    ENGINE_KIMI: "RUNNER_KIMI_VERSION",
 }
 
 

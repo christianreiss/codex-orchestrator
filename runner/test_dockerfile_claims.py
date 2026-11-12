@@ -311,7 +311,7 @@ class RunnerDockerfileFailsClosedTest(unittest.TestCase):
         )
 
     def test_required_engines_are_baked_in(self):
-        self.assertEqual("codex,claude,grok", ENVS.get("RUNNER_REQUIRED_ENGINES"))
+        self.assertEqual("codex,claude,grok,kimi", ENVS.get("RUNNER_REQUIRED_ENGINES"))
         self.assertIn("RUNNER_CODEX_VERSION", ENVS)
         self.assertIn("RUNNER_CLAUDE_VERSION", ENVS)
         self.assertIn("RUNNER_GROK_VERSION", ENVS)
@@ -343,3 +343,15 @@ class RunnerDockerfileFailsClosedTest(unittest.TestCase):
             f"to {', '.join(sorted(claimed))}, but runner/Dockerfile sets "
             f"ENV RUNNER_HOME_PARENT={declared}",
         )
+
+
+class KimiImageTest(unittest.TestCase):
+    def test_kimi_pin_and_installer_ship_with_runner(self):
+        self.assertEqual("2.5.3", ARGS.get("KIMI_VERSION"))
+        self.assertEqual("${KIMI_VERSION}", ENVS.get("RUNNER_KIMI_VERSION"))
+        self.assertIn("kimi", ENVS["RUNNER_REQUIRED_ENGINES"].split(","))
+        with open(os.path.join(os.path.dirname(__file__), "Dockerfile"), encoding="utf-8") as source:
+            text = source.read()
+        self.assertIn("COPY install-kimi.sh /tmp/install-kimi.sh", text)
+        self.assertIn('sh /tmp/install-kimi.sh "${TARGETARCH:-amd64}"', text)
+        self.assertIn("grok.py kimi.py", text)

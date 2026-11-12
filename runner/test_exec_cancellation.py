@@ -121,7 +121,7 @@ print(child.pid)
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Linux runner process-group contract")
-@pytest.mark.parametrize("engine", ["codex", "claude", "grok"])
+@pytest.mark.parametrize("engine", ["codex", "claude", "grok", "kimi"])
 def test_engine_exec_cancellation_removes_actual_private_home(tmp_path, engine):
     home = tmp_path / "private-home"
     home.mkdir()
@@ -133,9 +133,11 @@ def test_engine_exec_cancellation_removes_actual_private_home(tmp_path, engine):
     try:
         with patch.object(app, "_prepare_engine_env", return_value=(env, str(home), "unused")), \
              patch.object(app.grok, "prepare_env", return_value=(env, str(home), "unused")), \
+             patch.object(app.kimi, "prepare_env", return_value=(env, str(home), "unused")), \
              patch.object(app, "_build_codex_exec_cmd", return_value=cmd), \
              patch.object(app, "_build_claude_exec_cmd", return_value=cmd), \
-             patch.object(app.grok, "build_command", return_value=cmd):
+             patch.object(app.grok, "build_command", return_value=cmd), \
+             patch.object(app.kimi, "build_command", return_value=cmd):
             observer.start()
             payload = app.ExecRequest(auth_json={}, prompt="test", engine=engine)
             with pytest.raises(exec_process.ExecCancelled):
@@ -146,7 +148,7 @@ def test_engine_exec_cancellation_removes_actual_private_home(tmp_path, engine):
         observer.join(timeout=5)
 
 
-@pytest.mark.parametrize("engine", ["codex", "claude", "grok"])
+@pytest.mark.parametrize("engine", ["codex", "claude", "grok", "kimi"])
 @pytest.mark.parametrize("cancel_task", [False, True])
 def test_route_waits_for_cancelled_exec_and_home_cleanup(tmp_path, engine, cancel_task):
     home = tmp_path / engine

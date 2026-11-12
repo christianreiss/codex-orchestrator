@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 import grok
+import kimi
 import runner_engines
 from chatty import register_chatty
 from exec_process import ExecCancelled, run_prompt_process
@@ -40,6 +41,7 @@ IMAGE_LIMITS = ImageLimits.from_environment()
 
 _ENGINE_RUNTIME = runner_engines.runtime_snapshot()
 grok.VERSION = _ENGINE_RUNTIME["grok"].version or "unavailable"
+kimi.VERSION = _ENGINE_RUNTIME["kimi"].version or "unavailable"
 _REQUIRED_ENGINES = runner_engines.required_engines()
 
 # Fail closed at import, before uvicorn binds a port. A runner that answers
@@ -64,7 +66,7 @@ class SkillSummaryRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     slug: str = Field(..., description="Skill slug")
     manifest: str = Field(..., description="SKILL.md contents to summarize")
-    engine: Literal["codex", "claude", "grok"] = Field("codex", description="AI engine to use")
+    engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the summary call (seconds)"
     )
@@ -74,7 +76,7 @@ class SkillGenerateRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     prompt: str = Field(..., description="Free-text operator request for the skill")
     slug_hint: Optional[str] = Field(None, description="Optional slug hint from the UI")
-    engine: Literal["codex", "claude", "grok"] = Field("codex", description="AI engine to use")
+    engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the generation call (seconds)"
     )
@@ -101,7 +103,7 @@ class SkillAssistRequest(BaseModel):
     skill: SkillAssistDraft = Field(..., description="Current skill draft")
     mode: str = Field("new", description="Whether the skill is new or existing")
     slug_locked: bool = Field(False, description="Whether the slug must stay unchanged")
-    engine: Literal["codex", "claude", "grok"] = Field("codex", description="AI engine to use")
+    engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the assist call (seconds)"
     )
@@ -111,7 +113,7 @@ class MemorySummaryRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     memory_key: str = Field(..., description="Memory key identifier")
     content: str = Field(..., description="Memory content to summarize")
-    engine: Literal["codex", "claude", "grok"] = Field("codex", description="AI engine to use")
+    engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the summary call (seconds)"
     )
@@ -121,7 +123,7 @@ class ProjectAssistRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     slug: str = Field(..., description="Project slug")
     project: dict = Field(..., description="Current project snapshot for drafting")
-    engine: Literal["codex", "claude", "grok"] = Field("codex", description="AI engine to use")
+    engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the assist call (seconds)"
     )
@@ -739,14 +741,15 @@ def _run_claude_exec(prompt: str, env: dict, timeout: float) -> tuple[subprocess
 
 
 def _run_engine_exec(prompt: str, env: dict, timeout: float, engine: str = "codex") -> tuple[subprocess.CompletedProcess[str], int]:
-    """Dispatch to either Codex or Claude exec based on engine parameter."""
+    """Dispatch to the explicitly selected engine CLI."""
     if engine == "claude":
         return _run_claude_exec(prompt, env, timeout)
-    if engine == "grok":
-        proc, latency = grok.run(prompt, env, timeout)
-        parsed = grok.parse_result(proc.stdout or "")
+    if engine in ("grok", "kimi"):
+        backend = grok if engine == "grok" else kimi
+        proc, latency = backend.run(prompt, env, timeout)
+        parsed = backend.parse_result(proc.stdout or "")
         if proc.returncode == 0 and parsed is None:
-            raise HTTPException(502, "grok exec returned an unexpected output format")
+            raise HTTPException(502, f"{engine} exec returned an unexpected output format")
         if parsed is not None:
             proc = subprocess.CompletedProcess(proc.args, proc.returncode, parsed["output"], proc.stderr)
         return proc, latency
@@ -756,11 +759,12 @@ def _run_engine_exec(prompt: str, env: dict, timeout: float, engine: str = "code
 
 
 def _prepare_engine_env(auth_json: dict, engine: str = "codex") -> tuple[dict, str, str]:
-    """Dispatch to either Codex or Claude env preparation."""
+    """Prepare a private home for the explicitly selected engine."""
     if engine == "claude":
         return _prepare_claude_env(auth_json)
-    if engine == "grok":
-        return grok.prepare_env(auth_json, RUNNER_HOME_PARENT, MAX_EXEC_TIMEOUT_SECONDS + grok.REFRESH_BUFFER_SECONDS)
+    if engine in ("grok", "kimi"):
+        backend = grok if engine == "grok" else kimi
+        return backend.prepare_env(auth_json, RUNNER_HOME_PARENT, MAX_EXEC_TIMEOUT_SECONDS + backend.REFRESH_BUFFER_SECONDS)
     if engine != "codex":
         raise HTTPException(400, "unknown engine")
     return _prepare_codex_env(auth_json)
@@ -775,8 +779,8 @@ def _engine_version_key(engine: str) -> str:
 def _engine_version(env: dict, engine: str) -> str:
     if engine == "claude":
         return _claude_version(env)
-    if engine == "grok":
-        return grok.version(env)
+    if engine in ("grok", "kimi"):
+        return (grok if engine == "grok" else kimi).version(env)
     if engine != "codex":
         raise HTTPException(400, "unknown engine")
     return _codex_version(env)
@@ -1270,6 +1274,12 @@ def verify(payload: VerifyRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.post("/verify-kimi")
+def verify_kimi(payload: VerifyRequest, request: Request):
+    _require_runner_auth(request)
+    return kimi.verify(payload.auth_json, payload.timeout_seconds or DEFAULT_TIMEOUT)
+
+
 @app.post("/verify-grok")
 def verify_grok(payload: VerifyRequest, request: Request):
     _require_runner_auth(request)
@@ -1403,7 +1413,7 @@ class ExecRequest(BaseModel):
     prompt: str = Field(..., description="Prompt to execute", max_length=MAX_PROMPT_CHARS)
     images: list[ExecImageInput] = Field(default_factory=list, description="Optional images to attach")
     model: Optional[str] = Field(None, description="Model to execute", max_length=MAX_MODEL_CHARS)
-    engine: Literal["codex", "claude", "grok"] = Field("codex", description="AI engine to use")
+    engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
     max_tokens: Optional[int] = Field(None, description="Maximum tokens for response", ge=1)
     temperature: Optional[float] = Field(None, description="Sampling temperature", ge=0.0, le=2.0)
     top_p: Optional[float] = Field(None, description="Nucleus sampling threshold", ge=0.0, le=1.0)
@@ -1470,15 +1480,16 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
 
     engine = payload.engine
     timeout = payload.timeout_seconds or 30.0
-    if engine == "grok":
+    if engine in ("grok", "kimi"):
+        backend = grok if engine == "grok" else kimi
         supplied = [name for name in ("max_tokens", "temperature", "top_p", "top_k", "stop_sequences")
                     if getattr(payload, name) is not None]
         if supplied:
-            raise HTTPException(400, f"Grok CLI cannot enforce: {', '.join(supplied)}")
+            raise HTTPException(400, f"{engine} CLI cannot enforce: {', '.join(supplied)}")
         if payload.images:
-            raise HTTPException(400, "Grok runner image inputs are not supported")
-        env, home_dir, _auth_path = grok.prepare_env(
-            payload.auth_json, RUNNER_HOME_PARENT, timeout + grok.REFRESH_BUFFER_SECONDS)
+            raise HTTPException(400, f"{engine} runner image inputs are not supported")
+        env, home_dir, _auth_path = backend.prepare_env(
+            payload.auth_json, RUNNER_HOME_PARENT, timeout + backend.REFRESH_BUFFER_SECONDS)
     else:
         env, home_dir, _auth_path = _prepare_engine_env(payload.auth_json, engine)
     try:
@@ -1493,9 +1504,9 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
                 max_tokens=payload.max_tokens,
                 output_format="json",
             )
-        elif engine == "grok":
-            cmd = grok.build_command(prompt, home_dir, payload.model, payload.system)
-        else:
+        elif engine in ("grok", "kimi"):
+            cmd = (grok if engine == "grok" else kimi).build_command(prompt, home_dir, payload.model, payload.system)
+        elif engine == "codex":
             cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths)
         start = time.perf_counter()
         proc = run_prompt_process(
@@ -1518,7 +1529,8 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
         # rewrite carries no lineage worth returning.
 
         parsed = (_parse_claude_json_result(stdout) if engine == "claude" else
-                  grok.parse_result(stdout) if engine == "grok" else None)
+                  grok.parse_result(stdout) if engine == "grok" else
+                  kimi.parse_result(stdout) if engine == "kimi" else None)
 
         if proc.returncode != 0:
             result["status"] = "fail"
@@ -1531,6 +1543,13 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
             # Native CLI banners can fill the field before the provider's
             # actual error appears. Keep the diagnostic tail, like probes do.
             result["error"] = message[-500:] if message else f"{engine} exec failed"
+            return result
+
+        if engine == "kimi":
+            if parsed is None:
+                result.update(status="fail", output="", error="kimi exec returned an unexpected output format")
+            else:
+                result.update(parsed, status="ok")
             return result
 
         if engine == "grok":
@@ -1618,4 +1637,4 @@ async def exec_prompt(payload: ExecRequest, request: Request):
 
 
 # Inference-only product assistant; tools remain in the API process.
-register_chatty(app, _require_runner_auth, _prepare_engine_env, CLAUDE_CLI_PATH, grok, _ENGINE_RUNTIME)
+register_chatty(app, _require_runner_auth, _prepare_engine_env, CLAUDE_CLI_PATH, grok, _ENGINE_RUNTIME, kimi)
