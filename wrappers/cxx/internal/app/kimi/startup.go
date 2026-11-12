@@ -272,9 +272,16 @@ func leasedStartupAuth(initial startupAuth, lease *accountpool.LeaseResponse) st
 	if lease != nil {
 		initial.Projection = native.Projection{Status: "valid", Auth: lease.Auth, AccountID: lease.AccountID, VerificationState: lease.VerificationState, AccountPool: true}
 		initial.QuotaSnapshot = lease.QuotaSnapshot
-		if len(lease.KimiUsage) > 0 {
+		// Kimi leases and owner snapshots use usage; /auth uses kimi_usage.
+		// Clear the previous account's reading even when a lease has none.
+		initial.KimiUsage = nil
+		reading := lease.Usage
+		if len(reading) == 0 {
+			reading = lease.KimiUsage
+		}
+		if len(reading) > 0 {
 			var usage kimiUsageReading
-			if json.Unmarshal(lease.KimiUsage, &usage) == nil {
+			if json.Unmarshal(reading, &usage) == nil {
 				initial.KimiUsage = &usage
 			}
 		}

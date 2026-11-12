@@ -1,0 +1,128 @@
+auto_session_title = false
+default_model = "kimi-code/k3.1-pro"
+default_permission_mode = "manual"
+disable_feedback_survey = true
+telemetry = false
+
+[[hooks]]
+  command = "user-hook"
+  event = "Notification"
+  timeout = 5
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent poll --hook UserPromptSubmit --dialect kimi"
+  event = "UserPromptSubmit"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent poll --hook Stop --dialect kimi"
+  event = "Stop"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent native-session"
+  event = "SessionStart"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "TurnStarted"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "PreToolUse"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "PostToolUse"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "PostToolUseFailure"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "PermissionRequest"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "PermissionResult"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "StopFailure"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "Interrupt"
+  timeout = 30
+
+[[hooks]]
+  command = "'/opt/cxx'\\''s bin/cxx' agent activity-event"
+  event = "SessionEnd"
+  timeout = 30
+
+[models]
+
+  [models."kimi-code/k3"]
+    default_effort = "max"
+    max_context_size = 1048576
+    model = "k3"
+    provider = "managed:kimi-code"
+    support_efforts = ["low", "high", "max"]
+
+  [models."kimi-code/k3-256k"]
+    default_effort = "max"
+    max_context_size = 262144
+    model = "k3-256k"
+    provider = "managed:kimi-code"
+    support_efforts = ["low", "high", "max"]
+
+  [models."kimi-code/k3.1-pro"]
+    default_effort = "max"
+    max_context_size = 1048576
+    model = "k3.1-pro"
+    provider = "managed:kimi-code"
+    support_efforts = ["low", "high", "max"]
+
+  [models."kimi-code/k3.1-pro-highspeed"]
+    default_effort = "max"
+    max_context_size = 1048576
+    model = "k3.1-pro-highspeed"
+    provider = "managed:kimi-code"
+    support_efforts = ["low", "high", "max"]
+
+  [models."kimi-code/kimi-for-coding"]
+    default_effort = "high"
+    max_context_size = 262144
+    model = "kimi-for-coding"
+    provider = "managed:kimi-code"
+    support_efforts = ["low", "high", "max"]
+
+  [models."kimi-code/kimi-for-coding-highspeed"]
+    default_effort = "high"
+    max_context_size = 262144
+    model = "kimi-for-coding-highspeed"
+    provider = "managed:kimi-code"
+    support_efforts = ["low", "high", "max"]
+
+[providers]
+
+  [providers."managed:kimi-code"]
+    base_url = "https://api.kimi.com/coding/v1"
+    type = "kimi"
+
+    [providers."managed:kimi-code".oauth]
+      key = "oauth/kimi-code"
+      oauth_host = "https://auth.kimi.com"
+      storage = "file"
+
+[thinking]
+  effort = "max"

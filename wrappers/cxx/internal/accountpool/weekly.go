@@ -46,7 +46,11 @@ func (c *Context) cacheWeeklyLocked(doc map[string]json.RawMessage) {
 			} `json:"windows"`
 		}
 		usage := WeeklyUsage{Engine: c.Engine, AccountID: c.AccountID}
-		if json.Unmarshal(doc["kimi_usage"], &reading) == nil && reading.ErrorCode == nil {
+		raw := doc["kimi_usage"]
+		if len(raw) == 0 {
+			raw = doc["usage"]
+		}
+		if json.Unmarshal(raw, &reading) == nil && reading.ErrorCode == nil {
 			usage.FetchedAt = reading.FetchedAt
 			for _, window := range reading.Windows {
 				if window.Kind == "weekly" && window.Used != nil && *window.Used >= 0 && *window.Used <= 100 {

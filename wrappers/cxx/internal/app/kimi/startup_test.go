@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentportal"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
@@ -367,5 +368,71 @@ func TestLeasedQuotaSnapshotNeverRetainsAnotherAccountReading(t *testing.T) {
 		if got.QuotaSnapshot != selected || initial.QuotaSnapshot != old {
 			t.Fatal("selected account did not own the quota display")
 		}
+	}
+}
+
+func TestServerUsageWireShapes(t *testing.T) {
+	now := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+	raw, err := os.ReadFile("../../kimi/testdata/server-usage.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var auth startupAuth
+	if err := json.Unmarshal(raw, &auth); err != nil {
+		t.Fatal(err)
+	}
+	if auth.KimiUsage == nil || auth.KimiUsage.PlanName == nil || *auth.KimiUsage.PlanName != "Moderato" || len(auth.KimiUsage.Windows) != 4 || *auth.KimiUsage.Windows[0].UsedPercent != 38.25 || auth.KimiUsage.Windows[3].ResetsAt != nil {
+		t.Fatalf("server auth/admin shape lost: %+v", auth.KimiUsage)
+	}
+	rows := kimiQuotaRows(auth.KimiUsage, now)
+	if len(rows) != 3 || rows[0].Used != 38 || rows[1].Used != 63 || rows[2].Label != "month total" {
+		t.Fatalf("server quota rows: %+v", rows)
+	}
+	raw, err = os.ReadFile("../../kimi/testdata/server-lease.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lease accountpool.LeaseResponse
+	if err := json.Unmarshal(raw, &lease); err != nil {
+		t.Fatal(err)
+	}
+	leased := leasedStartupAuth(startupAuth{}, &lease)
+	if !reflect.DeepEqual(leased.KimiUsage, auth.KimiUsage) {
+		t.Fatalf("lease usage shape differs: %+v", leased.KimiUsage)
+	}
+	// Absence, malformed data and an unavailable reading cannot reuse another account.
+	for _, reading := range []json.RawMessage{nil, json.RawMessage(`{"windows":"invalid"}`), json.RawMessage(`{"supported":false}`)} {
+		lease.Usage = reading
+		got := leasedStartupAuth(auth, &lease)
+		if len(kimiQuotaRows(got.KimiUsage, now)) != 0 {
+			t.Fatal("old account quota retained")
+		}
+	}
+}
+
+func TestLaunchIdentityUsesPrivateRuntimeHomeOnResume(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	base := t.TempDir()
+	const fleet = "Fleet instructions\n"
+	if err := os.WriteFile(filepath.Join(base, "AGENTS.md"), []byte(fleet), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rt, err := native.NewRuntime(base, &config.Config{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	args := []string{"-S", "session_11111111-1111-4111-8111-111111111111", "-m", "kimi-code/k3"}
+	got, err := agentportal.AppendKimiIdentityArgs(args, agentportal.Identity{Name: "Wiebke", Engine: "kimi", SessionID: "launch"}, rt.Home)
+	if err != nil || !reflect.DeepEqual(got, args) {
+		t.Fatalf("resume arguments changed: %v, %v", got, err)
+	}
+	overlay, err := os.ReadFile(filepath.Join(rt.Home, "AGENTS.md"))
+	if err != nil || !strings.HasPrefix(string(overlay), fleet) || !strings.Contains(string(overlay), "Wiebke") {
+		t.Fatalf("private identity absent: %s, %v", overlay, err)
+	}
+	unchanged, err := os.ReadFile(filepath.Join(base, "AGENTS.md"))
+	if err != nil || string(unchanged) != fleet {
+		t.Fatal("launch overwrote shared fleet instructions", err)
 	}
 }

@@ -830,7 +830,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			fmt.Fprintf(stderr, "ckx: agent portal cleanup failed: %v\n", err)
 		}
 	}()
-	args, identityErr = agentportal.AppendIdentityArgs(config.EngineKimi, args, identity)
+	args, identityErr = agentportal.AppendKimiIdentityArgs(args, identity, rt.Home)
 	if identityErr != nil {
 		return 1, identityErr
 	}
