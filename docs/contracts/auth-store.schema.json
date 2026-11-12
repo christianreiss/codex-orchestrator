@@ -240,7 +240,7 @@
               "type": ["string", "null"]
             },
             "engine": {
-              "enum": ["codex", "claude", "grok"]
+              "enum": ["codex", "claude", "grok", "kimi"]
             }
           },
           "additionalProperties": true
@@ -341,7 +341,7 @@
         },
         "engine": {
           "type": "string",
-          "enum": ["codex", "claude", "grok"]
+          "enum": ["codex", "claude", "grok", "kimi"]
         }
       },
       "allOf": [

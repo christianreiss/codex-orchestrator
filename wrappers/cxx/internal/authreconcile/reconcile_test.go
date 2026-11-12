@@ -226,3 +226,12 @@ func TestBackupsNeverFollowSymlinksOrOverwrite(t *testing.T) {
 		t.Fatal("followed backup directory symlink")
 	}
 }
+
+func TestServerOwnedEnginesRefuseLocalReconciliationExplicitly(t *testing.T) {
+	for _, engine := range []string{"grok", "kimi", "unknown"} {
+		_, err := forEngine(&config.Config{Engine: engine})
+		if err == nil || !strings.Contains(err.Error(), engine) {
+			t.Fatalf("%s refusal = %v", engine, err)
+		}
+	}
+}

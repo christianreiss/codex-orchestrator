@@ -259,7 +259,7 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
     reissue, probes the projected bytes, and promotes only a fresh verified
     replacement.
 - `POST /seed/auth/{token}`, `POST /admin/auth/upload`, and `/sync/bootstrap` inline `auth_candidate` call the same runner-validated store path as host `/auth`, so runner `updated_auth` can become canonical there too.
-- **Background launch-gate verification (all three engines; Grok through the
+- **Background launch-gate verification (all four engines; Grok through the
   metadata-only `/verify-grok` probe).** The API starts an
   auth-verification worker when `AUTH_RUNNER_URL` is configured. It wakes on
   boot and then every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default

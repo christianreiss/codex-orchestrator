@@ -79,7 +79,7 @@ trigger a second admission attempt; see the linked cache contract.
 ## Workflow protocol v1 (cxx 0.9.111)
 
 The shared wrapper advertises `workflow_protocol_version: 1` and exposes the
-session-bound `agent_workflow_*` tools on `cxx-agent` for all three engines.
+session-bound `agent_workflow_*` tools on `cxx-agent` for all four engines.
 Catalog reads remain on the central MCP. The managed `workflows` and `invite`
 Skills explain task claims, autonomous invitations, evaluation and report links.
 Read `agent_self` and `agent_workflow_run_current` after resume before continuing
@@ -146,7 +146,7 @@ The automatic receiver reads Claude `custom-title` records matching the bound na
 ## Managed native starts (cxx 0.9.24)
 
 Fleet installation, update/sync and successful managed launches prepare the native
-`codex`, `claude` and `grok` command names for assigned engines. Per-user scripts
+`codex`, `claude`, `grok` and `kimi` command names for assigned engines. Per-user scripts
 under `~/.cxx/native-bin` invoke `cxx native <engine> -- <native arguments>`;
 managed Bash, Zsh and Fish PATH blocks activate them in new shells. Bash login
 shells (`su -l`, ssh) get the same guarded block in the login file bash reads
@@ -273,7 +273,7 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `auth-upload` | Stabilize and POST native `~/.claude/.credentials.json`; apply the authoritative response only if that native generation is still current |
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
-| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
+| `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok\|kimi`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `--continue` / `-c` | Passed straight through to the upstream `claude` binary |
 | `resume [<session>] [<prompt>]` | Reopen a previous Claude session through the normal startup lifecycle. With no session id, the upstream picker is shown |
 | `--resume[=<session>]` / `-r` | Alias for the `resume` subcommand above — the session is optional, and a following option is never consumed as its value |
@@ -665,9 +665,9 @@ Transfer sections, which follow it on the same terms (orchestrator MCP usable
 plus `git_director_enabled` / `transfers_module_enabled`) and close the block.
 
 
-**Subagent Model Selection.** The independent fleet switch `subagent_model_selection_enabled` (default off; `GET`/`POST /admin/subagent-model-selection`, Settings → Agents) adds guidance to managed documents for all three engines. It asks agents to assess each permitted delegation and choose a capable stronger or lighter model, prioritize quality, and review and verify the result. The same-engine tier list contains latest enabled models of active host engines; actual launcher support and higher-level instructions govern availability and delegation. When also using the Model Class Check, a task two or more tiers above the parent may be delegated to a fitting model if permitted; otherwise the existing stop applies. Changes take effect on the next sync. This is guidance, not runtime enforcement.
+**Subagent Model Selection.** The independent fleet switch `subagent_model_selection_enabled` (default off; `GET`/`POST /admin/subagent-model-selection`, Settings → Agents) adds guidance to managed documents for all four engines. It asks agents to assess each permitted delegation and choose a capable stronger or lighter model, prioritize quality, and review and verify the result. The same-engine tier list contains latest enabled models of active host engines; actual launcher support and higher-level instructions govern availability and delegation. When also using the Model Class Check, a task two or more tiers above the parent may be delegated to a fitting model if permitted; otherwise the existing stop applies. Changes take effect on the next sync. This is guidance, not runtime enforcement.
 
-**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Settings → Agents) appends a `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md for Codex, Claude and Grok. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts` (operator ruling 2026-10-28, five tiers): 1 Haiku/Luna/Grok 4.5; 2 Terra/Grok 4.6, 4.7 and 4.7-build-fast; 3 Sonnet/Sol; 4 Opus; 5 Fable/Astra. An agent one tier below the task states `Underclassed: …` with a recommended model and proceeds; two or more tiers below, it delegates to a fitting model when Subagent Model Selection is enabled and delegation is permitted; otherwise it stops before starting, reports that line and finishes accepted work as `blocked` unless the operator explicitly overrides the mismatch. Classify the whole assignment before task-specific scouting or planning, by the judgment it needs rather than its keywords: read-only scouting, including “scout and prepare”, takes the tier of the decisions it feeds. All four task definitions remain visible even when a host has no model at that tier. An override must explicitly acknowledge the identified mismatch; model selection or the original task request does not count. Tier 3+ work states task tier, model tier and a reason. This is agent guidance, not runtime admission enforcement. Only a concrete session model overrides the configured model; a generic “GPT-6” label does not make configured Luna unknown. An unknown model never aborts. Changes apply on the next sync.
+**Model Class Check.** The fleet switch `model_tier_check_enabled` (default on; `GET`/`POST /admin/model-tier-check`, Settings → Agents) appends a `model_tiers` section to managed AGENTS.md/CLAUDE.md/Grok AGENTS.md/Kimi AGENTS.md for Codex, Claude, Grok and Kimi. It names the host's configured model and tier (host override, then fleet config, then engine default; Claude reports none when unpinned) and a tier table of the latest, non-disabled models of the host's active engines (`activeHostEngines`, so fleet-suspended engines are never recommended). Tiers live in `api/src/services/model-tiers.ts` (operator ruling 2026-10-28, five tiers): 1 Haiku/Luna/Grok 4.5; 2 Terra/Grok 4.6, 4.7 and 4.7-build-fast; 3 Sonnet/Sol; 4 Opus; 5 Fable/Astra. An agent one tier below the task states `Underclassed: …` with a recommended model and proceeds; two or more tiers below, it delegates to a fitting model when Subagent Model Selection is enabled and delegation is permitted; otherwise it stops before starting, reports that line and finishes accepted work as `blocked` unless the operator explicitly overrides the mismatch. Classify the whole assignment before task-specific scouting or planning, by the judgment it needs rather than its keywords: read-only scouting, including “scout and prepare”, takes the tier of the decisions it feeds. All four task definitions remain visible even when a host has no model at that tier. An override must explicitly acknowledge the identified mismatch; model selection or the original task request does not count. Tier 3+ work states task tier, model tier and a reason. This is agent guidance, not runtime admission enforcement. Only a concrete session model overrides the configured model; a generic “GPT-6” label does not make configured Luna unknown. An unknown model never aborts. Changes apply on the next sync.
 
 ## Startup sequence
 
@@ -1505,7 +1505,7 @@ subscriptions route publications only; private traffic is never copied.
 Informational deliveries finish without an acknowledgement reply. API and
 retry contracts: [Scoped publications](interface-api.md#scoped-publications-migration-0041-cxx-0920).
 
-Agent Messaging is a separate, default-off bridge between Codex, Claude and Grok. It
+Agent Messaging is a separate, default-off bridge between Codex, Claude, Grok and Kimi. It
 requires the global switch — the only switch — an active host, and the target
 engine to remain enabled. An **insecure** host is eligible too, but only while
 its allowed window (`insecure_enabled_until`) is open; outside it the server
@@ -1982,7 +1982,7 @@ Informational mail without native continuity cannot spawn a replacement agent.
 
 ## German launch names and translation
 
-With Agent Messaging enabled, each new managed Codex, Claude or Grok launch
+With Agent Messaging enabled, each new managed Codex, Claude, Grok or Kimi launch
 gets a random free German female given name from the server's pre-filled pool
 of 664 names (including Claudia, Tanja, Jessica and Paula). Allocation is
 transactional and idempotent for a launch ID. The session title is
@@ -2157,11 +2157,10 @@ Hook payload contract: [Claude hooks reference](https://code.claude.com/docs/en/
 `cxx update [--minimal]` first refreshes the signed host engine assignments
 (wrapper 0.9.68), adding configs and aliases for newly assigned engines and
 removing them for engines explicitly unassigned by the server. It then checks
-the shared wrapper once, updating and restarting it first when needed. From
-wrapper 0.9.69, native Codex, Claude and Grok checks and installations run in
-parallel (at most three engine workers); credential guards remain sequential,
+the shared wrapper once, updating and restarting it first when needed. Native Codex, Claude, Grok and Kimi checks and installations run in
+parallel (at most four engine workers); credential guards remain sequential,
 and managed content/auth sync and version reports follow in Codex, Claude,
-Grok order after all installs finish. Every assigned engine gets a result,
+Grok, Kimi order after all installs finish. Every assigned engine gets a result,
 including newly added, unchanged or suspended engines. Fleet suspension keeps
 configs, aliases and installed CLIs; uncertain assignment probes preserve the
 existing layout and fail the update. Removal preserves provider binaries and
@@ -2258,7 +2257,7 @@ Hosts opt in under Remote-Sessions; the default is disabled. Linux/systemd is
 required. `cxx daemon install|status|start|stop|uninstall|run` manages a separate
 `cxx-daemon.service`; its account defaults to root and may be an existing user.
 Installation requires root. `cxx update`, wrapper sync/cron and managed
-Codex/Claude/Grok launches reconcile an enabled service before native execution;
+Codex/Claude/Grok/Kimi launches reconcile an enabled service before native execution;
 unprivileged runs report `sudo cxx daemon install` when the system unit is absent,
 its private binary differs from the current wrapper, or the binary comparison
 cannot be verified. Matching binaries stay silent; reconciliation never escalates
@@ -2350,7 +2349,7 @@ socket and file lease beside the existing broker. Other instances forward tool
 calls to that owner, sharing peer claims, Portal receipts and `agent_listen`
 health. They never independently register a receiver generation. This prevents
 `receiver_unavailable` and Portal ownership errors caused by a different MCP
-instance answering a delivery. The contract is shared by Codex, Claude and Grok.
+instance answering a delivery. The contract is shared by Codex, Claude, Grok and Kimi.
 No additional network endpoint is opened.
 
 Restart the launch's MCP instances together after updating; mixed old/new
@@ -2380,7 +2379,7 @@ of the daemon service user on that host. The systemd service also starts in that
 user's home. Explicit paths must remain absolute and exist on the remote host;
 an invalid explicit path fails rather than falling back. Registration retains
 the resolved native working directory for subsequent resumptions. This applies
-to WebUI, companion and agent starts for Codex, Claude and Grok.
+to WebUI, companion and agent starts for Codex, Claude, Grok and Kimi.
 
 ### Persistent daemon on insecure hosts
 
@@ -2393,7 +2392,7 @@ an open window. Provider credential distribution retains its existing gate.
 
 WebUI uses the existing host-window activation. Authenticated agents on any
 active secure host may use `host_insecure_enable(host_id, duration_minutes?)`
-through cxx-agent, for Codex, Claude and Grok alike. Duration defaults to the
+through cxx-agent, for Codex, Claude, Grok and Kimi alike. Duration defaults to the
 target's stored value and is bounded to 0–480 minutes. Source host, agent,
 session, target and duration are audited. Insecure callers cannot activate.
 
@@ -2450,7 +2449,7 @@ Wrapper 0.9.55 renders the optional Linux daemon service with `WorkingDirectory=
 
 ## Rich operator agent chat (cxx 0.9.57)
 
-All three engines share six local MCP tools in managed lifecycles: `agent_portal_say`, `agent_portal_ask`, `agent_portal_notify`, `agent_portal_resolve`, `agent_attachment_upload` and `agent_attachment_get`. Reply tools also accept `attachments`, `reply_to`, `severity` and `notice_id`. The scope is the existing operator agent conversation; see [Agent chat](agent-chat.md).
+All four engines share six local MCP tools in managed lifecycles: `agent_portal_say`, `agent_portal_ask`, `agent_portal_notify`, `agent_portal_resolve`, `agent_attachment_upload` and `agent_attachment_get`. Reply tools also accept `attachments`, `reply_to`, `severity` and `notice_id`. The scope is the existing operator agent conversation; see [Agent chat](agent-chat.md).
 
 With cxx 0.9.119, `agent_portal_say` sends ordinary proactive progress or results to the existing operator chat using a stable `client_event_id`, `content` and a one-sentence `summary` (at most 160 characters). It may include `attachments` and `reply_to`; it creates no classified attention and does not finish an inbound instruction. Answer that instruction with `agent_receiver_reply` and its original message ID, normally omitting `severity` and `notice_id`. Use `agent_portal_notify` only for actionable exceptions: important needs attention soon, critical is urgent harm/failure, blocker requires operator action before work can proceed. Routine progress, successful checks and completion reports stay normal. Existing genuine notices still require explicit resolution; no historical notice is silently reclassified.
 
@@ -2501,7 +2500,7 @@ With Skills enabled, managed Skills guidance automatically invokes the shared st
 `fleet-reflect` Skill once before each final work response or managed work-result
 delivery, including failed or blocked work. Progress messages, acknowledgements and
 result retries do not repeat the review. Codex and MCP-enabled Claude load it through MCP;
-Claude without usable MCP and Grok use their native synced Skill files. The Skill reviews observed orchestrator/tool
+Claude without usable MCP, Grok and Kimi use their native synced Skill files. The Skill reviews observed orchestrator/tool
 experience, searches reports across statuses, appends materially new evidence or
 submits an actionable bug, feature or usability report. No finding means no report
 or extra final-response paragraph. Disabled/unavailable feedback leaves useful
@@ -2511,7 +2510,7 @@ reflection does not authorize fixes or deployments. The manifest is published vi
 requires the API change and the host's next instructions sync. This is agent guidance,
 not a runtime completion hook or a background schedule.
 
-The independent central inbox provides `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim` and `feedback_update` across Codex, Claude and Grok. The fleet switch `feedback_enabled` defaults off, hides tools during discovery and blocks calls while disabled. Enable it under Feedback in the WebUI (`/admin/feedback/state`); managed AGENTS.md/CLAUDE.md/Grok AGENTS.md dynamically gain the workflow on the next sync only when usable managed MCP configuration exists. Disabling removes that section on sync without changing canonical authored rules or deleting reports.
+The independent central inbox provides `feedback_submit`, `feedback_list`, `feedback_get`, `feedback_claim` and `feedback_update` across Codex, Claude, Grok and Kimi. The fleet switch `feedback_enabled` defaults off, hides tools during discovery and blocks calls while disabled. Enable it under Feedback in the WebUI (`/admin/feedback/state`); managed AGENTS.md/CLAUDE.md/Grok AGENTS.md/Kimi AGENTS.md dynamically gain the workflow on the next sync only when usable managed MCP configuration exists. Disabling removes that section on sync without changing canonical authored rules or deleting reports.
 
 Claims are exclusive, token-fenced and renewable for 30 minutes. Updates check the item version and append history. Resolved requires a fix reference and verification evidence; deployment is recorded separately. Host/engine attribution is authenticated; optional agent UUIDs are descriptive. Admin routes use `feedback.read`/`feedback.manage`. No agent is started and no merge or deployment is implied. See [MCP workflow](MCP.md#orchestrator-feedback-workflow) for request/response contracts.
 
@@ -2526,7 +2525,7 @@ verified task changes are always committed, then merged back under a Director
 lease into the original clean branch. Failed or deferred integration retains the
 result; ancestry proof gates cleanup and prevents duplicate merges on retry.
 Read-only and explicit restrictions take precedence; push/deploy are separate.
-This is agent-executed guidance shared by all three engines, adopted on the next
+This is agent-executed guidance shared by all four engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
@@ -2667,7 +2666,7 @@ The feature starts disabled and never grants permission for the reserved action.
 
 ### Shared room chat (cxx 0.9.104)
 
-`agent_chat_list`, `agent_chat_read` and `agent_chat_send` expose the same member-authorized shared groups, conferences and project/host conversations for all three engines. Keep `client_request_id` stable on retries; `reply_to` is the shared event UUID. Agent contributions do not wake peers. Only explicit operator recipient requests start answer rounds. Room file upload/get accepts `room_id`; unsent uploads remain author-private. See [Shared conversations](agent-chat.md#shared-conversations-in-agents--chats) for lifecycle, permission and delivery semantics.
+`agent_chat_list`, `agent_chat_read` and `agent_chat_send` expose the same member-authorized shared groups, conferences and project/host conversations for all four engines. Keep `client_request_id` stable on retries; `reply_to` is the shared event UUID. Agent contributions do not wake peers. Only explicit operator recipient requests start answer rounds. Room file upload/get accepts `room_id`; unsent uploads remain author-private. See [Shared conversations](agent-chat.md#shared-conversations-in-agents--chats) for lifecycle, permission and delivery semantics.
 
 ## Agent roles (cxx 0.9.108)
 
@@ -2763,7 +2762,7 @@ reported with `git_release(request_id: "<request>", worktree_path: "<path>", out
 
 ## cxx 0.9.124 coordination and suspend recovery
 
-All engines expose `agent_git_remote` and support `remote` FQDN/service resources as documented in [scope coordination](agent-coordination.md). The host BrowserOS toggle injects its local `http://127.0.0.1:9000/mcp` entry independently of fleet credentials for Codex, Claude and Grok.
+All engines expose `agent_git_remote` and support `remote` FQDN/service resources as documented in [scope coordination](agent-coordination.md). The host BrowserOS toggle injects its local `http://127.0.0.1:9000/mcp` entry independently of fleet credentials for Codex, Claude, Grok and Kimi.
 
 A new wrapper advertises `suspend_recovery_version:1`. For interactive sessions only, the server leaves an expired bridge nonterminal for up to 24 hours since its last heartbeat. Authentication and receives still refuse the expired bridge; active claims become uncertain normally. The intact supervising wrapper may re-register with its original host authentication and session credential, subject to current engine, address and binding checks. It never transfers a foreign binding or extends a mutation claim. A session the server closed as abandoned while its process lived (status `failed`, no close request, no reboot handoff, `interactive` or `execute`) answers bridge calls with `agent_session_finished` plus `ended_reason: "abandoned"`, `recovery: "reregister"`; from cxx 0.9.166 the wrapper re-registers with its original session credential and the server resumes that same lifecycle, address and name (a name lost after quarantine follows the rename rule above). A wrapper whose state stream keeps failing for 30 seconds probes over HTTP to learn this. Receive-plane binds (`cxx agent listen`, receivers) no longer drop `suspend_recovery_version`. Explicit finishes, operator closes and finished headless delivery turns stay terminal.
 ## Provider grant compatibility (cxx 0.9.127)
@@ -2771,7 +2770,7 @@ A new wrapper advertises `suspend_recovery_version:1`. For interactive sessions 
 Signed connection-state configurations explicitly request connection ownership
 when reserving a provider account. Legacy configurations retain renewable timed
 grants. See [communicator.md](communicator.md) for attachment and compatibility
-rules shared by all three engines.
+rules shared by all four engines.
 
 With cxx 0.9.131, native claim/Git continuation follows the completed exact-transcript proof in `interface-api.md` (Explicit native lock continuation). Connection claims have no TTL; unknown outcomes cannot be renewed, Git merge grants are absolute, and resumed Git registrations require new merge permission.
 
@@ -2795,7 +2794,7 @@ UUID instead of creating a second publication.
 
 See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fleet
 switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
-Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
+Applies equally to Codex, Claude, Grok and Kimi; native resume stays engine-specific.
 
 ### Resource claim reconnect waiting (cxx 0.9.147)
 
@@ -2847,3 +2846,16 @@ Wrapper-owned command help (`-h`/`--help`, including nested command groups) retu
 ## Installer and maintenance error reporting (cxx 0.9.175)
 
 The installer distinguishes **engine maintenance** (CLI updates and configuration sync) from native CLI **availability**. An available CLI may accompany `INCOMPLETE` maintenance. Host-name failures identify the machine and configured host, explain how to check/correct the identity, and preserve full repair commands in minimal or redirected logs. The host identity guard still blocks mismatched hosts. See [installer diagnostics](OVERVIEW.md#installer-and-maintenance-diagnostics-cxx-09175) for recovery and conditional retry hints.
+
+## Fourth-engine contract: Kimi Code
+
+Kimi (`ENGINE_KIMI`, `ckx`) participates in the same fleet assignment, master
+switch, accounts, signed cxx configuration, sync, MCP, Skills, memory, secrets,
+portal, daemon, Wake and reboot surfaces. Native transport and auth remain
+engine-specific: `kimi-hooks-v1` has no idle push; the server alone refreshes
+OAuth and hosts use access-only private `KIMI_CODE_HOME` projections. Headless
+prompts are limited to 100000 UTF-8 bytes. Kimi headless plan starts are
+explicitly rejected because `-p` cannot combine with `--plan`.
+`/kimi/v1` is opt-in (off by default); native stream-json exposes neither token
+usage nor stop reason. See [the ckx contract](interface-ckx.md) for the hook
+lifecycle, launch identity, scoped credential and inference-only gateway agent.

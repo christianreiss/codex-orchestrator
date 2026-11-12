@@ -142,7 +142,7 @@ Match existing table definitions and collations in that isolated schema; a new
 baseline alone does not cover older installations' mixed-collation joins.
 
 The real 10-minute idle matrix remains a separate gate: 1/20/200 communicators,
-Codex/Claude/Grok, and 0/1/5 admin tabs. Record SQL statement families and driver
+Codex/Claude/Grok/Kimi, and 0/1/5 admin tabs. Record SQL statement families and driver
 counts, HTTP mix, API cgroup CPU, and incremental MySQL CPU. Quiet active native
 sessions require zero persistent heartbeat writes. Future deadlines do not
 justify repeated reads before they are due; due provider work, dirty telemetry

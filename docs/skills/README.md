@@ -4,8 +4,8 @@ Fleet skills live in the `skills` table and are served over `/skills` and MCP
 (`skill_list` / `skill_retrieve` / `resource_read`); Codex and MCP-enabled Claude
 read their content through MCP. Claude falls back to native
 `~/.claude/skills/<slug>/SKILL.md` bundles when orchestrator MCP is unavailable,
-and `cgx` syncs them to
-`~/.grok/skills/<slug>/SKILL.md` on Grok hosts. **The database is the runtime source of truth** — nothing reads this
+and `cgx`/`ckx` sync them to
+`~/.grok/skills/<slug>/SKILL.md` on Grok hosts and `~/.kimi-code/skills/<slug>/SKILL.md` on Kimi hosts. **The database is the runtime source of truth** — nothing reads this
 directory, and a file here does not ship anything.
 
 Manifests are kept here only when they need review in git before being stored, the
@@ -111,10 +111,12 @@ Delivery follows the engine's effective transport:
 - Grok receives the same complete set in `grok_skills`; `cgx` verifies and
   installs it exactly like Claude, under `~/.grok/skills/<slug>/`, with its
   ownership manifest in `~/.cgx/state/skills.json`.
+- Kimi receives `kimi_skills`; `ckx` installs them under `~/.kimi-code/skills/<slug>/`
+  with ownership in `~/.ckx/state/skills.json`, projected into each private runtime.
 
 Turning inclusion off soft-deletes only rows owned by this source. Codex stops
-listing them immediately, as does MCP-enabled Claude; native fallback Claude
-and Grok remove only those fleet-owned directories on their next complete
+listing them immediately, as does MCP-enabled Claude; native fallback Claude,
+Grok and Kimi remove only those fleet-owned directories on their next complete
 bootstrap. The cached rows, files, and last-known-good source metadata remain server-side for a safe re-enable. Locally authored Skills and
 code-derived managed Skills are untouched.
 
@@ -189,7 +191,7 @@ slug and deleting the module is Release B, once the fleet has converged.
 - `#fleet-reflect` — shared stored Skill, with the review copy in
   `docs/skills/fleet-reflect.SKILL.md`. Publish with MCP `skill_store`; a git
   commit alone does not install it. With Skills enabled, managed guidance for
-  Codex, Claude and Grok invokes it before final work results, including failed
+  Codex, Claude, Grok and Kimi invokes it before final work results, including failed
   or blocked work. It briefly reviews observed fleet experience and reports
   actionable findings through the existing feedback tools after deduplication.
   The automatic trigger ships with the API; the Skill remains separately editable.

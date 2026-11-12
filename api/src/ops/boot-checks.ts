@@ -8,7 +8,7 @@ import { Keyring } from '../security/keyring.js';
 import { eq, sql } from 'drizzle-orm';
 import { versions as versionsTable } from '../db/schema.js';
 import { nowIso } from '../util/timestamp.js';
-import { ENGINES, type Engine } from '../util/engine.js';
+import { ENGINES, ENGINE_COMMANDS, type Engine } from '../util/engine.js';
 import { writeRunnerTelemetry } from '../services/runner-telemetry.js';
 import { ensureAuthGenerationBackfill } from '../services/auth-generation-retention.js';
 import {
@@ -112,8 +112,9 @@ async function refreshWrapperVersions(env: Env, db: Database): Promise<void> {
   // pointers untouched instead of falling back to a split Linux artifact.
   if (commonPublicationStarted) return;
 
-  await publishWrapperVersion(db, binRoot, baseUrl, 'codex', 'cdx', publishedAt);
-  await publishWrapperVersion(db, binRoot, baseUrl, 'claude', 'clx', publishedAt);
+  for (const engine of ENGINES) {
+    await publishWrapperVersion(db, binRoot, baseUrl, engine, ENGINE_COMMANDS[engine], publishedAt);
+  }
 }
 
 async function binaryMatchesBuild(
@@ -143,8 +144,8 @@ async function publishWrapperVersion(
   db: Database,
   binRoot: string,
   baseUrl: string,
-  engine: 'codex' | 'claude',
-  binary: 'cdx' | 'clx',
+  engine: Engine,
+  binary: string,
   publishedAt: string,
 ): Promise<void> {
   const platform = 'linux-amd64';

@@ -30,6 +30,6 @@ describe('registry-generated model views', () => {
   it('keeps hand-written model lists out of the frontend constants', () => {
     // models.ts may only re-export or spread the generated lists.
     const handwritten = readFileSync(resolve(ROOT, 'frontend/src/lib/constants/models.ts'), 'utf8');
-    expect(handwritten).not.toMatch(/value:\s*["'](?:gpt-|claude-|grok-)/);
+    expect(handwritten).not.toMatch(/value:\s*["'](?:gpt-|claude-|grok-|k3|kimi-)/);
   });
 });

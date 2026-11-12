@@ -26,7 +26,7 @@ func testOpts(home string, calls *[]string) Options {
 		Home:   home,
 		Getenv: func(k string) string { return map[string]string{"TMPDIR": filepath.Join(home, "tmp")}[k] },
 		ConfigPath: func(e string) (string, error) {
-			return filepath.Join(home, ".config", "codex-orchestrator", map[string]string{"grok": "cgx.json", "claude": "clx.json", "codex": "cdx.json"}[e]), nil
+			return filepath.Join(home, ".config", "codex-orchestrator", map[string]string{"grok": "cgx.json", "claude": "clx.json", "codex": "cdx.json", "kimi": "ckx.json"}[e]), nil
 		},
 		RemoveAlias:  func(_ context.Context, e string) error { *calls = append(*calls, "alias:"+e); return nil },
 		RemoveShim:   func(e string) error { *calls = append(*calls, "shim:"+e); return nil },

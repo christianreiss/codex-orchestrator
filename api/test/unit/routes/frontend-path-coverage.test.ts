@@ -65,7 +65,7 @@ const RUNTIME_PATH_CALLERS: Record<string, string> = {
   'frontend/src/lib/components/portal/MessageSearch.svelte': 'searchPath builds GET /admin/agent-messaging/search with an encoded query string; room-chat route tests cover the admin search route.',
   'frontend/src/lib/portal/chat-files.ts': 'attachmentBase selects session or room uploads, chunks and sealing; room API and existing attachment tests exercise the contracts.',
 
-  'frontend/src/lib/api/nativeSettings.ts': 'Engine selects /admin/config, /admin/claude/config or /admin/grok/config; the table below executes GET plus POST /render and /store for every engine and checks registered routes.',
+  'frontend/src/lib/api/nativeSettings.ts': 'Engine selects /admin/config, /admin/claude/config /admin/grok/config or /admin/kimi/config; the table below executes GET plus POST /render and /store for every engine and checks registered routes.',
   'frontend/src/lib/components/policies/SessionHousekeeping.svelte': 'endpoint chooses fleet or host session-housekeeping routes; engine completes the POST path',
   'frontend/src/lib/api/watchdogs.ts': 'Reactive target queries and versioned disable IDs use Watchdog routes; API and browser tests cover activation and disable.',
   'frontend/src/lib/api/schedules.ts': 'Schedule list pagination and detail IDs derive from reactive stores; schedule API and route tests cover methods, versions and target paths.',
@@ -374,6 +374,7 @@ describe('native settings runtime endpoint coverage', () => {
     ['codex', '/admin/config'],
     ['claude', '/admin/claude/config'],
     ['grok', '/admin/grok/config'],
+    ['kimi', '/admin/kimi/config'],
   ])('serves every %s config fetch, render and store request', async (engine, path) => {
     calls.length = 0;
     const settings = { native_settings: {} };

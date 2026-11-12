@@ -11,7 +11,7 @@ description: "${description}"
 # Planned reboot
 
 Use the session-scoped agent_reboot and agent_reboot_status tools. Codex, Claude
-and Grok share this lifecycle; cdx/clx/cgx reboot are the equivalent CLI surface.
+Grok and Kimi share this lifecycle; cdx/clx/cgx/ckx reboot are the equivalent CLI surface.
 This Skill documents the handoff and grants no permission to reboot a host.
 
 ## Prepare

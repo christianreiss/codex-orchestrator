@@ -68,7 +68,7 @@ func TestSuspensionDriftAndRefusalTexts(t *testing.T) {
 			t.Errorf("%s: SuspensionDrift(%v, %v) = %v, want %v", tc.name, tc.local, tc.remote, got, tc.want)
 		}
 	}
-	for engine, label := range map[string]string{EngineCodex: "Codex", EngineClaude: "Claude", EngineGrok: "Grok"} {
+	for engine, label := range map[string]string{EngineCodex: "Codex", EngineClaude: "Claude", EngineGrok: "Grok", EngineKimi: "Kimi Code"} {
 		if got, want := FleetDisabledMessage(engine), label+" is disabled fleet-wide by the administrator."; got != want {
 			t.Errorf("FleetDisabledMessage(%s) = %q, want %q", engine, got, want)
 		}

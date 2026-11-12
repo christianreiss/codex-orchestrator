@@ -32,7 +32,7 @@ regression coverage and deployment verification.
 
 ## Owner-mode configuration identity
 
-In single-owner mode, `config_version` is a positive 52-bit SHA-256-derived fingerprint of the served semantic configuration. It is opaque, not monotonic and not an antirollback counter. `issued_at`, `expires_at`, `config_version`, and `etag` are excluded from this fingerprint; all policy, credential, document, and binary fields participate. The signed full-payload etag remains authoritative for integrity. Fetching or renewing an unchanged config performs no host-version write and cannot trigger a state-change/fetch loop. Legacy mode retains its persisted incrementing counter. Codex, Claude, and Grok wrappers accept the opaque value without ordering comparisons.
+In single-owner mode, `config_version` is a positive 52-bit SHA-256-derived fingerprint of the served semantic configuration. It is opaque, not monotonic and not an antirollback counter. `issued_at`, `expires_at`, `config_version`, and `etag` are excluded from this fingerprint; all policy, credential, document, and binary fields participate. The signed full-payload etag remains authoritative for integrity. Fetching or renewing an unchanged config performs no host-version write and cannot trigger a state-change/fetch loop. Legacy mode retains its persisted incrementing counter. Codex, Claude, Grok, and Kimi wrappers accept the opaque value without ordering comparisons.
 
 ## Terminal presentation
 
@@ -98,7 +98,7 @@ pipeline with:
    `~/.cxx/maintenance.json` (15 minutes after success, 5 after failure); a bare
    `cxx cron run` bypasses it. `internal/maintenance` holds one per-user lease
    over scheduled, launch-triggered, and manual runs, and since cxx 0.8.2 a
-   `cdx`/`clx`/`cgx` launch only queues that detached tick — no wrapper, engine, or
+   `cdx`/`clx`/`cgx`/`ckx` launch only queues that detached tick — no wrapper, engine, or
    peer upgrade runs inline.
 
 ## Request flow

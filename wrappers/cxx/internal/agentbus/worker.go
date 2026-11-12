@@ -571,6 +571,10 @@ func (c *relayClient) runNative(ctx context.Context, cfg *config.Config, deliver
 		return result
 	}
 	engine := stringArg(delivery.Target, "engine")
+	if err := validateHeadlessPermissionMode(engine, stringArg(delivery.Target, "daemon_permission_mode")); err != nil {
+		result.Err = err
+		return result
+	}
 	if engine == config.EngineKimi && upstream != "" {
 		if err := checkKimiTranscript(upstream); err != nil {
 			result.Err = err
@@ -1255,3 +1259,12 @@ func (b *tailBuffer) Bytes() []byte  { return b.buf }
 func (b *tailBuffer) String() string { return string(b.buf) }
 
 var _ io.Writer = (*tailBuffer)(nil)
+
+// Prompt mode rejects --plan in Kimi Code 2.5.3. Never drop a stored plan
+// constraint and run with the normal (non-interactive auto-approve) posture.
+func validateHeadlessPermissionMode(engine, mode string) error {
+	if engine == config.EngineKimi && strings.TrimSpace(mode) == "plan" {
+		return errors.New("Kimi headless plan mode is unavailable: --prompt cannot combine with --plan")
+	}
+	return nil
+}

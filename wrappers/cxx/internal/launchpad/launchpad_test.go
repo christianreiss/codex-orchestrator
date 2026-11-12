@@ -66,9 +66,9 @@ func press(t *testing.T, p *picker, keys ...string) {
 func TestHubDirectionsSelectEngines(t *testing.T) {
 	cases := []struct {
 		key, want string
-	}{{"left", "codex"}, {"right", "claude"}, {"down", "grok"}}
+	}{{"left", "codex"}, {"right", "claude"}, {"down", "grok"}, {"up", "kimi"}}
 	for _, tc := range cases {
-		p := newPicker([]Engine{codexEngine(), claudeEngine(), grokEngine()}, nil, terminalui.Caps{})
+		p := newPicker([]Engine{codexEngine(), claudeEngine(), grokEngine(), kimiEngine()}, nil, terminalui.Caps{})
 		press(t, p, tc.key, "enter")
 		if p.result == nil || p.result.Engine != tc.want || p.result.Mode != ModeNew {
 			t.Fatalf("%s: result = %+v, want %s new", tc.key, p.result, tc.want)
@@ -206,8 +206,8 @@ func TestAnimationFramesComplete(t *testing.T) {
 
 func TestViewRendersAllLayouts(t *testing.T) {
 	caps := terminalui.Caps{UTF8: true}
-	for n := 1; n <= 3; n++ {
-		engines := []Engine{codexEngine(), claudeEngine(), grokEngine()}[:n]
+	for n := 1; n <= 4; n++ {
+		engines := []Engine{codexEngine(), claudeEngine(), grokEngine(), kimiEngine()}[:n]
 		p := newPicker(engines, nil, caps)
 		out := ansiStrip(p.View().Content)
 		for _, e := range engines {

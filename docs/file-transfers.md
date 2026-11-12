@@ -14,7 +14,7 @@ cxx transfer get <id> --output ./artifact.tar --json
 
 `cdx transfer`, `clx transfer`, `cgx transfer` select their respective engines.
 `cxx transfer` uses `CXX_AGENT_PORTAL_ENGINE` inside a managed agent, otherwise
-Codex; `--engine codex|claude|grok` overrides it. All commands load the signed
+Codex; `--engine codex|claude|grok|kimi` overrides it. All commands load the signed
 host config and retain its TLS/CA and host authentication policy. Transfer bytes
 stream through the communicator over independent HTTPS streams, never control
 frames or model context. API, wrapper and the running communicator must support
@@ -96,7 +96,7 @@ stale owner as `stale_owner`.
 ## HTTP interface
 
 All routes require host authentication, host/IP and insecure-window policy,
-explicit `?engine=codex|claude|grok`, engine assignment/master switch, managed
+explicit `?engine=codex|claude|grok|kimi`, engine assignment/master switch, managed
 configuration/MCP enablement and `transfers_module_enabled`.
 
 | Method and path | Request / response |

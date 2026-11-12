@@ -56,7 +56,7 @@ test('saves all combinations and previews each engine with the Director disabled
       await attribution.click();
       await expect(attribution).toBeChecked({ checked: ai_attribution });
       await expect(attribution).toBeEnabled();
-      for (const engine of ['Codex', 'Claude', 'Grok']) {
+      for (const engine of ['Codex', 'Claude', 'Grok', 'Kimi Code']) {
         await card.getByLabel('Engine', { exact: true }).selectOption(engine);
         const preview = card.getByLabel('Commit preview');
         await expect(preview).toHaveText('Fix stale host status'

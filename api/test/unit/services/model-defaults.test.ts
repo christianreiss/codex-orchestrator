@@ -2,7 +2,7 @@ import { modelTier } from '../../../src/services/model-tiers.js';
 import { describe, expect, it } from 'vitest';
 import { clientConfigDocuments } from '../../../src/db/schema.js';
 import { ModelDefaultsService, modelDefaultsCatalog, modelLaunchCatalog } from '../../../src/services/model-defaults.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, type Engine } from '../../../src/util/engine.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 
 function configRow(engine: Engine, settings: Record<string, unknown>, sha = 'a'.repeat(64)) {
@@ -42,7 +42,7 @@ describe('ModelDefaultsService', () => {
     expect(db.inserts).toHaveLength(0);
   });
 
-  it.each([ENGINE_CODEX, ENGINE_CLAUDE])('keeps context-window selection Grok-only for %s', async engine => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE])('keeps context-window selection Grok/Kimi-only for %s', async engine => {
     const service = new ModelDefaultsService(createDbFake() as never);
     const current = await service.get(engine);
     expect(current).not.toHaveProperty('context_window');
@@ -321,7 +321,7 @@ describe('ModelDefaultsService', () => {
 });
 
 describe('modelLaunchCatalog', () => {
-  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK] as Engine[])('preserves the %s catalog capabilities in descending tier order', (engine) => {
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI] as Engine[])('preserves the %s catalog capabilities in descending tier order', (engine) => {
     const launch = modelLaunchCatalog(engine);
     // Unverified (live-catalog) models travel in their own additive list.
     const catalog = modelDefaultsCatalog(engine).filter((entry) => !entry.live_catalog_required);
@@ -351,7 +351,7 @@ describe('modelLaunchCatalog', () => {
     for (const model of ['claude-opus-4-6', 'claude-sonnet-4-6']) {
       expect(modelLaunchCatalog(ENGINE_CLAUDE).models.find(entry => entry.model === model)).toMatchObject({ efforts: ['low', 'medium', 'high'], session_efforts: ['max'] });
     }
-    for (const engine of [ENGINE_CODEX, ENGINE_GROK] as Engine[]) {
+    for (const engine of [ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI] as Engine[]) {
       expect(modelLaunchCatalog(engine).models.every((entry) => entry.session_efforts.length === 0)).toBe(true);
     }
   });

@@ -29,6 +29,7 @@ const GROK_PARSE = /\bfunc parse\(args \[\]string\) \(options, error\) \{/;
 const WRAPPERS = [
   { name: 'cdx', main: 'wrappers/cxx/internal/app/codex/main.go', doc: 'docs/interface-cdx.md', fn: RUN, dispatch: DISPATCH },
   { name: 'clx', main: 'wrappers/cxx/internal/app/claude/main.go', doc: 'docs/interface-clx.md', fn: RUN, dispatch: DISPATCH },
+  { name: 'ckx', main: 'wrappers/cxx/internal/app/kimi/main.go', doc: 'docs/interface-ckx.md', fn: GROK_PARSE, dispatch: 'switch arg {' },
   { name: 'cgx', main: 'wrappers/cxx/internal/app/grok/main.go', doc: 'docs/interface-cgx.md', fn: GROK_PARSE, dispatch: 'switch arg {' },
 ] as const;
 

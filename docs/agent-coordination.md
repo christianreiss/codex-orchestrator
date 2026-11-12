@@ -236,7 +236,7 @@ a native-transcript-bound flag, proof state and safe recovery instructions. Proo
 states distinguish missing session attachment, missing native instance, a missing
 original instance and a currently present native connection; the last state alone
 does not authorize adopting an older claim. No credential, native-instance UUID or
-foreign owner's proof is exposed. The session `cxx-agent` MCP (all three engines)
+foreign owner's proof is exposed. The session `cxx-agent` MCP (all four engines)
 passes these fields through: an error carrying fields beyond message and code keeps
 its readable text as the first content item and adds `{error:{message,code,...}}`
 as a second text item and as `structuredContent` (cxx 0.9.159+; older wrappers
@@ -341,7 +341,7 @@ these diagnostics bypasses a registration, claim or merge exclusion.
 
 ## Claim reconnect waiting (cxx 0.9.147)
 
-The shared Codex, Claude and Grok MCP client waits up to two minutes after a
+The shared Codex, Claude, Grok and Kimi MCP client waits up to two minutes after a
 `503 native_attachment_unavailable` response from the private session broker on
 claim acquire, status or release. The broker rejects this request before
 upstream dispatch while the exact native process attachment reconnects. Retries

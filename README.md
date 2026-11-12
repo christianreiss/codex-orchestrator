@@ -8,7 +8,7 @@
 <p align="center">
   <a href="#get-started">Quickstart</a> ·
   <a href="#the-tour">Tour</a> ·
-  <a href="#codex-claude-and-grok-at-a-glance">Engine matrix</a> ·
+  <a href="#codex-claude-grok-and-kimi-at-a-glance">Engine matrix</a> ·
   <a href="#day-to-day-cdx-clx-cgx-and-ckx">Commands</a> ·
   <a href="#documentation">Docs</a>
 </p>
@@ -28,17 +28,17 @@ have no idea the others exist.
 
 Codex Orchestrator fixes both halves of that. It is a self-hosted
 Node.js + MySQL control plane: connect your provider accounts, register your
-hosts, and let `cdx` (Codex), `clx` (Claude), and `cgx` (Grok) keep every machine in sync —
+hosts, and let `cdx` (Codex), `clx` (Claude), `cgx` (Grok), and `ckx` (Kimi) keep every machine in sync —
 auth, config, skills, and agent instructions. A built-in MCP server then gives
 every agent in the fleet shared memory, a project board, merge arbitration,
 peer messaging, secrets, and a file drop. Start agents remotely, schedule work,
 and answer them from the console or Android companion.
 
 > [!NOTE]
-> **All three engines are first-class.** `cdx`, `clx`, and `cgx` are personas of
+> **All four engines are first-class.** `cdx`, `clx`, `cgx`, and `ckx` are personas of
 > one `cxx` wrapper binary. They share fleet services and use each engine's
 > native auth, config and session adapters. Quotas, permissions and inference
-> capabilities differ; [the matrix](#codex-claude-and-grok-at-a-glance) makes
+> capabilities differ; [the matrix](#codex-claude-grok-and-kimi-at-a-glance) makes
 > those boundaries explicit.
 
 ---
@@ -47,7 +47,7 @@ and answer them from the console or Android companion.
 
 You'll feel right at home if you:
 
-- 🖥️ run Codex, Claude Code, and/or Grok Build on **more than one machine** and want one source of truth for auth and config;
+- 🖥️ run Codex, Claude Code, Grok Build, and/or Kimi Code on **more than one machine** and want one source of truth for auth and config;
 - 🤝 run **more than one agent at a time** and want them to share memory, split work on a board, and not trample each other's merges;
 - 🔑 want **per-host API keys** with IP binding instead of one token pasted everywhere;
 - 📊 need to see **who is burning which tokens**, what every agent is doing right now, and where the limits are;
@@ -77,14 +77,14 @@ if you set it up anyway.
 
 </details>
 
-Type `cdx`, `clx`, or `cgx` and the wrapper converges the host before the engine
+Type `cdx`, `clx`, `cgx`, or `ckx` and the wrapper converges the host before the engine
 starts. A bootstrap request bundles auth, config, skills and instructions;
 account selection, registration and other lifecycle checks run alongside it.
 
 - **Auth, config, skills, and agent instructions** land on every host each time you launch.
-- **Engine-native config**: `config.toml` for Codex (written wholesale), `settings.json` for Claude (deep-merged, so your own keys survive), and only the fleet-owned keys of `~/.grok/config.toml` for Grok.
+- **Engine-native config**: `config.toml` for Codex (written wholesale), `settings.json` for Claude (deep-merged, so your own keys survive), and fleet-owned keys of `~/.grok/config.toml` for Grok and `~/.kimi-code/config.toml` for Kimi.
 - **Signed per-host config**: each host gets its own Ed25519-signed config and API key.
-- **Managed native commands**: `codex`, `claude` and `grok` retain their native command grammar through per-user shims into `cxx`.
+- **Managed native commands**: `codex`, `claude`, `grok` and `kimi` retain their native command grammar through per-user shims into `cxx`.
 - **Background upgrades**: scheduled checks install pinned engine releases into private prefixes; explicit `cxx update` reports wrapper, engine and content results in one run.
 - **Session housekeeping**: configurable retention and disk budgets clean up old local sessions while preserving active, pinned and fleet-resumable work. Preview cleanup and pin sessions from the CLI.
 
@@ -95,12 +95,12 @@ hosts, versions and usage values.*
 
 ![Hosts page with demo hosts, per-engine readiness indicators, daemon availability and last-seen status](docs/img/hosts.png)
 
-A host can run any combination of Codex, Claude, and Grok, and one console manages all three.
+A host can run any combination of Codex, Claude, Grok, and Kimi, and one console manages all four.
 Filter by online, secure, insecure, VIP, or roaming; spot version drift at a
 glance; and open any host to adjust its model, version pin, IP policy, or
 lifecycle.
 
-- **Pin versions** of Codex, Claude, or Grok fleet-wide, or let individual hosts override.
+- **Pin versions** of Codex, Claude, Grok, or Kimi fleet-wide, or let individual hosts override.
 - **Readiness per engine** distinguishes current, outdated, missing and suspended installations, with installed and target versions in tooltips.
 - **Graduated policy profiles** set a security posture per host (what an agent may do without asking).
 - **Insecure hosts** — machines you don't trust with credentials on disk — get their auth purged after the last wrapper exits, and need an approval to come back.
@@ -183,7 +183,7 @@ outcomes, not independent proof that the work was correct.
 Enabled hosts reach the orchestrator's MCP server through the same tool families:
 
 - **Projects / CoCo** — shared notes, files, feedback, project memory, and a **Kanban board** with role-based claim leases and handoffs.
-- **Agent Messaging** — an encrypted, ordered, at-least-once bus between Codex, Claude, and Grok agents on any host, with named direct conversations and chaired `#conference` rooms.
+- **Agent Messaging** — an encrypted, ordered, at-least-once bus between Codex, Claude, Grok, and Kimi agents on any host, with named direct conversations and chaired `#conference` rooms.
 - **Groups and subscriptions** — publish to a joined group or your own agent feed. Private direct messages and conferences stay outside subscriber feeds.
 - **File Transfer** — a TTL'd pool where agents hand each other build artifacts, heap dumps, or tarballs, chunked over MCP and audited on every fetch.
 - **Secrets** — encrypted working credentials delivered over MCP on demand, with audited reads and no automatic plaintext file on the host.
@@ -233,7 +233,7 @@ twice. [How the document is assembled.](#dynamic-agent-instructions)
 
 **Chatty** answers product questions and performs supported administrative
 actions using typed tools and your existing capabilities. It offers
-Codex/Claude/Grok selection, private encrypted history across your devices,
+Codex/Claude/Grok/Kimi selection, private encrypted history across your devices,
 action previews and confirmations for sensitive changes. It requires a usable
 AI account; host work is dispatched through remote sessions and agent tools.
 
@@ -242,7 +242,7 @@ AI account; host work is dispatched through remote sessions and agent tools.
 ![API Access with separate OpenAI, Anthropic and Grok endpoint URLs and the OpenAI gateway key list](docs/img/api-access.png)
 
 - `/v1/` and `/grok/v1/` speak the **OpenAI** protocol; `/anthropic/v1/` speaks the **Anthropic** protocol.
-- Choose **Codex, Claude, or Grok** as the backend for each API in the console. URLs, key namespaces, and wire formats stay with the API when you switch engines.
+- Choose **Codex, Claude, Grok, or Kimi** as the backend for each API in the console. URLs, key namespaces, and wire formats stay with the API when you switch engines.
 - The selected backend determines supported models, inputs and streaming. These gateways implement a documented subset of the provider protocols.
 - Separate revocable, expiring keys: `sk-cdx-` for the OpenAI surface, `sk-ant-` for Anthropic, `sk-cgx-` for Grok and `sk-ckx-` for Kimi. Each surface has its own switch and key namespace.
 - [Code samples below.](#compatible-apis)
@@ -402,7 +402,7 @@ mid-way is fine; the dashboard offers to resume.
    each one. Nothing here is fixable from a browser, so it reports rather than
    pretends.
 2. **Owner** — the one-time claim, which also signs you in.
-3. **Engines** — Codex, Claude, Grok: any combination, or none yet.
+3. **Engines** — Codex, Claude, Grok, Kimi: any combination, or none yet.
 4. **Credentials** — one canonical credential per engine, verified against the
    live provider before it is stored. A bad value fails here, not on a host at
    3 a.m.
@@ -519,10 +519,10 @@ to inspect current recovery protection, and `cxx housekeeping status` for local 
 retention. `cxx housekeeping run --dry-run` previews cleanup without removing files. See the [wrapper contract](docs/interface-cdx.md) for subcommands
 and the one-use `cxx reboot` checkpoint flow.
 
-Managed native `codex`, `claude`, and `grok` commands also use the fleet
+Managed native `codex`, `claude`, `grok`, and `kimi` commands also use the fleet
 lifecycle while preserving each provider's argument grammar. Open a new shell
 after installation; `cxx native-entry status` checks which entries are active.
-Use `cdx`, `clx`, or `cgx` for wrapper operations such as `sync` and `doctor`.
+Use `cdx`, `clx`, `cgx`, or `ckx` for wrapper operations such as `sync` and `doctor`.
 
 ## Agents that work together
 
@@ -555,7 +555,7 @@ per enabled feature, so agents learn the house rules without you writing them tw
 The orchestrator exposes OpenAI-compatible REST APIs at `/v1/` and `/grok/v1/`,
 plus an Anthropic-compatible API at `/anthropic/v1/`. Clients can use the
 supported inference subset described below. Each API can
-run on Codex, Claude, or Grok; the defaults match the API names. Change the
+run on Codex, Claude, Grok, or Kimi; the defaults match the API names. Change the
 backend in *Access → API Access* without changing client URLs or keys. The
 selected backend supplies the subscription, model catalog, and capabilities.
 
@@ -673,7 +673,7 @@ overwriting newer state. Only owner/admin accounts can mutate memories.
 Skills are stored centrally and delivered in each engine's native form — no
 manual copying between machines.
 
-- **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories and Grok managed `~/.grok/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude or Grok Skills.
+- **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories Grok managed `~/.grok/skills/<slug>/` directories and Kimi managed `~/.kimi-code/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude or Grok Skills.
 - **Admin authoring** — create, edit, and delete skills from the Skills page. Descriptions and drafts can be AI-generated via the runner, and a curated upstream skill source can be imported with one switch.
 - **Managed skills** — project workflow (`#coco`), operator relay (`#afk`), rooms (`#conference`), schedules (`#wake-cron`), bounded recovery (`#watchdog`) and `skill-manager` appear as their modules are enabled. Operator relay uses Active Clients and the Android companion.
 - **Integrity tracking** — every skill carries a SHA-256 hash, so the sync pipeline knows when content has actually changed.

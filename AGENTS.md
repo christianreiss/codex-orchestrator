@@ -12,7 +12,7 @@
 When asked to run either task, read its complete prompt and follow its delivery
 contract. These links do not start either task automatically.
 
-Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, `docs/interface-clx.md`, and `docs/interface-cgx.md`. Keep them in lock-step with code. This service keeps multiple provider accounts per engine for the whole fleet, each with an independent canonical auth head and quota snapshots. Account leases balance new CLI launches while preserving active native sessions; every auth change needs a paper trail.
+Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.md`, `docs/interface-cdx.md`, `docs/interface-clx.md`, `docs/interface-cgx.md`, and `docs/interface-ckx.md`. Keep them in lock-step with code. This service keeps multiple provider accounts per engine for the whole fleet, each with an independent canonical auth head and quota snapshots. Account leases balance new CLI launches while preserving active native sessions; every auth change needs a paper trail.
 
 ## Backend stack
 
@@ -28,20 +28,21 @@ The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted
 
 ## Multi-Engine Architecture
 
-The orchestrator supports three engines: **Codex** (OpenAI), **Claude** (Anthropic), and **Grok Build** (xAI subscription). A host can have any nonempty subset.
-- `cdx` manages Codex, `clx` manages Claude Code, and `cgx` manages Grok Build; all three are relative aliases to the same installed `cxx` binary.
-- From cxx 0.9.24, managed native `codex`, `claude`, and `grok` command names use per-user PATH shims into `cxx native <engine> -- …`. They preserve native command grammar while sharing the existing fleet auth/account and receiver lifecycle; wrapper commands remain under `cdx`/`clx`/`cgx`. Diagnose activation with `cxx native-entry status`; provider binaries are never replaced.
-- Skills, `AGENTS.md` / `CLAUDE.md` / Grok `AGENTS.md`, and MCP are shared across all three engines by default (per-engine filename via the engine constants).
+The orchestrator supports four engines: **Codex** (OpenAI), **Claude** (Anthropic), **Grok Build** (xAI subscription), and **Kimi Code** (MoonshotAI subscription). A host can have any nonempty subset.
+- `cdx` manages Codex, `clx` manages Claude Code, `cgx` manages Grok Build, and `ckx` manages Kimi Code; all four are relative aliases to the same installed `cxx` binary.
+- From cxx 0.9.24, managed native `codex`, `claude`, `grok`, and `kimi` command names use per-user PATH shims into `cxx native <engine> -- …`. They preserve native command grammar while sharing the existing fleet auth/account and receiver lifecycle; wrapper commands remain under `cdx`/`clx`/`cgx`/`ckx`. Diagnose activation with `cxx native-entry status`; provider binaries are never replaced.
+- Skills, `AGENTS.md` / `CLAUDE.md` / Grok `AGENTS.md` / Kimi `AGENTS.md`, and MCP are shared across all four engines by default (per-engine filename via the engine constants).
 - Auth, config, and CLI binaries are engine-specific.
 - The `engine` column/parameter appears throughout the API for routing.
-- `ENGINE_CODEX = 'codex'`, `ENGINE_CLAUDE = 'claude'`, `ENGINE_GROK = 'grok'` (see `api/src/util/engine.ts`).
+- `ENGINE_CODEX = 'codex'`, `ENGINE_CLAUDE = 'claude'`, `ENGINE_GROK = 'grok'`, `ENGINE_KIMI = 'kimi'` (see `api/src/util/engine.ts`).
 - Runner state, canonical auth payloads, runner refresh triggers, admin API-disable toggles, key-service listings, and installer scripts are all engine-scoped. When adding a feature that touches any of those, branch per engine instead of silently defaulting to Codex.
-- The inference gateways are **surfaces** (`/v1`, `/anthropic/v1`, `/grok/v1`); the engine answering each is its per-surface **backend** (`versions.api_surface_backend_*`; `api/src/services/api-surfaces.ts`, `gateway-backends.ts`). Gateway keys and the per-API disable toggles belong to the surface — their `engine` value names the key namespace, not who answers — so never re-couple them to the backend. Credentials, capabilities and model catalogs belong to the backend, never to the URL prefix.
+- The inference gateways are **surfaces** (`/v1`, `/anthropic/v1`, `/grok/v1`, `/kimi/v1`); the engine answering each is its per-surface **backend** (`versions.api_surface_backend_*`; `api/src/services/api-surfaces.ts`, `gateway-backends.ts`). Gateway keys and the per-API disable toggles belong to the surface — their `engine` value names the key namespace, not who answers — so never re-couple them to the backend. Credentials, capabilities and model catalogs belong to the backend, never to the URL prefix.
 - Each engine has a fleet-wide **master switch** (`api/src/services/engine-switch.ts`; `docs/interface-api.md` → Engine master switches). Off means *suspended*: assignments, accounts, auth and keys are kept. Every new engine-scoped path honours it — host routes via `assertHostEngineEnabled(host, engine, await readFleetEngineState(db))`, provider-touching admin actions via `assertFleetEngineEnabledForAdmin`, "which engines may this host use" via `activeHostEngines` (never `hostEnginesList`, whose Codex fallback would turn a suspended host into a Codex one). `/wrapper/v2/*` checks the assignment only: a suspended engine gets a 200 config carrying `host.fleet_disabled_engines`, because wrappers delete an engine's config on 403.
 
 ## Engine parity (kept current)
 
-Before landing an engine-agnostic feature, add Codex (`cdx`), Claude (`clx`), and Grok (`cgx`) paths. Grok uses modern subscription OIDC only, with centrally owned refresh and access-only runtime projections; consult `docs/interface-cgx.md` for ownership, isolation, and receiver contracts. Intentional deltas (documented, not implemented for Claude) are:
+Before landing an engine-agnostic feature, add Codex (`cdx`), Claude (`clx`), Grok (`cgx`), and Kimi (`ckx`) paths. Grok uses modern subscription OIDC only, with centrally owned refresh and access-only runtime projections; consult `docs/interface-cgx.md` for ownership, isolation, and receiver contracts. Intentional engine-specific deltas are:
+- Kimi Code (`docs/interface-ckx.md`): `kimi-hooks-v1` has no idle push; peer and portal messages ring at prompt/Stop boundaries. `/kimi/v1` is off by default pending operator acceptance of subscription gateway terms. Native stream-json exposes no usage or stop reason. The server is the single OAuth refresher; every host/runner receives an access-only projection in a private `KIMI_CODE_HOME`.
 - Grok specifics: Skills remain native on disk (`grok_skills` → `~/.grok/skills`); Codex and MCP-enabled Claude read fleet Skill content through MCP; subscription usage is fetched server-side for Dashboard/Accounts while CLI quota reporting and enforcement remain unavailable (1.0.75+ `grok usage` prints the plan limit natively, but the server-side billing fetch in `grok-usage.ts` stays the source of truth); posture projects only `[ui].permission_mode` (no sandbox); and a canonical Grok login must have exactly one refresher, so seeding always uses a dedicated device login.
 - ChatGPT quota lanes / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept. The Spark lane itself is retired (2026-09-29): `spark` heals to a cleared preference.
 - Effort naming and persistence differ by engine: Codex writes `model_reasoning_effort` to `config.toml`. Claude's fleet field is `effortLevel`, rendered into `settings.json` as `modelSettings[canonicalModel].effortLevel`; only older models also receive the compatible top-level key. Newer models ignore top-level user effort. Do not send the Codex key to Claude or confuse either CLI setting with the Anthropic API's `effort` request parameter.
@@ -142,9 +143,9 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - Pruning runs on register/auth flows and admin stale-host passes: removes expired hosts, inactive hosts (`inactivity_window_days`, default 30, max 60, 0 disables inactivity pruning), and never-provisioned hosts older than 30 minutes; logs `host.pruned`.
 - ChatGPT snapshots use the `ChatGptUsageService` (`api/src/services/chatgpt-usage.ts`) with 5-minute minimum refresh cadence; errors/success log under `chatgpt.usage`.
 
-## Wrappers (cdx / clx / cgx)
+## Wrappers (cdx / clx / cgx / ckx)
 
-- Source: `wrappers/cxx/`. One static Go binary is compiled per platform; invocation as the `cdx`, `clx`, or `cgx` relative symlink selects that persona, while direct invocation requires `cxx codex ...` or `cxx claude ...` or `cxx grok ...`.
+- Source: `wrappers/cxx/`. One static Go binary is compiled per platform; invocation as the `cdx`, `clx`, `cgx`, or `ckx` relative symlink selects that persona, while direct invocation requires `cxx codex ...`, `cxx claude ...`, `cxx grok ...` or `cxx kimi ...`.
 - Boot flow:
   - Reads and verifies signed per-host JSON config (Ed25519). With `orchestrator.communicator_sync_protocol: 1`, the communicator serializes finite bootstrap/content operations and active-session auth convergence using existing engine writers; running sessions do not pause sync. Legacy mode retains the run lock and `--allow-concurrent-sync`. Native login, account assignment and refresh ownership stay engine-specific; see `docs/communicator.md`.
   - Treats `cdx`/MCP as the Skill interface: read Skills through MCP `resource_read` on `skill://{slug}`.
@@ -176,7 +177,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 ## Work Delivery and Wake / Cron Contract
 
 The centrally rendered fleet guidance is in `api/src/services/managed-agents-features.ts`;
-keep its Wake / Cron and Work outcomes sections synchronized across Codex, Claude and Grok.
+keep its Wake / Cron and Work outcomes sections synchronized across Codex, Claude, Grok and Kimi.
 Use `schedule_list/get/create/update/delete` through the shared `#wake-cron` Skill.
 Recurring wakes do not authorize recovery: persistent resume requires explicit operator
 intent and a progress timeout. Missing transcripts block wakes permanently; never use a

@@ -1,13 +1,13 @@
 # Planned host reboot and one-use resume
 
-Linux hosts can transfer their current Codex, Claude or Grok task across a planned
+Linux hosts can transfer their current Codex, Claude, Grok or Kimi task across a planned
 reboot. cxx owns the boot hook; no permanent reboot daemon is required. The agent
 needs operator authorization for the reboot and root or passwordless sudo. An
 active `cron.service` or `crond.service` and systemd reboot support are required.
 
 The code-managed `reboot-safe` Skill (`skill://reboot-safe`) provides the agent
 procedure for preparation, one-use continuation, ownership reconciliation and
-failure handling. It is shared across all three engines and ships with the API;
+failure handling. It is shared across all four engines and ships with the API;
 reading the Skill grants no reboot permission.
 
 ```sh
@@ -87,7 +87,7 @@ Read `cxx reboot status --id UUID` for `execution_mode` (`tmux` or `headless`),
 tmux -L cxx-reboot-UUID attach -t cxx-reboot-UUID
 ```
 
-Codex, Claude and Grok resume their exact saved native UUID with the checkpoint
+Codex, Claude, Grok and Kimi resume their exact saved native UUID with the checkpoint
 as one initial prompt. stdin/stdout/stderr remain connected to the pane's terminal.
 The checkpoint is handled automatically; the CLI then stays available for operator
 input. Detach with `Ctrl-b d`; detaching does not finish or stop the continuation.

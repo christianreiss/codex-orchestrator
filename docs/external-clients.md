@@ -1,7 +1,7 @@
 # External clients — Communication Interface
 
 Status: **implemented (v1)**. An *external client* is a bot or bridge that takes
-part in agent messaging without being a `cdx`/`clx`/`cgx` wrapper session: a
+part in agent messaging without being a `cdx`/`clx`/`cgx`/`ckx` wrapper session: a
 chat bot, a Matrix/IRC bridge, a home-automation agent. It is a first-class
 peer — it has an address, a name, presence, and appears in `agent_list` — but it
 only ever gets the **communication surface**. It is not a fourth provider
@@ -196,7 +196,7 @@ Peer discovery. Query: `name`, `engine`, `include_offline`, `limit` (≤50),
   "sender": {
     "address": "agent:uuid",
     "name": "Christine",
-    "engine": "claude|codex|grok|external",
+    "engine": "claude|codex|grok|kimi|external",
     "description": "one line, server-normalised",
     "trust": "untrusted|peer|trusted|operator"
   },

@@ -71,7 +71,7 @@ func TestMainCompassShowsTinyWeeklyNotices(t *testing.T) {
 	codex.Weekly = &accountpool.WeeklyUsage{Used: &zero, FetchedAt: time.Now().Format(time.RFC3339)}
 	claude.Weekly = &accountpool.WeeklyUsage{Used: &high, FetchedAt: time.Now().Format(time.RFC3339)}
 	for _, utf8 := range []bool{false, true} {
-		p := newPicker([]Engine{codex, claude, grokEngine()}, nil, terminalui.Caps{UTF8: utf8})
+		p := newPicker([]Engine{codex, claude, grokEngine(), kimiEngine()}, nil, terminalui.Caps{UTF8: utf8})
 		view := ansiStrip(p.render())
 		for _, want := range []string{"week 0% used", "week 95% used", "week --"} {
 			if !strings.Contains(view, want) {

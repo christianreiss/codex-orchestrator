@@ -11,8 +11,9 @@ import (
 
 func TestUpdateRunPlainFinishesInEngineOrder(t *testing.T) {
 	var out bytes.Buffer
-	u := StartUpdateRun(&out, Caps{}, []string{"Codex", "Claude", "Grok"})
+	u := StartUpdateRun(&out, Caps{}, []string{"Codex", "Claude", "Grok", "Kimi"})
 	u.Row(2).Finish(ToneFail, "3", "download failed")
+	u.Row(3).Finish(ToneOK, "4", "updated")
 	u.Row(0).Finish(ToneOK, "1", "updated")
 	u.Row(0).Finish(ToneFail, "wrong", "duplicate")
 	u.Row(0).SetVersion("wrong")
@@ -23,7 +24,7 @@ func TestUpdateRunPlainFinishesInEngineOrder(t *testing.T) {
 	u.Close()
 	u.Close()
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != 3 || !strings.Contains(lines[0], "Codex") || !strings.Contains(lines[1], "Claude") || !strings.Contains(lines[2], "Grok") || strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "wrong") {
+	if len(lines) != 4 || !strings.Contains(lines[0], "Codex") || !strings.Contains(lines[1], "Claude") || !strings.Contains(lines[2], "Grok") || !strings.Contains(lines[3], "Kimi") || strings.Contains(out.String(), "\x1b") || strings.Contains(out.String(), "wrong") {
 		t.Fatalf("output=%q", out.String())
 	}
 }
@@ -31,7 +32,7 @@ func TestUpdateRunPlainFinishesInEngineOrder(t *testing.T) {
 func TestUpdateRunLiveProgressIsBoundedAndRestoresCursor(t *testing.T) {
 	for _, width := range []int{40, 80, 120} {
 		var out bytes.Buffer
-		u := StartUpdateRun(&out, Caps{IsTTY: true, UTF8: true, Columns: width}, []string{"Codex", "Claude", "Grok"})
+		u := StartUpdateRun(&out, Caps{IsTTY: true, UTF8: true, Columns: width}, []string{"Codex", "Claude", "Grok", "Kimi"})
 		u.Row(0).Observe(updateprogress.Event{Phase: "downloading", Artifact: "CLI", Bytes: 5 << 20, Total: 10 << 20})
 		u.Row(1).Observe(updateprogress.Event{Phase: "installing"})
 		u.Row(2).Observe(updateprogress.Event{Phase: "downloading", Bytes: 1 << 20, Total: -1})
@@ -41,15 +42,16 @@ func TestUpdateRunLiveProgressIsBoundedAndRestoresCursor(t *testing.T) {
 		u.Row(0).Finish(ToneOK, "1", "updated")
 		u.Row(1).Finish(ToneFail, "2", "checksum failed")
 		u.Row(2).Finish(ToneWarn, "3", "sync paused")
+		u.Row(3).Finish(ToneOK, "4", "updated")
 		u.Close()
 		output := out.String()
-		if strings.Count(output, "\x1b[?25l") != 1 || strings.Count(output, "\x1b[?25h") != 1 || !strings.Contains(output, "\x1b[3A") || !strings.Contains(output, "checksum") {
+		if strings.Count(output, "\x1b[?25l") != 1 || strings.Count(output, "\x1b[?25h") != 1 || !strings.Contains(output, "\x1b[4A") || !strings.Contains(output, "checksum") {
 			t.Fatalf("cursor or failure lost at width %d: %q", width, output)
 		}
 		if width >= 80 && (!strings.Contains(output, "CLI 50%") || !strings.Contains(output, "companion 50%") || !strings.Contains(output, "downloading 1.0M")) {
 			t.Fatalf("progress labels missing: %q", output)
 		}
-		plain := strings.ReplaceAll(StripANSI(output), "\x1b[3A", "")
+		plain := strings.ReplaceAll(StripANSI(output), "\x1b[4A", "")
 		for _, line := range strings.FieldsFunc(plain, func(r rune) bool { return r == '\r' || r == '\n' }) {
 			if VisibleWidth(line) >= width {
 				t.Fatalf("line wraps at %d: %q", width, line)
@@ -60,9 +62,9 @@ func TestUpdateRunLiveProgressIsBoundedAndRestoresCursor(t *testing.T) {
 
 func TestUpdateRunConcurrentEventsAndUnfinishedCleanup(t *testing.T) {
 	var out bytes.Buffer
-	u := StartUpdateRun(&out, Caps{IsTTY: true, UTF8: false, Columns: 80}, []string{"Codex", "Claude", "Grok"})
+	u := StartUpdateRun(&out, Caps{IsTTY: true, UTF8: false, Columns: 80}, []string{"Codex", "Claude", "Grok", "Kimi"})
 	var workers sync.WaitGroup
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		workers.Add(1)
 		go func(i int) {
 			defer workers.Done()

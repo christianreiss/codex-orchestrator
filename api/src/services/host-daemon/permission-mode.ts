@@ -14,8 +14,8 @@ export type DaemonPermissionMode = (typeof DAEMON_PERMISSION_MODES)[number];
 /** Daemon hello capability a wrapper must report before a plan session is offered to it. */
 export const PERMISSION_MODE_VERSION = 1;
 
-/** Engines whose native CLI accepts `--permission-mode plan` per invocation. */
-const PLAN_ENGINES = new Set(['claude', 'grok', 'kimi']);
+/** Engines whose native CLI accepts `--permission-mode plan` with non-interactive prompts. */
+const PLAN_ENGINES = new Set(['claude', 'grok']);
 
 export function permissionModesFor(engine: string, runtimeVersion: number | undefined): DaemonPermissionMode[] {
   return PLAN_ENGINES.has(engine) && (runtimeVersion ?? 0) >= PERMISSION_MODE_VERSION ? ['default', 'plan'] : ['default'];
@@ -38,7 +38,7 @@ export function assertPermissionMode(
 ) {
   if (mode !== 'plan') return;
   if (!PLAN_ENGINES.has(engine))
-    throw new ApiError('Plan mode is not available for Codex sessions', {
+    throw new ApiError(engine === 'kimi' ? 'Plan mode is unavailable for Kimi headless sessions: --prompt cannot combine with --plan' : 'Plan mode is not available for Codex sessions', {
       status: 422,
       code: 'permission_mode_engine_unsupported',
       type: 'invalid_request_error',

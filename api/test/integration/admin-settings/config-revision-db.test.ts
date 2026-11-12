@@ -5,7 +5,7 @@ import { clientConfigDocuments } from '../../../src/db/schema.js';
 import { ClientConfigService } from '../../../src/services/client-config.js';
 import { DEFAULT_CODEX_MODEL } from '../../../src/services/codex-model-upgrades.js';
 import { ModelDefaultsService } from '../../../src/services/model-defaults.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, type Engine } from '../../../src/util/engine.js';
 import { getTestDb } from '../../helpers/test-db.js';
 
 const handle = await getTestDb();
@@ -14,7 +14,7 @@ const handle = await getTestDb();
 // with TEST_USE_DB=1 and --no-file-parallelism against a disposable MySQL DB.
 describe.skipIf(!handle)('atomic configuration revisions against MySQL', () => {
   const ownedIds = new Set<number>();
-  const engines = [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK];
+  const engines = [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI];
   const service = () => new ClientConfigService(handle!.db);
   const remember = (revision: string | null) => {
     if (revision !== null) ownedIds.add(Number(revision));

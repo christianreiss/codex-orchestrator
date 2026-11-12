@@ -234,7 +234,7 @@ func TestUnwrapResourcesKeepsConfigProfiles(t *testing.T) {
 }
 
 func TestBootstrapReportsInstalledVersionAfterUnreportedGate(t *testing.T) {
-	for _, engine := range []string{"codex", "grok"} {
+	for _, engine := range []string{"codex", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			calls := []string{}
 			c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {

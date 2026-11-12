@@ -158,7 +158,7 @@ host, messaging and engine restrictions still apply.
 ## Delivery and recovery
 
 Ship schema, API, managed instructions, cxx and the built SPA together.
-The shared cxx implementation supports Codex, Claude and Grok through workflow
+The shared cxx implementation supports Codex, Claude, Grok and Kimi through workflow
 protocol version 2 for new runs. Old wrappers must upgrade before new-run participation;
 protocol 1 remains available for historical runs.
 Check the running host daemon as well as the interactive CLI: legacy installations

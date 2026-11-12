@@ -51,7 +51,7 @@ Per item:
 6. Commit on your worktree branch; stage only your files, never `git add -A` or `git add .`.
    Subject, blank line, what and why with the verification you actually ran, blank line,
    exactly one `AI-Assisted-By: <engine>` trailer, replacing `<engine>` with the committing
-   engine (Codex, Claude or Grok).
+   engine (Codex, Claude, Grok or Kimi).
 
 Do NOT: push, merge into main, edit CHANGELOG.md, bump wrappers/Makefile VERSION, add a migration
 number without asking the parent, deploy, or touch files outside your item.

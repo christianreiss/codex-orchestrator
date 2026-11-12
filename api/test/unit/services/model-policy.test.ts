@@ -31,6 +31,7 @@ describe('current model policy', () => {
     ['codex', 'gpt-5.6-sol', 'gpt-6.1-sol'],
     ['claude', 'claude-opus-4-5-20251101', 'claude-opus-5-5'],
     ['grok', 'grok-4.5', 'grok-4.7'],
+    ['kimi', 'k3-256k', 'k3'],
   ] as const) {
     it(`${engine}: gateways, signed menus and defaults use the same successors without rewriting stored selections`, async () => {
       const db = database(engine);

@@ -214,6 +214,12 @@ const CATALOGS: Catalog[] = [
     server: offeredModelIds('grok'),
   },
   {
+    constant: 'KIMI_MODEL_OPTIONS',
+    api: 'the registry\'s offered Kimi models (api/src/services/model-registry/data.ts)',
+    frontend: catalogValues('KIMI_MODEL_OPTIONS'),
+    server: offeredModelIds('kimi'),
+  },
+  {
     constant: 'CLAUDE_PERMISSION_MODES',
     api: 'CLAUDE_PERMISSION_MODES (api/src/services/config-normalizer.ts)',
     frontend: catalogValues('CLAUDE_PERMISSION_MODES'),
@@ -284,7 +290,7 @@ describe('frontend model catalog parity', () => {
     expect(GROK_SUPPORTED_MODELS).toEqual(offeredModelIds('grok'));
     expect(SUPPORTED_MODELS.filter((id) => offeredModelIds('codex').includes(id))).toEqual(offeredModelIds('codex'));
     expect(ADVISOR_MODEL_ALIASES).toEqual(Object.keys(CLAUDE_ADVISOR_ALIASES));
-    const lists: Array<[string, Engine]> = [['CLAUDE_MODEL_OPTIONS', 'claude'], ['CODEX_MODELS', 'codex'], ['GROK_MODEL_OPTIONS', 'grok']];
+    const lists: Array<[string, Engine]> = [['CLAUDE_MODEL_OPTIONS', 'claude'], ['CODEX_MODELS', 'codex'], ['GROK_MODEL_OPTIONS', 'grok'], ['KIMI_MODEL_OPTIONS', 'kimi']];
     for (const [constant, engine] of lists) {
       expect(optionValues(constant), constant).toEqual(offeredModelIds(engine));
       expect(optionLabels(constant), constant).toEqual(offeredModelIds(engine).map((id) => {

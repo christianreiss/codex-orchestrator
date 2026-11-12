@@ -275,7 +275,7 @@ session runs every turn in the native plan mode: `--permission-mode plan` for Cl
 and for Grok, whose CLI accepts the same flag. This includes peer-delivered turns.
 `default` passes no flag, so the host's posture-clamped mode applies and a session
 can never exceed the posture. Plan is the most restrictive mode and is allowed under
-every posture, root hosts included. Codex has no plan mode and answers `422
+every posture, root hosts included. Codex has no plan mode, and Kimi headless `-p` cannot combine with `--plan`; both answer `422
 permission_mode_engine_unsupported`. A host whose wrapper predates cxx 0.9.146 answers
 `409 permission_mode_unsupported`. `GET /companion/v1/hosts` lists, per host,
 `permission_modes:{<engine>:["default","plan"]|["default"]}`. Offer the choice only
@@ -421,7 +421,7 @@ notification; unavailable/offline push converges on the next authenticated snaps
 
 `GET /companion/v1/quotas` uses the paired-device Bearer token and requires
 `admin.read` and `auth.read_metadata`, rechecked before returning the snapshot. It returns `engines` for
-Codex, Claude and Grok, each with `engine`, `label`, `enabled` and `accounts`.
+Codex, Claude, Grok and Kimi, each with `engine`, `label`, `enabled` and `accounts`.
 Each account exposes only `id`, `label`, `state`, `fetched_at`, `stale`, and
 `windows` (`kind`, `used_percent`, `resets_at`, `limit_seconds`). Removed accounts
 are excluded. Codex/Claude retain short and weekly windows; Grok retains its
@@ -897,7 +897,7 @@ agents needing a reply come first. Rows show project, host/engine and the existi
 short summary. Version 0.4.3 places a compact unread reply number on each session.
 
 Version 0.4.1 replaces project initials and the written engine name with bundled
-Codex, Claude and Grok vector marks, in both the list and chat header. A small
+Codex, Claude, Grok and Kimi vector marks, in both the list and chat header. A small
 computer badge shows the short host name; TalkBack retains the full host and
 engine names. Missing hosts have no badge and unknown engines use a terminal
 symbol. Marks adapt to light/dark mode and load entirely from the APK; their

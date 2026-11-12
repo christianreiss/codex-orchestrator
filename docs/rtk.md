@@ -1,6 +1,6 @@
 # Command output filtering with RTK
 
-cxx manages an optional external RTK OSS binary for Codex, Claude and Grok. It filters supported development-command output before the agent reads it. It does not proxy provider traffic or change the selected model.
+cxx manages an optional external RTK OSS binary for Codex, Claude, Grok and Kimi. It filters supported development-command output before the agent reads it. It does not proxy provider traffic or change the selected model.
 
 ## Controls
 
@@ -10,7 +10,7 @@ After a host sync receives the signed policy, it applies to new launches. Existi
 
 ## Engine integration
 
-All three engines use session-scoped instructions to invoke RTK explicitly.
+All four engines use session-scoped instructions to invoke RTK explicitly.
 Filtering depends on the agent following that guidance, rather than guaranteed
 transparent interception. The upstream rewrite helper uses Claude permission
 rules; rewriting Grok commands could change which native command restrictions
@@ -31,6 +31,6 @@ Use `--no-rtk` on a managed launch, or `RTK_DISABLED=1`, to disable filtering fo
 
 ## Operational acceptance
 
-Test actual native execution independently for all three engines, including failures, approvals, bypass, recall and teardown. Command output reduction is not equivalent to subscription-quota or financial savings. No savings aggregation is collected centrally.
+Test actual native execution independently for all four engines, including failures, approvals, bypass, recall and teardown. Command output reduction is not equivalent to subscription-quota or financial savings. No savings aggregation is collected centrally.
 
 Deploy first with fleet defaults disabled, verify the three-engine canary, then enable fleet defaults. Offline or incompatible hosts stay pending or unavailable until they converge. Roll back by disabling fleet defaults and host overrides; existing sessions keep their launch policy.

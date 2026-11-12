@@ -1,6 +1,6 @@
 # Model registry
 
-Every engine model the fleet knows (Codex, Claude, Grok) is defined once, in
+Every engine model the fleet knows (Codex, Claude, Grok, Kimi) is defined once, in
 `api/src/services/model-registry/data.ts`. Everything that lists, validates,
 tiers, upgrades or offers a model derives from it. Adding or changing a model is
 an edit to that file plus `npm run models:generate` (from `api/`) and the
@@ -30,8 +30,9 @@ See [the source and behavior contract](interface-clx.md#fable-52-model-support-2
 | `api/src/services/claude-effort.ts` | Claude session-only `max` set, legacy top-level `effortLevel` set |
 | `api/src/services/config-normalizer.ts` | Claude advisor ranks and native advisor aliases |
 | `api/src/services/grok-models.ts` | Grok list, efforts, defaults |
+| `api/src/services/kimi-models.ts` | Kimi Code list, efforts, defaults |
 | `api/src/services/model-tiers.ts` | Codex/Claude family tiers, Grok per-id tiers |
-| `frontend/src/lib/constants/models.ts` | picker labels and ids for all three engines (comment "keep in lock-step") |
+| `frontend/src/lib/constants/models.ts` | picker labels and ids for all four engines (comment "keep in lock-step") |
 | `frontend/.../HostExceptions.svelte` | Terra `0.159.0` floor and Grok 4.5 effort fallbacks |
 | `wrappers/cxx/internal/config/model_version.go` | Terra and Claude CLI floors |
 | `docs/model-tiers.md` | tier table |

@@ -296,7 +296,8 @@ describe.skipIf(!handle)('shared memories against a real database', () => {
     it.each([
       ['codex', 'claude'],
       ['claude', 'grok'],
-      ['grok', 'codex'],
+      ['grok', 'kimi'],
+      ['kimi', 'codex'],
     ] as const)('rejects one of two same-digest replacements from %s and %s', async (engineA, engineB) => {
       const slug = `ztest-cas-${engineA}-${engineB}`;
       const created = await svc.write({ slug, content: 'base body', title: 'Keep this title', tags: ['ops'] }, hostA);

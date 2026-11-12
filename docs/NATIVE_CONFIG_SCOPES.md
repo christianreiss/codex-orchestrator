@@ -7,7 +7,7 @@ migration 0121 strip those exact paths while retaining sibling Guardian controls
 literal map names and historical TOML/hash snapshots.
 
 The Engines page authors fleet **user defaults**: Codex `config.toml` and named
-profile sidecars, Claude `settings.json`, and Grok `config.toml`. The generic
+profile sidecars, Claude `settings.json`, Grok `config.toml` and Kimi Code `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed against Codex 0.167.0
@@ -17,6 +17,7 @@ can be authored centrally. Coverage was reviewed against Codex 0.167.0
 | --- | --- | --- | --- |
 | Codex | Current user configuration and named profile layers | System `requirements.toml`, MDM and cloud Agent Security policy; repository config | Requirements enforce constraints with separate authority and platform/cloud applicability. Writing them as user defaults would not enforce them. Repository policy belongs to that repository. |
 | Claude | Current user `settings.json`; managed MCP entries and existing native artifact collections | General `managed-settings.json`/drop-ins and cloud enterprise policy; global preferences/state in `~/.claude.json`; project/local settings; Desktop-only `sshHostCommands` | Native global state also contains sign-in and project trust. Native `/config` owns its local preferences. Enterprise policies take precedence over defaults and require a separate policy deployment contract. The existing narrow channels-policy drop-in remains supported. |
+| Kimi Code | Fleet-owned paths of `config.toml`, native Skills, `mcp.json` and AGENTS.md | Private per-launch access-only credentials and launch identity | Server owns canonical refresh; see [ckx](interface-ckx.md). |
 | Grok | Current user `config.toml`, including references to local sandbox profiles | `managed_config.toml`, signed `requirements.toml`/MDM, `pager.toml`, custom sandbox profile files and project configuration | Managed defaults and enforced signed requirements have different precedence. Machine-local UI customizations and filesystem-specific sandbox artifacts remain provisioned on their host; the config editor may select an existing profile. |
 
 These exclusions preserve the engines' native configuration layering; they do

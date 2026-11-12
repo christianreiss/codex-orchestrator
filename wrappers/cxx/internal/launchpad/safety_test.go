@@ -11,7 +11,7 @@ import (
 
 func TestEmptyCatalogRemainsVisibleWithoutBlockingHealthyEngine(t *testing.T) {
 	empty := Engine{Name: "codex", Disabled: "no current models enabled"}
-	for _, engines := range [][]Engine{{empty}, {empty, claudeEngine()}, {empty, Engine{Name: "grok"}}} {
+	for _, engines := range [][]Engine{{empty}, {empty, claudeEngine()}, {empty, Engine{Name: "grok"}}, {empty, kimiEngine()}} {
 		for _, size := range [][2]int{{80, 8}, {20, 5}, {120, 36}} {
 			p := newPicker(engines, nil, terminalui.Caps{IsTTY: true, UTF8: true})
 			p.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
@@ -31,7 +31,7 @@ func TestEmptyCatalogRemainsVisibleWithoutBlockingHealthyEngine(t *testing.T) {
 				if p.stage == stageGrid {
 					press(t, p, "enter")
 				}
-				if p.result == nil || p.result.Engine != "claude" {
+				if p.result == nil || p.result.Engine != engines[1].Name {
 					t.Fatal("healthy engine cannot be selected")
 				}
 			}

@@ -149,3 +149,9 @@ Migration `0105_agent_message_delivery_timing.sql` adds the durable timing polic
 It does not introduce a polling loop, SQL readiness probe or additional work lease.
 Owner queue selection uses RAM; tests and live acceptance evidence are recorded
 in the verification report, separately from this intended contract.
+
+Kimi (`kimi-hooks-v1`) has no idle injection or immediate interjection channel.
+Peer and portal mailbox entries (`source: "portal"`) ring on UserPromptSubmit
+and Stop with `--dialect kimi`; Stop blocks with exit 2 only for pending work.
+An idle interactive session waits for a new prompt. This is an intentional
+transport delta, not fallback to another engine. See [ckx](interface-ckx.md).

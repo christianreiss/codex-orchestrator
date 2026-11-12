@@ -81,7 +81,7 @@
           "enum": [
             "codex",
             "claude",
-            "grok"
+            "grok", "kimi"
           ]
         },
         "host": {
@@ -320,7 +320,7 @@
               "enum": [
                 "codex",
                 "claude",
-                "grok"
+                "grok", "kimi"
               ]
             }
           },

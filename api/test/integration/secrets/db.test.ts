@@ -7,7 +7,7 @@ import { SecretsService } from '../../../src/services/secrets.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
 import { splitSqlStatements } from '../../../src/db/migration-sql.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI } from '../../../src/util/engine.js';
 import type { Host } from '../../../src/db/schema.js';
 
 /**
@@ -208,13 +208,13 @@ describe.skipIf(!handle)('fleet secrets against a real database', () => {
   describe('fleet-wide credentials in SQL', () => {
     beforeAll(async () => {
       await svc.create({ slug: 'ztest-shared', name: 'shared', value: 'v' });
-      for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK]) {
+      for (const engine of [ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI]) {
         await svc.storeForHost({ slug: `ztest-${engine}`, name: engine, value: 'v' }, host, engine);
       }
     });
 
-    it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('serves %s credentials created by every engine and audits the reader', async (caller) => {
-      const mine = ['ztest-claude', 'ztest-codex', 'ztest-grok'];
+    it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI])('serves %s credentials created by every engine and audits the reader', async (caller) => {
+      const mine = ['ztest-claude', 'ztest-codex', 'ztest-grok', 'ztest-kimi'];
       expect((await svc.listForHost(host.id)).map(s => s.slug).filter(s => mine.includes(s))).toEqual(mine);
       expect((await svc.searchForHost('ztest-', host.id)).map(s => s.slug).filter(s => mine.includes(s))).toEqual(mine);
       for (const slug of mine) {

@@ -53,7 +53,7 @@ export interface DaemonHost extends DaemonSettings {
     max_slots: number;
   };
   engines?: Engine[];
-  /** 1 when the host daemon (cxx 0.9.146+) can run Claude/Grok turns in plan mode. */
+  /** 1 when the host daemon (cxx 0.9.146+) can run Claude/Grok turns in plan mode; Kimi prompt mode rejects --plan. */
   permission_mode_version?: number;
   sessions: RemoteSession[];
 }

@@ -340,7 +340,7 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
         label: 'Nach neuen CLI-Versionen suchen',
         title: 'Nach neuen CLI-Versionen suchen?',
         summary: [
-          'Fragt die aktuellen Releases von Codex, Claude Code und Grok Build ab und aktualisiert die Versionsanzeige.',
+          'Fragt die aktuellen Releases von Codex, Claude Code, Grok Build und Kimi Code ab und aktualisiert die Versionsanzeige.',
           'Es wird nichts installiert und keine Version festgelegt.',
         ],
         confirm_label: 'Versionen prüfen',
@@ -518,7 +518,7 @@ export async function verifyProposal(
 const PARAM_HELP =
   'hosts.filter {status?: online|offline|attention, flag?: vip|roaming|secure|insecure|unprovisioned}; ' +
   'activity.host {host: FQDN or ID, window?: 1h|24h|7d}; ' +
-  'host.engine.enable / host.engine.disable {host, engine: codex|claude|grok}; ' +
+  'host.engine.enable / host.engine.disable {host, engine: codex|claude|grok|kimi}; ' +
   'host.auto_update {host, enabled: boolean}; host.insecure.close {host}; ' +
   'account.verify {account: ID}; versions.check {}';
 

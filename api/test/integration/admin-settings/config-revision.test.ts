@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { registerAdminConfigRoutes } from '../../../src/routes/admin/config/index.js';
 import { registerAdminGrokRoutes } from '../../../src/routes/admin/grok/index.js';
+import { registerAdminKimiRoutes } from '../../../src/routes/admin/kimi/index.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 
 describe('admin config revision HTTP contract', () => {
-  it.each(['/admin/config', '/admin/claude/config', '/admin/grok/config'])('%s exposes revisions and returns actionable 409 conflicts', async base => {
+  it.each(['/admin/config', '/admin/claude/config', '/admin/grok/config', '/admin/kimi/config'])('%s exposes revisions and returns actionable 409 conflicts', async base => {
     const app = await buildRouteApp();
     const context = { db: createDbFake(), env: {}, keyring: {} } as unknown as RouteContext;
     await registerAdminConfigRoutes(app, context);
     await registerAdminGrokRoutes(app, context);
+    await registerAdminKimiRoutes(app, context);
     try {
       const missing = await app.inject({ method: 'GET', url: base });
       expect(missing.json()).toMatchObject({ status: 'missing', revision: null });

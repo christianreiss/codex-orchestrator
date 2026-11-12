@@ -3,7 +3,7 @@
 Node 22 + Fastify 5 + Drizzle + TypeScript backend for the Codex Orchestrator.
 
 Serves the fleet API, SvelteKit admin SPA and inference gateway surfaces for
-Codex (`cdx`), Claude (`clx`) and Grok (`cgx`). The active contracts are
+Codex (`cdx`), Claude (`clx`), Grok (`cgx`) and Kimi Code (`ckx`). The active contracts are
 [API](../docs/interface-api.md), [database](../docs/interface-db.md) and
 [MCP](../docs/MCP.md). Historical PHP compatibility is retained only where those
 contracts describe it.

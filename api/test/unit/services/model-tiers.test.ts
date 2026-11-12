@@ -9,9 +9,10 @@ import {
 import { buildModelPolicy } from '../../../src/services/model-policy.js';
 import { SUPPORTED_MODELS } from '../../../src/services/config-normalizer.js';
 import { CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js';
+import { KIMI_SUPPORTED_MODELS } from '../../../src/services/kimi-models.js';
 import { GROK_SUPPORTED_MODELS } from '../../../src/services/grok-models.js';
 import { registryModels } from '../../../src/services/model-registry/index.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINES } from '../../../src/util/engine.js';
 
 it('guides model selection in both directions and preserves the underclassed fallback', () => {
   const table = buildModelTierTable([ENGINE_CODEX], { codex: ['gpt-6.1-terra', 'gpt-6.1-sol', 'gpt-6-astra'] });
@@ -31,6 +32,7 @@ describe('modelTier', () => {
     [ENGINE_CODEX, SUPPORTED_MODELS],
     [ENGINE_CLAUDE, CLAUDE_SUPPORTED_MODELS],
     [ENGINE_GROK, GROK_SUPPORTED_MODELS],
+    [ENGINE_KIMI, KIMI_SUPPORTED_MODELS],
   ] as const)('assigns a tier to every supported %s model', (engine, models) => {
     for (const model of models) expect(modelTier(engine, model), `${engine}/${model}`).not.toBeNull();
   });
@@ -139,7 +141,7 @@ describe('renderModelTierGuidance', () => {
     expect(text).toContain('never abort on a guess');
   });
 
-  it.each([[ENGINE_CODEX, 'OpenAI'], [ENGINE_CLAUDE, 'Anthropic'], [ENGINE_GROK, 'xAI']])(
+  it.each([[ENGINE_CODEX, 'OpenAI'], [ENGINE_CLAUDE, 'Anthropic'], [ENGINE_GROK, 'xAI'], [ENGINE_KIMI, 'MoonshotAI']])(
     'greets with the real vendor of %s and no fixed name or model', (engine, vendor) => {
       const text = renderModelTierGuidance([], { engine, model: null });
       expect(text).toContain(`Hey, ich bin <launch name> von ${vendor} und bin ein <model family> (Tier <n>).`);
@@ -149,8 +151,8 @@ describe('renderModelTierGuidance', () => {
       expect(ENGINE_VENDOR[engine]).toBe(vendor);
     });
 
-  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('keeps all task definitions with only one available %s model', (engine) => {
-    const models = { codex: 'gpt-6-luna', claude: 'claude-haiku-5-5', grok: 'grok-4.7' };
+  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI])('keeps all task definitions with only one available %s model', (engine) => {
+    const models = { codex: 'gpt-6-luna', claude: 'claude-haiku-5-5', grok: 'grok-4.7', kimi: 'k3.1-pro' };
     const text = renderModelTierGuidance(
       buildModelTierTable([engine], { [engine]: [models[engine]] }), { engine, model: models[engine] },
     );

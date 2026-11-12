@@ -12,7 +12,7 @@ const marker = 'const workflowToolDefinitions = `';
 const tools = JSON.parse(source.slice(source.indexOf(marker) + marker.length).trim().slice(0, -1)) as { name: string; inputSchema: Record<string, unknown> }[];
 
 describe('workflow tool transport contract', () => {
-  it('ships the exact Zod action contracts once for Codex, Claude and Grok', () => {
+  it('ships the exact Zod action contracts once for Codex, Claude, Grok and Kimi', () => {
     expect(tools).toHaveLength(13);
     for (const tool of tools.filter(t => t.name !== 'agent_workflow_run_current')) {
       const operation = tool.name.slice('agent_workflow_'.length) as keyof typeof workflowMutationSchemas;

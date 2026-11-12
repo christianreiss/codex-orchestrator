@@ -27,6 +27,7 @@ func TestUpgradeEveryEngine(t *testing.T) {
 	}{
 		{"codex", "gpt-5.6-sol", "gpt-6.1-sol", "config.toml", "model='gpt-5.6-sol'\nmodel_reasoning_effort='high'\n", []string{"exec", "prompt"}},
 		{"claude", "claude-opus-5", "claude-opus-5-5", "settings.json", `{"model":"claude-opus-5","effortLevel":"high"}`, []string{"-p", "prompt"}},
+		{"kimi", "k3", "k3.1-pro", "config.toml", "default_model='k3'\n[thinking]\neffort='high'\n", []string{"-p", "prompt"}},
 		{"grok", "grok-4.5", "grok-4.7", "config.toml", "[models]\ndefault='grok-4.5'\ndefault_reasoning_effort='high'\n", []string{"-p", "prompt"}},
 	} {
 		t.Run(tc.engine, func(t *testing.T) {
@@ -42,14 +43,18 @@ func TestUpgradeEveryEngine(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got[0] != "--model" || got[1] != tc.next || !strings.Contains(strings.Join(got, " "), "high") {
+			if got[0] != "--model" || got[1] != tc.next || (tc.engine != "kimi" && !strings.Contains(strings.Join(got, " "), "high")) {
 				t.Fatalf("args=%q", got)
 			}
 			if !strings.Contains(notice.String(), tc.old+" → "+tc.next) {
 				t.Fatalf("notice=%s", notice.String())
 			}
 			raw, _ := os.ReadFile(path)
-			if string(raw) != tc.body {
+			if tc.engine == "kimi" {
+				if !strings.Contains(string(raw), `effort = "high"`) || strings.Contains(strings.Join(got, " "), "--reasoning-effort") {
+					t.Fatal("Kimi effort transport lost", string(raw), got)
+				}
+			} else if string(raw) != tc.body {
 				t.Fatal("saved preference changed")
 			}
 		})

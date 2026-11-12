@@ -179,8 +179,10 @@ func forEngine(cfg *config.Config) (backend, error) {
 			adopted, wrote, err := claude.AdoptAuthForExplicitRecovery(ctx, s.Auth, s.Digest, s.Verification, claude.AuthGeneration{Exists: true, Digest: generation})
 			return adopted.Digest, wrote, err
 		}
+	case "grok", "kimi":
+		return b, fmt.Errorf("unsupported: %s credentials are server-owned; no local reconciliation", cfg.Engine)
 	default:
-		return b, errors.New("unsupported: Grok credentials are server-owned; no local reconciliation")
+		return b, fmt.Errorf("unsupported engine %q", cfg.Engine)
 	}
 	return b, err
 }
