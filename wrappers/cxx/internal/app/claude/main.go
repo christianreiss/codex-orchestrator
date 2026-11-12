@@ -1651,14 +1651,14 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	switch action {
 	case "install":
 		if err := hostcron.Install(ctx, cfg); err != nil {
-			printBoundedPlain(stderr, "clx cron install: "+err.Error(), minimal)
+			terminalui.Failure(stderr, "clx", "cron install", err)
 			return 1
 		}
 		ui.Say(stdout, "clx", ui.ToneOK, "cron", "installed")
 		return 0
 	case "remove":
 		if err := hostcron.Remove(ctx); err != nil {
-			printBoundedPlain(stderr, "clx cron remove: "+err.Error(), minimal)
+			terminalui.Failure(stderr, "clx", "cron remove", err)
 			return 1
 		}
 		ui.Say(stdout, "clx", ui.ToneOK, "cron", "removed")
@@ -1666,7 +1666,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 	case "run":
 		if !hostcron.IsEngineOnly() {
 			if err := hostcron.Run(ctx, cfg, minimal, stdout, stderr); err != nil {
-				printBoundedPlain(stderr, "clx cron: "+err.Error(), minimal)
+				terminalui.Failure(stderr, "clx", "cron", err)
 				return 1
 			}
 			return 0
@@ -1679,7 +1679,7 @@ func cmdCron(ctx context.Context, cfg *config.Config, args []string, stdout, std
 		}
 		res, err := enginecron.TickWithOptions(ctx, cfg, minimal)
 		if err != nil {
-			printBoundedPlain(stderr, "clx cron: "+err.Error(), minimal)
+			terminalui.Failure(stderr, "clx", "cron", err)
 			return 1
 		}
 		printBoundedPlain(stdout, formatCronResult(res, minimal), minimal)

@@ -376,7 +376,7 @@ func runEnabledTicks(ctx context.Context, canonical string, engines []string, mi
 		}
 		env := setEnv(setEnv(os.Environ(), EngineOnlyEnv, "1"), CoordinatedEnv, "1")
 		if err := runEngineTick(ctx, canonical, args, env, stdout, stderr); err != nil {
-			errs = append(errs, fmt.Errorf("%s maintenance tick: %w", engine, err))
+			errs = append(errs, fmt.Errorf("%s maintenance did not finish: %w", config.EngineLabel(engine), err))
 		}
 	}
 	return errors.Join(errs...)

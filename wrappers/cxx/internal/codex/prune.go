@@ -25,17 +25,17 @@ func ManagedCodexRoot() (string, error) {
 // the one the published pointer (~/.config/codex-orchestrator/cdx-codex-bin)
 // selects. See claude.PruneEngineStore for why this belongs to the tick rather
 // than to the installer.
-func PruneEngineStore(logger *slog.Logger) ([]string, error) {
+func PruneEngineStore(logger *slog.Logger) ([]string, error) { return pruneEngineStore(logger, false) }
+
+// PruneEngineStoreForInstall preserves the maintenance-tick publication grace.
+func PruneEngineStoreForInstall(logger *slog.Logger) ([]string, error) {
+	return pruneEngineStore(logger, true)
+}
+
+func pruneEngineStore(logger *slog.Logger, pressure bool) ([]string, error) {
 	root, err := ManagedCodexRoot()
 	if err != nil {
 		return nil, err
 	}
-	cli, err := FindCLI()
-	if err != nil {
-		if logger != nil {
-			logger.Warn("Codex engine sweep skipped: no published CLI", "err", err)
-		}
-		return nil, nil
-	}
-	return enginestore.PruneEngine(root, cli, codexInstallLock, logger)
+	return enginestore.PruneEngineResolved(root, codexInstallLock, logger, FindCLI, pressure)
 }

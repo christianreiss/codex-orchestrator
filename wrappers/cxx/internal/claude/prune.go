@@ -23,17 +23,17 @@ const claudeInstallLock = "install.lock"
 // An operator-selected CLI (CLX_CLAUDE_BIN) is not ours to reclaim around, and
 // FindCLI may resolve to it, so KeepFor's out-of-root guard turns the sweep
 // into a no-op there.
-func PruneEngineStore(logger *slog.Logger) ([]string, error) {
+func PruneEngineStore(logger *slog.Logger) ([]string, error) { return pruneEngineStore(logger, false) }
+
+// PruneEngineStoreForInstall preserves the maintenance-tick publication grace.
+func PruneEngineStoreForInstall(logger *slog.Logger) ([]string, error) {
+	return pruneEngineStore(logger, true)
+}
+
+func pruneEngineStore(logger *slog.Logger, pressure bool) ([]string, error) {
 	root, err := managedClaudeRoot()
 	if err != nil {
 		return nil, err
 	}
-	cli, err := FindCLI()
-	if err != nil {
-		if logger != nil {
-			logger.Warn("Claude engine sweep skipped: no published CLI", "err", err)
-		}
-		return nil, nil
-	}
-	return enginestore.PruneEngine(root, cli, claudeInstallLock, logger)
+	return enginestore.PruneEngineResolved(root, claudeInstallLock, logger, FindCLI, pressure)
 }

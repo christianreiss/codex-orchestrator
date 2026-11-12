@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"net/http"
@@ -263,13 +264,23 @@ func Install(ctx context.Context, version string) (string, error) {
 	}})
 }
 
-func installWithClient(ctx context.Context, version string, client *http.Client) (string, error) {
+func installWithClient(ctx context.Context, version string, client *http.Client) (result string, retErr error) {
 	version = CoerceVersionToMinimum(version)
 	if !versionPattern.MatchString(version) || versionPattern.FindString(version) != version {
 		return "", errors.New("invalid Grok version")
 	}
 	root, err := StoreDir()
 	if err != nil {
+		return "", err
+	}
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer releaseSpace()
+	defer func() { retErr = installspace.WriteError("Grok", root, retErr) }()
+	// Cleanup runs before taking the engine installer lock.
+	if err := installspace.Ensure(ctx, "Grok", func() error { return prune(true) }, installspace.Need{Path: root, Bytes: installspace.Native, Inodes: 128}); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
@@ -299,6 +310,9 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	if err != nil || u.Scheme != "https" || u.Host != "registry.npmjs.org" {
 		return "", errors.New("untrusted Grok tarball origin")
 	}
+	if err := installspace.Check(ctx, "Grok", installspace.Need{Path: root, Bytes: installspace.Native, Inodes: 128}); err != nil {
+		return "", err
+	}
 	archive, err := download(updateprogress.WithArtifact(ctx, "package"), client, u.String(), 300<<20)
 	if err != nil {
 		return "", err
@@ -306,6 +320,9 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	binary, err := ExtractBinary(archive, meta.Dist.Integrity)
 	if err != nil {
+		return "", err
+	}
+	if err := installspace.Check(ctx, "Grok", installspace.Need{Path: root, Bytes: uint64(len(binary)), Inodes: 128}); err != nil {
 		return "", err
 	}
 	stage, err := os.MkdirTemp(root, version+"-")
@@ -330,6 +347,9 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	if err != nil {
 		return "", err
 	}
+	if err := enginestore.InvalidatePressureAdmission(root); err != nil {
+		return "", err
+	}
 	if err := AtomicWrite(filepath.Join(state, "grok-bin"), []byte(path+"\n"), 0o600); err != nil {
 		return "", err
 	}
@@ -337,7 +357,9 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	return path, nil
 }
 
-func Prune() error {
+func Prune() error { return prune(false) }
+
+func prune(pressure bool) error {
 	home, err := Home()
 	if err != nil {
 		return err
@@ -354,11 +376,7 @@ func Prune() error {
 	if err != nil {
 		return err
 	}
-	path, err := FindCLI()
-	if err != nil {
-		return err
-	}
-	_, err = enginestore.PruneEngine(root, path, "install.lock", nil)
+	_, err = enginestore.PruneEngineResolved(root, "install.lock", nil, FindCLI, pressure)
 	return err
 }
 

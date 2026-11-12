@@ -617,6 +617,7 @@ func TestAuthoritativeDisabledCleanupFailureDoesNotBlockEnabledEngine(t *testing
 
 func TestRunEnabledTicksContinuesAfterFirstFailureAndRunsEachOnce(t *testing.T) {
 	old := runEngineTick
+	originalFailure := errors.New("codex failed")
 	var calls []string
 	runEngineTick = func(_ context.Context, _ string, args, env []string, _, _ io.Writer) error {
 		calls = append(calls, args[0])
@@ -625,13 +626,13 @@ func TestRunEnabledTicksContinuesAfterFirstFailureAndRunsEachOnce(t *testing.T) 
 			t.Fatalf("coordinator env missing: %q", env)
 		}
 		if args[0] == config.EngineCodex {
-			return errors.New("codex failed")
+			return originalFailure
 		}
 		return nil
 	}
 	t.Cleanup(func() { runEngineTick = old })
 	err := runEnabledTicks(context.Background(), "/tmp/cxx", []string{config.EngineCodex, config.EngineClaude}, false, io.Discard, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "codex maintenance tick") {
+	if !errors.Is(err, originalFailure) || !strings.Contains(err.Error(), "Codex maintenance did not finish") {
 		t.Fatalf("error=%v", err)
 	}
 	if !reflect.DeepEqual(calls, []string{config.EngineCodex, config.EngineClaude}) {

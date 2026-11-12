@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -93,6 +95,31 @@ func installOSPackage(ctx context.Context, kind string, logger *slog.Logger) err
 	}
 	names, err := packageNamesFor(tool, kind)
 	if err != nil {
+		return err
+	}
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer releaseSpace()
+	prefix, cache := "/usr", "/var/cache"
+	if tool == "brew" {
+		for flag, dest := range map[string]*string{"--prefix": &prefix, "--cache": &cache} {
+			out, err := exec.CommandContext(ctx, "brew", flag).Output()
+			if err != nil {
+				return fmt.Errorf("resolve Homebrew install directory: %w", err)
+			}
+			*dest = strings.TrimSpace(string(out))
+			if !filepath.IsAbs(*dest) {
+				return errors.New("invalid Homebrew install directory")
+			}
+		}
+	}
+	if err := installspace.Ensure(ctx, "Node.js/npm prerequisites", nil,
+		installspace.Need{Path: prefix, Bytes: installspace.Package, Inodes: 10000},
+		installspace.Need{Path: cache, Bytes: installspace.Package, Inodes: 10000},
+		installspace.Need{Path: "/var/lib", Bytes: 128 * installspace.MiB, Inodes: 1024},
+		installspace.Need{Path: os.TempDir(), Bytes: installspace.Wrapper, Inodes: 128}); err != nil {
 		return err
 	}
 	logger.Debug("installing OS package for Claude prerequisites", "tool", tool, "packages", names)

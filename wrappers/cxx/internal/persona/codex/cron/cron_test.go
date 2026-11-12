@@ -380,7 +380,7 @@ func TestTickReportsVersionsAndFailsWhenContentSyncFails(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	res, err := Tick(context.Background(), minimalCfg(t, srv.URL))
-	if err == nil || !strings.Contains(err.Error(), "managed content sync") {
+	if err == nil || !strings.Contains(err.Error(), "Configuration sync") {
 		t.Fatalf("failed content sync reported success: %v", err)
 	}
 	if res.SyncAction != "failed" {

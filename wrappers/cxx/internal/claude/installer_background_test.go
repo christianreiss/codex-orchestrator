@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,7 @@ func stagedInstallFixture(t *testing.T) (string, string) {
 }
 
 const stagedNpmFixture = `#!/bin/sh
+if [ "$1 $2 $3" = "config get cache" ]; then echo "$HOME/.npm"; exit 0; fi
 test "$1" = install && test "$2" = --prefix || exit 21
 stage="$3"
 case "$stage" in "$HOME"/.cxx/engines/claude/*) ;; *) exit 22;; esac
@@ -363,5 +365,43 @@ func TestPruneEngineStoreIsANoOpForAnUnmanagedCLI(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "2.1.1-old")); err != nil {
 		t.Fatalf("prefix removed without a pointer into the store: %v", err)
+	}
+}
+
+func TestBackgroundClaudeSpaceFailureBeforeNpmAndPreservesCurrent(t *testing.T) {
+	home, bin := stagedInstallFixture(t)
+	marker := filepath.Join(home, "npm-started")
+	writeScript(t, filepath.Join(bin, "npm"), stagedNpmFixture+"\n: > "+marker+"\n")
+	before, _ := FindCLI()
+	ctx := installspace.WithProbe(context.Background(), func(string) (installspace.Capacity, error) { return installspace.Capacity{Bytes: 0}, nil })
+	err := EnsureClaudeBackground(ctx, "2.1.2", true, nil)
+	if !installspace.IsCapacity(err) || !strings.Contains(err.Error(), "cleanup:") {
+		t.Fatalf("missing shortage/cleanup: %v", err)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatal("npm install started")
+	}
+	if after, _ := FindCLI(); after != before {
+		t.Fatal("selected CLI changed")
+	}
+}
+
+func TestBackgroundClaudeENOSPCDoesNotTryNativeFallback(t *testing.T) {
+	home, bin := stagedInstallFixture(t)
+	before, _ := FindCLI()
+	// The fallback registry deliberately refuses connections. Its error must never appear.
+	writeScript(t, filepath.Join(bin, "npm"), "#!/bin/sh\nif [ \"$1 $2 $3\" = \"config get cache\" ]; then echo \"$HOME/.npm\"; exit 0; fi\necho 'npm ERR! code ENOSPC' >&2\nexit 228\n")
+	err := EnsureClaudeBackground(context.Background(), "2.1.2", true, nil)
+	if !installspace.IsCapacity(err) || strings.Contains(err.Error(), "native Claude") {
+		t.Fatalf("wrong fallback: %v", err)
+	}
+	if after, _ := FindCLI(); after != before {
+		t.Fatal("selected CLI changed")
+	}
+	entries, _ := os.ReadDir(filepath.Join(home, ".cxx", "engines", "claude"))
+	for _, e := range entries {
+		if e.IsDir() {
+			t.Fatalf("failed stage retained: %s", e.Name())
+		}
 	}
 }

@@ -82,6 +82,7 @@ echo "2.1.179 (Claude Code)"
 echo "2.1.204 (Claude Code)"
 `)
 	writeScript(t, filepath.Join(npmBin, "npm"), `#!/bin/sh
+if [ "$1 $2 $3" = "config get cache" ]; then echo "$HOME/.npm"; exit 0; fi
 if [ "$1" = "prefix" ] && [ "$2" = "-g" ]; then
   echo "`+prefix+`"
   exit 0
@@ -143,6 +144,7 @@ func TestEnsureClaudeRecoversSkippedPostinstall(t *testing.T) {
 	}
 	marker := filepath.Join(dir, "postinstall-called")
 	writeScript(t, filepath.Join(npmBin, "npm"), `#!/bin/sh
+if [ "$1 $2 $3" = "config get cache" ]; then echo "$HOME/.npm"; exit 0; fi
 if [ "$1" = "prefix" ] && [ "$2" = "-g" ]; then
   echo "`+prefix+`"
   exit 0

@@ -1,5 +1,12 @@
 # cgx — Grok Build fleet wrapper
 
+From cxx 0.9.175, host bootstrap and shared installers check additional disk
+space and inodes on every write filesystem, try safe existing engine-store
+cleanup on shortage, then recheck. Large writes share a per-user installer lock;
+existing CLI launches remain available. Capacity failure preserves an unpublished
+update's previous selected CLI and reports the path and required/available space.
+See [budgets, cleanup boundaries and concurrency](OVERVIEW.md#host-installation-space-checks).
+
 From cxx 0.9.158, alias reconciliation replaces a recognized legacy transition
 shim for the selected engine with a link to the current artifact when the sibling
 `cxx` already resolves to that artifact. This removes embedded installation-time
@@ -2065,3 +2072,7 @@ observed adapter readiness are separate; changes apply to new launches.
 ## Safe command discovery and operation feedback (cxx 0.9.172)
 
 Wrapper-owned command help (`-h`/`--help`, including nested command groups) returns success before configuration, authentication, service or privilege checks. Argument-free actions reject unexpected positional arguments; a help request never authorizes an uninstall, logout or portal relay closure. Native engine help retains its existing passthrough grammar. Housekeeping pin/unpin rejects the unsupported `--dry-run` combination before changing protection and returns structured receipts with `--json`; suspended Grok reaping also preserves JSON output. Empty model catalogs remain visible as unavailable, and compact launchers retain the active recovery notice.
+
+## Installer and maintenance error reporting (cxx 0.9.175)
+
+The installer distinguishes **engine maintenance** (CLI updates and configuration sync) from native CLI **availability**. An available CLI may accompany `INCOMPLETE` maintenance. Host-name failures identify the machine and configured host, explain how to check/correct the identity, and preserve full repair commands in minimal or redirected logs. The host identity guard still blocks mismatched hosts. See [installer diagnostics](OVERVIEW.md#installer-and-maintenance-diagnostics-cxx-09175) for recovery and conditional retry hints.

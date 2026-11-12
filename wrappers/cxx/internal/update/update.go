@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"io/fs"
@@ -36,7 +37,7 @@ const (
 	maxBinarySize   = 500 * 1024 * 1024
 )
 
-func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, targetVersion string, logger *slog.Logger) (string, error) {
+func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, targetVersion string, logger *slog.Logger) (result string, retErr error) {
 	if cfg == nil {
 		return "", errors.New("nil wrapper config")
 	}
@@ -51,6 +52,15 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 	if err != nil {
 		return "", fmt.Errorf("resolve canonical wrapper path: %w", err)
 	}
+	if VerifyChecksum(dest, expectedSHA) == nil {
+		return dest, nil
+	}
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer releaseSpace()
+	defer func() { retErr = installspace.WriteError("cxx update", dest, retErr) }()
 	logger.Info("cxx update starting", "target_version", targetVersion, "url", binaryURL, "platform", runtime.GOOS+"/"+runtime.GOARCH)
 
 	// The communicator updater prefetches the verified artifact while agents
@@ -61,7 +71,7 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 				if VerifyChecksum(dest, expectedSHA) == nil {
 					return nil
 				}
-				return InstallVerifiedBinary(staged, dest)
+				return installVerifiedBinary(ctx, staged, dest)
 			}); err != nil {
 				return "", err
 			}
@@ -97,7 +107,7 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 	}
 
 	stageDirs := updateStageDirs(dest)
-	tmp, stageIndex, err := createStageFile(stageDirs)
+	tmp, stageIndex, err := createStageFileWithSpace(ctx, stageDirs, dest, installspace.Size(resp.ContentLength, installspace.Wrapper))
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +144,7 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 		if VerifyChecksum(dest, expectedSHA) == nil {
 			return nil
 		}
-		return InstallVerifiedBinary(tmpPath, dest)
+		return installVerifiedBinary(ctx, tmpPath, dest)
 	}); err != nil {
 		return "", err
 	}
@@ -158,7 +168,7 @@ func StagedPath(expectedSHA string) (string, error) {
 // Prefetch downloads and verifies an artifact into its staged path without
 // installing it. An already staged, verified copy is reused. Older staged
 // artifacts are removed once a new one is in place.
-func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, targetVersion string) (string, error) {
+func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, targetVersion string) (result string, retErr error) {
 	if cfg == nil {
 		return "", errors.New("nil wrapper config")
 	}
@@ -166,6 +176,15 @@ func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, t
 	if err != nil {
 		return "", err
 	}
+	if VerifyChecksum(dest, expectedSHA) == nil {
+		return dest, nil
+	}
+	ctx, releaseSpace, err := installspace.Lock(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer releaseSpace()
+	defer func() { retErr = installspace.WriteError("cxx prefetch", dest, retErr) }()
 	if VerifyChecksum(dest, expectedSHA) == nil {
 		return dest, nil
 	}
@@ -199,6 +218,9 @@ func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, t
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("download binary: HTTP %d", resp.StatusCode)
+	}
+	if err := installspace.Ensure(ctx, "cxx prefetch", nil, installspace.Need{Path: dir, Bytes: installspace.Size(resp.ContentLength, installspace.Wrapper), Inodes: 128}); err != nil {
+		return "", err
 	}
 	tmp, err := os.CreateTemp(dir, ".cxx-*.part")
 	if err != nil {
@@ -278,6 +300,22 @@ func validateExpectedSHA(expected string) error {
 }
 
 func InstallVerifiedBinary(source, dest string) error {
+	ctx, release, err := installspace.Lock(context.Background())
+	if err != nil {
+		return err
+	}
+	defer release()
+	return installVerifiedBinary(ctx, source, dest)
+}
+
+func installVerifiedBinary(ctx context.Context, source, dest string) error {
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	if err := installspace.Check(ctx, "cxx install", installspace.Need{Path: filepath.Dir(dest), Bytes: uint64(info.Size()), Inodes: 1}); err != nil {
+		return err
+	}
 	if err := layout.InstallAtomic(source, dest); err != nil {
 		return fmt.Errorf("atomic swap failed: %w", err)
 	}
@@ -307,11 +345,23 @@ type stageDir struct {
 // createStageFile creates a private temporary file in the first writable
 // directory of dirs and reports which one it used.
 func createStageFile(dirs []stageDir) (*os.File, int, error) {
+	return createStageFileWithSpace(context.Background(), dirs, "", 0)
+}
+
+func createStageFileWithSpace(ctx context.Context, dirs []stageDir, dest string, size uint64) (*os.File, int, error) {
 	var errs []error
 	for i, dir := range dirs {
 		if err := ensureStageDir(dir); err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if dest != "" {
+			if err := installspace.Ensure(ctx, "cxx update", nil,
+				installspace.Need{Path: dir.path, Bytes: size, Inodes: 128},
+				installspace.Need{Path: filepath.Dir(dest), Bytes: size, Inodes: 128}); err != nil {
+				errs = append(errs, err)
+				continue
+			}
 		}
 		f, err := os.CreateTemp(dir.path, ".cxx-wrapper-*.new")
 		if err == nil {
@@ -347,12 +397,14 @@ func verifyStagedExecutable(ctx context.Context, path string, fallbacks []stageD
 			_ = os.Remove(p)
 		}
 	}
+	var stagingErrors error
 	err := verifyExecutable(ctx, path)
 	for err != nil && errors.Is(err, fs.ErrPermission) && len(fallbacks) > 0 {
 		dir := fallbacks[0]
 		fallbacks = fallbacks[1:]
-		next, cerr := copyToStageDir(path, dir)
+		next, cerr := copyToStageDir(ctx, path, dir)
 		if cerr != nil {
+			stagingErrors = errors.Join(stagingErrors, cerr)
 			continue
 		}
 		copies = append(copies, next)
@@ -360,13 +412,23 @@ func verifyStagedExecutable(ctx context.Context, path string, fallbacks []stageD
 		err = verifyExecutable(ctx, path)
 	}
 	if err != nil {
+		if stagingErrors != nil {
+			err = fmt.Errorf("cxx staging failed: %w", errors.Join(stagingErrors, err))
+		}
 		return "", cleanup, err
 	}
 	return path, cleanup, nil
 }
 
-func copyToStageDir(source string, dir stageDir) (string, error) {
+func copyToStageDir(ctx context.Context, source string, dir stageDir) (string, error) {
 	if err := ensureStageDir(dir); err != nil {
+		return "", err
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		return "", err
+	}
+	if err := installspace.Check(ctx, "cxx staging copy", installspace.Need{Path: dir.path, Bytes: uint64(info.Size()), Inodes: 1}); err != nil {
 		return "", err
 	}
 	in, err := os.Open(source)
