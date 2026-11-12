@@ -415,7 +415,8 @@ install binaries.
 
 The shared background coordinator checks both enabled engines, honors the
 fleet/host auto-update policy, verifies wrapper SHA256, and stages Claude with
-`npm install --prefix <private-stage> --global=false @anthropic-ai/claude-code@<target>`.
+`npm install --prefix <private-stage> --global=false <selected-platform-package>@<target>`
+on Linux (the main `@anthropic-ai/claude-code` package remains the macOS path).
 It validates the runnable version before atomically publishing its cached CLI
 path. The prefix it supersedes under `~/.cxx/engines/claude` survives the
 install itself, so a running session keeps its original files; a later
@@ -2859,3 +2860,24 @@ explicitly rejected because `-p` cannot combine with `--plan`.
 `/kimi/v1` is opt-in (off by default); native stream-json exposes neither token
 usage nor stop reason. See [the ckx contract](interface-ckx.md) for the hook
 lifecycle, launch identity, scoped credential and inference-only gateway agent.
+
+## Linux libc preference
+
+From cxx 0.9.177:
+
+Linux background installs pin the explicit libc-specific native npm package,
+using glibc first on GNU-capable hosts. The npm-less path selects the same
+package. Existing musl installations can migrate without a version change.
+
+The persistent selection receipt, 24-hour fallback recheck, failure backoff,
+explicit-update retry, overrides and live-session retention follow the shared
+[Linux engine libc selection contract](OVERVIEW.md#linux-engine-libc-selection).
+Local status/update output reports the selected variant and reason.
+
+
+## Native speech input policy
+
+`GET /admin/speech-input` reads the global default and all four engine overrides.
+`POST /admin/speech-input/:target` accepts `{ "enabled": true|false }` for `global`; engine targets also accept `null` to inherit. Global defaults to on. Engine overrides win. Settings require settings.read/settings.manage. Changes apply after sync to new launches and never begin recording.
+
+Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; it requires a Claude.ai account and a local microphone. Grok 1.0.75+ projects `ui.voice_keybind_enabled`; disabling the shortcut does not disable `/voice`. Codex supports `/voice` conversations but has no verified central toggle in 0.167.2; removed flags are not written. Kimi has no verified native speech support. Unsupported control is reported separately from requested policy.

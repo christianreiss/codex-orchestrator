@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"net/http"
@@ -253,7 +254,7 @@ func ExtractBinary(archive []byte, integrity string) ([]byte, error) {
 }
 
 func Install(ctx context.Context, version string) (string, error) {
-	return installWithClient(ctx, version, &http.Client{Timeout: 3 * time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	return reconcileInstall(ctx, version, &http.Client{Timeout: 3 * time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("too many Grok registry redirects")
 		}
@@ -262,6 +263,48 @@ func Install(ctx context.Context, version string) (string, error) {
 		}
 		return nil
 	}})
+}
+
+func reconcileInstall(ctx context.Context, version string, client *http.Client) (string, error) {
+	if runtime.GOOS != "linux" {
+		return installWithClient(ctx, version, client)
+	}
+	if strings.TrimSpace(os.Getenv("CGX_GROK_BIN")) != "" {
+		return "", errors.New("CGX_GROK_BIN selects an operator-managed Grok CLI")
+	}
+	version = CoerceVersionToMinimum(version)
+	root, err := StoreDir()
+	if err != nil {
+		return "", err
+	}
+	current := func() (string, string) { p, _ := FindCLI(); v, _ := ProbeVersion(ctx, p); return p, v }
+	err = libcselect.Run(ctx, root, version, current, func(attempt context.Context) error { _, e := installWithClient(attempt, version, client); return e }, nil)
+	if err != nil {
+		return "", err
+	}
+	p, _ := FindCLI()
+	return p, nil
+}
+
+// Only package names actually declared by xAI's pinned manifest are eligible.
+// The current unsuffixed Linux package is the vendor's musl distribution.
+func glibcPackage(ctx context.Context, client *http.Client, version, base string) (string, error) {
+	raw, err := download(ctx, client, "https://registry.npmjs.org/@xai-official%2Fgrok/"+url.PathEscape(version), 1<<20)
+	if err != nil {
+		return "", err
+	}
+	var manifest struct {
+		OptionalDependencies map[string]string `json:"optionalDependencies"`
+	}
+	if err = json.Unmarshal(raw, &manifest); err != nil {
+		return "", err
+	}
+	for _, name := range []string{base + "-gnu", base + "-glibc"} {
+		if _, ok := manifest.OptionalDependencies[name]; ok {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("%w: xAI manifest has no glibc platform package", libcselect.ErrUnavailable)
 }
 
 func installWithClient(ctx context.Context, version string, client *http.Client) (result string, retErr error) {
@@ -294,6 +337,12 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	pkg, err := PlatformPackage(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return "", err
+	}
+	if libcselect.Requested(ctx) == libcselect.GNU {
+		pkg, err = glibcPackage(ctx, client, version, pkg)
+		if err != nil {
+			return "", err
+		}
 	}
 	raw, err := download(updateprogress.WithArtifact(ctx, "metadata"), client, "https://registry.npmjs.org/"+url.PathEscape(pkg)+"/"+url.PathEscape(version), 1<<20)
 	if err != nil {
@@ -339,12 +388,18 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	if err := os.WriteFile(path, binary, 0o700); err != nil {
 		return "", err
 	}
+	if _, err := libcselect.Probe(ctx, path, "--version"); err != nil {
+		return "", err
+	}
 	got, err := ProbeVersion(ctx, path)
 	if err != nil || got != version {
 		return "", errors.New("staged Grok binary failed version verification")
 	}
 	state, err := StateDir()
 	if err != nil {
+		return "", err
+	}
+	if err := libcselect.Publication(ctx, path, pkg+"@"+version+":"+meta.Dist.Integrity); err != nil {
 		return "", err
 	}
 	if err := enginestore.InvalidatePressureAdmission(root); err != nil {

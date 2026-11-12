@@ -1,5 +1,9 @@
 # Overview
 
+cxx 0.9.177 prefers runnable glibc engine artifacts on Linux, including replacement
+of same-version musl installations. Verified musl fallbacks converge without
+reinstallation loops. See [Linux engine libc selection](#linux-engine-libc-selection).
+
 cxx 0.9.175 gates host installation and updates on available bytes and inodes,
 tries safe owned-artifact cleanup on shortage, then rechecks before proceeding.
 See [host installation space checks](#host-installation-space-checks).
@@ -1957,3 +1961,59 @@ introduced.
 Bootstrap reports **engine maintenance** (CLI updates plus configuration sync) separately from each CLI's **available** version. A working installed binary does not prove that configuration or authentication sync succeeded. Failed maintenance stays `INCOMPLETE`; retry hints name only the scheduling or maintenance step that failed. Diagnostic lines retain complete names, paths and repair commands, including in minimal output; unusually verbose subprocess logs show the first and last 40 lines with an explicit omission count.
 
 A host-name mismatch reports both identities and asks you to check `hostname` and `hostname -f`. Correct the machine name if the registered identity is right, otherwise install the configuration registered for that machine, then retry `cxx cron run`. The identity guard and its explicit advanced overrides are unchanged; disabling verification is not the normal repair.
+
+## Linux engine libc selection
+
+From cxx 0.9.177, Codex, Claude and Grok prefer official glibc artifacts on Linux
+when a usable GNU loader is present, even if a musl loader also exists. A matching
+engine version alone does not suppress reconciliation. Explicit binary overrides,
+fleet suspension and disabled binary updates remain authoritative. Kimi retains
+its existing provider-manifest installation; this change targets the three named
+engines. macOS selection is unchanged.
+
+- Codex selects the release's `*-linux-gnu` CLI and matching code-mode host when
+  published, otherwise its musl pair. No source builds or version changes are used
+  to obtain glibc. Releases with only musl assets legitimately retain musl.
+- Claude pins the selected `@anthropic-ai/claude-code-linux-<arch>[-musl]` package
+  in its private npm prefix. The npm-less path uses that same native package and
+  verifies its SHA-512 integrity. Merely finding a musl loader no longer overrides
+  a usable glibc installation.
+- Grok discovers GNU/glibc platform-package names only from xAI's pinned package
+  manifest. The current unsuffixed Linux distribution is the provider's musl
+  fallback; cxx does not invent a GNU download or build it itself.
+
+Each candidate must pass integrity, architecture, executable-loader and exact
+version checks before atomic publication. Only a missing platform artifact or a
+confirmed loader/library incompatibility permits a libc fallback. Hash failures,
+invalid archives, timeouts and unexplained CLI failures leave the old selection
+in place and report failure. A musl candidate must itself be runnable.
+
+The private engine root contains `.libc-selection.json` and
+`.libc-reconcile.lock`; a receipt beside each staged executable is written before
+its path can be published. State is keyed by selection-policy revision, exact
+engine version, architecture/loader fingerprint and selected-file identity. A
+receipt recovers an already-published selection after interrupted completion.
+The receipt includes a SHA-256 digest of the verified staged executable.
+These files contain no credentials. Existing engine locks, disk-space gates,
+atomic path publication and live-process-aware prefix retention remain in use.
+
+A successful glibc selection is stable. A necessary musl fallback is also a
+successful result and is reconsidered after 24 hours; an unchanged fallback is
+kept without another download. Failures back off for 15 minutes, one hour, then
+six hours. New target versions, policy changes or loader/glibc changes invalidate
+the old decision. An explicit host `update` can bypass the wait once per run;
+ordinary start-triggered maintenance, cron and sync respect it. Each libc variant is
+visited at most once per reconciliation, including after an explicit update;
+Claude retains its bounded same-variant npm-to-native recovery.
+
+Local status and update rows show the selected libc, fallback/failure reason and
+next eligible check when present. The policy does not change Voice configuration
+or install additional Voice resources.
+
+
+## Native speech input policy
+
+`GET /admin/speech-input` reads the global default and all four engine overrides.
+`POST /admin/speech-input/:target` accepts `{ "enabled": true|false }` for `global`; engine targets also accept `null` to inherit. Global defaults to on. Engine overrides win. Settings require settings.read/settings.manage. Changes apply after sync to new launches and never begin recording.
+
+Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; it requires a Claude.ai account and a local microphone. Grok 1.0.75+ projects `ui.voice_keybind_enabled`; disabling the shortcut does not disable `/voice`. Codex supports `/voice` conversations but has no verified central toggle in 0.167.2; removed flags are not written. Kimi has no verified native speech support. Unsupported control is reported separately from requested policy.

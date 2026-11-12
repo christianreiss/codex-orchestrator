@@ -28,6 +28,7 @@ type updateFixture struct {
 
 func newUpdateFixture(t *testing.T, installed ...string) *updateFixture {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	old := Version
 	Version = "0.9.37"
 	t.Cleanup(func() { Version = old })
@@ -92,8 +93,8 @@ func TestHostUpdateEqualVersionChecksEveryEngineWithoutReplacingWrapper(t *testi
 	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 0 {
 		t.Fatalf("code=%d: %s", code, &out)
 	}
-	if f.wrapperInstalls != 0 || f.reexecs != 0 || len(f.installs) != 0 {
-		t.Fatal("no-op replaced a binary")
+	if f.wrapperInstalls != 0 || f.reexecs != 0 || len(f.installs) != 3 {
+		t.Fatal("same-version libc reconciliation was skipped or wrapper replaced")
 	}
 	checks := append([]string(nil), f.checks...)
 	sort.Strings(checks)
@@ -134,7 +135,11 @@ func TestHostUpdateRefreshesAssignmentsBeforeUpdatingEngines(t *testing.T) {
 			if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, false); code != 0 {
 				t.Fatalf("code=%d: %s", code, &out)
 			}
-			if strings.Join(f.installs, ",") != added || strings.Join(f.syncs, ",") != "codex,claude,grok,kimi" || !strings.Contains(out.String(), "installed | synced") {
+			wantInstalls := 3
+			if added == "kimi" {
+				wantInstalls = 4
+			}
+			if len(f.installs) != wantInstalls || strings.Join(f.syncs, ",") != "codex,claude,grok,kimi" || !strings.Contains(out.String(), "installed | synced") {
 				t.Fatalf("installs=%v syncs=%v output=%s", f.installs, f.syncs, &out)
 			}
 		})
@@ -153,7 +158,7 @@ func TestHostUpdateUnassignedSeedAndSuspension(t *testing.T) {
 	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, true); code != 0 {
 		t.Fatal(code, &out)
 	}
-	if strings.Join(f.checks, ",") != "claude" || strings.Join(f.syncs, ",") != "claude" || len(f.installs) != 0 || !strings.Contains(out.String(), "suspended fleet-wide") {
+	if strings.Join(f.checks, ",") != "claude" || strings.Join(f.syncs, ",") != "claude" || strings.Join(f.installs, ",") != "claude" || !strings.Contains(out.String(), "suspended fleet-wide") {
 		t.Fatalf("checks=%v syncs=%v installs=%v output=%s", f.checks, f.syncs, f.installs, &out)
 	}
 }

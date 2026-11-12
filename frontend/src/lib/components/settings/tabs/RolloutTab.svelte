@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SpeechInputSettings from "../SpeechInputSettings.svelte";
   import { Section } from "$lib/components/page";
   import WrapperRolloutSection from "../WrapperRolloutSection.svelte";
   import CommunicatorApiSection from "../CommunicatorApiSection.svelte";
@@ -12,3 +13,5 @@
 </Section>
 
 <RtkSettings />
+
+<SpeechInputSettings />

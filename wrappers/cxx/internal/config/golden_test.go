@@ -320,6 +320,14 @@ func TestGoldenDecodesToExpectedFields(t *testing.T) {
 			// sourcePath is loader metadata, never part of the signed document.
 			got.sourcePath = ""
 			fixture.want.RTK = goldenRTK(fixture.engine)
+			activation, control := "/voice", "unavailable"
+			if fixture.engine == EngineClaude {
+				activation, control = "/voice hold", "native"
+			}
+			if fixture.engine == EngineGrok {
+				control = "shortcut"
+			}
+			fixture.want.SpeechInput = &SpeechInputPolicy{Enabled: true, Global: true, Supported: true, Activation: &activation, Control: control}
 			fixture.want.SessionHousekeeping = &SessionHousekeepingPolicy{Enabled: true, RetentionDays: 30, MaxBytes: 5 << 30, MinAgeDays: 7}
 			// The catalog mirrors the server's model list, which changes with
 			// every model release; pin its shape here instead of every entry.

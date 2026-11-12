@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "engine", "issued_at", "orchestrator", "host", "engine_options", "wrapper"],
   "properties": {
+    "speech_input": {"type":"object","additionalProperties":false,"properties":{"enabled":{"type":"boolean"},"override":{"type":["boolean","null"]},"global":{"type":"boolean"},"supported":{"type":"boolean"},"activation":{"type":["string","null"]},"control":{"type":"string","enum":["native","shortcut","unavailable"]}},"required":["enabled","override","global","supported","activation","control"]},
     "rtk": {
       "type": "object",
       "properties": {

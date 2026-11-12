@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"io"
 	"log/slog"
 	"os"
@@ -1526,6 +1527,9 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		ui.PrintMinimalScreen(stdout, state)
 	} else {
 		ui.PrintBootScreen(stdout, state)
+		if line := libcselect.Description("codex"); line != "" {
+			fmt.Fprintln(stdout, line)
+		}
 	}
 	if state.ResultTone == ui.ToneFail {
 		return 1

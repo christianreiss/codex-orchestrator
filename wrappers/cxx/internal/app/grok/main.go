@@ -11,6 +11,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"io"
 	"log/slog"
@@ -1128,6 +1129,9 @@ func status(ctx context.Context, cfg *config.Config, client *orchestrator.Client
 	home, _ := native.Home()
 	screen := startupScreen(startupInput{Config: cfg, Auth: &auth, AuthErr: err, EngineVersion: version, VersionErr: findErr, WrapperVersion: Version, Home: home, StatusOnly: true, Minimal: o.minimal})
 	terminalui.PrintBootScreen(stdout, screen)
+	if line := libcselect.Description("grok"); line != "" {
+		fmt.Fprintln(stdout, line)
+	}
 	if doctor {
 		report := doctorReport(doctorInput{Config: cfg, Home: home, CLIPath: path, EngineVersion: version, VersionErr: findErr, Auth: &auth, AuthErr: err, Latency: latency})
 		caps := terminalui.DetectCapsFor(stdout, stringValue(cfg.EngineOptions.AdminThemeHint))
@@ -1196,14 +1200,21 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 		}
 	}
 	target := native.CoerceVersionToMinimum(check.TargetVersion)
+	if check.Action == "no_update" && before != "" {
+		target = before
+	}
 	version := before
 	cliUpdated := false
 	override := strings.TrimSpace(os.Getenv("CGX_GROK_BIN")) != ""
 	if path == "" && (check.Action == "disable" || override) {
 		return errors.New("Grok native CLI missing; no installation authorized")
 	}
-	if !override && check.Action != "disable" && (path == "" || !native.SupportedVersion(before) || check.Action == "update" || (force && before != target)) {
-		path, err = native.Install(ctx, target)
+	if !override && check.Action != "disable" && (path == "" || !native.SupportedVersion(before) || check.Action == "update" || (force && before != target) || (libcselect.EngineEnabled("grok") && before != "")) {
+		installCtx := ctx
+		if force {
+			installCtx = libcselect.Force(ctx)
+		}
+		path, err = native.Install(installCtx, target)
 		if err != nil {
 			return err
 		}

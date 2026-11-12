@@ -4448,3 +4448,11 @@ explicitly rejected because `-p` cannot combine with `--plan`.
 `/kimi/v1` is opt-in (off by default); native stream-json exposes neither token
 usage nor stop reason. See [the ckx contract](interface-ckx.md) for the hook
 lifecycle, launch identity, scoped credential and inference-only gateway agent.
+
+
+## Native speech input policy
+
+`GET /admin/speech-input` reads the global default and all four engine overrides.
+`POST /admin/speech-input/:target` accepts `{ "enabled": true|false }` for `global`; engine targets also accept `null` to inherit. Global defaults to on. Engine overrides win. Settings require settings.read/settings.manage. Changes apply after sync to new launches and never begin recording.
+
+Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; it requires a Claude.ai account and a local microphone. Grok 1.0.75+ projects `ui.voice_keybind_enabled`; disabling the shortcut does not disable `/voice`. Codex supports `/voice` conversations but has no verified central toggle in 0.167.2; removed flags are not written. Kimi has no verified native speech support. Unsupported control is reported separately from requested policy.

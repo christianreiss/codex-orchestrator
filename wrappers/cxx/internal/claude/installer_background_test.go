@@ -39,7 +39,8 @@ test "$1" = install && test "$2" = --prefix || exit 21
 stage="$3"
 case "$stage" in "$HOME"/.cxx/engines/claude/*) ;; *) exit 22;; esac
 test "$4" = --no-save && test "$5" = --no-audit && test "$6" = --no-fund || exit 23
-test "$7" = @anthropic-ai/claude-code@2.1.2 && test "$8" = --global=false || exit 24
+case "$7" in @anthropic-ai/claude-code@2.1.2|@anthropic-ai/claude-code-linux-*@2.1.2) ;; *) exit 24;; esac
+test "$8" = --global=false || exit 24
 if test -n "$TEST_NPM_STARTED"; then
   : > "$TEST_NPM_STARTED"
   while test ! -e "$TEST_NPM_RELEASE"; do sleep 0.02; done
@@ -146,8 +147,8 @@ func TestBackgroundClaudeFailureNeverPublishesOrDamagesPreviousPrefix(t *testing
 func TestBackgroundClaudeRespectsOverrideAndNoopWithoutNpm(t *testing.T) {
 	_, bin := stagedInstallFixture(t)
 	t.Setenv("PATH", bin)
-	if err := EnsureClaudeBackground(context.Background(), "2.1.1", true, nil); err != nil {
-		t.Fatalf("matching target required npm: %v", err)
+	if err := EnsureClaudeBackground(context.Background(), "2.1.1", true, nil); err == nil {
+		t.Fatal("unclassified same-version installation bypassed libc reconciliation")
 	}
 	if err := EnsureClaudeBackground(context.Background(), "2.1.0", false, nil); err != nil {
 		t.Fatalf("automatic downgrade required npm: %v", err)

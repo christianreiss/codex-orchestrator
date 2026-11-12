@@ -38,6 +38,7 @@ const GROUP_OF_ID: Record<string, SettingsGroup> = {
   "rollout-protocol": "rollout",
   "communicator-api": "rollout",
   rtk: "rollout",
+  "speech-input": "rollout",
   retention: "retention",
   "session-housekeeping": "retention",
 };

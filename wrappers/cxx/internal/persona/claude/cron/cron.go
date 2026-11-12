@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"log/slog"
 	"os"
@@ -183,7 +184,12 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	if targetClient == "" {
 		targetClient = check.ClientVersion
 	}
-	if check.Action == "update" {
+	if check.Action == "no_update" && claudeVer != "unknown" {
+		targetClient = claudeVer
+	}
+	beforePath, _ := claude.FindCLI()
+	reconcileLibc := libcselect.EngineEnabled("claude") && check.Action == "no_update" && targetClient != "" && strings.TrimSpace(os.Getenv("CLX_CLAUDE_BIN")) == ""
+	if check.Action == "update" || reconcileLibc {
 		if strings.TrimSpace(targetClient) == "" {
 			return res, errors.New("cron: Claude update requested without a target version")
 		}
@@ -197,6 +203,12 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 			return res, fmt.Errorf("cron: claude update: %w", err)
 		} else {
 			res.CodexAction = "updated"
+		}
+	}
+	if reconcileLibc {
+		afterPath, _ := claude.FindCLI()
+		if afterPath == beforePath && res.CodexAction == "updated" {
+			res.CodexAction = "no_update"
 		}
 	}
 	if err := claude.EnsureShellAliases(); err != nil {
@@ -305,7 +317,7 @@ func EnsureEngineCurrent(ctx context.Context, cfg *config.Config, logger *slog.L
 		res.CodexAction = "disable"
 		return res, nil
 	}
-	if check.Action != "update" {
+	if check.Action != "update" && !(libcselect.EngineEnabled("claude") && check.Action == "no_update" && strings.TrimSpace(os.Getenv("CLX_CLAUDE_BIN")) == "") {
 		return res, nil
 	}
 
@@ -313,6 +325,13 @@ func EnsureEngineCurrent(ctx context.Context, cfg *config.Config, logger *slog.L
 	if targetClient == "" {
 		targetClient = check.ClientVersion
 	}
+	if check.Action == "no_update" && claudeVer != "unknown" {
+		targetClient = claudeVer
+	}
+	if check.Action == "no_update" && targetClient == "" {
+		return res, nil
+	}
+	beforePath, _ := claude.FindCLI()
 	if strings.TrimSpace(targetClient) == "" {
 		return res, errors.New("engine update requested without a target version")
 	}
@@ -325,6 +344,12 @@ func EnsureEngineCurrent(ctx context.Context, cfg *config.Config, logger *slog.L
 	} else if err != nil {
 		res.CodexAction = "failed"
 		return res, fmt.Errorf("claude update: %w", err)
+	}
+	if check.Action == "no_update" {
+		afterPath, _ := claude.FindCLI()
+		if afterPath == beforePath {
+			return res, nil
+		}
 	}
 	res.CodexAction = "updated"
 	newVer := strings.TrimSpace(claude.Version(ctx))

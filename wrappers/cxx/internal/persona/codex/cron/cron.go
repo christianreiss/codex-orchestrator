@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"log/slog"
 	"os"
@@ -189,7 +190,12 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 	if targetClient == "" {
 		targetClient = check.ClientVersion
 	}
-	if check.Action == "update" {
+	if check.Action == "no_update" && codexVer != "unknown" {
+		targetClient = codexVer
+	}
+	beforePath, _ := codex.FindCLI()
+	reconcileLibc := libcselect.EngineEnabled("codex") && check.Action == "no_update" && targetClient != "" && strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")) == ""
+	if check.Action == "update" || reconcileLibc {
 		if strings.TrimSpace(targetClient) == "" {
 			return res, errors.New("cron: Codex update requested without target version")
 		}
@@ -201,6 +207,12 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		}
 		if afterCLI, _ := codex.FindCLI(); afterCLI != beforeCLI {
 			res.CodexAction = "updated"
+		}
+	}
+	if reconcileLibc {
+		afterPath, _ := codex.FindCLI()
+		if afterPath == beforePath && res.CodexAction == "updated" {
+			res.CodexAction = "no_update"
 		}
 	}
 	if err := codex.EnsureShellAliases(); err != nil {
@@ -315,7 +327,7 @@ func EnsureEngineCurrent(ctx context.Context, cfg *config.Config, logger *slog.L
 		res.CodexAction = "disable"
 		return res, nil
 	}
-	if check.Action != "update" {
+	if check.Action != "update" && !(libcselect.EngineEnabled("codex") && check.Action == "no_update" && strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")) == "") {
 		return res, nil
 	}
 
@@ -323,6 +335,13 @@ func EnsureEngineCurrent(ctx context.Context, cfg *config.Config, logger *slog.L
 	if targetClient == "" {
 		targetClient = check.ClientVersion
 	}
+	if check.Action == "no_update" && codexVer != "unknown" {
+		targetClient = codexVer
+	}
+	if check.Action == "no_update" && targetClient == "" {
+		return res, nil
+	}
+	beforePath, _ := codex.FindCLI()
 	if strings.TrimSpace(targetClient) == "" {
 		return res, errors.New("engine update requested without target version")
 	}
@@ -334,6 +353,12 @@ func EnsureEngineCurrent(ctx context.Context, cfg *config.Config, logger *slog.L
 		return res, fmt.Errorf("codex update: %w", err)
 	}
 	if afterCLI, _ := codex.FindCLI(); afterCLI != beforeCLI {
+		if check.Action == "no_update" {
+			afterPath, _ := codex.FindCLI()
+			if afterPath == beforePath {
+				return res, nil
+			}
+		}
 		res.CodexAction = "updated"
 	}
 	newVer := strings.TrimSpace(codex.Version(ctx))

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"net/http"
@@ -71,7 +72,7 @@ func claudeRegistry() string {
 // (e.g. XCP-ng 8.3 dom0, glibc 2.17) can still run it. The tarball is checked
 // against the registry's sha512 integrity before anything is extracted.
 func installNativeClaude(ctx context.Context, stage, target string) (string, error) {
-	pkg := claudePlatformPackage()
+	pkg := claudePlatformPackageFor(ctx)
 	if pkg == "" {
 		return "", fmt.Errorf("no native Claude CLI package for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
@@ -122,6 +123,9 @@ func fetchClaudeJSON(ctx context.Context, url string, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("%w: Claude platform package not published", libcselect.ErrUnavailable)
+		}
 		return fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(out)
@@ -206,4 +210,16 @@ func extractClaudeBinary(tarball, dest string) error {
 		}
 		return copyErr
 	}
+}
+
+func claudePlatformPackageFor(ctx context.Context) string {
+	name := claudePlatformPackage()
+	if runtime.GOOS != "linux" || !libcselect.Attempting(ctx) {
+		return name
+	}
+	name = strings.TrimSuffix(name, "-musl")
+	if libcselect.Requested(ctx) == libcselect.Musl {
+		name += "-musl"
+	}
+	return name
 }
