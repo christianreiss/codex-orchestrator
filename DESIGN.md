@@ -691,3 +691,8 @@ capability is named in place instead of hiding the row; destructive or
 fleet-wide rollout actions are confirmed with a button that names the action.
 The agent supervisor shows its switch only; per-agent incidents stay on the
 Agents graph. No design exception.
+
+
+### Native speech input settings (2026-11-12)
+
+Settings Rollout includes the global speech input default and per-engine inheritance. Requested policy and native capability limitations are displayed separately. Reuses Section and Select. Applicable rules: VIS-1/3, INT-3/5/6, ACC-1/3/4. No new surface or exception.

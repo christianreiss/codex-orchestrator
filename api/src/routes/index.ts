@@ -1,3 +1,4 @@
+import { registerSpeechInputRoutes } from './speech-input.js';
 import { registerConnectorRoutes } from './connectors/index.js';
 import { apiKillSwitch } from '../http/plugins/api-kill-switch.js';
 import { SettingsService } from '../services/settings.js';
@@ -76,6 +77,7 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerCommunicatorRoutes(app, ctx);
   await registerHousekeepingRoutes(app, ctx);
   await registerRtkRoutes(app, ctx);
+  await registerSpeechInputRoutes(app, ctx);
   await registerServerRetentionRoutes(app, ctx);
   await registerEngineDestroyRoutes(app, ctx);
   await registerHostDaemonRoutes(app, ctx);

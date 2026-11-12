@@ -306,6 +306,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/cdx-silent': cap('settings.manage'),
   'GET /admin/insecure-approval': cap('settings.read'),
   'POST /admin/insecure-approval': cap('settings.manage'),
+  'GET /admin/speech-input': cap('settings.read'),
+  'POST /admin/speech-input/:target': cap('settings.manage'),
   'GET /admin/rtk': cap('settings.read'),
   'POST /admin/rtk/:engine': cap('settings.manage'),
   'GET /admin/hosts/:id/rtk': cap('hosts.read'),

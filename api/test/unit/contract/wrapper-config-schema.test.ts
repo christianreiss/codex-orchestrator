@@ -277,6 +277,7 @@ const CLOSED = [
   'engine_options',
   'agent_messaging',
   'session_housekeeping',
+  'speech_input',
   'rtk',
   'wrapper',
   'documents',

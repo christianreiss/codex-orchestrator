@@ -1,3 +1,4 @@
+import { speechInputPolicy } from './speech-input.js';
 import { rtkPolicy, RTK_VERSION } from './rtk.js';
 import { rtkArtifacts } from './rtk-artifacts.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
@@ -92,6 +93,7 @@ export interface WrapperConfigPayload {
   engine: Engine;
   issued_at: string;
   expires_at: string | null;
+  speech_input?: Awaited<ReturnType<typeof speechInputPolicy>>;
   orchestrator: {
     base_url: string;
     api_key: string;
@@ -639,6 +641,7 @@ if (engine === 'kimi')
         ...(fleetDisabled.length > 0 ? { fleet_disabled_engines: fleetDisabled } : {}),
         ...(destroyEngines.length > 0 ? { destroy_engines: destroyEngines } : {}),
       },
+      speech_input: await speechInputPolicy(deps.db, engine),
       engine_options: engineOptions(host, engine, { silent, adminTheme }, policy),
       session_housekeeping: (({ enabled, retention_days, max_bytes, min_age_days }) => ({
         enabled,

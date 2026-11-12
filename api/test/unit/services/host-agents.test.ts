@@ -674,6 +674,13 @@ describe('HostAgentsService config surfaces', () => {
     expect(logDetails(db, 'claude_settings.retrieve')).toHaveLength(0);
   });
 
+  it('projects default-on Claude voice on compatible clients', async () => {
+    const db = makeDb([[clientConfigDocuments, []]]);
+    const out = await makeService(db).retrieveClaudeSettings({ ...makeHost(), claudeClientVersion: '2.1.100' });
+    expect(out['partial']).toMatchObject({ voice: { enabled: true } });
+    expect(out['owned_paths']).toContain('voice.enabled');
+  });
+
   it('uses the claude client_config when one exists', async () => {
     const db = makeDb([[clientConfigDocuments, [configRow(2, ENGINE_CLAUDE, { model: 'claude-opus-5' }), codexConfig]]]);
 

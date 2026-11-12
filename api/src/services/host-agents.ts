@@ -1,3 +1,5 @@
+import { versionCompare } from './wrapper-bin-registry.js';
+import { speechInputPolicy } from './speech-input.js';
 import { persistAuditLog } from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { servedAgentDocument } from '../control-plane/state/agent-documents.js';
@@ -328,7 +330,14 @@ export class HostAgentsService {
       sha256: baseSha,
       size_bytes: Buffer.byteLength(body, 'utf8'),
     };
-    const settings = row.settings && typeof row.settings === 'object' ? row.settings : null;
+    const settings = row.settings && typeof row.settings === 'object' ? structuredClone(row.settings) : null;
+    if (settings && engine === 'grok' && host.grokClientVersion && versionCompare(host.grokClientVersion, '1.0.75') >= 0) {
+      const speech = await speechInputPolicy(this.db, engine);
+      const value = settings as Record<string, unknown>;
+      const native = value.native_settings && typeof value.native_settings === 'object' ? value.native_settings as Record<string, unknown> : {};
+      const ui = native.ui && typeof native.ui === 'object' ? native.ui : {};
+      value.native_settings = { ...native, ui: { ...ui, voice_keybind_enabled: speech.enabled } };
+    }
     const apiKey = this.resolveApiKey(host);
     const managedMcpToken =
       settings && this.publicBaseUrl && apiKey && !host.secure
@@ -411,6 +420,7 @@ export class HostAgentsService {
     // against their allowed window, not by withholding the MCP server.
     const agentMessagingEnabled =
       host.status === 'active' && (await this.settings.getFlag(AGENT_MESSAGING_ENABLED_KEY, false));
+    const speech = await speechInputPolicy(this.db, ENGINE_CLAUDE);
     const rendered = renderClaudeSettingsPartialForHost({
       settings,
       modelPolicy: await readModelPolicy(this.db, ENGINE_CLAUDE),
@@ -425,6 +435,13 @@ export class HostAgentsService {
       securityLevels: await this.resolvePosture(host),
       responseVerbosityLevel: await this.resolveResponseVerbosity(),
     });
+    // Project only on versions with the voice object; do not raise the native-settings floor.
+    if (host.claudeClientVersion && versionCompare(host.claudeClientVersion, '2.1.92') >= 0) {
+      const voice = rendered.partial.voice;
+      rendered.partial.voice = { ...(voice && typeof voice === 'object' ? voice : {}), enabled: speech.enabled };
+      if (!rendered.owned_paths.includes('voice.enabled')) rendered.owned_paths.push('voice.enabled');
+      rendered.sha256 = createHash('sha256').update(JSON.stringify(rendered.partial, null, 2) + '\n').digest('hex');
+    }
     return {
       status: 'updated',
       sha256: rendered.sha256,

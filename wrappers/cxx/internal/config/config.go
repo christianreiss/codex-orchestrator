@@ -34,7 +34,17 @@ type RTKPolicy struct {
 	Artifacts      map[string]RTKArtifact `json:"artifacts"`
 }
 
+type SpeechInputPolicy struct {
+	Enabled    bool    `json:"enabled"`
+	Override   *bool   `json:"override"`
+	Global     bool    `json:"global"`
+	Supported  bool    `json:"supported"`
+	Activation *string `json:"activation"`
+	Control    string  `json:"control"`
+}
+
 type Config struct {
+	SpeechInput         *SpeechInputPolicy         `json:"speech_input,omitempty"`
 	RTK                 *RTKPolicy                 `json:"rtk,omitempty"`
 	SessionHousekeeping *SessionHousekeepingPolicy `json:"session_housekeeping,omitempty"`
 	SchemaVersion       int                        `json:"schema_version"`

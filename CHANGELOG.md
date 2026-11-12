@@ -1,5 +1,8 @@
 # 2026-11-12
 
+- Add global speech input defaults (on) and per-engine inheritance in Settings, with native control limitations shown for Codex, Grok and Kimi. Claude dictation and Grok voice shortcuts follow the effective policy after sync.
+
+
 - **cxx 0.9.177 — Linux libc selection:** prefer verified, runnable glibc artifacts for Codex, Claude and Grok, including migration from musl at the identical engine version. Keep a required musl fallback stable, recheck it after 24 hours, back off failures, and recover interrupted publication from local receipts. Status/update output explains the selected variant. Binary overrides and running sessions are preserved; Voice is unchanged.
 
 - **Slop review updated to slop-detector 0.3.1:** UTF-8 BOM-tolerant JSON inputs, a single readable error for a rejected a11y export, transparent pixels reported separately in render checks, and the brand-only review questions in the agent rubric (product interfaces are not judged by them). The local typography and coverage patches are kept.
