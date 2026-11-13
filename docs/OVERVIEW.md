@@ -2023,3 +2023,17 @@ or install additional Voice resources.
 `POST /admin/speech-input/:target` accepts `{ "enabled": true|false }` for `global`; engine targets also accept `null` to inherit. Global defaults to on. Engine overrides win. Settings require settings.read/settings.manage. Changes apply after sync to new launches and never begin recording.
 
 Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; it requires a Claude.ai account and a local microphone. Grok 1.0.75+ projects `ui.voice_keybind_enabled`; disabling the shortcut does not disable `/voice`. Codex supports `/voice` conversations but has no verified central toggle in 0.167.2; removed flags are not written. Kimi has no verified native speech support. Unsupported control is reported separately from requested policy.
+
+
+### Complete Codex Voice installation
+
+cxx 0.9.181 installs the official full Codex release package instead of dropping
+its resources during standalone-binary extraction. New launches use
+`<private-prefix>/bin/codex`; Voice, code-mode and exec-server companions,
+GStreamer plugins and licenses remain in their upstream layout. Existing
+binary-only installs and damaged package files are repaired at the same version
+without changing running sessions. Packages and Voice inventory hashes, target,
+version and helper build identity are verified before publication. Old releases
+without packages retain standalone installation. Linux Voice requires glibc for
+the audio helper, including packages whose main CLI uses musl. See
+[package and Voice contract](interface-cdx.md#complete-codex-packages-and-voice-cxx-09181).

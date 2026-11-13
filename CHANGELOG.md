@@ -1,5 +1,7 @@
 # 2026-11-13
 
+- **cxx 0.9.181 — complete Codex Voice packages:** managed Codex installs preserve the official package layout, Voice helper, audio libraries, plugins and notices. Existing binary-only installations and missing or truncated package resources are repaired at the same Codex version through a freshly verified private prefix. Package and Voice inventory hashes, build identity, native loader and GStreamer/plugin initialization are checked before publication; active sessions keep their original prefix. Linux Voice requires glibc even when the main CLI is musl-built.
+
 - **cxx 0.9.180 — repair stale PATH launchers:** update, cron and startup alias reconciliation recognize both legacy transition shims and launchers, publish the common `cxx` before migration, and replace recognized scripts that retain revoked installation-time keys. `cxx doctor` diagnoses local PATH commands without config or API access; `cxx doctor --fix` repairs recognized scripts and reports what changed. Engine doctors show a Launchers check. Custom launchers and other installations are preserved.
 
 # 2026-11-12

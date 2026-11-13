@@ -2869,3 +2869,47 @@ Local status/update output reports the selected variant and reason.
 `POST /admin/speech-input/:target` accepts `{ "enabled": true|false }` for `global`; engine targets also accept `null` to inherit. Global defaults to on. Engine overrides win. Settings require settings.read/settings.manage. Changes apply after sync to new launches and never begin recording.
 
 Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; it requires a Claude.ai account and a local microphone. Grok 1.0.75+ projects `ui.voice_keybind_enabled`; disabling the shortcut does not disable `/voice`. Codex supports `/voice` conversations but has no verified central toggle in 0.167.2; removed flags are not written. Kimi has no verified native speech support. Unsupported control is reported separately from requested policy.
+
+
+## Complete Codex packages and Voice (cxx 0.9.181+)
+
+The managed background installer selects the exact official
+`codex-package-<target>.tar.gz` from the requested release, preserving
+`bin/codex`, its code-mode/exec-server companions, `codex-package.json`,
+`codex-path/` and `codex-resources/voice/` (including libraries, plugins and
+licenses). New launches use the physical `bin/codex` path: flattening the
+archive or copying the Voice helper beside a standalone CLI does not satisfy
+Codex's package detection. GNU package preference and musl fallback use the
+existing libc selection policy. When a release publishes packages, missing
+platform packages fail closed rather than falling back to stripped binaries.
+Releases with no full packages retain the standalone installer. Explicit
+`CDX_CODEX_BIN` overrides are never replaced.
+
+Before publication, the installer verifies the GitHub release asset SHA-256,
+package version/target/layout, Voice manifest identity and every listed file
+hash. Archive extraction rejects links, special files, duplicate members and
+unsafe paths, with a 2 GiB expansion and 4096-entry limit. Space checks reserve
+the complete expansion plus archive with existing cleanup-first behavior.
+The CLI version, code-mode host execution and Voice helper build identity
+are probed, followed by the bounded same-build control handshake and native
+GStreamer/plugin initialization. The helper is closed and reaped; no transport
+or audio-device request is sent, so installation never starts a microphone or
+contacts the Voice backend.
+GitHub's digest protects transport integrity; it is not an independent
+attestation of a compromised release.
+
+A local package file-size inventory and required Voice files participate in
+maintenance health checks. Old binary-only installs and missing/truncated
+resources trigger fresh staging even at the identical Codex version. The
+cache changes only after verification; failed stages are removed and existing
+sessions retain their old prefix until normal protected cleanup can reclaim it.
+Health checks do not rehash all binaries on every sync and do not prove device
+access or backend connectivity.
+
+Linux Voice requires a usable glibc runtime. An official musl CLI package can
+include a GNU Voice helper; a pure musl host can still use the CLI, but the
+installer skips the GNU helper execution probe there. Audio devices and a
+working Voice backend remain runtime prerequisites. `/voice` (or F8) starts
+Voice and `/voice settings` selects a voice; installation and sync never begin
+recording. The existing global speech policy does not add a native Codex
+Voice disable flag.

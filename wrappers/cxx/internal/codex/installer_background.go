@@ -57,10 +57,7 @@ func EnsureCodexBackground(ctx context.Context, target string, enforceExact bool
 			return nil
 		}
 	}
-	ctx = libcselect.WithHealth(ctx, func(cli string) bool {
-		info, e := os.Stat(filepath.Join(filepath.Dir(cli), codeModeHostBinName))
-		return e == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 && info.Size() > 0
-	})
+	ctx = libcselect.WithHealth(ctx, codexInstallationHealthy)
 	return libcselect.Run(ctx, root, version, current, func(attempt context.Context) error {
 		if resolved != nil {
 			attempt = context.WithValue(attempt, reconcileReleaseKey{}, *resolved)
@@ -108,26 +105,41 @@ func ensureCodexBackground(ctx context.Context, target string, enforceExact bool
 		return nil
 	}
 	if current == version && !libcselect.Attempting(ctx) {
-		if cli, err := FindCLI(); err == nil && strings.HasPrefix(cli, root+string(os.PathSeparator)) {
-			if info, err := os.Stat(filepath.Join(filepath.Dir(cli), codeModeHostBinName)); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 && info.Size() > 0 {
-				return nil
-			}
+		if cli, err := FindCLI(); err == nil && strings.HasPrefix(cli, root+string(os.PathSeparator)) && codexInstallationHealthy(cli) {
+			return nil
 		}
 	}
-	asset, err := pickAssetForLibc(ctx, rel, "codex")
+	fullPackage, err := pickPackageAsset(ctx, rel)
 	if err != nil {
 		return err
 	}
-	companion, err := pickAssetForLibc(ctx, rel, codeModeHostBinName)
-	if err != nil {
-		return fmt.Errorf("Codex %s companion: %w", version, err)
+	var asset, companion Asset
+	var temporary, expanded uint64
+	artifact := ""
+	if fullPackage.Name != "" {
+		asset = fullPackage
+		temporary = installspace.Size(asset.Size, installspace.Wrapper)
+		expanded = maxPackageBytes
+		artifact = asset.Name + ":" + asset.Digest
+	} else {
+		asset, err = pickAssetForLibc(ctx, rel, "codex")
+		if err != nil {
+			return err
+		}
+		companion, err = pickAssetForLibc(ctx, rel, codeModeHostBinName)
+		if err != nil {
+			return fmt.Errorf("Codex %s companion: %w", version, err)
+		}
+		var companionTemporary, companionExpanded uint64
+		temporary, expanded = releaseAssetSpace(asset)
+		companionTemporary, companionExpanded = releaseAssetSpace(companion)
+		temporary = max(temporary, companionTemporary)
+		expanded += companionExpanded
+		artifact = asset.Name + ":" + asset.Digest + "/" + companion.Name + ":" + companion.Digest
 	}
-	// Downloads/extraction are sequential; both final siblings coexist.
-	temporary, expanded := releaseAssetSpace(asset)
-	companionTemporary, companionExpanded := releaseAssetSpace(companion)
 	// Cleanup runs before taking the engine installer lock.
-	if err := installspace.Ensure(ctx, "Codex", func() error { _, err := PruneEngineStoreForInstall(logger); return err }, installspace.Need{Path: root, Bytes: expanded + companionExpanded, Inodes: 128},
-		installspace.Need{Path: os.TempDir(), Bytes: max(temporary, companionTemporary), Inodes: 128}); err != nil {
+	if err := installspace.Ensure(ctx, "Codex", func() error { _, err := PruneEngineStoreForInstall(logger); return err }, installspace.Need{Path: root, Bytes: expanded, Inodes: maxPackageFiles},
+		installspace.Need{Path: os.TempDir(), Bytes: temporary, Inodes: 128}); err != nil {
 		return err
 	}
 	// Only maintenance writers contend on this lock. Foreground lookup and
@@ -149,13 +161,23 @@ func ensureCodexBackground(ctx context.Context, target string, enforceExact bool
 		}
 	}()
 	cli := filepath.Join(dir, "codex")
-	if err := installVerifiedReleaseAsset(ctx, rel, asset, "codex", cli, logger); err != nil {
-		return err
+	if fullPackage.Name != "" {
+		if err := installCodexPackage(ctx, rel, fullPackage, dir, logger); err != nil {
+			return err
+		}
+		cli = filepath.Join(dir, "bin", "codex")
+	} else {
+		if err := installVerifiedReleaseAsset(ctx, rel, asset, "codex", cli, logger); err != nil {
+			return err
+		}
+		if err := installVerifiedReleaseAsset(ctx, rel, companion, codeModeHostBinName, filepath.Join(dir, codeModeHostBinName), logger); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, standaloneReceipt), []byte("v1\n"), 0600); err != nil {
+			return err
+		}
 	}
-	companionPath := filepath.Join(dir, codeModeHostBinName)
-	if err := installVerifiedReleaseAsset(ctx, rel, companion, codeModeHostBinName, companionPath, logger); err != nil {
-		return err
-	}
+	companionPath := filepath.Join(filepath.Dir(cli), codeModeHostBinName)
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -171,7 +193,7 @@ func ensureCodexBackground(ctx context.Context, target string, enforceExact bool
 	if _, err := libcselect.Probe(probeCtx, companionPath, "--help"); err != nil {
 		return fmt.Errorf("validate staged Codex companion: %w", err)
 	}
-	if err := libcselect.Publication(ctx, cli, asset.Name+":"+asset.Digest+"/"+companion.Name+":"+companion.Digest); err != nil {
+	if err := libcselect.Publication(ctx, cli, artifact); err != nil {
 		return err
 	}
 

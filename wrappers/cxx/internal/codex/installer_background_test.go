@@ -30,6 +30,8 @@ type backgroundReleaseFixture struct {
 	badDigest               bool
 	missingCompanion        bool
 	beforeNative            func(*http.Request)
+	fullPackage             func() []byte
+	badPackageDigest        bool
 }
 
 func backgroundFixture(t *testing.T, fixture backgroundReleaseFixture) (string, string) {
@@ -76,6 +78,16 @@ func backgroundFixture(t *testing.T, fixture backgroundReleaseFixture) (string, 
 				native.Digest = "sha256:" + strings.Repeat("0", 64)
 			}
 			assets := []Asset{native}
+			if fixture.fullPackage != nil {
+				body := fixture.fullPackage()
+				if len(body) > 0 {
+					pkg := asset("codex-package-"+strings.TrimPrefix(cliPrefix, "codex-")+".tar.gz", "http://"+r.Host+"/package", string(body))
+					if fixture.badPackageDigest {
+						pkg.Digest = "sha256:" + strings.Repeat("0", 64)
+					}
+					assets = append(assets, pkg)
+				}
+			}
 			if !fixture.missingCompanion {
 				assets = append(assets, asset(companionPrefix, "http://"+r.Host+"/companion", fixture.companion))
 			}
@@ -86,6 +98,8 @@ func backgroundFixture(t *testing.T, fixture backgroundReleaseFixture) (string, 
 				assets = append(assets, asset(strings.Replace(companionPrefix, "-musl", "-gnu", 1), "http://"+r.Host+"/gnu-companion", fixture.gnuCompanion))
 			}
 			_ = json.NewEncoder(w).Encode(Release{TagName: "rust-v9.9.9", Assets: assets})
+		case r.URL.Path == "/package":
+			_, _ = w.Write(fixture.fullPackage())
 		case r.URL.Path == "/gnu-native":
 			_, _ = io.WriteString(w, fixture.gnuNative)
 		case r.URL.Path == "/gnu-companion":
