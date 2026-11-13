@@ -52,6 +52,9 @@ func main() {
 }
 
 func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
+	if len(args) > 0 && args[0] == "doctor" && personaForProgramName(invokedAs) == "common" {
+		return runLauncherDoctor(args[1:], stdout, stderr)
+	}
 	if len(args) > 0 && args[0] == "rtk" {
 		engine := personaForProgramName(invokedAs)
 		if engine == "common" {
@@ -439,6 +442,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx emergency codex|claude|grok|kimi [--] [native arguments]  (secure hosts: native CLI, no Orchestrator)")
 	fmt.Fprintln(w, "  cxx native-entry status|install|remove")
 	fmt.Fprintln(w, "  cxx update [--minimal]")
+	fmt.Fprintln(w, "  cxx doctor [--fix] [--minimal]  (local wrapper PATH check and repair)")
 	fmt.Fprintln(w, "  cxx sync")
 	fmt.Fprintln(w, "  cxx project file put SLUG FILE [--stored-name NAME] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx transfer put FILE | get ID --output FILE [--resume] [--engine ENGINE] [--json]")

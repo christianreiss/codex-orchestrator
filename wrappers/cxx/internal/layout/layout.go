@@ -148,6 +148,10 @@ func EnsureAliasesForSHA(ctx context.Context, executable string, engines []strin
 		if err != nil {
 			return err
 		}
+		// Publish before inspecting PATH shims, including on the first run.
+		if _, err := ensurePathVisible(canonical); err != nil {
+			return err
+		}
 		for _, engine := range normalizeEngines(engines) {
 			if err := ensureAlias(filepath.Dir(canonical), aliasForEngine(engine)); err != nil {
 				return err
@@ -181,9 +185,7 @@ func healTransitionShim(canonical, name string) error {
 		return err
 	}
 	script := string(body)
-	if !strings.HasPrefix(script, "#!/bin/sh\n# Codex Orchestrator legacy transition shim for "+name+".\n") ||
-		!strings.Contains(script, "\nINSTALL_MODE=shim\n") ||
-		!strings.Contains(script, "\nNAME='"+name+"'\n") {
+	if !isTransitionScript(script, name) {
 		return nil
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(shim), "."+name+".cxx-migrate-")
@@ -212,6 +214,16 @@ func healTransitionShim(canonical, name string) error {
 	return os.Rename(staged, shim)
 }
 
+func isTransitionScript(script, name string) bool {
+	if !strings.Contains(script, "\nNAME='"+name+"'\n") {
+		return false
+	}
+	return (strings.HasPrefix(script, "#!/bin/sh\n# Codex Orchestrator legacy transition shim for "+name+".\n") &&
+		strings.Contains(script, "\nINSTALL_MODE=shim\n")) ||
+		(strings.HasPrefix(script, "#!/bin/sh\n# Codex Orchestrator legacy transition launcher for "+name+".\n") &&
+			strings.Contains(script, "\nINSTALL_CONTEXT=transition\n"))
+}
+
 // EnsurePathVisible makes the canonical cxx reachable by its bare name from
 // PATH, and reports the link it had to create (empty when nothing was needed).
 //
@@ -232,6 +244,17 @@ func EnsurePathVisible(ctx context.Context, executable string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var link string
+	err = WithTargetLock(ctx, canonical, func() error {
+		var err error
+		link, err = ensurePathVisible(canonical)
+		return err
+	})
+	return link, err
+}
+
+// Caller holds the canonical artifact's layout lock.
+func ensurePathVisible(canonical string) (string, error) {
 	// Only an install that has completed its migration has a name to publish.
 	if filepath.Base(canonical) != "cxx" {
 		return "", nil
@@ -247,15 +270,14 @@ func EnsurePathVisible(ctx context.Context, executable string) (string, error) {
 		return "", nil
 	}
 	link := filepath.Join(dir, "cxx")
-	// A regular file of that name in a PATH directory is somebody else's real
-	// install, not our stale link. Replacing it with a symlink into one user's
-	// data directory would break every other account on the host.
-	if info, statErr := os.Lstat(link); statErr == nil && info.Mode().IsRegular() {
+	// An existing entry may belong to another installation, including a
+	// symlink into another user's data directory. Publication is additive.
+	if _, statErr := os.Lstat(link); statErr == nil {
 		return "", nil
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return "", statErr
 	}
-	if err := WithTargetLock(ctx, canonical, func() error {
-		return ensureAbsLink(link, canonical)
-	}); err != nil {
+	if err := ensureAbsLink(link, canonical); err != nil {
 		return "", err
 	}
 	return link, nil

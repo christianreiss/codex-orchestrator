@@ -559,6 +559,28 @@ func TestEnsureAliasesPreservesOtherLaunchers(t *testing.T) {
 	}
 }
 
+func TestEnsureAliasesHealsTransitionLaunchersOnFirstRun(t *testing.T) {
+	for _, engine := range []string{EngineCodex, EngineClaude, EngineGrok, EngineKimi} {
+		t.Run(engine, func(t *testing.T) {
+			_, binDir, canonical := newShimInstall(t)
+			name := aliasForEngine(engine)
+			shim := filepath.Join(binDir, name)
+			body := "#!/bin/sh\n# Codex Orchestrator legacy transition launcher for " + name + ".\n# Generated for host test.invalid.\nset -eu\nNAME='" + name + "'\nENGINE='" + engine + "'\nINSTALL_CONTEXT=transition\nHOST_API_KEY='revoked-test-key'\n"
+			if err := os.WriteFile(shim, []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for i := 0; i < 2; i++ {
+				if _, err := EnsureAliases(context.Background(), canonical, []string{engine}); err != nil {
+					t.Fatal(err)
+				}
+				if target, err := os.Readlink(shim); err != nil || target != canonical {
+					t.Fatalf("target=%q err=%v; launcher must heal without a second invocation", target, err)
+				}
+			}
+		})
+	}
+}
+
 func TestEnsurePathVisibleKeepsRealInstall(t *testing.T) {
 	data, binDir, _ := newShimInstall(t)
 	// Another account's real cxx already owns the PATH name.

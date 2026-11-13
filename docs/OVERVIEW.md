@@ -1,5 +1,11 @@
 # Overview
 
+cxx 0.9.180 repairs stale generated PATH launchers during alias reconciliation,
+including updates with an already-current binary. `cxx doctor` diagnoses this
+locally; `cxx doctor --fix` replaces recognized legacy transition scripts without
+API access. Custom launchers and other installations stay untouched. See
+[the wrapper interface](interface-cdx.md).
+
 cxx 0.9.177 prefers runnable glibc engine artifacts on Linux, including replacement
 of same-version musl installations. Verified musl fallbacks converge without
 reinstallation loops. See [Linux engine libc selection](#linux-engine-libc-selection).

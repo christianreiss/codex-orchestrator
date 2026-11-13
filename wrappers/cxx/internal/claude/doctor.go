@@ -17,6 +17,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launcherdoctor"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
 )
@@ -34,6 +35,12 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 	report.Rows = append(report.Rows, checkDeps(&hints))
 
 	report.Rows = append(report.Rows, checkPaths())
+	exe, _ := os.Executable()
+	launcherRow := launcherdoctor.Row(ctx, exe, []string{config.EngineClaude}, false)
+	report.Rows = append(report.Rows, launcherRow)
+	if launcherRow.Tone != ui.ToneOK {
+		hints = append(hints, "Repair recognized legacy PATH launchers with `cxx doctor --fix`; this works without API access.")
+	}
 
 	report.Rows = append(report.Rows, checkAuth())
 

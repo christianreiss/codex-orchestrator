@@ -1,3 +1,7 @@
+# 2026-11-13
+
+- **cxx 0.9.180 — repair stale PATH launchers:** update, cron and startup alias reconciliation recognize both legacy transition shims and launchers, publish the common `cxx` before migration, and replace recognized scripts that retain revoked installation-time keys. `cxx doctor` diagnoses local PATH commands without config or API access; `cxx doctor --fix` repairs recognized scripts and reports what changed. Engine doctors show a Launchers check. Custom launchers and other installations are preserved.
+
 # 2026-11-12
 
 - **Admin UI slop pass:** every web area was scanned and reviewed with slop-detector; the sidebar brand subtitle and the mobile navigation description no longer list engines in one row (so a fifth engine cannot wrap or clip them), the dashboard runner engine label grows with its text, and Settings engine master switches and quota tabs wrap or scroll with any number of engines. Remaining scan signals were reviewed as false positives.

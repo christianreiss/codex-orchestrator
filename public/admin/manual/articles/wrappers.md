@@ -1,7 +1,7 @@
 ---
 title: The shared cxx wrapper
 section: Fleet operations
-verified: 2026-11-05
+verified: 2026-11-13
 sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json, wrappers/cxx/internal/emergency/emergency.go, wrappers/cxx/internal/workload/run_linux.go
 ---
 
@@ -21,6 +21,18 @@ installer does **not** itself `exec` the wrapper. A separate, shorter
 **legacy transition launcher** (`GET /wrapper/download`) exists only for
 pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
 `exec`s `cxx <engine>` with the original argv.
+
+## Repair a stale shell entrypoint
+
+From cxx 0.9.180, run `cxx doctor` if `cdx`, `clx`, `cgx` or `ckx` still starts
+an old installer or returns HTTP 401 after an update. This checks local PATH
+commands without API access. Run `cxx doctor --fix` to replace recognized old
+transition scripts with links to the current wrapper. It reports the repaired
+paths and preserves custom launchers and other installations.
+
+`cxx update` also performs this repair when the wrapper is already current.
+For the complete engine diagnostic, run `cxx codex doctor`, `cxx claude doctor`,
+`cxx grok doctor` or `cxx kimi doctor`.
 
 ## Returning to the shell
 

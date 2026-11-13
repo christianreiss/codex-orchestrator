@@ -89,6 +89,42 @@ func TestUpdateRefreshConvergesChangedAssignments(t *testing.T) {
 	}
 }
 
+func TestUpdateRefreshHealsPublishedTransitionLaunchers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CKX_CONFIG_PATH"} {
+		t.Setenv(key, "")
+	}
+	store, bin := t.TempDir(), t.TempDir()
+	cxx := filepath.Join(store, "cxx")
+	if err := os.WriteFile(cxx, []byte("already-current common artifact"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	host := config.Host{EnginesList: []string{"codex", "claude", "grok", "kimi"}}
+	for _, name := range []string{"cdx", "clx", "cgx", "ckx"} {
+		body := "#!/bin/sh\n# Codex Orchestrator legacy transition launcher for " + name + ".\nNAME='" + name + "'\nINSTALL_CONTEXT=transition\n"
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := fetchAuthoritative
+	t.Cleanup(func() { fetchAuthoritative = old })
+	fetchAuthoritative = func(_ context.Context, _ *config.Config, engine string) (*fleetconfig.Fetched, error) {
+		cfg := &config.Config{Engine: engine, Host: host}
+		payload, err := json.Marshal(cfg)
+		return &fleetconfig.Fetched{Config: cfg, Payload: payload, Signature: "verified upstream"}, err
+	}
+	if _, err := RefreshForUpdate(context.Background(), &config.Config{Engine: "codex", Host: host}, cxx, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"cxx", "cdx", "clx", "cgx", "ckx"} {
+		if got, err := filepath.EvalSymlinks(filepath.Join(bin, name)); err != nil || got != cxx {
+			t.Fatalf("%s target=%s err=%v", name, got, err)
+		}
+	}
+}
+
 func TestUpdateRefreshReportsCleanupFailure(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()

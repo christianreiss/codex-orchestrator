@@ -1,5 +1,17 @@
 # ckx — Kimi Code fleet wrapper
 
+From cxx 0.9.180, `cxx doctor` checks the local PATH commands without loading
+signed config, contacting the API or starting background services. Use
+`cxx doctor --fix` to repair recognized legacy transition scripts when a stale
+`cdx`, `clx`, `cgx` or `ckx` fails with HTTP 401 despite a current `cxx`.
+Both historical `INSTALL_MODE=shim` and `INSTALL_CONTEXT=transition` formats
+are recognized. Update, cron and startup alias reconciliation publish `cxx`
+before migrating scripts, including when the binary is already current.
+Repair replaces a recognized script only when its sibling `cxx` targets the
+running installation; custom launchers and other installations are preserved.
+The full engine doctor includes a Launchers row and suggests the local repair.
+Run `cxx codex|claude|grok|kimi doctor` for full engine diagnostics.
+
 Kimi is the fourth engine (`kimi`). The wrapper persona is `ckx` (relative
 alias of the one `cxx` binary, like `cdx`, `clx` and `cgx`); the managed native
 command is `kimi`. The supported CLI is **Kimi Code CLI** (MoonshotAI

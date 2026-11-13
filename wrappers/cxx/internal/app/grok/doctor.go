@@ -1,6 +1,7 @@
 package grok
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grokreap"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launcherdoctor"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/pelletier/go-toml"
 )
@@ -36,6 +38,12 @@ type doctorInput struct {
 func doctorReport(in doctorInput) terminalui.DoctorReport {
 	report := terminalui.DoctorReport{Engine: "cgx", When: time.Now()}
 	hints := []string{}
+	exe, _ := os.Executable()
+	launcherRow := launcherdoctor.Row(context.Background(), exe, []string{config.EngineGrok}, false)
+	report.Rows = append(report.Rows, launcherRow)
+	if launcherRow.Tone != terminalui.ToneOK {
+		hints = append(hints, "Repair recognized legacy PATH launchers with `cxx doctor --fix`; this works without API access.")
+	}
 	suspended := in.Config.EngineSuspended(config.EngineGrok)
 	if refusal := launchRefusal(in.Config, in.AuthErr); refusal != nil && refusal.Error() == config.FleetDisabledMessage(config.EngineGrok) {
 		suspended = true
