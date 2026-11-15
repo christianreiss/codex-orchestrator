@@ -16,7 +16,13 @@ interface ColdTask {
   guard: SQL;
   clockGuard?: SQL;
   action?: 'expire';
+  seekIndex?: 'command_receipts_class_age' | 'command_receipts_state_age';
 }
+// LIMIT can make MySQL prefer a full age-index scan despite a selective
+// composite range. Pin the receipt seeks so history cannot stall owner work.
+const seekTable = (task: ColdTask) => task.seekIndex
+  ? sql`${sql.identifier(task.table)} FORCE INDEX (${sql.identifier(task.seekIndex)})`
+  : sql`${sql.identifier(task.table)}`;
 const DAY = 86_400_000;
 const validStamp = (column: string) =>
   sql`${sql.identifier(column)} REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}([.][0-9]+)?(Z|[+]00:00)$'`;
@@ -56,6 +62,7 @@ export function coldTasks(family: ColdFamily, p: ServerRetentionPolicy): ColdTas
       table: 'control_plane_command_receipts',
       column: 'created_at',
       delay: INTERNAL_RECEIPT_DAYS * DAY,
+      seekIndex: 'command_receipts_class_age',
       clockGuard: sql`replay_class='internal'`,
       guard: sql`replay_class='internal' AND (${free})`,
     },
@@ -63,6 +70,7 @@ export function coldTasks(family: ColdFamily, p: ServerRetentionPolicy): ColdTas
       table: 'control_plane_command_receipts',
       column: 'created_at',
       delay: RECEIPT_RESULT_DAYS * DAY,
+      seekIndex: 'command_receipts_state_age',
       clockGuard: sql`replay_class<>'internal' AND result_state='available'`,
       guard: sql`replay_class<>'internal' AND result_state='available' AND (${free})`,
       action: 'expire',
@@ -81,7 +89,7 @@ export async function coldClock(
     const cutoff = new Date(now - task.delay).toISOString();
     const base = sql`(${task.clockGuard ?? sql`1=1`}) AND (${validStamp(task.column)})`;
     const [old] = await tx.execute(
-      sql`SELECT ${sql.identifier(task.column)} AS at FROM ${sql.identifier(task.table)} WHERE ${base} AND ${sql.identifier(task.column)}<=${cutoff} ORDER BY ${sql.identifier(task.column)} LIMIT 1`,
+      sql`SELECT ${sql.identifier(task.column)} AS at FROM ${seekTable(task)} WHERE ${base} AND ${sql.identifier(task.column)}<=${cutoff} ORDER BY ${sql.identifier(task.column)} LIMIT 1`,
     );
     past ||= (old as unknown as unknown[]).length > 0;
     // Keep the ordinary indexed minimum cheap. Only malformed legacy values
@@ -90,7 +98,7 @@ export async function coldClock(
     let cursor = cutoff, limit = 1, at: string | undefined;
     while (true) {
       const [future] = await tx.execute(
-        sql`SELECT ${sql.identifier(task.column)} AS at FROM ${sql.identifier(task.table)} WHERE ${base} AND ${sql.identifier(task.column)}>${cursor} ORDER BY ${sql.identifier(task.column)} LIMIT ${sql.raw(String(limit))}`,
+        sql`SELECT ${sql.identifier(task.column)} AS at FROM ${seekTable(task)} WHERE ${base} AND ${sql.identifier(task.column)}>${cursor} ORDER BY ${sql.identifier(task.column)} LIMIT ${sql.raw(String(limit))}`,
       );
       const rows = future as unknown as Array<{ at: string }>;
       at = rows.find(row => Number.isFinite(Date.parse(row.at)))?.at;
@@ -191,7 +199,7 @@ export async function purgeCold(
         : sql`1=1`;
     }
     const [raw] = await tx.execute(
-      sql`SELECT ${receipt ? sql`principal,request_id` : sql`id`},${sql.identifier(task.column)} AS at FROM ${sql.identifier(task.table)} WHERE ${sql.identifier(task.column)}<=${cutoff} AND (${validStamp(task.column)}) AND (${guard}) ORDER BY ${sql.identifier(task.column)} LIMIT 100 FOR UPDATE`,
+      sql`SELECT ${receipt ? sql`principal,request_id` : sql`id`},${sql.identifier(task.column)} AS at FROM ${seekTable(task)} WHERE ${sql.identifier(task.column)}<=${cutoff} AND (${validStamp(task.column)}) AND (${guard}) ORDER BY ${sql.identifier(task.column)} LIMIT 100 FOR UPDATE`,
     );
     const candidates = (
       raw as unknown as Array<{ id: number; principal: string; request_id: string; at: string }>

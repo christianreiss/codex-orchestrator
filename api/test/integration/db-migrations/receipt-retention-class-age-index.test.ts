@@ -57,6 +57,9 @@ describe.skipIf(!handle)('receipt retention class/age index migration', () => {
         expect(indexes.map(row => row.Column_name)).toEqual(['replay_class', 'created_at']);
         expect(indexes[0]?.Non_unique).toBe(1);
       }
+      // Current external clocks use the companion covering result-state index.
+      const stateMigration = (await loadMigrations()).find(m => m.version === '0131')!;
+      for (const statement of stateMigration.statements) await connection.query(statement);
       await connection.query('ANALYZE TABLE control_plane_command_receipts');
       const plans: RowDataPacket[] = [];
       const tx = {
@@ -65,10 +68,9 @@ describe.skipIf(!handle)('receipt retention class/age index migration', () => {
           if (query.sql.startsWith('SELECT') && query.sql.includes("replay_class='internal'")) {
             const [plan] = await connection.query<RowDataPacket[]>('EXPLAIN ' + query.sql, query.params);
             plans.push(plan[0]!);
-            // Past probes and cleanup must skip the older external prefix.
-            // A future LIMIT 1 may cheaply use the existing age index because
-            // its first row is already internal; leave that optimizer choice.
-            if (query.sql.includes('<=')) expect(plan[0]?.key).toBe('command_receipts_class_age');
+            // Both clock directions and cleanup must seek the class/age
+            // index; LIMIT must never turn this into a full age-index scan.
+            expect(plan[0]?.key).toBe('command_receipts_class_age');
             expect(plan[0]?.type).toBe('range');
           }
           return connection.query(query.sql, query.params);

@@ -39,9 +39,10 @@ describe.skipIf(!handle)('receipt retention state/age index migration', () => {
         ['host:test', 'due', 'external', 'available', 'retained', at(16)],
         ['host:test', 'unknown', 'future-class', 'available', 'retained', at(1)],
       ]]);
-      let past: ReturnType<MySqlDialect['sqlToQuery']> | undefined;
+      let past: ReturnType<MySqlDialect['sqlToQuery']> | undefined, indexed = false;
       const tx = { async execute(statement: SQL) {
         const query = dialect.sqlToQuery(statement);
+        if (!indexed) query.sql = query.sql.replace(/ FORCE INDEX \(`[^`]+`\)/g, '');
         if (query.sql.includes("replay_class<>'internal'") && query.sql.includes('<=?')) past = query;
         return connection.query(query.sql, query.params);
       } } as unknown as PersistenceTransaction;
@@ -58,6 +59,8 @@ describe.skipIf(!handle)('receipt retention state/age index migration', () => {
         expect(indexes.map(row => row.Column_name)).toEqual(['result_state', 'created_at', 'replay_class']);
       }
       await connection.query('ANALYZE TABLE control_plane_command_receipts');
+      indexed = true;
+      expect(await coldClock(tx, 'receipts', now, policy)).toEqual(before);
       const [plan] = await connection.query<RowDataPacket[]>('EXPLAIN ' + past!.sql, past!.params);
       expect(plan[0]!.key).toBe('command_receipts_state_age');
       expect(plan[0]!.Extra).toContain('Using index');
