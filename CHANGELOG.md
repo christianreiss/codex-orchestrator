@@ -1,5 +1,7 @@
 # 2026-11-15
 
+- **Receipt retention latency:** index available receipt results by state and age, covering the replay-class check. Retention clocks skip expired history instead of scanning tens of thousands of rows in the shared owner queue, which could exhaust registration and finalization deadlines and surface as HTTP 409 `communicator_outcome_unknown`.
+
 - **Repeated session abandonment:** a lifecycle resumed by its own process can be abandoned again without duplicating its durable `server:abandoned` marker. Reconciliation still finalizes the session and releases claims, preserving newer portal event cursors instead of rolling back scope/context operations with a duplicate-key error.
 
 # 2026-11-13

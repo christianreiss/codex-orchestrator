@@ -3135,6 +3135,7 @@ export const controlPlaneCommandReceipts = mysqlTable('control_plane_command_rec
   pk: primaryKey({ columns: [t.principal, t.requestId] }),
   age: index('command_receipts_retention').on(t.createdAt),
   classAge: index('command_receipts_class_age').on(t.replayClass, t.createdAt),
+  stateAge: index('command_receipts_state_age').on(t.resultState, t.createdAt, t.replayClass),
 }));
 export const controlPlaneOutbox = mysqlTable('control_plane_outbox', {
   id: char('id', { length: 36 }).primaryKey(),
