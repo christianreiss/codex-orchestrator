@@ -792,6 +792,35 @@ describe('offline owners', () => {
     await h.service.reconcileOwned(Date.now() + 25 * 3600_000);
     expect(h.state.snapshot().sessions.get(h.sessionId)?.endedAt).not.toBeNull();
   });
+  it('can abandon a revived lifecycle again without duplicating its marker or rewinding portal cursors', async () => {
+    const h = setup(), claim = await disconnected(h);
+    const ttl = loadTestEnv().AGENT_PORTAL_BRIDGE_TTL_SECONDS * 1000;
+    const reconcileAt = Date.now() + ttl + 60_000;
+    edit(h, draft => draft.upsert('agentSessions', {
+      ...draft.table('agentSessions').get(h.sessionId)!, bridgeExpiresAt: new Date(Date.now() - 1000).toISOString(),
+    }));
+    await h.service.reconcileOwned(reconcileAt);
+    const markers = () => h.fake.tables.get(schema.agentEvents)!
+      .filter(row => row.sessionId === h.sessionId && row.clientEventId === 'server:abandoned');
+    expect(markers()).toHaveLength(1);
+    // Same-credential re-registration revives the lifecycle; newer portal
+    // events must stay ahead of the original abandonment marker.
+    edit(h, draft => draft.upsert('agentSessions', {
+      ...draft.table('agentSessions').get(h.sessionId)!, status: 'active', endedAt: null,
+      portalEventCursor: 999, portalLastEventType: 'assistant_message',
+    }));
+    await h.service.reconcileOwned(reconcileAt + 60_000);
+    expect(markers()).toHaveLength(1);
+    expect(h.state.snapshot().sessions.get(h.sessionId)).toMatchObject({
+      status: 'failed', portalEventCursor: 999, portalLastEventType: 'assistant_message',
+    });
+    expect(h.state.snapshot().claims.get(claim.id)?.state).toBe('released');
+    // A poisoned global reconciliation used to make even unrelated context
+    // and claim reads fail. Once terminal, the next tick is a no-op.
+    const execute = vi.spyOn(h.owner, 'execute');
+    await h.service.reconcileOwned(reconcileAt + 120_000);
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('restamps a connected session last-seen so it survives an API restart, and leaves a fresh one alone', async () => {
     const h = setup();
     await h.service.reconcileOwned();

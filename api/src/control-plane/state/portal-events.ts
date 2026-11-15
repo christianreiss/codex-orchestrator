@@ -1,15 +1,31 @@
 import { appendCompanionEvent } from './companion-index.js';
 import { recordAssistantResponse } from './messaging-totals.js';
 import { agentEvents } from '../../db/schema.js';
+import { and, eq } from 'drizzle-orm';
 import type { OwnerMutationContext } from './runtime.js';
 
 /** Cold event body and bounded metadata become visible in the same commit. */
 export function stagePortalEvent(
   context: OwnerMutationContext,
   input: typeof agentEvents.$inferInsert,
+  options: { once?: boolean } = {},
 ): { id: number } {
   const result = { id: 0 };
   context.write(async (tx) => {
+    // A resumed lifecycle can abandon again. Its durable marker remains valid;
+    // reusing it must neither fail reconciliation nor rewind the event cursor.
+    // Owner commands serialize this check and insert in the same transaction.
+    if (options.once && input.clientEventId) {
+      const [existing] = await tx
+        .select({ id: agentEvents.id })
+        .from(agentEvents)
+        .where(and(eq(agentEvents.sessionId, input.sessionId), eq(agentEvents.clientEventId, input.clientEventId)))
+        .limit(1);
+      if (existing) {
+        result.id = existing.id;
+        return;
+      }
+    }
     const [inserted] = await tx.insert(agentEvents).values(input);
     result.id = Number(inserted.insertId);
     recordAssistantResponse(context.draft, input);

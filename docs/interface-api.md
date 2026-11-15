@@ -1097,8 +1097,11 @@ All four engine config GET/store routes share the revision contract: `revision` 
   or for 24 hours when it is interactive and advertises
   `suspend_recovery_version: 1`; armed reboot handoffs and `reboot_wait` are
   exempt. While attached, a session's `heartbeat_at` is restamped every
-  10 minutes so last-seen survives an API restart. Legacy timed registrations
-  retain their compatibility rules. `git_list` omits clones with no active or
+  10 minutes so last-seen survives an API restart.
+  The durable `server:abandoned` marker is inserted once per lifecycle, including
+  when its own process re-registers and it later disconnects again. Reusing the
+  marker never rewinds newer portal event cursors or aborts reconciliation.
+  Legacy timed registrations retain their compatibility rules. `git_list` omits clones with no active or
   uncertain registration, no live lease and no registration retired in the last 24 hours unless `include_idle: true`
   (`idle_omitted` counts them; scope `clone` always shows its clone). A clone with no `active`/`uncertain`
   registration, no open merge request (lease or wait) and no activity (its `last_seen_at`/`updated_at`, or any

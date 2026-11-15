@@ -62,7 +62,7 @@ export function stageOwnerLiveness(
       source: 'bridge',
       payloadEnc: encrypt(JSON.stringify({ summary: 'Agent disconnected before finalization' }), keyring),
       createdAt: at,
-    });
+    }, { once: true });
     changed = true;
   }
   return changed;

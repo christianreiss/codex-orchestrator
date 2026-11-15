@@ -1,3 +1,7 @@
+# 2026-11-15
+
+- **Repeated session abandonment:** a lifecycle resumed by its own process can be abandoned again without duplicating its durable `server:abandoned` marker. Reconciliation still finalizes the session and releases claims, preserving newer portal event cursors instead of rolling back scope/context operations with a duplicate-key error.
+
 # 2026-11-13
 
 - **cxx 0.9.181 — complete Codex Voice packages:** managed Codex installs preserve the official package layout, Voice helper, audio libraries, plugins and notices. Existing binary-only installations and missing or truncated package resources are repaired at the same Codex version through a freshly verified private prefix. Package and Voice inventory hashes, build identity, native loader and GStreamer/plugin initialization are checked before publication; active sessions keep their original prefix. Linux Voice requires glibc even when the main CLI is musl-built.
