@@ -1,3 +1,9 @@
+# 2026-11-16
+
+- **Sidebar and header accessibility:** navigation/account labels wrap under text enlargement; compact navigation and utility icons have keyboard-visible tooltips. Breadcrumbs and header indicators reflow without hiding the current location. Appearance choices expose the selected option, failed saves remain visible with retry, and the Skip to content target has a visible focus ring. Shared tooltips expose their tooltip role.
+
+- **Readable web chats and simpler sending:** shared chats now have one Send button and a visible recipient selector, defaulting to Everyone; individual agents and posting without requesting replies remain available. Reply selects the original agent. Direct and shared chats use consistent sender headers, quoted reply previews and expandable long messages, with full-text copying and secondary actions under More. Direct messages use Ctrl/⌘+Enter to send and Enter for a new line. Current questions, approvals and errors remain visible; existing delivery and retry contracts are preserved.
+
 # 2026-11-15
 
 - **Receipt retention latency:** index available receipt results by state and age, covering the replay-class check. Pin receipt clocks and cleanup to their class/age or state/age indexes, preventing MySQL's `ORDER BY … LIMIT` optimization from choosing a full history scan. This keeps tens of thousands of rows out of the shared owner queue, which could exhaust registration and finalization deadlines and surface as HTTP 409 `communicator_outcome_unknown`.

@@ -544,3 +544,33 @@ test("native activity changes labels without changing receiver send permission",
   await expect(page.locator(`#client-${CODEX}`).getByRole("img", { name: "Unknown", exact: true })).toBeVisible();
   await page.screenshot({path: "/tmp/cxx-native-activity-web.png", fullPage: true});
 });
+
+test("direct chat shares readable messages, quotes, expansion and explicit Send", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const state = await fixtures(page);
+  state.sessions[0].launch_name = "Carla";
+  state.events = [
+    { cursor: 1, session_id: CODEX, type: "user_message", source: "portal", payload: { text: "Review the delivery chain" }, created_at: new Date(Date.now() - 1000).toISOString() },
+    { cursor: 2, session_id: CODEX, type: "assistant_message", source: "engine", payload: { text: "## Findings\n\n" + "A complete verification paragraph with reproducible evidence.\n\n".repeat(30), reply_to: 1 }, created_at: new Date().toISOString() },
+  ];
+  await open(page); await page.locator(`#client-${CODEX}`).click();
+  const message = page.getByRole("article", { name: "Message from Carla" });
+  await expect(message.getByRole("button", { name: "Show full message" })).toBeVisible();
+  const quote = message.getByRole("button", { name: /Reply to You/ });
+  await expect(quote).toContainText("Review the delivery chain");
+  await quote.click();
+  await expect(page.locator("#session-event-1")).toBeFocused();
+  await message.getByRole("button", { name: "Show full message" }).click();
+  await page.locator(`#client-${CLAUDE}`).click();
+  await page.locator(`#client-${CODEX}`).click();
+  await expect(message.getByRole("button", { name: "Show less" })).toBeVisible();
+  await message.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(page.getByText("Replying to Carla", { exact: false })).toBeVisible();
+  const input = page.getByLabel("Message this agent");
+  await input.fill("Follow up"); await input.press("Enter");
+  expect(state.bodies.filter(b => b.path.endsWith("/messages"))).toHaveLength(0);
+  await input.press("Control+Enter");
+  await expect.poll(() => state.bodies.filter(b => b.path.endsWith("/messages")).length).toBe(1);
+  expect(state.bodies.find(b => b.path.endsWith("/messages"))?.body).toMatchObject({ metadata: { reply_to: 2 } });
+  await page.screenshot({ path: info.outputPath("direct-chat-redesign.png"), fullPage: true });
+});

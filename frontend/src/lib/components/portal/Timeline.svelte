@@ -1,7 +1,7 @@
 <script lang="ts">
   import ArrowDownIcon from "@lucide/svelte/icons/arrow-down";
   import MessageSquareDashedIcon from "@lucide/svelte/icons/message-square-dashed";
-  import { buildTimeline, visibleTimeline } from "$lib/portal/grouping";
+  import { buildTimeline, visibleTimeline, eventText } from "$lib/portal/grouping";
   import { deliveryIndex } from "$lib/portal/delivery";
   import type { Agent, TimelineSource } from "$lib/portal/types";
   import { prefersReducedMotion } from "$lib/portal/browser";
@@ -72,17 +72,24 @@
       {:else if item.role === "lifecycle"}
         <LifecycleRule event={item.event} />
       {:else if item.role === "you" || item.role === "agent"}
+        {@const original = portal.timeline.find(e => e.cursor === item.event.payload.reply_to)}
         <MessageBubble
           event={item.event}
           role={item.role}
-          startsGroup={item.startsGroup}
-          endsGroup={item.endsGroup}
           deliveryIndex={delivery}
           showDelivery={true}
           activity={agent}
           now={portal.now}
           session={agent.id}
           {onreply}
+          agentName={agent.launch_name || "Agent"}
+          replyName={original?.type === "user_message" ? "You" : agent.launch_name || "Agent"}
+          replyText={original ? eventText(original) : undefined}
+          onjump={original ? () => {
+            const node = document.getElementById(`session-event-${original.cursor}`);
+            node?.scrollIntoView({ block: "center" });
+            node?.focus({ preventScroll: true });
+          } : undefined}
         />
       {:else}
         <StatusLine event={item.event} />

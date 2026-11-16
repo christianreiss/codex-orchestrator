@@ -49,9 +49,11 @@ async function fixture(page: Page) {
         "The release candidate is ready for review.\n\n- Authentication checks passed\n- The room keeps its own history\n\nWhich scenario should we exercise next?",
       attachments: [],
       kind: "chat",
+      reactions: [],
     },
   ];
   const sends: Record<string, unknown>[] = [];
+  let pinned: string[] = [];
   // The member's agent: rooms only count as current while it is an online agent.
   const agents: Record<string, unknown>[] = [{
     id: AGENT, engine: "codex", host_id: 1, host: "biest.example", username: "operator", cwd: "/srv/fleet",
@@ -62,7 +64,8 @@ async function fixture(page: Page) {
     work: { task: null, branch: null, target_branch: null, declared_paths: [], worktree_path: null, address: null, address_alias: null },
   }];
   let loseResponse = false;
-  await page.routeWebSocket("**/room-ws", ws => { ownerStream(ws); });
+  let emit: ((data: string) => void) | undefined;
+  await page.routeWebSocket("**/room-ws", ws => { ownerStream(ws); emit = data => ws.send(data); });
   await page.addInitScript(() => {
     class MockSource extends EventTarget {
       close() {}
@@ -140,7 +143,19 @@ async function fixture(page: Page) {
         room: rooms.find((r) => r.id === body.room_id),
         events,
         next_before: null,
+        pinned,
       });
+    }
+    if (path.endsWith("/reactions")) {
+      const b = req.postDataJSON();
+      const reactions = b.on ? [{ emoji: b.emoji, count: 1, mine: true }] : [];
+      events[0].reactions = reactions;
+      return json({ reactions });
+    }
+    if (path.endsWith("/pin")) {
+      const b = req.postDataJSON();
+      pinned = b.on ? [String(events[0].id)] : [];
+      return json({ pinned });
     }
     if (path === "/admin/agent-messaging/chats/send") {
       const b = req.postDataJSON();
@@ -157,6 +172,7 @@ async function fixture(page: Page) {
           created_at: new Date().toISOString(),
           content: b.content,
           attachments: b.attachments,
+          reply_to: b.reply_to,
           kind: "chat",
         });
       return json({ id: b.client_request_id });
@@ -171,6 +187,10 @@ async function fixture(page: Page) {
     return json({});
   });
   return {
+    update: async () => {
+      await expect.poll(() => Boolean(emit)).toBe(true);
+      emit!(JSON.stringify({ type: "agent_room_chat.changed", payload: { room_id: GROUP }, ts: new Date().toISOString() }));
+    },
     rooms,
     agents,
     events,
@@ -231,7 +251,10 @@ test("shared rooms sit beside direct chats; switching preserves drafts and targe
   await page
     .getByLabel("Message this conversation")
     .fill("Review the edge cases");
-  await page.getByLabel("Ask an agent").selectOption(AGENT);
+  await page.getByRole("button", { name: "Choose recipients" }).click();
+  await page.getByRole("radio", { name: "Choose agents", exact: true }).check();
+  await page.getByRole("checkbox", { name: "Liliana" }).check();
+  await page.keyboard.press("Escape");
   await page.locator(`#room-${CONF}`).click();
   await page.getByLabel("Message this conversation").fill("Conference draft");
   await page.locator(`#room-${GROUP}`).click();
@@ -357,4 +380,130 @@ test("managed run groups link to their report, fence generic membership and reta
   await expect(page.getByLabel("Message this conversation")).toHaveCount(0);
   await expect(page.getByText("The release candidate is ready for review.",{exact:false})).toBeVisible();
   await page.getByRole("button",{name:"History",exact:true}).click();await expect(page.locator(`#room-${GROUP}`)).toBeVisible();
+});
+
+test("one Send defaults to everyone, notes are explicit, and replies select the author", async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto(`/admin/agents?room=${GROUP}`);
+  const input = page.getByLabel("Message this conversation");
+  const target = page.getByRole("button", { name: "Choose recipients" });
+  await expect(target).toHaveText("To: Everyone");
+  await expect(page.getByRole("button", { name: "Ask the room" })).toHaveCount(0);
+  await input.fill("Review together");
+  await input.press("Enter");
+  expect(state.sends).toHaveLength(0);
+  await input.press("Control+Enter");
+  await expect.poll(() => state.sends.length).toBe(1);
+  expect(state.sends[0]).toMatchObject({ ask_all: true, recipients: [] });
+  await expect(input).toHaveValue("");
+  await target.click();
+  await page.getByRole("radio", { name: "Post without requesting replies" }).check();
+  await page.keyboard.press("Escape");
+  await input.fill("For the record");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => state.sends.length).toBe(2);
+  expect(state.sends[1]).toMatchObject({ ask_all: false, recipients: [] });
+  await expect(target).toHaveText("To: Everyone");
+  const original = page.getByRole("article", { name: "Message from Liliana" });
+  await original.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(target).toHaveText("To: Liliana");
+  await input.fill("Please explain the authentication checks");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => state.sends.length).toBe(3);
+  expect(state.sends[2]).toMatchObject({ ask_all: false, recipients: [AGENT], reply_to: "66666666-6666-4666-8666-666666666666" });
+  const quote = page.getByRole("button", { name: /Reply to Liliana/ });
+  await expect(quote).toContainText("release candidate");
+  await quote.click();
+  await expect(original).toBeFocused();
+  await page.getByRole("article", { name: "Message from Chris" }).first().getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(target).toHaveText("To: Everyone");
+});
+
+test("an empty explicit selection cannot send and unavailable agents stay selectable", async ({ page }) => {
+  const state = await fixture(page);
+  state.rooms[0].members.push({ ...state.rooms[0].members[0], id: "77777777-7777-4777-8777-777777777777", name: "Morgan", reachable: false });
+  await page.goto(`/admin/agents?room=${GROUP}`);
+  await page.getByLabel("Message this conversation").fill("A targeted question");
+  await page.getByRole("button", { name: "Choose recipients" }).click();
+  await page.getByRole("radio", { name: "Choose agents", exact: true }).check();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+  await page.getByRole("checkbox", { name: "Morgan · unavailable" }).check();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => state.sends.length).toBe(1);
+  expect(state.sends[0].recipients).toEqual(["77777777-7777-4777-8777-777777777777"]);
+});
+
+for (const width of [320, 390, 1440]) for (const theme of ["light", "dark"]) {
+  test(`long chat ${width}px ${theme}: readable previews, full copy, preserved expansion`, async ({ page, context }, info) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.emulateMedia({ colorScheme: theme });
+    await page.addInitScript(theme => localStorage.setItem("codex.theme", theme), theme);
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const state = await fixture(page);
+    const text = "## Review outcome\n\n" + Array.from({ length: 25 }, (_, i) => `Paragraph ${i + 1}: Authentication and delivery evidence remain independently verifiable.\n\n`).join("") + "```sh\n" + "example-".repeat(80) + "\n```\n\n| Check | Outcome |\n| --- | --- |\n| Auth | Passed |\n\nFinal evidence marker.";
+    state.events[0].content = text;
+    await page.goto(`/admin/agents?room=${GROUP}`);
+    const message = page.getByRole("article", { name: "Message from Liliana" });
+    const expand = message.getByRole("button", { name: "Show full message" });
+    await expect(expand).toBeVisible();
+    await expect(message.locator(".folded")).toHaveCount(1);
+    await expect(message.getByRole("button", { name: "Copy code" })).toHaveCount(0);
+    await message.getByRole("button", { name: "Message actions" }).click();
+    await page.getByRole("button", { name: "Copy full message", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(text);
+    await page.keyboard.press("Escape");
+    await expand.click();
+    await expect(message.getByText("Final evidence marker.", { exact: true })).toBeVisible();
+    await expect(message.getByRole("button", { name: "Copy code" })).toBeVisible();
+    await page.getByRole("button", { name: "Show less" }).click();
+    await expect(expand).toBeVisible();
+    await page.screenshot({ path: info.outputPath(`long-chat-${width}-${theme}.png`), fullPage: true });
+    await expand.click();
+    // Room switches remount the conversation, but keep expansion state.
+    if (width < 1024) await page.getByRole("button", { name: "Back to conversations" }).click();
+    await page.locator(`#room-${CONF}`).click();
+    if (width < 1024) await page.getByRole("button", { name: "Back to conversations" }).click();
+    await page.locator(`#room-${GROUP}`).click();
+    await expect(page.getByRole("button", { name: "Show less" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const axe = await new AxeBuilder({ page }).include('[aria-label="Shared conversation"]').analyze();
+    expect(axe.violations).toEqual([]);
+  });
+}
+
+test("new messages retain the reading position, and unresolvable replies explain missing history", async ({ page }) => {
+  const state = await fixture(page);
+  state.events.push(...Array.from({ length: 12 }, (_, i) => ({ ...state.events[0], id: `event-${i}`, created_at: new Date(Date.now() + i + 1).toISOString(), content: `Review ${i}. ` + "Further evidence. ".repeat(25) })));
+  state.events[0].reply_to = "older-event";
+  state.events[0].deliveries = [{ address_id: AGENT, status: "unreachable" }];
+  await page.goto(`/admin/agents?room=${GROUP}`);
+  const history = page.getByRole("region", { name: "Conversation history" });
+  await history.evaluate(node => { node.scrollTop = 0; node.dispatchEvent(new Event("scroll")); });
+  await expect(page.getByText("Load earlier history", { exact: false })).toBeVisible();
+  await expect(page.getByText("Some agents could not be reached")).toBeVisible();
+  await expect(page.getByText("Delivery details · 1 recipient")).toBeVisible();
+  state.events.push({ ...state.events[0], id: "latest-event", reply_to: undefined, deliveries: [], created_at: new Date(Date.now() + 50).toISOString(), content: "A new contribution" });
+  await state.update();
+  await expect(history).toContainText("A new contribution");
+  expect(await history.evaluate(node => node.scrollTop)).toBeLessThan(10);
+  await expect(page.getByRole("button", { name: "New messages ↓" })).toBeVisible();
+});
+
+test("More keeps reactions and pins reachable by keyboard and copy failures visible", async ({ page }) => {
+  await fixture(page);
+  await page.goto(`/admin/agents?room=${GROUP}`);
+  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("denied"); } } }); });
+  const message = page.getByRole("article", { name: "Message from Liliana" });
+  const more = message.getByRole("button", { name: "Message actions" });
+  await more.focus(); await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Copy full message", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Could not copy." })).toBeVisible();
+  await page.getByRole("button", { name: "React", exact: true }).click();
+  await page.getByRole("button", { name: "React with 👍", exact: true }).click();
+  await expect(message.getByRole("button", { name: /1 reaction, including yours/ })).toBeVisible();
+  await page.getByRole("button", { name: "Pin", exact: true }).click();
+  await expect(page.getByRole("button", { name: /1 pinned message/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(more).toBeFocused();
 });

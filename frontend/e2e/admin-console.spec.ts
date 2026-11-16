@@ -1918,8 +1918,8 @@ test("appearance menu switches light and dark immediately and persists across re
   await expect(page.locator("html")).toHaveClass(/dark/);
   for (const choice of ["Light", "Dark"]) {
     await page.getByRole("button", { name: "Appearance", exact: true }).click();
-    await expect(page.getByRole("menuitem", { name: choice, exact: true })).toBeVisible();
-    await page.getByRole("menuitem", { name: choice, exact: true }).click();
+    await expect(page.getByRole("menuitemradio", { name: choice, exact: true })).toBeVisible();
+    await page.getByRole("menuitemradio", { name: choice, exact: true }).click();
     await expect.poll(() => page.locator("html").evaluate(el => el.classList.contains("dark"))).toBe(choice === "Dark");
     await expect.poll(() => writes.at(-1)).toBe(choice.toLowerCase());
     await page.reload();
@@ -1928,20 +1928,20 @@ test("appearance menu switches light and dark immediately and persists across re
   await page.goto("/admin/account#appearance");
   await expect(page.getByRole("radio", { name: /Dark/ })).toBeChecked();
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Light", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "Light", exact: true }).click();
   await expect(page.getByRole("radio", { name: /Light/ })).toBeChecked();
   await expect.poll(() => writes.at(-1)).toBe("light");
   // Selection updates the theme before the closing menu releases its focus
   // scope. Wait for removal before resizing and opening it with the keyboard.
-  await expect(page.getByRole("menuitem", { name: "Light", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitemradio", { name: "Light", exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Appearance", exact: true }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("menuitem", { name: "Light", exact: true })).toBeFocused();
+  await expect(page.getByRole("menuitemradio", { name: "Light", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "Dark", exact: true })).toBeFocused();
+  await expect(page.getByRole("menuitemradio", { name: "Dark", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(page.getByRole("menuitem", { name: "System", exact: true })).toBeFocused();
+  await expect(page.getByRole("menuitemradio", { name: "System", exact: true })).toBeFocused();
   await page.keyboard.press("Enter");
   await expect.poll(() => writes.at(-1)).toBe("auto");
   await expect(page.getByRole("radio", { name: /System/ })).toBeChecked();
@@ -1964,7 +1964,7 @@ test("appearance menu restores the previous theme when saving fails", async ({ p
   await page.goto("/admin/dashboard");
   await expect(page.locator("html")).toHaveClass(/dark/);
   await page.getByRole("button", { name: "Appearance", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Light", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "Light", exact: true }).click();
   await expect(page.getByText("Could not save appearance", { exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveClass(/dark/);
   await expect.poll(() => page.evaluate(() => localStorage.getItem("codex.theme"))).toBe("dark");

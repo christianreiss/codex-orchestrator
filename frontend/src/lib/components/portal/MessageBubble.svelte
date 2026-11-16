@@ -2,90 +2,44 @@
   import type { EventRow } from "$lib/portal/types";
   import { eventText } from "$lib/portal/grouping";
   import { deliveryFor, DELIVERY_LABEL, type Delivery, type DeliveryActivity } from "$lib/portal/delivery";
-  import { clockTime } from "$lib/portal/browser";
   import AttachmentList from "./AttachmentList.svelte";
-  import MarkdownBody from "./MarkdownBody.svelte";
+  import MessageFrame from "./MessageFrame.svelte";
+  import MessageContent from "./MessageContent.svelte";
+  import MessageActions from "./MessageActions.svelte";
+  import ReplyQuote from "./ReplyQuote.svelte";
 
   let {
     event,
     role,
-    startsGroup,
-    endsGroup,
     deliveryIndex,
     showDelivery,
     activity,
     now,
     session,
     onreply,
+    agentName, replyName, replyText, onjump,
   }: {
     event: EventRow;
     role: "you" | "agent";
-    startsGroup: boolean;
-    endsGroup: boolean;
     deliveryIndex: Map<string, Delivery>;
     showDelivery: boolean;
     activity?: DeliveryActivity;
     now?: number;
     session?: string;
     onreply?: (cursor:number)=>void;
+    agentName: string; replyName?: string; replyText?: string; onjump?: () => void;
   } = $props();
 
   const delivery = $derived(showDelivery ? deliveryFor(event, deliveryIndex, activity, now) : null);
-  const time = $derived(clockTime(event.created_at));
 </script>
 
-<div class="group flex flex-col {role === 'you' ? 'items-end' : 'items-start'} {startsGroup ? 'mt-2' : 'mt-0.5'}">
-  <div
-    class="bubble max-w-[min(85%,40rem)] sm:max-w-[min(75%,40rem)]
-           {role === 'you' ? 'bubble-you' : 'bubble-agent'} {endsGroup ? 'bubble-tail' : ''}"
-    title={time}
-  >
-    {#if event.payload.reply_to}<p class="mb-1 border-l-2 pl-2 text-caption opacity-70">Reply to message #{String(event.payload.reply_to)}</p>{/if}
-    {#if role === "agent"}
-      <MarkdownBody text={eventText(event)} />
-    {:else}
-      <!-- Operator text is never markdown: people type * and _ literally. -->
-      <p class="whitespace-pre-wrap break-words text-body">{eventText(event)}</p>
-    {/if}
-    {#if session && Array.isArray(event.payload.attachments)}<AttachmentList {session} ids={event.payload.attachments as string[]} />{/if}
-    <div class="mt-1 flex gap-2 text-caption opacity-60"><button type="button" onclick={() => navigator.clipboard.writeText(eventText(event))}>Copy</button>{#if onreply}<button type="button" onclick={() => onreply?.(event.cursor)}>Reply</button>{/if}</div>
-    <time class="sr-only" datetime={event.created_at}>{time}</time>
-  </div>
-
-  {#if delivery}
-    <p role="status" class="mt-0.5 px-1 text-caption font-medium {delivery === 'failed' ? 'text-destructive' : 'text-muted-foreground'}">
-      {DELIVERY_LABEL[delivery]}
-    </p>
-  {:else}
-    <!-- Messages hides per-bubble times; hover or focus reveals this one. -->
-    <p
-      class="h-0 overflow-hidden px-1 text-caption text-muted-foreground opacity-0 transition-opacity
-             group-hover:h-auto group-hover:opacity-100 group-focus-within:h-auto group-focus-within:opacity-100"
-      aria-hidden="true"
-    >{time}</p>
-  {/if}
-</div>
-
-<style>
-  /*
-   * Component styles keep session message bubbles consistent.
-   *
-   * The tail is a two-shape hook: a wedge in the bubble colour, then a
-   * page-coloured shape that bites the outer edge off it.
-   */
-  .bubble { position: relative; border-radius: 1.1rem; padding: .4rem .8rem; }
-
-  .bubble-you { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
-  .bubble-you.bubble-tail::before,
-  .bubble-you.bubble-tail::after,
-  .bubble-agent.bubble-tail::before,
-  .bubble-agent.bubble-tail::after { content: ""; position: absolute; bottom: 0; height: 1rem; }
-
-  .bubble-you.bubble-tail::before { right: -7px; width: 1.25rem; background: hsl(var(--primary)); border-bottom-left-radius: 16px 14px; }
-  .bubble-you.bubble-tail::after { right: -10px; width: 10px; background: var(--bubble-page, hsl(var(--background))); border-bottom-left-radius: 10px; }
-
-  /* Agent side is the grey Messages bubble; muted is the one grey token both apps share. */
-  .bubble-agent { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
-  .bubble-agent.bubble-tail::before { left: -7px; width: 1.25rem; background: hsl(var(--muted)); border-bottom-right-radius: 16px 14px; }
-  .bubble-agent.bubble-tail::after { left: -10px; width: 10px; background: var(--bubble-page, hsl(var(--background))); border-bottom-right-radius: 10px; }
-</style>
+<MessageFrame id={`session-event-${event.cursor}`} name={role === "you" ? "You" : agentName} createdAt={event.created_at} operator={role === "you"}>
+  {#if event.payload.reply_to}<ReplyQuote name={replyName} text={replyText} onjump={onjump} />{/if}
+  <MessageContent text={eventText(event)} messageKey={`${session}:${event.cursor}`} markdown={role === "agent"} />
+  {#if session && Array.isArray(event.payload.attachments)}<AttachmentList {session} ids={event.payload.attachments as string[]} />{/if}
+  {#snippet actions()}
+    {#if onreply}<button type="button" class="min-h-8 underline-offset-4 hover:underline pointer-coarse:min-h-11" onclick={() => onreply?.(event.cursor)}>Reply</button>{/if}
+    <MessageActions text={eventText(event)} />
+    {#if delivery}<p role="status" class="font-medium {delivery === 'failed' ? 'text-destructive' : 'text-muted-foreground'}">{DELIVERY_LABEL[delivery]}</p>{/if}
+  {/snippet}
+</MessageFrame>

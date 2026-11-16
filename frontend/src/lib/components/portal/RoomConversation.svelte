@@ -32,7 +32,10 @@
     type RoomHistory,
   } from "$lib/api/roomChats";
   import type { AgentAddress } from "$lib/api/agentMessaging";
-  import MarkdownBody from "./MarkdownBody.svelte";
+  import MessageFrame from "./MessageFrame.svelte";
+  import MessageContent from "./MessageContent.svelte";
+  import MessageActions from "./MessageActions.svelte";
+  import ReplyQuote from "./ReplyQuote.svelte";
   import AttachmentList from "./AttachmentList.svelte";
   import ChatUploads from "./ChatUploads.svelte";
   let {
@@ -188,8 +191,9 @@
       loadingOlder = false;
     }
   }
-  async function send(askAll = false) {
-    if (busy || !writable || draft.uploads.some((u) => u.state !== "ready"))
+  async function send() {
+    const askAll = (draft.audience ?? "everyone") === "everyone";
+    if ((!draft.text.trim() && !draft.uploads.length) || busy || !writable || (!draft.pending && draft.audience === "selected" && !draft.recipients.length) || draft.uploads.some((u) => u.state !== "ready"))
       return;
     draft.pending ??= {
       room_id: id,
@@ -197,7 +201,7 @@
       content: draft.text,
       attachments: draft.uploads.map((u) => u.id),
       reply_to: draft.replyTo,
-      recipients: askAll ? [] : draft.recipients,
+      recipients: draft.audience === "selected" ? draft.recipients : [],
       ask_all: askAll,
     };
     busy = true;
@@ -213,12 +217,24 @@
       busy = false;
     }
   }
+  function jump(eventId: string) {
+    const element = document.getElementById(`room-event-${eventId}`);
+    element?.scrollIntoView({ block: "center" });
+    element?.focus({ preventScroll: true });
+  }
+  function reply(event: RoomEvent) {
+    draft.replyTo = event.id;
+    const member = room?.members.find(m => event.actor === `agent:${m.id}`);
+    draft.audience = member ? "selected" : "everyone";
+    draft.recipients = member ? [member.id] : [];
+    input?.focus();
+  }
   function mention(memberId: string) {
     if (!memberId || draft.pending) return;
     const member = room?.members.find((m) => m.id === memberId);
     if (!member) return;
+    draft.audience = "selected";
     draft.recipients = [...new Set([...draft.recipients, memberId])];
-    input?.focus();
   }
   async function manage(
     action: "invite" | "remove" | "close",
@@ -316,7 +332,7 @@
       <h2
         bind:this={heading}
         tabindex="-1"
-        class="break-words text-body font-semibold focus:outline-none"><!-- slop-ok: programmatic focus target (tabindex=-1) -->
+        class="break-words text-body font-semibold focus-visible:ring-2 focus-visible:ring-ring"><!-- slop-ok: programmatic focus target (tabindex=-1) -->
         {room?.title ?? "Conversation"}
       </h2>
       <p class="text-caption text-muted-foreground">
@@ -409,11 +425,10 @@
               <p
                 class="mt-2 text-body-sm leading-relaxed text-muted-foreground"
               >
-                Share a first thought or a file. Choose an @recipient when you
-                want an agent to answer.
+                Write a message or share a file. Everyone is asked to answer unless you choose different recipients.
               </p>
             </div>{/if}
-          <div class="mx-auto max-w-[65ch] space-y-6">
+          <div class="mx-auto max-w-[65ch] space-y-4">
             {#each events as event, i (event.id)}
               {#if i === 0 || event.created_at.slice(0, 10) !== events[i - 1].created_at.slice(0, 10)}<p
                   class="py-2 text-center text-caption text-muted-foreground"
@@ -422,35 +437,16 @@
                     dateStyle: "medium",
                   })}
                 </p>{/if}
-              <article
-                id={`room-event-${event.id}`}
-                tabindex="-1"
-                class="group min-w-0 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={`Message from ${event.name}`}
-              >
-                <div class="mb-1 flex flex-wrap items-baseline gap-x-2">
-                  <span class="text-body-sm font-semibold">{event.name}</span
-                  >{#if event.actor.startsWith("admin:")}<span
-                      class="text-caption text-muted-foreground">Operator</span
-                    >{/if}<time
-                    class="text-caption text-muted-foreground"
-                    datetime={event.created_at}
-                    title={formatDateTime(event.created_at)}
-                    >{formatTime(event.created_at)}</time
-                  >{#if pinned.includes(event.id)}<span
-                      class="inline-flex items-center gap-1 text-caption text-muted-foreground"
-                      ><PinIcon class="h-3 w-3" aria-hidden="true" />Pinned</span
-                    >{/if}
-                </div>
-                {#if event.reply_to}<p
-                    class="mb-2 border-l-2 pl-2 text-caption text-muted-foreground"
-                  >
-                    Reply to {events.find((e) => e.id === event.reply_to)
-                      ?.name ?? "an earlier message"}
-                  </p>{/if}
-                <div class="text-body-sm leading-relaxed">
-                  <MarkdownBody text={event.content} />
-                </div>
+              {#if event.kind === "membership"}
+                <details class="mx-auto max-w-[65ch] text-caption text-muted-foreground"><summary class="min-h-8 cursor-pointer py-2 pointer-coarse:min-h-11">Room update · {event.name}</summary><p class="whitespace-pre-wrap break-words">{event.content}</p></details>
+              {:else}
+              <MessageFrame id={`room-event-${event.id}`} name={event.name} createdAt={event.created_at} operator={event.actor.startsWith("admin:")}>
+                {#if pinned.includes(event.id)}<p class="mb-2 text-caption text-muted-foreground">Pinned</p>{/if}
+                {#if event.reply_to}
+                  {@const original = events.find(e => e.id === event.reply_to)}
+                  <ReplyQuote name={original?.name} text={original?.content} onjump={original ? () => jump(original.id) : undefined} />
+                {/if}
+                <MessageContent text={event.content} messageKey={`room:${id}:${event.id}`} collapsible={["chat", "legacy"].includes(event.kind)} />
                 {#if event.attachments.length}<AttachmentList
                     session={`room:${id}`}
                     ids={event.attachments}
@@ -474,17 +470,9 @@
                         ></button
                       >{/each}
                   </div>{/if}
-                <div
-                  class="mt-1 flex flex-wrap items-center gap-3 text-caption text-muted-foreground"
-                >
-                  {#if writable && event.kind === "chat"}<button
-                      type="button"
-                      class="min-h-8 underline-offset-4 hover:underline focus-visible:underline"
-                      onclick={() => {
-                        draft.replyTo = event.id;
-                        input?.focus();
-                      }}>Reply</button
-                    >{/if}
+                {#snippet actions()}
+                  {#if writable && event.kind === "chat"}<button type="button" class="min-h-8 underline-offset-4 hover:underline pointer-coarse:min-h-11" onclick={() => reply(event)}>Reply</button>{/if}
+                  <MessageActions text={event.content}>
                   {#if writable && annotationsSupported && event.reactions}<Popover.Root
                       open={pickerFor === event.id}
                       onOpenChange={(open) => (pickerFor = open ? event.id : null)}
@@ -535,22 +523,17 @@
                       onclick={() => pin(event.id, !pinned.includes(event.id))}
                       >{pinned.includes(event.id) ? "Unpin" : "Pin"}</button
                     >{/if}
-                  {#if event.deliveries?.length}<details>
-                      <summary class="cursor-pointer py-1"
-                        >{event.deliveries.length} answer request{event
-                          .deliveries.length === 1
-                          ? ""
-                          : "s"}</summary
-                      >
-                      <ul>
-                        {#each event.deliveries as d}<li>
-                            {room?.members.find((m) => m.id === d.address_id)
-                              ?.name ?? "Former member"} · {d.status}
-                          </li>{/each}
-                      </ul>
-                    </details>{/if}
-                </div>
-              </article>
+                  </MessageActions>
+                  {#if event.deliveries?.length}
+                    {#if event.deliveries.some(d => ["unreachable", "undeliverable", "failed", "dead", "expired", "canceled", "wrapper_update_required"].includes(d.status))}<span class="text-destructive">Some agents could not be reached</span>{/if}
+                    <details>
+                      <summary class="min-h-8 cursor-pointer py-1 pointer-coarse:min-h-11">Delivery details · {event.deliveries.length} {event.deliveries.length === 1 ? "recipient" : "recipients"}</summary>
+                      <ul>{#each event.deliveries as d}<li>{room?.members.find(m => m.id === d.address_id)?.name ?? "Former member"} · {d.status}</li>{/each}</ul>
+                    </details>
+                  {/if}
+                {/snippet}
+              </MessageFrame>
+              {/if}
             {/each}
           </div>
         </div>
@@ -589,9 +572,7 @@
             {#if draft.replyTo}<div
                 class="flex items-center justify-between border-t px-4 py-2 text-caption"
               >
-                <span
-                  >Replying to {events.find((e) => e.id === draft.replyTo)
-                    ?.name ?? "an earlier message"}</span
+                <span class="min-w-0 flex-1"><strong>Replying to {events.find(e => e.id === draft.replyTo)?.name ?? "an earlier message"}</strong><span class="block line-clamp-2 break-words">{events.find(e => e.id === draft.replyTo)?.content}</span></span
                 ><button
                   type="button"
                   disabled={!!draft.pending}
@@ -623,57 +604,36 @@
                 rows="3"
                 maxlength="30000"
                 placeholder="Write to the room…"
+                aria-keyshortcuts="Control+Enter Meta+Enter"
                 class="block max-h-44 min-h-20 w-full resize-y rounded border border-input bg-background px-3 py-2 text-body-sm"
                 onkeydown={(e) => {
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.isComposing) {
                     e.preventDefault();
                     void send();
                   }
                 }}></textarea>
-              {#if selectedNames.length}<div class="flex flex-wrap gap-2">
-                  {#each draft.recipients as recipient}<button
-                      type="button"
-                      disabled={!!draft.pending}
-                      class="min-h-8 rounded border px-2 text-caption"
-                      aria-label={`Remove recipient ${room.members.find((m) => m.id === recipient)?.name ?? recipient}`}
-                      onclick={() =>
-                        (draft.recipients = draft.recipients.filter(
-                          (r) => r !== recipient,
-                        ))}
-                      >@{room.members.find((m) => m.id === recipient)?.name ??
-                        "Former member"} ×</button
-                    >{/each}
-                </div>{/if}
               <div class="flex flex-wrap items-center gap-2">
-                <select
-                  aria-label="Ask an agent"
-                  class="h-9 min-w-0 max-w-48 rounded border border-input bg-background px-2 text-body-sm"
-                  disabled={busy || !!draft.pending}
-                  value=""
-                  onchange={(e) => {
-                    mention(e.currentTarget.value);
-                    e.currentTarget.value = "";
-                  }}
-                  ><option value="">@ Ask an agent</option
-                  >{#each room.members as member}<option value={member.id}
-                      >{member.name}{member.reachable
-                        ? ""
-                        : " · unavailable"}</option
-                    >{/each}</select
-                ><div class="ml-auto flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={busy ||
-                    !!draft.pending ||
-                    (!draft.text.trim() && !draft.uploads.length) ||
-                    draft.uploads.some((u) => u.state !== "ready") ||
-                    !room.members.some((m) => m.reachable)}
-                  onclick={() => send(true)}>Ask the room</Button
-                >
+                <Popover.Root>
+                  <Popover.Trigger>
+                    {#snippet child({ props })}<button {...props} type="button" disabled={busy || !!draft.pending} aria-label="Choose recipients" class="min-h-9 max-w-full rounded border border-input px-3 text-left text-body-sm pointer-coarse:min-h-11">
+                      To: {draft.audience === "note" ? "No reply requested" : draft.audience === "selected" ? selectedNames.join(", ") || "Choose agents" : "Everyone"}
+                    </button>{/snippet}
+                  </Popover.Trigger>
+                  <Popover.Content align="start" class="max-h-80 w-72 overflow-y-auto">
+                    <fieldset disabled={busy || !!draft.pending} class="space-y-2 text-body-sm">
+                      <legend class="mb-2 font-medium">Who should answer?</legend>
+                      <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="radio" name="room-audience" checked={(draft.audience ?? "everyone") === "everyone"} onchange={() => { draft.audience = "everyone"; draft.recipients = []; }} />Everyone</label>
+                      <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="radio" name="room-audience" checked={draft.audience === "selected"} onchange={() => draft.audience = "selected"} />Choose agents</label>
+                      {#if draft.audience === "selected"}<div class="space-y-1 pl-4">{#each room.members as member}<label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="checkbox" checked={draft.recipients.includes(member.id)} onchange={e => { if (e.currentTarget.checked) mention(member.id); else draft.recipients = draft.recipients.filter(r => r !== member.id); }} /><span>{member.name}{!member.reachable ? " · unavailable" : ""}</span></label>{/each}</div>{/if}
+                      <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11 border-t pt-2"><input type="radio" name="room-audience" checked={draft.audience === "note"} onchange={() => { draft.audience = "note"; draft.recipients = []; }} />Post without requesting replies</label>
+                    </fieldset>
+                  </Popover.Content>
+                </Popover.Root>
+                <div class="ml-auto">
                 <Button
                   type="submit"
                   disabled={busy ||
+                    (!draft.pending && draft.audience === "selected" && !draft.recipients.length) ||
                     (!draft.text.trim() && !draft.uploads.length) ||
                     draft.uploads.some((u) => u.state !== "ready")}
                   >{busy
@@ -687,9 +647,13 @@
               <p class="text-caption text-muted-foreground">
                 {draft.pending
                   ? "Send was not confirmed. Retry keeps the same request."
-                  : selectedNames.length
-                    ? `One answer requested from ${selectedNames.join(", ")}.`
-                    : "Shared with the room. Only @recipients or “Ask the room” are asked to answer."}
+                  : draft.audience === "selected" && !draft.recipients.length
+                    ? "Choose at least one agent."
+                    : draft.audience === "note"
+                      ? "Posted to the shared history without requesting replies."
+                      : draft.audience === "selected"
+                        ? `One reply requested from ${selectedNames.join(", ")}.`
+                        : "Everyone is asked to reply once."}
               </p>
             </form>
           {/if}

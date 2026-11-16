@@ -43,7 +43,7 @@
   import { shortAge } from "$lib/portal/browser";
   import { liveActivity } from "$lib/portal/activity";
   import { presenceView } from "$lib/portal/presence";
-  import { listTime, visibleTimeline } from "$lib/portal/grouping";
+  import { listTime, visibleTimeline, eventText } from "$lib/portal/grouping";
   import { wsStatus } from "$lib/stores/ws-status";
   import { clientClock, isOnlineActiveAgent, roomHasActiveAgent, visibleClients } from "$lib/portal/clients";
   import { watchClientEvents, type ClientFeedState } from "$lib/portal/client-events";
@@ -395,7 +395,7 @@
               <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Agents</Button></div>
               <div class="flex min-w-0 flex-col items-center text-center">
                 <EngineAvatar engine={selected.engine} presence={selectedView.presence} activity={liveActivity(selected, serverNow)} status={selectedView.label} size="xs" badge logo />
-                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus:outline-none">{agentName(selected)}</h2><!-- slop-ok: programmatic focus target (tabindex=-1) -->
+                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus-visible:ring-2 focus-visible:ring-ring">{agentName(selected)}</h2><!-- slop-ok: programmatic focus target (tabindex=-1) -->
                 <p class="max-w-full truncate text-caption text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
                 <p class="max-w-full truncate text-caption text-muted-foreground">
                   {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selected.activity || selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
@@ -459,7 +459,7 @@
               {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} onreply={remoteControls && !remoteLive ? undefined : cursor => { replyTargets = {...replyTargets,[selected.id]:cursor}; composerInput?.focus(); }} />{/key}
               {:else}<div class="flex-1"></div>{/if}
               <AttentionCard agent={selected} now={serverNow} {timings} {onreply} onresolved={refresh} busy={$send.isPending} readonly={!canManage || actionsUnavailable || (!!remoteControls && !remoteLive)} />
-              {#if !remoteControls || remoteLive}{#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-caption text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}<p class="px-4 py-1 text-caption">Reply to message #{replyTargets[selected.id]} <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
+              {#if !remoteControls || remoteLive}{#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-caption text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}{@const original = timelineSource.timeline.find(e => e.cursor === replyTargets[selected.id])}<p class="px-4 py-1 text-caption">Replying to {original?.type === "user_message" ? "You" : selected.launch_name || "Agent"}<span class="block line-clamp-2 break-words">{original ? eventText(original) : "Earlier message"}</span> <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
                 {#key selected.id}<ChatUploads session={selected.id} items={uploads[selected.id] ?? []} onitems={(id, items) => uploads = {...uploads,[id]:items}} disabled={$send.isPending} />{/key}
                 {#if selected.pending_prompt?.answer_mode !== 'buttons'}<Composer hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}{/if}{/if}
             {/if}

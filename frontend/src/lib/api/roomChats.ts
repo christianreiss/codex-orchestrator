@@ -59,6 +59,7 @@ export interface RoomDraft {
   text: string;
   uploads: UploadItem[];
   recipients: string[];
+  audience?: "everyone" | "selected" | "note";
   replyTo?: string;
   pending?: RoomSend;
   scrollTop?: number;
@@ -68,6 +69,7 @@ export const emptyRoomDraft = (): RoomDraft => ({
   text: "",
   uploads: [],
   recipients: [],
+  audience: "everyone",
 });
 export const roomKeys = ["agent-messaging", "chats"] as const;
 export const roomRoot = "/admin/agent-messaging/chats";

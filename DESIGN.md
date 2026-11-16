@@ -135,7 +135,7 @@ owning components when moving a setting; update this table in the same change.
 
 ```
 +-----------+-------------------------------------------------------+
-| Sidebar   | Top bar 48 px: breadcrumb | search (Cmd-K) | live,    |
+| Sidebar   | Top bar min 48 px: breadcrumb | search (Cmd-K) | live,    |
 | rail      | temporary-access and report indicators | appearance   |
 | 56 px md, +-------------------------------------------------------+
 | 256 px lg | main#main-content: inset 16 / 24 px, max 1600 px      |
@@ -696,3 +696,24 @@ Agents graph. No design exception.
 ### Native speech input settings (2026-11-12)
 
 Settings Rollout includes the global speech input default and per-engine inheritance. Requested policy and native capability limitations are displayed separately. Reuses Section and Select. Applicable rules: VIS-1/3, INT-3/5/6, ACC-1/3/4. No new surface or exception.
+
+### Readable conversations and one Send action (2026-11-16)
+
+Direct and shared web conversations share MessageFrame, MessageContent, ReplyQuote and MessageActions: neutral blocks, named sender, visible local time with exact zoned accessible timestamp, a 65ch reading measure and 14px body text. Ordinary messages above twenty rendered line heights fold behind Show full message; a plain accessible preview and inert clipped content keep hidden links out of the tab order. Full-message copying retains original text, attachments stay visible, and current questions/approval/error surfaces stay expanded. Reply quotes show source text and focus loaded originals. Secondary actions use More; existing reactions and delivery failures remain visible. Expansion survives chat switches, while background refreshes preserve reading position.
+
+Shared composers default to To: Everyone, one Send action, with individual recipients and posting without replies in a labeled selector. Reply chooses an agent author, otherwise Everyone. Direct chats have a fixed visible recipient. Both use Ctrl/⌘+Enter to send and Enter for a newline. No API default changes. Applicable rules: NAV-3, VIS-1/2/3/4, INT-3/5/6/7/8, ACC-1/2/3/4. No exception. Verification evidence and manual acceptance limits are recorded with delivery.
+
+### Sidebar and top bar Slop corrections (2026-11-16)
+
+The header keeps a 48px minimum rather than a fixed height: breadcrumbs flow as
+inline text, and status/actions wrap when they need another row. Long current
+locations remain readable without hover. Ordinary short locations retain the
+compact single-row header. Sidebar labels and account names wrap; the compact
+rail and utility icons use keyboard-visible tooltips. Shared Tooltip content has
+an explicit tooltip role. Appearance uses checked menu radio items and a durable
+inline failure/retry message after optimistic-theme rollback. Report counts are
+hidden when the read capability is absent. The main skip-link target has a
+focus-visible ring. Existing route groups, palette and destinations stay intact.
+Applicable rules: NAV-1/2/3, VIS-1/2/3/4, INT-3/5/6/7, ACC-1/2/3/4.
+No exception. Checks and remaining limits are recorded in
+[verification](docs/verification/shell-slop-2026-11-16.md).

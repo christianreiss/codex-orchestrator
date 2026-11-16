@@ -31,9 +31,11 @@
   import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
 
   const qc = useQueryClient();
+  let attemptedTheme = $state<ThemeChoice>("system");
   const themeMutation = createMutation({
     mutationFn: (value: ThemeChoice) => persistTheme(value === "system" ? "auto" : value),
     onMutate: async (value: ThemeChoice) => {
+      attemptedTheme = value;
       const previous = get(themeStore);
       await qc.cancelQueries({ queryKey: accountKeys.theme });
       setTheme(value);
@@ -79,7 +81,7 @@
 
     })),
   );
-  const openReports = $derived($feedbackSummary.data?.open ?? 0);
+  const openReports = $derived(canReadFeedback ? ($feedbackSummary.data?.open ?? 0) : 0);
 
   const activeWindows = $derived($hostsSummary.activeInsecureWindows);
   // A fleet-wide auto-allow outranks the per-host count: it is a state of the
@@ -96,16 +98,16 @@
   });
 </script>
 
-<header class="sticky top-0 z-30 flex h-12 shrink-0 items-center justify-between gap-2 border-b bg-card px-4 sm:gap-4 md:px-6">
-  <nav class="min-w-0 overflow-hidden" aria-label="Breadcrumb">
-    <ol class="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-body">
+<header class="sticky top-0 z-30 flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-1.5 sm:gap-x-4 md:px-6">
+  <nav class={breadcrumbs.length > 1 ? "min-w-0 flex-1 basis-full sm:basis-40" : "min-w-0 flex-1 basis-24 sm:basis-40"} aria-label="Breadcrumb">
+    <ol class="min-w-0 break-words text-body leading-relaxed">
       {#each breadcrumbs as crumb, index (crumb.label + index)}
         {#if index > 0}
-          <li aria-hidden="true" class="shrink-0 text-muted-foreground/55">/</li>
+          <li aria-hidden="true" class="mx-1.5 inline text-muted-foreground">/</li>
         {/if}
-        <li class={crumb.route ? "min-w-0 shrink truncate" : "min-w-0 truncate"}>
+        <li class="inline break-words">
           {#if crumb.route}
-            <a href={`${base}${crumb.route}`} class="inline-flex min-h-6 min-w-6 items-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{crumb.label}</a>
+            <a href={`${base}${crumb.route}`} class="rounded-sm text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{crumb.label}</a>
           {:else}
             <span class="font-semibold text-foreground" aria-current="page" title={crumb.label}>{crumb.label}</span>
           {/if}
@@ -113,8 +115,8 @@
       {/each}
     </ol>
   </nav>
-  <div class="flex shrink-0 items-center gap-1 sm:gap-2">
-    <button type="button" class="hidden h-9 w-72 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4 shrink-0" /><span class="min-w-0 flex-1 truncate text-left">Search fleet &amp; commands</span><kbd class="keyboard-key shrink-0">{modifierKey} K</kbd></button>
+  <div class="flex min-w-0 max-w-full flex-wrap items-center gap-1 sm:gap-2">
+    <button type="button" class="hidden h-9 w-72 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4 shrink-0" /><span class="min-w-0 flex-1 truncate text-left">Search fleet &amp; commands</span><kbd class="keyboard-key shrink-0">{modifierKey} K</kbd></button>
     <button type="button" class="shell-icon-button xl:hidden" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4" /></button>
     {#if wsIndicator}
       <Tooltip.Provider>
@@ -153,13 +155,23 @@
       <DropdownMenu.Content align="end" class="w-44" bind:ref={appearanceContent} onOpenAutoFocus={focusAppearanceMenu}>
         <DropdownMenu.Group>
           <DropdownMenu.Label>Appearance</DropdownMenu.Label>
-          <DropdownMenu.Item disabled={$themeMutation.isPending} onSelect={() => $themeMutation.mutate("light")}><Sun class="h-4 w-4" />Light</DropdownMenu.Item>
-          <DropdownMenu.Item disabled={$themeMutation.isPending} onSelect={() => $themeMutation.mutate("dark")}><Moon class="h-4 w-4" />Dark</DropdownMenu.Item>
-          <DropdownMenu.Item disabled={$themeMutation.isPending} onSelect={() => $themeMutation.mutate("system")}><Monitor class="h-4 w-4" />System</DropdownMenu.Item>
+          <DropdownMenu.RadioGroup value={$themeStore} onValueChange={value => {
+            if (["light", "dark", "system"].includes(value)) $themeMutation.mutate(value as ThemeChoice);
+          }} aria-label="Appearance">
+            <DropdownMenu.RadioItem value="light" disabled={$themeMutation.isPending}><Sun class="h-4 w-4" />Light</DropdownMenu.RadioItem>
+            <DropdownMenu.RadioItem value="dark" disabled={$themeMutation.isPending}><Moon class="h-4 w-4" />Dark</DropdownMenu.RadioItem>
+            <DropdownMenu.RadioItem value="system" disabled={$themeMutation.isPending}><Monitor class="h-4 w-4" />System</DropdownMenu.RadioItem>
+          </DropdownMenu.RadioGroup>
         </DropdownMenu.Group>
         <DropdownMenu.Separator />
         <DropdownMenu.Item onSelect={() => goto(`${base}/account#appearance`)}><Palette class="h-4 w-4" />Appearance settings</DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
   </div>
+  {#if $themeMutation.isError}
+    <p role="alert" class="flex basis-full flex-wrap items-center gap-2 text-caption text-destructive">
+      Could not save appearance. Previous appearance restored.
+      <button type="button" class="min-h-8 underline pointer-coarse:min-h-11" onclick={() => $themeMutation.mutate(attemptedTheme)}>Retry appearance</button>
+    </p>
+  {/if}
 </header>

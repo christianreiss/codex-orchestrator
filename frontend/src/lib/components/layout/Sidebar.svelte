@@ -8,6 +8,7 @@
   import { authActions, authStore } from "$lib/stores/auth";
   import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import InsecureApprovalsNavAlert from "./InsecureApprovalsNavAlert.svelte";
+  import * as Tooltip from "$lib/components/ui/tooltip";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import Keyboard from "@lucide/svelte/icons/keyboard";
@@ -26,12 +27,13 @@
   }
 </script>
 
+<Tooltip.Provider>
 <aside aria-label="Fleet workspace" class="sidebar-surface hidden h-full shrink-0 flex-col border-r md:flex md:w-14 lg:w-64">
-  <a href={`${base}/dashboard`} class="flex h-12 shrink-0 items-center gap-3 border-b px-4 outline-none md:max-lg:justify-center md:max-lg:px-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Codex Orchestrator overview">
+  <a href={`${base}/dashboard`} class="flex min-h-12 shrink-0 items-center gap-3 border-b px-4 py-2 outline-none md:max-lg:justify-center md:max-lg:px-0 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" aria-label="Codex Orchestrator overview">
     <BrandMark class="h-8 w-8 rounded-md" />
     <span class="min-w-0 md:max-lg:hidden">
-      <span class="block truncate text-body font-semibold tracking-tight text-foreground">Codex Orchestrator</span>
-      <span class="block truncate text-caption text-muted-foreground">Multi-engine fleet console</span>
+      <span class="block break-words text-body font-semibold tracking-tight text-foreground">Codex Orchestrator</span>
+      <span class="block break-words text-caption text-muted-foreground">Multi-engine fleet console</span>
     </span>
   </a>
 
@@ -48,18 +50,24 @@
               {@const Icon = hub.icon}
               {@const active = isActive(hub, path)}
               <li>
-                <a
+                <Tooltip.Root>
+                <Tooltip.Trigger>
+                {#snippet child({ props })}<a
+                  {...props}
                   href={`${base}${hub.route}`}
                   class={cn(
-                    "relative flex h-9 items-center gap-2.5 rounded-md px-2.5 text-body-sm font-medium md:max-lg:justify-center md:max-lg:px-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    "relative flex min-h-9 items-center gap-2.5 rounded-md px-2.5 py-2 text-body-sm font-medium md:max-lg:justify-center md:max-lg:px-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
                     active ? "bg-primary/15 text-primary before:absolute before:-left-3 md:max-lg:before:-left-2 before:h-5 before:w-0.5 before:rounded-md before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
                   title={`${hub.label}: ${hub.description}`}
                 >
                   <Icon class="h-4 w-4 shrink-0" />
-                  <span class="truncate md:max-lg:sr-only">{hub.label}</span>
-                </a>
+                  <span class="min-w-0 break-words md:max-lg:sr-only">{hub.label}</span>
+                </a>{/snippet}
+                </Tooltip.Trigger>
+                <Tooltip.Content side="right" class="max-w-64 lg:hidden">{hub.label} · {hub.description}</Tooltip.Content>
+                </Tooltip.Root>
               </li>
             {/each}
           </ul>
@@ -71,9 +79,9 @@
   <div class="shrink-0 border-t p-3 md:max-lg:p-2">
     {#if auth.authenticated && auth.user}
       <DropdownMenu.Root>
-        <DropdownMenu.Trigger class="flex h-9 w-full items-center gap-2.5 rounded-md border bg-card px-2.5 text-left text-body md:max-lg:justify-center md:max-lg:px-0 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Account menu for ${auth.user.name ?? auth.user.username}`}>
+        <DropdownMenu.Trigger class="flex min-h-9 w-full items-center gap-2.5 rounded-md border bg-card px-2.5 py-2 text-left text-body md:max-lg:justify-center md:max-lg:px-0 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Account menu for ${auth.user.name ?? auth.user.username}`}>
           <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-muted text-caption">{(auth.user.name ?? auth.user.username ?? "?").slice(0, 1).toUpperCase()}</span>
-          <span class="min-w-0 flex-1 truncate md:max-lg:hidden">{auth.user.name ?? auth.user.username}</span>
+          <span class="min-w-0 flex-1 break-words md:max-lg:hidden">{auth.user.name ?? auth.user.username}</span>
           <ChevronDown class="h-3.5 w-3.5 shrink-0 text-muted-foreground md:max-lg:hidden" />
         </DropdownMenu.Trigger>
         <DropdownMenu.Content side="top" align="start" class="w-52">
@@ -89,7 +97,8 @@
       {#each NAV_FOOTER as item (item.id)}
         {@const Icon = item.icon}
         {@const active = isActive(item, path)}
-        <a
+        <Tooltip.Root><Tooltip.Trigger>
+          {#snippet child({ props })}<a {...props}
           href={`${base}${item.route}`}
           title={item.label}
           aria-label={item.label}
@@ -97,9 +106,11 @@
           class={cn("flex h-9 items-center justify-center rounded-md outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
         >
           <Icon class="h-4 w-4" />
-        </a>
+        </a>{/snippet}
+        </Tooltip.Trigger><Tooltip.Content side="right">{item.label}</Tooltip.Content></Tooltip.Root>
       {/each}
-      <button
+      <Tooltip.Root><Tooltip.Trigger>
+      {#snippet child({ props })}<button {...props}
         type="button"
         onclick={openShortcuts}
         title="Shortcuts"
@@ -107,7 +118,9 @@
         class="flex h-9 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Keyboard class="h-4 w-4" />
-      </button>
+      </button>{/snippet}
+      </Tooltip.Trigger><Tooltip.Content side="right">Keyboard shortcuts</Tooltip.Content></Tooltip.Root>
     </div>
   </div>
 </aside>
+</Tooltip.Provider>
