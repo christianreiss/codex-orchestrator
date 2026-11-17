@@ -943,6 +943,12 @@ All four engine config GET/store routes share the revision contract: `revision` 
   `secret_store`, `secret_delete`) and no value
   is ever written to a host filesystem, so a soft delete takes effect on the
   next read. All four mutations and the reveal require the owner or admin role.
+  - MCP `secret_search` requires every whitespace-separated query word to match
+    a literal, case-insensitive substring in slug, name, description or tags;
+    the words may match different fields. Results rank by matching field count
+    (tags count as one field), then slug, before the result cap. Duplicate words
+    have no extra weight; empty queries list by slug. Queries exceeding 1000
+    characters or 32 distinct words fail validation. No value is searched.
   - `GET /admin/secrets/state` — `{enabled, updated_at, count}` for the
     `secrets_module_enabled` switch.
   - `POST /admin/secrets/state` — `{enabled}` (boolean, `0`/`1`, or

@@ -38,6 +38,8 @@ const SLUG_RE = /^[a-z0-9][a-z0-9._:-]*$/;
 const SLUG_MAX = 96;
 const DEFAULT_LIST_LIMIT = 500;
 const DEFAULT_SEARCH_LIMIT = 50;
+const SEARCH_QUERY_MAX = 1000;
+const SEARCH_TERMS_MAX = 32;
 
 /**
  * The column set every metadata read selects. `valueEnc` is absent by
@@ -211,10 +213,12 @@ function toMetadata(row: {
 const bySlug = (a: SecretMetadata, b: SecretMetadata): number =>
   a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0;
 
-/** Substring match over the fields an agent would search by. */
-function matchesNeedle(row: SecretMetadata, needle: string): boolean {
-  const haystack = [row.slug, row.name, row.description ?? '', row.tags.join(' ')].join(' ').toLowerCase();
-  return haystack.includes(needle);
+/** Every term must match metadata; more matching fields rank ahead of fewer. */
+function searchScore(row: SecretMetadata, terms: string[]): number {
+  const fields = [row.slug, row.name, row.description ?? '', row.tags.join(' ')]
+    .map((field) => field.toLowerCase());
+  if (!terms.every((term) => fields.some((field) => field.includes(term)))) return 0;
+  return fields.filter((field) => terms.some((term) => field.includes(term))).length;
 }
 
 export class SecretsService {
@@ -350,7 +354,8 @@ export class SecretsService {
   }
 
   /**
-   * Substring match over slug, name, description and tags. Deliberately not
+   * AND of whitespace-separated substrings over slug, name, description and
+   * tags, ranked by matching field count then slug. Deliberately not
    * FULLTEXT: this corpus is tens of rows, and MySQL's default
    * `innodb_ft_min_token_size = 3` plus its stopword list would make
    * `secret_search("db")` return nothing with no error — indistinguishable from
@@ -358,20 +363,28 @@ export class SecretsService {
    * An empty query degrades to a listing.
    */
   async search(query: string, opts: ListOptions = {}): Promise<SecretMetadata[]> {
-    const needle = query.trim().toLowerCase();
-    if (needle === '') return this.list({ ...opts, limit: opts.limit ?? DEFAULT_SEARCH_LIMIT });
+    if (query.length > SEARCH_QUERY_MAX) {
+      throw new ValidationError(`query must be ${SEARCH_QUERY_MAX} characters or fewer`, { param: 'query' });
+    }
+    const terms = [...new Set(query.trim().toLowerCase().split(/\s+/u).filter(Boolean))];
+    if (terms.length === 0) return this.list({ ...opts, limit: opts.limit ?? DEFAULT_SEARCH_LIMIT });
+    if (terms.length > SEARCH_TERMS_MAX) {
+      throw new ValidationError(`query must contain ${SEARCH_TERMS_MAX} distinct words or fewer`, { param: 'query' });
+    }
 
     // `%` and `_` are LIKE metacharacters; a query of "100%" must not match all.
-    const pattern = `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
     const conditions: SQL[] = [isNull(secrets.deletedAt)];
-    conditions.push(
-      or(
-        like(secrets.slug, pattern),
-        like(secrets.name, pattern),
-        like(secrets.description, pattern),
-        like(secrets.tagsText, pattern),
-      ) as SQL,
-    );
+    for (const term of terms) {
+      const pattern = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      conditions.push(
+        or(
+          like(secrets.slug, pattern),
+          like(secrets.name, pattern),
+          like(secrets.description, pattern),
+          like(secrets.tagsText, pattern),
+        ) as SQL,
+      );
+    }
 
     const rows =
       this.snapshot()?.table('secrets').all() ??
@@ -385,9 +398,11 @@ export class SecretsService {
     return rows
       .filter((row) => !row.deletedAt)
       .map(toMetadata)
-      .filter((row) => matchesNeedle(row, needle))
-      .sort(bySlug)
-      .slice(0, opts.limit ?? DEFAULT_SEARCH_LIMIT);
+      .map((row) => ({ row, score: searchScore(row, terms) }))
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || bySlug(a.row, b.row))
+      .slice(0, opts.limit ?? DEFAULT_SEARCH_LIMIT)
+      .map(({ row }) => row);
   }
 
   async findById(id: number, opts: { includeDeleted?: boolean } = {}): Promise<SecretMetadata | null> {

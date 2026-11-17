@@ -14,7 +14,10 @@
  * its `admin_events` security audit before returning plaintext and let a failing
  * write propagate. Ordinary MCP calls no longer write SQL access telemetry.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { drizzle } from 'drizzle-orm/mysql-proxy';
+import { bindOwnerRuntime, type OwnerRuntime } from '../../../src/control-plane/state/runtime.js';
+import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
 import { adminEvents, secrets, versions, type Host } from '../../../src/db/schema.js';
 import {
   SecretsService,
@@ -205,9 +208,33 @@ describe('metadata reads', () => {
   });
 });
 
-describe('search', () => {
+describe.each([false, true])('search (owner snapshot: %s)', (owned) => {
+  function searchHarness(seeds: SecretSeed[]) {
+    const harness = makeHarness(seeds);
+    if (owned) {
+      bindOwnerRuntime(harness.db, {
+        assertOwner() {},
+        state: new OwnerStateStore(new OwnerStateSnapshot({ epoch: 'ebd412b0-8141-44e1-92b5-4cf18af09cc9', sequence: 0n }, {
+          secrets: harness.db.tables.get(secrets) as never,
+          versions: harness.db.tables.get(versions) as never,
+        })),
+      } as OwnerRuntime);
+      vi.spyOn(harness.db, 'select').mockImplementation(() => { throw new Error('owner search must not query SQL'); });
+    }
+    return harness;
+  }
+
+  it('matches every purpose word across metadata rather than one contiguous phrase', async () => {
+    const { service } = searchHarness([
+      { slug: 'certmaster-key', name: 'CertMaster root key passphrase', tags: ['root', 'passphrase'], value: 'private-value' },
+      { slug: 'other-key', name: 'CertMaster root key', value: 'passphrase' },
+    ]);
+
+    expect((await service.search('certmaster root passphrase')).map((s) => s.slug)).toEqual(['certmaster-key']);
+  });
+
   it('matches slug, name, description and tags', async () => {
-    const { service } = makeHarness([
+    const { service } = searchHarness([
       { slug: 'gh-pat', name: 'GitHub token', value: 'v' },
       { slug: 'prod-db', name: 'Database', description: 'production postgres', value: 'v' },
       { slug: 'ckmk', name: 'Checkmk', value: 'v', tags: ['monitoring'] },
@@ -219,24 +246,79 @@ describe('search', () => {
   });
 
   it('degrades an empty query to a listing rather than an error', async () => {
-    const { service } = makeHarness([{ slug: 'a', value: 'v' }, { slug: 'b', value: 'v' }]);
-    expect((await service.search('   ')).map((s) => s.slug)).toEqual(['a', 'b']);
+    const { service } = searchHarness([{ slug: 'a', value: 'v' }, { slug: 'b', value: 'v' }]);
+    expect((await service.search(' \t\n\u00a0 ')).map((s) => s.slug)).toEqual(['a', 'b']);
   });
 
   it('escapes LIKE metacharacters so "%" is not a wildcard', async () => {
     // A query of '%' matching everything would be a silent, confusing lie about
     // what the store holds.
-    const { service } = makeHarness([{ slug: 'a', value: 'v' }, { slug: 'b', value: 'v' }]);
+    const { service } = searchHarness([{ slug: 'a', value: 'v' }, { slug: 'b', value: 'v' }]);
     expect(await service.search('%')).toEqual([]);
     expect(await service.search('_')).toEqual([]);
   });
 
   it('returns no ciphertext', async () => {
-    const { service } = makeHarness([{ slug: 'gh-pat', value: 'plaintext-alpha' }]);
+    const { service } = searchHarness([{ slug: 'gh-pat', value: 'plaintext-alpha' }]);
     const serialized = JSON.stringify(await service.search('gh'));
     expect(serialized).not.toContain('sbox:');
     expect(serialized).not.toContain('plaintext-alpha');
   });
+
+  it('requires all words across distinct fields and ignores case, duplicates and Unicode whitespace', async () => {
+    const { service } = searchHarness([
+      { slug: 'certmaster-key', name: 'Root key', description: 'für Zürich', tags: ['passphrase'], value: 'v' },
+      { slug: 'certmaster-other', name: 'Root key', description: 'für Zürich', value: 'passphrase' },
+      { slug: 'certmaster-retired', name: 'Root key', description: 'für Zürich', tags: ['passphrase'], value: 'v', deletedAt: '2026-11-01T00:00:00Z' },
+    ]);
+    const query = '  CERTMASTER\tROOT\nPASSphrase\u00a0ZÜRICH root ';
+    expect((await service.search(query, { includeDeleted: true })).map(s => s.slug)).toEqual(['certmaster-key']);
+    expect((await service.searchForHost(query, host.id)).map(s => s.slug)).toEqual(['certmaster-key']);
+    expect(await service.search('certmaster absent')).toEqual([]);
+  });
+
+  it('ranks by matching metadata fields then slug before applying the limit', async () => {
+    const { service } = searchHarness([
+      { slug: 'z', name: 'database token', description: 'production database', tags: ['production'], value: 'v' },
+      { slug: 'b', name: 'production database', value: 'v' },
+      { slug: 'a', name: 'production database', value: 'v' },
+    ]);
+    expect((await service.search('production database')).map(s => s.slug)).toEqual(['z', 'a', 'b']);
+    expect((await service.search('database production database', { limit: 2 })).map(s => s.slug)).toEqual(['z', 'a']);
+  });
+
+  it('keeps percent, underscore and backslash literal in individual words', async () => {
+    const { service } = searchHarness([
+      { slug: 'literal', name: '100% root_key C:\\keys', value: 'v' },
+      { slug: 'wildcard', name: '1000 rootXkey C:keys', value: 'v' },
+    ]);
+    expect((await service.search('100% root_key C:\\keys')).map(s => s.slug)).toEqual(['literal']);
+  });
+
+  it('rejects oversized queries without truncating away required words', async () => {
+    const { service } = searchHarness([]);
+    await expect(service.search('x'.repeat(1001))).rejects.toMatchObject({ code: 'validation_failed', param: 'query' });
+    await expect(service.search(Array.from({ length: 33 }, (_, i) => `term${i}`).join(' '))).rejects.toMatchObject({ code: 'validation_failed', param: 'query' });
+    await expect(service.search('x'.repeat(1000))).resolves.toEqual([]);
+    await expect(service.search(Array.from({ length: 32 }, (_, i) => `term${i}`).join(' '))).resolves.toEqual([]);
+    await expect(service.search('root '.repeat(33))).resolves.toEqual([]);
+  });
+});
+
+it('builds AND-of-OR SQL with escaped terms and never selects secret ciphertext', async () => {
+  const queries: Array<{ sql: string; params: unknown[] }> = [];
+  const db = drizzle(async (sql, params) => {
+    queries.push({ sql, params });
+    return { rows: [] };
+  });
+  await new SecretsService({ db: db as never }).search('100% root_key C:\\keys root_key');
+  expect(queries).toHaveLength(1);
+  const query = queries[0]!;
+  expect(query.sql).not.toContain('value_enc');
+  expect(query.sql).toContain('`secrets`.`deleted_at` is null and (');
+  expect(query.sql.match(/\) and \(/g)).toHaveLength(2);
+  expect(query.sql.match(/ like \?/g)).toHaveLength(12);
+  expect(query.params).toEqual(['%100\\%%', '%root\\_key%', '%c:\\\\keys%'].flatMap(pattern => Array(4).fill(pattern)));
 });
 
 describe('revealById', () => {
