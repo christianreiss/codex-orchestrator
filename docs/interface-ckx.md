@@ -41,6 +41,28 @@ differences are listed under *Intentional deltas*.
 | Wrapper config file / env | `ckx.json`, `CKX_CONFIG_PATH`; env prefix `CKX_`; binary override `CKX_KIMI_BIN` |
 | Terminal theme colour | amber (`#f59e0b` family); frontend token `--persona-kimi` |
 
+### Native model capabilities (verified 2026-11-17)
+
+The fleet registry owns explicit `kimiCapabilities` and effort metadata; the
+renderer transports them into each managed native model entry. Kimi 2.6.2/2.6.3
+otherwise resolves missing capabilities as no thinking or media support, so a
+configured `max` effort alone can silently become `off`.
+
+Per the [official model table](https://www.kimi.com/code/docs/en/kimi-code/models.html),
+both K3.1 Pro models require thinking; the other models allow it to be disabled.
+All six accept images, while `k3-256k` alone lacks video input. Coding Highspeed
+supports thinking without adjustable effort: its fleet effort list is empty,
+its default is null, and obsolete low/high/max settings are removed from rendered
+native defaults. The other five retain their existing fleet effort defaults and
+all model tiers remain unchanged. These declarations do not verify account or
+plan entitlement, nor raise the fleet's configured context limits.
+
+Custom aliases and explicit native `models.<alias>.overrides` survive rendering.
+Overrides retain native precedence, including capability and effort overrides.
+Offline tests execute the pinned upstream catalog/thinking functions against
+rendered model records, covering real effort resolution and media flags; source
+digests and license are recorded in `api/test/fixtures/kimi-native-2.6/`.
+
 ### Database (migration `0130_kimi_engine.sql`, baseline and `schema.ts` in the same commit)
 
 - `hosts`: `kimi_client_version VARCHAR(64)`, `kimi_client_version_override VARCHAR(64)`,
@@ -128,7 +150,8 @@ Process environment for every managed start: `KIMI_CODE_HOME=<private home>`,
 ### Host config (signed `/wrapper/v2/config`)
 
 - Engine enums gain `kimi`; options gain `kimi_model_override` and
-  `kimi_reasoning_effort_override` (effort `low|high|max`).
+  `kimi_reasoning_effort_override` (`low|high|max` for models with adjustable
+  effort; Coding Highspeed has none).
 - Sync bundle field `kimi_skills` (same item shape as `grok_skills`).
 
 ### CLI installation

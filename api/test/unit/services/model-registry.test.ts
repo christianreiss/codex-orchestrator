@@ -164,6 +164,7 @@ describe('registry snapshot', () => {
         entry.id, entry.status, `tier ${entry.tier}`, entry.efforts.join('|') || '-', entry.defaultEffort ?? '-',
         ...(entry.minCliVersion ? [`cli>=${entry.minCliVersion}`] : []),
         ...(entry.liveCatalogRequired ? ['live-catalog'] : []),
+        ...(entry.kimiCapabilities ? [`capabilities=${entry.kimiCapabilities.join('|')}`] : []),
       ].join(' ')),
       upgrades: upgradeMap(engine),
     }]));

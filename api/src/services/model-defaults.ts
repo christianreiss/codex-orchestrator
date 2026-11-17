@@ -104,7 +104,7 @@ export function modelDefaultsCatalog(engine: Engine): ModelDefaultsCatalogEntry[
   if (engine === ENGINE_KIMI) return KIMI_SUPPORTED_MODELS.map(model => ({
     model,
     persistent_efforts: [...KIMI_MODEL_REASONING_EFFORTS[model]],
-    default_effort: KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model],
+    default_effort: KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model] ?? null,
     context_windows: KIMI_CONTEXT_WINDOWS.filter(window => window <= KIMI_MODEL_CONTEXT_WINDOWS[model]),
     default_context_window: KIMI_MODEL_CONTEXT_WINDOWS[model],
     ...(liveCatalogRequired('kimi', model) ? { live_catalog_required: true as const } : {}),

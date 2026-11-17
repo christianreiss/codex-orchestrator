@@ -95,6 +95,8 @@ import {
   KIMI_DEFAULT_CONTEXT_WINDOW,
   KIMI_MODEL_DEFAULT_REASONING_EFFORTS,
   KIMI_SUPPORTED_MODELS,
+  KIMI_MODEL_CAPABILITIES,
+  KIMI_MODEL_REASONING_EFFORTS,
   normalizeKimiContextWindow,
   normalizeKimiEffort,
   normalizeKimiModel,
@@ -404,7 +406,7 @@ export function normalizeKimiSettings(raw: unknown): NormalizedSettings {
   out.permissionMode = ['manual', 'yolo', 'auto'].includes(String(mode)) ? String(mode) : 'manual';
   return out;
 }
-function kimiSettingsDocument(settings: NormalizedSettings, transportMcp = true): Record<string, unknown> {
+export function kimiSettingsDocument(settings: NormalizedSettings, transportMcp = true): Record<string, unknown> {
   const document = structuredClone(settings.native_settings ?? {});
   const model = normalizeKimiModel(settings.model) ?? KIMI_DEFAULT_MODEL;
   document.default_model = `kimi-code/${model}`;
@@ -414,9 +416,24 @@ function kimiSettingsDocument(settings: NormalizedSettings, transportMcp = true)
   document.disable_feedback_survey = true;
   document.providers = { ...asRecord(document.providers), 'managed:kimi-code': { type: 'kimi', base_url: 'https://api.kimi.com/coding/v1', oauth: { storage: 'file', key: 'oauth/kimi-code' } } };
   const models = asRecord(document.models);
-  for (const id of KIMI_SUPPORTED_MODELS) models[`kimi-code/${id}`] = { ...asRecord(models[`kimi-code/${id}`]), provider: 'managed:kimi-code', model: id, max_context_size: id === model ? normalizeKimiContextWindow(settings.context_window) ?? KIMI_MODEL_CONTEXT_WINDOWS[id] : KIMI_MODEL_CONTEXT_WINDOWS[id], support_efforts: ['low', 'high', 'max'], default_effort: KIMI_MODEL_DEFAULT_REASONING_EFFORTS[id] };
+  for (const id of KIMI_SUPPORTED_MODELS) {
+    const entry = { ...asRecord(models[`kimi-code/${id}`]), provider: 'managed:kimi-code', model: id,
+      max_context_size: id === model ? normalizeKimiContextWindow(settings.context_window) ?? KIMI_MODEL_CONTEXT_WINDOWS[id] : KIMI_MODEL_CONTEXT_WINDOWS[id],
+      capabilities: [...KIMI_MODEL_CAPABILITIES[id]],
+      support_efforts: [...KIMI_MODEL_REASONING_EFFORTS[id]],
+    } as Record<string, unknown>;
+    const effort = KIMI_MODEL_DEFAULT_REASONING_EFFORTS[id];
+    if (effort !== undefined) entry.default_effort = effort;
+    else delete entry.default_effort;
+    // Native .overrides remain authoritative; unrelated/custom aliases survive.
+    models[`kimi-code/${id}`] = entry;
+  }
   document.models = models;
-  document.thinking = { ...asRecord(document.thinking), effort: settings.reasoning_effort ?? KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model] };
+  const thinking = { ...asRecord(document.thinking) };
+  const effort = normalizeKimiEffort(settings.reasoning_effort, model) ?? KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  if (effort !== undefined) thinking.effort = effort;
+  else delete thinking.effort;
+  document.thinking = thinking;
   // Sync transport only: the Kimi writer moves this table into mcp.json and
   // removes it before publishing native config.toml.
   if (transportMcp && settings.mcp_servers.length) document.mcp_servers = Object.fromEntries(settings.mcp_servers.map(server => { const { name, http_headers, ...fields } = server; return [String(name), { ...fields, ...(http_headers ? { headers: http_headers } : {}) }]; }));

@@ -1,0 +1,139 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
+import { describe, expect, it } from 'vitest';
+import { kimiSettingsDocument, normalizeKimiSettings, renderKimiSettings, renderTomlForHost } from '../../../src/services/client-config.js';
+import { ModelDefaultsService, modelDefaultsCatalog } from '../../../src/services/model-defaults.js';
+import { KIMI_SUPPORTED_MODELS } from '../../../src/services/kimi-models.js';
+import { clientConfigDocuments } from '../../../src/db/schema.js';
+import { createDbFake } from '../../helpers/db-fake.js';
+
+type Row = Record<string, unknown>;
+interface NativeModel {
+  capability: Record<string, boolean>;
+  alwaysThinking: boolean;
+  supportEfforts?: string[];
+  defaultEffort?: string;
+  overrides?: Partial<NativeModel>;
+}
+interface NativeCatalog {
+  toCatalogModelDefinition(alias: string, row: Row, provider: string): NativeModel;
+}
+interface NativeThinking {
+  resolveThinkingEffortForModel(requested: string | undefined, defaults: Row, model: Row, strict: boolean): string;
+}
+
+// Execute upstream functions themselves. Imports, DI registrations and classes
+// are excluded by syntax kind; no implementation is copied into the test.
+function nativeFunctions<T>(name: string, sha256: string): T {
+  const source = readFileSync(new URL(`../../fixtures/kimi-native-2.6/${name}.ts.txt`, import.meta.url), 'utf8');
+  expect(createHash('sha256').update(source).digest('hex')).toBe(sha256);
+  const parsed = ts.createSourceFile(`${name}.ts`, source, ts.ScriptTarget.Latest, true);
+  const functions = parsed.statements.filter(ts.isFunctionDeclaration).map(node => node.getText(parsed)).join('\n');
+  const js = ts.transpileModule(functions, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const exports = {};
+  runInNewContext(js, { exports }, { timeout: 1000 });
+  return exports as T;
+}
+
+const catalog = nativeFunctions<NativeCatalog>('catalog-runtime', 'cbe6db10d881b0fe8afbdefd6e75bf3a6284084a3ddc5b5cd4a0b8361c14c8ab');
+const thinking = nativeFunctions<NativeThinking>('thinking', '6172f923db96ac3c5c03e1e64752dbf09e7b8da16c07aeb91323a50a9b36a266');
+
+// Native configSection.modelsFromToml translates field casing recursively.
+function fromToml(value: unknown): unknown {
+  if (Array.isArray(value)) return value;
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key.replace(/_([a-z])/g, (_, char: string) => char.toUpperCase()), fromToml(item)]));
+}
+function nativeModel(row: Row): NativeModel {
+  return catalog.toCatalogModelDefinition('test', fromToml(row) as Row, 'managed:kimi-code');
+}
+function effectiveEffort(model: NativeModel, requested?: string, defaults: Row = {}): string {
+  return thinking.resolveThinkingEffortForModel(requested, defaults, { ...model, capabilities: model.capability }, true);
+}
+
+describe('Kimi native model metadata consumer', () => {
+  const document = kimiSettingsDocument(normalizeKimiSettings({}));
+  const models = document.models as Record<string, Row>;
+
+  it.each(KIMI_SUPPORTED_MODELS)('enables declared thinking and media for %s in the actual consumer', id => {
+    const model = nativeModel(models[`kimi-code/${id}`]!);
+    expect(model.capability.thinking).toBe(true);
+    expect(model.capability.image_in).toBe(true);
+    expect(model.capability.video_in).toBe(id !== 'k3-256k');
+    expect(model.capability.audio_in).toBe(false);
+    expect(model.capability.tool_use).toBe(true);
+    expect(model.alwaysThinking).toBe(id.startsWith('k3.1-pro'));
+    const expected = id === 'kimi-for-coding-highspeed' ? 'on' : id === 'kimi-for-coding' ? 'high' : 'max';
+    expect(effectiveEffort(model)).toBe(expected);
+  });
+
+  it('demonstrates the original regression and applies each supported effort', () => {
+    const row = models['kimi-code/k3.1-pro']!;
+    expect(effectiveEffort(nativeModel({ ...row, capabilities: undefined }), 'max')).toBe('off');
+    const model = nativeModel(row);
+    for (const effort of ['low', 'high', 'max']) expect(effectiveEffort(model, effort)).toBe(effort);
+    expect(effectiveEffort(model, 'off')).toBe('max');
+    expect(effectiveEffort(model, undefined, { enabled: false })).toBe('max');
+    expect(effectiveEffort(nativeModel(models['kimi-code/k3']!), 'off')).toBe('off');
+  });
+
+  it('clears obsolete Highspeed effort settings and exposes no adjustable effort', () => {
+    const settings = normalizeKimiSettings({ model: 'kimi-for-coding-highspeed', reasoning_effort: 'max', native_settings: {
+      thinking: { effort: 'high', enabled: true }, models: { 'kimi-code/kimi-for-coding-highspeed': { default_effort: 'max' } },
+    } });
+    const output = kimiSettingsDocument(settings);
+    const row = (output.models as Record<string, Row>)['kimi-code/kimi-for-coding-highspeed']!;
+    expect(settings.reasoning_effort).toBeUndefined();
+    expect(output.thinking).toEqual({ enabled: true });
+    expect(row.support_efforts).toEqual([]);
+    expect(row).not.toHaveProperty('default_effort');
+    expect(effectiveEffort(nativeModel(row), 'max')).toBe('on');
+    expect(effectiveEffort(nativeModel(row), 'on')).toBe('on');
+    expect(effectiveEffort(nativeModel(row), 'off')).toBe('off');
+    expect(effectiveEffort(nativeModel(row), undefined, { enabled: false })).toBe('off');
+    expect(modelDefaultsCatalog('kimi').find(entry => entry.model === 'kimi-for-coding-highspeed')).toMatchObject({ persistent_efforts: [], default_effort: null });
+    expect(renderKimiSettings(settings)).not.toMatch(/= (undefined|null)/);
+  });
+
+  it.each(['high', 'max'])('heals stored Highspeed %s on read and rejects new adjustable effort through the defaults API service', async effort => {
+    const db = createDbFake();
+    db.tables.set(clientConfigDocuments, [{ id: 1, engine: 'kimi', sha256: 'a'.repeat(64), body: '',
+      settings: { model: 'kimi-for-coding-highspeed', reasoning_effort: effort }, sourceHostId: null,
+      createdAt: '2026-11-12T00:00:00Z', updatedAt: '2026-11-12T00:00:00Z' }]);
+    const service = new ModelDefaultsService(db as never);
+    expect(await service.get('kimi')).toMatchObject({ model: 'kimi-for-coding-highspeed', reasoning_effort: null });
+    await expect(service.set('kimi', { model: 'kimi-for-coding-highspeed', reasoning_effort: effort }))
+      .rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
+    expect(db.inserts).toHaveLength(0);
+    expect(await service.set('kimi', { model: 'kimi-for-coding-highspeed', reasoning_effort: null }))
+      .toMatchObject({ reasoning_effort: null });
+  });
+
+  it('heals an obsolete Highspeed host effort override in the real host render path', () => {
+    const output = renderTomlForHost({
+      settings: { model: 'k3', reasoning_effort: 'max' }, engine: 'kimi',
+      host: { id: 7, fqdn: 'test.example', secure: 1, kimiClientVersion: '2.6.2', kimiModelOverride: 'kimi-for-coding-highspeed', kimiReasoningEffortOverride: 'high' } as never,
+      baseUrl: 'https://coord.example', apiKey: 'not-a-real-key', home: '/home/test',
+    });
+    expect(output.content).toContain('default_model = "kimi-code/kimi-for-coding-highspeed"');
+    expect(output.content).not.toMatch(/^effort = /m);
+  });
+
+  it('preserves custom models and native overrides through rendering and the native catalog', () => {
+    const custom = { provider: 'custom', model: 'private-model', capabilities: ['audio_in'], max_context_size: 262144 };
+    const overrides = { capabilities: ['thinking', 'image_in'], support_efforts: ['low', 'high'], default_effort: 'low' };
+    const output = kimiSettingsDocument(normalizeKimiSettings({ native_settings: { models: {
+      custom, 'kimi-code/k3': { display_name: 'My model', overrides },
+    } } }));
+    const entries = output.models as Record<string, Row>;
+    expect(entries.custom).toEqual(custom);
+    expect(nativeModel(entries.custom!).capability.audio_in).toBe(true);
+    expect(entries['kimi-code/k3']).toMatchObject({ display_name: 'My model', overrides });
+    const base = nativeModel(entries['kimi-code/k3']!);
+    const overridden = { ...base, ...base.overrides };
+    expect(effectiveEffort(overridden)).toBe('low');
+    expect(overridden.capability.video_in).toBe(false);
+  });
+});
