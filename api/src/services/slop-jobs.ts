@@ -551,7 +551,10 @@ export class SlopJobsService {
         const base = file.kind === 'source' ? 'tree' : 'out';
         await this.writeAtomic(join(dir, base, path), await this.readBlob(file.sha256));
       }
-      await this.writeAtomic(join(dir, 'scan.request.json'), JSON.stringify({ task: 'scan', full: mode === 'full' }));
+      const artifacts = Object.fromEntries(Object.entries(snapshot)
+        .filter(([, file]) => file.kind !== 'source')
+        .map(([path, file]) => [path, file.sha256]));
+      await this.writeAtomic(join(dir, 'scan.request.json'), JSON.stringify({ task: 'scan', full: mode === 'full', artifacts }));
     } catch (error) {
       await this.finish(id, 'failed', { error: `Could not prepare the run directory: ${String(error).slice(0, 500)}` });
       throw error;

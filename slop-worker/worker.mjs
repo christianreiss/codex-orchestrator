@@ -92,6 +92,12 @@ async function process_(directory, task) {
   if (task === 'scan') {
     result = await run(['scan', '.', '--root', tree, '--out', join(directory, 'out'), '--format', 'json'], tree);
     const report = await readJson(join(directory, 'out', 'scan.json'));
+    if (report && request.artifacts) {
+      // The API snapshot supplies the original upload hashes. Keep them in the
+      // on-disk input too: `report` reads scan.json, not scan.result.json.
+      report.artifacts = { ...report.artifacts, ...request.artifacts };
+      await writeFile(join(directory, 'out', 'scan.json'), JSON.stringify(report));
+    }
     const extra = request.full ? { guidelines_sha256: await guidelines(directory) } : {};
     await publish(directory, task, {
       state: report ? 'done' : 'failed',

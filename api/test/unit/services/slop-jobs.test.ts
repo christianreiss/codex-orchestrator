@@ -119,6 +119,10 @@ describe('slop review protocol', () => {
     expect(q).toContain('cxx transfer get tid --output ./slop-r.tar --json');
     expect(q).toContain('-C ./slop-r');
     expect(q).toContain('absent for this run');
+    expect(q).toContain('including Go');
+    expect(q).toContain('PTY transcript/text evidence under tree/');
+    expect(q).toContain('Do not execute uploaded programs or replay transcripts');
+    expect(q).toContain('needs_info, never a coverage pass');
   });
 });
 
