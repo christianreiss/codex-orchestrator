@@ -343,7 +343,7 @@ and reject controls requiring exact telemetry instead of inventing values.
 
 ## Parity exemptions
 
-Audit base: `511b4486e`, 2026-11-12. The requested case-insensitive Grok-without-Kimi gate contained **332 files**. Every file was classified: **83 corrected/current files** and **249 exemptions** below (250 since the 2026-11-12 libc selection added `libcselect/reconcile.go`). Exemptions are scoped to the stated reason, not permission for a new engine enumeration to omit Kimi. New runtime behavior is checked separately from historical/provider-only fixtures.
+Audit base: `511b4486e`, 2026-11-12. The requested case-insensitive Grok-without-Kimi gate contained **332 files**. Every file was classified: **83 corrected/current files** and **249 exemptions** below (251 after the 2026-11-12 libc selection and the 2026-11-17 Grok 1.0.88 native-settings fixture). Exemptions are scoped to the stated reason, not permission for a new engine enumeration to omit Kimi. New runtime behavior is checked separately from historical/provider-only fixtures.
 
 Reproduce the gate (excluded build artifacts and changelog stay untouched):
 
@@ -444,7 +444,7 @@ python3 scripts/check-engine-parity.py
 |---|---|
 | `frontend/scripts/readme-shots/cgx.ansi` | Captured Grok terminal illustration, not an engine enumeration. |
 
-### Grok provider implementations, installers and tests (103)
+### Grok provider implementations, installers and tests (104)
 
 | Path | Reason |
 |---|---|
@@ -471,6 +471,7 @@ python3 scripts/check-engine-parity.py
 | `api/test/unit/services/grok-177-settings.test.ts` | Grok-only test/fixture for grok 177 settings.test; Kimi has its own provider path. |
 | `api/test/unit/services/grok-auth.test.ts` | Grok-only test/fixture for grok auth.test; Kimi has its own provider path. |
 | `api/test/unit/services/grok-custom-context.test.ts` | Grok-only test/fixture for grok custom context.test; Kimi has its own provider path. |
+| `api/test/unit/services/grok-188-settings.test.ts` | Grok 1.0.88 native settings, conditional version floors, exact dotted-key ownership and offline parser/helper non-execution fixtures; this provider-specific grammar is not a supported-engine enumeration. |
 | `api/test/unit/services/grok-native-settings.test.ts` | Grok-only test/fixture for grok native settings.test; Kimi has its own provider path. |
 | `api/test/unit/services/grok-native-structures.test.ts` | Grok-only test/fixture for grok native structures.test; Kimi has its own provider path. |
 | `api/test/unit/services/grok-permission-rules.test.ts` | Grok-only test/fixture for grok permission rules.test; Kimi has its own provider path. |
