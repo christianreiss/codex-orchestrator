@@ -11,7 +11,7 @@ profile sidecars, Claude `settings.json`, Grok `config.toml` and Kimi Code `conf
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed against Codex 0.169.0
-(2026-11-17), Claude Code 2.1.318 (2026-11-06) and Grok Build 1.0.88 (2026-11-17).
+(2026-11-17), Claude Code 2.1.326 (2026-11-17) and Grok Build 1.0.88 (2026-11-17).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -205,6 +205,12 @@ present, including `false`. It is supported in native user/managed settings and
 approval prompt; false does not override another scope's true. It remains unset
 unless authored, and removal withdraws only that owned permission leaf.
 Claude Desktop 3.6556.0+ owns `sshHostCommands`; CLI defaults reject it with a scope explanation.
+`disableRemotePreviewScripts` belongs exclusively to Desktop managed settings on
+the Desktop machine, not to CLI user settings or the connected SSH/WSL target.
+Claude 2.1.323 removed `subagentStatusLine`: new input is rejected, and migration
+0133 plus stored-read normalization remove only that native root key. Siblings,
+literal map names and historical body/hash snapshots remain unchanged; no
+replacement command is run or setting activated.
 Older or unreported versions receive an actionable config validation
 error with observed and required versions. Empty extensions and existing
 structured-only settings do not raise either fleet-wide minimum. Grok already

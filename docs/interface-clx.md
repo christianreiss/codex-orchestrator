@@ -1200,7 +1200,7 @@ Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.322 on 2026-11-10. Validation rejects unknown
+checked against Claude Code 2.1.326 on 2026-11-17. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys
@@ -1221,7 +1221,7 @@ same `"disable"` value as the documented top-level setting.
 
 Deprecated keys `includeCoAuthoredBy`, `disableArtifact`, `voiceEnabled`,
 `keybindingFlavor`, `taskOutputMaxChars`, `ignorePatterns`,
-`permissionExplainerEnabled`, and `teammateDefaultModel` are rejected with
+`permissionExplainerEnabled`, `teammateDefaultModel`, and `subagentStatusLine` are rejected with
 replacement/removal guidance. `model` and top-level `effortLevel` belong in the
 existing model controls. `apiKeyHelper`, `autoUpdatesChannel` and
 `minimumVersion` cannot be set here because managed authentication and fleet
@@ -1229,6 +1229,15 @@ version selection own them: managed launches disable native updates and refuse
 native install/update, so `minimumVersion` would have no effect. Idempotent
 migration 0115 removes stored `native_settings.minimumVersion` values without
 touching siblings or historical body/hash snapshots.
+Claude 2.1.323 removed `subagentStatusLine`: native subagent rows always use their
+default appearance, even if an old file still loads the inert key. New authoring
+is rejected with that explanation. Idempotent migration 0133 and stored-read
+normalization remove only `native_settings.subagentStatusLine`, preserving other
+settings, literal map names and historical body/hash snapshots. No command is
+executed and no replacement UI setting is enabled.
+`disableRemotePreviewScripts` is a Desktop managed policy read on the Desktop
+machine. CLI user defaults reject it with an explicit scope diagnosis, including
+the fact that setting it on a connected SSH/WSL target has no effect.
 Managed-only policy keys return an actionable scope error; putting them in user
 settings would not apply them. Global preferences that belong in `~/.claude.json`
 are also rejected by this user-settings field.

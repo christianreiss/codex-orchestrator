@@ -32,7 +32,7 @@ import { CODEX_RETIRED_FEATURE_KEYS, normalizeCodexNativeSettings, normalizeStor
 import { CODEX_WEB_SEARCH_VALUES, type CodexWebSearch } from './agent-security-levels.js';
 import { CLAUDE_LEGACY_MODEL_UPGRADES as CLAUDE_MODEL_UPGRADES, CLAUDE_MODEL_REASONING_EFFORTS, CLAUDE_MODEL_ENV_KEYS, CLAUDE_SUPPORTED_MODELS, claudeCanonicalModelId, normalizeClaudeModelReference } from './claude-models.js';
 import { claudeSettingsFastModeDeprecated } from './claude-fast-mode.js';
-import { normalizeClaudeNativeSettings } from './claude-native-settings.js';
+import { normalizeStoredClaudeNativeSettings } from './claude-native-settings.js';
 import { DEFAULT_CODEX_MODEL, DEFAULT_CODEX_REASONING_EFFORT, LEGACY_MODEL_UPGRADES } from './codex-model-upgrades.js';
 import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
 import { acceptedModelIds, CLAUDE_ADVISOR_ALIAS_NAMES, CLAUDE_ADVISOR_ALIASES, claudeAdvisorRanks } from './model-registry/index.js';
@@ -493,7 +493,7 @@ export function normalizeSettings(
   }
 
   if (engine === 'claude') {
-    const native = normalizeClaudeNativeSettings(settings.native_settings);
+    const native = normalizeStoredClaudeNativeSettings(settings.native_settings);
     // Historical reads and effective host overrides retain the active model,
     // but never serve its deprecated mode. New raw input is rejected separately.
     if (claudeSettingsFastModeDeprecated({ ...settings, model, native_settings: native }) && native.fastMode === true) native.fastMode = false;
