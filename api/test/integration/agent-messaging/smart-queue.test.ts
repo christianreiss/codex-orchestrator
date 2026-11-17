@@ -85,6 +85,11 @@ describe.skipIf(!config)('smart queue delivery on real MySQL', { timeout: 30_000
             ),
           );
       }
+      const sessionIds = (await db.select({ id: schema.agentSessions.id }).from(schema.agentSessions).where(eq(schema.agentSessions.hostId, host.id))).map((session) => session.id);
+      if (sessionIds.length) {
+        await db.update(schema.agentNamePool).set({ currentSessionId: null }).where(inArray(schema.agentNamePool.currentSessionId, sessionIds));
+        await db.delete(schema.agentNameLeases).where(inArray(schema.agentNameLeases.sessionId, sessionIds));
+      }
       await db.delete(schema.agentSessions).where(eq(schema.agentSessions.hostId, host.id));
       await db.delete(schema.agentBusAddresses).where(eq(schema.agentBusAddresses.hostId, host.id));
       await db.delete(schema.logs).where(eq(schema.logs.hostId, host.id));

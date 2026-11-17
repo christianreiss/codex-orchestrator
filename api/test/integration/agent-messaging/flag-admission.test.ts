@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentBusMessages, hosts, type AgentBusAddress } from '../../../src/db/schema.js';
+import { agentBusMessages, agentNameLeases, agentNamePool, agentSessions, hosts, type AgentBusAddress } from '../../../src/db/schema.js';
 import { runMigrations } from '../../../src/db/migrator.js';
 import { AgentMessagingService, AGENT_MESSAGING_ENABLED_KEY } from '../../../src/services/agent-messaging.js';
 import type { AgentMessagingDb } from '../../../src/services/agent-messaging/types.js';
@@ -74,6 +74,11 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
       `DELETE FROM agent_bus_conversations WHERE address_a_id IN (${addresses}) OR address_b_id IN (${addresses})`,
     );
     await exec(`DELETE FROM agent_bus_relays WHERE host_id IN (${ids})`);
+    const sessionIds = (await db.select({ id: agentSessions.id }).from(agentSessions).where(inArray(agentSessions.hostId, hostIds))).map((session) => session.id);
+    if (sessionIds.length) {
+      await db.update(agentNamePool).set({ currentSessionId: null }).where(inArray(agentNamePool.currentSessionId, sessionIds));
+      await db.delete(agentNameLeases).where(inArray(agentNameLeases.sessionId, sessionIds));
+    }
     await exec(`DELETE FROM agent_sessions WHERE host_id IN (${ids})`);
     await exec(`DELETE FROM agent_bus_addresses WHERE host_id IN (${ids})`);
     await exec(`DELETE FROM logs WHERE host_id IN (${ids})`);
@@ -135,6 +140,37 @@ describe.skipIf(!handle)('messaging admission linearizability on real MySQL', { 
     await cleanup();
     await exec(`UPDATE versions SET version='0' WHERE name='${AGENT_MESSAGING_ENABLED_KEY}'`);
     await pool.end();
+  });
+
+  it('fixture cleanup releases its launch names and preserves another host assignment', async () => {
+    // Exercise this suite's real producer cleanup, retaining one of its four
+    // registered hosts as a foreign assignment outside the cleanup scope.
+    const foreignHostId = hostIds.pop()!;
+    const foreignSessionId = identities[3]!.sessionId;
+    const ownSessionIds = identities.slice(0, 3).map((identity) => identity.sessionId);
+    const allSessionIds = identities.map((identity) => identity.sessionId);
+    try {
+      const foreignLeases = await db.select().from(agentNameLeases).where(eq(agentNameLeases.sessionId, foreignSessionId));
+      const foreignSlots = await db.select().from(agentNamePool).where(eq(agentNamePool.currentSessionId, foreignSessionId));
+      expect(foreignLeases).toHaveLength(1);
+      expect(foreignSlots).toHaveLength(1);
+      expect(await db.select().from(agentNameLeases).where(inArray(agentNameLeases.sessionId, ownSessionIds))).toHaveLength(3);
+
+      await cleanup();
+
+      expect(await db.select().from(agentSessions).where(inArray(agentSessions.id, ownSessionIds))).toEqual([]);
+      expect(await db.select().from(agentSessions).where(eq(agentSessions.id, foreignSessionId))).toHaveLength(1);
+      expect(await db.select().from(agentNameLeases).where(eq(agentNameLeases.sessionId, foreignSessionId))).toEqual(foreignLeases);
+      expect(await db.select().from(agentNamePool).where(eq(agentNamePool.currentSessionId, foreignSessionId))).toEqual(foreignSlots);
+      expect.soft(await db.select().from(agentNameLeases).where(inArray(agentNameLeases.sessionId, ownSessionIds))).toEqual([]);
+      expect.soft(await db.select().from(agentNamePool).where(inArray(agentNamePool.currentSessionId, ownSessionIds))).toEqual([]);
+    } finally {
+      // Keep the failing regression itself isolated. This teardown runs only
+      // after the assertions against the producer cleanup above.
+      hostIds.push(foreignHostId);
+      await db.update(agentNamePool).set({ currentSessionId: null }).where(inArray(agentNamePool.currentSessionId, allSessionIds));
+      await db.delete(agentNameLeases).where(inArray(agentNameLeases.sessionId, allSessionIds));
+    }
   });
 
   function currentMessages() {
