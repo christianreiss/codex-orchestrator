@@ -53,7 +53,7 @@ describe('Slop contextual web signals', () => {
   it.each([
     '<button class="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Save</button>',
     '<button\n class="outline-none\n focus-visible:ring-2 focus-visible:ring-ring"\n>Save</button>',
-    '<button class="outline-none focus-visible:outline-2">Save</button>',
+    '<button class="outline-none focus-visible:ring-2 focus-visible:ring-primary/50">Save</button>',
   ])('recognizes replacement focus on the same element: %s', async (text) => {
     expect((await scanText('button.svelte', text)).findings.filter((f: {rule: string}) => f.rule === 'focus')).toEqual([]);
   });
@@ -68,6 +68,11 @@ describe('Slop contextual web signals', () => {
     '<button class="outline-none focus-visible:ring-2 focus-visible:ring-0">Save</button>',
     '<button class="outline-none {active ? \'focus-visible:ring-2\' : \'\'}">Save</button>',
     'button { outline:none; }\n.other:focus-visible { outline:2px solid; }',
+    '<button class="outline-none focus-visible:outline-2">Save</button>',
+    '<button class="outline-none focus-visible:ring-2 focus-visible:ring-primary/0">Save</button>',
+    '<button class="outline-none focus-visible:ring-2 focus-visible:ring-primary/[0]">Save</button>',
+    '<button class="outline-none focus-visible:ring-2 focus-visible:ring-[transparent]">Save</button>',
+    '<button class="outline-none focus-visible:ring-2 focus-visible:ring-opacity-[var(--alpha)]">Save</button>',
   ])('keeps missing or uncertain focus replacement reviewable: %s', async (text) => {
     expect((await scanText('button.svelte', text)).findings.some((f: {rule: string}) => f.rule === 'focus')).toBe(true);
   });
