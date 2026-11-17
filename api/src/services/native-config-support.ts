@@ -1,3 +1,4 @@
+import { GROK_188_FEATURES, GROK_188_UI_FIELDS, GROK_188_MODEL_FIELDS } from './grok-native-fields.js';
 import { needsCodex164, needsCodex165, needsCodex166, needsCodex167 } from './codex-native-capabilities.js';
 import type { Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
@@ -72,6 +73,12 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
     || has(ui, 'at_picker_outside_workspace') || has(record(native.workflows), 'runtime')) require('1.0.74');
   if (has(features, 'daemon_feedback_drafts')) require('1.0.76');
   if (has(ui, 'kitty_keyboard')) require('1.0.77');
+  // Newly audited in 1.0.88, conservatively gated without guessing an earlier release.
+  if (has(native, 'env') || GROK_188_FEATURES.some(key => has(features, key))
+    || GROK_188_UI_FIELDS.some(key => has(ui, key))
+    || has(record(native.telemetry), 'otel_shutdown_timeout')
+    || Object.values(record(native.model)).some(value => GROK_188_MODEL_FIELDS.some(key => has(record(value), key)))
+    || Object.values(record(native.mcp_servers)).some(value => has(record(value), 'headers_helper'))) require('1.0.88');
   if (includeOverrides && Array.isArray(native.version_overrides)) for (const layer of native.version_overrides) {
     const patch = record(layer);
     if (observed && ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)
