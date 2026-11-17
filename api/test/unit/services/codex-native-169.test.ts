@@ -73,8 +73,8 @@ describe('Codex 0.168/0.169 native settings', () => {
     ...flags169.map(key => ({ features: { [key]: false } })),
     ...pane169.map(key => ({ tui: { keymap: { global: { [key]: [] } } } })),
     { tui: { collapse_turn_details: false } },
-    { model_providers: { custom: { gateway_oauth: { ...oauth, device_authorization_url: 'https://idp.example.test/device' } } } },
-    { model_providers: { custom: { gateway_oauth: { credential_export: { command: '/never-run' } } } } },
+    { model_providers: { custom: { base_url: 'https://gateway.example.test/v1', gateway_oauth: { ...oauth, device_authorization_url: 'https://idp.example.test/device' } } } },
+    { model_providers: { custom: { base_url: 'https://gateway.example.test/v1', gateway_oauth: { credential_export: { command: '/never-run' } } } } },
   ];
   it.each(added169)('gates exact 0.169 additions including nonmonotonic legacy flags: %j', native => {
     for (const settings of [{ native_settings: native }, { profiles: [{ name: 'audit', native_settings: native }] }]) {
