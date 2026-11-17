@@ -9,6 +9,7 @@ import { Ajv } from 'ajv';
 import { posix, win32 } from 'node:path';
 import { validateCodexKeymapSettings } from './codex-native-keymap.js';
 import { validateCodexMitmSettings } from './codex-native-mitm.js';
+import { validateCodexGatewayOAuth } from './codex-gateway-oauth.js';
 import schema from './codex-config-schema.json' with { type: 'json' };
 import { ValidationError } from '../http/errors.js';
 import { MODEL_REASONING_EFFORTS, CODEX_MODEL_DEFAULT_REASONING_EFFORTS } from './codex-model-capabilities.js';
@@ -311,7 +312,10 @@ function validateCodexModelProviders(providers: NativeSettings, path: string): v
     if (Object.hasOwn(provider, 'aws') && !bedrock) {
       throw new ValidationError(`${field}.aws: provider aws is only supported for amazon-bedrock or amazon-bedrock-runtime`, { param: `${field}.aws` });
     }
-    if (!bedrock && id !== 'gcp') continue;
+    if (!bedrock && id !== 'gcp') {
+      validateCodexGatewayOAuth(provider, field);
+      continue;
+    }
     const allowed = bedrock ? ['base_url', 'auth', 'http_headers', 'aws'] : ['base_url', 'auth', 'http_headers', 'project_id', 'location', 'credential_file'];
     for (const key of Object.keys(provider)) {
       if (allowed.includes(key) || (Object.hasOwn(providerFieldDefaults, key) && provider[key] === providerFieldDefaults[key])) continue;

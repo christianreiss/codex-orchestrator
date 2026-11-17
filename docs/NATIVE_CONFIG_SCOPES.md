@@ -273,4 +273,9 @@ removed auto-review prompt fields are rejected on new saves and removed from
 known stored paths by migration 0132. Legacy multi-agent opt-outs transfer to
 `agents.enabled=false` only when no explicit successor exists; no agent mode is
 enabled by this migration.
+Custom gateway OAuth also validates native endpoint, delivery-header,
+authentication-conflict and model-catalog-origin constraints in root settings
+and each self-contained profile sidecar. Invalid historical values stay editable
+with a field-specific error; validation never runs credential commands or guesses
+a missing gateway URL.
 See [current Codex maintenance](interface-cdx.md#native-configuration-maintenance-codex-01690).

@@ -2244,6 +2244,31 @@ Built-in providers keep the existing restrictions: `openai` accepts only
 `model_catalog_url`, and `gcp`, `amazon-bedrock` and `amazon-bedrock-runtime`
 reject `capabilities` and `gateway_oauth`. Use a custom provider ID for both.
 
+Custom `gateway_oauth` definitions also follow the native cross-field rules,
+not just the JSON schema. They require `base_url`; gateway, OAuth and device
+endpoints use HTTPS (loopback HTTP is allowed), without credentials or fragments.
+OAuth needs a nonempty `client_id` and a nonzero optional `redirect_port`.
+Credential-export commands remain opaque, nonempty absolute paths or bare
+executable names; validation never executes them. AWS gateway authentication
+cannot be combined with gateway OAuth.
+
+Default Authorization/Bearer delivery conflicts with provider authentication
+(`requires_openai_auth`, `env_key`, `experimental_bearer_token`, command auth or
+Google Cloud). Choose a custom header or cookie accepted by the gateway instead.
+Custom header names and schemes/cookie names must be HTTP tokens; reserved auth,
+routing and internal headers are excluded. Delivery cannot duplicate a provider
+`http_headers`/`env_http_headers` entry (case-insensitive). Default delivery and
+every credential-export source require `model_catalog_url`, when present, to
+share the gateway's scheme, host and port; secondary OAuth delivery retains the
+native ability to use a separate provider catalog.
+
+These checks cover root settings and each self-contained profile sidecar. Invalid
+historical JSON is retained with an editable `validation_error`; no endpoint is
+guessed and no credential definition is silently deleted. Existing valid values
+and literal provider IDs roundtrip unchanged. Source, fetched 2026-11-17:
+[native gateway rules](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/model-provider-info/src/gateway_oauth.rs),
+[endpoint rules](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/http-client/src/lib.rs).
+
 **CLI auth storage is wrapper-owned.** `cli_auth_credentials_store` (not new in
 0.167) may only be omitted or set to `"file"` in root native settings and profile
 sidecars. The wrapper leases, refreshes, uploads and purges `CODEX_HOME/auth.json`;
