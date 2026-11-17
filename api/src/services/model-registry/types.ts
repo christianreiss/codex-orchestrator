@@ -13,6 +13,9 @@ export type ModelStatus = 'active' | 'deprecated' | 'retired';
 /** Anthropic Models API `line`; explicit data, never parsed from the id. */
 export type ClaudeModelLine = 'haiku' | 'sonnet' | 'opus' | 'fable' | 'mythos';
 
+/** Explicit Kimi native model capability tags; never inferred from model names. */
+export type KimiModelCapability = 'thinking' | 'always_thinking' | 'image_in' | 'video_in' | 'audio_in' | 'tool_use' | 'dynamically_loaded_tools';
+
 export interface ModelEntry {
   /** Native/provider model id. */
   readonly id: string;
@@ -50,6 +53,8 @@ export interface ModelEntry {
    * launchpad only when the host's own native catalog lists it.
    */
   readonly liveCatalogRequired?: boolean;
+  /** Kimi native catalog metadata (independent of account entitlement). */
+  readonly kimiCapabilities?: readonly KimiModelCapability[];
 }
 
 export interface EngineRegistry<E extends ModelEntry = ModelEntry> {

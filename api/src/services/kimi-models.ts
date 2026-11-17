@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { versions } from '../db/schema.js';
 import { ApiError } from '../http/errors.js';
-import { MODEL_REGISTRY, modelTable, offeredModelIds, type KimiModel } from './model-registry/index.js';
+import { MODEL_REGISTRY, modelTable, offeredModelIds, type KimiModel, type ModelEntry } from './model-registry/index.js';
 
 export { KIMI_MIN_CLIENT_VERSION } from './kimi-auth.js';
 /** Defaults, ids and efforts come from the fleet model registry (`model-registry/data.ts`). */
@@ -23,7 +23,11 @@ export const KIMI_MODEL_REASONING_EFFORTS = modelTable('kimi', (entry) => entry.
 export const KIMI_MODEL_DEFAULT_REASONING_EFFORTS = modelTable(
   'kimi',
   (entry) => entry.defaultEffort ?? undefined,
-) as Record<KimiModel, string>;
+) as Record<KimiModel, string | undefined>;
+export const KIMI_MODEL_CAPABILITIES = modelTable(
+  'kimi',
+  (entry) => entry.kimiCapabilities ?? [],
+) as Record<KimiModel, NonNullable<ModelEntry['kimiCapabilities']>>;
 export const KIMI_MODEL_CONTEXT_TOKENS = 1_048_576;
 /** Native subscription catalog windows (Kimi Build 1.0.46, 2026-10-03). */
 export const KIMI_CONTEXT_WINDOWS = [262_144, 1_048_576] as const;

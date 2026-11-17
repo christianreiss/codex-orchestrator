@@ -94,12 +94,12 @@ exports[`registry snapshot > records every model change for review 1`] = `
   "kimi": {
     "default": "k3.1-pro",
     "models": [
-      "k3.1-pro active tier 3 low|high|max max cli>=2.5.3",
-      "k3.1-pro-highspeed active tier 3 low|high|max max cli>=2.5.3",
-      "k3 active tier 2 low|high|max max cli>=2.5.3",
-      "k3-256k active tier 2 low|high|max max cli>=2.5.3",
-      "kimi-for-coding active tier 2 low|high|max high cli>=2.5.3",
-      "kimi-for-coding-highspeed active tier 2 low|high|max high cli>=2.5.3",
+      "k3.1-pro active tier 3 low|high|max max cli>=2.5.3 capabilities=thinking|always_thinking|image_in|video_in|tool_use",
+      "k3.1-pro-highspeed active tier 3 low|high|max max cli>=2.5.3 capabilities=thinking|always_thinking|image_in|video_in|tool_use",
+      "k3 active tier 2 low|high|max max cli>=2.5.3 capabilities=thinking|image_in|video_in|tool_use",
+      "k3-256k active tier 2 low|high|max max cli>=2.5.3 capabilities=thinking|image_in|tool_use",
+      "kimi-for-coding active tier 2 low|high|max high cli>=2.5.3 capabilities=thinking|image_in|video_in|tool_use",
+      "kimi-for-coding-highspeed active tier 2 - - cli>=2.5.3 capabilities=thinking|image_in|video_in|tool_use",
     ],
     "upgrades": {},
   },

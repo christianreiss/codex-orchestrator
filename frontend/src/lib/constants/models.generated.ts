@@ -115,7 +115,7 @@ export const MODEL_EFFORTS: Record<ModelEngine, Record<string, string[]>> = {
     "k3": ["low","high","max"],
     "k3-256k": ["low","high","max"],
     "kimi-for-coding": ["low","high","max"],
-    "kimi-for-coding-highspeed": ["low","high","max"],
+    "kimi-for-coding-highspeed": [],
   },
 };
 
