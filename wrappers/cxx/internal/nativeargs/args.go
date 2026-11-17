@@ -18,7 +18,7 @@ type spec struct {
 	arity arity
 }
 
-// Sources: Codex rust-v0.167.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
+// Sources: Codex rust-v0.169.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
 // help/PagerArgs (worker options re-checked against 1.0.77). Comma-delimited vectors take one argv value unless num_args
 // explicitly says otherwise. An attached/equal value ends a variadic occurrence.
 var codex = map[string]spec{}
@@ -58,7 +58,9 @@ func init() {
 		{"--startup-client-info"}, {"--cloud-skills-snapshot"}, {"--code-mode-host"},
 		{"--ws-auth"}, {"--ws-token-file"}, {"--ws-token-sha256"}, {"--ws-shared-secret-file"}, {"--ws-issuer"}, {"--ws-audience"}, {"--ws-max-clock-skew-seconds"},
 		{"--linux-sandbox-pid-namespace"}, {"--concurrent-requests"}, {"--remote-transport"}, {"--environment-id"}, {"--name"},
-		{"--aws-profile"}, {"--aws-region"}, {"--aws-service"},
+		{"--aws-profile"}, {"--aws-region"}, {"--aws-service"}, {"--chatgpt-account-id"},
+		// Nested 0.169 utility help (including refused service commands).
+		{"--sock"}, {"--ref"}, {"--sparse"}, {"--connect"}, {"--out"}, {"--prettier"},
 		{"--attempts"}, {"--attempt"}, {"--branch"}, {"--limit"}, {"--cursor"},
 		// `plugin add -m` shares -m (and its required arity) with --model.
 		{"--marketplace"},
@@ -316,8 +318,13 @@ func UnsupportedService(engine string, args []string) string {
 	command, at := Command(engine, args)
 	if engine == "kimi" {
 		switch command {
-		case "web", "server", "rc", "remote", "app", "vis", "acp":
+		case "web", "server", "rc", "remote", "app", "vis", "acp", "exec-server", "__plugin_run_node", "__update_download":
 			return command
+		}
+		for _, flag := range []string{"--environment", "--environment-cwd"} {
+			if Has(engine, args, flag) {
+				return flag
+			}
 		}
 	}
 	if engine == "codex" {
@@ -391,7 +398,8 @@ func CodexSessionCommand(args []string) (string, int) {
 
 func Resumed(engine string, args []string) bool {
 	if engine == "kimi" {
-		return Has(engine, args, "--session", "--continue")
+		command, _ := Command(engine, args)
+		return command == "" && Has(engine, args, "--session", "--continue")
 	}
 	if engine == "grok" {
 		return Has(engine, args, "--resume", "--continue", "--load")

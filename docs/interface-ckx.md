@@ -151,6 +151,29 @@ Server-side, per account: `GET {base_url}/usages` with
 window and the 7 d window the long one, so Kimi takes part in quota
 observation, `quota_get`, warnings and hard-fail like Codex and Claude.
 
+### Native argument boundaries (verified against 2.6.2)
+
+The wrapper keeps values opaque at the scope where the native parser reads them,
+including `provider catalog list --filter/--url` and `provider catalog add
+--api-key/--default-model/--base-url/--url`. Command- or flag-shaped values do not
+become a managed sign-in, resume, help, model or permission instruction.
+Hidden native `-r`/`--resume [id]` aliases select a session, and `-C` means
+continue, not change directory. Native `--yes` and `--auto-approve` alias
+Ask When Needed (`--yolo`), not Never Ask (`--auto`).
+
+Native `exec-server` (including `--listen stdio`), remote environment selection
+with `--environment`/`--environment-cwd`, and the native-only
+`__plugin_run_node`/`__update_download` helper processes are refused before
+configuration or account admission. These independent processes do not inherit
+the proven managed auth, receiver and teardown lifecycle. Native `--help`
+remains available; recognized helpers are never started as managed sessions.
+Ordinary native `upgrade`/`update` remains owned by `ckx update`.
+
+The checked-in help snapshot records actual 2.6.2 output plus separately labeled
+hidden-option evidence from tag `6a8493df3e1d796a63f7c7ca0de76c1e690cd943`.
+`NATIVE_KIMI_ORACLE` enables a safe live-help comparison in the Go suite; neither
+the snapshot nor that probe proves a live account's model entitlement.
+
 ### Non-interactive use (runner, host daemon, Wake)
 
 `kimi -p "<prompt>" --output-format stream-json [-m <alias>] [-S <session>]`.

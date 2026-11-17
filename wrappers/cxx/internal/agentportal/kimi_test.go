@@ -20,6 +20,28 @@ func TestKimiResumeUsesNativeSessionPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestKimiResumeIdentityUsesNativeOptionBoundariesAndPrecedence(t *testing.T) {
+	first := "session_11111111-1111-4111-8111-111111111111"
+	second := "session_22222222-2222-4222-8222-222222222222"
+	for _, args := range [][]string{
+		{"provider", "catalog", "list", "--url", "--resume", first},
+		{"provider", "catalog", "add", "--api-key", "-S", first},
+		{"provider", "catalog", "add", "--default-model", "--resume", first},
+		{"--environment", "--resume", first},
+		{"-p", "--resume", first},
+		{"-S", "--resume", first}, // native -S opens its picker rather than falling back
+	} {
+		if got := NativeResumeSessionID("kimi", args); got != "" {
+			t.Fatalf("%q forged session %q", args, got)
+		}
+	}
+	for _, args := range [][]string{{"--resume", first, "-S", second}, {"-S", second, "--resume", first}, {"-S" + second}, {"--resume=" + second}} {
+		if got := NativeResumeSessionID("kimi", args); got != second {
+			t.Fatalf("%q: got %q", args, got)
+		}
+	}
+}
 func TestKimiPrivateIdentityOverlayPreservesAgentAndFleetContent(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, "AGENTS.md")

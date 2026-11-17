@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 )
 
 // Kimi binds --agent-file at session creation and refuses it on resume. A
@@ -43,26 +44,31 @@ func AppendKimiIdentityArgs(args []string, identity Identity, runtimeHome string
 }
 
 func kimiResumeID(args []string) string {
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--" {
-			break
-		}
-		flag, value, inline := strings.Cut(args[i], "=")
-		switch flag {
-		case "-S", "--session", "-r", "--resume":
-			if !inline && i+1 < len(args) {
-				i++
-				value = args[i]
-			}
-			if validKimiNativeID(value) {
-				return value
-			}
-			return ""
-		case "-p", "--prompt", "-m", "--model", "--agent", "--agent-file", "--output-format", "--skills-dir", "--add-dir", "--environment", "--environment-cwd":
-			if !inline {
-				i++
+	// Utility commands do not resume a native session. Read the same value
+	// boundaries as dispatch so provider arguments cannot forge a session ID.
+	if command, _ := nativeargs.Command("kimi", args); command != "" {
+		return ""
+	}
+	var session, resume string
+	hasSession := false
+	for i := 0; i < len(args) && args[i] != "--"; i++ {
+		name, value, end := nativeargs.Option("kimi", args, i)
+		if name == "--session" {
+			if strings.HasPrefix(args[i], "-S") || strings.HasPrefix(args[i], "--session") {
+				session, hasSession = value, true
+			} else {
+				resume = value
 			}
 		}
+		i = end
+	}
+	// Native commands.ts uses raw.session ?? raw.resume, including a picker
+	// request with no ID. A resume alias never overrides an explicit -S.
+	if hasSession {
+		resume = session
+	}
+	if validKimiNativeID(resume) {
+		return resume
 	}
 	return ""
 }

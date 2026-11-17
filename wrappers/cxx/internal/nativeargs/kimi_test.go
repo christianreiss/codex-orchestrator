@@ -13,14 +13,15 @@ func TestKimiHelpSnapshotCoversOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	var data struct {
-		Version  string            `json:"version"`
-		Commands map[string]string `json:"commands"`
+		Version             string            `json:"version"`
+		Commands            map[string]string `json:"commands"`
+		HiddenSourceOptions map[string]string `json:"hidden_source_options"`
 	}
-	if json.Unmarshal(raw, &data) != nil || data.Version != "2.5.3" {
+	if json.Unmarshal(raw, &data) != nil || data.Version != "2.6.2" {
 		t.Fatal("invalid snapshot")
 	}
 	for scope, table := range kimiScopedOptions {
-		body := data.Commands[scope]
+		body := data.Commands[scope] + " " + data.HiddenSourceOptions[scope]
 		for name := range table {
 			if !strings.Contains(body, name) {
 				t.Fatalf("%s: undocumented %s", scope, name)
