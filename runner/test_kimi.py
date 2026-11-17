@@ -59,7 +59,8 @@ def test_insufficient_lifetime_requires_central_refresh(tmp_path, seconds):
     lambda a: a["kimi_code"].update(access_token=""),
     lambda a: a["kimi_code"].update(expires_at=True)])
 def test_invalid_canonical_credentials_fail_before_network(mutate):
-    payload = auth(); mutate(payload)
+    payload = auth()
+    mutate(payload)
     with patch("kimi.httpx.get") as get, pytest.raises(HTTPException):
         kimi.verify(payload, 5)
     get.assert_not_called()
@@ -90,7 +91,7 @@ def test_unreachable_metadata_is_not_definitive():
 
 def test_real_253_stream_schema_has_no_usage_or_stop_reason():
     raw = '\n'.join(json.dumps(event) for event in [
-        {"role": "meta", "type": "system.version", "version": "2.5.3"},
+        {"role": "meta", "type": "system.version", "version": "2.6.2"},
         {"role": "assistant", "content": "OK"},
         {"role": "meta", "type": "session.resume_hint", "session_id": "test", "content": "resume"}])
     assert kimi.parse_result(raw) == {"output": "OK", "usage_known": False,

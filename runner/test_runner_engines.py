@@ -209,8 +209,8 @@ class ReadinessTest(unittest.TestCase):
 class KimiRuntimeTest(unittest.TestCase):
     def test_kimi_is_required_and_version_checked(self):
         self.assertEqual(("kimi",), runner_engines.required_engines({"RUNNER_REQUIRED_ENGINES": "kimi"}))
-        for actual, ready in (("2.5.3", True), ("2.5.2", False)):
-            state = runner_engines.probe_engine("kimi", {"RUNNER_KIMI_VERSION": "2.5.3"},
+        for actual, ready in (("2.6.2", True), ("2.5.3", False)):
+            state = runner_engines.probe_engine("kimi", {"RUNNER_KIMI_VERSION": "2.6.2"},
                 which=_which({"kimi": "/usr/local/bin/kimi"}), run=_completed(stdout=actual))
             self.assertEqual(ready, state.version_matches)
             self.assertEqual([] if ready else [f"kimi: {state.detail}"],
