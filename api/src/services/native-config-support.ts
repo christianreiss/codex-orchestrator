@@ -1,3 +1,4 @@
+import { kimiNativeMinimum } from './kimi-native-settings.js';
 import { GROK_188_FEATURES, GROK_188_UI_FIELDS, GROK_188_MODEL_FIELDS } from './grok-native-fields.js';
 import { needsCodex164, needsCodex165, needsCodex166, needsCodex167, needsCodex168, needsCodex169 } from './codex-native-capabilities.js';
 import type { Host } from '../db/schema.js';
@@ -108,8 +109,11 @@ function grokZdrApplies(native: Record<string, unknown>, observed: string): bool
 export function assertNativeConfigSupport(settings: unknown, host: Host | null, engine: Engine): void {
   if (!host) return;
   if (engine === 'kimi') {
-    const observed = host.kimiClientVersion;
-    if (observed && versionCompare(observed, '2.5.3') < 0) throw new ValidationError('Kimi native settings require CLI 2.5.3 or newer', { param: 'settings.native_settings' });
+    const raw = host.kimiClientVersion;
+    const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
+    const minimum = kimiNativeMinimum(record(settings).native_settings);
+    if ((observed && versionCompare(observed, minimum) < 0) || (!observed && minimum !== '2.5.3'))
+      throw new ValidationError(`Kimi native settings require CLI ${minimum} or newer (observed ${observed ?? 'unreported'}); run ckx update with a supported fleet version`, { param: 'settings.native_settings' });
     return;
   }
   if (engine === 'grok') {

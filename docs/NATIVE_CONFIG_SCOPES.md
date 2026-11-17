@@ -11,13 +11,13 @@ profile sidecars, Claude `settings.json`, Grok `config.toml` and Kimi Code `conf
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed against Codex 0.169.0
-(2026-11-17), Claude Code 2.1.326 (2026-11-17) and Grok Build 1.0.88 (2026-11-17).
+(2026-11-17), Claude Code 2.1.326 (2026-11-17), Grok Build 1.0.88 (2026-11-17) and Kimi Code 2.6.2 (2026-11-17; 2.6.3 source delta checked).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
 | Codex | Current user configuration and named profile layers | System `requirements.toml`, MDM and cloud Agent Security policy; repository config | Requirements enforce constraints with separate authority and platform/cloud applicability. Writing them as user defaults would not enforce them. Repository policy belongs to that repository. |
 | Claude | Current user `settings.json`; managed MCP entries and existing native artifact collections | General `managed-settings.json`/drop-ins and cloud enterprise policy; global preferences/state in `~/.claude.json`; project/local settings; Desktop-only `sshHostCommands` | Native global state also contains sign-in and project trust. Native `/config` owns its local preferences. Enterprise policies take precedence over defaults and require a separate policy deployment contract. The existing narrow channels-policy drop-in remains supported. |
-| Kimi Code | Fleet-owned paths of `config.toml`, native Skills, `mcp.json` and AGENTS.md | Private per-launch access-only credentials and launch identity | Server owns canonical refresh; see [ckx](interface-ckx.md). |
+| Kimi Code | Validated user paths of `config.toml`, native Skills, `mcp.json` and AGENTS.md | `tui.toml`, project registry/trust records, private per-launch credentials/identity and remote-runtime provisioning | File defaults and declarations do not establish trust, refresh credentials or provision remote runtimes; see [ckx](interface-ckx.md#native-configuration-maintenance-2026-11-17). |
 | Grok | Current user `config.toml`, including references to local sandbox profiles | `managed_config.toml`, signed `requirements.toml`/MDM, `pager.toml`, custom sandbox profile files and project configuration | Managed defaults and enforced signed requirements have different precedence. Machine-local UI customizations and filesystem-specific sandbox artifacts remain provisioned on their host; the config editor may select an existing profile. |
 
 These exclusions preserve the engines' native configuration layering; they do
@@ -57,11 +57,21 @@ optional read-only S3 fallback are preserved. Validation executes no helper,
 connection, download or cleanup; native selection/preferences stay on the host.
 See [the detailed contracts and ranges](interface-cgx.md#native-configuration-maintenance-2026-10-26).
 
+Kimi user settings preserve literal map names, reject wrong nested types and
+ignored retirements, and support existing `default_provider` / `model_catalog`
+fields. The floor remains 2.5.3; only newly audited provider endpoint fields and
+the newly unreserved `primary` subagent-pool alias require observed 2.6.2+.
+Migration 0134 and stored reads heal exact old loop names and remove obsolete
+secondary tuning/force and task concurrency keys while preserving siblings,
+other engines and historical body/hash snapshots. Unknown or invalid legacy data
+stays visible for correction. See [the inventory, ranges and verification limits](interface-ckx.md#native-configuration-maintenance-2026-11-17).
+
 Use the official native mechanisms for the separate scopes:
 
 - [Codex configuration and requirements reference](https://learn.chatgpt.com/docs/config-file/config-reference#requirementstoml).
 - [Claude files and precedence](https://code.claude.com/docs/en/settings) and
   [managed settings deployment](https://code.claude.com/docs/en/managed-settings).
+- [Kimi configuration and native file scopes](https://github.com/MoonshotAI/kimi-code/blob/6a8493df3e1d796a63f7c7ca0de76c1e690cd943/docs/en/configuration/config-files.md).
 - [Grok complete configuration and precedence reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md)
   and [current configuration guide](https://docs.x.ai/build/settings).
 

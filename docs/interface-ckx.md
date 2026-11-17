@@ -706,3 +706,108 @@ python3 scripts/check-engine-parity.py
 `POST /admin/speech-input/:target` accepts `{ "enabled": true|false }` for `global`; engine targets also accept `null` to inherit. Global defaults to on. Engine overrides win. Settings require settings.read/settings.manage. Changes apply after sync to new launches and never begin recording.
 
 Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; it requires a Claude.ai account and a local microphone. Grok 1.0.75+ projects `ui.voice_keybind_enabled`; disabling the shortcut does not disable `/voice`. Codex supports `/voice` conversations but has no verified central toggle in 0.167.2; removed flags are not written. Kimi has no verified native speech support. Unsupported control is reported separately from requested policy.
+
+## Native configuration maintenance (2026-11-17)
+
+The Engines editor validates user `config.toml` defaults against the source-tagged
+[Kimi Code 2.6.2 configuration sections](https://github.com/MoonshotAI/kimi-code/tree/6a8493df3e1d796a63f7c7ca0de76c1e690cd943/packages/agent-core-v2/src).
+Fixed root and nested keys reject unknown settings, wrong types and ignored
+retirements. Map names (provider/model aliases, headers, environment variables,
+secondary-model aliases) remain literal, including dots; validation executes no
+hook, helper, provider request, remote launcher or optional service. It preserves
+explicit false/zero values and does not insert native defaults. Integer fields
+also require lossless JavaScript integers (at most 9,007,199,254,740,991), matching
+the native TOML parser; unsafe historical numbers remain visible for correction.
+
+The inventory covers default model/provider, permission/plan defaults, skill and
+agent paths, telemetry/session-title/survey flags, providers/models and model
+overrides, model catalog refresh, thinking, loop control, token counting,
+task/background, subagent/swarm timeouts, MCP timeouts, identity, tool selection,
+read/image limits, database/search/watch, workspace trust requirement,
+experimental flags, the two built-in service configurations, permission rules,
+remote declarations and lifecycle hooks. Separate native `tui.toml`, projects
+registry/trust records, private authentication and remote-runtime provisioning
+are not distributed by this editor. Authoring a declaration/reference does not
+install or activate its remote environment or credential.
+
+| Values | Validation |
+| --- | --- |
+| `default_plan_mode`, `thinking.enabled`, catalog `refresh_on_start` and other switches | Actual booleans; strings are rejected |
+| `loop_control.max_steps_per_turn`, `max_attempts_per_step`, `reserved_context_size` | Nonnegative integers; zero is retained |
+| `max_ralph_iterations`, `compaction_trigger_ratio`, `compaction_max_attempts` | Integer ≥ −1; number 0.5–0.99; integer ≥ 1 respectively |
+| `task` / legacy `background` | Nonnegative integer timeouts/grace periods; positive `print_wait_ceiling_s` / `print_max_turns`; `print_background_mode = exit|drain|steer` |
+| Subagent/swarm timeouts | Nonnegative integer milliseconds, including zero |
+| MCP timeout/reconnect fields | Integer milliseconds 1–2,147,483,647 |
+| Model context/input/output and read/image limits | Positive integers, including model `overrides`; identity/routing fields are rejected in model overrides |
+| Permission rules | `allow|deny|ask`, nonempty native pattern, persistent `user|project` scope; transient turn/session scopes are ignored by the user consumer and rejected here |
+| Hooks | Native event enum, nonempty command, optional string matcher, integer timeout 1–600 seconds; unsupported hook fields rejected |
+| Services | Only `moonshot_search` / `moonshot_fetch`; unsupported service names cannot be silently ignored |
+
+`default_provider` and `model_catalog` (including `refresh_on_start = false`) are
+real settings already present in the source-audited **2.5.3** baseline. That
+recovery/default floor remains unchanged. Provider `search_url` / `feedback_url`
+and a literal `secondary_model.models.primary` pool entry require an observed
+**2.6.2+** client (conservative source-audited gate): 2.5.3 lacks those provider
+fields and reserves the pool name `primary`. Provider/header names that merely
+contain those strings do not trigger a gate. Admin authoring/preview remains
+independent of installed hosts; delivery of these additions to an old or
+unreported host fails with the required version and `ckx update` instruction.
+
+New input rejects `loop_control.max_retries_per_step` and
+`max_steps_per_run` with their `max_attempts_per_step` / `max_steps_per_turn`
+replacements. Stored reads and idempotent migration **0134** rename only valid
+nonnegative integer values; an explicitly present successor always wins.
+Invalid old values and unknown siblings remain available for correction.
+The same migration removes exact obsolete `secondary_model.force` and removed
+secondary tuning fields (`max_context_size`, `max_input_size`, `max_output_size`,
+`capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`,
+`support_efforts`, `off_effort`). Configure tuning on the referenced model entry;
+`default_effort`, `default_model` and pool entries survive. It also removes
+`task.max_running_tasks` / `background.max_running_tasks`, which 2.5.3 supported
+but 2.6.2 removed without a replacement. This removes those historical
+concurrency limits from generated settings, including on baseline hosts.
+Other engines, literal map names, sibling settings and historical TOML body/hash
+snapshots are preserved. New input cannot reintroduce removed keys.
+Internal environment-bound `cron` controls and `thinking.forced_effort` are not
+persistent user settings; the latter uses `KIMI_MODEL_THINKING_EFFORT`, while
+`thinking.effort` remains the user default.
+
+Verification used official SHA-256-verified Linux x64 binaries: 2.5.3
+`fba921820696dfa3ed5951c26e6d5cb307cd3929bf8b76215caf510fa8265090`
+and 2.6.2 `c2070d77947b000016d1bc9c189f2e258c51f29d5f9eb537388cc44fa61c5856`.
+Isolated `doctor config` accepted rendered positive fixtures and rejected wrong
+plan/thinking types, negative attempts and unknown hook event/invalid timeout;
+validation did not execute marker hooks. Generated configs retain the existing
+fleet privacy defaults (`telemetry = false`, `auto_session_title = false`,
+`disable_feedback_survey = true`). Doctor warns that the last two top-level
+keys are ignored by its v2-core inventory. That warning is not proof that these
+client-wide settings are ineffective: `app/config/toml.ts` maps snake_case to
+camelCase; `ConfigRegistry.validate` preserves unregistered domains,
+`ConfigService.buildValidated/getAll` retains them, and
+`packages/node-sdk/src/v2/config-mapper.ts` explicitly projects
+`autoSessionTitle` and `disableFeedbackSurvey`. The TUI's
+`maybeAutoGenerateSessionTitle` reads `harness.getConfig().autoSessionTitle`,
+`utils/survey-setting.ts` reads/migrates `disableFeedbackSurvey`, and
+`packages/product/src/session-rating/node/session-rating-host.ts` checks that
+same setting. SDK tests round-trip both TOML fields. The 2.5.3 tag has the same mapper
+entries and TUI/product consumers; its core config service/TOML mapping is
+byte-identical to 2.6.2. These are source-inspected
+consumer contracts; the doctor warning is a diagnostic scope limitation, not a
+retirement. Removing the flags could re-enable title/survey behavior. Native
+oracle tests allow precisely those two known warnings and reject unexpected
+ignored top-level fields.
+
+Doctor also accepts ignored obsolete
+fields, so doctor success alone does not prove consumer support: the source
+inventory establishes removals and version gates. No authenticated inference,
+remote execution or real optional-service activation was performed.
+
+Regular 2.6.3 appeared during this audit (2026-11-17T15:15:21Z). Its source has
+no configuration-schema/event-enum change relative to 2.6.2; its binary manifest
+was unavailable during the release freeze. The `AgentExternalHooksService` diff
+moves blocking `Stop` hooks from step completion to a serialized completed-turn
+queue with a separate abort controller, tracks hook continuations and adds turn,
+step and usage facts. `UserPromptSubmit` and the managed hook's
+`session_id`/`hook_event_name` inputs and stderr/block result contract stay
+compatible. This is source-inspected timing/continuation behavior, not a proven
+managed regression or an end-to-end receiver acceptance result.

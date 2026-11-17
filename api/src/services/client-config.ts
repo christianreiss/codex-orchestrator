@@ -1,4 +1,4 @@
-import { kimiNativeOwnedPaths, normalizeKimiNativeSettings, renderKimiNativeToml } from './kimi-native-settings.js';
+import { kimiNativeOwnedPaths, migrateStoredKimiNativeSettings, normalizeKimiNativeSettings, renderKimiNativeToml } from './kimi-native-settings.js';
 import type { ModelPolicy } from './model-policy.js';
 import { assertCodexSettingsModelSupport } from './codex-model-support.js';
 import { assertClaudeSettingsModelSupport } from './claude-model-support.js';
@@ -390,9 +390,9 @@ export function renderToml(normalized: NormalizedSettings, opts: { profileTables
   return lines.join('\n') + (lines.length > 0 ? '\n' : '');
 }
 
-export function normalizeKimiSettings(raw: unknown): NormalizedSettings {
+export function normalizeKimiSettings(raw: unknown, stored = false): NormalizedSettings {
   const input = asRecord(raw);
-  const native = normalizeKimiNativeSettings(input.native_settings);
+  const native = normalizeKimiNativeSettings(stored ? migrateStoredKimiNativeSettings(input.native_settings) : input.native_settings);
   const model = normalizeKimiModel(input.model ?? input.default_model ?? native?.default_model?.toString().replace(/^kimi-code\//, '')) ?? KIMI_DEFAULT_MODEL;
   const out = normalizeSettings({ ...input, native_settings: undefined, model: null }, { applyCodexDefaults: false, engine: 'kimi' });
   out.native_settings = native;
@@ -651,7 +651,7 @@ export function renderTomlForHost(opts: HostRenderOptions): RenderResult {
   if (engine === ENGINE_CODEX) assertCodexSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
   if (engine === ENGINE_CLAUDE) assertClaudeSettingsModelSupport(settingsWithOverrides, opts.host, opts.modelPolicy);
   const normalized =
-    engine === ENGINE_KIMI ? normalizeKimiSettings(settingsWithOverrides) : engine === ENGINE_GROK
+    engine === ENGINE_KIMI ? normalizeKimiSettings(settingsWithOverrides, true) : engine === ENGINE_GROK
       ? normalizeGrokSettings(settingsWithOverrides)
       : normalizeSettings(settingsWithOverrides, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
   let withManaged = injectManagedMcp(engine === ENGINE_GROK ? withGrokNativeMcp(normalized) : normalized, {
@@ -1731,7 +1731,7 @@ export class ClientConfigService {
     try {
       // Preserve supported historical read migrations before applying current
       // rendering checks; authoring-only coercion rules still govern new writes.
-      const normalized = engine === ENGINE_KIMI ? normalizeKimiSettings(settings) : engine === ENGINE_GROK ? normalizeGrokSettings(settings)
+      const normalized = engine === ENGINE_KIMI ? normalizeKimiSettings(settings, true) : engine === ENGINE_GROK ? normalizeGrokSettings(settings)
         : normalizeSettings(settings, { applyCodexDefaults: engine === ENGINE_CODEX, engine });
       const rendered = this.render(normalized, engine);
       return { settings: rendered.settings, rendered };
