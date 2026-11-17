@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, lstat, realpath, open } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
+import { explainedWebSignals } from "./web-context.js";
 export const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 /** JSON.parse that tolerates a leading UTF-8 BOM (PowerShell and Notepad write one by default). */
 export const parseJson = (text: string): unknown =>
@@ -546,7 +547,11 @@ export async function scan(
       (lang !== "web" && tokenFile.test(base)) ||
       tokenGlobs.some((re) => re.test(posix));
     const lines = text.split("\n");
+    const explained = lang === "web" ? explainedWebSignals(text) : new Map<string, Set<number>>();
+    let lineStart = 0;
     lines.forEach((line, i) => {
+      const offset = lineStart;
+      lineStart += line.length + 1;
       if (line.length > 1000) return void longLines++;
       // A font family after a comma, also across a line break, is a fallback.
       const after = i > 0 && /,\s*$/.test(lines[i - 1]) ? "," : "";
@@ -556,6 +561,9 @@ export async function scan(
           !(id === "raw-token" && tokens) &&
           re.test(id === "type-default" && lang !== "web" ? after + line : line)
         ) {
+          const known = explained.get(id);
+          if (known?.size && [...line.matchAll(new RegExp(re.source, re.flags + "g"))]
+            .every((match) => known.has(offset + match.index!))) continue;
           const f = finding(
             id,
             `${rel}:${i + 1}`,

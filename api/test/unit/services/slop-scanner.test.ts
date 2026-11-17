@@ -26,3 +26,57 @@ describe('vendored slop source coverage and typography', () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });
+
+async function scanText(name: string, text: string) {
+  const dir = await mkdtemp(join(tmpdir(), 'slop-context-'));
+  try {
+    await writeFile(join(dir, name), text);
+    return await scan(dir, [name]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+describe('Slop contextual web signals', () => {
+  it.each([
+    'dialog::backdrop { background:#172f294d; backdrop-filter:blur(3px); }',
+    'dialog[open]::backdrop {\n backdrop-filter: blur(3px);\n}',
+  ])('recognizes the native modal backdrop role: %s', async (text) => {
+    expect((await scanText('modal.css', text)).findings.filter((f: {rule: string}) => f.rule === 'card-kit')).toEqual([]);
+  });
+  it.each([
+    '.card { backdrop-filter:blur(3px); }',
+    'dialog::backdrop, .card { backdrop-filter:blur(3px); }',
+    'dialog::backdrop { background:black; }\n.card { backdrop-filter:blur(3px); }',
+    'dialog::backdrop { backdrop-filter:blur(3px); } .card { backdrop-filter:blur(3px); }',
+  ])('retains real glass-container findings: %s', async (text) => {
+    expect((await scanText('cards.css', text)).findings.some((f: {rule: string}) => f.rule === 'card-kit')).toBe(true);
+  });
+  it.each([
+    '<button class="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Save</button>',
+    '<button\n class="outline-none\n focus-visible:ring-2 focus-visible:ring-ring"\n>Save</button>',
+    '<button class="outline-none focus-visible:outline-2">Save</button>',
+  ])('recognizes replacement focus on the same element: %s', async (text) => {
+    expect((await scanText('button.svelte', text)).findings.filter((f: {rule: string}) => f.rule === 'focus')).toEqual([]);
+  });
+  it.each([
+    '<button class="outline-none">Save</button><button class="focus-visible:ring-2">Other</button>',
+    '<button class="outline-none focus-visible:ring-ring">Save</button>',
+    '<button class="outline-none focus-visible:ring-0">Save</button>',
+    '<button class="focus-visible:outline-none focus-visible:outline-2">Save</button>',
+    '<button class="outline-none focus-visible:ring-2 focus-visible:ring-transparent">Save</button>',
+    '<button class="outline-none focus-visible:ring-2">Save</button><button class="outline-none">Other</button>',
+    '<button class="outline-none hover:ring-2">Save</button>',
+    '<button class="outline-none focus-visible:ring-2 focus-visible:ring-0">Save</button>',
+    '<button class="outline-none {active ? \'focus-visible:ring-2\' : \'\'}">Save</button>',
+    'button { outline:none; }\n.other:focus-visible { outline:2px solid; }',
+  ])('keeps missing or uncertain focus replacement reviewable: %s', async (text) => {
+    expect((await scanText('button.svelte', text)).findings.some((f: {rule: string}) => f.rule === 'focus')).toBe(true);
+  });
+  it('keeps Go and PTY text out of deterministic source coverage', async () => {
+    for (const name of ['view.go', 'pty.txt']) {
+      const report = await scanText(name, 'terminal state');
+      expect(report.sources).toEqual({});
+      expect(report.coverage).toContain('Source scan: 0 files. Browser behavior not tested.');
+      expect(report.coverage).toContain('Skipped: 1 unsupported extension.');
+    }
+  });
+});

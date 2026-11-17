@@ -29,10 +29,12 @@ Fetch the bundle and unpack it into a fresh directory of your own:
 Never execute anything from it. Contents:
 - MANIFEST.json: every file with its job path, kind, revision and sha256, plus the archive name when it differs.
 - guidelines.md: the slop rubric followed by the design guidelines (German). Their evidence markers matter: [V] verified, [T] tested/measured, [A] expert opinion/anecdote, [F] folklore, [X] refuted. Treat [A]/[F] as context, never as norms; cite [X] only to reject a claim.
-- quick-report.json: the deterministic scan (slop report version 2). Its findings are signals already measured; do not repeat them, judge them in context.
+- quick-report.json: the deterministic scan (slop report version 2). Its findings are heuristic signals, not measured defects; do not repeat them, judge them in context. Its source count covers only supported scanner languages, not every uploaded file.
 - description.md: the agent's description of the change and its intent${input.hasDescription ? '' : ' (absent for this run: say what context is missing)'}.
 - tree/: ${input.sourceCount} source file(s) at their job paths (DESIGN.md at the root is the design brief when present).
 - shots/: ${input.screenshotCount} screenshot(s) and accessibility exports at their job paths.
+
+For a terminal UI, read the uploaded implementation (including Go) and PTY transcript/text evidence under tree/ even when the quick scan covers zero files. Inspect supplied terminal screenshots under shots/. Review keyboard navigation and focus, clipping/wrapping at the recorded terminal size, state transitions and error recovery against the described interaction sequence. Do not execute uploaded programs or replay transcripts. State exactly which sources, terminal sizes, states and screenshots you inspected and what remains unverified; screenshots alone do not prove keyboard behavior, and source review alone does not prove terminal rendering or accessibility. Missing required interaction evidence means needs_info, never a coverage pass.
 
 Review against the rubric and guidelines: visual hierarchy, repeated containers, generic copy, first- and second-order defaults, motion, states, accessibility evidence and fit with DESIGN.md. Product UI may use familiar conventions; a font or color alone is not a defect.
 

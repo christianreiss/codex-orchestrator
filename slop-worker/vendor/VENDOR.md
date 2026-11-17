@@ -15,3 +15,5 @@ tsconfig.json 0*.md README.md CHANGELOG.md | tar -x -C slop-worker/vendor/slop-d
 (remove the old directory first), update the commit above and the CHANGELOG.
 
 Local patches (2026-11-08, re-applied on 2026-11-12): web typography checks require a font declaration and a whole font name; source coverage reports unsupported-extension skips. Regression tests live in `api/test/unit/services/slop-scanner.test.ts`.
+
+Local patches (2026-11-17): web context checks distinguish native `dialog::backdrop` declarations from glass containers and recognize static replacement focus width on the same element's class attribute. Mixed selectors, neighbouring controls, conditional classes and zero/transparent widths remain reviewable. Tests: `api/test/unit/services/slop-scanner.test.ts`. The worker also preserves API snapshot artifact hashes in the scan report used by final evidence validation (`slop-worker-evidence.test.ts`); upstream's existing unique-basename resolution is unchanged.
