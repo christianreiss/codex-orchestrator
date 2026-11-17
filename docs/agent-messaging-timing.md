@@ -48,6 +48,16 @@ There is one outstanding immediate information slot and a conservative per-recei
 busy-spell budget. Finishing an informational delivery with `agent_listen` does not
 reset that budget. A fresh receiver must observe a new proven idle boundary before
 using its first busy-spell budget; reconnecting the same receiver preserves it.
+This is a delivery limit, not a per-tool-boundary latency promise: later immediate
+coordination can remain queued during a long active turn. Transport `ready` does
+not mean another insertion is available. Receiver health reports
+`immediate_admission: budget_exhausted` and a specific `immediate_next_action`;
+`available` describes budget only, not proof of native consumption. For a known
+conversation, `agent_wait(conversation_id)` can read pending coordination without
+finishing accepted work. Otherwise yield at a natural safe turn boundary and
+retain the original work/result claim. Never manufacture a blocked/success result
+or a new native session to open reception. Kimi reports `after_turn_only`.
+
 Additional updates remain queued rather than flooding a running turn.
 Immediate information leaves current work running. Keep its delivery pending until
 a substantive answer is needed or the natural turn end; call `agent_listen` then.

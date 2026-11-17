@@ -2044,3 +2044,13 @@ version and helper build identity are verified before publication. Old releases
 without packages retain standalone installation. Linux Voice requires glibc for
 the audio helper, including packages whose main CLI uses musl. See
 [package and Voice contract](interface-cdx.md#complete-codex-packages-and-voice-cxx-09181).
+
+
+Managed session tools expose explicit reconciliation: `agent_session_name` accepts
+`replace: true` for a new fleet task title while preserving native naming by
+default; accepted-work results accept the original optional `claim_id` when
+local receipt state is absent, with server ownership and lease checks intact.
+Receiver `ready` describes transport. Its `immediate_admission` and
+`immediate_next_action` disclose the one-slot busy-spell limit and the
+`agent_wait(conversation_id)` catch-up path without completing accepted work.
+See [delivery timing](agent-messaging-timing.md) for engine limitations.

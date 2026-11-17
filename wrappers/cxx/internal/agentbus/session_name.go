@@ -289,7 +289,7 @@ func assignSessionName(ctx context.Context, client *sessionClient, args map[stri
 	if name == "" || utf8.RuneCountInString(name) > 160 {
 		return nil, errors.New("name must contain 1–160 characters")
 	}
-	body := map[string]any{"client_event_id": newUUID(), "type": "session_named", "payload": map[string]any{"name": name, "only_if_missing": true}}
+	body := map[string]any{"client_event_id": newUUID(), "type": "session_named", "payload": map[string]any{"name": name, "only_if_missing": args["replace"] != true}}
 	var out map[string]any
 	err := client.sessionPost(ctx, "events", body, &out)
 	if err != nil {

@@ -2988,3 +2988,32 @@ working Voice backend remain runtime prerequisites. `/voice` (or F8) starts
 Voice and `/voice settings` selects a voice; installation and sync never begin
 recording. The existing global speech policy does not add a native Codex
 Voice disable flag.
+
+
+### Explicit task-title and result reconciliation
+
+`agent_session_name(name, replace?)` preserves an existing title by default.
+For a new task after `/clear` or a continuation, `replace: true` explicitly
+replaces the fleet task title. It does not rename the agent identity or overwrite
+an operator's native session name; subsequent native title changes still sync.
+
+`agent_reply` and `agent_task_result` accept an optional `claim_id` containing
+the **original accepted delivery claim**. The elected receiver injects it only
+from the matching `message_id`; an explicitly conflicting claim is rejected.
+When local receipt state is absent, the explicit original claim can reconcile a
+result through normal server ownership, binding and lease checks. It neither
+accepts new work nor renews or reconstructs a lost lease. `agent_task_result`
+retries the same result tuple; explicit terminal replies use a stable
+message/claim reconciliation identity. This does not recover the random reply
+identity from a different, lost local tracker; reconcile that stored work result
+with `agent_task_result`. Lost responses never trigger work replay.
+
+Receiver health distinguishes transport `ready` from `immediate_admission`:
+`available` means budget remains (other native and receipt gates still apply),
+`budget_exhausted` means the conservative busy-spell slot is spent or awaits a
+proven idle boundary, `unsupported` means no negotiated native insertion, and
+`after_turn_only` describes Kimi's hook lane. Check `immediate_next_action`.
+During active work, `agent_wait(conversation_id)` reads known-conversation
+coordination without finishing the accepted task. Otherwise yield at a natural
+safe boundary, retaining the original work claim. An MCP tool boundary, listen,
+or reconnect does not reset the immediate-delivery budget.
