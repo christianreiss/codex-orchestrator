@@ -437,9 +437,12 @@ export class SecretsService {
     return (await this.list()).map((row) => toSecretListing(row, hostId));
   }
 
-  async searchForHost(query: string, hostId: number | null = null): Promise<SecretListing[]> {
+  async searchForHost(query: string, hostId: number | null = null, limit = DEFAULT_SEARCH_LIMIT): Promise<SecretListing[]> {
     if (!(await this.getEnabled())) return [];
-    return (await this.search(query)).map((row) => toSecretListing(row, hostId));
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      throw new ValidationError('limit must be a positive safe integer', { param: 'limit' });
+    }
+    return (await this.search(query, { limit })).map((row) => toSecretListing(row, hostId));
   }
 
   /**

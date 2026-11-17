@@ -949,6 +949,8 @@ All four engine config GET/store routes share the revision contract: `revision` 
     (tags count as one field), then slug, before the result cap. Duplicate words
     have no extra weight; empty queries list by slug. Queries exceeding 1000
     characters or 32 distinct words fail validation. No value is searched.
+    Optional `limit` is a positive safe integer, default 50; higher explicit
+    limits are supported and applied after matching/ranking, also for empty queries.
   - `GET /admin/secrets/state` — `{enabled, updated_at, count}` for the
     `secrets_module_enabled` switch.
   - `POST /admin/secrets/state` — `{enabled}` (boolean, `0`/`1`, or
