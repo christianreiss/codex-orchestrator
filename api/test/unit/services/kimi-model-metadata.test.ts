@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import { kimiSettingsDocument, normalizeKimiSettings, renderKimiSettings, renderTomlForHost } from '../../../src/services/client-config.js';
+import { ClientConfigService, kimiSettingsDocument, normalizeKimiSettings, renderKimiSettings, renderTomlForHost } from '../../../src/services/client-config.js';
 import { ModelDefaultsService, modelDefaultsCatalog } from '../../../src/services/model-defaults.js';
 import { KIMI_SUPPORTED_MODELS } from '../../../src/services/kimi-models.js';
 import { clientConfigDocuments } from '../../../src/db/schema.js';
@@ -82,7 +82,7 @@ describe('Kimi native model metadata consumer', () => {
   it('clears obsolete Highspeed effort settings and exposes no adjustable effort', () => {
     const settings = normalizeKimiSettings({ model: 'kimi-for-coding-highspeed', reasoning_effort: 'max', native_settings: {
       thinking: { effort: 'high', enabled: true }, models: { 'kimi-code/kimi-for-coding-highspeed': { default_effort: 'max' } },
-    } });
+    } }, true);
     const output = kimiSettingsDocument(settings);
     const row = (output.models as Record<string, Row>)['kimi-code/kimi-for-coding-highspeed']!;
     expect(settings.reasoning_effort).toBeUndefined();
@@ -135,5 +135,79 @@ describe('Kimi native model metadata consumer', () => {
     const overridden = { ...base, ...base.overrides };
     expect(effectiveEffort(overridden)).toBe('low');
     expect(overridden.capability.video_in).toBe(false);
+  });
+});
+
+describe('Kimi effort authoring versus stored projection', () => {
+  it.each(['high', 'max'])('rejects newly authored Highspeed %s through generic preview and store', async effort => {
+    for (const settings of [
+      { model: 'kimi-for-coding-highspeed', reasoning_effort: effort },
+      { model: 'kimi-for-coding-highspeed', native_settings: { thinking: { effort } } },
+    ]) {
+      const db = createDbFake();
+      const service = new ClientConfigService(db as never);
+      expect(() => service.render(settings, 'kimi')).toThrow();
+      await expect(service.store({ settings, expected_revision: null }, null, 'kimi'))
+        .rejects.toMatchObject({ status: 422 });
+      expect(db.inserts).toHaveLength(0);
+    }
+  });
+
+  it('rejects unsupported effort and conflicting controls instead of discarding authored input', () => {
+    const service = new ClientConfigService({} as never);
+    expect(() => service.render({ model: 'k3', reasoning_effort: 'bogus' }, 'kimi')).toThrow();
+    expect(() => service.render({ model: 'k3', native_settings: { thinking: { effort: 'bogus' } } }, 'kimi')).toThrow();
+    expect(() => service.render({ model: 'k3', reasoning_effort: 'high', native_settings: { thinking: { effort: 'low' } } }, 'kimi')).toThrow();
+  });
+
+  it.each(['on', 'off'])('renders native %s through generic and host paths without changing enabled or custom model overrides', effort => {
+    const settings = { model: 'k3', native_settings: { thinking: { effort, enabled: false }, models: {
+      custom: { model: 'custom', overrides: { capabilities: ['audio_in'] } },
+    } } };
+    const service = new ClientConfigService({} as never);
+    const rendered = service.render(settings, 'kimi');
+    const host = renderTomlForHost({ settings, engine: 'kimi', host: { kimiClientVersion: '2.6.3' } as never, baseUrl: null, apiKey: null });
+    for (const output of [rendered, host]) {
+      expect(output.content).toContain(`effort = "${effort}"`);
+      expect(output.content).toContain('enabled = false');
+      expect(output.settings.native_settings).toEqual(settings.native_settings);
+    }
+    expect(effectiveEffort(nativeModel((kimiSettingsDocument(rendered.settings).models as Record<string, Row>)['kimi-code/k3']!), effort)).toBe(effort === 'on' ? 'max' : 'off');
+    expect(effectiveEffort(nativeModel((kimiSettingsDocument(rendered.settings).models as Record<string, Row>)['kimi-code/k3']!), undefined, settings.native_settings.thinking)).toBe('off');
+  });
+
+  it('lets the explicit defaults API replace an earlier native effort without retaining a conflicting control', async () => {
+    const db = createDbFake();
+    const service = new ClientConfigService(db as never);
+    await service.store({ settings: { model: 'k3', native_settings: { thinking: { effort: 'low', enabled: false } } }, expected_revision: null }, null, 'kimi');
+    expect(await new ModelDefaultsService(db as never).set('kimi', { model: 'k3', reasoning_effort: 'high' }))
+      .toMatchObject({ reasoning_effort: 'high' });
+    const rows = db.tables.get(clientConfigDocuments)!;
+    const latest = rows.find(row => row.id === Math.max(...rows.map(row => Number(row.id))))!;
+    expect((latest.settings as Row).native_settings).toEqual({ thinking: { enabled: false } });
+  });
+
+  it.each(['high', 'max'])('heals only historical Highspeed %s while preserving stored evidence', async effort => {
+    const db = createDbFake();
+    const row = { id: 1, engine: 'kimi', settings: { model: 'kimi-for-coding-highspeed', reasoning_effort: effort,
+      native_settings: { thinking: { effort, enabled: false } } }, body: 'historical TOML', sha256: 'historical SHA', updatedAt: '2026-11-17T00:00:00Z' };
+    db.tables.set(clientConfigDocuments, [row]);
+    const service = new ClientConfigService(db as never);
+    const read = await service.adminFetch('kimi');
+    expect(read).toMatchObject({ content: row.body, sha256: row.sha256 });
+    expect(read).not.toHaveProperty('validation_error');
+    const projected = renderTomlForHost({ settings: row.settings, engine: 'kimi', host: null, baseUrl: null, apiKey: null });
+    expect(projected.content).not.toMatch(/^effort = /m);
+    expect(projected.content).toContain('enabled = false');
+    expect(row.settings.reasoning_effort).toBe(effort);
+    expect(row.settings.native_settings.thinking.effort).toBe(effort);
+  });
+
+  it('returns malformed historical effort for correction without changing body/hash', async () => {
+    const db = createDbFake();
+    const row = { id: 1, engine: 'kimi', settings: { model: 'k3', reasoning_effort: 'bogus' }, body: 'historical TOML', sha256: 'historical SHA', updatedAt: '2026-11-17T00:00:00Z' };
+    db.tables.set(clientConfigDocuments, [row]);
+    expect(await new ClientConfigService(db as never).adminFetch('kimi')).toMatchObject({ content: row.body, sha256: row.sha256,
+      settings: row.settings, validation_error: { code: 'validation_failed', param: 'settings.reasoning_effort' } });
   });
 });

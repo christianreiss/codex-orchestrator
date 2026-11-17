@@ -386,6 +386,16 @@ export class ModelDefaultsService {
       delete settings.model_reasoning_effort;
       delete settings.effortLevel;
       settings.reasoning_effort = update.reasoningEffort;
+      if (engine === ENGINE_KIMI) {
+        const native = asRecord(settings.native_settings);
+        const thinking = { ...asRecord(native.thinking) };
+        if (Object.hasOwn(thinking, 'effort')) {
+          // This API explicitly edits the structured control. Retire its old
+          // native duplicate while retaining enabled/keep and all other JSON.
+          delete thinking.effort;
+          settings.native_settings = { ...native, thinking };
+        }
+      }
       // Older model/effort-only callers must retain the saved window.
       if (update.contextWindow !== undefined) settings.context_window = update.contextWindow;
     } else if (engine === ENGINE_CLAUDE) {
