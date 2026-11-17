@@ -186,6 +186,23 @@ func (r *autoReceiver) health() map[string]any {
 	}
 	out := map[string]any{"state": state, "sources": slices.Clone(r.sources)}
 	out["delivery_timing_v1"] = r.deliveryTimingV1 && !r.immediateUnsupported
+	// Transport readiness does not promise another mid-turn insertion. The
+	// busy-spell budget survives listening/reconnects, even with accepted work.
+	admission := "available"
+	switch {
+	case os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi":
+		admission = "after_turn_only"
+	case !r.deliveryTimingV1 || r.immediateUnsupported:
+		admission = "unsupported"
+	case r.immediateUsed:
+		admission = "budget_exhausted"
+	}
+	out["immediate_admission"] = admission
+	out["immediate_admission_note"] = "One outstanding immediate information slot and one insertion per busy spell; native admission is not a read receipt. Available means budget only, subject to receiver and native boundary checks."
+	if admission != "available" {
+		out["immediate_next_action"] = "For pending coordination in a known conversation, use agent_wait with its conversation_id to read it during current work. Otherwise yield at a natural safe turn boundary. Keep accepted work and its original claim; do not finish work merely to open reception. agent_listen and reconnects do not reset the busy-spell budget."
+	}
+
 	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
 		out["delivery_timing"] = "after_turn"
 		out["idle_push"] = false
@@ -205,7 +222,7 @@ func (r *autoReceiver) health() map[string]any {
 		// Read in a fleet selftest as a fault right after a delivery arrived.
 		// Say plainly that a closed gate only defers the next delivery.
 		if r.gate != "open" {
-			out["claim_gate_note"] = "Normal: the next delivery waits until this session finishes its current delivery or turn. Not a fault."
+			out["claim_gate_note"] = "Delivery is gated; transport readiness does not guarantee immediate insertion. Check immediate_admission and immediate_next_action. Accepted work must retain its original result claim."
 		}
 	}
 	return out

@@ -3,6 +3,7 @@ package agentbus
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -547,6 +548,24 @@ func (w *mcpWriter) send(value any) error {
 	return nil
 }
 
+func deliveryClaimProperty() map[string]any {
+	return map[string]any{"type": "string", "format": "uuid", "description": "Original accepted delivery claim UUID. Omit when the receiver holds this message locally; it is injected by message_id. Supply the original claim when reconciling a result without local receipt state. Never invent a claim; server ownership and lease checks still apply."}
+}
+
+func resultClaim(args map[string]any, pending *channelPending) (string, error) {
+	claim := stringArg(args, "claim_id")
+	if _, supplied := args["claim_id"]; supplied && !publicationUUIDPattern.MatchString(claim) {
+		return "", errors.New("claim_id must be the original delivery UUID")
+	}
+	if pending != nil {
+		if claim != "" && claim != pending.claimID {
+			return "", errors.New("claim_id does not match this delivery")
+		}
+		return pending.claimID, nil
+	}
+	return claim, nil
+}
+
 func taskResultProperties() map[string]any {
 	return map[string]any{"type": "object", "additionalProperties": false, "required": []string{"status", "summary"}, "properties": map[string]any{"status": map[string]any{"type": "string", "enum": []string{"succeeded", "failed", "blocked", "unknown"}}, "summary": map[string]any{"type": "string", "minLength": 1, "maxLength": 4096}, "evidence": map[string]any{"type": "array", "maxItems": 20, "items": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"description", "reference"}, "properties": map[string]any{"description": map[string]any{"type": "string", "minLength": 1, "maxLength": 500}, "reference": map[string]any{"type": "string", "minLength": 1, "maxLength": 2048}}}}}}
 }
@@ -570,8 +589,8 @@ func toolCatalogJSON() []byte {
 		tool("watchdog_disable", "Stop recovery for the current task. Accepted work continues.", map[string]any{"id": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}}, []string{"id", "version"}),
 		tool("watchdog_finish", "End watchdog protection with an explicit task result; also report normal work receipts when applicable.", map[string]any{"id": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}, "status": map[string]any{"type": "string", "enum": []string{"succeeded", "failed", "blocked", "unknown"}}}, []string{"id", "version", "status"}),
 		tool("agent_translate", "Translate a German launch name to its canonical agent UUID, or a UUID to its current/latest name. Names are reused after launch end plus 24 hours; preserve UUIDs for durable references.", map[string]any{"value": map[string]any{"type": "string", "minLength": 1, "maxLength": 96}}, []string{"value"}),
-		tool("agent_session_name", "Give your current session a concise, descriptive name for the Android dashboard. Call once on your first turn before your first response, even when that turn is only a question; naming is setup, not the task. Existing native or previously assigned names are preserved; this sets a name only when none is known.", map[string]any{"name": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}}, []string{"name"}),
-		tool("agent_task_result", "Finish an accepted work delivery with an explicit domain outcome. Wake jobs need this result and no peer reply. Succeeded is an agent report, not independent verification. If the lease was lost and the work is now ambiguous (accepted_lease_lost), this is refused for good: never rerun the work; send the measured outcome to the requester with agent_send in the same conversation, naming the message id.", map[string]any{"message_id": map[string]any{"type": "string"}, "task_result": taskResultProperties()}, []string{"message_id", "task_result"}),
+		tool("agent_session_name", "Give your current session a concise, descriptive name for the Android dashboard. Call once on your first turn before your first response, even when that turn is only a question; naming is setup, not the task. By default existing native or assigned task titles are preserved. For a new task after /clear or a continuation, pass replace=true to explicitly update the fleet task title; this never changes your agent identity or native personal name.", map[string]any{"name": map[string]any{"type": "string", "minLength": 1, "maxLength": 160}, "replace": map[string]any{"type": "boolean", "default": false, "description": "Explicitly replace the fleet task title for a new task. Default preserves an existing title."}}, []string{"name"}),
+		tool("agent_task_result", "Finish an accepted work delivery with an explicit domain outcome. Wake jobs need this result and no peer reply. Succeeded is an agent report, not independent verification. If the lease was lost and the work is now ambiguous (accepted_lease_lost), this is refused for good: never rerun the work; send the measured outcome to the requester with agent_send in the same conversation, naming the message id.", map[string]any{"message_id": map[string]any{"type": "string"}, "claim_id": deliveryClaimProperty(), "task_result": taskResultProperties()}, []string{"message_id", "task_result"}),
 		tool("agent_list", "Discover peers, excluding yourself. scope=directory matches your canonical directory on this host; scope=checkout matches the same Git root on this host including subdirectories, excluding other worktrees; scope=project includes subdirectories, linked worktrees and clones sharing origin across hosts. Default scope=fleet. online=true returns present sessions, not proof of editing. Returns task titles and match reasons; coverage reports missing workspace metadata. Use name to filter and next_offset as offset to page. No messages are returned.", map[string]any{
 			"scope":  map[string]any{"type": "string", "enum": []string{"fleet", "directory", "checkout", "project"}},
 			"engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok", "kimi"}},
@@ -642,6 +661,7 @@ func toolCatalogJSON() []byte {
 			"coalesce_key":    map[string]any{"type": "string", "maxLength": 128, "description": "Explicit progress/notice stream key; only pending updates in this stream may be replaced."},
 			"related_work_id": map[string]any{"type": "string", "format": "uuid"},
 			"task_result":     taskResultProperties(),
+			"claim_id":        deliveryClaimProperty(),
 			"message_id":      map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 		}, []string{"message_id", "content"}),
 		tool("agent_digest_get", "Read retained originals in a catch-up digest. Paginated; previews are not full instructions or proof that originals were read.", map[string]any{"digest_id": map[string]any{"type": "string", "format": "uuid"}, "after": map[string]any{"type": "integer", "minimum": 0}, "limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}}, []string{"digest_id"}),
@@ -1182,6 +1202,10 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	case "agent_task_result":
 		messageID := stringArg(args, "message_id")
 		pending := channelState.get(messageID)
+		claim, err := resultClaim(args, pending)
+		if err != nil {
+			return nil, err
+		}
 		if _, ok := args["task_result"]; !ok {
 			return nil, errors.New("task_result is required")
 		}
@@ -1189,7 +1213,16 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			if entry, ok := channelState.finishedResult(messageID); ok {
 				return alreadyFinished(messageID, entry, args["task_result"])
 			}
-			return nil, errors.New("this process does not hold that delivery")
+			if claim == "" {
+				return nil, errors.New("this process does not hold that delivery; supply its original claim_id to reconcile the result")
+			}
+			// A local tracker is not authority to recreate a lease. Let the broker
+			// validate the original explicit claim; never accept or execute work here.
+			if err := client.post(ctx, "deliveries/"+messageID+"/ack", map[string]any{"claim_id": claim, "outcome": "completed", "task_result": args["task_result"]}, &out); err != nil {
+				return nil, err
+			}
+			channelState.rememberFinished(messageID, "agent_task_result", args["task_result"], out)
+			return out, nil
 		}
 		pending.opMu.Lock()
 		defer pending.opMu.Unlock()
@@ -1212,8 +1245,19 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 			return nil, errors.New("message_id and content are required")
 		}
 		pending := channelState.get(messageID)
+		claim, err := resultClaim(args, pending)
+		if err != nil {
+			return nil, err
+		}
 		clientMessageID := newUUID()
 		_, hasResult := args["task_result"]
+		if pending == nil && claim != "" && (hasResult || stringArg(args, "delivery_class") != "progress") {
+			// Stable reconciliation identity, not a new work claim. A changed body
+			// under this identity is rejected by the server's idempotency contract.
+			sum := sha256.Sum256([]byte("accepted-reply:" + messageID + ":" + claim))
+			sum[6], sum[8] = (sum[6]&0x0f)|0x50, (sum[8]&0x3f)|0x80
+			clientMessageID = fmt.Sprintf("%x-%x-%x-%x-%x", sum[:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
+		}
 		// A progress reply without task_result is a status update on accepted
 		// work that is still running: it must not end the claim, or the real
 		// outcome can no longer be stored (feedback bad0e24b, 2026-10-16).
@@ -1237,8 +1281,8 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		}
 		defaultCoordinationImmediate(args, body, hasResult || pending != nil && pending.workKind != "")
 		copyQueuePolicy(args, body, channelState)
-		if pending != nil {
-			body["claim_id"] = pending.claimID
+		if claim != "" {
+			body["claim_id"] = claim
 		}
 		if progressOnly {
 			// The server keys non-terminal work replies on this class, so it is

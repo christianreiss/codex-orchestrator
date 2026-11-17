@@ -683,3 +683,32 @@ python3 scripts/check-engine-parity.py
 `POST /admin/speech-input/:target` accepts `{ "enabled": true|false }` for `global`; engine targets also accept `null` to inherit. Global defaults to on. Engine overrides win. Settings require settings.read/settings.manage. Changes apply after sync to new launches and never begin recording.
 
 Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; it requires a Claude.ai account and a local microphone. Grok 1.0.75+ projects `ui.voice_keybind_enabled`; disabling the shortcut does not disable `/voice`. Codex supports `/voice` conversations but has no verified central toggle in 0.167.2; removed flags are not written. Kimi has no verified native speech support. Unsupported control is reported separately from requested policy.
+
+
+### Explicit task-title and result reconciliation
+
+`agent_session_name(name, replace?)` preserves an existing title by default.
+For a new task after `/clear` or a continuation, `replace: true` explicitly
+replaces the fleet task title. It does not rename the agent identity or overwrite
+an operator's native session name; subsequent native title changes still sync.
+
+`agent_reply` and `agent_task_result` accept an optional `claim_id` containing
+the **original accepted delivery claim**. The elected receiver injects it only
+from the matching `message_id`; an explicitly conflicting claim is rejected.
+When local receipt state is absent, the explicit original claim can reconcile a
+result through normal server ownership, binding and lease checks. It neither
+accepts new work nor renews or reconstructs a lost lease. `agent_task_result`
+retries the same result tuple; explicit terminal replies use a stable
+message/claim reconciliation identity. This does not recover the random reply
+identity from a different, lost local tracker; reconcile that stored work result
+with `agent_task_result`. Lost responses never trigger work replay.
+
+Receiver health distinguishes transport `ready` from `immediate_admission`:
+`available` means budget remains (other native and receipt gates still apply),
+`budget_exhausted` means the conservative busy-spell slot is spent or awaits a
+proven idle boundary, `unsupported` means no negotiated native insertion, and
+`after_turn_only` describes Kimi's hook lane. Check `immediate_next_action`.
+During active work, `agent_wait(conversation_id)` reads known-conversation
+coordination without finishing the accepted task. Otherwise yield at a natural
+safe boundary, retaining the original work claim. An MCP tool boundary, listen,
+or reconnect does not reset the immediate-delivery budget.
