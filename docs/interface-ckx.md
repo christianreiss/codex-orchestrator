@@ -57,6 +57,20 @@ native defaults. The other five retain their existing fleet effort defaults and
 all model tiers remain unchanged. These declarations do not verify account or
 plan entitlement, nor raise the fleet's configured context limits.
 
+New writes through both generic config preview/store and model defaults reject
+unsupported efforts with 422. Structured `reasoning_effort` accepts the selected
+model's adjustable levels. Native `thinking.effort` accepts those levels plus
+`on`/`off`, which are transported unchanged; `thinking.enabled` is preserved.
+Pro's native thinking-only rule still prevents disabling thinking. Conflicting
+structured/native effort controls are rejected on new writes. The defaults API
+replaces an earlier native effort when explicitly editing the structured control.
+Without an explicit host effort, host rendering preserves native defaults.
+
+Stored reads heal only known obsolete Highspeed levels and retain historical
+structured precedence for old conflicting controls in the projection. Other
+invalid effort values remain visible for correction with `validation_error`;
+historical body, hash and authored JSON are never rewritten by a read.
+
 Custom aliases and explicit native `models.<alias>.overrides` survive rendering.
 Overrides retain native precedence, including capability and effort overrides.
 Offline tests execute the pinned upstream catalog/thinking functions against

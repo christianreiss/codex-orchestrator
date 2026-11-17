@@ -6,6 +6,23 @@ import { createDbFake } from '../../helpers/db-fake.js';
 import { clientConfigDocuments } from '../../../src/db/schema.js';
 
 describe('Kimi native settings HTTP contract', () => {
+  it.each(['high', 'max'])('returns 422 for newly authored Highspeed %s in generic preview and store', async effort => {
+    const app = await buildRouteApp();
+    const db = createDbFake();
+    await registerAdminKimiRoutes(app, { db, env: {}, keyring: {} } as unknown as RouteContext);
+    try {
+      for (const [field, value] of [
+        ['settings.reasoning_effort', { reasoning_effort: effort }],
+        ['settings.native_settings.thinking.effort', { native_settings: { thinking: { effort } } }],
+      ] as const) for (const action of ['render', 'store']) {
+        const response = await app.inject({ method: 'POST', url: `/admin/kimi/config/${action}`,
+          payload: { settings: { model: 'kimi-for-coding-highspeed', ...value }, expected_revision: null } });
+        expect(response.statusCode).toBe(422);
+        expect(response.body).toContain(field);
+      }
+      expect(db.inserts).toHaveLength(0);
+    } finally { await app.close(); }
+  });
   it('validates render/store, preserves supported JSON and enforces revisions through edits and removal', async () => {
     const app = await buildRouteApp();
     const db = createDbFake();

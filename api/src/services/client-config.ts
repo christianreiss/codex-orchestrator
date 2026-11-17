@@ -394,10 +394,33 @@ export function normalizeKimiSettings(raw: unknown, stored = false): NormalizedS
   const input = asRecord(raw);
   const native = normalizeKimiNativeSettings(stored ? migrateStoredKimiNativeSettings(input.native_settings) : input.native_settings);
   const model = normalizeKimiModel(input.model ?? input.default_model ?? native?.default_model?.toString().replace(/^kimi-code\//, '')) ?? KIMI_DEFAULT_MODEL;
+  const thinking = asRecord(native?.thinking);
+  const rootEffort = input.reasoning_effort;
+  let nativeEffort = thinking.effort;
+  const obsoleteHighspeedEffort = (value: unknown) => stored && model === 'kimi-for-coding-highspeed'
+    && typeof value === 'string' && ['low', 'high', 'max'].includes(value);
+  const normalizedRoot = normalizeKimiEffort(rootEffort, model);
+  if (rootEffort != null && normalizedRoot === null && !obsoleteHighspeedEffort(rootEffort))
+    throw new ValidationError('settings.reasoning_effort must be supported by the selected Kimi model', { param: 'settings.reasoning_effort' });
+  if (nativeEffort !== undefined && nativeEffort !== 'on' && nativeEffort !== 'off'
+    && normalizeKimiEffort(nativeEffort, model) === null && !obsoleteHighspeedEffort(nativeEffort))
+    throw new ValidationError('settings.native_settings.thinking.effort must be on, off or supported by the selected Kimi model', { param: 'settings.native_settings.thinking.effort' });
+  if (obsoleteHighspeedEffort(nativeEffort)) {
+    delete thinking.effort;
+    nativeEffort = undefined;
+  }
+  if (normalizedRoot !== null && nativeEffort !== undefined && normalizedRoot !== nativeEffort) {
+    if (!stored) throw new ValidationError('settings.native_settings.thinking.effort conflicts with settings.reasoning_effort; author one control or the same value', { param: 'settings.native_settings.thinking.effort' });
+    // Historical rendering gave the structured control precedence. Preserve
+    // that behavior only in the read projection, never by rewriting history.
+    delete thinking.effort;
+    nativeEffort = undefined;
+  }
   const out = normalizeSettings({ ...input, native_settings: undefined, model: null }, { applyCodexDefaults: false, engine: 'kimi' });
   out.native_settings = native;
   out.model = model;
-  out.reasoning_effort = normalizeKimiEffort(input.reasoning_effort ?? asRecord(native?.thinking).effort, model) ?? KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  out.reasoning_effort = normalizedRoot ?? normalizeKimiEffort(nativeEffort, model)
+    ?? (nativeEffort === 'on' || nativeEffort === 'off' ? undefined : KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model]);
   if (input.context_window !== undefined && input.context_window !== null && (normalizeKimiContextWindow(input.context_window) === null || Number(input.context_window) > KIMI_MODEL_CONTEXT_WINDOWS[model])) throw new ValidationError('context_window exceeds the selected Kimi model context', { param: 'settings.context_window' });
   out.context_window = normalizeKimiContextWindow(input.context_window) ?? KIMI_MODEL_CONTEXT_WINDOWS[model];
   out.model_reasoning_effort = null;
@@ -430,7 +453,8 @@ export function kimiSettingsDocument(settings: NormalizedSettings, transportMcp 
   }
   document.models = models;
   const thinking = { ...asRecord(document.thinking) };
-  const effort = normalizeKimiEffort(settings.reasoning_effort, model) ?? KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model];
+  const effort = normalizeKimiEffort(settings.reasoning_effort, model)
+    ?? (thinking.effort === 'on' || thinking.effort === 'off' ? thinking.effort : KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model]);
   if (effort !== undefined) thinking.effort = effort;
   else delete thinking.effort;
   document.thinking = thinking;
@@ -918,10 +942,10 @@ function applyHostModelOverrides(
     const model =
       normalizeKimiModel(host.kimiModelOverride) ?? normalizeKimiModel(out.model) ?? KIMI_DEFAULT_MODEL;
     out.model = model;
-    out.reasoning_effort =
-      normalizeKimiEffort(host.kimiReasoningEffortOverride, model) ??
-      normalizeKimiEffort(out.reasoning_effort, model) ??
-      KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model];
+    const effort = normalizeKimiEffort(host.kimiReasoningEffortOverride, model);
+    // Without an explicit host effort, preserve both the structured input and
+    // native on/off for the stored normalizer; do not invent a root override.
+    if (effort !== null) out.reasoning_effort = effort;
     return out;
   }
   // Claude reads model/effort overrides from the claude_* columns. Unlike
