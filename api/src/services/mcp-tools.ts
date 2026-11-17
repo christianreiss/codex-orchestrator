@@ -757,12 +757,12 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'secret_search',
         description:
-          'Find a fleet credential by what it is for, when you do not already know its slug — "github", "bookstack token", "production database", "checkmk". Matches the slug, name, description and tags, and returns the same metadata as secret_list and NEVER a value. Omit query to get the full list instead. Use this rather than guessing a slug, and follow up with secret_get on the one you picked. If it finds nothing, call secret_list to see everything the fleet holds before concluding the credential does not exist.',
+          'Find a fleet credential by what it is for, when you do not already know its slug — "github", "bookstack token", "production database", "checkmk". Each query word must match somewhere in slug, name, description or tags. Returns the same metadata as secret_list and NEVER a value, ranked by matching field count then slug. Omit query to list by slug instead. Optional limit is a positive safe integer (default 50), applied after matching and ranking. Use this rather than guessing a slug, and follow up with secret_get on the one you picked. If it finds nothing, call secret_list to see everything the fleet holds before concluding the credential does not exist.',
         inputSchema: {
           type: 'object',
           properties: {
             query: { type: 'string' },
-            limit: { type: 'integer' },
+            limit: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER, default: 50 },
           },
           // `query` is deliberately not required: validateAgainstSchema rejects
           // an empty string, and a search surface that cannot enumerate forces
@@ -775,7 +775,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           status: enabled ? 'available' : 'disabled',
           capabilities: secretCapabilities(enabled),
           secrets: enabled
-            ? await store.searchForHost(String(args['query'] ?? ''), host.id)
+            ? await store.searchForHost(String(args['query'] ?? ''), host.id, args['limit'] as number | undefined)
             : [],
         };
       },

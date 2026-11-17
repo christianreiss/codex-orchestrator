@@ -706,6 +706,7 @@ describe('secret_* tools', () => {
     method: string;
     arg: string;
     engine: string | null;
+    limit?: number;
   }
   let secretCalls: SecretCall[] = [];
   let secretsEnabled = true;
@@ -715,8 +716,8 @@ describe('secret_* tools', () => {
       secretCalls.push({ method: 'list', arg: '', engine: null });
       return [{ slug: 'gh-pat' }];
     },
-    searchForHost: async (query: string) => {
-      secretCalls.push({ method: 'search', arg: query, engine: null });
+    searchForHost: async (query: string, _hostId: number, limit?: number) => {
+      secretCalls.push({ method: 'search', arg: query, engine: null, limit });
       return [];
     },
     getForHost: async (slug: string, _host: Host, engine: string | null) => {
@@ -805,6 +806,12 @@ describe('secret_* tools', () => {
     const res = await reg.dispatch('secret_search', {}, host);
     expect(res).toMatchObject({ isError: false });
     expect(secretCalls.at(-1)).toMatchObject({ method: 'search', arg: '' });
+  });
+
+  it('forwards the requested secret_search limit', async () => {
+    const res = await reg.dispatch('secret_search', { query: 'database', limit: 1 }, host);
+    expect(res).toMatchObject({ isError: false });
+    expect(secretCalls.at(-1)).toMatchObject({ method: 'search', arg: 'database', limit: 1 });
   });
 
   it('rejects secret_get without a slug', async () => {

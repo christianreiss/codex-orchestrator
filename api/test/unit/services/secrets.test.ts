@@ -287,6 +287,34 @@ describe.each([false, true])('search (owner snapshot: %s)', (owned) => {
     expect((await service.search('database production database', { limit: 2 })).map(s => s.slug)).toEqual(['z', 'a']);
   });
 
+  it('honors the host search limit after ranking and filters', async () => {
+    const { service } = searchHarness([
+      { slug: 'a-retired', name: 'database', tags: ['database'], value: 'v', deletedAt: '2026-11-01T00:00:00Z' },
+      { slug: 'b', name: 'database', value: 'v' },
+      { slug: 'z', name: 'database', tags: ['database'], value: 'v', sourceHostId: host.id },
+    ]);
+    expect(await service.searchForHost('database', host.id, 1)).toMatchObject([{ slug: 'z', owned_by_you: true }]);
+    expect((await service.searchForHost('', host.id, 1)).map(s => s.slug)).toEqual(['b']);
+    expect((await service.searchForHost('database', host.id)).map(s => s.slug)).toEqual(['z', 'b']);
+  });
+
+  it('validates the host search limit instead of permitting surprising slice bounds', async () => {
+    const { service } = searchHarness([]);
+    for (const limit of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, '1', null]) {
+      await expect(service.searchForHost('', host.id, limit as number)).rejects.toMatchObject({ code: 'validation_failed', param: 'limit' });
+    }
+    await expect(service.searchForHost('', host.id, 50)).resolves.toEqual([]);
+  });
+
+  it('allows explicit host search limits above the default of 50', async () => {
+    const { service } = searchHarness(Array.from({ length: 101 }, (_, i) => ({
+      slug: `fixture-${String(i).padStart(3, '0')}`, name: 'database', value: 'v',
+    })));
+    expect(await service.searchForHost('database', host.id)).toHaveLength(50);
+    expect(await service.searchForHost('database', host.id, 100)).toHaveLength(100);
+    expect(await service.searchForHost('', host.id, 100)).toHaveLength(100);
+  });
+
   it('keeps percent, underscore and backslash literal in individual words', async () => {
     const { service } = searchHarness([
       { slug: 'literal', name: '100% root_key C:\\keys', value: 'v' },
