@@ -293,8 +293,11 @@ so `resume -i a.png UUID` and `exec -i a.png resume UUID` still read `UUID` (and
 also covers `queue --thread/--message`, `migrate-rollouts --thread`, and the
 value options of the utility and refused commands (`sandbox`, `mcp add|login`,
 `app-server`, `exec-server`, `cloud`, `plugin add`); a unit test pins it to the
-0.167.0 help corpus (the value declarations remain unchanged; re-verified
-2026-11-06, where the only help delta is the boolean `agents --no-daemon`). An opt-in
+0.167.0 help corpus and the complete 74-scope 0.169.0 public help tree
+(verified 2026-11-17). The latter adds `exec-server --chatgpt-account-id`,
+`exec-server forward --connect`, `app-server proxy --sock`, generator
+`--out`/`--prettier`, and marketplace `--ref`/`--sparse` value boundaries. Native
+`--trust` stays a boolean; the wrapper never inserts it automatically. An opt-in
 `NATIVE_CODEX_ORACLE` test compares it with a live binary. Readers do not interpret those utility commands' semantics; the
 table only keeps their values (including command- or flag-shaped ones) opaque.
 

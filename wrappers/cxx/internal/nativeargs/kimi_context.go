@@ -5,33 +5,40 @@ import (
 	"strings"
 )
 
-// Generated from the checked-in Kimi Code 2.5.3 help snapshot. Scope matters:
+// Generated from the checked-in Kimi Code 2.6.2 help snapshot and versioned commands.ts. Scope matters:
 // -y is --yolo at the root and --yes under export/fork/update; --host is
 // optional for web/remote but required for vis.
-var kimiCommands = strings.Fields("export fork provider session acp web server rc remote login doctor vis install-desktop app migrate import-sessions upgrade update help")
+var kimiCommands = strings.Fields("export fork provider session acp web server rc remote login doctor vis install-desktop app migrate import-sessions upgrade update help exec-server __plugin_run_node __update_download")
 var kimiScopedOptions = map[string]map[string]spec{
 	"": {
-		"-V":              {"--version", 0},
-		"--version":       {"--version", 0},
-		"-S":              {"--session", optional},
-		"--session":       {"--session", optional},
-		"-c":              {"--continue", 0},
-		"--continue":      {"--continue", 0},
-		"-y":              {"--yolo", 0},
-		"--yolo":          {"--yolo", 0},
-		"--auto":          {"--auto", 0},
-		"-m":              {"--model", required},
-		"--model":         {"--model", required},
-		"-p":              {"--prompt", required},
-		"--prompt":        {"--prompt", required},
-		"--output-format": {"--output-format", required},
-		"--skills-dir":    {"--skills-dir", required},
-		"--agent":         {"--agent", required},
-		"--agent-file":    {"--agent-file", required},
-		"--add-dir":       {"--add-dir", required},
-		"--plan":          {"--plan", 0},
-		"-h":              {"--help", 0},
-		"--help":          {"--help", 0},
+		"-V":                {"--version", 0},
+		"--version":         {"--version", 0},
+		"-S":                {"--session", optional},
+		"--session":         {"--session", optional},
+		"-r":                {"--session", optional},
+		"--resume":          {"--session", optional},
+		"-c":                {"--continue", 0},
+		"--continue":        {"--continue", 0},
+		"-C":                {"--continue", 0},
+		"-y":                {"--yolo", 0},
+		"--yolo":            {"--yolo", 0},
+		"--yes":             {"--yolo", 0},
+		"--auto-approve":    {"--yolo", 0},
+		"--auto":            {"--auto", 0},
+		"-m":                {"--model", required},
+		"--model":           {"--model", required},
+		"-p":                {"--prompt", required},
+		"--prompt":          {"--prompt", required},
+		"--output-format":   {"--output-format", required},
+		"--skills-dir":      {"--skills-dir", required},
+		"--agent":           {"--agent", required},
+		"--agent-file":      {"--agent-file", required},
+		"--add-dir":         {"--add-dir", required},
+		"--plan":            {"--plan", 0},
+		"--environment":     {"--environment", required},
+		"--environment-cwd": {"--environment-cwd", required},
+		"-h":                {"--help", 0},
+		"--help":            {"--help", 0},
 	},
 	"export": {
 		"-o":                      {"--output", required},
@@ -157,6 +164,34 @@ var kimiScopedOptions = map[string]map[string]spec{
 		"--help": {"--help", 0},
 	},
 
+	"provider catalog list": {
+		"--filter": {"--filter", required},
+		"--url":    {"--url", required},
+		"--json":   {"--json", 0},
+		"-h":       {"--help", 0},
+		"--help":   {"--help", 0},
+	},
+	"provider catalog add": {
+		"--api-key":       {"--api-key", required},
+		"--default-model": {"--default-model", required},
+		"--base-url":      {"--base-url", required},
+		"--url":           {"--url", required},
+		"-h":              {"--help", 0},
+		"--help":          {"--help", 0},
+	},
+	"exec-server": {
+		"--listen": {"--listen", required},
+		"-h":       {"--help", 0},
+		"--help":   {"--help", 0},
+	},
+	"__update_download": {
+		"--manual":         {"--manual", 0},
+		"--switch-channel": {"--switch-channel", 0},
+		"--channel":        {"--channel", required},
+		"-h":               {"--help", 0},
+		"--help":           {"--help", 0},
+	},
+
 	"doctor config": {
 		"-h":     {"--help", 0},
 		"--help": {"--help", 0},
@@ -178,7 +213,7 @@ var kimiScopedOptions = map[string]map[string]spec{
 	},
 }
 var kimi = kimiScopedOptions[""]
-var kimiChildren = map[string]string{"provider": "add remove list catalog help", "session": "list help", "web": "rotate-token", "server": "kill", "doctor": "config tui"}
+var kimiChildren = map[string]string{"provider": "add remove list catalog help", "provider catalog": "list add help", "session": "list help", "web": "rotate-token", "server": "kill", "doctor": "config tui"}
 
 func kimiTable(path string) map[string]spec {
 	table := maps.Clone(kimi)
