@@ -11,7 +11,7 @@ profile sidecars, Claude `settings.json`, Grok `config.toml` and Kimi Code `conf
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed against Codex 0.167.0
-(2026-11-06), Claude Code 2.1.318 (2026-11-06) and Grok Build 1.0.77 (2026-11-06).
+(2026-11-06), Claude Code 2.1.318 (2026-11-06) and Grok Build 1.0.88 (2026-11-17).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -135,6 +135,23 @@ the wrapper. The wrapper lock excludes only cooperating wrapper writers. A
 strict multi-process transaction would require native cooperation; changing to
 a higher-priority `--settings` overlay would change the user-default contract
 and is deliberately outside this maintenance fix.
+
+## Grok 1.0.88 additions and exclusions
+
+The Grok editor authors the documented 1.0.88 user additions, including tool-shell
+`env`, canonical HTTP/SSE `headers_helper`, model tool-schema compatibility,
+telemetry shutdown budget, UI preferences and supported native feature gates.
+Each new authored value requires a reported 1.0.88, including false or empty
+values; inactive version layers do not raise another host's floor. No optional
+native defaults are inserted. Project `[env]` can override user shell variables
+when the project is trusted, but project files are not centrally distributed.
+
+Shared daemons, Cursor relay/sign-in selection, cloud agents, unified-session
+import/account unification, idle root unloading and `/proc` process protection
+are explicitly refused until they are integrated with managed auth, native
+identity and receiver lifetime. Native artifact-base policy, worker configuration,
+experiments and per-machine picker hints remain separately owned. See
+[the exact fields and decisions](interface-cgx.md#grok-1088-user-settings).
 
 ## Native version compatibility
 

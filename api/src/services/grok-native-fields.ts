@@ -1,6 +1,6 @@
-/** Grok Build native field registry, audited 2026-11-10.
- * Stable channel: 1.0.77. Bundled 26-config-reference.md SHA-256:
- * 76b4fe09ce2e52e8fa89aaac0df44e3c75cec6b312d22bb7431b16bc486cdaa1.
+/** Grok Build native field registry, audited 2026-11-17.
+ * Published npm latest: 1.0.88. Bundled 26-config-reference.md SHA-256:
+ * a74c01b5c3e99834d0005d4a3985f3d4867f209ee8dfadd71e51e24e72c79466.
  * Public source (Apache-2.0; supplemented by the newer bundled reference):
  * https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md
  * Supplemented by the bundled 05-configuration.md, 10-hooks.md (1.0.77 handler
@@ -9,7 +9,61 @@
  * pager.toml fields are separate.
  * Wildcards match one literal map key, including keys containing dots.
  */
+/** Additions proven in the published 1.0.88 artifact; no earlier floor is claimed. */
+export const GROK_188_FEATURES = [
+  'ask_local_reads',
+  'auto_review_protected_paths',
+  'fail_silent_opens',
+  'history_tree',
+  'inline_code_copy',
+  'inline_turn_status',
+  'leader_read_close',
+  'link_url_hiding',
+  'load_rows_from_parent',
+  'model_list_refresh',
+  'overdue_reattach',
+  'paged_full_load',
+  'pending_steer',
+  'resume_refusals',
+] as const;
+export const GROK_188_UI_FIELDS = [
+  'copy_inline_code_backticks', 'debug_panels', 'inline_turn_status',
+  'link_urls', 'timestamp_format', 'turn_token_count',
+] as const;
+export const GROK_188_MODEL_FIELDS = [
+  'prompt_harness', 'supports_tool_schema_const', 'supports_tool_schema_root_union',
+  'supports_tool_schema_untyped_union',
+] as const;
+
 export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
+  "env.*": ["string"],
+  "features.ask_local_reads": ["boolean"],
+  "features.auto_review_protected_paths": ["boolean"],
+  "features.fail_silent_opens": ["boolean"],
+  "features.history_tree": ["boolean"],
+  "features.inline_code_copy": ["boolean"],
+  "features.inline_turn_status": ["boolean"],
+  "features.leader_read_close": ["boolean"],
+  "features.link_url_hiding": ["boolean"],
+  "features.load_rows_from_parent": ["boolean"],
+  "features.model_list_refresh": ["boolean"],
+  "features.overdue_reattach": ["boolean"],
+  "features.paged_full_load": ["boolean"],
+  "features.pending_steer": ["boolean"],
+  "features.resume_refusals": ["boolean"],
+  "mcp_servers.*.headers_helper": ["string"],
+  "model.*.prompt_harness": ["string"],
+  "model.*.supports_tool_schema_const": ["boolean"],
+  "model.*.supports_tool_schema_root_union": ["boolean"],
+  "model.*.supports_tool_schema_untyped_union": ["boolean"],
+  "telemetry.otel_shutdown_timeout": ["number"],
+  "ui.copy_inline_code_backticks": ["boolean"],
+  "ui.debug_panels": ["string[]"],
+  "ui.inline_turn_status": ["boolean"],
+  "ui.link_urls": ["=auto", "=show"],
+  "ui.timestamp_format": ["=12h", "=24h"],
+  "ui.turn_token_count": ["boolean"],
+
   "agent.definition": ["string"],
   "agent.name": ["string"],
   "agent.system_prompt_label": ["string"],

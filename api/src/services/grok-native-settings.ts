@@ -89,6 +89,10 @@ function validate(value: unknown, path: string[], candidates = fields): void {
   if (path.length === 3 && path[0] === 'compat' && path[2] === 'sessions') {
     fail(path, 'staged in Grok Build without a consumer; it has no effect, omit this setting');
   }
+  // .mcp.json accepts camelCase; our authored surface is canonical config.toml.
+  if (path.length === 3 && path[0] === 'mcp_servers' && path[2] === 'headersHelper') {
+    fail(path, 'use headers_helper, the config.toml spelling; headersHelper belongs to .mcp.json');
+  }
   // Native hooks also read `fail_closed` and Claude's `onFailure`; render one canonical TOML spelling.
   if (path.length === 6 && path[0] === 'hooks' && path[3] === 'hooks' && (path[5] === 'fail_closed' || path[5] === 'onFailure')) {
     fail(path, 'use failClosed, the canonical config.toml hook handler field');
@@ -159,6 +163,21 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
         : 'updates are owned by the fleet version policy; managed launches never run the native updater');
     }
   }
+  if ('artifact_base' in cli) fail(['cli', 'artifact_base'], 'native managed_config.toml/requirements.toml only; fleet installation and updates own artifact selection');
+  const isolatedFeatures: Record<string, string> = {
+    shared_daemon: 'sharing daemons and storage across windows is outside the managed private leader and receiver lifecycle',
+    cloud_agents: 'cloud agents and workspaces are outside managed auth, session and receiver ownership',
+    cursor_relay_login: 'Cursor relay login is outside the server-owned Grok subscription identity',
+    sign_in_chooser: 'native sign-in selection is owned by the managed subscription runtime',
+    unified_session_import: 'import creates a different native session identity; managed transcript and receiver continuation is not integrated',
+    unify_ask: 'native account-unification prompts are outside the managed subscription runtime',
+    idle_root_unload: 'background root unloading is not integrated with the lifetime of the managed native receiver',
+    proc_protection: 'same-user /proc isolation has not been verified with managed process identity and shutdown checks',
+  };
+  for (const [name, reason] of Object.entries(isolatedFeatures)) {
+    if (Object.hasOwn(grokRecord(value.features), name)) fail(['features', name], reason);
+  }
+  if (Object.hasOwn(grokRecord(value.hints), 'api_key_models_note_seen')) fail(['hints', 'api_key_models_note_seen'], 'native per-machine model-picker state is outside fleet user defaults');
   if (cli.use_leader === false) fail(['cli', 'use_leader'], 'the managed receiver requires its private leader');
   for (const [key, item] of Object.entries(value)) validate(item, [key]);
   validatePermissionRules(value);
@@ -221,9 +240,14 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
     if (typeof at === 'number' && at < 0) fail(['model', name, 'compaction_at_tokens'], 'expected nonnegative token count or boolean');
     if ('notice' in grokRecord(model) && typeof grokRecord(grokRecord(model).notice).text !== 'string') fail(['model', name, 'notice', 'text'], 'notice requires text (use an empty string to clear it)');
   }
+  const panels = grokRecord(value.ui).debug_panels;
+  if (Array.isArray(panels)) for (const [index, panel] of panels.entries()) {
+    if (!['tps', 'fps', 'scroll'].includes(String(panel))) fail(['ui', 'debug_panels', String(index)], 'expected tps, fps or scroll');
+  }
   // Native range/type constraints that otherwise silently clamp or drop input.
   const ranges: Array<[string[], number, number]> = [
     [['session', 'auto_compact_threshold_percent'], 0, 100],
+    [['telemetry', 'otel_shutdown_timeout'], 0, Number.MAX_SAFE_INTEGER],
     [['ui', 'scroll_speed'], 1, 100], [['ui', 'scroll_lines'], 1, 10],
     [['ui', 'max_thoughts_width'], 40, 500],
     [['subagents', 'max_concurrent'], 1, Number.MAX_SAFE_INTEGER],
@@ -253,6 +277,9 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   }
   for (const [name, rawServer] of Object.entries(grokRecord(value.mcp_servers))) {
     const server = grokRecord(rawServer);
+    if (server.headers_helper !== undefined && typeof server.url !== 'string') {
+      fail(['mcp_servers', name, 'headers_helper'], 'HTTP or SSE MCP servers require url; stdio does not consume headers_helper');
+    }
     if ((typeof server.command === 'string') === (typeof server.url === 'string')) fail(['mcp_servers', name], 'set exactly one of command or url');
     for (const field of ['env', 'headers']) {
       if (server[field] !== undefined && !matches(server[field], 'map<string,string>')) fail(['mcp_servers', name, field], 'expected a string map');

@@ -477,14 +477,12 @@ subagents, plugins, goals, memory, native command/HTTP hooks, notification hooks
 and built-in or command status lines. Features are configured only when an
 operator supplies them; support does not turn experimental features on.
 
-The field/type registry is audited against Grok Build **1.0.77** (2026-11-06,
-npm latest and the version fleet hosts run). The verified native binary prints
-`grok 1.0.77 (50ca579fa996)` in a clean home. The previous 1.0.70 audit's binary
-reported `"channel":"unknown"` from `grok version --json`; a channel suffix such
-as `[alpha]` comes from local install or config state, not from the build, so
-distribution selection and channel label are separate observations.
-The audit uses its bundled complete reference (SHA-256 `76b4fe09ce2e52e8fa89aaac0df44e3c75cec6b312d22bb7431b16bc486cdaa1`;
-1.0.70's was `ebd97fec98bb00bfdfa37befddf31dd8a14e3f277db887c7b643888867865db7`).
+The field/type registry is audited against published Grok Build **1.0.88**
+(2026-11-17), selected by the official npm `latest` tag. The public changelog still
+ends at 1.0.77; distribution tags and native channel labels are separate evidence.
+The verified artifact prints `grok 1.0.88 (2fe3608f7398)` in a clean home. Its
+bundled complete reference is SHA-256
+`a74c01b5c3e99834d0005d4a3985f3d4867f209ee8dfadd71e51e24e72c79466`.
 The older [public source reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md)
 is supplemented by the matching bundled configuration, hooks and status-line guides and
 [current settings reference](https://docs.x.ai/build/settings/reference).
@@ -1770,6 +1768,50 @@ Read-only and explicit restrictions take precedence; push/deploy are separate.
 This is agent-executed guidance shared by all four engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
+
+## Grok 1.0.88 user settings
+
+The existing native JSON editor supports `[env]` string values for tool-shell
+commands (not the CLI process environment), HTTP/SSE MCP `headers_helper`, model
+`prompt_harness`, `supports_tool_schema_const`,
+`supports_tool_schema_root_union` and `supports_tool_schema_untyped_union`,
+`telemetry.otel_shutdown_timeout` (nonnegative milliseconds), and the new UI settings `debug_panels`
+(`tps|fps|scroll`), `link_urls` (`auto|show`), `timestamp_format` (`12h|24h`),
+`copy_inline_code_backticks`, `inline_turn_status` and `turn_token_count`.
+`headersHelper` is the `.mcp.json` spelling and receives a correction to canonical
+TOML `headers_helper`; stdio helpers are refused because they have no consumer.
+The native client runs the helper shell command at connection time and reads its
+JSON headers. Validation and preview never run helper commands. Native `inspect` proves loader
+acceptance only, not external MCP authentication or BYOK inference. A prompt
+harness name must be provided by the native service; unrecognized names are
+ignored by that service, and the fleet does not create custom harnesses.
+
+New supported Boolean feature controls are `ask_local_reads`,
+`auto_review_protected_paths`, `fail_silent_opens`, `history_tree`,
+`inline_code_copy`, `inline_turn_status`, `leader_read_close`, `link_url_hiding`,
+`load_rows_from_parent`, `model_list_refresh`, `overdue_reattach`,
+`paged_full_load`, `pending_steer` and `resume_refusals`. Their native daemon/TUI
+consumer and restart requirements still apply. They are never enabled by omission.
+
+Every authored new field, including false and empty values, requires a reported
+Grok CLI **1.0.88** or newer. This is a conservative audited capability floor;
+it does not claim each field first appeared there or raise the ordinary 1.0.50
+installation floor. Conditional layers are checked only when applicable to the
+observed version. Unknown versions require an update/version report before sync.
+Literal names containing dots do not trigger unrelated version gates.
+
+The following new controls receive a specific refusal in user defaults, including
+conditional layers: `shared_daemon` (cross-window storage/daemon ownership),
+`cloud_agents` (independent cloud work), `cursor_relay_login` and `sign_in_chooser`
+(native authentication), `unified_session_import` (new transcript identity),
+`unify_ask` (account unification), `idle_root_unload` (receiver root lifetime), and
+`proc_protection` (unverified compatibility with managed same-user process
+identity and shutdown checks). Their managed lifecycle has not been established;
+parser acceptance alone is insufficient. `cli.artifact_base` requires native
+managed/requirements scope and is owned by the fleet updater. Worker services,
+experiments and `hints.api_key_models_note_seen` remain outside user defaults.
+No login, refresh, cloud launch, native daemon restart or model tier change is
+performed by editing these defaults.
 
 ## Configuration scope and client compatibility
 
