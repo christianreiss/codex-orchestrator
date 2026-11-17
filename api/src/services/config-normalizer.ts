@@ -384,7 +384,7 @@ function normalizeProfiles(value: unknown): Array<Record<string, unknown>> {
   for (const entry of value) {
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
       const input = entry as Record<string, unknown>;
-      const native = normalizeStoredCodexNativeSettings(input.native_settings);
+      const native = normalizeStoredCodexNativeSettings(input.native_settings, input.features);
       if (native && Object.keys(native).length > 0 && (typeof input.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(input.name))) {
         throw new ValidationError('A native profile needs a file-safe name of 1–64 letters, digits, underscores or hyphens', { param: 'profiles.name' });
       }
@@ -445,7 +445,7 @@ export function normalizeSettings(
       }
     }
   }
-  const native = isCodex ? normalizeStoredCodexNativeSettings(asRecord(raw).native_settings) : undefined;
+  const native = isCodex ? normalizeStoredCodexNativeSettings(asRecord(raw).native_settings, asRecord(raw).features) : undefined;
   const settings = asRecord(raw);
   const rawModel = settings.model ?? (applyCodexDefaults ? DEFAULT_CODEX_MODEL : undefined);
   const model = engine === 'claude' ? normalizeClaudeModel(rawModel) : normalizeStoredModel(rawModel);

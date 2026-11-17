@@ -10,8 +10,8 @@ The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, Grok `config.toml` and Kimi Code `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed against Codex 0.167.0
-(2026-11-06), Claude Code 2.1.318 (2026-11-06) and Grok Build 1.0.77 (2026-11-06).
+can be authored centrally. Coverage was reviewed against Codex 0.169.0
+(2026-11-17), Claude Code 2.1.318 (2026-11-06) and Grok Build 1.0.77 (2026-11-06).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -158,7 +158,8 @@ fields require 0.165.0 only when configured: the `guardianv3`,
 remain opaque, so a `model_providers.gcp` entry is not gated, but its native
 built-in field limits are validated during authoring (see
 [Codex 0.165 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01650)).
-New 0.166.0 fields require 0.166.0 only when configured: eight new feature switches,
+New 0.166.0 fields require 0.166.0 only when configured: the still-supported feature switches
+(`plugin_discovery_prefetch` was subsequently retired in 0.169),
 rollout-budget enforcement, memory consolidation service tier, transcript-selection
 binding, provider project/location/ADC fields, OpenAI catalog routing and scoped
 MITM signing/body substitutions. The editor validates native provider and proxy
@@ -234,3 +235,19 @@ the reported installed CLI version. Desired version pins do not establish suppor
 Signed bootstrap remains available for recovery; launchpad and wrapper execution
 check the actual native binary and retain unavailable selections without fallback.
 See [Terra native availability](interface-cdx.md#gpt-61-terra-native-availability).
+
+### Codex 0.169 scope update (2026-11-17)
+
+Shared user defaults now cover the 0.169 schema, including 0.168 pane/search and
+Guardian controls, 0.169 turn-collapse/sidebar controls and gateway device-auth
+or credential-export configuration. Exact paths carry conditional 0.168/0.169
+floors in root and profile sidecars; existing fields keep their earlier floors.
+`tui.default_hosts` stays local because project/host selections are specific to
+one native machine, rather than portable fleet defaults. The editor rejects it
+with that scope explanation. Credential-export definitions are authored only;
+validation never runs commands. Retired multi-agent/prefetch flags and two
+removed auto-review prompt fields are rejected on new saves and removed from
+known stored paths by migration 0132. Legacy multi-agent opt-outs transfer to
+`agents.enabled=false` only when no explicit successor exists; no agent mode is
+enabled by this migration.
+See [current Codex maintenance](interface-cdx.md#native-configuration-maintenance-codex-01690).
