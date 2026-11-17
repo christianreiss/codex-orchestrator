@@ -8,11 +8,14 @@ export function explainedWebSignals(text: string): Map<string, Set<number>> {
       const classes = attr[2];
       if (/[{}]/.test(classes)) continue;
       const tokens = classes.split(/\s+/);
-      const visible = (kind: string) =>
-        tokens.some((token) => new RegExp(`^focus(?:-visible)?:${kind}-[1248]$`).test(token)) &&
-        !tokens.some((token) => new RegExp(`^(?:focus(?:-visible)?:)?${kind}-(?:0|transparent|opacity-0)$`).test(token)) &&
-        !(kind === "outline" && tokens.some((token) => /^focus(?:-visible)?:outline-none$/.test(token)));
-      if (!visible("ring") && !visible("outline")) continue;
+      const rings = tokens.flatMap((token) => token.match(/(?:^|:)ring-(.*)$/)?.slice(1) ?? []);
+      // Width alone cannot restore outline style/color after outline-none
+      // (Tailwind versions differ). Keep outline-only replacements reviewable.
+      // Likewise, arbitrary ring values or unknown alpha need rendered evidence.
+      const uncertainRing = rings.some((value) =>
+        /^(?:0|transparent|opacity-0)(?:$|\/)/.test(value) || /[\[\]()]/.test(value) ||
+        (value.includes("/") && !/\/(?:[1-9]\d?|100)$/.test(value)));
+      if (uncertainRing || !tokens.some((token) => /^focus(?:-visible)?:ring-[1248]$/.test(token))) continue;
       const start = tag.index! + attr.index! + attr[0].indexOf(attr[1]) + 1;
       for (const match of classes.matchAll(/outline-none/g)) focus.add(start + match.index!);
     }
