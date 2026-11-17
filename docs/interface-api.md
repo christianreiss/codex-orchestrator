@@ -278,7 +278,7 @@ stop sequences, tools, streaming, and images fail explicitly before execution.
 Unknown native usage is `null`; native stop reason is mapped when available.
 
 Grok's native receiver protocol is `grok-acp-v1`; receiver readiness and delivery
-are based on native session/queue evidence. Messaging supports all nine engine
+are based on native session/queue evidence. Messaging supports all sixteen engine
 source/target pairs. Grok quota has no synthetic percentage or capacity claim.
 
 ## Exposed API routing (any-to-any)
@@ -1676,7 +1676,7 @@ sender and target are eligible only when the fleet switch is on, both addresses
 are enabled and unarchived, both hosts are `active` — a secure host outright, an
 insecure host only while its `insecure_enabled_until` is in the future — and
 each address's engine remains in that host's enabled engine set. These checks are repeated inside the send, bind, claim, and
-acknowledgement transactions. The matrix is complete: all nine source/target
+acknowledgement transactions. The matrix is complete: all sixteen source/target
 pairs across Codex, Claude, Grok, and Kimi use the same contract.
 
 An agent receives a stable canonical address (`agent:<uuid>`) from the shared
@@ -2065,7 +2065,7 @@ authenticated admin role, including viewer/legacy read-only roles, may read
 that metadata; every mutation and plaintext reveal requires `owner` or `admin`:
 
 - `GET /admin/agent-messaging/state` — fleet state, eligible/live counts,
-  queues, and all nine engine-direction summaries.
+  queues, and all sixteen engine-direction summaries.
 - `POST /admin/agent-messaging/state` — toggle the default-off master switch.
 - `GET /admin/agent-messaging` — SPA/JSON address inventory compatibility path.
 - `GET /admin/agent-messaging/addresses` — address/host eligibility and queue

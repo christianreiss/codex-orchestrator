@@ -983,7 +983,7 @@ See the [full lifecycle audit](archive/agent-messaging-audit-2026-10-08.md) and
 [API reliability contract](interface-api.md#delivery-reliability-cxx-0926).
 
 Agent Messaging lets any eligible managed agent address any other one, covering
-all nine source/target pairs across Codex, Claude and Grok. Server-to-agent
+all sixteen source/target pairs across Codex, Claude, Grok and Kimi. Server-to-agent
 instructions and agent-to-server responses use the human-facing Agent Portal;
 the Server also publishes to explicitly subscribed groups and its own feed.
 Agent Messaging defaults off at
