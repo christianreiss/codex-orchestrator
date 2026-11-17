@@ -1,5 +1,5 @@
 import { GROK_188_FEATURES, GROK_188_UI_FIELDS, GROK_188_MODEL_FIELDS } from './grok-native-fields.js';
-import { needsCodex164, needsCodex165, needsCodex166, needsCodex167 } from './codex-native-capabilities.js';
+import { needsCodex164, needsCodex165, needsCodex166, needsCodex167, needsCodex168, needsCodex169 } from './codex-native-capabilities.js';
 import type { Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
 import type { Engine } from '../util/engine.js';
@@ -136,7 +136,9 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
   const codex165 = engine === 'codex' && scopes.some(needsCodex165);
   const codex166 = engine === 'codex' && scopes.some(needsCodex166);
   const codex167 = engine === 'codex' && scopes.some(needsCodex167);
-  if (!root && !profile && !codex163 && !codex164 && !codex165 && !codex166 && !codex167) return;
+  const codex168 = engine === 'codex' && scopes.some(needsCodex168);
+  const codex169 = engine === 'codex' && scopes.some(needsCodex169);
+  if (!root && !profile && !codex168 && !codex169 && !codex163 && !codex164 && !codex165 && !codex166 && !codex167) return;
   const raw = engine === 'codex' ? host.clientVersion : host.claudeClientVersion;
   const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
   const claudeNestedNamespaces = engine === 'claude'
@@ -145,7 +147,7 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
     && Object.hasOwn(record(record(value.native_settings).permissions), 'blockWritesOutsideWorkingDirectories');
   const claudeDenyPrompts = engine === 'claude'
     && Object.hasOwn(record(record(value.native_settings).permissions), 'denyInsteadOfPrompting');
-  const minimum = codex167 ? '0.167.0' : codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeDenyPrompts ? '2.1.319' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
+  const minimum = codex169 ? '0.169.0' : codex168 ? '0.168.0' : codex167 ? '0.167.0' : codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeDenyPrompts ? '2.1.319' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
   if (!observed || versionCompare(observed, minimum) < 0) {
     throw new ValidationError(`${engine} native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run ${engine === 'codex' ? 'cdx' : 'clx'} update (or cron run to report an already installed version), then retry sync.`, {
       param: root ? 'settings.native_settings' : profile ? 'settings.profiles' : 'settings',

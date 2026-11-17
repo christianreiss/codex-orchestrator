@@ -22,9 +22,9 @@ const render = (version: string | null, settings: unknown) => renderTomlForHost(
   host: { clientVersion: version } as never, baseUrl: null, apiKey: null });
 
 describe('Codex 0.167 native configuration', () => {
-  it('vendors the exact official versioned schema', () => {
+  it('uses the latest exact official versioned schema', () => {
     expect(createHash('sha256').update(readFileSync(new URL('../../../src/services/codex-config-schema.json', import.meta.url))).digest('hex'))
-      .toBe('66ed795352d32f2464778acd2e332b7fafe644246d540cdceec4663c56cfbc16');
+      .toBe('f515f420927460250181097af8dc72b80a6be4f01f4324a0efef816e46cc9c86');
   });
 
   it('keeps the retired feature list unchanged (0.167 removes no feature keys)', () => {

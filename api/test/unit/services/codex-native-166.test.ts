@@ -8,7 +8,7 @@ import { normalizeCodexNativeSettings } from '../../../src/services/codex-native
 import { createDbFake } from '../../helpers/db-fake.js';
 
 const flags = ['critical_path_timing', 'guardian_native_multi_agent_history', 'mcp_connection_sharing',
-  'omit_skill_descriptions', 'plugin_discovery_prefetch', 'simplified_selection_hints', 'skill_catalog_deltas', 'untrusted_as_tool_output'];
+  'omit_skill_descriptions', 'simplified_selection_hints', 'skill_catalog_deltas', 'untrusted_as_tool_output'];
 const signing = () => ({ placeholder_access_key_id: 'AUDIT_PLACEHOLDER', region: 'us-east-1', service: 's3',
   access_key_id: { env_var: 'AUDIT_PROXY_KEY' }, secret_access_key: { file: '/never-read/secret-key' } });
 const body = () => ({ replacements: [{ placeholder: 'AUDIT_OPAQUE_PLACEHOLDER', secret: { env_var: 'AUDIT_PROXY_BODY' } }] });
@@ -31,16 +31,16 @@ describe('Codex 0.166 native configuration', () => {
     expect(fetched.settings?.native_settings).toEqual(native);
     expect(fetched.settings?.profiles[0]?.native_settings).toEqual(native);
     for (const content of [first.content, service.render(fetched.settings).profiles![0]!.content]) {
-      expect(content).toContain('plugin_discovery_prefetch = false');
+      expect(content).toContain('omit_skill_descriptions = false');
       expect(content).toContain('enforce_limit = false');
       expect(content).toContain('select_transcript = "ctrl-s"');
       expect(content).toContain('[permissions.proxy.network.mitm.actions.sign.aws_sigv4]');
     }
-    const edited = await service.store({ settings: { native_settings: { features: { plugin_discovery_prefetch: true } } }, expected_revision: first.revision });
-    expect(edited.content).toContain('plugin_discovery_prefetch = true');
+    const edited = await service.store({ settings: { native_settings: { features: { omit_skill_descriptions: true } } }, expected_revision: first.revision });
+    expect(edited.content).toContain('omit_skill_descriptions = true');
     const removed = service.render({ native_settings: {}, profiles: [{ name: 'new', native_settings: {} }] });
-    expect(removed.content).not.toMatch(/plugin_discovery_prefetch|consolidation_service_tier|aws_sigv4|credential_file/);
-    expect(render(null, {}).content).not.toMatch(/plugin_discovery_prefetch|enforce_limit/);
+    expect(removed.content).not.toMatch(/omit_skill_descriptions|consolidation_service_tier|aws_sigv4|credential_file/);
+    expect(render(null, {}).content).not.toMatch(/omit_skill_descriptions|enforce_limit/);
   });
   const additions = [
     ...flags.map(key => ({ features: { [key]: false } })),
@@ -62,7 +62,7 @@ describe('Codex 0.166 native configuration', () => {
     }
   });
   it('gates structured feature scopes and leaves opaque names and established fields alone', () => {
-    expect(() => render('0.165.0', { features: { plugin_discovery_prefetch: false } })).toThrow(/0\.166\.0/);
+    expect(() => render('0.165.0', { features: { omit_skill_descriptions: false } })).toThrow(/0\.166\.0/);
     expect(() => render('0.165.0', { profiles: [{ name: 'new', features: { critical_path_timing: false } }] })).toThrow(/0\.166\.0/);
     expect(() => render('0.162.1', { native_settings: { model_providers: { 'project_id.critical_path_timing': { name: 'custom' } },
       mcp_servers: { 'aws_sigv4.select_transcript': { command: '/bin/false' } } } })).not.toThrow();

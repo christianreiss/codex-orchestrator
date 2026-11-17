@@ -2165,14 +2165,60 @@ This is agent-executed guidance shared by all four engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
+## Native configuration maintenance (Codex 0.169.0)
+
+The Engines native-settings editor validates the exact published 0.169.0 schema
+(`rust-v0.169.0`, commit `d32063f96c2dff1dc96af839b3952abb6acfeda4`,
+SHA-256 `f515f420927460250181097af8dc72b80a6be4f01f4324a0efef816e46cc9c86`).
+The 103 root fields and complete nested definitions are retained; existing
+settings keep their earlier version requirements.
+
+New 0.168 controls require 0.168 only when authored, including explicit false,
+empty maps and profile-only values: OSC 777 notifications, sidebar width (1–99),
+pane/host keybindings, `tools.client_search_provider` (`standalone|search_mcp`),
+Guardian synchronous elastic budgeting/section limits and the nine new feature
+switches. New 0.169 controls require 0.169: completed-turn collapse, sidebar tab
+keybindings, Gateway OAuth device authorization, gateway credential export and
+five feature switches. `incremental_tools_legacy` and
+`incremental_tools_legacy_gcp` use a conservative 0.169 floor because they appeared
+briefly in 0.167 patch releases, disappeared in 0.168, then returned in 0.169.
+No optional mode is enabled by adding support.
+
+Gateway `credential_export` is an alternative to the OAuth settings object,
+with a required string `command`, optional string `args` array and positive
+integer `timeout_ms` (native default 30000). The same shape serves existing AWS
+credential export. Validation and rendering never run the referenced command;
+the executable and any referenced resources must exist on the native host.
+`tui.default_hosts` is deliberately rejected as a host-local project/host
+selection preference; author it locally rather than distribute the same local
+selection across fleet machines. It is not endpoint or credential provisioning.
+Enterprise requirements, project trust and independent remote-service lifecycle
+remain under their existing authorities.
+
+New authoring rejects deprecated `features.multi_agent`, removed
+`features.plugin_discovery_prefetch` and removed `auto_review` prompt fields
+`experimental_policy_template`/`extra_policy`. Stored normalization and migration
+0132 remove only those exact structured/native root/profile paths, retaining
+siblings, literal dotted map names, other engines and historical body/hash
+snapshots. A saved `multi_agent=false` becomes `agents.enabled=false` only when
+no explicit successor exists, retaining the opt-out instead of restoring the
+legacy default-on behavior. Structured feature precedence is preserved.
+Retiring `multi_agent` never switches on the distinct
+`multi_agent_v2` mode. Existing explicit values of that mode are preserved.
+
+Source: [versioned schema](https://github.com/openai/codex/blob/rust-v0.169.0/codex-rs/core/config.schema.json)
+and real 0.169.0 `features list`/rendered-config probes, audited 2026-11-17.
+Parser probes establish syntax/config-load compatibility, not authenticated
+inference, endpoint reachability or execution of credential helpers.
+
 ## Native configuration maintenance (Codex 0.167.0)
 
-The Engines native JSON editor, root configuration and profile sidecars accept the
+The previous 0.167.0 audit established the root/profile baseline from the
 published 0.167.0 schema (release `rust-v0.167.0`, commit
 `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`, audited 2026-11-06, SHA-256
 `66ed795352d32f2464778acd2e332b7fafe644246d540cdceec4663c56cfbc16`).
-`codex features list` adds seven keys and removes none, so the retired-feature
-list is unchanged. The following additions conditionally require an **observed**
+`codex features list` at that audit added seven keys and removed none. The
+current 0.169 retirements above supersede that historical feature status. The following additions conditionally require an **observed**
 native CLI 0.167.0; existing settings keep their earlier floors. Explicit false,
 empty maps or profile-only values count as configured; provider, plugin and
 connector IDs stay opaque, so map names containing these words are not gated.
@@ -2224,7 +2270,7 @@ Stored normalization and migration 0121 remove only these exact feature paths,
 preserving Guardian siblings, literal map names and historical TOML/hash snapshots.
 See the [versioned native feature registry](https://github.com/openai/codex/blob/rust-v0.166.0/codex-rs/features/src/lib.rs).
 
-The Engines native JSON editor, root configuration and profile sidecars accept the
+The previous 0.166.0 audit established the root/profile baseline from the
 published 0.166.0 schema (audited 2026-11-01, SHA-256
 `211bec2282459fcd70e4905af948721177b6ec7a03e0df84cd8b7c131006a6ca`).
 The following additions conditionally require an **observed** native CLI 0.166.0;
@@ -2232,7 +2278,8 @@ existing settings keep their earlier floors. Explicit false, empty or profile-on
 values count as configured; arbitrary map names containing these words do not.
 
 - Features: `critical_path_timing`, `guardian_native_multi_agent_history`,
-  `mcp_connection_sharing`, `omit_skill_descriptions`, `plugin_discovery_prefetch`,
+  `mcp_connection_sharing`, `omit_skill_descriptions`, `plugin_discovery_prefetch`
+  (retired by 0.169, see above),
   `simplified_selection_hints`, `skill_catalog_deltas`, `untrusted_as_tool_output`.
 - `features.rollout_budget.enforce_limit`, `memories.consolidation_service_tier`
   and `tui.keymap.global.select_transcript` (native example `ctrl-s`).

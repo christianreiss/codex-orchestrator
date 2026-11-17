@@ -1,7 +1,7 @@
 /**
- * Codex 0.167.0 native configuration, audited 2026-11-06.
- * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.167.0/codex-rs/core/config.schema.json
- * Original SHA-256: 66ed795352d32f2464778acd2e332b7fafe644246d540cdceec4663c56cfbc16.
+ * Codex 0.169.0 native configuration, audited 2026-11-17.
+ * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.169.0/codex-rs/core/config.schema.json
+ * Original SHA-256: f515f420927460250181097af8dc72b80a6be4f01f4324a0efef816e46cc9c86.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
@@ -32,9 +32,11 @@ export const CODEX_RETIRED_FEATURE_KEYS: readonly string[] = [
   "js_repl",
   "js_repl_tools_only",
   "local_thread_store_shared_compression",
+  "multi_agent",
   "multi_agent_mode",
   "personality",
   "plugin_hooks",
+  "plugin_discovery_prefetch",
   "realtime_conversation",
   "stable_environment_tools",
   "worktrees",
@@ -97,26 +99,46 @@ function wrapperOwnsCliAuthStore(native: NativeSettings): boolean {
 }
 
 /** Stored compatibility only; authoring must use the strict normalizer first. */
-export function normalizeStoredCodexNativeSettings(value: unknown): NativeSettings | undefined {
+export function normalizeStoredCodexNativeSettings(value: unknown, structuredFeatures?: unknown): NativeSettings | undefined {
+  const structuredLegacy = nativeRecord(structuredFeatures).multi_agent;
+  if ((value === undefined || value === null) && structuredLegacy === false) value = {};
+  if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return normalizeCodexNativeSettings(value);
+  }
   let input = nativeRecord(value);
   if (wrapperOwnsCliAuthStore(input)) {
     input = { ...input };
     delete input.cli_auth_credentials_store;
-    value = input;
   }
+  // Heal only verified obsolete paths, preserving invalid/unknown inputs for
+  // strict validation rather than silently replacing their types.
+  const healed = { ...input };
+  const legacyMultiAgent = typeof structuredLegacy === 'boolean' ? structuredLegacy : nativeRecord(input.features).multi_agent;
+  // Removing the deprecated flag must not turn an explicit opt-out into the
+  // native default (true). Preserve an explicit successor and V2 precedence.
+  const agents = nativeRecord(input.agents);
+  if (legacyMultiAgent === false && !Object.hasOwn(agents, 'enabled')
+    && (input.agents === undefined || input.agents === agents)) {
+    healed.agents = { ...agents, enabled: false };
+  }
+  const strip = (scope: NativeSettings, keys: string[]) => {
+    const out = { ...scope };
+    for (const key of keys) delete out[key];
+    return out;
+  };
   const features = nativeRecord(input.features);
-  if (!Object.hasOwn(features, 'code_mode_tool_description_first')
-    && !Object.hasOwn(nativeRecord(features.guardianv2), 'async_classifier_mode')) {
-    return normalizeCodexNativeSettings(value);
+  if (['code_mode_tool_description_first', 'multi_agent', 'plugin_discovery_prefetch']
+    .some(key => Object.hasOwn(features, key))) {
+    healed.features = strip(features, ['code_mode_tool_description_first', 'multi_agent', 'plugin_discovery_prefetch']);
   }
-  const healed = { ...features };
-  delete healed.code_mode_tool_description_first;
   if (Object.hasOwn(nativeRecord(features.guardianv2), 'async_classifier_mode')) {
-    const guardian = { ...nativeRecord(features.guardianv2) };
-    delete guardian.async_classifier_mode;
-    healed.guardianv2 = guardian;
+    healed.features = { ...nativeRecord(healed.features), guardianv2: strip(nativeRecord(features.guardianv2), ['async_classifier_mode']) };
   }
-  return normalizeCodexNativeSettings({ ...input, features: healed });
+  const autoReview = nativeRecord(input.auto_review);
+  if (['experimental_policy_template', 'extra_policy'].some(key => Object.hasOwn(autoReview, key))) {
+    healed.auto_review = strip(autoReview, ['experimental_policy_template', 'extra_policy']);
+  }
+  return normalizeCodexNativeSettings(healed);
 }
 
 function cloneJson(value: unknown, path: string): unknown {
@@ -153,6 +175,13 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
   }
   for (const key of ['model', 'model_reasoning_effort']) {
     if (Object.hasOwn(out, key)) throw new ValidationError(`native_settings.${key} is owned by the structured model controls; set ${key} outside native_settings`, { param: `native_settings.${key}` });
+  }
+  const autoReview = nativeRecord(out.auto_review);
+  for (const key of ['experimental_policy_template', 'extra_policy']) {
+    if (Object.hasOwn(autoReview, key)) throw new ValidationError(`native_settings.auto_review.${key} was removed in Codex 0.169.0; omit it`, { param: `native_settings.auto_review.${key}` });
+  }
+  if (Object.hasOwn(nativeRecord(out.tui), 'default_hosts')) {
+    throw new ValidationError('native_settings.tui.default_hosts is a host-local project/host selection preference; configure it on the native host, not as shared fleet user defaults', { param: 'native_settings.tui.default_hosts' });
   }
   const features = nativeRecord(out.features);
   for (const key of Object.keys(features)) {
