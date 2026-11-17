@@ -47,6 +47,9 @@ import { buildModelPolicy, modelPolicyKey, readModelPolicy } from './model-polic
 import { buildModelTierTable, modelTier } from './model-tiers.js';
 import { ADVISOR_KINDS, advisorFailureDiagnostic, type AdvisorKind } from './advisor-delivery.js';
 import { compareWrapperVersions, highestVersion } from './wrapper-rollout.js';
+import { advisorStartupDiagnostic } from './advisor-startup.js';
+
+type AdvisorDiagnostic = ReturnType<typeof advisorFailureDiagnostic> | ReturnType<typeof advisorStartupDiagnostic>;
 
 export const advisorAskSchema = z
   .object({
@@ -153,7 +156,7 @@ const KIND_GUIDANCE: Record<AdvisorKind, string> = {
   verify:
     'verify: check the proposed solution, claim or diff for correctness, missed edge cases and unsafe side effects. Agree only if you would ship it.',
   tier_check:
-    'tier_check: rate the task on the fleet tier scale (1 lookups/mechanical, 2 feature work with a clear reproduction, 3 cross-cutting/concurrency/security/migration, 4 architecture and open-ended diagnosis) and name the lowest fitting model.',
+    'tier_check: rate the task on the fleet tier scale (1 lookups/mechanical, 2 feature work with a clear reproduction, 3 cross-cutting/concurrency/security/migration, 4 architecture and complex redesigns, 5 open-ended diagnosis and frontier review) and name the lowest fitting model.',
   classify:
     'classify: classify the problem (domain, blast radius, risk, most likely cause) and say which next check would discriminate between the leading hypotheses.',
   general: 'general: answer the question directly.',
@@ -187,7 +190,7 @@ Rules:
 \`\`\`json
 {"verdict": "needs_info", "summary": "Name the missing evidence and next check.", "evidence": [{"description": "What the supplied context establishes.", "reference": "caller question or transfer id"}]}
 \`\`\`
-Use one of the four verdict values above. Every evidence entry must be an object with "description" (1-500 characters) and optional "reference" (at most 2048 characters), never a bare string; at most 20 entries, or [] when none. For tier_check also include "tier" (integer 1-4) and "recommended_model" (a bare available model id without an engine/ prefix, when one fits); omit these fields otherwise. Include only evidence you actually received or inspected. Follow-up questions from the same caller arrive as further turns of this session.
+Use one of the four verdict values above. Every evidence entry must be an object with "description" (1-500 characters) and optional "reference" (at most 2048 characters), never a bare string; at most 20 entries, or [] when none. For tier_check also include "tier" (integer 1-5) and "recommended_model" (a bare available model id without an engine/ prefix, when one fits); omit these fields otherwise. Include only evidence you actually received or inspected. Follow-up questions from the same caller arrive as further turns of this session.
 
 Question:
 ${input.question}${input.transferIds.length ? `\n\nAttached transfers: ${input.transferIds.join(', ')}` : ''}`;
@@ -503,7 +506,10 @@ export class AdvisorService {
             ? 'closed'
             : 'failed'
           : row.status;
-    let diagnostic: ReturnType<typeof advisorFailureDiagnostic> = null,
+    const operations = [...snapshot.table('hostDaemonOperations').by('sessionId', row.daemonSessionId)]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const latest = operations[1]?.createdAt === operations[0]?.createdAt ? undefined : operations[0];
+    let diagnostic: AdvisorDiagnostic = advisorStartupDiagnostic(latest, row.turns, daemon?.addressId),
       verdict: unknown = null;
     if (row.turns > 0) {
       const [cold] = await this.ctx.db
@@ -513,17 +519,15 @@ export class AdvisorService {
       if (cold?.verdictEnc) verdict = JSON.parse(decrypt(cold.verdictEnc, this.ctx.keyring));
     }
     if (status === 'failed' || status === 'closed') {
-      const [op, previous] = [...snapshot.table('hostDaemonOperations').by('sessionId', row.daemonSessionId)]
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-        .slice(0, 2);
-      if (op && (!previous || previous.createdAt !== op.createdAt)) {
+      const [op, previous] = operations;
+      if (op && op.status !== 'expired' && (!previous || previous.createdAt !== op.createdAt)) {
         const [cold] = await this.ctx.db
           .select({ resultEnc: hostDaemonOperations.resultEnc })
           .from(hostDaemonOperations)
           .where(eq(hostDaemonOperations.id, op.id));
         if (cold?.resultEnc)
           try {
-            diagnostic = advisorFailureDiagnostic(JSON.parse(decrypt(cold.resultEnc, this.ctx.keyring)));
+            diagnostic = advisorFailureDiagnostic(JSON.parse(decrypt(cold.resultEnc, this.ctx.keyring))) ?? diagnostic;
           } catch { /* Malformed historical diagnostics do not change advisor state. */ }
       }
     }
@@ -661,7 +665,7 @@ export class AdvisorService {
       .strict()
       .parse(body ?? {});
     const callerId = this.callerAddress(caller);
-    if (input.advisor_session_id) return this.view(await this.owned(callerId, input.advisor_session_id));
+    if (input.advisor_session_id) return this.statusFor(callerId, input.advisor_session_id);
     const owner = ownerRuntimeFor(this.ctx.db);
     owner?.assertOwner();
     const rows = owner
@@ -684,6 +688,11 @@ export class AdvisorService {
     };
   }
 
+  /** Internal Slop status read, retaining the same caller ownership check. */
+  async statusFor(callerId: string, id: string) {
+    return this.view(await this.owned(callerId, id));
+  }
+
   private async view(row: typeof advisorSessions.$inferSelect | StateRow<'advisorSessions'>) {
     const owner = ownerRuntimeFor(this.ctx.db);
     if (owner) return this.viewOwned(row);
@@ -701,18 +710,19 @@ export class AdvisorService {
           ? 'closed'
           : 'failed'
         : row.status;
-    let diagnostic: ReturnType<typeof advisorFailureDiagnostic> = null;
+    const [operation, previous] = await this.ctx.db
+      .select({ status: hostDaemonOperations.status, resultEnc: hostDaemonOperations.resultEnc, createdAt: hostDaemonOperations.createdAt })
+      .from(hostDaemonOperations)
+      .where(eq(hostDaemonOperations.sessionId, row.daemonSessionId))
+      .orderBy(desc(hostDaemonOperations.createdAt))
+      .limit(2);
+    const latest = previous?.createdAt === operation?.createdAt ? undefined : operation;
+    let diagnostic: AdvisorDiagnostic = advisorStartupDiagnostic(latest, row.turns, daemon?.addressId);
     if (status === 'failed' || status === 'closed') {
-      const [operation, previous] = await this.ctx.db
-        .select({ resultEnc: hostDaemonOperations.resultEnc, createdAt: hostDaemonOperations.createdAt })
-        .from(hostDaemonOperations)
-        .where(eq(hostDaemonOperations.sessionId, row.daemonSessionId))
-        .orderBy(desc(hostDaemonOperations.createdAt))
-        .limit(2);
       // UUID order cannot establish which turn was last at a tied timestamp.
       if (operation?.resultEnc && (!previous || previous.createdAt !== operation.createdAt)) {
         try {
-          diagnostic = advisorFailureDiagnostic(JSON.parse(decrypt(operation.resultEnc, this.ctx.keyring)));
+          diagnostic = advisorFailureDiagnostic(JSON.parse(decrypt(operation.resultEnc, this.ctx.keyring))) ?? diagnostic;
         } catch {
           /* Missing or legacy evidence never becomes a fabricated diagnostic. */
         }

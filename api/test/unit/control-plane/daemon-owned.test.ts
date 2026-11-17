@@ -991,6 +991,21 @@ describe('owner provider observation writes', () => {
 });
 
 describe('owned advisor composition', () => {
+  it('reports an unstarted expired advisor from owner RAM without querying operation results', async () => {
+    const id = randomUUID(), daemonId = randomUUID(), callerId = randomUUID();
+    const h = harness({
+      advisorSessions: [{ id, callerAddressId: callerId, daemonSessionId: daemonId, hostId: 1,
+        kind: 'verify', status: 'starting', turns: 0, createdAt: new Date().toISOString() }],
+      hostDaemonSessions: [{ id: daemonId, hostId: 1, status: 'failed', addressId: null }],
+      hostDaemonOperations: [{ id: randomUUID(), hostId: 1, sessionId: daemonId, status: 'expired', createdAt: new Date(Date.now() - 601000).toISOString() }],
+    });
+    const select = vi.spyOn(h.ctx.db, 'select');
+    expect(await new AdvisorService(h.ctx).statusFor(callerId, id)).toMatchObject({
+      status: 'failed', diagnostic: { code: 'advisor_startup_timeout', phase: 'expired' },
+    });
+    expect(select).not.toHaveBeenCalled();
+    await expect(new AdvisorService(h.ctx).statusFor(randomUUID(), id)).rejects.toMatchObject({ status: 403 });
+  });
   it('does not observe a transient messaging flag absent from its policy snapshot', async () => {
     const h = harness({
       hosts: [{ id: 1, fqdn: 'advisor.internal', secure: 1, status: 'active',

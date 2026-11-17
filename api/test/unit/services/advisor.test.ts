@@ -28,6 +28,17 @@ describe('Advisor role prompt', () => {
     expect(parseAdvisorVerdict(prompt)?.evidence?.[0]).toMatchObject({ description: expect.any(String), reference: expect.any(String) });
     expect(prompt).toContain('never a bare string');
     expect(prompt).toContain('fetching a transfer needs no resource claim');
+    expect(prompt).toContain('5 open-ended diagnosis and frontier review');
+    expect(prompt).toContain('"tier" (integer 1-5)');
+  });
+});
+
+describe('Advisor fleet tiers', () => {
+  it.each([1, 2, 3, 4, 5])('retains a valid Tier %s verdict', (tier) => {
+    expect(parseAdvisorVerdict('```json\n' + JSON.stringify({ verdict: 'agree', summary: 'Supported rating.', tier }) + '\n```')?.tier).toBe(tier);
+  });
+  it.each([0, 6, 1.5])('rejects an unsupported tier %s', (tier) => {
+    expect(parseAdvisorVerdict('```json\n' + JSON.stringify({ verdict: 'agree', summary: 'Invalid rating.', tier }) + '\n```')).toBeNull();
   });
 });
 
@@ -133,6 +144,26 @@ describe('Advisor terminal diagnostics', () => {
     const f = fixture('Native process exited unsuccessfully; exit_status=1');
     const operations = f.db.tables.get(hostDaemonOperations)!;
     operations.push({ ...operations[0], id: randomUUID(), resultEnc: encrypt(JSON.stringify({ status: 'failed', reply: 'Native process exited unsuccessfully; exit_status=7' }), keyring) });
+    expect(await f.status()).toMatchObject({ diagnostic: null });
+  });
+  it('reports an expired unstarted offer even when no native result exists', async () => {
+    const f = fixture('unused');
+    Object.assign(f.db.tables.get(advisorSessions)![0]!, { status: 'starting', turns: 0 });
+    Object.assign(f.db.tables.get(hostDaemonOperations)![0]!, { status: 'expired', resultEnc: null });
+    expect(await f.status()).toMatchObject({ status: 'failed', verdict: null, diagnostic: {
+      code: 'advisor_startup_timeout', phase: 'expired', offer_timeout_seconds: 600,
+      action: expect.stringContaining('Do not disable TLS verification'),
+    } });
+  });
+  it('distinguishes a queued launch from a running reviewer without exposing native errors', async () => {
+    const f = fixture('private stderr must stay private');
+    Object.assign(f.db.tables.get(advisorSessions)![0]!, { status: 'starting', turns: 0 });
+    Object.assign(f.db.tables.get(hostDaemonSessions)![0]!, { status: 'queued' });
+    Object.assign(f.db.tables.get(hostDaemonOperations)![0]!, { status: 'queued' });
+    const result = await f.status();
+    expect(result).toMatchObject({ status: 'starting', diagnostic: { code: 'advisor_startup_pending', phase: 'queued' } });
+    expect(JSON.stringify(result)).not.toContain('private stderr');
+    Object.assign(f.db.tables.get(hostDaemonSessions)![0]!, { status: 'running', addressId: randomUUID() });
     expect(await f.status()).toMatchObject({ diagnostic: null });
   });
   it('does not retain an older failure while the latest operation has no result', async () => {
