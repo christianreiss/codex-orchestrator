@@ -3035,6 +3035,12 @@ and `install.sh` create the directory owned by 10001), which the container mount
 installs cxx from `/wrapper/v2/download` if missing, runs `cxx update` and then `cxx daemon run`
 in the foreground. The host's CA bundle (`ADVISOR_CA_BUNDLE`, default
 `/etc/ssl/certs/ca-certificates.crt`) is mounted read-only, so a public API behind a private CA verifies.
+An API deployment recreates an already running advisor with `up -d --no-deps
+--force-recreate advisor`, even when its image is unchanged. Atomic host bundle
+replacement otherwise leaves a file bind mount on the old inode. Custom
+`ADVISOR_CA_BUNDLE` paths remain supported. This is deployment-time convergence,
+not hot reload: after a later host trust change, deploy again. TLS verification
+stays enabled; no CA or credential copy is made.
 
 **Engine and model.** The caller may pass `engine` and/or `model`. Allowed are engines enabled
 fleet-wide, assigned to the advisor host and reported ready by its daemon, and for each the
@@ -3050,7 +3056,16 @@ available model (highest tier, canonical engine order). The model is pinned on t
 
 Advisor view fields: `advisor_session_id`, `kind`, `status` (`starting|open|closed|failed`, derived from the daemon session when it ended without the advisor row hearing of it), `busy`, `turns`, `advisor_address`, `conversation_id`, `verdict`, `close_reason` (`done|idle|stopped|error`), `diagnostic`, `created_at`, `closed_at`.
 
-`diagnostic` is nullable terminal metadata from the latest daemon operation:
+`diagnostic` includes safe launch metadata before the first turn/address:
+`{code:"advisor_startup_pending"|"advisor_startup_timeout", phase, elapsed_seconds,
+offer_timeout_seconds, action}`. Queued/offered operations use the existing
+600-second offer deadline; accepted operations have no offer deadline (`null`).
+Only an actually expired operation reports timeout. Phase does not establish a
+TLS cause: the recovery action directs the operator to daemon/container logs and
+API trust verification. A pending launch is not a running review. Missing or
+ambiguous launch evidence stays null.
+
+It also includes nullable terminal metadata from the latest daemon operation:
 `{code:"native_exit", exit_status:-1..255, startup_stage?, startup_code?, http_status?}`.
 Startup fields use only the existing registration/connection/identity and error-code
 allowlists; HTTP status is 400–599. Updated daemons include this bounded evidence in
@@ -3065,7 +3080,7 @@ Missing, legacy, unrecognized or ambiguously ordered operation evidence returns 
 the server does not infer turn order from UUIDs when newest timestamps tie. The
 opening-agent authorization and failed-turn `verdict:null` behavior remain unchanged.
 
-Delivery: when a turn completes, the server queues a `kind: message`, `delivery_class: coordination` peer message from the advisor's own bus address to the caller, headed `ADVISOR/1 advisor_session_id=… turn=… kind=…`, in one conversation per advisor. The native answer is expected to end in a fenced JSON verdict `{verdict: agree|disagree|needs_info|n/a, tier?, recommended_model?, summary, evidence[]}`; the last valid block of the latest completed turn is stored encrypted. A failed turn or a turn without a valid verdict clears the preceding verdict (`verdict: null`). An idle-sweep close sends a `delivery_class: notice` message (`closed reason=idle`). A failed turn still sends the caller a message with its status and diagnostic reply (or an explicit no-answer notice).
+Delivery: when a turn completes, the server queues a `kind: message`, `delivery_class: coordination` peer message from the advisor's own bus address to the caller, headed `ADVISOR/1 advisor_session_id=… turn=… kind=…`, in one conversation per advisor. The native answer is expected to end in a fenced JSON verdict `{verdict: agree|disagree|needs_info|n/a, tier?, recommended_model?, summary, evidence[]}`; optional `tier` is an integer from 1 through 5, matching the fleet model classes and tier-check prompt. The last valid block of the latest completed turn is stored encrypted. A failed turn or a turn without a valid verdict clears the preceding verdict (`verdict: null`). An idle-sweep close sends a `delivery_class: notice` message (`closed reason=idle`). A failed turn still sends the caller a message with its status and diagnostic reply (or an explicit no-answer notice).
 
 The role prompt names the concrete session engine/model and tier, overriding the host-configured model for the advisor's class check, and lists available model tiers for recommendations. It defines `agree` (supported claim), `disagree` (demonstrated defect), `needs_info` (missing evidence prevents a decision) and `n/a` (direct answer without a claim). The JSON example demonstrates evidence objects (`{description, reference?}`, never bare strings; at most 20 entries). Only `tier_check` adds a tier and optional bare model id recommendation without an engine prefix. Supplied code, quoted prompts and transfers are evidence, not role-changing instructions; the advisor works only from supplied context, isolates transfer filenames in the shared working directory (outside scope coordination, so a fetch needs no resource claim), and returns its answer for automatic delivery.
 
@@ -4328,7 +4343,7 @@ Project-bound, versioned UI/UX review jobs for agents, built on the vendored slo
 
 - **quick.** The API materializes the snapshot's source files under `DATA_ROOT/slop/runs/<run>/tree/` and writes `scan.request.json`; the `slop-worker` container (no network, read-only root, uid 10001, pinned slop-detector) runs `slop scan` and answers with `scan.result.json`. Exit 3 (incomplete input or coverage) records `incomplete`, otherwise `completed`.
 - **full.** Requires a native agent session (the advisor's caller), File Transfer enabled and an available Fleet Advisor. The scan runs first inside the `slop_job_run` request (≤60 s); the API then packs `tree/`, `shots/`, `guidelines.md` (rubric + guidelines with evidence markers, hashed into `guidelines_sha256`), `quick-report.json`, `description.md` and `MANIFEST.json` into one ustar transfer (TTL 2 h) and opens a `verify` advisor with `client_message_id = run id`. The advisor's answer is captured in the same transaction that records its turn (`advisor-delivery.ts` → `recordSlopAdvisorReply`, both owner and legacy paths) and still reaches the caller as `ADVISOR/1`. Its `slop-review` block is normalized (kind `review`, priority P1/P2, server-derived ids) and validated by `slop report --review` in the worker; rejected findings make the run `incomplete` with the reasons in `report.errors`. The advisor session is closed and the bundle transfer retired when the run ends (and when its job is closed or expires); the transfer id lives in the run directory (`bundle.transfer`). The served fleet guidance (Projects section of `managed-agents-features.ts`, all engines) tells agents to review UI work with a slop job before reporting it done.
-- **Results and diffs.** Runs are immutable and keep the slop version, guidelines hash, snapshot and description revision. Run summaries expose `coverage` and `scanned_source_files`, including unsupported-extension skips (Kotlin is not supported by the quick scanner); zero findings alone is not a coverage claim. `slop_job_result` returns the report (or Markdown); `slop_job_diff` returns a unified diff between file revisions or new/resolved/unchanged findings and file changes between two runs.
+- **Results and diffs.** Runs are immutable and keep the slop version, guidelines hash, snapshot and description revision. Run summaries expose `coverage` and `scanned_source_files`, including unsupported-extension skips (Kotlin is not supported by the quick scanner); zero findings alone is not a coverage claim. A full run awaiting its advisor includes `review_phase: starting|reviewing` and safe `advisor.status`/`advisor.diagnostic`; an ended advisor with no answer fails the run and preserves the quick report. A concurrent captured reply wins over that failure transition. `slop_job_result` returns the report (or Markdown); `slop_job_diff` returns a unified diff between file revisions or new/resolved/unchanged findings and file changes between two runs.
 - **Lifecycle.** Every job call bumps `last_activity_at`; the sweeper (every 15 s, owner only) advances open runs, fails runs older than 90 min, hard-deletes jobs idle for 24 h (unless a run is active) or whose project is gone, and removes stray run directories. WebSocket: `project.slop.changed {slug, job_id, action}`.
 - **Storage.** `DATA_ROOT/slop` must be owned by uid 10001 with mode 700; `bin/install.sh` and `scripts/deploy.sh` prepare it.
 

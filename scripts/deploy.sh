@@ -7,6 +7,7 @@ INSTANCE_ROOT="$repo_root"
 # shellcheck source=bin/lib/instance-compose.sh
 source "$repo_root/bin/lib/instance-compose.sh"
 source "$repo_root/bin/lib/owner-cutover.sh"
+source "$repo_root/bin/lib/advisor-deploy.sh"
 declare -a INSTANCE_PROFILES=()
 instance_env_path
 
@@ -176,6 +177,14 @@ if [[ "${#services[@]}" -gt 0 ]]; then
   for service in "${services[@]}"; do
     [[ "${service}" == "api" ]] && deploys_api=1
   done
+fi
+
+# Preserve an already running advisor across normal API deployments, including
+# installations where its profile was selected only on the original CLI call.
+advisor_was_running=0
+if [[ "$deploys_api" -eq 1 || " ${services[*]} " == *" advisor "* ]]; then
+  existing_advisor="$("${compose[@]}" --profile '*' ps --status running -q advisor)"
+  [[ -z "$existing_advisor" ]] || advisor_was_running=1
 fi
 
 # --- cxx wrapper matrix -------------------------------------------------------
@@ -422,6 +431,10 @@ fi
 [[ -z "$OWNER_CUTOVER_DIR" ]] || owner_cutover_phase replacement-started
 log "starting compose services"
 "${compose[@]}" "${up_args[@]}"
+if [[ "$advisor_was_running" -eq 1 ]]; then
+  log "recreating advisor to load the current host CA bundle"
+  advisor_deploy_refresh
+fi
 if [[ "$deploys_api" -eq 1 && "${#services[@]}" -gt 0 && " ${services[*]} " != *" media-worker "* ]] && grep -q '^media-worker' "$OWNER_CUTOVER_DIR/previous-images.tsv"; then
   "${compose[@]}" up -d --no-deps media-worker
 fi

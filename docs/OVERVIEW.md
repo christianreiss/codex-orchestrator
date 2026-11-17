@@ -1475,6 +1475,13 @@ metadata (exit status and vetted startup stage/code/HTTP status); legacy or ambi
 evidence stays null, and native stderr is never forwarded. Readiness excludes
 engines without an allowed model and reports
 `advisor_model_unavailable` if no model remains.
+Before the first native address/turn, status exposes a safe launch phase and
+elapsed time; an expired offer reports `advisor_startup_timeout`. Full Slop
+results distinguish `review_phase: starting` from `reviewing` and finish failed
+if the advisor ends without an answer, preserving the quick report. API deploys
+recreate an already running advisor to refresh its host CA file bind mount;
+custom CA paths and TLS verification are preserved. This does not hot-reload a
+later trust change into running native processes.
 The tools are served by the `cxx-agent` stdio server, not by the
 orchestrator MCP. The managed `## Fleet Advisor` block is withheld while the installed cxx
 or an executing host daemon's private copy is older than 0.9.100.

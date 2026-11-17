@@ -34,7 +34,7 @@ export type AdvisorKind = (typeof ADVISOR_KINDS)[number];
 export const advisorVerdictSchema = z
   .object({
     verdict: z.enum(['agree', 'disagree', 'needs_info', 'n/a']),
-    tier: z.number().int().min(1).max(4).optional(),
+    tier: z.number().int().min(1).max(5).optional(),
     recommended_model: z.string().max(128).optional(),
     summary: z.string().min(1).max(4096),
     evidence: z

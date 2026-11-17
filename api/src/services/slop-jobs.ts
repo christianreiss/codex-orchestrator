@@ -20,7 +20,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 import type { RouteContext } from '../routes/index.js';
 import { coordProjects, slopJobFiles, slopJobs, slopRuns, type Host, type SlopJob, type SlopRun } from '../db/schema.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
@@ -729,13 +729,22 @@ export class SlopJobsService {
       await sleep(400);
     }
     const summary = this.runSummary(current);
+    const advisor = current.status === 'reviewing' && current.advisorSessionId && current.advisorCallerId
+      ? await this.advisor.statusFor(current.advisorCallerId, current.advisorSessionId)
+      : undefined;
+    const reviewPhase = advisor ? (advisor.advisor_address ? 'reviewing' : 'starting') : undefined;
     const pendingNote =
       current.status === 'reviewing'
-        ? 'The Fleet Advisor is reviewing; its answer also reaches you as an ADVISOR/1 message. Fetch the validated result with slop_job_result (wait_seconds up to 25).'
+        ? reviewPhase === 'starting'
+          ? 'The Fleet Advisor launch is pending; inspect advisor.diagnostic for its phase and recovery action. Fetch the result with slop_job_result (wait_seconds up to 25).'
+          : 'The Fleet Advisor is reviewing; its answer also reaches you as an ADVISOR/1 message. Fetch the validated result with slop_job_result (wait_seconds up to 25).'
         : current.status === 'scanning' || current.status === 'validating'
           ? 'Still running; call slop_job_result with wait_seconds to wait for it.'
           : undefined;
-    return { run: summary, ...(pendingNote ? { next: pendingNote } : {}) };
+    return {
+      run: { ...summary, ...(advisor ? { review_phase: reviewPhase, advisor: { status: advisor.status, diagnostic: advisor.diagnostic } } : {}) },
+      ...(pendingNote ? { next: pendingNote } : {}),
+    };
   }
 
   private async readResult(dir: string, task: string): Promise<WorkerResult | null> {
@@ -781,14 +790,18 @@ export class SlopJobsService {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 
-  private async finish(runId: string, status: (typeof TERMINAL)[number], extra: Partial<typeof slopRuns.$inferInsert> = {}) {
+  private async finish(runId: string, status: (typeof TERMINAL)[number], extra: Partial<typeof slopRuns.$inferInsert> = {}, unansweredAdvisor = false) {
     const at = now();
     const [run] = await this.ctx.db.select().from(slopRuns).where(eq(slopRuns.id, runId)).limit(1);
-    if (!run || TERMINAL.includes(run.status as (typeof TERMINAL)[number])) return;
-    await this.write((tx) =>
-      tx.update(slopRuns)
-      .set({ ...extra, status, updatedAt: at, completedAt: at })
-      .where(and(eq(slopRuns.id, runId), eq(slopRuns.status, run.status))));
+    if (!run || TERMINAL.includes(run.status as (typeof TERMINAL)[number]) || unansweredAdvisor && run.advisorReplyEnc) return;
+    let stored = false;
+    await this.write(async (tx) => {
+      const [result] = await tx.update(slopRuns)
+        .set({ ...extra, status, updatedAt: at, completedAt: at })
+        .where(and(eq(slopRuns.id, runId), eq(slopRuns.status, run.status), unansweredAdvisor ? isNull(slopRuns.advisorReplyEnc) : undefined));
+      stored = result.affectedRows > 0;
+    });
+    if (!stored) return;
     await this.dropRunDir(runId);
     if (run.advisorSessionId && run.advisorCallerId)
       await this.advisor.closeFor(run.advisorCallerId, run.advisorSessionId).catch(() => {});
@@ -890,7 +903,17 @@ export class SlopJobsService {
       return;
     }
     if (run.status === 'reviewing') {
-      if (!run.advisorReplyEnc) return;
+      if (!run.advisorReplyEnc) {
+        if (run.advisorSessionId && run.advisorCallerId) {
+          const advisor = await this.advisor.statusFor(run.advisorCallerId, run.advisorSessionId);
+          if (['failed', 'closed'].includes(advisor.status))
+            await this.finish(run.id, 'failed', {
+              reportJson: run.scanJson,
+              error: `The advisor ended before producing a review (${advisor.diagnostic?.code ?? advisor.status}). Inspect advisor_status for launch evidence.`,
+            }, true);
+        }
+        return;
+      }
       const reply = decrypt(run.advisorReplyEnc, this.ctx.keyring);
       const verdict = run.advisorReplyStatus === 'completed' ? parseAdvisorVerdict(stripReviewBlock(reply)) : null;
       const verdictJson = verdict ? JSON.stringify(verdict) : null;
