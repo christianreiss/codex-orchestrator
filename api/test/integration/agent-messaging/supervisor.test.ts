@@ -8,6 +8,9 @@ import { OwnerStateSnapshot } from '../../../src/control-plane/state/store.js';
 import { randomUUID } from 'node:crypto';
 import { splitSqlStatements } from '../../../src/db/migration-sql.js';
 import { readFile } from 'node:fs/promises';
+import { mutateOwnerState } from '../../../src/control-plane/state/runtime.js';
+import { cancelOwnedConversation } from '../../../src/services/agent-messaging/owned-cancel.js';
+import { newQueuedMessage } from '../../../src/services/agent-messaging/views.js';
 const handle = await getTestDb();
 describe.skipIf(!handle)('durable supervisor on isolated MySQL', () => {
   let f: ReturnType<typeof supervisorFixture>;
@@ -96,13 +99,15 @@ describe.skipIf(!handle)('durable supervisor on isolated MySQL', () => {
     const a = f.agents[1]!;
     const input = {
       state: 'working', task_key: 'dc-upgrade-critical-review',
+      coordinator: `agent:${f.agents[0]!.addressId}`,
       reason: 'Dokumente, Originalangebot, Belege und Herstellerangaben geprüft; priorisiertes Feedback wird abgeschlossen.',
     };
     await f.service.report(a.id, f.token, input);
     await f.service.report(a.id, f.token, input);
     const [work] = await handle!.db.select().from(schema.agentWorkStates)
       .where(eq(schema.agentWorkStates.addressId, a.addressId));
-    expect(work).toMatchObject({ taskKey: input.task_key, reason: input.reason, state: input.state, model: 'fixture-model' });
+    expect(work).toMatchObject({ taskKey: input.task_key, reason: input.reason, state: input.state,
+      coordinatorAddressId: f.agents[0]!.addressId, model: 'fixture-model' });
     expect(work?.version).toBe(1);
   });
   it('migration can be reapplied without losing state', async () => {
@@ -118,5 +123,46 @@ describe.skipIf(!handle)('durable supervisor on isolated MySQL', () => {
       connection.release();
     }
     expect(await handle!.db.select().from(schema.agentWorkStates)).toEqual(before);
+  });
+  it('cancels a completed-work conversation idempotently without undoing the completed result', async () => {
+    const [source, target] = f.agents, id = randomUUID(), messageId = randomUUID();
+    const conversation = {
+      id, addressAId: source!.addressId, addressBId: target!.addressId,
+      createdByAddressId: source!.addressId, nextSequence: 2, status: 'open',
+      lastActivityAt: f.now, canceledBy: null, cancelReason: null, canceledAt: null,
+      createdAt: f.now, updatedAt: f.now,
+    };
+    const message = {
+      ...newQueuedMessage({
+        id: messageId, conversationId: id, sequence: 1,
+        sender: f.state.snapshot().addresses.get(source!.addressId)!, senderSessionId: source!.id,
+        target: f.state.snapshot().addresses.get(target!.addressId)!, kind: 'request',
+        content: 'Completed fixture', contentEnc: 'fixture', clientMessageId: randomUUID(),
+        expiresAt: '2099-01-01T00:00:00.000Z', now: f.now,
+      }),
+      status: 'completed', claimId: randomUUID(), acceptedAt: f.now, completedAt: f.now,
+      taskResultStatus: 'succeeded',
+    };
+    await mutateOwnerState(f.owner, {
+      kind: 'test.completed-conversation', payload: { id }, prepare(ctx) {
+        ctx.draft.upsert('agentBusConversations', conversation);
+        ctx.draft.upsert('agentBusMessages', { ...message, dispatchOrder: 1 } as schema.AgentBusMessage);
+        ctx.write(async tx => {
+          await tx.insert(schema.agentBusConversations).values(conversation);
+          await tx.insert(schema.agentBusMessages).values(message);
+        });
+        return null;
+      },
+    });
+    const before = await handle!.db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.id, messageId));
+    const cancel = () => cancelOwnedConversation(f.owner, id, `agent:${source!.addressId}`,
+      'Operator withdrew the completed request', { sessionId: source!.id, token: f.token });
+    expect(await cancel()).toMatchObject({
+      status: 'canceled', canceled_messages: 0, ambiguous_messages: 0,
+    });
+    const [canceled] = await handle!.db.select().from(schema.agentBusConversations).where(eq(schema.agentBusConversations.id, id));
+    expect(await cancel()).toMatchObject({ status: 'canceled', canceled_messages: 0, ambiguous_messages: 0 });
+    expect(await handle!.db.select().from(schema.agentBusMessages).where(eq(schema.agentBusMessages.id, messageId))).toEqual(before);
+    expect((await handle!.db.select().from(schema.agentBusConversations).where(eq(schema.agentBusConversations.id, id)))[0]).toEqual(canceled);
   });
 });

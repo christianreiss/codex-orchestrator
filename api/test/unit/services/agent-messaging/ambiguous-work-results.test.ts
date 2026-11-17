@@ -16,18 +16,24 @@ import { testKeyring } from '../../../helpers/test-keyring.js';
 const now = '2026-11-10T12:00:00.000Z';
 const result = { status: 'succeeded' as const, summary: 'Measured fixture outcome' };
 
-function fixture(engine: string) {
+function fixture(engine: string, canceled = false) {
   const sessionId = randomUUID(), senderId = randomUUID(), targetId = randomUUID();
   const token = 'fixture-bridge', hostKey = 'fixture-host';
   const message = {
     id: randomUUID(), claimId: randomUUID(), workKind: 'request', status: 'ambiguous',
     sourceEngine: engine, targetEngine: engine, acceptedAt: now, ambiguousAt: now,
     lastErrorCode: 'native_turn_interrupted', taskResultStatus: null,
-    cancelRequestedAt: null, leaseOwner: `session:${sessionId}`,
+    cancelRequestedAt: canceled ? now : null, leaseOwner: `session:${sessionId}`,
+    conversationId: randomUUID(),
     targetAddressId: targetId, senderAddressId: senderId, targetBindingGeneration: 1,
   } as AgentBusMessage;
   const state = new OwnerStateStore(new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, {
     agentBusMessages: [message],
+    agentBusConversations: [{
+      id: message.conversationId, status: canceled ? 'canceled' : 'open',
+      addressAId: senderId, addressBId: targetId,
+      cancelReason: canceled ? 'Operator needs the device; stop device work.' : null,
+    }],
     versions: [{ name: 'agent_messaging_enabled', version: '1' }],
     hosts: [{ id: 1, apiKey: hostKey, status: 'active', secure: 1, engines: engine }],
     agentBusAddresses: [senderId, targetId].map(id => ({
@@ -97,8 +103,9 @@ describe.each(['codex', 'claude', 'grok', 'kimi'])('%s ambiguous original-owner 
   it('preserves the separate cancellation receipt exception and immutable receipt retries', () => {
     const f = fixture(engine);
     f.message.cancelRequestedAt = now;
-    expect(taskNotAcceptedError(f.message, 'Progress requires accepted work').message)
-      .toBe('Progress requires accepted work');
+    expect(taskNotAcceptedError(f.message, 'Progress requires accepted work')).toMatchObject({
+      code: 'agent_task_result_canceled', message: expect.stringContaining('Do not continue, reaccept or rerun'),
+    });
     f.context.draft.upsert('agentBusMessages', f.message);
     expect(stageOwnedTaskResult(f.context, f.message, result, f.keyring, now)).toEqual(result);
     const writes = f.write.mock.calls.length;
@@ -107,5 +114,24 @@ describe.each(['codex', 'claude', 'grok', 'kimi'])('%s ambiguous original-owner 
     expect(f.context.draft.table('agentBusMessages').get(f.message.id)?.status).toBe('ambiguous');
     expect(() => stageOwnedTaskResult(f.context, f.message, { ...result, status: 'failed' }, f.keyring, now))
       .toThrow('A different result already exists');
+  });
+
+  it.each(['original', 'foreign'])('explains canceled progress only after checking the %s claim', async (claim) => {
+    const f = fixture(engine, true), db = createDbFake(), before = f.state.snapshot();
+    await expect(replyOwnedMessage(db as unknown as Database, f.runtime, f.keyring,
+      { kind: 'session', id: f.sessionId, token: f.token }, f.message.id, {
+        clientMessageId: randomUUID(), content: 'Progress',
+        claimId: claim === 'original' ? f.message.claimId! : randomUUID(),
+        queue: { delivery_class: 'progress' },
+      })).rejects.toMatchObject(claim === 'foreign'
+      ? { code: 'agent_messaging_lease_lost' }
+      : {
+        status: 409, code: 'agent_task_result_canceled',
+        message: expect.stringMatching(/ambiguous.*Operator needs the device.*Do not continue, reaccept or rerun/),
+        extra: { state: 'ambiguous', cancel_reason: 'Operator needs the device; stop device work.' },
+      });
+    expect(f.state.snapshot()).toBe(before);
+    expect(db.inserts).toEqual([]);
+    expect(db.updates).toEqual([]);
   });
 });

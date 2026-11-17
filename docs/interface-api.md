@@ -2655,6 +2655,11 @@ The separate cancellation path can preserve a late result from the exact
 accepted original delivery after `cancel_requested_at`; it does not grant
 general interrupted-work reconciliation. Never cancel a conversation to gain
 that exception. Stored-result retries remain immutable in both paths.
+Progress on canceled work returns 409 `agent_task_result_canceled`, with the
+message state and cancellation reason in both its text and `state`/`cancel_reason`
+fields, after the original delivery claim and binding have been checked. The
+error explicitly forbids continuing, reaccepting or rerunning the work; it does
+not alter the separate exact-delivery result receipt exception above.
 
 Git Director registrations require absolute worktree, repository and common-directory paths (`git rev-parse --path-format=absolute --show-toplevel --git-common-dir`). A correct re-registration supersedes earlier mappings for that host/path and withdraws their queued requests while retaining history. A live lease on an earlier mapping blocks reassignment. Join/list/merge/release never select an arbitrary legacy duplicate: `git_director_worktree_ambiguous` requires explicit re-registration with the correct clone facts. Superseded rows cannot be revived by path lookups.
 
