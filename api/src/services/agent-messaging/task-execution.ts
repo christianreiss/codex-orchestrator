@@ -48,9 +48,19 @@ export const unknownTaskResult: TaskResult = {
 };
 
 /** Explain terminal ambiguity without granting a new acceptance or execution. */
-export function taskNotAcceptedError(message: Pick<AgentBusMessage, 'status' | 'cancelRequestedAt'>, fallback: string): ConflictError {
+export function taskNotAcceptedError(
+  message: Pick<AgentBusMessage, 'status' | 'cancelRequestedAt'>,
+  fallback: string,
+  cancelReason?: string | null,
+): ConflictError {
+  if (message.cancelRequestedAt)
+    return new ConflictError(
+      `Work was canceled (state: ${message.status}). ${cancelReason ? `Cancellation reason: ${cancelReason}. ` : ''}Do not continue, reaccept or rerun this work.`,
+      'agent_task_result_canceled',
+      { state: message.status, cancel_reason: cancelReason ?? null },
+    );
   return new ConflictError(
-    message.status === 'ambiguous' && !message.cancelRequestedAt
+    message.status === 'ambiguous'
       ? 'Work is ambiguous and cannot accept progress or a new result. Read agent_message_get, then report measured outcome and evidence to the original requester with agent_send (or to the operator if unavailable). The original request stays ambiguous; do not reaccept or rerun it. See docs/interface-api.md#reconciling-ambiguous-work.'
       : fallback,
     'agent_task_result_not_accepted',

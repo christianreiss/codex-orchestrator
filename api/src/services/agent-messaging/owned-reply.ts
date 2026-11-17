@@ -194,6 +194,7 @@ export async function replyOwnedMessage(
         throw taskNotAcceptedError(
           parent,
           'Progress replies require accepted, unfinished work',
+          snapshot.table('agentBusConversations').get(parent.conversationId)?.cancelReason,
         );
       const now = nowIso();
       // The work's recorded outcome. The reply row never carries one, so its

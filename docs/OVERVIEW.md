@@ -931,6 +931,11 @@ status stays available. See [installation](INSTALL.md#instance-management).
 
 ## Agent Messaging
 
+Progress replies for canceled work explain the current message state and the
+coordinator's cancellation reason, and explicitly forbid continuing, reaccepting
+or rerunning the task. Original claim and binding checks still apply; the separate
+late-result receipt rule grants no new execution. See [work outcomes](interface-api.md#reconciling-ambiguous-work).
+
 Send/reply receipts expose current `recipient_presence`, `observed_at` and
 `delivery_hint`: a queued message is stored, not accepted or read. The hint
 names a recipient claim gate closed for over two minutes, and says when an idle
