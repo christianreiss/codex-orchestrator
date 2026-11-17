@@ -16,13 +16,15 @@ INSTALLER = Path(__file__).with_name("install-kimi.sh")
 def test_verified_manifest_install_or_refusal(tmp_path, arch, platform, failure):
     if not shutil.which("jq"):
         pytest.skip("jq required by installer")
-    fixture = tmp_path / "fixtures"; fixture.mkdir()
-    binary = b'#!/bin/sh\nprintf "2.5.3\\n"\n' if failure != "version" else b'#!/bin/sh\nprintf "2.0.0\\n"\n'
+    fixture = tmp_path / "fixtures"
+    fixture.mkdir()
+    binary = b'#!/bin/sh\nprintf "2.6.2\\n"\n' if failure != "version" else b'#!/bin/sh\nprintf "2.0.0\\n"\n'
     (fixture / "binary").write_bytes(binary)
     checksum = hashlib.sha256(binary).hexdigest() if failure != "checksum" else "0" * 64
     entry = {"filename": "kimi.bin" if failure != "path" else "../unsafe", "checksum": checksum}
     (fixture / "manifest").write_text(json.dumps({"platforms": {platform: entry} if failure != "missing" else {}}))
-    tools = tmp_path / "bin"; tools.mkdir()
+    tools = tmp_path / "bin"
+    tools.mkdir()
     curl = tools / "curl"
     curl.write_text('''#!/bin/sh
 set -eu
@@ -31,7 +33,8 @@ case "$2" in
   */kimi.bin) cp "$FIXTURE/binary" "$4" ;;
   *) exit 99 ;;
 esac
-''');curl.chmod(0o755)
+''')
+    curl.chmod(0o755)
     destination = tmp_path / "installed"
     result = subprocess.run(["sh", str(INSTALLER), arch], capture_output=True, text=True,
                             env={**os.environ, "PATH": f"{tools}:{os.defpath}", "FIXTURE": str(fixture),

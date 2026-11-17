@@ -45,7 +45,8 @@ def test_native_access_projection_stream_and_tool_denial(tmp_path, region):
                 self.wfile.write(('data: '+json.dumps(chunk)+'\n\n').encode())
             self.wfile.write(b'data: [DONE]\n\n')
     server = HTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
     payload = {"kimi_code": {"access_token": "local-test-access", "refresh_token": "must-never-refresh",
                              "expires_at": time.time()+1800}, "device_id": "a"*32, "base_url": f"https://api.kimi.{region}/coding/v1",
                "oauth_host": f"https://auth.kimi.{region}"}
@@ -70,4 +71,5 @@ def test_native_access_projection_stream_and_tool_denial(tmp_path, region):
         assert len(requests) == 2
         assert not requests[0].get("tools"), "native tools leaked onto inference request"
     finally:
-        server.shutdown(); thread.join(timeout=2)
+        server.shutdown()
+        thread.join(timeout=2)
