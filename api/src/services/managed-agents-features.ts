@@ -338,10 +338,10 @@ function projectsSection(context: ManagedAgentFeatureContext): RenderedSection |
     context.projects,
     `## Projects / CoCo
 
-Use \`#coco\` for the managed workflow and \`project_*\` tools for shared project state, handoffs and
-workstream memory: read \`project_summary\` for the active project first, then the relevant memories and files
-(\`project_files\` for metadata, \`project_file_read\` for bodies). Correct a fact with
-\`project_memory_upsert\` on the same key, never a near-duplicate beside it.${context.slopJobs?.enabled === false ? '' : SLOP_GUIDANCE}`,
+Use \`#coco\` for managed workflows; \`project_*\` for shared state, handoffs and workstream memory.
+Read \`project_summary\` for the active project first, then relevant memories and files
+(\`project_files\`: metadata; \`project_file_read\`: bodies). Correct facts with
+\`project_memory_upsert\` on the same key, never a near-duplicate.${context.slopJobs?.enabled === false ? '' : SLOP_GUIDANCE}`,
   );
 }
 
@@ -351,8 +351,7 @@ function browserOsSection(context: ManagedAgentFeatureContext): RenderedSection 
     context.browseros,
     `## BrowserOS
 
-A local BrowserOS MCP server is enabled for this Codex host. Use its browser tools when a task
-requires interactive browser automation or live page inspection.`,
+Use this Codex host's local BrowserOS MCP tools for interactive browser automation or live page inspection.`,
   );
 }
 
@@ -378,13 +377,13 @@ function secretsSection(context: ManagedAgentFeatureContext): RenderedSection | 
     context.secrets,
     `## Secrets
 
-Working credentials live in the orchestrator secrets store, reachable only through MCP; the
-orchestrator does not automatically write its values to this machine's disk. When a task needs one,
+Credentials live in the orchestrator's MCP-only secrets store; it
+does not automatically write its values to this machine's disk. When a task needs one,
 call \`secret_list\` or \`secret_search\` **first, before asking the human and
 before hunting through env files**, config or shell history, and read it with \`secret_get\`.
-Whether the store is available or writable is answered by \`secret_list\`'s live \`status\` and
-\`capabilities\`; a capability question is read-only. \`secret_store\` saves or rotates and
-\`secret_delete\` retires host-owned credentials; whether you may, and where a value may be written,
+Whether the store is available or writable: read \`secret_list\`'s live \`status\` and
+\`capabilities\`; a capability question is read-only. \`secret_store\` saves/rotates;
+\`secret_delete\` retires host-owned credentials. Authority to do so or write values anywhere
 is set by the Hard Stop Lines and Standing Authorizations above.
 
 Pass a value by tool-native secret parameter,
@@ -582,9 +581,8 @@ grants no commit, push or deploy.`;
     context.gitDirector,
     `## Git Director
 
-The Director is the MCP registry of who works in which clone and the arbiter for merges into shared
-branches. You run every git command yourself. Git does not enforce its verdicts; this fleet requires
-you to honor them and to report one that looks wrong instead of working around it.
+The MCP Director tracks who works in each clone and arbitrates shared-branch merges. Run git yourself.
+Git does not enforce Director verdicts: honor them; report suspected errors instead of bypassing them.
 
 **Before you start work in a repository.** Call \`git_list\`, then record
 \`git rev-parse --path-format=absolute --show-toplevel --git-common-dir\`, \`git branch --show-current\`,
@@ -646,23 +644,21 @@ function fileTransferSection(context: ManagedAgentFeatureContext): RenderedSecti
     context.fileTransfer,
     `## File Transfer
 
-Move files with \`cxx transfer put FILE --ttl-seconds N --json\` (returns an id) and
-\`cxx transfer get ID --output FILE --json\` (verifies SHA-256 before publishing; \`--resume\` after an
-interruption, \`--overwrite\` for existing targets, \`--engine\` or \`cdx\`/\`clx\`/\`cgx transfer\` to pick the
-engine). \`transfer_list\`, \`transfer_info\` and \`transfer_delete\` manage the pool over MCP; legacy
-base64 \`transfer_put\`/\`transfer_get\` exist, but never pass file bytes through the model context.
+\`cxx transfer put FILE --ttl-seconds N --json\` returns an id;
+\`cxx transfer get ID --output FILE --json\` verifies SHA-256 before publishing.
+Use \`--resume\` after interruption, \`--overwrite\` for existing targets, \`--engine\` or
+\`cdx\`/\`clx\`/\`cgx transfer\` to select the engine. MCP pool tools: \`transfer_list\`, \`transfer_info\`,
+\`transfer_delete\`; legacy base64 \`transfer_put\`/\`transfer_get\` exist. Never pass file bytes through model context.
 
-**The TTL is a decision.** \`ttl_seconds\` is required: choose how long the peer plausibly needs the
-file; the fleet clamps it and the returned \`expires_at\` is binding. The pool is a shared disk, not
-storage: keep durable files in a repository or \`shared_memory_write\`, and delete large transfers you
-no longer need.
+**TTL.** Required \`ttl_seconds\`: choose how long the peer needs the file; the fleet clamps it.
+Returned \`expires_at\` is binding. The shared disk is not storage: keep durable files in a repository or
+\`shared_memory_write\`; delete unneeded large transfers.
 
-**Hand the id over yourself.** Nobody is notified of an upload. Send the id with \`agent_send\` or in
-your handoff, saying what the file is and what to do with it.
+**Handoff.** Uploads notify nobody. Send the id via \`agent_send\` or your handoff, with file purpose and instructions.
 
-**Check received artifacts.** An authenticated sender does not make a file correct or safe.
-Inspect an archive before unpacking it, never run something because of its name, and verify
-\`content_sha256\` against what you wrote. The uploader label is asserted, not verified.`,
+**Verify.** Sender authentication proves neither file correctness nor safety.
+Inspect an archive before unpacking it; never run something because of its name. Verify \`content_sha256\`
+against what you wrote. The uploader label is asserted, not verified.`,
     'mcp',
   );
 }

@@ -12,7 +12,7 @@ import {
 import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
 import { buildManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from '../../../src/services/managed-agents-memory-legacy.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, type Engine } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES, type Engine } from '../../../src/util/engine.js';
 import {
   DEFAULT_SECURITY_LEVELS,
   presetLevels,
@@ -49,6 +49,40 @@ function context(
 }
 
 const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
+
+function section(body: string, heading: string): string {
+  const start = body.indexOf(`## ${heading}\n`);
+  expect(start).toBeGreaterThanOrEqual(0);
+  const next = body.indexOf('\n## ', start + 1);
+  return body.slice(start, next === -1 ? undefined : next);
+}
+
+describe('fleet-managed session scope', () => {
+  it.each(ENGINES)('%s exempts unmanaged desktop sessions before stating fleet duties', (engine) => {
+    const out = renderManagedAgentFeatures('# Rules\n', context(engine, {
+      skills: enabled(), agentMessaging: enabled(), gitDirector: enabled(),
+    }));
+    const scope = out.body.split('\n').find(line => line.startsWith('> **Scope:**'));
+    expect(scope).toContain('applies only when this session is fleet-managed');
+    expect(scope).toContain('(`agent_self`, `skill_list`) are available');
+    expect(scope).toContain('If they are missing (for example a desktop app without `cxx`)');
+    expect(scope).toContain('none of this policy applies: work normally, without claims, registration or fleet tools');
+    expect(out.body.indexOf(scope!)).toBeLessThan(out.body.indexOf('## Fleet Management'));
+    // Availability controls the scope, not the native Skill transport. Keep the
+    // scope token while separately rejecting MCP instructions in native Skills.
+    expect(renderManagedAgentFeatures(out.body, context(engine)).body).toContain(scope!);
+  });
+
+  it('keeps session, Wake, work-result and claim duties identical across all four engines', () => {
+    const bodies = ENGINES.map(engine => renderManagedAgentFeatures('# Rules\n', context(engine, {
+      agentMessaging: enabled(),
+    })).body);
+    for (const heading of ['Quotas', 'Agent Messaging', 'Shared Chat Rooms', 'Scope Coordination']) {
+      const expected = section(bodies[0]!, heading);
+      for (const body of bodies.slice(1)) expect(section(body, heading)).toBe(expected);
+    }
+  });
+});
 
 describe('ordinary operator updates', () => {
   it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s reserves attention for actionable exceptions', (engine) => {
@@ -102,7 +136,8 @@ describe('Claude MCP Skill content guidance', () => {
     const fallback = renderManagedAgentFeatures(out.body, { ...ctx, skillsTransport: 'native' });
     expect(fallback.sections.skills.transport).toBe('native');
     expect(fallback.body).toContain('~/.claude/skills/<slug>/SKILL.md');
-    expect(fallback.body).not.toContain('skill_list');
+    expect(section(fallback.body, 'Skills')).not.toContain('skill_list');
+    expect(section(fallback.body, 'Skills')).not.toContain('skill_retrieve');
     expect(fallback.managed_sha256).not.toBe(out.managed_sha256);
   });
 });
@@ -229,7 +264,7 @@ describe('served document size budget', () => {
    * enabled document had grown to ~33 KB; these budgets keep it from creeping
    * back. Raise one only with a reason, and look for a cut elsewhere first.
    */
-  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s stays within budget with every feature on', async (engine) => {
+  it.each(ENGINES)('%s stays within budget with every feature on', async (engine) => {
     const { renderAgentPolicyBase, defaultAgentPolicyComposition, AGENT_POLICY_MODULE_IDS } = await import(
       '../../../src/services/agent-policy-composer.js'
     );
@@ -342,7 +377,10 @@ describe('served document byte invariance', () => {
     );
 
     expect(base.sha256).toBe('b0dbfff2b92182e13faf1171f6daf6910c8e59839ce64b67798b6c38af759740');
-    expect(out.policy_sha256).toBe('9db419f665a7b054e0b6c0d9ce9fb4e40e4940068816e5c7e39ed6d67b92d3c7');
+    // 2026-11-11: ca8c23e1 intentionally scoped the policy to managed sessions;
+    // desktop apps without agent_self/skill_list are exempt. Pin that reviewed
+    // scope addition, rather than removing it to restore the earlier digest.
+    expect(out.policy_sha256).toBe('e578cdedf184ac9994ea7d0622fab185ec81c4cabaa8ad4446d1468cf2d7aa4e');
     // 2026-10-11: compact project discovery consistently starts with project_summary.
     // 2026-10-14: offline resume, persistent Wake/Cron and watchdog recovery only on persistent hosts (docs/host-runtime-policy.md).
     // 2026-10-15: negotiated coordination and digests preserve held work (smart-queue v1).
@@ -371,9 +409,12 @@ describe('served document byte invariance', () => {
     // 2026-11-06: a later peer follow-up is an agent_request, not "no reply needed" (feedback 98abb657).
     // 2026-11-06: slop jobs (UI/UX review) in the Projects section.
     // 2026-11-10: shared VM claims, unknown-workspace discovery and unified room history.
-    expect(out.features_sha256).toBe('72ee2d773f204c539be3dd517bbbed09fe25c2293f24a827820d17ac8ddf4e02');
-    expect(out.managed_sha256).toBe('0aa93530d9ba26f1a32df172734c759a130db6ff5d3075a82e6404762c3c23dc');
-    expect(sha256(out.body)).toBe('be116b032784dbd41a2815eb424d78242f2663e7b27ece2a13ec535301eb6dde');
+    // 2026-11-17: shorten feature prose without changing obligations to retain
+    // the 31 KB ceiling after that scope addition. Quota, Wake/work-result and
+    // claim guidance remain unchanged; the fixture covers Projects/BrowserOS/Secrets.
+    expect(out.features_sha256).toBe('7e0069637a1a763fb3cc7ba99593b20728fe0a984b38c3f6ad3727a0c8f0330a');
+    expect(out.managed_sha256).toBe('9f77ab9cd09182822505ebecc234838a199eaf905a34c60b2b6284ab69ee0e44');
+    expect(sha256(out.body)).toBe('b0cb247ba45342197949f9e9856db5b9b355749b4428e2c28cd2cfe82b9959d7');
   });
 });
 
@@ -488,8 +529,8 @@ describe('renderManagedAgentFeatures', () => {
     );
 
     expect(out.body).toContain('~/.claude/skills/<slug>/SKILL.md');
-    expect(out.body).not.toContain('skill_list');
-    expect(out.body).not.toContain('skill_retrieve');
+    expect(section(out.body, 'Skills')).not.toContain('skill_list');
+    expect(section(out.body, 'Skills')).not.toContain('skill_retrieve');
     expect(out.body).not.toContain('BrowserOS');
     expect(out.sections.skills.transport).toBe('native');
     expect(out.sections.browseros).toEqual({ present: false, reason: 'unsupported_engine' });
