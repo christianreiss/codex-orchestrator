@@ -281,12 +281,14 @@ describe.skipIf(!handle)('shared room chats with MySQL', { timeout: 120000 }, ()
   });
   it('closes adjourned rooms from the directory only after every retained member is offline', async () => {
     const id = await create('conference');
-    await service.manage(admin, {
-      room_id: id,
-      client_request_id: randomUUID(),
-      action: 'invite',
-      address_id: members[2]!.addressId,
-    });
+    for (const member of members.slice(2)) {
+      await service.manage(admin, {
+        room_id: id,
+        client_request_id: randomUUID(),
+        action: 'invite',
+        address_id: member.addressId,
+      });
+    }
     await db.update(agentBusConferences).set({ status: 'adjourned' }).where(eq(agentBusConferences.id, id));
     await db
       .update(agentBusConferenceMembers)
@@ -320,7 +322,7 @@ describe.skipIf(!handle)('shared room chats with MySQL', { timeout: 120000 }, ()
         );
       expect(await listed()).toBe(false); // Resumable is offline, too.
       for (const member of members) {
-        // Codex, Claude and Grok use the same rule.
+        // Codex, Claude, Grok and Kimi use the same rule.
         await db
           .update(agentSessions)
           .set({ heartbeatAt: new Date().toISOString(), endedAt: null })
