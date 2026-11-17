@@ -19,6 +19,7 @@ const deprecated: Readonly<Record<string, string>> = {
   ignorePatterns: 'Use permissions.deny instead.',
   permissionExplainerEnabled: 'Removed with Ctrl+E permission explanations in Claude Code 2.1.257.',
   teammateDefaultModel: 'Removed in Claude Code 2.1.234; configure the agent model instead.',
+  subagentStatusLine: 'Removed in Claude Code 2.1.323; subagent rows always use their native default appearance. Omit this setting.',
 };
 const reserved: Readonly<Record<string, string>> = {
   model: 'Use the model control.',
@@ -28,6 +29,7 @@ const reserved: Readonly<Record<string, string>> = {
   // Only constrains native auto-updates and `claude update`, both off under managed launches.
   minimumVersion: 'Native updates are disabled; use the fleet Claude version control.',
   sshHostCommands: 'Only Claude Desktop 3.6556.0 or newer reads this setting; configure it through Desktop user or managed settings, not fleet CLI defaults.',
+  disableRemotePreviewScripts: 'Only Claude Desktop managed settings can apply this policy; configure it on the Desktop machine, not in CLI user settings or on an SSH/WSL target.',
 };
 const forbiddenKeys = new Set(['__proto__', 'prototype', 'constructor']);
 const efforts = ['low', 'medium', 'high', 'xhigh'];
@@ -158,7 +160,6 @@ const nestedSchemas: Record<string, z.ZodTypeAny> = {
   }),
   hooks: z.object(Object.fromEntries(hookEvents.map(event => [event, z.array(hookGroup).optional()]))).strict(),
   fileSuggestion: commandLine,
-  subagentStatusLine: commandLine,
   statusLine: commandLine.extend({ padding: z.number().optional(), refreshInterval: z.number().min(1).optional(), hideVimModeIndicator: flag.optional() }),
   voice: z.object({ enabled: flag.optional(), mode: z.enum(['hold', 'tap']).optional(), autoSubmit: flag.optional() }).strict(),
   spellcheck: z.object({ enabled: flag.optional(), checker: z.enum(['aspell', 'hunspell', 'ispell', 'auto']).optional(), language: text.optional(), color: text.optional() }).strict(),
@@ -292,6 +293,14 @@ function migrateModelReferences(out: Record<string, unknown>): void {
       }
     }
   }
+}
+
+/** Heal only the verified removed root key on historical reads; authoring stays strict. */
+export function normalizeStoredClaudeNativeSettings(value: unknown): Record<string, unknown> {
+  if (!record(value) || !Object.hasOwn(value, 'subagentStatusLine')) return normalizeClaudeNativeSettings(value);
+  const current = { ...value };
+  delete current.subagentStatusLine;
+  return normalizeClaudeNativeSettings(current);
 }
 
 /** Preserve current user-scope keys; report settings that would be inert. */

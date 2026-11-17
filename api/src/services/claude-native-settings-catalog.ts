@@ -1,4 +1,4 @@
-/** Public user-scope settings, verified against Claude Code 2.1.322 on 2026-11-10.
+/** Public user-scope settings, verified against Claude Code 2.1.326 on 2026-11-17.
  * Sources: https://code.claude.com/docs/en/settings-reference
  * https://github.com/anthropics/claude-code/releases/tag/v2.1.314 (write boundary).
  * Only key names, JSON types and fixed enum values are recorded here. Native
@@ -75,7 +75,6 @@ export const CLAUDE_NATIVE_SETTING_RULES: Readonly<Record<string, ClaudeNativeSe
   "spinnerTipsOverride": {"type": "object"},
   "spinnerVerbs": {"type": "object"},
   "statusLine": {"type": "object"},
-  "subagentStatusLine": {"type": "object"},
   "syntaxHighlightingDisabled": {"type": "boolean"},
   "terminalProgressBarEnabled": {"type": "boolean"},
   "terminalTitleFromRename": {"type": "boolean"},
@@ -172,6 +171,7 @@ export const CLAUDE_MANAGED_ONLY_SETTINGS: readonly string[] = [
   "allowManagedMcpServersOnly",
   "managedMcpServers",
   "disableDesktopLocalSessions",
+  "disableRemotePreviewScripts",
   "sshHostAllowlist",
   "allowedProviders",
   "gatewayInternalNetworks",

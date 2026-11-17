@@ -128,7 +128,7 @@ describe('Claude native user settings', () => {
     [{ modelPicker: { options: [{ model: 'sonnet', lable: 'Test' }] } }, 'modelPicker.options.0.lable'],
     [{ statusLine: { type: 'command', command: 'test', refreshIntervals: 10 } }, 'statusLine.refreshIntervals'],
     [{ fileSuggestion: { type: 'command', command: 'test', padding: 2 } }, 'fileSuggestion.padding'],
-    [{ subagentStatusLine: { type: 'command', command: 'test', hideVimModeIndicator: true } }, 'subagentStatusLine.hideVimModeIndicator'],
+    [{ subagentStatusLine: { type: 'command', command: 'test', hideVimModeIndicator: true } }, 'subagentStatusLine'],
     [{ spinnerVerbs: { mode: 'merge', verbs: [] } }, 'spinnerVerbs.mode'],
     [{ spinnerTipsOverride: { tips: [{ id: 'tip', text: 'test', cooldownSession: 2 }] } }, 'spinnerTipsOverride.tips.0.cooldownSession'],
     [{ spellcheck: { checker: 'magic' } }, 'spellcheck.checker'],
@@ -370,6 +370,13 @@ describe('Claude native user settings', () => {
     expect(first.settings?.native_settings?.autoMode).toEqual(autoMode);
     expect(JSON.parse(first.content!).autoMode).toEqual(autoMode);
     const beforeInvalid = structuredClone(row);
+    for (const [native_settings, message] of [
+      [{ subagentStatusLine: { type: 'command', command: 'old' } }, 'Removed in Claude Code 2.1.323'],
+      [{ disableRemotePreviewScripts: false }, 'Desktop managed settings'],
+    ] as const) {
+      await expect(service.store({ settings: { native_settings } }, null, 'claude')).rejects.toThrow(message);
+      expect(row).toEqual(beforeInvalid);
+    }
     await expect(service.store({ settings: { native_settings: { voice: { enabld: true } } } }, null, 'claude'))
       .rejects.toThrow('native_settings.voice.enabld');
     expect(row).toEqual(beforeInvalid);

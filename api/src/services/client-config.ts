@@ -57,7 +57,7 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { claudeSupportsLegacyUserEffort } from './claude-effort.js';
 import { claudeCanonicalModelId } from './claude-models.js';
-import { claudeNativeOwnedPaths } from './claude-native-settings.js';
+import { claudeNativeOwnedPaths, normalizeClaudeNativeSettings } from './claude-native-settings.js';
 import { assertNativeConfigSupport } from './native-config-support.js';
 import {
   CLAUDE_MODEL_DEFAULT_REASONING_EFFORTS,
@@ -1733,6 +1733,7 @@ export class ClientConfigService {
   render(settingsInput: unknown, engine: Engine = ENGINE_CODEX): RenderResult {
     if (engine === ENGINE_CODEX) validateCodexFeatureAuthoring(settingsInput);
     if (engine === ENGINE_CLAUDE) {
+      normalizeClaudeNativeSettings(asRecord(settingsInput).native_settings);
       validateClaudeAdvisorAuthoring(settingsInput);
       validateClaudeFastModeAuthoring(settingsInput);
     }
