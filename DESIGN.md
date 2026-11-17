@@ -267,7 +267,7 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | Current entry / view | Primary task and pattern | Existing composition | Step-2 check |
 | --- | --- | --- | --- |
 | `/admin` | Entry redirect | Load redirects to dashboard; layout gates auth/setup | Signed-out, new fleet and unreachable paths |
-| `/admin/dashboard` | Prioritize attention; overview | `PageShell`, `Section`, `StatStrip`, attention/usage tables | Unknown/stale usage versus healthy zero |
+| `/admin/dashboard` | Prioritize attention; overview | `PageShell`, `Section`, `StatStrip`, attention/usage tables | Unknown/stale usage versus healthy zero; enabled-engine scope, all-disabled recovery, unknown-state fallback |
 | `/admin/hosts` | Find/register hosts; list | `PageShell`, `Toolbar`, `HostsTable`, add/seed sheets | Filter retention, loading and no matches |
 | `/admin/hosts/[id]` | Diagnose/manage one host; detail | `PageShell`, attention, engine/access sections, agent instructions (`Section`, `FormField`, `DraftGuard`, `SaveState`, explicit save, byte counter, confirmed clear), advanced/delete sections | Long identity, accessible repair, disabled engine; native model minimum and upgrade repair; instruction draft conflict, over-limit and failed-save recovery |
 | `/admin/agents` | Operate agents; conversation / graph | `PageShell`, `ClientsWorkspace`, `GraphView`, inspector; coordination status links to Settings | Both views, reconnect, focus and non-graph access; independent setting state when room loading fails |
@@ -717,3 +717,20 @@ focus-visible ring. Existing route groups, palette and destinations stay intact.
 Applicable rules: NAV-1/2/3, VIS-1/2/3/4, INT-3/5/6/7, ACC-1/2/3/4.
 No exception. Checks and remaining limits are recorded in
 [verification](docs/verification/shell-slop-2026-11-16.md).
+
+
+### Operational engine visibility (2026-11-17)
+
+Overview's Provider, Engines and Runner tabs display enabled engines. Account
+counts name that scope; retained accounts remain discoverable through Accounts,
+and engine switches through Engines. All-disabled panels explain the state and
+keep a Configure engines route. Unknown engine state preserves prior fallback
+behavior, and existing shared live invalidation updates the operational view.
+Applicable rules: NAV-1/3, VIS-1, INT-6/7 and ACC-1/3/4. No new surface or design
+exception. A17 passed the canonical frontend check (1,101 unit tests, zero
+errors and one existing warning) and all 16 focused Dashboard browser cases,
+including the existing five responsive/theme views and Axe assertions. Manual
+inspection accepted four desktop/phone screenshots: enabled providers in dark
+mode and disabled Grok in light mode. The complete browser/cross-browser suites
+were not run for this slice; served Slop/full Advisor remains a release step.
+Evidence: [supplemental feedback audit](docs/feedback-sweep-2026-11-17.md).

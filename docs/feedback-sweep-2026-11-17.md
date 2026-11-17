@@ -161,3 +161,38 @@ outcomes. The former production commit was
 `b388a131694cbb32eb026f69b09183e0e7616552`; rollback redeploys that commit.
 No backup, database dump, configuration copy or rollback image is created.
 Earlier code does not automatically restore settings removed by data migrations.
+
+
+## Supplemental operator finding — eighteenth fix candidate
+
+After the initial 44-report snapshot above, the operator reported that Grok
+remained in Provider usage after disabling and destroying it. Canonical report:
+`9340eb12-c4c8-4044-9dd5-e5a0b7a77016`. This supplemental item does not rewrite
+the initial queue counts or claim a new final queue total.
+
+Source inspection confirms a display defect independently of the exact live
+Destroy phase: UsageTable rendered all retained accounts (only dimming disabled
+ones), Overview counted them, and EngineTable/RunnerStatus iterated every engine.
+Suspension intentionally retains accounts/auth/history. Host-side Destroy and
+server-side purge are distinct operations; no live purge completion or purge/cache
+bug has been established by this source inspection.
+
+The isolated source fix filters all four engines consistently using the existing
+fleet-state view, scopes the account count, gives all-disabled panels a management
+path and includes engine state in manual Refresh. Management/history remain
+accessible and no accounts, credentials or history are deleted. Browser regression
+sources cover retained disabled accounts for every engine, tabs/counts, late engine
+state, live disable/re-enable, unknown and failed-state fallback, and all-disabled
+recovery; existing quota/accessibility/responsive coverage remains in place.
+
+A17 verification passed: canonical frontend check (0 errors, the existing single
+Communicator scroll-region warning, 1,101 unit tests, no slop-grep findings) and
+all 16 focused Dashboard browser cases. The browser run performed the canonical
+production build/copy and retained all five existing responsive/theme/Axe views.
+Four actual screenshots were inspected: enabled providers in dark desktop/phone
+and disabled Grok in light desktop/phone. Temporary capture controls were removed.
+Peak aggregate memory was 2,187,829,248 bytes, with all memory events zero;
+preview port 4173 was free after the run. The complete browser/cross-browser
+suites were not run for this slice. Served Slop/full Advisor, runtime deployment
+and the saved feedback outcome remain release steps. No wrapper code changed;
+no additional wrapper version bump is required for this UI fix.

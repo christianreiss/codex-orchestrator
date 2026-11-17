@@ -1,11 +1,10 @@
 <script lang="ts">
   /** Per engine: how many hosts report it, the latest upstream version, and whether it is switched on. */
-  import { base } from "$app/paths";
   import * as Table from "$lib/components/ui/table";
   import { Badge } from "$lib/components/ui/badge";
-  import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { ENGINE_META, type Engine } from "$lib/constants/engines";
   import { engineInstallCounts, type OverviewResponse } from "$lib/api/overview";
-  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { Skeleton } from "$lib/components/ui/skeleton";
   import { StateBlock } from "$lib/components/page";
   import { checkedHint } from "./engine-releases";
@@ -33,7 +32,9 @@
   }
 </script>
 
-{#if loading}
+{#if $fleet.enabled.length === 0}
+  <StateBlock state="empty" message="All engines are disabled fleet-wide" description="Enable an engine under Configure engines to see its installed versions." />
+{:else if loading}
   <Skeleton class="h-24 w-full" />
 {:else if !overview || !counts || total == null}
   <StateBlock state="empty" message="Engine coverage is unavailable until a fleet snapshot loads." />
@@ -52,11 +53,10 @@
         </Table.Row>
       </Table.Header>
       <Table.Body>
-        {#each ENGINES as engine (engine)}
-          {@const on = $fleet.isEnabled(engine)}
+        {#each $fleet.enabled as engine (engine)}
           {@const release = latest(engine)}
           {@const count = counts?.[engine]}
-          <Table.Row class={on ? undefined : "opacity-70"}>
+          <Table.Row>
             <Table.Cell>
               <span class="flex items-center gap-2 font-medium">
                 <span class="h-2 w-2 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>{ENGINE_META[engine].label}
@@ -73,8 +73,7 @@
               {#if release.checked}<span class="ml-2 text-body-sm text-muted-foreground">{release.checked}</span>{/if}
             </Table.Cell>
             <Table.Cell>
-              {#if on}<Badge variant="success">On</Badge>
-              {:else}<a href={`${base}/engines`}><Badge variant="warning" title={fleetDisabledTitle(ENGINE_META[engine].label)}>{FLEET_DISABLED_TAG}</Badge></a>{/if}
+              <Badge variant="success">On</Badge>
             </Table.Cell>
           </Table.Row>
         {/each}

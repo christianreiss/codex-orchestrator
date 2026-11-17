@@ -5,11 +5,11 @@
   import * as Table from "$lib/components/ui/table";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
-  import { DataTable } from "$lib/components/page";
+  import { DataTable, StateBlock } from "$lib/components/page";
   import { ENGINE_META } from "$lib/constants/engines";
   import type { ProviderAccount } from "$lib/api/accounts";
   import { periodElapsedPercent, resetsIn } from "$lib/utils/format";
-  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { cn } from "$lib/utils/cn";
   import KimiUsage from "./KimiUsage.svelte";
   import GrokUsage from "./GrokUsage.svelte";
@@ -24,6 +24,7 @@
   };
   let { accounts, loading = false, error = null, onRetry }: Props = $props();
   const fleet = useFleetEngines();
+  const visibleAccounts = $derived(accounts?.filter((account) => $fleet.isEnabled(account.engine)));
 
   function status(account: ProviderAccount): { label: string; variant: "success" | "warning" | "destructive" | "secondary" } {
     if (account.refresh_state === "login_required") return { label: "Login needed", variant: "destructive" };
@@ -47,15 +48,20 @@
   }
 </script>
 
+{#if $fleet.enabled.length === 0}
+  <StateBlock state="empty" message="All engines are disabled fleet-wide" description="Enable an engine to see provider usage. Retained accounts remain available in Accounts.">
+    {#snippet action()}<Button variant="outline" href={`${base}/engines`}>Configure engines</Button>{/snippet}
+  </StateBlock>
+{:else}
 <DataTable
-  items={accounts}
+  items={visibleAccounts}
   {loading}
   {error}
   {onRetry}
   key={(account) => account.id}
   caption="Provider accounts and their quota usage"
-  emptyTitle="No provider accounts yet"
-  emptyDescription="Add a ChatGPT, Claude, Grok or Kimi Code login to see quota usage here."
+  emptyTitle="No accounts for enabled engines"
+  emptyDescription="Manage retained accounts or add a login for an enabled engine in Accounts."
 >
   {#snippet emptyAction()}<Button variant="outline" href={`${base}/accounts`}>Go to Accounts</Button>{/snippet}
   {#snippet head()}
@@ -66,12 +72,11 @@
     <Table.Head>Updated</Table.Head>
   {/snippet}
   {#snippet row(account)}
-    {@const off = !$fleet.isEnabled(account.engine)}
     {@const rows = accountQuotaRows(account)}
     {@const grok = account.engine === "grok" ? account.usage.current_window : null}
     {@const state = status(account)}
     {@const resets = resetLines(account, rows)}
-    <Table.Row class={cn(off && "opacity-70")}>
+    <Table.Row>
       <Table.Cell>
         <a href={`${base}/accounts`} class="flex items-center gap-2 font-medium hover:underline">
           <span class={cn("h-2 w-2 shrink-0 rounded-full", ENGINE_META[account.engine].color)} aria-hidden="true"></span>
@@ -84,7 +89,6 @@
       <Table.Cell>
         <div class="flex flex-wrap items-center gap-1">
           <Badge variant={state.variant} title={`Verification: ${account.verification_state}`}>{state.label}</Badge>
-          {#if off}<Badge variant="warning" title={fleetDisabledTitle(ENGINE_META[account.engine].label)}>{FLEET_DISABLED_TAG}</Badge>{/if}
         </div>
         <p class="mt-0.5 text-body-sm text-muted-foreground">{account.sessions.length} active {account.sessions.length === 1 ? "session" : "sessions"}</p>
       </Table.Cell>
@@ -131,3 +135,4 @@
     </Table.Row>
   {/snippet}
 </DataTable>
+{/if}

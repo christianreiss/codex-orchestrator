@@ -356,6 +356,19 @@ means **suspended**, never removed: host engine assignments, accounts, canonical
 auth, keys and installed CLIs are all kept, and switching it back on restores
 everything without a reinstall.
 
+The Overview dashboard is an operational view of **enabled engines**: Provider
+usage and its account counts exclude retained accounts belonging to disabled
+engines; Engines and Runner omit their rows and verification actions. This
+applies equally to Codex, Claude, Grok and Kimi. If every engine is disabled,
+each panel explains the disabled state and offers the engine-management route.
+Accounts and Engines management, and historical consumption, remain accessible;
+these display filters neither delete stored data nor prove completion of a
+Destroy/purge operation. Unknown, unavailable or malformed engine-state responses
+retain the existing all-enabled UI fallback; a confirmed response filters the
+current account snapshot immediately. Existing `engine.state.changed` query
+invalidation updates the display, and Overview's manual Refresh also reloads
+engine state. No API response filtering or data-retention contract changes.
+
 - Storage: `versions` rows `codex_engine_disabled`, `claude_engine_disabled`,
   `grok_engine_disabled` (truthy = off). A missing row means on, so existing
   installs are unchanged. Reads are cached for one second per process and

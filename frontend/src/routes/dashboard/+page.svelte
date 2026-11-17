@@ -20,7 +20,11 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Plus from "@lucide/svelte/icons/plus";
   import { loadFailure } from "$lib/api/access-denied";
+  import { engineStateQuery } from "$lib/api/settings";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
 
+  const fleet = useFleetEngines();
+  const engineState = engineStateQuery();
   const overview = overviewQuery();
   const accounts = accountsQuery();
   const runner = createRunnerStateQuery();
@@ -32,13 +36,13 @@
     void goto(id === "provider" ? page.url.pathname : `?tab=${id}`, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
-  const fetching = $derived($overview.isFetching || $accounts.isFetching);
+  const fetching = $derived($overview.isFetching || $accounts.isFetching || $engineState.isFetching);
   // Freshness of what the page shows: the older of the two snapshots (0 = never loaded).
   const updatedAt = $derived(
     $overview.dataUpdatedAt && $accounts.dataUpdatedAt ? Math.min($overview.dataUpdatedAt, $accounts.dataUpdatedAt) : 0,
   );
   function refresh() {
-    void Promise.all([$overview.refetch(), $accounts.refetch(), $runner.refetch()]);
+    void Promise.all([$overview.refetch(), $accounts.refetch(), $runner.refetch(), $engineState.refetch()]);
   }
 
   const accountRows = $derived($accounts.data?.accounts);
@@ -46,7 +50,7 @@
   // Unavailable is not zero: a number appears only once its query has answered.
   const stats = $derived.by<Stat[]>(() => {
     const hostCount = $overview.data?.totals?.hosts;
-    const rows = accountRows;
+    const rows = accountRows?.filter((account) => $fleet.isEnabled(account.engine));
     const paused = rows?.filter((account) => account.state !== "enabled").length ?? 0;
     const perEngine = rows
       ? ENGINES.map((engine) => ({ engine, count: rows.filter((account) => account.engine === engine).length }))
@@ -57,7 +61,9 @@
     const items: Stat[] = [
       { label: hostCount === 1 ? "host" : "hosts", value: hostCount ?? "–", href: `${base}/hosts` },
       {
-        label: rows?.length === 1 ? "stored account" : "stored accounts",
+        label: $fleet.known
+          ? rows?.length === 1 ? "account for enabled engines" : "accounts for enabled engines"
+          : rows?.length === 1 ? "stored account" : "stored accounts",
         value: rows?.length ?? "–",
         href: `${base}/accounts`,
         hint: perEngine || undefined,
@@ -102,7 +108,7 @@
       </Tabs.List>
 
       <Tabs.Content value="provider">
-    <Section id="usage" title="Provider usage" description="Quota windows reported by each connected account.">
+    <Section id="usage" title="Provider usage" description="Quota windows for enabled engines. Retained accounts remain available in Accounts.">
       {#snippet actions()}<Button size="sm" variant="outline" href={`${base}/accounts`}>Manage accounts</Button>{/snippet}
       <UsageTable
         accounts={accountRows}
@@ -120,14 +126,14 @@
       </Tabs.Content>
 
       <Tabs.Content value="engines">
-    <Section id="engines" title="Engines" description="Installed CLI versions reported by hosts, and the latest upstream release.">
+    <Section id="engines" title="Engines" description="Installed CLI versions and upstream releases for enabled engines. All engine switches remain under Configure engines.">
       {#snippet actions()}<Button size="sm" variant="outline" href={`${base}/engines`}>Configure engines</Button>{/snippet}
       <EngineTable overview={$overview.data} loading={$overview.isPending} />
     </Section>
       </Tabs.Content>
 
       <Tabs.Content value="runner">
-    <Section id="runner" title="Verification runner" description="Checks provider logins with the provider before they are stored.">
+    <Section id="runner" title="Verification runner" description="Login verification for enabled engines before credentials are stored.">
       <RunnerStatus />
     </Section>
       </Tabs.Content>

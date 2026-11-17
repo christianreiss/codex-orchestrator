@@ -6,6 +6,7 @@
    * The backend emits no WebSocket events for runner state; the query polls
    * every 15 s and a manual run invalidates it.
    */
+  import { base } from "$app/paths";
   import { toast } from "svelte-sonner";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
@@ -24,7 +25,7 @@
   } from "$lib/api/runner";
   import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
   import { relativeTime } from "$lib/utils/format";
-  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { cn } from "$lib/utils/cn";
 
   type BadgeVariant = "success" | "destructive" | "secondary";
@@ -96,7 +97,11 @@
     anyRunning || !runner?.ready || $state.isError || $state.isPending || !$fleet.isEnabled(engine);
 </script>
 
-{#if $state.isPending}
+{#if $fleet.enabled.length === 0}
+  <StateBlock state="empty" message="All engines are disabled fleet-wide" description="Enable an engine to run login verification.">
+    {#snippet action()}<Button variant="outline" href={`${base}/engines`}>Configure engines</Button>{/snippet}
+  </StateBlock>
+{:else if $state.isPending}
   <StateBlock state="loading" rows={3} />
 {:else if $state.isError && !runner}
   <StateBlock state="error" cause={$state.error} message={`Could not load runner state: ${$state.error?.message || "the server returned no reason"}`} onRetry={() => $state.refetch()} />
@@ -117,12 +122,12 @@
       {/if}
     </div>
     <ul class="divide-y" aria-label="Verification by engine">
-      {#each ENGINES as engine (engine)}
+      {#each $fleet.enabled as engine (engine)}
         {@const status = statusOf(engine)}
         {@const token = tokenFor(engine)}
         {@const view = TOKENS[token]}
         {@const expiry = engine === "claude" ? status?.login_expiry : undefined}
-        <li class={cn("flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2", token === "disabled" && "opacity-70")}>
+        <li class="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2">
           <span class="flex min-w-24 shrink-0 items-center gap-2 font-medium">
             <span class="h-2 w-2 rounded-full {ENGINE_META[engine].color}" aria-hidden="true"></span>{ENGINE_META[engine].label}
           </span>
@@ -140,7 +145,6 @@
             variant="outline"
             onclick={() => run(engine)}
             disabled={disabledRun(engine)}
-            title={token === "disabled" ? fleetDisabledTitle(ENGINE_META[engine].label) : undefined}
             aria-label={`Run ${ENGINE_META[engine].label} runner verification`}
           >
             {#if pending(engine)}<Loader2 class="h-4 w-4 animate-spin" />{:else}<PlayCircle class="h-4 w-4" />{/if}

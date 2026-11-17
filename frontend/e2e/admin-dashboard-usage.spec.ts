@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { ownerStream } from "./owner-stream";
+import { ENGINE_META, ENGINES, type Engine } from "../src/lib/constants/engines";
 import type { ProviderAccount } from "../src/lib/api/accounts";
 
 const now = new Date().toISOString();
@@ -24,19 +26,28 @@ function providers() {
   accounts[3].plan = { name: 'Kimi subscription', source: 'kimi_userinfo', observed_at: now, stale: false };
   return accounts;
 }
-async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait?: Promise<void>; fail?: boolean; off?: boolean } = {}) {
+async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait?: Promise<void>; fail?: boolean; disabled?: Engine[]; engineWait?: Promise<void>; unknownState?: boolean; engineFail?: boolean; updates?: boolean } = {}) {
+  let emit: ((data: string) => void) | undefined;
+  if (options.updates) await page.routeWebSocket("**/dashboard-usage-ws", socket => {
+    ownerStream(socket);
+    emit = data => socket.send(data);
+  });
   await page.route("**/admin/**", async route => {
     if (!["fetch", "xhr"].includes(route.request().resourceType())) return route.continue();
     const path = new URL(route.request().url()).pathname;
     let data: unknown = {};
     if (path === "/admin/auth/status") data = { authenticated: true, enforced: true, user: { id: 1, name: "Operator", username: "operator", access_level: "owner" }, roles: ["owner"], capabilities: ["settings.read", "auth.metadata.read"] };
     else if (path === "/admin/setup/status") data = { setup_complete: true, next_actions: [], checks: [], wizard: { completed_at: now } };
-    else if (path === "/admin/ws/info") data = { enabled: false };
+    else if (path === "/admin/ws/info") data = options.updates ? { enabled: true, url: "ws://127.0.0.1:4173/dashboard-usage-ws" } : { enabled: false };
     else if (path === "/admin/theme") data = { theme: "auto" };
     else if (path === "/admin/overview") data = { totals: { hosts: 3 }, last_refresh: now, versions: {},
-      version_distribution: { codex: [], claude: [], grok: [], engine_counts: { codex: 1, claude: 1, grok: 1 }, install: { both: 0, codex_only: 1, claude_only: 1, neither: 1 } } };
+      version_distribution: { codex: [], claude: [], grok: [], engine_counts: { codex: 1, claude: 1, grok: 1, kimi: 1 }, install: { both: 0, codex_only: 1, claude_only: 1, neither: 1 } } };
     else if (path === "/admin/runner") data = { runner: { configured: false, ready: false, detail: "Not configured" } };
-    else if (path === "/admin/engines/state") data = { engines: ["codex", "claude", "grok", "kimi"].map(engine => ({ engine, enabled: !(options.off && engine === "codex") })) };
+    else if (path === "/admin/engines/state") {
+      if (options.engineWait) await options.engineWait;
+      if (options.engineFail) return route.fulfill({ status: 503, json: { status: "error", error: { message: "Engine state unavailable" } } });
+      data = options.unknownState ? {} : { engines: ENGINES.map(engine => ({ engine, enabled: !options.disabled?.includes(engine) })) };
+    }
     else if (path === "/admin/accounts") {
       if (options.wait) await options.wait;
       if (options.fail) return route.fulfill({ status: 503, json: { status: "error", error: { message: "Account service unavailable" } } });
@@ -44,6 +55,10 @@ async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait
     }
     await route.fulfill({ json: { status: "ok", data } });
   });
+  return async () => {
+    await expect.poll(() => Boolean(emit)).toBe(true);
+    emit!(JSON.stringify({ type: "engine.state.changed", payload: {} }));
+  };
 }
 
 const USAGE = "Provider accounts and their quota usage";
@@ -130,7 +145,7 @@ test("unknown, unavailable and login-required accounts never show zero quota", a
   delete accounts[0].plan; // older-server compatibility
   accounts[1].plan = { name: null, source: 'claude_login', observed_at: null, stale: true };
   accounts[3].usage = { ...accounts[3].usage, windows: [], fetched_at: null, checked_at: null };
-  await fixtures(page, accounts, { off: true });
+  await fixtures(page, accounts);
   await page.goto("/admin/dashboard");
   const table = page.getByRole("table", { name: USAGE });
   const rows = table.locator("tbody tr");
@@ -139,7 +154,6 @@ test("unknown, unavailable and login-required accounts never show zero quota", a
   await expect(rows.nth(0)).toContainText("Waiting for usage data");
   await expect(rows.nth(0).getByTestId("provider-plan")).toContainText("Plan unavailable");
   await expect(rows.nth(1).getByTestId("provider-plan")).toContainText("Plan unavailable");
-  await expect(rows.nth(0)).toContainText("Disabled fleet-wide");
   await expect(rows.nth(1)).toContainText("Subscription quota unavailable");
   await expect(rows.nth(2)).toContainText("Usage unavailable");
   await expect(rows.nth(2)).toContainText("Login needed");
@@ -191,4 +205,84 @@ test("a passed reset removes the marker instead of pinning it at the end", async
   await page.goto("/admin/dashboard");
   await expect(page.getByRole("row", { name: /ChatGPT/ }).getByRole("meter")).toBeVisible();
   await expect(page.getByRole("row", { name: /ChatGPT/ }).getByTestId("elapsed-marker")).toHaveCount(0);
+});
+
+
+for (const engine of ENGINES) test(`disabled ${engine} is absent from operational tabs and account counts`, async ({ page }) => {
+  const accounts = providers();
+  const disabled = accounts.find(account => account.engine === engine)!;
+  disabled.state = "paused"; // A retained suspended account must not inflate the operational warning count.
+  await fixtures(page, accounts, { disabled: [engine] });
+  await page.goto("/admin/dashboard");
+  const usage = page.getByRole("table", { name: USAGE });
+  await expect(usage.locator("tbody tr")).toHaveCount(3);
+  await expect(usage.getByRole("link", { name: disabled.label, exact: true })).toHaveCount(0);
+  const summary = page.locator("dl > div").filter({ has: page.getByText("accounts for enabled engines", { exact: true }) });
+  await expect(summary.getByRole("link")).toHaveText("3");
+  await expect(summary).not.toContainText(ENGINE_META[engine].label);
+  await expect(page.getByText("paused or being removed", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Manage accounts", exact: true })).toHaveAttribute("href", "/admin/accounts");
+
+  await page.getByRole("tab", { name: "Engines", exact: true }).click();
+  const installs = page.getByRole("table", { name: "Engine installs and latest versions" });
+  await expect(installs.locator("tbody tr")).toHaveCount(3);
+  await expect(installs.getByRole("cell", { name: ENGINE_META[engine].label, exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Configure engines", exact: true })).toHaveAttribute("href", "/admin/engines");
+  await page.getByRole("tab", { name: "Runner", exact: true }).click();
+  const verification = page.getByRole("list", { name: "Verification by engine" });
+  await expect(verification.getByRole("listitem")).toHaveCount(3);
+  await expect(verification.getByRole("button", { name: `Run ${ENGINE_META[engine].label} runner verification`, exact: true })).toHaveCount(0);
+});
+
+test("late engine state filters retained Grok accounts and live re-enable restores every operational tab", async ({ page }) => {
+  let release!: () => void;
+  const options = { disabled: ["grok"] as Engine[], engineWait: new Promise<void>(resolve => { release = resolve; }), updates: true };
+  const emit = await fixtures(page, providers(), options);
+  await page.goto("/admin/dashboard");
+  const usage = page.getByRole("table", { name: USAGE });
+  // Loading engine state is unknown, so account data is preserved until the authoritative answer arrives.
+  await expect(usage.locator("tbody tr")).toHaveCount(4);
+  release();
+  await expect(usage.locator("tbody tr")).toHaveCount(3);
+  await expect(page.getByRole("link", { name: "Grok account", exact: true })).toHaveCount(0);
+  for (const enabled of [true, false]) {
+    options.disabled = enabled ? [] : ["grok"];
+    await emit();
+    await expect(usage.locator("tbody tr")).toHaveCount(enabled ? 4 : 3);
+    const summary = page.locator("dl > div").filter({ has: page.getByText("accounts for enabled engines", { exact: true }) });
+    await expect(summary.getByRole("link")).toHaveText(enabled ? "4" : "3");
+    await page.getByRole("tab", { name: "Engines", exact: true }).click();
+    await expect(page.getByRole("table", { name: "Engine installs and latest versions" }).locator("tbody tr")).toHaveCount(enabled ? 4 : 3);
+    await page.getByRole("tab", { name: "Runner", exact: true }).click();
+    await expect(page.getByRole("list", { name: "Verification by engine" }).getByRole("listitem")).toHaveCount(enabled ? 4 : 3);
+    await page.getByRole("tab", { name: "Provider", exact: true }).click();
+  }
+});
+
+for (const engineFail of [false, true]) test(`unknown engine state (HTTP error: ${engineFail}) preserves accounts until confirmed refresh`, async ({ page }) => {
+  const options = { unknownState: true, engineFail, disabled: ["grok"] as Engine[] };
+  await fixtures(page, providers(), options);
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("table", { name: USAGE }).locator("tbody tr")).toHaveCount(4);
+  await expect(page.getByText("stored accounts", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled({ timeout: 20_000 });
+  options.unknownState = false;
+  options.engineFail = false;
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(page.getByRole("table", { name: USAGE }).locator("tbody tr")).toHaveCount(3);
+});
+
+test("all engines disabled has a useful management path in each tab without operational rows", async ({ page }) => {
+  await fixtures(page, providers(), { disabled: [...ENGINES] });
+  await page.goto("/admin/dashboard");
+  const summary = page.locator("dl > div").filter({ has: page.getByText("accounts for enabled engines", { exact: true }) });
+  await expect(summary.getByRole("link")).toHaveText("0");
+  for (const tab of ["Provider", "Engines", "Runner"]) {
+    await page.getByRole("tab", { name: tab, exact: true }).click();
+    const panel = page.getByRole("tabpanel");
+    await expect(panel.getByRole("heading", { name: "All engines are disabled fleet-wide" })).toBeVisible();
+    await expect(panel.getByRole("table")).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: /Run .* runner verification/ })).toHaveCount(0);
+    await expect(panel.getByRole("link", { name: "Configure engines", exact: true }).last()).toHaveAttribute("href", "/admin/engines");
+  }
 });
