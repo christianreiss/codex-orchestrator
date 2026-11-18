@@ -3,8 +3,10 @@
 Coordinator Leonore; run `4a429c9a-5fdf-49ab-9327-b5c59ae28455`.
 This is the operator's focused follow-up to Astra 6.2 maintenance: add Sol 6.2,
 deliver to both `origin` and `github`, and deploy the server. Baseline is clean
-`main` at `633d9879a5de819dc66a70b5c0348a0e24d52e2d`. Integration, both pushes
-and production deployment are coordinator work, pending at implementation handoff.
+`main` at `633d9879a5de819dc66a70b5c0348a0e24d52e2d`. Implementation commit
+`2e030fd5933b914dc4ddce041f0e30484cf617a3` was reviewed and fast-forwarded into
+the original clean `main` on 2026-11-18; ancestry was verified. Remote and
+production acceptance are reported separately from this source audit.
 
 ## Evidence and decisions
 
@@ -46,9 +48,9 @@ or every-account entitlement is claimed.
 
 ## Issue ledger and implementation
 
-| Issue | Research | Implementation | Status |
-| --- | --- | --- | --- |
-| CDX-SOL62 | `research_sol62`, read-only | `implement_sol62`, isolated branch `task/sol62-29189894` | Verified implementation; coordinator integration pending |
+| Issue | Research | Implementation | Fix | Status |
+| --- | --- | --- | --- | --- |
+| CDX-SOL62 | `research_sol62`, read-only | `implement_sol62`, isolated branch `task/sol62-29189894` | `2e030fd5933b914dc4ddce041f0e30484cf617a3` | Fixed; source acceptance passed and integrated into main |
 
 The canonical model-registry addition propagates to API/gateway model lists,
 admin defaults, signed launch menus and Model Class Check guidance. Generated
@@ -100,9 +102,9 @@ were not run; no schema or query behavior changes are introduced.
 
 ## Delivery and rollback
 
-The implementation child commits only its isolated task files, without merging
-or pushing. The coordinator owns integration into the original clean `main`,
-both remote pushes, final Slop artifacts and deployment on `docker01.uggs.io`
+The implementation child committed only its isolated task files, without merging
+or pushing. The coordinator verified and integrated that commit into clean `main`.
+Delivery covers both `origin` and `github`, final Slop artifacts and deployment on `docker01.uggs.io`
 using `scripts/deploy.sh --service api`. Production execution and acceptance are
 reported separately from the source checks above. Rollback is redeploying
 `633d9879a5de819dc66a70b5c0348a0e24d52e2d`; there is no new migration to undo.
