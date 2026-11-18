@@ -33,6 +33,15 @@ language. The vendor is fixed per engine (`ENGINE_VENDOR` in `api/src/services/m
 model and tier come from the session's own launch identity and model. It is guidance, not enforcement,
 and it follows the Model Class Check switch.
 
+## Astra 6.2 addition (2026-11-18)
+
+`gpt-6.2-astra`: unlisted → Tier 5, matching its active Astra family.
+The current [official model reference](https://learn.chatgpt.com/docs/models)
+positions it for demanding end-to-end tasks and sustained reasoning. The
+verified Codex 0.169.0 account catalog establishes its selectable identity;
+the existing family placement is the fleet's routing judgment. Other models
+retain their tiers; serving access and reasoning effort remain separate.
+
 ## Fable 5.2 addition (2026-11-10)
 
 `claude-fable-5-2`: unlisted → Tier 5, matching its active Fable family.

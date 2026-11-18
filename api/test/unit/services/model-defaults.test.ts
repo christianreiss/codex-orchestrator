@@ -19,6 +19,23 @@ function configRow(engine: Engine, settings: Record<string, unknown>, sha = 'a'.
 }
 
 describe('ModelDefaultsService', () => {
+  it.each([undefined, 'ultra'])('persists Astra 6.2 with native/default or explicit effort %s', async (effort) => {
+    const db = createDbFake();
+    const service = new ModelDefaultsService(db as never);
+    const expectedEffort = effort ?? 'low';
+    expect(await service.set(ENGINE_CODEX, { model: 'gpt-6.2-astra', reasoning_effort: effort }))
+      .toMatchObject({ model: 'gpt-6.2-astra', reasoning_effort: expectedEffort });
+    expect(await service.get(ENGINE_CODEX))
+      .toMatchObject({ model: 'gpt-6.2-astra', reasoning_effort: expectedEffort });
+    const saved = db.tables.get(clientConfigDocuments)!.at(-1)!;
+    expect(saved.body).toContain('model = "gpt-6.2-astra"');
+    expect(saved.body).toContain(`model_reasoning_effort = "${expectedEffort}"`);
+    await expect(service.set(ENGINE_CODEX, { model: 'gpt-6.2-astra', reasoning_effort: 'minimal' }))
+      .rejects.toMatchObject({ status: 422, param: 'reasoning_effort' });
+    expect(await service.get(ENGINE_CODEX))
+      .toMatchObject({ model: 'gpt-6.2-astra', reasoning_effort: expectedEffort });
+  });
+
   it('saves Grok windows in native model config and preserves them across older model/effort-only writes', async () => {
     const db = createDbFake();
     const service = new ModelDefaultsService(db as never);
@@ -110,6 +127,11 @@ describe('ModelDefaultsService', () => {
         persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         default_effort: 'medium',
         live_catalog_required: true,
+      },
+      {
+        model: 'gpt-6.2-astra',
+        persistent_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+        default_effort: 'low',
       },
       {
         model: 'gpt-6-astra',

@@ -1,5 +1,10 @@
 # Overview
 
+GPT-6.2 Astra is available in Codex model/effort pickers, signed launch catalogs
+and gateway model lists, with native default low and Tier 5. The opt-in
+latest-family policy follows 6.2; existing defaults and active GPT-6 Astra remain.
+See [the verified model contract](interface-cdx.md#astra-62-model-support-2026-11-18).
+
 cxx 0.9.180 repairs stale generated PATH launchers during alias reconciliation,
 including updates with an already-current binary. `cxx doctor` diagnoses this
 locally; `cxx doctor --fix` replaces recognized legacy transition scripts without

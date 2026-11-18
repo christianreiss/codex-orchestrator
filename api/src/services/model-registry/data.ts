@@ -33,6 +33,10 @@ export const CODEX_MODELS = [
   // default copy GPT-6 Luna; no CLI floor is invented. Gated until an account
   // catalog shows it: then drop `liveCatalogRequired` and confirm the efforts.
   { id: 'gpt-6.1-luna', label: 'GPT-6.1 Luna', family: 'luna', tier: 1, status: 'active', efforts: CODEX_NO_ULTRA, defaultEffort: 'medium', liveCatalogRequired: true },
+  // https://learn.chatgpt.com/docs/models and codex-cli 0.169.0's live account
+  // catalog, fetched 2026-11-18T06:34:51Z: public/list, native default low,
+  // all six efforts. No verified minimum CLI; GPT-6 Astra remains active.
+  { id: 'gpt-6.2-astra', label: 'GPT-6.2 Astra', family: 'astra', tier: 5, status: 'active', efforts: CODEX_FULL, defaultEffort: 'low' },
   // Native catalog default is `medium`; `low` by operator decision 2026-10-28,
   // matching the 0.165.0 bundled catalog. Per-host and fleet overrides still win.
   { id: 'gpt-6-astra', label: 'GPT-6 Astra', family: 'astra', tier: 5, status: 'active', efforts: CODEX_FULL, defaultEffort: 'low' },

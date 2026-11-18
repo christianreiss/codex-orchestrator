@@ -45,6 +45,7 @@ describe('config-normalizer constants', () => {
       'gpt-6.1-terra',
       // Accepted for explicit authoring but live-catalog gated (unverified id).
       'gpt-6.1-luna',
+      'gpt-6.2-astra',
       'gpt-6-astra',
       'gpt-6-sol',
       'gpt-6-luna',
@@ -59,12 +60,14 @@ describe('config-normalizer constants', () => {
   });
 
   it('matches the current Codex CLI model effort catalog and defaults', () => {
-    // Mirrors codex-cli 0.164.0 models_cache.json, 2026-10-26.
+    // Mirrors codex-cli 0.164.0 models_cache.json, 2026-10-26; Astra 6.2
+    // verified against the live 0.169.0 account catalog on 2026-11-18.
     expect(MODEL_REASONING_EFFORTS).toEqual({
       'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6.1-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       // Unverified: copies GPT-6 Luna until an account catalog shows it.
       'gpt-6.1-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
+      'gpt-6.2-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -76,6 +79,7 @@ describe('config-normalizer constants', () => {
       'gpt-6.1-sol': 'low',
       'gpt-6.1-terra': 'low',
       'gpt-6.1-luna': 'medium',
+      'gpt-6.2-astra': 'low',
       'gpt-6-astra': 'low',
       'gpt-6-sol': 'medium',
       'gpt-6-luna': 'medium',

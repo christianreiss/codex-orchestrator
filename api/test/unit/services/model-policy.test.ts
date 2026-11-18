@@ -14,7 +14,7 @@ function database(engine: Engine, disabled = '') {
 }
 describe('current model policy', () => {
   it('keeps the newest numeric version of every family, including single-generation families and Grok Fast', () => {
-    expect(buildModelPolicy('codex', true).latest_models).toEqual(['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-astra', 'gpt-6-luna']);
+    expect(buildModelPolicy('codex', true).latest_models).toEqual(['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6.2-astra', 'gpt-6-luna']);
     expect(buildModelPolicy('claude', true).latest_models).toEqual(['claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
     expect(buildModelPolicy('grok', true).latest_models).toEqual(['grok-4.7', 'grok-4.7-build-fast']);
   });
@@ -29,6 +29,7 @@ describe('current model policy', () => {
   });
   for (const [engine, old, next] of [
     ['codex', 'gpt-5.6-sol', 'gpt-6.1-sol'],
+    ['codex', 'gpt-6-astra', 'gpt-6.2-astra'],
     ['claude', 'claude-opus-4-5-20251101', 'claude-opus-5-5'],
     ['grok', 'grok-4.5', 'grok-4.7'],
     ['kimi', 'k3-256k', 'k3'],

@@ -6,6 +6,16 @@ tiers, upgrades or offers a model derives from it. Adding or changing a model is
 an edit to that file plus `npm run models:generate` (from `api/`) and the
 registry snapshot (`npx vitest run test/unit/services/model-registry.test.ts -u`).
 
+## Astra 6.2 (2026-11-18)
+
+The official [model reference](https://learn.chatgpt.com/docs/models) and a fresh
+Codex 0.169.0 account catalog list `gpt-6.2-astra` publicly. It is active at
+Tier 5, with native default `low` and persistent `low|medium|high|xhigh|max|ultra`.
+No minimum CLI version is asserted. The verified model is offered directly;
+the optional latest-family policy resolves older Astra models to 6.2 without
+rewriting stored selections. The fleet default remains `gpt-6-astra` at `low`,
+and GPT-6 Astra stays active. See [the Codex contract](interface-cdx.md#astra-62-model-support-2026-11-18).
+
 ## Fable 5.2 (2026-11-10)
 
 The public native catalog adds `claude-fable-5-2`, minimum CLI 2.1.321,

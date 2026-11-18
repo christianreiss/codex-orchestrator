@@ -655,6 +655,7 @@ editor overrides win.
 | `gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6.1-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6.1-luna` (unverified, live-catalog gated) | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
+| `gpt-6.2-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6-astra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | `gpt-6-luna` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
@@ -693,6 +694,25 @@ GPT-5.6 Terra stays available; the opt-in latest-family policy resolves it to
 GPT-6.1 Terra without rewriting stored selections. Fleet default remains Astra
 at low. Native context metadata reports 500,000 default / 872,000 maximum;
 Codex owns dynamic context selection, and the fleet adds no fixed context override.
+
+### Astra 6.2 model support (2026-11-18)
+
+The official [Codex model reference](https://learn.chatgpt.com/docs/models) names
+`gpt-6.2-astra`; the Codex 0.169.0 account catalog fetched at
+2026-11-18T06:34:51Z reports `visibility=list`, `supported_in_api=true`, native
+default `low` and `low|medium|high|xhigh|max|ultra`. It is a verified active
+Tier 5 model, offered by admin pickers, `/v1/models`, signed launch catalogs
+and model-class guidance. No minimum native CLI version is asserted from this
+successful observation. The native catalog advertises text/image input and a
+272,000-token default context; Codex owns context selection and the fleet adds
+no fixed context override.
+
+GPT-6 Astra remains listed upstream with no upgrade/retirement marker, so it
+remains selectable. The fleet default stays `gpt-6-astra` at `low`; enabling
+the existing latest-family policy resolves older Astra selections to
+`gpt-6.2-astra` without rewriting their saved model. With that policy off,
+explicit older selections remain effective. No account-wide entitlement or
+authenticated inference guarantee follows from one account's catalog.
 
 The GET response's `catalog` is the machine-readable source of truth for these
 model/effort pairs. POST accepts strict
