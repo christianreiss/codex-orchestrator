@@ -6,6 +6,15 @@ tiers, upgrades or offers a model derives from it. Adding or changing a model is
 an edit to that file plus `npm run models:generate` (from `api/`) and the
 registry snapshot (`npx vitest run test/unit/services/model-registry.test.ts -u`).
 
+## Sol 6.2 (2026-11-18)
+
+The [official model reference](https://learn.chatgpt.com/docs/models) and native
+Codex 0.170.0 catalog observed on 2026-11-18 verify `gpt-6.2-sol`: active Tier 3,
+native default `low`, persistent `low|medium|high|xhigh|max|ultra`. It has no
+invented CLI floor, live-catalog gate or forced-upgrade sources. The existing
+latest-family policy selects 6.2 only when enabled; older Sol choices and the
+GPT-6 Astra fleet default remain. See [the Codex contract](interface-cdx.md#sol-62-model-support-2026-11-18).
+
 ## Astra 6.2 (2026-11-18)
 
 The official [model reference](https://learn.chatgpt.com/docs/models) and a fresh

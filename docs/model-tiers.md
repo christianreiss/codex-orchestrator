@@ -33,6 +33,14 @@ language. The vendor is fixed per engine (`ENGINE_VENDOR` in `api/src/services/m
 model and tier come from the session's own launch identity and model. It is guidance, not enforcement,
 and it follows the Model Class Check switch.
 
+## Sol 6.2 addition (2026-11-18)
+
+`gpt-6.2-sol`: unlisted → Tier 3, retaining the Sol family's routing class.
+The [provider release](https://openai.com/index/introducing-gpt-6-2-astra-sol/)
+positions Sol for efficient everyday engineering and keeps GPT-6.1 Sol API
+pricing. This supports the existing family class rather than a fleet-wide
+retiering. All previous model tiers remain unchanged.
+
 ## Astra 6.2 addition (2026-11-18)
 
 `gpt-6.2-astra`: unlisted → Tier 5, matching its active Astra family.

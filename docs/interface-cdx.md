@@ -652,6 +652,7 @@ editor overrides win.
 
 | Models | Persistent efforts | Default effort |
 |---|---|---|
+| `gpt-6.2-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6.1-sol` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6.1-terra` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | `gpt-6.1-luna` (unverified, live-catalog gated) | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
@@ -694,6 +695,26 @@ GPT-5.6 Terra stays available; the opt-in latest-family policy resolves it to
 GPT-6.1 Terra without rewriting stored selections. Fleet default remains Astra
 at low. Native context metadata reports 500,000 default / 872,000 maximum;
 Codex owns dynamic context selection, and the fleet adds no fixed context override.
+
+### Sol 6.2 model support (2026-11-18)
+
+The official [Codex model reference](https://learn.chatgpt.com/docs/models) names
+`gpt-6.2-sol`. The native Codex 0.170.0 account catalog, whose fetched timestamp
+was observed as 2026-11-18T08:30:12.965702112Z, reports `visibility=list`,
+`supported_in_api=true`, no upgrade directive, native default `low` and persistent
+`low|medium|high|xhigh|max|ultra`. The active Tier 3 entry reaches admin pickers,
+`/v1/models`, signed launch menus and Model Class Check guidance through the
+registry. CLI 0.170.0 demonstrates availability, not a verified minimum version;
+no CLI floor or pin change is introduced.
+
+GPT-6.1 Sol and GPT-6 Sol remain active with their own defaults. Only the opt-in
+latest-family policy resolves older Sol selections (6.1, 6 and 5.6) to 6.2,
+without rewriting storage. The fleet default remains GPT-6 Astra at `low`.
+The public reference describes a 500,000-token default context while the native
+catalog advertises 872,000 maximum; Codex retains context selection. The public
+API reference and native catalog differ on audio input, so this change makes no
+audio-capability claim. Catalog visibility does not prove every account's
+entitlement or authenticated inference acceptance.
 
 ### Astra 6.2 model support (2026-11-18)
 

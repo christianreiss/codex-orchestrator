@@ -137,6 +137,7 @@ describe('openai-models', () => {
     const list = buildModelList(['gpt-5.6-terra']); // duplicate should dedupe
     expect(list.object).toBe('list');
     expect(list.data.map((m) => m.id)).toEqual([
+      'gpt-6.2-sol',
       'gpt-6.1-sol',
       'gpt-6.1-terra',
       'gpt-6.2-astra',

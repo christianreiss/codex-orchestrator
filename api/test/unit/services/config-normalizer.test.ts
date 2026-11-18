@@ -41,6 +41,7 @@ describe('config-normalizer constants', () => {
     // LEGACY_MODEL_UPGRADES. `gpt-5.3-codex-spark` left with codex-cli 0.158.0
     // (catalog, binary, and a live call all reject it) and heals the same way.
     expect(SUPPORTED_MODELS).toEqual([
+      'gpt-6.2-sol',
       'gpt-6.1-sol',
       'gpt-6.1-terra',
       // Accepted for explicit authoring but live-catalog gated (unverified id).
@@ -63,6 +64,7 @@ describe('config-normalizer constants', () => {
     // Mirrors codex-cli 0.164.0 models_cache.json, 2026-10-26; Astra 6.2
     // verified against the live 0.169.0 account catalog on 2026-11-18.
     expect(MODEL_REASONING_EFFORTS).toEqual({
+      'gpt-6.2-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       'gpt-6.1-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
       // Unverified: copies GPT-6 Luna until an account catalog shows it.
@@ -76,6 +78,7 @@ describe('config-normalizer constants', () => {
       'gpt-5.6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
     });
     expect(CODEX_MODEL_DEFAULT_REASONING_EFFORTS).toEqual({
+      'gpt-6.2-sol': 'low',
       'gpt-6.1-sol': 'low',
       'gpt-6.1-terra': 'low',
       'gpt-6.1-luna': 'medium',

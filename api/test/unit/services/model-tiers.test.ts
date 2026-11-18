@@ -47,6 +47,7 @@ describe('modelTier', () => {
     [ENGINE_CODEX, 'gpt-6-luna', 1],
     [ENGINE_CODEX, 'gpt-5.6-terra', 2],
     [ENGINE_CODEX, 'gpt-6.1-terra', 2],
+    [ENGINE_CODEX, 'gpt-6.2-sol', 3],
     [ENGINE_CODEX, 'gpt-6.1-sol', 3],
     [ENGINE_CODEX, 'gpt-6-astra', 5],
     [ENGINE_GROK, 'grok-4.5', 1],
@@ -110,6 +111,14 @@ describe('buildModelTierTable', () => {
       { engine: ENGINE_CLAUDE, model: 'claude-opus-5-5' },
     ]);
     expect(table.flatMap((row) => row.models.map((entry) => entry.model))).not.toContain('grok-4.6');
+  });
+
+  it('recommends Sol 6.2 in the rendered Model Class Check without changing the configured older Sol identity', () => {
+    const table = buildModelTierTable([ENGINE_CODEX], latest);
+    expect(table.find(row => row.tier === 3)?.models).toEqual([{ engine: ENGINE_CODEX, model: 'gpt-6.2-sol' }]);
+    const guidance = renderModelTierGuidance(table, { engine: ENGINE_CODEX, model: 'gpt-6.1-sol' });
+    expect(guidance).toContain('`gpt-6.2-sol`');
+    expect(guidance).toContain('configured codex model is `gpt-6.1-sol` (Tier 3)');
   });
 
   it('omits empty tiers', () => {

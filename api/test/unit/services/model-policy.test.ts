@@ -14,7 +14,7 @@ function database(engine: Engine, disabled = '') {
 }
 describe('current model policy', () => {
   it('keeps the newest numeric version of every family, including single-generation families and Grok Fast', () => {
-    expect(buildModelPolicy('codex', true).latest_models).toEqual(['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6.2-astra', 'gpt-6-luna']);
+    expect(buildModelPolicy('codex', true).latest_models).toEqual(['gpt-6.2-sol', 'gpt-6.1-terra', 'gpt-6.2-astra', 'gpt-6-luna']);
     expect(buildModelPolicy('claude', true).latest_models).toEqual(['claude-fable-5-2', 'claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
     expect(buildModelPolicy('grok', true).latest_models).toEqual(['grok-4.7', 'grok-4.7-build-fast']);
   });
@@ -28,7 +28,9 @@ describe('current model policy', () => {
     for (const model of ['unknown', 'constructor', '__proto__']) expect(() => applyModelPolicy(buildModelPolicy('codex', true), model)).toThrow();
   });
   for (const [engine, old, next] of [
-    ['codex', 'gpt-5.6-sol', 'gpt-6.1-sol'],
+    ['codex', 'gpt-5.6-sol', 'gpt-6.2-sol'],
+    ['codex', 'gpt-6-sol', 'gpt-6.2-sol'],
+    ['codex', 'gpt-6.1-sol', 'gpt-6.2-sol'],
     ['codex', 'gpt-6-astra', 'gpt-6.2-astra'],
     ['claude', 'claude-opus-4-5-20251101', 'claude-opus-5-5'],
     ['grok', 'grok-4.5', 'grok-4.7'],
@@ -50,6 +52,24 @@ describe('current model policy', () => {
       await expect(backend.models.resolve('unknown')).rejects.toMatchObject({ code: 'model_not_found' });
     });
   }
+  it('offers Sol 6.2 across gateways and signed menus while preserving explicit older Sol choices with latest-only off', async () => {
+    const db = createDbFake();
+    const policy = await readModelPolicy(db as never, 'codex');
+    const backend = createGatewayBackends({ db: db as never, env: {} as never, keyring: {} as never }).get('codex');
+    expect((await backend.models.catalog()).map(entry => entry.id)).toContain('gpt-6.2-sol');
+    expect(await backend.models.resolve('gpt-6.2-sol')).toBe('gpt-6.2-sol');
+    for (const model of ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.6-sol']) {
+      expect(applyModelPolicy(policy, model)).toBe(model);
+      expect(await backend.models.resolve(model)).toBe(model);
+    }
+    const catalog = modelLaunchCatalog('codex', policy);
+    expect(catalog.default_model).toBe('gpt-6-astra');
+    expect(catalog.models.find(entry => entry.model === 'gpt-6.2-sol')).toEqual({
+      model: 'gpt-6.2-sol', default_effort: 'low',
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], session_efforts: [],
+    });
+    expect(catalog.min_cli_versions).not.toHaveProperty('gpt-6.2-sol');
+  });
   it('does not revive a manually disabled successor or fall back to an older generation', async () => {
     const db = database('grok', 'grok-4.7');
     const backend = createGatewayBackends({ db: db as never, env: {} as never, keyring: {} as never }).get('grok');

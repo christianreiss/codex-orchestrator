@@ -30,6 +30,7 @@ export const CLAUDE_MODEL_OPTIONS: ModelOption[] = [
 
 /** Codex models the fleet offers, in picker order. */
 export const CODEX_MODELS: ModelOption[] = [
+  { label: "GPT-6.2 Sol", value: "gpt-6.2-sol" },
   { label: "GPT-6.1 Sol", value: "gpt-6.1-sol" },
   { label: "GPT-6.1 Terra", value: "gpt-6.1-terra" },
   { label: "GPT-6.1 Luna (unverified)", value: "gpt-6.1-luna" },
@@ -78,6 +79,7 @@ export const DEFAULT_MODELS: Record<ModelEngine, string> = {
 /** Persisted native efforts per model. */
 export const MODEL_EFFORTS: Record<ModelEngine, Record<string, string[]>> = {
   codex: {
+    "gpt-6.2-sol": ["low","medium","high","xhigh","max","ultra"],
     "gpt-6.1-sol": ["low","medium","high","xhigh","max","ultra"],
     "gpt-6.1-terra": ["low","medium","high","xhigh","max","ultra"],
     "gpt-6.1-luna": ["low","medium","high","xhigh","max"],

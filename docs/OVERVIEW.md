@@ -1,5 +1,10 @@
 # Overview
 
+GPT-6.2 Sol is available in Codex pickers, gateway model lists and signed launch
+menus at Tier 3, with native default low and all six persistent efforts. The
+opt-in latest-family policy follows Sol 6.2; older Sol models and existing fleet
+defaults remain. See [the verified Sol contract](interface-cdx.md#sol-62-model-support-2026-11-18).
+
 GPT-6.2 Astra is available in Codex model/effort pickers, signed launch catalogs
 and gateway model lists, with native default low and Tier 5. The opt-in
 latest-family policy follows 6.2; existing defaults and active GPT-6 Astra remain.

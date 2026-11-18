@@ -436,7 +436,7 @@ describe('HostAgentsService Model Class Check', () => {
     expect(body).toContain(`configured ${engine} model is \`${configured[engine]}\` (Tier ${engine === ENGINE_GROK ? 2 : 3})`);
     const row = (tier: number) => body.split('\n').find(line => line.startsWith(`| ${tier} |`))!;
     for (const model of ['grok-4.7', 'grok-4.7-build-fast']) expect(row(2)).toContain(`\`${model}\``);
-    for (const model of ['gpt-6.1-sol', 'claude-sonnet-5-5']) expect(row(3)).toContain(`\`${model}\``);
+    for (const model of ['gpt-6.2-sol', 'claude-sonnet-5-5']) expect(row(3)).toContain(`\`${model}\``);
     expect(row(4)).toContain('`claude-opus-5-5`');
     expect(row(5)).not.toContain('None available');
     for (const tier of [1, 3, 4, 5]) expect(row(tier)).not.toContain('`grok-4.7-build-fast`');

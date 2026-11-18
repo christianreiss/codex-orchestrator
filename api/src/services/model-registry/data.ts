@@ -22,6 +22,10 @@ const CODEX_NO_ULTRA = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
  * gateway serves through `codex exec` under ChatGPT auth.
  */
 export const CODEX_MODELS = [
+  // Official model reference and native 0.170.0 account catalog observed
+  // 2026-11-18: public/list, native low, all six persistent efforts. Older
+  // Sol models remain active; no verified minimum CLI or forced upgrade.
+  { id: 'gpt-6.2-sol', label: 'GPT-6.2 Sol', family: 'sol', tier: 3, status: 'active', efforts: CODEX_FULL, defaultEffort: 'low' },
   // gpt-5.5 was retired for ChatGPT sign-in on 2026-10-14 (the bundled 0.165.0
   // catalog still lists it for API-key sessions); it heals to GPT-6.1 Sol.
   { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', family: 'sol', tier: 3, status: 'active', efforts: CODEX_FULL, defaultEffort: 'low', upgradesFrom: ['gpt-5.5'] },
