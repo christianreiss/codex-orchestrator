@@ -33,7 +33,6 @@ import org.json.JSONObject
     val notices = agent?.optJSONArray("notices")?.objects().orEmpty()
     val t = rememberTexts()
     val rows = remember(chatEvents, agent, t) { buildTimeline(portalTimelineEntries(t, chatEvents, notices, prompt)) }
-    val activeNoticeIds = notices.map { it.optString("id") }.toSet()
     val receipts = remember(chatEvents) { deliveryIndex(chatEvents) }
     val latestAssistant = rows.filterIsInstance<TimelineItem.Bubble>().lastOrNull { it.message.rawKind == "assistant_message" }
     val latestReplyCursor = (latestAssistant?.message?.key as? MessageKey.PortalEvent)?.cursor ?: 0
@@ -136,7 +135,7 @@ import org.json.JSONObject
                 timelineItems(rows, expandedRuns, { key -> expandedRuns = if (key in expandedRuns) expandedRuns - key else expandedRuns + key },
                     decision = { DecisionCard(it.prompt, false, history = true) {} }) { item ->
                     MessageBubble(model, sessionId ?: "", item, deliveryLabel(t, item.source, receipts, agent, fresh && !model.showingCachedTranscript), agentName, writable,
-                        if (fresh && !model.showingCachedTranscript) activeNoticeIds else null, fresh, highlight == item.key, ::jumpTo)
+                        highlight == item.key, ::jumpTo)
                 }
                 if (prompt != null) item(key = "question:" + prompt.optString("id")) {
                     prompt.optJSONArray("attachments")?.strings()?.forEach { id -> if(sessionId != null) ChatAttachment(model,sessionId,id) }
@@ -219,15 +218,13 @@ import org.json.JSONObject
 
 @Composable private fun MessageBubble(
     model: CompanionModel, session: String, item: TimelineItem.Bubble, delivery: String?, agentName: String, writable: Boolean,
-    activeNoticeIds: Set<String>?, fresh: Boolean, highlighted: Boolean, jumpTo: (String) -> Unit,
+    highlighted: Boolean, jumpTo: (String) -> Unit,
 ) {
     val t = rememberTexts()
     val message = item.message
     val payload = item.source.optJSONObject("payload") ?: JSONObject()
     val text = message.text
     val severity = message.severity
-    val noticeId = message.noticeId
-    val resolved = noticeId != null && activeNoticeIds != null && noticeId !in activeNoticeIds
     // Notice previews have no transcript cursor; they keep the historical "bubble:0" tag.
     val cursor = (message.key as? MessageKey.PortalEvent)?.cursor ?: 0L
     val replyable = writable && cursor > 0
@@ -246,11 +243,6 @@ import org.json.JSONObject
         }
     }
     ChatBubble(item, "bubble:$cursor", colors, actions, reply, highlighted) {
-        if (severity != null) Text(
-            severityLabel(t, severity).let { if (resolved) t.string(R.string.notice_resolved, it) else it },
-            Modifier.padding(horizontal = 8.dp, vertical = 4.dp).testTag("message-severity:$cursor"),
-            style = MaterialTheme.typography.labelLarge, color = colors.content,
-        )
         (message.replyTo as? MessageKey.PortalEvent)?.let { target ->
             ReplyQuote(replyPreview(t, model.events, target.cursor, agentName), accent = if (item.own) colors.content else MaterialTheme.colorScheme.primary,
                 onClick = { jumpTo(target.itemKey()) })
@@ -267,11 +259,6 @@ import org.json.JSONObject
             }
             TextButton(onClick = { message.localId?.let(model::retryChat) }, enabled = writable && !model.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text(stringResource(R.string.chat_send_retry), color = colors.content) }
         }
-        if (noticeId != null && !resolved) TextButton(
-            onClick = { model.resolveChatNotice(session, noticeId) },
-            enabled = fresh && activeNoticeIds?.contains(noticeId) == true && model.can("agent_portal.manage") && !model.busy,
-            modifier = Modifier.align(Alignment.End).testTag("resolve-notice:$noticeId"),
-        ) { Text(stringResource(R.string.action_resolve), color = colors.content) }
         BubbleFooter(item, colors) {
             if (delivery != null) Text(delivery,
                 Modifier.widthIn(max = 180.dp).testTag("delivery:" + payload.optString("message_id")),
@@ -295,13 +282,6 @@ import org.json.JSONObject
             }
         }
     }
-}
-
-internal fun severityLabel(t: Texts, severity: String): String = when (severity) {
-    "important" -> t.string(R.string.notice_important)
-    "critical" -> t.string(R.string.notice_critical)
-    "blocker" -> t.string(R.string.notice_blocker)
-    else -> severity.replaceFirstChar { it.uppercase() }
 }
 
 /** Plan mode: the agent proposes a plan first; the operator approves it to let the session execute. */

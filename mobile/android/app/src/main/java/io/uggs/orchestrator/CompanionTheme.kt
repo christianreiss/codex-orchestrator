@@ -88,7 +88,10 @@ internal val MaterialTheme.status: StatusColors @Composable @ReadOnlyComposable 
 
 @Composable fun CompanionTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalStatusColors provides if (dark) DarkStatusColors else LightStatusColors) { MaterialTheme(
-        colorScheme = if (dark) DarkColors else LightColors,
+        colorScheme = if (android.os.Build.VERSION.SDK_INT >= 31) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        } else if (dark) DarkColors else LightColors,
         typography = CompanionTypography,
         shapes = Shapes(
             extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(8.dp),

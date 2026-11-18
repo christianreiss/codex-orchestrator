@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { historyRetentionHours } from './server-retention/policy.js';
 import { OwnedPortal, visiblePortalSession } from './agent-portal/owned.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
@@ -774,7 +775,7 @@ export class AgentPortalService {
         notices: notices.filter(n => n.sessionId === session.id).map(n => ({ summary: this.decodeJson<Record<string, unknown>>(n.payloadEnc, {}).summary ?? null, id: n.id, severity: n.severity, since: n.createdAt })),
         attention: notices.some(n => n.sessionId === session.id)
           ? (() => { const n = notices.find(n => n.sessionId === session.id)!; return { summary: this.decodeJson<Record<string, unknown>>(n.payloadEnc, {}).summary ?? null, id: n.id, severity: n.severity, since: n.createdAt }; })()
-          : attentionRow
+          : attentionRow && !this.decodeJson<Record<string, unknown>>(attentionRow.payloadEnc, {}).severity
           ? {
               since: attentionRow.createdAt,
               summary:
@@ -1407,7 +1408,9 @@ export class AgentPortalService {
     input: AgentEventInput,
     options: EventTransactionOptions = {},
   ): Promise<Record<string, unknown>> {
-    const owner = this.owned(); if (owner) { return await owner.addEvent(sessionId,input,options) as Record<string,unknown>; }
+    const owner = this.owned();
+    if (owner) return await owner.addEvent(sessionId, input, options) as Record<string, unknown>;
+    input = inlineChatEvent(input);
     if (!AGENT_EVENT_TYPE_SET.has(input.type)) throw new ValidationError('Unsupported agent event type', { param: 'type' });
     const clientEventId = normalizeEventId(input.clientEventId);
     const normalized = normalizeEvent(input.type, input.payload ?? {});
@@ -1510,14 +1513,6 @@ export class AgentPortalService {
         .limit(1);
       const row = inserted[0];
       if (!row) throw new ServiceUnavailableError('Agent event insert was not readable', 'agent_event_write_failed');
-      if (normalized.payload.severity && normalized.payload.notice_id) {
-        const id = String(normalized.payload.notice_id);
-        const [old] = await tx.select().from(agentChatNotices).where(eq(agentChatNotices.id, id)).for('update');
-        if (old && old.sessionId !== sessionId) throw new ConflictError('Notice belongs to another conversation');
-        const values = { severity: String(normalized.payload.severity), payloadEnc: this.encodeJson(normalized.payload), eventId: row.id, resolvedAt: null };
-        if (old) await tx.update(agentChatNotices).set(values).where(eq(agentChatNotices.id, id));
-        else await tx.insert(agentChatNotices).values({ id, sessionId, ...values, createdAt: now });
-      }
       if (input.type === 'attention_resolved' && normalized.payload.notice_id) {
         const [target] = await tx.select().from(agentChatNotices).where(eq(agentChatNotices.id, String(normalized.payload.notice_id))).for('update');
         const files = new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage');
@@ -1995,10 +1990,11 @@ export class AgentPortalService {
     requestedPayload: Record<string, unknown>,
     storedPayload: Record<string, unknown>,
   ): void {
+    const comparable = comparableChatEvent(row.eventType, storedPayload, input);
     if (
-      row.eventType !== input.type ||
+      comparable.type !== input.type ||
       row.source !== input.source ||
-      JSON.stringify(storedPayload) !== JSON.stringify(requestedPayload)
+      !isDeepStrictEqual(comparable.payload, requestedPayload)
     ) {
       throw new ConflictError(
         'client_event_id was already used for a different event',
@@ -2320,6 +2316,23 @@ export function normalizeEventId(value: unknown): string {
   return text;
 }
 
+/** Older wrappers deliver highlighted messages as attention events. */
+export function inlineChatEvent(input: AgentEventInput): AgentEventInput {
+  if (input.type !== 'attention' || !input.payload?.severity) return input;
+  return { ...input, type: 'assistant_message', payload: { ...input.payload, text: input.payload.summary } };
+}
+
+/** Compare a pre-inline event with a retry from the same older wrapper. */
+export function comparableChatEvent(type: string, stored: Record<string, unknown>, input: AgentEventInput) {
+  if (!stored.severity || stored.severity !== input.payload?.severity || stored.notice_id !== input.payload?.notice_id ||
+      !['attention', 'assistant_message', 'waiting_input'].includes(type)) return { type, payload: stored };
+  const equivalentType = type === 'attention' ? 'assistant_message' : type as AgentEventType;
+  const { payload } = normalizeEvent(equivalentType, { ...stored, text: stored.text ?? stored.summary });
+  if (stored.prompt_id) payload.prompt_id = stored.prompt_id;
+  if (stored.prompt_version) payload.prompt_version = stored.prompt_version;
+  return { type: equivalentType, payload };
+}
+
 export function normalizeEvent(type: AgentEventType, input: Record<string, unknown>): NormalizedEvent {
   const payload: Record<string, unknown> = {};
   if (type === 'session_named') {
@@ -2337,14 +2350,18 @@ export function normalizeEvent(type: AgentEventType, input: Record<string, unkno
   if ((type === 'completed' || type === 'failed') && WATCHDOG_FAILURES.includes(input.watchdog_failure as WatchdogFailure)) payload.watchdog_failure = input.watchdog_failure;
   // Resolution is self-authored timeline evidence, never a prompt answer or
   // an operator message. Ignore unrelated payload fields on this event.
-  if (input.notice_id !== undefined) payload.notice_id = normalizeUuid(input.notice_id, 'notice_id');
+  if (type === 'attention_resolved' && input.notice_id !== undefined) payload.notice_id = normalizeUuid(input.notice_id, 'notice_id');
   if (type === 'attention_resolved') return { payload };
-  if (input.severity !== undefined && (type === 'attention' || type === 'waiting_input' || type === 'assistant_message')) {
-    payload.severity = severitySchema.parse(input.severity);
-    payload.notice_id = normalizeUuid(input.notice_id, 'notice_id');
-    if (!summary) throw new ValidationError('Urgent notices require a summary');
+  if (type === 'assistant_message' || type === 'waiting_input') {
+    if (input.severity !== undefined) severitySchema.parse(input.severity);
+    if (input.important === true || input.severity !== undefined) payload.important = true;
   }
-  if (type === 'user_message' || type === 'assistant_message' || type === 'waiting_input') Object.assign(payload, chatMetadataSchema.parse({ attachments: input.attachments, reply_to: input.reply_to, choice_value: input.choice_value }));
+  if (type === 'user_message' || type === 'assistant_message' || type === 'waiting_input') {
+    const metadata = chatMetadataSchema.parse({ attachments: input.attachments, reply_to: input.reply_to, choice_value: input.choice_value });
+    for (const [key, value] of Object.entries(metadata)) {
+      if (value !== undefined) payload[key] = value;
+    }
+  }
   const messageId = normalizeOptionalText(input.message_id, 64);
   if (messageId) payload.message_id = messageId;
   const promptId = normalizeOptionalText(input.prompt_id, 36);

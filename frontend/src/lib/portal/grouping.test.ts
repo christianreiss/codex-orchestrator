@@ -49,6 +49,11 @@ describe("eventText", () => {
 });
 
 describe("buildTimeline", () => {
+  it("keeps historic highlighted notices in order as agent messages", () => {
+    const rows = [event("user_message", T(0)), event("attention", T(1), { severity: "important", summary: "Review" }), event("assistant_message", T(2))];
+    assert.deepEqual(visibleTimeline(rows, null), rows);
+    assert.equal(roleFor(rows[1]!), "agent");
+  });
   it("hides attention records and the current question without altering stored events", () => {
     const prompt = { id: "current", version: 2, question: "Continue?", options: ["Yes"], created_at: T(2) };
     const events = [

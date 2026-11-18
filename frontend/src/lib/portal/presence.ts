@@ -184,6 +184,10 @@ export const GROUP_LABEL: Record<GroupKey, string> = {
   ended: "Recently ended",
 };
 
+export function needsOperator(agent: Pick<Agent, "attention" | "pending_prompt">): boolean {
+  return !!((agent.attention && !agent.attention.severity) || (agent.pending_prompt && !agent.pending_prompt.answer_mode));
+}
+
 export function groupFor(agent: Agent, now: number): GroupKey {
   const presence = livePresence(agent, now);
   // An ended session cannot be answered, so it must not hold a "Needs you"
@@ -191,9 +195,8 @@ export function groupFor(agent: Agent, now: number): GroupKey {
   // the whole retention window. The server stops reporting attention for a
   // terminal session and this is the same rule applied locally, which also
   // covers the poll interval during which the client still holds the old row.
-  if (agent.attention?.severity) return "attention";
   if (presence === "ended") return "ended";
-  if (agent.attention || (agent.pending_prompt && !agent.pending_prompt.answer_mode)) return "attention";
+  if (needsOperator(agent)) return "attention";
   return presence === "offline" ? presence : liveActivity(agent, now) ?? presence;
 }
 

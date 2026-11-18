@@ -63,7 +63,7 @@ class ChatDomainTest {
     @Test fun portalNoticeMapsSeverityAndSummary() {
         val event = portal(5, "attention", JSONObject().put("severity", "blocker").put("summary", "Needs a token").put("notice_id", "n-1"))
         val message = ChatMessage.fromPortalEvent(event)!!
-        assertEquals(ChatItemKind.Notice, message.kind)
+        assertEquals(ChatItemKind.Message, message.kind)
         assertEquals("blocker", message.severity)
         assertEquals("n-1", message.noticeId)
         assertEquals("Needs a token", message.text)

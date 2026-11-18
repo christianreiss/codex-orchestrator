@@ -123,7 +123,7 @@ internal fun portalTimelineEntries(t: Texts, events: List<JSONObject>, notices: 
         val payload = event.optJSONObject("payload") ?: JSONObject()
         val cursor = event.optLong("cursor")
         when {
-            type in PORTAL_RECEIPTS -> Unit
+            type in PORTAL_RECEIPTS || (type == "attention_resolved" && payload.has("notice_id")) -> Unit
             // A failed delivery is a receipt for its instruction, not a lifecycle event.
             type == "failed" && payload.str("message_id") != null -> Unit
             type in setOf("user_message", "assistant_message") || (type in setOf("attention", "waiting_input") && noticeSeverity(payload) != null) ->

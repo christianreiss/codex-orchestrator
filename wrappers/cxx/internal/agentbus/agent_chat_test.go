@@ -120,7 +120,7 @@ func TestPortalSayStaysNormalAndPreservesHeldInstruction(t *testing.T) {
 	})}}
 	tracker := newChannelTracker(client)
 	tracker.receiver = &autoReceiver{client: client, pendingPortal: map[string]any{"message_id": "original"}}
-	args := map[string]any{"client_event_id": "stable-update", "content": "Tests passed; integration continues.", "summary": strings.Repeat("x", 200), "reply_to": 42, "attachments": []string{"11111111-1111-4111-8111-111111111111"}, "severity": "important", "notice_id": "must-not-forward", "message_id": "original"}
+	args := map[string]any{"client_event_id": "stable-update", "important": true, "content": "Tests passed; integration continues.", "summary": strings.Repeat("x", 200), "reply_to": 42, "attachments": []string{"11111111-1111-4111-8111-111111111111"}, "severity": "important", "notice_id": "must-not-forward", "message_id": "original"}
 	for range 2 {
 		out := handleMCPRequest(context.Background(), client, ownerTool("agent_portal_say", args), false, tracker)
 		raw, _ := json.Marshal(out)
@@ -133,7 +133,7 @@ func TestPortalSayStaysNormalAndPreservesHeldInstruction(t *testing.T) {
 	}
 	for _, body := range sent {
 		payload := body["payload"].(map[string]any)
-		if body["type"] != "assistant_message" || payload["text"] != args["content"] || len([]rune(payload["summary"].(string))) != 160 || payload["reply_to"] != float64(42) || payload["attachments"] == nil {
+		if body["type"] != "assistant_message" || payload["important"] != true || payload["text"] != args["content"] || len([]rune(payload["summary"].(string))) != 160 || payload["reply_to"] != float64(42) || payload["attachments"] == nil {
 			t.Fatalf("normal content lost: %v", body)
 		}
 		for _, key := range []string{"severity", "notice_id", "message_id"} {

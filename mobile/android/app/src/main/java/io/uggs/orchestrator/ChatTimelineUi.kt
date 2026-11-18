@@ -60,10 +60,8 @@ internal data class BubbleColors(val container: Color, val content: Color, val s
         severity != null -> BubbleColors(scheme.errorContainer, scheme.onErrorContainer, scheme.onErrorContainer.copy(alpha = .85f),
             MarkdownColors(scheme.onErrorContainer, scheme.onErrorContainer.copy(alpha = .1f), scheme.error), BorderStroke(1.dp, scheme.error))
         own -> {
-            // White on #0063E8 is 5:1, on #2B5BAE 6.6:1 (WCAG AA for body text in both themes).
-            val container = if (dark) Color(0xFF2B5BAE) else Color(0xFF0063E8)
-            BubbleColors(container, Color.White, Color.White.copy(alpha = .86f),
-                MarkdownColors(Color.White, Color.Black.copy(alpha = .2f), Color.White.copy(alpha = .7f)), null)
+            BubbleColors(scheme.primary, scheme.onPrimary, scheme.onPrimary.copy(alpha = .86f),
+                MarkdownColors(scheme.onPrimary, scheme.onPrimary.copy(alpha = .12f), scheme.onPrimary), null)
         }
         else -> BubbleColors(if (dark) scheme.surfaceContainerHigh else scheme.surface, scheme.onSurface, scheme.onSurfaceVariant,
             defaultMarkdownColors(), if (dark) null else BorderStroke(1.dp, scheme.outlineVariant))
@@ -201,6 +199,7 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val own = item.own
+    val importance = if (item.message.severity != null) stringResource(R.string.severity_important) else null
     val shape = RoundedCornerShape(
         topStart = if (!own && item.startsGroup) 4.dp else 16.dp,
         topEnd = if (own && item.startsGroup) 4.dp else 16.dp,
@@ -221,7 +220,10 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
                         Surface(
                             modifier = Modifier.testTag(tag)
                                 .combinedClickable(onClick = {}, onLongClickLabel = actionsLabel, onLongClick = { if (actions.isNotEmpty()) menu = true })
-                                .semantics { customActions = actions.map { action -> CustomAccessibilityAction(action.label) { action.run(); true } } },
+                                .semantics {
+                                    importance?.let { stateDescription = it }
+                                    customActions = actions.map { action -> CustomAccessibilityAction(action.label) { action.run(); true } }
+                                },
                             shape = shape, color = colors.container, contentColor = colors.content,
                             border = if (highlighted) BorderStroke(2.dp, MaterialTheme.colorScheme.tertiary) else colors.border,
                         ) { Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp), content = content) }

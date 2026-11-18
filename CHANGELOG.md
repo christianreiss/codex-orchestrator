@@ -1,5 +1,7 @@
 # 2026-11-18
 
+- **Android Companion and cxx 0.9.187:** Chats opens with search, previews and recent conversations. Larger screens use a navigation rail. Messages sent with `important: true` appear red in the same conversation on Android and the web, with the ordinary follow and notification settings. Migration 0135 closes outstanding legacy notices while preserving their messages.
+
 - **cxx 0.9.186 Codex model identity:** `agent_self` reports the model and reasoning effort of the bound native Codex turn or thread. The Model Class Check uses this value for the greeting and task tier. It treats missing observations as unknown.
 
 - **cxx 0.9.185 unified boot card:** `cdx`, `clx`, `cgx` and `ckx` start with one boot card instead of loose lines around it. The leased account, confirmed session name, model-policy rewrite (`gpt-6.2-sol/medium (policy: gpt-6.1-sol → gpt-6.2-sol)`), host daemon and communicator state now render inside the card; the card previously showed the pre-policy model. The communicator attachment matrix and systemctl output remain available with `--debug`; daemon or communicator problems raise the card to ATTENTION.

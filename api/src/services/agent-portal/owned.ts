@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { stageSupervisorArm } from '../agent-supervisor/arm.js';
 import { acceptOwnedClaudeTurnProof } from '../../control-plane/state/receiver-turn-proof.js';
 import { historyRetentionHours } from '../server-retention/policy.js';
@@ -76,6 +77,8 @@ import {
   normalizeCloseNote,
   normalizeUuid,
   normalizeBridgeToken,
+  comparableChatEvent,
+  inlineChatEvent,
   normalizeEventId,
   normalizeEvent,
   messageView,
@@ -482,10 +485,11 @@ export class OwnedPortal {
   }
   async addEvent(
     id: string,
-    input: AgentEventInput,
+    original: AgentEventInput,
     options: EventTransactionOptions = {},
     admin?: PortalActor,
   ) {
+    const input = inlineChatEvent(original);
     if (!(AGENT_EVENT_TYPES as readonly string[]).includes(input.type))
       throw new ValidationError('Unsupported agent event type');
     const eventId = normalizeEventId(input.clientEventId),
@@ -506,7 +510,7 @@ export class OwnedPortal {
       responseAuthorization: options.terminal ? 'commit' : undefined,
       principal: admin ? `admin:${admin.user.id}` : `portal:${id}`,
       id: eventId,
-      payload: json({ id, input, terminal: options.terminal ?? null }),
+      payload: json({ id, input: original, terminal: options.terminal ?? null }),
       authorize: (s) => {
         authorize(s);
       },
@@ -531,10 +535,11 @@ export class OwnedPortal {
           .limit(1);
         if (existing) {
           const payload = this.decode<Record<string, unknown>>(existing.payloadEnc, {});
+          const comparable = comparableChatEvent(existing.eventType, payload, input);
           if (
-            existing.eventType !== input.type ||
+            comparable.type !== input.type ||
             existing.source !== input.source ||
-            JSON.stringify(payload) !== JSON.stringify(normalized.payload)
+            !isDeepStrictEqual(comparable.payload, normalized.payload)
           )
             throw new ConflictError(
               'Event ID was already used for another event',
@@ -638,25 +643,6 @@ export class OwnedPortal {
           payloadEnc: this.encode(normalized.payload),
           createdAt: now,
         });
-        if (normalized.payload.severity && normalized.payload.notice_id) {
-          const noticeId = String(normalized.payload.notice_id),
-            old = ctx.draft.table('agentChatNotices').get(noticeId);
-          if (old && old.sessionId !== id) throw new ConflictError('Notice belongs to another conversation');
-          ctx.write(async (tx) => {
-            const row = {
-              id: noticeId,
-              sessionId: id,
-              severity: String(normalized.payload.severity),
-              payloadEnc: this.encode(normalized.payload),
-              eventId: inserted.id,
-              resolvedAt: null,
-              createdAt: old?.createdAt ?? now,
-            };
-            if (old) await tx.update(agentChatNotices).set(row).where(eq(agentChatNotices.id, noticeId));
-            else await tx.insert(agentChatNotices).values(row);
-            ctx.draft.upsert('agentChatNotices', row);
-          });
-        }
         if (input.type === 'attention_resolved' && normalized.payload.notice_id) {
           const target = ctx.draft.table('agentChatNotices').get(String(normalized.payload.notice_id));
           if (!target || conversation(ctx.snapshot, target.sessionId) !== conversation(ctx.snapshot, id))
@@ -1361,7 +1347,7 @@ export class OwnedPortal {
           sessionNotices[0] ??
           (!session.endedAt &&
           session.portalAttentionCursor > session.portalAttentionClearedCursor &&
-          attention
+          attention && !attention.payload.severity
             ? { since: attention.createdAt, summary: attention.payload.summary ?? null }
             : null),
         ended_at: session.endedAt,

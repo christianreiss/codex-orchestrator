@@ -285,7 +285,7 @@
   function exactTime(value: string | null) { return formatDateTime(value) || "Not reported"; }
   let detailsOpen = $state(false);
   function preview(row: AgentSessionRow, ended: boolean) {
-    const ask = row.pending_prompt?.question ?? row.attention?.summary;
+    const ask = row.pending_prompt?.question ?? (row.attention?.severity ? null : row.attention?.summary);
     if (ask && !ended) return ask;
     return row.preview?.summary || row.task_title || row.work.task?.split("\n")[0] || "No summary reported";
   }
@@ -458,7 +458,7 @@
               {#if $events.isPending && !$events.data}<div class="flex-1 space-y-2 p-4" role="status" aria-label="Loading timeline">{#each Array(4) as _, i (i)}<Skeleton class="h-9 w-2/3 rounded-md {i % 2 ? 'ml-auto' : ''}" />{/each}</div>
               {:else if $events.data}{#key selected.id}<Timeline portal={timelineSource} agent={selected} onreply={remoteControls && !remoteLive ? undefined : cursor => { replyTargets = {...replyTargets,[selected.id]:cursor}; composerInput?.focus(); }} />{/key}
               {:else}<div class="flex-1"></div>{/if}
-              <AttentionCard agent={selected} now={serverNow} {timings} {onreply} onresolved={refresh} busy={$send.isPending} readonly={!canManage || actionsUnavailable || (!!remoteControls && !remoteLive)} />
+              <AttentionCard agent={selected} now={serverNow} {timings} {onreply} busy={$send.isPending} readonly={!canManage || actionsUnavailable || (!!remoteControls && !remoteLive)} />
               {#if !remoteControls || remoteLive}{#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-caption text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}{@const original = timelineSource.timeline.find(e => e.cursor === replyTargets[selected.id])}<p class="px-4 py-1 text-caption">Replying to {original?.type === "user_message" ? "You" : selected.launch_name || "Agent"}<span class="block line-clamp-2 break-words">{original ? eventText(original) : "Earlier message"}</span> <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
                 {#key selected.id}<ChatUploads session={selected.id} items={uploads[selected.id] ?? []} onitems={(id, items) => uploads = {...uploads,[id]:items}} disabled={$send.isPending} />{/key}
                 {#if selected.pending_prompt?.answer_mode !== 'buttons'}<Composer hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}{/if}{/if}
@@ -471,6 +471,7 @@
 {#snippet sessionRow(row: AgentSessionRow)}
   {@const view = presenceView(row, serverNow, timings)}
   {@const ended = view.presence === "ended"}
+  {@const awaitingAnswer = !ended && Boolean(row.pending_prompt || (row.attention && !row.attention.severity))}
   <ConversationRow
     id="client-{row.id}"
     engine={row.engine}
@@ -483,8 +484,8 @@
     time={listTime(row.last_event_at ?? row.started_at, new Date(serverNow))}
     preview={preview(row, ended)}
     selected={row.id === selectedId}
-    needsYou={Boolean(row.attention?.severity) || (Boolean(row.attention || row.pending_prompt) && !ended)}
-    badge={(row.attention || row.pending_prompt) && !ended ? { kind: "attention" } : null}
+    needsYou={awaitingAnswer}
+    badge={awaitingAnswer ? { kind: "attention" } : null}
     aria-pressed={row.id === selectedId}
     aria-controls={selected ? "client-detail" : undefined}
     onclick={() => selectClient(row.id)}

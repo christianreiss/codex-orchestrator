@@ -472,16 +472,26 @@ test("rich buttons send stable values and ordinary questions remain separate fro
   await expect.poll(()=>state.bodies.some(b=>b.body.answer==='approve' && (b.body.metadata as Record<string,unknown>).choice_value==='approve')).toBe(true);
 });
 
-test("explicit offline urgency survives browsing and resolves only the targeted notice",async({page})=>{
-  const state=await fixtures(page);const notice='44444444-4444-4444-8444-444444444444';const raised=new Date().toISOString();
-  state.sessions[0].presence='ended';state.sessions[0].ended_at=raised;state.sessions[0].read_only=true;
-  state.sessions[0].attention={id:notice,severity:'blocker',summary:'Review the failed rollout',since:raised};state.sessions[0].notices=[{id:notice,severity:'blocker',summary:'Review the failed rollout',since:raised}];
-  await open(page, CLAUDE);await expect(page.locator(`#client-${CODEX}`)).toHaveCount(0);
-  await page.goto(`/admin/agents?session=${CODEX}`);
-  await expect(page.getByRole('region',{name:'Needs you',exact:true})).toContainText('blocker');
-  expect(state.bodies.filter(b=>b.path.endsWith('/notices/resolve'))).toHaveLength(0);
-  await page.getByRole('button',{name:'Mark resolved',exact:true}).click();
-  await expect.poll(()=>state.bodies.some(b=>b.path.endsWith('/notices/resolve') && b.body.notice_id===notice)).toBe(true);
+test("highlights messages inline, including historical notices, without a resolution action", async ({ page }) => {
+  const state = await fixtures(page);
+  const created_at = new Date().toISOString();
+  const event = { session_id: CODEX, source: "engine", created_at };
+  state.events = [
+    { ...event, cursor: 1, type: "assistant_message", payload: { text: "First reply" } },
+    { ...event, cursor: 2, type: "attention", payload: { severity: "important", summary: "Historical reply" } },
+    { ...event, cursor: 3, type: "assistant_message", payload: { important: true, text: "Flagged reply" } },
+  ];
+  await open(page);
+  await page.locator(`#client-${CODEX}`).click();
+  const messages = page.getByRole("region", { name: "Session timeline" }).locator("article");
+  await expect(messages).toHaveCount(3);
+  await expect(messages.nth(0)).not.toHaveClass(/border-destructive/);
+  for (const [index, content] of ["Historical reply", "Flagged reply"].entries()) {
+    await expect(messages.nth(index + 1)).toContainText(content);
+    await expect(messages.nth(index + 1)).toHaveClass(/border-destructive/);
+  }
+  await expect(page.getByRole("region", { name: "Needs you", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mark resolved" })).toHaveCount(0);
 });
 
 test("attachment-only upload retains an ID through chunking and sends once sealed",async({page})=>{

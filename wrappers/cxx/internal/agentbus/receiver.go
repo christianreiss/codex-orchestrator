@@ -895,7 +895,7 @@ func (r *autoReceiver) reply(ctx context.Context, args map[string]any) (map[stri
 		return nil, errors.New("portal delivery is not owned by this receiver")
 	}
 	payload := map[string]any{"text": content, "message_id": id}
-	copyOptional(args, payload, "attachments", "reply_to", "severity", "notice_id")
+	copyOptional(args, payload, "attachments", "reply_to", "severity", "notice_id", "important")
 	if summary := agentportal.CompactSummary(stringArg(args, "summary")); summary != "" {
 		payload["summary"] = summary
 	}

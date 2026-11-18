@@ -870,3 +870,5 @@ or reconnect does not reset the immediate-delivery budget.
 `ckx` follows the unified boot card described in `docs/interface-cdx.md`:
 provider account, confirmed session name, model-policy rewrite, host daemon and
 communicator state render inside the card instead of as separate startup lines.
+
+Kimi uses the shared Portal messaging contract. Send `important: true` on `agent_portal_say` or `agent_receiver_reply` for a red inline highlight. See [Agent chat](agent-chat.md).

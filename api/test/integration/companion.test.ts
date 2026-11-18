@@ -401,20 +401,15 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       expect(query).toHaveBeenCalledTimes(1);
     } finally { query.mockRestore(); transaction.mockRestore(); }
   });
-  it('deduplicates urgency pushes by notice and severity and cancels resolved notices', async () => {
+  it('honours follow preferences for a highlighted message', async () => {
+    await db.delete(companionFollows).where(eq(companionFollows.deviceId, connection.device_id));
     await db.update(companionDevices).set({fcmTokenEnc:encrypt('test-token',ctx.keyring)}).where(eq(companionDevices.id,connection.device_id));
-    const worker=new CompanionPush(ctx);const send=vi.spyOn(worker.transport,'send').mockResolvedValue('sent');
-    const notice=randomUUID();
-    const notify=(severity:string,summary:string) => portal.addAgentEvent(sessionId,bridge,{clientEventId:randomUUID(),type:'attention',source:'engine',payload:{notice_id:notice,severity,summary}});
-    await notify('important','Review this result.');await worker.tick();
-    await notify('important','Review this result.');await worker.tick();
-    expect(send.mock.calls.filter(c=>c[1].notice_id===notice)).toHaveLength(1);
-    expect(send.mock.calls.find(c=>c[1].notice_id===notice)?.[1].summary).toBe('Review this result.');
-    await notify('critical','The result is critical.');await worker.tick();
-    expect(send.mock.calls.filter(c=>c[1].notice_id===notice)).toHaveLength(2);
-    await notify('blocker','Blocked pending review.');
-    await portal.resolveNotice({kind:'admin',user:{id:userId,displayName:'Test'}},sessionId,notice,randomUUID());await worker.tick();
-    expect(send.mock.calls.filter(c=>c[1].notice_id===notice)).toHaveLength(2);
+    const worker = new CompanionPush(ctx);
+    const send = vi.spyOn(worker.transport, 'send').mockResolvedValue('sent');
+    await portal.addAgentEvent(sessionId, bridge, { clientEventId: randomUUID(), type: 'assistant_message', source: 'engine',
+      payload: { text: 'Review this result.', important: true, summary: 'Flagged reply' } });
+    await worker.tick();
+    expect(send.mock.calls.some(c => c[1].summary === 'Flagged reply')).toBe(false);
   });
   it('does not reveal classified notice content after transcript access is revoked', async () => {
     const notice=randomUUID();await portal.addAgentEvent(sessionId,bridge,{clientEventId:randomUUID(),type:'attention',source:'engine',payload:{notice_id:notice,severity:'critical',summary:'Private classified summary'}});
@@ -424,7 +419,7 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       expect(response.statusCode,response.body).toBe(200);expect(response.body).not.toContain('Private classified summary');
       expect(response.json().data.agents.find((a:{id:string})=>a.id===sessionId).notices).toEqual([]);
     } finally {
-      await db.update(adminUsers).set({accessLevel:'owner'}).where(eq(adminUsers.id,userId));await portal.resolveNotice({kind:'admin',user:{id:userId,displayName:'Test'}},sessionId,notice,randomUUID());
+      await db.update(adminUsers).set({accessLevel:'owner'}).where(eq(adminUsers.id,userId));
     }
   });
   it('projects renamed native sessions only with transcript permission without changing unread replies', async () => {

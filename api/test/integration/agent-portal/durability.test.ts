@@ -129,20 +129,16 @@ describe.skipIf(!handle)('agent portal durability against a real database', { ti
   }
 
   describe('rich operator chat', () => {
-    it('keeps explicit urgency through answers and terminal state until targeted resolution', async () => {
-      const world = await makeWorld(); const noticeId = randomUUID();
-      await world.service.addAgentEvent(world.sessionId, world.bridgeToken, { clientEventId: randomUUID(), type: 'attention', source: 'engine', payload: { notice_id: noticeId, severity: 'blocker', summary: 'Deployment approval required' } });
-      await world.service.enqueueMessage(world.actor, { sessionId: world.sessionId, clientMessageId: randomUUID(), content: 'A different instruction' });
-      expect((await world.service.listAgents()).find(a => a.id === world.sessionId)?.attention).toMatchObject({ id: noticeId, severity: 'blocker' });
-      await world.service.finishAgent(world.sessionId, world.bridgeToken, { status: 'completed' });
-      expect((await world.service.listAgents()).find(a => a.id === world.sessionId)?.attention).toMatchObject({ id: noticeId });
-      await db.update(agentSessions).set({ expiresAt: '2000-01-01T00:00:00Z' }).where(eq(agentSessions.id, world.sessionId));
-      await world.service.purgeExpired();
-      expect((await world.service.listAgents()).find(a => a.id === world.sessionId)?.attention).toMatchObject({ id: noticeId });
-      const resolution=randomUUID(); await world.service.resolveNotice(world.actor,world.sessionId,noticeId,resolution);
-      // A lost response can retry the exact resolution before retention sweeps.
-      await world.service.resolveNotice(world.actor,world.sessionId,noticeId,resolution);
-      expect((await db.select().from(agentChatNotices).where(eq(agentChatNotices.id,noticeId)))[0]?.resolvedAt).toBeTruthy();
+    it('stores older wrapper notices as ordinary highlighted replies, including on retry', async () => {
+      const world = await makeWorld();
+      const event = { clientEventId: randomUUID(), type: 'attention' as const, source: 'engine' as const,
+        payload: { notice_id: randomUUID(), severity: 'blocker', summary: 'Review the deployment' } };
+      const send = () => world.service.addAgentEvent(world.sessionId, world.bridgeToken, event);
+      const first = await send();
+      expect(first).toMatchObject({ type: 'assistant_message', payload: { important: true, text: event.payload.summary } });
+      expect((await send()).cursor).toBe(first.cursor);
+      expect((await world.service.listAgents()).find(a => a.id === world.sessionId)).toMatchObject({ attention: null, notices: [] });
+      expect(await db.select().from(agentChatNotices).where(eq(agentChatNotices.id, event.payload.notice_id))).toHaveLength(0);
     });
     it.each(['buttons','text','both'])('enforces %s answers and preserves stable choice values', async mode => {
       const world=await makeWorld(); const promptId=randomUUID();

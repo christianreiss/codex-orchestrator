@@ -46,7 +46,7 @@ sealed interface MessageKey {
     data class Notice(val id: String) : MessageKey
 }
 
-enum class ChatItemKind { Message, Notice, Membership, Other }
+enum class ChatItemKind { Message, Membership, Other }
 
 /**
  * Who wrote an item. [role] says which side of the conversation spoke; it does
@@ -94,7 +94,7 @@ fun ChatMessage.Companion.fromPortalEvent(event: JSONObject, receipts: Map<Strin
     if (conversationEvents(listOf(event)).isEmpty()) return null
     val type = event.optString("type")
     val payload = event.optJSONObject("payload") ?: JSONObject()
-    val severity = noticeSeverity(payload)
+    val severity = if (payload.optBoolean("important")) "important" else noticeSeverity(payload)
     val messageId = payload.text("message_id")
     val createdAt = event.optString("created_at")
     return ChatMessage(
@@ -103,7 +103,7 @@ fun ChatMessage.Companion.fromPortalEvent(event: JSONObject, receipts: Map<Strin
         text = messageText(event),
         attachments = payload.optJSONArray("attachments").stringList(),
         replyTo = payload.optLong("reply_to").takeIf { it > 0 }?.let { MessageKey.PortalEvent(it) },
-        kind = if (severity != null) ChatItemKind.Notice else ChatItemKind.Message,
+        kind = ChatItemKind.Message,
         rawKind = type,
         createdAt = eventTime(event),
         createdAtRaw = createdAt,

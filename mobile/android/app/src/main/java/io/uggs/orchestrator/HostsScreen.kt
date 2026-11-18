@@ -70,7 +70,7 @@ internal fun hostReason(t: Texts, host: JSONObject): String {
         OutlinedTextField(
             query, { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("host-search"), singleLine = true,
             placeholder = { Text(stringResource(R.string.hosts_search)) }, leadingIcon = { CompanionIcon(CompanionSymbol.Search, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            shape = MaterialTheme.shapes.medium, colors = searchFieldColors(),
+            shape = androidx.compose.foundation.shape.CircleShape, colors = searchFieldColors(),
         )
         model.pendingStart?.let {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -87,7 +87,7 @@ internal fun hostReason(t: Texts, host: JSONObject): String {
             items(hosts, key = { it.optLong("host_id") }) { host ->
                 val startable = host.optBoolean("startable")
                 val hostName = host.optString("fqdn")
-                Card(Modifier.fillMaxWidth().animateContentSize(), colors = companionCardColors(), border = companionCardBorder()) {
+                Card(Modifier.fillMaxWidth().animateContentSize(), colors = companionCardColors(), shape = MaterialTheme.shapes.large) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).semantics(mergeDescendants = true) { }.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Box(contentAlignment = Alignment.BottomEnd) {
                             CompanionIcon(CompanionSymbol.Computer, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -101,7 +101,7 @@ internal fun hostReason(t: Texts, host: JSONObject): String {
                         val startModifier = Modifier.heightIn(min = 48.dp).testTag("spawn:${host.optLong("host_id")}")
                         val startDescription = stringResource(R.string.start_host_description, hostName)
                         if (canStart) FilledTonalButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); start = host.optLong("host_id") }, modifier = startModifier.semantics { contentDescription = startDescription }) { Text(stringResource(R.string.action_start)) }
-                        else OutlinedButton(onClick = { }, enabled = false, modifier = startModifier.semantics { contentDescription = startDescription }) { Text(stringResource(R.string.action_start)) }
+                        else TextButton(onClick = {}, enabled = false, modifier = startModifier) { Text(stringResource(R.string.action_start)) }
                     }
                 }
             }

@@ -16,7 +16,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-internal enum class CompanionSymbol { Quotas, Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Group, Conference, Shield, Close, Check, Scan, Computer, Terminal, Attach, Camera, Send, Reply, Photo, Video, Audio, File }
+internal enum class CompanionSymbol { History, Quotas, Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Group, Conference, Shield, Close, Check, Scan, Computer, Terminal, Attach, Camera, Send, Reply, Photo, Video, Audio, File }
 
 /** Small local vector icons; no font, image downloads, or icon library required. */
 @Composable internal fun CompanionIcon(symbol: CompanionSymbol, description: String? = null, tint: Color = LocalContentColor.current, modifier: Modifier = Modifier) {
@@ -31,6 +31,10 @@ internal enum class CompanionSymbol { Quotas, Back, Forward, Up, Down, More, Mor
                 drawPath(path, tint, style = stroke)
             }
             when (symbol) {
+                CompanionSymbol.History -> {
+                    drawCircle(tint, 8f, Offset(12f, 12f), style = stroke)
+                    line(12f, 7f, 12f, 12f, 16f, 14f)
+                }
                 CompanionSymbol.Quotas -> { line(4f, 20f, 4f, 13f); line(12f, 20f, 12f, 4f); line(20f, 20f, 20f, 9f) }
                 CompanionSymbol.Group -> {
                     drawCircle(tint, 3f, Offset(9f, 7f), style = stroke)

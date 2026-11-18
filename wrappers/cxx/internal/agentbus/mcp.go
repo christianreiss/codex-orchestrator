@@ -647,7 +647,8 @@ func toolCatalogJSON() []byte {
 			"message_id": map[string]any{"type": "string"},
 			"status":     map[string]any{"type": "string", "enum": []string{"read", "working"}},
 		}, []string{"message_id", "status"}),
-		tool("agent_receiver_reply", "Reply normally to an operator Portal delivery; omit severity and notice_id for routine results. Explicit severity creates persistent operator attention and is only for actionable exceptions, never successful checks or progress. For proactive updates use agent_portal_say; for peer messages use agent_reply. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
+		tool("agent_receiver_reply", "Reply normally to an operator Portal delivery; omit severity and notice_id for routine results. Set important=true to mark the reply red in the conversation. For proactive updates use agent_portal_say; for peer messages use agent_reply. Include summary: one plain sentence in the response language, at most 160 characters, giving the latest result or decision needed for mobile tiles and push notifications.", map[string]any{
+			"important":  map[string]any{"type": "boolean"},
 			"message_id": map[string]any{"type": "string"}, "content": map[string]any{"type": "string", "maxLength": maxBodyBytes},
 			"summary":     map[string]any{"type": "string", "maxLength": 160},
 			"attachments": map[string]any{"type": "array", "maxItems": 10, "items": map[string]any{"type": "string", "format": "uuid"}},

@@ -2,7 +2,7 @@ import type { EventRow, PendingPrompt } from "./types";
 
 /** Current attention belongs in the action bar; stored events stay unchanged. */
 export function visibleTimeline(events: EventRow[], prompt: PendingPrompt | null): EventRow[] {
-  return events.filter((event) => !["message_accepted", "message_read", "message_processing"].includes(event.type) && event.type !== "attention" && event.type !== "attention_resolved"
+  return events.filter((event) => !["message_accepted", "message_read", "message_processing"].includes(event.type) && (event.type !== "attention" || !!event.payload.severity) && event.type !== "attention_resolved"
     && !(event.type === "waiting_input" && prompt && event.payload.prompt_id === prompt.id && event.payload.prompt_version === prompt.version));
 }
 
@@ -22,7 +22,7 @@ export function roleFor(event: EventRow): Role {
   switch (event.type) {
     case "user_message": return "you";
     case "assistant_message": return "agent";
-    case "attention": return "attention";
+    case "attention": return event.payload.severity ? "agent" : "attention";
     case "waiting_input": return "prompt";
     case "close_requested": return "close";
     case "started":

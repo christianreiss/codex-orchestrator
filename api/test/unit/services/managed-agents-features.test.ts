@@ -85,12 +85,10 @@ describe('fleet-managed session scope', () => {
 });
 
 describe('ordinary operator updates', () => {
-  it.each([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK])('%s reserves attention for actionable exceptions', (engine) => {
+  it.each(ENGINES)('%s describes inline message importance', (engine) => {
     const out = renderManagedAgentFeatures('# Fleet rules', context(engine, { agentMessaging: enabled() }));
-    expect(out.body).toContain('Routine progress, successful checks and completion reports are normal messages');
-    expect(out.body).toContain('`agent_portal_say` for proactive updates');
-    expect(out.body).toContain('omit severity from `agent_receiver_reply`');
-    expect(out.body).toContain('Only actionable exceptions needing operator attention');
+    expect(out.body).toContain('`important: true`');
+    expect(out.body).toContain('highlight the message red in chronological order');
   });
 });
 
@@ -412,9 +410,10 @@ describe('served document byte invariance', () => {
     // 2026-11-17: shorten feature prose without changing obligations to retain
     // the 31 KB ceiling after that scope addition. Quota, Wake/work-result and
     // claim guidance remain unchanged; the fixture covers Projects/BrowserOS/Secrets.
-    expect(out.features_sha256).toBe('7e0069637a1a763fb3cc7ba99593b20728fe0a984b38c3f6ad3727a0c8f0330a');
-    expect(out.managed_sha256).toBe('9f77ab9cd09182822505ebecc234838a199eaf905a34c60b2b6284ab69ee0e44');
-    expect(sha256(out.body)).toBe('b0cb247ba45342197949f9e9856db5b9b355749b4428e2c28cd2cfe82b9959d7');
+    // 2026-11-18: importance is an inline chat flag across engines.
+    expect(out.features_sha256).toBe('d49524ef2c228976640afbffb4e8b10c819285af2a44818add309dea63f5ef66');
+    expect(out.managed_sha256).toBe('638df6709bfdc88e3c0c6c4dded99ca0a73747603949589cc0ae309c3ed34ca7');
+    expect(sha256(out.body)).toBe('b27b8472f3cbf4a07f21bb50d0e256a9992a83e2cdd87b207913969b43943ef2');
   });
 });
 

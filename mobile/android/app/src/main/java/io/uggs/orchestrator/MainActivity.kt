@@ -82,6 +82,35 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class Destination(val route: String, val label: Int, val symbol: CompanionSymbol)
+
+@Composable private fun CompanionNavigation(model: CompanionModel, current: String, approvals: Int, rail: Boolean, navigate: (String) -> Unit) {
+    val destinations = buildList {
+        add(Destination(Routes.CHATS, R.string.nav_chats, CompanionSymbol.Chat))
+        if (model.can("admin.read") && model.can("auth.read_metadata")) add(Destination(Routes.QUOTAS, R.string.nav_quotas, CompanionSymbol.Quotas))
+        if (model.can("admin.read")) add(Destination(Routes.HOSTS, R.string.nav_hosts, CompanionSymbol.Computer))
+        if (model.can("hosts.activate_insecure")) add(Destination(Routes.AUTHORIZATIONS, R.string.nav_authorizations, CompanionSymbol.Shield))
+    }
+    @Composable fun icon(destination: Destination) {
+        BadgedBox(badge = { if (destination.route == Routes.AUTHORIZATIONS && approvals > 0) Badge { Text(approvals.toString()) } }) {
+            CompanionIcon(destination.symbol, description = stringResource(destination.label))
+        }
+    }
+    if (rail) NavigationRail {
+        for (destination in destinations) NavigationRailItem(
+            selected = current == destination.route, onClick = { navigate(destination.route) },
+            icon = { icon(destination) }, label = { Text(stringResource(destination.label)) },
+            modifier = Modifier.testTag("tab-" + destination.route),
+        )
+    } else NavigationBar {
+        for (destination in destinations) NavigationBarItem(
+            selected = current == destination.route, onClick = { navigate(destination.route) },
+            icon = { icon(destination) }, label = { Text(stringResource(destination.label)) },
+            modifier = Modifier.testTag("tab-" + destination.route),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun CompanionContent(model: CompanionModel) {
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -93,6 +122,7 @@ class MainActivity : ComponentActivity() {
     val onChatRoute = Routes.isChat(route)
     val homeTab = if (onChatRoute || route == null || route == Routes.SEARCH) Routes.CHATS else route
     val wide = isWideWindow(LocalConfiguration.current.screenWidthDp)
+    var createRoom by rememberSaveable { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     var review by remember { mutableStateOf<JSONObject?>(null) }
     var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -101,7 +131,7 @@ class MainActivity : ComponentActivity() {
     val agents = model.overviewAgents()
     val activityClock = remember(clock, model.agents) { model.activityNow() }
     val requests = if (fresh) model.approvals.filter { liveApproval(it, clock) } else emptyList()
-    val needsYou = if (fresh && model.can("agent_portal.manage")) agents.filter { needsReply(it) && (hasUrgentNotice(it) || isReachable(it)) } else emptyList()
+    val needsYou = if (fresh && model.can("agent_portal.manage")) agents.filter { needsReply(it) && isReachable(it) } else emptyList()
     val total = requests.size + needsYou.size
     val current = model.agents.firstOrNull { it.optString("id") == model.selected }
     val shared = model.roomChats.current
@@ -133,10 +163,12 @@ class MainActivity : ComponentActivity() {
     }
     // The model owns which chat is open; the NavHost mirrors it so system back, predictive back and tabs keep a real history.
     var navigatedKey by rememberSaveable { mutableStateOf<String?>(null) }
-    LaunchedEffect(chatKey) {
+    LaunchedEffect(chatKey, wide) {
         val here = navController.currentDestination?.route
         if (chatKey != null) {
-            if (!(Routes.isChat(here) && navigatedKey == chatKey.storageKey)) {
+            if (wide) {
+                if (here != Routes.CHATS) goTab(Routes.CHATS)
+            } else if (!(Routes.isChat(here) && navigatedKey == chatKey.storageKey)) {
                 navController.navigate(Routes.chat(chatKey)) {
                     if (Routes.isChat(here)) popUpTo(Routes.CHAT_PATTERN) { inclusive = true } else launchSingleTop = true
                 }
@@ -149,8 +181,9 @@ class MainActivity : ComponentActivity() {
     }
     LaunchedEffect(route) {
         // Leaving the chat route through back or a tab closes the conversation in the model.
-        if (route != null && !Routes.isChat(route) && (model.selected != null || model.roomChats.selected != null)) model.closeSession()
+        if (route != null && !Routes.isChat(route) && !(wide && route == Routes.CHATS) && (model.selected != null || model.roomChats.selected != null)) model.closeSession()
     }
+    androidx.activity.compose.BackHandler(enabled = wide && route == Routes.CHATS && inConversation) { model.closeSession() }
     fun back() { if (onChatRoute) navController.popBackStack() else model.closeSession() }
     Scaffold(topBar = {
         TopAppBar(
@@ -158,9 +191,15 @@ class MainActivity : ComponentActivity() {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (model.selected != null) EngineIcon(current, Modifier.size(24.dp))
-                        Text(if (route == Routes.SEARCH && !inConversation) stringResource(R.string.search_title) else if (model.roomChats.selected != null) shared?.optString("title") ?: stringResource(R.string.title_conversation) else if (model.selected != null) current?.let { agentTitle(t, it) } ?: stringResource(R.string.chat_agent_default) else stringResource(R.string.app_name),
+                        Text(if (route == Routes.SEARCH && !inConversation) stringResource(R.string.search_title) else if (model.roomChats.selected != null) shared?.optString("title") ?: stringResource(R.string.title_conversation) else if (model.selected != null) current?.let { agentTitle(t, it) } ?: stringResource(R.string.chat_agent_default) else if (model.connection == null) stringResource(R.string.app_name) else stringResource(when (homeTab) {
+                                Routes.CHATS -> if (model.roomChats.history) R.string.chat_conference_history else R.string.nav_chats
+                                Routes.HOSTS -> R.string.nav_hosts
+                                Routes.QUOTAS -> R.string.nav_quotas
+                                Routes.AUTHORIZATIONS -> R.string.nav_authorizations
+                                else -> R.string.app_name
+                            }),
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            color = if (!inConversation && model.connection != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                            color = MaterialTheme.colorScheme.onBackground,
                             style = MaterialTheme.typography.titleLarge)
                     }
                     if (model.selected != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -173,18 +212,22 @@ class MainActivity : ComponentActivity() {
                 if (inConversation) IconButton(onClick = ::back, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) }
                 else if (route == Routes.SEARCH) IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.size(48.dp).testTag("search-back")) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) }
             },
-            actions = { if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, stringResource(R.string.cd_more)) } },
+            actions = {
+                if (route == Routes.CHATS && model.connection != null && model.roomChats.supported && model.roomChats.enabled) {
+                    if (model.can("agent_messaging.read"))
+                        IconButton(onClick = { model.roomChats.showHistory(!model.roomChats.history); model.refreshNow() },
+                            enabled = fresh, modifier = Modifier.testTag("conference-history-toggle")) {
+                            CompanionIcon(CompanionSymbol.History, stringResource(if (model.roomChats.history) R.string.chat_history_active else R.string.chat_history))
+                        }
+                    if (model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content"))
+                        FilledTonalButton(onClick = { createRoom = true; model.roomChats.loadCandidates() }, enabled = fresh) { Text(stringResource(R.string.chat_new)) }
+                }
+                if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, stringResource(R.string.cd_more)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background),
         )
     }, bottomBar = {
-        if (model.connection != null && (!inConversation || wide)) NavigationBar {
-            NavigationBarItem(selected = homeTab == Routes.CHATS, onClick = { goTab(Routes.CHATS) }, icon = { CompanionIcon(CompanionSymbol.Chat) }, label = { Text(stringResource(R.string.nav_chats)) }, modifier = Modifier.testTag("tab-chats"))
-            if (model.can("admin.read") && model.can("auth.read_metadata")) NavigationBarItem(selected = homeTab == Routes.QUOTAS, onClick = { goTab(Routes.QUOTAS) }, icon = { CompanionIcon(CompanionSymbol.Quotas) }, label = { Text(stringResource(R.string.nav_quotas)) }, modifier = Modifier.testTag("tab-quotas"))
-            if (model.can("admin.read")) NavigationBarItem(selected = homeTab == Routes.HOSTS, onClick = { goTab(Routes.HOSTS) }, icon = { CompanionIcon(CompanionSymbol.Computer) }, label = { Text(stringResource(R.string.nav_hosts)) }, modifier = Modifier.testTag("tab-hosts"))
-            if (model.can("hosts.activate_insecure")) NavigationBarItem(selected = homeTab == Routes.AUTHORIZATIONS, onClick = { goTab(Routes.AUTHORIZATIONS) },
-                icon = { BadgedBox(badge = { if (requests.isNotEmpty()) Badge { Text(requests.size.toString()) } }) { CompanionIcon(CompanionSymbol.Shield) } },
-                label = { Text(stringResource(R.string.nav_authorizations)) }, modifier = Modifier.testTag("tab-authorizations"))
-        }
+        if (model.connection != null && !inConversation && !wide)
+            CompanionNavigation(model, homeTab, requests.size, false, ::goTab)
     }, snackbarHost = { SnackbarHost(snackbar) }, floatingActionButton = {
         if (model.connection != null && !inConversation && homeTab != Routes.AUTHORIZATIONS && total > 0) {
             Button(onClick = {
@@ -199,40 +242,44 @@ class MainActivity : ComponentActivity() {
             }
         }
     }) { padding ->
-        Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
-            if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            // Connection state is only shown when it is not healthy; the details live in the More sheet.
-            Column(Modifier.animateContentSize()) {
-                if (model.connection != null && !fresh) ConnectionBanner(model.connecting, model.showingSavedChats)
-            }
-            model.error?.let { ErrorStrip(it, model::refreshNow, model::clearError) }
-            if (model.connection == null) PairScreen(model)
-            else NavHost(navController, startDestination = Routes.CHATS, modifier = Modifier.weight(1f).fillMaxWidth(),
-                enterTransition = { fadeIn(tween(180)) }, exitTransition = { fadeOut(tween(120)) },
-                popEnterTransition = { fadeIn(tween(180)) }, popExitTransition = { fadeOut(tween(120)) }) {
-                composable(Routes.CHATS) { ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = false, overviewState = overviewState) }
-                composable(Routes.CHAT_PATTERN, arguments = listOf(navArgument("key") { type = NavType.StringType })) {
-                    ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = true, overviewState = overviewState)
+        Row(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
+            if (wide && model.connection != null) CompanionNavigation(model, homeTab, requests.size, true, ::goTab)
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                // Connection state is only shown when it is not healthy; the details live in the More sheet.
+                Column(Modifier.animateContentSize()) {
+                    if (model.connection != null && !fresh) ConnectionBanner(model.connecting, model.showingSavedChats)
                 }
-                composable(Routes.SEARCH) {
-                    if (model.roomChats.protocols.search && model.can("agent_messaging.reveal_content")) SearchScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
-                }
-                composable(Routes.QUOTAS) {
-                    if (model.can("admin.read") && model.can("auth.read_metadata")) QuotasScreen(model) else NowScreen(model, agents, fresh, activityClock)
-                }
-                composable(Routes.HOSTS) {
-                    if (model.can("admin.read")) HostsScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
-                }
-                composable(Routes.TOOLS) {
-                    if (model.tools.sections().isNotEmpty()) ToolsScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
-                }
-                composable(Routes.AUTHORIZATIONS) {
-                    if (model.can("hosts.activate_insecure")) AuthorizationsScreen(model, fresh, clock, onReview = { review = it }) else NowScreen(model, agents, fresh, activityClock)
+                model.error?.let { ErrorStrip(it, model::refreshNow, model::clearError) }
+                if (model.connection == null) PairScreen(model)
+                else NavHost(navController, startDestination = Routes.CHATS, modifier = Modifier.weight(1f).fillMaxWidth(),
+                    enterTransition = { fadeIn(tween(180)) }, exitTransition = { fadeOut(tween(120)) },
+                    popEnterTransition = { fadeIn(tween(180)) }, popExitTransition = { fadeOut(tween(120)) }) {
+                    composable(Routes.CHATS) { ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = false, overviewState = overviewState) }
+                    composable(Routes.CHAT_PATTERN, arguments = listOf(navArgument("key") { type = NavType.StringType })) {
+                        ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = true, overviewState = overviewState)
+                    }
+                    composable(Routes.SEARCH) {
+                        if (model.roomChats.protocols.search && model.can("agent_messaging.reveal_content")) SearchScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
+                    }
+                    composable(Routes.QUOTAS) {
+                        if (model.can("admin.read") && model.can("auth.read_metadata")) QuotasScreen(model) else NowScreen(model, agents, fresh, activityClock)
+                    }
+                    composable(Routes.HOSTS) {
+                        if (model.can("admin.read")) HostsScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
+                    }
+                    composable(Routes.TOOLS) {
+                        if (model.tools.sections().isNotEmpty()) ToolsScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
+                    }
+                    composable(Routes.AUTHORIZATIONS) {
+                        if (model.can("hosts.activate_insecure")) AuthorizationsScreen(model, fresh, clock, onReview = { review = it }) else NowScreen(model, agents, fresh, activityClock)
+                    }
                 }
             }
         }
     }
     review?.let { request -> ApprovalSheet(model, request, fresh, clock, onDismiss = { review = null }) }
+    if (createRoom) NewRoomSheet(model) { createRoom = false }
     if (more) MoreSheet(model, onTools = { more = false; goTab(Routes.TOOLS) }, onDismiss = { more = false })
 }
 
@@ -344,14 +391,28 @@ class MainActivity : ComponentActivity() {
             // Re-evaluate freshness while this sheet is open, including a silent server timeout.
             var connectionClock by remember { mutableLongStateOf(0L) }
             LaunchedEffect(Unit) { while (true) { connectionClock++; kotlinx.coroutines.delay(1000) } }
-            key(connectionClock) { ServerConnectionStatus(model.fresh(), model.connecting) }
-            Text(model.connection?.server?.removePrefix("https://") ?: "", style = MaterialTheme.typography.bodyMedium)
-            Text(stringResource(pushStatus), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically) { Text(alertsLabel, Modifier.weight(1f)); Switch(checked = model.notifications, onCheckedChange = model::updateNotifications, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = alertsLabel }) }
-            model.selected?.let { id -> Row(verticalAlignment = Alignment.CenterVertically) { Text(notifyLabel, Modifier.weight(1f)); Switch(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy, modifier = Modifier.semantics { contentDescription = notifyLabel }) } }
+            ListItem(
+                headlineContent = { key(connectionClock) { ServerConnectionStatus(model.fresh(), model.connecting) } },
+                supportingContent = { Text(model.connection?.server?.removePrefix("https://").orEmpty()) },
+                leadingContent = { CompanionIcon(CompanionSymbol.Computer) },
+                trailingContent = {
+                    TextButton(onClick = { model.refreshNow(); onDismiss() }) { Text(stringResource(R.string.action_refresh)) }
+                },
+            )
+            ListItem(
+                headlineContent = { Text(alertsLabel) },
+                supportingContent = { Text(stringResource(pushStatus)) },
+                trailingContent = { Switch(checked = model.notifications, onCheckedChange = model::updateNotifications,
+                    enabled = !model.busy, modifier = Modifier.semantics { contentDescription = alertsLabel }) },
+            )
+            model.selected?.let { id ->
+                ListItem(headlineContent = { Text(notifyLabel) }, trailingContent = {
+                    Switch(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy,
+                        modifier = Modifier.semantics { contentDescription = notifyLabel })
+                })
+            }
             if (model.tools.sections().isNotEmpty()) ToolsEntry(onTools)
             if (stoppable != null) OutlinedButton(onClick = { stop = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("stop-session")) { Text(stringResource(R.string.stop_session)) }
-            OutlinedButton(onClick = { model.refreshNow(); onDismiss() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text(stringResource(R.string.action_refresh)) }
             TextButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.more_android_settings)) }
             TextButton(onClick = { signOut = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_sign_out), color = MaterialTheme.colorScheme.error) }
         }
@@ -373,18 +434,16 @@ class MainActivity : ComponentActivity() {
     val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { raw -> try { pairing = Pairing.parse(raw); error = null } catch (_: Exception) { error = invalidCode } }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 32.dp), verticalArrangement = Arrangement.Center) {
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-            Box(Modifier.padding(24.dp)) { CompanionIcon(CompanionSymbol.Chat, tint = MaterialTheme.colorScheme.primary) }
-        }
-        Spacer(Modifier.height(24.dp))
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+      Column(Modifier.widthIn(max = 480.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.pair_title), style = MaterialTheme.typography.headlineLarge)
-        Spacer(Modifier.height(12.dp))
-        Text(stringResource(R.string.pair_instructions))
+        Text(stringResource(R.string.pair_instructions), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(12.dp))
         Button(onClick = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt(scanPrompt).setBeepEnabled(false).setOrientationLocked(false)) }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { CompanionIcon(CompanionSymbol.Scan); Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.pair_scan)) }
         TextButton(onClick = { pastedCode = ""; pasteOpen = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.pair_paste)) }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+      }
     }
     if (pasteOpen) AlertDialog(onDismissRequest = { pasteOpen = false; pastedCode = "" },
         title = { Text(stringResource(R.string.pair_code_title)) },

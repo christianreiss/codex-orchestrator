@@ -43,12 +43,11 @@ import java.time.Instant
     val t = rememberTexts()
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("chats") }
-    var createRoom by rememberSaveable { mutableStateOf(false) }
-    // Recent (offline or ended) chats stay one tap away but start collapsed, so the live list stays live.
-    var showRecent by rememberSaveable { mutableStateOf(false) }
+    // Keep retained conversations visible on first launch.
+    var showRecent by rememberSaveable { mutableStateOf(true) }
     val keyboard = LocalSoftwareKeyboardController.current
     val search = query.trim()
-    fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && (hasUrgentNotice(agent) || isReachable(agent))
+    fun attention(agent: JSONObject) = fresh && model.can("agent_portal.manage") && needsReply(agent) && isReachable(agent)
     // Filter only the already-authorized overview. Searching never fetches a
     // transcript or changes a read marker.
     val activeAgents = if (model.roomChats.history) emptyList() else agents.filter(::isOnlineActiveAgent)
@@ -81,15 +80,6 @@ import java.time.Instant
     }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 4.dp, bottom = 4.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                // The top app bar names the screen; only the history view needs its own heading.
-                if (model.roomChats.history) Text(stringResource(R.string.chat_conference_history), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                else Spacer(Modifier.weight(1f))
-                if (model.can("agent_messaging.read") && model.roomChats.supported && model.roomChats.enabled)
-                    TextButton(onClick = { model.roomChats.showHistory(!model.roomChats.history); model.refreshNow() }, enabled = fresh, modifier = Modifier.testTag("conference-history-toggle")) { Text(stringResource(if (model.roomChats.history) R.string.chat_history_active else R.string.chat_history)) }
-                if (model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content") && model.roomChats.supported && model.roomChats.enabled)
-                    TextButton(onClick = { createRoom = true; model.roomChats.loadCandidates() }, enabled = fresh) { Text(stringResource(R.string.chat_new)) }
-            }
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("chat-search").semantics { contentDescription = searchLabel },
@@ -98,13 +88,13 @@ import java.time.Instant
                 trailingIcon = if (query.isNotEmpty()) { {
                     IconButton(onClick = { query = "" }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Close, stringResource(R.string.chat_clear_search)) }
                 } } else null,
-                shape = MaterialTheme.shapes.medium,
+                shape = CircleShape,
                 colors = searchFieldColors(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             )
             // Message search (R5) is a separate screen; the field above keeps filtering the list by title.
-            if (model.roomChats.protocols.search && model.can("agent_messaging.reveal_content") && model.can("agent_messaging.read")) {
+            if (search.isNotEmpty() && model.roomChats.protocols.search && model.can("agent_messaging.reveal_content") && model.can("agent_messaging.read")) {
                 val query = normalizedQuery(search)
                 TextButton(onClick = { model.openSearch(query) }, enabled = fresh, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("chat-search-messages")) {
                     CompanionIcon(CompanionSymbol.Search)
@@ -112,29 +102,11 @@ import java.time.Instant
                     Text(if (query != null) stringResource(R.string.search_messages_for, query) else stringResource(R.string.search_messages), Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (categories.isNotEmpty()) Row(
-                Modifier.fillMaxWidth().padding(top = 10.dp)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(10.dp))
-                    .then(if (categories.size > 3) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
-                    .selectableGroup().padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
+            if (categories.size > 1) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 categories.forEach { (id, label) ->
-                    val active = selected == id
-                    Surface(
-                        modifier = (if (categories.size > 3) Modifier.widthIn(min = 84.dp) else Modifier.weight(1f)).heightIn(min = 48.dp)
-                            .testTag("chat-filter:$id")
-                            .selectable(selected = active, role = Role.Tab, onClick = { filter = id }),
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (active) MaterialTheme.colorScheme.surface else Color.Transparent,
-                        shadowElevation = if (active) 1.dp else 0.dp,
-                    ) {
-                        Box(Modifier.padding(horizontal = if (categories.size > 3) 12.dp else 4.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
-                            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                                color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                        }
-                    }
+                    FilterChip(selected = selected == id, onClick = { filter = id }, label = { Text(label) },
+                        modifier = Modifier.testTag("chat-filter:$id"))
                 }
             }
         }
@@ -155,7 +127,7 @@ import java.time.Instant
                 RoomRow(room, model.canOpenRoom(room), Instant.ofEpochMilli(now), model.roomChats.previews[room.getString("id")], index < shared.lastIndex) { model.openRoom(room) }
             }
             if (model.roomChats.nextOffset != null) item { TextButton(onClick = model.roomChats::more, enabled = fresh && !model.roomChats.loading) { Text(stringResource(R.string.chat_more_conversations)) } }
-            if (visible.isEmpty() && shared.isEmpty()) item(key = "empty") {
+            if (visible.isEmpty() && shared.isEmpty() && recent.isEmpty()) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val empty = when {
                         model.connecting -> stringResource(R.string.chat_loading_chats)
@@ -173,13 +145,12 @@ import java.time.Instant
             if (recent.isNotEmpty()) {
                 item(key = "recent-header") { RecentHeader(recent.size, showRecent) { showRecent = !showRecent } }
                 // Distinct tags: a recent chat is not a live "agent:" row.
-                if (showRecent) itemsIndexed(recent, key = { _, agent -> "recent:" + agent.getString("id") }) { index, agent ->
+                if (showRecent || search.isNotEmpty()) itemsIndexed(recent, key = { _, agent -> "recent:" + agent.getString("id") }) { index, agent ->
                     AgentRow(agent, now, fresh, false, model.unreadReplyCount(agent.getString("id")), index < recent.lastIndex, "recent:") { model.openSession(agent.getString("id")) }
                 }
             }
         }
     }
-    if (createRoom) NewRoomSheet(model) { createRoom = false }
 }
 
 internal fun roomCategory(room: JSONObject): String = when (room.optString("kind")) {
@@ -198,17 +169,16 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
 
 @Composable private fun AgentRow(agent: JSONObject, now: Long, fresh: Boolean, attention: Boolean, unreadCount: Int, divider: Boolean, tagPrefix: String = "agent:", onClick: () -> Unit) {
     val t = rememberTexts()
-    val important = hasUrgentNotice(agent)
-    val badgeColor = if (important) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val badgeContentColor = if (important) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
+
+    val badgeColor = MaterialTheme.colorScheme.primary
+    val badgeContentColor = MaterialTheme.colorScheme.onPrimary
     val timestamp = runCatching { Instant.parse(agent.optJSONObject("preview")?.optString("created_at").orEmpty().ifBlank { agent.optString("last_event_at") }) }.getOrNull()
     val host = agentHost(agent)
     val shortHost = host?.let { if (it.contains(':') || it.all { char -> char.isDigit() || char == '.' }) it else it.substringBefore('.') }
-    val directory = agent.optString("cwd").trim().takeIf(String::isNotBlank)
     val summary = agentSummary(t, agent)
     val unreadState = if (unreadCount == 0) stringResource(R.string.chat_read) else pluralStringResource(R.plurals.chat_unread_replies, unreadCount, unreadCount)
     val hostDescription = host?.let { stringResource(R.string.host_description, it) }.orEmpty()
-    val unreadBadge = stringResource(if (important) R.string.chat_unread_important_badge else R.string.chat_unread_badge)
+    val unreadBadge = stringResource(R.string.chat_unread_badge)
     Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag(tagPrefix + agent.optString("id")).semantics {
         stateDescription = unreadState
     }, shape = RectangleShape, color = MaterialTheme.colorScheme.background) {
@@ -218,18 +188,14 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(agentTitle(t, agent), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
                         maxLines = if (LocalDensity.current.fontScale > 1.1f) 2 else 1, overflow = TextOverflow.Ellipsis)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (host != null) {
-                            Text(shortHost.orEmpty(), modifier = Modifier.widthIn(max = 104.dp).clearAndSetSemantics { contentDescription = hostDescription },
-                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (directory != null) Text(" · ", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
-                        }
-                        if (directory != null) Text(directory, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (host != null) Text(shortHost.orEmpty(), modifier = Modifier.widthIn(max = 104.dp).clearAndSetSemantics { contentDescription = hostDescription },
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        AgentStatusIndicator(agent, now, fresh)
                     }
-                    AgentStatusIndicator(agent, now, fresh)
-                    if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (agent.optBoolean("daemon_session") && summary == null) Text(remoteStatus(t, agent.optString("remote_status")), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (attention || important) Text(agent.optJSONObject("attention")?.optString("severity")?.takeIf { it.isNotBlank() } ?.let { severityRaw(t, it) } ?: stringResource(if (important) R.string.chat_important else R.string.chat_reply_needed), style = MaterialTheme.typography.labelSmall, color = badgeColor)
+                    if (attention) Text(stringResource(R.string.chat_reply_needed), style = MaterialTheme.typography.labelSmall, color = badgeColor)
                 }
                 Column(Modifier.align(Alignment.Top).padding(top = 2.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Box(Modifier.heightIn(min = 18.dp)) {
@@ -271,12 +237,4 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
         Text(listOfNotNull(t.string(status.label), detail).joinToString(" · "),
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-}
-
-/** The server's severity word, localized; unknown words pass through unchanged. */
-internal fun severityRaw(t: Texts, severity: String): String = when (severity) {
-    "important" -> t.string(R.string.severity_important)
-    "critical" -> t.string(R.string.severity_critical)
-    "blocker" -> t.string(R.string.severity_blocker)
-    else -> severity
 }

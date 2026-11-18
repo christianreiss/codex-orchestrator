@@ -27,7 +27,7 @@ internal fun noticeSeverity(payload: JSONObject?): String? = payload?.optString(
 
 fun hasUrgentNotice(agent: JSONObject) = noticeSeverity(agent.optJSONObject("attention")) != null ||
     agent.optJSONArray("notices")?.objects()?.any { noticeSeverity(it) != null } == true
-fun needsReply(agent: JSONObject) = agent.optJSONObject("attention") != null || (agent.optJSONObject("pending_prompt")?.let { !it.has("answer_mode") } ?: false)
+fun needsReply(agent: JSONObject) = agent.optJSONObject("attention")?.let { noticeSeverity(it) == null } == true || (agent.optJSONObject("pending_prompt")?.let { !it.has("answer_mode") } ?: false)
 
 fun readyAgents(agents: List<JSONObject>) = agents.filter(::isReachable)
     .sortedWith(compareByDescending<JSONObject> { it.optJSONObject("pending_prompt") != null }

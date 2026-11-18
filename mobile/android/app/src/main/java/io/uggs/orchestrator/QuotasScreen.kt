@@ -84,7 +84,7 @@ private fun quotaTime(t: Texts, raw: String): String? = runCatching {
                 if (engine.optJSONArray("accounts")?.length() == 0) Text(stringResource(R.string.quota_no_accounts), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(engine.optJSONArray("accounts")?.objects().orEmpty(), key = { "${engine.getString("engine")}:${it.getInt("id")}" }) { account ->
-                OutlinedCard(Modifier.fillMaxWidth()) {
+                Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, colors = companionCardColors()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(account.optString("label"), style = MaterialTheme.typography.titleMedium)
                         val status = quotaDataStatus(account, now)

@@ -198,7 +198,7 @@ export function notificationKind(
   payload: Record<string, unknown> = {},
 ): 'attention' | 'reply' | null {
   if (payload.severity && ['assistant_message', 'waiting_input', 'attention'].includes(type))
-    return 'attention';
+    return followed ? 'reply' : null;
   if (type === 'waiting_input' && payload.answer_mode) return followed ? 'reply' : null;
   if (type === 'waiting_input' || type === 'attention') return 'attention';
   return type === 'assistant_message' && followed ? 'reply' : null;
