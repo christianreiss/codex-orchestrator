@@ -359,7 +359,8 @@ From the 2026-10-28 maintenance run (Grok Build 1.0.70) the same boundary covers
 
 ## Emergency mode (cxx 0.9.141)
 
-`cxx emergency grok [--] [native arguments]` execs the plain native `grok` with
+`cxx emergency grok [--] [native arguments]` (or `cgx emergency [--] [native arguments]`
+from cxx 0.9.184) execs the plain native `grok` with
 no Orchestrator involvement on secure hosts (verified `cgx.json` with
 `host.secure=true`; otherwise exit 1). Gate and environment scrubbing match
 [Codex emergency mode](interface-cdx.md#emergency-mode-cxx-09141). Grok

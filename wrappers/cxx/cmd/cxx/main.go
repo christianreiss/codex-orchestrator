@@ -84,11 +84,14 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 	if len(args) > 0 && args[0] == grok.PrivateReaperCommand {
 		return grok.RunPrivateReaper(args[1:])
 	}
-	// Emergency mode must run before anything that touches the Orchestrator,
-	// the communicator or native entry points, so it is intercepted first. Only
-	// the bare `cxx` name takes it: `cdx emergency` stays a Codex prompt.
-	if len(args) > 0 && args[0] == "emergency" && personaForProgramName(invokedAs) == "common" {
-		return emergency.Run(args[1:], stdout, stderr)
+	// Dispatch before configuring the communicator or reconciling native entries.
+	if len(args) > 0 && args[0] == "emergency" {
+		switch persona := personaForProgramName(invokedAs); persona {
+		case "common":
+			return emergency.Run(args[1:], stdout, stderr)
+		case "codex", "claude", "grok", "kimi":
+			return emergency.Run(append([]string{persona}, args[1:]...), stdout, stderr)
+		}
 	}
 	setPersonaBuildInfo()
 	if len(args) > 0 && args[0] == "communicator-worker" {
@@ -440,6 +443,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx kimi [ckx arguments]")
 	fmt.Fprintln(w, "  cxx native codex|claude|grok|kimi -- [native arguments]")
 	fmt.Fprintln(w, "  cxx emergency codex|claude|grok|kimi [--] [native arguments]  (secure hosts: native CLI, no Orchestrator)")
+	fmt.Fprintln(w, "  cdx|clx|cgx|ckx emergency [--] [native arguments]")
 	fmt.Fprintln(w, "  cxx native-entry status|install|remove")
 	fmt.Fprintln(w, "  cxx update [--minimal]")
 	fmt.Fprintln(w, "  cxx doctor [--fix] [--minimal]  (local wrapper PATH check and repair)")

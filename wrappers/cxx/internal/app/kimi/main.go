@@ -377,6 +377,7 @@ func PrintWrapperHelp(w io.Writer, caps terminalui.Caps) {
 	terminalui.PrintWrapperHelp(w, caps, "ckx", "Kimi Code", []terminalui.HelpItem{
 		{Usage: "run [native arguments]", Description: "Launch Kimi with a leased subscription account and an isolated managed runtime."},
 		{Usage: "resume [UUID or title]", Description: "Resume native history; --continue resumes the latest session."},
+		{Usage: "emergency [--] [args]", Description: "Launch the native CLI directly on a secure host."},
 		{Usage: "sync", Description: "Merge fleet settings, instructions, skills access, and MCP into the native home."},
 		{Usage: "status | doctor", Description: "Show native installation and subscription authentication health."},
 		{Usage: "login", Description: "Log in through native subscription OAuth, upload to the central owner, and erase temporary credentials."},

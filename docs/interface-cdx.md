@@ -1161,13 +1161,13 @@ participate in these leases and is the explicit coordination boundary.
 Orchestrator or wrapper sync. It replaces the process with the plain native
 `codex` and bypasses everything cxx adds: no network call, config or auth
 sync, quota check, lease, auth session, communicator, receiver, skills or MCP
-injection, and no argv, env or `config.toml` rewriting. Nothing is written to
-disk, including the `cdx-codex-bin` path cache.
+injection. cxx passes native arguments through and reads the `cdx-codex-bin`
+path cache without writing to disk.
 
-- **Invocation:** only the bare `cxx` name takes it (`cdx emergency` remains a
-  Codex prompt). It is intercepted before communicator setup and native-entry
-  reconciliation. The managed `codex` PATH shim still routes through the full
-  wrapper, so use `cxx emergency codex`.
+- **Invocation:** use `cdx emergency [--] [native arguments]` from cxx 0.9.184
+  or `cxx emergency codex [--] [native arguments]`. Both dispatch before
+  communicator setup and native-entry reconciliation. The managed `codex` PATH
+  shim continues to use the normal native entrypoint.
 - **Gate:** the Ed25519-verified `cdx.json` must say `host.secure=true`. A
   signature-valid but expired config counts. A missing, unsigned, tampered or
   wrong-engine config, or `secure=false`, refuses with exit 1 and launches
@@ -1176,7 +1176,7 @@ disk, including the `cdx-codex-bin` path cache.
 - **Binary:** `CDX_CODEX_BIN` (a bad override is an error, never a fallthrough),
   the existing `cdx-codex-bin` cache read-only, then `codex` on `PATH` outside
   managed shims and the wrapper.
-- **Environment:** `CDX_*`/`CLX_*`/`CGX_*`/`CXX_*` variables are removed, as are
+- **Environment:** `CDX_*`/`CLX_*`/`CGX_*`/`CKX_*`/`CXX_*` variables are removed, as are
   `OPENAI_*`/`ANTHROPIC_*` base URLs and keys that point at the Orchestrator.
   The operator's own provider settings pass through.
 - **Not cleaned up:** previously synced `~/.codex/config.toml`, `AGENTS.md` and
@@ -1184,8 +1184,8 @@ disk, including the `cdx-codex-bin` path cache.
   value; emergency mode is for when the live value is unavailable.
 
 Refusal and error exits: 1 (refused or cannot start), 2 (usage). The same
-subcommand serves `claude` and `grok`; see `interface-clx.md` and
-`interface-cgx.md` for their binaries and the Grok login precondition.
+subcommand serves Claude, Grok and Kimi. See their wrapper references for
+engine-specific binary resolution and login requirements.
 
 ## Refusal modes
 

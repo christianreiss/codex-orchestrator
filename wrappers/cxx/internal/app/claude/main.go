@@ -600,7 +600,7 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			return exit
 		}
 		ui.Say(stderr, "clx", ui.ToneFail, "usage", "unknown subcommand: "+fmt.Sprint(sub))
-		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | sync | status | doctor | auth-upload | exec -- <cmd...>")
+		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | emergency | sync | status | doctor | auth-upload | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | -r/--resume[=<session>] | --continue | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
 	}
