@@ -25,27 +25,46 @@ func TestBareCXXRequiresEngine(t *testing.T) {
 // reconciliation, so a host with no usable signed config refuses without
 // creating any state under HOME.
 func TestEmergencyRefusesWithoutSignedConfigAndWritesNothing(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("CDX_CONFIG_PATH", "")
-	var stdout, stderr bytes.Buffer
-	if got := run("cxx", []string{"emergency", "codex", "--", "--version"}, &stdout, &stderr); got != 1 {
-		t.Fatalf("exit = %d, want 1; stderr=%q", got, stderr.String())
+	tests := []struct {
+		program string
+		engine  string
+		args    []string
+	}{
+		{"cxx", "codex", []string{"emergency", "codex", "--", "--version"}},
+		{"cdx", "codex", []string{"emergency"}},
+		{"clx", "claude", []string{"emergency"}},
+		{"cgx", "grok", []string{"emergency"}},
+		{"ckx", "kimi", []string{"emergency"}},
+		{"cdx-0.9.184", "codex", []string{"emergency"}},
 	}
-	if !strings.Contains(stderr.String(), "refusing to run codex") {
-		t.Fatalf("stderr = %q", stderr.String())
-	}
-	entries, err := os.ReadDir(home)
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("emergency mode touched HOME: %v (err=%v)", entries, err)
+	for _, tt := range tests {
+		t.Run(tt.program, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", "")
+			for _, key := range []string{"CDX_CONFIG_PATH", "CLX_CONFIG_PATH", "CGX_CONFIG_PATH", "CKX_CONFIG_PATH"} {
+				t.Setenv(key, "")
+			}
+			var stdout, stderr bytes.Buffer
+			if got := run(tt.program, tt.args, &stdout, &stderr); got != 1 {
+				t.Fatalf("exit = %d, want 1; stderr=%q", got, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "refusing to run "+tt.engine) {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+			entries, err := os.ReadDir(home)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("emergency mode touched HOME: %v (err=%v)", entries, err)
+			}
+		})
 	}
 }
 
 func TestSelectorHelpListsEmergency(t *testing.T) {
 	var out bytes.Buffer
 	printSelectorHelp(&out)
-	if !strings.Contains(out.String(), "cxx emergency codex|claude|grok|kimi") {
+	if !strings.Contains(out.String(), "cxx emergency codex|claude|grok|kimi") ||
+		!strings.Contains(out.String(), "cdx|clx|cgx|ckx emergency") {
 		t.Fatalf("help = %q", out.String())
 	}
 }

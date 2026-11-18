@@ -343,6 +343,15 @@ and reject controls requiring exact telemetry instead of inventing values.
 | `auth-reconcile` | Explicitly refused: the server owns canonical refresh. |
 | `help` | Wrapper help without launching or authenticating. |
 
+### Emergency mode
+
+`ckx emergency [--] [native arguments]` (cxx 0.9.184) and
+`cxx emergency kimi [--] [native arguments]` run the native Kimi CLI directly.
+They use the same [signed secure-host check](interface-cdx.md#emergency-mode-cxx-09141)
+and require a native login in `$KIMI_CODE_HOME` (default `~/.kimi-code`).
+Binary lookup checks `CKX_KIMI_BIN`, the read-only `~/.ckx/state/kimi-bin` cache,
+and the native `kimi` on `PATH`.
+
 ## Parity exemptions
 
 Audit base: `511b4486e`, 2026-11-12. The requested case-insensitive Grok-without-Kimi gate contained **332 files**. Every file was classified: **83 corrected/current files** and **249 exemptions** below (251 after the 2026-11-12 libc selection and the 2026-11-17 Grok 1.0.88 native-settings fixture). Exemptions are scoped to the stated reason, not permission for a new engine enumeration to omit Kimi. New runtime behavior is checked separately from historical/provider-only fixtures.

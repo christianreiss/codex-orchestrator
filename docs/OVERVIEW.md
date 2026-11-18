@@ -65,6 +65,10 @@ Codex noninteractive execution uses the direct native transport even when invoke
 from a terminal, avoiding the TUI-only `--remote` argument while retaining managed
 identity, auth leases and process supervision. See [native entrypoints](interface-cdx.md).
 
+During an Orchestrator outage, run `cdx emergency`, `clx emergency`, `cgx emergency`
+or `ckx emergency` to start the native engine on a host with a signed secure
+configuration. See [emergency mode](interface-cdx.md#emergency-mode-cxx-09141).
+
 The feedback fixes retain safe advisor registration conflict codes, identify Git
 Director username and workspace mismatches, and accept supported 4 MiB portal
 attachment chunks without a validator stack overflow. Stale presence notices

@@ -455,8 +455,8 @@ specifics: the binary comes from `CLX_CLAUDE_BIN`, the read-only
 `~/.cxx/engines/claude`), then `claude`/`claude-code` on `PATH`. The `--settings`
 overlay, `modelpolicy` rewriting and `DISABLE_AUTOUPDATER` injection are not
 applied, and `~/.claude` (including `CLAUDE.md` and `settings.json`) is left as
-last synced. Only the bare `cxx` name takes the subcommand; `clx emergency` is
-still a Claude prompt.
+last synced. From cxx 0.9.184, `clx emergency [--] [native arguments]` is
+equivalent to `cxx emergency claude` with the same arguments.
 
 ## Environment variables
 

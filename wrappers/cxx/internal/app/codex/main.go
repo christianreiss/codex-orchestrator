@@ -859,7 +859,7 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			return finishAuthMutation(exit)
 		}
 		ui.Say(stderr, "cdx", ui.ToneFail, "usage", "unknown subcommand: "+fmt.Sprint(sub))
-		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | sync | status | doctor | auth-upload | lane <normal|clear> | profile <name> | exec -- <cmd...>")
+		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | emergency | sync | status | doctor | auth-upload | lane <normal|clear> | profile <name> | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | --resume[=<session>] | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | -4 | --allow-concurrent-sync")
 		return 2
 	}

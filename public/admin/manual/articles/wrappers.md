@@ -461,14 +461,14 @@ keeping the timeline, relay, and any open question), `say --text`,
 
 Two host-local escape hatches need no server:
 
-- `cxx emergency codex|claude|grok|kimi [--] [args]` (cxx 0.9.141) replaces itself
-  with the plain native engine CLI when the Orchestrator or a sync is broken:
-  no network call, sync, quota check, lease, communicator, MCP/Skill injection
-  or argument/environment rewriting, and nothing written to disk. It runs only
-  when the signature-verified host config says `host.secure=true` (an expired
-  but verified config counts); otherwise it refuses with exit 1. Only the bare
-  `cxx` name takes it (`cdx emergency` is still a Codex prompt). Grok also needs
-  an existing native login. Details: `docs/interface-cdx.md` → Emergency mode.
+- `cdx emergency`, `clx emergency`, `cgx emergency` and `ckx emergency`
+  (cxx 0.9.184) start the native engine directly when the Orchestrator is
+  unreachable. `cxx emergency codex|claude|grok|kimi` also works. Pass native
+  arguments after the subcommand or engine name, optionally after `--`.
+  cxx uses the locally verified signed config and requires `host.secure=true`.
+  An expired signature-valid config counts. The launcher skips fleet sync,
+  quota checks, leases and the communicator. Grok and Kimi require an existing
+  native login. See Emergency mode in `docs/interface-cdx.md`.
 - `cxx workload run --memory 8GiB [--wait 5m] -- <command>` (Linux) admits a
   heavy local job only when the declared peak RAM fits next to every other
   declared reservation of the same Unix user and a system reserve; `status`,
