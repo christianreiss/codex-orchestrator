@@ -81,3 +81,14 @@ func TestPolicyNoteHiddenWhenModelUnchanged(t *testing.T) {
 		t.Fatalf("unchanged model shows a policy note:\n%s", buf.String())
 	}
 }
+
+func TestLaunchDotsFoldOnceThroughPlainFallback(t *testing.T) {
+	var buf bytes.Buffer
+	caps := screenCaps(100)
+	caps.IsTTY = false
+	printBootScreen(&buf, launchScreen(), caps)
+	out := buf.String()
+	if strings.Count(out, "daemon=") != 1 || strings.Count(out, "communicator=") != 1 {
+		t.Fatalf("launch dots repeated:\n%s", out)
+	}
+}

@@ -81,6 +81,7 @@ func (l *LaunchInfo) AddProblem(text string) {
 func applyLaunch(in ScreenInput) ScreenInput {
 	if len(in.Launch.Dots) > 0 {
 		in.Dots = append(append([]HealthDot(nil), in.Dots...), in.Launch.Dots...)
+		in.Launch.Dots = nil // idempotent: the rich renderer falls back to minimal
 	}
 	if len(in.Launch.Problems) > 0 && (in.ResultTone == "" || in.ResultTone == ToneOK) {
 		// The success label would contradict the problem lines below it.

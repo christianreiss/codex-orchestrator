@@ -26,6 +26,10 @@ var announced atomic.Bool
 // MarkAnnounced records that the boot card already shows the rewrite.
 func MarkAnnounced() { announced.Store(true) }
 
+// ResetAnnounced restores the default (print the rewrite). Tests running
+// several launches in one process use it between launches.
+func ResetAnnounced() { announced.Store(false) }
+
 type previewSink struct{ from, to string }
 
 func (*previewSink) Write(p []byte) (int, error) { return len(p), nil }
