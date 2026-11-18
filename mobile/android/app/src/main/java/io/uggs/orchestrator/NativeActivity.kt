@@ -52,3 +52,14 @@ internal fun activityDetail(t: Texts, agent: JSONObject, now: Long): String {
     val connection = if (isReachable(agent)) t.string(R.string.status_can_receive) else t.string(R.string.status_receiver_unavailable)
     return t.string(R.string.status_with_connection, label, connection)
 }
+
+/** The single status role of an agent row: attention wins, then live activity, then whether messages are taken. */
+internal fun agentRole(agent: JSONObject, now: Long, fresh: Boolean, attention: Boolean): StatusRole {
+    if (attention) return StatusRole.Attention
+    return when (chatAgentStatus(agent, now, fresh)) {
+        ChatAgentStatus.WORKING -> StatusRole.Working
+        ChatAgentStatus.ONLINE -> if (isReachable(agent)) StatusRole.Ready else StatusRole.Waiting
+        ChatAgentStatus.OFFLINE -> StatusRole.Offline
+        ChatAgentStatus.UNKNOWN -> StatusRole.Offline
+    }
+}

@@ -25,44 +25,59 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-internal val MessageBlue = Color(0xFF0063E8)
+/** Brand primary: one calm, saturated blue shared by light and dark accents. */
+internal val MessageBlue = Color(0xFF2D5BE3)
 
 private val LightColors = lightColorScheme(
     primary = MessageBlue, onPrimary = Color.White,
-    primaryContainer = Color(0xFFE8F0FF), onPrimaryContainer = Color(0xFF173A72),
-    secondary = Color(0xFF536279), secondaryContainer = Color(0xFFEDF2FB), onSecondaryContainer = Color(0xFF253750),
-    background = Color(0xFFF5F5F8), onBackground = Color(0xFF17191F),
-    surface = Color.White, onSurface = Color(0xFF17191F),
-    surfaceContainer = Color(0xFFF0F0F5), surfaceContainerHigh = Color(0xFFE9E9EF),
-    surfaceContainerLow = Color.White, surfaceContainerHighest = Color(0xFFE2E4EB),
-    onSurfaceVariant = Color(0xFF60636E), outline = Color(0xFF747782), outlineVariant = Color(0xFFE3E4EA),
+    primaryContainer = Color(0xFFDDE6FF), onPrimaryContainer = Color(0xFF0E2A6E),
+    secondary = Color(0xFF586174), onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE6EAF2), onSecondaryContainer = Color(0xFF1F2838),
+    tertiary = Color(0xFF6A4FC8), onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFEAE3FF), onTertiaryContainer = Color(0xFF26145E),
+    background = Color(0xFFF7F8FA), onBackground = Color(0xFF141821),
+    surface = Color(0xFFF7F8FA), onSurface = Color(0xFF141821),
+    surfaceVariant = Color(0xFFE6E9EF), onSurfaceVariant = Color(0xFF5A6070),
+    surfaceContainerLowest = Color.White, surfaceContainerLow = Color(0xFFFFFFFF),
+    surfaceContainer = Color(0xFFEFF1F5), surfaceContainerHigh = Color(0xFFE8EBF0),
+    surfaceContainerHighest = Color(0xFFE1E5EC),
+    outline = Color(0xFF8A90A0), outlineVariant = Color(0xFFE1E4EA),
+    error = Color(0xFFBA1A1A), onError = Color.White, errorContainer = Color(0xFFFFDAD6), onErrorContainer = Color(0xFF410002),
 )
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF9EC5FF), onPrimary = Color(0xFF102D55),
-    primaryContainer = Color(0xFF192E4C), onPrimaryContainer = Color(0xFFD4E4FF),
-    secondary = Color(0xFFB9C7DC), secondaryContainer = Color(0xFF242F41), onSecondaryContainer = Color(0xFFDCE7F8),
-    background = Color(0xFF101115), onBackground = Color(0xFFF1F2F6),
-    surface = Color(0xFF1A1B21), onSurface = Color(0xFFF1F2F6),
-    surfaceContainer = Color(0xFF202127), surfaceContainerHigh = Color(0xFF2A2B33),
-    surfaceContainerLow = Color(0xFF191A20), surfaceContainerHighest = Color(0xFF343640),
-    onSurfaceVariant = Color(0xFFB0B3C0), outline = Color(0xFF8E929F), outlineVariant = Color(0xFF343640),
+    primary = Color(0xFF9DB6FF), onPrimary = Color(0xFF00257A),
+    primaryContainer = Color(0xFF1F3F9E), onPrimaryContainer = Color(0xFFDDE6FF),
+    secondary = Color(0xFFBFC6D6), onSecondary = Color(0xFF29303F),
+    secondaryContainer = Color(0xFF2A303C), onSecondaryContainer = Color(0xFFDDE3F0),
+    tertiary = Color(0xFFCBBEFF), onTertiary = Color(0xFF341F7A),
+    tertiaryContainer = Color(0xFF4B3599), onTertiaryContainer = Color(0xFFEAE3FF),
+    background = Color(0xFF0F1115), onBackground = Color(0xFFE6E8EE),
+    surface = Color(0xFF0F1115), onSurface = Color(0xFFE6E8EE),
+    surfaceVariant = Color(0xFF2B303A), onSurfaceVariant = Color(0xFFA9AFBD),
+    surfaceContainerLowest = Color(0xFF0A0C0F), surfaceContainerLow = Color(0xFF15181D),
+    surfaceContainer = Color(0xFF1A1E24), surfaceContainerHigh = Color(0xFF22262E),
+    surfaceContainerHighest = Color(0xFF2B303A),
+    outline = Color(0xFF7D8494), outlineVariant = Color(0xFF2E333D),
+    error = Color(0xFFFFB4AB), onError = Color(0xFF690005), errorContainer = Color(0xFF93000A), onErrorContainer = Color(0xFFFFDAD6),
 )
-// Pairing, conversations, hosts and approvals share the same visual language.
-@Composable internal fun CompanionHomeTheme(enabled: Boolean, content: @Composable () -> Unit) {
-    content()
-}
 private val CompanionTypography = Typography(
-    headlineLarge = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp),
-    headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold),
-    titleLarge = TextStyle(fontSize = 21.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold),
-    titleMedium = TextStyle(fontSize = 17.sp, lineHeight = 23.sp, fontWeight = FontWeight.SemiBold),
+    headlineLarge = TextStyle(fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp),
+    headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
+    titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp),
+    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
+    titleSmall = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
     bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 23.sp),
-    bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
-    bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
-    labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
-    labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 17.sp, fontWeight = FontWeight.Medium),
-    labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
+    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 17.sp),
+    labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
+    labelMedium = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium),
+    labelSmall = TextStyle(fontSize = 11.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.4.sp),
 )
+
+/** Spacing scale; screens use these instead of ad-hoc paddings. */
+internal object Space {
+    val xs = 4.dp; val s = 8.dp; val m = 12.dp; val l = 16.dp; val xl = 24.dp
+}
 
 /** Semantic status colors that the Material scheme lacks; always paired with text or an icon, never color alone. */
 @Immutable internal data class StatusColors(
@@ -75,39 +90,43 @@ internal val LightStatusColors = StatusColors(
     success = Color(0xFF1E7D45), onSuccess = Color.White, successContainer = Color(0xFFDDF3E4), onSuccessContainer = Color(0xFF0B3D20),
     warning = Color(0xFF8A5A00), onWarning = Color.White, warningContainer = Color(0xFFFFEFCC), onWarningContainer = Color(0xFF4A3000),
     error = Color(0xFFB3261E), onError = Color.White, errorContainer = Color(0xFFF9DEDC), onErrorContainer = Color(0xFF410E0B),
-    info = Color(0xFF0063E8), onInfo = Color.White, infoContainer = Color(0xFFE8F0FF), onInfoContainer = Color(0xFF173A72),
+    info = Color(0xFF2D5BE3), onInfo = Color.White, infoContainer = Color(0xFFDDE6FF), onInfoContainer = Color(0xFF0E2A6E),
 )
 internal val DarkStatusColors = StatusColors(
     success = Color(0xFF7FD8A0), onSuccess = Color(0xFF00391B), successContainer = Color(0xFF12361F), onSuccessContainer = Color(0xFFC4EFD3),
     warning = Color(0xFFFFC857), onWarning = Color(0xFF3F2A00), warningContainer = Color(0xFF3F2E0A), onWarningContainer = Color(0xFFFFE3A8),
     error = Color(0xFFFFB4AB), onError = Color(0xFF690005), errorContainer = Color(0xFF5A1A17), onErrorContainer = Color(0xFFFFDAD6),
-    info = Color(0xFF9EC5FF), onInfo = Color(0xFF102D55), infoContainer = Color(0xFF192E4C), onInfoContainer = Color(0xFFD4E4FF),
+    info = Color(0xFF9DB6FF), onInfo = Color(0xFF00257A), infoContainer = Color(0xFF1F3F9E), onInfoContainer = Color(0xFFDDE6FF),
 )
 internal val LocalStatusColors = staticCompositionLocalOf { LightStatusColors }
 internal val MaterialTheme.status: StatusColors @Composable @ReadOnlyComposable get() = LocalStatusColors.current
 
 @Composable fun CompanionTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalStatusColors provides if (dark) DarkStatusColors else LightStatusColors) { MaterialTheme(
-        colorScheme = if (android.os.Build.VERSION.SDK_INT >= 31) {
-            val context = androidx.compose.ui.platform.LocalContext.current
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        } else if (dark) DarkColors else LightColors,
+        // A fixed brand palette on every Android version: status colours are tuned against it.
+        colorScheme = if (dark) DarkColors else LightColors,
         typography = CompanionTypography,
         shapes = Shapes(
-            extraSmall = RoundedCornerShape(4.dp), small = RoundedCornerShape(8.dp),
-            medium = RoundedCornerShape(12.dp), large = RoundedCornerShape(16.dp), extraLarge = RoundedCornerShape(20.dp),
+            extraSmall = RoundedCornerShape(6.dp), small = RoundedCornerShape(10.dp),
+            medium = RoundedCornerShape(14.dp), large = RoundedCornerShape(20.dp), extraLarge = RoundedCornerShape(28.dp),
         ), content = content,
     ) }
 }
 
 // Shared building blocks so Chats, Hosts, Authorizations and the sheets read as one app.
-internal val SheetShape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)
+internal val SheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
 @Composable internal fun searchFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
     focusedBorderColor = MaterialTheme.colorScheme.primary,
     unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+)
+
+/** Borderless filled pill used by every search field. */
+@Composable internal fun pillFieldColors() = TextFieldDefaults.colors(
+    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent,
 )
 
 @Composable internal fun companionCardColors() = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -164,4 +183,19 @@ internal val SheetShape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp)
             }
         }
     }
+}
+
+/**
+ * The six states an agent, host or message can be in, as one vocabulary. Each role has a colour **and** a
+ * glyph, so state never rests on colour alone (docs/android-design.md).
+ */
+internal enum class StatusRole { Ready, Working, Waiting, Attention, Error, Offline }
+
+@Composable @ReadOnlyComposable internal fun StatusRole.color(): Color = when (this) {
+    StatusRole.Ready -> MaterialTheme.status.success
+    StatusRole.Working -> MaterialTheme.status.warning
+    StatusRole.Waiting -> MaterialTheme.colorScheme.tertiary
+    StatusRole.Attention -> MaterialTheme.colorScheme.primary
+    StatusRole.Error -> MaterialTheme.colorScheme.error
+    StatusRole.Offline -> MaterialTheme.colorScheme.outline
 }

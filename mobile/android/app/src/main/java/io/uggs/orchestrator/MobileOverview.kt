@@ -7,6 +7,20 @@ import java.time.Instant
 fun isReachable(agent: JSONObject): Boolean = agent.optBoolean("relay_ready", false) &&
     !agent.optBoolean("read_only", false) && !isClosedAgent(agent) && agent.optString("presence") != "offline"
 
+/**
+ * A connected agent that is not taking messages right now (busy, or its receiver paused) but whose server
+ * holds messages for it: the message waits and is delivered when it listens again. Mirrors the server rule:
+ * an automatic receiver must exist without failure and still offer the portal source (a closed portal drops
+ * it from `receiver.sources`). Sessions without receiver state and remote daemon sessions are not queueable.
+ */
+fun isQueueable(agent: JSONObject): Boolean {
+    if (!isOnlineActiveAgent(agent) || isReachable(agent) || agent.optBoolean("daemon_session")) return false
+    val receiver = agent.optJSONObject("receiver") ?: return false
+    if (receiver.has("failure") && !receiver.isNull("failure")) return false
+    val sources = receiver.optJSONArray("sources") ?: return true
+    return (0 until sources.length()).any { i -> sources.optJSONObject(i)?.optString("source") == "portal" || sources.optString(i) == "portal" }
+}
+
 fun isClosedAgent(agent: JSONObject): Boolean = agent.optString("presence") == "ended" ||
     (agent.optBoolean("daemon_session") && agent.optString("remote_status") in setOf("closed", "failed", "unknown"))
 

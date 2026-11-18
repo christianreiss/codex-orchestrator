@@ -1,6 +1,7 @@
 package io.uggs.orchestrator
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -37,9 +38,8 @@ import androidx.compose.ui.unit.dp
 ) {
     val sendDescription = stringResource(R.string.chat_send)
     val sendingDescription = stringResource(R.string.chat_sending)
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Surface(modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow,
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = Space.s, vertical = Space.s), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+        Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
             Row(verticalAlignment = Alignment.Bottom) {
                 BasicTextField(
                     value = draft, onValueChange = onDraft, enabled = fieldEnabled, readOnly = readOnly, maxLines = 6,
@@ -55,7 +55,7 @@ import androidx.compose.ui.unit.dp
                 mediaActions()
             }
         }
-        if (sendLabel != null) Button(onClick = onSend, enabled = canSend, modifier = Modifier.heightIn(min = 48.dp).then(if (sendTag != null) Modifier.testTag(sendTag) else Modifier)) {
+        if (sendLabel != null) Button(onClick = onSend, enabled = canSend, shape = RoundedCornerShape(24.dp), modifier = Modifier.heightIn(min = 48.dp).then(if (sendTag != null) Modifier.testTag(sendTag) else Modifier)) {
             Text(sendLabel)
         } else FilledIconButton(
             onClick = onSend, enabled = canSend, modifier = Modifier.size(48.dp).semantics { contentDescription = sendDescription }.then(if (sendTag != null) Modifier.testTag(sendTag) else Modifier),

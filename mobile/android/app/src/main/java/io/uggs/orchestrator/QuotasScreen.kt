@@ -37,6 +37,13 @@ internal fun quotaStatusLabel(t: Texts, status: String): String = t.string(when 
     "Stale" -> R.string.quota_status_stale
     else -> R.string.quota_status_unavailable
 })
+/** Account state in words; the normal "enabled" state needs no label. */
+internal fun quotaAccountState(t: Texts, state: String): String? = when (state) {
+    "", "enabled", "active", "ok" -> null
+    "disabled" -> t.string(R.string.quota_account_disabled)
+    "cooldown", "limited", "exhausted" -> t.string(R.string.quota_account_limited)
+    else -> t.string(R.string.quota_account_attention)
+}
 internal fun quotaWindowLabel(t: Texts, window: JSONObject): String = when (window.optString("kind")) {
     "weekly" -> t.string(R.string.quota_window_weekly)
     "monthly" -> t.string(R.string.quota_window_monthly)
@@ -63,11 +70,13 @@ private fun quotaTime(t: Texts, raw: String): String? = runCatching {
     LazyColumn(Modifier.fillMaxSize().testTag("quotas-screen"), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             val haptic = LocalHapticFeedback.current
+            // The app bar already names the screen; this row only explains it and offers a manual refresh.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.quota_title), Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); scope.launch { model.refreshQuotas() } }, enabled = !model.quotaLoading) { Text(stringResource(R.string.action_refresh)) }
+                Text(stringResource(R.string.quota_subtitle), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); scope.launch { model.refreshQuotas() } }, enabled = !model.quotaLoading) {
+                    CompanionIcon(CompanionSymbol.Refresh, stringResource(R.string.action_refresh))
+                }
             }
-            Text(stringResource(R.string.quota_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (model.quotaLoading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
             if (!model.fresh()) StatusChip(stringResource(R.string.quota_disconnected), MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer, Modifier.padding(top = 8.dp))
             model.quotaError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -78,18 +87,18 @@ private fun quotaTime(t: Texts, raw: String): String? = runCatching {
             item(key = engine.getString("engine")) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     EngineIcon(engine)
-                    Text(engine.getString("label"), style = MaterialTheme.typography.titleLarge)
+                    Text(engine.getString("label"), Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge)
                     if (!engine.optBoolean("enabled", true)) StatusChip(stringResource(R.string.quota_suspended), MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer)
                 }
                 if (engine.optJSONArray("accounts")?.length() == 0) Text(stringResource(R.string.quota_no_accounts), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(engine.optJSONArray("accounts")?.objects().orEmpty(), key = { "${engine.getString("engine")}:${it.getInt("id")}" }) { account ->
-                Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, colors = companionCardColors()) {
+                Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(account.optString("label"), style = MaterialTheme.typography.titleMedium)
                         val status = quotaDataStatus(account, now)
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(account.optString("state"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            quotaAccountState(t, account.optString("state"))?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             when (status) {
                                 "Current" -> StatusChip(quotaStatusLabel(t, status), MaterialTheme.status.successContainer, MaterialTheme.status.onSuccessContainer)
                                 else -> StatusChip(quotaStatusLabel(t, status), MaterialTheme.status.warningContainer, MaterialTheme.status.onWarningContainer)

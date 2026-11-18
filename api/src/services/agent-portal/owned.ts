@@ -71,6 +71,9 @@ import { chatMetadataSchema, validAnswer, type ChatMetadata } from '../agent-cha
 import {
   AGENT_EVENT_TYPES,
   AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS,
+  AGENT_PORTAL_MAX_WAITING_MESSAGES,
+  queuedMessageExpired,
+  queueFullError,
   normalizeRequiredText,
   normalizeOptionalText,
   normalizeMessage,
@@ -149,8 +152,24 @@ function instance(
     ready &&
     (session.receiver ? !ownedReceiverReady(runtime, session, 'portal') : session.relayEnabled !== 1)
   )
-    throw new ConflictError('Agent is not listening for portal messages', 'agent_relay_not_ready');
+    throw notReady();
   return native.instanceId;
+}
+const notReady = () =>
+  new ConflictError('Agent is not listening for portal messages', 'agent_relay_not_ready');
+/** The same readiness `instance(..., true)` enforces, without the native/presence proof. */
+function portalListening(runtime: OwnerRuntime, session: Readonly<StateRow<'agentSessions'>>): boolean {
+  return session.receiver ? ownedReceiverReady(runtime, session, 'portal') : session.relayEnabled === 1;
+}
+/**
+ * A message may wait for a connected receiver that is merely not ready. A
+ * failed or deliberately closed receiver refuses, and so does a session
+ * without receiver state: there `relayEnabled = 0` means never polled, closed
+ * and stopped alike, so it cannot be told apart from a deliberate close.
+ */
+function assertMessageHoldable(session: Readonly<StateRow<'agentSessions'>>): void {
+  const state = receiverState(session.receiver);
+  if (!state || state.failure || state.portal_closed) throw notReady();
 }
 function releaseAnswer(
   ctx: OwnerMutationContext,
@@ -774,7 +793,18 @@ export class OwnedPortal {
           return json(this.enqueuedView(old, session.closeRequestedAt));
         }
         live(session);
-        instance(this.runtime, ctx.snapshot, session);
+        if (kind === 'message') {
+          instance(this.runtime, ctx.snapshot, session, false);
+          this.expireQueued(ctx, session.id, now);
+          if (!portalListening(this.runtime, session)) {
+            assertMessageHoldable(session);
+            const waiting = ctx.draft
+              .table('agentMessages')
+              .by('sessionId', session.id)
+              .filter((m) => m.kind === 'message' && ['queued', 'leased'].includes(m.status)).length;
+            if (waiting >= AGENT_PORTAL_MAX_WAITING_MESSAGES) throw queueFullError();
+          }
+        } else instance(this.runtime, ctx.snapshot, session);
         let answerPrompt: Readonly<StateRow<'agentPrompts'>> | undefined;
         if (kind === 'answer') {
           const prompt = ctx.snapshot.table('agentPrompts').get(input.promptId!);
@@ -877,12 +907,91 @@ export class OwnedPortal {
         return () => json(this.enqueuedView(row, requestedAt));
       },
     });
-    const current = this.snapshot()
-      .table('agentMessages')
-      .by('messageId', String((reply as Record<string, Json>).message_id))[0];
-    return current
-      ? this.enqueuedView(current, this.snapshot().sessions.get(input.sessionId)?.closeRequestedAt ?? null)
-      : reply;
+    const snapshot = this.snapshot(),
+      current = snapshot.table('agentMessages').by('messageId', String((reply as Record<string, Json>).message_id))[0],
+      session = snapshot.sessions.get(input.sessionId);
+    const view = (
+      current ? this.enqueuedView(current, session?.closeRequestedAt ?? null) : reply
+    ) as Record<string, unknown>;
+    // Derived at response time, so receipt replays report the current wait.
+    if (kind !== 'message') return view;
+    return {
+      ...view,
+      waiting_for_receiver:
+        view.status === 'queued' && !(session && portalListening(this.runtime, session)),
+    };
+  }
+  /** Lazy TTL sweep for one session; claim applies the same rule while delivering. */
+  private expireQueued(ctx: OwnerMutationContext, sessionId: string, now: string): void {
+    for (const row of ctx.draft.table('agentMessages').by('sessionId', sessionId)) {
+      if (!queuedMessageExpired(row, Date.parse(now))) continue;
+      stageUpdate(ctx, 'agentMessages', row.id, {
+        status: 'canceled',
+        canceledAt: now,
+        leaseOwner: null,
+        leaseUntil: null,
+        updatedAt: now,
+      });
+      stageUndeliveredNotice(ctx, row, now, this.keyring);
+    }
+  }
+  /** Operator withdrawal of a message nobody has been offered yet. */
+  async cancelMessage(admin: PortalActor, input: { sessionId: string; messageId: string }) {
+    const messageId = normalizeUuid(input.messageId, 'message_id');
+    const find = (s: OwnerStateSnapshot) => {
+      enabled(s);
+      actor(s, admin);
+      visiblePortalSession(s, input.sessionId);
+      const row = s.table('agentMessages').by('messageId', messageId)[0];
+      if (!row || row.sessionId !== input.sessionId)
+        throw new NotFoundError('Message not found', 'agent_message_not_found');
+      return row;
+    };
+    const current = find(this.snapshot());
+    if (current.status === 'canceled') return { ...messageView(current as AgentMessage), already_canceled: true };
+    await mutateOwnerState(this.runtime, {
+      kind: 'portal.message-cancel',
+      principal: `admin:${admin.user.id}`,
+      payload: json({ sessionId: input.sessionId, messageId }),
+      authorize: (s) => {
+        find(s);
+      },
+      prepare: (ctx) => {
+        const row = find(ctx.draft.view()),
+          user = actor(ctx.snapshot, admin),
+          now = nowIso();
+        if (row.status === 'canceled') return null;
+        if (row.status !== 'queued' || row.kind !== 'message')
+          throw new ConflictError('Message can no longer be canceled', 'agent_message_not_cancelable', {
+            status: row.status,
+            kind: row.kind,
+          });
+        stageUpdate(ctx, 'agentMessages', row.id, {
+          status: 'canceled',
+          canceledAt: now,
+          leaseOwner: null,
+          leaseUntil: null,
+          updatedAt: now,
+        });
+        stagePortalEvent(ctx, {
+          sessionId: row.sessionId,
+          clientEventId: `portal:message-cancel:${row.messageId}`,
+          eventType: 'message_canceled',
+          source: 'portal',
+          payloadEnc: this.encode({
+            message_id: row.messageId,
+            summary: `Canceled by ${user.displayName} before delivery.`,
+            delivery_status: 'canceled',
+            author: user.displayName,
+            canceled_by: 'operator',
+          }),
+          createdAt: now,
+        });
+        return null;
+      },
+    });
+    const after = find(this.snapshot());
+    return { ...messageView(after as AgentMessage), already_canceled: false };
   }
   private enqueuedView(row: Readonly<StateRow<'agentMessages'>> | AgentMessage, requestedAt: string | null) {
     const view = messageView(row as AgentMessage);
@@ -1005,7 +1114,8 @@ export class OwnedPortal {
           if (
             row.adminUserId === null ||
             ctx.snapshot.table('adminUsers').get(row.adminUserId)?.active !== 1 ||
-            (row.attempts >= AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS && row.status === 'queued')
+            (row.attempts >= AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS && row.status === 'queued') ||
+            queuedMessageExpired(row, Date.parse(now))
           ) {
             stageUpdate(ctx, 'agentMessages', row.id, {
               status: 'canceled',

@@ -126,9 +126,9 @@ internal fun avatarIdentity(member: JSONObject): String =
 @Composable internal fun PresenceDot(presence: String, modifier: Modifier) {
     val dot = modifier.background(MaterialTheme.colorScheme.surface, CircleShape).padding(2.dp)
     when (presence) {
-        "working" -> Box(dot.background(Color(0xFFE0A100), CircleShape))
-        "listening", "available" -> Box(dot.background(Color(0xFF2E9E5B), CircleShape))
-        "idle" -> Box(dot.background(MaterialTheme.colorScheme.primary, CircleShape))
+        "working" -> Box(dot.background(StatusRole.Working.color(), CircleShape))
+        "listening", "available" -> Box(dot.background(StatusRole.Ready.color(), CircleShape))
+        "idle" -> Box(dot.background(StatusRole.Waiting.color(), CircleShape))
         else -> Box(dot.border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape))
     }
 }

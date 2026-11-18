@@ -1,5 +1,6 @@
 package io.uggs.orchestrator
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
@@ -31,9 +32,15 @@ import java.util.Locale
     else CompanionIcon(CompanionSymbol.Terminal, description, tint = MaterialTheme.colorScheme.onSurface, modifier = modifier.size(28.dp))
 }
 
-@Composable internal fun AgentAvatar(agent: JSONObject?) {
-    Surface(Modifier.size(52.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainer) {
-        Box(contentAlignment = Alignment.Center) { EngineIcon(agent) }
+/** Engine artwork in a soft circle with a status dot; the dot repeats the row's status role. */
+@Composable internal fun AgentAvatar(agent: JSONObject?, role: StatusRole? = null, size: Dp = 48.dp) {
+    Box(Modifier.size(size)) {
+        Surface(Modifier.fillMaxSize(), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Box(contentAlignment = Alignment.Center) { EngineIcon(agent, Modifier.size(size * .5f)) }
+        }
+        if (role != null) Box(Modifier.align(Alignment.BottomEnd).size(size * .3f)
+            .background(MaterialTheme.colorScheme.background, CircleShape).padding(2.5.dp)
+            .background(role.color(), CircleShape))
     }
 }
 

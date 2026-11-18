@@ -1,91 +1,93 @@
 package io.uggs.orchestrator
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.Reply
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AttachFile
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.Tag
+import androidx.compose.material.icons.rounded.VerifiedUser
+import androidx.compose.material.icons.rounded.Videocam
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
-internal enum class CompanionSymbol { History, Quotas, Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Group, Conference, Shield, Close, Check, Scan, Computer, Terminal, Attach, Camera, Send, Reply, Photo, Video, Audio, File }
+internal enum class CompanionSymbol {
+    History, Quotas, Back, Forward, Up, Down, More, MoreVertical, Search, Chat, Group, Conference, Shield, Close, Check,
+    Scan, Computer, Terminal, Attach, Camera, Send, Reply, Photo, Video, Audio, File,
+    Add, Waiting, Read, Failed, Hosts, Tools, Notifications, SignOut, Refresh,
+}
 
-/** Small local vector icons; no font, image downloads, or icon library required. */
+/** Material Symbols (rounded) for every glyph the app uses; one place maps meaning to artwork. */
+internal fun CompanionSymbol.vector(): ImageVector = when (this) {
+    CompanionSymbol.History -> Icons.Rounded.History
+    CompanionSymbol.Quotas -> Icons.Rounded.BarChart
+    CompanionSymbol.Back -> Icons.AutoMirrored.Rounded.ArrowBack
+    CompanionSymbol.Forward -> Icons.AutoMirrored.Rounded.ArrowForward
+    CompanionSymbol.Up -> Icons.Rounded.KeyboardArrowUp
+    CompanionSymbol.Down -> Icons.Rounded.KeyboardArrowDown
+    CompanionSymbol.More -> Icons.Rounded.MoreHoriz
+    CompanionSymbol.MoreVertical -> Icons.Rounded.MoreVert
+    CompanionSymbol.Search -> Icons.Rounded.Search
+    CompanionSymbol.Chat -> Icons.AutoMirrored.Rounded.Chat
+    CompanionSymbol.Group -> Icons.Rounded.Groups
+    CompanionSymbol.Conference -> Icons.Rounded.Tag
+    CompanionSymbol.Shield -> Icons.Rounded.VerifiedUser
+    CompanionSymbol.Close -> Icons.Rounded.Close
+    CompanionSymbol.Check -> Icons.Rounded.Check
+    CompanionSymbol.Scan -> Icons.Rounded.QrCodeScanner
+    CompanionSymbol.Computer, CompanionSymbol.Hosts -> Icons.Rounded.Dns
+    CompanionSymbol.Terminal -> Icons.Rounded.Terminal
+    CompanionSymbol.Attach -> Icons.Rounded.AttachFile
+    CompanionSymbol.Camera -> Icons.Rounded.PhotoCamera
+    CompanionSymbol.Send -> Icons.AutoMirrored.Rounded.Send
+    CompanionSymbol.Reply -> Icons.AutoMirrored.Rounded.Reply
+    CompanionSymbol.Photo -> Icons.Rounded.Image
+    CompanionSymbol.Video -> Icons.Rounded.Videocam
+    CompanionSymbol.Audio -> Icons.Rounded.Mic
+    CompanionSymbol.File -> Icons.AutoMirrored.Rounded.InsertDriveFile
+    CompanionSymbol.Add -> Icons.Rounded.Add
+    CompanionSymbol.Waiting -> Icons.Rounded.Schedule
+    CompanionSymbol.Read -> Icons.Rounded.DoneAll
+    CompanionSymbol.Failed -> Icons.Rounded.ErrorOutline
+    CompanionSymbol.Tools -> Icons.Rounded.Build
+    CompanionSymbol.Notifications -> Icons.Rounded.Notifications
+    CompanionSymbol.SignOut -> Icons.AutoMirrored.Rounded.Logout
+    CompanionSymbol.Refresh -> Icons.Rounded.Refresh
+}
+
 @Composable internal fun CompanionIcon(symbol: CompanionSymbol, description: String? = null, tint: Color = LocalContentColor.current, modifier: Modifier = Modifier) {
-    Canvas(modifier.size(24.dp).then(if (description == null) Modifier else Modifier.semantics { contentDescription = description })) {
-        scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
-            val stroke = Stroke(1.9f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-            fun line(vararg points: Float) {
-                val path = Path().apply {
-                    moveTo(points[0], points[1])
-                    for (i in 2 until points.size step 2) lineTo(points[i], points[i + 1])
-                }
-                drawPath(path, tint, style = stroke)
-            }
-            when (symbol) {
-                CompanionSymbol.History -> {
-                    drawCircle(tint, 8f, Offset(12f, 12f), style = stroke)
-                    line(12f, 7f, 12f, 12f, 16f, 14f)
-                }
-                CompanionSymbol.Quotas -> { line(4f, 20f, 4f, 13f); line(12f, 20f, 12f, 4f); line(20f, 20f, 20f, 9f) }
-                CompanionSymbol.Group -> {
-                    drawCircle(tint, 3f, Offset(9f, 7f), style = stroke)
-                    drawCircle(tint, 2.5f, Offset(18f, 9f), style = stroke)
-                    drawPath(Path().apply { moveTo(2f, 21f); lineTo(2f, 18f); cubicTo(2f, 11f, 16f, 11f, 16f, 18f); lineTo(16f, 21f) }, tint, style = stroke)
-                    drawPath(Path().apply { moveTo(19f, 15f); quadraticTo(23f, 16f, 22f, 21f) }, tint, style = stroke)
-                }
-                CompanionSymbol.Conference -> {
-                    drawCircle(tint, 5f, Offset(12f, 13f), style = stroke)
-                    drawCircle(tint, 2f, Offset(12f, 3f), style = stroke)
-                    drawCircle(tint, 2f, Offset(3f, 18f), style = stroke)
-                    drawCircle(tint, 2f, Offset(21f, 18f), style = stroke)
-                }
-                CompanionSymbol.Attach -> drawPath(Path().apply {
-                    moveTo(8f, 12f); lineTo(14f, 6f); quadraticTo(18f, 2f, 21f, 6f)
-                    quadraticTo(23f, 9f, 19f, 13f); lineTo(11f, 21f)
-                    quadraticTo(7f, 25f, 3f, 20f); quadraticTo(0f, 16f, 4f, 12f)
-                    lineTo(12f, 4f); moveTo(8f, 12f); lineTo(5f, 15f)
-                    quadraticTo(3f, 18f, 6f, 19f); quadraticTo(7f, 20f, 9f, 18f); lineTo(17f, 10f)
-                }, tint, style = stroke)
-                CompanionSymbol.Camera -> { line(3f, 7f, 7f, 7f, 9f, 4f, 15f, 4f, 17f, 7f, 21f, 7f, 21f, 20f, 3f, 20f, 3f, 7f); drawCircle(tint, 4f, Offset(12f, 13f), style = stroke) }
-                CompanionSymbol.Send -> { line(3f, 3f, 22f, 12f, 3f, 21f, 6f, 12f, 3f, 3f); line(6f, 12f, 22f, 12f) }
-                CompanionSymbol.Reply -> { line(10f, 5f, 3f, 11f, 10f, 17f); drawPath(Path().apply { moveTo(3f, 11f); quadraticTo(20f, 6f, 21f, 20f) }, tint, style = stroke) }
-                CompanionSymbol.Photo -> { line(3f, 3f, 21f, 3f, 21f, 21f, 3f, 21f, 3f, 3f); line(3f, 17f, 9f, 11f, 15f, 17f, 18f, 14f, 21f, 17f); drawCircle(tint, 1.5f, Offset(16f, 8f)) }
-                CompanionSymbol.Video -> { line(3f, 6f, 16f, 6f, 16f, 18f, 3f, 18f, 3f, 6f); line(16f, 10f, 22f, 6f, 22f, 18f, 16f, 14f) }
-                CompanionSymbol.Audio -> { drawRoundRect(tint, Offset(9f, 2f), androidx.compose.ui.geometry.Size(6f, 13f), androidx.compose.ui.geometry.CornerRadius(3f), style = stroke); drawPath(Path().apply { moveTo(5f, 11f); cubicTo(5f, 22f, 19f, 22f, 19f, 11f) }, tint, style = stroke); line(12f, 19f, 12f, 23f) }
-                CompanionSymbol.File -> { line(5f, 2f, 14f, 2f, 20f, 8f, 20f, 22f, 5f, 22f, 5f, 2f); line(14f, 2f, 14f, 8f, 20f, 8f) }
-                CompanionSymbol.Back -> line(15f, 5f, 8f, 12f, 15f, 19f)
-                CompanionSymbol.Forward -> line(9f, 5f, 16f, 12f, 9f, 19f)
-                CompanionSymbol.Up -> { line(6f, 11f, 12f, 5f, 18f, 11f); line(12f, 5f, 12f, 19f) }
-                CompanionSymbol.Down -> { line(6f, 13f, 12f, 19f, 18f, 13f); line(12f, 5f, 12f, 19f) }
-                CompanionSymbol.Close -> { line(6f, 6f, 18f, 18f); line(18f, 6f, 6f, 18f) }
-                CompanionSymbol.Check -> line(5f, 12f, 10f, 17f, 19f, 7f)
-                CompanionSymbol.Computer -> { line(3f, 4f, 21f, 4f, 21f, 16f, 3f, 16f, 3f, 4f); line(12f, 16f, 12f, 20f); line(8f, 20f, 16f, 20f) }
-                CompanionSymbol.Terminal -> { line(3f, 5f, 21f, 5f, 21f, 19f, 3f, 19f, 3f, 5f); line(7f, 9f, 10f, 12f, 7f, 15f); line(13f, 15f, 17f, 15f) }
-                CompanionSymbol.More -> listOf(5f, 12f, 19f).forEach { drawCircle(tint, 1.6f, Offset(it, 12f)) }
-                CompanionSymbol.MoreVertical -> listOf(5f, 12f, 19f).forEach { drawCircle(tint, 1.6f, Offset(12f, it)) }
-                CompanionSymbol.Search -> { drawCircle(tint, 6.5f, Offset(10.5f, 10.5f), style = stroke); line(15f, 15f, 21f, 21f) }
-                CompanionSymbol.Chat -> drawPath(Path().apply {
-                    moveTo(7f, 3f); lineTo(17f, 3f); quadraticTo(21f, 3f, 21f, 7f)
-                    lineTo(21f, 14f); quadraticTo(21f, 18f, 17f, 18f)
-                    lineTo(10f, 18f); lineTo(4f, 22f); lineTo(4f, 17f)
-                    quadraticTo(3f, 16f, 3f, 14f); lineTo(3f, 7f); quadraticTo(3f, 3f, 7f, 3f); close()
-                }, tint, style = stroke)
-                CompanionSymbol.Shield -> { line(12f, 3f, 20f, 6f, 19f, 14f, 16f, 18f, 12f, 21f, 8f, 18f, 5f, 14f, 4f, 6f, 12f, 3f); line(8f, 11f, 11f, 14f, 16f, 9f) }
-                CompanionSymbol.Scan -> {
-                    line(8f, 3f, 3f, 3f, 3f, 8f); line(16f, 3f, 21f, 3f, 21f, 8f)
-                    line(3f, 16f, 3f, 21f, 8f, 21f); line(21f, 16f, 21f, 21f, 16f, 21f)
-                    line(7f, 12f, 17f, 12f)
-                }
-            }
-        }
-    }
+    Icon(symbol.vector(), description, modifier.size(24.dp), tint)
 }

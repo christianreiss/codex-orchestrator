@@ -1,5 +1,7 @@
 package io.uggs.orchestrator
 
+import androidx.compose.foundation.clickable
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -125,7 +127,7 @@ private fun workflowStatusRes(status: String) = when (status) {
                     Text(run.title, style = MaterialTheme.typography.titleMedium)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         val tone = when (run.status) { "completed" -> Tone.SUCCESS; "blocked", "evaluating" -> Tone.WARNING; "running" -> Tone.INFO; else -> Tone.NEUTRAL }
-                        ToneChip(workflowStatusRes(run.status)?.let { stringResource(it) } ?: run.status, tone)
+                        ToneChip(workflowStatusRes(run.status)?.let { stringResource(it) } ?: stringResource(R.string.tools_status_other), tone)
                         when (run.awaitingDecision) {
                             "evaluation" -> ToneChip(stringResource(R.string.tools_wf_awaiting_evaluation), Tone.WARNING, Modifier.testTag("awaiting:" + run.runId))
                             "blocked" -> ToneChip(stringResource(R.string.tools_wf_awaiting_blocked), Tone.WARNING, Modifier.testTag("awaiting:" + run.runId))
@@ -193,7 +195,7 @@ private fun workflowStatusRes(status: String) = when (status) {
             OutlinedCard(Modifier.fillMaxWidth().testTag("merge:" + merge.requestId)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(merge.repo ?: merge.host ?: merge.requestId, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(merge.repo ?: merge.host ?: stringResource(R.string.tools_merge_untitled), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (merge.status == "allowed") ToneChip(stringResource(R.string.tools_git_allowed), Tone.SUCCESS) else ToneChip(stringResource(R.string.tools_git_waiting), Tone.WARNING)
                     }
                     if (merge.branch != null || merge.targetBranch != null) Text(stringResource(R.string.tools_git_branch, merge.branch ?: "?", merge.targetBranch ?: "?"), style = MaterialTheme.typography.bodyMedium)
@@ -325,5 +327,6 @@ private fun feedbackPriorityRes(priority: String) = when (priority) { "low" -> R
 
 /** The Tools entry of the More sheet. */
 @Composable internal fun ToolsEntry(onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("more-tools")) { Text(stringResource(R.string.tools_open)) }
+    ListItem(headlineContent = { Text(stringResource(R.string.tools_open)) }, leadingContent = { MenuGlyph(CompanionSymbol.Tools) },
+        modifier = Modifier.clickable(onClick = onClick).testTag("more-tools"), colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
 }

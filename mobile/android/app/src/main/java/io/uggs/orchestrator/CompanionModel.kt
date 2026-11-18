@@ -214,7 +214,24 @@ class CompanionModel(app: Application) : AndroidViewModel(app) {
     fun overviewAgents(): List<JSONObject> = if (!overviewAvailable()) emptyList() else
         retainedChats(agents)
     fun canSpawn() = fresh() && portalAvailable && can("agent_messaging.manage") && can("agent_portal.manage") && can("agent_portal.read") && can("agent_portal.reveal_transcript")
-    fun canSendSession(id: String?) = id != null && !(selected == id && showingCachedTranscript) && reachable().any { it.optString("id") == id }
+    /** Live agents that are not taking messages yet; their messages wait on the server ([ToolsFlags.portalQueue]). */
+    fun queueable() = if (tools.flags.portalQueue && fresh() && can("agent_portal.manage") && can("agent_portal.reveal_transcript")) agents.filter(::isQueueable) else emptyList()
+    fun canSendSession(id: String?) = id != null && !(selected == id && showingCachedTranscript) &&
+        (reachable().any { it.optString("id") == id } || queueable().any { it.optString("id") == id })
+    /** True when a message sent now waits until the agent listens again. */
+    fun sendWillWait(id: String?) = id != null && reachable().none { it.optString("id") == id } && queueable().any { it.optString("id") == id }
+    private val cancelOperations = mutableSetOf<String>()
+    /** Withdraws a message the agent has not picked up yet; the server refuses once delivery started. */
+    fun cancelQueued(session: String, messageId: String) {
+        if (busy || !cancelOperations.add(messageId)) return
+        mutate {
+            try {
+                api().request("/agents/${java.net.URLEncoder.encode(session, "UTF-8")}/messages/${java.net.URLEncoder.encode(messageId, "UTF-8")}/cancel", "POST", JSONObject())
+                notice = texts.string(R.string.chat_queue_canceled)
+                refreshNow()
+            } finally { cancelOperations.remove(messageId) }
+        }
+    }
     private fun refreshUnreadState() {
         val visible = permissionsKnown && can("agent_portal.read") && can("agent_portal.reveal_transcript") && portalAvailable
         val notify = if (permissionsKnown) notifications && portalAvailable && can("agent_portal.read") && can("agent_portal.reveal_transcript") else null

@@ -74,34 +74,26 @@ private fun roomSymbol(room: JSONObject) = when (room.optString("kind")) {
     val deadline = deadlineText(room, now)
     val unreadState = if (unread == 0) stringResource(R.string.chat_read) else pluralStringResource(R.plurals.chat_unread_messages, unread, unread)
     val participantsText = pluralStringResource(R.plurals.room_participants, members.size, members.size)
-    Surface(onClick = open, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag("room:${room.optString("id")}").semantics {
-        stateDescription = unreadState
-    }, shape = RectangleShape, color = MaterialTheme.colorScheme.background) {
-        Column {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(Modifier.size(52.dp), shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
-                    Box(contentAlignment = Alignment.Center) { CompanionIcon(roomSymbol(room), roomLabel(t, room)) }
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(room.optString("title"), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(listOfNotNull(roomLabel(t, room), participantsText,
-                        room.optString("status").takeIf { it != "open" && it.isNotBlank() }?.let { roomStatusLabel(t, it) }, deadline).joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(previewText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Column(Modifier.align(Alignment.Top).padding(top = 2.dp), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    time?.let { Text(listTimeLabel(t, it, now, use24), style = MaterialTheme.typography.labelSmall,
-                        color = if (unread > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
-                    if (unread > 0) Surface(Modifier.defaultMinSize(minWidth = 24.dp, minHeight = 24.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-                        Box(Modifier.padding(horizontal = 6.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
-                            Text(if (unread > 99) "99+" else unread.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
-                        }
-                    }
-                }
+    val meta = listOfNotNull(room.optString("status").takeIf { it != "open" && it.isNotBlank() }?.let { roomStatusLabel(t, it) }, deadline).joinToString(" · ")
+    InboxRowFrame(Modifier.testTag("room:${room.optString("id")}").semantics { stateDescription = unreadState }, divider, open, enabled = enabled,
+        avatar = {
+            Surface(Modifier.size(48.dp), shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
+                Box(contentAlignment = Alignment.Center) { CompanionIcon(roomSymbol(room), roomLabel(t, room)) }
             }
-            if (divider) HorizontalDivider(Modifier.padding(start = 80.dp, end = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-        }
-    }
+        },
+        title = {
+            Text(room.optString("title"), Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(" · " + participantsText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        },
+        trailing = {
+            time?.let { Text(listTimeLabel(t, it, now, use24), style = MaterialTheme.typography.labelMedium,
+                color = if (unread > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
+        },
+        subtitle = {
+            Text(if (meta.isBlank()) previewText else "$meta · $previewText", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (unread > 0) UnreadBadge(unread)
+        })
 }
 
 private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavailable: String): ReplyPreview {
@@ -410,7 +402,7 @@ private fun roomQuote(t: Texts, messages: List<ChatMessage>, id: String, unavail
             ).forEach { (answer, label) ->
                 val count = summary.count(answer)
                 if (count > 0) DeliveryPill(pluralStringResource(label, count, count), when (answer) {
-                    RoomAnswerState.Answered -> Color(0xFF2E9E5B).copy(alpha = .22f)
+                    RoomAnswerState.Answered -> StatusRole.Ready.color().copy(alpha = .22f)
                     RoomAnswerState.Unreachable, RoomAnswerState.NoAnswer -> MaterialTheme.colorScheme.error.copy(alpha = .18f)
                     RoomAnswerState.Waiting -> colors.content.copy(alpha = .10f)
                 }, colors.content)

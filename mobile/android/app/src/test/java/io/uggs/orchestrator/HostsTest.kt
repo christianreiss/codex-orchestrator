@@ -16,8 +16,8 @@ class HostsTest {
         val host = JSONObject("""{"engines":["codex"],"free_slots":0,"health":{"reasons":["heartbeat_expired"]}}""")
         assertEquals("Host is offline", hostReason(TestTexts, host))
         host.getJSONObject("health").put("reasons", org.json.JSONArray())
-        assertEquals("All slots are occupied", hostReason(TestTexts, host))
-        assertTrue(remoteStatus(TestTexts, "unknown").contains("Outcome unknown"))
+        assertEquals("Busy – no free capacity", hostReason(TestTexts, host))
+        assertTrue(remoteStatus(TestTexts, "unknown").contains("check it on the host"))
         assertTrue(remoteStatus(TestTexts, "queued").contains("queued"))
     }
 }

@@ -2,7 +2,9 @@ package io.uggs.orchestrator
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -57,7 +59,7 @@ internal fun hostReason(t: Texts, host: JSONObject): String {
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun HostsScreen(model: CompanionModel, fresh: Boolean) {
+@Composable internal fun HostsScreen(model: CompanionModel, fresh: Boolean, approvals: Int = 0, onAuthorizations: (() -> Unit)? = null) {
     val haptic = LocalHapticFeedback.current
     val t = rememberTexts()
     var refreshing by remember { mutableStateOf(false) }
@@ -67,48 +69,97 @@ internal fun hostReason(t: Texts, host: JSONObject): String {
     val hosts = model.hosts.filter { it.optString("fqdn").contains(query.trim(), ignoreCase = true) }
         .sortedWith(compareByDescending<JSONObject> { it.optBoolean("startable") }.thenBy { it.optString("fqdn") })
     Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            query, { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("host-search"), singleLine = true,
+        TextField(
+            query, { query = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = Space.l).padding(top = Space.xs, bottom = Space.s).heightIn(min = 48.dp).testTag("host-search"), singleLine = true,
             placeholder = { Text(stringResource(R.string.hosts_search)) }, leadingIcon = { CompanionIcon(CompanionSymbol.Search, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
-            shape = androidx.compose.foundation.shape.CircleShape, colors = searchFieldColors(),
+            shape = androidx.compose.foundation.shape.CircleShape, colors = pillFieldColors(),
         )
         model.pendingStart?.let {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text(stringResource(R.string.hosts_start_pending), style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth().padding(horizontal = Space.l), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.hosts_start_pending), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { model.retryStart() }, enabled = model.canSpawn() && !model.busy, modifier = Modifier.testTag("retry-start")) { Text(stringResource(R.string.hosts_retry_start)) }
             }
         }
-        if (!fresh) Text(stringResource(R.string.hosts_reconnect_to_start), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        else if (!model.canSpawn()) Text(stringResource(R.string.hosts_need_permissions), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!fresh) Text(stringResource(R.string.hosts_reconnect_to_start), Modifier.padding(horizontal = Space.l, vertical = Space.xs), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else if (!model.canSpawn()) Text(stringResource(R.string.hosts_need_permissions), Modifier.padding(horizontal = Space.l, vertical = Space.xs), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         PullToRefreshBox(isRefreshing = refreshing, onRefresh = { refreshing = true; model.refreshNow() }, modifier = Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize().testTag("host-list"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (hosts.isEmpty() && model.hosts.isEmpty() && !fresh) item { SkeletonCards(3) }
+        LazyColumn(Modifier.fillMaxSize().testTag("host-list"), contentPadding = PaddingValues(bottom = 24.dp)) {
+            if (onAuthorizations != null) item(key = "authorizations") {
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.hosts_authorizations), style = MaterialTheme.typography.titleMedium) },
+                    supportingContent = { Text(stringResource(R.string.hosts_authorizations_detail)) },
+                    leadingContent = { Surface(Modifier.size(40.dp), shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
+                        Box(contentAlignment = Alignment.Center) { CompanionIcon(CompanionSymbol.Shield) } } },
+                    trailingContent = { if (approvals > 0) UnreadBadge(approvals) else CompanionIcon(CompanionSymbol.Forward, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    modifier = Modifier.clickable(onClick = onAuthorizations).testTag("open-authorizations"),
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+            if (hosts.isEmpty() && model.hosts.isEmpty() && !fresh) item { Box(Modifier.padding(Space.l)) { SkeletonCards(3) } }
             else if (hosts.isEmpty()) item { EmptyState(stringResource(if (query.isBlank()) R.string.hosts_none else R.string.hosts_no_match)) }
-            items(hosts, key = { it.optLong("host_id") }) { host ->
+            itemsIndexed(hosts, key = { _, host -> host.optLong("host_id") }) { index, host ->
                 val startable = host.optBoolean("startable")
                 val hostName = host.optString("fqdn")
-                Card(Modifier.fillMaxWidth().animateContentSize(), colors = companionCardColors(), shape = MaterialTheme.shapes.large) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).semantics(mergeDescendants = true) { }.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(contentAlignment = Alignment.BottomEnd) {
-                            CompanionIcon(CompanionSymbol.Computer, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            StatusDot(startable, Modifier.size(9.dp).offset(x = 3.dp, y = 3.dp).clearAndSetSemantics { })
-                        }
+                val canStart = fresh && model.canSpawn() && startable && !model.busy && model.pendingStart == null
+                Column(Modifier.animateContentSize()) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).semantics(mergeDescendants = true) { }.padding(horizontal = Space.l, vertical = Space.m),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+                        HostAvatar(if (startable) StatusRole.Ready else StatusRole.Offline)
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(hostName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                            Text(hostReason(t, host), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(hostName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(hostReason(t, host), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                         }
-                        val canStart = fresh && model.canSpawn() && startable && !model.busy && model.pendingStart == null
-                        val startModifier = Modifier.heightIn(min = 48.dp).testTag("spawn:${host.optLong("host_id")}")
+                        val startModifier = Modifier.heightIn(min = 40.dp).testTag("spawn:${host.optLong("host_id")}")
                         val startDescription = stringResource(R.string.start_host_description, hostName)
                         if (canStart) FilledTonalButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); start = host.optLong("host_id") }, modifier = startModifier.semantics { contentDescription = startDescription }) { Text(stringResource(R.string.action_start)) }
-                        else TextButton(onClick = {}, enabled = false, modifier = startModifier) { Text(stringResource(R.string.action_start)) }
+                        else if (startable) TextButton(onClick = {}, enabled = false, modifier = startModifier) { Text(stringResource(R.string.action_start)) }
                     }
+                    if (index < hosts.lastIndex) HorizontalDivider(Modifier.padding(start = 68.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f))
                 }
             }
         }
         }
     }
     start?.let { id -> model.hosts.firstOrNull { it.optLong("host_id") == id }?.let { host -> StartAgentSheet(model, host, onDismiss = { start = null }) } }
+}
+
+@Composable private fun HostAvatar(role: StatusRole) {
+    Box(Modifier.size(40.dp)) {
+        Surface(Modifier.fillMaxSize(), shape = androidx.compose.foundation.shape.CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Box(contentAlignment = Alignment.Center) { CompanionIcon(CompanionSymbol.Hosts, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
+        }
+        Box(Modifier.align(Alignment.BottomEnd).size(13.dp).background(MaterialTheme.colorScheme.background, androidx.compose.foundation.shape.CircleShape).padding(2.dp)
+            .background(role.color(), androidx.compose.foundation.shape.CircleShape).clearAndSetSemantics { })
+    }
+}
+
+/** The "+" flow from the inbox: pick a host that can start an agent, then the regular start sheet. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable internal fun StartAgentFlow(model: CompanionModel, onDismiss: () -> Unit) {
+    val t = rememberTexts()
+    var picked by rememberSaveable { mutableStateOf<Long?>(null) }
+    val host = picked?.let { id -> model.hosts.firstOrNull { it.optLong("host_id") == id } }
+    if (host != null) { StartAgentSheet(model, host, onDismiss = onDismiss); return }
+    val hosts = model.hosts.sortedWith(compareByDescending<JSONObject> { it.optBoolean("startable") }.thenBy { it.optString("fqdn") })
+    ModalBottomSheet(onDismissRequest = onDismiss, shape = SheetShape, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), modifier = Modifier.testTag("start-host-picker")) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = Space.xl)) {
+            Text(stringResource(R.string.inbox_start_agent), Modifier.padding(horizontal = Space.l), style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.inbox_start_pick_host), Modifier.padding(horizontal = Space.l, vertical = Space.xs), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (hosts.none { it.optBoolean("startable") }) Text(stringResource(R.string.inbox_start_no_hosts), Modifier.padding(Space.l), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            hosts.forEach { candidate ->
+                val startable = candidate.optBoolean("startable")
+                ListItem(
+                    headlineContent = { Text(candidate.optString("fqdn"), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                    supportingContent = { Text(hostReason(t, candidate)) },
+                    leadingContent = { HostAvatar(if (startable) StatusRole.Ready else StatusRole.Offline) },
+                    modifier = Modifier.then(if (startable) Modifier.clickable { picked = candidate.optLong("host_id") } else Modifier).testTag("pick-host:${candidate.optLong("host_id")}"),
+                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        headlineColor = if (startable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant),
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -57,8 +57,8 @@
     <string name="tools_age_days">%d d</string>
     <string name="tools_projects_none">No projects.</string>
     <string name="tools_projects_board_disabled">The project board is switched off on the server.</string>
-    <string name="tools_col_wip">WIP limit %d</string>
-    <string name="tools_col_over_wip">Over WIP limit %d</string>
+    <string name="tools_col_wip">Limit %d</string>
+    <string name="tools_col_over_wip">Over limit %d</string>
     <string name="tools_col_empty">No cards</string>
     <string name="tools_col_truncated">Showing the first cards of %d.</string>
     <string name="tools_card_blocked">Blocked</string>
@@ -101,10 +101,10 @@
     <string name="start_plan_first">Plan first</string>
     <string name="start_plan_hint">The agent proposes a plan and changes nothing until you approve it. Needs a task.</string>
     <string name="start_plan_codex">Codex has no plan mode.</string>
-    <string name="start_plan_host">This host\'s daemon is too old for plan mode.</string>
+    <string name="start_plan_host">This host is too old for plan mode.</string>
     <string name="start_plan_needs_task">Plan first needs a task. Describe what the agent should plan.</string>
     <string name="plan_error_engine">This engine has no plan mode.</string>
-    <string name="plan_error_host">This host\'s daemon does not support plan mode yet. Update it or start without Plan first.</string>
+    <string name="plan_error_host">This host does not support plan mode yet. Update it or start without Plan first.</string>
     <string name="plan_banner_title">Plan mode - the agent proposes a plan first</string>
     <string name="plan_banner_ready">Read the plan, then approve it to let the agent execute it. Answering the plan question alone keeps plan mode.</string>
     <string name="plan_banner_working">You can approve once the agent is idle and you are connected.</string>

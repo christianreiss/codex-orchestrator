@@ -57,8 +57,8 @@
     <string name="tools_age_days">%d Tg.</string>
     <string name="tools_projects_none">Keine Projekte.</string>
     <string name="tools_projects_board_disabled">Das Projekt-Board ist auf dem Server abgeschaltet.</string>
-    <string name="tools_col_wip">WIP-Limit %d</string>
-    <string name="tools_col_over_wip">Über WIP-Limit %d</string>
+    <string name="tools_col_wip">Limit %d</string>
+    <string name="tools_col_over_wip">Über Limit %d</string>
     <string name="tools_col_empty">Keine Karten</string>
     <string name="tools_col_truncated">Zeigt die ersten Karten von %d.</string>
     <string name="tools_card_blocked">Blockiert</string>
@@ -101,10 +101,10 @@
     <string name="start_plan_first">Erst planen</string>
     <string name="start_plan_hint">Der Agent schlägt zuerst einen Plan vor und ändert nichts, bis du ihn freigibst. Braucht eine Aufgabe.</string>
     <string name="start_plan_codex">Codex hat keinen Plan-Modus.</string>
-    <string name="start_plan_host">Der Daemon dieses Hosts ist zu alt für den Plan-Modus.</string>
+    <string name="start_plan_host">Dieser Host ist zu alt für den Plan-Modus.</string>
     <string name="start_plan_needs_task">Erst planen braucht eine Aufgabe. Beschreibe, was der Agent planen soll.</string>
     <string name="plan_error_engine">Diese Engine hat keinen Plan-Modus.</string>
-    <string name="plan_error_host">Der Daemon dieses Hosts unterstützt den Plan-Modus noch nicht. Aktualisiere ihn oder starte ohne Erst planen.</string>
+    <string name="plan_error_host">Dieser Host unterstützt den Plan-Modus noch nicht. Aktualisiere ihn oder starte ohne Erst planen.</string>
     <string name="plan_banner_title">Plan-Modus - der Agent schlägt zuerst einen Plan vor</string>
     <string name="plan_banner_ready">Lies den Plan und gib ihn frei, damit der Agent ihn ausführt. Nur die Planfrage zu beantworten lässt den Plan-Modus aktiv.</string>
     <string name="plan_banner_working">Du kannst freigeben, sobald der Agent bereit ist und du verbunden bist.</string>

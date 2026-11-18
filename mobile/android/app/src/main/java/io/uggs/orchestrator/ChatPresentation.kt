@@ -34,7 +34,7 @@ internal fun deliveryIndex(events: List<JSONObject>): Map<String, String> {
         val current = result[id]
         if (state != null && (ranks[state] ?: 0) >= (ranks[current] ?: 0)) result[id] = state
         else if (state == null && (ranks[current] ?: 0) == 0) {
-            if (event.optString("type") == "message_canceled") result[id] = "canceled"
+            if (event.optString("type") == "message_canceled") result[id] = if (event.optJSONObject("payload")?.optString("canceled_by") == "operator") "withdrawn" else "canceled"
             else if (event.optString("type") == "failed" && current == null) result[id] = "failed"
         }
     }
@@ -50,12 +50,13 @@ internal fun deliveryLabel(t: Texts, event: JSONObject, receipts: Map<String, St
         "processing" -> if (fresh && agent?.optString("presence") == "working" && agent.receiptString("active_turn_id") == id) t.string(R.string.delivery_working) else t.string(R.string.delivery_read)
         "replied" -> t.string(R.string.delivery_replied)
         "canceled" -> t.string(R.string.delivery_canceled)
+        "withdrawn" -> t.string(R.string.chat_queue_canceled)
         "failed" -> t.string(R.string.chat_send_failed)
         else -> when (event.optJSONObject("payload")?.optString("delivery_status")) {
             "sending" -> t.string(R.string.chat_send_sending)
             "unconfirmed" -> t.string(R.string.chat_send_unconfirmed)
             "failed" -> t.string(R.string.chat_send_failed)
-            else -> t.string(R.string.delivery_queued)
+            else -> if (agent != null && fresh && isQueueable(agent)) t.string(R.string.delivery_waiting) else t.string(R.string.delivery_queued)
         }
     }
 }

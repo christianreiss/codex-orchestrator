@@ -57,23 +57,22 @@ class CompanionUiTest {
         }
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
         // The healthy connection is no longer announced in the app bar; only a degraded link shows a banner.
-        compose.onNodeWithText("Server · Connected").assertDoesNotExist()
+        compose.onNodeWithText("Connected").assertDoesNotExist()
     }
 
     @Test fun chatStatusTracksOnlineAndWorkingWithoutRequiringAReceiver() {
         waitForAgentRows(session)
-        compose.onNodeWithText("Online · Can receive messages").assertIsDisplayed()
+        compose.onNodeWithTag("agent-status:$session", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNode(hasTestTag("agent-status:$session") and hasText("Working", substring = true), useUnmergedTree = true).assertDoesNotExist()
         presence.set("working"); reachable.set(false); changed("agents")
         compose.waitUntil(10000) {
-            compose.onAllNodesWithText("Working · Receiver unavailable").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodes(hasTestTag("agent-status:$session") and hasText("Working", substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onNodeWithTag("agent-status:$session", useUnmergedTree = true).assertIsDisplayed()
         screenshot("chat-agent-working-indicator")
         presence.set("idle"); changed("agents")
         compose.waitUntil(10000) {
-            compose.onAllNodesWithText("Working · Receiver unavailable").fetchSemanticsNodes().isEmpty()
+            compose.onAllNodes(hasTestTag("agent-status:$session") and hasText("Paused", substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.onAllNodesWithText("Online · Receiver unavailable").onFirst().assertIsDisplayed()
     }
 
     @Test fun quotaTabShowsProviderUsageAndUnavailableEngines() {
@@ -88,32 +87,29 @@ class CompanionUiTest {
 
     @Test fun connectedServerStatusIsOnlyInConnectionDetails() {
         waitForAgentRows(session)
-        compose.onNodeWithText("Server · Connected").assertDoesNotExist()
+        compose.onNodeWithText("Connected").assertDoesNotExist()
         compose.onNodeWithContentDescription("More").performClick()
-        compose.onAllNodesWithText("Server · Connected").onLast().assertIsDisplayed()
+        compose.onAllNodesWithText("Connected").onLast().assertIsDisplayed()
     }
 
     @Test fun quietGroupsStayWhileConferencesLeaveWithTheirLastActiveMember() {
         waitForAgentRows(session)
         sharedRooms.set(true); changed("rooms")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("chat-filter:group").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
         val beforeQuiet = roomsRequested.get()
         roomMemberActive.set(false); changed("rooms")
         compose.waitUntil(10000) { roomsRequested.get() > beforeQuiet }
         compose.waitForIdle()
         compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
-        compose.onNodeWithTag("chat-filter:group").assertIsSelected()
-        compose.onNodeWithTag("chat-filter:chats").performClick()
+        val beforeConference = roomsRequested.get()
         roomCreated.set(JSONObject().put("kind", "conference")); roomMemberActive.set(true); changed("rooms")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:conference").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("chat-filter:conference").performClick()
+        compose.waitUntil(10000) { roomsRequested.get() > beforeConference }
+        compose.waitForIdle()
         compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
         roomMemberActive.set(false); changed("rooms")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:conference").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("room:$roomId").assertDoesNotExist()
-        compose.onNodeWithTag("chat-filter:chats").assertDoesNotExist()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
     }
     @Test fun closedConferencesMoveFromActiveToReadableHistory() {
         waitForAgentRows(session)
@@ -137,23 +133,22 @@ class CompanionUiTest {
             compose.onNodeWithTag("chat-filter:$it").assertDoesNotExist()
         }
         sharedRooms.set(true); changed("rooms")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("chat-filter:group").performClick()
+        // Rooms and agents share one list; there are no category filters to select.
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("room:$roomId").assertIsDisplayed()
-        compose.onNodeWithTag("agent:$session").assertDoesNotExist()
+        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+        compose.onNodeWithTag("chat-filter:group").assertDoesNotExist()
         compose.onNodeWithTag("chat-search").performTextReplacement("no matching room")
-        compose.onNodeWithTag("chat-filter:group").assertIsSelected()
         compose.onNodeWithText("No chats found").assertIsDisplayed()
         compose.onNodeWithContentDescription("Clear search").performClick()
         screenshot("conversation-segments")
         sharedRooms.set(false); changed("rooms")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("chat-filter:chats").assertDoesNotExist()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
     }
     @Test fun createsAConferenceAndConfirmsItsClosing() {
         waitForAgentRows(session)
-        compose.onNodeWithText("New", substring = false).performClick()
+        compose.onNodeWithTag("new-room").performClick()
         compose.onNodeWithText("Conference", substring = false).performClick()
         compose.onNodeWithText("Title", substring = false).performTextInput("Architecture review")
         compose.onNodeWithText("Create conversation", substring = false).performScrollTo().performClick()
@@ -171,9 +166,7 @@ class CompanionUiTest {
     @Test fun sharedRoomsKeepDraftsAndRetryTheSameMessage() {
         waitForAgentRows(session)
         sharedRooms.set(true); changed("rooms")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("chat-filter:group").fetchSemanticsNodes().isNotEmpty() }
         screenshot("shared-conversation-directory")
-        compose.onNodeWithTag("chat-filter:group").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("room:$roomId").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("room:$roomId").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("Release review is ready").fetchSemanticsNodes().isNotEmpty() }
@@ -253,7 +246,8 @@ class CompanionUiTest {
         waitForAgentRows(session)
         compose.onNodeWithTag("tab-hosts").performClick()
         compose.onNodeWithText("jadon.eulie.de").assertIsDisplayed()
-        compose.onNodeWithTag("spawn:8").assertIsNotEnabled()
+        // A host that cannot start agents states its reason instead of offering a dead button.
+        compose.onNodeWithTag("spawn:8").assertDoesNotExist()
         compose.onNodeWithTag("spawn:7").performClick()
         compose.onNodeWithTag("confirm-spawn").assertIsEnabled().performClick()
         compose.waitUntil(10_000) { spawned.get() != null }
@@ -268,10 +262,11 @@ class CompanionUiTest {
     @Test fun authorizationsTabContainsWaitingRequestsAndBadgeWithoutChatRows() {
         waitForAgentRows(session)
         compose.onNodeWithTag("approval:42").assertDoesNotExist()
-        compose.onNode(hasText("1") and hasAnyAncestor(hasTestTag("tab-authorizations")), useUnmergedTree = true).assertExists()
-        compose.onNodeWithTag("tab-authorizations").performClick()
+        compose.onNode(hasText("1") and hasAnyAncestor(hasTestTag("tab-hosts")), useUnmergedTree = true).assertExists()
+        openAuthorizations()
+        compose.onNodeWithTag("tab-hosts").assertIsSelected()
         compose.onNodeWithTag("approval:42").assertIsDisplayed()
-        compose.onNodeWithText("Requesting IP: 192.0.2.42").assertIsDisplayed()
+        compose.onNodeWithText("From 192.0.2.42").assertIsDisplayed()
         compose.onNodeWithText("Review").performClick()
         compose.onNodeWithText("Deny", useUnmergedTree = true).performClick()
         compose.waitUntil(10000) { approved.get() && compose.onAllNodesWithTag("approval:42").fetchSemanticsNodes().isEmpty() }
@@ -283,10 +278,10 @@ class CompanionUiTest {
         waitForAgentRows(session)
         activeWindows.add(windowFixture().put("domain_allow", "uggs.io"))
         changed("approvals")
-        compose.onNodeWithTag("tab-authorizations").performClick()
+        openAuthorizations()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
-        compose.onNodeWithText("Domain grant uggs.io may reopen this host on its next request.").assertIsDisplayed()
+        compose.onNodeWithText("The approval for uggs.io may reopen this host when it next asks.").assertIsDisplayed()
         screenshot("authorizations-host")
         compose.onNodeWithTag("close-window:7").assertIsEnabled().performClick()
         compose.waitUntil(10000) { closedWindows.get() == 1L && compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isEmpty() }
@@ -296,7 +291,7 @@ class CompanionUiTest {
         activeWindows.add(windowFixture())
         fleetWindow.set(JSONObject().put("open", true).put("enabled_until", Instant.now().plusSeconds(3600).toString()))
         changed("approvals")
-        compose.onNodeWithTag("tab-authorizations").performClick()
+        openAuthorizations()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("fleet-window").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
         compose.onNodeWithTag("close-window:7").assertIsNotEnabled()
@@ -316,7 +311,7 @@ class CompanionUiTest {
         fleetWindow.set(JSONObject().put("open", true).put("enabled_until", Instant.now().plusSeconds(3600).toString()))
         failFleetClose.set(true)
         changed("approvals")
-        compose.onNodeWithTag("tab-authorizations").performClick()
+        openAuthorizations()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("fleet-window").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("close-fleet-window").performClick()
         compose.onNodeWithTag("confirm-close-fleet").performClick()
@@ -331,24 +326,25 @@ class CompanionUiTest {
         waitForAgentRows(session)
         activeWindows.add(windowFixture().put("enabled_until", Instant.now().plusSeconds(5).toString()))
         changed("approvals")
-        compose.onNodeWithTag("tab-authorizations").performClick()
+        openAuthorizations()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isEmpty() }
         Assert.assertEquals(0L, closedWindows.get())
         authorizationAllowed.set(false)
         changed("me")
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("tab-authorizations").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("agent:$session").assertIsDisplayed()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("authorizations-list").fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag("tab-hosts").assertIsSelected()
+        compose.onNodeWithTag("open-authorizations").assertDoesNotExist()
     }
     @Test fun offlineWindowsRemainVisibleWithDisabledActions() {
         waitForAgentRows(session)
         activeWindows.add(windowFixture())
         changed("approvals")
-        compose.onNodeWithTag("tab-authorizations").performClick()
+        openAuthorizations()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
         networkAvailable.set(false)
         live.getAndSet(null)?.close(1012, "Fixture network loss")
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Server · Disconnected · Reconnecting…").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("Offline · reconnecting…").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
         compose.onNodeWithTag("close-window:7").assertIsNotEnabled()
         Assert.assertEquals(0L, closedWindows.get())
@@ -358,7 +354,7 @@ class CompanionUiTest {
         activeWindows.add(windowFixture())
         failWindowClose.set(true)
         changed("approvals")
-        compose.onNodeWithTag("tab-authorizations").performClick()
+        openAuthorizations()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
         compose.onNodeWithTag("close-window:7").performClick()
@@ -374,7 +370,7 @@ class CompanionUiTest {
         waitForAgentRows(session)
         activeWindows.add(windowFixture())
         changed("approvals")
-        compose.onNodeWithTag("tab-authorizations").performClick()
+        openAuthorizations()
         compose.waitUntil(10000) { compose.onAllNodesWithTag("window:7").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
         holdWindowClose.set(true)
@@ -395,7 +391,7 @@ class CompanionUiTest {
         compose.waitUntil(10000) { compose.onAllNodesWithText("Allow host access?").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Deny", useUnmergedTree = true).performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("No waiting authorizations").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("tab-authorizations").assertIsSelected()
+        compose.onNodeWithTag("tab-hosts").assertIsSelected()
     }
     @Test fun startsWithOptionalTaskAndPreservesHostSearch() {
         waitForAgentRows(session)
@@ -409,6 +405,13 @@ class CompanionUiTest {
         compose.waitUntil(10_000) { spawned.get() != null }
         Assert.assertEquals("Inspect the daemon logs", spawned.get()!!.getString("task"))
         Assert.assertEquals("claude", spawned.get()!!.getString("engine"))
+    }
+
+    /** Approvals live on a subpage of Hosts. */
+    private fun openAuthorizations() {
+        compose.onNodeWithTag("tab-hosts").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("open-authorizations").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("open-authorizations").performClick()
     }
 
     @get:Rule val compose = createEmptyComposeRule()
@@ -664,58 +667,58 @@ class CompanionUiTest {
         server.shutdown()
     }
     @Test fun coldStartShowsConnectingUntilTheAuthorizedSnapshotArrives() {
-        compose.waitUntil(15000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isNotEmpty() }
         scenario.close()
         holdMe.set(true); meRequested.set(false)
         val requestsBefore = agentsRequested.get()
         scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
             compose.waitUntil(10000) { meRequested.get() && compose.onAllNodesWithText("Loading your chats…").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Server · Connecting…").assertIsDisplayed()
+            compose.onNodeWithText("Connecting…").assertIsDisplayed()
             compose.onNodeWithText("Loading your chats…").assertIsDisplayed()
             compose.onNodeWithText("Retry connection").assertDoesNotExist()
-            compose.onNodeWithText("Server · Disconnected · Reconnecting…").assertDoesNotExist()
+            compose.onNodeWithText("Offline · reconnecting…").assertDoesNotExist()
             compose.onNodeWithText("Waiting for chats").assertDoesNotExist()
             compose.onNodeWithTag("agent:$session").assertDoesNotExist()
             compose.onNodeWithTag("approval:42").assertDoesNotExist()
-            compose.onNodeWithText("Review next", substring = true).assertDoesNotExist()
+            compose.onNodeWithTag("approval-row:42").assertDoesNotExist()
             Assert.assertEquals("Chats wait for the current permission snapshot", requestsBefore, agentsRequested.get())
             compose.onNodeWithTag("chat-filter:unread").assertDoesNotExist()
             compose.onNodeWithText("Loading your chats…").assertIsDisplayed()
             compose.onNodeWithText("No unread chats").assertDoesNotExist()
             screenshot("startup-connecting")
         } finally { holdMe.set(false) }
-        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
-        compose.onNodeWithText("Review next · 1").assertIsDisplayed()
-        compose.onNodeWithText("Server · Connecting…").assertDoesNotExist()
+        compose.onNodeWithTag("approval-row:42").assertIsDisplayed()
+        compose.onNodeWithText("Connecting…").assertDoesNotExist()
         compose.onNodeWithText("Loading your chats…").assertDoesNotExist()
         compose.onNodeWithText("Retry connection").assertDoesNotExist()
     }
     @Test fun failedColdStartShowsRetryAndRecoversWithoutPairingAgain() {
-        compose.waitUntil(15000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isNotEmpty() }
         scenario.close()
         networkAvailable.set(false)
         scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            compose.waitUntil(10000) { compose.onAllNodesWithText("Server · Disconnected · Reconnecting…").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Server · Disconnected · Reconnecting…").assertIsDisplayed()
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Offline · reconnecting…").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Offline · reconnecting…").assertIsDisplayed()
             compose.onNodeWithText("Retry connection").assertIsDisplayed()
-            compose.onNodeWithText("Server · Connecting…").assertDoesNotExist()
+            compose.onNodeWithText("Connecting…").assertDoesNotExist()
             compose.onNodeWithText("Loading your chats…").assertDoesNotExist()
             compose.onNodeWithTag("agent:$session").assertDoesNotExist()
             compose.onNodeWithTag("approval:42").assertDoesNotExist()
-            compose.onNodeWithText("Review next", substring = true).assertDoesNotExist()
+            compose.onNodeWithTag("approval-row:42").assertDoesNotExist()
             screenshot("startup-reconnecting")
             // Keep a background retry from completing before the explicit tap.
             holdMe.set(true)
             networkAvailable.set(true)
             compose.onNodeWithText("Retry connection").performClick()
         } finally { networkAvailable.set(true); holdMe.set(false) }
-        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("agent:$session").fetchSemanticsNodes().isNotEmpty() && compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("agent:$session").assertIsDisplayed()
-        compose.onNodeWithText("Review next · 1").assertIsDisplayed()
-        compose.onNodeWithText("Server · Disconnected · Reconnecting…").assertDoesNotExist()
+        compose.onNodeWithTag("approval-row:42").assertIsDisplayed()
+        compose.onNodeWithText("Offline · reconnecting…").assertDoesNotExist()
         compose.onNodeWithText("Retry connection").assertDoesNotExist()
     }
     @Test fun firebaseRegistersWithSelectedProject() {
@@ -744,7 +747,7 @@ class CompanionUiTest {
         scenario.moveToState(Lifecycle.State.RESUMED)
         notification.contentIntent.send()
         compose.waitUntil(15000) { compose.onAllNodesWithTag("approval-sheet").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(hasText("Requesting IP: 192.0.2.42") and hasAnyAncestor(hasTestTag("approval-sheet"))).assertIsDisplayed()
+        compose.onNode(hasText("From 192.0.2.42") and hasAnyAncestor(hasTestTag("approval-sheet"))).assertIsDisplayed()
         screenshot("live-push-review")
         Assert.assertFalse("Opening review must not approve a request", approved.get())
         compose.onNodeWithText("Allow 8h", useUnmergedTree = true).performClick()
@@ -765,13 +768,13 @@ class CompanionUiTest {
         Assert.assertEquals("Please check the build", sent.get())
         screenshot("chat")
         compose.onNodeWithContentDescription("Back").performClick()
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Review next · 1").performClick()
-        compose.onNode(hasText("Requesting IP: 192.0.2.42") and hasAnyAncestor(hasTestTag("approval-sheet"))).assertIsDisplayed()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("approval-row:42").performClick()
+        compose.onNode(hasText("From 192.0.2.42") and hasAnyAncestor(hasTestTag("approval-sheet"))).assertIsDisplayed()
         screenshot("approval")
         compose.onNodeWithText("Allow 8h", useUnmergedTree = true).performClick()
         compose.waitUntil(10000) { approved.get() }
-        compose.waitUntil(10000) { compose.onAllNodesWithText("waiting.uggs.io").fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isEmpty() }
     }
     @Test fun allShowsOnlyOnlineActiveAgentsAndDirectQuestionChoices() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
@@ -929,8 +932,9 @@ class CompanionUiTest {
         compose.onNodeWithTag("chat-list").performScrollToIndex(projects.size)
         compose.onNodeWithTag("agent:dense-5").assertIsDisplayed().assertHasClickAction()
         val lastRow = compose.onNodeWithTag("agent:dense-5").fetchSemanticsNode().boundsInRoot
-        val reviewButton = compose.onNodeWithTag("review-next").fetchSemanticsNode().boundsInRoot
-        Assert.assertTrue("The last chat can scroll completely above the floating review action", lastRow.bottom <= reviewButton.top)
+        compose.onAllNodesWithTag("start-agent").fetchSemanticsNodes().firstOrNull()?.let { fab ->
+            Assert.assertTrue("The last chat can scroll completely above the floating start action", lastRow.bottom <= fab.boundsInRoot.top)
+        }
         assertCompleteTitle("mobile-companion")
         compose.onNodeWithContentDescription("Host: worker-6.production.uggs.io", useUnmergedTree = true).assertIsDisplayed()
         compose.onNode(hasContentDescription("Engine: Claude") and hasAnyAncestor(hasTestTag("agent:dense-5")), useUnmergedTree = true).assertIsDisplayed()
@@ -984,7 +988,7 @@ class CompanionUiTest {
         compose.onNode(hasSetTextAction()).performTextInput("Keep this draft")
         reachable.set(false)
         changed("agents")
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Agent is no longer reachable").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10000) { compose.onAllNodesWithText("This agent can’t take messages right now").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
         compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")
         compose.onNodeWithContentDescription("Back").performClick()
@@ -993,16 +997,16 @@ class CompanionUiTest {
     }
     @Test fun remotelyHandledApprovalClosesItsOpenReview() {
         waitForAgentRows(session)
-        compose.onNodeWithTag("review-next").performClick()
+        compose.onNodeWithTag("approval-row:42").performClick()
         compose.onNodeWithTag("approval-sheet").assertIsDisplayed()
         approved.set(true)
         changed("approvals")
         compose.waitUntil(10000) { compose.onAllNodesWithTag("approval-sheet").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("No waiting authorizations").assertIsDisplayed()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isEmpty() }
     }
     @Test fun disconnectedApprovalStaysOpenUntilItsResolvedSnapshotArrives() {
         waitForAgentRows(session)
-        compose.onNodeWithTag("review-next").performClick()
+        compose.onNodeWithTag("approval-row:42").performClick()
         compose.onNodeWithTag("approval-sheet").assertIsDisplayed()
         networkAvailable.set(false)
         try {
@@ -1013,17 +1017,17 @@ class CompanionUiTest {
             approved.set(true)
         } finally { networkAvailable.set(true) }
         compose.waitUntil(15000) { compose.onAllNodesWithTag("approval-sheet").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithText("No waiting authorizations").assertIsDisplayed()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isEmpty() }
     }
     @Test fun expiredApprovalClosesItsOpenReview() {
-        compose.waitUntil(15000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isNotEmpty() }
         expiresAt = Instant.now().plusSeconds(8)
         changed("approvals")
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Review next · 1").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Review next · 1").performClick()
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("approval-row:42").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("approval-row:42").performClick()
         compose.onNodeWithTag("approval-sheet").assertIsDisplayed()
         compose.waitUntil(12000) { compose.onAllNodesWithTag("approval-sheet").fetchSemanticsNodes().isEmpty() }
-        compose.onNodeWithTag("review-next").assertDoesNotExist()
+        compose.onNodeWithTag("approval-row:42").assertDoesNotExist()
         Assert.assertFalse(approved.get())
     }
     @Test fun staleNotificationCannotOpenRemovedConversation() {
@@ -1163,12 +1167,12 @@ class CompanionUiTest {
         networkAvailable.set(false)
         live.getAndSet(null)?.close(1012, "Fixture network loss")
         try {
-            compose.waitUntil(10000) { compose.onAllNodesWithText("Server · Disconnected · Reconnecting…", substring = true).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Offline · reconnecting…", substring = true).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithTag("agent:$session").assertIsDisplayed()
             Assert.assertEquals(setOf(session), unreadIds())
             screenshot("unread-reconnecting")
         } finally { networkAvailable.set(true) }
-        compose.waitUntil(15000) { compose.onAllNodesWithText("Server · Disconnected · Reconnecting…", substring = true).fetchSemanticsNodes().isEmpty() }
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Offline · reconnecting…", substring = true).fetchSemanticsNodes().isEmpty() }
         waitForUnreadBadge(1)
         compose.onNodeWithTag("agent:$session").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText(reply.get()).fetchSemanticsNodes().isNotEmpty() }
@@ -1302,7 +1306,7 @@ class CompanionUiTest {
         compose.onNodeWithTag("tab-hosts").performClick()
         compose.waitUntil(5000) { compose.onAllNodesWithTag("spawn:7").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("spawn:7").assertIsEnabled()
-        compose.onNodeWithText("Server · Connecting…").assertDoesNotExist()
+        compose.onNodeWithText("Connecting…").assertDoesNotExist()
     }
     @Test fun reconnectAndResumeCatchUpWhilePreservingDraft() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("project").fetchSemanticsNodes().isNotEmpty() }
@@ -1320,7 +1324,7 @@ class CompanionUiTest {
         scenario.moveToState(Lifecycle.State.RESUMED)
         try {
             compose.waitUntil(10000) { meRequested.get() && compose.onAllNodesWithText("Connecting — draft kept").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText("Server · Connecting…").assertIsDisplayed()
+            compose.onNodeWithText("Connecting…").assertIsDisplayed()
             compose.onNodeWithText("Connecting — draft kept").assertIsDisplayed()
             compose.onNodeWithContentDescription("Send").assertIsNotEnabled()
             compose.onNode(hasSetTextAction()).assertTextContains("Keep this draft")

@@ -77,6 +77,35 @@ export const AGENT_PORTAL_MESSAGE_MAX_BYTES = 32 * 1024;
 export const AGENT_PORTAL_EVENT_TEXT_MAX_BYTES = 128 * 1024;
 export const AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS = 12;
 /**
+ * Operator messages accepted while the agent's receiver is connected but not
+ * ready wait in `queued`. At most this many undelivered (`queued`/`leased`)
+ * messages may stand per session while it is not ready; the next is refused
+ * with `agent_queue_full`.
+ */
+export const AGENT_PORTAL_MAX_WAITING_MESSAGES = 20;
+/** A never-leased queued message older than this is reported undelivered instead of delivered. */
+export const AGENT_PORTAL_QUEUED_MESSAGE_TTL_SECONDS = 24 * 3600;
+/** True for a queued operator message that was never offered and has outlived its TTL. */
+export function queuedMessageExpired(
+  row: { kind: string; status: string; attempts: number; createdAt: string },
+  nowMs = Date.now(),
+): boolean {
+  const created = Date.parse(row.createdAt);
+  return (
+    row.kind === 'message' &&
+    row.status === 'queued' &&
+    row.attempts === 0 &&
+    Number.isFinite(created) &&
+    created <= nowMs - AGENT_PORTAL_QUEUED_MESSAGE_TTL_SECONDS * 1000
+  );
+}
+export const queueFullError = () =>
+  new ConflictError(
+    `The agent already has ${AGENT_PORTAL_MAX_WAITING_MESSAGES} messages waiting. Wait for it to pick them up or cancel one.`,
+    'agent_queue_full',
+    { limit: AGENT_PORTAL_MAX_WAITING_MESSAGES },
+  );
+/**
  * How long an `active_turn_id` may stand before the session stops counting as
  * `working`, expressed as a multiple of the relay window so there is one knob
  * to reason about rather than a third constant.
@@ -873,7 +902,7 @@ export class AgentPortalService {
     const clientMessageId = normalizeUuid(input.clientMessageId, 'client_message_id');
     const messageId = randomUUID();
     const now = nowIso();
-    const inserted = await this.db.transaction(async (tx) => {
+    const { inserted, ready } = await this.db.transaction(async (tx) => {
       await this.requirePortalEnabledLocked(tx);
       const user = await this.requireActorLocked(tx, actor, now);
       const session = await this.requireVisibleSessionLocked(tx, input.sessionId, now);
@@ -881,10 +910,18 @@ export class AgentPortalService {
       if (raced) {
         this.assertMessageIdempotency(raced, user, 'message', null, content);
         this.assertMetadata(raced, metadata);
-        return raced;
+        return { inserted: raced, ready: await this.assertRelayReady(session, tx, { holdMessage: true }).catch(() => false) };
       }
       this.assertLiveSession(session);
-      await this.assertRelayReady(session, tx);
+      const ready = await this.assertRelayReady(session, tx, { holdMessage: true });
+      await this.expireQueuedLocked(tx, input.sessionId, now);
+      if (!ready) {
+        const [waiting] = await tx
+          .select({ value: count() })
+          .from(agentMessages)
+          .where(and(eq(agentMessages.sessionId, input.sessionId), eq(agentMessages.kind, 'message'), inArray(agentMessages.status, ['queued', 'leased'])));
+        if (Number(waiting?.value ?? 0) >= AGENT_PORTAL_MAX_WAITING_MESSAGES) throw queueFullError();
+      }
       await new ChatAttachments(this.db, this.keyring, this.env.DATA_ROOT ?? 'storage').link(tx, input.sessionId, metadata, `admin:${user.id}`);
       await tx.insert(agentMessages).values({
         messageId,
@@ -916,10 +953,62 @@ export class AgentPortalService {
       }, now);
       const rows = await tx.select().from(agentMessages).where(eq(agentMessages.messageId, messageId)).limit(1);
       if (!rows[0]) throw new ServiceUnavailableError('Message queue insert was not readable', 'agent_message_write_failed');
-      return rows[0];
+      return { inserted: rows[0], ready };
     });
     wsPublisher.publish('agent_portal.sessions.changed', { session_id: input.sessionId });
-    return messageView(inserted);
+    return { ...messageView(inserted), waiting_for_receiver: inserted.status === 'queued' && !ready };
+  }
+
+  /** Operator withdrawal of a queued message; leased or finished rows are not cancelable. */
+  async cancelMessage(actor: PortalActor, input: { sessionId: string; messageId: string }): Promise<Record<string, unknown>> {
+    const owner = this.owned(); if (owner) { return await owner.cancelMessage(actor, input) as Record<string, unknown>; }
+    const messageId = normalizeUuid(input.messageId, 'message_id');
+    const now = nowIso();
+    const result = await this.db.transaction(async (tx) => {
+      await this.requirePortalEnabledLocked(tx);
+      const user = await this.requireActorLocked(tx, actor, now);
+      await this.requireVisibleSessionLocked(tx, input.sessionId, now);
+      const [row] = await tx.select().from(agentMessages).where(eq(agentMessages.messageId, messageId)).limit(1).for('update');
+      if (!row || row.sessionId !== input.sessionId) throw new NotFoundError('Message not found', 'agent_message_not_found');
+      if (row.status === 'canceled') return { ...messageView(row), already_canceled: true };
+      if (row.status !== 'queued' || row.kind !== 'message')
+        throw new ConflictError('Message can no longer be canceled', 'agent_message_not_cancelable', { status: row.status, kind: row.kind });
+      await tx.update(agentMessages)
+        .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
+        .where(eq(agentMessages.id, row.id));
+      const payload = normalizeEvent('message_canceled', {
+        message_id: row.messageId,
+        summary: `Canceled by ${user.displayName} before delivery.`,
+        delivery_status: 'canceled',
+        author: user.displayName,
+        canceled_by: 'operator',
+      }).payload;
+      await tx.insert(agentEvents).values({
+        sessionId: row.sessionId,
+        clientEventId: `portal:message-cancel:${row.messageId}`,
+        eventType: 'message_canceled',
+        source: 'portal',
+        payloadEnc: this.encodeJson(payload),
+        createdAt: now,
+      });
+      return { ...messageView({ ...row, status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now }), already_canceled: false };
+    });
+    if (!result.already_canceled) wsPublisher.publish('agent_portal.sessions.changed', { session_id: input.sessionId });
+    return result;
+  }
+
+  /** Lazy TTL sweep for one session; claim applies the same rule while delivering. */
+  private async expireQueuedLocked(tx: AgentPortalDb, sessionId: string, now: string): Promise<void> {
+    const cutoff = isoOffsetSeconds(-AGENT_PORTAL_QUEUED_MESSAGE_TTL_SECONDS, new Date(now));
+    const rows = await tx.select().from(agentMessages)
+      .where(and(eq(agentMessages.sessionId, sessionId), eq(agentMessages.kind, 'message'), eq(agentMessages.status, 'queued'), eq(agentMessages.attempts, 0), lte(agentMessages.createdAt, cutoff)))
+      .for('update');
+    for (const row of rows) {
+      await tx.update(agentMessages)
+        .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
+        .where(eq(agentMessages.id, row.id));
+      await this.announceUndelivered(row, now, tx);
+    }
   }
 
   async answerPrompt(actor: PortalActor, input: { sessionId: string; promptId: string; clientMessageId: string; answer: string; version?: number; metadata?: ChatMetadata }): Promise<Record<string, unknown>> {
@@ -1215,6 +1304,14 @@ export class AgentPortalService {
         }
         if (row.status === 'leased' && row.leaseUntil && row.leaseUntil > now) return null;
         if (row.status === 'queued' && row.nextAttemptAt > now) return null;
+        if (queuedMessageExpired(row, Date.parse(now))) {
+          await tx
+            .update(agentMessages)
+            .set({ status: 'canceled', canceledAt: now, leaseOwner: null, leaseUntil: null, updatedAt: now })
+            .where(eq(agentMessages.id, row.id));
+          await this.announceUndelivered(row, now, tx);
+          return 'retry';
+        }
         if (row.attempts >= AGENT_PORTAL_MAX_DELIVERY_ATTEMPTS) {
           await tx
             .update(agentMessages)
@@ -1833,7 +1930,12 @@ export class AgentPortalService {
     return isFreshPresenceTimestamp(rows[0]?.createdAt, now - this.workingMaxSeconds() * 1000, now);
   }
 
-  private async assertRelayReady(session: AgentSession, db: AgentPortalDb = this.db): Promise<void> {
+  /**
+   * Resolves `true` when the agent is ready now. With `holdMessage` (operator
+   * messages only) a fresh session whose receiver is merely not ready resolves
+   * `false` instead of refusing, so the message waits for the next claim.
+   */
+  private async assertRelayReady(session: AgentSession, db: AgentPortalDb = this.db, options: { holdMessage?: boolean } = {}): Promise<boolean> {
     const now = Date.now();
     const hostRows = await db.select().from(hosts).where(eq(hosts.id, session.hostId)).limit(1);
     const heartbeatFresh = bridgeHostAvailable(session, hostRows[0], now, await readFleetEngineState(db)) &&
@@ -1841,16 +1943,18 @@ export class AgentPortalService {
     const relayFresh = session.relayEnabled === 1 &&
       isFreshPresenceTimestamp(session.relayHeartbeatAt, now - this.env.AGENT_PORTAL_RELAY_FRESH_SECONDS * 1000, now);
     if (session.receiver) {
-      if (heartbeatFresh && receiverReady(session.receiver, 'portal', now)) return;
+      if (heartbeatFresh && receiverReady(session.receiver, 'portal', now)) return true;
+      const state = receiverState(session.receiver);
+      if (options.holdMessage && heartbeatFresh && state && !state.failure && !state.portal_closed) return false;
       throw new ConflictError('Automatic receiver is not verified', 'agent_relay_unavailable');
     }
-    if (heartbeatFresh && relayFresh) return;
+    if (heartbeatFresh && relayFresh) return true;
     // An agent mid-turn stops polling while it executes, so a strict relay check
     // would refuse an instruction the agent is about to come back and claim.
     // Holding it is safe in both directions: the `#afk` loop always returns to
     // `wait`, and if it never does the message is reported undelivered rather
     // than discarded.
-    if (heartbeatFresh && (await this.isWorking(session, db))) return;
+    if (heartbeatFresh && (await this.isWorking(session, db))) return false;
     throw new ConflictError(
       heartbeatFresh
         ? 'Agent is visible but is not currently accepting portal instructions'
@@ -2372,6 +2476,8 @@ export function normalizeEvent(type: AgentEventType, input: Record<string, unkno
   if (author) payload.author = author;
   const deliveryStatus = normalizeOptionalText(input.delivery_status, 32);
   if (deliveryStatus) payload.delivery_status = deliveryStatus;
+  // Operator withdrawal, as opposed to the server's undelivered notice.
+  if (type === 'message_canceled' && input.canceled_by === 'operator') payload.canceled_by = 'operator';
 
   if (type === 'waiting_input') {
     const question = normalizeRequiredText(input.question, 'question', 16 * 1024);

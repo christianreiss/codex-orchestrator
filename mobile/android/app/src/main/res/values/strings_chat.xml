@@ -22,9 +22,6 @@
         <item quantity="other">%d new messages</item>
     </plurals>
     <string name="chat_earlier_question">Earlier question</string>
-    <string name="chat_recent">Recent</string>
-    <string name="chat_filter_projects">Projects</string>
-    <string name="chat_filter_hosts">Hosts</string>
     <string name="room_no_participants">No participants</string>
     <string name="room_preview">%1$s: %2$s</string>
     <string name="room_recipient_share">Share</string>
@@ -63,8 +60,8 @@
     <string name="time_today">Today</string>
     <string name="time_yesterday">Yesterday</string>
     <string name="delivery_delivered">Delivered to agent</string>
-    <string name="delivery_read">Read by AI</string>
-    <string name="delivery_working">AI is working…</string>
+    <string name="delivery_read">Read</string>
+    <string name="delivery_working">Working on it…</string>
     <string name="delivery_replied">Replied</string>
     <string name="delivery_canceled">Not delivered — the agent never picked this up</string>
     <string name="delivery_queued">Queued</string>
@@ -100,7 +97,7 @@
     <string name="chat_empty_body">Send a message to this agent.</string>
     <string name="chat_connecting_draft">Connecting — draft kept</string>
     <string name="chat_reconnecting_draft">Reconnecting — draft kept</string>
-    <string name="chat_agent_unreachable">Agent is no longer reachable</string>
+    <string name="chat_agent_unreachable">This agent can’t take messages right now</string>
     <string name="chat_cancel_reply">Cancel reply</string>
     <string name="chat_your_answer">Your answer</string>
     <string name="chat_message">Message</string>
@@ -116,17 +113,12 @@
     <string name="notice_critical">Critical</string>
     <string name="notice_blocker">Blocker</string>
     <string name="notice_resolved">%s · Resolved</string>
-    <string name="chat_filter_chats">Chats</string>
-    <string name="chat_filter_groups">Groups</string>
-    <string name="chat_filter_conferences">Conferences</string>
     <string name="chat_conference_history">Conference history</string>
     <string name="chat_history_active">Active</string>
     <string name="chat_history">History</string>
     <string name="chat_new">New</string>
     <string name="chat_search">Search chats</string>
     <string name="chat_clear_search">Clear search</string>
-    <string name="chat_rooms_need_update">Shared conversations require a server update.</string>
-    <string name="chat_rooms_disabled">Shared conversations are disabled on this server.</string>
     <string name="chat_checking">Checking what needs you…</string>
     <string name="chat_more_conversations">More conversations</string>
     <string name="chat_loading_chats">Loading your chats…</string>
@@ -135,7 +127,6 @@
     <string name="chat_all_caught_up">All caught up</string>
     <string name="chat_waiting_for_chats">Waiting for chats</string>
     <string name="chat_no_active_agents">No active agents online.</string>
-    <string name="chat_reconnect_to_update">Reconnect to update</string>
     <string name="chat_important">Important</string>
     <string name="chat_reply_needed">Reply needed</string>
     <string name="chat_read">Read</string>
@@ -180,7 +171,7 @@
     <string name="room_discard_body">The conversation has not been created yet.</string>
     <string name="room_keep_editing">Keep editing</string>
     <string name="room_discard">Discard</string>
-    <string name="room_update_cxx">Update cxx to answer here</string>
+    <string name="room_update_cxx">This agent needs an update to answer here</string>
     <string name="room_remove_cd">Remove %s</string>
     <string name="room_add_participant">Add participant</string>
     <string name="room_end_conference">End conference</string>

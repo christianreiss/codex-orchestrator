@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="inbox_needs_you">Braucht dich</string>
+    <string name="inbox_active">Aktiv</string>
+    <string name="inbox_approval_subtitle">Bittet um vorübergehenden Zugriff · Prüfen</string>
+    <string name="status_ready">Bereit</string>
+    <string name="status_paused">Pausiert</string>
+    <string name="inbox_start_agent">Agent starten</string>
+    <string name="inbox_start_pick_host">Wo soll er laufen?</string>
+    <string name="inbox_start_no_hosts">Gerade kann kein Host einen Agenten starten.</string>
+    <string name="more_tools">Werkzeuge</string>
+    <string name="hosts_authorizations">Zugriffsfreigaben</string>
+    <string name="hosts_authorizations_detail">Wartende Anfragen und offene Zugriffsfenster</string>
+    <string name="delivery_waiting">Wartet auf den Agenten</string>
+    <string name="chat_queue_hint">%1$s ist gerade beschäftigt – deine Nachricht wartet und wird zugestellt, sobald er frei ist.</string>
+    <string name="chat_queue_cancel">Nicht mehr senden</string>
+    <string name="chat_queue_canceled">Nachricht zurückgezogen</string>
+    <string name="quota_account_disabled">Abgeschaltet</string>
+    <string name="quota_account_limited">Gerade begrenzt</string>
+    <string name="quota_account_attention">Braucht Aufmerksamkeit</string>
+    <string name="tools_status_other">Anderer Zustand</string>
+    <string name="tools_merge_untitled">Merge-Anfrage</string>
+</resources>

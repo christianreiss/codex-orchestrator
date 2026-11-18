@@ -184,6 +184,7 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
       reactions_protocol: 1,
       pins_protocol: 1,
       search_protocol: 1,
+      portal_queue_protocol: 1,
       actor: `admin:${userId}`,
     });
     await db.update(adminUsers).set({ accessLevel: 'viewer' }).where(eq(adminUsers.id, userId));
@@ -281,6 +282,7 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     };
     const first = await app.inject(request);
     expect(first.statusCode, first.body).toBe(202);
+    expect(first.json()).toMatchObject({ status: 'queued', waiting_for_receiver: false });
     expect((await app.inject(request)).json()).toEqual(first.json());
     expect(
       (await app.inject({ ...request, payload: { ...payload, content: 'Different content' } })).statusCode,
@@ -288,6 +290,33 @@ describe.skipIf(!handle)('Android companion with real MySQL', { timeout: 120_000
     expect(
       await db.select().from(companionFollows).where(eq(companionFollows.deviceId, connection.device_id)),
     ).toHaveLength(1);
+  });
+  it('cancels a queued message idempotently and refuses unknown ones', async () => {
+    const sent = await app.inject({
+      method: 'POST',
+      url: `/companion/v1/agents/${sessionId}/messages`,
+      headers: { authorization: authorization() },
+      payload: { client_message_id: randomUUID(), content: 'Cancel me' },
+    });
+    expect(sent.statusCode, sent.body).toBe(202);
+    const cancel = (messageId: string) =>
+      app.inject({
+        method: 'POST',
+        url: `/companion/v1/agents/${sessionId}/messages/${messageId}/cancel`,
+        headers: { authorization: authorization() },
+        payload: {},
+      });
+    const messageId = String(sent.json().message_id);
+    const first = await cancel(messageId);
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json()).toMatchObject({ message_id: messageId, status: 'canceled', already_canceled: false });
+    expect((await cancel(messageId)).json()).toMatchObject({ status: 'canceled', already_canceled: true });
+    const [event] = await db
+      .select()
+      .from(agentEvents)
+      .where(eq(agentEvents.clientEventId, `portal:message-cancel:${messageId}`));
+    expect(event?.eventType).toBe('message_canceled');
+    expect((await cancel(randomUUID())).statusCode).toBe(404);
   });
   it('uploads attachment-only messages and authorizes byte-range media downloads', async () => {
     const attachment = randomUUID(); const base = `/companion/v1/agents/${sessionId}/attachments`;

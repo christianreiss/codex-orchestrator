@@ -15,6 +15,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -72,7 +73,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable fun CompanionScreen(model: CompanionModel) {
-    CompanionHomeTheme(enabled = model.connection != null) { key(model.connection?.deviceId) { CompanionContent(model) } }
+    key(model.connection?.deviceId) { CompanionContent(model) }
 }
 
 /** Caps a chat column on wide windows so lines stay readable. */
@@ -87,12 +88,13 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
 @Composable private fun CompanionNavigation(model: CompanionModel, current: String, approvals: Int, rail: Boolean, navigate: (String) -> Unit) {
     val destinations = buildList {
         add(Destination(Routes.CHATS, R.string.nav_chats, CompanionSymbol.Chat))
+        if (model.can("admin.read")) add(Destination(Routes.HOSTS, R.string.nav_hosts, CompanionSymbol.Hosts))
         if (model.can("admin.read") && model.can("auth.read_metadata")) add(Destination(Routes.QUOTAS, R.string.nav_quotas, CompanionSymbol.Quotas))
-        if (model.can("admin.read")) add(Destination(Routes.HOSTS, R.string.nav_hosts, CompanionSymbol.Computer))
-        if (model.can("hosts.activate_insecure")) add(Destination(Routes.AUTHORIZATIONS, R.string.nav_authorizations, CompanionSymbol.Shield))
     }
+    // Waiting approvals are listed in the inbox; the Hosts tab carries their count because approvals live under it.
+    val approvalsTab = if (model.can("admin.read")) Routes.HOSTS else Routes.CHATS
     @Composable fun icon(destination: Destination) {
-        BadgedBox(badge = { if (destination.route == Routes.AUTHORIZATIONS && approvals > 0) Badge { Text(approvals.toString()) } }) {
+        BadgedBox(badge = { if (destination.route == approvalsTab && approvals > 0) Badge { Text(approvals.toString()) } }) {
             CompanionIcon(destination.symbol, description = stringResource(destination.label))
         }
     }
@@ -102,7 +104,7 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
             icon = { icon(destination) }, label = { Text(stringResource(destination.label)) },
             modifier = Modifier.testTag("tab-" + destination.route),
         )
-    } else NavigationBar {
+    } else NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow, tonalElevation = 0.dp) {
         for (destination in destinations) NavigationBarItem(
             selected = current == destination.route, onClick = { navigate(destination.route) },
             icon = { icon(destination) }, label = { Text(stringResource(destination.label)) },
@@ -121,6 +123,10 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
     val route = backEntry?.destination?.route
     val onChatRoute = Routes.isChat(route)
     val homeTab = if (onChatRoute || route == null || route == Routes.SEARCH) Routes.CHATS else route
+    // Approvals and tools are subpages; they keep the tab they were opened from highlighted.
+    val selectedTab = when (homeTab) { Routes.AUTHORIZATIONS -> if (model.can("admin.read")) Routes.HOSTS else Routes.CHATS; Routes.TOOLS -> Routes.CHATS; else -> homeTab }
+    val subpage = route == Routes.AUTHORIZATIONS || route == Routes.TOOLS
+    var startAgent by rememberSaveable { mutableStateOf(false) }
     val wide = isWideWindow(LocalConfiguration.current.screenWidthDp)
     var createRoom by rememberSaveable { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
@@ -155,6 +161,9 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
             if (fresh && requests.none { it.optString("id") == id }) model.clearApprovalHighlight()
         }
     }
+    // Losing the approval permission while on its subpage returns to the tab it was opened from.
+    val canAuthorize = model.can("hosts.activate_insecure")
+    LaunchedEffect(route, canAuthorize) { if (route == Routes.AUTHORIZATIONS && !canAuthorize) navController.popBackStack() }
     // Room links wait for the room list; give up if the room never shows up.
     LaunchedEffect(model.pendingRoomLink, model.roomChats.rooms) {
         val id = model.pendingRoomLink ?: return@LaunchedEffect
@@ -188,28 +197,35 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
     Scaffold(topBar = {
         TopAppBar(
             title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+                if (model.selected != null) AgentAvatar(current, current?.let { agentRole(it, activityClock, fresh, false) }, 40.dp)
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (model.selected != null) EngineIcon(current, Modifier.size(24.dp))
                         Text(if (route == Routes.SEARCH && !inConversation) stringResource(R.string.search_title) else if (model.roomChats.selected != null) shared?.optString("title") ?: stringResource(R.string.title_conversation) else if (model.selected != null) current?.let { agentTitle(t, it) } ?: stringResource(R.string.chat_agent_default) else if (model.connection == null) stringResource(R.string.app_name) else stringResource(when (homeTab) {
                                 Routes.CHATS -> if (model.roomChats.history) R.string.chat_conference_history else R.string.nav_chats
                                 Routes.HOSTS -> R.string.nav_hosts
                                 Routes.QUOTAS -> R.string.nav_quotas
-                                Routes.AUTHORIZATIONS -> R.string.nav_authorizations
+                                Routes.AUTHORIZATIONS -> R.string.hosts_authorizations
+                                Routes.TOOLS -> R.string.more_tools
                                 else -> R.string.app_name
                             }),
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onBackground,
-                            style = MaterialTheme.typography.titleLarge)
+                            style = if (inConversation) MaterialTheme.typography.titleMedium else MaterialTheme.typography.headlineSmall)
                     }
-                    if (model.selected != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HostBadge(current)
-                        current?.let { Text(activityDetail(t, it, activityClock), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    if (model.selected != null) current?.let {
+                        val role = agentRole(it, activityClock, fresh, false)
+                        Text(listOfNotNull(statusWord(role), agentHost(it)?.let(::shortHostName)).joinToString(" · "),
+                            Modifier.testTag("chat-status"), style = MaterialTheme.typography.bodySmall,
+                            color = if (role == StatusRole.Ready || role == StatusRole.Working) role.color() else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                }
                 }
             },
             navigationIcon = {
                 if (inConversation) IconButton(onClick = ::back, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) }
+                else if (subpage) IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.size(48.dp).testTag("subpage-back")) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) }
                 else if (route == Routes.SEARCH) IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.size(48.dp).testTag("search-back")) { CompanionIcon(CompanionSymbol.Back, stringResource(R.string.cd_back)) }
             },
             actions = {
@@ -220,30 +236,26 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
                             CompanionIcon(CompanionSymbol.History, stringResource(if (model.roomChats.history) R.string.chat_history_active else R.string.chat_history))
                         }
                     if (model.can("agent_messaging.manage") && model.can("agent_messaging.reveal_content"))
-                        FilledTonalButton(onClick = { createRoom = true; model.roomChats.loadCandidates() }, enabled = fresh) { Text(stringResource(R.string.chat_new)) }
+                        IconButton(onClick = { createRoom = true; model.roomChats.loadCandidates() }, enabled = fresh, modifier = Modifier.testTag("new-room")) { CompanionIcon(CompanionSymbol.Group, stringResource(R.string.chat_new)) }
                 }
                 if (model.connection != null) IconButton(onClick = { more = true }, modifier = Modifier.size(48.dp)) { CompanionIcon(CompanionSymbol.MoreVertical, stringResource(R.string.cd_more)) } },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background, scrolledContainerColor = MaterialTheme.colorScheme.background),
         )
     }, bottomBar = {
         if (model.connection != null && !inConversation && !wide)
-            CompanionNavigation(model, homeTab, requests.size, false, ::goTab)
+            CompanionNavigation(model, selectedTab, requests.size, false, ::goTab)
     }, snackbarHost = { SnackbarHost(snackbar) }, floatingActionButton = {
-        if (model.connection != null && !inConversation && homeTab != Routes.AUTHORIZATIONS && total > 0) {
-            Button(onClick = {
-                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                if (requests.isNotEmpty()) { goTab(Routes.AUTHORIZATIONS); review = requests.first() } else model.openSession(needsYou.first().getString("id"))
-            },
-                modifier = Modifier.heightIn(min = 56.dp).testTag("review-next"), shape = RoundedCornerShape(18.dp), enabled = !model.busy,
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp)) {
-                CompanionIcon(CompanionSymbol.Shield)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.main_review_next, total), style = MaterialTheme.typography.labelLarge)
+        // "+" starts an agent; waiting replies and approvals are already at the top of the inbox.
+        if (model.connection != null && !inConversation && route == Routes.CHATS && !model.roomChats.history && model.canSpawn() && model.hosts.isNotEmpty()) {
+            FloatingActionButton(onClick = { haptic.performHapticFeedback(HapticFeedbackType.ContextClick); startAgent = true },
+                modifier = Modifier.testTag("start-agent"), shape = RoundedCornerShape(18.dp),
+                containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                CompanionIcon(CompanionSymbol.Add, stringResource(R.string.inbox_start_agent))
             }
         }
     }) { padding ->
         Row(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
-            if (wide && model.connection != null) CompanionNavigation(model, homeTab, requests.size, true, ::goTab)
+            if (wide && model.connection != null) CompanionNavigation(model, selectedTab, requests.size, true, ::goTab)
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 // Connection state is only shown when it is not healthy; the details live in the More sheet.
@@ -255,9 +267,10 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
                 else NavHost(navController, startDestination = Routes.CHATS, modifier = Modifier.weight(1f).fillMaxWidth(),
                     enterTransition = { fadeIn(tween(180)) }, exitTransition = { fadeOut(tween(120)) },
                     popEnterTransition = { fadeIn(tween(180)) }, popExitTransition = { fadeOut(tween(120)) }) {
-                    composable(Routes.CHATS) { ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = false, overviewState = overviewState) }
+                    val inboxApprovals = if (model.can("hosts.activate_insecure")) requests else emptyList()
+                    composable(Routes.CHATS) { ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = false, overviewState = overviewState, inboxApprovals) { review = it } }
                     composable(Routes.CHAT_PATTERN, arguments = listOf(navArgument("key") { type = NavType.StringType })) {
-                        ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = true, overviewState = overviewState)
+                        ChatsRoute(model, current, agents, fresh, activityClock, wide, onChat = true, overviewState = overviewState, inboxApprovals) { review = it }
                     }
                     composable(Routes.SEARCH) {
                         if (model.roomChats.protocols.search && model.can("agent_messaging.reveal_content")) SearchScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
@@ -266,7 +279,8 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
                         if (model.can("admin.read") && model.can("auth.read_metadata")) QuotasScreen(model) else NowScreen(model, agents, fresh, activityClock)
                     }
                     composable(Routes.HOSTS) {
-                        if (model.can("admin.read")) HostsScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
+                        if (model.can("admin.read")) HostsScreen(model, fresh, requests.size, if (model.can("hosts.activate_insecure")) { { navController.navigate(Routes.AUTHORIZATIONS) { launchSingleTop = true } } } else null)
+                        else NowScreen(model, agents, fresh, activityClock)
                     }
                     composable(Routes.TOOLS) {
                         if (model.tools.sections().isNotEmpty()) ToolsScreen(model, fresh) else NowScreen(model, agents, fresh, activityClock)
@@ -280,6 +294,7 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
     }
     review?.let { request -> ApprovalSheet(model, request, fresh, clock, onDismiss = { review = null }) }
     if (createRoom) NewRoomSheet(model) { createRoom = false }
+    if (startAgent) StartAgentFlow(model) { startAgent = false }
     if (more) MoreSheet(model, onTools = { more = false; goTab(Routes.TOOLS) }, onDismiss = { more = false })
 }
 
@@ -287,8 +302,9 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
  * The Chats destination. Narrow windows show either the list or the open chat; wide windows keep the
  * list on the left and the open chat (or a hint) on the right.
  */
-@Composable private fun ChatsRoute(model: CompanionModel, current: JSONObject?, agents: List<JSONObject>, fresh: Boolean, activityClock: Long, wide: Boolean, onChat: Boolean, overviewState: SaveableStateHolder) {
-    @Composable fun list() = overviewState.SaveableStateProvider(model.connection?.deviceId ?: "") { NowScreen(model, agents, fresh, activityClock) }
+@Composable private fun ChatsRoute(model: CompanionModel, current: JSONObject?, agents: List<JSONObject>, fresh: Boolean, activityClock: Long, wide: Boolean, onChat: Boolean, overviewState: SaveableStateHolder,
+    approvals: List<JSONObject>, onReview: (JSONObject) -> Unit) {
+    @Composable fun list() = overviewState.SaveableStateProvider(model.connection?.deviceId ?: "") { NowScreen(model, agents, fresh, activityClock, approvals, onReview) }
     @Composable fun detail() {
         when {
             model.roomChats.selected != null -> ChatWidth { overviewState.SaveableStateProvider("room:${model.roomChats.selected}") { RoomScreen(model, fresh) } }
@@ -386,35 +402,44 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
     val alertsLabel = stringResource(R.string.more_alerts)
     val notifyLabel = stringResource(R.string.more_notify_replies)
     ModalBottomSheet(onDismissRequest = onDismiss, shape = SheetShape, dragHandle = { BottomSheetDefaults.DragHandle() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(stringResource(R.string.more_title), style = MaterialTheme.typography.titleLarge)
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = Space.m)) {
             // Re-evaluate freshness while this sheet is open, including a silent server timeout.
             var connectionClock by remember { mutableLongStateOf(0L) }
             LaunchedEffect(Unit) { while (true) { connectionClock++; kotlinx.coroutines.delay(1000) } }
+            val itemColors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
+            val server = model.connection?.server?.removePrefix("https://").orEmpty()
             ListItem(
                 headlineContent = { key(connectionClock) { ServerConnectionStatus(model.fresh(), model.connecting) } },
-                supportingContent = { Text(model.connection?.server?.removePrefix("https://").orEmpty()) },
-                leadingContent = { CompanionIcon(CompanionSymbol.Computer) },
-                trailingContent = {
-                    TextButton(onClick = { model.refreshNow(); onDismiss() }) { Text(stringResource(R.string.action_refresh)) }
-                },
+                supportingContent = { Text(server, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingContent = { key(connectionClock) { MenuGlyph(CompanionSymbol.Hosts, if (model.fresh()) StatusRole.Ready else StatusRole.Offline) } },
+                trailingContent = { IconButton(onClick = { model.refreshNow(); onDismiss() }) { CompanionIcon(CompanionSymbol.Refresh, stringResource(R.string.action_refresh)) } },
+                colors = itemColors,
             )
+            HorizontalDivider(Modifier.padding(vertical = Space.xs), color = MaterialTheme.colorScheme.outlineVariant)
             ListItem(
                 headlineContent = { Text(alertsLabel) },
                 supportingContent = { Text(stringResource(pushStatus)) },
+                leadingContent = { MenuGlyph(CompanionSymbol.Notifications) },
                 trailingContent = { Switch(checked = model.notifications, onCheckedChange = model::updateNotifications,
                     enabled = !model.busy, modifier = Modifier.semantics { contentDescription = alertsLabel }) },
+                colors = itemColors,
             )
             model.selected?.let { id ->
-                ListItem(headlineContent = { Text(notifyLabel) }, trailingContent = {
+                ListItem(headlineContent = { Text(notifyLabel) }, leadingContent = { MenuGlyph(CompanionSymbol.Chat) }, trailingContent = {
                     Switch(checked = id in model.follows, onCheckedChange = { model.follow(id, it) }, enabled = !model.busy,
                         modifier = Modifier.semantics { contentDescription = notifyLabel })
-                })
+                }, colors = itemColors)
             }
             if (model.tools.sections().isNotEmpty()) ToolsEntry(onTools)
-            if (stoppable != null) OutlinedButton(onClick = { stop = true }, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("stop-session")) { Text(stringResource(R.string.stop_session)) }
-            TextButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.more_android_settings)) }
-            TextButton(onClick = { signOut = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.action_sign_out), color = MaterialTheme.colorScheme.error) }
+            if (stoppable != null) ListItem(headlineContent = { Text(stringResource(R.string.stop_session), color = MaterialTheme.colorScheme.error) },
+                leadingContent = { MenuGlyph(CompanionSymbol.Close, StatusRole.Error) },
+                modifier = Modifier.clickable(enabled = !model.busy) { stop = true }.testTag("stop-session"), colors = itemColors)
+            ListItem(headlineContent = { Text(stringResource(R.string.more_android_settings)) }, leadingContent = { MenuGlyph(CompanionSymbol.Forward) },
+                modifier = Modifier.clickable { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) },
+                colors = itemColors)
+            HorizontalDivider(Modifier.padding(vertical = Space.xs), color = MaterialTheme.colorScheme.outlineVariant)
+            ListItem(headlineContent = { Text(stringResource(R.string.action_sign_out), color = MaterialTheme.colorScheme.error) }, leadingContent = { MenuGlyph(CompanionSymbol.SignOut, StatusRole.Error) },
+                modifier = Modifier.clickable { signOut = true }, colors = itemColors)
         }
     }
     if (stop && stoppable != null) AlertDialog(onDismissRequest = { stop = false }, title = { Text(stringResource(R.string.stop_session_title)) }, text = { Text(stringResource(R.string.stop_session_body)) },
@@ -422,6 +447,11 @@ private data class Destination(val route: String, val label: Int, val symbol: Co
         dismissButton = { TextButton(onClick = { stop = false }) { Text(stringResource(R.string.action_cancel)) } })
     if (signOut) AlertDialog(onDismissRequest = { signOut = false }, title = { Text(stringResource(R.string.sign_out_title)) }, text = { Text(stringResource(R.string.sign_out_body)) },
         confirmButton = { TextButton(onClick = { model.logout(); onDismiss() }) { Text(stringResource(R.string.action_sign_out)) } }, dismissButton = { TextButton(onClick = { signOut = false }) { Text(stringResource(R.string.action_cancel)) } })
+}
+
+@Composable internal fun MenuGlyph(symbol: CompanionSymbol, role: StatusRole? = null) {
+    val tint = when (role) { null -> MaterialTheme.colorScheme.onSurfaceVariant; StatusRole.Error -> MaterialTheme.colorScheme.error; else -> role.color() }
+    CompanionIcon(symbol, tint = tint)
 }
 
 @Composable private fun PairScreen(model: CompanionModel) {

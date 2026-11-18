@@ -172,6 +172,10 @@ import org.json.JSONObject
                 }, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
             }
         }
+        if (writable && model.sendWillWait(sessionId)) Row(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).testTag("queue-hint"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CompanionIcon(CompanionSymbol.Waiting, tint = StatusRole.Waiting.color(), modifier = Modifier.size(16.dp))
+            Text(stringResource(R.string.chat_queue_hint, agentName), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (!writable) Text(
             if (!fresh) stringResource(if (model.connecting) R.string.chat_connecting_draft else R.string.chat_reconnecting_draft) else agent?.takeIf { it.optBoolean("daemon_session") }?.let { remoteStatus(t, it.optString("remote_status")) } ?: stringResource(R.string.chat_agent_unreachable),
             Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
@@ -241,6 +245,10 @@ import org.json.JSONObject
             add(BubbleAction(copyLabel) { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(copyLabel, text))) } })
             add(BubbleAction(selectLabel) { selecting = true })
         }
+        // A message the agent has not picked up yet can be withdrawn (server queue protocol only).
+        val messageId = payload.optString("message_id").takeIf { it.isNotBlank() && it != "null" }
+        if (item.own && messageId != null && model.tools.flags.portalQueue && payload.optString("delivery_status") == "queued" &&
+            delivery == stringResource(R.string.delivery_waiting)) add(BubbleAction(stringResource(R.string.chat_queue_cancel), CompanionSymbol.Close) { model.cancelQueued(session, messageId) })
     }
     ChatBubble(item, "bubble:$cursor", colors, actions, reply, highlighted) {
         (message.replyTo as? MessageKey.PortalEvent)?.let { target ->

@@ -240,6 +240,8 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
         reactions_protocol: 1,
         pins_protocol: 1,
         search_protocol: 1,
+        // Messages to a connected-but-busy agent wait (`waiting_for_receiver`) and can be canceled.
+        portal_queue_protocol: 1,
         // The operator's room actor key: room events with this `actor` are the operator's own.
         actor: `admin:${user.id}`,
         name: user.name,
@@ -375,6 +377,9 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           `admin:${user.id}`,
           { deviceId: device.id, content: body.content, metadata: body.metadata, author: user.name },
         );
+        // Daemon turns do not use the portal receiver queue.
+        if (result && typeof result === 'object' && !Array.isArray(result) && !('waiting_for_receiver' in result))
+          result = { ...result, waiting_for_receiver: false };
       } else {
         result = await portal.enqueueMessage(actor(user), {
           sessionId: linked?.sessionId ?? id(req),
@@ -388,6 +393,14 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       wsPublisher.publish('companion.devices.changed', {});
       reply.code(202);
       return result;
+    });
+    app.post('/companion/v1/agents/:id/messages/:messageId/cancel', async (req) => {
+      const { user } = await auth(req, 'agent_portal.manage');
+      z.object({}).passthrough().parse(req.body ?? {});
+      const params = z.object({ id: z.string().uuid(), messageId: z.string().uuid() }).parse(req.params);
+      await requirePortal();
+      const linked = await remote.find(params.id, user.id);
+      return portal.cancelMessage(actor(user), { sessionId: linked?.sessionId ?? params.id, messageId: params.messageId });
     });
     app.post('/companion/v1/agents/:id/prompts/:promptId/answer', async (req, reply) => {
       const { device, user } = await auth(req, 'agent_portal.manage');

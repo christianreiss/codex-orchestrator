@@ -1,5 +1,36 @@
 # Android companion
 
+## Redesign and message queue (Android 0.10.0)
+
+Visual and UX rework against the new native standard [`android-design.md`](android-design.md).
+
+- **Theme:** fixed brand palette in light and dark (no wallpaper colours), one set of status
+  roles (`StatusRole`) with colour and word, Material Symbols instead of hand-drawn icons
+  (`material-icons-extended` 1.7.8, shrunk by R8 in release), and matching splash/launcher colours.
+- **Shell:** tabs Chats · Hosts · Quotas. Approvals moved under Hosts ("Access approvals",
+  route `authorizations` unchanged, notifications still open it) and appear at the top of the
+  inbox. The "Review next" button is gone. ⋮ opens Settings. A "+" button starts an agent:
+  host picker, then the existing start sheet.
+- **Inbox:** the filter chips are gone. Sections are "Needs you" (approvals, questions, urgent
+  notices) and "Active" (agents and rooms, newest first). Rows have at most two lines.
+  **Offline and ended agents are no longer listed**; the "Recent" section was removed. Their
+  data stays in the agent snapshot, so message search, pushes and deep links still open them
+  read-only.
+- **Chat:** avatar, name and one status line in the app bar; borderless agent bubbles; a pill
+  composer.
+- **Queue:** with `portal_queue_protocol` in `/companion/v1/me`, a connected agent that is not
+  taking messages (`isQueueable`: listed, `relay_ready` false, no receiver failure, not a remote
+  daemon session) keeps an enabled composer with a "waits" hint. The send goes through the
+  normal outbox; the server holds it until the receiver claims it. Waiting messages show "Waiting
+  for the agent" and offer "Don't send" (`POST /companion/v1/agents/:id/messages/:messageId/cancel`).
+  Against an older server the flag is absent and sending keeps requiring a ready receiver.
+- **Texts:** infrastructure jargon replaced in en and de (table in `android-design.md`); raw
+  quota states and tool IDs are no longer shown.
+
+Changed androidTest expectations: tabs (no `tab-authorizations`; approvals via
+`open-authorizations` on Hosts), no `chat-filter:*` and `review-next`, connection texts, status
+texts and the "New" group button (now an icon with that description).
+
 ## Reactions, pins and search (Android 0.9.0)
 
 Requires the R5 server (migration 0119); gated on `reactions_protocol`,
@@ -695,7 +726,7 @@ text. Pending bubbles survive conversation switches in the running app and do
 not advance server history or unread cursors.
 
 Live host requests and reachable agents needing a reply remain actionable through
-**Review next**. Sending requires fresh server-reported receiver readiness;
+**Review next**. Sending requires fresh server-reported receiver readiness (from 0.10.0 with `portal_queue_protocol`, a connected agent that is not ready also accepts messages, which wait on the server);
 offline and ended chats remain readable. Session name, host, working
 directory, and engine identify each conversation; **Review next** opens the next decision directly.
 Each row also shows the agent's latest short summary (one sentence, at most

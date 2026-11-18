@@ -25,6 +25,8 @@ internal data class ToolsFlags(
     val remoteStop: Boolean = false,
     val permissionMode: Boolean = false,
     val quotaPush: Boolean = false,
+    /** Server accepts messages for connected agents that are not taking messages yet and holds them. */
+    val portalQueue: Boolean = false,
 ) {
     companion object {
         val NONE = ToolsFlags()
@@ -37,6 +39,7 @@ internal data class ToolsFlags(
             remoteStop = me.optInt("remote_stop_protocol", 0) >= 1,
             permissionMode = me.optInt("permission_mode_protocol", 0) >= 1,
             quotaPush = me.optInt("quota_push_protocol", 0) >= 1,
+            portalQueue = me.optInt("portal_queue_protocol", 0) >= 1,
         )
     }
 

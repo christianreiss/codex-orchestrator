@@ -11,8 +11,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -39,6 +40,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
@@ -63,8 +65,9 @@ internal data class BubbleColors(val container: Color, val content: Color, val s
             BubbleColors(scheme.primary, scheme.onPrimary, scheme.onPrimary.copy(alpha = .86f),
                 MarkdownColors(scheme.onPrimary, scheme.onPrimary.copy(alpha = .12f), scheme.onPrimary), null)
         }
-        else -> BubbleColors(if (dark) scheme.surfaceContainerHigh else scheme.surface, scheme.onSurface, scheme.onSurfaceVariant,
-            defaultMarkdownColors(), if (dark) null else BorderStroke(1.dp, scheme.outlineVariant))
+        // Agent bubbles are a quiet filled surface; no outline, so the own blue bubble carries the contrast.
+        else -> BubbleColors(if (dark) scheme.surfaceContainerHigh else scheme.surfaceContainerHighest.copy(alpha = .7f).compositeOver(scheme.background), scheme.onSurface, scheme.onSurfaceVariant,
+            defaultMarkdownColors(), null)
     }
 }
 
@@ -134,7 +137,7 @@ internal fun LazyListScope.timelineItems(
 @Composable internal fun LifecycleRow(line: StatusLine) {
     val color = when (line.tone) {
         StatusLine.Tone.Failure -> MaterialTheme.colorScheme.error
-        StatusLine.Tone.Success -> Color(0xFF2E7D4F).takeIf { MaterialTheme.colorScheme.background.luminance() > .5f } ?: Color(0xFF7BD29A)
+        StatusLine.Tone.Success -> StatusRole.Ready.color()
         StatusLine.Tone.Neutral -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -201,9 +204,9 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
     val own = item.own
     val importance = if (item.message.severity != null) stringResource(R.string.severity_important) else null
     val shape = RoundedCornerShape(
-        topStart = if (!own && item.startsGroup) 4.dp else 16.dp,
-        topEnd = if (own && item.startsGroup) 4.dp else 16.dp,
-        bottomEnd = 16.dp, bottomStart = 16.dp,
+        topStart = if (!own && item.startsGroup) 6.dp else 20.dp,
+        topEnd = if (own && item.startsGroup) 6.dp else 20.dp,
+        bottomEnd = 20.dp, bottomStart = 20.dp,
     )
     var menu by remember(item.key) { mutableStateOf(false) }
     val actionsLabel = stringResource(R.string.chat_message_actions)
@@ -219,14 +222,16 @@ internal data class BubbleAction(val label: String, val icon: CompanionSymbol? =
                     Box(Modifier.widthIn(max = bubbleWidth)) {
                         Surface(
                             modifier = Modifier.testTag(tag)
-                                .combinedClickable(onClick = {}, onLongClickLabel = actionsLabel, onLongClick = { if (actions.isNotEmpty()) menu = true })
+                                // Long press only: a bubble has no tap action, so none is advertised to accessibility services.
+                                .pointerInput(actions.isNotEmpty()) { detectTapGestures(onLongPress = { if (actions.isNotEmpty()) menu = true }) }
                                 .semantics {
+                                    if (actions.isNotEmpty()) onLongClick(actionsLabel) { menu = true; true }
                                     importance?.let { stateDescription = it }
                                     customActions = actions.map { action -> CustomAccessibilityAction(action.label) { action.run(); true } }
                                 },
                             shape = shape, color = colors.container, contentColor = colors.content,
                             border = if (highlighted) BorderStroke(2.dp, MaterialTheme.colorScheme.tertiary) else colors.border,
-                        ) { Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(3.dp), content = content) }
+                        ) { Column(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(3.dp), content = content) }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             actions.forEach { action ->
                                 DropdownMenuItem(text = { Text(action.label) }, onClick = { menu = false; action.run() },
