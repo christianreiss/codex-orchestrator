@@ -145,9 +145,10 @@ describe('renderModelTierGuidance', () => {
     expect(text).not.toContain('Overclassed');
     // An explicit operator instruction outranks fleet policy; the stop must say so.
     expect(text).toContain('explicit operator override acknowledging this mismatch');
-    expect(text).toContain('generic `GPT-6` does not');
+    expect(text).toContain('Call `agent_self` and use `session_model.id`');
+    expect(text).toContain('The host model is only a default.');
     expect(text).toContain('selecting a model or assigning the task is not an override');
-    expect(text).toContain('never abort on a guess');
+    expect(text).toContain('state that the session model is unknown and proceed');
   });
 
   it.each([[ENGINE_CODEX, 'OpenAI'], [ENGINE_CLAUDE, 'Anthropic'], [ENGINE_GROK, 'xAI'], [ENGINE_KIMI, 'MoonshotAI']])(

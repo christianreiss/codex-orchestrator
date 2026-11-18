@@ -19,6 +19,7 @@ import (
 type nativeQueue struct {
 	mu               sync.Mutex
 	conn             *websocket.Conn
+	deadline         time.Time
 	sequence         int
 	lastWatchdogTurn string
 	// lastCompletedTurn is the newest completed turn seen; a change means the
@@ -28,11 +29,21 @@ type nativeQueue struct {
 }
 
 func openNativeQueue(ctx context.Context, socket string) (*nativeQueue, error) {
+	return openNativeQueueUntil(ctx, socket, time.Time{})
+}
+
+func openNativeQueueUntil(ctx context.Context, socket string, deadline time.Time) (*nativeQueue, error) {
+	if !deadline.IsZero() {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		defer cancel()
+	}
 	raw, err := (&net.Dialer{Timeout: 8 * time.Second}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return nil, err
 	}
-	_ = raw.SetDeadline(time.Now().Add(8 * time.Second))
+	q := &nativeQueue{deadline: deadline}
+	_ = raw.SetDeadline(q.rpcDeadline())
 	cfg, err := websocket.NewConfig("ws://localhost/", "http://localhost/")
 	if err != nil {
 		raw.Close()
@@ -44,7 +55,7 @@ func openNativeQueue(ctx context.Context, socket string) (*nativeQueue, error) {
 		return nil, err
 	}
 	conn.MaxPayloadBytes = 8 << 20
-	q := &nativeQueue{conn: conn}
+	q.conn = conn
 	var initialized map[string]any
 	if err = q.call("initialize", map[string]any{"clientInfo": map[string]any{"name": "cxx-receiver", "version": "1"}, "capabilities": map[string]any{"experimentalApi": true}}, &initialized); err != nil {
 		q.close()
@@ -58,6 +69,14 @@ func openNativeQueue(ctx context.Context, socket string) (*nativeQueue, error) {
 }
 func (q *nativeQueue) close() { _ = q.conn.Close() }
 
+func (q *nativeQueue) rpcDeadline() time.Time {
+	limit := time.Now().Add(8 * time.Second)
+	if !q.deadline.IsZero() && q.deadline.Before(limit) {
+		return q.deadline
+	}
+	return limit
+}
+
 func (q *nativeQueue) setSessionName(id, name string) error {
 	if q.thread == "" || q.thread != id {
 		return errors.New("native naming requires the bound thread")
@@ -68,7 +87,7 @@ func (q *nativeQueue) setSessionName(id, name string) error {
 func (q *nativeQueue) call(method string, params any, result any) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	_ = q.conn.SetDeadline(time.Now().Add(8 * time.Second))
+	_ = q.conn.SetDeadline(q.rpcDeadline())
 	q.sequence++
 	if err := websocket.JSON.Send(q.conn, map[string]any{"id": q.sequence, "method": method, "params": params}); err != nil {
 		return err
@@ -219,10 +238,7 @@ type nativeTurn struct {
 // message. Codex 0.163.0 also returns -32600 with a specific materialization
 // diagnostic before the first user message, including on receiver startup.
 func (q *nativeQueue) latestTurn() (*nativeTurn, error) {
-	var page struct {
-		Data []nativeTurn `json:"data"`
-	}
-	err := q.call("thread/turns/list", map[string]any{"threadId": q.thread, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded"}, &page)
+	turn, err := q.latestTurnPage()
 	var rpc *nativeRPCError
 	if errors.As(err, &rpc) && rpc.code == -32600 &&
 		rpc.message == "thread "+q.thread+" is not materialized yet; thread/turns/list is unavailable before first user message" {
@@ -238,14 +254,21 @@ func (q *nativeQueue) latestTurn() (*nativeTurn, error) {
 			} `json:"thread"`
 		}
 		err = q.call("thread/read", map[string]any{"threadId": q.thread, "includeTurns": true}, &read)
-		page.Data = nil
 		if n := len(read.Thread.Turns); err == nil && n > 0 {
-			page.Data = read.Thread.Turns[n-1:]
+			turn = &read.Thread.Turns[n-1]
 		}
 	}
 	if errors.As(err, &rpc) && rpc.code == -32601 {
 		return nil, nil
 	}
+	return turn, err
+}
+
+func (q *nativeQueue) latestTurnPage() (*nativeTurn, error) {
+	var page struct {
+		Data []nativeTurn `json:"data"`
+	}
+	err := q.call("thread/turns/list", map[string]any{"threadId": q.thread, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded"}, &page)
 	if err != nil || len(page.Data) == 0 {
 		return nil, err
 	}

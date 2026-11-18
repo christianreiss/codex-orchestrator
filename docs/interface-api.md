@@ -2789,6 +2789,8 @@ The response contains `identity_version: 1`, `name`, `uuid`, `address`,
 `session_id`, nullable `native_session_id`, `engine`, `binding_generation`,
 `previous_names` for this address and nullable `task_title` for the current binding.
 MCP exposes the same read-only lookup as `agent_self` without arguments.
+Since cxx 0.9.186, the local Codex MCP adapter adds nullable `session_model`
+from the bound native thread. See the [Codex model observation contract](interface-cdx.md#confirmed-launch-identity-cxx-0937).
 Ended, expired, disabled or stale bindings cannot read another launch's identity.
 Update the API before installing wrapper 0.9.37; a missing endpoint, API outage,
 empty name or mismatched confirmation refuses the native launch. Signed

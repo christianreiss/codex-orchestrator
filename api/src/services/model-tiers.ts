@@ -142,6 +142,12 @@ export function renderModelTierGuidance(table: readonly ModelTierRow[], configur
     : configured.model !== null
       ? `This host's configured ${configured.engine} model is \`${configured.model}\`, which has no fleet tier.`
       : `No ${configured.engine} model is pinned for this host.`;
+  const sessionModel = configured.engine === ENGINE_CODEX
+    ? 'Call `agent_self` and use `session_model.id` as the native model of the bound Codex session.\n'
+      + 'Refresh after resume, a model change, or when asked which model is running. If the field is null\n'
+      + 'or absent, state that the session model is unknown and proceed. The host model is only a default.'
+    : 'A concrete session model overrides config; generic `GPT-6` does not. If genuinely unknown,\n'
+      + 'state it and proceed; never abort on a guess.';
   // Task definitions survive even when this host has no model at that tier.
   const rows = ([1, 2, 3, 4, 5] as const).map((tier) => {
     const models = table.find((row) => row.tier === tier)?.models ?? [];
@@ -150,8 +156,7 @@ export function renderModelTierGuidance(table: readonly ModelTierRow[], configur
   return `## Model Class Check
 
 Preflight before task-specific scouting, planning or execution. ${identity}
-A concrete session model overrides config; generic \`GPT-6\` does not. If genuinely unknown,
-state it and proceed; never abort on a guess.
+${sessionModel}
 
 Greeting: in a new session's first reply (not after resume or in delivered work turns),
 open with one line in the operator's language, e.g.

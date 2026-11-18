@@ -581,7 +581,7 @@ func toolCatalogJSON() []byte {
 		tool("advisor_close", "Confirm you are done with an advisor and close it. Advisors also close after their idle timeout.", map[string]any{"advisor_session_id": map[string]any{"type": "string"}}, []string{"advisor_session_id"}),
 		tool("advisor_status", "List your advisors with state and latest verdict, or read one by advisor_session_id; also reports availability and the engines/models you may pick.", map[string]any{"advisor_session_id": map[string]any{"type": "string"}}, nil),
 		tool("agent_work_state", "Read your supervisor state with empty arguments. To report, send state (working, waiting_agent, waiting_user, completed or canceled) for your current authorized task plus task_key or message_id: task_key is a stable name for this task (keep it across recovery, new key for new work); when omitted it derives from message_id (the accepted work message, as message:<id>) and a wait without task_key continues the current task. A wait needs waiting_for or message_id. Register dependencies before waiting and notify dependents using original work IDs. Does not authorize new work.", map[string]any{"task_key": map[string]any{"type": "string", "maxLength": 255, "description": "Stable name of the current task. Optional when message_id is given."}, "state": map[string]any{"type": "string", "enum": []string{"working", "waiting_agent", "waiting_user", "completed", "canceled"}, "description": "Required when reporting; omit all arguments to read state."}, "reason": map[string]any{"type": "string", "maxLength": 1000}, "waiting_for": map[string]any{"type": "string", "description": "agent:UUID awaited by waiting_agent."}, "message_id": map[string]any{"type": "string", "description": "Accepted work message UUID; derives task_key when that is omitted."}, "coordinator": map[string]any{"type": "string"}, "version": map[string]any{"type": "integer", "minimum": 1}}, nil),
-		tool("agent_self", "Read your authenticated current launch name, agent UUID, native session and binding. Call on your first turn before your first response, and after resume or recovery; environment hints and old transcript names may be stale.", map[string]any{}, nil),
+		tool("agent_self", "Read your authenticated current launch name, agent UUID, native session and binding. For Codex, session_model reports the bound native turn or thread model when available. Call before your first response, after resume or recovery, and again when checking the current model.", map[string]any{}, nil),
 		tool("agent_reboot", "Prepare one planned Linux host reboot and resume this exact native session once. Requires operator authorization, root/passwordless sudo and a continuation checkpoint. Never rearm after resume. Rejects competing recovery.", map[string]any{"request_id": map[string]any{"type": "string"}, "reason": map[string]any{"type": "string"}, "continuation": map[string]any{"type": "string"}}, []string{"request_id", "reason", "continuation"}),
 		tool("agent_reboot_status", "Inspect the current session planned reboot handoff.", map[string]any{}, nil),
 		tool("watchdog_get", "Inspect the watchdog for your current task; server keep-alives do not wake the model.", map[string]any{"id": map[string]any{"type": "string"}}, nil),
@@ -1104,8 +1104,13 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 		err := client.post(ctx, "work-state", args, &out)
 		return out, err
 	case "agent_self":
-		err := client.post(ctx, "self", map[string]any{}, &out)
-		return out, err
+		if err := client.post(ctx, "self", map[string]any{}, &out); err != nil {
+			return nil, err
+		}
+		if stringArg(out, "engine") == "codex" {
+			out["session_model"] = observeCodexSessionModel(ctx, os.Getenv("CXX_CODEX_SOCKET"), stringArg(out, "native_session_id"))
+		}
+		return out, nil
 	case "agent_translate":
 		if err := client.post(ctx, "translate", map[string]any{"value": stringArg(args, "value")}, &out); err != nil {
 			return nil, err

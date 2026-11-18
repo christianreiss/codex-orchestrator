@@ -1,5 +1,7 @@
 # 2026-11-18
 
+- **cxx 0.9.186 Codex model identity:** `agent_self` reports the model and reasoning effort of the bound native Codex turn or thread. The Model Class Check uses this value for the greeting and task tier. It treats missing observations as unknown.
+
 - **cxx 0.9.185 unified boot card:** `cdx`, `clx`, `cgx` and `ckx` start with one boot card instead of loose lines around it. The leased account, confirmed session name, model-policy rewrite (`gpt-6.2-sol/medium (policy: gpt-6.1-sol → gpt-6.2-sol)`), host daemon and communicator state now render inside the card; the card previously showed the pre-policy model. The communicator attachment matrix and systemctl output remain available with `--debug`; daemon or communicator problems raise the card to ATTENTION.
 
 - **cxx 0.9.184 emergency launch:** run `cdx emergency`, `clx emergency`, `cgx emergency` or `ckx emergency` to start the native CLI directly from a secure host during an Orchestrator outage. Native arguments follow the subcommand, optionally after `--`.
