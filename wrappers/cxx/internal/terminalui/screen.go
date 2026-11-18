@@ -45,6 +45,48 @@ type ScreenInput struct {
 	ResultLabel string
 	ResultTone  Tone
 	Theme       string
+
+	Launch LaunchInfo
+}
+
+// LaunchInfo carries the launch facts that used to print as loose lines around
+// the card (provider account, fleet session name, model policy rewrite, host
+// daemon and communicator state). Every field is optional.
+type LaunchInfo struct {
+	Account      string
+	Session      string
+	PolicyFrom   string // model before the fleet policy rewrite; shown only when it differs
+	Communicator string
+	Dots         []HealthDot
+	Problems     []string // warning lines shown above the result; escalate an OK card to warning
+}
+
+// AddDot appends a launch health dot; an empty name is ignored.
+func (l *LaunchInfo) AddDot(name string, tone Tone, updated bool) {
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	l.Dots = append(l.Dots, HealthDot{Name: name, Tone: tone, Updated: updated})
+}
+
+// AddProblem records a warning shown inside the card.
+func (l *LaunchInfo) AddProblem(text string) {
+	if text = strings.TrimSpace(text); text != "" {
+		l.Problems = append(l.Problems, text)
+	}
+}
+
+// applyLaunch folds launch dots into the health row and escalates an OK
+// verdict when a launch component reported a problem.
+func applyLaunch(in ScreenInput) ScreenInput {
+	if len(in.Launch.Dots) > 0 {
+		in.Dots = append(append([]HealthDot(nil), in.Dots...), in.Launch.Dots...)
+	}
+	if len(in.Launch.Problems) > 0 && (in.ResultTone == "" || in.ResultTone == ToneOK) {
+		// The success label would contradict the problem lines below it.
+		in.ResultTone, in.ResultLabel = ToneWarn, ""
+	}
+	return in
 }
 
 type SessionRow struct {
@@ -60,7 +102,7 @@ func PrintBootScreen(w io.Writer, in ScreenInput) {
 }
 
 func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
-	in = normalizeScreen(in)
+	in = applyLaunch(normalizeScreen(in))
 	caps = engineCaps(caps, in.Prefix)
 	if !caps.IsTTY || caps.Dumb || caps.Columns < minRichColumns || in.SkipBanner {
 		printMinimalScreen(w, in, caps)
@@ -88,15 +130,30 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 
 	c.top()
 	c.line(joinSides(brand, outcome, c.inner, caps))
-	c.line(caps.Palette.Dim + "CODEX ORCHESTRATOR" + reset)
+	subtitle := caps.Palette.Dim + "CODEX ORCHESTRATOR" + reset
+	if session := CleanInline(in.Launch.Session); session != "" {
+		c.line(joinSides(subtitle, caps.Palette.Dim+"session "+reset+caps.Palette.Bold+session+reset, c.inner, caps))
+	} else {
+		c.line(subtitle)
+	}
 	c.line("")
 	model := CleanInline(in.Model)
 	if model != "" {
 		if in.Effort != "" {
 			model += "/" + CleanInline(in.Effort)
 		}
-		for _, line := range WrapText(model, c.inner) {
-			c.line(caps.Palette.Bold + line + reset)
+		lines := WrapText(model, c.inner)
+		policy := policyNote(in)
+		for i, line := range lines {
+			text := caps.Palette.Bold + line + reset
+			if i == len(lines)-1 && policy != "" && VisibleWidth(line)+2+VisibleWidth(policy) <= c.inner {
+				text += "  " + caps.Palette.Dim + policy + reset
+				policy = ""
+			}
+			c.line(text)
+		}
+		if policy != "" {
+			renderToneText(c, ToneDim, policy)
 		}
 	} else if in.Effort != "" {
 		c.line(caps.Palette.Bold + "effort " + CleanInline(in.Effort) + reset)
@@ -191,14 +248,28 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 			c.line(line)
 		}
 	}
+	if comm := CleanInline(in.Launch.Communicator); comm != "" {
+		if len(in.SessionRows) == 0 {
+			c.divider("activity")
+		}
+		for _, line := range WrapText("communicator "+comm, c.inner) {
+			c.line(caps.Palette.Dim + line + reset)
+		}
+	}
 
 	if in.BypassPermissions {
 		c.divider("security")
 		renderToneText(c, ToneWarn, "Bypass permissions active for this run.")
 	}
 
-	if !concurrentResultAlreadyShown(in) {
+	showResult := !concurrentResultAlreadyShown(in)
+	if showResult || len(in.Launch.Problems) > 0 {
 		c.divider("")
+	}
+	for _, problem := range in.Launch.Problems {
+		renderToneTextLimited(c, ToneWarn, problem, 2)
+	}
+	if showResult && (strings.TrimSpace(in.ResultLabel) != "" || len(in.Launch.Problems) == 0) {
 		renderToneTextLimited(c, resultTone, in.ResultLabel, 3)
 	}
 	c.bottom()
@@ -215,6 +286,14 @@ func concurrentResultAlreadyShown(in ScreenInput) bool {
 	return CleanInline(in.ResultLabel) == CleanInline(note)
 }
 
+func policyNote(in ScreenInput) string {
+	from := CleanInline(in.Launch.PolicyFrom)
+	if from == "" || from == CleanInline(in.Model) {
+		return ""
+	}
+	return "(policy: " + from + " → " + CleanInline(in.Model) + ")"
+}
+
 func renderContext(in ScreenInput) []string {
 	parts := []string{}
 	if in.HostFQDN != "" {
@@ -227,6 +306,9 @@ func renderContext(in ScreenInput) []string {
 	}
 	if in.Lane != "" {
 		parts = append(parts, CleanInline(in.Lane)+" lane")
+	}
+	if account := CleanInline(in.Launch.Account); account != "" {
+		parts = append(parts, account)
 	}
 	model := CleanInline(in.Model)
 	effort := CleanInline(in.Effort)
@@ -309,7 +391,7 @@ func PrintMinimalScreen(w io.Writer, in ScreenInput) {
 }
 
 func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
-	in = normalizeScreen(in)
+	in = applyLaunch(normalizeScreen(in))
 	tone := in.ResultTone
 	if tone == "" {
 		tone = ToneOK
@@ -334,8 +416,17 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 			model += "/" + PlainInline(in.Effort)
 		}
 		fields = append(fields, "model="+model)
+		if from := PlainInline(in.Launch.PolicyFrom); from != "" && from != PlainInline(in.Model) {
+			fields = append(fields, "policy_from="+from)
+		}
 	} else if in.Effort != "" {
 		fields = append(fields, "effort="+PlainInline(in.Effort))
+	}
+	if account := PlainInline(in.Launch.Account); account != "" {
+		fields = append(fields, "account="+account)
+	}
+	if session := PlainInline(in.Launch.Session); session != "" {
+		fields = append(fields, "session="+session)
 	}
 	if in.BrowserOS {
 		fields = append(fields, "browseros=enabled")
@@ -379,6 +470,12 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 			parts = append(parts, PlainInline(row.Label)+"="+GroupedInt(row.Count))
 		}
 		printPlainLine(w, caps, "activity | "+strings.Join(parts, " | "))
+	}
+	if comm := PlainInline(in.Launch.Communicator); comm != "" {
+		printPlainLine(w, caps, "communicator | "+comm)
+	}
+	for _, problem := range in.Launch.Problems {
+		printPlainLineLimited(w, caps, "warning | "+PlainInline(problem), 2)
 	}
 	if in.BypassPermissions {
 		printPlainLine(w, caps, "warning | bypass permissions active (--dangerously-skip-permissions)")

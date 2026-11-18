@@ -36,6 +36,8 @@ type ScreenInput struct {
 	ResultLabel string
 	ResultTone  Tone
 	Theme       string
+
+	Launch LaunchInfo
 }
 
 func sharedScreen(in ScreenInput) terminalui.ScreenInput {
@@ -64,6 +66,7 @@ func sharedScreen(in ScreenInput) terminalui.ScreenInput {
 		ResultLabel:       in.ResultLabel,
 		ResultTone:        in.ResultTone,
 		Theme:             in.Theme,
+		Launch:            in.Launch,
 	}
 }
 func PrintBootScreen(w io.Writer, in ScreenInput) {

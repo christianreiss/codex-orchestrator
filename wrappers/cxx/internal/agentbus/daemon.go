@@ -38,12 +38,46 @@ var reconcileHostDaemon = ReconcileHostDaemon
 // launch. Disabled messaging and non-Linux hosts have no daemon to manage.
 // Optional service failures remain visible without blocking a native session.
 func ReconcileConfiguredHostDaemon(cfg *config.Config, output io.Writer) {
-	if runtime.GOOS != "linux" || cfg == nil || (!cfg.AgentMessaging.Enabled && cfg.Orchestrator.CommunicatorRuntimeProtocol != residency.Protocol) || cfg.EngineSuspended(cfg.Engine) || cfg.SourcePath() == "" || os.Getenv("CXX_DAEMON_OPERATION_ID") != "" || os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") != "" {
+	if !hostDaemonApplies(cfg) {
 		return
 	}
 	if err := reconcileHostDaemon(output, output); err != nil {
 		fmt.Fprintln(output, "host daemon:", err)
 	}
+}
+
+func hostDaemonApplies(cfg *config.Config) bool {
+	return runtime.GOOS == "linux" && cfg != nil && (cfg.AgentMessaging.Enabled || cfg.Orchestrator.CommunicatorRuntimeProtocol == residency.Protocol) && !cfg.EngineSuspended(cfg.Engine) && cfg.SourcePath() != "" && os.Getenv("CXX_DAEMON_OPERATION_ID") == "" && os.Getenv("CXX_AGENT_MESSAGING_MESSAGE_ID") == ""
+}
+
+// HostDaemonStatus is the boot-card view of one reconcile pass. Shown is false
+// when this host has no managed daemon to report (not requested, not Linux).
+type HostDaemonStatus struct {
+	Shown     bool
+	OK        bool
+	Restarted bool
+	Problem   string // one line for the card; empty when OK
+	Output    string // captured systemctl output, for --verbose
+}
+
+// ReconcileConfiguredHostDaemonStatus reconciles like
+// ReconcileConfiguredHostDaemon but captures the service output instead of
+// writing it, so the launch card can show a single health dot.
+func ReconcileConfiguredHostDaemonStatus(cfg *config.Config) HostDaemonStatus {
+	if !hostDaemonApplies(cfg) {
+		return HostDaemonStatus{}
+	}
+	var buf strings.Builder
+	err := reconcileHostDaemon(&buf, &buf)
+	out := strings.TrimSpace(buf.String())
+	if err != nil {
+		return HostDaemonStatus{Shown: true, Problem: "host daemon: " + err.Error(), Output: out}
+	}
+	if out == "" {
+		// Not requested, or an unprivileged launch whose installed unit is current.
+		return HostDaemonStatus{}
+	}
+	return HostDaemonStatus{Shown: true, OK: true, Restarted: strings.Contains(out, "· restarted"), Output: out}
 }
 
 type daemonSettings struct {

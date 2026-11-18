@@ -12,6 +12,7 @@ type Caps = terminalui.Caps
 type BannerGlyphs = terminalui.BannerGlyphs
 type Tone = terminalui.Tone
 type HealthDot = terminalui.HealthDot
+type LaunchInfo = terminalui.LaunchInfo
 type QuotaRow = terminalui.QuotaRow
 type QuotaCompare = terminalui.QuotaCompare
 type SessionRow = terminalui.SessionRow

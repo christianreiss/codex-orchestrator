@@ -11,7 +11,9 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/agentquiet"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchcard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"io"
 	"log/slog"
@@ -730,7 +732,10 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if initial.Versions != nil && initial.Versions.APIDisabled {
 		return 1, errors.New(apiDisabledReason)
 	}
-	agentbus.ReconcileConfiguredHostDaemon(cfg, stderr)
+	daemonStatus := agentbus.ReconcileConfiguredHostDaemonStatus(cfg)
+	if o.skipBoot && daemonStatus.Problem != "" {
+		terminalui.Say(stderr, "cgx", terminalui.ToneWarn, "daemon", daemonStatus.Problem)
+	}
 	reconcileEngineDrift(cfg, initial, client)
 	if _, err := native.FindCLI(); err != nil {
 		// First launch on a host whose installer or cron has not yet placed the
@@ -771,7 +776,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 			authStatus, authTone = "private runtime cleanup failed", terminalui.ToneFail
 		}
 		terminalui.PrintExitFooter(stderr, caps, "cgx", terminalui.ExitFooter{RunDuration: time.Since(started), ExitCode: exitCode, AuthStatus: authStatus, AuthTone: authTone, EngineName: "grok", EngineVersion: version})
-		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.End(), Details: commStats.Details(), Table: commStats.Table()})
+		launchcard.PrintEnd(stderr, caps, "cgx", commStats, o.debug)
 	}()
 	rt, err := native.NewRuntime(baseHome, cfg, client, pool, contentLock)
 	if err != nil {
@@ -998,6 +1003,14 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	} else if headless && !nativeAnyFlag(args, "--no-leader", "--leader-socket", "--leader") {
 		args = append([]string{"--no-leader"}, args...)
 	}
+	policyFrom := ""
+	if !o.skipBoot {
+		// The card shows the rewrite, so the policy pass itself stays quiet.
+		if from, _ := previewRuntimeModelPolicy(cfg, args, rt); from != "" {
+			policyFrom = from
+			modelpolicy.MarkAnnounced()
+		}
+	}
 	args, err = applyRuntimeModelPolicy(cfg, args, rt, stderr)
 	if err != nil {
 		return 1, err
@@ -1005,12 +1018,18 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	args = interactiveArgs(args, headless, o.skipBoot)
 	minimal = o.minimal || nativeFlag(args, "--minimal")
 	if !o.skipBoot {
-		terminalui.PrintBootScreen(stderr, startupScreen(startupInput{Config: cfg, Auth: &initial, EngineVersion: version, WrapperVersion: Version, Home: rt.Home, EffectiveHome: true, Overlay: rt.ModelPreferences(), LaunchArgs: args, Sync: sync, Minimal: minimal}))
-		caps := terminalui.DetectCapsFor(stderr, stringValue(cfg.EngineOptions.AdminThemeHint))
-		if minimal {
-			caps.IsTTY = false
+		screen := startupScreen(startupInput{Config: cfg, Auth: &initial, EngineVersion: version, WrapperVersion: Version, Home: rt.Home, EffectiveHome: true, Overlay: rt.ModelPreferences(), LaunchArgs: args, Sync: sync, Minimal: minimal})
+		screen.Launch.Account, screen.Launch.Session, screen.Launch.PolicyFrom = lease.AccountLabel, identity.Name, policyFrom
+		launchcard.AddDaemon(&screen.Launch, daemonStatus)
+		launchcard.AddCommunicator(&screen.Launch, commStats)
+		terminalui.PrintBootScreen(stderr, screen)
+		if o.debug {
+			caps := terminalui.DetectCapsFor(stderr, stringValue(cfg.EngineOptions.AdminThemeHint))
+			if minimal {
+				caps.IsTTY = false
+			}
+			launchcard.PrintVerbose(stderr, caps, "cgx", daemonStatus, commStats)
 		}
-		terminalui.PrintNotice(stderr, caps, terminalui.Notice{Prefix: "cgx", Tone: terminalui.ToneDim, Topic: "communicator", Message: commStats.Start(), Details: commStats.Details(), Table: commStats.Table()})
 	}
 	started = time.Now()
 	code := execute(activityCtx, path, args, env, stdout, stderr, rt, rtkSession)

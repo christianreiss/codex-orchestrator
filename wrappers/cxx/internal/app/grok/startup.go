@@ -371,6 +371,13 @@ func applyRuntimeModelPolicy(cfg *config.Config, args []string, rt *native.Runti
 	return modelpolicy.ApplyWithPreferences(cfg, args, rt.Home, nil, stderr, modelpolicy.Preferences{Model: prefs.Model, Effort: prefs.Effort})
 }
 
+// previewRuntimeModelPolicy reports the rewrite applyRuntimeModelPolicy will
+// make, without printing or touching the runtime home.
+func previewRuntimeModelPolicy(cfg *config.Config, args []string, rt *native.Runtime) (from, to string) {
+	prefs := rt.ModelPreferences()
+	return modelpolicy.Preview(cfg, args, rt.Home, nil, modelpolicy.Preferences{Model: prefs.Model, Effort: prefs.Effort})
+}
+
 // Inspect only native options; prompt bodies and tokens after -- are data.
 func nativeArgument(args []string, names ...string) string {
 	return nativeargs.Value("grok", args, names...)

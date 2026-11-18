@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -109,4 +110,83 @@ func (s *LifecycleStats) Details() []string {
 		return nil
 	}
 	return []string{"Attachments by type; columns overlap per launch. ? = unavailable."}
+}
+
+// StartSummary snapshots the owner like Start and returns one compact line for
+// the launch card, e.g. "running · pid 1436 · 0 sessions · 5 leases (codex 2)".
+// configured is false when this launch has no communicator endpoint at all;
+// ok is false when the owner could not be observed.
+func (s *LifecycleStats) StartSummary() (line string, configured, ok bool) {
+	if endpointFor(s.base) == nil {
+		return "", false, true
+	}
+	owner, alive := s.snapshot()
+	if !alive {
+		return "unavailable", true, false
+	}
+	s.start = owner
+	state := "running"
+	if ep := endpointFor(s.base); ep != nil {
+		ep.mu.Lock()
+		_, started := ep.startedPIDs[owner.PID]
+		ep.mu.Unlock()
+		if started {
+			state = "started"
+		}
+	}
+	return compactLine(state, owner, s.leasesByEngine()), true, true
+}
+
+// EndSummary is the compact exit counterpart of End.
+func (s *LifecycleStats) EndSummary() string {
+	if endpointFor(s.base) == nil {
+		return ""
+	}
+	owner, alive := s.snapshot()
+	if !alive {
+		return "unavailable"
+	}
+	state := "running"
+	if s.start.PID > 0 && (s.start.PID != owner.PID ||
+		(s.start.InstanceID != "" && owner.InstanceID != "" && s.start.InstanceID != owner.InstanceID)) {
+		state = "owner changed"
+	}
+	return compactLine(state, owner, s.leasesByEngine())
+}
+
+func compactLine(state string, owner Owner, byEngine string) string {
+	sessions := "? sessions"
+	if owner.ManagedSessions != nil && *owner.ManagedSessions >= 0 {
+		sessions = plural(*owner.ManagedSessions, "session")
+	}
+	leases := "? leases"
+	if owner.Clients != nil && *owner.Clients >= 0 {
+		leases = plural(*owner.Clients, "lease")
+	}
+	if byEngine != "" {
+		leases += " (" + byEngine + ")"
+	}
+	return fmt.Sprintf("%s · pid %d · %s · %s", state, owner.PID, sessions, leases)
+}
+
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return strconv.Itoa(n) + " " + word + "s"
+}
+
+// leasesByEngine names the engines holding leases, e.g. "codex 2, unknown 3".
+func (s *LifecycleStats) leasesByEngine() string {
+	m := s.current.Matrix
+	if m == nil {
+		return ""
+	}
+	parts := []string{}
+	for _, row := range m.Rows {
+		if row.Lease > 0 {
+			parts = append(parts, row.Engine+" "+strconv.Itoa(row.Lease))
+		}
+	}
+	return strings.Join(parts, ", ")
 }

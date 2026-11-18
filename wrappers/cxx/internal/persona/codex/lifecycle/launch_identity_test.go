@@ -54,7 +54,7 @@ func TestLaunchShowsRegisteredNameBeforeFirstCodexPrompt(t *testing.T) {
 case "$1" in --version|-V) echo 'codex 2.1.1'; exit 0;; esac
 seen=no
 while IFS= read -r line; do
-  case "$line" in *"(Claudia) registered"*) seen=yes;; esac
+  case "$line" in *"session=Claudia"*) seen=yes;; esac
 done < "$CXX_TEST_STARTUP_OUTPUT"
 if [ "$seen" != "$CXX_TEST_EXPECT_NOTICE" ]; then
   printf 'registration notice before first prompt: %s' "$seen" > "$CXX_TEST_PROMPT_READY"
@@ -145,7 +145,7 @@ printf '%s\000' "$@" > "$CXX_TEST_PROMPT_READY"
 					t.Errorf("Codex arguments omitted %q: %q", want, raw)
 				}
 			}
-			if visible := strings.Contains(string(output), "(Claudia) registered"); visible == tc.skipBoot {
+			if visible := strings.Contains(string(output), "session=Claudia"); visible == tc.skipBoot {
 				t.Fatalf("registration notice visible=%v, SkipBoot=%v: %q", visible, tc.skipBoot, output)
 			}
 		})

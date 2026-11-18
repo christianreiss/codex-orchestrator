@@ -173,9 +173,11 @@ before registering the new native ID. The existing title reporter then restores
 and zero or multiple replacement roots are unavailable, never selected by cwd, transcript recency or
 title. This changes no Claude or Grok native identity discovery rules.
 
-From cxx 0.9.116, normal and managed-native Codex startup prints
-`cdx session: (Name) registered` after server confirmation and before starting
-the native input prompt, including launches without an initial user message.
+From cxx 0.9.116, normal and managed-native Codex startup shows the confirmed
+name after server confirmation and before starting the native input prompt,
+including launches without an initial user message. From cxx 0.9.185 the boot
+card is printed after that confirmation and carries it as `session Name`
+(plain: `session=Name`) instead of a separate `cdx session: (Name) registered` line.
 Silent/skip-boot launches retain their suppressed startup output. This startup
 name is the assigned agent identity; the task title is set once a task is known.
 
@@ -848,6 +850,20 @@ daily remembering is enabled; replaces the former follow-up confirm). Enter
 keeps the invoking engine. On a terminal the two quota readings render as
 aligned bar rows (`OpenAI (cdx)  ━━━━━━━━━━━━━━━━━━━─  94%  7d window · reset
 unknown · 12m ago`); plain destinations keep the one-line text details.
+
+From cxx 0.9.185 the boot card is the only startup output on every engine
+(cdx, clx, cgx, ckx). Facts that previously printed as loose lines around it
+are fields of the card: the leased provider account joins the context line,
+the confirmed session name sits in the header (`session Name`), a fleet
+model-policy rewrite shows the launched model followed by
+`(policy: old → new)`, and the host daemon and communicator appear as `daemon`
+and `communicator` health dots plus one compact ACTIVITY line. A daemon or
+communicator problem turns the card to ATTENTION with its line in the footer.
+Plain output adds `account=`, `session=`, `policy_from=` and a
+`communicator |` line. `--debug`/`--verbose` restores the captured systemctl
+output and the communicator attachment matrix below the card; skip-boot and
+headless launches keep the policy line on stderr and print daemon problems as a
+`daemon` notice.
 
 Suppressed boot screens skip the native CLI version subprocess used solely for
 presentation. Auth, quota, config, skills, and update policy still run; visible

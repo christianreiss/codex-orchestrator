@@ -33,3 +33,13 @@ func CheckModelSupport(ctx context.Context, cfg *config.Config, args []string) e
 	defer cancel()
 	return config.CheckModelVersion(config.EngineCodex, model, Version(probe), catalog)
 }
+
+// PolicyPreview reports the fleet model-policy rewrite the launch of args
+// will make, without printing it. from is empty when the model is kept.
+func PolicyPreview(cfg *config.Config, args []string) (from, to string) {
+	home, err := CodexHome()
+	if err != nil {
+		return "", ""
+	}
+	return modelpolicy.Preview(cfg, applyLaneAndProfile(cfg, args), home, nil, modelpolicy.Preferences{})
+}

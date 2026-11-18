@@ -1365,9 +1365,10 @@ messaging-disabled local launches retain their previous behavior.
 
 The confirmed name and launch ID are passed per launch through Codex
 `developer_instructions`, Claude `--append-system-prompt`, or Grok `--rules`.
-From cxx 0.9.116, Codex also prints its confirmed `(Name) registered` startup
-line before opening the native prompt, even without an initial user message.
-Silent/skip-boot modes suppress that line. Codex conversation commands reached
+From cxx 0.9.116, Codex also shows its confirmed name before opening the native
+prompt, even without an initial user message; from 0.9.185 every engine shows it
+as `session Name` in the boot card header (plain: `session=Name`) instead of a
+separate `(Name) registered` line. Silent/skip-boot modes suppress it. Codex conversation commands reached
 through wrapper `exec`, `e`, `review` and `fork` use the same identity gate;
 raw utility commands keep direct execution.
 Existing developer/append instructions are preserved; shared AGENTS/config files

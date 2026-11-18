@@ -13,10 +13,16 @@ retain their existing behavior. The fix applies to the loaded communicator,
 not merely the installed binary; preserve live sessions and accepted work when
 coordinating its retirement or supported handoff.
 
-## Native session statistics (cxx 0.9.156)
+## Native session statistics (cxx 0.9.156; compact from 0.9.185)
 
-Normal cdx/clx/cgx/ckx startup and exit displays include a Communicator line,
-also for `cxx codex`, `cxx claude`, `cxx grok`, `cxx kimi` and managed native entrypoints:
+From cxx 0.9.185 the startup boot card carries the communicator state itself: a
+`communicator` health dot under SYSTEM and one ACTIVITY line such as
+`communicator running · pid 1234 · 3 sessions · 8 leases (codex 2, claude 1)`
+(plain form: `communicator | running | pid 1234 | …`). Exit prints the same
+compact line. The attachment matrix below is shown only with `--debug`/`--verbose`.
+
+Before 0.9.185, normal cdx/clx/cgx/ckx startup and exit displays printed a Communicator line
+with the matrix, also for `cxx codex`, `cxx claude`, `cxx grok`, `cxx kimi` and managed native entrypoints:
 
 ```text
 cdx communicator: start: already running | pid=1234 | sessions=3 | leases=8

@@ -864,3 +864,9 @@ During active work, `agent_wait(conversation_id)` reads known-conversation
 coordination without finishing the accepted task. Otherwise yield at a natural
 safe boundary, retaining the original work claim. An MCP tool boundary, listen,
 or reconnect does not reset the immediate-delivery budget.
+
+## Boot card contents (cxx 0.9.185)
+
+`ckx` follows the unified boot card described in `docs/interface-cdx.md`:
+provider account, confirmed session name, model-policy rewrite, host daemon and
+communicator state render inside the card instead of as separate startup lines.

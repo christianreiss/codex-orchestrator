@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchcard"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
@@ -216,6 +218,8 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		}
 	}
 	commStats := communicator.NewLifecycleStats(cfg.Orchestrator.BaseURL)
+	var launchInfo ui.LaunchInfo
+	var daemonStatus agentbus.HostDaemonStatus
 	if communicator.StrictCache(cfg) && !opts.SyncOnly && (opts.SkipAuthSync || opts.SkipCredentialExchange) {
 		return 1, errors.New("cache protocol 2 requires fresh content and auth confirmation before a new launch")
 	}
@@ -447,9 +451,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 				defer restoreAccountEnv()
 				authResp, authErr = client.AuthAfterAssignment(ctx, authResp, lease)
 				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
-				if !opts.SkipBoot {
-					ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneDim, "account", lease.AccountLabel)
-				}
+				launchInfo.Account = lease.AccountLabel
 			}
 		}
 
@@ -585,13 +587,18 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 	printBoot := func() {
 		if !opts.SkipBoot {
+			state.Launch = launchInfo
+			launchcard.AddDaemon(&state.Launch, daemonStatus)
+			if !opts.SyncOnly {
+				launchcard.AddCommunicator(&state.Launch, commStats)
+			}
 			if opts.Minimal {
 				ui.PrintMinimalScreen(updateprogress.Output(ctx, os.Stderr), state)
 			} else {
 				ui.PrintBootScreen(updateprogress.Output(ctx, os.Stderr), state)
 			}
-			if !opts.SyncOnly {
-				ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), ui.Notice{Prefix: "cdx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.Start(), Details: commStats.Details(), Table: commStats.Table()})
+			if launchcard.Verbose(ctx, logger) {
+				launchcard.PrintVerbose(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), "cdx", daemonStatus, commStats)
 			}
 		} else if state.QuotaWarn != "" {
 			// Headless path: surface the quota warning so cron/CI logs capture
@@ -616,7 +623,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 
 	if !concurrent && !opts.SkipAuthSync && !strings.EqualFold(dec.Status, "offline") {
-		agentbus.ReconcileConfiguredHostDaemon(cfg, updateprogress.Output(ctx, os.Stderr))
+		daemonStatus = agentbus.ReconcileConfiguredHostDaemonStatus(cfg)
+		if opts.SkipBoot && daemonStatus.Problem != "" {
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneWarn, "daemon", daemonStatus.Problem)
+		}
 	}
 
 	// A sync-only pass has now done everything asked of it. Render the same
@@ -676,8 +686,6 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	}
 	defer teardown()
 
-	printBoot()
-
 	upstreamSessionID := ""
 	if opts.Resumed {
 		upstreamSessionID = agentportal.NativeResumeSessionID("codex", opts.ExtraArgs)
@@ -692,13 +700,21 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 	identity, identityErr := connection.RequireIdentity(ctx, cfg)
 	if identityErr != nil {
 		_ = connection.Close("failed", "Launch identity could not be confirmed")
-		return 1, identityErr
+		state.ResultLabel, state.ResultTone = identityErr.Error(), ui.ToneFail
+		printBoot()
+		return 1, markPresented(identityErr, opts)
 	}
-	// Codex has no native --name banner. Show the confirmed registration before
-	// its TUI accepts input, rather than waiting for the model's first turn.
-	if !opts.SkipBoot && identity.Name != "" {
-		ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneOK, ui.TopicSession, "("+identity.Name+") registered")
+	// Codex has no native --name banner: the card names the confirmed session
+	// before the TUI accepts input. It also shows the model the fleet policy
+	// will actually launch, so the final rewrite stays quiet.
+	launchInfo.Session = identity.Name
+	if !opts.SkipBoot {
+		if from, to := codex.PolicyPreview(cfg, launchArgsForAuth(opts.ExtraArgs, authResp)); from != "" {
+			state.Model, launchInfo.PolicyFrom = to, from
+			modelpolicy.MarkAnnounced()
+		}
 	}
+	printBoot()
 	if connectionErr != nil {
 		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}
@@ -772,7 +788,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			EngineName:    "codex",
 			EngineVersion: codex.Version(ctx),
 		})
-		ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), caps, ui.Notice{Prefix: "cdx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.End(), Details: commStats.Details(), Table: commStats.Table()})
+		launchcard.PrintEnd(updateprogress.Output(ctx, os.Stderr), caps, "cdx", commStats, launchcard.Verbose(ctx, logger))
 	}
 
 	return exitCode, runErr

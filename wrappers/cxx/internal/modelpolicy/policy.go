@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
@@ -17,6 +18,38 @@ import (
 )
 
 type OptionEnd func([]string, int) int
+
+// announced is set once a launch card has shown the policy rewrite, so the
+// final native-launch rewrite does not repeat it as a loose stderr line.
+var announced atomic.Bool
+
+// MarkAnnounced records that the boot card already shows the rewrite.
+func MarkAnnounced() { announced.Store(true) }
+
+type previewSink struct{ from, to string }
+
+func (*previewSink) Write(p []byte) (int, error) { return len(p), nil }
+
+func reportReplacement(w io.Writer, from, to string) {
+	if sink, ok := w.(*previewSink); ok {
+		sink.from, sink.to = from, to
+		return
+	}
+	if w == nil || announced.Load() {
+		return
+	}
+	fmt.Fprintf(w, "cxx: current models policy: %s → %s\n", from, to)
+}
+
+// Preview runs the same resolution as ApplyWithPreferences without printing
+// and returns the rewrite it would make. from is empty when nothing changes.
+func Preview(cfg *config.Config, args []string, home string, optionEnd OptionEnd, overlay Preferences) (from, to string) {
+	sink := &previewSink{}
+	if _, err := ApplyWithPreferences(cfg, args, home, optionEnd, sink, overlay); err != nil {
+		return "", ""
+	}
+	return sink.from, sink.to
+}
 
 // Preferences carries native process-layer model selection without copying a
 // process overlay into an authored settings file. Empty values leave disk
@@ -143,8 +176,8 @@ func ApplyWithPreferences(cfg *config.Config, args []string, home string, option
 	if slices.Contains(opts.ModelPolicy.DisabledModels, next) {
 		return nil, fmt.Errorf("fleet model policy: model %s is disabled by administrator", next)
 	}
-	if next != model && stderr != nil {
-		fmt.Fprintf(stderr, "cxx: current models policy: %s → %s\n", model, next)
+	if next != model {
+		reportReplacement(stderr, model, next)
 	}
 	if engine == "claude" && !explicitEffort {
 		// Claude's per-model settings supersede the historical top-level key.
@@ -178,7 +211,9 @@ func ApplyWithPreferences(cfg *config.Config, args []string, home string, option
 	}
 	prefix := []string{"--model", next + modifier}
 	if effort != "" {
-		if engine == "kimi" {
+		if _, preview := stderr.(*previewSink); preview && engine == "kimi" {
+			// Preview never touches the private runtime's config.
+		} else if engine == "kimi" {
 			tree, err := toml.LoadFile(filepath.Join(home, "config.toml"))
 			if err != nil {
 				return nil, err

@@ -47,6 +47,18 @@ func TestLifecycleStatsReportActualOwnerAndCurrentClientCounts(t *testing.T) {
 			if got := stats.End(); got != "end: running | pid=42 | sessions=unknown | leases=1" {
 				t.Fatal(got)
 			}
+			clients.Store(3)
+			compact := "running"
+			if tc.started {
+				compact = "started"
+			}
+			if got, configured, ok := stats.StartSummary(); !configured || !ok || got != compact+" · pid 42 · ? sessions · 3 leases" {
+				t.Fatalf("start summary=%q configured=%v ok=%v", got, configured, ok)
+			}
+			clients.Store(1)
+			if got := stats.EndSummary(); got != "running · pid 42 · ? sessions · 1 lease" {
+				t.Fatal(got)
+			}
 		})
 	}
 }

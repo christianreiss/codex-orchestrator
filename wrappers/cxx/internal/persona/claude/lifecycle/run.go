@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchcard"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
 	"log/slog"
@@ -142,6 +144,8 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 	cfg := opts.Config
 	commStats := communicator.NewLifecycleStats(cfg.Orchestrator.BaseURL)
+	var launchInfo ui.LaunchInfo
+	var daemonStatus agentbus.HostDaemonStatus
 	if communicator.StrictCache(cfg) && !opts.SyncOnly && (opts.SkipAuthSync || opts.SkipCredentialExchange) {
 		return 1, errors.New("cache protocol 2 requires fresh content and auth confirmation before a new launch")
 	}
@@ -382,9 +386,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 				defer restoreAccountEnv()
 				authResp, authErr = client.AuthAfterAssignment(ctx, authResp, lease)
 				dec = decideAuth(authResp, authErr, authPath, cfg.Host.Secure)
-				if !opts.SkipBoot {
-					ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneDim, "account", lease.AccountLabel)
-				}
+				launchInfo.Account = lease.AccountLabel
 			}
 		}
 
@@ -502,13 +504,18 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 		}
 		bootPrinted = true
 		if !opts.SkipBoot {
+			state.Launch = launchInfo
+			launchcard.AddDaemon(&state.Launch, daemonStatus)
+			if !opts.SyncOnly {
+				launchcard.AddCommunicator(&state.Launch, commStats)
+			}
 			if opts.Minimal {
 				ui.PrintMinimalScreen(updateprogress.Output(ctx, os.Stderr), state)
 			} else {
 				ui.PrintBootScreen(updateprogress.Output(ctx, os.Stderr), state)
 			}
-			if !opts.SyncOnly {
-				ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), ui.Notice{Prefix: "clx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.Start(), Details: commStats.Details(), Table: commStats.Table()})
+			if launchcard.Verbose(ctx, logger) {
+				launchcard.PrintVerbose(updateprogress.Output(ctx, os.Stderr), footerCaps(ui.DetectCaps(themeFromConfig(cfg)), opts.Minimal), "clx", daemonStatus, commStats)
 			}
 		} else if state.QuotaWarn != "" {
 			// Suppressed startup screens still need advisory usage in cron/CI logs.
@@ -545,7 +552,10 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 
 	if !concurrent && !opts.SkipAuthSync && !strings.EqualFold(dec.Status, "offline") {
-		agentbus.ReconcileConfiguredHostDaemon(cfg, updateprogress.Output(ctx, os.Stderr))
+		daemonStatus = agentbus.ReconcileConfiguredHostDaemonStatus(cfg)
+		if opts.SkipBoot && daemonStatus.Problem != "" {
+			ui.Say(updateprogress.Output(ctx, os.Stderr), "clx", ui.ToneWarn, "daemon", daemonStatus.Problem)
+		}
 	}
 
 	// A sync-only pass has now done everything asked of it: the boot screen is
@@ -579,7 +589,6 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			return code, err
 		}
 	}
-	printBoot()
 
 	before := snapshotAuthGeneration()
 
@@ -597,8 +606,20 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	identity, identityErr := connection.RequireIdentity(ctx, cfg)
 	if identityErr != nil {
 		_ = connection.Close("failed", "Launch identity could not be confirmed")
-		return 1, identityErr
+		state.ResultLabel, state.ResultTone = identityErr.Error(), ui.ToneFail
+		printBoot()
+		return 1, markPresented(identityErr, opts)
 	}
+	// The card names the confirmed session and the model the fleet policy
+	// will actually launch, so the final rewrite stays quiet.
+	launchInfo.Session = identity.Name
+	if !opts.SkipBoot {
+		if from, to := claude.PolicyPreview(cfg, opts.ExtraArgs); from != "" {
+			state.Model, launchInfo.PolicyFrom = to, from
+			modelpolicy.MarkAnnounced()
+		}
+	}
+	printBoot()
 	if connectionErr != nil {
 		logger.Warn("agent connection unavailable; continuing local session", "err", connectionErr)
 	}
@@ -681,7 +702,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			EngineName:    "claude",
 			EngineVersion: claude.Version(ctx),
 		})
-		ui.PrintNotice(updateprogress.Output(ctx, os.Stderr), caps, ui.Notice{Prefix: "clx", Tone: ui.ToneDim, Topic: "communicator", Message: commStats.End(), Details: commStats.Details(), Table: commStats.Table()})
+		launchcard.PrintEnd(updateprogress.Output(ctx, os.Stderr), caps, "clx", commStats, launchcard.Verbose(ctx, logger))
 	}
 
 	return exitCode, runErr

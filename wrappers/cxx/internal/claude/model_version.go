@@ -38,3 +38,16 @@ func CheckModelSupport(ctx context.Context, cfg *config.Config, args []string) e
 	defer cancel()
 	return config.CheckModelVersion(config.EngineClaude, model, Version(probe), catalog)
 }
+
+// PolicyPreview reports the fleet model-policy rewrite a root launch of args
+// will make, without printing it. from is empty when the model is kept.
+func PolicyPreview(cfg *config.Config, args []string) (from, to string) {
+	if _, subcommand := NativeSubcommandIndex(args); subcommand {
+		return "", ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", ""
+	}
+	return modelpolicy.Preview(cfg, args, filepath.Join(home, ".claude"), NativeOptionValueEnd, modelpolicy.Preferences{})
+}

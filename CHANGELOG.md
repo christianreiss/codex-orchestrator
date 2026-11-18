@@ -1,5 +1,7 @@
 # 2026-11-18
 
+- **cxx 0.9.185 unified boot card:** `cdx`, `clx`, `cgx` and `ckx` start with one boot card instead of loose lines around it. The leased account, confirmed session name, model-policy rewrite (`gpt-6.2-sol/medium (policy: gpt-6.1-sol → gpt-6.2-sol)`), host daemon and communicator state now render inside the card; the card previously showed the pre-policy model. The communicator attachment matrix and systemctl output remain available with `--debug`; daemon or communicator problems raise the card to ATTENTION.
+
 - **cxx 0.9.184 emergency launch:** run `cdx emergency`, `clx emergency`, `cgx emergency` or `ckx emergency` to start the native CLI directly from a secure host during an Orchestrator outage. Native arguments follow the subcommand, optionally after `--`.
 
 - **GPT-6.2 Sol:** add the verified Codex model to admin pickers, gateway models, signed launch menus and Tier 3 guidance, with native `low` default and all six persistent efforts. The optional latest-family policy follows Sol 6.2 without rewriting storage; older Sol choices and the GPT-6 Astra fleet default remain.
