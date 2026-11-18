@@ -196,3 +196,98 @@ preview port 4173 was free after the run. The complete browser/cross-browser
 suites were not run for this slice. Served Slop/full Advisor, runtime deployment
 and the saved feedback outcome remain release steps. No wrapper code changed;
 no additional wrapper version bump is required for this UI fix.
+
+## Served review follow-up — 2026-11-18
+
+Release `5286e0aadc7607e0c7ff34e9e5fb05a0c3eff8aa` was deployed on
+`docker01.uggs.io` at 2026-11-17 23:08 UTC. The running API identifies that clean
+commit; migrations 0132–0134 applied with 131 total applied, zero pending and
+zero drifted. cxx 0.9.182 is published and the actual Advisor binary matches its
+served Linux artifact. Both Grok and Kimi remain fleet-disabled.
+
+Full Slop run `ac557223-c522-410f-8add-0b9b2c00ef39` actually completed its
+Codex/gpt-6-astra review with verdict `needs_info`; it is not UI acceptance.
+Its confirmed P2, `review:90d8960ba1d6d27b`, is tracked as feedback
+`e72eaa2b-5066-4f4d-93fc-50595369f72f`: native JSON actions disabled their
+controls without announcing validation or saving. Existing phone captures also
+missed the actual JSON editor/preview, and the review needed direct keyboard,
+recovery, Engines/Runner and all-disabled evidence.
+
+The isolated follow-up adds operation-specific polite status and busy controls,
+four delayed-response success/failure browser cases with keyboard activation,
+retained-draft retry and duplicate-submit checks, and targeted JSON/preview and
+Dashboard captures with accessibility attachments. These tests are prepared,
+not yet executed. Canonical frontend checks, revised Full review and baseline
+diff, then the follow-up push/deployment and feedback closure remain pending.
+Wrapper source/version is unchanged.
+
+### First focused follow-up check and preview regression
+
+A23 QA passed the canonical frontend check (1,101 unit tests, zero errors, the
+existing single Communicator warning and no slop-grep findings) and production
+build. The focused two-spec browser run stopped at its first failure: 19 passed,
+one failed and 20 were not run. The delayed store-failure case had already proved
+pending state, retained draft, retry and successful save; validating the resulting
+clean JSON then lost its preview. Feedback
+`bba07f0e-6c76-4316-8da2-ab9d4e6ab8f3` tracks this distinct existing defect.
+
+The query effect unconditionally reloaded a clean editor, clearing its explicit
+preview even for identical data. A24 compares saved status, revision, digest,
+content, settings and validation error before reloading a clean editor. Dirty
+draft protection remains. A direct regression covers an unchanged refresh,
+revision-only invalidation and changed-settings invalidation. This source fix
+and the complete two-spec follow-up still require execution.
+
+After that first browser failure, the A23 pressure guard stopped owned processes
+at 2026-11-18 00:02:17 UTC: global memory FULL rose above the original 11.45 + 5
+baseline twice, ten seconds apart. Last captured aggregate peak was 2,341,908,480
+bytes with zero memory events. Own units stopped and port 4173 was free; no cause
+is attributed to another workload. No larger automatic retry was performed.
+
+### A24 focused verification
+
+The changed source passed the canonical frontend check again: 1,101 unit tests,
+zero errors, one existing Communicator warning and no slop-grep findings. The
+canonical production build/copy succeeded. Both affected browser specs passed
+all 41 cases with one worker, zero retries, skips, unexpected results or report
+errors (78.17 seconds). The original failing assertion remains unchanged; the
+direct refresh/revision/settings regression passed too. Five actual scoped
+Axe 4.12.1 reports contain zero violations and zero incomplete rules.
+
+All ten targeted captures were manually inspected: actual native JSON pending,
+preview and retained error draft at 390px in light/dark mode; disabled-Grok
+Engines/Runner; and all three all-disabled tabs. Actual accessibility snapshots
+show operation status, disabled duplicate actions, retained JSON, previews and
+management paths. The check also retained the existing five responsive/theme
+views. These are mocked local browser interactions, not live provider requests
+or a physical screen-reader evaluation. Full/cross-browser UI suites were not
+run for this follow-up; unchanged backend/Go evidence remains in the main audit.
+
+Aggregate peak was 2,214,744,064 bytes with all memory events zero; own pressure
+averages stayed zero. All owned units stopped and port 4173 was free. The
+allocator explicitly made relative global PSI deltas log-only for A24 while
+preserving the original baseline, hard 3 GiB/Swap0 cap, absolute memory/IO
+thresholds and 24 GiB reserve; no VM or Restic action was taken.
+
+### A25 served Full review and baseline diff
+
+Updated Full run `50c6d2b5-6c04-4aff-b75a-0a86b0653791` (sequence 4) completed
+at 2026-11-18 00:29:28 UTC with verdict `agree`, zero findings and zero errors.
+The actual Codex/gpt-6-astra Advisor completed one turn and closed. It inspected
+all 16 supplied screenshots and five scoped Axe reports; all 33 manifest hashes
+matched. The review explicitly accepted the operation feedback, retained error
+drafts, unchanged-refresh preview behavior and supplied interaction coverage.
+
+The required sequence-2 to sequence-4 diff resolves P2
+`review:90d8960ba1d6d27b`, with no new or unchanged findings. The previous
+`needs_info` evidence gaps were addressed by actual native-editor phone images,
+test assertions/results, accessibility snapshots, keyboard/retry cases and
+Engines/Runner/all-disabled captures. The static scan covered seven sources and
+explicitly skipped two test fixtures and three unsupported extensions; it does
+not test browser behavior. Acceptance relies on the Full inspection plus the
+actual focused browser checks, not a zero-count scan alone.
+
+Reports, diff, source/capture hashes and runtime evidence were preserved outside
+the disposable Slop job before closing it. The follow-up deployment outcome is
+recorded separately in feedback `e72eaa2b-5066-4f4d-93fc-50595369f72f` and
+`bba07f0e-6c76-4316-8da2-ab9d4e6ab8f3`. Wrapper version remains 0.9.182.

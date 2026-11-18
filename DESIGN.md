@@ -734,3 +734,17 @@ inspection accepted four desktop/phone screenshots: enabled providers in dark
 mode and disabled Grok in light mode. The complete browser/cross-browser suites
 were not run for this slice; served Slop/full Advisor remains a release step.
 Evidence: [supplemental feedback audit](docs/feedback-sweep-2026-11-17.md).
+
+### Native JSON operation feedback (2026-11-18)
+
+Native settings and Codex profiles identify validation and saving in the existing
+polite status beside their controls. The active button and editor expose busy
+state, duplicate actions stay disabled, and failed attempts retain their draft
+for correction and retry. Applicable rules: INT-3/5 and ACC-1/3/4. No new surface
+or exception. Unchanged query refreshes retain explicit previews; changed saved
+revisions/settings invalidate the old preview while refreshing a clean editor.
+The canonical frontend check passed 1,101 tests; both affected browser specs
+passed all 41 cases, including delayed operations, keyboard activation, retained
+draft retry and unchanged/revised settings. Five scoped Axe reports have no
+violations or incomplete rules. Served review and runtime evidence is recorded
+in the feedback audit separately from the source change.

@@ -1,3 +1,8 @@
+# 2026-11-18
+
+- **Native settings progress:** validating and saving native JSON or Codex profiles announces its current operation beside the controls. Busy actions stay disabled, and failed attempts retain the draft for correction and retry.
+- **Native settings preview:** unchanged background refreshes preserve the validated preview and confirmed save state. A changed saved revision or configuration still refreshes a clean editor and invalidates its old preview; edited drafts remain protected.
+
 # 2026-11-17
 
 - **Overview engine visibility:** omit fleet-disabled engines from operational provider usage, account counts, installed-version rows and runner verification. All-disabled panels explain the state and keep engine management reachable; retained accounts and historical consumption remain available. Manual Refresh also reloads engine switches.

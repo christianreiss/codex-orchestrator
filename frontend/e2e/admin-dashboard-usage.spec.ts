@@ -208,7 +208,11 @@ test("a passed reset removes the marker instead of pinning it at the end", async
 });
 
 
-for (const engine of ENGINES) test(`disabled ${engine} is absent from operational tabs and account counts`, async ({ page }) => {
+for (const engine of ENGINES) test(`disabled ${engine} is absent from operational tabs and account counts`, async ({ page }, info) => {
+  if (engine === "grok") {
+    await page.setViewportSize({ width: 390, height: 1000 });
+    await page.emulateMedia({ colorScheme: "light" });
+  }
   const accounts = providers();
   const disabled = accounts.find(account => account.engine === engine)!;
   disabled.state = "paused"; // A retained suspended account must not inflate the operational warning count.
@@ -228,10 +232,21 @@ for (const engine of ENGINES) test(`disabled ${engine} is absent from operationa
   await expect(installs.locator("tbody tr")).toHaveCount(3);
   await expect(installs.getByRole("cell", { name: ENGINE_META[engine].label, exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Configure engines", exact: true })).toHaveAttribute("href", "/admin/engines");
+  if (engine === "grok") {
+    await page.getByRole("tabpanel").screenshot({ path: info.outputPath("disabled-grok-engines-390-light.png") });
+    await info.attach("disabled-grok-engines-accessibility", { body: await page.getByRole("tabpanel").ariaSnapshot(), contentType: "text/plain" });
+  }
   await page.getByRole("tab", { name: "Runner", exact: true }).click();
   const verification = page.getByRole("list", { name: "Verification by engine" });
   await expect(verification.getByRole("listitem")).toHaveCount(3);
   await expect(verification.getByRole("button", { name: `Run ${ENGINE_META[engine].label} runner verification`, exact: true })).toHaveCount(0);
+  if (engine === "grok") {
+    await page.getByRole("tabpanel").screenshot({ path: info.outputPath("disabled-grok-runner-390-light.png") });
+    const a11y = await new AxeBuilder({ page }).include('[role="tabpanel"]').analyze();
+    await info.attach("disabled-grok-runner-a11y", { body: JSON.stringify(a11y, null, 2), contentType: "application/json" });
+    expect(a11y.violations.filter(v => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
+    await info.attach("disabled-grok-runner-accessibility", { body: await verification.ariaSnapshot(), contentType: "text/plain" });
+  }
 });
 
 test("late engine state filters retained Grok accounts and live re-enable restores every operational tab", async ({ page }) => {
@@ -272,7 +287,7 @@ for (const engineFail of [false, true]) test(`unknown engine state (HTTP error: 
   await expect(page.getByRole("table", { name: USAGE }).locator("tbody tr")).toHaveCount(3);
 });
 
-test("all engines disabled has a useful management path in each tab without operational rows", async ({ page }) => {
+test("all engines disabled has a useful management path in each tab without operational rows", async ({ page }, info) => {
   await fixtures(page, providers(), { disabled: [...ENGINES] });
   await page.goto("/admin/dashboard");
   const summary = page.locator("dl > div").filter({ has: page.getByText("accounts for enabled engines", { exact: true }) });
@@ -284,5 +299,7 @@ test("all engines disabled has a useful management path in each tab without oper
     await expect(panel.getByRole("table")).toHaveCount(0);
     await expect(panel.getByRole("button", { name: /Run .* runner verification/ })).toHaveCount(0);
     await expect(panel.getByRole("link", { name: "Configure engines", exact: true }).last()).toHaveAttribute("href", "/admin/engines");
+    await panel.screenshot({ path: info.outputPath(`all-disabled-${tab.toLowerCase()}.png`) });
+    await info.attach(`all-disabled-${tab.toLowerCase()}-accessibility`, { body: await panel.ariaSnapshot(), contentType: "text/plain" });
   }
 });

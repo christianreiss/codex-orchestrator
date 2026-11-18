@@ -1,5 +1,6 @@
 import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 type Engine = "codex" | "claude" | "grok" | "kimi";
 type Config = { status: "ok" | "missing"; revision: string | null; sha256?: string; settings: Record<string, unknown>; content?: string; validation_error?: { code: "validation_failed"; message: string; param?: string } };
@@ -30,7 +31,8 @@ function state() {
       ...(engine === "claude" ? { effortLevel: "high", statusLine: { type: "command", command: "old", padding: 2 }, hooks: { Stop: [{ hooks: [{ type: "http", url: "https://example.test/hook" }] }] } } : {}),
     },
   }])) as Record<Engine, Config>;
-  return { configs, writes: [] as { engine: Engine; body: Record<string, unknown> }[], renders: [] as Engine[], fail: "", race: false };
+  return { configs, writes: [] as { engine: Engine; body: Record<string, unknown> }[], renders: [] as Engine[], fail: "", storeFail: "", race: false,
+    beforeMutation: undefined as ((engine: Engine, operation: "render" | "store") => Promise<void>) | undefined };
 }
 async function fixture(page: Page, shared: ReturnType<typeof state>, manage = true) {
   let emit: ((data: string) => void) | undefined;
@@ -51,6 +53,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
       const current = shared.configs[engine];
       if (!match[2]) return json(current);
       const body = req.postDataJSON();
+      await shared.beforeMutation?.(engine, match[2] as "render" | "store");
       if (match[2] === "render") {
         shared.renders.push(engine);
         if ((body.settings.native_settings ?? {}).unknown_saved_option !== undefined) return json({ status: "error", message: "native_settings.unknown_saved_option is unsupported" }, 422);
@@ -58,6 +61,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
         if (shared.race) { shared.race = false; current.revision = "99"; }
         return json({ settings: body.settings, content: `${engine} validated configuration`, sha256: "b".repeat(64), profiles: (body.settings.profiles ?? []).map((p: { name: string }) => ({ name: p.name, content: `profile ${p.name}`, sha256: "c".repeat(64) })) });
       }
+      if (shared.storeFail === engine) return json({ status: "error", message: "Could not save native settings; try again" }, 503);
       if (body.expected_revision !== current.revision) return json({ status: "error", message: "Configuration changed; reload before saving" }, 409);
       shared.writes.push({ engine, body });
       shared.configs[engine] = { status: "ok", revision: String(Number(current.revision ?? 0) + 1), sha256: "b".repeat(64), settings: body.settings, content: `${engine} saved configuration` };
@@ -70,6 +74,107 @@ async function fixture(page: Page, shared: ReturnType<typeof state>, manage = tr
     emit!(JSON.stringify({ type: "settings.changed", payload: {}, ts: new Date().toISOString() }));
   };
 }
+
+for (const operation of ["render", "store"] as const) for (const outcome of ["success", "failure"] as const)
+test(`native JSON announces pending ${operation} and recovers from ${outcome}`, async ({ page }, info) => {
+  test.setTimeout(60_000);
+  const saving = operation === "store", failure = outcome === "failure";
+  const phone = saving ? failure : !failure;
+  const scheme = saving ? "dark" : "light";
+  await page.setViewportSize({ width: phone ? 390 : 1440, height: 1000 });
+  await page.emulateMedia({ colorScheme: scheme });
+  await info.attach("interaction-context", { body: JSON.stringify({ operation, outcome, viewport: page.viewportSize(), colorScheme: scheme, activation: "keyboard Tab/Enter" }), contentType: "application/json" });
+  const shared = state();
+  if (failure) {
+    if (saving) shared.storeFail = "codex";
+    else shared.fail = "codex";
+  }
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let requests = 0;
+  shared.beforeMutation = async (engine, next) => {
+    if (engine === "codex" && next === operation) { requests++; await gate; }
+  };
+  await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);
+  const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");
+  const draft = '{"language":"de"}', pending = saving ? "Saving…" : "Validating…";
+  await editor.fill(draft); await editor.focus();
+  // Reach and activate the actual action by keyboard; a disabled action must not submit twice.
+  await page.keyboard.press("Tab");
+  if (saving) await page.keyboard.press("Tab");
+  await expect(card.getByRole("button", { name: saving ? "Save native settings" : "Validate and preview", exact: true })).toBeFocused();
+  try {
+    await page.keyboard.press("Enter");
+    await expect.poll(() => requests).toBe(1);
+    await expect(card.getByRole("status")).toHaveText(pending);
+    await expect(card.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    const action = card.getByRole("button", { name: pending, exact: true });
+    await expect(action).toBeDisabled(); await expect(action).toHaveAttribute("aria-busy", "true");
+    await expect(editor).toBeDisabled(); await expect(editor).toHaveValue(draft);
+    await expect(card.getByRole("button", { name: saving ? "Validate and preview" : "Save native settings", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: "Discard draft and reload", exact: true })).toBeDisabled();
+    await page.keyboard.press("Enter"); await page.keyboard.press("Enter");
+    expect(requests).toBe(1); expect(shared.writes).toEqual([]);
+    await info.attach("pending-accessibility", { body: await card.ariaSnapshot(), contentType: "text/plain" });
+    if (phone) await card.screenshot({ path: info.outputPath(`native-json-${operation}-pending-390-${scheme}.png`) });
+  } finally { release(); }
+  await expect(editor).toBeEnabled();
+  await expect(card.getByRole("status")).not.toHaveText(pending);
+  if (failure) {
+    await expect(card.getByRole("alert")).toContainText(saving ? "Could not save native settings" : "removed_option is deprecated");
+    await expect(editor).toHaveValue(draft); expect(shared.writes).toEqual([]);
+    if (phone) await card.screenshot({ path: info.outputPath(`native-json-retained-draft-390-${scheme}.png`) });
+    shared.fail = ""; shared.storeFail = "";
+    await editor.focus(); await page.keyboard.press("Tab");
+    if (saving) await page.keyboard.press("Tab");
+    await page.keyboard.press("Enter");
+    await expect(card.getByRole("alert")).toHaveCount(0);
+  }
+  if (saving) {
+    await expect.poll(() => shared.writes).toHaveLength(1);
+    await expect(card.getByRole("status")).toContainText("Saved");
+    await expect(card.getByRole("button", { name: "Save native settings", exact: true })).toBeDisabled();
+    if (phone) {
+      await card.getByRole("button", { name: "Validate and preview", exact: true }).click();
+      await expect(card).toContainText("codex validated configuration");
+      await card.screenshot({ path: info.outputPath("native-json-preview-390-dark.png") });
+    }
+  } else {
+    await expect(card).toContainText("codex validated configuration");
+    await expect(editor).toHaveValue(draft); expect(shared.writes).toEqual([]);
+    if (phone) await card.screenshot({ path: info.outputPath(`native-json-preview-390-${scheme}.png`) });
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const a11y = await new AxeBuilder({ page }).include("#codex-native-settings").analyze();
+  await info.attach("native-json-a11y", { body: JSON.stringify(a11y, null, 2), contentType: "application/json" });
+  expect(a11y.violations.filter(v => ["serious", "critical"].includes(v.impact ?? ""))).toEqual([]);
+  await info.attach("completed-accessibility", { body: await card.ariaSnapshot(), contentType: "text/plain" });
+});
+
+test("native JSON preview survives unchanged refresh and invalidates on saved changes", async ({ page }) => {
+  const shared = state(), refresh = await fixture(page, shared);
+  await page.goto("/admin/engines"); await openAdvanced(page);
+  const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");
+  const validate = card.getByRole("button", { name: "Validate and preview", exact: true });
+  async function refreshConfig() {
+    const response = page.waitForResponse(r => new URL(r.url()).pathname === "/admin/config" && r.request().method() === "GET");
+    await refresh(); await (await response).finished();
+    await expect(card.getByRole("button", { name: "Reload native settings", exact: true })).toBeEnabled();
+  }
+  await validate.click(); await expect(card).toContainText("codex validated configuration");
+  await refreshConfig(); await expect(card).toContainText("codex validated configuration");
+  await expect(editor).toHaveValue(/"language": "en"/);
+  shared.configs.codex.revision = "2";
+  await refreshConfig();
+  await expect(card).not.toContainText("codex validated configuration");
+  await expect(editor).toHaveValue(/"language": "en"/);
+  await validate.click(); await expect(card).toContainText("codex validated configuration");
+  shared.configs.codex.revision = "3";
+  shared.configs.codex.settings.native_settings = { language: "fr" };
+  await refreshConfig();
+  await expect(editor).toHaveValue(/"language": "fr"/);
+  await expect(card).not.toContainText("codex validated configuration");
+});
 
 test("Codex compaction defaults off and saves the toggle without losing concurrent tuning or profiles", async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page);

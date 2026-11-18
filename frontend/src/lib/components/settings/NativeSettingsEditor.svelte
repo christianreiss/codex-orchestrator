@@ -61,7 +61,16 @@
   }
   $effect(() => {
     const data = $query.data;
-    if (data && untrack(() => !baseline || !dirty)) untrack(() => load(data));
+    if (data && untrack(() => {
+      const current = baseline;
+      return !current || (!dirty && (
+        data.status !== current.status || data.revision !== current.revision
+        || (data.sha256 ?? null) !== (current.sha256 ?? null)
+        || (data.content ?? null) !== (current.content ?? null)
+        || !sameSettings(data.settings, current.settings)
+        || !sameSettings(data.validation_error ?? null, current.validation_error ?? null)
+      ));
+    })) untrack(() => load(data));
   });
   const mutation = createMutation({
     mutationFn: async (save: boolean) => {
@@ -149,25 +158,29 @@
       <div class="mt-3 space-y-2">
         <label for={`${sectionId}-json`} class="block text-caption font-medium">{ENGINE_META[engine].label} {settingsLabel} JSON</label>
         <textarea id={`${sectionId}-json`} class="min-h-48 w-full rounded-md border bg-background p-3 font-mono text-caption focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
-          bind:value={draft} spellcheck={false} readonly={!canManage} disabled={$mutation.isPending}
+          bind:value={draft} spellcheck={false} readonly={!canManage} disabled={$mutation.isPending} aria-busy={$mutation.isPending}
           aria-invalid={Boolean(parsed.error || error || (!dirty && baseline.validation_error))} aria-describedby={`${sectionId}-feedback`}
           oninput={() => { error = null; saved = false; }}></textarea>
-        <div id={`${sectionId}-feedback`} class="text-body-sm" aria-live="polite">
-          {#if baseline.validation_error}
-            <p class="text-destructive">Saved configuration is invalid: {baseline.validation_error.message} Correct the saved values, then validate and save. Your draft is retained.</p>
-          {/if}
-          {#if parsed.error}<p class="text-destructive">{parsed.error}</p>{/if}
-          {#if error}<p role="alert" class="text-destructive">{error}</p>{/if}
-          {#if conflict}<p class="text-warning-muted-foreground">Native settings changed elsewhere. Your draft is kept; copy it before loading the saved settings.</p>{/if}
-          {#if !error && !parsed.error && !conflict && !baseline.validation_error}
-            <p class="text-muted-foreground">{dirty ? "Unsaved changes" : saved ? "Saved" : baseline.status === "missing" ? "No fleet configuration saved yet" : "Saved settings loaded"}</p>
+        <div id={`${sectionId}-feedback`} class="text-body-sm" role="status" aria-live="polite">
+          {#if $mutation.isPending}
+            <p class="text-muted-foreground">{$mutation.variables ? "Saving…" : "Validating…"}</p>
+          {:else}
+            {#if baseline.validation_error}
+              <p class="text-destructive">Saved configuration is invalid: {baseline.validation_error.message} Correct the saved values, then validate and save. Your draft is retained.</p>
+            {/if}
+            {#if parsed.error}<p class="text-destructive">{parsed.error}</p>{/if}
+            {#if error}<p role="alert" class="text-destructive">{error}</p>{/if}
+            {#if conflict}<p class="text-warning-muted-foreground">Native settings changed elsewhere. Your draft is kept; copy it before loading the saved settings.</p>{/if}
+            {#if !error && !parsed.error && !conflict && !baseline.validation_error}
+              <p class="text-muted-foreground">{dirty ? "Unsaved changes" : saved ? "Saved" : baseline.status === "missing" ? "No fleet configuration saved yet" : "Saved settings loaded"}</p>
+            {/if}
           {/if}
         </div>
       </div>
     {/if}
     <div class="mt-3 flex flex-wrap gap-2">
-      <Button variant="outline" size="sm" onclick={() => $mutation.mutate(false)} disabled={!baseline || Boolean(parsed.error) || conflict || $mutation.isPending || $query.isError}>Validate and preview</Button>
-      <Button size="sm" onclick={() => $mutation.mutate(true)} disabled={!canManage || !dirty || Boolean(parsed.error) || conflict || $mutation.isPending || $query.isError}>Save {settingsLabel}</Button>
+      <Button variant="outline" size="sm" onclick={() => $mutation.mutate(false)} aria-busy={$mutation.isPending && $mutation.variables === false} disabled={!baseline || Boolean(parsed.error) || conflict || $mutation.isPending || $query.isError}>{$mutation.isPending && $mutation.variables === false ? "Validating…" : "Validate and preview"}</Button>
+      <Button size="sm" onclick={() => $mutation.mutate(true)} aria-busy={$mutation.isPending && $mutation.variables === true} disabled={!canManage || !dirty || Boolean(parsed.error) || conflict || $mutation.isPending || $query.isError}>{$mutation.isPending && $mutation.variables === true ? "Saving…" : `Save ${settingsLabel}`}</Button>
       <Button variant="outline" size="sm" onclick={() => void reload()} disabled={$query.isFetching || $mutation.isPending}>{dirty ? "Discard draft and reload" : `Reload ${settingsLabel}`}</Button>
     </div>
     {#if !canManage}<p class="mt-2 text-caption text-muted-foreground">Read-only: saving requires content.manage.</p>{/if}
