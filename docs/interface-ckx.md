@@ -1,5 +1,7 @@
 # ckx — Kimi Code fleet wrapper
 
+From cxx 0.9.183, the shared model selector offers `d` to save the Kimi model and reasoning effort together as its central fleet default without leaving the selector. Models with no effort send explicit `null`; the existing context-window setting is preserved. Any active Kimi-assigned host may save; host overrides retain precedence. See `docs/interface-cdx.md` for save states and offline behavior.
+
 From cxx 0.9.180, `cxx doctor` checks the local PATH commands without loading
 signed config, contacting the API or starting background services. Use
 `cxx doctor --fix` to repair recognized legacy transition scripts when a stale

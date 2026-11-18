@@ -30,6 +30,7 @@ import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-pr
 import { loadWrapperRollout, readRolloutEnabled, resolveHostWrapperTarget } from '../../services/wrapper-rollout.js';
 import { assertHostEngineEnabled, type FleetEngineState } from '../../services/host-engine-policy.js';
 import { readFleetEngineState } from '../../services/engine-switch.js';
+import { registerHostModelDefaultsRoutes } from './model-defaults.js';
 
 /**
  * Registers /host/users, /host/lane (GET+POST), /versions, /cron/check,
@@ -40,6 +41,7 @@ import { readFleetEngineState } from '../../services/engine-switch.js';
  * hits happen out-of-session and shouldn't roll the window).
  */
 export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
+  await registerHostModelDefaultsRoutes(app, ctx);
   const insecure = createInsecureWindowService({ db: ctx.db, env: ctx.env });
   const hostAuth = createHostAuthService({ db: ctx.db, env: ctx.env, insecure });
   const clientVersions = new ClientVersionsService(new SettingsService(ctx.db), app.log);

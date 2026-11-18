@@ -5,10 +5,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
@@ -26,6 +28,7 @@ func main() {
 	scene := flag.String("scene", "startup", "startup, attention, blocked, concurrent, stale, forecast, security, doctor, help, session, updates, notices, progress, host-update, prompt, or launchpad")
 	minimal := flag.Bool("minimal", false, "portable ASCII output")
 	engines := flag.String("engines", "codex,claude,grok,kimi", "launchpad scene: comma-separated engines on the compass")
+	defaultsState := flag.String("defaults-state", "ok", "launchpad defaults fixture: ok, offline, reject-once, lost-reply, or slow")
 	flag.Parse()
 	if (*engine != "codex" && *engine != "claude" && *engine != "grok" && *engine != "kimi") || flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "terminal-preview: use -engine codex, -engine claude, or -engine grok")
@@ -37,7 +40,7 @@ func main() {
 		os.Exit(2)
 	}
 	if *scene == "launchpad" {
-		previewLaunchpad(*engines, *minimal)
+		previewLaunchpad(*engines, *minimal, *defaultsState)
 		return
 	}
 	preview(*engine, *scene, *minimal)
@@ -48,7 +51,7 @@ func main() {
 // samples, not the fleet catalog: real menus come from the signed
 // model_catalog, which the server derives from api/src/services/model-registry.
 // Do not keep these ids in step with the registry.
-func previewLaunchpad(list string, minimal bool) {
+func previewLaunchpad(list string, minimal bool, defaultsState string) {
 	efforts := []string{"low", "medium", "high", "xhigh"}
 	samples := map[string]launchpad.Engine{
 		"codex": {Name: "codex", Model: "gpt-6-astra", Effort: "medium", Models: []launchpad.Model{
@@ -69,6 +72,7 @@ func previewLaunchpad(list string, minimal bool) {
 		}},
 	}
 	var chosen []launchpad.Engine
+	defaults := &previewDefaults{values: map[string]launchpad.FleetDefault{}, state: defaultsState}
 	for _, name := range strings.Split(list, ",") {
 		if e, ok := samples[strings.TrimSpace(name)]; ok {
 			if e.Name != "grok" {
@@ -76,18 +80,63 @@ func previewLaunchpad(list string, minimal bool) {
 				e.Weekly = &accountpool.WeeklyUsage{Used: &used, FetchedAt: time.Now().Format(time.RFC3339), ResetAt: time.Now().Add(24 * time.Hour).Format(time.RFC3339)}
 			}
 			chosen = append(chosen, e)
+			defaults.values[e.Name] = launchpad.FleetDefault{Engine: e.Name, Model: e.Model, Effort: e.Effort}
 		}
 	}
 	caps := terminalui.DetectCapsFor(os.Stderr, "auto")
 	if minimal {
 		caps = terminalui.MinimalCaps(caps)
 	}
-	selection, err := launchpad.Run(context.Background(), os.Stdin, os.Stderr, chosen, nil, caps)
+	selection, err := launchpad.Run(context.Background(), os.Stdin, os.Stderr, chosen, nil, caps, defaults)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "terminal-preview:", err)
 		os.Exit(1)
 	}
 	fmt.Printf("would launch %s native args: %q\n", selection.Engine, launchpad.NativeArgs(selection))
+}
+
+// Preview saves stay in memory; no configuration or fleet state is touched.
+type previewDefaults struct {
+	mu       sync.Mutex
+	values   map[string]launchpad.FleetDefault
+	state    string
+	attempts int
+}
+
+func (d *previewDefaults) Get(_ context.Context, engine string) (launchpad.FleetDefault, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.state == "offline" {
+		return launchpad.FleetDefault{}, errors.New("preview is offline")
+	}
+	return d.values[engine], nil
+}
+
+func (d *previewDefaults) Set(ctx context.Context, selected launchpad.Selection) (launchpad.FleetDefault, error) {
+	delay := 250 * time.Millisecond
+	if d.state == "slow" {
+		delay = 2 * time.Second
+	}
+	select {
+	case <-ctx.Done():
+		return launchpad.FleetDefault{}, ctx.Err()
+	case <-time.After(delay):
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.attempts++
+	if d.state == "offline" {
+		return launchpad.FleetDefault{}, errors.New("preview is offline")
+	}
+	if d.state == "reject-once" && d.attempts == 1 {
+		return launchpad.FleetDefault{}, launchpad.ErrDefaultsRejected
+	}
+	value := launchpad.FleetDefault{Engine: selected.Engine, Model: selected.Model, Effort: selected.Effort}
+	d.values[selected.Engine] = value
+	if d.state == "lost-reply" {
+		return launchpad.FleetDefault{}, errors.New("preview reply lost")
+	}
+	return value, nil
 }
 
 func preview(engine, scene string, minimal bool) {

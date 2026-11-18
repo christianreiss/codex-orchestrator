@@ -370,10 +370,10 @@ export class ModelDefaultsService {
       catalog: response.catalog.filter(entry => policy.latest_models.includes(entry.model)) };
   }
 
-  async set(engine: Engine, input: unknown): Promise<ModelDefaultsResponse> {
+  async set(engine: Engine, input: unknown, sourceHostId: number | null = null): Promise<ModelDefaultsResponse> {
     if (!this.configWrite && !ownerRuntimeFor(this.db)) {
       return withClientConfigWriteLock(this.db, engine, (tx, _existing, context) =>
-        new ModelDefaultsService(tx, context).set(engine, input));
+        new ModelDefaultsService(tx, context).set(engine, input, sourceHostId));
     }
     const update = parseUpdate(engine, input);
     const current = await this.clientConfig.adminFetch(engine);
@@ -413,8 +413,12 @@ export class ModelDefaultsService {
         settings,
         expected_revision: current.revision,
       },
-      null,
+      sourceHostId,
       engine,
+      sourceHostId === null ? undefined : {
+        hostId: sourceHostId, action: 'host.model_defaults.set', createdAt: new Date().toISOString(),
+        details: JSON.stringify({ engine, model: update.model, reasoning_effort: update.reasoningEffort }),
+      },
     );
     return this.effectiveResponse(engine, asRecord(stored.settings));
   }

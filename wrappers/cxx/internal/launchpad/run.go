@@ -18,17 +18,26 @@ var ErrCancelled = errors.New("launchpad cancelled")
 // Run shows the launchpad on out and returns the selection. It returns only
 // after Bubble Tea has restored the terminal, so the caller can hand the TTY
 // straight to the engine; a one-line receipt is left in scrollback.
-func Run(ctx context.Context, in io.Reader, out io.Writer, engines []Engine, last *Selection, caps terminalui.Caps) (Selection, error) {
+func Run(ctx context.Context, in io.Reader, out io.Writer, engines []Engine, last *Selection, caps terminalui.Caps, defaults ...DefaultsAPI) (Selection, error) {
 	if len(engines) == 0 {
 		return Selection{}, errors.New("no engine is assigned to this host")
 	}
 	p := newPicker(engines, last, caps)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	p.context = ctx
+	if len(defaults) > 0 {
+		p.defaults = defaults[0]
+	}
 	final, err := tea.NewProgram(p, tea.WithContext(ctx), tea.WithInput(in), tea.WithOutput(out)).Run()
 	if err != nil {
 		return Selection{}, err
 	}
 	p = final.(*picker)
 	if p.cancelled || p.result == nil {
+		if notice := p.quitNotice(); notice != "" {
+			terminalui.PrintNotice(out, caps, terminalui.Notice{Prefix: "cxx", Topic: terminalui.TopicSession, Tone: terminalui.ToneDim, Message: notice})
+		}
 		return Selection{}, ErrCancelled
 	}
 	terminalui.PrintNotice(out, caps, terminalui.Notice{Prefix: personaPrefix(p.result.Engine), Topic: terminalui.TopicSession, Tone: terminalui.ToneDim, Message: Receipt(*p.result, caps.UTF8)})

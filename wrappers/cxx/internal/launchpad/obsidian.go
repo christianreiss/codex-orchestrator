@@ -360,8 +360,15 @@ func (p *picker) footerLines(width int) []string {
 		if len(p.engines) > 1 {
 			nav += "   esc back"
 		}
+		if hint := p.defaultHint(); hint != "" {
+			nav = hint + "   " + nav
+		}
 	}
-	selected := p.current().Label() + " / " + ansiStripText(p.summary(p.focus))
+	if p.saving {
+		actions = key("q", "quit")
+		nav = "Saving fleet default..."
+	}
+	selected := p.defaultSummary() + p.current().Label() + " / " + ansiStripText(p.summary(p.focus))
 	return []string{"", p.fit(p.paint(p.accent(p.current().Name), selected), width), p.fit(actions, width), p.fit(p.dim(nav), width), p.fit(p.paint(p.caps.Palette.Yellow, p.notice), width), ""}
 }
 func ansiStripText(s string) string { return ansi.Strip(s) }
@@ -371,6 +378,20 @@ func ansiStripText(s string) string { return ansi.Strip(s) }
 func (p *picker) renderCompact(width, height int) string {
 	if height < 8 {
 		lines := []string{p.fit(p.current().Label()+" "+ansiStripText(p.summary(p.focus)), width), p.fit("enter new  c continue  q quit", width)}
+		if p.defaultHint() != "" {
+			lines[1] = p.fit("enter new  d default  q quit", width)
+			if p.stage == stageGrid && len(p.current().Models) > 0 {
+				c := p.cursors[p.focus]
+				action := "d default enter q"
+				if p.saving {
+					action = "q quit / saving"
+				}
+				lines = []string{p.fit("> "+modelName(p.current().Models[c.model].ID), width), p.effortSegments(width), p.fit(action, width)}
+				if p.isFleetDefault() {
+					lines = append(lines, "fleet default")
+				}
+			}
+		}
 		if p.notice != "" {
 			lines = append(lines, strings.Split(ansi.Wrap(p.notice, width, ""), "\n")...)
 		}
@@ -407,6 +428,9 @@ func (p *picker) renderCompact(width, height int) string {
 			lines = append(lines, p.fit(marker+modelName(p.current().Models[i].ID), width))
 		}
 		position := fmt.Sprintf("%d / %d", c.model+1, len(p.current().Models))
+		if p.isFleetDefault() {
+			position = "fleet default " + position
+		}
 		if len(p.current().Models) == 0 {
 			position = "no current models enabled"
 		}
@@ -423,7 +447,15 @@ func (p *picker) renderCompact(width, height int) string {
 	if p.notice != "" {
 		essential = append(essential, strings.Split(ansi.Wrap(p.notice, width, ""), "\n")...)
 	}
-	essential = essential[:min(height-1, len(essential))]
+	minimumContent := 1
+	if p.defaults != nil && p.stage == stageGrid && p.notice != "" && len(p.current().Models) > 0 {
+		// Keep the chosen model and effort visible when a wrapped save/error
+		// notice would otherwise consume the small terminal's content rows.
+		c := p.cursors[p.focus]
+		lines = []string{p.fit(p.label(p.current()), width), p.fit("> "+modelName(p.current().Models[c.model].ID), width), p.effortSegments(width)}
+		minimumContent = len(lines)
+	}
+	essential = essential[:min(height-minimumContent, len(essential))]
 	lines = append(lines[:min(len(lines), height-len(essential))], essential...)
 	for i := range lines {
 		lines[i] = p.fit(lines[i], width)

@@ -430,6 +430,9 @@ func (p *picker) efforts(m Model, selected int) string {
 }
 
 func (p *picker) footer() string {
+	if p.saving {
+		return "Saving fleet default / q quit"
+	}
 	var keys []string
 	if p.stage == stageHub {
 		keys = append(keys, p.slotHint())
@@ -441,6 +444,9 @@ func (p *picker) footer() string {
 		keys = append(keys, "q quit")
 	} else {
 		keys = append(keys, "↑↓ model", "←→ effort", "enter new", "c continue")
+		if hint := p.defaultHint(); hint != "" {
+			keys = append(keys, hint)
+		}
 		if p.current().CanPick() {
 			keys = append(keys, "r resume")
 		}

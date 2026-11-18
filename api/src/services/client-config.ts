@@ -3,6 +3,8 @@ import type { ModelPolicy } from './model-policy.js';
 import { assertCodexSettingsModelSupport } from './codex-model-support.js';
 import { assertClaudeSettingsModelSupport } from './claude-model-support.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { persistAuditLog } from './audit-log.js';
+import type { logs } from '../db/schema.js';
 import type { Json } from '../control-plane/commands.js';
 /**
  * Client config (codex/claude wrapper config.toml) admin service.
@@ -417,10 +419,12 @@ export function normalizeKimiSettings(raw: unknown, stored = false): NormalizedS
     nativeEffort = undefined;
   }
   const out = normalizeSettings({ ...input, native_settings: undefined, model: null }, { applyCodexDefaults: false, engine: 'kimi' });
-  out.native_settings = native;
+  if (native === undefined) delete out.native_settings;
+  else out.native_settings = native;
   out.model = model;
   out.reasoning_effort = normalizedRoot ?? normalizeKimiEffort(nativeEffort, model)
     ?? (nativeEffort === 'on' || nativeEffort === 'off' ? undefined : KIMI_MODEL_DEFAULT_REASONING_EFFORTS[model]);
+  if (out.reasoning_effort === undefined) delete out.reasoning_effort;
   if (input.context_window !== undefined && input.context_window !== null && (normalizeKimiContextWindow(input.context_window) === null || Number(input.context_window) > KIMI_MODEL_CONTEXT_WINDOWS[model])) throw new ValidationError('context_window exceeds the selected Kimi model context', { param: 'settings.context_window' });
   out.context_window = normalizeKimiContextWindow(input.context_window) ?? KIMI_MODEL_CONTEXT_WINDOWS[model];
   out.model_reasoning_effort = null;
@@ -1809,6 +1813,7 @@ export class ClientConfigService {
     payload: { settings?: unknown; sha256?: unknown; expected_revision?: unknown },
     sourceHostId: number | null = null,
     engine: Engine = ENGINE_CODEX,
+    audit?: typeof logs.$inferInsert,
   ): Promise<StoreResult> {
     const owner = ownerRuntimeFor(this.db);
     if (owner) {
@@ -1820,6 +1825,7 @@ export class ClientConfigService {
         payload: {
           engine,
           sourceHostId,
+          audit: (audit as unknown as Json) ?? null,
           settings: rendered.settings as unknown as Json,
           expectedRevision: (payload.expected_revision as Json) ?? null,
           sha256: typeof payload.sha256 === 'string' ? payload.sha256 : null,
@@ -1892,6 +1898,7 @@ export class ClientConfigService {
               result.revision = String(id);
             });
           }
+          if (audit) ctx.write(tx => persistAuditLog(tx, audit).then(() => undefined));
           return () => result as unknown as Json;
         },
       });
@@ -1901,7 +1908,7 @@ export class ClientConfigService {
     }
     if (!this.configWrite) {
       return withClientConfigWriteLock(this.db, engine, (tx, _existing, context) =>
-        new ClientConfigService(tx, context).store(payload, sourceHostId, engine),
+        new ClientConfigService(tx, context).store(payload, sourceHostId, engine, audit),
       );
     }
     const rendered = this.render(payload.settings, engine);
@@ -1990,6 +1997,7 @@ export class ClientConfigService {
       );
     }
 
+    if (audit) await persistAuditLog(this.db, audit);
     return {
       status: 'ok',
       revision: savedRevision,

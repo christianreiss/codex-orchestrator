@@ -4502,3 +4502,13 @@ lifecycle, launch identity, scoped credential and inference-only gateway agent.
 `POST /admin/speech-input/:target` accepts `{ "enabled": true|false }` for `global`; engine targets also accept `null` to inherit. Global defaults to on. Engine overrides win. Settings require settings.read/settings.manage. Changes apply after sync to new launches and never begin recording.
 
 Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; it requires a Claude.ai account and a local microphone. Grok 1.0.75+ projects `ui.voice_keybind_enabled`; disabling the shortcut does not disable `/voice`. Codex supports `/voice` conversations but has no verified central toggle in 0.167.2; removed flags are not written. Kimi has no verified native speech support. Unsupported control is reported separately from requested policy.
+
+## Host fleet model defaults (cxx 0.9.183)
+
+`GET /host/model-defaults/{engine}` returns the same model-default response as the admin GET, including the persistent-effort catalog and optional policy `stored_model`. It is read-only and creates no config document.
+
+`POST /host/model-defaults/{engine}` accepts exactly `{model, reasoning_effort}`; both fields are required and `reasoning_effort: null` explicitly clears effort on a model without persistent efforts. Session-only efforts and invalid model/effort pairs return 422. All four engines use the existing `ModelDefaultsService` and native config representation. Unrelated settings, context-window choices and per-host overrides are preserved. Config changes and the `host.model_defaults.set` audit entry commit atomically, attributed to the source host. Existing config revisions serialize these saves with admin config writers.
+
+Both methods require a valid API-key-authenticated active, unexpired host, normal IP and insecure-window admission, assignment to the requested engine, an enabled fleet engine and the API kill switch off. Non-VIP hosts are intentionally authorized to change these central fleet defaults. Explicit path/header/query engine hints must agree; this route never defaults a missing engine to Codex. Auth failures return the existing 401/403/423 admission errors.
+
+The wrapper reloads the selected engine's signed config and uses its verified endpoint, CA and host key. GET runs asynchronously; save never launches a session or changes the remembered launch choice. POST has no automatic retry. An ambiguous failure triggers one GET readback to confirm the requested stored/effective model and effort. Offline or missing endpoints disable saving without blocking ordinary launching. Deploy this endpoint before publishing wrapper 0.9.183.

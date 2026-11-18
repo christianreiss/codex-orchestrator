@@ -189,6 +189,8 @@ make release PUBLIC_KEY_FILE=/path/to/installation-signing.ed25519.pub
 
 See `docs/wrapper-v2-architecture.md`.
 
+From cxx 0.9.183, `d` in the launchpad model/effort grid saves that pair as the engine's central fleet default and keeps the picker open. The selected engine's signed configuration supplies the endpoint, CA and host credentials. All active assigned hosts may save; host overrides remain effective. See `docs/interface-cdx.md` for the complete contract. The terminal preview simulates defaults in memory.
+
 For visual review without contacting a fleet or reading credentials:
 
 ```
@@ -202,6 +204,8 @@ python3 scripts/check-terminal-ui.py --binary bin/terminal-preview --output /tmp
 Open `/tmp/cxx-terminal-review/index.html` for a standalone review gallery with
 engine views and width/scene selectors. The driver uses deterministic sample data
 through the production renderers; it is not shipped as a `cxx` subcommand.
+For interactive default-save states, use `-scene launchpad -engines codex -defaults-state ok|offline|reject-once|lost-reply|slow`; these fixtures keep all writes in memory. The slow fixture exposes pending-save and quit warnings, while reject-once allows recovery with a second `d`.
+
 The matrix checks all four engines at 20, 39, 40, 48, 64, 80, and 120 columns, plus
 `NO_COLOR`, dumb terminals, ASCII locales, explicit minimal mode, and pipes.
 ANSI/text captures and a manifest accompany the gallery for regressions.

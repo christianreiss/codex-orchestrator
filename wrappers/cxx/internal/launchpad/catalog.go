@@ -1,7 +1,8 @@
 // Package launchpad is the bare-`cxx` picker: one keyboard-driven screen that
 // chooses an engine, a model and a reasoning effort, then hands the native
-// argv to the managed launch path. It never touches the network; everything it
-// offers comes from signed host configs, local native settings and cached usage.
+// argv to the managed launch path. Launch choices come from signed host configs,
+// local native settings and cached usage; the optional fleet-default action uses
+// an injected API without making ordinary launching depend on the network.
 package launchpad
 
 import (
@@ -34,10 +35,11 @@ var fallbackEfforts = map[string][]string{
 
 // Model is one selectable model and the efforts it accepts.
 type Model struct {
-	ID            string
-	Efforts       []string
-	DefaultEffort string
-	Unavailable   string
+	ID             string
+	Efforts        []string
+	DefaultEffort  string
+	Unavailable    string
+	SessionEfforts []string
 }
 
 // Engine is one launchable engine with its menu and starting cursor.
@@ -225,6 +227,7 @@ func catalogModel(engine string, entry config.ModelCatalogEntry, observed string
 		m.Unavailable = err.Error()
 	}
 	m.Efforts = append(append(m.Efforts, entry.Efforts...), entry.SessionEfforts...)
+	m.SessionEfforts = append([]string(nil), entry.SessionEfforts...)
 	if entry.DefaultEffort != nil {
 		m.DefaultEffort = *entry.DefaultEffort
 	}

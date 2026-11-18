@@ -1,5 +1,6 @@
 # 2026-11-18
 
+- **cxx 0.9.183 fleet defaults:** press `d` in the model/reasoning selector to save that pair as the engine's central fleet default and stay in the selector. All active hosts may save defaults for their assigned, enabled engines; host overrides retain precedence. Saves are audited atomically, session-only efforts are refused, and ambiguous responses are checked once without repeating the write. Ordinary launches remain available offline.
 - **GPT-6.2 Astra:** add the verified Codex model to admin pickers, gateway models, signed launch catalogs and Tier 5 guidance, with native `low` default and all six persistent efforts. The optional latest-family policy follows 6.2; existing fleet defaults and explicit GPT-6 Astra selections remain unchanged when that policy is off.
 - **Native settings progress:** validating and saving native JSON or Codex profiles announces its current operation beside the controls. Busy actions stay disabled, and failed attempts retain the draft for correction and retry.
 - **Native settings preview:** unchanged background refreshes preserve the validated preview and confirmed save state. A changed saved revision or configuration still refreshes a clean editor and invalidates its old preview; edited drafts remain protected.

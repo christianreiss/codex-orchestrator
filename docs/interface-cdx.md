@@ -1251,13 +1251,14 @@ behaviour: usage on stderr, exit 2.
   override, then the native settings (`config.toml`, `settings.json`, Grok
   `config.toml`), then the catalog default. So `cxx` followed by `enter` relaunches
   the last combination.
+- **Fleet default (0.9.183).** The visible `d` action saves the highlighted model and effort together through `POST /host/model-defaults/:engine`, without starting a session or closing the picker. Every active host may save its assigned, enabled engines, including non-VIP hosts. Existing host overrides and remembered cursor choices retain precedence. The current default loads asynchronously through GET and is marked only when both model and effort match. Saving disables duplicate actions and navigation until its result arrives; quitting warns that an in-flight save is unconfirmed. Session-only efforts (Claude `max`) cannot be persisted. An ambiguous POST failure causes exactly one readback, never an automatic second POST. Success reports the server's effective model and effort, including any latest-family policy replacement. Offline or older servers leave ordinary launching available; no mouse support is added.
 - **Menu source.** The menu comes from `engine_options.model_catalog` in the
   signed config. Models are ordered by capability tier (strongest first), keeping
   catalog order within a tier and placing unranked models last. The selected model
   and effort are unchanged. It mirrors `GET /admin/model-defaults/:engine` `catalog`, plus
   Claude's session-only `max` (`session_efforts`) on models that reach `xhigh`.
   A config signed before the field existed offers only the configured model
-  with that engine's generic efforts. The launchpad makes no network call.
+  with that engine's generic efforts. Menu construction and ordinary launches need no network call; the optional fleet-default action uses the host API.
 - **Unverified models.** `model_catalog.live_catalog_models` (additive) lists
   registry models whose provider id is not yet verified (`gpt-6.1-luna` today).
   The launchpad appends such an entry after the verified menu only when the

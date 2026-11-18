@@ -66,7 +66,14 @@ func runLaunchpad(stdout, stderr io.Writer) (code int, ok bool) {
 		return 0, false
 	}
 	caps := terminalui.DetectCapsFor(stderr, "")
-	selection, err := launchpad.Run(context.Background(), os.Stdin, stderr, engines, last, caps)
+	defaults := fleetDefaultsClient{load: func(engine string) (*config.Config, error) {
+		path, err := configPathFor(engine)
+		if err != nil {
+			return nil, err
+		}
+		return config.LoadForEngine(path, key, false, engine)
+	}}
+	selection, err := launchpad.Run(context.Background(), os.Stdin, stderr, engines, last, caps, defaults)
 	if errors.Is(err, launchpad.ErrCancelled) {
 		return 130, true
 	}

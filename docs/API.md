@@ -343,6 +343,12 @@ tokens. Removing the last engine deletes the host. A legacy request without
 ### `POST /host/users`
 Records `username` and optional `hostname` for the calling host, returning known users with `first_seen`/`last_seen`. Auth + IP binding required.
 
+### `GET /host/model-defaults/{engine}`
+Returns the engine's central fleet model/effort and persistent-effort catalog using the same response as the admin model-defaults API. No config row is created. All active hosts may read their assigned, fleet-enabled engines; normal API-key, IP, expiry, insecure-window and kill-switch checks apply.
+
+### `POST /host/model-defaults/{engine}`
+Saves exactly `{model, reasoning_effort}` as the selected engine's central default. Both fields are required; use explicit `null` for a model without persistent effort. Session-only effort is rejected (422). All active assigned hosts, including non-VIP hosts, are authorized. The save preserves unrelated native settings and context windows; per-host overrides retain precedence. Config and the source-host `host.model_defaults.set` audit commit atomically under existing config revision locking. The response matches the admin model-defaults API, including effective policy replacements. See `interface-api.md` for the complete admission and cxx 0.9.183 contract.
+
 ### `GET /host/lane`
 Returns lane metadata for the calling host. Auth + IP binding required; insecure-window checks apply. Response includes `lane_preference` (`normal|null`) and `effective_lane`.
 

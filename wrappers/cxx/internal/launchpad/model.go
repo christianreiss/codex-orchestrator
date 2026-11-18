@@ -1,6 +1,7 @@
 package launchpad
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -52,6 +53,10 @@ type picker struct {
 	width, height int
 	caps          terminalui.Caps
 	notice        string
+	context       context.Context
+	defaults      DefaultsAPI
+	fleet         map[string]*fleetState
+	saving        bool
 
 	result    *Selection
 	cancelled bool
@@ -59,6 +64,7 @@ type picker struct {
 
 func newPicker(engines []Engine, last *Selection, caps terminalui.Caps) *picker {
 	p := &picker{engines: append([]Engine(nil), engines...), cursors: make([]cursor, len(engines)), caps: caps, animate: caps.IsTTY && !caps.Dumb && caps.UTF8 && !caps.NoColor && os.Getenv("CXX_REDUCED_MOTION") != "1"}
+	p.context, p.fleet = context.Background(), make(map[string]*fleetState)
 	for i, e := range engines {
 		if len(e.Models) == 0 && e.Disabled == "" {
 			p.engines[i].Disabled = "no current models enabled"
@@ -105,7 +111,7 @@ func (p *picker) current() Engine { return p.engines[p.focus] }
 
 func (p *picker) Init() tea.Cmd {
 	if p.stage == stageGrid {
-		return p.restart(true)
+		return tea.Batch(p.restart(true), p.loadFleet())
 	}
 	if p.animate {
 		return p.tick()
@@ -139,6 +145,9 @@ func (p *picker) tick() tea.Cmd {
 
 func (p *picker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case fleetMsg:
+		p.acceptFleet(msg)
+		return p, nil
 	case tea.WindowSizeMsg:
 		p.width, p.height = msg.Width, msg.Height
 		return p, nil
@@ -160,11 +169,19 @@ func (p *picker) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (p *picker) key(k string) (tea.Model, tea.Cmd) {
+	if p.saving {
+		if k == "q" || k == "ctrl+c" {
+			return p.cancel()
+		}
+		return p, nil
+	}
 	p.notice = ""
 	if len(p.current().Models) > 0 {
 		p.notice = p.current().Models[p.cursors[p.focus].model].Unavailable
 	}
 	switch k {
+	case "d":
+		return p, p.saveFleet()
 	case "ctrl+c", "q":
 		return p.cancel()
 	case "enter":
@@ -219,7 +236,7 @@ func (p *picker) enter(slot int) (tea.Model, tea.Cmd) {
 		return p, nil
 	}
 	p.stage = stageGrid
-	return p, p.restart(true)
+	return p, tea.Batch(p.restart(true), p.loadFleet())
 }
 
 // moveModel keeps the effort by name when the new model accepts it, and

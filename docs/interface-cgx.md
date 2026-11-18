@@ -371,6 +371,8 @@ before launching. The binary comes from `CGX_GROK_BIN`, the read-only
 
 ## Bare `cxx` launchpad (cxx 0.9.65)
 
+From 0.9.183, `d` saves the selected Grok model and reasoning effort as its central fleet default and stays in the selector. The existing Grok context-window setting is preserved. Any active Grok-assigned host may save; host overrides retain precedence. See `docs/interface-cdx.md` for save states and offline behavior.
+
 From cxx 0.9.70 the shared picker uses the Obsidian compass with dark cards,
 segmented effort controls and responsive small-terminal layouts. The same
 `CXX_REDUCED_MOTION=1`, `NO_COLOR` and minimal-output behavior applies to all
