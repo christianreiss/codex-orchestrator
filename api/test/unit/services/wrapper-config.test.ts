@@ -655,6 +655,12 @@ describe('wrapper-config', () => {
       arch: 'arm64',
     });
     expect(result.payload.wrapper.binary_url).toContain('/wrapper/v2/bin/cxx/darwin-arm64/v1.0.1/cxx');
+    expect(result.payload.engine_options.native_full_access).toBeUndefined();
+    const bsd = await svc.bakeForHost(fakeHost(), 'codex', 'https://api.example.com', { os: 'freebsd', arch: 'amd64' });
+    expect(bsd.payload.wrapper.binary_url).toContain('/cxx/freebsd-amd64/');
+    expect(typeof bsd.payload.engine_options.native_full_access).toBe('boolean');
+    expect(bsd.payload.orchestrator.communicator_runtime_protocol).toBeUndefined();
+    expect(bsd.payload.rtk?.enabled).toBe(false);
   });
 
   it('selects claude-shaped engine_options when engine=claude', async () => {

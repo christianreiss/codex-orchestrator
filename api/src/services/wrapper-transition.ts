@@ -16,7 +16,7 @@ export function isCxxBinaryUrl(value: unknown): boolean {
   if (typeof value !== 'string' || value.trim() === '') return false;
   try {
     const path = new URL(value, 'https://wrapper.invalid').pathname;
-    return /\/wrapper\/v2\/bin\/cxx\/(?:linux|darwin)-(?:amd64|arm64)\/v[^/]+\/cxx$/.test(
+    return /\/wrapper\/v2\/bin\/cxx\/(?:(?:linux|darwin)-(?:amd64|arm64)|freebsd-amd64)\/v[^/]+\/cxx$/.test(
       path,
     );
   } catch {
@@ -71,6 +71,7 @@ ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
 HOST_LABEL=${shellQuote(opts.fqdn)}
 INSTALL_LABEL=${shellQuote(installLabel)}
+PFSENSE_CODEX_ONLY=${requestedEngines.length === 1 && hasCodex ? '1' : '0'}
 NEEDS_CLAUDE=${needsClaude ? '1' : '0'}
 HAS_CODEX=${hasCodex ? '1' : '0'}
 HAS_CLAUDE=${needsClaude ? '1' : '0'}
@@ -156,6 +157,7 @@ ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
 HOST_LABEL=${shellQuote(opts.fqdn)}
 INSTALL_LABEL=${shellQuote(ENGINE_LABELS[opts.engine])}
+PFSENSE_CODEX_ONLY=${requestedEngines.length === 1 && hasCodex ? '1' : '0'}
 NEEDS_CLAUDE=${hasClaude ? '1' : '0'}
 HAS_CODEX=${hasCodex ? '1' : '0'}
 HAS_CLAUDE=${hasClaude ? '1' : '0'}
@@ -464,7 +466,7 @@ ui_path_hint() {
 show_step_log() {
   if [ -n "$STEP_LOG" ] && [ -s "$STEP_LOG" ]; then
     printf '%s' "$UI_DIM" >&2
-    python3 - "$STEP_LOG" <<'PY_STEP_LOG' >&2
+    "$PYTHON" - "$STEP_LOG" <<'PY_STEP_LOG' >&2
 import sys
 with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
     lines = fh.read().splitlines()
@@ -704,7 +706,7 @@ install_corepack_npm() {
   COREPACK_HOME="$NPM_PREFIX/lib/codex-orchestrator/corepack"
   space_gate "Corepack npm" "$COREPACK_HOME" 2147483648 10000 "\${TMPDIR:-/tmp}" 536870912 128 || return 1
   NPM_SHIM_TMP=$(mktemp "\${TMPDIR:-/tmp}/npm.shim.XXXXXX")
-  python3 - "$NPM_SHIM_TMP" "$COREPACK_BIN" "$COREPACK_HOME" "$NPM_PREFIX" <<'PY'
+  "$PYTHON" - "$NPM_SHIM_TMP" "$COREPACK_BIN" "$COREPACK_HOME" "$NPM_PREFIX" <<'PY'
 import os
 import shlex
 import sys
@@ -864,7 +866,7 @@ bootstrap_space
 mkdir -p "$HOME/.cxx"
 exec 9>"$HOME/.cxx/install-space.lock"
 # flock belongs to the shared open file description; fd 9 keeps it held in sh.
-python3 - <<'PY_SPACE_LOCK'
+"$PYTHON" - <<'PY_SPACE_LOCK'
 import fcntl, os, time
 limit = time.monotonic() + 300
 while True:
@@ -943,7 +945,7 @@ fi
 # Validate every requested config before writing any of them. A multi-engine
 # install is allowed only when all logical configs identify the same cxx
 # version and SHA; otherwise no binary or alias is changed.
-PY_OUT=$(python3 - "$BIN_ROOT" "$CODEX_BUNDLE" "$CODEX_CONFIG_PATH" "$CLAUDE_BUNDLE" "$CLAUDE_CONFIG_PATH" "$GROK_BUNDLE" "$GROK_CONFIG_PATH" "$KIMI_BUNDLE" "$KIMI_CONFIG_PATH" <<'PY'
+PY_OUT=$("$PYTHON" - "$BIN_ROOT" "$CODEX_BUNDLE" "$CODEX_CONFIG_PATH" "$CLAUDE_BUNDLE" "$CLAUDE_CONFIG_PATH" "$GROK_BUNDLE" "$GROK_CONFIG_PATH" "$KIMI_BUNDLE" "$KIMI_CONFIG_PATH" "$WRAPPER_PLATFORM" <<'PY'
 import json
 import os
 import re
@@ -986,7 +988,7 @@ for engine, bundle_path, config_path in (
         raise SystemExit(f"{engine} wrapper binary metadata incomplete")
     binary_path = urlsplit(binary_url).path
     if not re.search(
-        r"/wrapper/v2/bin/cxx/(?:linux|darwin)-(?:amd64|arm64)/v[^/]+/cxx$",
+        rf"/wrapper/v2/bin/cxx/{re.escape(sys.argv[10])}/v[^/]+/cxx$",
         binary_path,
     ):
         raise SystemExit(
@@ -1064,7 +1066,7 @@ case "$BINARY_URL" in
 esac
 
 sha256_file() {
-  python3 - "$1" <<'PY'
+  "$PYTHON" - "$1" <<'PY'
 import hashlib
 import sys
 
@@ -1077,7 +1079,7 @@ PY
 }
 
 same_path() {
-  python3 - "$1" "$2" <<'PY' >/dev/null 2>&1
+  "$PYTHON" - "$1" "$2" <<'PY' >/dev/null 2>&1
 import os
 import sys
 
@@ -1293,7 +1295,8 @@ preflight_checks() {
   case "$PLATFORM_OS" in
     Darwin|darwin) PLATFORM_OS=darwin ;;
     Linux|linux) PLATFORM_OS=linux ;;
-    *) ui_fail "cxx" "preflight" "Use a supported Linux or macOS host" "Unsupported operating system: $PLATFORM_OS"; PREFLIGHT_FAILED=1 ;;
+    FreeBSD) PLATFORM_OS=freebsd ;;
+    *) ui_fail "cxx" "preflight" "Use Linux, macOS, or the pfSense CE Codex pilot" "Unsupported operating system: $PLATFORM_OS"; PREFLIGHT_FAILED=1 ;;
   esac
   case "$PLATFORM_ARCH" in
     x86_64|amd64) PLATFORM_ARCH=amd64 ;;
@@ -1302,7 +1305,21 @@ preflight_checks() {
   esac
   if [ "$PREFLIGHT_FAILED" = "1" ]; then return; fi
   WRAPPER_PLATFORM="$PLATFORM_OS-$PLATFORM_ARCH"
-  if ! command -v python3 >/dev/null 2>&1; then
+  PYTHON=python3
+  if [ "$PLATFORM_OS" = freebsd ]; then
+    if [ "$WRAPPER_PLATFORM" != freebsd-amd64 ] || [ "$(cat /etc/product_name 2>/dev/null || true)" != pfSense ] || [ "$(cat /etc/version 2>/dev/null || true)" != 2.9.0-RELEASE ] || [ "$(sysctl -n kern.osreldate)" != 1600018 ]; then
+      ui_fail "cxx" "preflight" "Tested on pfSense CE 2.9.0 amd64, OSVERSION 1600018" "Unsupported FreeBSD appliance or ABI"
+      PREFLIGHT_FAILED=1
+      return
+    fi
+    if [ "$PFSENSE_CODEX_ONLY" != 1 ]; then
+      ui_fail "cxx" "preflight" "Assign only Codex to this pilot host" "Unsupported engine assignment on pfSense"
+      PREFLIGHT_FAILED=1
+      return
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then PYTHON=/usr/local/bin/python3.11; fi
+  fi
+  if ! command -v "$PYTHON" >/dev/null 2>&1; then
     ui_fail "cxx" "preflight" "install it: apt-get install python3 | dnf install python3 | apk add python3 | brew install python3" "python3 is required"
     PREFLIGHT_FAILED=1
   fi
@@ -1328,6 +1345,7 @@ export function buildInstallerLauncherScript(opts: {
   fqdn: string;
   engine: Engine;
   installUrl: string;
+  enginesList?: Engine[];
   allowInsecure?: boolean;
 }): string {
   return `#!/bin/sh
@@ -1340,6 +1358,7 @@ set -eu
 ${shellArgumentGuard(false)}
 
 INSTALL_URL=${shellQuote(opts.installUrl)}
+PFSENSE_CODEX_ONLY=${opts.engine === ENGINE_CODEX && (opts.enginesList ?? []).every((e) => e === ENGINE_CODEX) ? '1' : '0'}
 NAME=${shellQuote(binaryName(opts.engine))}
 CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${opts.allowInsecure ? '1' : '0'}}
 BIN_DIR=\${BIN_DIR:-/usr/local/bin}
@@ -1417,7 +1436,7 @@ function installSpaceFunctions(): string {
 }
 
 space_check() {
-  python3 - "$@" <<'PY_INSTALL_SPACE'
+  "$PYTHON" - "$@" <<'PY_INSTALL_SPACE'
 import os, sys
 component = sys.argv[1]
 groups = {}

@@ -2,6 +2,7 @@ import { speechInputPolicy } from './speech-input.js';
 import { rtkPolicy, RTK_VERSION } from './rtk.js';
 import { rtkArtifacts } from './rtk-artifacts.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { AgentPolicyProfilesService } from './agent-policy-profiles.js';
 import { housekeepingPolicy, type HousekeepingPolicy } from './session-housekeeping.js';
 import { createHash } from 'node:crypto';
 import { desc, eq } from 'drizzle-orm';
@@ -15,7 +16,7 @@ import {
   type Host,
 } from '../db/schema.js';
 import type { Database } from '../db/client.js';
-import { ENGINE_HOST_FIELDS, ENGINES, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_HOST_FIELDS, ENGINES, type Engine } from '../util/engine.js';
 import { isoOffsetSeconds } from '../util/timestamp.js';
 import { decryptOrNull } from '../security/secret-box.js';
 import type { Keyring } from '../security/keyring.js';
@@ -590,6 +591,7 @@ if (engine === 'kimi')
       : await withSpan('wrapper.config.bump_version', {}, () => bumpConfigVersion(deps.db, host.id));
     span.setAttribute('wrapper.config_version', newVersion);
 
+    const freebsd = platform?.os === 'freebsd';
     const draft: Omit<WrapperConfigPayload, 'etag'> = {
       schema_version: WRAPPER_CONFIG_SCHEMA_VERSION,
       engine,
@@ -608,7 +610,7 @@ if (engine === 'kimi')
         ...(deps.communicatorEnabled && (deps.communicatorStateEnabled ?? !!owner)
           ? { communicator_state_protocol: 1 }
           : {}),
-        ...(deps.communicatorRuntimeEnabled ? { communicator_runtime_protocol: 1 } : {}),
+        ...(deps.communicatorRuntimeEnabled && !freebsd ? { communicator_runtime_protocol: 1 } : {}),
         // Old callers keep their warm-launch protocol; capable callers require
         // protocol 3 keeps content locally; admissions still require the server.
         ...(deps.communicatorEnabled && deps.communicatorSyncEnabled
@@ -642,7 +644,12 @@ if (engine === 'kimi')
         ...(destroyEngines.length > 0 ? { destroy_engines: destroyEngines } : {}),
       },
       speech_input: await speechInputPolicy(deps.db, engine),
-      engine_options: engineOptions(host, engine, { silent, adminTheme }, policy),
+      engine_options: {
+        ...engineOptions(host, engine, { silent, adminTheme }, policy),
+        ...(engine === ENGINE_CODEX && freebsd ? {
+          native_full_access: (await new AgentPolicyProfilesService(deps.db).enforcementForHost(host.id)).codex.sandbox_mode.value === 'danger-full-access',
+        } : {}),
+      },
       session_housekeeping: (({ enabled, retention_days, max_bytes, min_age_days }) => ({
         enabled,
         retention_days,
@@ -651,7 +658,7 @@ if (engine === 'kimi')
       }))(await housekeepingPolicy(deps.db, engine, host.id)),
       rtk: await (async () => {
         const rtk = await rtkPolicy(deps.db, engine, host.id);
-        return { enabled: engineActive && rtk.enabled, protocol: 1 as const, version: RTK_VERSION, adapter_mode: rtk.adapter_mode, policy_revision: rtk.policy_revision, artifacts: rtkArtifacts(publicBaseUrl, engine) };
+        return { enabled: engineActive && rtk.enabled && !freebsd, protocol: 1 as const, version: RTK_VERSION, adapter_mode: rtk.adapter_mode, policy_revision: rtk.policy_revision, artifacts: rtkArtifacts(publicBaseUrl, engine) };
       })(),
       agent_messaging: {
         enabled: messagingBaked,

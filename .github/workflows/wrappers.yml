@@ -83,6 +83,9 @@ jobs:
       matrix:
         os: [linux, darwin]
         arch: [amd64, arm64]
+        include:
+          - os: freebsd
+            arch: amd64
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -127,7 +130,7 @@ jobs:
           set -eu
           v=${GITHUB_REF_NAME#v}
           published_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+          for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 freebsd-amd64; do
             src="artifacts/cxx-$platform"
             test -f "$src"
             os=${platform%-*}
@@ -154,8 +157,8 @@ jobs:
           tar -C staged -czf "cxx-${GITHUB_REF_NAME}-bakery.tar.gz" cxx
           sha256sum "cxx-${GITHUB_REF_NAME}-bakery.tar.gz" \
             > "cxx-${GITHUB_REF_NAME}-bakery.tar.gz.sha256"
-          test "$(find staged/cxx -type f -name cxx | wc -l)" -eq 4
-          test "$(find staged/cxx -type f -name manifest.json | wc -l)" -eq 4
+          test "$(find staged/cxx -type f -name cxx | wc -l)" -eq 5
+          test "$(find staged/cxx -type f -name manifest.json | wc -l)" -eq 5
           find staged -type f -print | sort
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:

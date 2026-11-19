@@ -153,6 +153,7 @@ ui_result_fail`);
     const body = buildInstallerLauncher({
       fqdn: host.fqdn,
       engine: row.engine,
+      enginesList: hostEnginesList(host.engines),
       installUrl: `${baseUrl}${path}${token}`,
       allowInsecure: host.curlInsecure === 1,
     });

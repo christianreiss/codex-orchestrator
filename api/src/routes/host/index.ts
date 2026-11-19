@@ -203,7 +203,12 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       };
     }
 
-    const targetClient = summary.client_version_override ?? summary.client_version;
+    // OpenAI's release channel and the independently packaged pfSense port
+    // advance separately. Explicit per-host pins still take precedence.
+    const platformClient = engine === ENGINE_CODEX && requestedPlatform.os === 'freebsd' && requestedPlatform.arch === 'amd64'
+      ? '0.167.0'
+      : summary.client_version;
+    const targetClient = summary.client_version_override ?? platformClient;
     const wrapperUpdate = {
       action: 'no_update' as 'no_update' | 'update',
       target_version: targetWrapper,

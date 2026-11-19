@@ -77,6 +77,15 @@ func codexInstallationHealthy(cli string) bool {
 		return false
 	}
 	if filepath.Base(filepath.Dir(cli)) != "bin" {
+		if runtime.GOOS == "freebsd" {
+			for _, port := range pilotPorts {
+				for _, file := range port.files {
+					if !regularFile(filepath.Join(filepath.Dir(cli), file.dest), true) {
+						return false
+					}
+				}
+			}
+		}
 		b, err := os.ReadFile(filepath.Join(filepath.Dir(cli), standaloneReceipt))
 		return err == nil && string(b) == "v1\n"
 	}

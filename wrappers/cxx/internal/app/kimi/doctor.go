@@ -11,11 +11,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launcherdoctor"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
@@ -210,11 +210,11 @@ func skillsCheck() (string, terminalui.Tone, string) {
 }
 
 func diskCheck(home string) (string, terminalui.Tone, string) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(home, &stat); err != nil {
+	capacity, err := installspace.Inspect(home)
+	if err != nil {
 		return "Disk", terminalui.ToneWarn, err.Error()
 	}
-	freeMB := stat.Bavail * uint64(stat.Bsize) / (1024 * 1024)
+	freeMB := capacity.Bytes / installspace.MiB
 	tone := terminalui.ToneOK
 	switch {
 	case freeMB < 500:

@@ -51,7 +51,7 @@ describe('boot database checks', () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'cxx-boot-check-'));
     const payload = 'cxx test binary';
     const sha256 = createHash('sha256').update(payload).digest('hex');
-    for (const platform of ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64']) {
+    for (const platform of ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64', 'freebsd-amd64']) {
       const [os, arch] = platform.split('-');
       const manifestPath = join(dataRoot, 'wrapper', 'v2', 'bin', 'cxx', platform, 'manifest.json');
       await mkdir(dirname(manifestPath), { recursive: true });
@@ -176,7 +176,7 @@ describe('boot database checks', () => {
     const dataRoot = await mkdtemp(join(tmpdir(), 'cxx-corrupt-boot-check-'));
     const payload = 'complete cxx binary';
     const sha256 = createHash('sha256').update(payload).digest('hex');
-    for (const platform of ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64']) {
+    for (const platform of ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64', 'freebsd-amd64']) {
       const [os, arch] = platform.split('-');
       const manifestPath = join(dataRoot, 'wrapper', 'v2', 'bin', 'cxx', platform, 'manifest.json');
       await mkdir(dirname(manifestPath), { recursive: true });

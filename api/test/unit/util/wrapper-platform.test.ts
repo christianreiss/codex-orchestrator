@@ -36,6 +36,7 @@ describe('resolveWrapperPlatform', () => {
 
   it.each([
     ['darwin', 'cdx/1.0 darwin amd64', { os: 'darwin', arch: 'amd64' }],
+    ['FreeBSD', 'cdx/0.9.188 (FreeBSD; amd64)', { os: 'freebsd', arch: 'amd64' }],
     ['mac', 'Mozilla/5.0 (Macintosh; Intel Mac OS X)', { os: 'darwin', arch: 'amd64' }],
     ['DARWIN uppercase', 'CDX/1.0 DARWIN AMD64', { os: 'darwin', arch: 'amd64' }],
     ['arm64', 'cdx/1.0 linux arm64', { os: 'linux', arch: 'arm64' }],

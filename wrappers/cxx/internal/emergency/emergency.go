@@ -21,9 +21,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
@@ -103,6 +105,12 @@ func RunWith(args []string, stdout, stderr io.Writer, opts Options) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "cxx emergency: refusing to run %s: %v\n", engine, err)
 		return 1
+	}
+	if runtime.GOOS == "freebsd" && engine == config.EngineCodex {
+		if err := nativeargs.CheckFreeBSDCodexLaunch(cfg.EngineOptions.NativeFullAccess, native); err != nil {
+			fmt.Fprintln(stderr, "cxx emergency:", err)
+			return 1
+		}
 	}
 	env := os.Environ()
 	path, err := resolveBinary(spec, env, opts.Executable)

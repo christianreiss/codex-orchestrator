@@ -144,7 +144,14 @@ export const SUPPORTED_WRAPPER_PLATFORMS = [
   'linux-arm64',
   'darwin-amd64',
   'darwin-arm64',
+  'freebsd-amd64',
 ] as const;
+
+export function wrapperPlatformsForVersion(version: string) {
+  return versionCompare(version, '0.9.188') < 0
+    ? SUPPORTED_WRAPPER_PLATFORMS.filter((platform) => platform !== 'freebsd-amd64')
+    : SUPPORTED_WRAPPER_PLATFORMS;
+}
 
 /** Runtime validation for untrusted on-disk wrapper publication metadata. */
 export function validatePlatformManifest(
@@ -408,9 +415,11 @@ export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): Wrapp
         return resolveArtifactCurrent(CXX_ARTIFACT, os, arch);
       }),
     );
-    if (resolved.some((build) => build === null)) return null;
-    const versions = new Set(resolved.map((build) => build!.version));
-    return versions.size === 1 ? resolved[0]!.version : null;
+    const version = resolved[0]?.version;
+    if (!version) return null;
+    return wrapperPlatformsForVersion(version).every(
+      (platform) => resolved[SUPPORTED_WRAPPER_PLATFORMS.indexOf(platform)]?.version === version,
+    ) ? version : null;
   }
 
   return {

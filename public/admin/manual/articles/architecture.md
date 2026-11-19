@@ -44,7 +44,7 @@ Verification no longer happens on the request/boot path. `runner-client.ts` is t
 
 ## The wrappers
 
-`cdx`, `clx`, and `cgx` are relative persona aliases to one static Go `cxx` binary built from `wrappers/cxx/`. During a fresh install, `bin/install.sh` creates an installation-unique Ed25519 key, embeds its public key in all four platform binaries, and imports the private key encrypted into `wrapper_signing_keys`. When you onboard a host, the orchestrator emits a POSIX `sh` transition launcher plus typed signed engine config produced by `wrapper-config.ts`. The launcher fetches enabled configs first, verifies a shared version/SHA target, installs `cxx` plus aliases, and explicitly `exec`s `cxx <engine>`. The binary does three things on every run:
+`cdx`, `clx`, and `cgx` are relative persona aliases to one static Go `cxx` binary built from `wrappers/cxx/`. During a fresh install, `bin/install.sh` creates an installation-unique Ed25519 key, embeds its public key in all five platform binaries, and imports the private key encrypted into `wrapper_signing_keys`. When you onboard a host, the orchestrator emits a POSIX `sh` transition launcher plus typed signed engine config produced by `wrapper-config.ts`. The launcher fetches enabled configs first, verifies a shared version/SHA target, installs `cxx` plus aliases, and explicitly `exec`s `cxx <engine>`. The binary does three things on every run:
 
 1. Verifies the Ed25519 signature on its config against the public key it embeds at build time.
 2. Hits `/auth`, `/agents/retrieve`, `/config/retrieve` to refresh local state (best-effort, never blocks).

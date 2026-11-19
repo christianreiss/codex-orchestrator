@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createWrapperBinRegistry } from '../../../src/services/wrapper-bin-registry.js';
+import { createWrapperBinRegistry, SUPPORTED_WRAPPER_PLATFORMS } from '../../../src/services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../../src/services/wrapper-version-projection.js';
 import type { VersionSnapshot } from '../../../src/services/version-snapshot.js';
 
@@ -34,7 +34,7 @@ function snapshot(): VersionSnapshot {
 async function writePublishedBuild(
   root: string,
   artifact: 'cxx' | 'codex',
-  platform: 'linux-amd64' | 'linux-arm64' | 'darwin-amd64' | 'darwin-arm64',
+  platform: (typeof SUPPORTED_WRAPPER_PLATFORMS)[number],
   payload: string,
 ): Promise<string> {
   const [os, arch] = platform.split('-') as [string, string];
@@ -167,12 +167,7 @@ describe('wrapper version projection', () => {
   it('uses the transition launcher only for a complete common cxx matrix', async () => {
     const root = await mkdtemp(join(tmpdir(), 'wrapper-projection-cxx-legacy-'));
     try {
-      for (const platform of [
-        'linux-amd64',
-        'linux-arm64',
-        'darwin-amd64',
-        'darwin-arm64',
-      ] as const) {
+      for (const platform of SUPPORTED_WRAPPER_PLATFORMS) {
         await writePublishedBuild(root, 'cxx', platform, `common cxx ${platform}`);
       }
       const projected = await projectWrapperVersionSnapshot({

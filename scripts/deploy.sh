@@ -195,7 +195,7 @@ fi
 # this: it is written for a first install and refuses a bump once the private
 # key has been imported into the database.
 
-wrapper_platforms=(linux-amd64 linux-arm64 darwin-amd64 darwin-arm64)
+wrapper_platforms=(linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 freebsd-amd64)
 
 read_wrapper_version() {
   awk '/^VERSION[[:space:]]*\?=/ { sub(/^VERSION[[:space:]]*\?=[[:space:]]*/, ""); sub(/^v/, ""); print; exit }' \
@@ -462,7 +462,7 @@ if [[ "${wrappers_published}" -eq 1 ]]; then
     2>/dev/null)"
   for name in wrapper_version_codex wrapper_version_claude wrapper_version_grok wrapper_version_kimi; do
     grep -qx "${name}=${wrapper_version}" <<<"${served}" \
-      || fail "api did not project cxx ${wrapper_version} (${name}); check PUBLIC_BASE_URL and that all four platforms are published"
+      || fail "api did not project cxx ${wrapper_version} (${name}); check PUBLIC_BASE_URL and that all release platforms are published"
   done
 fi
 

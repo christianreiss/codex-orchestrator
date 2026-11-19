@@ -12,6 +12,8 @@ import { ENGINES, ENGINE_COMMANDS, type Engine } from '../util/engine.js';
 import { writeRunnerTelemetry } from '../services/runner-telemetry.js';
 import { ensureAuthGenerationBackfill } from '../services/auth-generation-retention.js';
 import {
+  SUPPORTED_WRAPPER_PLATFORMS,
+  wrapperPlatformsForVersion,
   CXX_ARTIFACT,
   validatePlatformManifest,
   wrapperBinaryUrl,
@@ -52,7 +54,7 @@ async function refreshWrapperVersions(env: Env, db: Database): Promise<void> {
     : resolve(import.meta.dirname, '..', '..', '..', '..', 'storage', 'wrapper', 'v2', 'bin');
   const publishedAt = nowIso();
 
-  const commonPlatforms = ['linux-amd64', 'linux-arm64', 'darwin-amd64', 'darwin-arm64'];
+  const commonPlatforms = SUPPORTED_WRAPPER_PLATFORMS;
   const commonManifests = await Promise.all(
     commonPlatforms.map((platform) =>
       readCurrentBuild(
@@ -71,15 +73,10 @@ async function refreshWrapperVersions(env: Env, db: Database): Promise<void> {
       return (await binaryMatchesBuild(binary, build)) ? build : null;
     }),
   );
-  const commonVersions = new Set(
-    commonBuilds.flatMap((build) => (build ? [build.version] : [])),
-  );
-  const commonBuild = commonBuilds[0] ?? null;
-  if (
-    commonBuild &&
-    commonBuilds.every((build) => build !== null) &&
-    commonVersions.size === 1
-  ) {
+  const commonBuild = commonBuilds[0];
+  if (commonBuild && wrapperPlatformsForVersion(commonBuild.version).every(
+    (platform) => commonBuilds[commonPlatforms.indexOf(platform)]?.version === commonBuild.version,
+  )) {
     const url = wrapperBinaryUrl(
       baseUrl,
       CXX_ARTIFACT,

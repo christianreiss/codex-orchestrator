@@ -22,6 +22,7 @@ PLATFORMS = {
     "linux-arm64": ("linux", "arm64"),
     "darwin-amd64": ("darwin", "amd64"),
     "darwin-arm64": ("darwin", "arm64"),
+    "freebsd-amd64": ("freebsd", "amd64"),
 }
 
 
@@ -89,7 +90,7 @@ def main() -> int:
                     raise SystemExit(f"published file is not world-readable: {path}")
 
         # A malformed destination manifest must fail before any platform gets
-        # the new immutable payload; the four-platform publication is atomic at
+        # the new immutable payload; the all-platform publication is atomic at
         # the validation boundary even though manifest swaps happen per path.
         corrupt_manifest = destination / "cxx" / "linux-amd64" / "manifest.json"
         corrupt = json.loads(corrupt_manifest.read_text(encoding="utf-8"))

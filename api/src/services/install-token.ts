@@ -177,6 +177,7 @@ export function buildInstallerLauncher(opts: {
   fqdn: string;
   engine: Engine;
   installUrl: string;
+  enginesList?: Engine[];
   allowInsecure?: boolean;
 }): string {
   return buildInstallerLauncherScript(opts);

@@ -121,6 +121,9 @@ func Remove(ctx context.Context) error {
 }
 
 func removeSchedulesLocked(canonical string, allUsers bool) error {
+	if runtime.GOOS == "freebsd" {
+		return stripUserManaged()
+	}
 	rollbackUsers := userCrontabRollback(func() error { return nil })
 	if allUsers {
 		var err error
@@ -262,14 +265,16 @@ func run(ctx context.Context, seed *config.Config, minimal, due bool, stdout, st
 	if workerRequired {
 		ensureWorker()
 	}
-	daemonCtx, daemonCancel := context.WithTimeout(runCtx, 30*time.Second)
-	daemonCmd := exec.CommandContext(daemonCtx, canonical, "daemon", "reconcile")
-	boundCommandChildren(daemonCmd)
-	daemonCmd.Stdout, daemonCmd.Stderr = stdout, stderr
-	if err := daemonCmd.Run(); err != nil {
-		fmt.Fprintln(stderr, "optional host daemon:", err)
+	if runtime.GOOS == "linux" {
+		daemonCtx, daemonCancel := context.WithTimeout(runCtx, 30*time.Second)
+		daemonCmd := exec.CommandContext(daemonCtx, canonical, "daemon", "reconcile")
+		boundCommandChildren(daemonCmd)
+		daemonCmd.Stdout, daemonCmd.Stderr = stdout, stderr
+		if err := daemonCmd.Run(); err != nil {
+			fmt.Fprintln(stderr, "optional host daemon:", err)
+		}
+		daemonCancel()
 	}
-	daemonCancel()
 	if err := runCtx.Err(); err != nil {
 		errs = append(errs, err)
 	}
@@ -677,6 +682,11 @@ func reconcileSchedule(ctx context.Context, canonical string, nightly bool) erro
 	return layout.WithTargetLock(ctx, canonical, func() error {
 		host, _ := os.Hostname()
 		minute, hour := deterministicTime(host)
+		// pfSense regenerates its system crontab. FreeBSD cron also runs
+		// per-user spools, including root's, across appliance config reloads.
+		if runtime.GOOS == "freebsd" {
+			return installUserCron(canonical, minute, hour)
+		}
 		if os.Geteuid() != 0 && canWriteBinary(canonical) {
 			if err := installUserCron(canonical, minute, hour); err != nil {
 				return err

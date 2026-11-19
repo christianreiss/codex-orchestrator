@@ -75,7 +75,13 @@ func Inspect(path string) (Capacity, error) {
 	if err := syscall.Stat(path, &st); err != nil {
 		return Capacity{}, err
 	}
-	return Capacity{Device: uint64(st.Dev), Bytes: uint64(fs.Bavail) * uint64(fs.Bsize), Inodes: uint64(fs.Ffree), InodesKnown: fs.Files > 0}, nil
+	// BSD can report a negative available block count when the filesystem
+	// is using its reserved blocks. Treat that as no installable space.
+	var available uint64
+	if fs.Bavail > 0 && fs.Bsize > 0 {
+		available = uint64(fs.Bavail) * uint64(fs.Bsize)
+	}
+	return Capacity{Device: uint64(st.Dev), Bytes: available, Inodes: uint64(fs.Ffree), InodesKnown: fs.Files > 0}, nil
 }
 
 func inspect(ctx context.Context, path string) (Capacity, error) {

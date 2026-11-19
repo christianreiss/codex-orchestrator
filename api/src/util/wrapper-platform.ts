@@ -22,7 +22,8 @@ export function resolveWrapperPlatform(headers: IncomingHttpHeaders): WrapperPla
   }
   let os = 'linux';
   let arch = 'amd64';
-  if (/darwin|mac/i.test(ua)) os = 'darwin';
+  if (/freebsd/i.test(ua)) os = 'freebsd';
+  else if (/darwin|mac/i.test(ua)) os = 'darwin';
   if (/arm64|aarch64/i.test(ua)) arch = 'arm64';
   return { os, arch };
 }

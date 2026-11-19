@@ -61,19 +61,19 @@ describe('SetupStatusService', () => {
     const checker = service(createDbFake());
     const wrappers = async () => (await checker.status()).checks.find(check => check.id === 'wrappers');
     expect(await wrappers()).toMatchObject({ ok: true });
-    expect(createReadStream).toHaveBeenCalledTimes(4);
+    expect(createReadStream).toHaveBeenCalledTimes(SUPPORTED_WRAPPER_PLATFORMS.length);
     expect(await wrappers()).toMatchObject({ ok: true });
-    expect(createReadStream).toHaveBeenCalledTimes(4);
+    expect(createReadStream).toHaveBeenCalledTimes(SUPPORTED_WRAPPER_PLATFORMS.length);
 
     const path = join(dir, 'wrapper', 'v2', 'bin', 'cxx', SUPPORTED_WRAPPER_PLATFORMS[0]!, 'v1.0.0', 'cxx');
     writeFileSync(path, 'corrupt!-wrapper'); // Same size; mtime must invalidate the cached digest.
     utimesSync(path, 1_800_000_000, 1_800_000_000);
     expect(await wrappers()).toMatchObject({ ok: false, detail: expect.stringContaining('checksum mismatch') });
-    expect(createReadStream).toHaveBeenCalledTimes(5);
+    expect(createReadStream).toHaveBeenCalledTimes(SUPPORTED_WRAPPER_PLATFORMS.length + 1);
     writeFileSync(path, binary);
     utimesSync(path, 1_800_000_001, 1_800_000_001);
     expect(await wrappers()).toMatchObject({ ok: true });
-    expect(createReadStream).toHaveBeenCalledTimes(6);
+    expect(createReadStream).toHaveBeenCalledTimes(SUPPORTED_WRAPPER_PLATFORMS.length + 2);
   });
 
   it('builds auth next actions from configured engines and adds fleet defaults before the first host', async () => {

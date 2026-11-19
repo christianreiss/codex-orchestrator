@@ -18,6 +18,7 @@ import { loadMigrations } from '../db/migrator.js';
 import {
   CXX_ARTIFACT,
   SUPPORTED_WRAPPER_PLATFORMS,
+  wrapperPlatformsForVersion,
   createWrapperBinRegistry,
   type WrapperBinRegistry,
 } from './wrapper-bin-registry.js';
@@ -284,8 +285,11 @@ export class SetupStatusService {
   }
 
   private async wrapperCheck(): Promise<SetupCheck> {
+    const first = await this.binaries.manifestForPlatform(CXX_ARTIFACT, SUPPORTED_WRAPPER_PLATFORMS[0]);
+    if (!first) return wrapperFailure('linux-amd64 manifest missing or invalid');
+    const platforms = wrapperPlatformsForVersion(first.current);
     const versions = new Set<string>();
-    for (const platform of SUPPORTED_WRAPPER_PLATFORMS) {
+    for (const platform of platforms) {
       const manifest = await this.binaries.manifestForPlatform(CXX_ARTIFACT, platform);
       const build = manifest?.builds.find((candidate) => candidate.version === manifest.current);
       if (!manifest || !build) return wrapperFailure(`${platform} manifest missing or invalid`);
@@ -297,7 +301,7 @@ export class SetupStatusService {
       versions.add(build.version);
     }
     if (versions.size !== 1) return wrapperFailure('platform artifacts use mixed versions');
-    return { id: 'wrappers', label: 'Wrapper platform matrix', ok: true, critical: true, detail: `4 platforms at ${[...versions][0]}` };
+    return { id: 'wrappers', label: 'Wrapper platform matrix', ok: true, critical: true, detail: `${platforms.length} platforms at ${[...versions][0]}` };
   }
 
   private async hasCanonicalAuth(engine: Engine): Promise<boolean> {

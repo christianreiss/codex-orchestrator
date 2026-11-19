@@ -216,6 +216,7 @@ type ModelPolicy struct {
 }
 
 type EngineOptions struct {
+	NativeFullAccess                     bool         `json:"native_full_access,omitempty"`
 	ModelPolicy                          *ModelPolicy `json:"model_policy,omitempty"`
 	Silent                               bool         `json:"silent"`
 	ModelOverride                        *string      `json:"model_override,omitempty"`

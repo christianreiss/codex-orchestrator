@@ -70,6 +70,7 @@ describe('wrapper-meta', () => {
     expect(Object.keys(r.platforms).sort()).toEqual([
       'darwin-amd64',
       'darwin-arm64',
+      'freebsd-amd64',
       'linux-amd64',
       'linux-arm64',
     ]);

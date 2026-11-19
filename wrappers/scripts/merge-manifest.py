@@ -132,6 +132,7 @@ def _merge(path: Path, engine: str, os_name: str, arch: str, version: str, sha: 
         ("linux", "arm64"),
         ("darwin", "amd64"),
         ("darwin", "arm64"),
+        ("freebsd", "amd64"),
     }:
         raise ValueError(f"unsupported cxx artifact identity {engine}/{os_name}/{arch}")
     semver_key(version)

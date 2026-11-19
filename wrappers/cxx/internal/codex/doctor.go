@@ -11,13 +11,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/pelletier/go-toml"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launcherdoctor"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
@@ -346,11 +346,11 @@ func checkDisk() ui.DoctorRow {
 		return ui.DoctorRow{Label: "Disk", Tone: ui.ToneFail, Value: err.Error()}
 	}
 	_ = os.MkdirAll(dir, 0o700)
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(dir, &stat); err != nil {
+	capacity, err := installspace.Inspect(dir)
+	if err != nil {
 		return ui.DoctorRow{Label: "Disk", Tone: ui.ToneWarn, Value: err.Error()}
 	}
-	freeMB := stat.Bavail * uint64(stat.Bsize) / (1024 * 1024)
+	freeMB := capacity.Bytes / installspace.MiB
 	tone := ui.ToneOK
 	switch {
 	case freeMB < 500:

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -250,6 +251,11 @@ func RunCapturePrepared(ctx context.Context, cfg *config.Config, args []string) 
 // active-child lease; explicit logout passes exclusive maintenance + writer
 // leases so no shared process can queue through its destructive transaction.
 func runCapturePreparedWithHeldLeases(ctx context.Context, cfg *config.Config, args []string, session *AuthSession, childLease *ipc.Lock, extraLeases ...*ipc.Lock) (exitCode int, captured []byte, runErr error) {
+	if runtime.GOOS == "freebsd" {
+		if err := nativeargs.CheckFreeBSDCodexLaunch(cfg != nil && cfg.EngineOptions.NativeFullAccess, args); err != nil {
+			return 1, nil, err
+		}
+	}
 	guard, guardErr := sessionguard.Launch("codex")
 	if guardErr != nil {
 		return 1, nil, guardErr

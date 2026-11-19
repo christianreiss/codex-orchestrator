@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
-VERSION ?= 0.9.187
+VERSION ?= 0.9.188
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -27,7 +27,7 @@ LDFLAGS += -X 'github.com/christianreiss/codex-orchestrator/wrappers/cxx/interna
 endif
 
 # Platform matrix kept in sync with .github/workflows/wrappers.yml.
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 freebsd/amd64
 
 .PHONY: all build cxx cxx-traced cdx clx cgx ckx terminal-preview test-terminal test test-traced vet lint clean release publish-release pubkey
 

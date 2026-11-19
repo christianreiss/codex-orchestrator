@@ -922,7 +922,7 @@ wrapper_version() {
 
 step_wrappers() {
   wrapper_key_paths
-  (( DRY_RUN )) && { info "would build the four-platform cxx matrix"; step_skipped "dry run"; return 0; }
+  (( DRY_RUN )) && { info "would build the cxx release matrix"; step_skipped "dry run"; return 0; }
   local previous_api
   previous_api="$(compose ps -a -q api)" || fatal "could not inspect the existing API before wrapper publication"
   if [[ -n "$previous_api" && ! -f "$WRAPPER_PUBLIC_KEY" ]]; then
@@ -953,7 +953,7 @@ step_wrappers() {
   publish_root="$DATA_ROOT_RESOLVED/store/wrapper/v2/bin"
   key_b64="$(base64 -w0 "$WRAPPER_PUBLIC_KEY" 2>/dev/null || base64 "$WRAPPER_PUBLIC_KEY" | tr -d '\n')"
 
-  for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64; do
+  for platform in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 freebsd-amd64; do
     manifest="$publish_root/cxx/$platform/manifest.json"
     binary="$publish_root/cxx/$platform/v${version}/cxx"
     [[ -e "$manifest" || -e "$binary" ]] && present=1
@@ -964,7 +964,7 @@ step_wrappers() {
 
   if (( complete )); then
     publish_readable "$publish_root"
-    step_done "four platforms present at v$version, signed by this installation"
+    step_done "five platforms present at v$version, signed by this installation"
     return 0
   fi
 
@@ -999,7 +999,7 @@ step_wrappers() {
   build_wrapper_matrix "$version" "$stage" "$publish_root"
   rm -rf "$stage"
   publish_readable "$publish_root"
-  step_done "built and published cxx v$version for four platforms"
+  step_done "built and published cxx v$version for five platforms"
 }
 
 # `publish-release.py` creates each version directory at mode 0700, which the API

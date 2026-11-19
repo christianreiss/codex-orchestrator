@@ -26,6 +26,7 @@ EXPECTED_PLATFORMS = {
     "linux-arm64": ("linux", "arm64"),
     "darwin-amd64": ("darwin", "amd64"),
     "darwin-arm64": ("darwin", "arm64"),
+    "freebsd-amd64": ("freebsd", "amd64"),
 }
 
 

@@ -89,7 +89,7 @@ func ensureCodexBackground(ctx context.Context, target string, enforceExact bool
 	currentCtx, currentCancel := context.WithTimeout(ctx, 5*time.Second)
 	current := strings.TrimSpace(Version(currentCtx))
 	currentCancel()
-	rel, err := releaseForReconcile(ctx, target)
+	rel, err := releaseForPlatform(ctx, target)
 	if err != nil {
 		return err
 	}
@@ -109,14 +109,20 @@ func ensureCodexBackground(ctx context.Context, target string, enforceExact bool
 			return nil
 		}
 	}
-	fullPackage, err := pickPackageAsset(ctx, rel)
-	if err != nil {
-		return err
+	var fullPackage Asset
+	if runtime.GOOS != "freebsd" {
+		fullPackage, err = pickPackageAsset(ctx, rel)
+		if err != nil {
+			return err
+		}
 	}
 	var asset, companion Asset
 	var temporary, expanded uint64
 	artifact := ""
-	if fullPackage.Name != "" {
+	if runtime.GOOS == "freebsd" {
+		temporary, expanded = 0, 512*installspace.MiB
+		artifact = "pfSense CE " + pilotVersion
+	} else if fullPackage.Name != "" {
 		asset = fullPackage
 		temporary = installspace.Size(asset.Size, installspace.Wrapper)
 		expanded = maxPackageBytes
@@ -161,7 +167,11 @@ func ensureCodexBackground(ctx context.Context, target string, enforceExact bool
 		}
 	}()
 	cli := filepath.Join(dir, "codex")
-	if fullPackage.Name != "" {
+	if runtime.GOOS == "freebsd" {
+		if err := installPfSensePort(ctx, dir); err != nil {
+			return err
+		}
+	} else if fullPackage.Name != "" {
 		if err := installCodexPackage(ctx, rel, fullPackage, dir, logger); err != nil {
 			return err
 		}

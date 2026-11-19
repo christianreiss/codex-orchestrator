@@ -115,6 +115,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "native_full_access": { "type": "boolean", "default": false, "description": "FreeBSD Codex pilot. The effective signed host posture permits execution with the caller’s full filesystem access." },
         "silent": { "type": "boolean", "default": false },
         "model_override": { "type": ["string", "null"] },
         "reasoning_effort_override": { "type": ["string", "null"], "enum": [null, "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] },

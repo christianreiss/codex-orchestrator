@@ -8,6 +8,7 @@ import {
   BinaryNotFoundError,
   validatePlatformManifest,
   versionCompare,
+  SUPPORTED_WRAPPER_PLATFORMS,
 } from '../../../src/services/wrapper-bin-registry.js';
 
 const BIN_ROOT = resolve(import.meta.dirname, '..', '..', 'fixtures', 'wrapper-v2', 'bin');
@@ -42,6 +43,30 @@ describe('wrapper-bin-registry', () => {
     expect(codex?.version).toBe('1.0.1');
     expect(codex?.sha256).toBe('9fffd05c3633248e9442c56817d5bd9b6861e1ebcb63d856d42774277d5f0a66');
   });
+
+  it.each([['0.9.187', true], ['0.9.188', false]] as const)(
+    'serves a four-platform publication at %s only under its original release contract',
+    async (version, available) => {
+      const root = await mkdtemp(join(tmpdir(), 'cxx-old-matrix-'));
+      try {
+        for (const platform of SUPPORTED_WRAPPER_PLATFORMS.filter(p => p !== 'freebsd-amd64')) {
+          const [os, arch] = platform.split('-');
+          const base = join(root, 'cxx', platform);
+          await mkdir(join(base, `v${version}`), { recursive: true });
+          await writeFile(join(base, `v${version}`, 'cxx'), platform);
+          await writeFile(join(base, 'manifest.json'), JSON.stringify({
+            engine: 'cxx', os, arch, current: version,
+            builds: [{ version, sha256: createHash('sha256').update(platform).digest('hex'), size_bytes: platform.length }],
+          }));
+        }
+        const registry = createWrapperBinRegistry({ binRoot: root });
+        expect((await registry.currentBuild('codex', 'darwin', 'arm64'))?.version).toBe(available ? version : undefined);
+        expect(await registry.currentBuild('codex', 'freebsd', 'amd64')).toBeNull();
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('fails closed after a common cxx publication starts instead of falling back to split bytes', async () => {
     const root = await mkdtemp(join(tmpdir(), 'wrapper-registry-mismatch-'));

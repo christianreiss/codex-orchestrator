@@ -90,6 +90,28 @@ describe('GET /versions', () => {
 });
 
 describe('POST /cron/check', () => {
+  it.each([[null, '0.167.0'], ['0.165.0', '0.165.0']] as const)('serves the FreeBSD port target with host pin %s', async (pin, target) => {
+    const db = createDbFake();
+    const apiKey = 'freebsd-platform-fixture';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), clientVersionOverride: pin }]);
+    db.tables.set(versionsTable, [
+      { name: 'client_version_codex', version: '0.170.0' },
+      { name: 'auto_update_enabled', version: '1' },
+    ]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const response = await app.inject({
+        method: 'POST', url: '/cron/check',
+        headers: { authorization: `Bearer ${apiKey}`, 'x-wrapper-platform': 'freebsd-amd64' },
+        payload: { engine: 'codex', client_version: '0.160.0' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ action: 'update', target_version: target });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('does not send a legacy Codex pin to a Claude client with no recorded version', async () => {
     const db = createDbFake();
     const apiKey = 'sk-claude-target-isolation-test';
