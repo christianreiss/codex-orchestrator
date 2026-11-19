@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import {
   authCanonicalHeads,
   authEntries,
@@ -75,6 +75,28 @@ function makeKeyring(): Keyring {
     ENCRYPTION_ACTIVE_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
   } as unknown as Parameters<typeof Keyring.fromEnv>[0]);
 }
+
+describe('rescue media admission', () => {
+  it('separates the media key from general host auth and requires a host-specific window', async () => {
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    const key = 'fixture-host-key';
+    const media = 'rescue1.1.' + createHmac('sha256', key).update('rescue1.1').digest('hex');
+    db.tables.set(hostsTable, [hostRow(key, { fqdn: 'rescue-owl', secure: 0, apiKeyEnc: encrypt(key, keyring) })]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring });
+    try {
+      const post = (url: string, token: string, action: string) => app.inject({ method: 'POST', url,
+        headers: { authorization: 'Bearer ' + token }, payload: { action, engine: 'codex' } });
+      expect((await post('/rescue/v1/session', media, 'version')).json().host).toBe('rescue-owl');
+      expect((await post('/rescue/v1/session', media, 'start')).statusCode).toBe(403);
+      expect((await post('/rescue/v1/session', media.slice(0, -1) + 'X', 'version')).statusCode).toBe(401);
+      expect((await post('/rescue/v1/session', key, 'version')).statusCode).toBe(401);
+      expect((await post('/auth', media, 'retrieve')).statusCode).toBe(401);
+    } finally {
+      await app.close();
+    }
+  });
+});
 
 describe('first-sync wrapper capabilities', () => {
   it.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s renders MCP for the running wrapper before its first version report', async engine => {

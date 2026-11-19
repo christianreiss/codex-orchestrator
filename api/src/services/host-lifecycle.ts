@@ -1,3 +1,4 @@
+import { isRescueMediaHost } from './rescue-identity.js';
 import { persistAuditLog } from './audit-log.js';
 import { hostActivity, observeHostActivity } from '../control-plane/state/host-activity.js';
 import { projectHostDeletion } from '../control-plane/state/deletion.js';
@@ -50,6 +51,8 @@ function pruneReason(host: Omit<Host, 'apiKey' | 'apiKeyEnc'>, days: number, now
   // Server-owned hosts (the Fleet Advisor) belong to the stack, not the fleet.
   if (host.internalRole) return null;
   if (host.expiresAt && Date.parse(host.expiresAt) <= now.getTime()) return 'expired';
+  // Disaster recovery media can legitimately sit on a shelf for months.
+  if (isRescueMediaHost(host)) return null;
   if (days > 0 && Date.parse(host.lastContactAt ?? host.createdAt) < now.getTime() - days * 86400_000)
     return 'inactive';
   // Pooled accounts may have no per-host digest. Any engine's installed

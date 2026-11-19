@@ -1,3 +1,7 @@
+# 2026-11-19
+
+- RescueBake media can check engine versions at boot and start Codex or Claude after the operator opens the individual rescue host window. The disc carries a restricted identity.
+
 # 2026-11-18
 
 - **Android Companion 0.10.0 redesign:** a fixed light/dark palette replaces wallpaper colours, Material icons replace the hand-drawn ones, and the inbox shows "Needs you" (questions, notices, host approvals) above "Active" agents and rooms in two-line rows. Offline and ended agents are no longer listed (search, notifications and links still open their history). Tabs are Chats · Hosts · Quotas; approvals moved under Hosts, a "+" button starts an agent on a chosen host, and the menu is a short Settings sheet. Infrastructure terms (receiver, daemon, slots, fleet window, cxx) were replaced by plain wording in English and German. With a server that advertises `portal_queue_protocol`, you can write to a busy agent: the message waits, shows "Waiting for the agent" and can be withdrawn with "Don't send". Design rules: `docs/android-design.md`.

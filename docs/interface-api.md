@@ -4519,3 +4519,22 @@ Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; i
 Both methods require a valid API-key-authenticated active, unexpired host, normal IP and insecure-window admission, assignment to the requested engine, an enabled fleet engine and the API kill switch off. Non-VIP hosts are intentionally authorized to change these central fleet defaults. Explicit path/header/query engine hints must agree; this route never defaults a missing engine to Codex. Auth failures return the existing 401/403/423 admission errors.
 
 The wrapper reloads the selected engine's signed config and uses its verified endpoint, CA and host key. GET runs asynchronously; save never launches a session or changes the remembered launch choice. POST has no automatic retry. An ambiguous failure triggers one GET readback to confirm the requested stored/effective model and effort. Offline or missing endpoints disable saving without blocking ordinary launching. Deploy this endpoint before publishing wrapper 0.9.183.
+
+## Rescue media
+
+`POST /rescue/v1/session` accepts a media bearer derived as
+`rescue1.<host-id>.<hex HMAC-SHA256(host API key, "rescue1.<host-id>")>`.
+Provision the non-VIP insecure hosts `rescue-owl` and `rescue-dalason` once.
+Keep their normal API keys outside the media. Rotating a parent key revokes
+all copies of its media identity. These two reservations survive inactivity
+pruning. Explicit expiry and administrative removal still apply.
+
+Send `engine` (codex or claude) and `action`. The version action returns
+the effective engine version and update policy before approval. Open the
+individual host window in Hosts to permit start and heartbeat. Start,
+heartbeat and release share a client-generated session_id. Start reserves a
+timed provider account and returns only the OAuth access material for that
+engine. The client should heartbeat while running and release on exit. Closing
+the window rejects further starts and heartbeats. A provider access token
+already issued lives until its provider expiry. General Fleet APIs never
+recognize media tokens. Media copies of one profile share its host window.

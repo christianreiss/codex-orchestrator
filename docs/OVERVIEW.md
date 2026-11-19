@@ -2082,3 +2082,5 @@ Receiver `ready` describes transport. Its `immediate_admission` and
 `immediate_next_action` disclose the one-slot busy-spell limit and the
 `agent_wait(conversation_id)` catch-up path without completing accepted work.
 See [delivery timing](agent-messaging-timing.md) for engine limitations.
+
+RescueBake uses media-scoped identities and individual host approval windows for native disaster-recovery sessions. See [Rescue media](interface-api.md#rescue-media).

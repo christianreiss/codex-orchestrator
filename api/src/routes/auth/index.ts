@@ -1,3 +1,11 @@
+import { rescueAccess, rescueHostId, isRescueMediaHost, verifyRescueToken } from '../../services/rescue-identity.js';
+import { extractApiKey } from '../../util/api-key-helpers.js';
+import { decryptOrNull } from '../../security/secret-box.js';
+import { bindOwnerHostPrincipal } from '../../control-plane/state/admission.js';
+import { addOwnerResponseProof } from '../../control-plane/state/runtime.js';
+import { ownedEngineState } from '../../control-plane/state/messaging.js';
+import { UnauthorizedError, ForbiddenError } from '../../http/errors.js';
+import { insecureWindowActive } from '../../services/insecure-window.js';
 import { quotaSnapshot } from '../../services/quota-observation.js';
 import { persistAuditLog } from '../../services/audit-log.js';
 import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
@@ -175,6 +183,68 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   });
 
   const accounts = new ProviderAccountsService(ctx.db, ctx.keyring);
+  // A media identity is deliberately recognized only on this route. Neither
+  // generic host authentication nor communicator/MCP accepts the derived key.
+  app.post('/rescue/v1/session', async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    await assertApiNotDisabled(versions);
+    const payload = readPayload(req.body);
+    const { engine, action } = payload;
+    if (engine !== 'codex' && engine !== 'claude') throw new ValidationError('Unknown rescue engine');
+    if (action !== 'start' && action !== 'release' && action !== 'heartbeat' && action !== 'version')
+      throw new ValidationError('Unknown rescue action');
+    const token = extractApiKey(req.headers) ?? '';
+    const id = rescueHostId(token);
+    const [row] = await ctx.db.select().from(hostsTable).where(eq(hostsTable.id, id)).limit(1);
+    const key = row && isRescueMediaHost(row) ? decryptOrNull(row.apiKeyEnc, ctx.keyring) : null;
+    if (!row || !key || !verifyRescueToken(id, key, token)) throw new UnauthorizedError('Invalid rescue identity');
+    // Check approval before auth can bind a roaming IP. Release and version
+    // never need provider material or an IP change.
+    if (row.status !== 'active' || row.expiresAt && Date.parse(row.expiresAt) <= Date.now())
+      throw new UnauthorizedError('Inactive rescue identity');
+    let host: Host = { ...row, apiKey: key, apiKeyEnc: null };
+    const launch = action === 'start' || action === 'heartbeat';
+    if (launch && !insecureWindowActive(host)) throw new ForbiddenError('Open the rescue host window in the fleet portal', 'rescue_approval_required');
+    if (launch) {
+      host = await hostAuth.authenticate({
+        headers: { authorization: 'Bearer ' + key }, method: 'POST', clientIp: req.clientIp, query: {},
+      } as FastifyRequest);
+      if (!isRescueMediaHost(host) || !insecureWindowActive(host))
+        throw new ForbiddenError('Rescue access closed', 'rescue_approval_required');
+    }
+    if (ownerRuntimeFor(ctx.db)) {
+      bindOwnerHostPrincipal(ctx.db, host, launch);
+      addOwnerResponseProof('rescue-policy', snapshot => {
+        const current = snapshot.hosts.get(id);
+        if (!current || !isRescueMediaHost(current)) throw new UnauthorizedError('Rescue identity changed');
+        if (action !== 'release') assertHostEngineEnabled(current, engine, ownedEngineState(snapshot));
+      });
+    }
+    if (action !== 'release') assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
+    if (action === 'version') {
+      const policy = applyHostVersionPolicy(await versions.summary(engine), host, engine);
+      return { host: host.fqdn, version: policy.client_version_override ?? policy.client_version, auto_update: policy.auto_update_enabled };
+    }
+    const session = opaqueId(payload.session_id, 'session_id');
+    if (action === 'release') {
+      await accounts.release(id, engine, session);
+      return { released: true };
+    }
+    if (action === 'heartbeat') {
+      await accounts.heartbeat(id, engine, session);
+      return { active: true };
+    }
+    const quota = await readQuotaControls(ctx, false, engine);
+    const lease = await accounts.acquire(id, engine, 'rescue-media', session, quota.quota_limit_percent, undefined, 'timed');
+    try {
+      const canonical = await runnerValidation.resolveCanonicalPayload(engine, lease.account.id);
+      const auth = canonical ? runnerValidation.canonicalAuthFromPayload(canonical) : null;
+      return rescueAccess(engine, auth);
+    } catch (error) {
+      await accounts.release(id, engine, session);
+      throw error;
+    }
+  });
   // Launch reservations are idempotent and scoped to a local auth directory.
   app.post('/auth/sessions', async (req) => {
     await assertApiNotDisabled(versions);
