@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
+import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
+import { bindOwnerRuntime } from '../../../src/control-plane/state/runtime.js';
 import {
   authCanonicalHeads,
   authEntries,
@@ -77,6 +80,28 @@ function makeKeyring(): Keyring {
 }
 
 describe('rescue media admission', () => {
+  it('serves versions with a closed owner window even if SQL still carries the previous deadline', async () => {
+    const db = createDbFake();
+    const keyring = makeKeyring();
+    const key = 'fixture-media-owner';
+    const host = hostRow(key, { fqdn: 'rescue-owl', secure: 0, apiKeyEnc: encrypt(key, keyring) });
+    db.tables.set(hostsTable, [{ ...host, insecureEnabledUntil: new Date(Date.now() + 60000) }]);
+    const deadlines = new DeadlineQueue(error => { throw error; });
+    const state = new OwnerStateStore(new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, { hosts: [host] } as never));
+    bindOwnerRuntime(db, { state, deadlines, assertOwner() {}, async execute() { throw new Error('Unexpected write'); } });
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring });
+    try {
+      const token = 'rescue1.1.' + createHmac('sha256', key).update('rescue1.1').digest('hex');
+      const post = (action: string) => app.inject({ method: 'POST', url: '/rescue/v1/session',
+        headers: { authorization: 'Bearer ' + token }, payload: { action, engine: 'codex' } });
+      expect((await post('version')).json().host).toBe('rescue-owl');
+      expect((await post('start')).statusCode).toBe(403);
+    } finally {
+      await app.close();
+      deadlines.close();
+    }
+  });
+
   it('separates the media key from general host auth and requires a host-specific window', async () => {
     const db = createDbFake();
     const keyring = makeKeyring();

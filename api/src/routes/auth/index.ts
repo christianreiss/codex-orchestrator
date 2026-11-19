@@ -1,7 +1,7 @@
 import { rescueAccess, rescueHostId, isRescueMediaHost, verifyRescueToken } from '../../services/rescue-identity.js';
-import { extractApiKey } from '../../util/api-key-helpers.js';
+import { extractApiKey, hashApiKey } from '../../util/api-key-helpers.js';
 import { decryptOrNull } from '../../security/secret-box.js';
-import { bindOwnerHostPrincipal } from '../../control-plane/state/admission.js';
+import { bindOwnerHostPrincipal, resolveOwnerHost } from '../../control-plane/state/admission.js';
 import { addOwnerResponseProof } from '../../control-plane/state/runtime.js';
 import { ownedEngineState } from '../../control-plane/state/messaging.js';
 import { UnauthorizedError, ForbiddenError } from '../../http/errors.js';
@@ -200,9 +200,13 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     if (!row || !key || !verifyRescueToken(id, key, token)) throw new UnauthorizedError('Invalid rescue identity');
     // Check approval before auth can bind a roaming IP. Release and version
     // never need provider material or an IP change.
-    if (row.status !== 'active' || row.expiresAt && Date.parse(row.expiresAt) <= Date.now())
+    // SQL stores the encrypted key. The owner holds the current host policy,
+    // including window deadlines that may differ from persisted timestamps.
+    const owner = ownerRuntimeFor(ctx.db);
+    let host = owner ? resolveOwnerHost(ctx.db, hashApiKey(key), key) : { ...row, apiKey: key, apiKeyEnc: null };
+    if (!host || host.id !== id || !isRescueMediaHost(host) || host.status !== 'active' ||
+        (host.expiresAt && Date.parse(host.expiresAt) <= Date.now()))
       throw new UnauthorizedError('Inactive rescue identity');
-    let host: Host = { ...row, apiKey: key, apiKeyEnc: null };
     const launch = action === 'start' || action === 'heartbeat';
     if (launch && !insecureWindowActive(host)) throw new ForbiddenError('Open the rescue host window in the fleet portal', 'rescue_approval_required');
     if (launch) {
@@ -212,7 +216,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       if (!isRescueMediaHost(host) || !insecureWindowActive(host))
         throw new ForbiddenError('Rescue access closed', 'rescue_approval_required');
     }
-    if (ownerRuntimeFor(ctx.db)) {
+    if (owner) {
       bindOwnerHostPrincipal(ctx.db, host, launch);
       addOwnerResponseProof('rescue-policy', snapshot => {
         const current = snapshot.hosts.get(id);

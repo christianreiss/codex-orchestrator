@@ -1,6 +1,6 @@
 # 2026-11-19
 
-- RescueBake media can check engine versions at boot and start Codex or Claude after the operator opens the individual rescue host window. The disc carries a restricted identity.
+- RescueBake media can check engine versions at boot, including immediately after an approval window closes, and start Codex or Claude after the operator opens the individual rescue host window. The disc carries a restricted identity.
 
 # 2026-11-18
 
