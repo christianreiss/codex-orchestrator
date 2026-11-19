@@ -53,7 +53,22 @@ func releaseForPlatform(ctx context.Context, target string) (Release, error) {
 	return Release{TagName: "rust-v" + pilotVersion}, nil
 }
 
+// Execute the ELF directly so current_exe identifies the embedded client,
+// and scope the library mappings to that image so its tools use system libraries.
+const pfSenseCodexLauncher = `#!/bin/sh
+dir=${0%/*}
+PATH="$dir:$PATH"; export PATH
+export LD_LIBMAP="${LD_LIBMAP:+$LD_LIBMAP
+}[$dir/codex.bin]
+libdbus-1.so.3 $dir/lib/libdbus-1.so.3
+libonig.so.5 $dir/lib/libonig.so.5"
+exec "$dir/codex.bin" "$@"
+`
+
 func installPfSensePort(ctx context.Context, dir string) error {
+	if strings.ContainsAny(dir, " \t\r\n,=[]#") {
+		return fmt.Errorf("pfSense engine prefix contains characters unsupported by FreeBSD LD_LIBMAP: %q", dir)
+	}
 	if err := os.Mkdir(filepath.Join(dir, "lib"), 0700); err != nil {
 		return err
 	}
@@ -84,16 +99,33 @@ func installPfSensePort(ctx context.Context, dir string) error {
 			}
 		}
 	}
-	for _, name := range []string{"codex", codeModeHostBinName} {
-		// FreeBSD rtld -o applies only to this ELF image. Child commands retain
-		// the appliance's normal shared library search path.
-		script := "#!/bin/sh\ndir=${0%/*}\nPATH=\"$dir:$PATH\"; export PATH\nexec /libexec/ld-elf.so.1 -o \"LIBRARY_PATH=$dir/lib\" \"$dir/" + name + ".bin\" \"$@\"\n"
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0700); err != nil {
-			return err
-		}
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(pfSenseCodexLauncher), 0700); err != nil {
+		return err
+	}
+	// The companion is a leaf process and can keep the per-image loader path.
+	companionLauncher := "#!/bin/sh\ndir=${0%/*}\nexec /libexec/ld-elf.so.1 -o \"LIBRARY_PATH=$dir/lib\" \"$dir/" + codeModeHostBinName + ".bin\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, codeModeHostBinName), []byte(companionLauncher), 0700); err != nil {
+		return err
 	}
 	if err := exec.CommandContext(ctx, filepath.Join(dir, "rg"), "--version").Run(); err != nil {
 		return fmt.Errorf("pfSense ripgrep probe: %w", err)
 	}
 	return os.WriteFile(filepath.Join(dir, standaloneReceipt), []byte("v1\n"), 0600)
+}
+
+// The old launcher reports the right version but cannot start Code Mode.
+func pfSensePortFilesHealthy(cli string) bool {
+	launcher, err := os.ReadFile(cli)
+	if err != nil || string(launcher) != pfSenseCodexLauncher {
+		return false
+	}
+	dir := filepath.Dir(cli)
+	for _, port := range pilotPorts {
+		for _, file := range port.files {
+			if !regularFile(filepath.Join(dir, file.dest), true) {
+				return false
+			}
+		}
+	}
+	return true
 }

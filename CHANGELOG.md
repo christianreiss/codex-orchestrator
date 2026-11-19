@@ -1,5 +1,7 @@
 # 2026-11-19
 
+- CXX 0.9.189 restores Codex Code Mode on pfSense by executing the CLI directly with private library mappings. Maintenance repairs a 0.9.188 launcher even when the native client version is already current.
+
 - CXX 0.9.188 adds a Codex-only installer for pfSense CE 2.9.0 amd64. It checks the appliance ABI before claiming the installer, installs a pinned FreeBSD port in the user’s private engine store, and requires a signed full-access host posture for execution. See [platform support and pilot acceptance](docs/pfsense-codex-pilot.md).
 
 - RescueBake media can check engine versions at boot, including immediately after an approval window closes, and start Codex or Claude after the operator opens the individual rescue host window. The disc carries a restricted identity.
