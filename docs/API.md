@@ -856,25 +856,6 @@ may read state and users but cannot change rollout or identity state.
 - `GET /admin/agent-portal/state` — switch, configuration, queue health, and dead-letter counts.
 - `POST /admin/agent-portal/state` — toggle the global switch. Turning it off cancels queued/leased operator input without replay and closes relays.
 
-### Conference inspector
-
-The admin conference inspector is read-only. `GET /admin/agent-messaging/conferences`
-lists the newest rooms (`status=open|adjourned`, omitted for all; `limit=1..500`,
-default 100). Open includes adjourning rooms.
-`GET /admin/agent-messaging/conferences/{id}` returns the room and its full roster,
-including departed members and dispatch delivery metadata.
-`GET /admin/agent-messaging/conferences/{id}/messages` merges the linked member
-conversations in chronological dispatch order, including ordinary replies;
-`limit=1..100` defaults to 100, with mutually exclusive `before` and `after` cursors.
-The response includes `oldest_cursor`, `newest_cursor`, and `has_more`.
-
-`POST /admin/agent-messaging/conferences/{id}/reveal` accepts
-`{ "message_ids": ["uuid", ...] }` (1..100), refuses IDs outside the room, and
-returns message bodies with no-store headers and an audit event containing IDs
-and the actor only. GETs require `agent_messaging.read`; reveal requires
-`agent_messaging.reveal_content`. No route joins, claims, acknowledges, sweeps,
-or changes conference work. See `docs/interface-api.md` for the full contract.
-
 ## Provider accounts and launch reservations
 
 ChatGPT (`codex`), Claude (`claude`), and Grok (`grok`) have independent account pools. Provider identity, or access/refresh credential lineage for opaque credentials, matches validated uploads to an account. A distinct login enrolls an additional account; replacing a known account can explicitly supply `account_id`. Identity conflicts are rejected. Existing runner validation, quarantine, generation/CAS, replay protection and secretbox encryption apply within each account.
