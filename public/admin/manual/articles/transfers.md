@@ -26,7 +26,7 @@ The **Limits** card (`POST /admin/transfers/limits`, `transfers.manage`) holds t
 | Maximum file size | Unlimited (`0`) | `0` = unlimited; positive exact byte limits have no 64 MiB ceiling |
 | Pool quota | Unlimited (`0`) | `0` = unlimited; when both limits are positive, at least the maximum file size |
 
-The limits body is strict. TTLs are positive integers; byte limits are nonnegative exact integers, with `0` meaning unlimited. Explicitly saved limits survive upgrades. Inputs use minutes and MiB. The usage meter includes reserved binary upload sizes and appears only for a finite quota; unlimited mode shows bytes used without a percentage. Changing TTL settings affects future uploads, not existing deadlines.
+The limits body is strict. TTLs are positive integers; byte limits are nonnegative exact integers, with `0` meaning unlimited. Explicitly saved limits survive upgrades. Inputs use minutes and MiB, and sizes and usage everywhere on the page are shown in MiB. The page has no stat strip: the usage meter sits with the limits. The usage meter includes reserved binary upload sizes and appears only for a finite quota; unlimited mode shows bytes used without a percentage. Changing TTL settings affects future uploads, not existing deadlines.
 
 An agent that asks for a TTL outside the bounds is not refused: the request is **clamped** to the floor or the maximum TTL and the row is flagged `ttl_clamped`, which the table shows as a *clamped* badge.
 
@@ -44,7 +44,7 @@ Clicking a row opens the **audit sheet** (`GET /admin/transfers/{id}/events`): i
 
 ## Lifecycle
 
-A transfer is `uploading` while a chunked put is open, `live` once sealed, and then `expired` (swept past its deadline) or `deleted` (retired early by an agent or an operator). Only `uploading` and `live` rows count against the quota and the `live_count` shown as **files held** at the top of the page. Bytes live under `<DATA_ROOT>/transfers/<first two characters of the id>/<id>`.
+A transfer is `uploading` while a chunked put is open, `live` once sealed, and then `expired` (swept past its deadline) or `deleted` (retired early by an agent or an operator). Only `uploading` and `live` rows count against the quota and the `live_count` held in the pool. Bytes live under `<DATA_ROOT>/transfers/<first two characters of the id>/<id>`.
 
 The sweeper (`api/src/ops/agent-transfers-worker.ts`) is deadline-driven (it expires each transfer at its deadline) and reclaims orphaned files on disk that are older than one hour once at owner startup. The service additionally sweeps on every read — list, info, get, download, and put — so a file that expired between ticks is gone by the time anyone looks. During a sweep the bytes are unlinked **before** the row's status changes: a crash in between leaves a `live` row with missing bytes, which is a harmless retry, rather than an `expired` row silently guarding an undeleted file.
 
