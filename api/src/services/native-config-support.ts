@@ -1,6 +1,6 @@
 import { kimiNativeMinimum } from './kimi-native-settings.js';
 import { GROK_188_FEATURES, GROK_188_UI_FIELDS, GROK_188_MODEL_FIELDS, GROK_189_FEATURES, GROK_189_CONTEXTUAL_HINTS } from './grok-native-fields.js';
-import { needsCodex164, needsCodex165, needsCodex166, needsCodex167, needsCodex168, needsCodex169 } from './codex-native-capabilities.js';
+import { needsCodex164, needsCodex165, needsCodex166, needsCodex167, needsCodex168, needsCodex169, needsCodex170, needsCodex171 } from './codex-native-capabilities.js';
 import type { Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
 import type { Engine } from '../util/engine.js';
@@ -156,7 +156,9 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
   const codex167 = engine === 'codex' && scopes.some(needsCodex167);
   const codex168 = engine === 'codex' && scopes.some(needsCodex168);
   const codex169 = engine === 'codex' && scopes.some(needsCodex169);
-  if (!root && !profile && !codex168 && !codex169 && !codex163 && !codex164 && !codex165 && !codex166 && !codex167) return;
+  const codex170 = engine === 'codex' && scopes.some(needsCodex170);
+  const codex171 = engine === 'codex' && scopes.some(needsCodex171);
+  if (!root && !profile && !codex168 && !codex169 && !codex170 && !codex171 && !codex163 && !codex164 && !codex165 && !codex166 && !codex167) return;
   const raw = engine === 'codex' ? host.clientVersion : host.claudeClientVersion;
   const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
   const claudeNestedNamespaces = engine === 'claude'
@@ -166,7 +168,7 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
   const claudeDenyPrompts = engine === 'claude'
     && Object.hasOwn(record(record(value.native_settings).permissions), 'denyInsteadOfPrompting');
   const claudeMcpHookOnFailure = engine === 'claude' && claudeMcpHookHasOnFailure(record(value.native_settings).hooks);
-  const minimum = codex169 ? '0.169.0' : codex168 ? '0.168.0' : codex167 ? '0.167.0' : codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeMcpHookOnFailure ? '2.1.328' : claudeDenyPrompts ? '2.1.319' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
+  const minimum = codex171 ? '0.171.0' : codex170 ? '0.170.0' : codex169 ? '0.169.0' : codex168 ? '0.168.0' : codex167 ? '0.167.0' : codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeMcpHookOnFailure ? '2.1.328' : claudeDenyPrompts ? '2.1.319' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
   if (!observed || versionCompare(observed, minimum) < 0) {
     throw new ValidationError(`${engine} native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run ${engine === 'codex' ? 'cdx' : 'clx'} update (or cron run to report an already installed version), then retry sync.`, {
       param: root ? 'settings.native_settings' : profile ? 'settings.profiles' : 'settings',

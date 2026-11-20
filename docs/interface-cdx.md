@@ -2237,9 +2237,58 @@ This is agent-executed guidance shared by all four engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
+## Native configuration maintenance (Codex 0.171.0)
+
+### Codex 0.171 scope update (2026-11-20)
+
+The Engines native-settings editor now validates the exact published 0.171.0
+schema (`rust-v0.171.0`, commit `ccf9be8cc458bd6b8336fe84d68d8893f2691a5e`,
+SHA-256 `025625b51c9c7f51f87d89c5b5ec8a47acb6e4fe90737b95880fc1b3f9e52fdd`,
+106 root fields; the 0.170.0 schema is SHA-256
+`424ede5c2e3d9183a92d0a1c361139bf3664b2ee95d03d730063463fe865dec5`). Nothing
+was removed from the schema between 0.169 and 0.171, so no data migration is
+needed; the retired-feature rejections of 0.169 are unchanged.
+
+New fields conditionally require an **observed** host version, in root settings
+and in every profile sidecar, even when false or empty. A host reporting an
+earlier or no version is refused at render/sync time; existing fields keep their
+earlier floors.
+
+- **0.170.0:** `features.multi_environment_mcp`, `otel.headers_helper`,
+  `otel.headers_helper_refresh_interval_ms` and `nested_tool_names` in
+  `features.guardianv2.sync_elastic_sections.<name>`.
+- **0.171.0:** the root tables `code_mode` (`heartbeat_interval_s`), `responses`
+  (`process_mode`) and `rollout_trace` (`max_bytes`, `max_payload_bytes`);
+  `tui.status_line_provider` (`"default"` or `{ server, tool }`);
+  `marketplaces.<name>.auto_update`; the keymap actions `composer.undo`,
+  `composer.redo`, `global.choose_cloud_environment` and `pager.mark_markdown`;
+  eight feature switches (`catalog_apps_instructions`, `file_backed_tool_audio`,
+  `guardian_nested_approval_context`, `mcp_shared_repl_cwd`,
+  `per_environment_context`, `restored_history_prewarm`, `safe_image_decoder`,
+  `utc_environment_date`); `features.guardianv2.async_elastic_budgeting` and
+  `async_elastic_sections` (including their `nested_tool_names`);
+  `features.multi_agent_v2.interrupt_at_item_boundary`;
+  `features.token_budget.context_window_as_tool_output`;
+  `features.rollout_budget.limit_budget` and `reminder_at_context_start`; and
+  `transparent_tcp` in `features.network_proxy` and
+  `permissions.<profile>.network`.
+
+`features.rollout_budget` follows `resolve_rollout_budget_config`
+(`codex-rs/core/src/config/mod.rs`, `rust-v0.171.0`): the allowance is either
+`limit_tokens` or the new `limit_budget`; setting both is rejected even while the
+feature is disabled, an enabled budget needs one of them, and
+`reminder_at_remaining_tokens` stays required. `otel.headers_helper` names a
+command that the native host runs; validation and rendering never execute it.
+Parser probes establish syntax/config-load compatibility only.
+
+Source: [versioned schema](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/core/config.schema.json),
+audited 2026-11-20. The configuration reference moved to
+`https://learn.chatgpt.com/docs/config-file/config-reference`; it lags the schema
+for the newest keys, so the schema stays authoritative.
+
 ## Native configuration maintenance (Codex 0.169.0)
 
-The Engines native-settings editor validates the exact published 0.169.0 schema
+The previous 0.169.0 audit validated the exact published 0.169.0 schema
 (`rust-v0.169.0`, commit `d32063f96c2dff1dc96af839b3952abb6acfeda4`,
 SHA-256 `f515f420927460250181097af8dc72b80a6be4f01f4324a0efef816e46cc9c86`).
 The 103 root fields and complete nested definitions are retained; existing
