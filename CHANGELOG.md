@@ -65,6 +65,8 @@
   - The communicator owner no longer inherits update and cron hand-off markers. Before, these could make it skip a wrapper update and still report it as applied.
   - Removed: the foreground installers, peer reconciliation, the old per-resource sync fallback, the Spark quota display, `CDX_CODEX_INSTALL_DIR` and the `~/.cxx/rollback` sweep.
 
+- **cxx 0.9.191 launchpad:** `d` (set fleet default) is a key chip next to `enter`, `c`, `r` and `q` instead of a hint line, and the current fleet default is marked with ★ (`*` in ASCII terminals) in the model card and on every engine card of the hub, which loads the defaults in the background when it opens. The layout is calmer: one centred footer, MODEL and EFFORT section labels, dimmed keys that cannot act, a clearer empty state, and "usage not reported" for Grok.
+
 - **Docs:** the dated one-off reports and finished plans are deleted; git history keeps them. The engine maintenance report lives at `docs/reports/engine-maintenance.md` and each run overwrites it. Kimi parity exemptions moved to `scripts/engine-parity-exemptions.md`.
 
 - **Switched-off engines disappear everywhere.** An engine switched off fleet-wide no longer appears outside the Engines page: Usage limits, Accounts, Hosts, setup, settings pickers, Overview, the Android companion's Quotas tab and the Plasma widget (both server-side via `/companion/v1/quotas`, no app release needed), the cxx launchpad and `cxx update`. The console reads one list from the new `GET /admin/engines/active`.

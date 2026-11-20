@@ -57,6 +57,9 @@ type picker struct {
 	defaults      DefaultsAPI
 	fleet         map[string]*fleetState
 	saving        bool
+	// legend is set while rendering when a narrow card shows a bare ★; the
+	// navigation row then says what the star means.
+	legend bool
 
 	result    *Selection
 	cancelled bool
@@ -67,7 +70,7 @@ func newPicker(engines []Engine, last *Selection, caps terminalui.Caps) *picker 
 	p.context, p.fleet = context.Background(), make(map[string]*fleetState)
 	for i, e := range engines {
 		if len(e.Models) == 0 && e.Disabled == "" {
-			p.engines[i].Disabled = "no current models enabled"
+			p.engines[i].Disabled = noModelsReason
 		}
 		p.cursors[i] = cursorFor(e)
 		if last != nil && last.Engine == e.Name {
@@ -113,10 +116,11 @@ func (p *picker) Init() tea.Cmd {
 	if p.stage == stageGrid {
 		return tea.Batch(p.restart(true), p.loadFleet())
 	}
+	var tick tea.Cmd
 	if p.animate {
-		return p.tick()
+		tick = p.tick()
 	}
-	return nil
+	return tea.Batch(tick, p.prefetchFleet())
 }
 
 // restart replays the reveal animation; path=false replays only the branch.
@@ -236,6 +240,11 @@ func (p *picker) enter(slot int) (tea.Model, tea.Cmd) {
 		return p, nil
 	}
 	p.stage = stageGrid
+	// A compass prefetch that found an older server said nothing; the grid
+	// says it once, as its own GET would have.
+	if state := p.fleet[p.current().Name]; state != nil && state.unavailable && p.notice == "" {
+		p.notice = unavailableNotice
+	}
 	return p, tea.Batch(p.restart(true), p.loadFleet())
 }
 
@@ -267,7 +276,7 @@ func (p *picker) choose(mode Mode) (tea.Model, tea.Cmd) {
 	if e.Disabled != "" || len(e.Models) == 0 {
 		reason := e.Disabled
 		if reason == "" {
-			reason = "no current models enabled"
+			reason = noModelsReason
 		}
 		p.notice = e.Label() + ": " + reason
 		return p, nil

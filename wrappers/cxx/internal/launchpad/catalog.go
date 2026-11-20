@@ -42,6 +42,9 @@ type Model struct {
 	SessionEfforts []string
 }
 
+// noModelsReason disables an engine whose verified menu is empty.
+const noModelsReason = "no current models enabled"
+
 // Engine is one launchable engine with its menu and starting cursor.
 type Engine struct {
 	Name   string
@@ -96,7 +99,7 @@ func Discover(src Sources) []Engine {
 		e := Engine{Name: name, Models: menu(name, cfg, src)}
 		switch {
 		case len(e.Models) == 0:
-			e.Disabled = "no current models enabled"
+			e.Disabled = noModelsReason
 		case src.Installed != nil && !src.Installed(name):
 			e.Disabled = "not installed"
 		}

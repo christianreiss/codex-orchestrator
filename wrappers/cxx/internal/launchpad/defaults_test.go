@@ -3,10 +3,14 @@ package launchpad
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 )
 
@@ -193,6 +197,51 @@ func TestFleetDefaultsStatusFitsTerminalViews(t *testing.T) {
 	}
 }
 
+func TestFleetDefaultChipStates(t *testing.T) {
+	pal := terminalui.Palette{SurfaceActive: "\x1b[48;5;236m", Border: "\x1b[38;5;240m", Yellow: "\x1b[33m", Dim: "\x1b[2m", Reset: "\x1b[0m"}
+	caps := terminalui.Caps{IsTTY: true, UTF8: true, Palette: pal}
+	live, dimmed := pal.SurfaceActive+" d ", pal.Border+" d "
+	for _, size := range [][2]int{{100, 30}, {72, 22}} {
+		p := newPicker([]Engine{codexEngine()}, nil, caps)
+		f := &defaultsFake{value: FleetDefault{Engine: "codex", Model: "gpt-6.1-sol", Effort: "high"}}
+		p.defaults = f
+		p.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		get := p.loadFleet()
+		if out := p.render(); !strings.Contains(out, live) || !strings.Contains(ansi.Strip(out), "fleet default  loading…") {
+			t.Fatalf("%v loading: d must stay usable and the card must say loading:\n%s", size, ansi.Strip(out))
+		}
+		p.Update(get())
+		if out := ansi.Strip(p.render()); !strings.Contains(out, "fleet default  gpt-6.1-sol · high") || !strings.Contains(out, "set fleet default") {
+			t.Fatalf("%v loaded default not shown:\n%s", size, out)
+		}
+		save := p.saveFleet()
+		out := p.render()
+		if plain := ansi.Strip(out); !strings.Contains(out, dimmed) || !strings.Contains(plain, "saving…") || strings.Count(plain, "aving") != 1 || strings.Contains(plain, "enter") {
+			t.Fatalf("%v saving: want one dimmed d saving… and no launch keys:\n%s", size, plain)
+		}
+		p.Update(save())
+		if out := ansi.Strip(p.render()); !strings.Contains(out, "Fleet default saved") || !strings.Contains(out, "enter") {
+			t.Fatalf("%v save result missing:\n%s", size, out)
+		}
+
+		p = newPicker([]Engine{codexEngine()}, nil, caps)
+		p.defaults = &defaultsFake{getErr: ErrDefaultsUnavailable}
+		p.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		p.Update(p.loadFleet()())
+		out = p.render()
+		if plain := ansi.Strip(out); !strings.Contains(out, dimmed) || strings.Contains(out, live) || !strings.Contains(plain, "fleet default  unavailable") || !strings.Contains(plain, unavailableNotice) {
+			t.Fatalf("%v unavailable: want a dimmed d and one explanation:\n%s", size, plain)
+		}
+	}
+	// An engine without models offers no d at all.
+	empty := newPicker([]Engine{{Name: "codex"}}, nil, caps)
+	empty.defaults = &defaultsFake{}
+	empty.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if out := ansi.Strip(empty.render()); strings.Contains(out, "fleet default") || !strings.Contains(out, noModelsReason) {
+		t.Fatalf("empty engine offered d:\n%s", out)
+	}
+}
+
 func TestFleetDefaultTinyMatchTracksEffort(t *testing.T) {
 	p, _ := defaultsPicker()
 	p.Update(tea.WindowSizeMsg{Width: 20, Height: 5})
@@ -208,5 +257,205 @@ func TestFleetDefaultTinyMatchTracksEffort(t *testing.T) {
 	p.key("left")
 	if !marked() {
 		t.Fatal("restored effort is not marked")
+	}
+}
+
+// perEngineDefaults answers each engine from a table and counts GETs. The
+// compass prefetch calls it from several goroutines at once.
+type perEngineDefaults struct {
+	mu     sync.Mutex
+	values map[string]FleetDefault
+	errs   map[string]error
+	gets   map[string]int
+}
+
+func (f *perEngineDefaults) Get(_ context.Context, engine string) (FleetDefault, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.gets == nil {
+		f.gets = map[string]int{}
+	}
+	f.gets[engine]++
+	return f.values[engine], f.errs[engine]
+}
+
+func (f *perEngineDefaults) Set(_ context.Context, s Selection) (FleetDefault, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v := FleetDefault{Engine: s.Engine, Model: s.Model, Effort: s.Effort}
+	f.values[s.Engine] = v
+	return v, nil
+}
+
+func (f *perEngineDefaults) count(engine string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gets[engine]
+}
+
+// drain runs a command as Bubble Tea does: a batch fans out concurrently
+// (so -race sees the GETs overlap), and every result goes through Update.
+func drain(p *picker, cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		p.Update(msg)
+		return
+	}
+	msgs := make([]tea.Msg, len(batch))
+	var wg sync.WaitGroup
+	for i, c := range batch {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if c != nil {
+				msgs[i] = c()
+			}
+		}()
+	}
+	wg.Wait()
+	for _, msg := range msgs {
+		if msg != nil {
+			p.Update(msg)
+		}
+	}
+}
+
+func TestHubPrefetchMarksEveryCardOnFreshOpen(t *testing.T) {
+	t.Setenv("CXX_REDUCED_MOTION", "1")
+	off := grokEngine()
+	off.Name, off.Disabled = "kimi", "not installed"
+	p := newPicker([]Engine{codexEngine(), claudeEngine(), grokEngine(), off}, nil, terminalui.Caps{IsTTY: true, UTF8: true})
+	f := &perEngineDefaults{values: map[string]FleetDefault{
+		"codex":  {Engine: "codex", Model: "gpt-6.1-sol", Effort: "high"},
+		"claude": {Engine: "claude", Model: "claude-opus-5-5", Effort: "low"},
+		"grok":   {Engine: "grok", Model: "grok-4.7", Effort: "xhigh"},
+	}}
+	p.defaults = f
+	p.Update(tea.WindowSizeMsg{Width: 120, Height: 36})
+	if view := ansi.Strip(p.render()); strings.Contains(view, "★") {
+		t.Fatalf("a default is shown before it arrived:\n%s", view)
+	}
+	drain(p, p.Init())
+	if f.count("codex") != 1 || f.count("claude") != 1 || f.count("grok") != 1 || f.count("kimi") != 0 {
+		t.Fatalf("prefetch GETs = %v, want one per enabled engine", f.gets)
+	}
+	view := ansi.Strip(p.render())
+	for _, pair := range []string{"gpt-6.1-sol · high", "claude-opus-5-5 · low", "grok-4.7 · xhigh"} {
+		marked := false
+		for _, line := range strings.Split(view, "\n") {
+			marked = marked || (strings.Contains(line, "★") && strings.Contains(line, pair))
+		}
+		if !marked {
+			t.Fatalf("fresh compass does not mark %q:\n%s", pair, view)
+		}
+	}
+	if p.notice != "" {
+		t.Fatalf("prefetch set a notice: %q", p.notice)
+	}
+	// The grid reuses the prefetched value: no second GET, marked at once.
+	_, cmd := p.key("left")
+	if cmd != nil || f.count("codex") != 1 || !strings.Contains(ansi.Strip(p.render()), "gpt-6.1-sol ★") {
+		t.Fatalf("grid reloaded or lost the prefetched default (GETs %v):\n%s", f.gets, ansi.Strip(p.render()))
+	}
+	// A save still refreshes the card from its own reply.
+	drain(p, p.saveFleet())
+	press(t, p, "esc")
+	if view := ansi.Strip(p.render()); f.count("codex") != 1 || !strings.Contains(view, "★ fleet default") || strings.Contains(view, "gpt-6.1-sol · high") {
+		t.Fatalf("saved default not on the compass card (GETs %v):\n%s", f.gets, view)
+	}
+}
+
+func TestHubPrefetchFailureStaysQuietUntilTheGrid(t *testing.T) {
+	t.Setenv("CXX_REDUCED_MOTION", "1")
+	p := newPicker([]Engine{codexEngine(), claudeEngine()}, nil, terminalui.Caps{IsTTY: true, UTF8: true})
+	f := &perEngineDefaults{values: map[string]FleetDefault{}, errs: map[string]error{
+		"codex":  ErrDefaultsUnavailable,
+		"claude": errors.New("fleet connection failed or timed out"),
+	}}
+	p.defaults = f
+	p.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	drain(p, p.Init())
+	if view := ansi.Strip(p.render()); p.notice != "" || strings.Contains(strings.ToLower(view), "fleet default") {
+		t.Fatalf("failed prefetch is not quiet on the compass (notice %q):\n%s", p.notice, view)
+	}
+	// An older server is known: the grid explains it once and does not ask again.
+	_, cmd := p.key("left")
+	if view := ansi.Strip(p.render()); cmd != nil || f.count("codex") != 1 || p.notice != unavailableNotice || !strings.Contains(view, "fleet default  unavailable") {
+		t.Fatalf("unavailable grid (GETs %v, notice %q):\n%s", f.gets, p.notice, view)
+	}
+	// Any other failure is not fresh: the grid asks again and reports it.
+	press(t, p, "esc")
+	_, cmd = p.key("right")
+	if view := ansi.Strip(p.render()); cmd == nil || !strings.Contains(view, "fleet default  loading") {
+		t.Fatalf("failed default not reloaded by its grid:\n%s", view)
+	}
+	drain(p, cmd)
+	if f.count("claude") != 2 || !strings.Contains(p.notice, "fleet connection failed") {
+		t.Fatalf("grid retry: GETs %v, notice %q", f.gets, p.notice)
+	}
+}
+
+// blockingDefaults holds every GET until its context ends.
+type blockingDefaults struct{ started, stopped chan string }
+
+func (b blockingDefaults) Get(ctx context.Context, engine string) (FleetDefault, error) {
+	b.started <- engine
+	<-ctx.Done()
+	b.stopped <- engine
+	return FleetDefault{}, ctx.Err()
+}
+
+func (blockingDefaults) Set(context.Context, Selection) (FleetDefault, error) {
+	return FleetDefault{}, errors.New("unused")
+}
+
+func TestSlowPrefetchNeitherBlocksLaunchNorOutlivesRun(t *testing.T) {
+	t.Setenv("CXX_REDUCED_MOTION", "1")
+	for _, key := range []string{"\r", "q"} {
+		b := blockingDefaults{started: make(chan string, 2), stopped: make(chan string, 2)}
+		in, keys := io.Pipe()
+		type outcome struct {
+			s   Selection
+			err error
+		}
+		done := make(chan outcome, 1)
+		go func() {
+			s, err := Run(context.Background(), in, io.Discard, []Engine{codexEngine(), claudeEngine()}, nil, terminalui.Caps{}, b)
+			done <- outcome{s, err}
+		}()
+		for range 2 {
+			select {
+			case <-b.started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("compass prefetch never started")
+			}
+		}
+		if _, err := keys.Write([]byte(key)); err != nil {
+			t.Fatal(err)
+		}
+		var got outcome
+		select {
+		case got = <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("key %q waited for the prefetch", key)
+		}
+		keys.Close()
+		if key == "q" && !errors.Is(got.err, ErrCancelled) {
+			t.Fatalf("quit: %v", got.err)
+		}
+		if key == "\r" && (got.err != nil || got.s.Engine != "codex" || got.s.Mode != ModeNew) {
+			t.Fatalf("launch: %+v, %v", got.s, got.err)
+		}
+		for range 2 {
+			select {
+			case <-b.stopped:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("key %q: a prefetch GET outlived Run", key)
+			}
+		}
 	}
 }
