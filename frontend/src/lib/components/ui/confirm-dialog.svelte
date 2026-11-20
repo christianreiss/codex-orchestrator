@@ -14,6 +14,8 @@
     cancelLabel?: string;
     busyLabel?: string;
     destructive?: boolean;
+    /** Width stop; confirmations default to `sm`, long consequence lists may take `md`/`lg`. */
+    size?: "sm" | "md" | "lg";
     busy?: boolean;
     /** Keeps the confirm button disabled, e.g. while the target is being re-checked. */
     confirmDisabled?: boolean;
@@ -36,6 +38,7 @@
     cancelLabel = "Cancel",
     busyLabel = "Working…",
     destructive = false,
+    size = "sm",
     busy = false,
     confirmDisabled = false,
     requireText = null,
@@ -68,7 +71,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
-  <Dialog.Content size="sm">
+  <Dialog.Content {size}>
     <Dialog.Header>
       <Dialog.Title>{title}</Dialog.Title>
       {#if description}

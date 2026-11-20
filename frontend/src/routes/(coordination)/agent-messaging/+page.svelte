@@ -16,11 +16,13 @@
   import TrafficByEngine from "$lib/components/agent-messaging/TrafficByEngine.svelte";
   import { createMessagingFilters } from "$lib/components/agent-messaging/messaging-filters.svelte";
   import { createServiceToggle } from "$lib/components/agent-messaging/service-toggle.svelte";
-  import AgentMessagingConfirmDialog from "$lib/components/settings/AgentMessagingConfirmDialog.svelte";
+  import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
+  import ConsequenceList from "$lib/components/settings/ConsequenceList.svelte";
   import { agentMessagingKeys } from "$lib/api/agentMessaging";
 
   const filters = createMessagingFilters();
   const service = createServiceToggle();
+  const confirm = $derived(service.dialog);
   const queryClient = useQueryClient();
 
   let settingsOpen = $state(page.url.hash === "#service-state");
@@ -78,4 +80,17 @@
   <TrafficByEngine traffic={snapshot} />
 </PageShell>
 
-<AgentMessagingConfirmDialog {...service.dialog} />
+<ConfirmDialog
+  open={confirm.open}
+  size="md"
+  title={confirm.copy.title}
+  description={confirm.copy.description}
+  confirmLabel={confirm.copy.confirmLabel}
+  busyLabel="Applying…"
+  destructive={confirm.copy.destructive}
+  busy={confirm.busy}
+  onConfirm={confirm.onConfirm}
+  onClose={confirm.onClose}
+>
+  <ConsequenceList items={confirm.copy.consequences} />
+</ConfirmDialog>

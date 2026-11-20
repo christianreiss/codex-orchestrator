@@ -25,7 +25,8 @@
   import type { EngineStateRow, EngineStateValue } from "$lib/api/types";
   import { Switch } from "$lib/components/ui/switch";
   import { Label } from "$lib/components/ui/label";
-  import EngineSwitchConfirmDialog from "./EngineSwitchConfirmDialog.svelte";
+  import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
+  import ConsequenceList from "./ConsequenceList.svelte";
   import { engineSwitchConfirmCopy } from "./engine-switch-consequences";
 
   type Intent = { engine: Engine; enabled: boolean };
@@ -169,12 +170,19 @@
   </p>
 </div>
 
-<EngineSwitchConfirmDialog
+<ConfirmDialog
   open={confirmOpen}
-  {copy}
+  size="lg"
+  title={copy.title}
+  description={copy.description}
+  confirmLabel={copy.confirmLabel}
+  busyLabel="Applying…"
+  destructive={copy.destructive}
   busy={$mutation.isPending}
   onConfirm={() => {
     if (pending !== null) $mutation.mutate(pending);
   }}
-  onCancel={() => (pending = null)}
-/>
+  onClose={() => (pending = null)}
+>
+  <ConsequenceList items={copy.consequences} warning={copy.warning} />
+</ConfirmDialog>

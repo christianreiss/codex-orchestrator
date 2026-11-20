@@ -13,7 +13,10 @@ import { toast } from "svelte-sonner";
 import { authStore } from "$lib/stores/auth";
 import { agentMessagingStateMutation, agentMessagingStateQuery } from "$lib/api/agentMessaging";
 import { hostsListQuery } from "$lib/api/hosts";
-import type { AgentMessagingBlastRadius } from "$lib/components/settings/agent-messaging-consequences";
+import {
+  agentMessagingConfirmCopy,
+  type AgentMessagingBlastRadius,
+} from "$lib/components/settings/agent-messaging-consequences";
 
 export function createServiceToggle() {
   const query = fromStore(agentMessagingStateQuery());
@@ -70,17 +73,16 @@ export function createServiceToggle() {
     request(next: boolean) {
       pendingTarget = next;
     },
-    /** Props for AgentMessagingConfirmDialog. */
+    /** The pending confirmation: `copy` feeds the shared ConfirmDialog and its consequence list. */
     get dialog() {
       return {
         open: pendingTarget !== null && pendingTarget !== currentEnabled,
-        enabling: pendingTarget === true,
-        radius,
+        copy: agentMessagingConfirmCopy(pendingTarget === true, radius),
         busy: mutation.current.isPending,
         onConfirm: () => {
           if (pendingTarget !== null) mutation.current.mutate(pendingTarget);
         },
-        onCancel: () => {
+        onClose: () => {
           pendingTarget = null;
         },
       };
