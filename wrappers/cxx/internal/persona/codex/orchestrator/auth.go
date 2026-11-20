@@ -126,18 +126,14 @@ type ChatGPTQuota struct {
 	Status     string `json:"status,omitempty"`
 	PlanType   string `json:"plan_type,omitempty"`
 	FetchedAt  string `json:"fetched_at,omitempty"`
-	SparkLimit string `json:"spark_limit_name,omitempty"`
-	SparkFeat  string `json:"spark_metered_feature,omitempty"`
 	ActiveLane string `json:"active_quota_lane,omitempty"`
 	// Pointer booleans preserve the difference between an older response that
 	// omitted provider gate state and an explicit provider-side denial.
-	RateAllowed           *bool  `json:"rate_allowed,omitempty"`
-	RateLimitReached      *bool  `json:"rate_limit_reached,omitempty"`
-	SparkRateAllowed      *bool  `json:"spark_rate_allowed,omitempty"`
-	SparkRateLimitReached *bool  `json:"spark_rate_limit_reached,omitempty"`
-	DailyUsed             *int   `json:"daily_used_percent,omitempty"`
-	DailyBaselineAt       string `json:"daily_baseline_at,omitempty"`
-	WeekPart              *int   `json:"week_partition,omitempty"`
+	RateAllowed      *bool  `json:"rate_allowed,omitempty"`
+	RateLimitReached *bool  `json:"rate_limit_reached,omitempty"`
+	DailyUsed        *int   `json:"daily_used_percent,omitempty"`
+	DailyBaselineAt  string `json:"daily_baseline_at,omitempty"`
+	WeekPart         *int   `json:"week_partition,omitempty"`
 
 	PrimaryUsed       *int   `json:"primary_used_percent,omitempty"`
 	PrimaryLimitSec   *int64 `json:"primary_limit_seconds,omitempty"`
@@ -148,74 +144,6 @@ type ChatGPTQuota struct {
 	SecondaryLimitSec   *int64 `json:"secondary_limit_seconds,omitempty"`
 	SecondaryResetAfter *int64 `json:"secondary_reset_after_seconds,omitempty"`
 	SecondaryResetAt    string `json:"secondary_reset_at,omitempty"`
-
-	SparkPrimaryUsed       *int   `json:"spark_primary_used_percent,omitempty"`
-	SparkPrimaryLimitSec   *int64 `json:"spark_primary_limit_seconds,omitempty"`
-	SparkPrimaryResetAfter *int64 `json:"spark_primary_reset_after_seconds,omitempty"`
-	SparkPrimaryResetAt    string `json:"spark_primary_reset_at,omitempty"`
-
-	SparkSecondaryUsed       *int   `json:"spark_secondary_used_percent,omitempty"`
-	SparkSecondaryLimitSec   *int64 `json:"spark_secondary_limit_seconds,omitempty"`
-	SparkSecondaryResetAfter *int64 `json:"spark_secondary_reset_after_seconds,omitempty"`
-	SparkSecondaryResetAt    string `json:"spark_secondary_reset_at,omitempty"`
-}
-
-// quotaWindow is one nested window object inside `spark_window` (and the
-// normal_window/primary_window siblings). The server emits the spark lane's
-// limit/reset values ONLY here — there are no flat `spark_primary_limit_seconds`
-// / `spark_primary_reset_after_seconds` root keys — so without reading the
-// nested window the spark quota bars lose their reset countdown and projection.
-type quotaWindow struct {
-	UsedPercent   *int   `json:"used_percent"`
-	LimitSec      *int64 `json:"limit_seconds"`
-	ResetAfterSec *int64 `json:"reset_after_seconds"`
-	ResetAt       string `json:"reset_at"`
-}
-
-// UnmarshalJSON decodes the flat ChatGPTQuota fields and then backfills the
-// spark lane's limit/reset values from the nested `spark_window` object the
-// server actually emits. Implemented at the unmarshal layer so every decode
-// path (POST /auth retrieve and the /sync/bootstrap bundle) normalizes
-// identically. Flat fields, if a future server ever emits them, win over the
-// nested copy.
-func (q *ChatGPTQuota) UnmarshalJSON(data []byte) error {
-	type alias ChatGPTQuota
-	aux := &struct {
-		SparkWindow *struct {
-			Primary   *quotaWindow `json:"primary_window"`
-			Secondary *quotaWindow `json:"secondary_window"`
-		} `json:"spark_window"`
-		*alias
-	}{alias: (*alias)(q)}
-	if err := json.Unmarshal(data, aux); err != nil {
-		return err
-	}
-	if aux.SparkWindow != nil {
-		fillSparkFromWindow(aux.SparkWindow.Primary, &q.SparkPrimaryUsed, &q.SparkPrimaryLimitSec, &q.SparkPrimaryResetAfter, &q.SparkPrimaryResetAt)
-		fillSparkFromWindow(aux.SparkWindow.Secondary, &q.SparkSecondaryUsed, &q.SparkSecondaryLimitSec, &q.SparkSecondaryResetAfter, &q.SparkSecondaryResetAt)
-	}
-	return nil
-}
-
-// fillSparkFromWindow copies the nested window's fields into the flat spark
-// targets, but only where the flat value is still unset — so an explicit flat
-// field from the server is never clobbered.
-func fillSparkFromWindow(win *quotaWindow, used **int, limit **int64, resetAfter **int64, resetAt *string) {
-	if win == nil {
-		return
-	}
-	if *used == nil && win.UsedPercent != nil {
-		*used = win.UsedPercent
-	}
-	if *limit == nil && win.LimitSec != nil {
-		*limit = win.LimitSec
-	}
-	if *resetAfter == nil && win.ResetAfterSec != nil {
-		*resetAfter = win.ResetAfterSec
-	}
-	if *resetAt == "" && win.ResetAt != "" {
-		*resetAt = win.ResetAt
-	}
 }
 
 // AuthRetrieve calls POST /auth with command=retrieve.

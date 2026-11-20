@@ -310,11 +310,11 @@ when the active lane approaches or crosses the configured threshold; forecasts
 stay advisory and never become a hard block by themselves. Projection is held
 back until at least five minutes and 1% of its quota window have elapsed.
 
-The launch lane is host-effective: the host's lane preference wins, then the
-response's `active_quota_lane`, with `normal` as the fallback. Only the active
-lane can warn/block from current percentage or provider
-`rate_allowed`/`rate_limit_reached` flags; the inactive normal/Spark rows remain
-context. Provider error/unavailable status, malformed fetch timestamps, and
+The quota lane is always `normal`: the Spark lane is retired, so a stored
+`spark` preference or a reported `active_quota_lane:"spark"` falls back to
+`normal`, and the wrapper ignores any Spark quota fields a server still sends.
+The normal lane warns/blocks from current percentage or provider
+`rate_allowed`/`rate_limit_reached` flags. Provider error/unavailable status, malformed fetch timestamps, and
 snapshots older than 30 minutes warn rather than presenting stale numbers as
 healthy. Such snapshots remain last-known context but cannot forecast or gate
 launch from their stored percentages/provider flags. If no readable snapshot

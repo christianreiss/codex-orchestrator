@@ -394,34 +394,6 @@ func TestBuildQuotaKnownResetKeepsCountdown(t *testing.T) {
 	}
 }
 
-func TestBuildQuotaOnlyActiveLaneCanGateLaunch(t *testing.T) {
-	normalUsed, sparkUsed, limit := 20, 100, 95
-	providerReached := true
-	for _, tc := range []struct {
-		name      string
-		lane      string
-		wantBlock bool
-	}{
-		{name: "normal ignores exhausted spark", lane: "normal", wantBlock: false},
-		{name: "retired spark preference still ignores exhausted spark", lane: "spark", wantBlock: false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, _, block := buildQuota(&orchestrator.AuthRetrieveResponse{
-				Host:              &orchestrator.HostInfo{LanePreference: tc.lane},
-				QuotaLimitPercent: &limit,
-				ChatGPT: &orchestrator.ChatGPTQuota{
-					PrimaryUsed:           &normalUsed,
-					SparkPrimaryUsed:      &sparkUsed,
-					SparkRateLimitReached: &providerReached,
-				},
-			})
-			if (block != "") != tc.wantBlock {
-				t.Fatalf("block = %q, wantBlock=%t", block, tc.wantBlock)
-			}
-		})
-	}
-}
-
 func TestBuildQuotaProviderDeniedWithoutPercentageBlocksActiveLane(t *testing.T) {
 	allowed := false
 	_, _, block := buildQuota(&orchestrator.AuthRetrieveResponse{
@@ -495,31 +467,6 @@ func TestBuildDoesNotAlarmOnNearFreshQuotaWindow(t *testing.T) {
 	})
 	if got.ResultTone != ui.ToneOK || got.QuotaWarn != "" || len(got.QuotaRows) != 1 || got.QuotaRows[0].Projection != "" {
 		t.Fatalf("near-fresh quota produced a false alarm: %+v", got)
-	}
-}
-
-func TestBuildIgnoresInactiveLaneForecastForOverallOutcome(t *testing.T) {
-	withCodexVersion(t, "0.144.1")
-	normalUsed, sparkUsed, limit := 10, 50, 95
-	limitSeconds, normalReset, sparkReset := int64(5*60*60), int64(60*60), int64(4*60*60)
-	got := Build(context.Background(), Inputs{
-		WrapperVersion: "0.6.45",
-		Auth: &orchestrator.AuthRetrieveResponse{
-			Status:            "valid",
-			QuotaLimitPercent: &limit,
-			Host:              &orchestrator.HostInfo{LanePreference: "normal", Secure: true},
-			ChatGPT: &orchestrator.ChatGPTQuota{
-				PrimaryUsed:            &normalUsed,
-				PrimaryLimitSec:        &limitSeconds,
-				PrimaryResetAfter:      &normalReset,
-				SparkPrimaryUsed:       &sparkUsed,
-				SparkPrimaryLimitSec:   &limitSeconds,
-				SparkPrimaryResetAfter: &sparkReset,
-			},
-		},
-	})
-	if got.ResultTone != ui.ToneOK || got.QuotaWarn != "" || got.QuotaBlock != "" {
-		t.Fatalf("inactive forecast altered outcome: result=%q warn=%q block=%q", got.ResultTone, got.QuotaWarn, got.QuotaBlock)
 	}
 }
 
