@@ -724,11 +724,9 @@ generation unusable and triggers login when no replacement exists. The
 stronger `candidate_rejected_definitive:true` overwrite authority is honored
 only with `status:outdated`, `verification_state:verified`, and an auth object.
 Invalid native JSON is submitted as digest/state without raw candidate bytes so
-verified canonical auth can repair it. On 404/405/501, legacy fallback preserves a newer
-usable native generation and attempts store; only validation-shaped 400/422
-permits applying the already-retrieved verified canonical. Transient,
-security/policy, and rate failures preserve local auth, while unsafe runner
-rotation (`runner_updated_auth_invalid`, including a refresh saved as pending
+verified canonical auth can repair it. There is no per-resource fallback: a
+404/405/501 from the bundle endpoint is a visible, retryable sync failure. Unsafe
+runner rotation (`runner_updated_auth_invalid`, including a refresh saved as pending
 retry) fails closed on initial and concurrent bundle paths instead of using the
 pre-refresh local token as an offline fallback.
 The runner applies the same native-file boundary as clx itself: before invoking

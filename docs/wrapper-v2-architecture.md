@@ -807,11 +807,10 @@ cxx.lifecycle.run                 wrapper.engine, wrapper.version (resource),
 │                                 wrapper.headless, wrapper.minimal,
 │                                 wrapper.resumed, wrapper.concurrent,
 │                                 wrapper.exit_code
-└── cxx.lifecycle.bootstrap       wrapper.concurrent, wrapper.bundle_fallback
+└── cxx.lifecycle.bootstrap       wrapper.concurrent
     ├── cxx.sync.bootstrap        the live POST /sync/bootstrap;
     │                             wrapper.auth_candidate_offered,
     │                             wrapper.auth_status
-    ├── cxx.sync.legacy_fallback  ONLY on the per-resource fallback path
     ├── cxx.apply.claude_artifacts     claude only; wrapper.item_count,
     │   └── cxx.apply.collection       wrapper.updated,
     │                                  wrapper.collection_kind

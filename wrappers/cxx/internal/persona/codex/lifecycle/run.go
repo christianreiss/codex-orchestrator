@@ -21,7 +21,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/term"
@@ -840,10 +839,8 @@ func startProgress(ctx context.Context, opts Options, logger *slog.Logger, topic
 	return ui.StartProgress(updateprogress.Output(ctx, os.Stderr), ui.DetectCapsFor(updateprogress.Output(ctx, os.Stderr), themeFromConfig(opts.Config)), "cdx", topic, message)
 }
 
-// bootstrap tries SyncBootstrap first and, on 404/501, falls back to the
-// per-resource pulls. Returns the same tuple regardless of which path ran.
-// The last value carries the fleet activity counters when the bundle path was
-// taken (nil on the legacy path or when the server didn't supply them).
+// bootstrap runs the SyncBootstrap exchange. The last value carries the fleet
+// activity counters (nil when the server didn't supply them).
 //
 // includeAuth false makes this a content-only exchange: no upload lease, no
 // candidate, no digest, and no auth block applied. The auth response comes back
@@ -1041,16 +1038,6 @@ func bootstrapWithProgress(
 		}
 	}
 
-	// The legacy fallback pulls auth per resource through `/auth command=retrieve`
-	// — the gated credential fetch this mode exists to avoid. A content-only pass
-	// against a server too old for the bundle reports a retryable sync failure
-	// instead of quietly downgrading into a credential request.
-	if berr != nil && includeAuth && isBundleUnsupported(berr) {
-		logger.Debug("bundle endpoint unsupported, falling back to per-resource pulls", "err", berr)
-		bootSpan.SetBool("wrapper.bundle_fallback", true)
-		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
-		return a, e, s, ag, co, nil
-	}
 	if berr != nil {
 
 		var refusal *orchestrator.HTTPError
@@ -1203,49 +1190,6 @@ func bundleAcceptedAuthCandidate(resp *orchestrator.BundleResponse) bool {
 	}
 }
 
-// legacySyncPath runs the per-resource sync (auth + agents + config) when the
-// server is too old for /sync/bootstrap.
-func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync) {
-	// Labelled as a fallback on purpose: against a current orchestrator this
-	// branch is unreachable (it needs isBundleUnsupported), so a span appearing
-	// here means the host is talking to an old server, not that the sync is
-	// slow. Do not read it as the normal path.
-	ctx, span := tracing.Start(ctx, "cxx.sync.legacy_fallback",
-		tracing.String("wrapper.engine", "codex"),
-		tracing.Bool("wrapper.fallback", true),
-	)
-	defer span.End()
-
-	authResp, authErr, authSynced := syncAuthLegacy(ctx, client, logger, concurrent)
-
-	var agents, conf summary.ResourceSync
-	if !concurrent {
-		agents.Checked = true
-		conf.Checked = true
-		syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			agents.Updated, agents.Err = writeAgents(syncCtx, client)
-			if agents.Err != nil {
-				logger.Debug("agents sync skipped", "err", agents.Err)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			conf.Updated, conf.Err = writeConfigToml(syncCtx, client)
-			if conf.Err != nil {
-				logger.Debug("config sync skipped", "err", conf.Err)
-			}
-		}()
-		wg.Wait()
-	}
-	_ = authPath
-	return authResp, authErr, authSynced, agents, conf
-}
-
 func combineResourceSync(states ...summary.ResourceSync) summary.ResourceSync {
 	if len(states) == 0 {
 		return summary.ResourceSync{}
@@ -1257,17 +1201,6 @@ func combineResourceSync(states ...summary.ResourceSync) summary.ResourceSync {
 		combined.Err = errors.Join(combined.Err, state.Err)
 	}
 	return combined
-}
-
-// isBundleUnsupported returns true when the error looks like a 404/501 from
-// the bundle endpoint; everything else is treated as a transient failure
-// (offline) so the wrapper doesn't fan out into legacy sync on every hiccup.
-func isBundleUnsupported(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, " -> 404") || strings.Contains(s, " -> 501") || strings.Contains(s, " -> 405")
 }
 
 // pushAuthCandidate uploads the local file via the standalone /auth store
@@ -1552,81 +1485,6 @@ func applyQuotaHardFailOverride(state *ui.ScreenInput) string {
 	return quotaMessage
 }
 
-func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool) (*orchestrator.AuthRetrieveResponse, error, bool) {
-	localUsable := false
-	_, expected, err := codex.ReadAuthForUpload()
-	if err != nil {
-		expected, err = codex.CurrentAuthGeneration()
-		if err != nil {
-			return nil, fmt.Errorf("local digest: %w", err), false
-		}
-	} else if authPath, pathErr := codex.AuthPath(); pathErr == nil {
-		localUsable = codex.IsValidLocalAuth(authPath)
-	}
-	digest := ""
-	if localUsable {
-		digest = expected.Digest
-	}
-	resp, err := client.AuthRetrieve(ctx, digest)
-	if err != nil {
-		return &orchestrator.AuthRetrieveResponse{Status: "offline", Message: err.Error()}, err, false
-	}
-	if err := updateAuthSessionSecurity(resp); err != nil {
-		return resp, fmt.Errorf("update auth session security state: %w", err), false
-	}
-	switch strings.ToLower(resp.Status) {
-	case "current", "ok", "valid", "unchanged", "":
-		return resp, nil, false
-	case "outdated", "updated", "missing":
-		authPath, _ := codex.AuthPath()
-		wrote, keptFresher, writeErr := applyServerAuth(logger, authPath, resp, concurrent, expected, updateprogress.Output(ctx, os.Stderr))
-		if writeErr != nil {
-			return resp, &authMaterializationError{err: writeErr}, wrote
-		}
-		if !keptFresher || concurrent {
-			return resp, nil, wrote
-		}
-
-		// A legacy server retrieves before it sees the local candidate. Try the
-		// two-way convergence explicitly. Accepted stores converge to the new
-		// credential; transient/security/rate failures retain it. Only a
-		// validation-shaped rejection authorizes the already-retrieved, verified
-		// canonical fallback to replace that exact rejected generation.
-		storeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		storeResp, storeExpected, storeErr := storeCurrentAuthCandidate(storeCtx, client, false)
-		if storeErr == nil {
-			if storeResp != nil && len(storeResp.Auth) > 0 {
-				stored, _, applyErr := applyServerAuth(logger, authPath, storeResp, false, storeExpected, updateprogress.Output(ctx, os.Stderr))
-				if applyErr != nil {
-					return storeResp, &authMaterializationError{err: applyErr}, stored
-				}
-				return storeResp, nil, stored
-			}
-			return storeResp, nil, false
-		}
-		if orchestrator.IsDefinitiveAuthCandidateRejection(storeErr) &&
-			strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
-			fallback := *resp
-			fallback.CandidateRejectedDefinitive = true
-			healed, _, applyErr := applyServerAuth(logger, authPath, &fallback, false, storeExpected, updateprogress.Output(ctx, os.Stderr))
-			if applyErr != nil {
-				return resp, &authMaterializationError{err: applyErr}, healed
-			}
-			return resp, nil, healed
-		}
-		if orchestrator.IsUnsafeRunnerUpdatedAuthError(storeErr) {
-			return resp, storeErr, false
-		}
-		logger.Warn("legacy auth candidate store did not converge; preserving newer local auth", "err", storeErr)
-		return resp, nil, wrote
-	default:
-		// Unknown / refused / insecure — return the response as-is and let
-		// Decide() classify; do not synthesise an error here.
-		return resp, nil, false
-	}
-}
-
 func shouldWriteServerAuth(status string, auth []byte) bool {
 	if len(auth) == 0 {
 		return false
@@ -1720,62 +1578,6 @@ func localAuthFresherThan(localPath string, serverAuth []byte) bool {
 		return true
 	}
 	return localT.After(serverT)
-}
-
-func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error) {
-	dst, err := agentsPath()
-	if err != nil {
-		return false, err
-	}
-	digest := fileDigest(dst)
-	body, err := client.RetrieveAgents(ctx, digest)
-	if err != nil {
-		return false, err
-	}
-	if len(body) == 0 {
-		return false, nil
-	}
-	if err := atomicWrite(dst, body, 0o644); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func writeConfigToml(ctx context.Context, client *orchestrator.Client) (bool, error) {
-	dst, err := configTomlPath()
-	if err != nil {
-		return false, err
-	}
-	digest := fileDigest(dst)
-	bundle, err := client.RetrieveConfigBundle(ctx, digest)
-	if err != nil {
-		return false, err
-	}
-	updated := false
-	if len(bundle.Content) > 0 {
-		if err := atomicWrite(dst, bundle.Content, configTomlMode); err != nil {
-			return false, err
-		}
-		updated = true
-	} else if err := restrictConfigMode(dst); err != nil {
-		slog.Warn("config.toml permissions not restricted", "err", err)
-	}
-	// Profiles ride every reply, `unchanged` included; nil means the server sent
-	// none (older server, or a Codex that reads [profiles.*] from config.toml).
-	if bundle.Profiles != nil {
-		home, err := codex.CodexHome()
-		if err != nil {
-			return updated, err
-		}
-		// Same policy as the bundle path: the base config did arrive, so a profile
-		// refusal or write failure is logged, not turned into a failed sync.
-		profilesChanged, err := syncProfileFiles(home, bundle.Profiles)
-		if err != nil {
-			slog.Warn("profile files not fully synced", "err", err)
-		}
-		updated = updated || profilesChanged
-	}
-	return updated, nil
 }
 
 func agentsPath() (string, error) {
