@@ -358,7 +358,7 @@ New engines are staged in private `~/.cxx/engines/codex` and
 cache change. Existing sessions keep their old version files. Every maintenance
 tick then sweeps each store down to the one version its published CLI cache
 selects, skipping any prefix a direct native process still runs from and
-retrying it on the next tick; `~/.cxx/rollback` is removed on the same pass.
+retrying it on the next tick.
 The fleet keeps no old versions, so an up- or downgrade is always a fresh
 download and an uninstall removes the store outright. Explicit CLI path overrides
 are respected. Disabling
