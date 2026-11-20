@@ -14,7 +14,11 @@ import (
 // can make Claude Code execute a different credential from the runner-verified
 // ~/.claude/.credentials.json. BuildEnv removes every inherited copy. The
 // per-run command-line settings overlay in exec.go also neutralizes copies from
-// user/project settings, which Claude applies after process startup.
+// user/project settings, which Claude applies after process startup. The
+// Anthropic profile / workload-identity-federation selectors
+// (ANTHROPIC_PROFILE, ANTHROPIC_FEDERATION_RULE_ID, ANTHROPIC_ORGANIZATION_ID,
+// ANTHROPIC_WORKSPACE_ID, ANTHROPIC_SERVICE_ACCOUNT_ID) are listed because
+// Claude Code ranks them above the subscription OAuth login.
 var runtimeAuthOverrideEnv = []string{
 	"CCR_OAUTH_TOKEN_FILE",
 	"ANTHROPIC_API_KEY",
@@ -25,13 +29,18 @@ var runtimeAuthOverrideEnv = []string{
 	"ANTHROPIC_BEDROCK_BASE_URL",
 	"ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
 	"ANTHROPIC_CUSTOM_HEADERS",
+	"ANTHROPIC_FEDERATION_RULE_ID",
 	"ANTHROPIC_FOUNDRY_API_KEY",
 	"ANTHROPIC_FOUNDRY_AUTH_TOKEN",
 	"ANTHROPIC_FOUNDRY_BASE_URL",
 	"ANTHROPIC_GOOGLE_CLOUD_BASE_URL",
 	"ANTHROPIC_IDENTITY_TOKEN",
 	"ANTHROPIC_IDENTITY_TOKEN_FILE",
+	"ANTHROPIC_ORGANIZATION_ID",
+	"ANTHROPIC_PROFILE",
+	"ANTHROPIC_SERVICE_ACCOUNT_ID",
 	"ANTHROPIC_VERTEX_BASE_URL",
+	"ANTHROPIC_WORKSPACE_ID",
 	"CLAUDE_API_KEY",
 	"CLAUDE_BRIDGE_OAUTH_TOKEN",
 	"CLAUDE_CONFIG_DIR",

@@ -210,6 +210,43 @@ refresh ownership and native isolation differ. See [Grok interface](interface-cg
 Source-of-truth contract for the `clx` wrapper (Claude Code fleet wrapper).
 Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitly.
 
+### Anthropic profile and federation credential sources (2026-11-20)
+
+Claude Code ranks Anthropic profile and workload-identity-federation sources above
+the subscription OAuth login ([authentication precedence](https://code.claude.com/docs/en/authentication.md),
+[WIF reference](https://platform.claude.com/docs/en/manage-claude/wif-reference.md)).
+`runtimeAuthOverrideEnv` therefore also lists `ANTHROPIC_PROFILE`,
+`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`,
+`ANTHROPIC_WORKSPACE_ID` and `ANTHROPIC_SERVICE_ACCOUNT_ID`, next to
+`ANTHROPIC_IDENTITY_TOKEN*`. Inherited copies are removed from the child environment
+and the per-run `--settings` overlay blanks them (`""`), so a value in user/project
+settings `env` cannot win either. There is no exemption beyond the existing ones:
+the launch path always builds the filtered env and the overlay, in OAuth and API-key
+mode, for `login` / `auth login` and with `--bare` (still rewritten to `--safe-mode`
+for OAuth launches); only `ANTHROPIC_API_KEY` stays mode-dependent.
+
+Verified on Claude Code 2.1.329 with `auth status --text` in a throwaway `HOME` that
+holds a fabricated subscription credential: a named profile whose file exists, and the
+rule-plus-organization pair (workspace and service-account IDs only modify it), switch
+the source to a `Profile:` row when set in the process environment or in settings
+`env`. With the overlay the `Login method:` row (the fleet login) wins in both cases.
+`TestNativeOracleProfileSelectorsLoseToFleetLogin` (gated on `NATIVE_CLAUDE_ORACLE`)
+repeats this, including negative controls, against any native binary.
+
+**Known gap, not implemented: profile files.** A profile named `default` (or the one
+named in `<config_dir>/active_config`) with auth mode `oidc_federation` under
+`~/.config/anthropic/configs/` still outranks the stored login; blanking the selectors
+does not change that (2.1.329: `Profile: credentials-file · oidc_federation · profile
+default`). Setting `ANTHROPIC_CONFIG_DIR` to an empty directory restores the login in
+that probe, but the wrapper does not do it: the authentication docs say Claude's
+Console keyless `/login` writes its `user_oauth` profile into that directory, an
+in-session `/login` cannot be exempted by argument inspection, and a settings-`env`
+value is expected (not tested) to reach Bash-tool, hook and MCP subprocesses, moving
+`ant` CLI/SDK configuration with it. An inherited `ANTHROPIC_CONFIG_DIR` that points at
+a foreign profile directory is part of the same gap; both the env filter and the
+overlay leave it alone (pinned by a unit test). Removing such a profile (`ant auth
+logout` or deleting the file from `configs/`) is a host operator action.
+
 ### Native command maintenance (cxx 0.9.66)
 
 The native dispatch and flag grammar were checked against Claude Code
