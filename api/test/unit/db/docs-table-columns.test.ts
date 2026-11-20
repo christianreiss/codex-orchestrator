@@ -119,7 +119,7 @@ describe('docs/interface-db.md column lists', () => {
   it('reads the columns out of both files', () => {
     const schema = schemaColumns();
     expect(schema.get('versions')).toEqual(['name', 'version', 'updated_at']); // The one-line table.
-    expect(schema.get('hosts')).toContain('wrapper_track');
+    expect(schema.get('hosts')).toContain('wrapper_canary');
     // Index names live in the second argument, outside the column object.
     expect(schema.get('hosts')).not.toContain('idx_hosts_updated_at');
 
@@ -127,7 +127,7 @@ describe('docs/interface-db.md column lists', () => {
     expect(documented.get('versions')).toEqual(['name', 'version', 'updated_at']);
     // That same bullet backticks every key the code stores under `versions`.
     expect(documented.get('versions')).not.toContain('client_available');
-    expect(documented.get('hosts')).toContain('wrapper_track');
+    expect(documented.get('hosts')).toContain('wrapper_canary');
     expect(documented.get('logs')).not.toContain('idx_logs_host');
     // The qualifying bullets are read as themselves, not as their table.
     expect(documented.get('hosts.browseros_mcp_enabled')).toEqual([]);

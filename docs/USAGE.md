@@ -61,7 +61,7 @@ If you prefer provisioning via API (CI, inventory tooling), the admin endpoint i
 
 - `POST /admin/hosts/register` with JSON body: `{"fqdn":"host1.example.com","secure":true,"vip":false,"engines":["codex","claude"]}`
 
-Use admin login + session cookie: that is the only admin check the API itself makes, including on the `/cli/auth/verify` CLI-approval page.
+Use admin login + session cookie: that is the only admin check the API itself makes.
 
 The admin session is the whole check — this server does not issue or verify client certificates, and the bundled `caddy` profile does not request them. If you front it with a proxy that enforces mTLS, add whatever client credentials that proxy wants to the calls below; the API still requires the session cookie either way:
 
@@ -260,8 +260,8 @@ for the verified compatibility boundary.
   writes from native/local writes. Distinct canonical digests at the same
   instant preserve the first response but fail the invocation as an ambiguous
   ordering conflict.
-- `${CODEX_HOME:-~/.codex}/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/config/retrieve`). Written `0600`, and an existing group/world-readable copy is tightened on the next sync, because the managed MCP entry carries the fleet bearer in its `[mcp_servers.cdx.env]` table. A custom `CODEX_HOME` is a fully managed home and receives the same content (bearer and `auth.json` included); native utilities such as `codex mcp add` do not sync, so isolated CLI checks run there without fleet content.
-- `${CODEX_HOME:-~/.codex}/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/agents/retrieve`).
+- `${CODEX_HOME:-~/.codex}/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`). Written `0600`, and an existing group/world-readable copy is tightened on the next sync, because the managed MCP entry carries the fleet bearer in its `[mcp_servers.cdx.env]` table. A custom `CODEX_HOME` is a fully managed home and receives the same content (bearer and `auth.json` included); native utilities such as `codex mcp add` do not sync, so isolated CLI checks run there without fleet content.
+- `${CODEX_HOME:-~/.codex}/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`).
 - No local Skill mirror is maintained. `cdx` reads Skills through MCP `skill://{slug}`. `~/.agents/skills`, `${CODEX_HOME:-~/.codex}/skills` and `${CODEX_HOME:-~/.codex}/prompts` belong to the user and are never deleted by the wrapper.
 
 For Claude, `~/.claude/.credentials.json` is the only authoritative local auth
@@ -329,10 +329,11 @@ other hosts have no maintenance crontab line
 `~/.cxx/engines/codex` and activated atomically, so a running session keeps its
 files; a later tick sweeps the store back down to the one selected version. The registered versioned route is
 `/wrapper/v2/bin/{artifact}/{platform}/v{version}/{binary}`; new releases use
-`artifact=cxx` and `binary=cxx`. The compatible per-engine URL and
-`/wrapper/v2/download` resolve to the same bytes for a new common release.
-`/wrapper/download` is not part of that path: it serves the legacy transition
-launcher used by date-versioned shell wrappers. You can force an update
+`artifact=cxx` and `binary=cxx`. The compatible per-engine URL resolves to the
+same bytes for a new common release. Date-versioned shell wrappers are no
+longer supported: on their next interactive run they replace themselves with
+the plain `cxx` binary, which then fails without a signed config. Such a host
+needs a fresh install. You can force an update
 check/run:
 
 ```bash

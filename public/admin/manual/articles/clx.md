@@ -2,7 +2,7 @@
 title: clx — the Claude Code wrapper
 section: Fleet operations
 verified: 2026-10-16
-sources: wrappers/cxx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
+sources: wrappers/cxx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
 ---
 
 `clx` is the **Claude Code fleet wrapper** — the Claude persona of the static
@@ -142,9 +142,8 @@ Implemented in `wrappers/cxx/internal/persona/claude/lifecycle/` as `lifecycle.R
 3. **POST `/sync/bootstrap`** with a `BundleRequest` carrying: `engine=claude`,
    `include_auth=true`, auth digest, auth candidate, agents digest, config
    digest, `home`, `username`, and artifact digests for subagents, commands,
-   output-styles, and skills. Falls back to legacy separate `POST /auth`,
-   `POST /agents/retrieve`, and `POST /config/retrieve` calls if the server
-   returns 404, 501, or 405. Legacy auth convergence preserves a newer usable
+   output-styles, and skills. There is no per-resource fallback. Legacy auth
+   convergence preserves a newer usable
    local generation and attempts store; only a validation-shaped 400/422 plus
    an already-retrieved verified canonical permits older replacement.
    Transient, security/policy, and rate failures preserve local auth, while
@@ -348,28 +347,6 @@ managed settings remain Claude Code's higher-precedence policy boundary.
 The `/anthropic/v1` proxy (for issued `sk-claude-*` keys) is a separate gateway
 and is not part of the host launch path.
 
-## New host registration (device-code flow)
-
-When a host has no config yet, `clx` drives a device-code exchange:
-
-1. POST `/cli/auth/start` with `{fqdn, secure}` → receives a **device code**
-   (format: `ABCD-1234`, four uppercase letters, dash, four digits) and a
-   `verify_url`.
-2. Poll POST `/cli/auth/poll/:id` until approved or denied.
-
-On the admin side an operator navigates to **Authorize CLI** (`/cli/auth/verify`,
-requires an admin session):
-
-- **Step 1** — Enter the device code shown on the host terminal.
-- **Step 2** — Confirm: review session details (FQDN shown), then click
-  **Approve** or **Deny**.
-  - Approve → POST `/cli/auth/approve` with `user_code`.
-  - Deny → POST `/cli/auth/deny`.
-- **Step 3** — Approved/denied result page.
-
-On approval the poll response includes `base_url` so the wrapper can download
-its signed config and proceed.
-
 ## Auto-update (cron)
 
 `clx --cron install` forwards to `cxx cron install`. The coordinator writes one
@@ -483,8 +460,8 @@ failure, or prune failure keeps the last-good file and manifest entry for retry
 instead of silently deleting working state. Admin CRUD lives at
 `GET /admin/claude/:kind`, `GET /admin/claude/:kind/:slug`,
 `POST /admin/claude/:kind/store`, and `DELETE /admin/claude/:kind/:slug`
-(backed by `api/src/services/claude-artifacts.ts`); the host-facing surface is
-read-only (`GET /claude/:kind`, `POST /claude/:kind/retrieve`).
+(backed by `api/src/services/claude-artifacts.ts`); hosts receive the set
+read-only in the `claude_artifacts` block of `/sync/bootstrap`.
 
 ## Source references
 
@@ -494,7 +471,6 @@ read-only (`GET /claude/:kind`, `POST /claude/:kind/retrieve`).
 - `api/src/routes/install/index.ts` — installer and seed-auth tokens
 - `api/src/routes/auth/index.ts` — `/sync/bootstrap`, `/sync/status`
 - `api/src/routes/host/index.ts` — `/cron/check`, `/cron/report`
-- `api/src/routes/cli-auth/index.ts` — device-code registration flow
 - `api/src/services/claude-artifacts.ts` — subagent/command/output-style fleet artifacts
 - `api/src/services/client-config.ts` — renders the `claude_settings` partial (incl. `permissions.defaultMode`)
 - `wrappers/schemas/host-config-v1.json` — config schema (enforced against the baked payload by `api/test/unit/contract/wrapper-config-schema.test.ts`)

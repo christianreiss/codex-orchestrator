@@ -16,9 +16,10 @@ description: "${DESCRIPTION}"
 The fleet agent portal already records this running root session. The portal is the
 whole channel: the notice, the conversation, and every reply live in the operator
 chat, which the user reaches signed in to the admin console (Agents) or through the
-Android companion. The automatic receiver already makes this session reachable there;
-opening the relay means the agent is available; it does not mean the user needs to
-do anything.
+Android companion. An attended terminal session is already reachable there through the
+automatic receiver; this relay is for a session without one (a headless or
+non-terminal launch). Opening the relay means the agent is available; it does not
+mean the user needs to do anything.
 
 When #afk is requested:
 

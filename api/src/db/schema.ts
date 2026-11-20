@@ -80,10 +80,6 @@ export const hosts = mysqlTable(
     insecureSessionRenewalBlocked: tinyint('insecure_session_renewal_blocked').notNull().default(0),
     curlInsecure: tinyint('curl_insecure').notNull().default(0),
     browserosMcpEnabled: tinyint('browseros_mcp_enabled').notNull().default(0),
-    /** Retired per-host Agent Messaging switch. Nothing reads it: the fleet
-     *  switch is the only switch, and an insecure host is bounded by its
-     *  allowed window. Kept until a follow-up migration drops the column. */
-    agentMessagingEnabled: tinyint('agent_messaging_enabled').notNull().default(0),
     expiresAt: varchar('expires_at', { length: 100 }),
     vip: tinyint('vip').notNull().default(0),
     lanePreference: varchar('lane_preference', { length: 16 }),
@@ -114,7 +110,6 @@ export const hosts = mysqlTable(
     grokLastRefresh: varchar('grok_last_refresh', { length: 100 }),
     kimiLastRefresh: varchar('kimi_last_refresh', { length: 100 }),
     configVersion: bigint('config_version', { mode: 'number', unsigned: true }).notNull().default(0),
-    wrapperTrack: varchar('wrapper_track', { length: 16 }).notNull().default('v2'),
     /** Receives a staged cxx rollout before every wave (services/wrapper-rollout.ts). */
     wrapperCanary: tinyint('wrapper_canary').notNull().default(0),
     /** Server-owned host that is never shown or counted ('advisor'; migration 0077). */
@@ -129,7 +124,6 @@ export const hosts = mysqlTable(
     updatedAtIdx: index('idx_hosts_updated_at').on(t.updatedAt),
     lastContactIdx: index('idx_hosts_last_contact').on(t.lastContactAt),
     expiresAtIdx: index('idx_hosts_expires_at').on(t.expiresAt),
-    wrapperTrackIdx: index('idx_hosts_wrapper_track').on(t.wrapperTrack),
   }),
 );
 
@@ -384,40 +378,6 @@ export const authSeedTokens = mysqlTable(
   (t) => ({
     tokenUnique: uniqueIndex('token').on(t.token),
     expiresIdx: index('idx_auth_seed_tokens_expires_at').on(t.expiresAt),
-  }),
-);
-
-// ────────────────────────────────────────────────────────────────────────────
-// cli_auth_requests
-// ────────────────────────────────────────────────────────────────────────────
-
-export const cliAuthRequests = mysqlTable(
-  'cli_auth_requests',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    requestId: char('request_id', { length: 64 }).notNull(),
-    requestIdEnc: longtext('request_id_enc'),
-    userCode: char('user_code', { length: 9 }).notNull(),
-    userCodeHash: char('user_code_hash', { length: 64 }).notNull(),
-    fqdn: varchar('fqdn', { length: 255 }).notNull(),
-    secure: tinyint('secure').notNull().default(1),
-    status: varchar('status', { length: 16 }).notNull().default('pending'),
-    approvedByUserId: bigint('approved_by_user_id', { mode: 'number', unsigned: true }),
-    hostId: bigint('host_id', { mode: 'number', unsigned: true }),
-    apiKeyEnc: longtext('api_key_enc'),
-    ip: varchar('ip', { length: 64 }),
-    userAgent: varchar('user_agent', { length: 255 }),
-    expiresAt: varchar('expires_at', { length: 100 }).notNull(),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    approvedAt: varchar('approved_at', { length: 100 }),
-    consumedAt: varchar('consumed_at', { length: 100 }),
-    engine: varchar('engine', { length: 16 }).notNull().default('codex'),
-  },
-  (t) => ({
-    requestIdUnique: uniqueIndex('request_id').on(t.requestId),
-    userCodeIdx: index('idx_cli_auth_user_code').on(t.userCodeHash),
-    expiresIdx: index('idx_cli_auth_expires').on(t.expiresAt),
-    statusIdx: index('idx_cli_auth_status').on(t.status),
   }),
 );
 
@@ -1471,18 +1431,6 @@ export const openaiApiKeys = mysqlTable(
   }),
 );
 
-export const dashboardGraphClaudeQuotaSnapshots = mysqlTable(
-  'dashboard_graph_claude_quota_snapshots',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    snapshotAt: varchar('snapshot_at', { length: 100 }).notNull(),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-  },
-  (t) => ({
-    snapshotIdx: index('idx_snapshot').on(t.snapshotAt),
-  }),
-);
-
 export const wrapperSigningKeys = mysqlTable(
   'wrapper_signing_keys',
   {
@@ -1496,26 +1444,6 @@ export const wrapperSigningKeys = mysqlTable(
   },
   (t) => ({
     activeIdx: index('idx_wrapper_signing_keys_active').on(t.active),
-  }),
-);
-
-export const wrapperV2Binaries = mysqlTable(
-  'wrapper_v2_binaries',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    engine: varchar('engine', { length: 16 }).notNull(),
-    os: varchar('os', { length: 32 }).notNull(),
-    arch: varchar('arch', { length: 32 }).notNull(),
-    version: varchar('version', { length: 64 }).notNull(),
-    sha256: char('sha256', { length: 64 }).notNull(),
-    sizeBytes: bigint('size_bytes', { mode: 'number', unsigned: true }).notNull().default(0),
-    signature: text('signature'),
-    publishedAt: varchar('published_at', { length: 40 }).notNull(),
-    uploadedBy: varchar('uploaded_by', { length: 255 }),
-  },
-  (t) => ({
-    uniqTarget: uniqueIndex('uniq_v2_bin_target').on(t.engine, t.os, t.arch, t.version),
-    engineVersionIdx: index('idx_v2_bin_engine_version').on(t.engine, t.version),
   }),
 );
 
@@ -2253,7 +2181,6 @@ export type Secret = typeof secrets.$inferSelect;
 export type Log = typeof logs.$inferSelect;
 export type Version = typeof versions.$inferSelect;
 export type SchemaMigration = typeof schemaMigrations.$inferSelect;
-export type CliAuthRequest = typeof cliAuthRequests.$inferSelect;
 export type GitClone = typeof gitClones.$inferSelect;
 export type GitWorktree = typeof gitWorktrees.$inferSelect;
 export type GitMergeRequest = typeof gitMergeRequests.$inferSelect;

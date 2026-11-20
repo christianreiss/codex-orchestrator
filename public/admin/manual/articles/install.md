@@ -93,7 +93,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 ### Core
 
-- `PUBLIC_BASE_URL` — canonical base URL the installer script embeds in the bootstrap transition launcher.
+- `PUBLIC_BASE_URL` — canonical base URL the installer script embeds.
 - `PUBLIC_BASE_URL_REQUIRED` — bool, default `true`. Makes installer-command creation fail while no base URL is configured; it does not validate request `Host` headers.
 - `ADMIN_SESSION_COOKIE` — default `codex_admin_session`.
 - `ADMIN_SESSION_TTL_MINUTES` — default `43200` (30 days) in `env.ts`. `AdminAuthService.sessionTtlSeconds()` clamps this to 5 min – 7 days at login, so a fresh session starts at 7 days; `auth-admin.ts`'s `resolveAdmin` then rolls `expiresAt` forward on every authenticated request using the same TTL clamped to 5 min – 30 days, so an actively used session keeps renewing out to 30 days.
@@ -236,10 +236,8 @@ payloads before mutation, publishes immutable version directories, and merges
 each platform manifest atomically without dropping earlier builds. Exact
 historical per-engine artifacts stay immutable, while compatible old URLs fall
 back to the matching common bytes. `wrapper-bin-registry.ts` discovers the
-published store. `GET /wrapper` (aliased to `/wrapper/v2/meta`) returns the
-per-platform projection; `GET /wrapper/download` returns the bootstrap
-transition launcher for the calling host. Hosts use these endpoints to
-self-update between runs.
+published store. Hosts self-update between runs through `POST /cron/check`,
+which names the exact `/wrapper/v2/bin/...` artifact for their platform.
 
 ## Post-install smoke test
 

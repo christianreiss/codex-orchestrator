@@ -5,16 +5,11 @@ import type {
   ResolvedWrapperBuild,
   WrapperBinRegistry,
 } from './wrapper-bin-registry.js';
-import { CXX_ARTIFACT, wrapperBinaryUrl } from './wrapper-bin-registry.js';
-import {
-  isLegacyShellWrapperVersion,
-  withLegacyShellWrapperTransition,
-} from './wrapper-transition.js';
+import { wrapperBinaryUrl } from './wrapper-bin-registry.js';
 
 export interface WrapperVersionProjectionInput {
   snapshot: VersionSnapshot;
   engine: Engine;
-  submittedWrapperVersion: unknown;
   platform: WrapperPlatform;
   publicBaseUrl: string;
   binaries: WrapperBinRegistry;
@@ -24,34 +19,10 @@ export interface WrapperVersionProjectionInput {
  * Replaces the boot-time compatibility tuple with one exact artifact for the
  * calling platform. The versions table intentionally remains a release
  * pointer; its Linux URL/hash must never leak into Darwin or arm64 responses.
- *
- * Date-style shell wrappers are the sole exception: they need the transition
- * launcher rather than a binary artifact and therefore retain the configured
- * target version with a null checksum.
  */
 export async function projectWrapperVersionSnapshot(
   input: WrapperVersionProjectionInput,
 ): Promise<VersionSnapshot> {
-  if (isLegacyShellWrapperVersion(input.submittedWrapperVersion)) {
-    const resolved = await input.binaries.resolveCurrentBuild(
-      input.engine,
-      input.platform.os,
-      input.platform.arch,
-    );
-    if (!resolved) return withoutWrapperTarget(input.snapshot);
-    if (resolved.artifact !== CXX_ARTIFACT) {
-      // During a rollback (or before cxx publication), date-style wrappers
-      // may still upgrade directly to the immutable split Go artifact. Never
-      // send them through the cxx transition launcher with split bytes.
-      return withResolvedBuild(input, resolved);
-    }
-    return withLegacyShellWrapperTransition(
-      { ...input.snapshot, wrapper_version: resolved.version },
-      input.submittedWrapperVersion,
-      input.engine,
-    );
-  }
-
   const targetVersion = input.snapshot.wrapper_version;
   if (!targetVersion) return withoutWrapperTarget(input.snapshot);
 

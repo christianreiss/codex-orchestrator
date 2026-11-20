@@ -18,7 +18,6 @@ const SURFACES = [
 const AUTH_PAGES = [
   "frontend/src/routes/login/+page.svelte",
   "frontend/src/routes/password/reset/+page.svelte",
-  "frontend/src/routes/cli-auth/verify/+page.svelte",
 ] as const;
 
 function source(path: string): string {

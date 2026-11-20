@@ -95,7 +95,6 @@ describe.skipIf(!handle)('Fleet Advisor over the host daemon', () => {
       reverseDnsMode: 0,
       engines: 'codex,claude,grok,kimi',
       secure: 1,
-      agentMessagingEnabled: 1,
       authDigest: 'test',
       claudeAuthDigest: 'test',
       grokAuthDigest: 'test',

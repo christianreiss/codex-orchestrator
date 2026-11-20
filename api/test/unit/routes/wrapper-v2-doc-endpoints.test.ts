@@ -93,8 +93,11 @@ function resolves(row: DocRow): boolean {
 describe('docs/wrapper-v2-architecture.md endpoint table', () => {
   it('parses and resolves the rows it is meant to check', () => {
     // A scan that silently matched nothing would pass the assertion below.
-    expect(rows.length).toBeGreaterThanOrEqual(8);
-    for (const text of ['GET /wrapper/v2/download', `POST /seed/v2/auth/${PARAM}`]) {
+    expect(rows.length).toBeGreaterThanOrEqual(7);
+    for (const text of [
+      `GET /wrapper/v2/download/${PARAM}/${PARAM}-${PARAM}/v${PARAM}/${PARAM}`,
+      `POST /seed/v2/auth/${PARAM}`,
+    ]) {
       const row = rows.find((candidate) => `${candidate.method} ${candidate.path}` === text);
       expect(row, `${text} is not parsed out of the Endpoints table`).toBeDefined();
       expect(resolves(row!), `${text} is parsed but resolves to no route`).toBe(true);

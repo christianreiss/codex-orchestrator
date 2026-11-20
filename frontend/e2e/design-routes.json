@@ -84,10 +84,6 @@
     "path": "/admin/account"
   },
   {
-    "source": "src/routes/cli-auth/verify/+page.svelte",
-    "path": "/admin/cli-auth/verify"
-  },
-  {
     "source": "src/routes/dashboard/+page.svelte",
     "path": "/admin/dashboard"
   },

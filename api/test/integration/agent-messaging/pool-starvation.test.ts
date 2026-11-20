@@ -29,7 +29,6 @@ describe.skipIf(!config)('messaging with one database connection', () => {
         status: 'active',
         secure: 1,
         engines: ENGINES.join(','),
-        agentMessagingEnabled: 1,
         createdAt: now,
         updatedAt: now,
       });

@@ -286,7 +286,6 @@ export function getBreadcrumbs(pathname: string): Breadcrumb[] {
   if (pathname.startsWith("/manual/")) return detailTrail({ label: "Manual", route: "/manual" }, humanize(segments[1] ?? ""));
   if (pathname === "/login") return [{ label: "Sign in" }];
   if (pathname === "/password/reset") return [{ label: "Reset password" }];
-  if (pathname.startsWith("/cli-auth")) return [{ label: "CLI authorization" }];
   if (pathname === "/setup") return [{ label: "Setup" }];
 
   const direct = CONTEXT_BY_ROUTE.get(pathname);
