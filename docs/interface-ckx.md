@@ -196,7 +196,7 @@ Server-side, per account: `GET {base_url}/usages` with
 window and the 7 d window the long one, so Kimi takes part in quota
 observation, `quota_get`, warnings and hard-fail like Codex and Claude.
 
-### Native argument boundaries (verified against 2.6.2)
+### Native argument boundaries (verified against 2.7.2)
 
 The wrapper keeps values opaque at the scope where the native parser reads them,
 including `provider catalog list --filter/--url` and `provider catalog add
@@ -206,6 +206,16 @@ Hidden native `-r`/`--resume [id]` aliases select a session, and `-C` means
 continue, not change directory. Native `--yes` and `--auto-approve` alias
 Ask When Needed (`--yolo`), not Never Ask (`--auto`).
 
+Kimi 2.7.x hides the `server` command (absent from root help) but keeps the full
+`web` option set on it (`--port`, optional `--host [host]`, variadic
+`--allowed-host <host...>`, `--log-level`, `--web-title`, `--rc/--remote-control`,
+`--open`, `--json`, ...) with children `rotate-token`, `kill` and the hidden
+internal `ensure-daemon [--probe]`; `web` gained `--json`; `install-app` is a
+hidden command. The scoped tables follow those arities, so values spelled like a
+command or flag (`-p server`, `--web-title server`, `server --web-title kill`)
+stay values. `server`, `web`, `rc`/`remote` and `app` stay refused by command
+name.
+
 Native `exec-server` (including `--listen stdio`), remote environment selection
 with `--environment`/`--environment-cwd`, and the native-only
 `__plugin_run_node`/`__update_download` helper processes are refused before
@@ -214,8 +224,11 @@ the proven managed auth, receiver and teardown lifecycle. Native `--help`
 remains available; recognized helpers are never started as managed sessions.
 Ordinary native `upgrade`/`update` remains owned by `ckx update`.
 
-The checked-in help snapshot records actual 2.6.2 output plus separately labeled
-hidden-option evidence from tag `6a8493df3e1d796a63f7c7ca0de76c1e690cd943`.
+The checked-in help snapshot records actual 2.7.2 output (binary SHA-256
+`7f82148d26467874400d19ee8d23ead13cece9cd0c17648a5622cae480a5a596`, verified
+against the CDN manifest 2026-11-20) plus separately labeled hidden option and
+command evidence (`hidden_source_options`, `hidden_source_commands`) from tag
+`56145f849caa305d42acd09b67fb65d11146f887`.
 `NATIVE_KIMI_ORACLE` enables a safe live-help comparison in the Go suite; neither
 the snapshot nor that probe proves a live account's model entitlement.
 

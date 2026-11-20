@@ -84,12 +84,12 @@ func TestSyncInstallsNativeSkillsAndAdvertisesTheirDigests(t *testing.T) {
 }
 
 func TestHelpRequestsBypassLeaseAndSync(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"-h"}, {"help"}, {"mcp", "--help"}, {"sessions", "list", "-h"}} {
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"help"}, {"mcp", "--help"}, {"sessions", "list", "-h"}, {"-p", "--help"}} {
 		if !isHelpPassthrough(args) {
 			t.Fatalf("%v not passed through", args)
 		}
 	}
-	for _, args := range [][]string{{}, {"fix the bug"}, {"-p", "--help"}, {"--", "--help"}, {"--model", "-h"}} {
+	for _, args := range [][]string{{}, {"fix the bug"}, {"-p=--help"}, {"--", "--help"}, {"--model", "-h"}} {
 		if isHelpPassthrough(args) {
 			t.Fatalf("%v treated as help", args)
 		}

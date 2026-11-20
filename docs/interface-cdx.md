@@ -234,9 +234,11 @@ remain authoritative; queue admission and successful work results are separate.
 Codex `exec`/`e` (including wrapper `--execute`) and `review` use the direct native
 transport even when stdin/stdout are terminals. They retain managed identity,
 account/auth leases and process supervision, but do not start a private TUI
-app-server or receive the TUI-only `--remote` argument. Interactive starts and
-TUI `resume`/`fork` retain their private receiver. Claude and Grok transports are
-unchanged.
+app-server. Codex 0.171 also accepts `--remote`/`--remote-auth-token-env` on
+`exec`, `exec resume`, `exec fork` and `exec review`; the wrapper refuses every
+`--remote` before configuration/auth work (see below), so an exec never reaches an
+unmanaged endpoint through argv. Interactive starts and TUI `resume`/`fork` retain
+their private receiver. Claude and Grok transports are unchanged.
 
 `cxx native-entry install` repairs entries from locally verified signed configs;
 `cxx native-entry remove` removes managed entries and shell blocks for rollback.
@@ -297,10 +299,14 @@ so `resume -i a.png UUID` and `exec -i a.png resume UUID` still read `UUID` (and
 also covers `queue --thread/--message`, `migrate-rollouts --thread`, and the
 value options of the utility and refused commands (`sandbox`, `mcp add|login`,
 `app-server`, `exec-server`, `cloud`, `plugin add`); a unit test pins it to the
-0.167.0 help corpus and the complete 74-scope 0.169.0 public help tree
-(verified 2026-11-17). The latter adds `exec-server --chatgpt-account-id`,
+0.167.0 help corpus and the complete 74-scope 0.171.0 public help tree
+(verified 2026-11-20; commit `ccf9be8cc458bd6b8336fe84d68d8893f2691a5e`, binary
+SHA-256 `b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0`). The
+0.169 tree added `exec-server --chatgpt-account-id`,
 `exec-server forward --connect`, `app-server proxy --sock`, generator
-`--out`/`--prettier`, and marketplace `--ref`/`--sparse` value boundaries. Native
+`--out`/`--prettier`, and marketplace `--ref`/`--sparse` value boundaries; 0.171
+adds `exec-server [forward] --tcp-upstream-proxy <HOST:PORT>` and the exec-scope
+`--remote`/`--remote-auth-token-env` pair. Native
 `--trust` stays a boolean; the wrapper never inserts it automatically. An opt-in
 `NATIVE_CODEX_ORACLE` test compares it with a live binary. Readers do not interpret those utility commands' semantics; the
 table only keeps their values (including command- or flag-shaped ones) opaque.
@@ -308,7 +314,12 @@ table only keeps their values (including command- or flag-shaped ones) opaque.
 Direct public `app-server`, `exec-server`, `remote-control`, `agents` and `--remote`
 invocations are refused before configuration/auth work: their independent or
 external processes do not inherit the wrapper's private account/auth broker,
-receiver and teardown lifecycle. Their native `--help` remains available. This
+receiver and teardown lifecycle. Their native `--help` remains available. `--remote` is
+refused wherever it appears (including `exec`, `exec resume|fork|review`), while an
+option value that is merely spelled `--remote` stays data. Documented gap,
+deliberately out of product: the in-TUI `/rc` and `/remote` commands configure an
+unmanaged local daemon (`$CODEX_HOME/app-server-daemon`, device pairing) that no
+argv guard can catch. This
 does not affect the wrapper-owned private app-server used by normal managed
 interactive launches; help acceptance alone is not remote lifecycle support.
 

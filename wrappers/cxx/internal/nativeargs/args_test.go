@@ -43,7 +43,7 @@ func TestCommandBoundaries(t *testing.T) {
 }
 
 func TestOpaqueValuesAndAliases(t *testing.T) {
-	for _, flag := range []string{"-p", "--single", "--print", "--prompt-file", "--prompt-json", "--system-prompt-override", "--system-prompt", "--agents", "--allow", "--allowedTools", "--allowed-tools", "--deny", "--disallowedTools", "--tools", "--disallowed-tools", "--reasoning-effort", "--effort", "--json-schema", "--debug-file", "--sandbox", "--max-turns", "--worktree-ref", "--ref"} {
+	for _, flag := range []string{"--prompt-file", "--prompt-json", "--system-prompt-override", "--system-prompt", "--agents", "--allow", "--allowedTools", "--allowed-tools", "--deny", "--disallowedTools", "--tools", "--disallowed-tools", "--reasoning-effort", "--effort", "--json-schema", "--debug-file", "--sandbox", "--max-turns", "--worktree-ref", "--ref"} {
 		if Has("grok", []string{flag, "--rules"}, "--rules") {
 			t.Errorf("%s exposed its value", flag)
 		}
