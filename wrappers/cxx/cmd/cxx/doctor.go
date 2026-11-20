@@ -52,11 +52,16 @@ func runLauncherDoctor(args []string, w, stderr io.Writer) int {
 	if minimal {
 		caps = ui.MinimalCaps(caps)
 	}
-	report := ui.DoctorReport{Engine: "cxx", When: time.Now(), Rows: []ui.DoctorRow{row, {Label: "Scope", Tone: ui.ToneDim, Value: "local launchers only; API reachability, TLS trust and sync are not checked"}}, Hints: []string{engineDoctorHint(personas)}, Result: ui.DoctorRow{Label: "Result", Tone: row.Tone, Value: "local launcher checks passed"}}
+	// The pointer is a dim row, not a hint: hints render as warnings, and a
+	// passing launcher check needs no action.
+	report := ui.DoctorReport{Engine: "cxx", When: time.Now(), Rows: []ui.DoctorRow{row,
+		{Label: "Scope", Tone: ui.ToneDim, Value: "local launchers only; API reachability, TLS trust and sync are not checked"},
+		{Label: "API checks", Tone: ui.ToneDim, Value: engineDoctorHint(personas)},
+	}, Result: ui.DoctorRow{Label: "Result", Tone: row.Tone, Value: "local launcher checks passed"}}
 	if row.Tone != ui.ToneOK {
 		report.Result.Tone = ui.ToneFail
 		report.Result.Value = "local launcher checks failed"
-		report.Hints = append(report.Hints, "Run `cxx doctor --fix` to repair recognized transition scripts. Unrecognized launchers and other installations require manual review.")
+		report.Hints = []string{"Run `cxx doctor --fix` to repair recognized transition scripts. Unrecognized launchers and other installations require manual review."}
 	}
 	ui.PrintDoctor(w, caps, report)
 	if row.Tone != ui.ToneOK {

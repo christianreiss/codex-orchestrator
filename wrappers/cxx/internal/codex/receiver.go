@@ -38,8 +38,6 @@ func receiverMCPOverrides(socket string) ([]string, error) {
 		"-c", "mcp_servers.cxx-agent.env.CXX_CODEX_SOCKET=" + strconv.Quote(socket)}, nil
 }
 
-// The native TUI and receive adapter share this one app-server process. Its
-// private socket lives beside the already protected portal broker socket.
 // receiverExitError describes a receiver server that ended before opening its
 // socket. A clean exit carries no error to wrap, and formatting nil with %w
 // prints "%!w(<nil>)".
@@ -50,6 +48,8 @@ func receiverExitError(err error) error {
 	return fmt.Errorf("native receiver server exited: %w", err)
 }
 
+// The native TUI and receive adapter share this one app-server process. Its
+// private socket lives beside the already protected portal broker socket.
 func startReceiverServer(ctx context.Context, binary string, args, env []string, session *AuthSession, lease *ipc.Lock, extraLeases ...*ipc.Lock) ([]string, func(), error) {
 	if nativeargs.Has("codex", args, "--remote") {
 		return args, func() {}, fmt.Errorf("existing remote endpoint owns the native session")
