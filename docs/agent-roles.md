@@ -24,7 +24,7 @@ Code: `api/src/services/roles.ts` (facade) and `api/src/services/roles/`.
 | `role_list`, `role://` resources | clx MCP (`/mcp`) | host API key | catalog and content are session-independent |
 | `agent_role_*` tools | `cxx-agent` (wrapper) → `/host/agent-sessions/:id/agent-messaging/roles/*` | per-session bridge token | activation, proposals and reviews need the caller's own identity |
 | `/admin/roles/*` | API | admin session, `content.read` / `content.manage` | operator steering |
-| `roles` Skill | managed skill (`api/src/services/managed-roles-skill.ts`) | — | the generic procedure every agent follows; served only while `roles_enabled` |
+| `roles` Skill | managed skill (`api/src/services/managed-roles-skill.ts`) | — | the generic procedure every agent follows; served only while `roles_enabled`. While the module is off, `skill_retrieve` / `resource_read skill://roles` answer `status:"disabled"`, `reason:"roles_disabled"` (never `missing`), and `agent_role_*` calls fail with `roles_disabled`: continue without a role |
 | `## Agent Roles` guidance | managed AGENTS.md / CLAUDE.md block | — | always-on trigger; present when the switch is on, the host has the clx MCP and Agent Messaging, and its cxx is ≥ 0.9.108 |
 
 ## The package

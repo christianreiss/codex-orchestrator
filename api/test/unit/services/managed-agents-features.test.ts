@@ -411,9 +411,10 @@ describe('served document byte invariance', () => {
     // the 31 KB ceiling after that scope addition. Quota, Wake/work-result and
     // claim guidance remain unchanged; the fixture covers Projects/BrowserOS/Secrets.
     // 2026-11-18: importance is an inline chat flag across engines.
-    expect(out.features_sha256).toBe('d49524ef2c228976640afbffb4e8b10c819285af2a44818add309dea63f5ef66');
-    expect(out.managed_sha256).toBe('638df6709bfdc88e3c0c6c4dded99ca0a73747603949589cc0ae309c3ed34ca7');
-    expect(sha256(out.body)).toBe('b27b8472f3cbf4a07f21bb50d0e256a9992a83e2cdd87b207913969b43943ef2');
+    // 2026-11-20: the Memory section points single-fact corrections at shared_memory_replace.
+    expect(out.features_sha256).toBe('278e5b3161d515484c44c1fa56ce1e251c33df0fbdb5a7ffe559d2506cad5921');
+    expect(out.managed_sha256).toBe('877e8a1e11cc0fb8a6b20a6d7f72260ccaf434366d369c8370f29893efdf1248');
+    expect(sha256(out.body)).toBe('d53bcadddb31c6d69206a188f81c2a50484241690dfc2182c61b2cfa6bb1182a');
   });
 });
 

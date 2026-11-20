@@ -207,27 +207,30 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     return req.ip ?? null;
   }
 
+  // Every branch that answers through `reply` returns it. An async handler that
+  // resolves to undefined after send() makes Fastify send a second time while
+  // the async onSend hooks are still running, and the uncaught
+  // ERR_HTTP_HEADERS_SENT that follows terminates the API process.
+
   // GET /mcp — probe (advisory only).
   app.get('/mcp', async (req, reply) => {
     const origin = (req.headers['origin'] ?? '') as string;
     if (!ctx.env.MCP_ALLOW_REQUEST_HOST_ORIGIN && origin) {
-      raw(reply).code(403).header('content-type', 'text/plain').send('Origin not allowed');
-      return;
+      return raw(reply).code(403).header('content-type', 'text/plain').send('Origin not allowed');
     }
     reply.header('Allow', 'POST');
-    raw(reply).code(405).header('content-type', 'text/plain').send('POST only, JSON-RPC 2.0');
+    return raw(reply).code(405).header('content-type', 'text/plain').send('POST only, JSON-RPC 2.0');
   });
 
   // POST /mcp — JSON-RPC dispatch.
   app.post('/mcp', async (req, reply) => {
     const origin = (req.headers['origin'] ?? '') as string;
     if (!ctx.env.MCP_ALLOW_REQUEST_HOST_ORIGIN && origin) {
-      raw(reply).code(403).type('application/json').send(JSON.stringify({
+      return raw(reply).code(403).type('application/json').send(JSON.stringify({
         jsonrpc: '2.0',
         error: { code: -32099, message: 'Origin not allowed' },
         id: null,
       }));
-      return;
     }
 
     let host = await resolveHost(req);

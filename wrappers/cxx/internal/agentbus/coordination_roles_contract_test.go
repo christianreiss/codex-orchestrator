@@ -81,3 +81,42 @@ func TestCoordinationAndRoleToolsPreserveSessionRequestsAndFences(t *testing.T) 
 		})
 	}
 }
+
+// Native clients see one flattened resource object; the per-kind host selector
+// must stay visible in the catalog because the server rejects fqdn on
+// path/git/service and host_id on remote.
+func TestResourceClaimSchemaNamesPerKindHostSelector(t *testing.T) {
+	var catalog []struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Schema      struct {
+			Properties map[string]struct {
+				Items struct {
+					Properties map[string]map[string]any `json:"properties"`
+				} `json:"items"`
+			} `json:"properties"`
+		} `json:"inputSchema"`
+	}
+	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range catalog {
+		if tool.Name != "resource_claim_acquire" {
+			continue
+		}
+		for _, want := range []string{"service {host_id, service}", "remote {fqdn, service}", "fqdn with path, git or service is rejected"} {
+			if !strings.Contains(tool.Description, want) {
+				t.Fatalf("description lost %q", want)
+			}
+		}
+		props := tool.Schema.Properties["resources"].Items.Properties
+		if d, _ := props["host_id"]["description"].(string); !strings.Contains(d, "path, git or service only") {
+			t.Fatalf("host_id description=%q", d)
+		}
+		if d, _ := props["fqdn"]["description"].(string); !strings.Contains(d, "kind remote only") {
+			t.Fatalf("fqdn description=%q", d)
+		}
+		return
+	}
+	t.Fatal("resource_claim_acquire missing")
+}

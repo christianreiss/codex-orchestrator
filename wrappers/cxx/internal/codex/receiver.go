@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 	"os"
@@ -35,6 +36,16 @@ func receiverMCPOverrides(socket string) ([]string, error) {
 	}
 	return []string{"-c", "mcp_servers.cxx-agent.command=" + strconv.Quote(wrapper), "-c", `mcp_servers.cxx-agent.args=["agent","mcp","--auto"]`,
 		"-c", "mcp_servers.cxx-agent.env.CXX_CODEX_SOCKET=" + strconv.Quote(socket)}, nil
+}
+
+// receiverExitError describes a receiver server that ended before opening its
+// socket. A clean exit carries no error to wrap, and formatting nil with %w
+// prints "%!w(<nil>)".
+func receiverExitError(err error) error {
+	if err == nil {
+		return errors.New("native receiver server exited unexpectedly")
+	}
+	return fmt.Errorf("native receiver server exited: %w", err)
 }
 
 // The native TUI and receive adapter share this one app-server process. Its
@@ -105,7 +116,7 @@ func startReceiverServer(ctx context.Context, binary string, args, env []string,
 		select {
 		case err := <-done:
 			cancel()
-			return args, func() {}, fmt.Errorf("native receiver server exited: %w", err)
+			return args, func() {}, receiverExitError(err)
 		case <-deadline.C:
 			cleanup()
 			return args, func() {}, fmt.Errorf("native receiver server did not open its socket")

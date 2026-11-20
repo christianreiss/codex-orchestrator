@@ -152,6 +152,25 @@ export function buildManagedRolesSkill(updatedAt: string): ManagedSkillManifest 
   };
 }
 
+/**
+ * What `retrieve`/`resource_read` answer for the reserved `roles` slug while the
+ * module is off. The Go bridge lists the `agent_role_*` tools unconditionally and
+ * points at this Skill, so a bare `missing` read as "the Skill is gone". This says
+ * the module is off, matching the `roles_disabled` the activation calls return.
+ */
+export function rolesSkillDisabledView(): Record<string, unknown> {
+  const uri = `skill://${MANAGED_ROLES_SKILL_SLUG}`;
+  return {
+    status: 'disabled',
+    reason: 'roles_disabled',
+    slug: MANAGED_ROLES_SKILL_SLUG,
+    uri,
+    canonical_uri: uri,
+    message:
+      'The fleet roles module is off, so there is no roles Skill to read. agent_role_* calls answer roles_disabled; continue without a role and tell your principal if the assignment matters.',
+  };
+}
+
 /** Served only while the roles module is on, like `coco` with Projects. */
 export async function getManagedRolesSkillIfEnabled(db: Database, updatedAt: string): Promise<ManagedSkillManifest | null> {
   return (await new SettingsService(db).getFlag(ROLES_ENABLED_KEY, false)) ? buildManagedRolesSkill(updatedAt) : null;

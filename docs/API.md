@@ -381,7 +381,7 @@ Fleet-wide durable corpus (`shared://{slug}`), deliberately not host-filtered: e
 - `DELETE /shared-memories/{slug}` — same soft delete with the slug in the path.
 
 - `GET /skills` — list skills (`slug`, canonical `uri` as `skill://{slug}`, `sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`, `managed`, and source provenance). Auth required. For imported directory bundles, `sha256` is the complete bundle digest and the response also carries `manifest_sha256`; `source_type`, `source_repository`, `source_path`, `source_revision`, `source_license`, and `bundle_sha256` identify the immutable upstream input. The code-managed `afk`, `context`, and `skill-manager` Skills are always present; `coco` is additionally published while the Projects module is enabled.
-- `POST /skills/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256`. Returns `status` `missing` | `deleted` | `unchanged` | `updated`, canonical `uri`, provenance/managed metadata, and `manifest` when updated. Source-owned rows are read-only through the ordinary store/delete surfaces.
+- `POST /skills/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256`. Returns `status` `missing` | `deleted` | `disabled` (only the reserved `roles` slug while `roles_enabled` is off, with `reason:"roles_disabled"` and a `message`) | `unchanged` | `updated`, canonical `uri`, provenance/managed metadata, and `manifest` when updated. Source-owned rows are read-only through the ordinary store/delete surfaces.
 - `POST /skills/store` — body: `slug`, `manifest` (or `content`; canonical `SKILL.md` markdown), optional `display_name`/`description`/`sha256`. Returns `status` `created` | `updated` | `unchanged` plus canonical `sha256`. Code-managed slugs and any row with a non-blank `source_type` are rejected; only the source adapter may replace imported rows and their auxiliary files.
 
 ### Agents
@@ -592,6 +592,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /wrapper/v2/bin/{engine}/{platform}/v:version/{binary}` — versioned binary route. The canonical common shape is `cxx/{platform}/v:version/cxx`; `{platform}` is `os-arch` (for example `linux-amd64`) and the version segment is a literal `v` followed by the version. Historical `{engine}/.../{cdx|clx}` shapes remain readable: exact old artifacts are immutable, while a new version without a split artifact transparently streams the matching `cxx` bytes.
 - `GET /wrapper/v2/download/{artifact}/{platform}/v:version/{binary}` — the same exact-version artifact under a `/download` path; the communicator 307s cxx 0.9.71–0.9.74 self-update frames here so those owners fetch it over direct HTTPS.
 - Platform is taken from `X-Wrapper-Platform: os-arch` when present, else inferred from the user agent (default `linux-amd64`). All wrapper routes require host auth, and every one of them returns `503 wrapper_v2_unavailable` while no active wrapper signing key is configured.
+
+### Rescue media
+- `POST /rescue/v1/session` — rescue-media session control (`engine` `codex|claude`, `action` `start|heartbeat|release|version`) authenticated by the derived `rescue1.<host-id>.<hmac>` media bearer, recognized only on this route. `start` and `heartbeat` require an open rescue host window. Contract: `docs/interface-api.md` (rescue media).
 
 ### CLI device auth
 - `POST /cli/auth/start` — wrapper begins a device-code login. Body: `fqdn`, optional `secure` (default `true`). Returns the request id, user code, and `verify_url`. Exempt from the API kill switch.
