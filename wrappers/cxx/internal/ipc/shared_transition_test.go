@@ -15,7 +15,7 @@ func TestContentSyncDowngradeKeepsEveryNativeConsumerProtected(t *testing.T) {
 	if err := first.DowngradeToShared(); err != nil {
 		t.Fatal(err)
 	}
-	second, err := AcquireShared("grok-content-transition")
+	second, err := TryAcquireShared("grok-content-transition")
 	if err != nil {
 		t.Fatal(err)
 	}

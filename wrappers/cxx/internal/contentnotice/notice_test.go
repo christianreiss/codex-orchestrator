@@ -36,7 +36,7 @@ func TestUnchangedPassPublishesNothing(t *testing.T) {
 	if err := PublishChanges("codex", agents, Capture(kinds), Capture(kinds)); err != nil {
 		t.Fatal(err)
 	}
-	if notice, err := Consume("codex", "session"); err != nil || notice != nil {
+	if notice, err := consume("codex", "session"); err != nil || notice != nil {
 		t.Fatalf("unchanged pass published: %+v %v", notice, err)
 	}
 }
@@ -54,7 +54,7 @@ func TestChangedKindsReachEachSessionOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, session := range []string{"first", "second"} {
-		notice, err := Consume("claude", session)
+		notice, err := consume("claude", session)
 		if err != nil || notice == nil {
 			t.Fatalf("%s: missing notice: %v", session, err)
 		}
@@ -62,7 +62,7 @@ func TestChangedKindsReachEachSessionOnce(t *testing.T) {
 		if !strings.Contains(message, agents) || !strings.Contains(message, "skill_list") || strings.Contains(message, "next launch") {
 			t.Fatalf("unexpected message: %s", message)
 		}
-		if again, err := Consume("claude", session); err != nil || again != nil {
+		if again, err := consume("claude", session); err != nil || again != nil {
 			t.Fatalf("%s: notice repeated: %+v %v", session, again, err)
 		}
 	}
@@ -80,7 +80,7 @@ func TestPrimedSessionSkipsEarlierPassButSeesLaterOne(t *testing.T) {
 	if err := Prime("grok", "fresh"); err != nil {
 		t.Fatal(err)
 	}
-	if notice, _ := Consume("grok", "fresh"); notice != nil {
+	if notice, _ := consume("grok", "fresh"); notice != nil {
 		t.Fatal("primed session received content it launched with")
 	}
 	before = Capture(kinds)
@@ -88,7 +88,7 @@ func TestPrimedSessionSkipsEarlierPassButSeesLaterOne(t *testing.T) {
 	if err := PublishChanges("grok", agents, before, Capture(kinds)); err != nil {
 		t.Fatal(err)
 	}
-	if notice, err := Consume("grok", "fresh"); err != nil || notice == nil {
+	if notice, err := consume("grok", "fresh"); err != nil || notice == nil {
 		t.Fatalf("later change lost: %v", err)
 	}
 }
@@ -108,7 +108,7 @@ func TestUnreadKindsMergeIntoNewerNotice(t *testing.T) {
 	if err := PublishChanges("codex", agents, before, Capture(kinds)); err != nil {
 		t.Fatal(err)
 	}
-	notice, err := Consume("codex", "idle")
+	notice, err := consume("codex", "idle")
 	if err != nil || notice == nil || len(notice.Kinds) != 2 {
 		t.Fatalf("earlier kind lost: %+v %v", notice, err)
 	}
@@ -131,7 +131,7 @@ func TestAbortedDeliveryStaysPending(t *testing.T) {
 		t.Fatal("competing consumer acquired delivery")
 	}
 	delivery.Abort()
-	if retry, err := Consume("codex", "session"); err != nil || retry == nil {
+	if retry, err := consume("codex", "session"); err != nil || retry == nil {
 		t.Fatalf("failed write swallowed notice: %v", err)
 	}
 }
@@ -151,7 +151,7 @@ func TestLaterChangesDoNotRepeatSeenKinds(t *testing.T) {
 			if err := PublishChanges(engine, agents, before, after); err != nil {
 				t.Fatal(err)
 			}
-			first, err := Consume(engine, "active")
+			first, err := consume(engine, "active")
 			if err != nil || first == nil {
 				t.Fatalf("initial notice: %+v %v", first, err)
 			}
@@ -163,18 +163,18 @@ func TestLaterChangesDoNotRepeatSeenKinds(t *testing.T) {
 			if err := PublishChanges(engine, agents, before, Capture(kinds)); err != nil {
 				t.Fatal(err)
 			}
-			later, err := Consume(engine, "active")
+			later, err := consume(engine, "active")
 			if err != nil || later == nil || len(later.Kinds) != 1 || later.Kinds[0] != KindConfig {
 				t.Fatalf("seen categories repeated: %+v %v", later, err)
 			}
 			if message := later.Message(); strings.Contains(message, "Re-read") || strings.Contains(message, "skill_list") {
 				t.Fatalf("unnecessary reread: %s", message)
 			}
-			idle, err := Consume(engine, "idle")
+			idle, err := consume(engine, "idle")
 			if err != nil || idle == nil || len(idle.Kinds) != 3 {
 				t.Fatalf("idle session lost pending categories: %+v %v", idle, err)
 			}
-			if again, err := Consume(engine, "active"); err != nil || again != nil {
+			if again, err := consume(engine, "active"); err != nil || again != nil {
 				t.Fatalf("unchanged notice repeated: %+v %v", again, err)
 			}
 		})
@@ -191,7 +191,7 @@ func TestCategoryMetadataKeepsLegacyLedgerCompatible(t *testing.T) {
 	if err := PublishChanges("claude", agents, before, Capture(kinds)); err != nil {
 		t.Fatal(err)
 	}
-	notice, err := Consume("claude", "session")
+	notice, err := consume("claude", "session")
 	if err != nil || notice == nil {
 		t.Fatalf("notice: %+v %v", notice, err)
 	}
@@ -209,7 +209,7 @@ func TestCategoryMetadataKeepsLegacyLedgerCompatible(t *testing.T) {
 	if err := PublishChanges("claude", agents, before, Capture(kinds)); err != nil {
 		t.Fatal(err)
 	}
-	notice, err = Consume("claude", "session")
+	notice, err = consume("claude", "session")
 	if err != nil || notice == nil || len(notice.Kinds) != 2 {
 		t.Fatalf("stale legacy metadata suppressed pending changes: %+v %v", notice, err)
 	}
@@ -226,7 +226,7 @@ func TestPrimeDoesNotNeedPublisherLock(t *testing.T) {
 			if err != nil {
 				t.Fatalf("startup baseline lost under publisher contention: %v", err)
 			}
-			if n, err := Consume(engine, "fresh"); err != nil || n != nil {
+			if n, err := consume(engine, "fresh"); err != nil || n != nil {
 				t.Fatalf("historical notice replayed: %+v %v", n, err)
 			}
 		})
@@ -254,11 +254,11 @@ func TestPrimePinsBaselineAndPreservesConcurrentPublication(t *testing.T) {
 			if err := delivery.Commit(); err != nil {
 				t.Fatal(err)
 			}
-			notice, err := Consume(engine, "fresh")
+			notice, err := consume(engine, "fresh")
 			if err != nil || notice == nil || notice.Generation != later.Generation {
 				t.Fatalf("later publication lost: %+v %v", notice, err)
 			}
-			if again, err := Consume(engine, "fresh"); err != nil || again != nil {
+			if again, err := consume(engine, "fresh"); err != nil || again != nil {
 				t.Fatalf("notice replayed: %+v %v", again, err)
 			}
 		})
@@ -284,7 +284,20 @@ func TestPrimeFailsImmediatelyOnSessionContention(t *testing.T) {
 		t.Fatal("Prime blocked startup")
 	}
 	delivery.Abort()
-	if n, err := Consume("codex", "fresh"); err != nil || n == nil {
+	if n, err := consume("codex", "fresh"); err != nil || n == nil {
 		t.Fatalf("failed prime discarded notice: %+v %v", n, err)
 	}
+}
+
+// consume prepares and commits a delivery in one step, as the hook paths do
+// across their two phases.
+func consume(engine, session string) (*Notice, error) {
+	delivery, err := Prepare(engine, session)
+	if err != nil || delivery == nil {
+		return nil, err
+	}
+	if err = delivery.Commit(); err != nil {
+		return nil, err
+	}
+	return &delivery.Notice, nil
 }

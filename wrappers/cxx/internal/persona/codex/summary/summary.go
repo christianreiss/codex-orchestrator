@@ -504,7 +504,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 			}
 			return
 		}
-		label := quotaWindowLabel(fallbackLabel, lim, lane)
+		label := quotaWindowLabel(fallbackLabel, lim)
 		row := ui.QuotaRow{
 			Label:      label,
 			Used:       *used,
@@ -550,8 +550,6 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 
 	addRow("5h", q.PrimaryUsed, q.PrimaryLimitSec, q.PrimaryResetAfter, q.PrimaryResetAt, "normal")
 	addRow("weekly", q.SecondaryUsed, q.SecondaryLimitSec, q.SecondaryResetAfter, q.SecondaryResetAt, "normal")
-	addRow("5h", q.SparkPrimaryUsed, q.SparkPrimaryLimitSec, q.SparkPrimaryResetAfter, q.SparkPrimaryResetAt, "spark")
-	addRow("weekly", q.SparkSecondaryUsed, q.SparkSecondaryLimitSec, q.SparkSecondaryResetAfter, q.SparkSecondaryResetAt, "spark")
 
 	partition := 0
 	if auth.QuotaWeekPartition != nil {
@@ -601,7 +599,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 	if telemetryWarning != "" {
 		return rows, telemetryWarning, ""
 	}
-	if blockText == "" && !activeWindowStale && (providerQuotaBlocked(q, activeLane) || quotaStatusBlocked(q.Status)) {
+	if blockText == "" && !activeWindowStale && (providerQuotaBlocked(q) || quotaStatusBlocked(q.Status)) {
 		blockText = fmt.Sprintf("%s lane quota reached (provider reported limit)", activeLane)
 	}
 	return rows, warnText, blockText
@@ -628,12 +626,9 @@ func effectiveQuotaLane(auth *orchestrator.AuthRetrieveResponse) string {
 	return codex.EffectiveLane(preference, reported)
 }
 
-func providerQuotaBlocked(q *orchestrator.ChatGPTQuota, lane string) bool {
+func providerQuotaBlocked(q *orchestrator.ChatGPTQuota) bool {
 	if q == nil {
 		return false
-	}
-	if lane == "spark" {
-		return boolTrue(q.SparkRateLimitReached) || boolFalse(q.SparkRateAllowed)
 	}
 	return boolTrue(q.RateLimitReached) || boolFalse(q.RateAllowed)
 }
@@ -657,7 +652,7 @@ func activeQuotaProjectionTone(rows []ui.QuotaRow, activeLane string) ui.Tone {
 	return tone
 }
 
-func quotaWindowLabel(fallback string, limitSeconds *int64, lane string) string {
+func quotaWindowLabel(fallback string, limitSeconds *int64) string {
 	label := strings.TrimSpace(fallback)
 	if limitSeconds != nil && *limitSeconds > 0 {
 		seconds := *limitSeconds
@@ -673,12 +668,6 @@ func quotaWindowLabel(fallback string, limitSeconds *int64, lane string) string 
 		default:
 			label = ui.DurationShort(time.Duration(seconds) * time.Second)
 		}
-	}
-	if lane == "spark" {
-		if label == "weekly" {
-			label = "week"
-		}
-		return "⚡ " + label
 	}
 	return label
 }
@@ -711,10 +700,6 @@ func quotaTelemetryWarning(q *orchestrator.ChatGPTQuota, now time.Time) string {
 		return "ChatGPT quota telemetry is stale"
 	}
 	return ""
-}
-
-func quotaProjectionNote(used int, limSec, resetSec int64) string {
-	return quotaProjectionNoteAt(used, limSec, resetSec, resetSec)
 }
 
 func quotaProjectionNoteAt(used int, limSec, resetSec, remainingSec int64) string {

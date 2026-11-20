@@ -37,11 +37,6 @@ func claudeBinCachePath() (string, error) {
 	return filepath.Join(home, ".clx", "state", "claude-bin"), nil
 }
 
-// cacheClaude persists the resolved claude binary path for future runs.
-func cacheClaude(path string) error {
-	return cacheClaudeContext(context.Background(), path)
-}
-
 func cacheClaudeContext(ctx context.Context, path string) error {
 	p, err := claudeBinCachePath()
 	if err != nil {

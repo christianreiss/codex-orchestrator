@@ -24,13 +24,6 @@ type AuthChecker interface {
 	CheckAuthStatus(ctx context.Context) (status string, reason string, err error)
 }
 
-// PollApproval renders the framed status box and re-paints in place every
-// refresh. Cursor movement is used only when stderr is an interactive,
-// non-dumb terminal with a known, usable width.
-func PollApproval(ctx context.Context, client AuthChecker, refresh time.Duration, minimal bool) (bool, error) {
-	return PollApprovalFor("cdx")(ctx, client, refresh, minimal)
-}
-
 // PollApprovalFor binds a persona without sharing mutable theme state between
 // the Codex and Claude legs of a host sync.
 func PollApprovalFor(prefix string) func(context.Context, AuthChecker, time.Duration, bool) (bool, error) {

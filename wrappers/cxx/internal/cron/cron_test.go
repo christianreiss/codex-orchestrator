@@ -331,17 +331,16 @@ func TestStripManagedMigratesAllWrapperMarkers(t *testing.T) {
 		"2 2 * * * /usr/bin/clx --cron run # clx-managed-cron",
 		"3 3 * * * /usr/bin/cxx cron run # cxx-managed-cron",
 	}, "\n")
-	got := stripManaged(body)
-	if len(got) != 1 || got[0] != "MAILTO=ops@example.com" {
-		t.Fatalf("stripManaged=%q", got)
+	got, changed := stripManagedBody(body)
+	if !changed || got != "MAILTO=ops@example.com\n" {
+		t.Fatalf("stripManagedBody=%q changed=%v", got, changed)
 	}
 }
 
 func TestFirstRunScheduleCollapseProducesOneSharedEntry(t *testing.T) {
 	legacy := "1 1 * * * cdx --cron run # cdx-managed-cron\n2 2 * * * clx --cron run # clx-managed-cron\n"
-	lines := stripManaged(legacy)
-	lines = append(lines, buildCronLine(3, 1, "/usr/local/bin/cxx", "/tmp/cxx.log", nil))
-	body := strings.Join(lines, "\n")
+	stripped, _ := stripManagedBody(legacy)
+	body := strings.TrimRight(stripped, "\n") + "\n" + buildCronLine(3, 1, "/usr/local/bin/cxx", "/tmp/cxx.log", nil)
 	if strings.Count(body, Marker) != 1 || strings.Contains(body, "cdx-managed-cron") || strings.Contains(body, "clx-managed-cron") {
 		t.Fatalf("collapsed schedule=%q", body)
 	}
@@ -358,16 +357,6 @@ func TestStripManagedBodyPreservesUnrelatedBytesAndMatchesMarkerSuffix(t *testin
 	want := "# docs mention # cdx-managed-cron in prose\n\nMAILTO=ops@example.com"
 	if got != want {
 		t.Fatalf("body=%q want=%q", got, want)
-	}
-}
-
-func TestValidateEnabledConfigsAllowsStaleAndRollingWrapperMetadata(t *testing.T) {
-	host := config.Host{ID: 7, FQDN: "host.example.com"}
-	codexCfg := &config.Config{Engine: config.EngineCodex, Host: host, Wrapper: config.Wrapper{Version: "0.6.55", BinarySHA256: strings.Repeat("a", 64)}}
-	claudeCfg := &config.Config{Engine: config.EngineClaude, Host: host, Wrapper: config.Wrapper{Version: "0.7.0", BinarySHA256: strings.Repeat("b", 64)}}
-	byEngine := map[string]*config.Config{config.EngineCodex: codexCfg, config.EngineClaude: claudeCfg}
-	if err := validateEnabledConfigs(byEngine, codexCfg, []string{config.EngineCodex, config.EngineClaude}); err != nil {
-		t.Fatalf("rolling wrapper metadata rejected: %v", err)
 	}
 }
 

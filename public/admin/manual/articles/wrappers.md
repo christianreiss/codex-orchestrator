@@ -128,8 +128,8 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
   `sig=1`). The JSON body carries `signature` (the primary key's, unchanged) plus
   a `signatures` array with one entry per active signing key; `kid`/`fingerprint`
   pick which key's detached signature `sig=1` returns. `engine`
-  defaults to `codex`; each wrapper's peer-reconciliation code fetches the
-  *other* engine's config through this same endpoint with `?engine=<peer>`.
+  defaults to `codex`; the shared cron coordinator fetches every other
+  enabled engine's config through this same endpoint with `?engine=<engine>`.
 - `GET /wrapper/v2/download` — streams the raw wrapper binary for the calling
   host's detected platform (the same artifact as the versioned `/bin/...`
   route below).
@@ -309,11 +309,11 @@ when the active lane approaches or crosses the configured threshold; forecasts
 stay advisory and never become a hard block by themselves. Projection is held
 back until at least five minutes and 1% of its quota window have elapsed.
 
-The launch lane is host-effective: the host's lane preference wins, then the
-response's `active_quota_lane`, with `normal` as the fallback. Only the active
-lane can warn/block from current percentage or provider
-`rate_allowed`/`rate_limit_reached` flags; the inactive normal/Spark rows remain
-context. Provider error/unavailable status, malformed fetch timestamps, and
+The quota lane is always `normal`: the Spark lane is retired, so a stored
+`spark` preference or a reported `active_quota_lane:"spark"` falls back to
+`normal`, and the wrapper ignores any Spark quota fields a server still sends.
+The normal lane warns/blocks from current percentage or provider
+`rate_allowed`/`rate_limit_reached` flags. Provider error/unavailable status, malformed fetch timestamps, and
 snapshots older than 30 minutes warn rather than presenting stale numbers as
 healthy. Such snapshots remain last-known context but cannot forecast or gate
 launch from their stored percentages/provider flags. If no readable snapshot
@@ -410,8 +410,8 @@ and removes the new shared system entry. Privileged removal uses the same
 all-user transaction and restores the snapshots if any system cron file cannot
 be removed.
 Coordinator children receive internal `CXX_CRON_COORDINATED` and
-`CXX_CRON_ENGINE_ONLY` markers so alias forwarding and legacy peer guards cannot
-re-enter the coordinator; operators do not set either variable.
+`CXX_CRON_ENGINE_ONLY` markers so alias forwarding cannot re-enter the
+coordinator; operators do not set either variable.
 
 ## Subcommands and flags
 

@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,7 +31,7 @@ func TestFindCLISkipsManagedNativeEntrypointAndStaleCache(t *testing.T) {
 	shim := filepath.Join(nativeentry.BinDir(home), "codex")
 	// Do not invoke either script: resolution itself must be side-effect free.
 	t.Setenv("PATH", nativeentry.BinDir(home)+string(os.PathListSeparator)+vendorDir)
-	if err := cacheCodex(shim); err != nil {
+	if err := cacheCodexContext(context.Background(), shim); err != nil {
 		t.Fatal(err)
 	}
 	got, err := FindCLI()

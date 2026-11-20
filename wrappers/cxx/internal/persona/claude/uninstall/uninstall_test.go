@@ -96,7 +96,7 @@ func TestOtherUsersStripsCurrentAndDeduplicates(t *testing.T) {
 			},
 		})
 	})
-	got := otherUsers(context.Background(), c, "alice")
+	got, _ := otherUsersOrErr(context.Background(), c, "alice")
 	want := []string{"bob", "carol"}
 	if len(got) != len(want) {
 		t.Fatalf("got=%v want=%v", got, want)
@@ -117,7 +117,7 @@ func TestOtherUsersHonoursRootLevelUsersShape(t *testing.T) {
 			},
 		})
 	})
-	got := otherUsers(context.Background(), c, "alice")
+	got, _ := otherUsersOrErr(context.Background(), c, "alice")
 	if len(got) != 1 || got[0] != "dave" {
 		t.Errorf("got = %v", got)
 	}
@@ -129,7 +129,7 @@ func TestOtherUsersReturnsEmptyOnNetworkError(t *testing.T) {
 	c, _ := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
-	if got := otherUsers(context.Background(), c, "alice"); len(got) != 0 {
+	if got, _ := otherUsersOrErr(context.Background(), c, "alice"); len(got) != 0 {
 		t.Fatalf("network error must yield no other users (fail-open), got %v", got)
 	}
 }

@@ -21,7 +21,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/term"
@@ -1091,16 +1090,6 @@ func bootstrapWithProgress(
 		berr = errors.New("candidate arbitration did not resolve failed canonical credentials")
 	}
 
-	// The legacy fallback pulls auth per resource through `/auth command=retrieve`
-	// — the gated credential fetch this mode exists to avoid. A content-only pass
-	// against a server too old for the bundle reports a retryable sync failure
-	// instead of quietly downgrading into a credential request.
-	if berr != nil && failedHead == nil && includeAuth && isBundleUnsupported(berr) {
-		logger.Debug("bundle endpoint unsupported, falling back", "err", berr)
-		bootSpan.SetBool("wrapper.bundle_fallback", true)
-		a, e, s, ag, co := legacySyncPath(ctx, client, logger, concurrent, authPath)
-		return a, e, s, ag, co, summary.ResourceSync{}, nil
-	}
 	if berr != nil {
 
 		var refusal *orchestrator.HTTPError
@@ -1291,47 +1280,6 @@ func neutralizeRejectedSupersededBundleCandidate(
 	return nil
 }
 
-func legacySyncPath(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool, authPath string) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync) {
-	// Labelled as a fallback on purpose: against a current orchestrator this
-	// branch is unreachable (it needs isBundleUnsupported), so a span appearing
-	// here means the host is talking to an old server, not that the sync is
-	// slow. Do not read it as the normal path.
-	ctx, span := tracing.Start(ctx, "cxx.sync.legacy_fallback",
-		tracing.String("wrapper.engine", "claude"),
-		tracing.Bool("wrapper.fallback", true),
-	)
-	defer span.End()
-
-	authResp, authErr, authSynced := syncAuthLegacy(ctx, client, logger, concurrent)
-
-	var agents, conf summary.ResourceSync
-	if !concurrent {
-		agents.Checked = true
-		conf.Checked = true
-		syncCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			agents.Updated, agents.Err = writeAgents(syncCtx, client)
-			if agents.Err != nil {
-				logger.Debug("agents sync skipped", "err", agents.Err)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			conf.Updated, conf.Err = writeSettings(syncCtx, client)
-			if conf.Err != nil {
-				logger.Debug("settings sync skipped", "err", conf.Err)
-			}
-		}()
-		wg.Wait()
-	}
-	_ = authPath
-	return authResp, authErr, authSynced, agents, conf
-}
-
 func combineResourceSync(states ...summary.ResourceSync) summary.ResourceSync {
 	if len(states) == 0 {
 		return summary.ResourceSync{}
@@ -1362,14 +1310,6 @@ func applyBundleClaudeSkills(ctx context.Context, items []orchestrator.Collectio
 	}
 	updated, err := applyClaudeSkillsResult(ctx, items, logger)
 	return summary.ResourceSync{Checked: true, Updated: updated, Err: err}
-}
-
-func isBundleUnsupported(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, " -> 404") || strings.Contains(s, " -> 501") || strings.Contains(s, " -> 405")
 }
 
 func pushAuthCandidate(ctx context.Context, client *orchestrator.Client, snap claude.AuthSnapshot, logger *slog.Logger, session *claude.AuthSession) error {
@@ -1688,142 +1628,6 @@ func recoverClaudeAuth(ctx context.Context, cfg *config.Config, client *orchestr
 	return nil
 }
 
-func syncAuthLegacy(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, concurrent bool) (*orchestrator.AuthRetrieveResponse, error, bool) {
-	snap := claude.AuthSnapshot{}
-	digest := ""
-	if local, err := claude.ReadAuthForRetrieveSnapshot(); err == nil {
-		snap = local
-		if local.Usable {
-			digest = local.DigestForServer()
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return &orchestrator.AuthRetrieveResponse{Status: "error", Message: err.Error()}, err, false
-	}
-	resp, err := client.AuthRetrieve(ctx, digest)
-	if err != nil {
-		return &orchestrator.AuthRetrieveResponse{Status: "offline", Message: err.Error()}, err, false
-	}
-	status := strings.ToLower(strings.TrimSpace(resp.Status))
-	switch status {
-	case "current", "ok", "valid", "unchanged", "":
-		// A local login written after a durable logout marker still requires an
-		// AuthStore acknowledgement even if the legacy digest-only retrieve says
-		// current. Retrieve alone is not a server acceptance of that login event.
-		if !claude.HasLogoutIntent() {
-			return resp, nil, false
-		}
-		storeResp, current, storeErr := storeChangedAuthCandidate(ctx, client)
-		if storeErr != nil {
-			if errors.Is(storeErr, claude.ErrAuthUploadBlockedByLogout) {
-				markLogoutRecovery(resp)
-				return resp, nil, false
-			}
-			return resp, storeErr, false
-		}
-		return applyAcceptedLegacyStore(resp, storeResp, current, logger)
-	case "outdated", "updated", "missing":
-		if len(resp.Auth) == 0 {
-			return resp, nil, false
-		}
-		mayReplace := claude.ServerAuthMayReplace(snap, resp.Auth, resp.CanonicalLastRefresh, resp.VerificationState, resp.CandidateRejectedDefinitive)
-		if !mayReplace {
-			if !snap.Usable || len(snap.Upload) == 0 {
-				return resp, nil, false
-			}
-			// Old /auth retrieve responses have no candidate-rejection signal.
-			// Offer the newer usable local generation once. Acceptance converges
-			// server state; transient/security/rate failures preserve local; only
-			// validation-style 400/422 authorizes the older verified canonical.
-			storeResp, current, storeErr := storeChangedAuthCandidate(ctx, client)
-			if current.Path != "" {
-				snap = current
-			}
-			if storeErr == nil {
-				return applyAcceptedLegacyStore(resp, storeResp, current, logger)
-			}
-			if errors.Is(storeErr, claude.ErrAuthUploadBlockedByLogout) {
-				markLogoutRecovery(resp)
-				return resp, nil, false
-			}
-			if orchestrator.IsUnsafeRunnerUpdatedAuthError(storeErr) {
-				return resp, storeErr, false
-			}
-			if orchestrator.IsDefinitiveAuthCandidateRejection(storeErr) && !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
-				resp.Status = "credential_rejected"
-				resp.CandidateCredentialRejected = true
-				return resp, nil, false
-			}
-			if !orchestrator.IsDefinitiveAuthCandidateRejection(storeErr) || !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
-				logger.Warn("legacy auth candidate arbitration preserved newer local credentials", "err", storeErr)
-				return resp, nil, false
-			}
-			resp.CandidateRejectedDefinitive = true
-			mayReplace = true
-		}
-		if !mayReplace {
-			return resp, nil, false
-		}
-		applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
-			resp.Auth,
-			resp.CanonicalDigest,
-			resp.VerificationState,
-			snap.Generation,
-		)
-		if err != nil {
-			return resp, err, false
-		}
-		if !applied {
-			if err := claude.BlockedCanonicalWriteError(snap, resp.Auth, resp.CandidateRejectedDefinitive); err != nil {
-				return resp, err, false
-			}
-			markLogoutRecovery(resp)
-			return resp, nil, false
-		}
-		logger.Debug("credentials.json updated from orchestrator", "concurrent", concurrent)
-		return resp, nil, true
-	default:
-		return resp, nil, false
-	}
-}
-
-func applyAcceptedLegacyStore(retrieveResp, storeResp *orchestrator.AuthRetrieveResponse, snap claude.AuthSnapshot, logger *slog.Logger) (*orchestrator.AuthRetrieveResponse, error, bool) {
-	if storeResp == nil {
-		return retrieveResp, errors.New("legacy Claude auth store returned no response"), false
-	}
-	if storeResp.Host == nil && retrieveResp != nil {
-		storeResp.Host = retrieveResp.Host
-	}
-	if len(storeResp.Auth) > 0 && claude.ServerAuthMayReplace(
-		snap,
-		storeResp.Auth,
-		storeResp.CanonicalLastRefresh,
-		storeResp.VerificationState,
-		storeResp.CandidateRejectedDefinitive,
-	) {
-		applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
-			storeResp.Auth,
-			storeResp.CanonicalDigest,
-			storeResp.VerificationState,
-			snap.Generation,
-		)
-		if err != nil {
-			return storeResp, err, false
-		}
-		if !applied {
-			if err := claude.BlockedCanonicalWriteError(snap, storeResp.Auth, storeResp.CandidateRejectedDefinitive); err != nil {
-				return storeResp, err, false
-			}
-			markLogoutRecovery(storeResp)
-		}
-		return storeResp, nil, applied
-	}
-	if !storeResp.AuthCandidateAccepted() {
-		return storeResp, errors.New("legacy Claude auth store did not accept the local candidate"), false
-	}
-	logger.Debug("legacy Claude auth candidate accepted")
-	return storeResp, nil, false
-}
-
 func shouldWriteServerAuth(status string, auth []byte) bool {
 	if len(auth) == 0 {
 		return false
@@ -1844,51 +1648,6 @@ func markLogoutRecovery(resp *orchestrator.AuthRetrieveResponse) {
 	resp.Auth = nil
 	resp.VerificationState = ""
 	resp.Message = "Local Claude logout is authoritative; re-authentication is required."
-}
-
-func writeAgents(ctx context.Context, client *orchestrator.Client) (bool, error) {
-	dst := agentsPath()
-	digest := fileDigest(dst)
-	body, err := client.RetrieveAgents(ctx, digest)
-	if err != nil {
-		return false, err
-	}
-	if len(body) == 0 {
-		return false, nil
-	}
-	if err := atomicWrite(dst, body, 0o644); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func writeSettings(ctx context.Context, client *orchestrator.Client) (bool, error) {
-	dst := settingsPath()
-	digest := fileDigest(dst)
-	body, err := client.RetrieveConfig(ctx, digest)
-	if err != nil {
-		return false, err
-	}
-	if len(body) == 0 {
-		return false, nil
-	}
-	// Legacy full replacement remains its own contract, but its publication
-	// must not interleave with a partial merge and its ownership sidecars.
-	lock, err := acquireSettingsMutationLock()
-	if err != nil {
-		return false, err
-	}
-	defer lock.Release()
-	if err := atomicWrite(dst, body, 0o644); err != nil {
-		return false, err
-	}
-	// Legacy clx parity: mirror the same bytes to ~/.clx/config/settings.json
-	// so the clx-native config tree stays in sync. Best-effort — mirror
-	// failures are not surfaced to the caller.
-	if home, err := os.UserHomeDir(); err == nil {
-		_ = atomicWrite(filepath.Join(home, ".clx", "config", "settings.json"), body, 0o644)
-	}
-	return true, nil
 }
 
 func agentsPath() string {

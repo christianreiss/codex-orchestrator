@@ -42,11 +42,11 @@ func TestQuotaExpiredWindowNeverGatesAndOtherEvidenceSurvives(t *testing.T) {
 	expired, current := int64(600), int64(7200)
 	fetched := time.Now().Add(-20 * time.Minute).UTC().Format(time.RFC3339)
 	for _, tc := range []struct {
-		name                    string
-		active                  string
-		weekly                  *int
-		provider, sparkProvider *bool
-		wantBlock               bool
+		name      string
+		active    string
+		weekly    *int
+		provider  *bool
+		wantBlock bool
 	}{
 		{name: "expired percentage and provider flag", active: "normal", provider: &allowed},
 		{name: "other current window below limit", active: "normal", weekly: &low, provider: &allowed},
@@ -56,7 +56,7 @@ func TestQuotaExpiredWindowNeverGatesAndOtherEvidenceSurvives(t *testing.T) {
 			rows, warning, block := buildQuota(&orchestrator.AuthRetrieveResponse{QuotaLimitPercent: &limit, Host: &orchestrator.HostInfo{LanePreference: tc.active}, ChatGPT: &orchestrator.ChatGPTQuota{
 				Status: "ok", FetchedAt: fetched, PrimaryUsed: &used, PrimaryResetAfter: &expired,
 				SecondaryUsed: tc.weekly, SecondaryResetAfter: &current,
-				RateAllowed: tc.provider, SparkRateAllowed: tc.sparkProvider,
+				RateAllowed: tc.provider,
 			}})
 			if len(rows) < 1 || !rows[0].Stale || rows[0].Projection != "" || rows[0].ResetAfter != 0 || (block != "") != tc.wantBlock {
 				t.Fatalf("expired-window policy = %+v warn=%q block=%q", rows, warning, block)

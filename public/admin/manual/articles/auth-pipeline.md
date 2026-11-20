@@ -187,8 +187,9 @@ an immediate/offline next cdx sees the exact Y as fresh. A successful real
 For both wrappers, only store `valid`/`updated` accepts the exact candidate. A
 canonical-win `outdated` response can still carry guarded download bytes, but
 never acknowledges the upload, clears logout intent, or prints upload success.
-For clx, `~/.claude/.credentials.json` is the sole read authority; the legacy
-`~/.clx/auth/credentials.json` is an optional write-only mirror. clx stores its
+For clx, `~/.claude/.credentials.json` is the sole read authority; the retired
+`~/.clx/auth/credentials.json` mirror is no longer written, and a stale copy is
+removed on the next credential commit. clx stores its
 versioned digest-bound `last_refresh` in `~/.clx/auth/generation.json`, keeping wrapper
 metadata out of Claude's native file. Both wrappers use short auth-file locks,
 fsynced atomic renames, generation compare-and-swap after network calls, and

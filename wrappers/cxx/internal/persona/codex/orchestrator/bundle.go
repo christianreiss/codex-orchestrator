@@ -4,8 +4,6 @@
 //
 // The bundle response carries the full auth payload plus the AGENTS/config
 // bodies in a single round-trip, so a cold boot drops from three POSTs to one.
-// When the server is older than the bundle endpoint (404/501), the lifecycle
-// falls back to the per-resource pulls.
 package orchestrator
 
 import (
@@ -89,10 +87,7 @@ type FleetSessions struct {
 	Month int64 `json:"month"`
 }
 
-// SyncBootstrap calls POST /sync/bootstrap with the typed payload above. The
-// caller is expected to check err for the "404" / "501" suffix on a fallback
-// path; we don't add typed status codes because client.JSON() embeds them in
-// the error string already (e.g. "POST /sync/bootstrap -> 404: …").
+// SyncBootstrap calls POST /sync/bootstrap with the typed payload above.
 func (c *Client) SyncBootstrap(ctx context.Context, req BundleRequest) (*BundleResponse, error) {
 	if req.Engine == "" {
 		req.Engine = "codex"

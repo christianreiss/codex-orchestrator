@@ -103,9 +103,7 @@ type FleetSessions struct {
 	Month int64 `json:"month"`
 }
 
-// SyncBootstrap calls POST /sync/bootstrap. On 404/501 the caller is expected
-// to detect that string in the returned error and fall back to per-resource
-// pulls.
+// SyncBootstrap calls POST /sync/bootstrap.
 func (c *Client) SyncBootstrap(ctx context.Context, req BundleRequest) (*BundleResponse, error) {
 	if req.Engine == "" {
 		req.Engine = "claude"

@@ -55,12 +55,6 @@ func (r *ConnectionRuntime) Session() *Session {
 	}
 	return r.session
 }
-func (r *ConnectionRuntime) Broker() *Broker {
-	if r == nil {
-		return nil
-	}
-	return r.broker
-}
 func (r *ConnectionRuntime) Context() context.Context { return r.ctx }
 func (r *ConnectionRuntime) CodexMCPOverrides(headless bool) []string {
 	if r == nil || r.broker == nil {

@@ -306,19 +306,10 @@ func TestBootstrapConcurrentRepairsUnusableAuthDespiteMatchingGenerationDigest(t
 	if !claude.IsValidLocalAuth(authPath) {
 		t.Fatal("concurrent canonical repair did not leave usable Claude credentials")
 	}
-	writeUnusableAuthWithMatchingSidecar("2026-07-21T12:02:00Z")
-	seenEmptyDigest = false
-	resp, legacyErr, synced := syncAuthLegacy(context.Background(), client, logger, true)
-	if legacyErr != nil || !synced || resp == nil {
-		t.Fatalf("concurrent legacy unusable auth repair = resp=%+v synced=%v err=%v", resp, synced, legacyErr)
-	}
-	if !seenEmptyDigest || !claude.IsValidLocalAuth(authPath) {
-		t.Fatal("legacy concurrent repair did not request and restore usable Claude credentials")
-	}
 }
 
-func TestBundleAndLegacyMaterializeRequiredCanonicalAlongsideActiveChild(t *testing.T) {
-	for _, mode := range []string{"bundle", "legacy"} {
+func TestBundleMaterializesRequiredCanonicalAlongsideActiveChild(t *testing.T) {
+	for _, mode := range []string{"bundle"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
@@ -367,11 +358,7 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode == "bundle" {
-				_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, filepath.Join(home, ".claude", ".credentials.json"), true)
-			} else {
-				_, err, _ = syncAuthLegacy(context.Background(), client, logger, false)
-			}
+			_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, filepath.Join(home, ".claude", ".credentials.json"), true)
 			if err != nil {
 				t.Fatalf("%s active-child materialization error=%v", mode, err)
 			}
@@ -390,8 +377,8 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 	}
 }
 
-func TestBundleAndLegacyRepairExactDefinitivelyRejectedLocalUnderActiveChild(t *testing.T) {
-	for _, mode := range []string{"bundle", "legacy"} {
+func TestBundleRepairsExactDefinitivelyRejectedLocalUnderActiveChild(t *testing.T) {
+	for _, mode := range []string{"bundle"} {
 		t.Run(mode, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
@@ -443,11 +430,7 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode == "bundle" {
-				_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, authPath, true)
-			} else {
-				_, err, _ = syncAuthLegacy(context.Background(), client, logger, false)
-			}
+			_, err, _, _, _, _, _ = bootstrap(context.Background(), client, logger, false, authPath, true)
 			if err != nil {
 				t.Fatalf("%s exact rejected generation error=%v", mode, err)
 			}
@@ -460,65 +443,6 @@ while [ ! -e "$CLX_TEST_RELEASE" ]; do sleep 0.01; done
 			}
 			if err := <-childDone; err != nil {
 				t.Fatal(err)
-			}
-		})
-	}
-}
-
-func TestLegacyTwoWayAuthArbitration(t *testing.T) {
-	for _, tc := range []struct {
-		name          string
-		storeStatus   int
-		storeBody     string
-		wantToken     string
-		wantErr       bool
-		wantRespValid bool
-	}{
-		{name: "accepted local converges", storeStatus: http.StatusOK, storeBody: `{"status":"valid","verification_state":"verified"}`, wantToken: "local", wantRespValid: true},
-		{name: "transient preserves local", storeStatus: http.StatusServiceUnavailable, storeBody: `{"status":"error","code":"runner_unreachable","message":"later"}`, wantToken: "local"},
-		{name: "validation 422 heals verified canonical", storeStatus: http.StatusUnprocessableEntity, storeBody: `{"status":"error","code":"validation_failed","message":"bad candidate"}`, wantToken: "canonical"},
-		{name: "security 403 preserves local", storeStatus: http.StatusForbidden, storeBody: `{"status":"error","code":"engine_disabled","message":"disabled"}`, wantToken: "local"},
-		{name: "unsafe rotated auth fails closed", storeStatus: http.StatusServiceUnavailable, storeBody: `{"status":"error","code":"runner_updated_auth_invalid","message":"bad writeback"}`, wantToken: "local", wantErr: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			home := t.TempDir()
-			t.Setenv("HOME", home)
-			authPath := filepath.Join(home, ".claude", ".credentials.json")
-			if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(authPath, []byte(`{"last_refresh":"2026-07-16T12:00:00Z","claudeAiOauth":{"accessToken":"local"}}`), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var body struct {
-					Command string `json:"command"`
-				}
-				_ = json.NewDecoder(r.Body).Decode(&body)
-				w.Header().Set("Content-Type", "application/json")
-				if body.Command == "store" {
-					w.WriteHeader(tc.storeStatus)
-					_, _ = w.Write([]byte(tc.storeBody))
-					return
-				}
-				_, _ = w.Write([]byte(`{"status":"outdated","verification_state":"verified","canonical_last_refresh":"2026-07-16T11:00:00Z","auth":{"last_refresh":"2026-07-16T11:00:00Z","claudeAiOauth":{"accessToken":"canonical"}}}`))
-			}))
-			defer server.Close()
-			logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test", Logger: logger})
-			if err != nil {
-				t.Fatal(err)
-			}
-			resp, syncErr, _ := syncAuthLegacy(context.Background(), client, logger, false)
-			if (syncErr != nil) != tc.wantErr {
-				t.Fatalf("sync error=%v wantErr=%v", syncErr, tc.wantErr)
-			}
-			if tc.wantRespValid && (resp == nil || resp.Status != "valid") {
-				t.Fatalf("accepted arbitration response=%+v", resp)
-			}
-			raw, err := os.ReadFile(authPath)
-			if err != nil || !strings.Contains(string(raw), `"accessToken":"`+tc.wantToken+`"`) {
-				t.Fatalf("legacy arbitration auth=%q err=%v want=%q", raw, err, tc.wantToken)
 			}
 		})
 	}

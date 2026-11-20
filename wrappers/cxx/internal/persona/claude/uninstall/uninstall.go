@@ -194,7 +194,7 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) erro
 	}
 	localCleanupErr := removeLocalState(home, stdout, stderr)
 
-	if npmGlobalHas("@anthropic-ai/claude-code") {
+	if npmGlobalHas(ctx, "@anthropic-ai/claude-code") {
 		cmd := exec.CommandContext(ctx, "npm", "uninstall", "-g", "@anthropic-ai/claude-code")
 		if err := cmd.Run(); err != nil {
 			ui.Say(stderr, "clx", ui.ToneFail, "uninstall", "npm uninstall -g @anthropic-ai/claude-code: "+fmt.Sprint(err))
@@ -267,11 +267,6 @@ func removeTreeReport(stdout, stderr io.Writer, dir string) error {
 	return nil
 }
 
-func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsername string) []string {
-	out, _ := otherUsersOrErr(ctx, client, currentUsername)
-	return out
-}
-
 func otherUsersOrErr(ctx context.Context, client *orchestrator.Client, currentUsername string) ([]string, error) {
 	hostname, _ := os.Hostname()
 	body := map[string]any{
@@ -331,11 +326,13 @@ func currentUser() string {
 	return os.Getenv("USER")
 }
 
-func npmGlobalHas(pkg string) bool {
+func npmGlobalHas(ctx context.Context, pkg string) bool {
 	if _, err := exec.LookPath("npm"); err != nil {
 		return false
 	}
-	cmd := exec.Command("npm", "ls", "-g", "--depth=0", pkg)
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "npm", "ls", "-g", "--depth=0", pkg)
 	return cmd.Run() == nil
 }
 

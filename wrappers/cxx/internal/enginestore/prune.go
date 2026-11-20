@@ -172,11 +172,6 @@ func sweep(root, lockName string, logger *slog.Logger, resolve func() (string, e
 	return removed, nil
 }
 
-// PruneEngine resolves keep from a published CLI path and sweeps root.
-func PruneEngine(root, cli, lockName string, logger *slog.Logger) ([]string, error) {
-	return Prune(root, KeepFor(root, cli), lockName, logger)
-}
-
 const admissionName = ".pressure-cleanup.json"
 
 type sweepAdmission struct {

@@ -67,9 +67,9 @@ func (s AuthSnapshot) DigestForServer() string {
 }
 
 // AuthPath returns the only credential path Claude Code itself consumes.
-// ~/.clx/auth/credentials.json is a compatibility mirror, never an auth source:
-// otherwise a stale sidecar can green-light a missing native file or resurrect
-// an intentional Claude logout.
+// ~/.clx/auth/credentials.json is a retired mirror and never an auth source:
+// otherwise a stale sidecar could green-light a missing native file or
+// resurrect an intentional Claude logout.
 func AuthPath() (string, error) {
 	path, _, err := authPaths()
 	return path, err
@@ -81,16 +81,6 @@ func authPaths() (claudePath, clxPath string, err error) {
 		return "", "", err
 	}
 	return filepath.Join(home, ".claude", ".credentials.json"), filepath.Join(home, ".clx", "auth", "credentials.json"), nil
-}
-
-// AuthCandidatePaths returns the authoritative path followed by its legacy
-// compatibility mirror. Callers may use this for cleanup/diagnostics only.
-func AuthCandidatePaths() ([]string, error) {
-	claudePath, clxPath, err := authPaths()
-	if err != nil {
-		return nil, err
-	}
-	return []string{claudePath, clxPath}, nil
 }
 
 func LocalDigest() (string, error) {
@@ -236,21 +226,6 @@ func beginAuthUploadStateContext(ctx context.Context, rejectLogout bool) (AuthSn
 		return AuthSnapshot{}, LogoutIntentGeneration{}, nil, err
 	}
 	return snap, intent, release, nil
-}
-
-func ReadAuthForUploadFromPath(path string) (json.RawMessage, error) {
-	authPath, err := AuthPath()
-	if err != nil {
-		return nil, err
-	}
-	if filepath.Clean(path) != filepath.Clean(authPath) {
-		return nil, fmt.Errorf("refusing non-authoritative Claude auth path %s", path)
-	}
-	snap, err := ReadAuthSnapshot(true)
-	if err != nil {
-		return nil, err
-	}
-	return snap.Upload, nil
 }
 
 // ReadAuthSnapshot reads the authoritative native file while holding the short
@@ -962,7 +937,7 @@ func isUsableAuth(raw []byte) bool {
 
 type authFileSet struct {
 	claude       string
-	clx          string
+	clx          string // retired credentials mirror, removed on commit, logout and purge
 	generation   string
 	logout       string
 	purgeRequest string
@@ -1048,10 +1023,10 @@ func readGenerationState(path string) generationState {
 	return state
 }
 
-// commitAuthPairLocked stages every file, commits the compatibility sidecar
-// and generation metadata first, and commits the authoritative native file
-// last. Once ~/.claude changes, both wrapper-owned companions are already in
-// sync. A crash before the final rename can only leave ignored sidecar state.
+// commitAuthPairLocked stages both files, commits the generation metadata
+// first, and commits the authoritative native file last. Once ~/.claude
+// changes, the wrapper-owned companion is already in sync. A crash before the
+// final rename can only leave ignored sidecar state.
 func commitAuthPairLocked(paths authFileSet, native, state []byte, expected *AuthGeneration) (bool, error) {
 	claudeTmp, err := stageFile(paths.claude, native, 0o600)
 	if err != nil {
@@ -1064,23 +1039,10 @@ func commitAuthPairLocked(paths authFileSet, native, state []byte, expected *Aut
 	}
 	defer os.Remove(stateTmp)
 
-	mirrorExists := false
-	if _, err := os.Stat(paths.clx); err == nil {
-		mirrorExists = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return false, err
-	}
-	var mirrorTmp string
-	if mirrorExists {
-		mirrorTmp, err = stageFile(paths.clx, native, 0o600)
-		if err != nil {
-			return false, err
-		}
-		defer os.Remove(mirrorTmp)
-		if err := commitStaged(mirrorTmp, paths.clx); err != nil {
-			return false, err
-		}
-	}
+	// Nothing has read the ~/.clx/auth/credentials.json mirror since 0.7.0.
+	// Remove a stale copy, refresh token included, instead of refreshing it.
+	// os.Remove unlinks a symlink, never its target; failure is harmless.
+	_ = os.Remove(paths.clx)
 	if err := commitStaged(stateTmp, paths.generation); err != nil {
 		return false, err
 	}

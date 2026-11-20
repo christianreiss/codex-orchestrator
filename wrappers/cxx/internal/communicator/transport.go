@@ -702,9 +702,25 @@ func Direct(rt http.RoundTripper) (*http.Transport, bool) {
 
 // A user-scoped transport must not inherit the launching agent's work claim,
 // receiver identity, native writer or recovery ownership into background sync.
+var communicatorHandOffMarkers = map[string]bool{
+	"CXX_UPDATE_WRAPPER_DONE": true,
+	"CODEX_WRAPPER_RESTARTED": true, "CLAUDE_WRAPPER_RESTARTED": true, "CGX_WRAPPER_RESTARTED": true, "CKX_WRAPPER_RESTARTED": true,
+	"CODEX_WRAPPER_RESTART_DEPTH": true, "CLAUDE_WRAPPER_RESTART_DEPTH": true,
+	"CXX_CRON_ENGINE_ONLY": true, "CXX_CRON_COORDINATED": true,
+	"CDX_AUTH_SESSION_HANDOFF": true, "CLX_AUTH_SESSION_HANDOFF": true,
+}
+
 func communicatorEnvironment(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, entry := range env {
+		// One-shot update, re-exec and cron hand-off markers belong to the
+		// process that set them. Inherited by a long-lived owner, an update
+		// continuation's CXX_UPDATE_WRAPPER_DONE would make the owner's later
+		// `cxx update --minimal` skip the wrapper step yet report it applied.
+		name, _, _ := strings.Cut(entry, "=")
+		if communicatorHandOffMarkers[name] {
+			continue
+		}
 		blocked := false
 		for _, prefix := range []string{"CXX_AGENT_", "CXX_DAEMON_", "CXX_REBOOT_", "CXX_WATCHDOG_", "CXX_NATIVE_", "CXX_PROVIDER_", "CXX_GROK_", "CXX_KIMI_"} {
 			if strings.HasPrefix(entry, prefix) {

@@ -1,7 +1,6 @@
-// Package codex includes installer.go which handles installing or updating
-// the upstream `codex` CLI from either npm-global (`codex-cli` package) or
-// the GitHub releases tarball pipeline. The latter mirrors the legacy bash
-// wrapper at git fe70ac3:bin/cdx.d/04-update.sh.
+// Package codex includes installer.go, the GitHub release helpers that the
+// background maintenance installer (installer_background.go) uses to fetch,
+// verify and install the upstream `codex` CLI and its companion binary.
 package codex
 
 import (
@@ -25,168 +24,10 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 )
 
 // githubBaseURL is the GitHub REST host. Overridable for tests.
 var githubBaseURL = "https://api.github.com"
-
-// EnsureCodex makes sure the locally-installed Codex CLI is at the target
-// version. Detection rules:
-//
-//  1. If `codex` is on PATH AND `npm ls -g codex-cli` returns ok → npm path.
-//  2. Otherwise → GitHub release asset path for the current host arch.
-//
-// When enforceExact is false and the local version already equals target,
-// the call is a no-op.
-//
-// Legacy and test-only: no production path calls it. Cron, peer reconcile,
-// sync and the foreground launch all use EnsureCodexBackground.
-func EnsureCodex(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	// Once maintenance selects a private release, explicit updates must advance
-	// that same cache rather than update a global binary that launches no longer use.
-	if strings.TrimSpace(os.Getenv("CDX_CODEX_BIN")) == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			root := filepath.Join(home, ".cxx", "engines", "codex")
-			if cli, err := FindCLI(); err == nil && strings.HasPrefix(cli, root+string(os.PathSeparator)) {
-				return EnsureCodexBackground(ctx, target, enforceExact, logger)
-			}
-		}
-	}
-
-	current := strings.TrimSpace(Version(ctx))
-	if !enforceExact && current != "" && current != "unknown" && target != "" {
-		skip := false
-		if current == target {
-			logger.Debug("EnsureCodex: already at target", "version", current)
-			skip = true
-		} else if !semverGT(target, current) {
-			logger.Debug("EnsureCodex: skipping downgrade", "current", current, "target", target)
-			skip = true
-		}
-		if skip {
-			// codex itself needs no action — the common case, true for the
-			// overwhelming majority of already-converged hosts. Still make
-			// sure the codex-code-mode-host companion binary is present and
-			// version-matched; the cheap marker/stat check runs first so this
-			// fast path pays zero extra subprocess/network cost once a host
-			// has converged (isManagedByNpm shells out to npm, so it's only
-			// worth paying for when the marker/stat check says work is
-			// needed).
-			if dir := companionInstallDir(); dir != "" && codeModeHostNeedsWork(current, dir) && !isManagedByNpm(ctx) {
-				ensureCodeModeHost(ctx, current, nil, dir, logger)
-			}
-			return nil
-		}
-	}
-
-	if isManagedByNpm(ctx) {
-		return ensureCodexNpm(ctx, target, enforceExact, logger)
-	}
-	rel, err := ensureCodexGitHub(ctx, target, enforceExact, current, logger)
-	if err == nil {
-		// codex was just (re)installed — this is the one moment the
-		// codex/codex-code-mode-host version handshake can actually drift,
-		// so force a refresh regardless of the marker, reusing the already-
-		// fetched release instead of a second GitHub API call.
-		newVersion := strings.TrimSpace(Version(ctx))
-		if dir := companionInstallDir(); dir != "" {
-			ensureCodeModeHost(ctx, newVersion, &rel, dir, logger)
-		}
-	}
-	return err
-}
-
-// isManagedByNpm returns true when an upstream `codex` binary is on PATH AND
-// `npm ls -g codex-cli` reports it as installed.
-func isManagedByNpm(ctx context.Context) bool {
-	if _, err := FindCLI(); err != nil {
-		return false
-	}
-	if _, err := exec.LookPath("npm"); err != nil {
-		return false
-	}
-	cmd := exec.CommandContext(ctx, "npm", "ls", "-g", "codex-cli")
-	if err := cmd.Run(); err != nil {
-		return false
-	}
-	return true
-}
-
-func ensureCodexNpm(ctx context.Context, target string, enforceExact bool, logger *slog.Logger) error {
-	ctx, releaseSpace, err := installspace.Lock(ctx)
-	if err != nil {
-		return err
-	}
-	defer releaseSpace()
-	if err := installspace.CheckNpmGlobal(ctx, []string{"npm"}); err != nil {
-		return err
-	}
-	spec := "codex-cli"
-	if target != "" && target != "latest" {
-		spec = "codex-cli@" + target
-	}
-	logger.Debug("EnsureCodex: npm install", "spec", spec, "enforce_exact", enforceExact)
-
-	args := []string{"install", "-g", spec}
-	cmd := exec.CommandContext(ctx, "npm", args...)
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		cacheInstalledCodexNpm(ctx)
-		return nil
-	}
-	// Permission failure → retry under sudo when available (non-interactive).
-	if isPermErr(out, err) {
-		if _, lerr := exec.LookPath("sudo"); lerr == nil {
-			if err := installspace.CheckNpmGlobal(ctx, []string{"sudo", "-n", "npm"}); err != nil {
-				return err
-			}
-			logger.Debug("EnsureCodex: retrying npm install under sudo -n")
-			args = append([]string{"-n", "npm"}, args...)
-			cmd = exec.CommandContext(ctx, "sudo", args...)
-			out2, serr := cmd.CombinedOutput()
-			if serr == nil {
-				cacheInstalledCodexNpm(ctx)
-				return nil
-			}
-			return fmt.Errorf("npm install %s failed under sudo: %w: %s", spec, serr, strings.TrimSpace(string(out2)))
-		}
-	}
-	return fmt.Errorf("npm install %s failed: %w: %s", spec, err, strings.TrimSpace(string(out)))
-}
-
-// cacheInstalledCodexNpm resolves the codex binary path via npm's global bin
-// dir and writes it to the cache so cron and restricted-PATH environments can
-// find it without a full PATH scan.
-func cacheInstalledCodexNpm(ctx context.Context) {
-	out, err := exec.CommandContext(ctx, "npm", "bin", "-g").Output()
-	if err == nil {
-		p := filepath.Join(strings.TrimSpace(string(out)), "codex")
-		self, _ := os.Executable()
-		if _, serr := os.Stat(p); serr == nil && !nativeentry.IsWrapperOrShim(p, self) {
-			_ = cacheCodex(p)
-			return
-		}
-	}
-	self, _ := os.Executable()
-	if p, lerr := nativeentry.ResolveVendor("codex", self); lerr == nil {
-		_ = cacheCodex(p)
-	}
-}
-
-func isPermErr(out []byte, err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(string(out))
-	return strings.Contains(s, "eacces") ||
-		strings.Contains(s, "permission denied") ||
-		strings.Contains(s, "operation not permitted")
-}
 
 // --- GitHub release path ---------------------------------------------------
 
@@ -205,22 +46,15 @@ type Release struct {
 	Assets  []Asset `json:"assets"`
 }
 
-// pickAsset returns the asset for the host platform. Selection rules
-// mirror the legacy bash wrapper's detect_codex_asset_name logic:
+// pickAssetFor returns the release asset of binName for the given platform:
 //
-//	linux/amd64  → codex-x86_64-unknown-linux-musl*  (prefer .tar.gz)
-//	linux/arm64  → codex-aarch64-unknown-linux-musl*
-//	darwin/arm64 → codex-aarch64-apple-darwin*
-//	darwin/amd64 → codex-x86_64-apple-darwin*
+//	linux/amd64  → <binName>-x86_64-unknown-linux-musl*  (prefer .tar.gz)
+//	linux/arm64  → <binName>-aarch64-unknown-linux-musl*
+//	darwin/arm64 → <binName>-aarch64-apple-darwin*
+//	darwin/amd64 → <binName>-x86_64-apple-darwin*
 //
-// Windows is out of scope.
-func pickAsset(rel Release, goos, goarch string) (Asset, error) {
-	return pickAssetFor(rel, "codex", goos, goarch)
-}
-
-// pickAssetFor is pickAsset generalized over the target binary name, so it
-// can also select the codex-code-mode-host companion asset from the same
-// release. Prefix matching already discriminates the two: "codex-code-mode-
+// It selects the codex CLI and the codex-code-mode-host companion asset from
+// the same release. Prefix matching already discriminates the two: "codex-code-mode-
 // host-x86_64-..." does not share the "codex-x86_64-..." prefix used for the
 // CLI itself, so there is no ambiguity between the two binaries' assets.
 func pickAssetFor(rel Release, binName, goos, goarch string) (Asset, error) {
@@ -350,33 +184,6 @@ func releaseTagCandidates(target string) []string {
 	return out
 }
 
-// ensureCodexGitHub installs/updates codex from a GitHub release and returns
-// the resolved Release so a caller that also needs to ensure the
-// codex-code-mode-host companion binary (version-locked to the same release)
-// can reuse it instead of issuing a second GitHub API call.
-func ensureCodexGitHub(ctx context.Context, target string, enforceExact bool, current string, logger *slog.Logger) (Release, error) {
-	rel, err := fetchRelease(ctx, target)
-	if err != nil {
-		return Release{}, err
-	}
-	if !enforceExact {
-		if relVersion := releaseVersion(rel); relVersion != "" && current == relVersion {
-			logger.Debug("EnsureCodex: already at resolved target", "version", current, "target", target)
-			return rel, nil
-		}
-	}
-	asset, err := pickAsset(rel, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return rel, err
-	}
-	dest := resolveCodexDest()
-	installErr := installVerifiedReleaseAsset(ctx, rel, asset, "codex", dest, logger)
-	if installErr == nil {
-		_ = cacheCodex(dest)
-	}
-	return rel, installErr
-}
-
 // installVerifiedReleaseAsset shares the verified release pipeline between
 // explicit installs and unpublished background destinations.
 func installVerifiedReleaseAsset(ctx context.Context, rel Release, asset Asset, name, dest string, logger *slog.Logger) error {
@@ -466,36 +273,6 @@ func releaseVersion(rel Release) string {
 	return ""
 }
 
-// resolveCodexDest picks /usr/local/bin/codex when writable (or via sudo),
-// else ~/.local/bin/codex. Returns the path; caller may not actually have
-// permission, in which case installBinary triggers the sudo fallback.
-func resolveCodexDest() string {
-	return resolveInstallDest("codex")
-}
-
-// resolveInstallDest picks /usr/local/bin/<binName> when writable (or via
-// sudo), else ~/.local/bin/<binName>. Returns the path; caller may not
-// actually have permission, in which case installBinary triggers the sudo
-// fallback.
-func resolveInstallDest(binName string) string {
-	if dir := strings.TrimSpace(os.Getenv("CDX_CODEX_INSTALL_DIR")); dir != "" {
-		return filepath.Join(dir, binName)
-	}
-	sys := filepath.Join("/usr/local/bin", binName)
-	if dirWritable("/usr/local/bin") {
-		return sys
-	}
-	if _, err := exec.LookPath("sudo"); err == nil {
-		return sys
-	}
-	home, err := os.UserHomeDir()
-	if err == nil && home != "" {
-		_ = os.MkdirAll(filepath.Join(home, ".local", "bin"), 0o755)
-		return filepath.Join(home, ".local", "bin", binName)
-	}
-	return sys
-}
-
 func dirWritable(dir string) bool {
 	fi, err := os.Stat(dir)
 	if err != nil || !fi.IsDir() {
@@ -512,13 +289,7 @@ func dirWritable(dir string) bool {
 	return true
 }
 
-// installFromTarball extracts a Codex tar.gz archive and installs the
-// `codex` binary it contains into dest. Exposed for unit-test friendliness.
-func installFromTarball(path, dest string) error {
-	return installFromTarballNamed(path, dest, []string{"codex"}, "codex")
-}
-
-// installFromTarballNamed extracts a tar.gz archive and installs the binary
+// installFromTarballNamedContext extracts a tar.gz archive and installs the binary
 // it contains into dest. exactNames is tried in archive order; the first
 // entry whose basename exactly matches any of exactNames wins outright. If
 // no exact match is found, the first entry whose basename has the given
@@ -532,10 +303,6 @@ func installFromTarball(path, dest string) error {
 // tarball entry is named with the full platform-qualified asset stem (e.g.
 // "codex-code-mode-host-x86_64-unknown-linux-musl") — confirmed by
 // extracting a real downloaded release asset.
-func installFromTarballNamed(path, dest string, exactNames []string, prefix string) error {
-	return installFromTarballNamedContext(context.Background(), path, dest, exactNames, prefix)
-}
-
 func installFromTarballNamedContext(ctx context.Context, path, dest string, exactNames []string, prefix string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -619,12 +386,8 @@ func installFromTarballNamedContext(ctx context.Context, path, dest string, exac
 	return installBinaryContext(ctx, extracted, dest)
 }
 
-// installBinary copies src to dest, using sudo when the destination directory
-// is not writable by the caller.
-func installBinary(src, dest string) error {
-	return installBinaryContext(context.Background(), src, dest)
-}
-
+// installBinaryContext copies src to dest, using sudo when the destination
+// directory is not writable by the caller.
 func installBinaryContext(ctx context.Context, src, dest string) error {
 	info, err := os.Stat(src)
 	if err != nil {
@@ -744,144 +507,10 @@ func sha256File(p string) (string, error) {
 //
 // The companion has no `--version` flag (confirmed live: only `--listen` and
 // `--help`), so its installed version can't be introspected the way
-// Version(ctx) introspects codex. A small local marker file tracks which
-// codex version it was last installed for instead.
+// Version(ctx) introspects codex. The background installer therefore
+// installs it from the same release whenever it installs codex.
 
 const codeModeHostBinName = "codex-code-mode-host"
-
-// codeModeHostRetryCooldown bounds how often a failed install is retried.
-// Unauthenticated GitHub API calls are rate-limited to 60/hr per source IP;
-// without a cooldown, ~103 hosts hitting a transient GitHub error could each
-// retry on every cron tick and starve codex's own update checks, which share
-// the same quota.
-const codeModeHostRetryCooldown = 6 * time.Hour
-
-type codeModeHostState struct {
-	InstalledFor        string `json:"installed_for"`
-	LastAttemptFailedAt string `json:"last_attempt_failed_at,omitempty"`
-}
-
-func codeModeHostMarkerPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".config", "codex-orchestrator", "cdx-code-mode-host-state"), nil
-}
-
-// readCodeModeHostState returns the zero value on any error (missing file,
-// unreadable, malformed) — callers treat that identically to "never
-// installed", which is always the safe default.
-func readCodeModeHostState() codeModeHostState {
-	p, err := codeModeHostMarkerPath()
-	if err != nil {
-		return codeModeHostState{}
-	}
-	b, err := os.ReadFile(p)
-	if err != nil {
-		return codeModeHostState{}
-	}
-	var s codeModeHostState
-	if err := json.Unmarshal(b, &s); err != nil {
-		return codeModeHostState{}
-	}
-	return s
-}
-
-func writeCodeModeHostState(s codeModeHostState) error {
-	p, err := codeModeHostMarkerPath()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	b, err := json.Marshal(s)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(p, b, 0o644)
-}
-
-// codeModeHostNeedsWork reports whether the companion binary in dir needs
-// installing or refreshing for codexVersion: missing, zero-byte, or the
-// marker's recorded version doesn't match. Returns false during the retry
-// cooldown after a recorded failure, even if the binary is still missing.
-func codeModeHostNeedsWork(codexVersion, dir string) bool {
-	dest := filepath.Join(dir, codeModeHostBinName)
-	state := readCodeModeHostState()
-
-	if fi, err := os.Stat(dest); err == nil && fi.Size() > 0 && state.InstalledFor == codexVersion {
-		return false
-	}
-	if state.LastAttemptFailedAt != "" {
-		if failedAt, err := time.Parse(time.RFC3339, state.LastAttemptFailedAt); err == nil {
-			if time.Since(failedAt) < codeModeHostRetryCooldown {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// companionInstallDir derives the directory codex-code-mode-host must land
-// in: the directory of codex's actual resolved binary (via FindCLI, the
-// source of truth for where codex really lives), so the companion is always
-// a same-directory sibling regardless of which install strategy codex itself
-// used. Falls back to resolveInstallDest("codex")'s directory only when
-// FindCLI can't resolve anything (e.g. codex genuinely isn't installed yet).
-func companionInstallDir() string {
-	if p, err := FindCLI(); err == nil && p != "" {
-		if dir := filepath.Dir(p); dir != "" && dir != "." {
-			return dir
-		}
-	}
-	return filepath.Dir(resolveInstallDest("codex"))
-}
-
-// ensureCodeModeHost installs or refreshes the codex-code-mode-host companion
-// binary into dir, version-locked to codexVersion. Pass rel when the caller
-// just fetched a Release for codex in this same call, to avoid a redundant
-// GitHub API call and guarantee the exact same release is used for both
-// binaries; pass nil to fetch fresh (the "codex already current, companion
-// missing" case).
-//
-// Never returns an error: every failure is logged and recorded in the state
-// marker (so the cooldown in codeModeHostNeedsWork engages), then swallowed.
-// A companion-install problem must never regress codex's own install
-// guarantee — both callers of EnsureCodex already treat it as best-effort,
-// running post-session so it never blocks an interactive launch.
-func ensureCodeModeHost(ctx context.Context, codexVersion string, rel *Release, dir string, logger *slog.Logger) {
-	dest := filepath.Join(dir, codeModeHostBinName)
-
-	fail := func(err error) {
-		logger.Warn("EnsureCodex: codex-code-mode-host companion install failed (non-fatal)", "error", err)
-		state := readCodeModeHostState()
-		state.LastAttemptFailedAt = time.Now().UTC().Format(time.RFC3339)
-		_ = writeCodeModeHostState(state)
-	}
-
-	release := rel
-	if release == nil {
-		r, err := fetchRelease(ctx, codexVersion)
-		if err != nil {
-			fail(fmt.Errorf("fetch release: %w", err))
-			return
-		}
-		release = &r
-	}
-
-	asset, err := pickAssetFor(*release, codeModeHostBinName, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		fail(fmt.Errorf("pick asset: %w", err))
-		return
-	}
-	if err := installVerifiedReleaseAsset(ctx, *release, asset, codeModeHostBinName, dest, logger); err != nil {
-		fail(err)
-		return
-	}
-	_ = writeCodeModeHostState(codeModeHostState{InstalledFor: codexVersion})
-}
 
 // pickAssetForLibc retains the upstream platform mapping outside reconciliation.
 func pickAssetForLibc(ctx context.Context, rel Release, name string) (Asset, error) {

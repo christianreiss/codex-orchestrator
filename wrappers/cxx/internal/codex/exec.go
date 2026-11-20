@@ -41,13 +41,6 @@ func codexBinCachePath() (string, error) {
 	return filepath.Join(home, ".config", "codex-orchestrator", "cdx-codex-bin"), nil
 }
 
-// cacheCodex persists the resolved codex binary path for future runs.
-func cacheCodex(path string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return cacheCodexContext(ctx, path)
-}
-
 func cacheCodexContext(ctx context.Context, path string) error {
 	p, err := codexBinCachePath()
 	if err != nil {

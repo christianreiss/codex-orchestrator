@@ -229,12 +229,9 @@ func TestListSkillsDataOnlyEnvelope(t *testing.T) {
 	}
 }
 
-// TestChatGPTQuotaSparkWindowBackfill pins the spark-lane quota decode to the
-// real crane shape: the spark limit/reset values live ONLY under
-// chatgpt.spark_window.{primary,secondary}_window, never as flat
-// spark_primary_limit_seconds root keys. Without the backfill the spark quota
-// bars render a percent but no reset countdown / projection.
-func TestChatGPTQuotaSparkWindowBackfill(t *testing.T) {
+// TestChatGPTQuotaDecodesNormalLaneBesideRetiredSpark pins the normal-lane
+// quota decode against a server that still sends the retired Spark fields.
+func TestChatGPTQuotaDecodesNormalLaneBesideRetiredSpark(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"status":"valid","chatgpt":{` +
 			`"status":"active",` +
@@ -256,8 +253,7 @@ func TestChatGPTQuotaSparkWindowBackfill(t *testing.T) {
 	if q == nil {
 		t.Fatal("nil chatgpt quota")
 	}
-	// Normal-lane fields (flat at root) must still decode through the custom
-	// UnmarshalJSON — they drive the live boot-screen quota bars + projection.
+	// Normal-lane fields drive the live boot-screen quota bars + projection.
 	if q.PrimaryUsed == nil || *q.PrimaryUsed != 2 {
 		t.Fatalf("normal primary used = %v, want 2", q.PrimaryUsed)
 	}
@@ -269,25 +265,6 @@ func TestChatGPTQuotaSparkWindowBackfill(t *testing.T) {
 	}
 	if q.RateAllowed == nil || *q.RateAllowed || q.RateLimitReached == nil || !*q.RateLimitReached {
 		t.Fatalf("normal provider flags = allowed=%v reached=%v", q.RateAllowed, q.RateLimitReached)
-	}
-	if q.SparkRateAllowed == nil || !*q.SparkRateAllowed || q.SparkRateLimitReached == nil || *q.SparkRateLimitReached {
-		t.Fatalf("spark provider flags = allowed=%v reached=%v", q.SparkRateAllowed, q.SparkRateLimitReached)
-	}
-	if q.SparkPrimaryLimitSec == nil || *q.SparkPrimaryLimitSec != 18000 {
-		t.Fatalf("spark primary limit = %v, want 18000", q.SparkPrimaryLimitSec)
-	}
-	if q.SparkPrimaryResetAfter == nil || *q.SparkPrimaryResetAfter != 3600 {
-		t.Fatalf("spark primary reset_after = %v, want 3600", q.SparkPrimaryResetAfter)
-	}
-	if q.SparkSecondaryLimitSec == nil || *q.SparkSecondaryLimitSec != 604800 {
-		t.Fatalf("spark secondary limit = %v, want 604800", q.SparkSecondaryLimitSec)
-	}
-	if q.SparkSecondaryResetAfter == nil || *q.SparkSecondaryResetAfter != 123456 {
-		t.Fatalf("spark secondary reset_after = %v, want 123456", q.SparkSecondaryResetAfter)
-	}
-	// Used percent is present at root AND in the window; both agree.
-	if q.SparkPrimaryUsed == nil || *q.SparkPrimaryUsed != 42 {
-		t.Fatalf("spark primary used = %v, want 42", q.SparkPrimaryUsed)
 	}
 }
 

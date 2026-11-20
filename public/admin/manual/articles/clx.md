@@ -216,7 +216,7 @@ Implemented in `wrappers/cxx/internal/persona/claude/lifecycle/` as `lifecycle.R
    | `invalid` | Credential invalid; fleet settings + skills stripped |
    | `offline` | Orchestrator unreachable; falls back to a cached credential within 24h (7d on secure hosts) |
    | `error` | Server-side processing error; same cached-credential fallback as `offline` |
-   | `insecure` (HTTP 423 maps here) | Awaiting admin approval; polls `PollApproval` every 5 s |
+   | `insecure` (HTTP 423 maps here) | Awaiting admin approval; polls `PollApprovalFor` every 5 s |
    | `insecure-denied` (HTTP 403) | Admin denied; fleet settings + skills stripped |
 
 6. **Interactive credential recovery** — when neither a runnable local

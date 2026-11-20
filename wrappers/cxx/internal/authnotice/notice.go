@@ -233,17 +233,6 @@ func Prepare(engine, session string) (*Delivery, error) {
 	return result, err
 }
 
-func Consume(engine, session string) (*Notice, error) {
-	delivery, err := Prepare(engine, session)
-	if err != nil || delivery == nil {
-		return nil, err
-	}
-	if err = delivery.Commit(); err != nil {
-		return nil, err
-	}
-	return &delivery.Notice, nil
-}
-
 // Prime suppresses a notice that predates this session. Later updates remain
 // eligible for delivery through its prompt hook or agent MCP connection.
 func Prime(engine, session string) error {

@@ -39,7 +39,7 @@ func TestAbortedDeliveryRetriesAndOlderAcknowledgementDoesNotHideNewUpdate(t *te
 	if err := retry.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	next, err := Consume("codex", "session")
+	next, err := consume("codex", "session")
 	if err != nil || next == nil || next.Generation != generation("second") {
 		t.Fatalf("old acknowledgement hid new generation: %v %v", next, err)
 	}
@@ -62,7 +62,7 @@ func TestPublicationRetriesBriefReaderContention(t *testing.T) {
 	if err := <-result; err != nil {
 		t.Fatalf("short reader contention lost update: %v", err)
 	}
-	if n, err := Consume("claude", "session"); err != nil || n == nil {
+	if n, err := consume("claude", "session"); err != nil || n == nil {
 		t.Fatalf("missing published update: %v %v", n, err)
 	}
 }
@@ -75,14 +75,14 @@ func TestEachEngineAndSessionReceivesAdoptionOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, session := range []string{"session-one", "session-two"} {
-			notice, err := Consume(engine, session)
+			notice, err := consume(engine, session)
 			if err != nil || notice == nil || notice.Engine != engine {
 				t.Fatalf("%s %s: %v %v", engine, session, notice, err)
 			}
 			if strings.Contains(notice.Message(), notice.Generation) {
 				t.Fatal("notice exposes credential fingerprint")
 			}
-			again, err := Consume(engine, session)
+			again, err := consume(engine, session)
 			if err != nil || again != nil {
 				t.Fatalf("duplicate: %v %v", again, err)
 			}
@@ -91,10 +91,10 @@ func TestEachEngineAndSessionReceivesAdoptionOnce(t *testing.T) {
 	if err := Publish("claude", generation("second")); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := Consume("codex", "session-one"); err != nil || n != nil {
+	if n, err := consume("codex", "session-one"); err != nil || n != nil {
 		t.Fatalf("Claude event leaked into Codex: %v %v", n, err)
 	}
-	if n, err := Consume("claude", "session-one"); err != nil || n == nil {
+	if n, err := consume("claude", "session-one"); err != nil || n == nil {
 		t.Fatalf("missed next Claude generation: %v %v", n, err)
 	}
 }
@@ -110,13 +110,13 @@ func TestPrimeAndRepublishNeverRepeatOldEvent(t *testing.T) {
 	if err := Publish("codex", generation("before")); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := Consume("codex", "new-session"); err != nil || n != nil {
+	if n, err := consume("codex", "new-session"); err != nil || n != nil {
 		t.Fatalf("old event: %v %v", n, err)
 	}
 	if err := Publish("codex", generation("during")); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := Consume("codex", "new-session"); err != nil || n == nil {
+	if n, err := consume("codex", "new-session"); err != nil || n == nil {
 		t.Fatalf("missing active event: %v %v", n, err)
 	}
 }
@@ -127,7 +127,7 @@ func TestCustomCodexHomeScopesNotifications(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CODEX_HOME", t.TempDir())
-	if n, err := Consume("codex", "session"); err != nil || n != nil {
+	if n, err := consume("codex", "session"); err != nil || n != nil {
 		t.Fatalf("foreign account notice: %v %v", n, err)
 	}
 }
@@ -140,7 +140,7 @@ func TestNoticeRejectsUntrustedIdentifiersAndMalformedState(t *testing.T) {
 	if err := Publish("claude", "a token must never be stored here"); err == nil {
 		t.Fatal("non-generation accepted")
 	}
-	if _, err := Consume("claude", "../session"); err == nil {
+	if _, err := consume("claude", "../session"); err == nil {
 		t.Fatal("unsafe session accepted")
 	}
 	dir, _ := paths("claude")
@@ -150,7 +150,7 @@ func TestNoticeRejectsUntrustedIdentifiersAndMalformedState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "current.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := Consume("claude", "session"); err == nil || n != nil {
+	if n, err := consume("claude", "session"); err == nil || n != nil {
 		t.Fatalf("corrupt notice: %v %v", n, err)
 	}
 }
@@ -160,7 +160,7 @@ func TestNoticeFilesArePrivate(t *testing.T) {
 	if err := Publish("claude", generation("private")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Consume("claude", "session"); err != nil {
+	if _, err := consume("claude", "session"); err != nil {
 		t.Fatal(err)
 	}
 	dir, _ := paths("claude")
@@ -187,7 +187,7 @@ func TestPrimeDoesNotNeedPublisherLock(t *testing.T) {
 			if err != nil {
 				t.Fatalf("startup baseline lost under publisher contention: %v", err)
 			}
-			if n, err := Consume(engine, "fresh"); err != nil || n != nil {
+			if n, err := consume(engine, "fresh"); err != nil || n != nil {
 				t.Fatalf("historical notice replayed: %+v %v", n, err)
 			}
 		})
@@ -213,11 +213,11 @@ func TestPrimePinsBaselineAndPreservesConcurrentRotation(t *testing.T) {
 			if err := delivery.Commit(); err != nil {
 				t.Fatal(err)
 			}
-			n, err := Consume(engine, "fresh")
+			n, err := consume(engine, "fresh")
 			if err != nil || n == nil || n.Generation != generation("after") {
 				t.Fatalf("later rotation lost: %+v %v", n, err)
 			}
-			if n, err := Consume(engine, "fresh"); err != nil || n != nil {
+			if n, err := consume(engine, "fresh"); err != nil || n != nil {
 				t.Fatalf("notice replayed: %+v %v", n, err)
 			}
 		})
@@ -242,7 +242,20 @@ func TestPrimeFailsImmediatelyOnSessionContention(t *testing.T) {
 		t.Fatal("Prime blocked startup")
 	}
 	delivery.Abort()
-	if n, err := Consume("codex", "fresh"); err != nil || n == nil {
+	if n, err := consume("codex", "fresh"); err != nil || n == nil {
 		t.Fatalf("failed prime discarded notice: %+v %v", n, err)
 	}
+}
+
+// consume prepares and commits a delivery in one step, as the hook paths do
+// across their two phases.
+func consume(engine, session string) (*Notice, error) {
+	delivery, err := Prepare(engine, session)
+	if err != nil || delivery == nil {
+		return nil, err
+	}
+	if err = delivery.Commit(); err != nil {
+		return nil, err
+	}
+	return &delivery.Notice, nil
 }

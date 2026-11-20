@@ -82,8 +82,13 @@ func ApplyWithWarnings(engine, home string, bundle *Bundle, args []string, warn 
 	for _, path := range paths {
 		all[path] = bundle.Enabled
 	}
+	// Kimi's only target is its own global AGENTS.md; accept exactly that path.
+	kimiAgents := ""
+	if engine == "kimi" {
+		kimiAgents = filepath.Join(home, "AGENTS.md")
+	}
 	for _, path := range old {
-		if !filepath.IsAbs(path) || (filepath.Base(path) != "MEMORY.md" && filepath.Base(path) != "memory_summary.md" && filepath.Base(path) != topicName) {
+		if !filepath.IsAbs(path) || (filepath.Base(path) != "MEMORY.md" && filepath.Base(path) != "memory_summary.md" && filepath.Base(path) != topicName && path != kimiAgents) {
 			return false, errors.New("invalid memory routing ownership path")
 		}
 		if _, ok := all[path]; !ok {

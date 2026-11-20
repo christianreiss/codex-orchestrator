@@ -844,7 +844,7 @@ func TestReplyRejectsPositionalContentBeforeSocketAccess(t *testing.T) {
 	}
 }
 
-func TestProtectedFilesAndInstanceIDRepairPermissions(t *testing.T) {
+func TestProtectedFilesRepairPermissions(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "nested", "state")
 	if err := writeProtectedFile(path, []byte("first")); err != nil {
@@ -868,23 +868,6 @@ func TestProtectedFilesAndInstanceIDRepairPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertMode(t, sharedParent, 0o755)
-
-	t.Setenv("HOME", root)
-	agentDir := filepath.Join(root, ".cxx", "agent")
-	if err := os.MkdirAll(agentDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	instancePath := filepath.Join(agentDir, "instance-id")
-	const instanceID = "44444444-4444-4444-8444-444444444444"
-	if err := os.WriteFile(instancePath, []byte(instanceID+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := loadOrCreateInstanceID()
-	if err != nil || got != instanceID {
-		t.Fatalf("instance id = %q, %v", got, err)
-	}
-	assertMode(t, agentDir, 0o700)
-	assertMode(t, instancePath, 0o600)
 }
 
 func TestNativeAdapterArgumentsKeepPeerContentOnStdin(t *testing.T) {

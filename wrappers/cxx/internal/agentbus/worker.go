@@ -18,7 +18,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"os/user"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1018,35 +1017,6 @@ func parseNativeOutput(engine string, raw []byte) (reply, sessionID string) {
 func isMissingTranscript(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.Contains(lower, "session") && (strings.Contains(lower, "not found") || strings.Contains(lower, "no rollout") || strings.Contains(lower, "does not exist") || strings.Contains(lower, "no conversation found"))
-}
-
-func loadOrCreateInstanceID() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(home, ".cxx", "agent")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, "instance-id")
-	if raw, err := os.ReadFile(path); err == nil {
-		id := strings.TrimSpace(string(raw))
-		if len(id) == 36 {
-			if err := os.Chmod(path, 0o600); err != nil {
-				return "", err
-			}
-			return id, nil
-		}
-	}
-	id := newUUID()
-	if err := writeProtectedFile(path, []byte(id+"\n")); err != nil {
-		return "", err
-	}
-	return id, nil
 }
 
 func workerUsername() (string, error) {

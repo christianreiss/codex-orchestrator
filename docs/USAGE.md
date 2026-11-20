@@ -265,8 +265,8 @@ for the verified compatibility boundary.
 - No local Skill mirror is maintained. `cdx` reads Skills through MCP `skill://{slug}`. `~/.agents/skills`, `${CODEX_HOME:-~/.codex}/skills` and `${CODEX_HOME:-~/.codex}/prompts` belong to the user and are never deleted by the wrapper.
 
 For Claude, `~/.claude/.credentials.json` is the only authoritative local auth
-file. `~/.clx/auth/credentials.json`, when already present, is a compatibility
-write mirror and is never used to recover a missing native file. clx keeps the
+file. The retired `~/.clx/auth/credentials.json` mirror is never read or
+written; clx removes a stale copy on its next credential write. clx keeps the
 stable generation timestamp in `~/.clx/auth/generation.json`.
 
 `cdx login` / `clx auth login` upload their successful native generation.

@@ -16,10 +16,8 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
-	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/update"
 )
 
@@ -28,16 +26,6 @@ const cronPATHEnv = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbi
 // WrapperVersion is the running wrapper's semantic version, set from main.go
 // via ldflags.
 var WrapperVersion = "dev"
-
-// Install and Remove are compatibility adapters. Schedule ownership lives in
-// internal/cron so both personas always mutate the same host-wide entry.
-func Install(cfg *config.Config) error {
-	return hostcron.Install(context.Background(), cfg)
-}
-
-func Remove() error {
-	return hostcron.Remove(context.Background())
-}
 
 // syncManagedContent converges fleet-managed CLAUDE.md, settings, MCP servers,
 // collections and native skills without launching Claude, and without
@@ -73,13 +61,9 @@ type Result struct {
 	Reported       bool
 }
 
-// Tick is the action taken by `clx cron run`.
-func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
-	return TickWithOptions(ctx, cfg, false)
-}
-
-// TickWithOptions is Tick with presentation state carried through unattended
-// self/peer updates. Minimal mode stays portable even after a re-exec.
+// TickWithOptions is the action taken by `clx cron run`. Presentation state
+// (minimal) is carried through unattended self/peer updates and stays portable
+// even after a re-exec.
 func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Result, error) {
 	logger := slog.Default()
 	ensureCronPath()
@@ -259,14 +243,6 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		}
 		res.SyncAction = "failed"
 		syncErr = operatorerror.InStep("Configuration sync", syncErr)
-	}
-
-	// Keep the peer wrapper + engine current too: a dual-engine host must have
-	// all four components (clx, cdx, claude, codex) updated by a single cron
-	// entry. EnsureForCron no-ops when this tick was itself spawned by the
-	// peer (CODEX_ORCH_PEER_SPAWN=1) or when the host has no peer engine.
-	if !hostcron.IsCoordinated() {
-		peer.EnsureForCron(ctx, cfg, minimal, logger)
 	}
 
 	if reportErr != nil {

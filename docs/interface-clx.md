@@ -472,15 +472,14 @@ but this table omits fails the API suite.
 | `CLX_CONFIG_PATH` | Absolute path of the signed host config, ahead of `$XDG_CONFIG_HOME/codex-orchestrator/clx.json` and the `~/.config/...` default. The detached signature is still read from `<path>.sig` |
 | `CLX_CLAUDE_BIN` | Absolute path of the upstream `claude` CLI, used ahead of the path cache and the `claude` / `claude-code` `PATH` lookup. An inaccessible value is an error, not a fallback |
 | `CLX_SKIP_BANNER` | `1` forces the compact ASCII boot screen even on a rich interactive terminal |
-| `CDX_CONFIG_PATH` | Peer reconciliation reads the same override as `cdx` when deciding where to write the peer's signed `cdx.json` |
+| `CDX_CONFIG_PATH` | The shared config loader honours `cdx`'s override wherever `cxx` reads or persists the signed `cdx.json`, for example when the shared cron coordinator refreshes engine configs |
 
-There is no `CLX_CLAUDE_INSTALL_DIR` counterpart to cdx's
-`CDX_CODEX_INSTALL_DIR`: unattended Claude installs use private versioned npm
-prefixes under `~/.cxx/engines/claude`. Other variables affecting a run are
+There is no install-directory override: Claude installs and upgrades use
+private versioned npm prefixes under `~/.cxx/engines/claude`. Other variables affecting a run are
 engine-level rather than wrapper-owned: `CLAUDE_ALLOW_FQDN_MISMATCH`,
 `CLAUDE_FORCE_IPV4` / `CODEX_FORCE_IPV4`, `ANTHROPIC_MODEL` (runtime model
 fallback), the inherited `CLAUDE_CONFIG_DIR` the wrapper strips,
-`CODEX_ORCH_PEER_SPAWN`, and the usual `NO_COLOR` / `TERM` / `COLUMNS`
+and the usual `NO_COLOR` / `TERM` / `COLUMNS`
 presentation variables.
 
 `CXX_BACKGROUND_MAINTENANCE=0` disables launch-triggered detached maintenance
@@ -541,7 +540,7 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
     "listen_enabled": false
   }
   // orchestrator / host / wrapper blocks are identical to cdx; host includes
-  // engines / engines_list for peer reconciliation. host.agent_messaging_enabled
+  // engines / engines_list for the cron coordinator's engine membership. host.agent_messaging_enabled
   // is a retired compatibility field mirroring the effective value, kept only so
   // wrappers older than 0.7.8 keep accepting the config; it gates nothing.
 }
@@ -727,11 +726,9 @@ generation unusable and triggers login when no replacement exists. The
 stronger `candidate_rejected_definitive:true` overwrite authority is honored
 only with `status:outdated`, `verification_state:verified`, and an auth object.
 Invalid native JSON is submitted as digest/state without raw candidate bytes so
-verified canonical auth can repair it. On 404/405/501, legacy fallback preserves a newer
-usable native generation and attempts store; only validation-shaped 400/422
-permits applying the already-retrieved verified canonical. Transient,
-security/policy, and rate failures preserve local auth, while unsafe runner
-rotation (`runner_updated_auth_invalid`, including a refresh saved as pending
+verified canonical auth can repair it. There is no per-resource fallback: a
+404/405/501 from the bundle endpoint is a visible, retryable sync failure. Unsafe
+runner rotation (`runner_updated_auth_invalid`, including a refresh saved as pending
 retry) fails closed on initial and concurrent bundle paths instead of using the
 pre-refresh local token as an offline fallback.
 The runner applies the same native-file boundary as clx itself: before invoking
@@ -755,8 +752,8 @@ that the current IP is not bound and directs the operator to **Admin → Host
 Detail → Release IP binding** for the controlled IP move. Cached credentials
 are never used for this condition.
 When the `clx` lock is already held, the secondary run pauses writes for
-managed `CLAUDE.md`, settings, collections, skills, wrapper/CLI updates, and
-peer reconciliation, but auth still follows the full replacement gate: never
+managed `CLAUDE.md`, settings, collections, skills, and wrapper/CLI updates,
+but auth still follows the full replacement gate: never
 write non-verified auth, preserve newer usable native auth unless the API
 definitively rejects that candidate and serves a verified canonical, then
 require generation CAS plus the active-child writer lease. A blocked required
@@ -778,9 +775,10 @@ newer than the local Claude CLI.
 ### Auth generation, logout, and insecure cleanup
 
 `~/.claude/.credentials.json` is the sole read authority because it is the file
-Claude Code actually consumes. `~/.clx/auth/credentials.json` is only an
-optional write-through compatibility mirror and can never green-light a missing
-native file or resurrect logout. Wrapper-owned
+Claude Code actually consumes. The retired `~/.clx/auth/credentials.json`
+mirror is never read or written, so it can never green-light a missing native
+file or resurrect logout; a stale copy (refresh token included) is unlinked on
+the next credential commit, logout or purge. Wrapper-owned
 `~/.clx/auth/generation.json` binds a stable RFC3339 `last_refresh` to the
 native content digest without injecting wrapper fields into Claude's file.
 Concurrent readers of identical native bytes therefore upload the same
@@ -807,8 +805,7 @@ purge race an orphaned Claude process. Destructive or unconditional writers
 acquire the exclusive side before rename/removal. Server/runner conditional
 writeback may proceed beside an active child: it holds the auth-file lock and
 commits only if the exact pre-request native generation is unchanged, with the native
-file as the final commit point after generation metadata and any existing
-compatibility mirror. Competing responses for the same request generation use
+file as the final commit point after generation metadata. Competing responses for the same request generation use
 the persisted canonical `last_refresh`: a strictly newer response can advance a
 prior wrapper-materialized response, an older response cannot roll it back, and
 equal-stamp/different-content responses fail closed as an ambiguous rotation.
@@ -892,9 +889,9 @@ session delivery lock fails immediately and preserves the pending notice.
 Engine-specific details:
 
 - Credentials are read only from `~/.claude/.credentials.json`. Server-accepted
-  credentials are written there atomically and mirrored to
-  `~/.clx/auth/credentials.json` only when that legacy sidecar already exists;
-  the sidecar is never a fallback source. Before commit, the normalized native
+  credentials are written there atomically. The retired
+  `~/.clx/auth/credentials.json` sidecar is never written or used as a fallback
+  source; a stale copy is removed on the next credential commit. Before commit, the normalized native
   bytes are parsed again and must contain either a non-empty Claude OAuth access
   token or a genuine `sk-ant-api...` key. Empty OAuth plus a derived
   `sk-ant-oat...` bearer is not runnable and is rejected.

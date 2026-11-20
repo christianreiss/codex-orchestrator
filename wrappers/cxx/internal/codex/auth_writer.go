@@ -1034,49 +1034,6 @@ func logoutIntentActiveLocked(path string) (bool, error) {
 	return true, nil
 }
 
-// ClearLogoutIntent acknowledges a later successful login/upload.
-func ClearLogoutIntent() error {
-	return withAuthLock(func(path string) error {
-		err := os.Remove(logoutIntentPath(path))
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		return syncDirectory(filepath.Dir(path))
-	})
-}
-
-// ClearLogoutIntentIfCurrent clears the marker only if the uploaded local
-// generation is still current. A logout that happens while a store request is
-// in flight changes the generation and therefore keeps its newer intent.
-func ClearLogoutIntentIfCurrent(expected AuthGeneration) (bool, error) {
-	cleared := false
-	err := withAuthLock(func(path string) error {
-		current, err := authGenerationAt(path)
-		if err != nil {
-			return err
-		}
-		if current != expected {
-			return nil
-		}
-		err = os.Remove(logoutIntentPath(path))
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if err := syncDirectory(filepath.Dir(path)); err != nil {
-			return err
-		}
-		cleared = true
-		return nil
-	})
-	return cleared, err
-}
-
 // ClearLogoutIntentIfUnchanged clears only the exact marker seen alongside
 // expected auth before a request. A marker created/replaced during the request
 // has a different digest and is preserved.

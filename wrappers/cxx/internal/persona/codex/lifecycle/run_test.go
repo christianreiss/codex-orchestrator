@@ -64,28 +64,6 @@ func TestLaunchArgsForAuthUsesEffectiveLaneWithoutGuessingOffline(t *testing.T) 
 	}
 }
 
-func TestWriteAgentsPropagatesLocalWriteFailure(t *testing.T) {
-	homeFile := filepath.Join(t.TempDir(), "not-a-directory")
-	if err := os.WriteFile(homeFile, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", homeFile)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"data":{"content":"fleet agents"}}`)
-	}))
-	defer server.Close()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, Logger: logger})
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated, err := writeAgents(context.Background(), client)
-	if updated || err == nil {
-		t.Fatalf("writeAgents = (%t, %v), want propagated write failure", updated, err)
-	}
-}
-
 func TestManagedCodexPathsHonorCodexHome(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CODEX_HOME", dir)
@@ -750,99 +728,6 @@ func TestBootstrapConcurrentRepairsUnusableAuthDespiteMatchingGenerationDigest(t
 	}
 	if !codex.IsValidLocalAuth(path) {
 		t.Fatal("concurrent canonical repair did not leave usable Codex credentials")
-	}
-	if err := codex.WriteAuth([]byte(`{"last_refresh":"2026-07-21T12:02:00Z","tokens":{"access_token":""}}`)); err != nil {
-		t.Fatal(err)
-	}
-	seenEmptyDigest = false
-	resp, legacyErr, synced := syncAuthLegacy(context.Background(), client, slog.Default(), true)
-	if legacyErr != nil || !synced || resp == nil {
-		t.Fatalf("concurrent legacy unusable auth repair = resp=%+v synced=%v err=%v", resp, synced, legacyErr)
-	}
-	if !seenEmptyDigest || !codex.IsValidLocalAuth(path) {
-		t.Fatal("legacy concurrent repair did not request and restore usable Codex credentials")
-	}
-}
-
-func TestLegacySyncTwoWayAuthConvergencePolicy(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		storeCode  int
-		errorCode  string
-		wantToken  string
-		wantSynced bool
-		wantUnsafe bool
-	}{
-		{name: "accepted newer candidate converges", storeCode: http.StatusOK, wantToken: "local", wantSynced: true},
-		{name: "transient runner outage preserves newer local", storeCode: http.StatusServiceUnavailable, errorCode: "runner_unreachable", wantToken: "local"},
-		{name: "security denial preserves newer local", storeCode: http.StatusForbidden, errorCode: "engine_disabled", wantToken: "local"},
-		{name: "definitive validation rejection heals from verified canonical", storeCode: http.StatusUnprocessableEntity, errorCode: "validation_failed", wantToken: "canonical", wantSynced: true},
-		{name: "unusable rotated runner writeback fails closed", storeCode: http.StatusServiceUnavailable, errorCode: "runner_updated_auth_invalid", wantToken: "local", wantUnsafe: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			t.Setenv("CODEX_HOME", dir)
-			path, _ := codex.AuthPath()
-			localStamp := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
-			canonicalStamp := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
-			local := json.RawMessage(`{"last_refresh":"` + localStamp + `","tokens":{"access_token":"local"}}`)
-			canonical := json.RawMessage(`{"last_refresh":"` + canonicalStamp + `","tokens":{"access_token":"canonical"}}`)
-			if err := os.WriteFile(path, local, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var request struct {
-					Command string          `json:"command"`
-					Auth    json.RawMessage `json:"auth"`
-				}
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-					t.Errorf("decode request: %v", err)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				if request.Command == "retrieve" {
-					_ = json.NewEncoder(w).Encode(map[string]any{
-						"status": "outdated", "verification_state": "verified", "auth": canonical,
-					})
-					return
-				}
-				if tc.storeCode != http.StatusOK {
-					w.WriteHeader(tc.storeCode)
-					_ = json.NewEncoder(w).Encode(map[string]any{"code": tc.errorCode, "message": tc.errorCode})
-					return
-				}
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"status": "updated", "verification_state": "verified", "auth": request.Auth,
-				})
-			}))
-			defer server.Close()
-			client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, APIKey: "test"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			resp, syncErr, synced := syncAuthLegacy(context.Background(), client, slog.Default(), false)
-			if resp == nil {
-				t.Fatal("legacy sync returned nil response")
-			}
-			if tc.wantUnsafe {
-				if !orchestrator.IsUnsafeRunnerUpdatedAuthError(syncErr) {
-					t.Fatalf("unsafe store error = %v", syncErr)
-				}
-				decision := decideAuth(resp, syncErr, path, true)
-				if decision.Allowed || !strings.Contains(decision.Reason, "superseded") {
-					t.Fatalf("unsafe runner writeback decision = %+v", decision)
-				}
-			} else if syncErr != nil {
-				t.Fatalf("legacy sync error = %v", syncErr)
-			}
-			if synced != tc.wantSynced {
-				t.Fatalf("synced = %v, want %v", synced, tc.wantSynced)
-			}
-			raw, err := os.ReadFile(path)
-			if err != nil || !strings.Contains(string(raw), `"access_token":"`+tc.wantToken+`"`) {
-				t.Fatalf("final auth = %s, %v; want %s", raw, err, tc.wantToken)
-			}
-		})
 	}
 }
 

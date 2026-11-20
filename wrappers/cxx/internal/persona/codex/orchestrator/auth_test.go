@@ -317,65 +317,9 @@ func TestCheckAuthStatusPropagatesRetrieveError(t *testing.T) {
 	}
 }
 
-// TestChatGPTQuotaBackfillsSparkWindow pins the documented server shape: the
-// spark lane's limit/reset values arrive ONLY under the nested `spark_window`
-// object, so the unmarshal-time backfill is what keeps the spark quota bars'
-// reset countdown alive. Flat fields, when a server does emit them, win.
-func TestChatGPTQuotaBackfillsSparkWindow(t *testing.T) {
-	var q ChatGPTQuota
-	raw := []byte(`{"status":"active",` +
-		`"spark_window":{` +
-		`"primary_window":{"used_percent":42,"limit_seconds":18000,"reset_after_seconds":3600,"reset_at":"2026-07-29T12:00:00Z"},` +
-		`"secondary_window":{"used_percent":7,"limit_seconds":604800,"reset_after_seconds":123456,"reset_at":"2026-08-01T00:00:00Z"}}}`)
-	if err := json.Unmarshal(raw, &q); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if q.Status != "active" {
-		t.Fatalf("flat status lost: %#v", q)
-	}
-	if q.SparkPrimaryUsed == nil || *q.SparkPrimaryUsed != 42 ||
-		q.SparkPrimaryLimitSec == nil || *q.SparkPrimaryLimitSec != 18000 ||
-		q.SparkPrimaryResetAfter == nil || *q.SparkPrimaryResetAfter != 3600 ||
-		q.SparkPrimaryResetAt != "2026-07-29T12:00:00Z" {
-		t.Fatalf("spark primary not backfilled: %#v", q)
-	}
-	if q.SparkSecondaryUsed == nil || *q.SparkSecondaryUsed != 7 ||
-		q.SparkSecondaryLimitSec == nil || *q.SparkSecondaryLimitSec != 604800 ||
-		q.SparkSecondaryResetAfter == nil || *q.SparkSecondaryResetAfter != 123456 ||
-		q.SparkSecondaryResetAt != "2026-08-01T00:00:00Z" {
-		t.Fatalf("spark secondary not backfilled: %#v", q)
-	}
-}
-
-// TestChatGPTQuotaFlatSparkValuesWinOverWindow covers the other half of the
-// backfill rule: a server that emits both shapes must not have its explicit
-// flat values overwritten by the nested copy.
-func TestChatGPTQuotaFlatSparkValuesWinOverWindow(t *testing.T) {
-	var q ChatGPTQuota
-	raw := []byte(`{` +
-		`"spark_primary_used_percent":11,"spark_primary_limit_seconds":100,` +
-		`"spark_primary_reset_after_seconds":200,"spark_primary_reset_at":"flat-primary",` +
-		`"spark_secondary_used_percent":22,"spark_secondary_limit_seconds":300,` +
-		`"spark_secondary_reset_after_seconds":400,"spark_secondary_reset_at":"flat-secondary",` +
-		`"spark_window":{` +
-		`"primary_window":{"used_percent":99,"limit_seconds":999,"reset_after_seconds":999,"reset_at":"window-primary"},` +
-		`"secondary_window":{"used_percent":98,"limit_seconds":998,"reset_after_seconds":998,"reset_at":"window-secondary"}}}`)
-	if err := json.Unmarshal(raw, &q); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if *q.SparkPrimaryUsed != 11 || *q.SparkPrimaryLimitSec != 100 ||
-		*q.SparkPrimaryResetAfter != 200 || q.SparkPrimaryResetAt != "flat-primary" {
-		t.Fatalf("flat spark primary clobbered by window: %#v", q)
-	}
-	if *q.SparkSecondaryUsed != 22 || *q.SparkSecondaryLimitSec != 300 ||
-		*q.SparkSecondaryResetAfter != 400 || q.SparkSecondaryResetAt != "flat-secondary" {
-		t.Fatalf("flat spark secondary clobbered by window: %#v", q)
-	}
-}
-
-// TestChatGPTQuotaToleratesMissingSparkWindow covers the normal-lane-only and
-// null-window responses: no window means the spark fields simply stay unset.
-func TestChatGPTQuotaToleratesMissingSparkWindow(t *testing.T) {
+// TestChatGPTQuotaIgnoresRetiredSparkWindow keeps the normal lane decoding
+// when an older server still sends the retired Spark window in any shape.
+func TestChatGPTQuotaIgnoresRetiredSparkWindow(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		raw  string
@@ -392,12 +336,6 @@ func TestChatGPTQuotaToleratesMissingSparkWindow(t *testing.T) {
 			}
 			if q.PrimaryUsed == nil || *q.PrimaryUsed != 2 {
 				t.Fatalf("normal lane lost: %#v", q)
-			}
-			if q.SparkPrimaryUsed != nil || q.SparkPrimaryLimitSec != nil ||
-				q.SparkPrimaryResetAfter != nil || q.SparkPrimaryResetAt != "" ||
-				q.SparkSecondaryUsed != nil || q.SparkSecondaryLimitSec != nil ||
-				q.SparkSecondaryResetAfter != nil || q.SparkSecondaryResetAt != "" {
-				t.Fatalf("spark fields invented without a window: %#v", q)
 			}
 		})
 	}

@@ -270,35 +270,6 @@ func WriteError(component, path string, err error) error {
 	return fmt.Errorf("%s: no space left while writing %s; installation could not complete: %w", component, path, err)
 }
 
-// CheckNpmGlobal also measures the effective privileged npm paths before a
-// legacy sudo retry; command is either npm or sudo -n npm, never shell text.
-func CheckNpmGlobal(ctx context.Context, command []string) error {
-	query := func(args ...string) (string, error) {
-		cmd := exec.CommandContext(ctx, command[0], append(append([]string{}, command[1:]...), args...)...)
-		out, err := cmd.Output()
-		if err != nil {
-			return "", fmt.Errorf("resolve npm write directory: %w", err)
-		}
-		path := strings.TrimSpace(string(out))
-		if !filepath.IsAbs(path) {
-			return "", errors.New("npm returned an invalid write directory")
-		}
-		return path, nil
-	}
-	prefix, err := query("prefix", "-g")
-	if err != nil {
-		return err
-	}
-	cache, err := query("config", "get", "cache")
-	if err != nil {
-		return err
-	}
-	return Ensure(ctx, "npm global install", nil,
-		Need{Path: prefix, Bytes: Package, Inodes: 10000},
-		Need{Path: cache, Bytes: Native, Inodes: 10000},
-		Need{Path: os.TempDir(), Bytes: Wrapper, Inodes: 128})
-}
-
 func (e *Error) Diagnostic() (string, []string) {
 	details := []string{fmt.Sprintf("Location: %s", e.Path), fmt.Sprintf("Space required: %d MiB; available: %d MiB", (e.Required-1)/MiB+1, e.Free/MiB)}
 	if e.InodesKnown && e.RequiredInodes > 0 && e.FreeInodes < e.RequiredInodes {

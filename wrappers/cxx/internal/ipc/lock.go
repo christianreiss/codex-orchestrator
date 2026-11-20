@@ -138,15 +138,10 @@ func Acquire(name string) (*Lock, error) {
 	return acquire(name, syscall.LOCK_EX|syscall.LOCK_NB, true)
 }
 
-// AcquireShared takes a portable shared session lease. Every wrapper process
-// that may read/use auth holds this lease while active; insecure-host cleanup
-// can then prove it is last by releasing its share and trying an exclusive
-// lease. Unlike /proc counting, this works on both Linux and Darwin.
-func AcquireShared(name string) (*Lock, error) {
-	return acquire(name, syscall.LOCK_SH, false)
-}
-
-// TryAcquireShared joins live readers without waiting behind a writer.
+// TryAcquireShared takes a portable shared lease, joining live readers without
+// waiting behind a writer. A holder that later needs to prove it is last
+// releases its share and tries an exclusive lease; unlike /proc counting, this
+// works on both Linux and Darwin.
 func TryAcquireShared(name string) (*Lock, error) {
 	return acquire(name, syscall.LOCK_SH|syscall.LOCK_NB, false)
 }

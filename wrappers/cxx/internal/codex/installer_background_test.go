@@ -49,7 +49,7 @@ func backgroundFixture(t *testing.T, fixture backgroundReleaseFixture) (string, 
 	writeBackgroundExecutable(t, oldCLI, "#!/bin/sh\ncase \"$1\" in -V|--version) echo 'codex 1.0.0'; exit 0;; esac\necho ready\nread ignored\n\"${0%/*}/codex-code-mode-host\" --help\n")
 	writeBackgroundExecutable(t, filepath.Join(bin, codeModeHostBinName), "#!/bin/sh\necho old-companion\n")
 	writeBackgroundExecutable(t, filepath.Join(bin, "npm"), "#!/bin/sh\necho called >> \"$HOME/npm-called\"\nexit 0\n")
-	if err := cacheCodex(oldCLI); err != nil {
+	if err := cacheCodexContext(context.Background(), oldCLI); err != nil {
 		t.Fatal(err)
 	}
 	if fixture.native == "" {
@@ -265,27 +265,6 @@ func TestBackgroundUpgradeCancellationPreservesCache(t *testing.T) {
 	}
 }
 
-func TestExplicitUpdateAdvancesManagedCachedCLI(t *testing.T) {
-	home, _ := backgroundFixture(t, backgroundReleaseFixture{})
-	oldCLI := filepath.Join(home, ".cxx", "engines", "codex", "1.0.0-old", "codex")
-	writeBackgroundExecutable(t, oldCLI, "#!/bin/sh\necho 'codex 1.0.0'\n")
-	if err := cacheCodex(oldCLI); err != nil {
-		t.Fatal(err)
-	}
-	if err := EnsureCodex(context.Background(), "v9.9.9", true, backgroundLogger()); err != nil {
-		t.Fatal(err)
-	}
-	if got := Version(context.Background()); got != "9.9.9" {
-		t.Fatalf("explicit update retained stale cache: %q", got)
-	}
-	if _, err := os.Stat(oldCLI); err != nil {
-		t.Fatalf("explicit update removed running release: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(home, "npm-called")); !os.IsNotExist(err) {
-		t.Fatalf("explicit update used global npm despite managed selection: %v", err)
-	}
-}
-
 func TestBackgroundUpdateRespectsExplicitCLIOverride(t *testing.T) {
 	_, oldCLI := backgroundFixture(t, backgroundReleaseFixture{})
 	t.Setenv("CDX_CODEX_BIN", oldCLI)
@@ -310,7 +289,7 @@ func TestStalePathDiscoveryCannotReplacePublishedRelease(t *testing.T) {
 	}
 	newCLI := filepath.Join(home, ".cxx", "engines", "codex", "9.9.9-ready", "codex")
 	writeBackgroundExecutable(t, newCLI, "#!/bin/sh\necho 'codex 9.9.9'\n")
-	if err := cacheCodex(newCLI); err != nil {
+	if err := cacheCodexContext(context.Background(), newCLI); err != nil {
 		t.Fatal(err)
 	}
 	if got := cacheDiscoveredCodex(discovered); got != newCLI {
@@ -418,7 +397,7 @@ func TestBackgroundCodexCleanupCanMakeRoomWithoutRemovingCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeBackgroundExecutable(t, current, string(body))
-	if err := cacheCodex(current); err != nil {
+	if err := cacheCodexContext(context.Background(), current); err != nil {
 		t.Fatal(err)
 	}
 	stale := filepath.Join(root, "0.1.0-stale")

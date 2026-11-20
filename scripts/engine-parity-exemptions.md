@@ -184,7 +184,6 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/grok/memory_routing_test.go` | Grok-only test/fixture for memory routing test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/native.go` | Grok-only implementation of native; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/native_test.go` | Grok-only test/fixture for native test; Kimi has its own provider path. |
-| `wrappers/cxx/internal/grok/peer.go` | Grok-only implementation of peer; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/preexec.go` | Grok-only implementation of preexec; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/preexec_test.go` | Grok-only test/fixture for preexec test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/private_directory.go` | Grok-only implementation of private directory; Kimi has its own provider path. |
@@ -315,7 +314,6 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/launchpad/obsidian.go` | Grok-only reasoning-engine label and absence of weekly quota; all engine card positions already support Kimi. |
 | `wrappers/cxx/internal/libcselect/reconcile.go` | glibc-before-musl selection is limited to Codex, Claude and Grok, whose providers publish (or may publish) both libc variants. Kimi Code publishes exactly one Linux binary per architecture in its manifest, so there is no libc choice to reconcile. |
 | `wrappers/cxx/internal/maintenance/maintenance_test.go` | Grok-specific native-path and child-environment fixtures, not an engine catalog. |
-| `wrappers/cxx/internal/memoryrouting/routing.go` | Comment mentions Grok private projection; dispatch and Kimi routing live in the engine-specific targets implementation. |
 | `wrappers/cxx/internal/memoryrouting/routing_test.go` | Tests Grok generated memory-v2 index recovery; Kimi has no Grok memory-v2 tree. |
 | `wrappers/cxx/internal/nativeargs/args_test.go` | Pinned Codex/Grok grammar and help oracles; Kimi has a separate native option grammar and tests. |
 | `wrappers/cxx/internal/nativeargs/auth_test.go` | Codex/Grok auth grammar cases; Kimi login/logout grammar is independently tested in kimi_test.go. |
