@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 	"os"
@@ -39,6 +40,16 @@ func receiverMCPOverrides(socket string) ([]string, error) {
 
 // The native TUI and receive adapter share this one app-server process. Its
 // private socket lives beside the already protected portal broker socket.
+// receiverExitError describes a receiver server that ended before opening its
+// socket. A clean exit carries no error to wrap, and formatting nil with %w
+// prints "%!w(<nil>)".
+func receiverExitError(err error) error {
+	if err == nil {
+		return errors.New("native receiver server exited unexpectedly")
+	}
+	return fmt.Errorf("native receiver server exited: %w", err)
+}
+
 func startReceiverServer(ctx context.Context, binary string, args, env []string, session *AuthSession, lease *ipc.Lock, extraLeases ...*ipc.Lock) ([]string, func(), error) {
 	if nativeargs.Has("codex", args, "--remote") {
 		return args, func() {}, fmt.Errorf("existing remote endpoint owns the native session")
@@ -105,7 +116,7 @@ func startReceiverServer(ctx context.Context, binary string, args, env []string,
 		select {
 		case err := <-done:
 			cancel()
-			return args, func() {}, fmt.Errorf("native receiver server exited: %w", err)
+			return args, func() {}, receiverExitError(err)
 		case <-deadline.C:
 			cleanup()
 			return args, func() {}, fmt.Errorf("native receiver server did not open its socket")

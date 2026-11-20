@@ -3,7 +3,10 @@
 From CXX 0.9.188, the [pfSense CE Codex pilot](pfsense-codex-pilot.md) installs the FreeBSD CLI and companion under the invoking user’s private engine prefix. Native execution on the appliance requires a signed full-access posture.
 
 From cxx 0.9.180, `cxx doctor` checks the local PATH commands without loading
-signed config, contacting the API or starting background services. Use
+signed config, contacting the API or starting background services. Its report
+states that scope and points to the installed `cdx`/`clx`/`cgx`/`ckx doctor`
+(all four when none is on PATH) for API reachability, TLS trust and sync, which
+the engine-neutral check does not cover. Use
 `cxx doctor --fix` to repair recognized legacy transition scripts when a stale
 `cdx`, `clx`, `cgx` or `ckx` fails with HTTP 401 despite a current `cxx`.
 Both historical `INSTALL_MODE=shim` and `INSTALL_CONTEXT=transition` formats

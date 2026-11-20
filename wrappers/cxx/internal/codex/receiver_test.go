@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -104,6 +105,47 @@ esac
 	}
 	if _, err := os.Stat(filepath.Join(dir, "codex.sock")); !os.IsNotExist(err) {
 		t.Fatalf("receiver socket remained: %v", err)
+	}
+}
+
+func TestReceiverExitErrorNamesCleanExit(t *testing.T) {
+	clean := receiverExitError(nil)
+	if clean == nil || strings.Contains(clean.Error(), "%!") || clean.Error() != "native receiver server exited unexpectedly" {
+		t.Fatalf("clean exit message: %v", clean)
+	}
+	cause := errors.New("exit status 3")
+	wrapped := receiverExitError(cause)
+	if !errors.Is(wrapped, cause) || wrapped.Error() != "native receiver server exited: exit status 3" {
+		t.Fatalf("failed exit message: %v", wrapped)
+	}
+}
+
+func TestReceiverServerCleanExitBeforeSocketIsReadable(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("CODEX_HOME", filepath.Join(dir, ".codex"))
+	session, err := AcquireAuthSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer FinishAuthSession(session)
+	lease, err := AcquireActiveChild()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	t.Setenv("CXX_AGENT_PORTAL_SOCKET", filepath.Join(dir, "broker.sock"))
+	path := filepath.Join(dir, "native")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	_, cleanup, err := startReceiverServer(context.Background(), path, nil, os.Environ(), session, lease)
+	if err == nil {
+		cleanup()
+		t.Fatal("clean exit before the socket opened must be an error")
+	}
+	if strings.Contains(err.Error(), "%!") || !strings.Contains(err.Error(), "native receiver server exited unexpectedly") {
+		t.Fatalf("clean exit message: %v", err)
 	}
 }
 
