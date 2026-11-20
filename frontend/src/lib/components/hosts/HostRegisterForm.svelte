@@ -13,7 +13,7 @@
     { id: "curl_insecure", key: "2", label: "Skip TLS verification", desc: "For self-signed certificates" },
     { id: "temporary", key: "3", label: "Temporary", desc: "Expires after 2 hours" },
     { id: "vip", key: "4", label: "VIP", desc: "Quota limits only warn" },
-    { id: "daemon", key: "9", label: "Persistent daemon", desc: "Linux/systemd remote sessions" },
+    { id: "daemon", key: "9", label: "Remote sessions (Linux service)", desc: "Start agent sessions from the console" },
   ];
 
   export const HOST_ENGINE_OPTIONS: { id: HostFormEngine; key: string; label: string; desc: string }[] = [
@@ -175,16 +175,6 @@
   }
 </script>
 
-{#snippet kbd(key: string)}
-  {#if showShortcuts}
-    <kbd
-      class="rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-body-sm font-medium text-muted-foreground"
-    >
-      {key}
-    </kbd>
-  {/if}
-{/snippet}
-
 <form
   class="space-y-5"
   onsubmit={(event) => {
@@ -220,7 +210,6 @@
           checked={options.includes(opt.id)}
           onSelect={() => toggleOption(opt.id)}
         >
-          {#snippet badge()}{@render kbd(opt.key)}{/snippet}
         </ChoiceCard>
       {/each}
     </div>
@@ -249,10 +238,10 @@
           checked={selectedEngines.includes(opt.id)}
           onSelect={() => toggleEngine(opt.id)}
         >
-          {#snippet badge()}{@render kbd(opt.key)}{/snippet}
         </ChoiceCard>
       {/each}
     </div>
+    {#if showShortcuts}<p class="text-caption text-muted-foreground">Keys 1-4 and 9 toggle the options, 5-8 the engines.</p>{/if}
     {#if errors.engines}<p id="{idPrefix}-engines-error" class="text-body-sm text-destructive">{errors.engines}</p>{/if}
   </div>
 

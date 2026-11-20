@@ -63,7 +63,7 @@
     <AlertTitle>{skipped.map(label).join(" and ")} {skipped.length === 1 ? "is" : "are"} disabled fleet-wide</AlertTitle>
     <AlertDescription>
       Credentials cannot be seeded while an engine is off. Turn it back on under Engines, then seed it
-      from Accounts or Hosts.
+      from Providers › Accounts.
     </AlertDescription>
   </Alert>
 {/if}
@@ -73,7 +73,7 @@
     <AlertTitle>No engines selected</AlertTitle>
     <AlertDescription>
       Nothing to seed. Everything else still gets configured, and you can add credentials
-      later from Hosts → More → Seed canonical auth.
+      later from Providers → Accounts → Add account.
     </AlertDescription>
   </Alert>
 {:else}

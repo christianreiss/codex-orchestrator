@@ -4,12 +4,15 @@
  * only the detail endpoint knows (fleet version targets) arrive through the
  * optional `versions` context and are skipped when absent.
  *
- * Only what needs an operator counts as a `warning`: a pending access approval.
- * Missing, stale or partial credentials and old versions repair themselves:
- * cxx fetches and seeds auth on the host's next run, so they are `info`
- * (detail page only) and never raise the count.
+ * Only what needs an operator counts as a `warning`: a pending access approval,
+ * a host that is offline, and an open temporary-access window. Missing, stale or
+ * partial credentials and old versions repair themselves: cxx fetches and seeds
+ * auth on the host's next run, so they are `info` (detail page only), render
+ * neutral and never raise the count.
  */
 import {
+  hostLastSeen,
+  hostStatusKind,
   hostCxxWrapperState,
   hostEngines,
   hostHasRequiredAuth,
@@ -17,7 +20,7 @@ import {
 } from "$lib/api/hosts";
 import { engineLabel } from "$lib/constants/engines";
 import type { HostEngine, HostEngineReadinessReason, HostListItem } from "$lib/api/types";
-import { formatDateTime } from "$lib/utils/format";
+import { formatDateTime, relativeTime } from "$lib/utils/format";
 
 /** What the Fix button does. The component owning the page wires each kind. */
 export type AttentionFixKind = "install" | "review-access" | "close-window" | "engines-page";
@@ -37,6 +40,8 @@ export interface AttentionContext {
   pendingApproval?: boolean;
   /** Engines switched off fleet-wide. */
   disabledEngines?: readonly string[];
+  /** Clock for the offline check; defaults to now. */
+  now?: number;
   /** Fleet latest versions, from the detail overview. */
   versions?: Partial<Record<HostEngine, string | null>>;
 }
@@ -69,6 +74,11 @@ export function hostAttention(host: HostListItem, ctx: AttentionContext = {}): A
       hint: "Opens the access requests so you can allow or deny it.",
       fix: "review-access",
     });
+  }
+
+  if (hostStatusKind(host, ctx.now) === "offline") {
+    const seen = hostLastSeen(host);
+    items.push({ id: "offline", tone: "warning", text: seen ? `Offline, last contact ${relativeTime(seen)}` : "Offline, no contact yet" });
   }
 
   if (host.authed === false) {
@@ -112,7 +122,7 @@ export function hostAttention(host: HostListItem, ctx: AttentionContext = {}): A
   if (isInsecureWindowActive(host)) {
     items.push({
       id: "temp-access",
-      tone: "info",
+      tone: "warning",
       text: `Temporary access is open until ${formatDateTime(host.insecure_enabled_until ?? "")}`,
       hint: "Closes the window now.",
       fix: "close-window",
