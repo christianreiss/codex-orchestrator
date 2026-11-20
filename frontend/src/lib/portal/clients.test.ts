@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import type { AgentSessionRow, AgentSessionsResponse } from "../api/agentSessions";
 registerHooks({ resolve(specifier, context, nextResolve) { return nextResolve(specifier === "./presence" ? "./presence.ts" : specifier === "./activity" ? "./activity.ts" : specifier, context); } });
 const modulePath: string = "./clients.ts";
-const { clientClock, isOnlineActiveAgent, roomHasActiveAgent, visibleClients } = await import(modulePath) as typeof import("./clients");
+const { awaitsOperatorAnswer, clientClock, countAwaitingAnswer, isOnlineActiveAgent, roomHasActiveAgent, visibleClients } = await import(modulePath) as typeof import("./clients");
 const NOW = Date.parse("2026-09-08T12:00:00Z");
 function row(id: string, overrides: Partial<AgentSessionRow> = {}): AgentSessionRow {
   return { id, engine: "codex", host_id: 1, host: "crane", username: "operator", cwd: "/repo", status: "active", invocation_kind: "interactive", upstream_session_id: null, active_turn_id: null, active_turn_started_at: null, presence: "listening", relay_ready: true, started_at: new Date(NOW - 60_000).toISOString(), heartbeat_at: new Date(NOW - 5_000).toISOString(), last_event_at: null, ended_at: null, expires_at: null, read_only: false, attention: null, close_requested_at: null, close: null, pending_prompt: null, work: { task: "Inspect auth recovery", branch: "fix/refresh", target_branch: "main", declared_paths: ["api/auth"], worktree_path: "/repo/worktree", address: "agent-1", address_alias: "quiet-fox" }, ...overrides };
@@ -43,6 +43,24 @@ describe("client directory", () => {
     const pending = row("prompt", { pending_prompt: { id: "p", version: 1, question: "Continue?", options: [], created_at: new Date(NOW).toISOString() } });
     assert.deepEqual(visibleClients([pending], { ...options, filter: "attention" }, NOW), [pending]);
     assert.deepEqual(visibleClients([{ ...pending, ended_at: new Date(NOW).toISOString() }], { ...options, filter: "attention" }, NOW), []);
+  });
+  it("counts the agents the Chats list badges as waiting for an answer", () => {
+    const prompt = { id: "p", version: 1, question: "Continue?", options: [], created_at: new Date(NOW).toISOString() };
+    const notice = { since: "x", summary: "Needs a decision" };
+    const rows = [
+      row("asks", { pending_prompt: prompt }),
+      row("notice", { presence: "working", attention: notice }),
+      // A notice with a severity is a warning, not a question.
+      row("warned", { attention: { ...notice, severity: "critical" as const } }),
+      // Not in the Chats list: offline, finished or read-only.
+      row("offline", { presence: "offline", pending_prompt: prompt }),
+      row("ended", { ended_at: new Date(NOW).toISOString(), pending_prompt: prompt }),
+      row("read-only", { read_only: true, pending_prompt: prompt }),
+      row("quiet"),
+    ];
+    assert.equal(countAwaitingAnswer(rows, NOW), 2);
+    assert.equal(awaitsOperatorAnswer(rows[3]!, NOW), true);
+    assert.equal(awaitsOperatorAnswer(rows[4]!, NOW), false);
   });
   it("searches across work identity and filters both engines without mutating source rows", () => {
     const rows = [row("codex"), row("claude", { engine: "claude" })];

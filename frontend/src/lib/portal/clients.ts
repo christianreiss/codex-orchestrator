@@ -24,6 +24,19 @@ export function isOnlineActiveAgent(row: AgentSessionRow, now: number, timings: 
   return presence === "listening" || presence === "working" || presence === "idle";
 }
 
+/**
+ * The Chats "needs you" badge: a session that is not over and carries an open
+ * question, or an operator notice without a severity.
+ */
+export function awaitsOperatorAnswer(row: AgentSessionRow, now: number, timings: PresenceTimings = {}): boolean {
+  return livePresence(row, now, timings) !== "ended" && Boolean(row.pending_prompt || (row.attention && !row.attention.severity));
+}
+
+/** Agents the Chats list shows with that badge; the Overview's "Needs you" count. */
+export function countAwaitingAnswer(rows: AgentSessionRow[], now: number, timings: PresenceTimings = {}): number {
+  return rows.filter((row) => isOnlineActiveAgent(row, now, timings) && awaitsOperatorAnswer(row, now, timings)).length;
+}
+
 export function visibleClients(
   rows: AgentSessionRow[],
   options: { search: string; engine: "all" | "codex" | "claude" | "grok" | "kimi"; filter: ClientFilter; sort: ClientSort },

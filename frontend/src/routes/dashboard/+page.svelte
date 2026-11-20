@@ -1,7 +1,8 @@
 <script lang="ts">
   /**
-   * Overview. Three tabs, one question each: how much quota is left (Provider),
-   * what is installed (Engines), and whether logins still verify (Runner).
+   * Overview. First what is waiting on the operator (Needs you), then three
+   * tabs, one question each: how much quota is left (Provider), what is
+   * installed (Engines), and whether logins still verify (Runner).
    */
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -14,6 +15,7 @@
   import { createRunnerStateQuery } from "$lib/api/runner";
   import { overviewQuery } from "$lib/api/overview";
   import OnboardingNotice from "$lib/components/dashboard/OnboardingNotice.svelte";
+  import NeedsYou from "$lib/components/dashboard/NeedsYou.svelte";
   import UsageTable from "$lib/components/dashboard/UsageTable.svelte";
   import EngineTable from "$lib/components/dashboard/EngineTable.svelte";
   import RunnerStatus from "$lib/components/dashboard/RunnerStatus.svelte";
@@ -75,7 +77,7 @@
   });
 </script>
 
-<PageShell title="Overview" description="Provider quota, installed engines and login verification.">
+<PageShell title="Overview" description="What needs you, then provider usage, engines and login verification.">
   {#snippet actions()}
     {#if updatedAt}
       <span class="text-body-sm text-muted-foreground">{#if fetching}Refreshing…{:else}Updated <Timestamp value={updatedAt} live />{/if}</span>
@@ -98,6 +100,8 @@
         onRetry={() => $overview.refetch()}
       />
     {/if}
+
+    <NeedsYou />
 
     <OnboardingNotice />
 

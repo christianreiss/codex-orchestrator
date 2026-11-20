@@ -476,6 +476,77 @@ test("Overview counts hosts and stored accounts", async ({ page }) => {
   await expect(page.getByText("paused or being removed", { exact: true })).toBeVisible();
 });
 
+test("Overview says calmly when nothing needs you", async ({ page }) => {
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("heading", { name: "Needs you", level: 2 })).toBeVisible();
+  await expect(page.getByText("Nothing needs you right now.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Waiting on you" })).toHaveCount(0);
+  // It sits above the tabs.
+  const needsYou = await page.getByRole("heading", { name: "Needs you", level: 2 }).boundingBox();
+  const tabs = await page.getByRole("tablist").boundingBox();
+  expect(needsYou!.y).toBeLessThan(tabs!.y);
+});
+
+test("Overview lists what needs you, counted like the owning pages and linked to them", async ({ page }) => {
+  const soon = new Date(Date.now() + 600_000).toISOString();
+  const sessions = fixture("/admin/agent-sessions") as { sessions: Record<string, unknown>[] };
+  const asking = { ...sessions.sessions[0], pending_prompt: { id: "p1", version: 1, question: "Merge now?", options: [], created_at: new Date().toISOString() } };
+  const account = (id: number, engine: string, patch: Record<string, unknown>) => ({
+    id, engine, label: `${engine}-${id}`, state: "enabled", verification_state: "verified", verification_reason: null, refresh_state: "idle",
+    verification_checked_at: null, generation: 1, sessions: [],
+    usage: { fetched_at: null, stale: false, short_used_percent: 10, short_resets_at: null, weekly_used_percent: 10, weekly_resets_at: null }, ...patch,
+  });
+  await installFixtures(page, (path) => {
+    if (path === "/admin/insecure-approvals/pending") {
+      return { requests: [{ id: 7, host_id: 1, fqdn: "build-01.example.test", status: "pending", live: true, requested_at: new Date().toISOString(), expires_at: soon }] };
+    }
+    if (path === "/admin/hosts/insecure") {
+      return { count: 1, active: 1, domains: [], domains_active: 0, fleet_window: { open: false, until: null, opened_at: null },
+        hosts: [{ id: 2, fqdn: "build-02.example.test", active: true, insecure_enabled_until: soon, secure: false }] };
+    }
+    if (path === "/admin/agent-sessions") return { ...sessions, sessions: [asking] };
+    if (path === "/admin/runner") return { runner: { configured: true, ready: true, url: "http://runner", detail: "", engines: { codex: { state: "fail" }, claude: { state: "ok" } } } };
+    if (path === "/admin/accounts") {
+      return { accounts: [
+        account(1, "codex", { refresh_state: "login_required" }),
+        account(2, "claude", { usage: { fetched_at: null, stale: false, short_used_percent: 92, short_resets_at: null, weekly_used_percent: 40, weekly_resets_at: null } }),
+        account(3, "claude", {}),
+      ] };
+    }
+    if (path === "/admin/feedback/summary") return { open: 3, in_progress: 1, blocked: 0 };
+  });
+  await page.goto("/admin/dashboard");
+  const list = page.getByRole("list", { name: "Waiting on you" });
+  await expect(list.getByRole("link")).toHaveCount(6);
+  const rows = await list.getByRole("link").evaluateAll((links) =>
+    links.map((link) => [link.textContent?.replace(/\s+/g, " ").trim(), link.getAttribute("href")]));
+  expect(rows).toEqual([
+    ["1 host is waiting for temporary access approval", "/admin/hosts?insecure=1"],
+    ["1 agent is waiting for your answer", "/admin/agents"],
+    ["1 temporary access window is open", "/admin/hosts?insecure=1"],
+    ["1 engine fails login verification", "/admin/dashboard?tab=runner"],
+    ["2 accounts need attention or are near quota 1 needs attention · 1 near quota", "/admin/accounts"],
+    ["3 unclaimed feedback reports", "/admin/reports"],
+  ]);
+  await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
+  // A waiting request opens its own triage box; dismissed, the row still leads to the access panel.
+  await expect(page.getByRole("dialog", { name: "build-01.example.test is asking for access" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await list.getByRole("link", { name: /waiting for temporary access approval/ }).click();
+  await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
+});
+
+test("Overview names a signal it could not read instead of calling the fleet calm", async ({ page }) => {
+  await page.route("**/admin/runner", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ status: "error", message: "Runner proxy down" }) }));
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("alert").filter({ hasText: "Could not check verification runner" })).toBeVisible();
+  await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
+  await page.unroute("**/admin/runner");
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.getByText("Nothing needs you right now.", { exact: true })).toBeVisible();
+});
+
 test("a first-run fleet still enters setup after the background check", async ({ page }) => {
   await installFixtures(page, path => path === "/admin/setup/status" ? {
     ...fixture(path), owner_created: true, hosts: { total: 0, synced: 0 },

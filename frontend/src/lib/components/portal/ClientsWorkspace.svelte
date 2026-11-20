@@ -45,7 +45,7 @@
   import { presenceView } from "$lib/portal/presence";
   import { listTime, visibleTimeline, eventText } from "$lib/portal/grouping";
   import { wsStatus } from "$lib/stores/ws-status";
-  import { clientClock, isOnlineActiveAgent, roomHasActiveAgent, visibleClients } from "$lib/portal/clients";
+  import { awaitsOperatorAnswer, clientClock, isOnlineActiveAgent, roomHasActiveAgent, visibleClients } from "$lib/portal/clients";
   import { watchClientEvents, type ClientFeedState } from "$lib/portal/client-events";
   import type { TimelineSource } from "$lib/portal/types";
   import { reconnectReceiverMutation, agentSessionKeys, agentSessionsQuery, forceCloseMutation, requestCloseMutation, sendMutation, sessionEventsQuery, type AgentSessionRow } from "$lib/api/agentSessions";
@@ -471,7 +471,7 @@
 {#snippet sessionRow(row: AgentSessionRow)}
   {@const view = presenceView(row, serverNow, timings)}
   {@const ended = view.presence === "ended"}
-  {@const awaitingAnswer = !ended && Boolean(row.pending_prompt || (row.attention && !row.attention.severity))}
+  {@const awaitingAnswer = awaitsOperatorAnswer(row, serverNow, timings)}
   <ConversationRow
     id="client-{row.id}"
     engine={row.engine}

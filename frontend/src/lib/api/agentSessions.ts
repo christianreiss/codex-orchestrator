@@ -74,12 +74,17 @@ export const agentSessionKeys = {
   events: (id: string) => ["agent-sessions", "events", id] as const,
 };
 
-export function agentSessionsQuery() {
-  return createQuery<AgentSessionsResponse>({
+/** The session list's query options, for a caller that also needs `enabled`. */
+export function agentSessionsQueryOptions() {
+  return {
     queryKey: agentSessionKeys.list,
-    queryFn: ({ signal }) => boundedGet<AgentSessionsResponse>("/admin/agent-sessions", signal),
+    queryFn: ({ signal }: { signal: AbortSignal }) => boundedGet<AgentSessionsResponse>("/admin/agent-sessions", signal),
     retry: 1,
-  });
+  };
+}
+
+export function agentSessionsQuery() {
+  return createQuery<AgentSessionsResponse>(agentSessionsQueryOptions());
 }
 
 /**
