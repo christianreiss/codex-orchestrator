@@ -83,13 +83,8 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "transport.connected": [[]],
   "transport.resync": [[]],
   "agent_chat.attachment.changed": [["chat-attachments"]],
-  "runner.state.changed": [["runner"]],
   "agent_portal.sessions.changed": [["agent-sessions"], ["topology"], ["hosts"]],
   "agent_session.native_stop": [["agent-sessions"], ["topology"], ["native-stop"]],
-  // Logs
-  "log.created": [["logs"], ["logs", "api"], ["logs", "events"]],
-  "log.updated": [["logs"], ["logs", "events"]],
-
   // Hosts + overview dashboard counters
   // `setup` too: the checklist counts registered and synced hosts, and the
   // installer-progress view in the wizard reads both.
@@ -132,7 +127,6 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.card.claimed": [["projects"]],
   "project.card.released": [["projects"]],
   "project.card.deleted": [["projects"]],
-  "project.board.updated": [["projects"]],
   "project_board.module_toggled": [["projects"], ["projects", "board", "state"]],
   "slop_jobs.module_toggled": [["projects", "slop", "state"]],
   "project_board.claim_force_released": [["projects"]],
@@ -144,16 +138,12 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "skill.deleted": [["skills"]],
   "memory.changed": [["memories"]],
   "memory.created": [["memories"]],
-  "memory.updated": [["memories"]],
-  "memory.appended": [["memories"]],
   "memory.deleted": [["memories"]],
   "project.memory.created": [["memories"], ["projects"]],
   "project.memory.updated": [["memories"], ["projects"]],
   "project.memory.deleted": [["memories"], ["projects"]],
   "shared_memory.changed": [["memories"]],
   "shared_memory.created": [["memories"]],
-  "shared_memory.updated": [["memories"]],
-  "shared_memory.appended": [["memories"]],
   "shared_memory.deleted": [["memories"]],
 
   // Claude artifacts (subagents / slash-commands / output-styles)
@@ -214,7 +204,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "quota.policy.updated": [["settings", "quota-policy"], ["accounts"]],
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
   "host.spawn.state_changed": [["settings", "host-spawn"], ["hosts"]],
-  "settings.changed": [["settings", "speech-input"],["supervisor"], ["settings"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"], ["keys", "kimi", "state"]],
+  "settings.changed": [["settings", "speech-input"],["supervisor"], ["settings"], ["runner"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"], ["keys", "kimi", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the
   // exposed API surfaces; hosts, overview, accounts, setup, messaging and the
   // runner card all render per-engine state that the switch suspends.
@@ -347,7 +337,6 @@ const PROJECT_SCOPED_EVENTS = new Set<string>([
   "project.card.claimed",
   "project.card.released",
   "project.card.deleted",
-  "project.board.updated",
   "project.slop.changed",
 ]);
 
