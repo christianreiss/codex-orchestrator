@@ -5,10 +5,11 @@ import (
 	"strings"
 )
 
-// Generated from the checked-in Kimi Code 2.6.2 help snapshot and versioned commands.ts. Scope matters:
+// Generated from the checked-in Kimi Code 2.7.2 help snapshot and versioned commands.ts. Scope matters:
 // -y is --yolo at the root and --yes under export/fork/update; --host is
-// optional for web/remote but required for vis.
-var kimiCommands = strings.Fields("export fork provider session acp web server rc remote login doctor vis install-desktop app migrate import-sessions upgrade update help exec-server __plugin_run_node __update_download")
+// optional for web/server/remote but required for vis. `server` and
+// `install-app` are hidden commands (absent from root help) in 2.7.x.
+var kimiCommands = strings.Fields("export fork provider session acp web server rc remote login doctor vis install-desktop install-app app migrate import-sessions upgrade update help exec-server __plugin_run_node __update_download")
 var kimiScopedOptions = map[string]map[string]spec{
 	"": {
 		"-V":                {"--version", 0},
@@ -83,12 +84,26 @@ var kimiScopedOptions = map[string]map[string]spec{
 		"--rc":                    {"--rc", 0},
 		"--remote-control":        {"--rc", 0},
 		"--no-open":               {"--no-open", 0},
+		"--json":                  {"--json", 0},
 		"-h":                      {"--help", 0},
 		"--help":                  {"--help", 0},
 	},
 	"server": {
-		"-h":     {"--help", 0},
-		"--help": {"--help", 0},
+		"--port":                  {"--port", required},
+		"--host":                  {"--host", optional},
+		"--allowed-host":          {"--allowed-host", variadic},
+		"--insecure-no-tls":       {"--insecure-no-tls", 0},
+		"--allow-remote-shutdown": {"--allow-remote-shutdown", 0},
+		"--dangerous-bypass-auth": {"--dangerous-bypass-auth", 0},
+		"--log-level":             {"--log-level", required},
+		"--debug-endpoints":       {"--debug-endpoints", 0},
+		"--web-title":             {"--web-title", required},
+		"--rc":                    {"--rc", 0},
+		"--remote-control":        {"--rc", 0},
+		"--open":                  {"--open", 0},
+		"--json":                  {"--json", 0},
+		"-h":                      {"--help", 0},
+		"--help":                  {"--help", 0},
 	},
 	"rc": {
 		"--port":                  {"--port", required},
@@ -211,9 +226,26 @@ var kimiScopedOptions = map[string]map[string]spec{
 		"-h":     {"--help", 0},
 		"--help": {"--help", 0},
 	},
+
+	"server rotate-token": {
+		"-h":     {"--help", 0},
+		"--help": {"--help", 0},
+	},
+
+	// Hidden 2.7.x internal stdio bridge; --probe is a boolean.
+	"server ensure-daemon": {
+		"--probe": {"--probe", 0},
+		"-h":      {"--help", 0},
+		"--help":  {"--help", 0},
+	},
+
+	"install-app": {
+		"-h":     {"--help", 0},
+		"--help": {"--help", 0},
+	},
 }
 var kimi = kimiScopedOptions[""]
-var kimiChildren = map[string]string{"provider": "add remove list catalog help", "provider catalog": "list add help", "session": "list help", "web": "rotate-token", "server": "kill", "doctor": "config tui"}
+var kimiChildren = map[string]string{"provider": "add remove list catalog help", "provider catalog": "list add help", "session": "list help", "web": "rotate-token", "server": "rotate-token kill ensure-daemon", "doctor": "config tui"}
 
 func kimiTable(path string) map[string]spec {
 	table := maps.Clone(kimi)
