@@ -162,3 +162,174 @@ func TestObsidianQuotaAndBlockedNotice(t *testing.T) {
 		t.Fatal("blocked choice not explained")
 	}
 }
+
+// loadDefault delivers the GET that entering a grid started.
+func loadDefault(p *picker, value FleetDefault) {
+	p.Update(fleetMsg{engine: value.Engine, generation: p.fleet[value.Engine].generation, value: value})
+}
+
+func TestFleetDefaultKeyIsAnActionChip(t *testing.T) {
+	rich, minimal := terminalui.Caps{IsTTY: true, UTF8: true}, terminalui.MinimalCaps(terminalui.Caps{})
+	for _, tc := range []struct {
+		caps  terminalui.Caps
+		w, h  int
+		label string
+	}{
+		{rich, 120, 36, " d  set fleet default"},
+		{rich, 80, 24, " d  set fleet default"},
+		{rich, 72, 22, " d  set fleet default"},
+		{rich, 60, 12, "d fleet default"},
+		{minimal, 80, 24, " d  set fleet default"},
+		{minimal, 20, 8, " d "},
+	} {
+		t.Run(fmt.Sprintf("%dx%d/utf8=%v", tc.w, tc.h, tc.caps.UTF8), func(t *testing.T) {
+			p := newPicker([]Engine{codexEngine(), claudeEngine()}, nil, tc.caps)
+			p.defaults = &defaultsFake{}
+			p.Update(tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
+			if strings.Contains(ansi.Strip(p.render()), "fleet default") {
+				t.Fatal("the compass offers d")
+			}
+			press(t, p, "left")
+			lines := strings.Split(ansi.Strip(p.render()), "\n")
+			row := -1
+			for i, line := range lines {
+				if strings.Contains(line, "enter") {
+					row = i
+				}
+			}
+			if row < 0 || !strings.Contains(lines[row], tc.label) || strings.Index(lines[row], tc.label) > strings.LastIndex(lines[row], "q") {
+				t.Fatalf("d is not a chip between the launch keys and quit:\n%s", strings.Join(lines, "\n"))
+			}
+			for _, line := range lines[row+1:] {
+				if strings.Contains(line, "set fleet default") || strings.Contains(line, "Set as fleet default") || strings.Contains(line, "d fleet default") {
+					t.Fatalf("d hint is still on the navigation row: %q", line)
+				}
+			}
+		})
+	}
+}
+
+func TestFleetDefaultMarkedAwayFromCursor(t *testing.T) {
+	for _, tc := range []struct {
+		caps terminalui.Caps
+		w, h int
+		star string
+	}{
+		{terminalui.Caps{IsTTY: true, UTF8: true}, 120, 36, "★"},
+		{terminalui.Caps{IsTTY: true, UTF8: true, NoColor: true}, 80, 24, "★"}, // never colour alone
+		{terminalui.Caps{IsTTY: true, UTF8: true}, 72, 22, "★"},
+		{terminalui.MinimalCaps(terminalui.Caps{}), 80, 24, "*"},
+	} {
+		t.Run(fmt.Sprintf("%dx%d/utf8=%v/nocolor=%v", tc.w, tc.h, tc.caps.UTF8, tc.caps.NoColor), func(t *testing.T) {
+			p := newPicker([]Engine{codexEngine(), claudeEngine()}, nil, tc.caps)
+			p.defaults = &defaultsFake{}
+			p.Update(tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
+			press(t, p, "left")
+			loadDefault(p, FleetDefault{Engine: "codex", Model: "gpt-6.1-sol", Effort: "high"})
+			find := func(view, needle string) string {
+				for _, line := range strings.Split(view, "\n") {
+					if strings.Contains(line, needle) {
+						return line
+					}
+				}
+				t.Fatalf("%q missing:\n%s", needle, view)
+				return ""
+			}
+			// Cursor on gpt-6-astra/medium: the default row is marked anyway, the
+			// cursor row and the cursor model's efforts are not.
+			view := ansi.Strip(p.render())
+			if !strings.Contains(view, "gpt-6.1-sol "+tc.star) || strings.Contains(find(view, "gpt-6-astra"), tc.star) {
+				t.Fatalf("default model not marked away from the cursor:\n%s", view)
+			}
+			if strings.Contains(find(view, "[medium]"), tc.star) {
+				t.Fatalf("marked an effort of a model that is not the fleet default:\n%s", view)
+			}
+			// The card names the pair; ★ is explained in words, in the card or,
+			// on a narrow card, on the navigation row.
+			if !strings.Contains(view, "gpt-6.1-sol "+p.glyphs().dot+" high") || !strings.Contains(view, tc.star+" fleet default") {
+				t.Fatalf("pair or legend missing:\n%s", view)
+			}
+			// On the default model the default effort is marked beside the cursor,
+			// and on the cursor once both match.
+			press(t, p, "up")
+			if view = ansi.Strip(p.render()); !strings.Contains(find(view, "[medium]"), " high"+tc.star) {
+				t.Fatalf("default effort not marked:\n%s", view)
+			}
+			press(t, p, "right")
+			if view = ansi.Strip(p.render()); !strings.Contains(view, "[high]"+tc.star) || !p.isFleetDefault() {
+				t.Fatalf("selected default effort not marked:\n%s", view)
+			}
+		})
+	}
+}
+
+func TestHubCardsShowKnownFleetDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		caps       terminalui.Caps
+		w, h       int
+		codex      string
+		needLegend bool
+	}{
+		{terminalui.Caps{IsTTY: true, UTF8: true}, 120, 36, "★ fleet default  gpt-6.1-sol · high", false},
+		{terminalui.Caps{IsTTY: true, UTF8: true}, 80, 24, "★ gpt-6.1-sol · high", true},
+		{terminalui.Caps{IsTTY: true, UTF8: true}, 72, 22, "★ fleet default  gpt-6.1-sol · high", false},
+		{terminalui.MinimalCaps(terminalui.Caps{}), 80, 24, "* fleet default  gpt-6.1-sol - high", false},
+	} {
+		t.Run(fmt.Sprintf("%dx%d/utf8=%v", tc.w, tc.h, tc.caps.UTF8), func(t *testing.T) {
+			p := newPicker([]Engine{codexEngine(), claudeEngine()}, nil, tc.caps)
+			p.defaults = &defaultsFake{}
+			p.Update(tea.WindowSizeMsg{Width: tc.w, Height: tc.h})
+			star := p.glyphs().star
+			if view := ansi.Strip(p.render()); strings.Contains(view, star+" ") {
+				t.Fatalf("cold compass shows a default:\n%s", view)
+			}
+			// Visit both grids: Codex's default differs from its card choice,
+			// Claude's matches it.
+			press(t, p, "left")
+			loadDefault(p, FleetDefault{Engine: "codex", Model: "gpt-6.1-sol", Effort: "high"})
+			press(t, p, "esc", "right")
+			loadDefault(p, FleetDefault{Engine: "claude", Model: "claude-opus-5-5", Effort: "high"})
+			press(t, p, "esc", "left", "esc")
+			if p.stage != stageHub || p.focus != 0 {
+				t.Fatal("not back on the compass with Codex focused")
+			}
+			view := ansi.Strip(p.render())
+			if !strings.Contains(view, tc.codex) || strings.Count(view, star+" fleet default") < 1 {
+				t.Fatalf("hub defaults missing:\n%s", view)
+			}
+			legend := false
+			for _, line := range strings.Split(view, "\n") {
+				legend = legend || (strings.Contains(line, "engine") && strings.Contains(line, star+" fleet default"))
+			}
+			if legend != tc.needLegend {
+				t.Fatalf("legend=%v, want %v:\n%s", legend, tc.needLegend, view)
+			}
+		})
+	}
+}
+
+func TestMinimalLaunchpadStaysASCII(t *testing.T) {
+	states := map[string]func(*picker){
+		"hub": func(p *picker) {},
+		"grid": func(p *picker) {
+			press(t, p, "left")
+			loadDefault(p, FleetDefault{Engine: "codex", Model: "gpt-6.1-sol", Effort: "high"})
+		},
+		"loading":     func(p *picker) { press(t, p, "left") },
+		"saving":      func(p *picker) { press(t, p, "left"); p.saveFleet() },
+		"unavailable": func(p *picker) { press(t, p, "left"); p.fleet["codex"].unavailable = true },
+	}
+	for name, setup := range states {
+		for _, size := range [][2]int{{80, 24}, {60, 12}, {30, 10}, {20, 8}, {20, 5}} {
+			p := newPicker([]Engine{codexEngine(), claudeEngine(), grokEngine()}, nil, terminalui.MinimalCaps(terminalui.Caps{}))
+			p.defaults = &defaultsFake{}
+			p.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			setup(p)
+			for _, r := range p.render() {
+				if r > 127 {
+					t.Fatalf("%s %v: non-ASCII %q in minimal output:\n%s", name, size, r, p.render())
+				}
+			}
+		}
+	}
+}
