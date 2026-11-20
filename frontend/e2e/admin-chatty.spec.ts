@@ -273,7 +273,7 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
   await expect(danger.getByText('The state has changed', { exact: false })).toBeVisible();
   expect(posts).toHaveLength(1);
   await go.click();
-  await expect.poll(() => posts.at(-1)).toEqual({ path: '/admin/hosts/1/engines', body: { engines: ['claude', 'grok'] } });
+  await expect.poll(() => posts.at(-1)).toEqual({ path: '/admin/hosts/1/engines', body: { engines: ['claude', 'grok', 'kimi'] } });
   await expect(panel.getByText(`Disable Codex on ${host}: done`)).toBeVisible();
   // Outcome lines sit on the answer background; scan them once the confirmation has closed.
   await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
