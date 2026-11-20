@@ -24,7 +24,7 @@ func TestSyncWithMemoryRoutingLeavesUnchangedAgentsAlone(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	home := filepath.Join(t.TempDir(), "native")
 	t.Setenv("KIMI_CODE_HOME", home)
-	const agents = "# Fleet instructions\nRead skills through MCP.\n"
+	agents := "# Fleet instructions\nRead skills through MCP.\n"
 	const reminder = "Use shared_memory_search over MCP"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -85,5 +85,20 @@ func TestSyncWithMemoryRoutingLeavesUnchangedAgentsAlone(t *testing.T) {
 	after, err := os.ReadFile(path)
 	if err != nil || string(after) != string(raw) {
 		t.Fatalf("AGENTS.md changed: %q err=%v", after, err)
+	}
+
+	// Changed instructions are written once, beneath the existing reminder.
+	agents = "# Fleet instructions\nRevised.\n"
+	third, err := syncMeasuredManaged(context.Background(), cfg, client)
+	if err != nil {
+		t.Fatalf("third sync: %v", err)
+	}
+	if !third.Config.Updated {
+		t.Fatal("changed instructions were not reported as updated")
+	}
+	revised, err := os.ReadFile(path)
+	want := strings.TrimSuffix(string(raw), "# Fleet instructions\nRead skills through MCP.\n") + agents
+	if err != nil || string(revised) != want {
+		t.Fatalf("AGENTS.md after changed instructions = %q, want %q (err=%v)", revised, want, err)
 	}
 }

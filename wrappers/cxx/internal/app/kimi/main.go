@@ -523,17 +523,21 @@ func syncMeasuredManagedWith(ctx context.Context, cfg *config.Config, client *or
 	if body := bundle.Agents; len(body) > 0 {
 		digest := sha256.Sum256(body)
 		// An enabled memory reminder is a separately owned prefix of this same
-		// file: compare the instructions without it, as doctor does, and let
-		// memory routing alone settle the reminder below.
+		// file: compare the instructions without it, as doctor does, keep the
+		// existing reminder when the instructions change, and let memory routing
+		// alone settle the reminder below.
 		onDisk := documentDigest(filepath.Join(home, "AGENTS.md"))
+		var reminder []byte
 		if bundle.MemoryRouting != nil && bundle.MemoryRouting.Enabled {
 			if raw, err := os.ReadFile(filepath.Join(home, "AGENTS.md")); err == nil {
-				stripped := sha256.Sum256(withoutMemoryReminder(raw))
+				instructions := withoutMemoryReminder(raw)
+				reminder = raw[:len(raw)-len(instructions)]
+				stripped := sha256.Sum256(instructions)
 				onDisk = hex.EncodeToString(stripped[:])
 			}
 		}
 		if onDisk != hex.EncodeToString(digest[:]) {
-			if err := native.AtomicWrite(filepath.Join(home, "AGENTS.md"), body, 0o600); err != nil {
+			if err := native.AtomicWrite(filepath.Join(home, "AGENTS.md"), append(append([]byte{}, reminder...), body...), 0o600); err != nil {
 				return summary, err
 			}
 			summary.Config.Updated = true
