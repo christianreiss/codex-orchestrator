@@ -1,0 +1,20 @@
+CDX DOCTOR | <when>
+CHECKS
+WARN DEPS      | missing: curl
+OK   PATHS     | codex=<bin>/codex; wrapper=<exe>
+WARN LAUNCHERS | canonical cxx unavailable: <exe>
+FAIL AUTH      | invalid auth.json (no usable Codex token)
+OK   CONFIG    | path=<home>/.codex/config.toml; 48 bytes; updated <1m
+OK   MCP       | configured
+WARN SYNC      | auth=outdated
+OK   API       | reachable (http 200)
+OK   LATENCY   | <latency>
+OK   DISK      | <n>MB free
+<cron row>
+OK   SSH ENV   | session=local; TERM=xterm-golden
+OK   CLI       | codex=0.99.1; wrapper=1.2.3; <os>/<arch>
+GUIDANCE
+WARN HINT 1    | Install curl; some side-features need it.
+WARN HINT 2    | Repair recognized legacy PATH launchers with `cxx doctor --fix`; this works without API access.
+VERDICT
+FAIL RESULT    | 1 check failed

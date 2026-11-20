@@ -5,19 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/pelletier/go-toml"
 
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launcherdoctor"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
@@ -27,7 +22,7 @@ import (
 // Returns nil if every row is OK/warn; returns an error if any row is fail.
 // minimal forces the stable ASCII report even when w is a capable TTY.
 func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion string, minimal bool) error {
-	caps := doctorCaps(ui.DetectCapsFor(w, themeFromConfig(cfg)), minimal)
+	caps := launcherdoctor.Caps(ui.DetectCapsFor(w, launcherdoctor.Theme(cfg)), minimal)
 	report := ui.DoctorReport{
 		Engine: "cdx",
 		When:   time.Now(),
@@ -35,16 +30,11 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 	hints := []string{}
 
 	// Deps
-	report.Rows = append(report.Rows, checkDeps(&hints))
+	report.Rows = append(report.Rows, launcherdoctor.DepsRow(&hints, ui.ToneWarn, "Install %s; some side-features need it."))
 
 	// Paths
 	report.Rows = append(report.Rows, checkPaths())
-	exe, _ := os.Executable()
-	launcherRow := launcherdoctor.Row(ctx, exe, []string{config.EngineCodex}, false)
-	report.Rows = append(report.Rows, launcherRow)
-	if launcherRow.Tone != ui.ToneOK {
-		hints = append(hints, "Repair recognized legacy PATH launchers with `cxx doctor --fix`; this works without API access.")
-	}
+	report.Rows = append(report.Rows, launcherdoctor.LauncherRow(ctx, config.EngineCodex, &hints))
 
 	// Auth
 	report.Rows = append(report.Rows, checkAuth())
@@ -68,137 +58,31 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 	}
 
 	// Disk
-	report.Rows = append(report.Rows, checkDisk())
+	if dir, err := CodexHome(); err != nil {
+		report.Rows = append(report.Rows, ui.DoctorRow{Label: "Disk", Tone: ui.ToneFail, Value: err.Error()})
+	} else {
+		report.Rows = append(report.Rows, launcherdoctor.DiskRow(dir))
+	}
 
 	// Cron
-	report.Rows = append(report.Rows, checkCron(cfg))
+	report.Rows = append(report.Rows, launcherdoctor.CronRow("cdx"))
 
 	// SSH env
-	report.Rows = append(report.Rows, checkSSHEnv())
+	report.Rows = append(report.Rows, launcherdoctor.SSHEnvRow())
 
 	// CLI
 	report.Rows = append(report.Rows, checkCLI(ctx, cfg, wrapperVersion))
 
-	// Result — tallied from EVERY appended row so no check is silently dropped
-	// from the verdict. (Sync/Disk/Cron/Paths were previously omitted from the
-	// tally, so a red Disk row would still print "all checks passed" and exit 0,
-	// contradicting this function's contract.)
-	failures, worst := tallyRows(report.Rows)
-
-	switch {
-	case failures > 0:
-		report.Result = ui.DoctorRow{
-			Label: "Result",
-			Tone:  ui.ToneFail,
-			Value: doctorFailureSummary(failures),
-		}
-	case worst == ui.ToneWarn:
-		report.Result = ui.DoctorRow{Label: "Result", Tone: ui.ToneWarn, Value: "checks passed with warnings"}
-	default:
-		report.Result = ui.DoctorRow{Label: "Result", Tone: ui.ToneOK, Value: "all checks passed"}
-	}
-	report.Hints = hints
-
-	ui.PrintDoctor(w, caps, report)
-	if failures > 0 {
-		return fmt.Errorf("%d doctor checks failed", failures)
-	}
-	return nil
+	return launcherdoctor.Finish(w, caps, report, hints)
 }
 
-func doctorCaps(caps ui.Caps, minimal bool) ui.Caps {
-	if minimal {
-		return ui.MinimalCaps(caps)
-	}
-	return caps
-}
+var doctorEngine = launcherdoctor.Engine{CLI: "codex", FindCLI: FindCLI, Version: Version}
 
-// tallyRows reduces a set of report rows to (failure count, worst tone). It is
-// the single source of truth for the doctor verdict so that every row a check
-// appends is counted — adding a new row can never again be forgotten in a
-// separate per-row bump call.
-func tallyRows(rows []ui.DoctorRow) (failures int, worst ui.Tone) {
-	worst = ui.ToneOK
-	for _, row := range rows {
-		switch row.Tone {
-		case ui.ToneFail:
-			failures++
-			worst = ui.ToneFail
-		case ui.ToneWarn:
-			if worst != ui.ToneFail {
-				worst = ui.ToneWarn
-			}
-		}
-	}
-	return failures, worst
-}
-
-func checkDeps(hints *[]string) ui.DoctorRow {
-	available := []string{}
-	missing := []string{}
-	tone := ui.ToneOK
-	for _, dep := range []string{"curl"} {
-		if _, err := exec.LookPath(dep); err != nil {
-			missing = append(missing, dep)
-			if tone != ui.ToneFail {
-				tone = ui.ToneWarn
-			}
-			*hints = append(*hints, fmt.Sprintf("Install %s; some side-features need it.", dep))
-		} else {
-			available = append(available, dep)
-		}
-	}
-	return ui.DoctorRow{Label: "Deps", Tone: tone, Value: dependencySummary(available, missing)}
-}
-
-func checkPaths() ui.DoctorRow {
-	tone := ui.ToneOK
-	parts := make([]string, 0, 2)
-	if codexBin, err := FindCLI(); err != nil {
-		tone = ui.ToneFail
-		parts = append(parts, "codex unavailable: "+err.Error())
-	} else {
-		parts = append(parts, "codex="+codexBin)
-	}
-	if exe, err := os.Executable(); err != nil {
-		tone = ui.ToneFail
-		parts = append(parts, "wrapper unavailable: "+err.Error())
-	} else {
-		parts = append(parts, "wrapper="+exe)
-	}
-	return ui.DoctorRow{
-		Label: "Paths",
-		Tone:  tone,
-		Value: strings.Join(parts, "; "),
-	}
-}
+func checkPaths() ui.DoctorRow { return doctorEngine.PathsRow() }
 
 func checkAuth() ui.DoctorRow {
 	p, err := AuthPath()
-	if err != nil {
-		return ui.DoctorRow{Label: "Auth", Tone: ui.ToneFail, Value: err.Error()}
-	}
-	st, err := os.Stat(p)
-	if errors.Is(err, os.ErrNotExist) {
-		return ui.DoctorRow{Label: "Auth", Tone: ui.ToneWarn, Value: "missing (will sync on next run)"}
-	}
-	if err != nil {
-		return ui.DoctorRow{Label: "Auth", Tone: ui.ToneFail, Value: err.Error()}
-	}
-	if !IsValidLocalAuth(p) {
-		return ui.DoctorRow{Label: "Auth", Tone: ui.ToneFail, Value: "invalid auth.json (no usable Codex token)"}
-	}
-	age := time.Since(st.ModTime())
-	freshness := "fresh"
-	tone := ui.ToneOK
-	switch {
-	case age > 7*24*time.Hour:
-		freshness = "stale"
-		tone = ui.ToneWarn
-	case age > 24*time.Hour:
-		freshness = "recent"
-	}
-	return ui.DoctorRow{Label: "Auth", Tone: tone, Value: fmt.Sprintf("%s (%s ago)", freshness, ui.DurationShort(age))}
+	return launcherdoctor.AuthRow(p, err, IsValidLocalAuth, "invalid auth.json (no usable Codex token)")
 }
 
 func checkConfig() ui.DoctorRow {
@@ -257,13 +141,6 @@ func checkMCP(hints *[]string) ui.DoctorRow {
 }
 
 func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorRow, ui.Tone, string) {
-	apiTone := ui.ToneFail
-	apiValue := "unreachable"
-	latTone := ui.ToneFail
-	latValue := "-"
-	syncTone := ui.ToneFail
-	syncDetail := "no orchestrator response"
-
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -274,195 +151,30 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 			ui.DoctorRow{Label: "Latency", Tone: ui.ToneFail, Value: "-"},
 			ui.ToneFail, err.Error()
 	}
-
-	t0 := time.Now()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, cfg.Orchestrator.BaseURL+"/versions", nil)
-	resp, err := client.Do(ctx, req, 0)
-	d := time.Since(t0)
-	if err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-			apiTone = ui.ToneOK
-			apiValue = fmt.Sprintf("reachable (http %d)", resp.StatusCode)
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-			levels := communicator.ParseAPILevels(body)
-			if note := communicator.APINote(levels); note != "" {
-				apiValue += " · " + note
-				if communicator.APIPolicy(communicator.APIVersion, levels) == communicator.APIStateUpdateRequired {
-					apiTone = ui.ToneWarn
-				}
-			}
-		} else {
-			apiValue = fmt.Sprintf("unhealthy response (http %d)", resp.StatusCode)
-		}
-		latTone = ui.ToneOK
-		latValue = d.Truncate(time.Millisecond).String()
-		switch {
-		case d > 5*time.Second:
-			latTone = ui.ToneFail
-		case d > 2*time.Second:
-			latTone = ui.ToneWarn
-		}
-	} else {
-		apiValue = err.Error()
-	}
+	apiRow, latRow := launcherdoctor.ProbeAPI(ctx, cfg.Orchestrator.BaseURL, client.Do)
 
 	// Auth-retrieve probe for sync digest match
 	digest, _ := LocalDigest()
-	if ar, err := client.AuthRetrieve(ctx, digest); err == nil {
-		syncDetail = fmt.Sprintf("auth=%s", ar.Status)
-		var secure *bool
-		if ar.Host != nil {
-			value := ar.Host.Secure
-			secure = &value
-		}
-		if securityErr := UpdateActiveAuthSessionSecurity(ar.Status, secure); securityErr != nil {
-			syncTone = ui.ToneFail
-			syncDetail = "auth session security update failed: " + securityErr.Error()
-			return ui.DoctorRow{Label: "API", Tone: apiTone, Value: apiValue},
-				ui.DoctorRow{Label: "Latency", Tone: latTone, Value: latValue},
-				syncTone, syncDetail
-		}
-		switch strings.ToLower(ar.Status) {
-		case "valid", "current", "ok":
-			syncTone = ui.ToneOK
-		case "outdated", "updated", "missing", "upload_required":
-			syncTone = ui.ToneWarn
-		default:
-			syncTone = ui.ToneFail
-		}
-	} else {
-		syncDetail = "auth probe failed: " + err.Error()
-	}
-
-	return ui.DoctorRow{Label: "API", Tone: apiTone, Value: apiValue},
-		ui.DoctorRow{Label: "Latency", Tone: latTone, Value: latValue},
-		syncTone, syncDetail
-}
-
-func checkDisk() ui.DoctorRow {
-	dir, err := CodexHome()
+	ar, err := client.AuthRetrieve(ctx, digest)
 	if err != nil {
-		return ui.DoctorRow{Label: "Disk", Tone: ui.ToneFail, Value: err.Error()}
+		return apiRow, latRow, ui.ToneFail, "auth probe failed: " + err.Error()
 	}
-	_ = os.MkdirAll(dir, 0o700)
-	capacity, err := installspace.Inspect(dir)
-	if err != nil {
-		return ui.DoctorRow{Label: "Disk", Tone: ui.ToneWarn, Value: err.Error()}
+	var secure *bool
+	if ar.Host != nil {
+		value := ar.Host.Secure
+		secure = &value
 	}
-	freeMB := capacity.Bytes / installspace.MiB
-	tone := ui.ToneOK
-	switch {
-	case freeMB < 500:
-		tone = ui.ToneFail
-	case freeMB < 1000:
-		tone = ui.ToneWarn
+	if securityErr := UpdateActiveAuthSessionSecurity(ar.Status, secure); securityErr != nil {
+		return apiRow, latRow, ui.ToneFail, "auth session security update failed: " + securityErr.Error()
 	}
-	return ui.DoctorRow{Label: "Disk", Tone: tone, Value: fmt.Sprintf("%dMB free", freeMB)}
-}
-
-func checkCron(cfg *config.Config) ui.DoctorRow {
-	// System-mode install lives in /etc/cron.d/ and runs as root — that's the
-	// preferred placement on hosts where the binary is system-owned, so look
-	// for it before falling back to the per-user crontab.
-	if _, err := os.Stat("/etc/cron.d/cxx-managed"); err == nil {
-		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed (system /etc/cron.d/cxx-managed)"}
-	}
-	out, err := exec.Command("crontab", "-l").Output()
-	if err != nil {
-		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneWarn, Value: "no crontab"}
-	}
-	if strings.Contains(string(out), "# cxx-managed-cron") {
-		return ui.DoctorRow{Label: "Cron", Tone: ui.ToneOK, Value: "installed (user crontab)"}
-	}
-	return ui.DoctorRow{Label: "Cron", Tone: ui.ToneWarn, Value: "not installed (run `cdx cron install`)"}
-}
-
-func checkSSHEnv() ui.DoctorRow {
-	session := "local"
-	if os.Getenv("SSH_TTY") != "" || os.Getenv("SSH_CONNECTION") != "" {
-		session = "ssh"
-	}
-	parts := []string{"session=" + session, "TERM=" + os.Getenv("TERM")}
-	if v := os.Getenv("TERM_PROGRAM"); v != "" {
-		parts = append(parts, "TERM_PROGRAM="+v)
-	}
-	return ui.DoctorRow{Label: "SSH env", Tone: ui.ToneOK, Value: strings.Join(parts, "; ")}
+	return apiRow, latRow, launcherdoctor.SyncTone(ar.Status), fmt.Sprintf("auth=%s", ar.Status)
 }
 
 func checkCLI(ctx context.Context, cfg *config.Config, runningWrapperVersion string) ui.DoctorRow {
-	verCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	tone := ui.ToneOK
-	codexDetail := ""
-	if _, err := FindCLI(); err != nil {
-		tone = ui.ToneFail
-		codexDetail = "codex unavailable: " + err.Error()
-	} else if codexVer := strings.TrimSpace(Version(verCtx)); codexVer == "" || strings.EqualFold(codexVer, "unknown") {
-		tone = ui.ToneWarn
-		codexDetail = "codex=unknown (version probe failed)"
-	} else {
-		codexDetail = "codex=" + codexVer
-	}
-	wrapperVer := strings.TrimSpace(runningWrapperVersion)
-	if cfg != nil {
-		wrapperVer = strDef(wrapperVer, cfg.Wrapper.Version)
-	}
-	if strings.TrimSpace(wrapperVer) == "" && tone == ui.ToneOK {
-		tone = ui.ToneWarn
-	}
-	return ui.DoctorRow{
-		Label: "CLI",
-		Tone:  tone,
-		Value: fmt.Sprintf("%s; wrapper=%s; %s/%s",
-			codexDetail, strDef(wrapperVer, "unknown"),
-			runtime.GOOS, runtime.GOARCH),
-	}
+	return doctorEngine.CLIRow(ctx, cfg, runningWrapperVersion)
 }
 
-func dependencySummary(available, missing []string) string {
-	parts := make([]string, 0, 2)
-	if len(available) > 0 {
-		parts = append(parts, "available: "+strings.Join(available, ", "))
-	}
-	if len(missing) > 0 {
-		parts = append(parts, "missing: "+strings.Join(missing, ", "))
-	}
-	return strings.Join(parts, "; ")
-}
-
-func doctorFailureSummary(failures int) string {
-	if failures == 1 {
-		return "1 check failed"
-	}
-	return fmt.Sprintf("%d checks failed", failures)
-}
-
-func strDef(s, d string) string {
-	if strings.TrimSpace(s) == "" {
-		return d
-	}
-	return s
-}
-
-func themeFromConfig(cfg *config.Config) string {
-	if cfg == nil || cfg.EngineOptions.AdminThemeHint == nil {
-		return ""
-	}
-	return *cfg.EngineOptions.AdminThemeHint
-}
-
-// engineSuspensionRow reports the fleet engine master switch: the server's
-// live refusal when the auth probe was answered, otherwise the signed config.
-// A positive answer means the engine is back on, so a stale config is ignored.
+// engineSuspensionRow reports the fleet engine master switch.
 func engineSuspensionRow(cfg *config.Config, syncDetail string) (ui.DoctorRow, string, bool) {
-	status, answered := strings.CutPrefix(syncDetail, "auth=")
-	switch {
-	case answered && strings.EqualFold(strings.TrimSpace(status), orchestrator.AuthStatusSuspended):
-	case !answered && cfg.EngineSuspended(config.EngineCodex):
-	default:
-		return ui.DoctorRow{}, "", false
-	}
-	hint := config.FleetDisabledMessage(config.EngineCodex) + " Launches and maintenance are paused until it is switched back on; nothing on this host needs repair."
-	return ui.DoctorRow{Label: "Engine", Tone: ui.ToneFail, Value: "suspended (fleet)"}, hint, true
+	return launcherdoctor.SuspensionRow(cfg, config.EngineCodex, orchestrator.AuthStatusSuspended, syncDetail)
 }

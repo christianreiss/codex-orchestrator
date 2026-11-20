@@ -54,16 +54,6 @@ func TestCheckCLIWarnsWhenVersionProbeFails(t *testing.T) {
 	}
 }
 
-func TestDependencySummaryDoesNotDuplicateStatusIcons(t *testing.T) {
-	got := dependencySummary([]string{"curl"}, []string{"node"})
-	if strings.ContainsAny(got, "✅⚠⛔") {
-		t.Fatalf("dependency value contains a second status icon: %q", got)
-	}
-	if got != "available: curl; missing: node" {
-		t.Fatalf("dependencySummary = %q", got)
-	}
-}
-
 func TestCheckCLIFallsBackToConfigWrapperVersion(t *testing.T) {
 	t.Setenv("CLX_CLAUDE_BIN", "/does/not/exist")
 
@@ -71,35 +61,6 @@ func TestCheckCLIFallsBackToConfigWrapperVersion(t *testing.T) {
 
 	if !strings.Contains(row.Value, "wrapper=0.6.5") {
 		t.Fatalf("expected config fallback wrapper version, got %q", row.Value)
-	}
-}
-
-func TestDoctorCapsHonorsExplicitMinimal(t *testing.T) {
-	rich := ui.Caps{
-		IsTTY:   true,
-		UTF8:    true,
-		Columns: 120,
-		Palette: ui.Palette{Bold: "\x1b[1m", Reset: "\x1b[0m", Green: "\x1b[32m"},
-	}
-	got := doctorCaps(rich, true)
-	if got.IsTTY || !got.NoColor || !got.Dumb || got.UTF8 || got.Palette != (ui.Palette{}) {
-		t.Fatalf("minimal doctor retained rich capabilities: %+v", got)
-	}
-	if unchanged := doctorCaps(rich, false); unchanged != rich {
-		t.Fatalf("normal doctor capabilities changed: got=%+v want=%+v", unchanged, rich)
-	}
-}
-
-func TestTallyRows(t *testing.T) {
-	rows := []ui.DoctorRow{
-		{Tone: ui.ToneOK},
-		{Tone: ui.ToneWarn},
-		{Tone: ui.ToneFail},
-	}
-
-	failures, worst := tallyRows(rows)
-	if failures != 1 || worst != ui.ToneFail {
-		t.Fatalf("tallyRows = (%d, %q), want (1, %q)", failures, worst, ui.ToneFail)
 	}
 }
 
