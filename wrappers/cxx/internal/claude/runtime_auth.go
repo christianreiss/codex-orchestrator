@@ -46,7 +46,10 @@ var claudeTopLevelSubcommands = map[string]struct{}{
 	"upgrade":     {},
 }
 
-// Native root parser flags verified against Claude Code 2.1.312 on 2026-10-28.
+// Native root parser flags verified against Claude Code 2.1.329 on 2026-11-20
+// (2.1.312 on 2026-10-28 before; the six hidden root options --fast-mode,
+// --metadata, --lead-verify-key, --session-began-as-copy, --initialize-fields
+// and --runner-declares are new in 2.1.328).
 // Required, optional and variadic values have different consumption rules: a
 // command-looking value must never become a subcommand or an auth operation.
 var claudeGlobalOptionsWithValue = map[string]struct{}{
@@ -82,17 +85,21 @@ var claudeGlobalOptionsWithValue = map[string]struct{}{
 	"--effort":                             {},
 	"--environment":                        {},
 	"--fallback-model":                     {},
+	"--fast-mode":                          {},
 	"--file":                               {},
 	"--forward-home-settings":              {},
 	"--inherit-permission-mode":            {},
+	"--initialize-fields":                  {},
 	"--input-format":                       {},
 	"--json-schema":                        {},
+	"--lead-verify-key":                    {},
 	"--managed-settings":                   {},
 	"--max-budget-usd":                     {},
 	"--max-thinking-tokens":                {},
 	"--max-turns":                          {},
 	"--mcp-config":                         {},
 	"--messaging-socket-path":              {},
+	"--metadata":                           {},
 	"--model":                              {},
 	"--name":                               {},
 	"--on-branch":                          {},
@@ -115,7 +122,9 @@ var claudeGlobalOptionsWithValue = map[string]struct{}{
 	"--resume-drops-turn":                  {},
 	"--resume-session-at":                  {},
 	"--rewind-files":                       {},
+	"--runner-declares":                    {},
 	"--sdk-url":                            {},
+	"--session-began-as-copy":              {},
 	"--session-id":                         {},
 	"--setting-sources":                    {},
 	"--settings":                           {},
