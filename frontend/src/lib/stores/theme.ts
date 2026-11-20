@@ -5,6 +5,7 @@ import { setMode } from "mode-watcher";
 import { getTheme } from "$lib/api/account";
 
 export type ThemeChoice = "light" | "dark" | "system";
+export type LegacyThemeChoice = "auto-pink" | "bright-pink" | "dark-pink";
 const STORAGE_KEY = "codex.theme";
 const LEGACY_PALETTE_KEY = "codex.theme.palette";
 

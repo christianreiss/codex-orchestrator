@@ -38,7 +38,7 @@ export function visibleClients(
     if (options.filter === "online" && (presence === "ended" || presence === "offline")) return false;
     if (options.filter === "attention" && (!needsOperator(row) || presence === "ended")) return false;
     if (!["all", "active", "online", "attention"].includes(options.filter) && (presence === "offline" || presence === "ended" || options.filter === "listening" ? presence : liveActivity(row, now) ?? presence) !== options.filter) return false;
-    const text = [row.id, row.launch_name, row.session_name, row.task_title, row.preview?.summary, row.engine, row.engine === "codex" ? "cdx" : row.engine === "claude" ? "clx" : "cgx", row.username, row.host, row.cwd, row.invocation_kind,
+    const text = [row.id, row.launch_name, row.session_name, row.task_title, row.preview?.summary, row.engine, row.engine === "codex" ? "cdx" : row.engine === "claude" ? "clx" : row.engine === "kimi" ? "ckx" : "cgx", row.username, row.host, row.cwd, row.invocation_kind,
       row.work.task, row.work.branch, row.work.target_branch, row.work.worktree_path,
       row.work.address, row.work.address_alias, ...row.work.declared_paths].filter(Boolean).join(" ").toLocaleLowerCase();
     return terms.every((term) => text.includes(term));

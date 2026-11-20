@@ -34,9 +34,10 @@ describe("client directory", () => {
     assert.deepEqual(visibleClients(rows, { ...options, filter: "active" }, NOW).map((r) => r.id).sort(), ["idle", "listening", "working"]);
     assert.equal(isOnlineActiveAgent(row("stale", { heartbeat_at: new Date(NOW - 120_000).toISOString() }), NOW), false);
   });
-  it("filters Grok clients and finds the cgx command", () => {
-    const rows = [row("grok", { engine: "grok" }), row("codex")];
+  it("filters Grok and Kimi clients and finds the cgx and ckx commands", () => {
+    const rows = [row("grok", { engine: "grok" }), row("kimi", { engine: "kimi" }), row("codex")];
     assert.deepEqual(visibleClients(rows, { ...options, search: "cgx", engine: "grok" }, NOW).map(r => r.id), ["grok"]);
+    assert.deepEqual(visibleClients(rows, { ...options, search: "ckx", engine: "kimi" }, NOW).map(r => r.id), ["kimi"]);
   });
   it("keeps an unanswered prompt in the needs-you filter after a notice resolves", () => {
     const pending = row("prompt", { pending_prompt: { id: "p", version: 1, question: "Continue?", options: [], created_at: new Date(NOW).toISOString() } });
