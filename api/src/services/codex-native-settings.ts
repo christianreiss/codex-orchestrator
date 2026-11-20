@@ -1,7 +1,8 @@
 /**
- * Codex 0.169.0 native configuration, audited 2026-11-17.
- * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.169.0/codex-rs/core/config.schema.json
- * Original SHA-256: f515f420927460250181097af8dc72b80a6be4f01f4324a0efef816e46cc9c86.
+ * Codex 0.171.0 native configuration, audited 2026-11-20.
+ * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.171.0/codex-rs/core/config.schema.json
+ * (tag commit ccf9be8cc458bd6b8336fe84d68d8893f2691a5e)
+ * Original SHA-256: 025625b51c9c7f51f87d89c5b5ec8a47acb6e4fe90737b95880fc1b3f9e52fdd.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
@@ -214,10 +215,18 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
 /** Validate the final render-equivalent object after explicit fleet overrides. */
 export function validateCodexConfigDocument(out: NativeSettings, opts: { partialFeatures?: boolean; path?: string } = {}): void {
   const path = opts.path ?? 'native_settings';
+  // resolve_rollout_budget_config, codex-rs/core/src/config/mod.rs (rust-v0.171.0).
   const budget = nativeRecord(nativeRecord(out.features).rollout_budget);
+  const budgetPath = `${path}.features.rollout_budget`;
+  if (Object.hasOwn(budget, 'limit_tokens') && Object.hasOwn(budget, 'limit_budget')) {
+    throw new ValidationError(`${budgetPath}: limit_tokens and limit_budget cannot both be set`, { param: `${budgetPath}.limit_budget` });
+  }
   if (!opts.partialFeatures && budget.enabled === true) {
-    for (const key of ['limit_tokens', 'reminder_at_remaining_tokens']) {
-      if (!Object.hasOwn(budget, key)) throw new ValidationError(`${path}.features.rollout_budget.${key} is required when enabled`, { param: `${path}.features.rollout_budget.${key}` });
+    if (!Object.hasOwn(budget, 'limit_tokens') && !Object.hasOwn(budget, 'limit_budget')) {
+      throw new ValidationError(`${budgetPath}.limit_tokens or limit_budget is required when enabled`, { param: `${budgetPath}.limit_tokens` });
+    }
+    if (!Object.hasOwn(budget, 'reminder_at_remaining_tokens')) {
+      throw new ValidationError(`${budgetPath}.reminder_at_remaining_tokens is required when enabled`, { param: `${budgetPath}.reminder_at_remaining_tokens` });
     }
   }
   if (!validate(out)) {

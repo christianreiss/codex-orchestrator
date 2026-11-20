@@ -23,10 +23,10 @@
     : settings && Object.hasOwn(settings, "native_settings") ? settings.native_settings : nativeSettingsOf(settings);
   const parse = (text: string) => profiles ? parseNativeProfiles(text) : parseNativeSettings(text);
   const references = {
-    codex: { version: "0.169.0", url: "https://developers.openai.com/codex/config-reference/" },
-    claude: { version: "2.1.326", url: "https://code.claude.com/docs/en/settings-reference" },
-    grok: { version: "1.0.88", url: "https://docs.x.ai/build/settings/reference" },
-    kimi: { version: "2.6.2", url: "https://moonshotai.github.io/kimi-code/en/configuration/config-files.html" },
+    codex: { version: "0.171.0", url: "https://learn.chatgpt.com/docs/config-file/config-reference" },
+    claude: { version: "2.1.329", url: "https://code.claude.com/docs/en/settings-reference" },
+    grok: { version: "1.0.89", url: "https://docs.x.ai/build/settings/reference" },
+    kimi: { version: "2.7.2", url: "https://moonshotai.github.io/kimi-code/en/configuration/config-files.html" },
   };
   const qc = useQueryClient();
   const query = createQuery<EngineConfig>(derived(authStore, auth => ({

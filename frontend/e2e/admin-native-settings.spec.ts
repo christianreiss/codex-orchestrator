@@ -256,7 +256,7 @@ test("native JSON validates, previews and saves each engine without losing separ
 test("Codex native options preview, save and remove through the existing editor", async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["codex"]);
   const card = page.locator("#codex-native-settings"), editor = card.getByRole("textbox");
-  await expect(card).toContainText("0.169.0");
+  await expect(card).toContainText("0.171.0");
   const native = { features: { plugins: false, rollout_budget: { enforce_limit: false } },
     memories: { consolidation_service_tier: "priority" }, tui: { keymap: { global: { select_transcript: "ctrl-s" } } } };
   await editor.fill(JSON.stringify(native));
@@ -277,7 +277,7 @@ test("Claude nested namespaces stay opt-in and can be previewed, changed and rem
   await expect(card).toContainText("It defaults to false");
   await expect(card).toContainText("escape the sandbox");
   await expect(card).toContainText("Desktop-only sshHostCommands");
-  await expect(card.getByRole("link", { name: "Claude 2.1.326 settings" })).toBeVisible();
+  await expect(card.getByRole("link", { name: "Claude 2.1.329 settings" })).toBeVisible();
   expect(shared.configs.claude.settings.native_settings).not.toHaveProperty("sandbox");
   for (const allowNestedUserNamespaces of [false, true]) {
     const native = { sandbox: { enabled: true, allowNestedUserNamespaces }, env: { LOCAL_SIBLING: "kept" } };
@@ -412,7 +412,7 @@ test("Grok 1.0.70 native defaults preserve false values, argument arrays and rem
   const shared = state(); shared.configs.grok.settings.native_settings = {};
   await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["grok"]);
   const card = page.locator("#grok-native-settings"), editor = card.getByRole("textbox");
-  await expect(card.getByRole("link", { name: "Grok 1.0.88 settings" })).toBeVisible();
+  await expect(card.getByRole("link", { name: "Grok 1.0.89 settings" })).toBeVisible();
   const value = { keys: { vim: "off" }, features: { worktree_inherits_main_approvals: false }, hooks: { Stop: [{ hooks: [{ type: "command", command: "echo", args: ["login", "--background"] }] }] }, ui: { notifications: { program_status: { children: false } } } };
   await editor.fill(JSON.stringify(value));
   await card.getByRole("button", { name: "Validate and preview" }).click();

@@ -10,8 +10,8 @@ The Engines page authors fleet **user defaults**: Codex `config.toml` and named
 profile sidecars, Claude `settings.json`, Grok `config.toml` and Kimi Code `config.toml`. The generic
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
-can be authored centrally. Coverage was reviewed against Codex 0.169.0
-(2026-11-17), Claude Code 2.1.326 (2026-11-17), Grok Build 1.0.88 (2026-11-17) and Kimi Code 2.6.2 (2026-11-17; 2.6.3 source delta checked).
+can be authored centrally. Coverage was reviewed against Codex 0.171.0
+(2026-11-20), Claude Code 2.1.329 (2026-11-20), Grok Build 1.0.89 (2026-11-20) and Kimi Code 2.7.2 (2026-11-20).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -288,4 +288,16 @@ authentication-conflict and model-catalog-origin constraints in root settings
 and each self-contained profile sidecar. Invalid historical values stay editable
 with a field-specific error; validation never runs credential commands or guesses
 a missing gateway URL.
-See [current Codex maintenance](interface-cdx.md#native-configuration-maintenance-codex-01690).
+See [Codex 0.169 maintenance](interface-cdx.md#native-configuration-maintenance-codex-01690).
+
+### Codex 0.171 scope update (2026-11-20)
+
+Shared user defaults now cover the 0.171 schema. Fields first appearing in 0.170
+(`multi_environment_mcp`, OTel `headers_helper*`, Guardian synchronous
+`nested_tool_names`) require an observed 0.170.0 host; everything new in 0.171
+(`code_mode`, `responses`, `rollout_trace`, `tui.status_line_provider`,
+marketplace `auto_update`, new keymap actions, feature switches, asynchronous
+Guardian elastic sections and `transparent_tcp`) requires 0.171.0, in root
+settings and profile sidecars. `features.rollout_budget` accepts `limit_budget`
+as an alternative to `limit_tokens`; both together are rejected.
+See [current Codex maintenance](interface-cdx.md#native-configuration-maintenance-codex-01710).
