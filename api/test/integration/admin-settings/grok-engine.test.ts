@@ -50,9 +50,7 @@ describe('Grok engine administration', () => {
 
   it('keeps the Grok switch and model defaults separate from the other engines', async () => {
     const { app, db } = await buildApp();
-    db.tables.set(versions, [{ name: 'openai_api_disabled', version: '0' }, { name: 'claude_api_disabled', version: '0' }]);
-    expect((await app.inject({ method: 'GET', url: '/admin/grok/state' })).json().data).toEqual({ disabled: false });
-    expect((await app.inject({ method: 'POST', url: '/admin/grok/state', payload: { disabled: true } })).json().data).toEqual({ disabled: true });
+    db.tables.set(versions, [{ name: 'openai_api_disabled', version: '0' }, { name: 'claude_api_disabled', version: '0' }, { name: 'grok_api_disabled', version: '1' }]);
     expect((await app.inject({ method: 'GET', url: '/admin/grok/settings' })).json().data).toEqual({ default_model: 'grok-4.7', disabled: true });
     expect((await app.inject({ method: 'POST', url: '/admin/grok/settings', payload: { default_model: 'grok-4.5', disabled: false } })).json().data).toEqual({ default_model: 'grok-4.5', disabled: false });
     expect(await createGrokModelsService(db as unknown as Database).resolveRequestedModel(undefined)).toBe('grok-4.5');
@@ -60,7 +58,6 @@ describe('Grok engine administration', () => {
     expect((await app.inject({ method: 'POST', url: '/admin/grok/settings', payload: { max_tokens: 100 } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'POST', url: '/admin/grok/settings', payload: { default_model: 'grok-4-latest' } })).statusCode).toBe(422);
     expect((await app.inject({ method: 'POST', url: '/admin/grok/settings', payload: { disabled: 'invalid' } })).statusCode).toBe(422);
-    expect((await app.inject({ method: 'POST', url: '/admin/grok/state', payload: {} })).statusCode).toBe(422);
   });
 
   it('lists native models and enforces catalog switches when resolving gateway requests', async () => {

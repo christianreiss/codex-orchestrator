@@ -12,7 +12,7 @@ import { isTruthyFlagValue } from './settings.js';
  * run with an OpenAI-shape 503.
  *
  * The flag is consulted on every request — admins flip it via
- * `/admin/settings/openai/state`, which is owned by the admin-settings
+ * `POST /admin/api/surfaces/openai`, which is owned by the admin-settings
  * worktree.
  */
 

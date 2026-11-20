@@ -53,14 +53,6 @@ export async function registerAdminGrokRoutes(app: FastifyInstance, ctx: RouteCo
     return { message: 'Key deleted' };
   });
 
-  app.get('/admin/grok/state', { preHandler: app.requireAdmin }, async () => ({ disabled: await settings.getFlag('grok_api_disabled', false) }));
-  app.post('/admin/grok/state', { preHandler: app.requireAdmin }, async req => {
-    const disabled = normalizeBool((req.body as { disabled?: unknown })?.disabled);
-    if (disabled === null) throw new ValidationError('disabled must be boolean', { param: 'disabled' });
-    await settings.setFlag('grok_api_disabled', disabled);
-    await audit('admin.grok_api.state', { disabled });
-    return { disabled };
-  });
   async function proxySettings() {
     return { default_model: await settings.getString('grok_default_model', GROK_DEFAULT_MODEL), disabled: await settings.getFlag('grok_api_disabled', false) };
   }

@@ -361,8 +361,6 @@ export function fixture(pathname: string): Record<string, unknown> {
         hosts_suspended: 1,
       };
     }
-    case "/admin/grok/state": return { disabled: false };
-    case "/admin/kimi/state": return { disabled: true };
     case "/admin/grok/settings": return { default_model: "grok-4.6", disabled: false };
     case "/admin/kimi/settings": return { default_model: "kimi-4.6", disabled: false };
     case "/admin/grok/keys": return [];

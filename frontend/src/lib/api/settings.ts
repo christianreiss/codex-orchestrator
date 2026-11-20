@@ -169,52 +169,6 @@ export function engineDestroyMutation(opts: MutationOpts<unknown, EngineDestroyA
   });
 }
 
-/* ────────────────────────── 2. OpenAI state ──────────────────────── */
-
-export const openaiStateQueryKey = ["settings", "openai-state"] as const;
-
-export function openaiStateQuery() {
-  return createQuery<ApiStateValue>({
-    queryKey: openaiStateQueryKey,
-    queryFn: () => api.get<ApiStateValue>("/admin/openai/state"),
-  });
-}
-
-export function openaiStateMutation(opts: MutationOpts<ApiStateValue, boolean> = {}) {
-  const qc = useQueryClient();
-  return createMutation<ApiStateValue, Error, boolean>({
-    mutationFn: makeToggle<ApiStateValue>("/admin/openai/state", "disabled"),
-    ...opts,
-    onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: openaiStateQueryKey });
-      opts.onSettled?.(...args);
-    },
-  });
-}
-
-/* ────────────────────────── 3. Claude state ──────────────────────── */
-
-export const claudeStateQueryKey = ["settings", "claude-state"] as const;
-
-export function claudeStateQuery() {
-  return createQuery<ApiStateValue>({
-    queryKey: claudeStateQueryKey,
-    queryFn: () => api.get<ApiStateValue>("/admin/claude/state"),
-  });
-}
-
-export function claudeStateMutation(opts: MutationOpts<ApiStateValue, boolean> = {}) {
-  const qc = useQueryClient();
-  return createMutation<ApiStateValue, Error, boolean>({
-    mutationFn: makeToggle<ApiStateValue>("/admin/claude/state", "disabled"),
-    ...opts,
-    onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: claudeStateQueryKey });
-      opts.onSettled?.(...args);
-    },
-  });
-}
-
 /* ────────────────────── 3a. Claude settings ──────────────────────── */
 
 export const claudeSettingsQueryKey = ["settings", "claude-settings"] as const;
@@ -650,32 +604,8 @@ export function prunePolicyMutation(
 }
 
 /* Grok subscription gateway and fleet version controls. */
-export const grokStateQueryKey = ["settings", "grok-state"] as const;
-export const kimiStateQueryKey = ["settings", "kimi-state"] as const;
 export const kimiSettingsQueryKey = ["settings", "kimi-settings"] as const;
 export const grokSettingsQueryKey = ["settings", "grok-settings"] as const;
-export function grokStateQuery() {
-  return createQuery<ApiStateValue>({ queryKey: grokStateQueryKey, queryFn: () => api.get<ApiStateValue>("/admin/grok/state") });
-}
-export function kimiStateQuery() {
-  return createQuery<ApiStateValue>({ queryKey: kimiStateQueryKey, queryFn: () => api.get<ApiStateValue>("/admin/kimi/state") });
-}
-export function grokStateMutation(opts: MutationOpts<ApiStateValue, boolean> = {}) {
-  const qc = useQueryClient();
-  return createMutation<ApiStateValue, Error, boolean>({ mutationFn: makeToggle<ApiStateValue>("/admin/grok/state", "disabled"), ...opts, onSettled: (...args) => {
-    void qc.invalidateQueries({ queryKey: grokStateQueryKey });
-    void qc.invalidateQueries({ queryKey: ["keys", "grok", "state"] });
-    opts.onSettled?.(...args);
-  } });
-}
-export function kimiStateMutation(opts: MutationOpts<ApiStateValue, boolean> = {}) {
-  const qc = useQueryClient();
-  return createMutation<ApiStateValue, Error, boolean>({ mutationFn: makeToggle<ApiStateValue>("/admin/kimi/state", "disabled"), ...opts, onSettled: (...args) => {
-    void qc.invalidateQueries({ queryKey: kimiStateQueryKey });
-    void qc.invalidateQueries({ queryKey: ["keys", "kimi", "state"] });
-    opts.onSettled?.(...args);
-  } });
-}
 export interface GrokGatewaySettings { default_model: string; disabled?: boolean }
 export interface KimiGatewaySettings { default_model: string; disabled?: boolean }
 export function grokSettingsQuery() {

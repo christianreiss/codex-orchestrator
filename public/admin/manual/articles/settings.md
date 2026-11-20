@@ -97,7 +97,7 @@ Switching it back on resumes hosts on their next launch or maintenance tick (wit
 
 #### Codex engine
 
-The Codex on/off switch is under **Engine master switches** above. `GET/POST /admin/openai/state` is the separate switch for the `/v1` exposed API only (the **Routing** table under **Access → API keys → Configure**).
+The Codex on/off switch is under **Engine master switches** above. `POST /admin/api/surfaces/{surface}` with `{ disabled }` is the separate switch for the `/v1` exposed API only (the **Routing** table under **Access → API keys → Configure**).
 
 #### Fleet model and effort
 
@@ -140,7 +140,7 @@ The Codex on/off switch is under **Engine master switches** above. `GET/POST /ad
 
 #### Claude engine
 
-The Claude on/off switch is under **Engine master switches** above. `GET/POST /admin/claude/state` is the separate switch for the `/anthropic/v1` exposed API only.
+The Claude on/off switch is under **Engine master switches** above. `POST /admin/api/surfaces/{surface}` with `{ disabled }` is the separate switch for the `/anthropic/v1` exposed API only.
 
 #### Fleet model and effort
 
@@ -201,7 +201,7 @@ A live read-only preview of the rendered `settings.json` is shown alongside the 
 
 #### Grok engine
 
-The Grok on/off switch is under **Engine master switches** above. `GET/POST /admin/grok/state` is the separate switch for the `/grok/v1` exposed API only.
+The Grok on/off switch is under **Engine master switches** above. `POST /admin/api/surfaces/{surface}` with `{ disabled }` is the separate switch for the `/grok/v1` exposed API only.
 
 #### Fleet model and effort
 
@@ -222,9 +222,8 @@ These are native supported IDs; subscription availability is provider-owned. Cod
 
 #### Grok API gateway
 
-The **Grok API gateway** card under *Access → API keys → Configure → Backend defaults → Grok* configures the Grok backend — used by `/grok/v1` and by any other exposed API routed to Grok (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
+The **Grok API gateway** card under *Access → API keys → Configure → Backend defaults → Grok* configures the Grok backend — used by `/grok/v1` and by any other exposed API routed to Grok. The `/grok/v1` row's **Enabled** switch in the **Routing** table (`POST /admin/api/surfaces/grok`, stored as `grok_api_disabled`) gates only `/grok/v1`, independently of the other APIs and of which backend serves it (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
 
-- `GET /admin/grok/state`, `POST /admin/grok/state` — `{ disabled }`, stored as `grok_api_disabled` and shown as the `/grok/v1` row's **Enabled** switch in the **Routing** table. It gates only `/grok/v1`, independently of the other APIs and of which backend serves it.
 - `GET /admin/grok/settings`, `POST /admin/grok/settings` — **Gateway default model** (`default_model`, a supported Grok model; default `grok-4.7`), used when a request names no model. Any field other than `default_model` and `disabled` is refused with 400 `unsupported_parameter`; there is no max-tokens setting.
 - `GET /admin/grok/models`, `POST /admin/grok/models/{model}/toggle` with `{ enabled }` — per-model switches. A disabled model is left out of the model list of every API routed to Grok (`/grok/v1/models` by default) and rejected at inference with 403 `model_disabled`; managed Grok Build hosts are unaffected.
 

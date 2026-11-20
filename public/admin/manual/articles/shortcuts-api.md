@@ -181,8 +181,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/prune-policy` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/log-retention` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/scaling` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/openai/state` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/claude/state` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/settings` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/grok/version` | api/src/routes/admin/settings/index.ts |
@@ -195,7 +193,7 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/response-verbosity` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/authorization` | api/src/routes/admin/settings/index.ts |
 
-`GET/POST /admin/openai/state` and `GET/POST /admin/claude/state` are the engine kill-switches; `GET/POST /admin/grok/state` (in *Admin Grok gateway* below) is the Grok gateway's. A POST with `{ disabled: true }` halts all requests authenticated by keys of that engine. See the kill-switch card description above for the UI equivalent.
+`POST /admin/api/surfaces/{surface}` with `{ disabled }` is the per-API kill switch (surfaces `openai`, `anthropic`, `grok`, `kimi`). Disabling halts all requests to that exposed API. See the kill-switch card description above for the UI equivalent.
 
 ### Admin overview / dashboard
 
@@ -322,7 +320,6 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 
 | Method | Route | Source |
 |--------|-------|--------|
-| GET/POST | `/admin/grok/state` | api/src/routes/admin/grok/index.ts |
 | GET/POST | `/admin/grok/settings` | api/src/routes/admin/grok/index.ts |
 | GET | `/admin/grok/models` | api/src/routes/admin/grok/index.ts |
 | POST | `/admin/grok/models/:model/toggle` | api/src/routes/admin/grok/index.ts |
@@ -331,7 +328,7 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 | POST | `/admin/grok/config/render` | api/src/routes/admin/grok/index.ts |
 | POST | `/admin/grok/config/store` | api/src/routes/admin/grok/index.ts |
 
-`/admin/grok/state` is the independent `grok_api_disabled` gateway switch, `/admin/grok/settings` holds the gateway default model, and `/admin/grok/models/:model/toggle` takes `{ enabled }`. The `/admin/grok/config*` routes read, render, and store the Grok client config document (`~/.grok/config.toml`). See [Engines, Policies, and API Access](/admin/manual/settings).
+`/admin/grok/settings` holds the gateway default model, and `/admin/grok/models/:model/toggle` takes `{ enabled }`. The `/admin/grok/config*` routes read, render, and store the Grok client config document (`~/.grok/config.toml`). See [Engines, Policies, and API Access](/admin/manual/settings).
 
 ### Admin Agent Messaging
 

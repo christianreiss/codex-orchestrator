@@ -584,11 +584,6 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
       return { default_model: "claude-sonnet-5", max_tokens: 8192, disabled: false };
     case "/admin/api/state":
       return { disabled: false, api_disabled: false };
-    case "/admin/openai/state":
-    case "/admin/claude/state":
-    case "/admin/grok/state":
-      return { disabled: false, api_disabled: false };
-    case "/admin/kimi/state": return { disabled: true };
     case "/admin/agents":
       return {
         status: "ok", mode: "latest", active_id: 58, served_id: 58, latest_id: 58, backup_limit: 20,

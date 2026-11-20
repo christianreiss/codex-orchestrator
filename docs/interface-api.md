@@ -274,7 +274,7 @@ The independent OpenAI-shaped `/grok/v1` group serves `POST /grok/v1/chat/comple
 `POST /grok/v1/responses`, `POST /grok/v1/completions`, `GET /grok/v1/models`, and `GET /grok/v1/models/:model`
 under that prefix. `POST /grok/v1/embeddings` returns unsupported endpoint.
 `/admin/grok/keys` CRUD issues engine-scoped `sk-cgx-` gateway client keys.
-`/admin/grok/state`, `/admin/grok/settings`, and `/admin/grok/models` control the
+`/admin/api/surfaces/grok` (the switch), `/admin/grok/settings`, and `/admin/grok/models` control the
 independent gateway. Model/system/text controls are supported; sampling, caps,
 stop sequences, tools, streaming, and images fail explicitly before execution.
 Unknown native usage is `null`; native stop reason is mapped when available.
@@ -797,12 +797,10 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `GET /admin/api/surfaces` / `POST /admin/api/surfaces/{surface}` — list exposed APIs with their backend engine, kill switch and active key count; switch a surface's backend and/or kill switch. See [Exposed API routing](#exposed-api-routing-any-to-any).
 - `GET /admin/engines/state` / `POST /admin/engines/{engine}/state` — fleet-wide engine master switches: list each engine's on/off state, or switch one with `{enabled}`. See [Engine master switches](#engine-master-switches).
 - `GET /admin/engines/{engine}/destroy`, `POST /admin/engines/{engine}/destroy`, `DELETE /admin/engines/{engine}/destroy`, `POST /admin/engines/{engine}/destroy/purge`, `POST /host/engine-destroy/report` — fleet-wide destroy engine. See [Engine destroy](#engine-destroy).
-- `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently). `settings.read` / `settings.manage`.
 - `GET /admin/openai/keys` — list all OpenAI API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
 - `POST /admin/openai/keys` — create a new OpenAI API key. Body: `{name: string, expires_at?: string, backend_engine?: "codex"|"claude"|"grok"|"kimi"}`. Returns the full key (shown once) and the record. Keys use the `sk-cdx-` prefix.
 - `POST /admin/openai/keys/{id}/toggle` — enable or disable an OpenAI API key. Body: `{active: bool}`.
 - `DELETE /admin/openai/keys/{id}` — delete an OpenAI API key.
-- `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). `settings.read` / `settings.manage`. See [Admin: Claude management](#admin-claude-management) for full details.
 - `GET /admin/model-defaults/{engine}` — read the fleet CLI model defaults for `codex`, `claude`, `grok`, or `kimi`. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort, min_cli_version?, live_catalog_required?}]}`; the catalog is the authoritative model-dependent selector contract (derived from the fleet model registry, `docs/model-registry.md`; `live_catalog_required: true` marks an unverified id such as `gpt-6.1-luna` that launchpads offer only where the host's native catalog lists it), and `min_cli_version` (Codex Terra; Claude Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5) is the documented native CLI floor. GET is read-only: if no engine config row exists it reports the effective catalog default (Codex Astra/low, Claude Sonnet 5/high, or Grok `grok-4.7`/high) without creating a row. Codex model defaults are GPT-6 Sol/GPT-6 Luna/GPT-5.6 Terra/GPT-5.6 Luna `medium` and Astra/GPT-6.1 Sol/GPT-6.1 Terra/GPT-5.6 Sol `low` (the retired Spark model is no longer in the catalog); its accepted effort sets match the per-host contract above. Grok's catalog is `grok-4.7`, `grok-4.7-build-fast`, and `grok-4.6` (`low`/`medium`/`high`/`xhigh`) plus `grok-4.5` (`low`/`medium`/`high`), all defaulting to `high`.
 - For Grok only, the model-defaults response also includes `context_window` and each catalog entry adds `context_windows: [256000, 500000]` and `default_context_window: 256000`. POST additionally accepts `context_window?: number|null`: omission preserves the saved window (256000 on a new config), `null` resets to the catalog default, and other values return HTTP 422. The canonical structured setting renders as `[model."<effective-model>"].context_window` in native Grok TOML, including when a host overrides the model. Model/effort-only callers remain compatible; Codex and Claude reject this field. The selected window is included in the `admin.model_defaults` audit event.
 - `POST /admin/model-defaults/{engine}` — set the fleet CLI defaults. Strict body: `{model: string, reasoning_effort?: string|null}`. Omitted/null effort selects the model's `default_effort`; unsupported engines, models, efforts, or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; Claude stores the abstract fleet `model` / `effortLevel` and renders native `modelSettings[canonicalModel].effortLevel`; older models also receive the compatible top-level key. Claude persistent capabilities are Fable 5/5.1, Opus 5, Opus 4.8, and Sonnet 5 `low|medium|high|xhigh` (default `high`); Opus/Sonnet/Haiku 5.5 have the same set with default `medium`; Opus 4.7 defaults to `xhigh`; Opus/Sonnet 4.6 support `low|medium|high` (default `high`); Opus 4.5 and Haiku 4.5 have no native effort value (`null`, so managed effort keys are removed). This follows the native CLI settings schemas: Codex effort is model-dependent, while Claude Code persists only `low|medium|high|xhigh`; its `max` effort is session-only and is intentionally not offered here.
@@ -1497,10 +1495,6 @@ Authentication: `Authorization: Bearer sk-ant-...` or `x-api-key: sk-ant-...` he
 - `POST /admin/claude/keys/{id}/toggle` — Enable or disable a Claude API key. Body: `{active: bool}`.
 
 - `DELETE /admin/claude/keys/{id}` — Delete a Claude API key.
-
-- `GET /admin/claude/state` — Get Claude API enabled/disabled state. Returns `{status, data: {disabled: bool}}`.
-
-- `POST /admin/claude/state` — Toggle Claude API enabled/disabled. Body: `{disabled: bool}`. Requires `settings.manage`.
 
 - `GET /admin/model-defaults/{engine}` / `POST /admin/model-defaults/{engine}` with `engine=claude` — Read/set the Claude Code fleet `settings.json` defaults (`model`, abstract `effortLevel` rendered as native `modelSettings[canonicalModel].effortLevel`). This is the CLI fleet setting, not the Anthropic-compatible proxy default. See the general admin endpoint contract above for the request, response, model capabilities, and 422 validation behavior.
 
@@ -2392,7 +2386,7 @@ The API background worker polls `https://cli-chat-proxy.grok.com/v1/billing?form
 
 Kimi Code exposes the OpenAI-shaped `/kimi/v1` surface with `sk-ckx-` bearer
 keys. `versions.kimi_api_disabled=1` is seeded by migration 0130; operators
-must opt in through `/admin/kimi/state` or `/admin/api/surfaces/kimi`.
+must opt in through `/admin/api/surfaces/kimi`.
 Missing switch metadata or a failed switch read leaves this surface disabled.
 Its backend defaults to `kimi` (`api_surface_backend_kimi`) and can be changed
 independently of its key namespace and kill switch, like every other surface.
@@ -2433,8 +2427,6 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 - `POST /admin/grok/keys` — Issue a scoped sk-cgx- gateway key, returned once. Body: `{name: string, expires_at?: string, backend_engine?: "codex"|"claude"|"grok"|"kimi"}`. Omitted `backend_engine` retains endpoint-default routing.
 - `POST /admin/grok/keys/:id/toggle` — Change a Grok gateway key active state.
 - `DELETE /admin/grok/keys/:id` — Remove a Grok gateway key.
-- `GET /admin/grok/state` — Read the independent Grok API switch.
-- `POST /admin/grok/state` — Set the independent Grok API switch.
 - `GET /admin/grok/settings` — Read gateway default_model and disabled.
 - `POST /admin/grok/settings` — Change gateway default model/switch; unsupported parameters rejected.
 - `GET /admin/grok/models` — List native catalog with enabled flags.
@@ -4475,8 +4467,6 @@ managed configuration, receiver/activity and quota policy. See
 - `POST /admin/kimi/keys` — Issue a scoped sk-ckx- gateway key, returned once.
 - `POST /admin/kimi/keys/:id/toggle` — Change a Kimi gateway key active state.
 - `DELETE /admin/kimi/keys/:id` — Remove a Kimi gateway key.
-- `GET /admin/kimi/state` — Read the independent Kimi API switch.
-- `POST /admin/kimi/state` — Set the independent Kimi API switch.
 - `GET /admin/kimi/settings` — Read gateway default_model and disabled.
 - `POST /admin/kimi/settings` — Change gateway default model/switch; unsupported parameters rejected.
 - `GET /admin/kimi/models` — List native catalog with enabled flags.

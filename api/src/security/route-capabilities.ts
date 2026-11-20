@@ -13,7 +13,7 @@
  *
  * Keys are `METHOD /pattern`, where the pattern is exactly the string passed to
  * `app.get`/`app.post`/… — not a request URL. Fastify prefers a static segment
- * over a parametric one, so `/admin/claude/state` and `/admin/claude/:kind` are
+ * over a parametric one, so `/admin/claude/keys` and `/admin/claude/:kind` are
  * separate entries and the static one wins at dispatch. `HEAD` is resolved
  * against its `GET` entry, since Fastify derives head routes from get routes.
  */
@@ -265,16 +265,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/engines/:engine/destroy/purge': cap('settings.manage'),
   'DELETE /admin/engines/:engine/destroy': cap('settings.manage'),
   'POST /admin/api/surfaces/:surface': cap('settings.manage'),
-  'GET /admin/openai/state': cap('settings.read'),
-  'POST /admin/openai/state': cap('settings.manage'),
-  'GET /admin/claude/state': cap('settings.read'),
-  'POST /admin/claude/state': cap('settings.manage'),
   'GET /admin/claude/version': cap('settings.read'),
   'POST /admin/claude/version': cap('settings.manage'),
-  'GET /admin/grok/state': cap('settings.read'),
-  'GET /admin/kimi/state': cap('settings.read'),
-  'POST /admin/grok/state': cap('settings.manage'),
-  'POST /admin/kimi/state': cap('settings.manage'),
   'GET /admin/grok/version': cap('settings.read'),
   'GET /admin/kimi/version': cap('settings.read'),
   'POST /admin/grok/version': cap('settings.manage'),

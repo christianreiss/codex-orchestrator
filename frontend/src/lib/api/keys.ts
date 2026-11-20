@@ -11,7 +11,6 @@ import { api } from "./client";
 import type {
   AdminApiKey,
   AdminApiKeyCreated,
-  AdminApiKillSwitchState,
   ApiKeyEngine,
   CreateApiKeyPayload,
 } from "./types";
@@ -43,12 +42,6 @@ export const keysApi = {
 
   remove: (engine: ApiKeyEngine, id: number) =>
     api.delete<{ message?: string }>(`${PREFIX[engine]}/keys/${id}`),
-
-  getState: (engine: ApiKeyEngine) =>
-    api.get<AdminApiKillSwitchState>(`${PREFIX[engine]}/state`),
-
-  setState: (engine: ApiKeyEngine, disabled: boolean) =>
-    api.post<AdminApiKillSwitchState>(`${PREFIX[engine]}/state`, { disabled }),
 };
 
 /** Pretty label for the engine — used by toast copy + section headers. */

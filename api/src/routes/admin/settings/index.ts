@@ -675,32 +675,6 @@ app.get('/admin/kimi/version/lock', { preHandler: app.requireAdmin }, async () =
     return ok(lock);
   });
 
-  // ── openai/state (per-engine kill switch) ─────────────────────────────────
-  app.get('/admin/openai/state', { preHandler: app.requireAdmin }, async () => {
-    return ok({ disabled: await settings.getFlag('openai_api_disabled', false) });
-  });
-  app.post('/admin/openai/state', { preHandler: app.requireAdmin }, async (req) => {
-    const body = (req.body ?? {}) as { disabled?: unknown };
-    const disabled = normalizeBool(body.disabled);
-    if (disabled === null) throw new ValidationError('disabled must be boolean', { param: 'disabled' });
-    await settings.setFlag('openai_api_disabled', disabled);
-    await recordLog(ctx, 'admin.openai_api.state', { disabled });
-    return ok({ disabled });
-  });
-
-  // ── claude/state (per-engine kill switch) ─────────────────────────────────
-  app.get('/admin/claude/state', { preHandler: app.requireAdmin }, async () => {
-    return ok({ disabled: await settings.getFlag('claude_api_disabled', false) });
-  });
-  app.post('/admin/claude/state', { preHandler: app.requireAdmin }, async (req) => {
-    const body = (req.body ?? {}) as { disabled?: unknown };
-    const disabled = normalizeBool(body.disabled);
-    if (disabled === null) throw new ValidationError('disabled must be boolean', { param: 'disabled' });
-    await settings.setFlag('claude_api_disabled', disabled);
-    await recordLog(ctx, 'admin.claude_api.state', { disabled });
-    return ok({ disabled });
-  });
-
   // ── api/surfaces — exposed API → backend engine routing ──────────────────
   // One row per exposed API. The backend column decides which engine answers;
   // the key namespace and kill switch stay with the surface (api-surfaces.ts).

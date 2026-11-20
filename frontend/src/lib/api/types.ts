@@ -363,10 +363,6 @@ export interface AdminApiKeyCreated {
   record: AdminApiKey;
 }
 
-export interface AdminApiKillSwitchState {
-  disabled: boolean;
-}
-
 export interface CreateApiKeyPayload {
   backend_engine?: ApiBackendEngine;
   name: string;

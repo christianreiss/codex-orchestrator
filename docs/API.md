@@ -15,7 +15,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - **IP binding**: the first successful authenticated host request pins caller IP (`ip4`/`ip6`); later mismatches return `403` unless roaming is enabled (`allow_roaming_ips`), a dual-stack secondary bind is possible, or `DELETE /auth?force=1` is used. When reverse-DNS enforcement is active, `/auth` also requires forward A/AAAA + PTR match for caller IP. Forwarded headers are trusted only when `TRUST_X_FORWARDED=1` and the socket peer address matches `TRUSTED_PROXY_CIDRS`. Runner subnet bypass is possible when `AUTH_RUNNER_IP_BYPASS=1` and caller IP matches `AUTH_RUNNER_BYPASS_SUBNETS`.
 - **Host security modes**: hosts default to `secure=true`. Setting `secure=false` marks the host insecure. New insecure hosts get a provisioning window (default 30 minutes, or `/admin/hosts/register` `duration_minutes`). Admins can open/extend a 0–480 minute sliding window with `POST /admin/hosts/{id}/insecure/enable` (default stored window 10). Window checks are enforced for `/auth` retrieve (non-`store`), `/sync/status`, `/sync/bootstrap`, `/host/lane`, and `/mcp`; `POST /auth` with `command=store` is currently not gated by the insecure window in code. `/sync/bootstrap` and `/sync/status` are gated only when the request actually asks for credentials — `include_auth:false` (what the unattended wrapper cron tick sends) is served without a window check, without sliding the window, and without opening an approval, like every other content route. Closed-window requests return `403 Insecure host API access disabled`, or `423 Insecure host approval pending` when insecure approvals are enabled and admin websocket presence is active.
 - **Base URL policy**: in production, keep `PUBLIC_BASE_URL` set (`PUBLIC_BASE_URL_REQUIRED=1`) and optionally enforce host matching with `STRICT_HOST_VALIDATION=1`.
-- **Kill switch**: `POST /admin/api/state` sets persistent `api_disabled`. It is read by `POST /auth`, `POST /sync/status`, `POST /sync/bootstrap`, `POST /claude/usage/report` and `GET /versions`, which answer `503 api_disabled` while it is set; nothing else reads it. The OpenAI-, Anthropic-, and Grok-compatible lanes have their own flags (`openai_api_disabled` via `/admin/openai/state`, `claude_api_disabled` via `/admin/claude/state`, `grok_api_disabled` via `/admin/grok/state`), and the remaining host routes (`/mcp`, `/skills`, `/agents/retrieve`, `/config/retrieve`, cron, wrapper, projects, shared memories) and `/admin/*` keep serving.
+- **Kill switch**: `POST /admin/api/state` sets persistent `api_disabled`. It is read by `POST /auth`, `POST /sync/status`, `POST /sync/bootstrap`, `POST /claude/usage/report` and `GET /versions`, which answer `503 api_disabled` while it is set; nothing else reads it. The exposed API surfaces have their own flags (`openai_api_disabled`, `claude_api_disabled`, `grok_api_disabled`, `kimi_api_disabled`), set through `POST /admin/api/surfaces/{surface}`, and the remaining host routes (`/mcp`, `/skills`, `/agents/retrieve`, `/config/retrieve`, cron, wrapper, projects, shared memories) and `/admin/*` keep serving.
 - **Request rates**: the orchestrator has no in-process request-rate limiter. Authentication and authorization still apply normally; traffic shaping belongs at the deployment edge.
 - **Pruning**: hosts inactive for `inactivity_window_days` (default 30; `0` disables; max 60), never-provisioned hosts older than 30 minutes, or hosts with `expires_at` in the past are deleted during auth/register/admin-host flows (logs `host.pruned`). Temporary host `expires_at` is refreshed on successful authenticated contact (2-hour idle window).
 
@@ -693,7 +693,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/api/surfaces` / `POST /admin/api/surfaces/{surface}` — list the exposed APIs (`openai` `/v1`, `anthropic` `/anthropic/v1`, `grok` `/grok/v1`, `kimi` `/kimi/v1`) with backend engine, kill switch and active key count; set `{backend?, disabled?}`. Any surface may be served by any engine; keys and kill switches stay with the surface. See `docs/interface-api.md` → Exposed API routing.
 - `GET /admin/engines/state` / `POST /admin/engines/{engine}/state` — fleet-wide engine master switches. GET returns `{engines:[{engine,label,enabled,updated_at,updated_by,assigned_hosts}]}`; POST `{enabled: boolean}` switches one engine on or off for the whole fleet and returns the row plus `previous` and `hosts_suspended`. Off suspends everything for that engine (host routes `403 engine_disabled` with `scope:"fleet"`, gateways routed to it `503 api_disabled`, provider-touching admin actions `409`) while keeping assignments, accounts and keys. See `docs/interface-api.md` → Engine master switches.
 - `GET /admin/engines/{engine}/destroy` / `POST /admin/engines/{engine}/destroy` / `POST /admin/engines/{engine}/destroy/purge` / `DELETE /admin/engines/{engine}/destroy` — fleet-wide **destroy engine**: remove an engine completely from every host. POST `{confirm: "<engine>"}` opens a request (engine must already be suspended; `409 engine_not_suspended` otherwise) and re-bakes every host config with `host.destroy_engines`; GET returns `{engine, request, counts, hosts:[{host_id,fqdn,status,residue,reported_at}]}`; `purge` `{force?}` then drops the engine's stored credentials, accounts and host assignments (refused with `409 engine_destroy_incomplete` while hosts are unfinished unless `force`); DELETE cancels. Hosts report via `POST /host/engine-destroy/report`. Re-enabling the engine is refused (`409 engine_destroy_open`) until the request is cancelled. See `docs/interface-api.md` → Engine destroy.
-- `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
 - OpenAI-compatible API keys (Codex-scoped; Claude-scoped keys live under `/admin/claude/keys`, Grok `sk-cgx-` keys under `/admin/grok/keys`):
   - `GET /admin/openai/keys` — list keys (`id`, `name`, `key_prefix`, `is_active`, `use_count`, `last_used_at`, `expires_at`, timestamps).
   - `POST /admin/openai/keys` — issue a key. Body: `{name, expires_at?}`. Returns the full key once, alongside the record.
@@ -706,7 +705,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/claude/keys` — create a new Claude API key. Body: `{name, expires_at?}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
   - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
-  - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). `settings.read` / `settings.manage`.
   - `GET /admin/claude/settings` — get the separate Anthropic-compatible API proxy defaults. Returns `{status, data: {default_model, max_tokens, disabled}}`; this does not control Claude Code's fleet `model` / `effortLevel`.
   - `GET /admin/claude/version` — Claude Code fleet version summary (same shape the Codex version card uses).
   - `POST /admin/claude/version` — set the fleet Claude Code version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`; `latest`/`auto` clear the lock and refresh from upstream.
@@ -911,7 +909,7 @@ Selection runs once per native CLI launch. It prefers verified enabled accounts 
 
 Kimi Code exposes the OpenAI-shaped `/kimi/v1` surface with `sk-ckx-` bearer
 keys. `versions.kimi_api_disabled=1` is seeded by migration 0130; operators
-must opt in through `/admin/kimi/state` or `/admin/api/surfaces/kimi`.
+must opt in through `/admin/api/surfaces/kimi`.
 Missing switch metadata or a failed switch read leaves this surface disabled.
 Its backend defaults to `kimi` (`api_surface_backend_kimi`) and can be changed
 independently of its key namespace and kill switch, like every other surface.
@@ -952,8 +950,6 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 - `POST /admin/grok/keys` — Issue a scoped sk-cgx- gateway key, returned once.
 - `POST /admin/grok/keys/:id/toggle` — Change a Grok gateway key active state.
 - `DELETE /admin/grok/keys/:id` — Remove a Grok gateway key.
-- `GET /admin/grok/state` — Read the independent Grok API switch.
-- `POST /admin/grok/state` — Set the independent Grok API switch.
 - `GET /admin/grok/settings` — Read gateway default_model and disabled.
 - `POST /admin/grok/settings` — Change gateway default model/switch; unsupported parameters rejected.
 - `GET /admin/grok/models` — List native catalog with enabled flags.
@@ -974,8 +970,6 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 - `POST /admin/kimi/keys` — Issue a scoped sk-ckx- gateway key, returned once.
 - `POST /admin/kimi/keys/:id/toggle` — Change a Kimi gateway key active state.
 - `DELETE /admin/kimi/keys/:id` — Remove a Kimi gateway key.
-- `GET /admin/kimi/state` — Read the independent Kimi API switch.
-- `POST /admin/kimi/state` — Set the independent Kimi API switch.
 - `GET /admin/kimi/settings` — Read gateway default_model and disabled.
 - `POST /admin/kimi/settings` — Change gateway default model/switch; unsupported parameters rejected.
 - `GET /admin/kimi/models` — List native catalog with enabled flags.

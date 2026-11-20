@@ -117,16 +117,6 @@ const CALL_CASES: CallCase[] = [
       body: undefined,
     }),
   },
-  {
-    name: "getState",
-    invoke: (engine) => keysApi.getState(engine),
-    request: (prefix) => ({ method: "GET", path: `${prefix}/state`, body: undefined }),
-  },
-  {
-    name: "setState",
-    invoke: (engine) => keysApi.setState(engine, true),
-    request: (prefix) => ({ method: "POST", path: `${prefix}/state`, body: { disabled: true } }),
-  },
 ];
 
 beforeEach(() => {
@@ -188,16 +178,6 @@ describe("boolean bodies", () => {
       assert.deepEqual(calls, [
         { method: "POST", path: `${prefix}/keys/${KEY_ID}/toggle`, body: { active: true } },
         { method: "POST", path: `${prefix}/keys/${KEY_ID}/toggle`, body: { active: false } },
-      ]);
-    });
-
-    it(`setState(${engine}) carries the kill switch either way`, async () => {
-      await keysApi.setState(engine, true);
-      await keysApi.setState(engine, false);
-
-      assert.deepEqual(calls, [
-        { method: "POST", path: `${prefix}/state`, body: { disabled: true } },
-        { method: "POST", path: `${prefix}/state`, body: { disabled: false } },
       ]);
     });
   }
