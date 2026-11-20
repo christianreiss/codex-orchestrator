@@ -261,10 +261,16 @@ func TestManagedNativeRefusalsKeepHelpVersionAndValues(t *testing.T) {
 			t.Fatalf("%q did not reach native help/version", args)
 		}
 	}
-	for _, args := range [][]string{{"--model", "--force-login"}, {"-p", "--oauth"}, {"--print=--force-login"}, {"agent", "--model", "--reauth", "stdio"}, {"--add-dir", "setup"}, {"leader", "--debug-file", "worker", "list"}, {"leader", "list"}} {
+	for _, args := range [][]string{{"--model", "--force-login"}, {"-p=--oauth"}, {"--print=--force-login"}, {"agent", "--model", "--reauth", "stdio"}, {"--add-dir", "setup"}, {"leader", "--debug-file", "worker", "list"}, {"leader", "list"}} {
 		if refusal := managedNativeRefusal(args); refusal != "" {
 			t.Fatalf("value %q refused: %s", args, refusal)
 		}
+	}
+	// -p/--single/--print take an optional prompt (1.0.91+; 1.0.89 rejected a
+	// following flag natively), so a flag after a bare -p is a real flag and its
+	// sign-in request is refused rather than hidden as the prompt value.
+	if refusal := managedNativeRefusal([]string{"-p", "--oauth"}); !strings.Contains(refusal, "--oauth") {
+		t.Fatalf("flag after bare -p hidden as prompt value: %q", refusal)
 	}
 	// --execute words are a prompt (sent through --prompt-file), never native argv.
 	for _, prompt := range [][]string{{"setup"}, {"worker", "start"}, {"update", "--version", "x"}, {"--force-login"}} {

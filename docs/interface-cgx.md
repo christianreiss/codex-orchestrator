@@ -279,11 +279,23 @@ owned and install/update/upgrade remain fleet-managed. Command-looking option
 values stay values. Dispatch, headless detection, identity rules, startup
 preferences and workspace capture share required/optional value boundaries,
 short/long aliases, attached/equal forms and `--`. In particular `-p`, `--single`
-and `--print` take a prompt, while `-r` / `--resume` and `-w` / `--worktree` have
-optional values. Comma-separated permission/tool lists take one argv value.
+and `--print` take an optional prompt value (a following non-flag word or a bare
+`-` is the prompt; a following flag such as `-p --always-approve` is a flag, as
+in 1.0.91+; stable 1.0.89 rejected that form natively, so the optional table is a
+safe superset), `--system-prompt-file <PATH>` takes an opaque required value, and
+`-r` / `--resume` and `-w` / `--worktree` have optional values. Comma-separated permission/tool lists take one argv value.
 An explicit resume UUID may follow global options; a title, picker or fork does
 not prove continuity with an existing native session. Native help and version
 requests bypass signed config, account leasing, sync and private-runtime starts.
+
+Deferred until a >= 1.0.91 stable promotion (alpha 1.0.91/1.0.92 verified
+2026-11-20): the variadic `[PROMPT]...` positional words and the matching
+command-word semantics (`grok fix doctor` is prompt text on 1.0.91+, while 1.0.89
+runs `doctor` or errors). `Command` still allows only one initial prompt word
+before a command, so on a host pinned to 1.0.91+ a prompt word such as `logout`,
+`login` or `worker` can be classified as a command; that is conservative except
+for the deferred-logout path. Implementing it needs version-aware parsing or an explicit conservative
+refusal, and the fleet default (`latest` = 1.0.89) is unaffected.
 
 cxx 0.9.151 completes the 1.0.70 utility/service value grammar, including
 agent-leader Cursor-worker settings, worker PID/controller fields, clone redirect

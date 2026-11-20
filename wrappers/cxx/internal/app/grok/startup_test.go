@@ -220,7 +220,7 @@ func TestStartupPreferencesReadsPathOverlayAndKeepsUnknownEffort(t *testing.T) {
 }
 
 func TestNativeArgumentNeverReadsPromptOrTerminatorData(t *testing.T) {
-	for _, args := range [][]string{{"-p", "--model=forged"}, {"--prompt-json", "--model=forged"}, {"--", "--model=forged"}} {
+	for _, args := range [][]string{{"-p=--model=forged"}, {"--prompt-json", "--model=forged"}, {"--", "--model=forged"}} {
 		if actual := nativeArgument(args, "--model", "-m"); actual != "" {
 			t.Fatalf("read prompt as model: %v -> %q", args, actual)
 		}
@@ -231,10 +231,17 @@ func TestNativeArgumentNeverReadsPromptOrTerminatorData(t *testing.T) {
 	if actual := nativeArgument([]string{"-mgrok-4.5"}, "--model", "-m"); actual != "grok-4.5" {
 		t.Fatalf("attached native short model lost: %s", actual)
 	}
-	for _, args := range [][]string{{"-p", "--always-approve"}, {"--", "--always-approve"}} {
+	for _, args := range [][]string{{"-p=--always-approve"}, {"--", "--always-approve"}} {
 		if nativeFlag(args, "--always-approve") {
 			t.Fatalf("prompt data became a permission warning: %v", args)
 		}
+	}
+	// -p takes an optional prompt (1.0.91+): a following flag is a real flag.
+	if actual := nativeArgument([]string{"-p", "--model=real"}, "--model", "-m"); actual != "real" {
+		t.Fatalf("flag after bare -p hidden as prompt: %q", actual)
+	}
+	if !nativeFlag([]string{"-p", "--always-approve", "fix it"}, "--always-approve") {
+		t.Fatal("--always-approve after bare -p hidden as prompt")
 	}
 }
 

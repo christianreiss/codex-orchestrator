@@ -74,7 +74,7 @@ func init() {
 	add(grok, 0, "--debug")
 	for _, names := range [][]string{
 		{"--model", "-m"},
-		{"--single", "-p", "--print"},
+		{"--system-prompt-file"}, // 1.0.91+ <PATH>
 		{"--rules", "--append-system-prompt"},
 		{"--system-prompt-override", "--system-prompt"},
 		{"--reasoning-effort", "--effort"},
@@ -119,6 +119,11 @@ func init() {
 	} {
 		add(grok, required, names...)
 	}
+	// `-p/--single/--print [PROMPT]` is optional-valued from 1.0.91; the stable
+	// 1.0.89 declared it required. The two only differ when the next token starts
+	// with `-`, which 1.0.89 rejected natively, so this cannot weaken stable
+	// behaviour. A bare `-` and non-flag words are still consumed as the prompt.
+	add(grok, optional, "--single", "-p", "--print")
 	add(grok, optional, "--resume", "-r")
 	add(grok, optional, "--worktree", "-w")
 	add(grok, optional, "--local-workspace")
