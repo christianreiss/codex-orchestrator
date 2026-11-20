@@ -164,7 +164,7 @@ func TestNativeIdentityKeepsOptionBodiesOpaque(t *testing.T) {
 			t.Fatalf("%q => %q: %q %v", args, got, values, err)
 		}
 	}
-	for _, flag := range []string{"-p", "--single", "--print", "--prompt-json", "--system-prompt-override", "--agents", "--allow", "--deny", "--tools", "--json-schema", "--debug-file", "--sandbox", "--ref"} {
+	for _, flag := range []string{"--prompt-json", "--system-prompt-override", "--agents", "--allow", "--deny", "--tools", "--json-schema", "--debug-file", "--sandbox", "--ref"} {
 		args := []string{flag, "--rules", "--rules=Keep caller rules"}
 		got, err := AppendIdentityArgs("grok", args, Identity{Name: "Ava"})
 		if err != nil {
@@ -172,6 +172,27 @@ func TestNativeIdentityKeepsOptionBodiesOpaque(t *testing.T) {
 		}
 		if !strings.Contains(got[1], "Keep caller rules") || !reflect.DeepEqual(got[2:], args[:2]) {
 			t.Fatalf("%s consumed a value: %q", flag, got)
+		}
+	}
+	// -p/--single/--print take an optional prompt (1.0.91+; <=1.0.89 rejects a
+	// following flag natively): the attached form keeps its body opaque, while a
+	// flag after a bare one is a real flag the identity merge must see.
+	for _, flag := range []string{"-p", "--single", "--print"} {
+		args := []string{flag + "=--rules", "--rules=Keep caller rules"}
+		got, err := AppendIdentityArgs("grok", args, Identity{Name: "Ava"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got[1], "Keep caller rules") || !reflect.DeepEqual(got[2:], args[:1]) {
+			t.Fatalf("%s= consumed a value: %q", flag, got)
+		}
+		args = []string{flag, "--rules=Keep caller rules"}
+		got, err = AppendIdentityArgs("grok", args, Identity{Name: "Ava"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got[1], "Keep caller rules") || !reflect.DeepEqual(got[2:], args[:1]) {
+			t.Fatalf("flag after bare %s hidden as its value: %q", flag, got)
 		}
 	}
 	got, err := AppendIdentityArgs("grok", []string{"--append-system-prompt", "Keep aliased rules", "--worktree=--rules", "--single=--rules"}, Identity{Name: "Ava"})
@@ -198,7 +219,11 @@ func TestNativeResumeIdentityUsesOptionBoundaries(t *testing.T) {
 		{"codex", []string{"resume", "-i", "a.png", id}, ""},
 		{"codex", []string{"exec", "-i", "a.png", "resume", id}, ""},
 		{"grok", []string{"--debug", "--resume=" + id}, id},
-		{"grok", []string{"--print", "--resume=" + id}, ""},
+		{"grok", []string{"--print=--resume=" + id}, ""},
+		{"grok", []string{"-p=--resume=" + id}, ""},
+		// A flag after a bare -p/--print is a real flag (1.0.91+).
+		{"grok", []string{"--print", "--resume=" + id}, id},
+		{"grok", []string{"-p", "--resume=" + id}, id},
 		{"grok", []string{"--load", id}, id},
 		{"grok", []string{"--resume", id, "--fork-session"}, ""},
 		{"grok", []string{"--", "--resume", id}, ""},

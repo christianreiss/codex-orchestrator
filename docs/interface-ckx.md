@@ -575,6 +575,7 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/nativeargs/maintenance_20261028_test.go` | Grok-only test/fixture for maintenance 20261028 test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/nativeargs/maintenance_20261101_test.go` | Grok-only test/fixture for maintenance 20261101 test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/nativeargs/maintenance_20261106_grok_test.go` | Grok-only test/fixture for maintenance 20261106 grok test; Kimi has its own provider path. |
+| `wrappers/cxx/internal/nativeargs/maintenance_20261120_grok_test.go` | Grok-only native grammar test; Kimi's grammar is covered by maintenance_20261120_kimi_test.go. |
 | `wrappers/cxx/internal/nativeargs/testdata/grok-1.0.70-help.json` | Grok-only test/fixture for grok 1.0.70 help; Kimi has its own provider path. |
 
 ### Historical database migrations and fixtures (16)

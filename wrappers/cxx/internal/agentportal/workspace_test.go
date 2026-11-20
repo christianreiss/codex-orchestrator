@@ -26,7 +26,10 @@ func TestLaunchCwd(t *testing.T) {
 		{"claude", []string{"--append-system-prompt", "--cd=/prompt-value"}, cwd},
 		{"grok", []string{"--cwd=/tmp/project", "--resume"}, "/tmp/project"},
 		{"grok", []string{"--cwd", "/tmp/project"}, "/tmp/project"},
-		{"grok", []string{"-p", "--cwd=/prompt-value"}, cwd},
+		{"grok", []string{"-p=--cwd=/prompt-value"}, cwd},
+		// A flag after a bare -p/--print is a real flag (1.0.91+; <=1.0.89 rejects it).
+		{"grok", []string{"-p", "--cwd=/tmp/project"}, "/tmp/project"},
+		{"grok", []string{"--print", "--cwd", "/tmp/project"}, "/tmp/project"},
 	} {
 		got, err := launchCwd(tc.engine, tc.args)
 		if err != nil || got != tc.want {
@@ -99,7 +102,7 @@ func TestDiscoveryOrigin(t *testing.T) {
 
 func TestWorkspaceUsesNativeValueCardinality(t *testing.T) {
 	cwd, _ := os.Getwd()
-	for _, args := range [][]string{{"--print", "--cwd=/fake"}, {"--debug-file", "--cwd=/fake"}, {"--json-schema", "--cwd=/fake"}, {"--worktree", "--cwd=/actual"}, {"--single=--cwd=/fake", "--cwd=/actual"}} {
+	for _, args := range [][]string{{"--print=--cwd=/fake"}, {"-p=--cwd=/fake"}, {"--debug-file", "--cwd=/fake"}, {"--json-schema", "--cwd=/fake"}, {"--worktree", "--cwd=/actual"}, {"--single=--cwd=/fake", "--cwd=/actual"}} {
 		want := cwd
 		if args[len(args)-1] == "--cwd=/actual" {
 			want = "/actual"
@@ -108,6 +111,9 @@ func TestWorkspaceUsesNativeValueCardinality(t *testing.T) {
 		if err != nil || got != want {
 			t.Errorf("%q => %q %v want %q", args, got, err, want)
 		}
+	}
+	if got, err := launchCwd("grok", []string{"--print", "--cwd=/fake"}); err != nil || got != "/fake" {
+		t.Errorf("flag after bare --print hidden as its value: %q %v", got, err)
 	}
 	for _, args := range [][]string{{"--image", "a.png", "login", "resume"}, {"--image", "a.png", "--cd", "/actual"}} {
 		want := cwd
