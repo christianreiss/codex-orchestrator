@@ -163,12 +163,12 @@ On a new installation, GET displays the effective Sonnet 5 / `high` default with
 
 #### Claude API defaults
 
-Claude API proxy defaults (default model and max tokens used when proxying Claude API calls) are controlled by a separate endpoint: `GET /admin/claude/settings`, `POST /admin/claude/settings`. Fields:
+Claude API proxy defaults are controlled by a separate endpoint: `GET /admin/claude/settings`, `POST /admin/claude/settings`. Fields:
 
 | Field | Type | Constraints |
 |---|---|---|
-| `default_model` | string | Must be a supported Claude model; default `claude-sonnet-5`. |
-| `max_tokens` | integer | 256–200 000, default 8 192. |
+| `default_model` | string | Must be a supported Claude model; default `claude-sonnet-5`. Used for gateway requests that omit `model` while Claude answers them. |
+| `max_tokens` | integer | 256–200 000, default 8 192. Stored only: the CLI runner cannot enforce an output cap, so no request uses it. |
 
 Supported proxy models are `claude-fable-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, and `claude-haiku-4-5-20251001`.
 
