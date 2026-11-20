@@ -5,7 +5,7 @@ verified: 2026-10-17
 sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte
 ---
 
-Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
+Grok Build (`cgx`) is supported alongside Codex, Claude and Kimi Code; see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
 Open **Providers → Accounts** (`/accounts`) to manage the provider credentials shared by your fleet. Each engine has its own pool: three Claude subscriptions work with clx even when there are no Codex accounts. cdx requires its own ChatGPT or OpenAI credentials. The engine appears under each account's name (there is no separate Engine column), with its plan, and a session links to the host by name. Below 640 px each account is a stacked card instead of a table.

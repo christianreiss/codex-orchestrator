@@ -6,7 +6,7 @@ verified: 2026-11-05
 sources: README.md, api/src/server.ts, api/src/routes/admin/pages/static.ts, api/src/services/admin-auth.ts, api/src/http/plugins/auth-admin.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/lib/nav.ts, frontend/src/routes/+page.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/routes/dashboard/+page.svelte, frontend/src/routes/(activity)/activity/+page.svelte, frontend/src/lib/components/layout/Sidebar.svelte, frontend/src/lib/components/layout/TopBar.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/routes/+layout.svelte, wrappers/cxx
 ---
 
-Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
+Grok Build (`cgx`) is supported alongside Codex, Claude and Kimi Code; see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
 Codex Orchestrator is a self-hosted service that keeps **OpenAI Codex**, **Anthropic Claude Code**, **xAI Grok Build** and **Kimi Code** in sync across every machine you own. You upload your credentials once, register each machine as a *host*, and the orchestrator then distributes encrypted auth payloads, pushes the shared agents document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude), serves canonical skills through MCP, and surfaces ChatGPT quota state for operators. Each host gets its own API key delivered in signed per-engine config consumed by one `cxx` wrapper; relative `cdx`, `clx`, `cgx` and `ckx` aliases select the enabled persona without sharing a token across machines.
@@ -23,21 +23,21 @@ Every route guarded by `requireAdmin` requires a valid session cookie. Public lo
 
 The admin is a single-page SvelteKit app whose HTML shell is returned by the Fastify static handler (`adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`). On boot the SPA hydrates by calling `GET /admin/auth/status` to learn who (if anyone) is signed in. The root route waits for that answer before forwarding to `/dashboard` (the **Overview** page), and stands down entirely when the installation is unclaimed — then the layout gate owns the navigation and sends you to the setup wizard at `/setup` instead. Redirecting immediately used to race that gate, so a brand-new install opened on a dashboard full of 401s.
 
-The desktop sidebar is nine always-visible entries in two sections. Each entry opens a hub; hubs with several pages show them as a tab strip above the page, and every page keeps its own URL.
+The desktop sidebar is nine always-visible entries in two sections. Each entry opens a hub; the active hub lists its pages as indented entries beneath it, and every page keeps its own URL. A page has at most one row of tabs or one view switch of its own.
 
-| Section | Hub | Pages (tabs) |
+| Section | Hub | Pages |
 |---|---|---|
 | **Operate** | Overview | Overview |
 | | Hosts | Hosts |
-| | Agents | Agents (Live and Graph views) |
+| | Agents | Agents (Chats, Remote sessions and Graph views) |
 | | Projects | Projects |
-| | Coordination | Messages, Timed wake-ups, Git merges, Shared files, External clients, Workflows |
-| | Activity | Activity (configuration and system changes), Reports |
+| | Coordination | Messaging, Wake-ups, Git merges, Shared files, Workflows |
+| | Activity | Activity (configuration and system changes), Feedback |
 | **Configure** | Providers | Accounts, Engines (including Model defaults), Usage limits |
 | | Library | Skills, Agent rules, Memories; Claude-native: Subagents, Commands, Reply styles |
-| | Access & Settings | People, API keys, Secrets, Settings |
+| | Access & Settings | People, API keys, Connectors, External clients, Secrets, Settings |
 
-Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** shows host and stored-account counts, then Provider, Engines and Runner tabs. The selected tab is kept in the URL; Refresh reloads overview, accounts and runner state together. **Agents** is one page with a Live / Graph view toggle. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **External clients** are bots and bridges outside the fleet that take part in agent messaging, **Timed wake-ups** is wake/cron, and **Messages** is agent messaging. **Activity** holds the audit trail of configuration and system changes, and **Reports** is the inbox for bugs and requests about the orchestrator itself (feedback). The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
+Manual, Account and Shortcuts sit at the foot of the sidebar. On a phone the bottom bar keeps Overview, Hosts, Projects and Agents; the other hubs are under Menu, each with its pages listed beneath it. The command palette (Ctrl/Cmd-K) still jumps straight to any individual page. The active destination and breadcrumb identify your current location. **Overview** opens with **Needs you**: what is waiting on you (access requests, open temporary access, agents waiting for an answer, accounts needing attention, a failed verification runner, unclaimed feedback), each linked to the page that owns it. Host and account counts follow, then Provider, Engines and Runner tabs. The selected tab is kept in the URL; Refresh reloads overview, accounts and runner state together. **Agents** is one page with one view switch: Chats, Remote sessions and Graph. **Engines** holds fleet model and update controls; **Settings** holds fleet-wide behaviour (hosts, agents, data retention). **Git merges** (the Git Director) arbitrates merges between agents sharing a clone, **Shared files** (file transfer) is the expiring pool of files agents hand each other, **External clients** are bots and bridges outside the fleet that take part in agent messaging, **Wake-ups** (`/schedules`) is wake/cron, and **Messaging** is agent messaging. **Activity** holds the audit trail of configuration and system changes, and **Feedback** (`/reports`) is the inbox for bugs and requests about the orchestrator itself. The **Library** is one page with a type filter; Subagents, Commands, and Reply styles (output styles) are Claude-native collections, and **Agent rules** (fleet instructions) is the shared `AGENTS.md` / `CLAUDE.md` document.
 
 The footer provides **Manual**, **Account**, **Shortcuts**, and an account menu whose links jump to the Security, Appearance, and Android devices sections of the single **Account** page (`/account#security`, `#appearance`, `#devices`), plus sign-out. On phones, Overview, Hosts, Projects, and Agents stay in the bottom bar; **Menu** opens the remaining destinations and account actions. Menu is highlighted when the current page belongs to that group.
 

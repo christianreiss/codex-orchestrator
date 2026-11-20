@@ -1,18 +1,22 @@
 ---
 title: Dashboard
-summary: The Overview page and its Provider, Engines and Runner tabs, plus refresh recovery.
+summary: The Overview page, its Needs you list and its Provider, Engines and Runner tabs, plus refresh recovery.
 section: Admin workspace
 verified: 2026-10-19
-sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/runner-proxy.ts, api/src/services/runner-validation.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/lib/components/dashboard/OnboardingNotice.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/UsageTable.svelte, frontend/src/lib/components/dashboard/EngineTable.svelte, frontend/src/lib/components/dashboard/RunnerStatus.svelte, frontend/src/lib/nav.ts, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
+sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/runner-proxy.ts, api/src/services/runner-validation.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/lib/components/dashboard/NeedsYou.svelte, frontend/src/lib/components/dashboard/needs-you.ts, frontend/src/lib/components/dashboard/OnboardingNotice.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/UsageTable.svelte, frontend/src/lib/components/dashboard/EngineTable.svelte, frontend/src/lib/components/dashboard/RunnerStatus.svelte, frontend/src/lib/nav.ts, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard
 
-The **Overview** page (`/dashboard`, the first entry of the sidebar) has three tabs: **Provider** (quota usage per account, the default), **Engines** (installed counts and the latest upstream version) and **Runner** (the sidecar that checks provider logins). Grok accounts show the stored billing-period usage and a relative reset (`in 6 days`, or hours when the reset is under a day). An absent reading stays unavailable and is never shown as 0% (see [Grok Build](cgx)). The header actions are **Refresh**, which reloads the overview, provider accounts and runner state together, and **Add host**. Host credential and version problems are not repeated here; they live on [Hosts](/admin/manual/hosts).
+The **Overview** page (`/dashboard`, the first entry of the sidebar) opens with **Needs you** and then has three tabs: **Provider** (quota usage per account, the default), **Engines** (installed counts and the latest upstream version) and **Runner** (the sidecar that checks provider logins). Grok accounts show the stored billing-period usage and a relative reset (`in 6 days`, or hours when the reset is under a day). An absent reading stays unavailable and is never shown as 0% (see [Grok Build](cgx)). The header actions are **Refresh**, which reloads the overview, provider accounts and runner state together, and **Add host**. Host credential and version problems are not repeated here; they live on [Hosts](/admin/manual/hosts).
+
+## Needs you
+
+**Needs you** sits above everything else and lists, in this order, at most six things waiting on you, each with a count and a link to the page that owns it: hosts waiting for temporary access approval (opens the approval dialog on Hosts), agents waiting for your answer (Agents), open temporary access windows, with fleet-wide access first (Hosts), engines that fail login verification (the Runner tab), accounts that need attention or are near quota (Accounts) and unclaimed feedback reports (Feedback). Each count uses the same rule as the page it links to; accounts and the runner count only switched-on engines, as their pages do. A row needs the read capability of its page; without it the row is left out rather than shown as zero. When nothing is pending the section says so in one line. When a signal cannot be read, the section names it and offers **Retry** instead of calling the fleet calm. Version drift and stale credentials are not listed; they live on [Hosts](/admin/manual/hosts).
 
 ## Active Clients
 
-The **Agents** page (`/agents`, previously Active Clients; its Live / Graph toggle also covers the old Topology page) is its own destination under *Operate*; the full reference — presence states, its agent-session switch, roles, and the wrapper side — is in [Agents and agent sessions](/admin/manual/agent-portal). In short: open its Live view for the session directory across Codex, Claude, Grok, and Kimi Code. The
+The **Agents** page (`/agents`, previously Active Clients; its Chats / Remote sessions / Graph switch also covers the old Topology page) is its own destination under *Operate*; the full reference — presence states, its agent-session switch, roles, and the wrapper side — is in [Agents and agent sessions](/admin/manual/agent-portal). In short: open its Chats view for the session directory across Codex, Claude, Grok, and Kimi Code. The
 summary counts distinguish online clients, outstanding attention, offline
 clients, and recently ended history. Search by host, user, task, branch, or
 working directory, then filter by engine and state. Selecting a client opens
@@ -59,7 +63,7 @@ remains readable until the configured retention period expires.
 
 ## Setup resume card
 
-`OnboardingNotice` is the first thing on the Overview page, above the tabs, while first-run setup is unfinished. It reads `GET /admin/setup/status` (via `setupStatusQuery()`, polled every 30 s) and renders when **both** of these hold:
+`OnboardingNotice` sits on the Overview page right below Needs you, above the tabs, while first-run setup is unfinished. It reads `GET /admin/setup/status` (via `setupStatusQuery()`, polled every 30 s) and renders when **both** of these hold:
 
 - the wizard is neither completed nor dismissed (`wizard.completed_at` and `wizard.dismissed_at` are both null), **and**
 - at least one `next_actions` entry is still incomplete.
@@ -109,6 +113,7 @@ Failed first loads show an error and a retry control rather than a successful ze
 - api/src/services/runner-proxy.ts, api/src/services/runner-validation.ts (`/admin/runner*` over the account pool: `resolvePooledCanonicalPayload`)
 - api/src/db/schema.ts (`dashboard_graph_quota_snapshots`, `chatgpt_usage_snapshots`, `logs`)
 - frontend/src/routes/dashboard/+page.svelte (Overview layout and tabs)
+- frontend/src/lib/components/dashboard/NeedsYou.svelte, frontend/src/lib/components/dashboard/needs-you.ts (Needs you list and its rules)
 - frontend/src/lib/components/dashboard/OnboardingNotice.svelte (setup resume notice)
 - frontend/src/lib/api/setup.ts (`setupStatusQuery`, wizard mutation, `invalidateSetup`)
 - api/src/services/setup-status.ts, api/src/services/setup-wizard.ts (checks, next actions, progress blob)

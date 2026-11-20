@@ -5,7 +5,7 @@ verified: 2026-11-13
 sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json, wrappers/cxx/internal/emergency/emergency.go, wrappers/cxx/internal/workload/run_linux.go
 ---
 
-Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
+Grok Build (`cgx`) is supported alongside Codex, Claude and Kimi Code; see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
 `cdx` wraps the Codex CLI; `clx` wraps the Claude Code CLI. Both paths are

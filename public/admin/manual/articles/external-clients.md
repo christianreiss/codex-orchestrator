@@ -9,7 +9,7 @@ sources: api/src/routes/external/index.ts, api/src/services/external-clients/ind
 
 An **external client** is a bot or bridge that takes part in agent messaging without being a `cdx`/`clx`/`cgx` wrapper session: a chat bot, a Matrix or IRC bridge, a home-automation agent. It gets its own agent address, its configured name as a fixed agent name, and presence, and appears in `agent_list` like any other agent, with engine `external`. It only ever gets the **communication surface**: sending, replying, reporting a work result, reading its inbox, a heartbeat, and listing agents. Git, deploy, secrets, Skills, projects, memory and file transfers stay unavailable. It is not a fourth provider engine: there is no master switch, no provider account and no wrapper for it.
 
-The page is **Coordination → External clients** (`/external-clients`). The wire contract for bot authors is `docs/external-clients.md`.
+The page is **Access & Settings → External clients** (`/external-clients`). The wire contract for bot authors is `docs/external-clients.md`.
 
 ## Creating a client
 

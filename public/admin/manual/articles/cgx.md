@@ -7,8 +7,8 @@ verified: 2026-10-17
 sources: docs/interface-cgx.md, api/src/services/grok-auth-owner.ts, api/src/services/grok-usage.ts, api/src/ops/grok-usage-worker.ts, frontend/src/lib/components/dashboard/GrokUsage.svelte, runner/grok.py, wrappers/cxx/internal/grok
 ---
 
-Grok Build is the fleet's third engine. Select **Grok** alongside Codex and Claude
-when registering a host; any nonempty combination is supported. `cgx` launches
+Grok Build is one of the fleet's four engines. Select **Grok** alongside Codex,
+Claude and Kimi Code when registering a host; any nonempty combination is supported. `cgx` launches
 Grok through the same signed `cxx` wrapper binary as `cdx` and `clx`.
 
 ## Subscription login

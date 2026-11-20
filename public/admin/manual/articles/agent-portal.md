@@ -29,7 +29,7 @@ It does not stop the native local CLI. Setup calls this module **Agent sessions*
 
 ## Remote sessions
 
-On the Live view, switch the workspace toggle to **Remote sessions** (shown only with `agent_messaging.manage`) and use **Start remote session**: choose a configured host and engine, supply a title,
+Pick **Remote sessions** in the page's view switch (shown only with `agent_messaging.manage`; the engine filter beside it applies here too) and use **Start remote session**: choose a configured host and engine, supply a title,
 working directory and task, and start. The selected remote session supports
 **Senden / Fortsetzen** and **Beenden**. Its history link opens the native session
 in the Agents page. These controls require `agent_messaging.manage`; reading the
