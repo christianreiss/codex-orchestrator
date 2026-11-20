@@ -146,23 +146,6 @@ func LastRefreshFromRaw(raw []byte) (time.Time, error) {
 	return lastRefreshFrom(raw)
 }
 
-// LastRefreshOfFile returns last_refresh when present and otherwise the file's
-// mtime. Native Claude logins omit last_refresh, so mtime protects a fresh local
-// login from being overwritten by an older fleet copy.
-func LastRefreshOfFile(path string) (time.Time, error) {
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return time.Time{}, ErrNoAuthFile
-	}
-	if err != nil {
-		return time.Time{}, err
-	}
-	if ts, parseErr := lastRefreshFrom(raw); parseErr == nil {
-		return ts, nil
-	}
-	return nativeCredentialRefresh(path, raw)
-}
-
 func nativeCredentialRefresh(path string, raw []byte) (time.Time, error) {
 	info, err := os.Stat(path)
 	if err != nil {

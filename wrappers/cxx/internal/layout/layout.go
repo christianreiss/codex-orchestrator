@@ -34,10 +34,6 @@ type Lock struct {
 	f *os.File
 }
 
-func Acquire(ctx context.Context) (*Lock, error) {
-	return AcquireForTarget(ctx, "cxx-global")
-}
-
 // AcquireForTarget keys coordination to the canonical cxx destination. Root
 // cron and unprivileged interactive updates therefore share a lock without
 // unnecessarily serializing unrelated custom BIN_DIR installations.
@@ -108,12 +104,6 @@ func (l *Lock) Release() error {
 	err = errors.Join(err, l.f.Close())
 	l.f = nil
 	return err
-}
-
-// WithLock runs fn while holding the fleet wrapper's cross-engine mutation
-// lock. Downloads may happen before entering this section; installs may not.
-func WithLock(ctx context.Context, fn func() error) error {
-	return WithTargetLock(ctx, "cxx-global", fn)
 }
 
 func WithTargetLock(ctx context.Context, target string, fn func() error) error {

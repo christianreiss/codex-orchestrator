@@ -16,7 +16,6 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
-	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/update"
@@ -46,16 +45,6 @@ const cronPATHEnv = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbi
 // via ldflags. The cron Tick path sends it in CronCheck/CronReport so the
 // server can decide whether a wrapper update is needed.
 var WrapperVersion = "dev"
-
-// Install and Remove are compatibility adapters. Schedule ownership lives in
-// internal/cron so both personas always mutate the same host-wide entry.
-func Install(cfg *config.Config) error {
-	return hostcron.Install(context.Background(), cfg)
-}
-
-func Remove() error {
-	return hostcron.Remove(context.Background())
-}
 
 // Result summarises what a Tick did so callers can render a human-readable
 // status line. All fields are zero-safe — a no-op tick produces a Result with

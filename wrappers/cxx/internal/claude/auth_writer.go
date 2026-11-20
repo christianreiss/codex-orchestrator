@@ -83,16 +83,6 @@ func authPaths() (claudePath, clxPath string, err error) {
 	return filepath.Join(home, ".claude", ".credentials.json"), filepath.Join(home, ".clx", "auth", "credentials.json"), nil
 }
 
-// AuthCandidatePaths returns the authoritative path followed by its legacy
-// compatibility mirror. Callers may use this for cleanup/diagnostics only.
-func AuthCandidatePaths() ([]string, error) {
-	claudePath, clxPath, err := authPaths()
-	if err != nil {
-		return nil, err
-	}
-	return []string{claudePath, clxPath}, nil
-}
-
 func LocalDigest() (string, error) {
 	snap, err := ReadAuthSnapshot(false)
 	if errors.Is(err, os.ErrNotExist) {
@@ -236,21 +226,6 @@ func beginAuthUploadStateContext(ctx context.Context, rejectLogout bool) (AuthSn
 		return AuthSnapshot{}, LogoutIntentGeneration{}, nil, err
 	}
 	return snap, intent, release, nil
-}
-
-func ReadAuthForUploadFromPath(path string) (json.RawMessage, error) {
-	authPath, err := AuthPath()
-	if err != nil {
-		return nil, err
-	}
-	if filepath.Clean(path) != filepath.Clean(authPath) {
-		return nil, fmt.Errorf("refusing non-authoritative Claude auth path %s", path)
-	}
-	snap, err := ReadAuthSnapshot(true)
-	if err != nil {
-		return nil, err
-	}
-	return snap.Upload, nil
 }
 
 // ReadAuthSnapshot reads the authoritative native file while holding the short

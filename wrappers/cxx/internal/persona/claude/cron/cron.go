@@ -16,7 +16,6 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
-	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/update"
@@ -27,16 +26,6 @@ const cronPATHEnv = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbi
 // WrapperVersion is the running wrapper's semantic version, set from main.go
 // via ldflags.
 var WrapperVersion = "dev"
-
-// Install and Remove are compatibility adapters. Schedule ownership lives in
-// internal/cron so both personas always mutate the same host-wide entry.
-func Install(cfg *config.Config) error {
-	return hostcron.Install(context.Background(), cfg)
-}
-
-func Remove() error {
-	return hostcron.Remove(context.Background())
-}
 
 // syncManagedContent converges fleet-managed CLAUDE.md, settings, MCP servers,
 // collections and native skills without launching Claude, and without
