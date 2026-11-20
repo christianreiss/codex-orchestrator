@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
@@ -37,12 +39,15 @@ interface BuildOpts {
   mcpAllow?: boolean;
   operatorToken?: string;
   fsRoot?: string;
+  /** Runs before the routes register, e.g. to add a hook the production server has. */
+  configure?: (app: FastifyInstance) => void;
 }
 
 async function buildApp(opts: BuildOpts | boolean = {}): Promise<FastifyInstance> {
   const o: BuildOpts = typeof opts === 'boolean' ? { mcpAllow: opts } : opts;
   const app = Fastify({ logger: false });
   await app.register(envelopePlugin);
+  o.configure?.(app);
 
   app.decorate('resolveHostFromKey', async (_req: FastifyRequest) => makeStubHost());
   app.decorate('requireHost', async (req: FastifyRequest) => {
@@ -273,5 +278,63 @@ describe('MCP capability split', () => {
     const body2 = JSON.parse(r2.payload);
     expect(body2.error?.code).toBe(-32601);
     await app.close();
+  });
+});
+
+describe('MCP transport over a real socket', () => {
+  // `inject` never reaches node's ServerResponse, so it cannot see a second
+  // send: an async handler that resolves to undefined after reply.send() makes
+  // Fastify send again while async onSend hooks are still running, and the
+  // resulting uncaught ERR_HTTP_HEADERS_SENT terminates the API process.
+  function request(port: number, method: string, headers: Record<string, string | undefined>, body?: string) {
+    return new Promise<{ status: number; allow?: string; body: string }>((resolve, reject) => {
+      const req = httpRequest({ host: '127.0.0.1', port, method, path: '/mcp', headers }, res => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', chunk => (text += chunk));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, allow: res.headers['allow'] as string | undefined, body: text }));
+      });
+      req.on('error', reject);
+      req.end(body);
+    });
+  }
+
+  it.each([
+    { name: 'GET without Origin', method: 'GET', headers: {}, body: undefined, status: 405, text: 'POST only' },
+    { name: 'GET with Origin', method: 'GET', headers: { origin: 'https://evil.example' }, body: undefined, status: 403, text: 'Origin not allowed' },
+    {
+      name: 'POST with Origin',
+      method: 'POST',
+      headers: { origin: 'https://evil.example', 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize' }),
+      status: 403,
+      text: 'Origin not allowed',
+    },
+  ])('answers $name once and keeps the process alive', async ({ method, headers, body, status, text }) => {
+    const uncaught: unknown[] = [];
+    const record = (err: unknown) => void uncaught.push(err);
+    process.on('uncaughtException', record);
+    process.on('unhandledRejection', record);
+    // Production adds the owner-response boundary's async onSend hooks on top
+    // of the envelope's, so the handler's promise settles while the first send
+    // is still in flight. The delay makes that ordering independent of how
+    // many microtasks Fastify's hook runner happens to take.
+    const slowOnSend = (a: FastifyInstance) =>
+      a.addHook('onSend', async (_req, _reply, payload) => (await new Promise(resolve => setTimeout(resolve, 20)), payload));
+    const app = await buildApp({ mcpAllow: false, configure: slowOnSend });
+    try {
+      await app.listen({ host: '127.0.0.1', port: 0 });
+      const { port } = app.server.address() as AddressInfo;
+      const res = await request(port, method, headers, body);
+      expect(res.status).toBe(status);
+      expect(res.body).toContain(text);
+      if (status === 405) expect(res.allow).toBe('POST');
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(uncaught).toEqual([]);
+    } finally {
+      process.off('uncaughtException', record);
+      process.off('unhandledRejection', record);
+      await app.close();
+    }
   });
 });
