@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 const routes: { source: string; path: string }[] = JSON.parse(readFileSync("e2e/design-routes.json", "utf8"));
 import { fixture, installFixtures } from "./admin-fixtures";
+import { manualManifest } from "./manual-manifest";
 
 const sizes = [{ width: 320, height: 844 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 1440, height: 900 }, { width: 1920, height: 1080 }];
 const variants = ["/admin/library?type=commands", "/admin/library?type=output-styles", "/admin/library?type=memories", "/admin/library/subagents/design-fixture", "/admin/library/commands/design-fixture", "/admin/library/output-styles/design-fixture", "/admin/agents?view=graph", "/admin/agent-messaging?view=addresses", "/admin/agent-messaging?view=groups", "/admin/agent-messaging?view=conferences", "/admin/agent-messaging?view=deliveries"];
@@ -62,8 +63,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 test("all manual articles render within the viewport", async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize(sizes[0]);
-  const manifest = JSON.parse(readFileSync("../public/admin/manual/manifest.json", "utf8"));
-  const articles = Array.isArray(manifest) ? manifest : manifest.articles;
+  const { articles } = manualManifest();
   for (const article of articles) {
     await page.goto(`/admin/manual/${article.slug}`);
     await expect.soft(page.locator("article .md-prose")).not.toBeEmpty();

@@ -1,4 +1,5 @@
 import { workflowFixture } from "./workflow-fixtures";
+import { manualManifest } from "./manual-manifest";
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { CAPABILITIES } from "../src/lib/auth/capabilities";
@@ -178,7 +179,7 @@ export const CHATTY_RICH_EVENTS = [
 export function fixture(pathname: string): Record<string, unknown> {
   const workflow = workflowFixture(pathname);
   if (workflow) return workflow;
-  if (pathname === "/admin/manual/manifest") return JSON.parse(readFileSync("../public/admin/manual/manifest.json", "utf8"));
+  if (pathname === "/admin/manual/manifest") return manualManifest() as unknown as Record<string, unknown>;
   if (pathname.startsWith("/admin/manual/article/")) {
     const slug = pathname.split("/").at(-1)!;
     if (!/^[a-z0-9-]+$/.test(slug)) throw new Error("Invalid manual fixture slug");
