@@ -149,7 +149,7 @@ describe('Claude native user settings', () => {
     [{ hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: 'test', async: 'true' }] }] } }, 'hooks.PostToolUse.0.hooks.0.async'],
     [{ hooks: { PostToolUse: [{ hooks: [{ type: 'http', url: 'https://example.com', headers: { 'X.Test': false } }] }] } }, 'hooks.PostToolUse.0.hooks.0.headers["X.Test"]'],
     [{ hooks: { Stop: [{ hooks: [{ type: 'agent', prompt: 'test', command: 'inert' }] }] } }, 'hooks.Stop.0.hooks.0.command'],
-    [{ hooks: { Stop: [{ hooks: [{ type: 'mcp_tool', server: 'name.with.dots', tool: 'test', onFailure: 'block' }] }] } }, 'hooks.Stop.0.hooks.0.onFailure'],
+    [{ hooks: { Stop: [{ hooks: [{ type: 'mcp_tool', server: 'name.with.dots', tool: 'test', onFailure: 'warn' }] }] } }, 'hooks.Stop.0.hooks.0.onFailure'],
   ])('rejects nested invalid authoring at the exact path: %j', (native, path) => {
     expect(() => normalizeClaudeNativeSettings(native)).toThrow(`native_settings.${path}`);
     expect(() => new ClientConfigService({} as never).render({ native_settings: native }, 'claude')).toThrow(`native_settings.${path}`);

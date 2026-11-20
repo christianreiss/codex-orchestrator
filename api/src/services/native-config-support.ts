@@ -109,6 +109,17 @@ function grokZdrApplies(native: Record<string, unknown>, observed: string): bool
   });
 }
 
+/** `onFailure` on an `mcp_tool` hook needs Claude Code 2.1.328; older CLIs ignore it and fail open. */
+function claudeMcpHookHasOnFailure(hooks: unknown): boolean {
+  return Object.values(record(hooks)).some(groups => Array.isArray(groups) && groups.some(group => {
+    const handlers = record(group).hooks;
+    return Array.isArray(handlers) && handlers.some(handler => {
+      const h = record(handler);
+      return h.type === 'mcp_tool' && Object.hasOwn(h, 'onFailure');
+    });
+  }));
+}
+
 export function assertNativeConfigSupport(settings: unknown, host: Host | null, engine: Engine): void {
   if (!host) return;
   if (engine === 'kimi') {
@@ -154,7 +165,8 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
     && Object.hasOwn(record(record(value.native_settings).permissions), 'blockWritesOutsideWorkingDirectories');
   const claudeDenyPrompts = engine === 'claude'
     && Object.hasOwn(record(record(value.native_settings).permissions), 'denyInsteadOfPrompting');
-  const minimum = codex169 ? '0.169.0' : codex168 ? '0.168.0' : codex167 ? '0.167.0' : codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeDenyPrompts ? '2.1.319' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
+  const claudeMcpHookOnFailure = engine === 'claude' && claudeMcpHookHasOnFailure(record(value.native_settings).hooks);
+  const minimum = codex169 ? '0.169.0' : codex168 ? '0.168.0' : codex167 ? '0.167.0' : codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeMcpHookOnFailure ? '2.1.328' : claudeDenyPrompts ? '2.1.319' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
   if (!observed || versionCompare(observed, minimum) < 0) {
     throw new ValidationError(`${engine} native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run ${engine === 'codex' ? 'cdx' : 'clx'} update (or cron run to report an already installed version), then retry sync.`, {
       param: root ? 'settings.native_settings' : profile ? 'settings.profiles' : 'settings',

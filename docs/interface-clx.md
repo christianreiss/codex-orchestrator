@@ -1189,6 +1189,19 @@ continues. Calls already approved by rules, the permission mode or auto mode's
 classifier still run. `false` behaves like unset and cannot override `true` in
 another native settings scope. Project/local settings cannot enable it.
 
+`mcp_tool` hooks accept the optional `onFailure` field, `"continue"` or `"block"`
+(any other value is rejected with HTTP 422 at `native_settings.hooks.<Event>.<i>.hooks.<j>.onFailure`),
+like `command` and `http` hooks. `"block"` turns a failed MCP hook (server not
+connected, tool error, or on blocking events a non-empty answer) into the
+exit-code-2 outcome of that event; `"continue"` or omission lets the action go
+ahead. Claude Code ignores the field before **2.1.328**, which would silently fail
+open, so a host render of any `mcp_tool` hook carrying `onFailure` (either value)
+requires an observed `claudeClientVersion` of at least 2.1.328 and is refused with
+the usual "run clx update" error for older or unreported versions. Admin authoring and
+preview are not gated, other hosts and hooks without the field keep the existing
+floor, and `command`/`http` hooks are unchanged. See the
+[hooks reference](https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails).
+
 Native also omits question and plan tools (agent-team plan tools are an exception),
 cancels unanswered MCP elicitation, and does not query a permission-host callback;
 `PermissionRequest`/`Elicitation` hooks may still answer supported requests.
@@ -1202,7 +1215,7 @@ Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.326 on 2026-11-17. Validation rejects unknown
+checked against Claude Code 2.1.329 on 2026-11-20. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys

@@ -1,4 +1,4 @@
-/** Public user-scope settings, verified against Claude Code 2.1.326 on 2026-11-17.
+/** Public user-scope settings, verified against Claude Code 2.1.329 on 2026-11-20.
  * Sources: https://code.claude.com/docs/en/settings-reference
  * https://github.com/anthropics/claude-code/releases/tag/v2.1.314 (write boundary).
  * Only key names, JSON types and fixed enum values are recorded here. Native
