@@ -1,3 +1,14 @@
+# 2026-11-20
+
+- **Engine maintenance:** native configuration coverage is now reviewed against Codex 0.171.0, Claude Code 2.1.329, Grok Build 1.0.89 and Kimi Code 2.7.2. Tiering is unchanged and no models were added or retired. See the [audit report](docs/engine-maintenance-2026-11-20.md).
+- **CXX 0.9.190 Claude credential source:** `clx` strips `ANTHROPIC_PROFILE` and the workload-identity-federation variables (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_WORKSPACE_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`) from inherited environments and blanks them in its settings overlay. They can no longer replace the fleet account's login. A default federation profile file under `~/.config/anthropic` still takes precedence natively and must be removed by the host operator.
+- **CXX 0.9.190 native argument handling** follows Codex 0.171 (`exec-server --tcp-upstream-proxy`), Kimi Code 2.7.2 (`server` and `web --json` options, `install-app`) and six hidden Claude Code root value options such as `--metadata`. Option values that look like commands or flags stay values. After a bare Grok `-p`, a following flag is now treated as a flag, as in Grok 1.0.91 and later. Codex `exec --remote` is refused; the in-TUI `/rc` and `/remote` daemon remains outside the managed lifecycle.
+- **Codex native settings** accept the official 0.171.0 configuration schema. New 0.170 and 0.171 fields require a host reporting that CLI version. `features.rollout_budget` accepts `limit_budget` as an alternative to `limit_tokens` and rejects both together.
+- **Claude native settings** accept `onFailure: "continue" | "block"` on `mcp_tool` hooks, so admins can author fail-closed MCP policy hooks. Hosts must report Claude Code 2.1.328 or newer, because older CLIs ignore the field and fail open.
+- **Grok native settings** accept the 1.0.89 booleans `features.auto_title_border`, `features.dashboard_workspace_mode`, `features.slow_link_paint_floor` and `ui.contextual_hints.thinking_collapse` on hosts reporting 1.0.89 or newer. Alpha-only 1.0.90+ fields are deferred.
+- **Kimi native settings:** a provider with `type = "bedrock"` requires Kimi Code 2.7.0 or newer, and the `[hosts]` section is refused with an explicit reason.
+- **Auth runner** pins Codex 0.171.0, Claude Code 2.1.329, Grok Build 1.0.89 and Kimi Code 2.7.2. Rebuild and recreate `auth-runner` to pick them up.
+
 # 2026-11-19
 
 - CXX 0.9.189 restores Codex Code Mode on pfSense by executing the CLI directly with private library mappings. Maintenance repairs a 0.9.188 launcher even when the native client version is already current.
