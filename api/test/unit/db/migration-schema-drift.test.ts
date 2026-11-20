@@ -130,6 +130,7 @@ describe('migrations against the test baseline', () => {
       'dashboard_graph_claude_daily_stats',
       'dashboard_graph_usage_daily_stats',
       'hosts.config_baked_at',
+      'hosts.scaling_exempt',
       'ip_rate_limits',
       'mcp_access_logs_retired',
       'openai_api_keys.rate_limit_rpm',

@@ -99,7 +99,7 @@ Below that, two sections sit side by side.
 
 - **Network and IP** — **Allow IP changes** (roaming), **Skip TLS check** (curl insecure), **Reverse DNS lookup** (a tri-state control: Fleet default / Always / Never), and **Release IP binding**, which clears both `ip4` and `ip6` (`POST /admin/hosts/{id}/release-ip-binding`) so the next successful auth re-binds; it is a clearing action, not an editable address field.
 - **Per-host exceptions** (host overrides) — per-engine **Version**, **Model**, and **Reasoning effort** overrides (Claude has Version and Model), and an **Agent rules document** pin by id (empty follows the fleet default).
-- **Fleet behaviour and integrations** — **Priority host** (VIP: usage limits only warn), **Always allowed (ignores usage limits)** (scaling exempt), **Update automatically** (auto-update), **Try new host-agent versions early** (the `cxx` rollout canary), and **BrowserOS MCP**.
+- **Fleet behaviour and integrations** — **Priority host** (VIP: usage limits only warn), **Update automatically** (auto-update), **Try new host-agent versions early** (the `cxx` rollout canary), and **BrowserOS MCP**.
 - **Remote sessions** and **Connection** (the CoCo communicator) panels.
 
 Below Advanced, **Delete host** removes the host via `DELETE /admin/hosts/{id}` after a confirmation.
@@ -116,7 +116,6 @@ Every mutation names a capability. Deleting a host, toggling its engines, and fl
 | Toggle roaming | `POST /admin/hosts/{id}/roaming` |
 | Mark secure / insecure | `POST /admin/hosts/{id}/secure` |
 | Toggle VIP | `POST /admin/hosts/{id}/vip` |
-| Toggle scaling exempt | `POST /admin/hosts/{id}/scaling-exempt` |
 | Override auto-update | `POST /admin/hosts/{id}/auto-update` |
 | Enable insecure window | `POST /admin/hosts/{id}/insecure/enable` |
 | Disable insecure window | `POST /admin/hosts/{id}/insecure/disable` |

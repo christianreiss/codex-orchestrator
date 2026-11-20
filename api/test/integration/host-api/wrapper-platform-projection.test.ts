@@ -172,7 +172,6 @@ function hostRow(apiKey: string) {
     updatedAt: '2026-07-29T00:00:00Z',
     engines: 'codex,claude',
     vip: 0,
-    scalingExempt: 0,
     curlInsecure: 0,
     browserosMcpEnabled: 0,
     configVersion: 0,

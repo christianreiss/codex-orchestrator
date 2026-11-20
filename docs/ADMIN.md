@@ -467,7 +467,6 @@ Admin routes:
     - Toggle roaming: `POST /admin/hosts/{id}/roaming` (`allow` bool).
     - Toggle secure flag: `POST /admin/hosts/{id}/secure` (`secure` bool).
     - Toggle VIP: `POST /admin/hosts/{id}/vip` (`vip` bool).
-    - Toggle scaling exemption: `POST /admin/hosts/{id}/scaling-exempt`.
     - Per-host auto-update override: `POST /admin/hosts/{id}/auto-update` (tri-state; null inherits the fleet flag).
     - Toggle engines: `POST /admin/hosts/{id}/engines` (`hosts.security_transition`; a host keeps at least one engine).
     - Toggle BrowserOS MCP: `POST /admin/hosts/{id}/browseros-mcp`.

@@ -131,7 +131,6 @@ const secureSchema = z.object({
   grace_minutes: z.union([z.number(), z.string()]).optional().nullable(),
 });
 const vipSchema = z.object({ vip: booleanish });
-const scalingExemptSchema = z.object({ scaling_exempt: booleanish });
 const browserOsMcpSchema = z.object({ browseros_mcp: booleanish });
 const autoUpdateSchema = z.object({ override: optionalBooleanishOrNull.optional() });
 const insecureEnableSchema = z.object({ duration_minutes: durationMinutesSchema });
@@ -208,7 +207,6 @@ function hostToWire(h: Omit<Host, 'apiKey' | 'apiKeyEnc'>): Record<string, unkno
     secure: h.secure === 1,
     vip: h.vip === 1,
     allow_roaming_ips: h.allowRoamingIps === 1,
-    scaling_exempt: h.scalingExempt === 1,
     curl_insecure: h.curlInsecure === 1,
     browseros_mcp_enabled: h.browserosMcpEnabled === 1,
     wrapper_canary: h.wrapperCanary === 1,
@@ -551,19 +549,6 @@ export async function registerAdminHostsRoutes(
       const id = parseId((req.params as { id: string }).id);
       const body = parseZod(vipSchema, req.body);
       const host = await hostService.setVip(id, body.vip);
-      return { host: hostToWire(host) };
-    },
-  });
-
-  // ─── #10 POST /admin/hosts/:id/scaling-exempt ───
-  app.route({
-    method: 'POST',
-    url: '/admin/hosts/:id/scaling-exempt',
-    preHandler: [app.requireAdmin],
-    handler: async (req) => {
-      const id = parseId((req.params as { id: string }).id);
-      const body = parseZod(scalingExemptSchema, req.body);
-      const host = await hostService.setScalingExempt(id, body.scaling_exempt);
       return { host: hostToWire(host) };
     },
   });

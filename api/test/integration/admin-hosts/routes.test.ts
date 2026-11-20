@@ -45,7 +45,6 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     reasoningEffortOverride: null,
     autoUpdateOverride: null,
     lastCronCheck: null,
-    scalingExempt: 0,
     engines: 'codex',
     claudeClientVersion: null,
     claudeClientVersionOverride: null,
@@ -128,10 +127,6 @@ function makeMocks() {
     setVip: async (id: number, vip: boolean) => {
       calls.push({ method: 'setVip', args: [id, vip] });
       return fakeHost({ id, vip: vip ? 1 : 0 });
-    },
-    setScalingExempt: async (id: number, exempt: boolean) => {
-      calls.push({ method: 'setScalingExempt', args: [id, exempt] });
-      return fakeHost({ id, scalingExempt: exempt ? 1 : 0 });
     },
     setAutoUpdateOverride: async (id: number, override: boolean | null) => {
       calls.push({ method: 'setAutoUpdateOverride', args: [id, override] });

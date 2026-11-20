@@ -24,7 +24,7 @@ The newer administration tools also cover:
   status, events, reports and task details.
 - Agent roles: metadata and policy, drafts, publishing, reverting, withdrawal,
   and proposal decisions.
-- Quotas: fleet and account policy, admission limits, advice and usage scaling.
+- Quotas: fleet and account policy, admission limits, and advice.
 - Retention: inspect policy, preview eligible history, save policy and request
   a guarded cleanup pass.
 - Supervisor: inspect diagnostics, configure the fleet switch and pause an

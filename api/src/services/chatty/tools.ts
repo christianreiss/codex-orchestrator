@@ -516,7 +516,6 @@ export function administrationTools(): ChattyTool[] {
     ['secure', 'setSecure', 'hosts.security_transition', true],
     ['curl_insecure', 'setCurlInsecure', 'hosts.manage', true],
     ['browseros_mcp', 'setBrowserOsMcp', 'hosts.manage', true],
-    ['scaling_exempt', 'setScalingExempt', 'hosts.manage', false],
   ] as const;
   for (const [name, method, cap, confirm] of toggles)
     tools.push(

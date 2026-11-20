@@ -35,7 +35,6 @@ import {
   validateMinApiInput,
 } from '../../../services/communicator-api-version.js';
 import { connections as communicatorConnections } from '../../../services/topology/communicator-registry.js';
-import { UsageScalingService } from '../../../services/usage-scaling.js';
 import { readModelPolicy, modelPolicyKey } from '../../../services/model-policy.js';
 import { ModelDefaultsService } from '../../../services/model-defaults.js';
 import { assertFleetEngineEnabledForAdmin } from '../../../services/engine-switch.js';
@@ -152,7 +151,6 @@ export async function registerAdminSettingsRoutes(
 ): Promise<void> {
   const settings = new SettingsService(ctx.db);
   const clientVersions = new ClientVersionsService(settings, app.log);
-  const scaling = new UsageScalingService(settings);
   const modelDefaults = new ModelDefaultsService(ctx.db);
 
   // ── api/state — kill switch (GET allowed even when killed) ────────────────
@@ -478,19 +476,6 @@ export async function registerAdminSettingsRoutes(
     await settings.setInt('inactivity_window_days', days);
     await recordLog(ctx, 'admin.prune_policy', { inactivity_window_days: days });
     return ok({ inactivity_window_days: days });
-  });
-
-  // ── scaling ───────────────────────────────────────────────────────────────
-  app.get('/admin/scaling', { preHandler: app.requireAdmin }, async () => {
-    return ok(await scaling.currentStatus());
-  });
-  app.post('/admin/scaling', { preHandler: app.requireAdmin }, async (req) => {
-    const errors = await scaling.storeRules(req.body);
-    if (errors.length) {
-      throw new ValidationError('Validation failed', { extra: { errors } });
-    }
-    await recordLog(ctx, 'admin.scaling', { saved: true });
-    return ok(await scaling.currentStatus());
   });
 
   // ── communicator/api-version ──────────────────────────────────────────────

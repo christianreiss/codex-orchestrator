@@ -654,7 +654,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/{id}/installer` — mint a fresh single-use installer for an existing host. Optional `engines` and `curl_insecure`; returns `{host, installer}` in the same shape as `/admin/hosts/register`.
 - `POST /admin/hosts/{id}/engines` — set the host's enabled engines (`engines`, at least one of `codex` / `claude` / `grok`).
 - `POST /admin/hosts/{id}/release-ip-binding` — clear the pinned `ip4`/`ip6` so the next authenticated request re-pins.
-- `POST /admin/hosts/{id}/scaling-exempt` — toggle `scaling_exempt` so the host is ignored by the scaling rules.
 - `POST /admin/hosts/{id}/auto-update` — set the per-host auto-update override (`override`: `true` | `false` | `null` to follow the fleet setting).
 - `POST /admin/hosts/{id}/browseros-mcp` — toggle the BrowserOS MCP server in the host's baked config (`browseros_mcp` boolean).
 - `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests for the selected engine; optional auth body via `?include_body=1`. Engine can be supplied via body/query/header and defaults to `codex`; the response includes `engine` plus the Codex, Claude, Grok, and Kimi host-side fields.
@@ -729,7 +728,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it.
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set the authorization mode (`{mode: "compatible"|"strict"}`). GET also returns `would_deny`: what `strict` would have refused, from this installation's own traffic. Requires `security.manage_authorization`, enforced under both modes.
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default).
-- `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` are excluded.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
 - `GET /admin/response-verbosity` / `POST /admin/response-verbosity` — read/set the fleet-wide response-verbosity dial (`level`: `0..4`, `0` default/no-op). Projected into the served AGENTS.md/CLAUDE.md `## Default Response Shape` policy text, and (for `clx` hosts) into a `verbosity-*` Claude output style via `outputStyle` in settings.json.
 - `GET /admin/address-form` / `POST /admin/address-form` — read/set the fleet-wide formal/informal address form (`form`: `informal` default, `formal`). Rendered as the `## Address Form` section of the managed policy block of every engine's served AGENTS.md/CLAUDE.md. Capabilities `settings.read` / `settings.manage`.

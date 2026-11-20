@@ -791,7 +791,6 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `POST /admin/wrapper/rollout/:action` — `halt` (optional `reason`), `resume` (restarts the current stage's soak), `promote` (next stage now) or `complete` (release to every host now); `hosts.manage`. Returns the status body; `409` when no rollout is active or halted. Halting never reverts an updated host.
 - `POST /admin/hosts/:id/wrapper-canary` — `{enabled: boolean}`; marks a host as a rollout canary (`hosts.manage`). A canary added during a rollout is admitted immediately.
 - `POST /admin/hosts/{id}/vip` — toggle VIP status (`vip: true` means quota kill switch is never enforced for this host; warn-only even when the global policy is deny).
-- `POST /admin/hosts/{id}/scaling-exempt` — toggle `scaling_exempt` so the host is ignored by the scaling rules read/written through `/admin/scaling`.
 - `POST /admin/hosts/{id}/auto-update` — set the per-host auto-update override. Body: `{override: true|false|null}`; `null` follows the fleet `/admin/auto-update` setting.
 - `POST /admin/hosts/{id}/browseros-mcp` — toggle BrowserOS MCP for one host. Body: `{ "browseros_mcp": true|false }`. When enabled, the next Codex config sync injects `[mcp_servers.browseros]` for `http://127.0.0.1:9000/mcp` and `cdx` shows a BrowserOS startup chip.
 - `POST /admin/hosts/{id}/insecure/enable` — for insecure hosts only; opens a sliding window where `/auth` calls are permitted. Optional JSON body `duration_minutes` sets the window length (integer 0–480, defaults to the last stored value or 10). Each `/auth` call extends the window by the configured duration.
@@ -861,7 +860,6 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default). The Svelte console renders `auto`/`light`/`dark` as neutral system/light/dark modes; historical `auto-pink`, `bright-pink`, and `dark-pink` values remain accepted for compatibility and are normalized client-side. The selected value also rides along in the `/auth` `versions` block as `admin_theme`.
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean). Per-host `/admin/hosts/{id}/auto-update` overrides win over it.
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set how the capability matrix is enforced. Body `{mode: "compatible"|"strict"}`. The GET returns `{mode, updated_at, would_deny}`, where `would_deny` lists the distinct `{role, capability, route, first_seen, last_seen}` triples this installation served under `compatible` that `strict` would refuse — the answer to "what breaks if I switch", drawn from the fleet's own traffic over the last 30 days. Requires `security.manage_authorization`, which is enforced under **both** modes: `compatible` grants `settings.manage` to every role, so a posture any account could change would not be one. Migration `0022` sets `compatible` on installations that already had users and `strict` on fresh ones; see [ADMIN.md](ADMIN.md#roles--capabilities).
-- `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` through `/admin/hosts/{id}/scaling-exempt` are excluded.
 - `GET /admin/prune-policy` — `{inactivity_window_days}` (`settings.read`; default 30, clamped 0..60). Replaces the Settings page's former read of `/admin/overview`.
 - `GET /admin/settings/host-overrides` — `settings.read`; counts of hosts that override a fleet setting: `{auto_update, reverse_dns, rtk:{<engine>:n}, session_housekeeping:{<engine>:n}}`. Counts only, no host detail; rows of removed hosts are ignored. Backs the "N hosts override" badges on Settings.
 - `POST /admin/prune-policy` — set host inactivity pruning window. Body `{inactivity_days: 0..60}`.
@@ -3193,7 +3191,7 @@ operation: `POST /admin/hosts/:id/engines`, `POST /admin/hosts/:id/auto-update`,
 and records no Chatty receipt for them.
 
 The typed administration registry includes confirmed mutations for workflow
-definitions, roles/proposals, quota policies/scaling, server retention and fleet
+definitions, roles/proposals, quota policies, server retention and fleet
 supervisor configuration. Workflow runs and recovery are observable; launching
 work, creating/reactivating schedules and activating task recovery remain
 excluded. Retention-run success is admission of an asynchronous product cleanup,

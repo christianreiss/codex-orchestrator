@@ -189,7 +189,6 @@ type BoolToggleField =
   | "vip"
   | "roaming"
   | "auto_update"
-  | "scaling_exempt"
   | "curl_insecure"
   | "browseros_mcp"
   | "allow";
@@ -199,7 +198,6 @@ type ToggleEndpointPath =
   | "vip"
   | "roaming"
   | "auto-update"
-  | "scaling-exempt"
   | "curl-insecure"
   | "browseros-mcp"
   | "agent-messaging";
@@ -322,15 +320,6 @@ export function createAutoUpdateToggleMutation(qc: QueryClient) {
       void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
       void qc.invalidateQueries({ queryKey: hostsKeys.list() });
     },
-  });
-}
-
-export function createScalingExemptToggleMutation(qc: QueryClient) {
-  return makeBoolToggle(qc, {
-    endpoint: "scaling-exempt",
-    // No direct field; reflect on lane_preference via refetch.
-    detailField: "lane_preference",
-    bodyKey: "scaling_exempt",
   });
 }
 

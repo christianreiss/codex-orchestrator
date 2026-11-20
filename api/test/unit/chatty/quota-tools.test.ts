@@ -92,8 +92,6 @@ describe('Chatty quota administration', () => {
       quota_mode_update: 'settings.manage',
       quota_advice_read: 'settings.read',
       quota_advice_update: 'settings.manage',
-      quota_scaling_read: 'settings.read',
-      quota_scaling_update: 'settings.manage',
     };
     expect(quotaTools().map((t) => [t.name, t.capability])).toEqual(Object.entries(expected));
     for (const entry of quotaTools()) {
@@ -112,8 +110,6 @@ describe('Chatty quota administration', () => {
       ['account_quota_policy_update', { id: '7', policy }],
       ['quota_mode_update', { hard_fail: true, limit_percent: 49, week_partition: 'off' }],
       ['quota_advice_update', { advice: { ...advice, projected_usage_percent: 99 } }],
-      ['quota_scaling_update', { enabled: true, tiers: [{ at_percent: 101 }] }],
-      ['quota_scaling_update', { enabled: true, tiers: [{ at_percent: 70, shell: 'id' }] }],
       ['quota_mode_read', { unexpected: true }],
     ] as const)
       expect(() => tool(name).parse(args)).toThrow();
@@ -172,24 +168,6 @@ describe('Chatty quota administration', () => {
       'quota_week_partition',
     ]);
     expect(result).toEqual({ hard_fail: false, limit_percent: 90, week_partition: '5', advice });
-  });
-  it('reads and stores scaling through the existing rules shape in threshold order', async () => {
-    mocks.values.set('usage_scaling_rules', JSON.stringify({ enabled: false, tiers: [] }));
-    expect(await tool('quota_scaling_read').run(context, {})).toEqual({
-      enabled: false,
-      rules: { enabled: false, tiers: [] },
-      active_tier: null,
-    });
-    const result = await tool('quota_scaling_update').run(context, {
-      enabled: true,
-      tiers: [{ at_percent: 90, reasoning_effort: 'low' }, { at_percent: 50 }],
-    });
-    expect(result).toMatchObject({
-      enabled: true,
-      active_tier: null,
-      rules: { tiers: [{ at_percent: 50 }, { at_percent: 90, reasoning_effort: 'low' }] },
-    });
-    expect(mocks.mutate).toHaveBeenCalledTimes(1);
   });
   it('updates advice independently and preserves quota enforcement settings', async () => {
     mocks.values.set('quota_hard_fail', '1');

@@ -124,7 +124,6 @@ function fakeHost(): Host {
     reasoningEffortOverride: 'high',
     autoUpdateOverride: null,
     lastCronCheck: null,
-    scalingExempt: 0,
     engines: 'codex,claude',
     claudeClientVersion: null,
     claudeClientVersionOverride: null,

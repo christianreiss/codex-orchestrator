@@ -5,7 +5,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
 ## Surfaces
 
 - Console: the direct `/admin/engines` workspace owns the supported Codex
-  model, reasoning-effort, version, quota, and scaling controls. There is no
+  model, reasoning-effort, version, and quota controls. There is no
   generic Settings, Config, or Profiles tab in the SPA; keeping those broad
   controls out of the task-oriented console prevents a second editable owner
   for model defaults.

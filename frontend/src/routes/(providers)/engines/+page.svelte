@@ -69,7 +69,7 @@
   });
 </script>
 
-<PageShell title="Engines" description="Turn engines on or off and set what new sessions of each use. Per-host exceptions override these defaults; quotas and scaling are under Usage limits.">
+<PageShell title="Engines" description="Turn engines on or off and set what new sessions of each use. Per-host exceptions override these defaults; quotas are under Usage limits.">
   {#snippet actions()}
     <Button variant="outline" href={`${base}/hosts`} title="Host overrides">Per-host exceptions <ArrowUpRight class="h-4 w-4" /></Button>
   {/snippet}

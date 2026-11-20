@@ -999,23 +999,6 @@ if (engines.includes(ENGINE_KIMI)) new ModelDefaultsService(this.db).stageKimiDe
     return await this.publishUpdate(id, host.fqdn, { vip });
   }
 
-  async setScalingExempt(id: number, exempt: boolean): Promise<ManagedHost> {
-    const host = await this.requireById(id);
-    if (ownerRuntimeFor(this.db)) return this.patchOwned(id, { scalingExempt: exempt ? 1 : 0, updatedAt: nowIso() }, 'admin.host.scaling_exempt', {
-      fqdn: host.fqdn,
-      scaling_exempt: exempt,
-    }, host);
-    await this.db
-      .update(hosts)
-      .set({ scalingExempt: exempt ? 1 : 0, updatedAt: nowIso() })
-      .where(eq(hosts.id, id));
-    await this.writeLog(id, 'admin.host.scaling_exempt', {
-      fqdn: host.fqdn,
-      scaling_exempt: exempt,
-    });
-    return await this.publishUpdate(id, host.fqdn, { scaling_exempt: exempt });
-  }
-
   async setAutoUpdateOverride(id: number, override: boolean | null): Promise<ManagedHost> {
     const host = await this.requireById(id);
     const value = override === null ? null : override ? 1 : 0;

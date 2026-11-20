@@ -135,7 +135,6 @@ function hostRow(): Record<string, unknown> {
     updatedAt: '2026-01-01T00:00:00Z',
     engines: 'codex,claude',
     vip: 0,
-    scalingExempt: 0,
     curlInsecure: 0,
     browserosMcpEnabled: 0,
     configVersion: 0,

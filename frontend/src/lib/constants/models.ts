@@ -89,9 +89,8 @@ export const SUBAGENT_COLORS: string[] = [
   "cyan",
 ];
 
-// Codex reasoning-effort tiers. Keep in lock-step with the enum accepted by
-// usage-scaling.ts and the host model-override route — both take a bare
-// string server-side, this is the UI's canonical choice list for it.
+// Codex reasoning-effort tiers. The host model-override route takes a bare
+// string server-side; this is the UI's canonical choice list for it.
 export const REASONING_EFFORT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
