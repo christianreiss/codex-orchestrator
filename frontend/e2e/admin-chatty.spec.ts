@@ -142,9 +142,9 @@ test('Chatty answers carry verified console links and follow-up suggestions', as
   const dialog = page.getByRole('dialog');
   const links = dialog.getByRole('group', { name: "Links from Chatty's answer" });
   await expect(links.getByRole('link')).toHaveCount(2);
-  const host = links.getByRole('link', { name: 'Host console.example.test öffnen' });
+  const host = links.getByRole('link', { name: 'Open host console.example.test' });
   await expect(host).toHaveAttribute('href', '/admin/hosts/1');
-  await expect(links.getByRole('link', { name: /^Hilfe: Hosts/ })).toHaveAttribute('href', '/admin/manual/hosts');
+  await expect(links.getByRole('link', { name: /^Help: Hosts/ })).toHaveAttribute('href', '/admin/manual/hosts');
   for (const label of ['Externer Link', 'Doppelte Basis', 'Skript', 'Alte Rückfrage']) await expect(dialog.getByText(label)).toHaveCount(0);
   await expect(dialog.getByText('One link could not be verified and was left out.')).toBeVisible();
   const audit = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
@@ -165,7 +165,7 @@ test('Chatty answers carry verified console links and follow-up suggestions', as
 
   // On a phone the full-screen panel minimizes after navigation and reopens with the same conversation.
   await page.setViewportSize({ width: 390, height: 844 });
-  const manual = links.getByRole('link', { name: /^Hilfe: Hosts/ });
+  const manual = links.getByRole('link', { name: /^Help: Hosts/ });
   const bounds = await manual.boundingBox();
   expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -174,7 +174,7 @@ test('Chatty answers carry verified console links and follow-up suggestions', as
   await expect(page).toHaveURL(/\/admin\/manual\/hosts$/);
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'Open Chatty' }).click();
-  await expect(page.getByRole('dialog').getByRole('link', { name: 'Host console.example.test öffnen' })).toBeVisible();
+  await expect(page.getByRole('dialog').getByRole('link', { name: 'Open host console.example.test' })).toBeVisible();
 });
 
 test('Chatty action buttons navigate directly or confirm through the existing admin endpoints', async ({ page }) => {
@@ -190,13 +190,13 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
       body: {
         text: `${host} nutzt nur Codex.`, engine: 'codex', model: 'test', sources: [],
         elements: [
-          action('enable', 'host.engine.enable', 'confirm', `Claude auf ${host} aktivieren`, { host: 1, engine: 'claude' }),
-          action('disable', 'host.engine.disable', 'danger', `Codex auf ${host} deaktivieren`, { host: 1, engine: 'codex' }),
-          action('filter', 'hosts.filter', 'safe', 'Hosts anzeigen: offline', { status: 'offline' }),
-          action('old', 'account.verify', 'confirm', 'Konto Alt prüfen', { account: 3 }, '2026-10-01T00:00:00Z'),
+          action('enable', 'host.engine.enable', 'confirm', `Enable Claude on ${host}`, { host: 1, engine: 'claude' }),
+          action('disable', 'host.engine.disable', 'danger', `Disable Codex on ${host}`, { host: 1, engine: 'codex' }),
+          action('filter', 'hosts.filter', 'safe', 'Show hosts: offline', { status: 'offline' }),
+          action('old', 'account.verify', 'confirm', 'Verify account Alt', { account: 3 }, '2026-10-01T00:00:00Z'),
           // Tampered: a mutation that claims to be safe must not render as a direct click.
-          action('tampered', 'host.engine.disable', 'safe', 'Sofort deaktivieren', { host: 1, engine: 'codex' }),
-          { type: 'action', action: 'host.delete', risk: 'danger', label: 'Host löschen', params: { host: 1 }, proposal: token('x'), expires_at: future },
+          action('tampered', 'host.engine.disable', 'safe', 'Disable now', { host: 1, engine: 'codex' }),
+          { type: 'action', action: 'host.delete', risk: 'danger', label: 'Delete host', params: { host: 1 }, proposal: token('x'), expires_at: future },
         ],
       },
     },
@@ -205,7 +205,7 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
   const posts: Array<{ path: string; body: unknown }> = [];
   let disableChecks = 0;
   const check = (title: string, confirm: string, plan: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
-    available: true, risk: 'confirm', title, confirm_label: confirm, confirm_text: null, summary: [`${title} Zusammenfassung.`],
+    available: true, risk: 'confirm', title, confirm_label: confirm, confirm_text: null, summary: [`${title} Summary.`],
     target: { kind: 'host', id: 1, name: host }, plan, params: {}, expires_at: future, ...extra,
   });
   await installFixtures(page, (path, body) => {
@@ -215,13 +215,13 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
       const proposal = (body as { proposal: string }).proposal;
       verifications.push(proposal);
       if (proposal === token('enable'))
-        return { ...check(`Claude auf ${host} aktivieren?`, 'Claude aktivieren', { host_id: 1, engine: 'claude', engines_before: ['codex'], engines_after: ['codex', 'claude'] }), action: 'host.engine.enable', label: `Claude auf ${host} aktivieren` };
+        return { ...check(`Enable Claude on ${host}?`, 'Enable Claude', { host_id: 1, engine: 'claude', engines_before: ['codex'], engines_after: ['codex', 'claude'] }), action: 'host.engine.enable', label: `Enable Claude on ${host}` };
       if (proposal === token('disable')) {
         // The host changed between opening the dialog and confirming: the second check returns a new plan.
         const before = ++disableChecks === 1 ? ['codex', 'claude'] : ['codex', 'claude', 'grok', 'kimi'];
-        return { ...check(`Codex auf ${host} deaktivieren?`, 'Codex deaktivieren', { host_id: 1, engine: 'codex', engines_before: before, engines_after: before.filter(e => e !== 'codex') }, { risk: 'danger', confirm_text: host }), action: 'host.engine.disable', label: `Codex auf ${host} deaktivieren` };
+        return { ...check(`Disable Codex on ${host}?`, 'Disable Codex', { host_id: 1, engine: 'codex', engines_before: before, engines_after: before.filter(e => e !== 'codex') }, { risk: 'danger', confirm_text: host }), action: 'host.engine.disable', label: `Disable Codex on ${host}` };
       }
-      return { available: false, reason: 'expired', detail: 'Dieser Vorschlag ist abgelaufen.' };
+      return { available: false, reason: 'expired', detail: 'This suggestion has expired.' };
     }
     if (path === '/admin/hosts/1/engines') { posts.push({ path, body }); return { host: { id: 1, fqdn: host } }; }
     return undefined;
@@ -233,15 +233,15 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
   const group = panel.getByRole('group', { name: "Actions from Chatty's answer" });
   await expect(group.getByRole('button')).toHaveCount(3);
   await expect(group.getByRole('link')).toHaveCount(1);
-  for (const label of ['Sofort deaktivieren', 'Host löschen']) await expect(panel.getByText(label)).toHaveCount(0);
-  await expect(group.getByRole('button', { name: /Konto Alt prüfen/ })).toBeDisabled();
+  for (const label of ['Disable now', 'Delete host']) await expect(panel.getByText(label)).toHaveCount(0);
+  await expect(group.getByRole('button', { name: /Verify account Alt/ })).toBeDisabled();
   await expect(panel.getByText('Suggested actions stay valid for 15 minutes', { exact: false })).toBeVisible();
   await page.screenshot({ path: '/tmp/chatty-actions-desktop.png' });
   expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
 
   // Confirm: the dialog names the target and the change; the click goes to the existing engines endpoint.
-  await group.getByRole('button', { name: /Claude auf console\.example\.test aktivieren/ }).click();
-  const confirm = page.getByRole('dialog', { name: `Claude auf ${host} aktivieren?` });
+  await group.getByRole('button', { name: /Enable Claude on console\.example\.test/ }).click();
+  const confirm = page.getByRole('dialog', { name: `Enable Claude on ${host}?` });
   await expect(confirm.getByText(`Host ${host}`)).toBeVisible();
   // Scan the settled dialog: mid-fade colors blend with the overlay and are not what the operator reads.
   await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
@@ -253,17 +253,17 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
   await expect(confirm).toHaveCount(0);
   await expect(panel).toBeVisible();
   expect(posts).toEqual([]);
-  await group.getByRole('button', { name: /Claude auf console\.example\.test aktivieren/ }).click();
-  await confirm.getByRole('button', { name: 'Claude aktivieren' }).click();
+  await group.getByRole('button', { name: /Enable Claude on console\.example\.test/ }).click();
+  await confirm.getByRole('button', { name: 'Enable Claude' }).click();
   await expect.poll(() => posts).toEqual([{ path: '/admin/hosts/1/engines', body: { engines: ['codex', 'claude'] } }]);
   await expect(confirm).toHaveCount(0);
-  await expect(panel.getByText(`Claude auf ${host} aktivieren: done`)).toBeVisible();
+  await expect(panel.getByText(`Enable Claude on ${host}: done`)).toBeVisible();
   expect(verifications.filter(v => v === token('enable'))).toHaveLength(3);
 
   // Danger: typing the host name is required, and a changed target needs a new confirmation.
-  await group.getByRole('button', { name: /Codex auf console\.example\.test deaktivieren/ }).click();
-  const danger = page.getByRole('dialog', { name: `Codex auf ${host} deaktivieren?` });
-  const go = danger.getByRole('button', { name: 'Codex deaktivieren' });
+  await group.getByRole('button', { name: /Disable Codex on console\.example\.test/ }).click();
+  const danger = page.getByRole('dialog', { name: `Disable Codex on ${host}?` });
+  const go = danger.getByRole('button', { name: 'Disable Codex' });
   await expect(go).toBeDisabled();
   await danger.getByRole('textbox').fill('console.example');
   await expect(go).toBeDisabled();
@@ -274,15 +274,15 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
   expect(posts).toHaveLength(1);
   await go.click();
   await expect.poll(() => posts.at(-1)).toEqual({ path: '/admin/hosts/1/engines', body: { engines: ['claude', 'grok'] } });
-  await expect(panel.getByText(`Codex auf ${host} deaktivieren: done`)).toBeVisible();
+  await expect(panel.getByText(`Disable Codex on ${host}: done`)).toBeVisible();
   // Outcome lines sit on the answer background; scan them once the confirmation has closed.
   await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
   expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
 
   // On a phone the confirmation still fits.
   await page.setViewportSize({ width: 390, height: 844 });
-  await group.getByRole('button', { name: /Claude auf console\.example\.test aktivieren/ }).click();
-  await expect(confirm.getByRole('button', { name: 'Claude aktivieren' })).toBeEnabled();
+  await group.getByRole('button', { name: /Enable Claude on console\.example\.test/ }).click();
+  await expect(confirm.getByRole('button', { name: 'Enable Claude' })).toBeEnabled();
   // The shared dialog's opening animation briefly overrides its centering transform.
   await expect.poll(() => confirm.evaluate(el => el.getAnimations({ subtree: true }).length)).toBe(0);
   await page.screenshot({ path: '/tmp/chatty-action-confirm-mobile.png' });
@@ -293,7 +293,7 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
 
   // Safe navigation runs directly, without a verification round trip.
   const before = verifications.length;
-  await group.getByRole('link', { name: 'Hosts anzeigen: offline' }).click();
+  await group.getByRole('link', { name: 'Show hosts: offline' }).click();
   await expect(page).toHaveURL(/\/admin\/hosts\?status=offline$/);
   expect(verifications.length).toBe(before);
 });

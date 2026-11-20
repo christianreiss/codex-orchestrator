@@ -163,8 +163,8 @@ export const CHATTY_RICH_EVENTS = [
       model: "test",
       sources: [],
       elements: [
-        { type: "link", kind: "host", label: "Host console.example.test öffnen", path: "/hosts/1" },
-        { type: "link", kind: "manual", label: "Hilfe: Hosts — secure, insecure, unprovisioned", path: "/manual/hosts" },
+        { type: "link", kind: "host", label: "Open host console.example.test", path: "/hosts/1" },
+        { type: "link", kind: "manual", label: "Help: Hosts — secure, insecure, unprovisioned", path: "/manual/hosts" },
         { type: "link", kind: "host", label: "Externer Link", path: "https://evil.example/" },
         { type: "link", kind: "host", label: "Doppelte Basis", path: "/admin/hosts/1" },
         { type: "link", kind: "page", label: "Skript", path: "javascript:alert(1)" },

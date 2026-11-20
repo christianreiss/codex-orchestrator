@@ -274,8 +274,8 @@ describe.skipIf(!handle)('Chatty durable lifecycle (isolated MySQL)', () => {
     expect(answers[0]!.body).toMatchObject({
       text: 'Ja, example.com ist registriert.',
       elements: [
-        { type: 'link', kind: 'host', label: 'Host example.com öffnen', path: '/hosts/42' },
-        { type: 'link', kind: 'manual', label: 'Hilfe: Hosts', path: '/manual/hosts' },
+        { type: 'link', kind: 'host', label: 'Open host example.com', path: '/hosts/42' },
+        { type: 'link', kind: 'manual', label: 'Help: Hosts', path: '/manual/hosts' },
         { type: 'suggestion', text: 'Ist example.com online?' },
       ],
       elements_omitted: 1,
@@ -314,8 +314,8 @@ describe.skipIf(!handle)('Chatty durable lifecycle (isolated MySQL)', () => {
         lookups,
       );
       expect(elements).toEqual([
-        { type: 'link', kind: 'host', label: `Host ${visible} öffnen`, path: `/hosts/${id}` },
-        { type: 'link', kind: 'manual', label: 'Hilfe: Hosts — secure, insecure, unprovisioned', path: '/manual/hosts' },
+        { type: 'link', kind: 'host', label: `Open host ${visible}`, path: `/hosts/${id}` },
+        { type: 'link', kind: 'manual', label: 'Help: Hosts — secure, insecure, unprovisioned', path: '/manual/hosts' },
       ]);
       expect(rejected.map((r) => r.index)).toEqual([1, 2, 3]);
     } finally {

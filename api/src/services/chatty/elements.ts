@@ -42,37 +42,37 @@ export const PROJECT_VIEWS = ['board', 'documents', 'reports', 'activity'] as co
 
 /** Base-relative console destinations (SvelteKit adds `/admin`). Keys are what the model may name. */
 export const PAGE_TARGETS = {
-  dashboard: { path: '/dashboard', label: 'Übersicht', capability: 'admin.read' },
+  dashboard: { path: '/dashboard', label: 'Overview', capability: 'admin.read' },
   hosts: { path: '/hosts', label: 'Hosts', capability: 'hosts.read' },
   agents: { path: '/agents', label: 'Agents', capability: 'agent_portal.read' },
-  projects: { path: '/projects', label: 'Projekte', capability: 'projects.read' },
-  messages: { path: '/agent-messaging', label: 'Nachrichten', capability: 'agent_messaging.read' },
-  schedules: { path: '/schedules', label: 'Zeitgesteuerte Weckrufe', capability: 'agent_messaging.read' },
-  'git-director': { path: '/git-director', label: 'Git-Merges', capability: 'git_director.read' },
-  transfers: { path: '/transfers', label: 'Geteilte Dateien', capability: 'transfers.read' },
-  'external-clients': { path: '/external-clients', label: 'Externe Clients', capability: 'external_clients.read' },
+  projects: { path: '/projects', label: 'Projects', capability: 'projects.read' },
+  messages: { path: '/agent-messaging', label: 'Messaging', capability: 'agent_messaging.read' },
+  schedules: { path: '/schedules', label: 'Wake-ups', capability: 'agent_messaging.read' },
+  'git-director': { path: '/git-director', label: 'Git merges', capability: 'git_director.read' },
+  transfers: { path: '/transfers', label: 'Shared files', capability: 'transfers.read' },
+  'external-clients': { path: '/external-clients', label: 'External clients', capability: 'external_clients.read' },
   workflows: { path: '/workflows', label: 'Workflows', capability: 'workflows.read' },
-  'workflow-runs': { path: '/workflows/runs', label: 'Workflow-Läufe', capability: 'workflows.read' },
-  activity: { path: '/activity', label: 'Aktivität', capability: 'audit.read' },
-  reports: { path: '/reports', label: 'Berichte', capability: 'feedback.read' },
-  accounts: { path: '/accounts', label: 'Konten', capability: 'auth.read_metadata' },
+  'workflow-runs': { path: '/workflows/runs', label: 'Workflow runs', capability: 'workflows.read' },
+  activity: { path: '/activity', label: 'Activity', capability: 'audit.read' },
+  reports: { path: '/reports', label: 'Feedback', capability: 'feedback.read' },
+  accounts: { path: '/accounts', label: 'Accounts', capability: 'auth.read_metadata' },
   engines: { path: '/engines', label: 'Engines', capability: 'settings.read' },
-  'engine-state': { path: '/engines#engine-state', label: 'Engine-Schalter', capability: 'settings.read' },
-  limits: { path: '/limits', label: 'Nutzungslimits', capability: 'settings.read' },
-  'quota-enforcement': { path: '/limits#quota-enforcement', label: 'Kontingentdurchsetzung', capability: 'settings.read' },
-  library: { path: '/library', label: 'Bibliothek', capability: 'content.read' },
-  'agent-rules': { path: '/library/agent-rules', label: 'Agent-Regeln', capability: 'content.read' },
-  memories: { path: '/library?type=memories', label: 'Erinnerungen', capability: 'memory.read' },
-  roles: { path: '/library?type=roles', label: 'Rollen', capability: 'content.read' },
-  people: { path: '/people', label: 'Personen', capability: 'users.read' },
-  'api-keys': { path: '/api-keys', label: 'API-Schlüssel', capability: 'auth.read_metadata' },
+  'engine-state': { path: '/engines#engine-state', label: 'Engine switches', capability: 'settings.read' },
+  limits: { path: '/limits', label: 'Usage limits', capability: 'settings.read' },
+  'quota-enforcement': { path: '/limits#quota-enforcement', label: 'Quota enforcement', capability: 'settings.read' },
+  library: { path: '/library', label: 'Library', capability: 'content.read' },
+  'agent-rules': { path: '/library/agent-rules', label: 'Agent rules', capability: 'content.read' },
+  memories: { path: '/library?type=memories', label: 'Memories', capability: 'memory.read' },
+  roles: { path: '/library?type=roles', label: 'Roles', capability: 'content.read' },
+  people: { path: '/people', label: 'People', capability: 'users.read' },
+  'api-keys': { path: '/api-keys', label: 'API keys', capability: 'auth.read_metadata' },
   secrets: { path: '/secrets', label: 'Secrets', capability: 'secrets.read_metadata' },
-  settings: { path: '/settings', label: 'Einstellungen', capability: 'settings.read' },
-  chatty: { path: '/settings#chatty', label: 'Chatty-Einstellungen', capability: 'settings.read' },
-  'host-settings': { path: '/settings#hosts', label: 'Host-Einstellungen', capability: 'settings.read' },
-  retention: { path: '/settings#retention', label: 'Datenaufbewahrung', capability: 'settings.read' },
+  settings: { path: '/settings', label: 'Settings', capability: 'settings.read' },
+  chatty: { path: '/settings#chatty', label: 'Chatty settings', capability: 'settings.read' },
+  'host-settings': { path: '/settings#hosts', label: 'Host settings', capability: 'settings.read' },
+  retention: { path: '/settings#retention', label: 'Data retention', capability: 'settings.read' },
   supervisor: { path: '/settings#agent-supervisor', label: 'Agent-Supervisor', capability: 'settings.read' },
-  manual: { path: '/manual', label: 'Handbuch', capability: 'admin.read' },
+  manual: { path: '/manual', label: 'Manual', capability: 'admin.read' },
   account: { path: '/account', label: 'Mein Konto', capability: 'account.self_manage' },
 } as const satisfies Record<string, { path: string; label: string; capability: Capability }>;
 export type PageTarget = keyof typeof PAGE_TARGETS;
@@ -146,9 +146,9 @@ const CAPABILITY: Record<Exclude<LinkKind, 'page'>, Capability> = {
   account: 'auth.read_metadata',
   manual: 'admin.read',
 };
-const ARTIFACT_LABEL = { subagent: 'Subagent', command: 'Befehl', 'output-style': 'Antwortstil' } as const;
+const ARTIFACT_LABEL = { subagent: 'subagent', command: 'command', 'output-style': 'reply style' } as const;
 const ARTIFACT_PATH = { subagent: 'subagents', command: 'commands', 'output-style': 'output-styles' } as const;
-const VIEW_LABEL = { board: 'Board', documents: 'Dokumente', reports: 'Berichte', activity: 'Aktivität' } as const;
+const VIEW_LABEL = { board: 'board', documents: 'documents', reports: 'reports', activity: 'activity' } as const;
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$/;
 const MANUAL_SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -186,7 +186,7 @@ async function resolveLink(
   if (item.kind === 'page') {
     const page = PAGE_TARGETS[item.ref as PageTarget];
     if (!Object.hasOwn(PAGE_TARGETS, item.ref) || !page || !can(page.capability)) return null;
-    return { label: `${page.label} öffnen`, path: page.path };
+    return { label: `Open ${page.label}`, path: page.path };
   }
   if (!can(CAPABILITY[item.kind])) return null;
   if (item.view && item.kind !== 'project') return null;
@@ -194,7 +194,7 @@ async function resolveLink(
     case 'host': {
       const host = await lookups.host(item.ref);
       return host && Number.isSafeInteger(host.id) && host.id > 0
-        ? { label: `Host ${cleanLabel(host.fqdn, 48)} öffnen`, path: `/hosts/${host.id}` }
+        ? { label: `Open host ${cleanLabel(host.fqdn, 48)}`, path: `/hosts/${host.id}` }
         : null;
     }
     case 'project': {
@@ -202,13 +202,13 @@ async function resolveLink(
       if (!project) return null;
       const name = cleanLabel(project.slug, 40);
       return item.view
-        ? { label: `${VIEW_LABEL[item.view]} von ${name} öffnen`, path: `/projects/${encodeURIComponent(project.slug)}/${item.view}` }
-        : { label: `Projekt ${name} öffnen`, path: `/projects/${encodeURIComponent(project.slug)}` };
+        ? { label: `Open the ${VIEW_LABEL[item.view]} of project ${name}`, path: `/projects/${encodeURIComponent(project.slug)}/${item.view}` }
+        : { label: `Open project ${name}`, path: `/projects/${encodeURIComponent(project.slug)}` };
     }
     case 'skill': {
       const skill = SLUG.test(item.ref) ? await lookups.skill(item.ref) : null;
       return skill
-        ? { label: `Skill ${cleanLabel(skill.slug, 48)} öffnen`, path: `/library/skills/${encodeURIComponent(skill.slug)}` }
+        ? { label: `Open skill ${cleanLabel(skill.slug, 48)}`, path: `/library/skills/${encodeURIComponent(skill.slug)}` }
         : null;
     }
     case 'subagent':
@@ -217,7 +217,7 @@ async function resolveLink(
       const artifact = SLUG.test(item.ref) ? await lookups.artifact(item.kind, item.ref) : null;
       return artifact
         ? {
-            label: `${ARTIFACT_LABEL[item.kind]} ${cleanLabel(artifact.slug, 44)} öffnen`,
+            label: `Open ${ARTIFACT_LABEL[item.kind]} ${cleanLabel(artifact.slug, 44)}`,
             path: `/library/${ARTIFACT_PATH[item.kind]}/${encodeURIComponent(artifact.slug)}`,
           }
         : null;
@@ -226,24 +226,24 @@ async function resolveLink(
       const workflow = SLUG.test(item.ref) ? await lookups.workflow(item.ref) : null;
       return workflow
         ? {
-            label: `Workflow ${cleanLabel(workflow.title || workflow.slug, 44)} öffnen`,
+            label: `Open workflow ${cleanLabel(workflow.title || workflow.slug, 44)}`,
             path: `/workflows/definitions/${encodeURIComponent(workflow.slug)}`,
           }
         : null;
     }
     case 'workflow_run': {
       const run = UUID.test(item.ref) ? await lookups.workflowRun(item.ref) : null;
-      return run && UUID.test(run.id) ? { label: 'Workflow-Lauf öffnen', path: `/workflows/runs/${run.id.toLowerCase()}` } : null;
+      return run && UUID.test(run.id) ? { label: 'Open workflow run', path: `/workflows/runs/${run.id.toLowerCase()}` } : null;
     }
     case 'account': {
       // Accounts have no detail route; the button opens the list after the account is confirmed.
       const account = /^\d{1,15}$/.test(item.ref) ? await lookups.account(Number(item.ref)) : null;
-      return account ? { label: `Konten öffnen (${cleanLabel(account.label, 36)})`, path: '/accounts' } : null;
+      return account ? { label: `Open Accounts (${cleanLabel(account.label, 36)})`, path: '/accounts' } : null;
     }
     case 'manual': {
       const article = MANUAL_SLUG.test(item.ref) ? await lookups.manual(item.ref) : null;
       return article
-        ? { label: `Hilfe: ${cleanLabel(article.title, 52)}`, path: `/manual/${article.slug}` }
+        ? { label: `Help: ${cleanLabel(article.title, 52)}`, path: `/manual/${article.slug}` }
         : null;
     }
   }

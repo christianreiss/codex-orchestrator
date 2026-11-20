@@ -45,11 +45,11 @@ describe('Chatty rich reply elements', () => {
     );
     expect(rejected).toEqual([]);
     expect(elements).toEqual([
-      { type: 'link', kind: 'host', label: 'Host example.com öffnen', path: '/hosts/7' },
-      { type: 'link', kind: 'project', label: 'Board von apollo öffnen', path: '/projects/apollo/board' },
-      { type: 'link', kind: 'skill', label: 'Skill fleet-ops öffnen', path: '/library/skills/fleet-ops' },
-      { type: 'link', kind: 'manual', label: 'Hilfe: Hosts', path: '/manual/hosts' },
-      { type: 'link', kind: 'page', label: 'Chatty-Einstellungen öffnen', path: '/settings#chatty' },
+      { type: 'link', kind: 'host', label: 'Open host example.com', path: '/hosts/7' },
+      { type: 'link', kind: 'project', label: 'Open the board of project apollo', path: '/projects/apollo/board' },
+      { type: 'link', kind: 'skill', label: 'Open skill fleet-ops', path: '/library/skills/fleet-ops' },
+      { type: 'link', kind: 'manual', label: 'Help: Hosts', path: '/manual/hosts' },
+      { type: 'link', kind: 'page', label: 'Open Chatty settings', path: '/settings#chatty' },
       { type: 'suggestion', text: 'Welche Hosts sind offline?' },
     ]);
   });
@@ -197,7 +197,7 @@ describe('Chatty rich reply elements', () => {
       }),
     ).toMatchObject({
       links: [
-        { kind: 'host', ref: 'example.com', available: true, label: 'Host example.com öffnen' },
+        { kind: 'host', ref: 'example.com', available: true, label: 'Open host example.com' },
         { kind: 'host', ref: 'missing.example', available: false },
       ],
     });
