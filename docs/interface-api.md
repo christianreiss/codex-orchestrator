@@ -443,7 +443,7 @@ progress. This applies equally to Codex, Claude, Grok and Kimi:
   `/admin/auth/seed-command`, `/admin/runner/run{,-claude,-grok}`,
   AI-assist drafts (Codex), minting an installer
   for it, and newly assigning it to a host (`/admin/hosts/register`,
-  `quick-register`, engines edit, installer "add engine", `/cli/auth/approve`).
+  `quick-register`, engines edit, installer "add engine").
   An engine a host already carries may stay assigned. Omitted engines on
   register fall back to `DEFAULT_HOST_ENGINES` minus switched-off ones.
   `/install/{token}` and `GET /seed/auth/{token}` answer with an
@@ -699,13 +699,6 @@ Host resource sync (`/skills`, `/agents/retrieve`, `/config/retrieve`) and cron 
 - `POST /admin/setup/owner` — serialized one-time empty-install claim; creates a fixed active owner and returns an authenticated session cookie.
 - `GET /admin/setup/wizard` — first-run wizard progress (`completed_at`, `dismissed_at`, `last_step`, `engines`); same visibility rule as `/admin/setup/status`, and mirrored there as `wizard`.
 - `POST /admin/setup/wizard` — merge-update of that blob (`last_step?`, `engines?`, `completed?`, `dismissed?`). Stored in the `versions` K/V table without publishing `settings.changed`, because step position is not a setting anything should react to. Separate from `setup_complete`, which covers only infrastructure and the owner claim and therefore goes true at step two of nine.
-- CLI device auth — the `cdx`/`clx` device-code login flow, which mints a host without an admin-issued installer token:
-  - `POST /cli/auth/start` — wrapper begins a login. Body: `fqdn`, optional `secure` (default `true`). Returns the request id, the user code, and `verify_url`. Exempt from the API kill switch.
-  - `POST /cli/auth/poll/{id}` — wrapper polls the 64-hex request id until approved or denied; an approved response also carries `base_url`. Unknown ids return `404`.
-  - `GET /cli/auth/verify` — browser approval page read from `STATIC_ROOT`. It requires an admin session; an anonymous browser gets `401 admin_required`.
-  - `POST /cli/auth/lookup` — admin session required; `{user_code}` resolves a pending request (`404` when unknown or expired).
-  - `POST /cli/auth/approve` — owner/admin role required; `{user_code}` approves the request and registers the host. Approval can rotate an existing host credential, so it shares the Agent Messaging generation-fencing gate.
-  - `POST /cli/auth/deny` — admin session required; `{user_code}` denies the request.
 
 Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a deadline-driven background verifier on boot; it wakes when a canonical credential changes or a re-check falls due. It re-probes the latest Codex, Claude, Grok, and Kimi canonical payloads (Grok through the metadata-only `/verify-grok` probe, never spending its refresh token) on a dynamic schedule — the re-check interval equals the credential's proven-good age, clamped between `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900) and `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (default 21600); successful gateway execs count as proof and advance the clock without a probe — records `verification_state`, and updates per-engine runner telemetry without making wrapper startup wait on the runner. Runner failures are logged/surfaced and do not block `/auth` retrieve, but every canonical-auth-changing upload, including admin and seed uploads, requires a configured, reachable runner and a positive live verdict.
 
@@ -1463,7 +1456,7 @@ The orchestrator does not meter request frequency and does not generate local ra
 
 ## Admin access control
 
-- Admin routes are protected by the admin session cookie (`requireAdmin`) and, on top of it, by the capability a route is assigned in `api/src/security/route-capabilities.ts` — the plugin refuses to start when a route under `/admin/` or `/cli/auth/` has no entry. No client certificate is checked anywhere: the bundled `caddy` profile terminates TLS without requesting one, and forwarded `X-MTLS-*` headers are never read. `/cli/auth/verify` requires an admin session as well. Passkey/WebAuthn login issues the same session cookie.
+- Admin routes are protected by the admin session cookie (`requireAdmin`) and, on top of it, by the capability a route is assigned in `api/src/security/route-capabilities.ts` — the plugin refuses to start when a route under `/admin/` has no entry. No client certificate is checked anywhere: the bundled `caddy` profile terminates TLS without requesting one, and forwarded `X-MTLS-*` headers are never read. Passkey/WebAuthn login issues the same session cookie.
 - WebAuthn config:
   - `ADMIN_WEBAUTHN_RP_ID` overrides RP ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host. Setting it also requires `ADMIN_WEBAUTHN_ORIGIN`: the env schema rejects the RP ID on its own, so the API fails to start.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides RP display name.

@@ -101,8 +101,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   resolves the session cookie and requires an active user row — and that is all
   it has ever done. What decides whether the caller may proceed is
   `api/src/security/route-capabilities.ts`, which assigns one capability to
-  every route under `/admin/*` and to the session-guarded `/cli/auth/*` routes,
-  and `api/src/http/plugins/capabilities.ts`, which attaches the matching guard
+  every route under `/admin/*`, and `api/src/http/plugins/capabilities.ts`, which attaches the matching guard
   as each route is registered.
 - **A route with no entry in that inventory is a startup failure.** The plugin
   collects every governed route it cannot find and throws at `onReady`, naming

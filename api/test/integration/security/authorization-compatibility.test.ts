@@ -140,10 +140,10 @@ describe('compatible mode reproduces the pre-matrix installation', () => {
     });
   }
 
-  it('withholds exactly the 27 remaining routes the old gates covered, and no more', () => {
+  it('withholds exactly the 26 remaining routes the old gates covered, and no more', () => {
     // Guards the oracle itself: if someone adds a route to the legacy set to
     // make a test pass, the count moves and this fails.
-    expect(LEGACY_OWNER_ADMIN_ROUTES.size).toBe(27);
+    expect(LEGACY_OWNER_ADMIN_ROUTES.size).toBe(26);
     const unknown = [...LEGACY_OWNER_ADMIN_ROUTES].filter(
       (key) => !(key in ROUTE_CAPABILITIES),
     );

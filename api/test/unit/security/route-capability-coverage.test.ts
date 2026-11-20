@@ -118,9 +118,6 @@ const EXPECTED_PUBLIC = [
   'POST /admin/auth/passkey/login/options',
   'POST /admin/auth/password/request',
   'POST /admin/auth/password/reset',
-  'GET /cli/auth/verify',
-  'POST /cli/auth/poll/:id',
-  'POST /cli/auth/start',
 ].sort();
 
 describe('route capability coverage', () => {

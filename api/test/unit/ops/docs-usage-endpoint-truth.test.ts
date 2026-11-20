@@ -151,7 +151,6 @@ describe('docs/USAGE.md endpoint reference', () => {
       '/wrapper/v2/config',
       '/admin/hosts/register',
       '/admin/api/state',
-      '/cli/auth/verify',
     ]) {
       expect(paths, `docs/USAGE.md should still name ${path}`).toContain(path);
     }

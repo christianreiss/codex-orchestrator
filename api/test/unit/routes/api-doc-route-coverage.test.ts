@@ -22,10 +22,7 @@ const API_DOC = resolve(HERE, '../../../../docs/API.md');
 /**
  * Registered `METHOD /path` entries the catalog deliberately leaves out, and why.
  */
-const ALLOWED_UNDOCUMENTED: Record<string, string> = {
-  'GET /cli/auth/verify':
-    'browser redirect to the HTML device-approval page, reached through the start response\'s verify_url — the JSON /cli/auth/* routes around it are documented',
-};
+const ALLOWED_UNDOCUMENTED: Record<string, string> = {};
 
 /** A `{param}` / `:param` placeholder, on either side of the comparison. */
 const PARAM = ':param';

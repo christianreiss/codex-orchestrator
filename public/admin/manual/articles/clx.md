@@ -2,7 +2,7 @@
 title: clx — the Claude Code wrapper
 section: Fleet operations
 verified: 2026-10-16
-sources: wrappers/cxx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/cli-auth/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
+sources: wrappers/cxx, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/services/claude-artifacts.ts, api/src/services/client-config.ts, wrappers/schemas/host-config-v1.json
 ---
 
 `clx` is the **Claude Code fleet wrapper** — the Claude persona of the static
@@ -348,28 +348,6 @@ managed settings remain Claude Code's higher-precedence policy boundary.
 The `/anthropic/v1` proxy (for issued `sk-claude-*` keys) is a separate gateway
 and is not part of the host launch path.
 
-## New host registration (device-code flow)
-
-When a host has no config yet, `clx` drives a device-code exchange:
-
-1. POST `/cli/auth/start` with `{fqdn, secure}` → receives a **device code**
-   (format: `ABCD-1234`, four uppercase letters, dash, four digits) and a
-   `verify_url`.
-2. Poll POST `/cli/auth/poll/:id` until approved or denied.
-
-On the admin side an operator navigates to **Authorize CLI** (`/cli/auth/verify`,
-requires an admin session):
-
-- **Step 1** — Enter the device code shown on the host terminal.
-- **Step 2** — Confirm: review session details (FQDN shown), then click
-  **Approve** or **Deny**.
-  - Approve → POST `/cli/auth/approve` with `user_code`.
-  - Deny → POST `/cli/auth/deny`.
-- **Step 3** — Approved/denied result page.
-
-On approval the poll response includes `base_url` so the wrapper can download
-its signed config and proceed.
-
 ## Auto-update (cron)
 
 `clx --cron install` forwards to `cxx cron install`. The coordinator writes one
@@ -494,7 +472,6 @@ read-only (`GET /claude/:kind`, `POST /claude/:kind/retrieve`).
 - `api/src/routes/install/index.ts` — installer and seed-auth tokens
 - `api/src/routes/auth/index.ts` — `/sync/bootstrap`, `/sync/status`
 - `api/src/routes/host/index.ts` — `/cron/check`, `/cron/report`
-- `api/src/routes/cli-auth/index.ts` — device-code registration flow
 - `api/src/services/claude-artifacts.ts` — subagent/command/output-style fleet artifacts
 - `api/src/services/client-config.ts` — renders the `claude_settings` partial (incl. `permissions.defaultMode`)
 - `wrappers/schemas/host-config-v1.json` — config schema (enforced against the baked payload by `api/test/unit/contract/wrapper-config-schema.test.ts`)

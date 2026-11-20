@@ -26,7 +26,6 @@
 ## Access Model
 - `/admin/*` is gated by the admin session cookie only (`requireAdmin` in `api/src/http/plugins/auth-admin.ts`). The API never inspects a client certificate or reads any `X-MTLS-*` header.
 - Client certificates are no longer part of this system. If a proxy you run terminates mTLS, the API ignores whatever `X-MTLS-*` headers it forwards. Protect `/admin/` with a network control (VPN/firewall) if session auth alone is not enough, and rely on admin login for user-level access.
-- `GET /cli/auth/verify` (the CLI device-approval page) requires an admin session: an anonymous browser gets `401 admin_required`, an admin session is redirected to the SPA approval page.
 - WebAuthn/passkey settings:
   - `ADMIN_WEBAUTHN_RP_ID` overrides the relying-party ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host. Setting it also requires `ADMIN_WEBAUTHN_ORIGIN`: the env schema rejects the RP ID on its own, so the API fails to start.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides the relying-party name (default `Codex Orchestrator`).
@@ -127,8 +126,8 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
     the requirement is raised by the handler rather than by the URL.
   Every listing beside them is metadata-only, so a `viewer` may inspect state,
   addresses, conversations, and message metadata without seeing content.
-- Host registration and API-key rotation (`POST /admin/hosts/register`), device
-  approval (`POST /cli/auth/approve`), deletion (`DELETE /admin/hosts/{id}`) and
+- Host registration and API-key rotation (`POST /admin/hosts/register`),
+  deletion (`DELETE /admin/hosts/{id}`) and
   the engine/secure-state transitions (`POST /admin/hosts/{id}/engines`,
   `POST /admin/hosts/{id}/secure`) share `hosts.security_transition`, held by
   `owner` and `admin` alone, because each can atomically revoke or
@@ -141,8 +140,8 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
 - The pre-authentication surface is fixed and enumerated in
   `api/src/security/route-capabilities.ts`: login, login-method discovery,
   passkey assertion, password reset request and redemption, the auth status
-  probe, the three device-code lanes, and the static admin bundle. Every other
-  route under `/admin/*` and `/cli/auth/*` requires a session.
+  probe, and the static admin bundle. Every other route under `/admin/*`
+  requires a session.
 - Without a valid session, guarded routes fail with `401` and code
   `admin_required`; a disabled account fails with `403` and code
   `admin_disabled`. A session lacking the route's capability fails with `403`,

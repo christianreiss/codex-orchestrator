@@ -1,7 +1,6 @@
 /**
  * The route→capability inventory: every route Fastify registers under
- * `/admin/*`, plus the session-guarded `/cli/auth/*` routes, mapped to the one
- * capability that opens it.
+ * `/admin/*`, mapped to the one capability that opens it.
  *
  * This is deliberately a table rather than an argument threaded through 222
  * route registrations. The whole authorization surface is one file a reviewer
@@ -98,11 +97,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/auth/passkey/login/options': open('passkey assertion challenge'),
   'POST /admin/auth/password/request': open('password reset request (emails a token)'),
   'POST /admin/auth/password/reset': open('password reset redemption (token is the credential)'),
-  // The device-code lanes. The wrapper holds no session — the one-time code it
-  // polls with is the credential, and approval is a separate gated action.
-  'POST /cli/auth/start': open('device-code start; the wrapper has no session yet'),
-  'POST /cli/auth/poll/:id': open('device-code poll; the request id is the credential'),
-  'GET /cli/auth/verify': open('device-code verification landing page'),
   // Served by @fastify/static: the built SPA bundle and the manual's assets.
   // Static files only — every byte behind them is fetched by an authenticated
   // XHR from the SPA itself.
@@ -202,7 +196,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'DELETE /admin/hosts/:id': cap('hosts.security_transition'),
   'POST /admin/hosts/:id/engines': cap('hosts.security_transition'),
   'POST /admin/hosts/:id/secure': cap('hosts.security_transition'),
-  'POST /cli/auth/approve': cap('hosts.security_transition'),
 
   'POST /admin/hosts/:id/insecure/enable': cap('hosts.activate_insecure'),
   'POST /admin/hosts/:id/insecure/disable': cap('hosts.activate_insecure'),
@@ -217,7 +210,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
 
   // ── Fleet credentials ────────────────────────────────────────────────────
   'GET /admin/hosts/:id/auth': cap('auth.read_metadata'),
-  'POST /cli/auth/lookup': cap('auth.read_metadata'),
   'GET /admin/accounts': cap('auth.read_metadata'),
   'POST /admin/accounts': cap('auth.manage'),
   'PATCH /admin/accounts/:id': cap('auth.manage'),
@@ -230,7 +222,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/runner/run-claude': cap('auth.manage'),
   'POST /admin/runner/run-grok': cap('auth.manage'),
   'POST /admin/runner/run-kimi': cap('auth.manage'),
-  'POST /cli/auth/deny': cap('hosts.manage'),
 
   // ── Provider API keys ────────────────────────────────────────────────────
   'GET /admin/openai/keys': cap('auth.read_metadata'),
@@ -605,12 +596,12 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
 };
 
 /** Path prefixes this inventory is responsible for. */
-export const GOVERNED_PREFIXES = ['/admin/', '/cli/auth/'] as const;
+export const GOVERNED_PREFIXES = ['/admin/'] as const;
 
 /**
  * Whether a registered route pattern must carry an inventory entry. `/admin`
- * and `/cli/auth` themselves (no trailing segment) are included so a route
- * mounted exactly at a prefix cannot slip through.
+ * itself (no trailing segment) is included so a route mounted exactly at the
+ * prefix cannot slip through.
  */
 export function isGovernedRoute(url: string): boolean {
   return GOVERNED_PREFIXES.some((prefix) => url === prefix.slice(0, -1) || url.startsWith(prefix));
