@@ -1,3 +1,15 @@
+# 2026-11-20
+
+- **API stability:** `GET /mcp`, and `POST /mcp` with a browser `Origin` header, no longer crash and restart the API with a second reply (`ERR_HTTP_HEADERS_SENT`); they answer 405/403 once. The `/v1/*` and `/anthropic/v1/*` OPTIONS handlers return their single 204 the same way.
+
+- **cxx 0.9.190:** `cdx` no longer prints `%!w(<nil>)` when its Codex receiver server exits cleanly. `cxx doctor` states that it checks local launchers only and names `cdx`/`clx`/`cgx`/`ckx doctor` for API reachability, TLS trust and sync.
+
+- **Resource claims:** `resource_claim_acquire` lists the fields each resource kind accepts (from cxx 0.9.190), and `fqdn` on a path, git or service claim now fails with an error that says to use `host_id` (omit it for this session's host) or kind `remote`.
+
+- **MCP:** `skill_list` accepts `query` and `compact` to shrink the listing; without arguments its output is unchanged. The new `shared_memory_replace` corrects one fact in a shared memory document by an exact, digest-guarded replacement without re-sending the body. Reading the `roles` Skill while the roles module is off now answers `status: "disabled"` (`roles_disabled`) instead of `missing`.
+
+- **Slop jobs:** findings suppressed with an inline `slop-ok` comment count in `counts.suppressed` and their own `## Suppressed` digest section instead of P0/P1/P2. `slop_job_diff` between a full and a quick run lists the full run's review findings as `not_rechecked` and no longer reports screenshots or a11y exports as removed. Runs name the unsupported extensions they skipped and the extensions the deterministic rules cover (this note needs the rebuilt slop worker image). `slop_job_import` can refresh screenshots and a11y exports in one transfer (`content_base64` plus `kind`).
+
 # 2026-11-19
 
 - CXX 0.9.189 restores Codex Code Mode on pfSense by executing the CLI directly with private library mappings. Maintenance repairs a 0.9.188 launcher even when the native client version is already current.
