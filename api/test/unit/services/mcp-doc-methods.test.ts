@@ -80,8 +80,8 @@ describe('docs/MCP.md JSON-RPC methods', () => {
   it('extracts the dispatch table it is meant to check', () => {
     // A scan that silently matched nothing would pass the assertions below.
     expect([...docGroups.keys()]).toEqual(GROUPS);
-    expect(documented.length).toBeGreaterThan(25);
-    expect(dispatched.length).toBeGreaterThan(25);
+    expect(documented.length).toBeGreaterThan(10);
+    expect(dispatched.length).toBeGreaterThan(10);
     expect(dispatched).toContain('initialize');
     expect(dispatched).toContain('prompts/get');
     // Each spelling is listed once, so a duplicate cannot mask a missing entry.

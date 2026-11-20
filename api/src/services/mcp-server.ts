@@ -122,20 +122,15 @@ export class McpServer {
           });
           break;
         }
-        case 'notifications/initialized':
-        case 'notifications.initialized': {
+        case 'notifications/initialized': {
           response = okResponse(id, { ok: true });
           break;
         }
-        case 'tools/list':
-        case 'tools.list':
-        case 'list_tools': {
+        case 'tools/list': {
           response = okResponse(id, { tools: await this.tools.listAvailable(capability) });
           break;
         }
-        case 'tools/call':
-        case 'tools.call':
-        case 'call_tool': {
+        case 'tools/call': {
           const name = typeof params['name'] === 'string' ? (params['name'] as string) : '';
           const args = params['arguments'] ?? {};
 
@@ -153,23 +148,17 @@ export class McpServer {
           response = okResponse(id, result);
           break;
         }
-        case 'resources/templates/list':
-        case 'resources.templates.list':
-        case 'list_resource_templates': {
+        case 'resources/templates/list': {
           response = okResponse(id, { resourceTemplates: this.resources.listTemplates() });
           break;
         }
-        case 'resources/list':
-        case 'resources.list':
-        case 'list_resources': {
+        case 'resources/list': {
           response = okResponse(id, {
             resources: await this.resources.list(ctx.host, ctx.engine ?? ENGINE_CODEX),
           });
           break;
         }
-        case 'resources/read':
-        case 'resources.read':
-        case 'read_resource': {
+        case 'resources/read': {
           const uri = typeof params['uri'] === 'string' ? (params['uri'] as string) : '';
 
           if (!uri) {
@@ -179,9 +168,7 @@ export class McpServer {
           response = okResponse(id, await this.resources.read(uri, ctx.host, ctx.engine ?? ENGINE_CODEX));
           break;
         }
-        case 'resources/create':
-        case 'resources.create':
-        case 'create_resource': {
+        case 'resources/create': {
           const uri = typeof params['uri'] === 'string' ? (params['uri'] as string) : '';
 
           if (!uri) {
@@ -191,9 +178,7 @@ export class McpServer {
           response = okResponse(id, await this.resources.create(uri, params, ctx.host));
           break;
         }
-        case 'resources/update':
-        case 'resources.update':
-        case 'update_resource': {
+        case 'resources/update': {
           const uri = typeof params['uri'] === 'string' ? (params['uri'] as string) : '';
 
           if (!uri) {
@@ -203,9 +188,7 @@ export class McpServer {
           response = okResponse(id, await this.resources.update(uri, params, ctx.host));
           break;
         }
-        case 'resources/delete':
-        case 'resources.delete':
-        case 'delete_resource': {
+        case 'resources/delete': {
           const uri = typeof params['uri'] === 'string' ? (params['uri'] as string) : '';
 
           if (!uri) {
@@ -215,13 +198,11 @@ export class McpServer {
           response = okResponse(id, await this.resources.delete(uri, ctx.host));
           break;
         }
-        case 'prompts/list':
-        case 'prompts.list': {
+        case 'prompts/list': {
           response = okResponse(id, { prompts: [] });
           break;
         }
-        case 'prompts/get':
-        case 'prompts.get': {
+        case 'prompts/get': {
           response = errorResponse(id, -32601, 'Method not found');
           break;
         }

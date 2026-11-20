@@ -193,7 +193,7 @@ export class McpToolsRegistry {
   }
 
   normalizeName(name: string): string {
-    const normalized = String(name ?? '').trim().replaceAll('.', '_');
+    const normalized = String(name ?? '').trim();
     if (!normalized) throw new Error('Tool name is required');
     if (!TOOL_NAME_RE.test(normalized)) throw new Error('Tool name must match ' + String(TOOL_NAME_RE));
     return normalized;
@@ -321,7 +321,6 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'project_detail':
     case 'project_bootstrap':
     case 'project_changes':
-    case 'project_file_list':
     case 'project_memory_list':
     case 'project_summary':
     case 'project_files':
@@ -1138,24 +1137,6 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   });
   inputs.push({
     definition: {
-      name: 'project_note_create',
-      description: 'Create a project note',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          slug: { type: 'string' },
-          header: { type: 'string' },
-          body: { type: 'string' },
-        },
-        additionalProperties: false,
-        required: ['slug', 'header', 'body'],
-      },
-    },
-    handler: async (args, host) =>
-      deps.projects.upsertNote(String(args['slug'] ?? ''), null, args, host),
-  });
-  inputs.push({
-    definition: {
       name: 'project_note_upsert',
       description: 'Create or update a project note (update when id is provided, create otherwise)',
       inputSchema: {
@@ -1264,20 +1245,6 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       },
     },
     handler: async (args, host) => deps.projects.createFeedback(String(args['slug'] ?? ''), args, host),
-  });
-  inputs.push({
-    definition: {
-      name: 'project_file_list',
-      description:
-        'List all files attached to a project, including every file body. Can be very large — prefer project_files.',
-      inputSchema: {
-        type: 'object',
-        properties: { slug: { type: 'string' } },
-        additionalProperties: false,
-        required: ['slug'],
-      },
-    },
-    handler: async (args, host) => deps.projects.listFiles(String(args['slug'] ?? ''), host),
   });
   inputs.push({
     definition: {

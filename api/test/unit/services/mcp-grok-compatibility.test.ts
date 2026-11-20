@@ -45,8 +45,8 @@ describe.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s MCP full server 
   const context = { host: { id: 7 } as Host, engine,
     capability: 'operator' as const, clientIp: null, serverVersion: 'test' };
   it('includes all host tools and the optional operator filesystem tools', () => {
-    expect(harness().registry.list('host')).toHaveLength(93);
-    expect(all).toHaveLength(99);
+    expect(harness().registry.list('host')).toHaveLength(91);
+    expect(all).toHaveLength(97);
   });
 
   for (const tool of all) {

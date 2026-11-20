@@ -165,7 +165,7 @@ interface FileRow {
 /**
  * A file row without its body. Every listing path uses this: `content` is a
  * LONGTEXT column that routinely runs to hundreds of kilobytes, and inlining it
- * into a listing made `project_file_list` and `project_detail` cost more context
+ * into a listing made the former `project_file_list` tool and `project_detail` cost more context
  * than the work they were meant to set up. The body is one `project_file_read`
  * away, and that call windows.
  */

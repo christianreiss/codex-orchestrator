@@ -82,7 +82,7 @@ describe('docs/API.md coverage of registered routes', () => {
     expect(documented.has('POST /auth')).toBe(true);
     expect(documented.has('GET /admin/overview')).toBe(true);
     // Params normalize identically on both sides, mid-segment ones included.
-    expect(registered).toContain('POST /projects/:param/todos/:param/done');
+    expect(registered).toContain('POST /admin/projects/:param/board/cards/:param/move');
     expect(registered).toContain('GET /wrapper/v2/bin/:param/:param/v:param/:param');
     expect(documented.has('GET /wrapper/v2/bin/:param/:param/v:param/:param')).toBe(true);
     // The verb travels with the path, so a documented GET cannot cover a DELETE.

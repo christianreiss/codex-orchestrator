@@ -122,7 +122,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
    - `/host/lane` gets/sets lane preference (`normal`, `null`; legacy `spark` heals to `null`) with insecure-window enforcement.
    - `/wrapper/v2/meta` + `/wrapper/v2/config` + `/wrapper/v2/download` serve the v2 binary bakery; `/wrapper/download` is the legacy POSIX transition launcher that writes config before exec.
-   - `/mcp/memories/*` manages host-scoped memory records; `/mcp` serves JSON-RPC MCP tools/resources (GET probe advertises POST-only, with origin allowlist checks).
+   - `/mcp` serves JSON-RPC MCP tools/resources, including the host-scoped `memory_*`, fleet-wide `shared_memory_*` and `project_*` knowledge tools (there is no host REST mirror for them) (GET probe advertises POST-only, with origin allowlist checks).
    - `/versions` is unauthenticated and returns version snapshot metadata when kill switch is off.
 
 5. **Admin panel (session-gated)**

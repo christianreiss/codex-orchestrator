@@ -2,7 +2,7 @@
 title: Projects workspace
 section: Admin workspace
 verified: 2026-10-17
-sources: api/src/routes/admin/projects/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/projects-client/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/project-board.ts, api/src/services/project-board-roles.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0026_add_project_board.sql, api/src/db/migrations/0031_project_file_encoding.sql, api/src/db/migrations/0032_project_card_scheduling.sql, api/src/services/project-file-encoding.ts, api/src/services/shared-memories.ts, api/src/db/migrations/0006_add_shared_memories.sql
+sources: api/src/routes/admin/projects/index.ts, api/src/routes/admin/project-board/index.ts, api/src/services/projects.ts, api/src/services/project-drafts.ts, api/src/services/project-content.ts, api/src/services/project-board.ts, api/src/services/project-board-roles.ts, api/src/services/host-projects.ts, api/src/services/mcp-tools.ts, api/src/services/mcp-resources.ts, api/src/services/managed-coco-skill.ts, api/src/services/host-skills.ts, api/src/db/schema.ts, api/src/db/migrations/0003_add_coord_project_memories.sql, api/src/db/migrations/0026_add_project_board.sql, api/src/db/migrations/0031_project_file_encoding.sql, api/src/db/migrations/0032_project_card_scheduling.sql, api/src/services/project-file-encoding.ts, api/src/services/shared-memories.ts, api/src/db/migrations/0006_add_shared_memories.sql
 ---
 
 Projects is an optional workspace module that gives your agents a shared surface: an *about* object, a *roster* markdown document, notes, a board of cards (which todos are a view of), files, memories, feedback, and a derived MCP skill (`coco`) that teaches agents how to use it. It is off by default.
@@ -32,10 +32,7 @@ Projects can be closed. **Archive project** in the detail page's *More* menu (or
 
 Until 2026-09-22 the column existed, carried an index, and was filtered on by every listing path — and no code anywhere wrote it, so nothing could ever leave a list.
 
-Host-facing surface (authenticated by per-host API key, `routes/projects-client/index.ts`):
-
-- `GET /projects`, `POST /projects`, `GET /projects/{slug}`, `GET /projects/{slug}/bootstrap` — the bootstrap endpoint is the compact context payload agents read to orient themselves.
-- The full sub-resource set also has host-facing equivalents: notes, todos (including `.../done` and `.../undone`), files, feedback, and `GET /projects/{slug}/changes` all mirror the admin routes described in their respective sections below, one-to-one.
+Host-facing surface: agents reach projects only through MCP (`project_*` tools and `project://{slug}` resources; see the MCP article). `project_summary` is the compact context payload agents read to orient themselves, and notes, todos, files, feedback and changes each have a tool mirroring the admin routes described in their respective sections below. The former host REST mirror under `/projects*` was removed.
 
 ## Project detail layout
 
@@ -57,7 +54,7 @@ Endpoints:
 - `POST /admin/projects/{slug}/about` — replaces the about value. The service accepts either a bare object (used directly as the stored value) or a wrapper `{ about: <object> }` form; both are equivalent.
 - `POST /admin/projects/{slug}/roster` — replaces the roster markdown. Accepts either `{ roster_markdown }` or `{ markdown }` as aliases; both work.
 
-The host-facing surface mirrors these exactly: `POST /projects/{slug}/about` and `POST /projects/{slug}/roster` (`routes/projects-client/index.ts` → `HostProjectsService.updateAbout`/`updateRoster`) accept the same bodies and are safe for agents to call directly for self-updates.
+The host-facing equivalent is the MCP `project_update` tool (`about` and `roster_markdown`, backed by `HostProjectsService.updateAbout`/`updateRoster`), which is safe for agents to call directly for self-updates.
 
 ## The assist button
 
@@ -164,14 +161,13 @@ The MCP tool schemas live in `api/src/services/mcp-tools.ts`.
 
 - api/src/routes/admin/projects/index.ts (admin surface)
 - api/src/routes/admin/project-board/index.ts (board module switch and per-project card/column routes)
-- api/src/routes/projects-client/index.ts (host-facing /projects/* surface — mirrors the admin surface minus the board, not gated by the module flag)
 - api/src/services/projects.ts (project CRUD; detail reads todos through the board)
 - api/src/services/project-drafts.ts (assist via runner)
 - api/src/services/project-content.ts (notes/files/feedback)
 - api/src/services/project-board.ts (cards, claims, lanes, reclaim sweep, and the todo view over cards)
 - api/src/services/project-board-roles.ts (the fixed plan/code/review/verify/ops vocabulary)
 - api/src/db/migrations/0026_add_project_board.sql (board tables, seeded lanes, todo→card backfill)
-- api/src/services/host-projects.ts (host-facing project service used by both REST routes and MCP tools)
+- api/src/services/host-projects.ts (host-facing project service used by the MCP tools)
 - api/src/services/mcp-tools.ts (project_* tool definitions; always registered regardless of module state)
 - api/src/services/mcp-resources.ts (project:// resource exposure)
 - api/src/services/managed-coco-skill.ts (synthesized coco skill manifest, gated on projects_module_enabled)
