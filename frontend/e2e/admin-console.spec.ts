@@ -656,6 +656,12 @@ test("daily navigation keeps the rail to nine hubs and preserves access on deskt
   await page.goto("/admin/topology");
   await expect(primary.getByRole("link", { name: "Agents", exact: true })).toHaveAttribute("aria-current", "page");
 
+  // A short compact rail scrolls itself so the current page is never below the fold.
+  await page.setViewportSize({ width: 900, height: 600 });
+  await page.goto("/admin/settings");
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  await expect(primary.locator('[aria-current="page"]')).toBeInViewport();
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/dashboard");
   const mobile = page.getByRole("navigation", { name: "Mobile primary navigation" });

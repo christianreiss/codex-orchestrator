@@ -2,6 +2,7 @@
   import { page } from "$app/state";
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
+  import { tick } from "svelte";
   import { NAV_FOOTER, NAV_SECTIONS, isActive } from "$lib/nav";
   import { ACCOUNT_LINKS } from "./account-links";
   import { cn } from "$lib/utils/cn";
@@ -20,6 +21,14 @@
   const auth = $derived($authStore);
   // Engine-specific pages stay listed while their engine is off; the entry says so.
   const fleet = useFleetEngines();
+
+  // A hub's pages can push the current one below the fold of a short rail;
+  // keep it in view (only the nav scrolls, never the page).
+  let nav = $state<HTMLElement>();
+  $effect(() => {
+    void path;
+    void tick().then(() => nav?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest" }));
+  });
 
   function openShortcuts(): void {
     window.dispatchEvent(new CustomEvent("codex:open-shortcuts"));
@@ -41,7 +50,7 @@
     </span>
   </a>
 
-  <nav class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 md:max-lg:px-2" aria-label="Primary navigation">
+  <nav bind:this={nav} class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 md:max-lg:px-2" aria-label="Primary navigation">
     <div class="space-y-4">
       <InsecureApprovalsNavAlert />
       {#each NAV_SECTIONS as section (section.id)}
