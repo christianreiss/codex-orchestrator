@@ -104,3 +104,49 @@ export function unifiedDiff(before: string, after: string, fromLabel: string, to
   }
   return { diff: `${out.join('\n')}\n`, added, removed };
 }
+
+export interface RunSide<F extends { id: string; kind: string }> {
+  mode: string;
+  findings: F[];
+  files: Record<string, { rev: number; sha256: string; kind: string }>;
+}
+
+/**
+ * Run-to-run comparison. A quick run reviews nothing and snapshots only
+ * `source` files, so across modes two things are not comparable and must not
+ * read as changes: review findings of the full run (reported as
+ * `not_rechecked` instead of `resolved`) and non-source files such as
+ * screenshots and a11y exports (counted in `files.not_compared`, never
+ * `added`/`removed`/`changed`).
+ */
+export function compareRuns<F extends { id: string; kind: string }>(from: RunSide<F>, to: RunSide<F>) {
+  const fa = new Map(from.findings.map((f) => [f.id, f])),
+    fb = new Map(to.findings.map((f) => [f.id, f]));
+  const mixed = from.mode !== to.mode && (from.mode === 'quick' || to.mode === 'quick');
+  const gone = [...fa.values()].filter((f) => !fb.has(f.id));
+  const notRechecked = mixed && to.mode === 'quick' ? gone.filter((f) => f.kind === 'review') : [];
+  const keep = (files: RunSide<F>['files']) =>
+    Object.fromEntries(Object.entries(files).filter(([, file]) => !mixed || file.kind === 'source'));
+  const sa = keep(from.files),
+    sb = keep(to.files);
+  const notCompared = mixed
+    ? new Set([...Object.keys(from.files), ...Object.keys(to.files)].filter((p) => !(p in sa) && !(p in sb))).size
+    : 0;
+  return {
+    findings: {
+      new: [...fb.values()].filter((f) => !fa.has(f.id)),
+      resolved: gone.filter((f) => !notRechecked.includes(f)),
+      not_rechecked: notRechecked,
+      unchanged: [...fb.values()].filter((f) => fa.has(f.id)).length,
+    },
+    files: {
+      added: Object.keys(sb).filter((p) => !sa[p]),
+      removed: Object.keys(sa).filter((p) => !sb[p]),
+      changed: Object.keys(sb)
+        .filter((p) => sa[p] && sa[p]!.sha256 !== sb[p]!.sha256)
+        .map((p) => ({ path: p, from_rev: sa[p]!.rev, to_rev: sb[p]!.rev })),
+      not_compared: notCompared,
+    },
+    mixed_modes: mixed,
+  };
+}

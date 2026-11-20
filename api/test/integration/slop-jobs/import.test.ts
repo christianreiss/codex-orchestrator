@@ -60,6 +60,19 @@ describe.skipIf(!handle)('atomic slop source import on MySQL', () => {
     await service.put({ job_id: id, path: 'src/a.ts', content: 'changed' }, host);
     expect((await service.importSources({ job_id: id, transfer_id: 'transfer' }, host)).files[0]!.rev).toBe(3);
   });
+  it('refreshes a screenshot set from one bundle with per-path revisions and unchanged detection', async () => {
+    const id = await job();
+    const png = (n: number) => Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, n, 0xff]);
+    const entry = (path: string, bytes: Buffer) => ({ path, content_base64: bytes.toString('base64') });
+    transfer([entry('shots/a.png', png(1)), entry('shots/b.png', png(2)), { path: 'src/a.ts', content: 'one' }] as never);
+    const first = await service.importSources({ job_id: id, transfer_id: 'transfer' }, host);
+    expect(first.files.map((f) => [f.path, f.kind])).toEqual([['shots/a.png', 'screenshot'], ['shots/b.png', 'screenshot'], ['src/a.ts', 'source']]);
+    const digest = first.files[0]!.sha256!;
+    expect((await readFile(join(root, 'slop/blobs', digest.slice(0, 2), digest))).equals(png(1))).toBe(true);
+    transfer([entry('shots/a.png', png(1)), entry('shots/b.png', png(3)), { path: 'src/a.ts', content: 'one' }] as never);
+    const second = await service.importSources({ job_id: id, transfer_id: 'transfer' }, host);
+    expect(second.files.map((f) => [f.path, f.rev, f.unchanged])).toEqual([['shots/a.png', first.files[0]!.rev, true], ['shots/b.png', 2, false], ['src/a.ts', 1, true]]);
+  });
   it('rolls back all entries on a late collision and rejects partial/hash-corrupted transfers', async () => {
     const id = await job();
     await service.put({ job_id: id, path: 'existing/nested.ts', content: 'old' }, host);
