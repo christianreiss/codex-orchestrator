@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -65,5 +66,49 @@ func TestCommitUnlinksSymlinkedClxMirrorWithoutTouchingTarget(t *testing.T) {
 	raw, err := os.ReadFile(native)
 	if err != nil || !strings.Contains(string(raw), "second-refresh") {
 		t.Fatalf("native credentials = %q err=%v", raw, err)
+	}
+}
+
+// Concurrent credential commits serialize on the auth lock: the native file
+// ends as one complete payload, never a torn mix, and the stale mirror is gone.
+func TestConcurrentCommitsLeaveOneCompleteNativeFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	mirror := filepath.Join(home, ".clx", "auth", "credentials.json")
+	if err := os.MkdirAll(filepath.Dir(mirror), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mirror, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payloads := []json.RawMessage{
+		json.RawMessage(`{"last_refresh":"2026-11-20T10:00:00Z","claudeAiOauth":{"accessToken":"one"}}`),
+		json.RawMessage(`{"last_refresh":"2026-11-20T10:00:01Z","claudeAiOauth":{"accessToken":"two"}}`),
+	}
+	var wg sync.WaitGroup
+	for _, payload := range payloads {
+		wg.Add(1)
+		go func(payload json.RawMessage) {
+			defer wg.Done()
+			if _, err := writeAuth(payload, "", nil, false, false); err != nil {
+				t.Errorf("writeAuth: %v", err)
+			}
+		}(payload)
+	}
+	wg.Wait()
+	raw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var native struct {
+		ClaudeAiOauth struct {
+			AccessToken string `json:"accessToken"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal(raw, &native); err != nil || (native.ClaudeAiOauth.AccessToken != "one" && native.ClaudeAiOauth.AccessToken != "two") {
+		t.Fatalf("native credentials torn or missing: %s (%v)", raw, err)
+	}
+	if _, err := os.Lstat(mirror); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale mirror survived concurrent commits: %v", err)
 	}
 }
