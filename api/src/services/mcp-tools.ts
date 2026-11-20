@@ -1,5 +1,5 @@
 import type { SlopJobsService } from './slop-jobs.js';
-import { ApiError } from '../http/errors.js';
+import { ApiError, ValidationError } from '../http/errors.js';
 import type { HostSpawnService } from './host-spawn.js';
 import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
@@ -364,11 +364,50 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
  * them in a handler. Returns a human-readable message, or null when `args`
  * satisfies the schema.
  */
+const COMPACT_SKILL_FIELDS = ['slug', 'display_name', 'sha256', 'allow_implicit_invocation', 'uri'] as const;
+
+/**
+ * `skill_list` narrowing, applied to the whole listing (stored and managed
+ * Skills alike) so both are filtered the same way. With neither argument the
+ * listing is returned untouched, byte for byte.
+ */
+function narrowSkillListing<T extends { skills: Record<string, unknown>[] }>(
+  listing: T,
+  args: Record<string, unknown>,
+): T {
+  const rawQuery = args['query'];
+  const rawCompact = args['compact'];
+  if (rawQuery !== undefined && rawQuery !== null && typeof rawQuery !== 'string') {
+    throw new ValidationError("'query' must be a string", { param: 'query' });
+  }
+  if (rawCompact !== undefined && rawCompact !== null && typeof rawCompact !== 'boolean') {
+    throw new ValidationError("'compact' must be a boolean", { param: 'compact' });
+  }
+  const query = typeof rawQuery === 'string' ? rawQuery.trim().toLowerCase() : '';
+  const compact = rawCompact === true;
+  if (!query && !compact) return listing;
+  let skills = listing.skills;
+  if (query) {
+    skills = skills.filter((skill) =>
+      ['slug', 'display_name', 'description'].some((field) => {
+        const value = skill[field];
+        return typeof value === 'string' && value.toLowerCase().includes(query);
+      }),
+    );
+  }
+  if (compact) {
+    skills = skills.map((skill) =>
+      Object.fromEntries(COMPACT_SKILL_FIELDS.filter((field) => field in skill).map((field) => [field, skill[field]])),
+    );
+  }
+  return { ...listing, skills };
+}
+
 function validateAgainstSchema(schema: Record<string, unknown>, args: Record<string, unknown>): string | null {
   const required = Array.isArray(schema['required']) ? (schema['required'] as unknown[]) : [];
   const properties =
     schema['properties'] && typeof schema['properties'] === 'object'
-      ? (schema['properties'] as Record<string, { type?: unknown; enum?: unknown }>)
+      ? (schema['properties'] as Record<string, { type?: unknown; enum?: unknown; minLength?: unknown }>)
       : {};
   // Missing-required is checked BEFORE undeclared-argument, and the order is
   // load-bearing. `normalizeArgs` turns a bare scalar it cannot place into
@@ -378,7 +417,10 @@ function validateAgainstSchema(schema: Record<string, unknown>, args: Record<str
   for (const key of required) {
     if (typeof key !== 'string') continue;
     const value = args[key];
-    if (value === undefined || value === null || value === '') {
+    // An explicit `minLength: 0` marks a required string that may be empty
+    // (shared_memory_replace.new_text deletes text by replacing it with '').
+    const mayBeEmpty = value === '' && properties[key]?.minLength === 0;
+    if (value === undefined || value === null || (value === '' && !mayBeEmpty)) {
       return "'" + key + "' is required";
     }
     const propType = properties[key]?.type;
@@ -688,6 +730,24 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         },
       },
       handler: async (args, host, engine) => shared.write(args, host, engine ?? null),
+    });
+    inputs.push({
+      definition: {
+        name: 'shared_memory_replace',
+        description:
+          'Correct one fact in a shared memory document without re-sending its body. Replaces exactly one occurrence of old_text with new_text (may be empty to delete the text) on the server. Fails when old_text occurs zero times or more than once, so include enough surrounding text to be unique. expected_sha256 is required: pass the memory.sha256 from shared_memory_read; a changed document is a conflict, so re-read and retry. Title, summary, tags and metadata are kept. Same size limit and revision history as shared_memory_write. For a larger rewrite use shared_memory_write; to add material use shared_memory_append.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            old_text: { type: 'string' },
+            new_text: { type: 'string', minLength: 0 },
+            expected_sha256: { type: 'string' },
+          },
+          required: ['slug', 'old_text', 'new_text', 'expected_sha256'],
+        },
+      },
+      handler: async (args, host, engine) => shared.replace(args, host, engine ?? null),
     });
     inputs.push({
       definition: {
@@ -1410,14 +1470,19 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'skill_list',
       description:
-        'Authoritative first step for any Skill-related request: list fleet Skills available to this host before consulting local Skill files.',
+        'Authoritative first step for any Skill-related request: list fleet Skills available to this host before consulting local Skill files. Optional `query` keeps only Skills whose slug, display name or description contains the text (case-insensitive); `compact: true` returns only slug, display_name, sha256, allow_implicit_invocation and uri per Skill. No arguments returns the full listing.',
       inputSchema: {
         type: 'object',
-        properties: {},
+        properties: {
+          query: { type: 'string' },
+          compact: { type: 'boolean' },
+        },
       },
     },
-    handler: async (_args, host, requestEngine) =>
-      deps.skills.listSkills(host, requestEngine ?? ENGINE_CODEX),
+    handler: async (args, host, requestEngine) => {
+      const listing = await deps.skills.listSkills(host, requestEngine ?? ENGINE_CODEX);
+      return narrowSkillListing(listing, args);
+    },
   });
   inputs.push({
     definition: {

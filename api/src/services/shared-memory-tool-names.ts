@@ -17,5 +17,6 @@ export const MCP_TOOL_NAMES = {
   sharedRead: 'shared_memory_read',
   sharedWrite: 'shared_memory_write',
   sharedAppend: 'shared_memory_append',
+  sharedReplace: 'shared_memory_replace',
   sharedDelete: 'shared_memory_delete',
 } as const;

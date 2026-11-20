@@ -75,6 +75,46 @@ function makeDb(
   return db;
 }
 
+describe('HostSkillsService managed roles skill', () => {
+  function withRoles(enabled: boolean, rows: Record<string, unknown>[] = []) {
+    const db = makeDb(false, rows);
+    db.tables.set(versionsTable, [
+      { name: PROJECTS_ENABLED_FLAG, version: '0', updatedAt: '2026-06-03T08:00:00Z' },
+      { name: 'roles_enabled', version: enabled ? '1' : '0', updatedAt: '2026-06-03T08:00:00Z' },
+    ]);
+    return new HostSkillsService(db as never);
+  }
+
+  it('answers an explicit disabled status, not missing, while the roles module is off', async () => {
+    const service = withRoles(false);
+    const out = await service.retrieve('roles', null, host);
+    expect(out).toMatchObject({
+      status: 'disabled',
+      reason: 'roles_disabled',
+      slug: 'roles',
+      uri: 'skill://roles',
+      canonical_uri: 'skill://roles',
+    });
+    expect(String(out['message'])).toMatch(/roles module is off/i);
+    expect(out).not.toHaveProperty('manifest');
+    expect((await service.retrieve(' ROLES ', null, host))['status']).toBe('disabled');
+    expect((await service.retrieve('not-a-skill', null, host))['status']).toBe('missing');
+    expect((await service.listSkills(host, 'codex')).skills.map((s) => s['slug'])).not.toContain('roles');
+    const viaResource = await new McpResourcesService({
+      memories: {} as never,
+      projects: {} as never,
+      skills: service,
+    } as never).read('skill://roles', host, 'codex');
+    expect(JSON.stringify(viaResource)).toContain('roles_disabled');
+  });
+
+  it('keeps serving the managed Skill while the module is on', async () => {
+    const out = await withRoles(true).retrieve('roles', null, host);
+    expect(out).toMatchObject({ status: 'updated', managed: true });
+    expect(typeof out['manifest']).toBe('string');
+  });
+});
+
 describe('HostSkillsService managed CoCo skill', () => {
   it('lists managed coco when Projects is enabled and hides stale stored coco rows', async () => {
     const service = makeService(true, [
