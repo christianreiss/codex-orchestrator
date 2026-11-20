@@ -19,7 +19,6 @@ async function fixture(page: Page, manage = true) {
       const engine = path.split('/').pop() as keyof typeof policies;
       const value = req.postDataJSON(); writes.push({ engine, value }); policies[engine] = effective(value); return json(policies[engine]);
     }
-    if (path === '/admin/log-retention') return json({ enabled: false, days_logs: 90, days_mcp: 90, days_events: 30, days_graph_stats: 180 });
     if (path === '/admin/authorization') return json({ mode: 'compatible', updated_at: null, would_deny: [] });
     if (['auto-update', 'reverse-dns', 'api-keys-in-chat', 'insecure-approval'].includes(path.split('/').pop()!)) return json({ enabled: false });
     if (path === '/admin/overview') return json({ inactivity_window_days: 30 });

@@ -810,7 +810,6 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `DELETE /admin/claude/keys/{id}` — delete a Claude API key.
 - `GET /admin/communicator/api-version` — requires `settings.read`. Communicator API level state: `{api_version, min_api, default_min_api, override_min_api, override_updated_at, clients}`. `api_version` is the level this server speaks, `min_api` the effective minimum (`max(code default, override)`, never above `api_version`), `override_min_api` the stored `versions.communicator_min_api` (or `null`). `clients.hosts` and `clients.communicators` are `{observed, below_min, below_current, at_current, unreported}` tallies: hosts that sent `X-Cxx-Api` on an authenticated request in the last 6 hours (lowest level seen per host; process-local, refilled within one poll after an API restart) and live communicator connections that stated `api_version` in their handshake. `unreported` are clients that never stated a level (builds that predate the contract); they are not counted as below the minimum.
 - `POST /admin/communicator/api-version` — requires `settings.manage`. Body `{min_api: <integer>}` with `1 <= min_api <= api_version`, or `{min_api: null}` to clear the override; anything else is a `422` validation error and nothing is stored. Takes effect without a deploy, publishes `settings.changed` (connected communicators get a policy invalidation, plus `update_available` when push updates are enabled) and writes an `admin.communicator_min_api` audit row. Returns the same state as the `GET`. The server never rejects a client for being below the minimum; clients act on it themselves.
-- `GET /admin/claude/version` — Claude Code fleet version summary (the same shape the Codex version card uses).
 - `POST /admin/claude/version` — set the fleet Claude Code version policy. Body `{selection: "latest"|"auto"|"<x.y.z>"}`; `latest`/`auto` clear the lock and refresh from upstream.
 - `GET /admin/claude/config` — Claude `settings.json` builder state: the stored sub-blocks plus the baked document and canonical `revision` (string, or `null` when missing).
 - `POST /admin/claude/config/render` — render `{settings}` into the baked `settings.json` without storing it.
@@ -833,7 +832,6 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default). The Svelte console renders `auto`/`light`/`dark` as neutral system/light/dark modes; historical `auto-pink`, `bright-pink`, and `dark-pink` values remain accepted for compatibility and are normalized client-side. The selected value also rides along in the `/auth` `versions` block as `admin_theme`.
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean). Per-host `/admin/hosts/{id}/auto-update` overrides win over it.
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set how the capability matrix is enforced. Body `{mode: "compatible"|"strict"}`. The GET returns `{mode, updated_at, would_deny}`, where `would_deny` lists the distinct `{role, capability, route, first_seen, last_seen}` triples this installation served under `compatible` that `strict` would refuse — the answer to "what breaks if I switch", drawn from the fleet's own traffic over the last 30 days. Requires `security.manage_authorization`, which is enforced under **both** modes: `compatible` grants `settings.manage` to every role, so a posture any account could change would not be one. Migration `0022` sets `compatible` on installations that already had users and `strict` on fresh ones; see [ADMIN.md](ADMIN.md#roles--capabilities).
-- `GET /admin/log-retention` / `POST /admin/log-retention` — retired compatibility endpoint: always returns `{enabled:false,supported:false,reason:"use_server_retention_api",replacement:"/admin/server-retention"}`. Old durations are ignored and no setting is persisted.
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` through `/admin/hosts/{id}/scaling-exempt` are excluded.
 - `GET /admin/prune-policy` — `{inactivity_window_days}` (`settings.read`; default 30, clamped 0..60). Replaces the Settings page's former read of `/admin/overview`.
 - `GET /admin/settings/host-overrides` — `settings.read`; counts of hosts that override a fleet setting: `{auto_update, reverse_dns, rtk:{<engine>:n}, session_housekeeping:{<engine>:n}}`. Counts only, no host detail; rows of removed hosts are ignored. Backs the "N hosts override" badges on Settings.
@@ -2422,11 +2420,8 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 - `GET /admin/grok/models` — List native catalog with enabled flags.
 - `POST /admin/grok/models/:model/toggle` — Enable/disable a Grok gateway model.
 - `GET /admin/grok/config` — Read engine-specific managed config metadata, including canonical `revision` (string, or `null` when missing).
-- `GET /admin/grok/config/retrieve` — Retrieve engine-specific managed config.
 - `POST /admin/grok/config/render` — Preview native TOML config.
 - `POST /admin/grok/config/store` — Save managed Grok config with the shared optional `expected_revision` guard; returns the saved `revision`.
-- `GET /admin/grok/version` — Read Grok CLI version metadata.
-- `GET /admin/grok/version/lock` — Read the independent exact CLI pin.
 - `POST /admin/grok/version` — Set/clear the independent exact CLI pin. The fleet Grok target defaults to `latest` (the cached npm `@xai-official/grok` release) when nothing is stored; the built-in native floor (1.0.50) stays a floor and the fallback while no release is cached.
 - `POST /admin/hosts/:id/grok-version` — Set/clear a host-specific Grok CLI pin.
 - `POST /admin/runner/run-grok` — Run a read-only subscription verification with no credential bytes returned.
@@ -4462,11 +4457,8 @@ managed configuration, receiver/activity and quota policy. See
 - `GET /admin/kimi/models` — List native catalog with enabled flags.
 - `POST /admin/kimi/models/:model/toggle` — Enable/disable a Kimi gateway model.
 - `GET /admin/kimi/config` — Read engine-specific managed config metadata.
-- `GET /admin/kimi/config/retrieve` — Retrieve engine-specific managed config.
 - `POST /admin/kimi/config/render` — Preview native TOML config.
 - `POST /admin/kimi/config/store` — Save managed Kimi config.
-- `GET /admin/kimi/version` — Read Kimi CLI version metadata.
-- `GET /admin/kimi/version/lock` — Read the independent exact CLI pin.
 - `POST /admin/kimi/version` — Set/clear the independent exact CLI pin.
 - `POST /admin/hosts/:id/kimi-version` — Set/clear a host-specific Kimi CLI pin.
 - `POST /admin/runner/run-kimi` — Run a read-only subscription verification with no credential bytes returned.

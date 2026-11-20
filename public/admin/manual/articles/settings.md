@@ -80,7 +80,7 @@ provider binaries are outside this policy.
 
 #### Log retention
 
-The unused log-retention controls have been removed. No cleanup worker enforced the old windows. The compatibility endpoint `GET/POST /admin/log-retention` returns `enabled:false`, `supported:false`, and `reason:retired_no_worker`; old submitted durations are ignored. Agent-session cleanup is configured separately under Data retention.
+The unused log-retention controls have been removed. No cleanup worker enforced the old windows. The `/admin/log-retention` compatibility endpoint has been removed. Agent-session cleanup is configured separately under Data retention.
 
 ### Engine master switches
 
@@ -176,7 +176,7 @@ This endpoint controls only API proxy behaviour. It is independent from the flee
 
 #### Claude version
 
-`GET /admin/claude/version`, `POST /admin/claude/version` — set the fleet-wide pinned Claude CLI version. The POST body is `{ selection }`: either a semver string (e.g. `2.1.170`) or `'latest'`/`'auto'` to clear the pin. There is no separate `locked` boolean in the request; the response reports the resulting `locked_version` and `locked_at`.
+`POST /admin/claude/version` — set the fleet-wide pinned Claude CLI version. The POST body is `{ selection }`: either a semver string (e.g. `2.1.170`) or `'latest'`/`'auto'` to clear the pin. There is no separate `locked` boolean in the request; the response reports the resulting `locked_version` and `locked_at`.
 
 #### Fleet settings.json
 
@@ -218,7 +218,7 @@ These are native supported IDs; subscription availability is provider-owned. Cod
 
 #### Grok version
 
-`GET /admin/grok/version`, `GET /admin/grok/version/lock`, `POST /admin/grok/version` — the fleet-wide Grok Build CLI version, kept separate from Codex and Claude. The POST body is `{ selection }`: `'latest'`/`'auto'` clears the pin; otherwise a semver of at least `1.0.46`. The response reports `locked_version` and `locked_at`.
+`POST /admin/grok/version` — the fleet-wide Grok Build CLI version, kept separate from Codex and Claude. The POST body is `{ selection }`: `'latest'`/`'auto'` clears the pin; otherwise a semver of at least `1.0.46`. The response reports `locked_version` and `locked_at`.
 
 #### Grok API gateway
 

@@ -706,7 +706,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
   - `GET /admin/claude/settings` — get the separate Anthropic-compatible API proxy defaults. Returns `{status, data: {default_model, max_tokens, disabled}}`; this does not control Claude Code's fleet `model` / `effortLevel`.
-  - `GET /admin/claude/version` — Claude Code fleet version summary (same shape the Codex version card uses).
   - `POST /admin/claude/version` — set the fleet Claude Code version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`; `latest`/`auto` clear the lock and refresh from upstream.
   - `GET /admin/communicator/api-version` — communicator API level state: `{api_version, min_api, default_min_api, override_min_api, override_updated_at, clients}` with per-host and per-communicator tallies of clients below the minimum, below the current level and at it. Requires `settings.read`.
   - `POST /admin/communicator/api-version` — raise or clear the operator minimum. Body `{ min_api: <1..api_version> | null }`; anything else is a `422`. Requires `settings.manage`; audit-logged as `admin.communicator_min_api`.
@@ -727,7 +726,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it.
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set the authorization mode (`{mode: "compatible"|"strict"}`). GET also returns `would_deny`: what `strict` would have refused, from this installation's own traffic. Requires `security.manage_authorization`, enforced under both modes.
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default).
-- `GET /admin/log-retention` / `POST /admin/log-retention` — retired compatibility endpoint: always returns `{enabled:false,supported:false,reason:"retired_no_worker"}`. Old durations are ignored and no setting is persisted.
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` are excluded.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
 - `GET /admin/response-verbosity` / `POST /admin/response-verbosity` — read/set the fleet-wide response-verbosity dial (`level`: `0..4`, `0` default/no-op). Projected into the served AGENTS.md/CLAUDE.md `## Default Response Shape` policy text, and (for `clx` hosts) into a `verbosity-*` Claude output style via `outputStyle` in settings.json.
@@ -946,11 +944,8 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 - `GET /admin/grok/models` — List native catalog with enabled flags.
 - `POST /admin/grok/models/:model/toggle` — Enable/disable a Grok gateway model.
 - `GET /admin/grok/config` — Read engine-specific managed config metadata.
-- `GET /admin/grok/config/retrieve` — Retrieve engine-specific managed config.
 - `POST /admin/grok/config/render` — Preview native TOML config.
 - `POST /admin/grok/config/store` — Save managed Grok config.
-- `GET /admin/grok/version` — Read Grok CLI version metadata.
-- `GET /admin/grok/version/lock` — Read the independent exact CLI pin.
 - `POST /admin/grok/version` — Set/clear the independent exact CLI pin.
 - `POST /admin/hosts/:id/grok-version` — Set/clear a host-specific Grok CLI pin.
 - `POST /admin/runner/run-grok` — Run a read-only subscription verification with no credential bytes returned.
@@ -966,11 +961,8 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 - `GET /admin/kimi/models` — List native catalog with enabled flags.
 - `POST /admin/kimi/models/:model/toggle` — Enable/disable a Kimi gateway model.
 - `GET /admin/kimi/config` — Read engine-specific managed config metadata.
-- `GET /admin/kimi/config/retrieve` — Retrieve engine-specific managed config.
 - `POST /admin/kimi/config/render` — Preview native TOML config.
 - `POST /admin/kimi/config/store` — Save managed Kimi config.
-- `GET /admin/kimi/version` — Read Kimi CLI version metadata.
-- `GET /admin/kimi/version/lock` — Read the independent exact CLI pin.
 - `POST /admin/kimi/version` — Set/clear the independent exact CLI pin.
 - `POST /admin/hosts/:id/kimi-version` — Set/clear a host-specific Kimi CLI pin.
 - `POST /admin/runner/run-kimi` — Run a read-only subscription verification with no credential bytes returned.

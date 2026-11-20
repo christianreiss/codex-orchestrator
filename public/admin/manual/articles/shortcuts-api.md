@@ -179,12 +179,10 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/insecure-approval` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/quota-mode` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/prune-policy` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/log-retention` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/scaling` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/settings` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/grok/version` | api/src/routes/admin/settings/index.ts |
-| GET | `/admin/grok/version/lock` | api/src/routes/admin/settings/index.ts |
+| POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
+| POST | `/admin/grok/version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/codex-version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/versions/check` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/model-defaults/:engine` | api/src/routes/admin/settings/index.ts |
@@ -319,7 +317,6 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 | GET | `/admin/grok/models` | api/src/routes/admin/grok/index.ts |
 | POST | `/admin/grok/models/:model/toggle` | api/src/routes/admin/grok/index.ts |
 | GET | `/admin/grok/config` | api/src/routes/admin/grok/index.ts |
-| GET | `/admin/grok/config/retrieve` | api/src/routes/admin/grok/index.ts |
 | POST | `/admin/grok/config/render` | api/src/routes/admin/grok/index.ts |
 | POST | `/admin/grok/config/store` | api/src/routes/admin/grok/index.ts |
 

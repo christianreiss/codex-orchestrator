@@ -128,7 +128,6 @@ export async function registerAdminKimiRoutes(app: FastifyInstance, ctx: RouteCo
   });
 
   app.get('/admin/kimi/config', { preHandler: app.requireAdmin }, () => config.adminFetch('kimi'));
-  app.get('/admin/kimi/config/retrieve', { preHandler: app.requireAdmin }, () => config.adminFetch('kimi'));
   app.post('/admin/kimi/config/render', { preHandler: app.requireAdmin }, async (req) =>
     config.render((req.body as { settings?: unknown })?.settings, 'kimi'),
   );

@@ -85,6 +85,6 @@ describe('Grok engine administration', () => {
     const stored = await app.inject({ method: 'POST', url: '/admin/grok/config/store', payload: { settings: { model: 'grok-4.5', reasoning_effort: 'low' }, sha256: rendered.sha256 } });
     expect(stored.statusCode).toBe(200);
     expect(db.tables.get(clientConfigDocuments)?.[0]).toMatchObject({ engine: 'grok' });
-    for (const url of ['/admin/grok/config', '/admin/grok/config/retrieve']) expect((await app.inject({ method: 'GET', url })).json()).toMatchObject({ status: 'ok', sha256: rendered.sha256, content: rendered.content });
+    for (const url of ['/admin/grok/config']) expect((await app.inject({ method: 'GET', url })).json()).toMatchObject({ status: 'ok', sha256: rendered.sha256, content: rendered.content });
   });
 });

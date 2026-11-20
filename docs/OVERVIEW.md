@@ -833,9 +833,9 @@ apply immediately; the inactivity window uses Save changes and Reset, preserves
 safe drafts, and detects external changes. Capability checks make controls
 read-only for sessions without policy management rights. Generic MCP call
 logging and its Activity view have been removed. The log-retention controls
-were also removed because no cleanup worker enforced their durations;
-`GET/POST /admin/log-retention` is an unsupported compatibility endpoint that
-ignores old submitted values. Agent-session housekeeping remains independent.
+were also removed because no cleanup worker enforced their durations, and
+the `/admin/log-retention` compatibility endpoint is gone. Agent-session
+housekeeping remains independent.
 
 ## Data retention & pruning
 

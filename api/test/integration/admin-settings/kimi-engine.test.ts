@@ -206,7 +206,7 @@ describe('Kimi engine administration', () => {
     });
     expect(stored.statusCode).toBe(200);
     expect(db.tables.get(clientConfigDocuments)?.[0]).toMatchObject({ engine: 'kimi' });
-    for (const url of ['/admin/kimi/config', '/admin/kimi/config/retrieve'])
+    for (const url of ['/admin/kimi/config'])
       expect((await app.inject({ method: 'GET', url })).json()).toMatchObject({
         status: 'ok',
         sha256: rendered.sha256,
