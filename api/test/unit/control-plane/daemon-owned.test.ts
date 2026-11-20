@@ -922,6 +922,7 @@ describe('explicit legacy process drain', () => {
 });
 
 describe('owned engine destruction', () => {
+  type OpenedDestroy = { request: { request_id: string }; hosts_targeted: number };
   const fleetHost = (id: number, engines: string, extra: Record<string, unknown> = {}) => ({
     id, fqdn: `h${id}.example`, apiKey: 'test', apiKeyHash: null, status: 'active', configVersion: 0, secure: 1,
     engines, internalRole: null, expiresAt: null, insecureEnabledUntil: null, ...extra,
@@ -937,7 +938,7 @@ describe('owned engine destruction', () => {
         fleetHost(4, 'codex,claude'),
       ],
     });
-    const result = await requestOwnedEngineDestroy(h.runtime, 'grok', 'fixture');
+    const result = (await requestOwnedEngineDestroy(h.runtime, 'grok', 'fixture')) as unknown as OpenedDestroy;
     expect(result).toMatchObject({ hosts_targeted: 3 });
     const progress = ownedDestroyProgress(h.state.snapshot(), 'grok');
     expect(progress.hosts.map((row) => row.host_id).sort()).toEqual([1, 2, 3]);
@@ -947,7 +948,7 @@ describe('owned engine destruction', () => {
 
   it('reaches a host targeted after the request: directive, pending count and row on first report', async () => {
     const h = harness({ versions: [{ name: 'grok_engine_disabled', version: '1' }], hosts: [fleetHost(1, 'codex,grok'), fleetHost(2, 'codex')] });
-    const { request } = await requestOwnedEngineDestroy(h.runtime, 'grok', 'fixture');
+    const { request } = (await requestOwnedEngineDestroy(h.runtime, 'grok', 'fixture')) as unknown as OpenedDestroy;
     await recordOwnedDestroyReport(h.runtime, 1, { engine: 'grok', request_id: request.request_id, status: 'done' }, []);
     // Host 2 reports a Grok CLI after the request opened (e.g. it came back with an old install).
     await mutateOwnerState(h.runtime, {
@@ -972,7 +973,7 @@ describe('owned engine destruction', () => {
       kind: 'fixture.host',
       payload: {},
       prepare(c) {
-        c.draft.upsert('hosts', fleetHost(5, 'codex'));
+        c.draft.upsert('hosts', fleetHost(5, 'codex') as never);
         return null;
       },
     });
