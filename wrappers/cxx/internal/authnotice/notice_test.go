@@ -50,7 +50,9 @@ func TestPublicationRetriesBriefReaderContention(t *testing.T) {
 	locked := make(chan struct{})
 	release := make(chan struct{})
 	finished := make(chan error, 1)
-	go func() { finished <- withLock("claude", func(string) error { close(locked); <-release; return nil }) }()
+	go func() {
+		finished <- mailbox.WithLock("claude", func(string) error { close(locked); <-release; return nil })
+	}()
 	<-locked
 	result := make(chan error, 1)
 	go func() { result <- Publish("claude", generation("new")) }()
@@ -143,7 +145,7 @@ func TestNoticeRejectsUntrustedIdentifiersAndMalformedState(t *testing.T) {
 	if _, err := consume("claude", "../session"); err == nil {
 		t.Fatal("unsafe session accepted")
 	}
-	dir, _ := paths("claude")
+	dir, _ := mailbox.Path("claude")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +165,7 @@ func TestNoticeFilesArePrivate(t *testing.T) {
 	if _, err := consume("claude", "session"); err != nil {
 		t.Fatal(err)
 	}
-	dir, _ := paths("claude")
+	dir, _ := mailbox.Path("claude")
 	for _, name := range []string{"current.json", "session.seen", ".lock"} {
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil {
@@ -183,7 +185,7 @@ func TestPrimeDoesNotNeedPublisherLock(t *testing.T) {
 			if err := Publish(engine, generation("before")); err != nil {
 				t.Fatal(err)
 			}
-			err := withLock(engine, func(dir string) error { return Prime(engine, "fresh") })
+			err := mailbox.WithLock(engine, func(dir string) error { return Prime(engine, "fresh") })
 			if err != nil {
 				t.Fatalf("startup baseline lost under publisher contention: %v", err)
 			}
@@ -202,7 +204,7 @@ func TestPrimePinsBaselineAndPreservesConcurrentRotation(t *testing.T) {
 			if err := Publish(engine, generation("before")); err != nil {
 				t.Fatal(err)
 			}
-			delivery, err := preparePrime(engine, "fresh")
+			delivery, err := mailbox.PreparePrime(engine, "fresh")
 			if err != nil || delivery == nil {
 				t.Fatalf("prepare: %v", err)
 			}
@@ -228,7 +230,7 @@ func TestPrimeFailsImmediatelyOnSessionContention(t *testing.T) {
 	if err := Publish("codex", generation("before")); err != nil {
 		t.Fatal(err)
 	}
-	delivery, err := preparePrime("codex", "fresh")
+	delivery, err := mailbox.PreparePrime("codex", "fresh")
 	if err != nil || delivery == nil {
 		t.Fatalf("prepare: %v", err)
 	}

@@ -1,4 +1,5 @@
-// Package launcherdoctor shares the local PATH diagnostic across all engines.
+// Package launcherdoctor holds the doctor checks shared across engines: the
+// local PATH launcher diagnostic and the rows cdx and clx doctor print alike.
 package launcherdoctor
 
 import (
