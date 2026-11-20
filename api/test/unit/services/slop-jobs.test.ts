@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { inferSlopKind, normalizeSlopPath, pathsCollide, isLikelyText } from '../../../src/services/slop-jobs/paths.js';
 import { compareRuns, unifiedDiff } from '../../../src/services/slop-jobs/diff.js';
+import { withUnsupportedCoverageNote } from '../../../src/services/slop-jobs/coverage.js';
 import { buildTar, tarName } from '../../../src/services/slop-jobs/tar.js';
 import { parseReviewReply, reviewQuestion, REVIEW_FENCE, stripReviewBlock } from '../../../src/services/slop-jobs/review.js';
 import { parseAdvisorVerdict } from '../../../src/services/advisor-delivery.js';
@@ -62,6 +63,27 @@ describe('slop job diff', () => {
     const created = unifiedDiff('', 'one\ntwo\n', '/dev/null', 'f@1');
     expect(created.diff).toContain('@@ -0,0 +1,2 @@');
     expect(created.added).toBe(2);
+  });
+});
+
+describe('slop unsupported-source coverage note', () => {
+  const skipped = {
+    findings: [],
+    coverage: ['Source scan: 0 files. Browser behavior not tested.', 'Skipped: 3 unsupported extension.', 'Unsupported extensions skipped: .php (3). Deterministic rules cover only .ts .tsx.'],
+  };
+  it('says a quick run gave the skipped files no review at all', () => {
+    const out = withUnsupportedCoverageNote(skipped, 'quick');
+    expect(out.coverage.at(-1)).toContain('in a quick run, no review at all');
+    expect(out.coverage).toHaveLength(4);
+  });
+  it('says a full run covers them only through the advisor, and only once', () => {
+    const out = withUnsupportedCoverageNote(skipped, 'full');
+    expect(out.coverage.at(-1)).toContain('only through the Fleet Advisor review');
+    expect(withUnsupportedCoverageNote(out, 'full').coverage).toHaveLength(4);
+  });
+  it('leaves reports without unsupported skips untouched', () => {
+    const clean = { findings: [], coverage: ['Source scan: 2 files. Browser behavior not tested.'] };
+    expect(withUnsupportedCoverageNote(clean, 'full')).toBe(clean);
   });
 });
 

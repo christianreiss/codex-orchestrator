@@ -42,6 +42,7 @@ import {
   type SlopFileKind,
 } from './slop-jobs/paths.js';
 import { compareRuns, MAX_DIFF_LINES, unifiedDiff } from './slop-jobs/diff.js';
+import { withUnsupportedCoverageNote } from './slop-jobs/coverage.js';
 import { buildTar, tarName, type TarEntry } from './slop-jobs/tar.js';
 import { parseReviewReply, reviewQuestion, stripReviewBlock } from './slop-jobs/review.js';
 import { slopAdvisorEvents } from './slop-jobs/advisor-hook.js';
@@ -570,7 +571,7 @@ export class SlopJobsService {
       await this.finish(id, 'failed', { error: 'The slop worker did not finish the scan within 60 s; is the slop-worker service running?' });
       return this.runResponse(await this.runRow(id), 0);
     }
-    await this.recordScan(id, scan);
+    await this.recordScan(id, scan, 'full');
     if (scan.state !== 'done' || !scan.report) {
       await this.finish(id, 'failed', { error: `slop scan failed (exit ${scan.exit_code}): ${(scan.stderr ?? '').slice(-500)}` });
       return this.runResponse(await this.runRow(id), 0);
@@ -773,11 +774,11 @@ export class SlopJobsService {
     }
   }
 
-  private async recordScan(runId: string, scan: WorkerResult) {
+  private async recordScan(runId: string, scan: WorkerResult, mode: 'quick' | 'full') {
     await this.write((tx) =>
       tx.update(slopRuns)
       .set({
-        scanJson: scan.report ? JSON.stringify(scan.report) : null,
+        scanJson: scan.report ? JSON.stringify(withUnsupportedCoverageNote(scan.report, mode)) : null,
         slopVersion: scan.slop_version ?? null,
         guidelinesSha256: scan.guidelines_sha256 ?? null,
         exitCode: scan.exit_code,
@@ -903,12 +904,12 @@ export class SlopJobsService {
       }
       const scan = await this.readResult(dir, 'scan');
       if (!scan) return;
-      await this.recordScan(run.id, scan);
+      await this.recordScan(run.id, scan, 'quick');
       if (scan.state !== 'done' || !scan.report) {
         await this.finish(run.id, 'failed', { error: `slop scan failed (exit ${scan.exit_code}): ${(scan.stderr ?? '').slice(-500)}` });
         return;
       }
-      await this.finish(run.id, scan.exit_code === 3 ? 'incomplete' : 'completed', { reportJson: JSON.stringify(scan.report) });
+      await this.finish(run.id, scan.exit_code === 3 ? 'incomplete' : 'completed', { reportJson: JSON.stringify(withUnsupportedCoverageNote(scan.report, 'quick')) });
       return;
     }
     if (run.status === 'reviewing') {
@@ -959,7 +960,7 @@ export class SlopJobsService {
         return;
       }
       await this.finish(run.id, report.exit_code === 3 ? 'incomplete' : 'completed', {
-        reportJson: JSON.stringify(report.report),
+        reportJson: JSON.stringify(withUnsupportedCoverageNote(report.report, 'full')),
         exitCode: report.exit_code,
       });
     }
