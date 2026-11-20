@@ -27,8 +27,6 @@ and now reject overflow before parsing. Complete-document readers use cap+1 and
 reject trailing JSON. Smaller limits remain on config, transfer, broker, policy
 and housekeeping responses.
 
-See the [2026-10-26 review](wrapper-review-2026-10-26.md) for other findings,
-regression coverage and deployment verification.
 
 ## Owner-mode configuration identity
 

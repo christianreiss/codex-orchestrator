@@ -47,8 +47,7 @@ From cxx 0.9.138, shared HTTP calls refuse cross-origin authenticated redirects
 and oversized JSON documents. Update downloads send host keys only to the exact
 orchestrator origin and reject HTTPS downgrades. A broken explicit engine config
 makes host-wide `cxx sync` fail while the other installed engines still run.
-See the [shared HTTP contract](wrapper-v2-architecture.md#shared-http-trust-and-replay-cxx-09138)
-and [review findings](wrapper-review-2026-10-26.md).
+See the [shared HTTP contract](wrapper-v2-architecture.md#shared-http-trust-and-replay-cxx-09138).
 
 From cxx 0.9.135, normal native-session startup and exit show Communicator owner
 origin/PID and current client counts, using bounded local-only observations. See
@@ -1344,8 +1343,7 @@ Cxx 0.9.25 retains caller retry IDs for sends, requests and call joins; a reques
 whose wait fails returns the saved send receipt and directs `agent_wait` without
 resending. Automatic `agent_listen` is a single release/health check followed by
 yield, while manual fallback may long-poll. Background result storage keeps the
-accepted lease alive. See [delivery reliability](interface-api.md#delivery-reliability-cxx-0926)
-and the [2026-10-08 lifecycle audit](archive/agent-messaging-audit-2026-10-08.md).
+accepted lease alive. See [delivery reliability](interface-api.md#delivery-reliability-cxx-0926).
 
 From cxx 0.9.20, the same MCP server adds `agent_group_list`,
 `agent_group_create`, `agent_group_members`, `agent_subscribe`,

@@ -45,8 +45,7 @@ From cxx 0.9.138, shared HTTP calls refuse cross-origin authenticated redirects
 and oversized JSON documents. Update downloads send host keys only to the exact
 orchestrator origin and reject HTTPS downgrades. A broken explicit engine config
 makes host-wide `cxx sync` fail while the other installed engines still run.
-See the [shared HTTP contract](wrapper-v2-architecture.md#shared-http-trust-and-replay-cxx-09138)
-and [review findings](wrapper-review-2026-10-26.md).
+See the [shared HTTP contract](wrapper-v2-architecture.md#shared-http-trust-and-replay-cxx-09138).
 
 From cxx 0.9.135, normal native-session startup and exit show Communicator owner
 origin/PID and current client counts, using bounded local-only observations. See
@@ -175,7 +174,7 @@ Managed AGENTS.md carries the fleet's short/long commit preference and AI attrib
 
 Managed interactive starts write background leader stderr to a unique mode-0600 file under `~/.cgx/state/leader-logs/`, instead of sharing the native TUI terminal. Each file holds at most 1 MiB; overflow starts a new chunk, and files remain available after runtime cleanup. `cgx doctor` prints the directory; startup failures and observed unexpected leader failures name the specific file. Every leader exit with an error appends one `cgx:` line to its log: either `exited unexpectedly` (reported on stderr) or `stopped with the session (<cause>)` when cgx itself was ending the session (not reported as a leader failure). When cgx ends a running native Grok without a signal (fatal auth status, accepted portal stop) and Grok exits cleanly, stderr says `cgx: native Grok stopped: <cause>`; `native Grok failed to start` is reserved for a failed process start, and `agent portal cleanup failed` carries its error. The orphan reaper removes logs nobody holds open after 3 days when empty and 14 days otherwise (see Orphan reaper). Native tool results, foreground stderr, custom leaders and headless output are unaffected. Existing processes need a normal exit/resume through the updated wrapper.
 
-For the 2026-10-08 `read_file` / `task_ids exceeds maximum of 20 entries` incident, the exact native tool call contained only `target_file` and `limit`; its ACP result was `ReadFile.FileNotFound`. Treat the structured tool result as the evidence for this call, rather than interpreting a raw trace fragment drawn over the terminal as a task batch failure. The wrapper corrects background output routing, not the closed-source provider tool implementation; see [investigation and live checks](archive/grok-tool-diagnostics-2026-10-08.md).
+For the 2026-10-08 `read_file` / `task_ids exceeds maximum of 20 entries` incident, the exact native tool call contained only `target_file` and `limit`; its ACP result was `ReadFile.FileNotFound`. Treat the structured tool result as the evidence for this call, rather than interpreting a raw trace fragment drawn over the terminal as a task batch failure. The wrapper corrects background output routing, not the closed-source provider tool implementation.
 
 ## Native names in Android (cxx 0.9.32)
 
@@ -232,7 +231,7 @@ messaging surfaces with `engine=grok` / `X-Engine: grok`.
 Working secrets are shared across Codex, Claude, Grok and Kimi. `X-Engine` remains
 part of the secret read audit and creation provenance, but never restricts
 visibility. Migration 0044 removes the obsolete scope column without changing
-credential values. See [MCP verification](archive/grok-mcp-verification.md).
+credential values.
 
 ## CLI surface
 
@@ -1033,8 +1032,7 @@ retry IDs and expose a saved send receipt when only its subsequent wait failed.
 Automatic `agent_listen` releases finished informational delivery, checks health and yields;
 held accepted work is never released by it (`status: "work_held"`; see `interface-clx.md`);
 background workers retain their accepted lease through result storage. See
-[delivery reliability](interface-api.md#delivery-reliability-cxx-0926) and the
-[2026-10-08 lifecycle audit](archive/agent-messaging-audit-2026-10-08.md).
+[delivery reliability](interface-api.md#delivery-reliability-cxx-0926).
 
 From cxx 0.9.64 the automatic receiver also releases a read informational
 delivery when the model ends its turn without `agent_reply` or `agent_listen`.

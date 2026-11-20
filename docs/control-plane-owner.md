@@ -204,8 +204,7 @@ work, including old terminal messages with unknown task outcome, remain protecte
 
 ## Acceptance
 
-The current execution and evidence contract is [REDESIGN.md](../REDESIGN.md).
-It covers canonical API/Go/frontend checks, real MySQL, restart/replay/security,
+Acceptance for owner-runtime changes covers canonical API/Go/frontend checks, real MySQL, restart/replay/security,
 10,000 local hits per engine and the 1/20/200 communicator × 0/1/5 browser matrix.
 Record the actual bounded observation windows and measured application SQL, CPU
 and network. Simulated communicators are labelled; Chromium tabs use real browser

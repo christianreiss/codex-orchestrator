@@ -54,23 +54,12 @@ Keep these aligned with implementation and executable tests.
 | Skills | [Authored manifests and runtime ownership](skills/README.md) |
 | Maintenance | [Reusable engine maintenance prompt](prompts/engine-maintenance.md) |
 
-## Evidence and assets
+## Assets
 
-- [UI review, 2026-10-27](ui-review-2026-10-27.md): source, browser and manual acceptance evidence.
-- [Wrapper review, 2026-10-26](wrapper-review-2026-10-26.md) and [engine maintenance, 2026-10-26](engine-maintenance-2026-10-26.md): dated implementation checks and their limits.
-- [Engine maintenance, 2026-10-16](engine-maintenance-2026-10-16.md): current-run
-  source audit, isolated issue ledger, verification and deployment evidence.
-- [Historical reports](archive/README.md): dated audits, investigations, rollout
-  procedures and measurements retained for their findings and provenance.
-- [Bug audit disposition](bug-audit/2026-10-11-triage.md) and its
-  [original report](bug-audit/2026-10-11-source.md): the paired finding ledger.
-- [Resident runtime verification](verification/communicator-residency-2026-10-14.md):
-  dated acceptance evidence with explicit limits.
-- [Gateway matrix receipt](evidence/gateway-matrix-2026-10-15.json): machine-readable
-  evidence accompanying the [historical acceptance report](archive/gateway-matrix-2026-10-15.md).
 - [Screenshots](img/): images used by the repository README and its capture tooling.
 
 Keep current guides at this level, schemas in `contracts/`, and supporting
-artifacts in their dedicated directories. Add future one-off reports to
-`archive/` and link them from its index. Reviewable Skill drafts remain in
+artifacts in their dedicated directories. Dated one-off reports are not kept:
+a maintenance run overwrites its single current report under `reports/`, and
+git history holds earlier runs. Reviewable Skill drafts remain in
 `skills/`; the database remains their runtime source of truth.

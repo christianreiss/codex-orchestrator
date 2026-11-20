@@ -5,7 +5,6 @@ One static Go binary (`cxx`) serves Codex, Claude, Grok, and Kimi. Enabled hosts
 as `cxx codex ...`, `cxx claude ...`, `cxx grok ...`, and `cxx kimi ...`. Engine configs, auth, locks, and native
 CLI state remain separate.
 
-Security, architecture and release evidence: [2026-10-26 wrapper review](../docs/wrapper-review-2026-10-26.md).
 
 Layout:
 

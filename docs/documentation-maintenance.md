@@ -1,9 +1,8 @@
 # Keeping documentation aligned with code
 
 Use [the documentation index](README.md) to find current guides and contracts.
-Dated reviews describe evidence at their recorded revision; they do not establish
-current deployment state. Keep historical reports intact when correcting current
-operator instructions.
+Reports under `reports/` describe evidence at their recorded revision; they do
+not establish current deployment state. Earlier runs live in git history only.
 
 ## Sources and destinations
 

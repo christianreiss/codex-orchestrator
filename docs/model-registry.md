@@ -67,7 +67,7 @@ the launchpad menu (`wrappers/cxx/internal/launchpad`, reads the signed catalog)
 **(c) Legitimate fixtures and history (left as they are)**
 
 API/Go/e2e tests that pin concrete ids, `wrappers/testdata/host-*.json`
-(regenerated, never hand-edited), `docs/evidence/*`, `docs/archive/*`,
+(regenerated, never hand-edited),
 CHANGELOG, the runner's Codex pin notes (`runner/*`, `docs/auth-runner.md`),
 `api/scripts/verify-gateway-matrix.ts` (a probe target), and dated prose in
 `docs/interface-cdx.md` / `docs/OVERVIEW.md` / `docs/model-tiers.md`.

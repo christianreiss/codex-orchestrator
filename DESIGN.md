@@ -450,9 +450,7 @@ wrap, filtered-empty results offer a reset, and host identities remain readable.
 Account counts require actual data and identify retained stale observations.
 Messaging filters show labels and their selected meaning before opening a menu;
 board date prose wraps in reading order. Applicable rules: NAV-2/3/4, VIS-1/2/3/4,
-INT-1/2/5/6/7, ACC-1/3/4. No exception. See the
-[review evidence](docs/ui-review-2026-10-27.md) for actual coverage and remaining
-manual acceptance limits; these changes do not certify every inventory state.
+INT-1/2/5/6/7, ACC-1/3/4. No exception. These changes do not certify every inventory state.
 
 Phone pairing progress slice (2026-10-26): the Account Devices dialog follows the
 host-install timeline pattern while showing only observed milestones (code ready,
@@ -533,8 +531,7 @@ one vertical sequence with persistent labels and explicit save/error status.
 Accounts and Overview identify synthetic readings and unavailable/stale states.
 Messages delivery history shows held work and an explicit retry with inline errors.
 Applicable rules: NAV-1/3, VIS-1/3/4, INT-2/3/5/6/7 and ACC-1/3/4.
-No design exception. Automated/browser evidence and remaining manual acceptance
-are recorded in [verification](docs/verification/quota-emulation-2026-11-01.md).
+No design exception.
 
 ### Topology group outlines and route evidence (2026-11-02)
 
@@ -549,8 +546,7 @@ keeps group access with an explicit status instead of a misleading partial outli
 The header, list, inspector and spoken node description identify missing parent
 evidence without claiming a direct connection; retained offline records remain
 distinguishable from active traffic. Applicable rules: VIS-1/3/4, INT-5/6/7,
-ACC-1/3/4 and PERF-1. No exception. Automated coverage and the separate manual
-acceptance limits are recorded in [verification](docs/verification/topology-clouds-2026-11-02.md).
+ACC-1/3/4 and PERF-1. No exception.
 
 Host-chat extension: the graph has a separate named Host group chats button group,
 visible for host rooms with more than one member independently of cloud settings
@@ -666,8 +662,6 @@ preserve filter history/reload state. Hooks retain independent command timeouts;
 shared choice/select controls, provider-auth labels and engine status have
 semantic selection and non-color cues. No surface or exception is added.
 Applicable rules: NAV-3/4, VIS-1/4/5, INT-1/2/3/4/5/6/7/8, ACC-1/3/4.
-Executed checks, Full review disposition and remaining manual acceptance limits
-are recorded in [verification](docs/verification/slop-remediation-2026-11-08.md).
 
 ### OAuth connector surfaces (2026-11-08)
 
@@ -715,8 +709,7 @@ inline failure/retry message after optimistic-theme rollback. Report counts are
 hidden when the read capability is absent. The main skip-link target has a
 focus-visible ring. Existing route groups, palette and destinations stay intact.
 Applicable rules: NAV-1/2/3, VIS-1/2/3/4, INT-3/5/6/7, ACC-1/2/3/4.
-No exception. Checks and remaining limits are recorded in
-[verification](docs/verification/shell-slop-2026-11-16.md).
+No exception.
 
 
 ### Operational engine visibility (2026-11-17)
@@ -733,7 +726,6 @@ including the existing five responsive/theme views and Axe assertions. Manual
 inspection accepted four desktop/phone screenshots: enabled providers in dark
 mode and disabled Grok in light mode. The complete browser/cross-browser suites
 were not run for this slice; served Slop/full Advisor remains a release step.
-Evidence: [supplemental feedback audit](docs/feedback-sweep-2026-11-17.md).
 
 ### Native JSON operation feedback (2026-11-18)
 

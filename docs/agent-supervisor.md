@@ -106,5 +106,5 @@ migration 0111 through the migration runner, publish the new wrapper using the n
 rollout path, verify capabilities, then explicitly enable supervision. Rolling back
 behavior means disabling supervision; retain the diagnostic tables for inspection.
 
-The [local verification record](verification/agent-supervisor-2026-10-27.md) distinguishes
+The local verification record (git history, 2026-10-27) distinguishes
 source, build, isolated integration and browser evidence from production rollout.

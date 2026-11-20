@@ -107,7 +107,6 @@ Separate composed-process race fixtures verify native continuation, writer
 exclusion, busy stop refusal, receipt recovery without replay and actual quiet
 exit for every engine, using provider executables as fixtures. Isolated MySQL
 regressions verify real migration/acceptance ordering and peer lease fencing.
-See [verification evidence](verification/communicator-residency-2026-10-14.md).
 Negotiated dashboard owner metadata is implemented; its reporting/control
 corrections passed Raffaela's source review. Broader migration activation and
 any required real-provider acceptance remain pending. Production rollout is

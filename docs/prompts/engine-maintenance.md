@@ -27,8 +27,8 @@ Information darf nicht als erfolgreiche Erledigung erscheinen.
 - Lies die geltenden Anweisungen, Engine-Architektur und Schnittstellendokumente.
   Im Orchestrator gehören insbesondere `docs/interface-api.md`,
   `docs/interface-cdx.md`, `docs/interface-clx.md`, `docs/interface-cgx.md` und
-  `docs/NATIVE_CONFIG_SCOPES.md` dazu. Frühere Auditberichte liefern Hinweise;
-  überprüfe ihre Aussagen und bisherigen Ausschlüsse erneut.
+  `docs/NATIVE_CONFIG_SCOPES.md` dazu. Der Bericht des Vorlaufs (`docs/reports/engine-maintenance.md`)
+  liefert Hinweise; überprüfe seine Aussagen und bisherigen Ausschlüsse erneut.
 - Erfasse ursprünglichen Checkout, Zielbranch, HEAD, Remote, Upstream, Status,
   vorhandene Änderungen, Worktrees und aktive Agenten. Verwende Git Director,
   wenn verfügbar. Bei belegtem oder unklarem Checkout arbeite in einem eigenen
@@ -198,9 +198,10 @@ erfüllte Delegation oder eingehaltene Isolation.
 - Aktualisiere passende Schnittstellendokumente, Changelog, erforderliche
   Versionsnummern und eingecheckte Build-Artefakte. Verwende vorhandene
   Repo-Konventionen; keine beiläufigen Refactorings.
-- Speichere einen datierten Auditbericht, im Orchestrator unter
-  `docs/engine-maintenance-YYYY-MM-DD.md`. Bei mehreren Runs am selben Tag
-  ergänze eine eindeutige Run-ID. Er enthält je Engine Quellen/Versionen,
+- Überschreibe den Auditbericht des Vorlaufs, im Orchestrator
+  `docs/reports/engine-maintenance.md` (Datum und Run-ID im Kopf; frühere
+  Läufe stehen nur in der Git-Historie, keine zusätzlichen datierten Dateien).
+  Er enthält je Engine Quellen/Versionen,
   Konfigurationsabdeckung, Modell-/Effort-Änderungen, Tier-Änderungen (Modell, alt → neu,
   Beleg) oder „Tiering unverändert“, Feature-Entscheidungen,
   Recherche- und Implementierungszuordnung je Engine, Issue-Liste mit Fix-SHAs,

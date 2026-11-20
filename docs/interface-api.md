@@ -92,7 +92,7 @@ batch/deletion latency. Existing eligibility and protection checks still apply.
 `POST /sync/cache` accepts protocol 3 only for pure content reads. It may grant
 communicator-local reuse on secure hosts with a current owner, bounded by actual
 host/token expiry. Auth/admission and mutations remain live. Invalidations use
-the existing push connection and scoped cache families. See [REDESIGN.md](../REDESIGN.md).
+the existing push connection and scoped cache families. See [the owner runtime](control-plane-owner.md).
 
 From cxx 0.9.130, `/sync/cache` forwards both native MCP identity headers to the
 original MCP authenticator. Native-attributed reads always require a fresh

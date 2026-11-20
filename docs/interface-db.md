@@ -34,7 +34,7 @@ their existing authority; they are not bypassed by cleanup.
 `POST /sync/cache` accepts protocol 3 only for pure content reads. It may grant
 communicator-local reuse on secure hosts with a current owner, bounded by actual
 host/token expiry. Auth/admission and mutations remain live. Invalidations use
-the existing push connection and scoped cache families. See [REDESIGN.md](../REDESIGN.md).
+the existing push connection and scoped cache families. See [the owner runtime](control-plane-owner.md).
 
 ## Current owner-mode contract
 

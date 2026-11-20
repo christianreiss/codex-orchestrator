@@ -16,7 +16,7 @@ def main():
         sys.stderr.write(result.stderr)
         return result.returncode
     remaining = {name for name in result.stdout.splitlines() if 'kimi' not in (root / name).read_text().lower()}
-    doc = (root / 'docs/interface-ckx.md').read_text().split('\n## Parity exemptions\n', 1)[1]
+    doc = (root / 'scripts/engine-parity-exemptions.md').read_text()
     exemptions = set(re.findall(r'^\| `([^`]+)` \| .+ \|$', doc, re.MULTILINE))
     uncovered, stale = sorted(remaining - exemptions), sorted(exemptions - remaining)
     for path in uncovered:
