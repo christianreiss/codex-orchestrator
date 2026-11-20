@@ -1,3 +1,4 @@
+import { pick } from "./admin-fixtures";
 import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from '@playwright/test';
 
@@ -45,19 +46,19 @@ test('saves all combinations and previews each engine with the Director disabled
   const card = page.locator('#git-commit-messages');
   const style = card.getByLabel('Message length');
   const attribution = card.getByRole('switch', { name: 'AI Attribution', exact: true });
-  await expect(style).toHaveValue('short');
+  await expect(style).toHaveText('Short');
   await expect(attribution).not.toBeChecked();
   await expect(page.getByRole('switch', { name: 'Enable git merges' })).not.toBeChecked();
   for (const message_style of ['long', 'short'] as const) {
-    await style.selectOption(message_style);
-    await expect(style).toHaveValue(message_style);
+    await pick(page, style, message_style === 'long' ? 'Long' : 'Short');
+    await expect(style).toHaveText(message_style === 'long' ? 'Long' : 'Short');
     await expect(style).toBeEnabled();
     for (const ai_attribution of [true, false]) {
       await attribution.click();
       await expect(attribution).toBeChecked({ checked: ai_attribution });
       await expect(attribution).toBeEnabled();
       for (const engine of ['Codex', 'Claude', 'Grok', 'Kimi Code']) {
-        await card.getByLabel('Engine', { exact: true }).selectOption(engine);
+        await pick(page, card.getByLabel('Engine', { exact: true }), engine);
         const preview = card.getByLabel('Commit preview');
         await expect(preview).toHaveText('Fix stale host status'
           + (message_style === 'long' ? '\n\nRefresh host status after configuration changes so the dashboard shows the current state.' : '')
@@ -68,7 +69,7 @@ test('saves all combinations and previews each engine with the Director disabled
   expect(shared.writes).toContainEqual({ message_style: 'long', ai_attribution: true });
   expect(shared.writes).toContainEqual({ message_style: 'short', ai_attribution: false });
   await page.reload();
-  await expect(style).toHaveValue('short');
+  await expect(style).toHaveText('Short');
   await expect(attribution).not.toBeChecked();
 });
 
@@ -83,19 +84,19 @@ test('failed saves restore controls; another tab receives settings updates', asy
   await other.goto('/admin/git-director?view=settings');
   await expect(other.getByLabel('Message length')).toBeEnabled();
   shared.fail = true;
-  await style.selectOption('long');
+  await pick(page, style, 'Long');
   await expect(page.locator('#git-commit-messages')).toContainText('Save failed');
-  await expect(style).toHaveValue('short');
+  await expect(style).toHaveText('Short');
   await expect(style).toBeEnabled();
   await page.getByRole('switch', { name: 'AI Attribution', exact: true }).click();
   await expect.poll(() => shared.writes.length).toBe(2);
   await expect(page.getByRole('switch', { name: 'AI Attribution', exact: true })).not.toBeChecked();
   shared.fail = false;
   await expect(style).toBeEnabled();
-  await style.selectOption('long');
-  await expect(style).toHaveValue('long');
+  await pick(page, style, 'Long');
+  await expect(style).toHaveText('Long');
   await refreshOther();
-  await expect(other.getByLabel('Message length')).toHaveValue('long');
+  await expect(other.getByLabel('Message length')).toHaveText('Long');
 });
 
 test('read-only users see disabled settings and previews on mobile', async ({ page }) => {
@@ -105,7 +106,7 @@ test('read-only users see disabled settings and previews on mobile', async ({ pa
   await page.goto('/admin/git-director?view=settings');
   await expect(page.getByLabel('Message length')).toBeDisabled();
   await expect(page.getByRole('switch', { name: 'AI Attribution', exact: true })).toBeDisabled();
-  await page.getByLabel('Engine', { exact: true }).selectOption('Grok');
+  await pick(page, page.getByLabel('Engine', { exact: true }), 'Grok');
   await expect(page.getByLabel('Commit preview')).toBeVisible();
   expect(shared.writes).toEqual([]);
 });

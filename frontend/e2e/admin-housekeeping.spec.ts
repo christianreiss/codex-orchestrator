@@ -1,3 +1,4 @@
+import { pick } from "./admin-fixtures";
 import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from '@playwright/test';
 const rule = { enabled: true, retention_days: 30, max_bytes: 5 * 1024 ** 3, min_age_days: 7 };
@@ -29,14 +30,14 @@ async function fixture(page: Page, manage = true) {
 test('saves independent engine rules and validates minimum age', async ({ page }) => {
   const f = await fixture(page); await page.goto('/admin/settings#session-housekeeping');
   const card = page.locator('#session-housekeeping'); await expect(card.getByLabel('Retention (days)')).toHaveValue('30');
-  await card.getByLabel('Engine', { exact: true }).selectOption('grok');
+  await pick(page, card.getByLabel('Engine', { exact: true }), 'Grok');
   await card.getByLabel('Retention (days)').fill('60');
   await card.getByLabel('Budget (GiB)').fill('8');
   await card.getByRole('button', { name: 'Save rule', exact: true }).click();
   await expect.poll(() => f.writes.length).toBe(1);
   expect(f.writes[0]).toEqual({ engine: 'grok', value: { ...rule, retention_days: 60, max_bytes: 8 * 1024 ** 3 } });
   await expect(card.getByText('Rule saved.')).toBeVisible();
-  await card.getByLabel('Engine', { exact: true }).selectOption('codex'); await expect(card.getByLabel('Retention (days)')).toHaveValue('30');
+  await pick(page, card.getByLabel('Engine', { exact: true }), 'Codex'); await expect(card.getByLabel('Retention (days)')).toHaveValue('30');
   await card.getByLabel('Minimum age under pressure (days)').fill('31'); await expect(card.getByRole('button', { name: 'Save rule', exact: true })).toBeDisabled();
 });
 test('preserves drafts and blocks overwriting a remotely changed rule', async ({ page }) => {

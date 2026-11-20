@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SimpleSelect } from "$lib/components/ui/select";
   import { toast } from "svelte-sonner";
   import { authStore } from "$lib/stores/auth";
   import { gitCommitSettingsMutation, gitCommitSettingsQuery } from "$lib/api/gitDirector";
@@ -42,23 +43,16 @@
   <div class="grid gap-3 sm:grid-cols-2">
     <div class="space-y-1">
       <Label for="git-commit-style">Message length</Label>
-      <select
+      <!-- Controlled: stays on the saved value until the server confirms a change. -->
+      <SimpleSelect
         id="git-commit-style"
-        class="{filterClass} w-full"
+        aria-label="Message length"
+        class="w-full"
         value={data?.message_style ?? "short"}
         {disabled}
-        onchange={(event) => {
-          const message_style = event.currentTarget.value === "long" ? "long" : "short";
-          // Keep the control on the saved value until the server confirms it.
-          // A failed save may refetch identical data, which would not reset a
-          // native select's user-selected value by itself.
-          event.currentTarget.value = data?.message_style ?? "short";
-          if (data) $mutation.mutate({ ...data, message_style });
-        }}
-      >
-        <option value="short">Short</option>
-        <option value="long">Long</option>
-      </select>
+        onValueChange={(value) => { if (data) $mutation.mutate({ ...data, message_style: value === "long" ? "long" : "short" }); }}
+        options={[{ value: "short", label: "Short" }, { value: "long", label: "Long" }]}
+      />
       <p class="text-caption text-muted-foreground">Short: subject only. Long: subject, change and reason, plus relevant verification.</p>
     </div>
     <!-- The shared switch retains internal state; recreate it when a save
@@ -86,7 +80,7 @@
         <h3 class="text-body-sm font-medium">Preview</h3>
         <div class="flex items-center gap-2">
           <Label for="git-preview-engine" class="text-caption text-muted-foreground">Engine</Label>
-          <select id="git-preview-engine" bind:value={previewEngine} class="{filterClass} h-8">{#each ["Codex", "Claude", "Grok", "Kimi Code"] as engine}<option>{engine}</option>{/each}</select>
+          <SimpleSelect id="git-preview-engine" aria-label="Engine" bind:value={previewEngine} class="h-8" options={["Codex", "Claude", "Grok", "Kimi Code"].map((engine) => ({ value: engine, label: engine }))} />
         </div>
       </div>
       <pre aria-label="Commit preview" class="whitespace-pre-wrap break-words rounded-md border bg-muted/30 p-3 font-mono text-caption">{preview(previewEngine)}</pre>

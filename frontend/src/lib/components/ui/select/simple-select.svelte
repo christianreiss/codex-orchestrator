@@ -35,18 +35,19 @@
   const EMPTY = "\u0000empty";
   const wire = (v: string) => (v === "" ? EMPTY : v);
   const current = $derived(options.find((option) => option.value === value));
+  function choose(plain: string) {
+    if (plain === value) return;
+    onValueChange?.(plain);
+    // With a handler the parent owns the value; without one, `bind:value` does.
+    if (!onValueChange) value = plain;
+  }
 </script>
 
+<!-- Controlled: the list shows `value` until the parent changes it, so a save that has not been confirmed yet never leaves the control ahead of the server. -->
 <SelectPrimitive.Root
   type="single"
-  value={wire(value)}
+  bind:value={() => wire(value), (next) => choose(next === EMPTY ? "" : next)}
   {disabled}
-  onValueChange={(next) => {
-    const plain = next === EMPTY ? "" : next;
-    if (plain === value) return;
-    value = plain;
-    onValueChange?.(plain);
-  }}
 >
   <Trigger {id} class={cn("w-auto min-w-[8rem] max-w-full gap-2", className)} {...aria}>
     <span class={cn("min-w-0 truncate", !current && "text-muted-foreground")}>{current?.label ?? placeholder}</span>
