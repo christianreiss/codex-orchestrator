@@ -57,6 +57,9 @@ type picker struct {
 	defaults      DefaultsAPI
 	fleet         map[string]*fleetState
 	saving        bool
+	// legend is set while rendering when a narrow card shows a bare ★; the
+	// navigation row then says what the star means.
+	legend bool
 
 	result    *Selection
 	cancelled bool
@@ -67,7 +70,7 @@ func newPicker(engines []Engine, last *Selection, caps terminalui.Caps) *picker 
 	p.context, p.fleet = context.Background(), make(map[string]*fleetState)
 	for i, e := range engines {
 		if len(e.Models) == 0 && e.Disabled == "" {
-			p.engines[i].Disabled = "no current models enabled"
+			p.engines[i].Disabled = noModelsReason
 		}
 		p.cursors[i] = cursorFor(e)
 		if last != nil && last.Engine == e.Name {
@@ -267,7 +270,7 @@ func (p *picker) choose(mode Mode) (tea.Model, tea.Cmd) {
 	if e.Disabled != "" || len(e.Models) == 0 {
 		reason := e.Disabled
 		if reason == "" {
-			reason = "no current models enabled"
+			reason = noModelsReason
 		}
 		p.notice = e.Label() + ": " + reason
 		return p, nil

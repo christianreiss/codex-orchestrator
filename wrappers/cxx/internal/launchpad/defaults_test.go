@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 )
 
@@ -190,6 +191,51 @@ func TestFleetDefaultsStatusFitsTerminalViews(t *testing.T) {
 		if strings.Contains(out, "enter") || strings.Contains(out, "↑↓") || strings.Contains(out, "continue") || !strings.Contains(out, "q") {
 			t.Fatalf("pending save advertised inactive keys at %v: %s", size, out)
 		}
+	}
+}
+
+func TestFleetDefaultChipStates(t *testing.T) {
+	pal := terminalui.Palette{SurfaceActive: "\x1b[48;5;236m", Border: "\x1b[38;5;240m", Yellow: "\x1b[33m", Dim: "\x1b[2m", Reset: "\x1b[0m"}
+	caps := terminalui.Caps{IsTTY: true, UTF8: true, Palette: pal}
+	live, dimmed := pal.SurfaceActive+" d ", pal.Border+" d "
+	for _, size := range [][2]int{{100, 30}, {72, 22}} {
+		p := newPicker([]Engine{codexEngine()}, nil, caps)
+		f := &defaultsFake{value: FleetDefault{Engine: "codex", Model: "gpt-6.1-sol", Effort: "high"}}
+		p.defaults = f
+		p.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		get := p.loadFleet()
+		if out := p.render(); !strings.Contains(out, live) || !strings.Contains(ansi.Strip(out), "fleet default  loading…") {
+			t.Fatalf("%v loading: d must stay usable and the card must say loading:\n%s", size, ansi.Strip(out))
+		}
+		p.Update(get())
+		if out := ansi.Strip(p.render()); !strings.Contains(out, "fleet default  gpt-6.1-sol · high") || !strings.Contains(out, "set fleet default") {
+			t.Fatalf("%v loaded default not shown:\n%s", size, out)
+		}
+		save := p.saveFleet()
+		out := p.render()
+		if plain := ansi.Strip(out); !strings.Contains(out, dimmed) || !strings.Contains(plain, "saving…") || strings.Count(plain, "aving") != 1 || strings.Contains(plain, "enter") {
+			t.Fatalf("%v saving: want one dimmed d saving… and no launch keys:\n%s", size, plain)
+		}
+		p.Update(save())
+		if out := ansi.Strip(p.render()); !strings.Contains(out, "Fleet default saved") || !strings.Contains(out, "enter") {
+			t.Fatalf("%v save result missing:\n%s", size, out)
+		}
+
+		p = newPicker([]Engine{codexEngine()}, nil, caps)
+		p.defaults = &defaultsFake{getErr: ErrDefaultsUnavailable}
+		p.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		p.Update(p.loadFleet()())
+		out = p.render()
+		if plain := ansi.Strip(out); !strings.Contains(out, dimmed) || strings.Contains(out, live) || !strings.Contains(plain, "fleet default  unavailable") || !strings.Contains(plain, unavailableNotice) {
+			t.Fatalf("%v unavailable: want a dimmed d and one explanation:\n%s", size, plain)
+		}
+	}
+	// An engine without models offers no d at all.
+	empty := newPicker([]Engine{{Name: "codex"}}, nil, caps)
+	empty.defaults = &defaultsFake{}
+	empty.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if out := ansi.Strip(empty.render()); strings.Contains(out, "fleet default") || !strings.Contains(out, noModelsReason) {
+		t.Fatalf("empty engine offered d:\n%s", out)
 	}
 }
 

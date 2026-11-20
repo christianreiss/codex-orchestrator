@@ -47,6 +47,13 @@ type fleetMsg struct {
 
 const defaultsTimeout = 8 * time.Second
 
+// savingNotice is shown while a save is in flight; the d key's own label
+// already says so, so the rich footer does not repeat it.
+const savingNotice = "Saving fleet default..."
+
+// unavailableNotice is the one sentence for an older server without defaults.
+const unavailableNotice = "Fleet defaults require a server update"
+
 func (p *picker) loadFleet() tea.Cmd {
 	if p.defaults == nil || p.stage != stageGrid || p.current().Disabled != "" {
 		return nil
@@ -100,13 +107,13 @@ func (p *picker) saveFleet() tea.Cmd {
 		p.fleet[e.Name] = state
 	}
 	if state.unavailable {
-		p.notice = ErrDefaultsUnavailable.Error()
+		p.notice = unavailableNotice
 		return nil
 	}
 	state.generation++ // Ignore any earlier GET that races this save.
 	state.loading = false
 	p.saving = true
-	p.notice = "Saving fleet default..."
+	p.notice = savingNotice
 	gen, api, parent := state.generation, p.defaults, p.context
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(parent, defaultsTimeout)
@@ -148,6 +155,9 @@ func (p *picker) acceptFleet(msg fleetMsg) {
 		}
 		if msg.engine == p.current().Name {
 			p.notice = "Fleet default: " + msg.err.Error()
+			if errors.Is(msg.err, ErrDefaultsUnavailable) {
+				p.notice = unavailableNotice
+			}
 			if msg.uncertain {
 				p.notice = "Fleet default save not confirmed; press d to retry or check Engines in admin"
 			}
@@ -166,46 +176,74 @@ func (p *picker) acceptFleet(msg fleetMsg) {
 	}
 }
 
-func (p *picker) isFleetDefault() bool {
-	state := p.fleet[p.current().Name]
-	if state == nil || state.value == nil || len(p.current().Models) == 0 {
+// fleetValue is engine i's confirmed fleet default, or nil while unknown.
+func (p *picker) fleetValue(i int) *FleetDefault {
+	if i < 0 || i >= len(p.engines) {
+		return nil
+	}
+	state := p.fleet[p.engines[i].Name]
+	if state == nil || state.value == nil || state.value.Model == "" {
+		return nil
+	}
+	return state.value
+}
+
+// defaultRow is the menu row holding engine i's fleet-default model, or -1
+// when it is unknown or not on this host's menu.
+func (p *picker) defaultRow(i int) int {
+	d := p.fleetValue(i)
+	if d == nil {
+		return -1
+	}
+	for row, m := range p.engines[i].Models {
+		if m.ID == d.Model {
+			return row
+		}
+	}
+	return -1
+}
+
+// defaultEffort is the fleet-default effort, but only on the row of the
+// fleet-default model: the default is a pair, not an effort on its own.
+func (p *picker) defaultEffort(i, row int) string {
+	if row < 0 || row != p.defaultRow(i) {
+		return ""
+	}
+	return p.fleetValue(i).Effort
+}
+
+// isDefaultPair reports whether engine i's cursor sits on the confirmed pair.
+func (p *picker) isDefaultPair(i int) bool {
+	row := p.defaultRow(i)
+	c := p.cursors[i]
+	if row < 0 || row != c.model {
 		return false
 	}
-	c := p.cursors[p.focus]
-	m := p.current().Models[c.model]
+	m := p.engines[i].Models[row]
 	effort := ""
 	if c.effort < len(m.Efforts) {
 		effort = m.Efforts[c.effort]
 	}
-	return m.ID == state.value.Model && effort == state.value.Effort
+	return effort == p.fleetValue(i).Effort
 }
 
-func (p *picker) defaultHint() string {
-	if p.defaults == nil || p.stage != stageGrid {
-		return ""
+func (p *picker) isFleetDefault() bool { return p.isDefaultPair(p.focus) }
+
+// defaultAction describes the d key in the grid: its label, a shorter label
+// for narrow terminals, and whether pressing it can save right now. An empty
+// label means the key is not offered.
+func (p *picker) defaultAction() (label, short string, live bool) {
+	e := p.current()
+	if p.defaults == nil || p.stage != stageGrid || e.Disabled != "" || len(e.Models) == 0 {
+		return "", "", false
 	}
 	if p.saving {
-		return "saving fleet default"
+		label = "saving" + p.ellipsis()
+		return label, label, false
 	}
-	if state := p.fleet[p.current().Name]; state != nil {
-		if state.unavailable {
-			return "fleet default unavailable"
-		}
-		if state.loading {
-			return "d fleet default (loading)"
-		}
-	}
-	if p.width >= 40 {
-		return "d Set as fleet default"
-	}
-	return "d fleet default"
-}
-
-func (p *picker) defaultSummary() string {
-	if p.isFleetDefault() {
-		return "Fleet default / "
-	}
-	return ""
+	// An old server cannot save; the card line says why, the key only dims.
+	unavailable := p.fleet[e.Name] != nil && p.fleet[e.Name].unavailable
+	return "set fleet default", "fleet default", !unavailable
 }
 
 func (p *picker) quitNotice() string {

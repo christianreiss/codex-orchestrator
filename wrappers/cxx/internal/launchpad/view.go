@@ -17,11 +17,13 @@ const (
 type glyphs struct {
 	node, path, pathDim, vertical, down, tee, teeOn, elbow, elbowOn, left, right, sel, selEnd, dot string
 	teeLeft, teeLeftOn, elbowLeft, elbowLeftOn                                                     string
+	// star marks the fleet default; it always comes with a word or a legend.
+	star string
 }
 
 var (
-	unicodeGlyphs = glyphs{node: "●", path: "━", pathDim: "─", vertical: "│", down: "▼", tee: "├─", teeOn: "┣━", elbow: "└─", elbowOn: "┗━", left: "◀", right: "▶", sel: "❰", selEnd: "❱", dot: "·", teeLeft: "─┤", teeLeftOn: "━┫", elbowLeft: "─┘", elbowLeftOn: "━┛"}
-	asciiGlyphs   = glyphs{node: "o", path: "=", pathDim: "-", vertical: "|", down: "v", tee: "+-", teeOn: "+=", elbow: "`-", elbowOn: "`=", left: "<", right: ">", sel: "[", selEnd: "]", dot: "-", teeLeft: "-+", teeLeftOn: "=+", elbowLeft: "-'", elbowLeftOn: "='"}
+	unicodeGlyphs = glyphs{node: "●", path: "━", pathDim: "─", vertical: "│", down: "▼", tee: "├─", teeOn: "┣━", elbow: "└─", elbowOn: "┗━", left: "◀", right: "▶", sel: "❰", selEnd: "❱", dot: "·", teeLeft: "─┤", teeLeftOn: "━┫", elbowLeft: "─┘", elbowLeftOn: "━┛", star: "★"}
+	asciiGlyphs   = glyphs{node: "o", path: "=", pathDim: "-", vertical: "|", down: "v", tee: "+-", teeOn: "+=", elbow: "`-", elbowOn: "`=", left: "<", right: ">", sel: "[", selEnd: "]", dot: "-", teeLeft: "-+", teeLeftOn: "=+", elbowLeft: "-'", elbowLeftOn: "='", star: "*"}
 )
 
 func (p *picker) glyphs() glyphs {
@@ -65,6 +67,7 @@ func (p *picker) View() tea.View {
 // (all models, full effort strips), so nothing drifts while keys are pressed
 // or the reveal animation runs.
 func (p *picker) render() string {
+	p.legend = false
 	if p.width > 0 && p.height > 0 {
 		return p.renderObsidian()
 	}
@@ -186,7 +189,7 @@ func (p *picker) summary(i int) string {
 	e := p.engines[i]
 	c := p.cursors[i]
 	if len(e.Models) == 0 {
-		return p.dim("no current models enabled")
+		return p.dim(noModelsReason)
 	}
 	m := e.Models[c.model]
 	parts := []string{modelName(m.ID)}
@@ -444,11 +447,11 @@ func (p *picker) footer() string {
 		keys = append(keys, "q quit")
 	} else {
 		keys = append(keys, "↑↓ model", "←→ effort", "enter new", "c continue")
-		if hint := p.defaultHint(); hint != "" {
-			keys = append(keys, hint)
-		}
 		if p.current().CanPick() {
 			keys = append(keys, "r resume")
+		}
+		if label, _, _ := p.defaultAction(); label != "" {
+			keys = append(keys, "d "+label)
 		}
 		if len(p.engines) > 1 {
 			keys = append(keys, "esc back")

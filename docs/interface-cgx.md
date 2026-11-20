@@ -401,8 +401,9 @@ the direction of its assigned compass slot. Its launch is
 `cgx run --model M --reasoning-effort E`, so the boot card stays, and `c` adds
 `--continue`. Grok has no interactive session picker, because its bare `--resume`
 takes the latest session, so `r` is not offered.
-The weekly usage notice shows `week --` for Grok: the wrapper has no weekly
-quota observation (cxx 0.9.68). This does not change server-side subscription usage.
+The weekly usage notice shows `week --` for Grok in the compact layout and
+`usage not reported` on its card: the wrapper has no weekly quota observation
+(cxx 0.9.68). This does not change server-side subscription usage.
 
 ## Native CLI and installation
 

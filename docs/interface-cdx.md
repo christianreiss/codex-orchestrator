@@ -1249,11 +1249,15 @@ behaviour: usage on stderr, exit 2.
 - **Obsidian presentation (cxx 0.9.70).** Unicode terminals at 76 columns by
   23 rows or larger show dark engine cards, directional connecting paths and
   a marked active engine. Model cards keep the selected row visible and window
-  effort segments around the selected value. Smaller terminals and ASCII/minimal
-  output use a compact viewport with the same keys. Layout uses terminal cell
-  widths and recalculates on resize without changing the selection.
+  effort segments around the selected value, under `MODEL` and `EFFORT` section
+  labels. One centred footer follows the cards: key chips (`enter`, `c`, `r`,
+  `d` in a grid, `q`), then the navigation keys, then the current notice; keys
+  that cannot act for the focused engine are dimmed. Smaller terminals and
+  ASCII/minimal output use a compact viewport with the same keys; its key row
+  shortens labels before it drops them, so every key stays visible. Layout uses
+  terminal cell widths and recalculates on resize without changing the selection.
   Cached weekly usage is also drawn as a bar where space permits; stale/reset
-  semantics remain unchanged, and the Grok card shows no weekly quota.
+  semantics remain unchanged, and the Grok card says `usage not reported`.
   Color depth follows terminal capabilities. `NO_COLOR` keeps structural selection
   markers without colors; minimal/ASCII output has no decorative animation.
   Transitions last at most six frames (about 200 ms, 30 fps); the active top edge
@@ -1298,7 +1302,7 @@ behaviour: usage on stderr, exit 2.
   override, then the native settings (`config.toml`, `settings.json`, Grok
   `config.toml`), then the catalog default. So `cxx` followed by `enter` relaunches
   the last combination.
-- **Fleet default (0.9.183).** The visible `d` action saves the highlighted model and effort together through `POST /host/model-defaults/:engine`, without starting a session or closing the picker. Every active host may save its assigned, enabled engines, including non-VIP hosts. Existing host overrides and remembered cursor choices retain precedence. The current default loads asynchronously through GET and is marked only when both model and effort match. Saving disables duplicate actions and navigation until its result arrives; quitting warns that an in-flight save is unconfirmed. Session-only efforts (Claude `max`) cannot be persisted. An ambiguous POST failure causes exactly one readback, never an automatic second POST. Success reports the server's effective model and effort, including any latest-family policy replacement. Offline or older servers leave ordinary launching available; no mouse support is added.
+- **Fleet default (0.9.183).** The visible `d` action saves the highlighted model and effort together through `POST /host/model-defaults/:engine`, without starting a session or closing the picker. Every active host may save its assigned, enabled engines, including non-VIP hosts. Existing host overrides and remembered cursor choices retain precedence. `d` is a key chip in the actions row beside `enter`, `c`, `r` and `q`, shown only in a model/effort grid of an engine with models; it dims while a save is in flight (label `saving…`) or when the server predates the endpoint. The current default loads asynchronously through GET when a grid opens. The model card then names it (`★ fleet default  model · effort`, or `loading…`/`unavailable`/`unknown`), marks the default model's row with `★` wherever the cursor is, and marks the default effort with `★` while that model is highlighted. A compass card shows the default of each engine whose grid was opened in this session, without an extra request. A card too narrow for the words keeps `★ model · effort`, and the navigation row then explains the star. Minimal/ASCII output uses `*`. Saving disables duplicate actions and navigation until its result arrives; quitting warns that an in-flight save is unconfirmed. Session-only efforts (Claude `max`) cannot be persisted. An ambiguous POST failure causes exactly one readback, never an automatic second POST. Success reports the server's effective model and effort, including any latest-family policy replacement. Offline or older servers leave ordinary launching available; no mouse support is added.
 - **Menu source.** The menu comes from `engine_options.model_catalog` in the
   signed config. Models are ordered by capability tier (strongest first), keeping
   catalog order within a tier and placing unranked models last. The selected model
