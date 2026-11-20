@@ -406,7 +406,7 @@ The following variables are read from the process environment at startup. They c
 - `api/src/services/model-defaults.ts` — engine catalogs and model/effort persistence
 - `api/src/services/grok-models.ts` — Grok catalog, efforts, gateway model toggles
 - `api/src/routes/admin/grok/index.ts` — Grok gateway state, default model, model toggles, keys
-- `frontend/src/lib/components/settings/GrokEngineSection.svelte`, `frontend/src/lib/components/settings/GrokVersionSection.svelte` — Grok API gateway card and Grok version control
+- `frontend/src/lib/components/settings/GrokEngineSection.svelte`, `frontend/src/lib/components/settings/EngineVersionSection.svelte` — Grok API gateway card and the per-engine fleet version control
 - `api/src/routes/admin/config/index.ts` — agents, skills, memories, profile builder, fleet Claude config
 - `api/src/routes/admin/users/index.ts`
 - `api/src/routes/admin/projects/index.ts`

@@ -6,7 +6,7 @@
   import { createAutoUpdateToggleMutation, createHostEnginesMutation } from "$lib/api/hosts";
   import { createDisableInsecureMutation } from "$lib/api/insecure";
   import { accountsApi, accountsKeys } from "$lib/api/accounts";
-  import { codexVersionsCheckMutation } from "$lib/api/settings";
+  import { versionsCheckMutation } from "$lib/api/settings";
   import { ACTION_RISK, actionRequest, samePlan, type ActionRequest, type ChattyActionElement } from "./actions";
 
   /**
@@ -28,7 +28,7 @@
   const hostEngines = createHostEnginesMutation(qc);
   const autoUpdate = createAutoUpdateToggleMutation(qc);
   const disableInsecure = createDisableInsecureMutation(qc);
-  const versionsCheck = codexVersionsCheckMutation();
+  const versionsCheck = versionsCheckMutation();
 
   let checked = $state<Verified | null>(null);
   let checking = $state(false);

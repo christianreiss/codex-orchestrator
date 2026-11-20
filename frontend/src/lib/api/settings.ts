@@ -24,7 +24,6 @@ import type {
   CdxSilentValue,
   ClaudeSettingsValue,
   ClaudeVersionLockValue,
-  CodexVersionLockValue,
   CodexVersionsCheckResult,
   EngineStateChange,
   EngineStateUpdate,
@@ -225,26 +224,25 @@ export function modelDefaultsMutation(
   });
 }
 
-/* ─────────────────── 3c. Claude version (engine) ─────────────────── */
+/* ─────────────────── 3c. Engine versions ─────────────────── */
 
 // `/admin/versions/check` is a side-effecting POST that force-probes every
 // engine's upstream release in a single call (bypassing the 1h settings
-// cache), so the Claude, Codex, and Grok "read" queries share one query key
-// and a long staleTime -- otherwise they'd each independently re-trigger the
-// same forced upstream lookup on every stale remount. Explicit re-checks go
-// through claudeVersionsCheckMutation / codexVersionsCheckMutation.
+// cache), so every engine's version section reads one query under one key and
+// a long staleTime -- otherwise each would independently re-trigger the same
+// forced upstream lookup on every stale remount. Explicit re-checks go
+// through versionsCheckMutation.
 export const versionsCheckQueryKey = ["settings", "versions-check"] as const;
-export const claudeVersionsQueryKey = versionsCheckQueryKey;
 
-export function claudeVersionsQuery() {
+export function versionsQuery() {
   return createQuery<CodexVersionsCheckResult>({
-    queryKey: claudeVersionsQueryKey,
+    queryKey: versionsCheckQueryKey,
     queryFn: () => api.post<CodexVersionsCheckResult>("/admin/versions/check"),
     staleTime: Infinity,
   });
 }
 
-export function claudeVersionsCheckMutation(
+export function versionsCheckMutation(
   opts: MutationOpts<CodexVersionsCheckResult, void> = {},
 ) {
   const qc = useQueryClient();
@@ -252,20 +250,33 @@ export function claudeVersionsCheckMutation(
     mutationFn: () => api.post<CodexVersionsCheckResult>("/admin/versions/check"),
     ...opts,
     onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: claudeVersionsQueryKey });
+      void qc.invalidateQueries({ queryKey: versionsCheckQueryKey });
       opts.onSettled?.(...args);
     },
   });
 }
 
-export function claudeVersionMutation(opts: MutationOpts<ClaudeVersionLockValue, string> = {}) {
+/** Where each engine's fleet version policy is written (Codex predates the `/admin/<engine>/version` shape). */
+const ENGINE_VERSION_ENDPOINT = {
+  codex: "/admin/codex-version",
+  claude: "/admin/claude/version",
+  grok: "/admin/grok/version",
+  kimi: "/admin/kimi/version",
+} as const;
+
+export type VersionEngine = keyof typeof ENGINE_VERSION_ENDPOINT;
+
+export function engineVersionMutation(
+  engine: VersionEngine,
+  opts: MutationOpts<ClaudeVersionLockValue, string> = {},
+) {
   const qc = useQueryClient();
   return createMutation<ClaudeVersionLockValue, Error, string>({
     mutationFn: (selection) =>
-      api.post<ClaudeVersionLockValue>("/admin/claude/version", { selection }),
+      api.post<ClaudeVersionLockValue>(ENGINE_VERSION_ENDPOINT[engine], { selection }),
     ...opts,
     onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: claudeVersionsQueryKey });
+      void qc.invalidateQueries({ queryKey: versionsCheckQueryKey });
       opts.onSettled?.(...args);
     },
   });
@@ -521,50 +532,6 @@ export function quotaModeMutation(opts: MutationOpts<QuotaModeValue, Partial<Quo
   });
 }
 
-/* ────────────────────────── 9. Codex version ─────────────────────── */
-
-// Shares versionsCheckQueryKey with claudeVersionsQuery above -- see the
-// comment there. Both engines' data comes back from the same forced POST,
-// so registering it under one key (instead of two) means mounting the
-// Claude section, Codex section, and OpenAI section together triggers a
-// single upstream check, not three.
-export const codexVersionsQueryKey = versionsCheckQueryKey;
-
-export function codexVersionsQuery() {
-  return createQuery<CodexVersionsCheckResult>({
-    queryKey: codexVersionsQueryKey,
-    queryFn: () => api.post<CodexVersionsCheckResult>("/admin/versions/check"),
-    staleTime: Infinity,
-  });
-}
-
-export function codexVersionsCheckMutation(
-  opts: MutationOpts<CodexVersionsCheckResult, void> = {},
-) {
-  const qc = useQueryClient();
-  return createMutation<CodexVersionsCheckResult, Error, void>({
-    mutationFn: () => api.post<CodexVersionsCheckResult>("/admin/versions/check"),
-    ...opts,
-    onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: codexVersionsQueryKey });
-      opts.onSettled?.(...args);
-    },
-  });
-}
-
-export function codexVersionMutation(opts: MutationOpts<CodexVersionLockValue, string> = {}) {
-  const qc = useQueryClient();
-  return createMutation<CodexVersionLockValue, Error, string>({
-    mutationFn: (selection) =>
-      api.post<CodexVersionLockValue>("/admin/codex-version", { selection }),
-    ...opts,
-    onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: codexVersionsQueryKey });
-      opts.onSettled?.(...args);
-    },
-  });
-}
-
 /* ────────────────────────── 10. Scaling ──────────────────────────── */
 
 export const scalingQueryKey = ["settings", "scaling"] as const;
@@ -651,19 +618,6 @@ export function kimiModelToggleMutation(opts: MutationOpts<KimiModelToggle, Kimi
     void qc.invalidateQueries({ queryKey: kimiSettingsQueryKey });
     opts.onSettled?.(...args);
   } });
-}
-export const grokVersionsQuery = claudeVersionsQuery;
-export const kimiVersionsQuery = claudeVersionsQuery;
-export const grokVersionsCheckMutation = claudeVersionsCheckMutation;
-export const kimiVersionsCheckMutation = claudeVersionsCheckMutation;
-export function grokVersionMutation(opts: MutationOpts<ClaudeVersionLockValue, string> = {}) {
-  const qc = useQueryClient();
-  return createMutation<ClaudeVersionLockValue, Error, string>({ mutationFn: (selection) => api.post<ClaudeVersionLockValue>("/admin/grok/version", { selection }), ...opts, onSettled: (...args) => { void qc.invalidateQueries({ queryKey: versionsCheckQueryKey }); opts.onSettled?.(...args); } });
-}
-
-export function kimiVersionMutation(opts: MutationOpts<ClaudeVersionLockValue, string> = {}) {
-  const qc = useQueryClient();
-  return createMutation<ClaudeVersionLockValue, Error, string>({ mutationFn: (selection) => api.post<ClaudeVersionLockValue>("/admin/kimi/version", { selection }), ...opts, onSettled: (...args) => { void qc.invalidateQueries({ queryKey: versionsCheckQueryKey }); opts.onSettled?.(...args); } });
 }
 
 export function hostSpawnQuery() {

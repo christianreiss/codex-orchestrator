@@ -147,8 +147,6 @@ const QUERY_CASES: QueryCase[] = [
   { name: "kimiSettingsQuery", build: () => asQuery(settings.kimiSettingsQuery()), queryKey: ["settings", "kimi-settings"], method: "GET", path: "/admin/kimi/settings" },
   { name: "grokModelsQuery", build: () => asQuery(settings.grokModelsQuery()), queryKey: ["settings", "grok-models"], method: "GET", path: "/admin/grok/models" },
   { name: "kimiModelsQuery", build: () => asQuery(settings.kimiModelsQuery()), queryKey: ["settings", "kimi-models"], method: "GET", path: "/admin/kimi/models" },
-  { name: "grokVersionsQuery", build: () => asQuery(settings.grokVersionsQuery()), queryKey: KEYS.versionsCheck, method: "POST", path: "/admin/versions/check" },
-  { name: "kimiVersionsQuery", build: () => asQuery(settings.kimiVersionsQuery()), queryKey: KEYS.versionsCheck, method: "POST", path: "/admin/versions/check" },
   { name: "modelDefaultsQuery", label: "modelDefaultsQuery('grok')", build: () => asQuery(settings.modelDefaultsQuery("grok")), queryKey: ["settings", "model-defaults", "grok"], method: "GET", path: "/admin/model-defaults/grok" },
   { name: "modelDefaultsQuery", label: "modelDefaultsQuery('kimi')", build: () => asQuery(settings.modelDefaultsQuery("kimi")), queryKey: ["settings", "model-defaults", "kimi"], method: "GET", path: "/admin/model-defaults/kimi" },
   {
@@ -210,15 +208,8 @@ const QUERY_CASES: QueryCase[] = [
     path: "/admin/model-defaults/claude",
   },
   {
-    name: "claudeVersionsQuery",
-    build: () => asQuery(settings.claudeVersionsQuery()),
-    queryKey: KEYS.versionsCheck,
-    method: "POST",
-    path: "/admin/versions/check",
-  },
-  {
-    name: "codexVersionsQuery",
-    build: () => asQuery(settings.codexVersionsQuery()),
+    name: "versionsQuery",
+    build: () => asQuery(settings.versionsQuery()),
     queryKey: KEYS.versionsCheck,
     method: "POST",
     path: "/admin/versions/check",
@@ -313,14 +304,6 @@ const MUTATION_CASES: MutationCase[] = [
     request: { method: "POST", path: "/admin/grok/models/grok-4.7-build-fast/toggle", body: { enabled: false } }, invalidates: [["settings", "grok-models"], ["settings", "grok-settings"]] },
   { name: "kimiModelToggleMutation", build: opts => asMutation(settings.kimiModelToggleMutation(opts)), variables: { model: "kimi-4.7-build-fast", enabled: false },
     request: { method: "POST", path: "/admin/kimi/models/kimi-4.7-build-fast/toggle", body: { enabled: false } }, invalidates: [["settings", "kimi-models"], ["settings", "kimi-settings"]] },
-  { name: "grokVersionsCheckMutation", build: opts => asMutation(settings.grokVersionsCheckMutation(opts)), variables: undefined,
-    request: { method: "POST", path: "/admin/versions/check", body: undefined }, invalidates: [KEYS.versionsCheck] },
-  { name: "kimiVersionsCheckMutation", build: opts => asMutation(settings.kimiVersionsCheckMutation(opts)), variables: undefined,
-    request: { method: "POST", path: "/admin/versions/check", body: undefined }, invalidates: [KEYS.versionsCheck] },
-  { name: "grokVersionMutation", build: opts => asMutation(settings.grokVersionMutation(opts)), variables: "1.0.46",
-    request: { method: "POST", path: "/admin/grok/version", body: { selection: "1.0.46" } }, invalidates: [KEYS.versionsCheck] },
-  { name: "kimiVersionMutation", build: opts => asMutation(settings.kimiVersionMutation(opts)), variables: "2.5.3",
-    request: { method: "POST", path: "/admin/kimi/version", body: { selection: "2.5.3" } }, invalidates: [KEYS.versionsCheck] },
   { name: "modelDefaultsMutation", label: "modelDefaultsMutation('grok')", build: opts => asMutation(settings.modelDefaultsMutation("grok", opts)), variables: { model: "grok-4.6", reasoning_effort: "xhigh" },
     request: { method: "POST", path: "/admin/model-defaults/grok", body: { model: "grok-4.6", reasoning_effort: "xhigh" } }, invalidates: [["settings", "model-defaults", "grok"]] },
   { name: "modelDefaultsMutation", label: "modelDefaultsMutation('kimi')", build: opts => asMutation(settings.modelDefaultsMutation("kimi", opts)), variables: { model: "kimi-4.6", reasoning_effort: "max" },
@@ -405,20 +388,45 @@ const MUTATION_CASES: MutationCase[] = [
     invalidates: [KEYS.modelDefaultsClaude, claudeSettingsKeys.config()],
   },
   {
-    name: "claudeVersionsCheckMutation",
-    build: (opts) => asMutation(settings.claudeVersionsCheckMutation(opts)),
+    name: "versionsCheckMutation",
+    build: (opts) => asMutation(settings.versionsCheckMutation(opts)),
     variables: undefined,
     request: { method: "POST", path: "/admin/versions/check", body: undefined },
     invalidates: [KEYS.versionsCheck],
   },
   {
-    name: "claudeVersionMutation",
-    build: (opts) => asMutation(settings.claudeVersionMutation(opts)),
+    name: "engineVersionMutation",
+    label: "engineVersionMutation(claude)",
+    build: (opts) => asMutation(settings.engineVersionMutation("claude", opts)),
     variables: "1.2.3",
     request: {
       method: "POST",
       path: "/admin/claude/version",
       body: { selection: "1.2.3" },
+    },
+    invalidates: [KEYS.versionsCheck],
+  },
+  {
+    name: "engineVersionMutation",
+    label: "engineVersionMutation(grok)",
+    build: (opts) => asMutation(settings.engineVersionMutation("grok", opts)),
+    variables: "1.0.46",
+    request: {
+      method: "POST",
+      path: "/admin/grok/version",
+      body: { selection: "1.0.46" },
+    },
+    invalidates: [KEYS.versionsCheck],
+  },
+  {
+    name: "engineVersionMutation",
+    label: "engineVersionMutation(kimi)",
+    build: (opts) => asMutation(settings.engineVersionMutation("kimi", opts)),
+    variables: "2.5.3",
+    request: {
+      method: "POST",
+      path: "/admin/kimi/version",
+      body: { selection: "2.5.3" },
     },
     invalidates: [KEYS.versionsCheck],
   },
@@ -483,15 +491,9 @@ const MUTATION_CASES: MutationCase[] = [
     invalidates: [KEYS.quotaMode],
   },
   {
-    name: "codexVersionsCheckMutation",
-    build: (opts) => asMutation(settings.codexVersionsCheckMutation(opts)),
-    variables: undefined,
-    request: { method: "POST", path: "/admin/versions/check", body: undefined },
-    invalidates: [KEYS.versionsCheck],
-  },
-  {
-    name: "codexVersionMutation",
-    build: (opts) => asMutation(settings.codexVersionMutation(opts)),
+    name: "engineVersionMutation",
+    label: "engineVersionMutation(codex)",
+    build: (opts) => asMutation(settings.engineVersionMutation("codex", opts)),
     variables: "latest",
     // Not `/admin/codex/version` -- the codex lock predates the claude one and
     // keeps its flat path.
@@ -541,13 +543,10 @@ describe("query builders", () => {
     });
   }
 
-  it("registers both engines' version reads under the one shared key", () => {
-    assert.equal(settings.claudeVersionsQueryKey, settings.versionsCheckQueryKey);
-    assert.equal(settings.codexVersionsQueryKey, settings.versionsCheckQueryKey);
-    // The shared key is only safe because neither read re-triggers the forced
-    // upstream probe on a stale remount.
-    assert.equal(asQuery(settings.claudeVersionsQuery()).staleTime, Infinity);
-    assert.equal(asQuery(settings.codexVersionsQuery()).staleTime, Infinity);
+  it("reads every engine's version under the one shared key", () => {
+    // The shared key is only safe because the read does not re-trigger the
+    // forced upstream probe on a stale remount.
+    assert.equal(asQuery(settings.versionsQuery()).staleTime, Infinity);
   });
 });
 
@@ -602,14 +601,6 @@ describe("module surface", () => {
     "claudeSettingsMutation",
     "claudeSettingsQuery",
     "claudeSettingsQueryKey",
-    "claudeVersionMutation",
-    "claudeVersionsCheckMutation",
-    "claudeVersionsQuery",
-    "claudeVersionsQueryKey",
-    "codexVersionMutation",
-    "codexVersionsCheckMutation",
-    "codexVersionsQuery",
-    "codexVersionsQueryKey",
     "engineDestroyMutation",
     "engineDestroyQuery",
     "engineDestroyQueryKey",
@@ -628,14 +619,8 @@ describe("module surface", () => {
     "kimiSettingsQuery",
     "grokSettingsQueryKey",
     "kimiSettingsQueryKey",
-    "grokVersionMutation",
-    "kimiVersionMutation",
-    "grokVersionsCheckMutation",
-    "kimiVersionsCheckMutation",
-    "grokVersionsQuery",
     "hostOverridesQuery",
     "hostOverridesQueryKey",
-    "kimiVersionsQuery",
     "hostSpawnMutation",
     "hostSpawnQuery",
     "insecureApprovalMutation",
@@ -662,7 +647,10 @@ describe("module surface", () => {
     "subagentModelSelectionMutation",
     "subagentModelSelectionQuery",
     "subagentModelSelectionQueryKey",
+    "engineVersionMutation",
+    "versionsCheckMutation",
     "versionsCheckQueryKey",
+    "versionsQuery",
   ];
 
   it("exports exactly the documented surface", () => {

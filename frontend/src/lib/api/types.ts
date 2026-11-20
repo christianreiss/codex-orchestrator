@@ -1219,11 +1219,6 @@ export interface HostOverrideCounts {
   session_housekeeping: Record<"codex" | "claude" | "grok" | "kimi", number>;
 }
 
-export interface CodexVersionLockValue {
-  locked_version: string | null;
-  locked_at: string | null;
-}
-
 export interface CodexVersionsSummary {
   client_version_lock?: string | null;
   client_version_lock_updated_at?: string | null;
