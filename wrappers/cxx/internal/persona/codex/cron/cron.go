@@ -19,7 +19,6 @@ import (
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/peer"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/update"
 )
 
@@ -265,14 +264,6 @@ func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Res
 		}
 		res.SyncAction = "failed"
 		syncErr = operatorerror.InStep("Configuration sync", syncErr)
-	}
-
-	// Keep the peer wrapper + engine current too: a dual-engine host must have
-	// all four components (cdx, clx, codex, claude) updated by a single cron
-	// entry. EnsureForCron no-ops when this tick was itself spawned by the
-	// peer (CODEX_ORCH_PEER_SPAWN=1) or when the host has no peer engine.
-	if !hostcron.IsCoordinated() {
-		peer.EnsureForCron(ctx, cfg, minimal, logger)
 	}
 
 	if reportErr != nil {

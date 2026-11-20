@@ -535,7 +535,6 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/grok/memory_routing_test.go` | Grok-only test/fixture for memory routing test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/native.go` | Grok-only implementation of native; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/native_test.go` | Grok-only test/fixture for native test; Kimi has its own provider path. |
-| `wrappers/cxx/internal/grok/peer.go` | Grok-only implementation of peer; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/preexec.go` | Grok-only implementation of preexec; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/preexec_test.go` | Grok-only test/fixture for preexec test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/private_directory.go` | Grok-only implementation of private directory; Kimi has its own provider path. |

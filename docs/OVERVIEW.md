@@ -725,7 +725,7 @@ visible with a choice to load the latest values or discard the draft.
      detached rotation there is uploaded at the next wrapper run. Headless Linux maintenance supplies the standard
      `/run/user/<uid>` systemd-user bus environment when cron omitted it.
    - When a host already has an active wrapper run, the concurrent guard still
-     skips managed content/update writes and peer reconciliation, but performs
+     skips managed content/update writes, but performs
      the auth freshness check and keeps API/auth/runner health visible. The
      outcome says `SYNC PAUSED`, not the over-broad `READ ONLY`; an explicit
      `--allow-concurrent-sync` remains the write-enabled escape hatch. This is

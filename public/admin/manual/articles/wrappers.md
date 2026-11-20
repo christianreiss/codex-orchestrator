@@ -128,8 +128,8 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
   `sig=1`). The JSON body carries `signature` (the primary key's, unchanged) plus
   a `signatures` array with one entry per active signing key; `kid`/`fingerprint`
   pick which key's detached signature `sig=1` returns. `engine`
-  defaults to `codex`; each wrapper's peer-reconciliation code fetches the
-  *other* engine's config through this same endpoint with `?engine=<peer>`.
+  defaults to `codex`; the shared cron coordinator fetches every other
+  enabled engine's config through this same endpoint with `?engine=<engine>`.
 - `GET /wrapper/v2/download` — streams the raw wrapper binary for the calling
   host's detected platform (the same artifact as the versioned `/bin/...`
   route below).
@@ -411,8 +411,8 @@ and removes the new shared system entry. Privileged removal uses the same
 all-user transaction and restores the snapshots if any system cron file cannot
 be removed.
 Coordinator children receive internal `CXX_CRON_COORDINATED` and
-`CXX_CRON_ENGINE_ONLY` markers so alias forwarding and legacy peer guards cannot
-re-enter the coordinator; operators do not set either variable.
+`CXX_CRON_ENGINE_ONLY` markers so alias forwarding cannot re-enter the
+coordinator; operators do not set either variable.
 
 ## Subcommands and flags
 
