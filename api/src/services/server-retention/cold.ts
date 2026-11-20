@@ -46,12 +46,12 @@ export function coldTasks(family: ColdFamily, p: ServerRetentionPolicy): ColdTas
         delay: p.quota_days * DAY,
         guard: sql`NOT (${workingSetPredicate(name)!})`,
       })),
-      ...['dashboard_graph_quota_snapshots', 'dashboard_graph_claude_quota_snapshots'].map((table) => ({
-        table,
-        column: table === 'dashboard_graph_claude_quota_snapshots' ? 'snapshot_at' : 'fetched_at',
+      {
+        table: 'dashboard_graph_quota_snapshots',
+        column: 'fetched_at',
         delay: p.quota_days * DAY,
         guard: sql`1=1`,
-      })),
+      },
     ];
   const free = sql`NOT EXISTS (SELECT 1 FROM control_plane_outbox o WHERE BINARY o.principal=BINARY control_plane_command_receipts.principal AND BINARY o.request_id=BINARY control_plane_command_receipts.request_id AND o.completed_at IS NULL)
     AND NOT EXISTS (SELECT 1 FROM chatty_actions a WHERE BINARY a.id=BINARY control_plane_command_receipts.request_id AND a.status IN ('executing','unknown'))

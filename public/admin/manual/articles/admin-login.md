@@ -2,14 +2,10 @@
 title: Admin login and access
 section: Admin access and identity
 verified: 2026-10-17
-sources: api/src/http/plugins/auth-admin.ts, api/src/security/authorization-mode.ts, api/src/http/plugins/client-ip.ts, api/src/services/admin-auth.ts, api/src/services/admin-passkey.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/pages/static.ts, api/src/routes/cli-auth/index.ts, api/src/env.ts, caddy/Caddyfile, frontend/src/routes/login/+page.svelte
+sources: api/src/http/plugins/auth-admin.ts, api/src/security/authorization-mode.ts, api/src/http/plugins/client-ip.ts, api/src/services/admin-auth.ts, api/src/services/admin-passkey.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/pages/static.ts, api/src/env.ts, caddy/Caddyfile, frontend/src/routes/login/+page.svelte
 ---
 
 The admin surface has one gate: a session cookie, enforced once at least one admin user exists. Transport security is whatever your proxy provides. This server does not issue, request or verify client certificates.
-
-## CLI device approval
-
-`GET /cli/auth/verify` (the CLI device-approval page) requires an admin session: an anonymous browser gets `401 admin_required`, an admin session is redirected to the SPA approval page (`api/src/routes/cli-auth/index.ts`). It does **not** change what `app.requireAdmin`/`resolveAdmin` (`api/src/http/plugins/auth-admin.ts`) check.
 
 ## Client certificates
 
@@ -31,7 +27,7 @@ The enforcement lives in the Fastify decorator `app.requireAdmin` (added by `api
 - `POST /admin/auth/passkey/login/options`
 - `POST /admin/auth/passkey/login`
 
-Plus the CLI-auth device-code entry points (`/cli/auth/start`, `/cli/auth/poll/*`). Everything else under `/admin/*` demands a session via `requireAdmin`, including:
+Everything else under `/admin/*` demands a session via `requireAdmin`, including:
 
 - `POST /admin/auth/logout`
 - `POST /admin/auth/password/change`
@@ -126,7 +122,6 @@ Authenticated admins can change their own password via `POST /admin/auth/passwor
 - api/src/routes/admin/auth/index.ts (every /admin/auth/* route; `capabilities` and `authorization_mode` on the status payload)
 - api/src/security/authorization-mode.ts (`compatible` / `strict` enforcement modes)
 - api/src/routes/admin/pages/static.ts (SPA shell preHandler)
-- api/src/routes/cli-auth/index.ts (`/cli/auth/verify` admin-session gate)
 - api/src/env.ts (ADMIN_SESSION_TTL_MINUTES default)
 - caddy/Caddyfile (TLS termination and reverse proxy; no client-certificate gate)
 - frontend/src/routes/login/+page.svelte (login page state machine, auto-passkey, phase transitions)

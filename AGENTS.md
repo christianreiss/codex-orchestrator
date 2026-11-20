@@ -46,7 +46,6 @@ Before landing an engine-agnostic feature, add Codex (`cdx`), Claude (`clx`), Gr
 - Grok specifics: Skills remain native on disk (`grok_skills` → `~/.grok/skills`); Codex and MCP-enabled Claude read fleet Skill content through MCP; subscription usage is fetched server-side for Dashboard/Accounts while CLI quota reporting and enforcement remain unavailable (1.0.75+ `grok usage` prints the plan limit natively, but the server-side billing fetch in `grok-usage.ts` stays the source of truth); posture projects only `[ui].permission_mode` (no sandbox); and a canonical Grok login must have exactly one refresher, so seeding always uses a dedicated device login.
 - ChatGPT quota lanes / `--lane` / `POST /host/lane` — Codex/ChatGPT-only concept. The Spark lane itself is retired (2026-09-29): `spark` heals to a cleared preference.
 - Effort naming and persistence differ by engine: Codex writes `model_reasoning_effort` to `config.toml`. Claude's fleet field is `effortLevel`, rendered into `settings.json` as `modelSettings[canonicalModel].effortLevel`; only older models also receive the compatible top-level key. Newer models ignore top-level user effort. Do not send the Codex key to Claude or confuse either CLI setting with the Anthropic API's `effort` request parameter.
-- Device-code CLI login (`/cli/auth/*`) — Claude Code accepts `ANTHROPIC_API_KEY` directly; the wrapper syncs credentials.
 - GitHub-release CLI download — Claude CLI ships via npm; `clx update` / `clx cron run` install a pinned private copy with `npm install --prefix` under `~/.cxx/engines/claude` (no global npm, no sudo), or, when npm is absent, the pinned native binary from the registry's platform package (sha512-verified).
 - SSH alt-screen suppression — Claude CLI handles its own terminal state.
 - OpenAI auth is `Bearer`-only (matches OpenAI's public API); the Anthropic-compatible API accepts Bearer / `x-api-key` / raw token (matches Anthropic's public API).
@@ -93,7 +92,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - `api/src/server.ts` is the entrypoint: boots env, registers plugins (auth, CORS, envelope), wires services, and mounts route groups under `api/src/routes/`.
 - `api/src/services/host-auth.ts` + `host-registration.ts` + `host-management.ts` own host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), and pruning.
 - `api/src/services/runner-validation.ts` + `runner-client.ts` probe `AUTH_RUNNER_URL`, validate uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
-- The wrapper bakery v2 services (`api/src/services/wrapper-config.ts`, `wrapper-bin-registry.ts`, `wrapper-download.ts`, `wrapper-meta.ts`, `wrapper-signing-key.ts`, `wrapper-transition.ts`) compose typed per-engine host JSON configs signed with Ed25519 and serve one Go `cxx` artifact through the compatible Codex/Claude download surfaces.
+- The wrapper bakery v2 services (`api/src/services/wrapper-config.ts`, `wrapper-bin-registry.ts`, `wrapper-download.ts`, `wrapper-signing-key.ts`, `wrapper-transition.ts`) compose typed per-engine host JSON configs signed with Ed25519 and serve one Go `cxx` artifact through the compatible Codex/Claude download surfaces.
 - `api/src/services/skills.ts`, `agents.ts`, `client-config.ts`, and `mcp-memories.ts` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
 - MySQL schema is mirrored in `api/src/db/schema.ts`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, versions, logs/admin events/users/sessions/password resets, and insecure auth requests/domain allows.
 
@@ -106,7 +105,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 2. **`/auth` retrieve/store**
    - Requires API key header and passes through host/IP policy, insecure host windows, and the kill switch.
-   - Retrieve path (`command=retrieve`, default) validates client digest/timestamp and returns status (`valid`, `outdated`, `upload_required`, `missing`) plus metadata: `versions` (client/wrapper/runner/quota/cdx_silent/installation), host payload, API call count, and current-month token totals. Codex `/auth` responses carry `chatgpt` (date-style shell wrappers also get it as `chatgpt_usage`).
+   - Retrieve path (`command=retrieve`, default) validates client digest/timestamp and returns status (`valid`, `outdated`, `upload_required`, `missing`) plus metadata: `versions` (client/wrapper/runner/quota/cdx_silent/installation), host payload, API call count, and current-month token totals. Codex `/auth` responses carry `chatgpt`.
    - Store path (`command=store`) enforces RFC3339 `last_refresh` bounds (`>= 2000-01-01`, `<= now+300s`), token quality, canonical sort/digest, and secretbox persistence to `auth_payloads` + `auth_entries`.
    - Runner validation runs before every host, admin, seed, or bootstrap candidate can advance canonical auth. Runner `updated_auth` can replace uploads when it is same/newer; runner unreachability or non-OK status blocks acceptance, and non-verified replacements remain quarantined.
    - Host uninstall uses `DELETE /auth` (IP binding enforced unless `?force=1`).
@@ -118,10 +117,9 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 4. **Telemetry + sync extras**
    - `/host/users` records username/hostname combos for uninstall cleanup and returns known users.
-   - `/skills` lists/retrieves/stores canonical skill manifests by slug/sha.
-   - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
+   - `GET /skills` lists canonical skill manifests; skill bodies, the canonical AGENTS doc and the rendered client config reach hosts through `/sync/bootstrap` (skills also through MCP).
    - `/host/lane` gets/sets lane preference (`normal`, `null`; legacy `spark` heals to `null`) with insecure-window enforcement.
-   - `/wrapper/v2/meta` + `/wrapper/v2/config` + `/wrapper/v2/download` serve the v2 binary bakery; `/wrapper/download` is the legacy POSIX transition launcher that writes config before exec.
+   - `/wrapper/v2/config` + `/wrapper/v2/bin/...` (plus the `/wrapper/v2/download/{artifact}/...` alias for cxx 0.9.71–0.9.74) serve the v2 binary bakery. Date-versioned shell wrappers are unsupported and need a reinstall.
    - `/mcp` serves JSON-RPC MCP tools/resources, including the host-scoped `memory_*`, fleet-wide `shared_memory_*` and `project_*` knowledge tools (there is no host REST mirror for them) (GET probe advertises POST-only, with origin allowlist checks).
    - `/versions` is unauthenticated and returns version snapshot metadata when kill switch is off.
 

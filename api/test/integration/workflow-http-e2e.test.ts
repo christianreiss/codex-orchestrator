@@ -156,7 +156,6 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
         claudeWrapperVersion: '0.9.111',
         grokWrapperVersion: '0.9.111',
         kimiWrapperVersion: '0.9.111',
-        agentMessagingEnabled: 1,
         createdAt: now,
         updatedAt: now,
       });

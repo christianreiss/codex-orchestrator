@@ -88,6 +88,15 @@ const migrationRemovals = async (): Promise<Set<string>> => {
   return removed;
 };
 
+/**
+ * Columns a shipped migration adds that `schema.ts` deliberately no longer maps
+ * (step 1 of the two-step drop: an outgoing or restarted older container still
+ * selects them, so the column stays in the database while nothing maps it).
+ * Each entry is removed in the same commit as the migration that drops it; the
+ * guard below fails once a migration does, so an entry cannot outlive its drop.
+ */
+const UNMAPPED_PENDING_DROP = new Set<string>(['hosts.agent_messaging_enabled']);
+
 describe('migrations against the test baseline', () => {
   it('adds no table or column missing from the current Drizzle mirror', async () => {
     const baseline = new Map<string, Set<string>>(
@@ -109,11 +118,31 @@ describe('migrations against the test baseline', () => {
         continue;
       }
       if (retired.has(`${table}.${column}`)) continue;
+      if (UNMAPPED_PENDING_DROP.has(`${table}.${column}`)) continue;
       if (!columns?.has(column)) missing.push(`${migration}:${table}.${column}`);
     }
 
     // Each entry reached migrations without the independently declared mirror.
     expect(missing).toEqual([]);
+  });
+
+  // The exemption above must stay narrow: only a column the mirror really lacks,
+  // and only until a migration drops it.
+  it('keeps the pending-drop exemptions to unmapped, not yet dropped columns', async () => {
+    const retired = await migrationRemovals();
+    for (const entry of UNMAPPED_PENDING_DROP) {
+      const [table, column] = entry.split('.') as [string, string];
+      const mapped = Object.values(schema)
+        .filter(isTable)
+        .find((t) => getTableName(t) === table);
+      expect(mapped, `${entry}: table is not mapped`).toBeDefined();
+      expect(
+        Object.values(getTableColumns(mapped!)).map((c) => c.name),
+        `${entry} is mapped again: drop the exemption`,
+      ).not.toContain(column);
+      expect(currentSchemaColumns().get(table)?.has(column), `${entry} is not in the baseline`).toBe(true);
+      expect(retired.has(entry), `${entry} is dropped by a migration: drop the exemption`).toBe(false);
+    }
   });
 
   // Pins the removal extraction the same way: a regex that stops matching here

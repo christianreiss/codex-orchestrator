@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildInstallerLauncherScript, buildLegacyWrapperTransitionScript, buildWrapperV2InstallerScript } from '../../../src/services/wrapper-transition.js';
+import { buildInstallerLauncherScript, buildWrapperV2InstallerScript } from '../../../src/services/wrapper-transition.js';
 import { buildSeedAuthScript } from '../../../src/services/install-token.js';
 import { hostSpawnSetupScript } from '../../../src/services/host-spawn.js';
 const root = resolve(import.meta.dirname, '../../../../');
@@ -11,7 +11,7 @@ const opts = { fqdn: 'fixture.test', apiKey: 'fixture-only', baseUrl: 'https://f
 function scratch(run: (dir: string) => void) { const dir = mkdtempSync(join(tmpdir(), 'slop-cli-safety-')); try { run(dir); } finally { rmSync(dir, { recursive: true, force: true }); } }
 function executable(path: string, body: string) { writeFileSync(path, body); chmodSync(path, 0o755); }
 describe('safe CLI discovery and truthful readiness', () => {
-  for (const [name, source] of [['launcher', buildInstallerLauncherScript({ ...opts, installUrl: 'https://fixture.invalid/install/test' })], ['installer', buildWrapperV2InstallerScript(opts)], ['transition', buildLegacyWrapperTransitionScript(opts)]] as const) {
+  for (const [name, source] of [['launcher', buildInstallerLauncherScript({ ...opts, installUrl: 'https://fixture.invalid/install/test' })], ['installer', buildWrapperV2InstallerScript(opts)]] as const) {
     it(`${name} help bypasses dependencies and all filesystem effects`, () => scratch(dir => {
       const script = join(dir, 'script'); writeFileSync(script, source);
       const r = spawnSync('/bin/sh', [script, '--help'], { encoding: 'utf8', env: { PATH: '/missing', HOME: join(dir, 'missing') } });

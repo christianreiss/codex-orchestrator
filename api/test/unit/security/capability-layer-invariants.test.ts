@@ -66,7 +66,6 @@ const PREVIOUSLY_OWNER_ADMIN_ONLY: Array<[string, string]> = [
   ['POST', '/admin/users'],
   ['POST', '/admin/users/:id'],
   ['POST', '/admin/users/wipe'],
-  ['POST', '/cli/auth/approve'],
 ];
 
 const PRIVILEGED_ROLES = ['owner', 'admin'];

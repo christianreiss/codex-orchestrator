@@ -33,7 +33,7 @@
   const path = $derived(page.url.pathname.replace(base, "") || "/");
 
   // Routes that render outside the AppShell (login, password reset, device-code approval).
-  const STANDALONE = ["/setup", "/login", "/password/reset", "/cli-auth/verify"];
+  const STANDALONE = ["/setup", "/login", "/password/reset"];
   const standalone = $derived(STANDALONE.some((p) => path === p || path.startsWith(p + "/")));
 
   // PageShell/AuthShell own titles, including resolved object names.

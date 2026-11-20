@@ -80,7 +80,6 @@ describe.skipIf(!handle)('planned reboot durable transfer', { timeout: 120000 },
       status: 'active',
       secure: 1,
       engines: ENGINES.join(','),
-      agentMessagingEnabled: 1,
       createdAt: now,
       updatedAt: now,
     });

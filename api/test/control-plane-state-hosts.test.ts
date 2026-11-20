@@ -355,7 +355,7 @@ describe('owned host management and configuration', () => {
     const saved = await service.setAgentsExtra(1, `\r\n  ${text}\r\n`);
     expect(saved.agentsExtra).toBe(text);
     expect(h.state.snapshot().hosts.get(1)?.agentsExtra).toBe(text);
-    // The authenticated host the /agents/retrieve route renders for carries it.
+    // The authenticated host the /sync/bootstrap agents block renders for carries it.
     expect((await h.auth.authenticate(h.req())).agentsExtra).toBe(text);
     const audit = h.fake.inserts
       .filter((entry) => entry.table === schema.logs)

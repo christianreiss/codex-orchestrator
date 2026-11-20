@@ -975,12 +975,6 @@ test("project detail and standalone approval keep their task-focused layouts", a
   await expect(about.getByLabel("Title")).toHaveValue("Fleet console");
   await expect(about.getByRole("button", { name: "Save project details", exact: true }).first()).toBeDisabled();
   await expectNoSeriousAxeFindings(page);
-
-  await page.goto("/admin/cli-auth/verify");
-  await expect(page.getByRole("heading", { name: "Approve CLI session" })).toBeVisible();
-  await expect(page.getByLabel("Device code")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Look up" })).toBeDisabled();
-  await expectNoSeriousAxeFindings(page);
 });
 
 test("host detail orders problems, engines and access before a collapsed Advanced block", async ({ page }) => {

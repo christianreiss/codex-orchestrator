@@ -268,54 +268,6 @@ func TestChatGPTQuotaDecodesNormalLaneBesideRetiredSpark(t *testing.T) {
 	}
 }
 
-func TestRetrieveConfigUnwrapsContentAndSendsSha(t *testing.T) {
-	var requestBody string
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		requestBody = string(body)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "ok",
-			"data": map[string]any{
-				"status":  "updated",
-				"sha256":  "def",
-				"content": "model = \"gpt-6-astra\"\n",
-			},
-		})
-	})
-	body, err := c.RetrieveConfig(context.Background(), "abc")
-	if err != nil {
-		t.Fatalf("config: %v", err)
-	}
-	if string(body) != "model = \"gpt-6-astra\"\n" {
-		t.Fatalf("body = %q", string(body))
-	}
-	if !strings.Contains(requestBody, `"sha256":"abc"`) {
-		t.Fatalf("missing sha256 in request: %s", requestBody)
-	}
-	if strings.Contains(requestBody, `"digest"`) {
-		t.Fatalf("request still used digest: %s", requestBody)
-	}
-}
-
-func TestRetrieveAgentsUnwrapsContent(t *testing.T) {
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "ok",
-			"data": map[string]any{
-				"status":  "updated",
-				"content": "# AGENTS.md\n",
-			},
-		})
-	})
-	body, err := c.RetrieveAgents(context.Background(), "")
-	if err != nil {
-		t.Fatalf("agents: %v", err)
-	}
-	if string(body) != "# AGENTS.md\n" {
-		t.Fatalf("body = %q", string(body))
-	}
-}
-
 func TestRetryOn5xx(t *testing.T) {
 	attempts := 0
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {

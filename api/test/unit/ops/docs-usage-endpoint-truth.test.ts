@@ -146,13 +146,9 @@ describe('docs/USAGE.md endpoint reference', () => {
       '/auth',
       '/sync/status',
       '/sync/bootstrap',
-      '/config/retrieve',
-      '/agents/retrieve',
       '/wrapper/v2/config',
-      '/wrapper/v2/download',
       '/admin/hosts/register',
       '/admin/api/state',
-      '/cli/auth/verify',
     ]) {
       expect(paths, `docs/USAGE.md should still name ${path}`).toContain(path);
     }
@@ -190,17 +186,14 @@ describe('docs/USAGE.md endpoint reference', () => {
     }
   });
 
-  it('credits wrapper self-update to the v2 binary, not the legacy launcher', () => {
+  it('credits wrapper self-update to the versioned v2 binary route', () => {
     const paragraphs = usage.split(/\n\s*\n/);
-    const update = paragraphs.filter((paragraph) => paragraph.includes('`/wrapper/v2/download`'));
+    const update = paragraphs.filter((paragraph) => paragraph.includes('`/wrapper/v2/bin/{artifact}/{platform}/v{version}/{binary}`'));
     expect(update.length).toBeGreaterThan(0);
     expect(update.some((paragraph) => paragraph.includes('auto-updates'))).toBe(true);
 
-    // `/wrapper/download` serves the transition launcher date-versioned shell
-    // wrappers update through; the Go wrappers never self-update from it.
-    for (const paragraph of paragraphs.filter((p) => /`\/wrapper\/download`/.test(p))) {
-      expect(paragraph, 'name /wrapper/download only as the legacy launcher').toMatch(/legacy/);
-    }
+    // The date-versioned shell-wrapper transition launcher was removed.
+    expect(usage).not.toMatch(/`\/wrapper\/download`/);
   });
 
   it('states the installer-token TTL the API enforces', () => {
