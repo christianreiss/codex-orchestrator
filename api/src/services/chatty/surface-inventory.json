@@ -440,8 +440,6 @@
       "POST /admin/agent-messaging/scopes/state",
       "GET /admin/agent-messaging/scopes",
       "GET /admin/agent-messaging/scopes/:scopeId/members",
-      "POST /admin/agent-messaging/scopes/read",
-      "POST /admin/agent-messaging/scopes/send",
       "POST /admin/agent-messaging/scopes/resolve",
       "GET /admin/agent-messaging/chats",
       "POST /admin/agent-messaging/chats/read",

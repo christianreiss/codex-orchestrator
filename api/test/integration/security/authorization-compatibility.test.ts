@@ -340,7 +340,6 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-messaging/messages/:id/redrive',
       'POST /admin/agent-messaging/publish',
       'POST /admin/agent-messaging/scopes/state',
-      'POST /admin/agent-messaging/scopes/send',
       'POST /admin/agent-messaging/scopes/resolve',
       'POST /admin/agent-messaging/state',
       'POST /admin/agent-portal/state',

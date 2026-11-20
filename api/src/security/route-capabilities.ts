@@ -571,8 +571,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/agent-messaging/scopes/state': cap('agent_messaging.manage'),
   'GET /admin/agent-messaging/scopes': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/scopes/:scopeId/members': cap('agent_messaging.read'),
-  'POST /admin/agent-messaging/scopes/read': cap('agent_messaging.reveal_content'),
-  'POST /admin/agent-messaging/scopes/send': cap('agent_messaging.manage'),
   'POST /admin/agent-messaging/scopes/resolve': cap('agent_messaging.manage'),
   'GET /admin/agent-messaging/groups': cap('agent_messaging.read'),
   'GET /admin/agent-messaging/groups/:slug': cap('agent_messaging.read'),

@@ -9,7 +9,8 @@
   import Timestamp from '$lib/components/page/Timestamp.svelte';
   import { api } from '$lib/api/client';
   import { authStore } from '$lib/stores/auth';
-  import { type ScopeRoom, type ResourceClaim, type RoomHistory, type RoomEvent } from '$lib/api/coordination';
+  import { type ScopeRoom, type ResourceClaim } from '$lib/api/coordination';
+  import { roomHistoryOptions, roomKeys, type RoomEvent, type RoomHistory, type RoomSend } from '$lib/api/roomChats';
   import { Button } from '$lib/components/ui/button';
   let { room, claims, onclose }: { room: ScopeRoom; claims: ResourceClaim[]; onclose: () => void } = $props();
   const client = useQueryClient();
@@ -17,23 +18,26 @@
   const canWrite = $derived($authStore.can('agent_messaging.manage'));
   // Parent keys by room ID; drafts and retry IDs survive room switches in memory.
   const roomId = untrack(() => room.id);
-  const history = createQuery<RoomHistory>({ queryKey: ['agent-scopes', 'history', roomId], queryFn: () => api.post('/admin/agent-messaging/scopes/read', { scope_id: room.id }), enabled: get(authStore).can('agent_messaging.reveal_content') });
+  // Scope rooms are shared rooms: history merges the historic scope events with room chat.
+  const history = createQuery<RoomHistory>(roomHistoryOptions(roomId, get(authStore).can('agent_messaging.reveal_content')));
   let draft = $state(drafts.get(roomId)?.content ?? '');
   let pending = $state<{ content: string; id: string } | null>(drafts.get(roomId)?.pending ?? null);
   $effect(() => { if (draft || pending) drafts.set(roomId, { content: draft, pending }); else drafts.delete(roomId); });
   let older = $state<RoomEvent[]>([]);
-  let before = $state<number | null | undefined>(undefined);
+  let before = $state<string | null | undefined>(undefined);
   let reasons = $state<Record<string, string>>({});
-  const events = $derived([...new Map([...older, ...($history.data?.events ?? [])].map(e => [e.id, e])).values()].sort((a,b) => a.sequence - b.sequence));
+  const events = $derived([...new Map([...older, ...($history.data?.events ?? [])].map(e => [e.id, e])).values()].sort((a,b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)));
   const roomClaims = $derived(claims.filter(c => c.scope_ids?.includes(room.id) || room.members.some(m => m.session_id === c.session_id)));
   const send = createMutation({ mutationFn: () => {
     if (!pending || pending.content !== draft) pending = { content: draft, id: crypto.randomUUID() };
-    return api.post('/admin/agent-messaging/scopes/send', { scope_id: room.id, content: pending.content, client_request_id: pending.id });
-  }, onSuccess: async () => { draft = ''; pending = null; await client.invalidateQueries({ queryKey: ['agent-scopes'] }); } });
+    // An operator post asks every active member for one answer, as the shared chat's Everyone audience does.
+    const body: RoomSend = { room_id: room.id, client_request_id: pending.id, content: pending.content, attachments: [], recipients: [], ask_all: true };
+    return api.post('/admin/agent-messaging/chats/send', body);
+  }, onSuccess: async () => { draft = ''; pending = null; await Promise.all([client.invalidateQueries({ queryKey: roomKeys }), client.invalidateQueries({ queryKey: ['agent-scopes'] })]); } });
   const more = createMutation({ mutationFn: async () => {
     const cursor = before === undefined ? $history.data?.next_before : before;
     if (!cursor) return;
-    const page = await client.fetchQuery<RoomHistory>({ queryKey: ['agent-scopes', 'history', room.id, cursor], queryFn: () => api.post('/admin/agent-messaging/scopes/read', { scope_id: room.id, before: cursor }) });
+    const page = await client.fetchQuery<RoomHistory>({ queryKey: [...roomKeys, room.id, 'history', cursor], queryFn: () => api.post<RoomHistory>('/admin/agent-messaging/chats/read', { room_id: room.id, before: cursor }) });
     older = [...page.events, ...older]; before = page.next_before;
   } });
   const resolve = createMutation({ mutationFn: (claimId: string) => api.post('/admin/agent-messaging/scopes/resolve', { claim_id: claimId, outcome: 'completed', reason: reasons[claimId] ?? '' }), onSuccess: async (_result, claimId) => { delete reasons[claimId]; await client.invalidateQueries({ queryKey: ['agent-scopes'] }); } });
@@ -56,7 +60,7 @@
     {:else}
       {#if (before === undefined ? $history.data?.next_before : before)}<Button variant="outline" size="sm" disabled={$more.isPending} onclick={() => $more.mutate()}>Earlier messages</Button>{/if}
       {#if $more.error}<p role="alert">{$more.error.message}</p>{/if}
-      {#each events as event (event.id)}<article class={event.kind === 'chat' ? 'rounded-md bg-muted p-3' : 'text-caption text-muted-foreground'}><div class="text-caption">{event.body.name ?? event.actor} · <Timestamp value={event.created_at} /></div><p class="whitespace-pre-wrap break-words">{event.body.content ?? [event.body.action, event.body.purpose, event.body.reason].filter(Boolean).join(' · ')}</p></article>{/each}
+      {#each events as event (event.id)}<article class={event.kind === 'chat' ? 'rounded-md bg-muted p-3' : 'text-caption text-muted-foreground'}><div class="text-caption">{event.name ?? event.actor} · <Timestamp value={event.created_at} /></div><p class="whitespace-pre-wrap break-words">{event.content}</p></article>{/each}
       {#if !events.length}<p class="text-muted-foreground">No messages yet.</p>{/if}
     {/if}
   </div>
