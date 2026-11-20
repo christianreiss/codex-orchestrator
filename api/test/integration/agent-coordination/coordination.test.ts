@@ -23,6 +23,7 @@ import {
 } from '../../../src/db/schema.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
 import { AgentCoordination } from '../../../src/services/agent-coordination/index.js';
+import { AgentRoomChat } from '../../../src/services/agent-room-chat/index.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 import { decrypt, encrypt } from '../../../src/security/secret-box.js';
@@ -216,17 +217,23 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       content: 'coordinate the shared checkout',
       client_request_id: randomUUID(),
     };
+    // agent_room_send is an alias of the shared room-chat send: same event, same idempotency.
     const first = await service.send(a.id, a.token, body);
     expect(await service.send(a.id, a.token, body)).toEqual(first);
-    await expect(service.send(a.id, a.token, { ...body, content: 'changed' })).rejects.toThrow('Request ID');
+    await expect(service.send(a.id, a.token, { ...body, content: 'changed' })).rejects.toThrow('Retry payload differs');
     const history = await service.read(agents[1]!.id, agents[1]!.token, { scope_id: room.id });
-    expect(history.events.filter((e) => e.kind === 'chat')).toHaveLength(1);
+    expect(history.events.filter((e) => e.kind === 'chat')).toHaveLength(0);
+    const chat = new AgentRoomChat(handle!.db, env, keyring, bus);
+    const shared = await chat.read({ sessionId: agents[1]!.id, token: agents[1]!.token }, { room_id: room.id });
+    expect(shared.events.filter((e) => e.kind === 'chat' && e.content === body.content)).toHaveLength(1);
+    const stored = await handle!.db.select().from(agentScopeEvents).where(eq(agentScopeEvents.scopeId, room.id));
+    expect(stored.filter((e) => e.kind === 'chat')).toHaveLength(0);
+    // Shared-room chat is not pushed as a SCOPE/1 notice.
     const mail = await handle!.db
       .select()
       .from(agentBusMessages)
       .where(eq(agentBusMessages.targetSessionId, agents[1]!.id));
-    expect(mail.some((m) => decrypt(m.contentEnc, keyring).includes(body.content))).toBe(true);
-    expect(mail.every((m) => m.kind === 'presence_notice')).toBe(true);
+    expect(mail.some((m) => decrypt(m.contentEnc, keyring).includes(body.content))).toBe(false);
   });
   it('pushes a changed member context once without changing room membership', async () => {
     const a = await register('codex');

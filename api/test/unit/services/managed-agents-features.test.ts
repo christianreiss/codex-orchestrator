@@ -413,9 +413,11 @@ describe('served document byte invariance', () => {
     // 2026-11-18: importance is an inline chat flag across engines.
     // 2026-11-20: the Memory section points single-fact corrections at shared_memory_replace.
     // 2026-11-20: agent_portal_notify retired; the Operator portal paragraph no longer mentions it.
-    expect(out.features_sha256).toBe('4a5559b97997992e77118a9bf7832e3ab3a2b7c0ecebc33945858646c0ae48e4');
-    expect(out.managed_sha256).toBe('d54055b7a6ca3bac408f7b8741011f35286a0562380cf95e59a9ee24842f8f0c');
-    expect(sha256(out.body)).toBe('54a9cab24a9cd8f8477f51e88b9237a21950d07370d3a71316726027bd50225e');
+    // 2026-11-20: scope rooms use the shared room-chat store; agent_room_send leaves the served guidance and
+    //             agent_room_read no longer carries the shared-chat workaround.
+    expect(out.features_sha256).toBe('9188455d515dc79f4348ba2542334fbe8f51e67c12cc3846a81e2ef39d878f5e');
+    expect(out.managed_sha256).toBe('870db960e445523d3ad85d785518e388335eb7381cc5cced0a5e5209309e528f');
+    expect(sha256(out.body)).toBe('3fb73751d5e4a0f216d93617c612578d0de13424885c7ca74134ee048fab6598');
   });
 });
 
@@ -1015,9 +1017,10 @@ describe('managed Agent Messaging guidance', () => {
     expect(body).toContain('same canonical target/key');
     expect(body).toContain('before tests, reinstall or re-enrollment');
     expect(body).toContain('A claim is not an OS sandbox');
-    expect(body).toContain('`agent_room_read` omits shared-chat/UI posts');
-    expect(body).toContain('`agent_chat_read` with room_id equal to the scope ID');
-    expect(body).toContain('never reuse scope cursors there');
+    expect(body).toContain('`agent_room_list`/`agent_room_read` expose host/project rooms, members and claim events');
+    expect(body).toContain('`agent_chat_read`/`agent_chat_send` with room_id equal to the scope ID');
+    expect(body).not.toContain('agent_room_send');
+    expect(body).not.toContain('never reuse scope cursors there');
   });
 
   it('renders the Fleet Advisor block only while the advisor and messaging are both on', () => {

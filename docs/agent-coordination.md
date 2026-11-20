@@ -84,24 +84,27 @@ targets independently of repository discovery; agents on other hosts can use the
 
 ## Rooms and delivery
 
-`agent_room_read` covers scope events (membership, claims and `agent_room_send`
-messages), not contributions from `agent_chat_send` or the shared chat UI.
-Every page, including an empty page, reports `history.coverage: "scope_events_only"`
-and a plain-language `history.notice`. Its `history.unified_chat` provides the
-`agent_chat_read` tool and `{room_id: <scope_id>}` arguments for the combined
-history. Start that read without a cursor, then drain its `next_before`; numeric
-scope cursors are unrelated to shared-chat cursors. Membership checks apply to
-both readers. This contract also applies to the operator scope-read endpoint.
+Scope rooms keep one chat store: `agent_room_events`, the same store groups and
+conferences use. `agent_scope_events` keeps only membership (`presence`) and `claim`
+events; nothing writes new `chat` rows to it any more (2026-11-20). Read and post
+scope chat with `agent_chat_read` and `agent_chat_send`, `room_id` equal to the scope
+ID. That read also merges the historic `chat` rows that stay in `agent_scope_events`
+(no migration), so delivered history remains readable. Chat is not pushed to the
+other members; an operator round (`ask_all` or `recipients`) delivers `ROOM_CHAT/1`.
 
 `agent_room_list` returns automatic rooms, claims and the first 50 members per room.
-`agent_room_read` accepts `scope_id`, either `before` or `after`, `limit` (1–100,
-default 50) and `member_offset`; follow `next_before`, `next_after` and
-`next_member_offset` until exhausted. Without a history cursor it returns the latest
-50 events. `agent_room_send` requires `scope_id`, `content` and stable UUID
-`client_request_id`. Reusing the ID with different content is rejected.
+`agent_room_read` returns membership and claim events only, never chat. It accepts
+`scope_id`, either `before` or `after`, `limit` (1–100, default 50) and
+`member_offset`; follow `next_before`, `next_after` and `next_member_offset` until
+exhausted. Without a history cursor it returns the latest 50 events. The numeric
+scope cursors belong to this reader alone; chat pages with the opaque `next_before`
+of `agent_chat_read`. `agent_room_send` stays on the wire as a compatibility alias of
+`agent_chat_send` for older wrappers: it takes `scope_id`, `content` and a stable UUID
+`client_request_id`, and posts to the shared room with the same idempotency (reusing
+the ID with different content is rejected as `Retry payload differs`). It is no
+longer part of the served fleet guidance.
 
-History is encrypted at rest. Chat is persisted and fan-out queued atomically under
-the bus gate; routine events are collected by a two-second dispatcher. The
+History is encrypted at rest. Routine events are collected by a two-second dispatcher. The
 outbox is the durable undispatched event set, so restart cannot lose pending work.
 A background tick reconciles from the control-plane owner's in-memory state. It
 first previews membership, title and binding changes, claim expiry and session
@@ -112,11 +115,11 @@ seconds in room-sequence order, reading their encrypted bodies from the database
 A larger backlog drains over the following ticks. Overlapping ticks share one
 execution.
 Every event has a room sequence and UUID. Presence and claim batches are marked dispatched
-without model mail; mixed batches fan out only chat entries. Durable room
-history/cursors and WebSocket invalidation remain
-available. Pushes for substantive events include a current member snapshot
-and cursors for omitted history/members. Chat goes to active members except its
-sender. Delivery remains at-least-once; use event UUIDs/cursors to deduplicate.
+without model mail. Only a `chat` row written before the room-chat unification can
+still fan out (to active members except its sender, with a current member snapshot
+and cursors for omitted history/members); the dispatcher drains such leftovers and
+nothing new. Durable room history/cursors and WebSocket invalidation remain
+available. Delivery remains at-least-once; use event UUIDs/cursors to deduplicate.
 Direct `CLAIM/1` requests to conflicting resource owners retain their existing
 delivery and response contract.
 
@@ -130,8 +133,8 @@ original and digest metadata to agree before retirement. History remains auditab
 
 The bus uses session-bound `presence_notice` envelopes for `SCOPE/1` and `CLAIM/1`.
 They cannot wake or follow a replacement session. Do not reply using agent_reply:
-use agent_room_send for useful chat replies and resource_claim_status for a claim
-response. A room post is not a work request or automatic authorization. Existing
+use agent_chat_send (room_id equal to the scope ID) for useful chat replies and
+resource_claim_status for a claim response. A room post is not a work request or automatic authorization. Existing
 manual groups, conferences, direct requests and task results are unchanged.
 
 ## Claims
@@ -286,12 +289,11 @@ reconcile an uncertain response before retrying.
 - GET/POST `/admin/agent-messaging/scopes/state`: status/toggle (read/manage).
 - GET `/admin/agent-messaging/scopes`: rooms, members and claims (read).
 - GET `/admin/agent-messaging/scopes/:scopeId/members?offset=N`: paged metadata (read).
-- POST `/admin/agent-messaging/scopes/read`: history, no-store, audited (reveal_content).
-- POST `/admin/agent-messaging/scopes/send`: operator post (manage).
+- Operator scope chat uses the shared `/admin/agent-messaging/chats/read` and `/chats/send` with the scope ID as `room_id` (the `scopes/read` and `scopes/send` routes were removed 2026-11-20).
 - POST `/admin/agent-messaging/scopes/resolve`: explicit claim outcome/reason (manage).
 
 Session bridge routes under `/host/agent-sessions/:id/agent-messaging/` are
-`context/get`, `context/update`, `rooms/list`, `rooms/read`, `rooms/send`,
+`context/get`, `context/update`, `rooms/list`, `rooms/read`, `rooms/send` (alias of `chats/send`),
 `claims/acquire`, `claims/status`, `claims/release`. No host-wide credential can
 impersonate a session through these routes. Broker tools remain session-scoped.
 
