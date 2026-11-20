@@ -98,7 +98,7 @@ const hook = z.discriminatedUnion('type', [
   z.object({ type: z.literal('command'), ...commonHook, command: text, args: textList.optional(),
     async: flag.optional(), asyncRewake: flag.optional(), shell: z.enum(['bash', 'powershell']).optional(), onFailure }).strict(),
   z.object({ type: z.literal('http'), ...commonHook, url: text, headers: textMap.optional(), allowedEnvVars: textList.optional(), onFailure }).strict(),
-  z.object({ type: z.literal('mcp_tool'), ...commonHook, server: text, tool: text, input: z.record(z.unknown()).optional() }).strict(),
+  z.object({ type: z.literal('mcp_tool'), ...commonHook, server: text, tool: text, input: z.record(z.unknown()).optional(), onFailure }).strict(),
   z.object({ type: z.literal('prompt'), ...commonHook, prompt: text, model: text.optional(), continueOnBlock: flag.optional() }).strict(),
   z.object({ type: z.literal('agent'), ...commonHook, prompt: text, model: text.optional() }).strict(),
 ]);
