@@ -21,7 +21,7 @@
 - **Scope rooms use the shared room chat.**
   - `agent_room_send` is a compatibility alias of `agent_chat_send`, with the same `client_request_id` idempotency. As in shared chats, a plain agent post no longer pushes a notice to the other members.
   - `agent_room_read` returns membership and claim events only. Read scope chat with `agent_chat_read`, which still shows historic scope chat.
-  - The Topology scope chat uses the shared chat routes, so `POST /admin/agent-messaging/scopes/read` and `/scopes/send` are gone.
+  - The Topology scope chat uses the shared chat routes, so `POST /admin/agent-messaging/scopes/read` and `/scopes/send` are gone. An operator post there now asks every active member for one answer, like the shared chat's Everyone audience. Before, it sent a `SCOPE/1` context notice that asked for a reply only when useful.
 
 - **Usage-based scaling is removed.** It stored and displayed tiers but never changed behaviour. Quota limits are unchanged. Migration 0147 deletes the stored rules.
 
