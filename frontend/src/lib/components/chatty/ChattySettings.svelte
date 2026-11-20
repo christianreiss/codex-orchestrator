@@ -21,12 +21,13 @@
   const fleet = useFleetEngines();
   const permutations = (items: readonly string[]): string[][] =>
     items.length <= 1 ? [[...items]] : items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]));
-  const ORDERS = $derived.by(() => {
+  const split = $derived.by(() => {
     const stored = $settings.data?.engine_order ?? [];
-    const on = stored.filter((engine) => $fleet.isEnabled(engine));
-    const off = stored.filter((engine) => !$fleet.isEnabled(engine));
-    return permutations(on).map((order) => [...order, ...off].join(','));
+    return { on: stored.filter((engine) => $fleet.isEnabled(engine)), off: stored.filter((engine) => !$fleet.isEnabled(engine)) };
   });
+  // The stored order in the same normalised form as the options, so it always matches one.
+  const currentOrder = $derived([...split.on, ...split.off].join(','));
+  const ORDERS = $derived(permutations(split.on).map((order) => [...order, ...split.off].join(',')));
   const arrow = (order: string) => order.split(',').filter((engine) => $fleet.isEnabled(engine)).map((engine) => engineLabel(engine)).join(' → ');
 
   const qc = useQueryClient();
@@ -82,8 +83,8 @@
         <div class="space-y-1.5 py-3">
           <label for="chatty-priority" class="text-body font-medium">Automatic priority</label>
           <p id="chatty-priority-help" class="text-body-sm text-muted-foreground">Which engine Chatty tries first when it picks one itself.</p>
-          <Select.Root type="single" value={$settings.data.engine_order.join(',')} onValueChange={(v) => { if (v) $save.mutate({ engine_order: v.split(',') }); }} {disabled}>
-            <Select.Trigger id="chatty-priority" class="w-72 max-w-full" aria-describedby="chatty-priority-help chatty-status"><span>{arrow($settings.data.engine_order.join(','))}</span></Select.Trigger>
+          <Select.Root type="single" value={currentOrder} onValueChange={(v) => { if (v && v !== currentOrder) $save.mutate({ engine_order: v.split(',') }); }} {disabled}>
+            <Select.Trigger id="chatty-priority" class="w-72 max-w-full" aria-describedby="chatty-priority-help chatty-status"><span>{arrow(currentOrder)}</span></Select.Trigger>
             <Select.Content>{#each ORDERS as order}<Select.Item value={order} label={arrow(order)}>{arrow(order)}</Select.Item>{/each}</Select.Content>
           </Select.Root>
         </div>

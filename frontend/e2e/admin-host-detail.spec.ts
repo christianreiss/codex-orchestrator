@@ -37,6 +37,7 @@ async function fixture(page: Page, overrides = false, manage = true, singleEngin
       if (req.method() !== 'GET') { const value = req.postDataJSON(); writes.push({ path, value }); daemon = { ...daemon, ...value }; }
       return json(daemon);
     }
+    if (path === '/admin/hosts/1/engines' && req.method() === 'POST') { writes.push({ path, value: req.postDataJSON() }); return json({ host }); }
     if (path === '/admin/host-daemons') return json({ hosts: [daemon] });
     if (path === '/admin/insecure-approvals/pending') return json({ requests: [] });
     return json({});
@@ -108,6 +109,15 @@ test('remote sessions draft is kept and saved from Advanced', async ({ page }) =
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0].value.default_cwd).toBe('/tmp/my-draft');
+});
+
+test('changing an engine keeps the switched-off assignment the host carries', async ({ page }) => {
+  // Grok is switched off fleet-wide: no toggle, but removing Claude must not drop it.
+  const { writes } = await fixture(page);
+  await page.goto('/admin/hosts/1');
+  await expect(page.getByRole('switch', { name: 'Grok engine', exact: true })).toHaveCount(0);
+  await page.getByRole('switch', { name: 'Claude engine', exact: true }).click();
+  await expect.poll(() => writes.find(w => w.path === '/admin/hosts/1/engines')?.value).toEqual({ engines: ['codex', 'grok', 'kimi'] });
 });
 
 test('existing exceptions open Advanced by themselves and a manual collapse sticks', async ({ page }) => {

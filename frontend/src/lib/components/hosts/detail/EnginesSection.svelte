@@ -38,8 +38,10 @@
   }
   // Only engines switched on fleet-wide get a toggle. A switched-off engine the
   // host carries stays in `assigned`, so changing another engine keeps it.
-  // The last engine cannot be removed.
-  const locked = (engine: HostEngine) => $mutation.isPending || (assigned.includes(engine) && assigned.length <= 1);
+  // The last switched-on engine cannot be removed: a host left with only a
+  // switched-off engine could not run anything.
+  const enabledAssigned = $derived(assigned.filter((engine) => $fleet.isEnabled(engine)));
+  const locked = (engine: HostEngine) => $mutation.isPending || (assigned.includes(engine) && enabledAssigned.length <= 1);
 
   async function set(engine: HostEngine, enabled: boolean): Promise<void> {
     const current: HostEngine[] = assigned.length ? [...assigned] : ["codex"];
