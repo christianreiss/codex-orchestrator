@@ -5,6 +5,7 @@ import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
 import type { FeedbackService } from './feedback.js';
 import { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_PRIORITIES, FEEDBACK_DEPLOYMENTS } from './feedback-contract.js';
+import { versionStates, reviewStates, deliveryStates } from './feedback/contract.js';
 import type { AgentMessagingService } from './agent-messaging.js';
 /**
  * MCP tool registry + dispatcher.
@@ -448,9 +449,9 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       type: { type: 'string', enum: [...FEEDBACK_TYPES] },
       priority: { type: 'string', enum: [...FEEDBACK_PRIORITIES] },
       component: string,
-      version_state: { type: 'string', enum: ['unknown', 'old_version', 'recent'] },
-      review_state: { type: 'string', enum: ['pending', 'needs_retest', 'new', 'known', 'fixed', 'discarded', 'unclear'] },
-      delivery_state: { type: 'string', enum: ['local', 'pending', 'sent', 'uncertain', 'failed'] },
+      version_state: { type: 'string', enum: [...versionStates] },
+      review_state: { type: 'string', enum: [...reviewStates] },
+      delivery_state: { type: 'string', enum: [...deliveryStates] },
     };
     inputs.push({
       definition: {
@@ -1276,12 +1277,6 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
           description: { type: 'string' },
           mime_type: { type: 'string' },
           encoding: { type: 'string', enum: ['utf8', 'base64'] },
-          // Service-layer aliases. They predate this schema and callers use
-          // them, so they are declared rather than quietly tolerated — an
-          // undeclared argument is one the caller cannot discover and the
-          // validator cannot check.
-          name: { type: 'string' },
-          text: { type: 'string' },
         },
         additionalProperties: false,
         required: ['slug', 'stored_name', 'content'],
