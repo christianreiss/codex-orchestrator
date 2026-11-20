@@ -89,8 +89,8 @@
       <label>Task key<Input bind:value={taskKey} required placeholder="Stable name for this task" /></label>
       <label>Continue this authorized task<Textarea bind:value={continuation} required placeholder="Task and acceptance criteria" rows={3} /></label>
       <div class="flex gap-3">
-        <label>Protection (hours)<Input type="number" min={1 / 60} max={168} step="any" bind:value={hours} required /></label>
-        <label>No progress (minutes)<Input type="number" min={1} max={10080} bind:value={minutes} required /></label>
+        <label>Protection (hours)<Input class="max-w-xs" type="number" min={1 / 60} max={168} step="any" bind:value={hours} required /></label>
+        <label>No progress (minutes)<Input class="max-w-xs" type="number" min={1} max={10080} bind:value={minutes} required /></label>
       </div>
       <p class="text-muted-foreground">Resumes the same session after capacity, crash or hang. Stops at task completion, a clean client exit, user stop or the deadline. Timed wake-ups stay active. Recovery after an ambiguous crash may repeat effects.</p>
       <Button type="submit" disabled={$mutation.isPending || !taskKey.trim() || !continuation.trim()}>Enable protection</Button>

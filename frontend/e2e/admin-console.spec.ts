@@ -804,7 +804,7 @@ test("the Projects page carries the coordination switch in its header and the bo
   });
 
   await page.goto("/admin/projects");
-  await expect(page.getByLabel("Project coordination")).toBeChecked();
+  await expect(page.getByLabel("Enable project coordination")).toBeChecked();
 
   // The board switch sits behind the gear, not above the project list.
   await page.getByRole("button", { name: "Project settings" }).click();

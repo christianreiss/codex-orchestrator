@@ -12,5 +12,5 @@
       : "Save not confirmed. Your draft is still here. Check the current server value before retrying; the request may have been accepted."}</p>
   </div>
 {:else}
-  <p role="status" class="text-body-sm text-muted-foreground">{pending ? "Saving… Waiting for server confirmation." : dirty ? "Unsaved changes. Use Save to apply them." : saved ? "Saved. Confirmed by the server." : "Changes are saved when you select Save."}</p>
+  <p role="status" class="text-body-sm text-muted-foreground empty:hidden">{pending ? "Saving… Waiting for server confirmation." : dirty ? "Unsaved changes. Use Save to apply them." : saved ? "Saved. Confirmed by the server." : ""}</p>
 {/if}

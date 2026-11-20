@@ -100,7 +100,7 @@
   title="Projects"
   description="Shared workspaces agents coordinate through."
   toggle={{
-    label: "Project coordination",
+    label: "Enable project coordination",
     checked: enabled,
     disabled: !$stateQuery.data || $stateQuery.isError || $stateQuery.isLoading || $stateMutation.isPending,
     onChange: (next) => $stateMutation.mutate(next),
