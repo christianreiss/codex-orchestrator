@@ -18,15 +18,15 @@ for (const suggestion of [false, true]) {
       await route.fulfill({ json: { status: 'ok', data: { id: 'fixture-run', status: 'queued' } } });
     });
     await page.goto('/admin/hosts');
-    await page.getByRole('button', { name: 'Chatty öffnen' }).click();
-    const input = page.getByRole('textbox', { name: 'Nachricht an Chatty' });
+    await page.getByRole('button', { name: 'Open Chatty' }).click();
+    const input = page.getByRole('textbox', { name: 'Message to Chatty' });
     await input.fill(suggestion ? 'Independent draft' : 'Submitted draft');
-    if (suggestion) await page.getByRole('group', { name: 'Vorgeschlagene Rückfragen' }).getByRole('button', { name: 'Ist console.example.test aktuell?' }).click();
-    else await page.getByRole('button', { name: 'Nachricht senden' }).click();
+    if (suggestion) await page.getByRole('group', { name: 'Suggested follow-up questions' }).getByRole('button', { name: 'Ist console.example.test aktuell?' }).click();
+    else await page.getByRole('button', { name: 'Send message' }).click();
     await expect.poll(() => started).toBe(true);
     if (!suggestion) await input.fill('Newer draft entered while waiting');
     release();
-    await expect(page.getByRole('button', { name: 'Nachricht senden' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Send message' })).toBeEnabled();
     await expect(input).toHaveValue(suggestion ? 'Independent draft' : 'Newer draft entered while waiting');
   });
 }
@@ -134,10 +134,10 @@ for (const fails of [false, true]) {
       await route.fulfill({ status: fails ? 500 : 200, json: fails ? { status: 'error', message: 'Reset failed' } : { status: 'ok', data: {} } });
     });
     await page.goto('/admin/hosts');
-    await page.getByRole('button', { name: 'Chatty öffnen' }).click();
-    const input = page.getByRole('textbox', { name: 'Nachricht an Chatty' });
+    await page.getByRole('button', { name: 'Open Chatty' }).click();
+    const input = page.getByRole('textbox', { name: 'Message to Chatty' });
     await input.fill('Text before reset');
-    const reset = page.getByRole('button', { name: 'Neues Gespräch', exact: true });
+    const reset = page.getByRole('button', { name: 'New conversation', exact: true });
     await reset.click();
     await expect.poll(() => started).toBe(true);
     await input.fill('New text typed while reset was pending');

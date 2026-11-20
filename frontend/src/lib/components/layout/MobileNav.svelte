@@ -41,7 +41,7 @@
   }
 </script>
 
-<nav class="fixed inset-x-0 bottom-0 z-40 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Mobile primary navigation">
+<nav class="mobile-tabbar fixed inset-x-0 bottom-0 z-40 border-t bg-card pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Mobile primary navigation">
   <ul class="grid h-16 grid-cols-5 gap-1 px-2 py-1">
     {#each MOBILE_NAV_PRIMARY as item (item.id)}
       {@const Icon = item.icon}
