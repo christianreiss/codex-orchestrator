@@ -1,7 +1,5 @@
 .git
 vendor
-storage/*.sqlite
-storage/*.db
 .env
 .env.*
 !.env.example
