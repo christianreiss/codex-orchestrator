@@ -28,8 +28,6 @@ new route has to be documented here before it can ship.
 - `POST /verify-kimi` validates canonical Kimi subscription credentials with access-only `GET {base_url}/usages`, without redirects or OAuth refresh; same request as `/verify-grok`, returning `kimi_version` and `auth_readback: "unchanged"`. Never returns `updated_auth`.
 - `POST /verify-grok` validates modern Grok subscription OIDC through the fixed read-only user metadata endpoint, without native execution or OAuth refresh. Same request body as `/verify`; returns `grok_version` and allowlisted provider metadata. Legacy web-login and metered API-key auth are rejected.
 - `POST /verify-claude` validates Claude credentials. Same body as `/verify`. Native Claude Code OAuth/account-login payloads use the Claude CLI; genuine Anthropic API keys use the Messages API.
-- `POST /skills/summarize` generates a short AGENTS-safe skill summary. Body: `auth_json` (required object), `slug` (required string), `manifest` (required string), optional `engine` (`codex` | `claude` | `grok` | `kimi`, default `codex`), and optional `timeout_seconds`. **No API caller today:** nothing under `api/src` requests this route.
-- `POST /memories/summarize` generates a short AGENTS-safe memory summary. Body: `auth_json` (required object), `memory_key` (required string), `content` (required string), optional `engine`, and optional `timeout_seconds`. **No API caller today:** nothing under `api/src` requests this route either.
 - `POST /skills/generate` generates a structured skill draft. Body: `auth_json` (required object), `prompt` (required string), optional `slug_hint`, optional `engine`, and optional `timeout_seconds`.
 - `POST /skills/assist` revises a structured skill draft from a conversation. Body: `auth_json` (required object), `messages` (required array), `skill` (required object), optional `mode`, optional `slug_locked`, optional `engine`, and optional `timeout_seconds`.
 - `POST /projects/assist` revises a project roster draft. Body: `auth_json` (required object), `slug` (required string), `project` (required object), optional `engine`, and optional `timeout_seconds`.
@@ -37,7 +35,7 @@ new route has to be documented here before it can ship.
 
   Every caller-controlled field is bounded: `prompt` ≤ 1,000,000 characters, `system` ≤ 100,000, `model` ≤ 200, `stop_sequences` ≤ 16 entries, `timeout_seconds` in `[1, 600]`, and `temperature`/`top_p`/`top_k`/`max_tokens` to their valid ranges. Image handling is bounded by `RUNNER_MAX_IMAGES`, `RUNNER_MAX_IMAGE_BYTES` and `RUNNER_MAX_IMAGE_TOTAL_BYTES` (see `runner/README.md`), the content must actually be a PNG/JPEG/GIF/WebP by magic bytes rather than by its declared MIME type, and remote downloads go through `runner/network_policy.py`: one DNS resolution, a socket opened to that exact approved address with the original `Host` header and TLS SNI, the connected peer re-verified before any bytes are written, only globally routable addresses permitted, no redirects, and `Accept-Encoding: identity` so the byte cap bounds real bytes rather than compressed ones.
 - `RUNNER_SHARED_SECRET` is mandatory. Every POST — `/verify`, `/verify-claude`,
-  `/skills/summarize`, `/memories/summarize`, `/skills/generate`,
+  `/skills/generate`,
   `/skills/assist`, `/projects/assist`, and `/exec` — requires
   `X-Runner-Auth` with an exact match; an unset runner secret fails closed with
   HTTP 500 and a wrong/missing request secret returns 401. The GET routes below
@@ -60,12 +58,10 @@ new route has to be documented here before it can ship.
   outages, quota/model errors, timeouts, and generic CLI failures remain
   retryable. Anthropic `rate_limit_error` proves the key and returns `ok` with
   `auth_limited:true`.
-- `GET /skills/summarize`, `GET /memories/summarize`, `GET /skills/generate`,
+- `GET /skills/generate`,
   `GET /skills/assist`, `GET /projects/assist`, and `GET /exec` each return
   `{"status": "ok"}` so API-side readiness probing can hit the same route used
   for the matching POST.
-- `POST /skills/summarize` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, optional `summary`, and optional `reason`.
-- `POST /memories/summarize` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, optional `summary`, and optional `reason`.
 - `POST /skills/generate` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
 - `POST /skills/assist` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, `assistant_message`, the structured draft fields (`slug`, `display_name`, `description`, `tags`, `what`, `when`, `steps`), and optional `reason`.
 - `POST /projects/assist` success responses include: `status`, `latency_ms`, `reachable`, `codex_version`, `assistant_message`, the structured draft fields (`title`, `name`, `description`, `roster_markdown`), and optional `reason`.
@@ -194,7 +190,7 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 ## Memory summary lifecycle (runner/app.py)
 
 1. Require `memory_key` and `content`; reject blank values with HTTP 400.
-2. Reuse the same auth bootstrap path as `/verify` and `/skills/summarize`: require a usable token from `auth_json`, create a temp `$HOME`, write `~/.codex/auth.json`, and clean it up after the run.
+2. Reuse the same auth bootstrap path as `/verify` and `/exec`: require a usable token from `auth_json`, create a temp `$HOME`, write `~/.codex/auth.json`, and clean it up after the run.
 3. Run `/usr/local/bin/codex exec` with a strict prompt that asks for exactly one short plain-text sentence describing what the memory contains for admin/API summary display.
 4. Sanitize the result into a single trimmed line (collapse whitespace, strip common bullet/quote wrappers, cap length) before returning it as `summary`.
 5. `status` is `ok` only when the command exits `0` and a non-empty sanitized summary is produced; otherwise `status` is `fail` and `reason` includes trimmed stderr/stdout (up to 400 chars).
@@ -202,7 +198,7 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 ## Skill draft lifecycle (runner/app.py)
 
 1. Require a non-empty `prompt`; reject blank values with HTTP 400.
-2. Reuse the same auth bootstrap path as `/verify` and `/skills/summarize`: require a usable token from `auth_json`, create a temp `$HOME`, write `~/.codex/auth.json`, and clean it up after the run.
+2. Reuse the same auth bootstrap path as `/verify` and `/exec`: require a usable token from `auth_json`, create a temp `$HOME`, write `~/.codex/auth.json`, and clean it up after the run.
 3. Run `/usr/local/bin/codex exec` with a strict prompt that requests exactly one JSON object containing `slug`, `display_name`, `description`, `tags`, `what`, `when`, and `steps`.
 4. Parse the returned JSON strictly, sanitize the individual fields, and fail the request when Codex returns malformed or incomplete output.
 5. `status` is `ok` only when the command exits `0` and the structured draft parses cleanly; otherwise `status` is `fail` and `reason` includes parse error details plus trimmed stderr/stdout (up to 600 chars).
@@ -210,7 +206,7 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 ## Skill assist lifecycle (runner/app.py)
 
 1. Require a non-empty `messages` array and a `skill` object.
-2. Reuse the same auth bootstrap path as `/verify` and `/skills/summarize`: require a usable token from `auth_json`, create a temp `$HOME`, write `~/.codex/auth.json`, and clean it up after the run.
+2. Reuse the same auth bootstrap path as `/verify` and `/exec`: require a usable token from `auth_json`, create a temp `$HOME`, write `~/.codex/auth.json`, and clean it up after the run.
 3. Run `/usr/local/bin/codex exec` with a strict prompt that includes the current structured draft, the conversation history, and whether the slug is locked.
 4. Parse the returned JSON strictly. Require `assistant_message`, `slug`, `display_name`, `description`, `tags`, `what`, `when`, and `steps`, then sanitize the individual fields.
 5. `status` is `ok` only when the command exits `0` and the structured assist payload parses cleanly; otherwise `status` is `fail` and `reason` includes parse error details plus trimmed stderr/stdout (up to 600 chars).
@@ -222,7 +218,6 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 - Runner request payload includes only `auth_json` and `timeout_seconds`. When `AUTH_RUNNER_SHARED_SECRET` is set, the client also sends `X-Runner-Auth`. The API HTTP transport allows an additional bounded six-second response/readback grace beyond the native probe deadline; this lets a timed-out CLI return any rotated credential bytes safely instead of losing them at the transport boundary.
 - OpenAI-compatible `/exec` request payload includes `auth_json`, `prompt`, `images[]`, `model`, `engine`, `timeout_seconds`, and whichever of `max_tokens`, `temperature`, `top_p`, `system`, and `stop_sequences` the caller supplied; the Anthropic-compatible adapter can additionally send `top_k`. When `model` is present the runner invokes `codex exec --model <id> ...`, and each image is materialized to a temp file then passed through as `--image <file>`.
 - Project assist request payload includes `auth_json`, `slug`, `project`, and `timeout_seconds`. The API uses it for the admin-only project roster draft flow (`api/src/services/project-drafts.ts`).
-- `/skills/summarize` and `/memories/summarize` have **no API caller**: no code under `api/src` builds either URL or sends either payload. The routes are reachable on the runner but currently unused, so a summary only exists if something outside this repo posts to them.
 - Skill draft request payload includes `auth_json`, `prompt`, optional `slug_hint`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/generate` draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
 - Skill assist request payload includes `auth_json`, `messages`, `skill`, optional `mode`, optional `slug_locked`, and `timeout_seconds`. The API uses it only for the admin-only `POST /admin/skills/assist` conversational draft flow; generated drafts are not persisted until the admin later calls `POST /admin/skills/store`.
 - Every canonical-auth store path:
@@ -363,7 +358,7 @@ instead.
 - `RUNNER_HOME_PARENT` (runner container): parent directory for isolated temp homes used by runner Codex calls. The bundled image sets this to `/dev/shm`.
 - `RUNNER_CODEX_PROBE_MODEL` (runner container): model passed as `--model` to the Codex "Reply Banana" probe. Code default: `gpt-6-astra`; a value that is blank after trimming drops the flag and lets the CLI pick.
 - `ANTHROPIC_API_BASE` (runner container): base URL the direct API-key half of `POST /verify-claude` posts to. Code default: `https://api.anthropic.com`, with trailing slashes stripped.
-- `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for every POST — `/verify`, `/verify-claude`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`.
+- `RUNNER_SHARED_SECRET` (runner container): validates incoming `X-Runner-Auth` for every POST — `/verify`, `/verify-claude`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`.
 - `RUNNER_DEBUG_DUMP_AUTH` + `RUNNER_ALLOW_SECRET_DUMP` (runner container): both must be `1` to allow `/tmp/last-auth.json` writes; still disabled when `APP_ENV=production`.
 
 ### `GET /chatty/capabilities`

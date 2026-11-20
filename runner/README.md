@@ -1,6 +1,6 @@
 # Codex / Claude / Grok / Kimi Auth Runner
 
-Lightweight HTTP microservice that validates an `auth.json`, generates short summaries, and drafts/revises skills by running the Codex, Claude, Grok, or Kimi CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
+Lightweight HTTP microservice that validates an `auth.json` and drafts/revises skills by running the Codex, Claude, Grok, or Kimi CLI inside an isolated temp `$HOME`. Intended to run on the internal Docker network (no host ports).
 
 All four engines are supported:
 
@@ -49,7 +49,7 @@ The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
 - `ANTHROPIC_API_BASE` (optional) — Anthropic API base URL used by `POST /verify-claude`; defaults to `https://api.anthropic.com`.
-- `RUNNER_SHARED_SECRET` (required) — every POST (`/verify`, `/verify-claude`, `/verify-grok`, `/verify-kimi`, `/skills/summarize`, `/memories/summarize`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`) requires header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
+- `RUNNER_SHARED_SECRET` (required) — every POST (`/verify`, `/verify-claude`, `/verify-grok`, `/verify-kimi`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`) requires header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
 - `RUNNER_HOME_PARENT` (optional) — parent directory for the isolated temporary runner `$HOME`; the bundled image sets it to `/dev/shm`, which is writable in the hardened container while still avoiding CLI homes under `/tmp`.
 - `RUNNER_REQUIRED_ENGINES` (optional) — comma-separated engines that must be installed and answering `--version` before the process serves traffic; the bundled image sets it to `codex,claude,grok,kimi`. Unset means "whatever is installed is fine", which suits a source checkout but never an image. An unknown name here is a startup error, not a warning.
 - `RUNNER_MAX_IMAGES` (optional, default `8`) — how many images one `/exec` request may attach.
@@ -78,8 +78,6 @@ so this list cannot drift from the code.
 - `POST /verify-claude` — Claude credential probe.
 - `POST /verify-grok` — read-only Grok subscription credential probe.
 - `POST /verify-kimi` — read-only Kimi subscription credential probe.
-- `GET /skills/summarize` / `POST /skills/summarize` — readiness probe / skill summary.
-- `GET /memories/summarize` / `POST /memories/summarize` — readiness probe / memory summary.
 - `GET /skills/generate` / `POST /skills/generate` — readiness probe / structured skill draft.
 - `GET /skills/assist` / `POST /skills/assist` — readiness probe / skill draft revision.
 - `GET /projects/assist` / `POST /projects/assist` — readiness probe / project draft revision.
@@ -303,9 +301,9 @@ Behavior details:
 - `claude_version` comes from `/usr/local/bin/claude --version`, or
   `"unavailable"` when the CLI is not installed.
 
-### Engine routing on skill / memory / project endpoints
+### Engine routing on skill / project endpoints
 
-The POST endpoints that generate or summarize content accept an optional `engine` field:
+The POST endpoints that generate content accept an optional `engine` field:
 
 ```json
 {
@@ -326,103 +324,6 @@ When `engine: "claude"`, the runner:
 4. Emits `claude_version` in the response instead of `codex_version`.
 
 When `engine` is omitted or set to `"codex"`, the runner uses the existing Codex path unchanged.
-
-### `GET /skills/summarize`
-
-Readiness probe for the skill summary path:
-
-```json
-{ "status": "ok" }
-```
-
-### `POST /skills/summarize`
-
-Request body:
-
-```json
-{
-  "auth_json": { "tokens": { "access_token": "sk-..." } },
-  "slug": "deploy",
-  "manifest": "# Deploy\nUse this skill to roll out safely.\n",
-  "timeout_seconds": 8.0
-}
-```
-
-Fields:
-- `auth_json` (required object) — same auth bootstrap used by `/verify`; must contain a usable token.
-- `slug` (required string) — skill slug for prompt context.
-- `manifest` (required string) — `SKILL.md` contents to summarize.
-- `timeout_seconds` (optional float) — summary timeout in seconds; defaults to 8.0 when omitted.
-
-Response (success):
-
-```json
-{
-  "status": "ok",
-  "latency_ms": 123,
-  "reachable": true,
-  "codex_version": "0.101.0",
-  "summary": "Deploys services safely with guided rollout steps."
-}
-```
-
-Behavior details:
-- Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
-- Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
-- Sanitizes the result into a single trimmed line suitable for admin/API summary display.
-
-### `GET /memories/summarize`
-
-Readiness probe for the memory summary path:
-
-```json
-{ "status": "ok" }
-```
-
-### `POST /memories/summarize`
-
-Generate a short summary for one stored MCP memory for admin and API presentation.
-
-Request body:
-
-```json
-{
-  "auth_json": {
-    "last_refresh": "2026-03-28T10:00:00Z",
-    "auths": {
-      "api.openai.com": {
-        "token": "sk-..."
-      }
-    }
-  },
-  "memory_key": "deploy.notes",
-  "content": "Drain the queue before rollout and verify the worker backlog is zero.",
-  "timeout_seconds": 8
-}
-```
-
-Fields:
-- `auth_json` (required object) — same auth bootstrap used by `/verify`; must contain a usable token.
-- `memory_key` (required string) — memory identifier for prompt context.
-- `content` (required string) — stored memory content to summarize.
-- `timeout_seconds` (optional float) — summary timeout in seconds; defaults to 8.0 when omitted.
-
-Response (success):
-
-```json
-{
-  "status": "ok",
-  "latency_ms": 123,
-  "reachable": true,
-  "codex_version": "0.101.0",
-  "summary": "Captures deployment notes and host-specific caveats."
-}
-```
-
-Behavior details:
-- Uses the same temporary `$HOME` + `~/.codex/auth.json` flow as `/verify`.
-- Runs `/usr/local/bin/codex exec` with a strict one-sentence summary prompt.
-- Sanitizes the result into a single trimmed line suitable for admin/API summary display.
 
 ### `GET /skills/generate`
 
