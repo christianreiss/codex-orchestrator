@@ -7,7 +7,7 @@ import { collectRegisteredRoutes } from './registered-routes.js';
 /**
  * `docs/interface-api.md` is headed "API Interface (Source of Truth)", but
  * unlike `docs/API.md` — held against the app from both sides by
- * `docs-api-catalog.test.ts` and `docs-api-coverage.test.ts` — nothing checked
+ * `docs-api-catalog.test.ts` and `api-doc-route-coverage.test.ts` — nothing checked
  * it, so whole route families drifted out of it while the heading kept
  * claiming authority: the `/cli/auth/*` device-login flow, the `/mcp`
  * transport itself, `/healthz` / `/readyz`, and the `/admin/theme`,
