@@ -62,8 +62,6 @@ All four need `memory.write` (owner/admin); each memory row also carries a per-r
 - **Append** (`POST /admin/memories/shared/{recordId}/append`) — shared scope only, and the concurrency-safe way to add content: it does not need the ETag because it never rewrites what is already there.
 - **Delete** (`DELETE /admin/memories/{scope}/{recordId}`, `expected_etag` required) — a hard, permanent delete in every scope. There is no trash, restore, revision-body diff, or rollback; the confirmation dialog is the final safety boundary.
 
-The older per-scope endpoints — `GET /admin/mcp/memories`, `DELETE /admin/mcp/memories/{id}`, `GET /admin/shared-memories`, `GET`/`DELETE /admin/shared-memories/{slug}` — remain for compatibility but do not carry the unified ETag or response contract; the console uses only `/admin/memories/*`.
-
 ## Live updates
 
 Host, project, and shared memory mutations (`memory.*`, `project.memory.*`, `shared_memory.*`) all invalidate the `memories` query root, so both Atlas views and an open inspector refresh together.
@@ -74,7 +72,6 @@ Host, project, and shared memory mutations (`memory.*`, `project.memory.*`, `sha
 - api/src/services/admin-memory-catalog.ts (graph query, 500-default / 2,000-maximum page, 200-value facet cap)
 - api/src/services/admin-memory-lifecycle.ts (ETag contract, `memory_conflict`, immutable keys and ownership, content cap)
 - api/src/services/shared-memories.ts, api/src/services/mcp-memories.ts (shared and host scopes)
-- api/src/routes/admin/config/index.ts (the deprecated `/admin/mcp/memories` and `/admin/shared-memories` reads and deletes)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`memory.read` / `memory.write`, `audit.read`)
 - frontend/src/routes/(library)/library/+page.svelte, frontend/src/lib/components/library/memories/MemoriesPanel.svelte, frontend/src/lib/components/library/memories/memories-state.svelte.ts (List / Map switch, 150-node canvas cap, 25-row pages)
 - frontend/src/lib/components/memories/MemoryInspector.svelte (inspector tabs)

@@ -231,11 +231,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/agent-policy-profiles/:id/default` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/agent-policy-profiles/assign` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/agent-policy-profiles/enforcement` | api/src/routes/admin/config/index.ts |
-| GET | `/admin/mcp/memories` | api/src/routes/admin/config/index.ts |
-| DELETE | `/admin/mcp/memories/:id` | api/src/routes/admin/config/index.ts |
-| GET | `/admin/shared-memories` | api/src/routes/admin/config/index.ts |
-| GET | `/admin/shared-memories/:slug` | api/src/routes/admin/config/index.ts |
-| DELETE | `/admin/shared-memories/:slug` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/skills` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/skills/:slug` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/skills/generate` | api/src/routes/admin/config/index.ts |
@@ -245,8 +240,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET | `/admin/skill-sources/mattpocock` | api/src/routes/admin/skill-sources/index.ts |
 | POST | `/admin/skill-sources/mattpocock` | api/src/routes/admin/skill-sources/index.ts |
 | POST | `/admin/skill-sources/mattpocock/refresh` | api/src/routes/admin/skill-sources/index.ts |
-
-`/admin/mcp/memories` and `/admin/shared-memories` are the deprecated per-scope reads and deletes; the console uses the unified `/admin/memories/*` surface below.
 
 ### Admin memories (Memory Atlas)
 

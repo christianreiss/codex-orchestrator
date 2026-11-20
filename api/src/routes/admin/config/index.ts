@@ -22,11 +22,6 @@
  *   POST   /admin/agents/revert
  *   POST   /admin/agents/retention
  *   DELETE /admin/agents/versions/:id
- *   GET    /admin/mcp/memories
- *   DELETE /admin/mcp/memories/:id
- *   GET    /admin/shared-memories
- *   GET    /admin/shared-memories/:slug
- *   DELETE /admin/shared-memories/:slug
  *   GET    /admin/skills
  *   GET    /admin/skills/:slug
  *   POST   /admin/skills/generate
@@ -62,8 +57,6 @@ import { normalizeResponseVerbosityLevel } from '../../../services/agent-respons
 import { HostAgentsService } from '../../../services/host-agents.js';
 import { assertHostEngineAssigned } from '../../../services/host-engine-policy.js';
 import { ClientConfigService } from '../../../services/client-config.js';
-import { MemoriesService } from '../../../services/memories.js';
-import { SharedMemoriesService } from '../../../services/shared-memories.js';
 import { SkillDraftsService } from '../../../services/skill-drafts.js';
 import { SkillsService } from '../../../services/skills.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
@@ -119,8 +112,6 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
         }
       : { db },
   );
-  const memories = new MemoriesService(db);
-  const sharedMemories = new SharedMemoriesService(db);
   const policyProfiles = new AgentPolicyProfilesService(db);
   const agents = new AgentsService(db, async () => {
     const v = await new SettingsService(db).getRaw(AGENTS_BACKUP_LIMIT_KEY);
@@ -335,64 +326,6 @@ export async function registerAdminConfigRoutes(app: FastifyInstance, ctx: Route
       }
       return await agents.deleteVersion(id);
     },
-  );
-
-  // ── /admin/mcp/memories ──────────────────────────────────────────────────
-
-  app.get<{ Querystring: { q?: string; query?: string; host_id?: string; tags?: string; limit?: string } }>(
-    '/admin/mcp/memories',
-    { preHandler: app.requireAdmin },
-    async (req) => {
-      const q = req.query.q ?? req.query.query ?? '';
-      const limit = parseInteger(req.query.limit) ?? 50;
-      return await memories.adminSearch({
-        query: q,
-        limit,
-        host_id: req.query.host_id ?? null,
-        tags: req.query.tags ?? '',
-      });
-    },
-  );
-
-  app.delete<{ Params: { id: string } }>(
-    '/admin/mcp/memories/:id',
-    { preHandler: app.requireAdmin },
-    async (req) => {
-      const id = parseInteger(req.params.id);
-      if (id === null || id <= 0) {
-        throw new ValidationError('id must be a positive integer', { param: 'id' });
-      }
-      return await memories.adminDelete(id);
-    },
-  );
-
-  // ── /admin/shared-memories ───────────────────────────────────────────────
-  // Fleet-wide corpus: no host_id filter exists here because the rows are not
-  // host-scoped. `q` switches from a recency listing to a relevance search.
-
-  app.get<{ Querystring: { q?: string; query?: string; tags?: string; prefix?: string; limit?: string; offset?: string } }>(
-    '/admin/shared-memories',
-    { preHandler: app.requireAdmin },
-    async (req) =>
-      await sharedMemories.adminList({
-        query: req.query.q ?? req.query.query ?? '',
-        tags: req.query.tags ?? '',
-        prefix: req.query.prefix ?? '',
-        limit: parseInteger(req.query.limit) ?? 50,
-        offset: parseInteger(req.query.offset) ?? 0,
-      }),
-  );
-
-  app.get<{ Params: { slug: string } }>(
-    '/admin/shared-memories/:slug',
-    { preHandler: app.requireAdmin },
-    async (req) => await sharedMemories.adminDetail(decodeURIComponent(req.params.slug)),
-  );
-
-  app.delete<{ Params: { slug: string } }>(
-    '/admin/shared-memories/:slug',
-    { preHandler: app.requireAdmin },
-    async (req) => await sharedMemories.adminDelete(decodeURIComponent(req.params.slug)),
   );
 
   // ── /admin/skills ────────────────────────────────────────────────────────

@@ -94,7 +94,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 - `api/src/services/host-auth.ts` + `host-registration.ts` + `host-management.ts` own host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), and pruning.
 - `api/src/services/runner-validation.ts` + `runner-client.ts` probe `AUTH_RUNNER_URL`, validate uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
 - The wrapper bakery v2 services (`api/src/services/wrapper-config.ts`, `wrapper-bin-registry.ts`, `wrapper-download.ts`, `wrapper-meta.ts`, `wrapper-signing-key.ts`, `wrapper-transition.ts`) compose typed per-engine host JSON configs signed with Ed25519 and serve one Go `cxx` artifact through the compatible Codex/Claude download surfaces.
-- `api/src/services/skills.ts`, `agents.ts`, `client-config.ts`, and `memories.ts` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
+- `api/src/services/skills.ts`, `agents.ts`, `client-config.ts`, and `mcp-memories.ts` back skill, AGENTS, config, and MCP-memory sync APIs/tables.
 - MySQL schema is mirrored in `api/src/db/schema.ts`; encrypted rows use libsodium secretbox (`sbox:v1`). Current core tables include hosts/auth payloads & entries/state/digests, host users, install + auth-seed tokens, skills, agents docs/state, client config docs, MCP memories + access logs, token usage + ingests, chatgpt snapshots, versions, logs/admin events/users/sessions/password resets, and insecure auth requests/domain allows.
 
 ## Request Flow & Behavior Cheatsheet

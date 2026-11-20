@@ -430,11 +430,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'DELETE /admin/memories/:scope/:recordId': cap('memory.write'),
   'POST /admin/memories/shared/:recordId/append': cap('memory.write'),
   'POST /admin/memories/shared/:recordId/restore': cap('memory.write'),
-  'GET /admin/shared-memories': cap('memory.read'),
-  'GET /admin/shared-memories/:slug': cap('memory.read'),
-  'DELETE /admin/shared-memories/:slug': cap('memory.write'),
-  'GET /admin/mcp/memories': cap('memory.read'),
-  'DELETE /admin/mcp/memories/:id': cap('memory.write'),
 
   // ── Projects ─────────────────────────────────────────────────────────────
   'GET /admin/projects': cap('projects.read'),

@@ -930,17 +930,6 @@ All four engine config GET/store routes share the revision contract: `revision` 
   combines body-free admin logs, project events, and shared revision metadata.
   This feed follows source-log retention, is not immutable compliance history,
   and cannot restore prior bodies.
-- Deprecated host-memory compatibility endpoints remain unchanged:
-  `GET /admin/mcp/memories` accepts `q`/`query`, `host_id`, `tags`, and `limit`
-  (1–200, default 50) and returns body-bearing `matches`; numeric
-  `DELETE /admin/mcp/memories/{id}` soft-deletes that row. They do not
-  gain the unified ETag, role, or response contract.
-- Deprecated shared-memory compatibility endpoints also remain unchanged:
-  `GET /admin/shared-memories` accepts `q`/`query`, `tags`, `prefix`, `limit`,
-  and `offset`; `GET /admin/shared-memories/{slug}` returns full content plus up
-  to 20 revision metadata rows; and `DELETE /admin/shared-memories/{slug}`
-  permanently deletes the document, chunks, and revision trail. New clients
-  should use `/admin/memories/*`.
 - Fleet secrets store — the working credentials agents use once they are running
   (GitHub PATs, database passwords, Bookstack/Checkmk tokens, SSH keys,
   third-party service keys). Distinct from engine-boot auth under `/auth`, which
