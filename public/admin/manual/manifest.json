@@ -296,7 +296,7 @@
       "slug": "shortcuts-api",
       "title": "Keyboard shortcuts and API reference",
       "section": "Integrations and reference",
-      "summary": "Complete keyboard-shortcut map and a full index of admin HTTP routes with their controllers.",
+      "summary": "Keyboard-shortcut map, the API keys controls, and where the full API route reference lives.",
       "tags": [
         "reference",
         "shortcuts",

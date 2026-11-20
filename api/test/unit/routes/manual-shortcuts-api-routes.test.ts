@@ -1,143 +1,74 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectRegisteredRoutes } from './registered-routes.js';
 
 /**
- * `public/admin/manual/articles/shortcuts-api.md` is the in-app API reference
- * the admin manual serves to operators: a hundred-odd
- * `` | METHOD | `/path` | source file | `` rows covering the admin, host-facing
- * and compat surfaces. Its frontmatter claims a verified date and nothing
- * enforced it, so routes added, renamed and moved since then left the shipped
- * article describing an app that no longer exists.
+ * `public/admin/manual/articles/shortcuts-api.md` used to carry a hundred-odd
+ * `` | METHOD | `/path` | source file | `` rows, a hand-kept second copy of the
+ * route list that drifted from the app. It is now a short operator page that
+ * points at `docs/API.md` (the route catalogue, pinned by
+ * `docs-api-catalog.test.ts`) and `docs/interface-api.md` (the spec).
  *
- * This scan reads the tables' method/path cells and fails when an advertised
- * route has no registration in `api/src/routes`, the same way
- * `docs-api-catalog.test.ts` holds `docs/API.md` to the app.
+ * This keeps it that way: no route tables creeping back in, the pointers
+ * intact, and any `` `METHOD /path` `` span the page still names registered.
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ARTICLE = resolve(HERE, '../../../../public/admin/manual/articles/shortcuts-api.md');
+const REPO = resolve(HERE, '../../../..');
+const ARTICLE = resolve(REPO, 'public/admin/manual/articles/shortcuts-api.md');
 
-/** Article rows whose route `api/src/routes` deliberately does not register. */
-const UNREGISTERED_PATHS: Record<string, string> = {
-  'GET /admin/ws': 'websocket upgrade — registered by api/src/ws/server.ts, outside api/src/routes',
-};
+const article = readFileSync(ARTICLE, 'utf8');
 
-/** A documented `{param}`/`:param` segment; must land on a registered `:param`. */
-const PARAM = ':param';
+/** A table row whose first cell is an HTTP verb (or a `GET/POST` pair). */
+const ROUTE_TABLE_ROW =
+  /^\|\s*(?:GET|POST|PUT|PATCH|DELETE|OPTIONS)(?:\/(?:GET|POST|PUT|PATCH|DELETE|OPTIONS))*\s*\|/;
+const CODE_SPAN = /`([^`\n]+)`/g;
+const ENTRY = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS)\s+(\/\S*)$/;
+const PLACEHOLDER = /\{[^}]*\}|:[A-Za-z_][A-Za-z0-9_]*/g;
 
-interface TableRow {
-  /** Line in the article. */
-  line: number;
-  /** `METHOD /path` as written, for the failure message. */
-  text: string;
-  method: string;
-  /** Path with query string dropped and params normalized to `:param`. */
-  path: string;
+function normalize(path: string): string {
+  const query = path.search(/[?[]/);
+  return (query === -1 ? path : path.slice(0, query)).replace(PLACEHOLDER, ':param');
 }
 
-/** A row's method cell: one verb, or the `GET/POST` pairs the article uses. */
-const METHODS = /^(?:GET|POST|PUT|PATCH|DELETE|OPTIONS)(?:\/(?:GET|POST|PUT|PATCH|DELETE|OPTIONS))*$/;
-/** The route cell's leading code span — trailing prose (`(alias of …)`) is not path. */
-const ROUTE_SPAN = /^`(\/[^`\n]*)`/;
-
-/**
- * Drop everything from the first `?`/`[` — documented query strings and
- * optional-parameter brackets (`/wrapper/v2/config[?sig=1]`) are not path
- * segments — and turn `{param}` / `:param` segments into `PARAM`.
- */
-function normalizeDocPath(documented: string): string {
-  const query = documented.search(/[?[]/);
-  const path = query === -1 ? documented : documented.slice(0, query);
-  return path
-    .split('/')
-    .map((segment) => (/^(?:\{.*\}|:.+)$/.test(segment) ? PARAM : segment))
-    .join('/');
+/** `{openai|claude|grok}` stands for three routes; expand it before checking. */
+function expand(path: string): string[] {
+  const alternation = /\{([A-Za-z-]+(?:\|[A-Za-z-]+)+)\}/.exec(path);
+  if (!alternation) return [path];
+  return alternation[1]!.split('|').flatMap((name) => expand(path.replace(alternation[0], name)));
 }
 
-function collectTableRows(): TableRow[] {
-  const rows: TableRow[] = [];
-  for (const [index, line] of readFileSync(ARTICLE, 'utf8').split('\n').entries()) {
-    if (!line.startsWith('|')) continue;
-    const cells = line.split('|').slice(1, -1);
-    if (cells.length < 2) continue;
-    const methods = cells[0]!.trim();
-    const route = ROUTE_SPAN.exec(cells[1]!.trim());
-    if (!METHODS.test(methods) || !route) continue;
-    for (const method of methods.split('/')) {
-      rows.push({
-        line: index + 1,
-        text: `${method} ${route[1]}`,
-        method,
-        path: normalizeDocPath(route[1]!),
-      });
+describe('manual shortcuts-api article', () => {
+  it('carries no route tables; the route reference lives in docs/API.md', () => {
+    const rows = article
+      .split('\n')
+      .map((line, index) => ({ line, number: index + 1 }))
+      .filter(({ line }) => ROUTE_TABLE_ROW.test(line))
+      .map(({ number }) => `shortcuts-api.md:${number}`);
+    expect(rows, 'link docs/API.md instead of copying route rows into the article').toEqual([]);
+  });
+
+  it('points operators at the catalogue and the spec, and both exist', () => {
+    for (const doc of ['docs/API.md', 'docs/interface-api.md']) {
+      expect(article).toContain(`\`${doc}\``);
+      expect(existsSync(resolve(REPO, doc))).toBe(true);
     }
-  }
-  return rows;
-}
-
-const routes = collectRegisteredRoutes();
-const rows = collectTableRows();
-
-/**
- * True when `route` serves `documented`: a documented param segment has to be
- * a registered param segment, and a registered trailing `*` (the CORS
- * preflight routes) serves everything below it.
- */
-function servedBy(documented: string, route: string): boolean {
-  if (route.endsWith('*')) return documented.startsWith(route.slice(0, -1));
-  const path = documented.split('/');
-  const registered = route.split('/');
-  if (path.length !== registered.length) return false;
-  return path.every((segment, index) =>
-    segment === PARAM ? registered[index]!.startsWith(':') : segment === registered[index],
-  );
-}
-
-function registered(row: TableRow): boolean {
-  return routes.some((route) => route.method === row.method && servedBy(row.path, route.path));
-}
-
-describe('manual shortcuts-api article route tables', () => {
-  it('extracts the table rows it is meant to check', () => {
-    // A scan that silently matches nothing would pass the assertion below.
-    expect(rows.length).toBeGreaterThan(150);
-    expect(routes.length).toBeGreaterThan(150);
-    const documented = new Set(rows.map((row) => `${row.method} ${row.path}`));
-    expect(documented.has('GET /admin/auth/status')).toBe(true);
-    // `GET/POST` cells count as both verbs.
-    expect(documented.has('GET /admin/theme')).toBe(true);
-    expect(documented.has('POST /admin/theme')).toBe(true);
-    // Params, optional-parameter brackets and trailing prose normalize away.
-    expect(documented.has('DELETE /admin/passkeys/:param')).toBe(true);
-    expect(documented.has('GET /wrapper/v2/config')).toBe(true);
-    expect(documented.has('GET /wrapper/v2/bin/:param/:param/v:version/:param')).toBe(true);
-    // The keyboard-shortcut and prefix tables are not route tables.
-    expect(documented.has('OpenAI-compat (Codex) sk-cdx-')).toBe(false);
   });
 
-  it('registers a route for every row', () => {
-    const missing = rows
-      .filter((row) => !(row.text in UNREGISTERED_PATHS) && !registered(row))
-      .map((row) => `shortcuts-api.md:${row.line} lists ${row.text}`);
-    expect(
-      missing,
-      'register the route under api/src/routes, fix the article table, ' +
-        'or record it in UNREGISTERED_PATHS here with a reason',
-    ).toEqual([]);
-  });
-
-  it('keeps the allowlist free of stale entries', () => {
-    const stale = Object.keys(UNREGISTERED_PATHS).filter(
-      (text) =>
-        !rows.some((row) => row.text === text) || rows.some((row) => row.text === text && registered(row)),
+  it('names only registered routes in its inline `METHOD /path` spans', () => {
+    const registered = new Set(
+      collectRegisteredRoutes().map((route) => `${route.method} ${normalize(route.path)}`),
     );
-    expect(stale).toEqual([]);
-    for (const reason of Object.values(UNREGISTERED_PATHS)) {
-      expect(reason.trim()).not.toBe('');
-      expect(reason).not.toContain('\n');
+    const unknown: string[] = [];
+    for (const span of article.matchAll(CODE_SPAN)) {
+      const entry = ENTRY.exec(span[1]!.trim());
+      if (!entry) continue;
+      for (const path of expand(entry[2]!)) {
+        if (!registered.has(`${entry[1]} ${normalize(path)}`)) unknown.push(`${entry[1]} ${path}`);
+      }
     }
+    expect(unknown).toEqual([]);
   });
 });
