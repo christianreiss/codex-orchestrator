@@ -3,7 +3,9 @@
   import { get } from "svelte/store";
   import { authStore } from "$lib/stores/auth";
   import { chattyKeys, fetchChattyStatus } from "$lib/api/chatty";
-  import { useQueryClient } from "@tanstack/svelte-query";
+  import { useQueryClient, type QueryClient } from "@tanstack/svelte-query";
+  import { engineActiveQueryKey } from "$lib/api/settings";
+  import { fleetEngineView, type FleetEngineView } from "$lib/engines/fleet-state";
   import LoaderCircle from "@lucide/svelte/icons/loader-circle";
   import ArrowUpRight from "@lucide/svelte/icons/arrow-up-right";
   import * as Dialog from "$lib/components/ui/dialog";
@@ -15,6 +17,7 @@
     STATIC_COMMANDS,
     buildDynamicSources,
     buildRecentCommands,
+    forFleet,
     groupOrder,
     type CommandGroup,
     type CommandSource,
@@ -25,8 +28,10 @@
   // `getContext` lookup succeeds. Built dynamic sources fetch their data
   // lazily and cache it.
   let sources: CommandSource[] = [];
+  let client: QueryClient | null = null;
   try {
     const qc = useQueryClient();
+    client = qc;
     sources = buildDynamicSources(qc);
     sources.push(async (query) => {
       const auth = get(authStore);
@@ -48,6 +53,9 @@
   let dynamicLoading = $state(false);
   let dynamicError = $state(false);
   let recentIds = $state<string[]>([]);
+  // Which engines are switched on, read from the cache when the palette opens:
+  // it also mounts on signed-out screens, so it must not fetch this itself.
+  let fleet = $state<FleetEngineView>(fleetEngineView(undefined));
 
   // Track the latest in-flight request so out-of-order resolutions don't
   // clobber the rendered list.
@@ -59,6 +67,7 @@
       query = "";
       dynamicCommands = [];
       recentIds = getRecentCommandIds();
+      fleet = fleetEngineView(client?.getQueryData(engineActiveQueryKey));
     }
   });
 
@@ -131,7 +140,7 @@
   // dropped once the user is actively searching.
   const grouped = $derived.by(() => {
     const recent = query === "" && recentIds.length > 0 ? buildRecentCommands(recentIds) : [];
-    const all = [...recent, ...STATIC_COMMANDS, ...dynamicCommands];
+    const all = [...forFleet([...recent, ...STATIC_COMMANDS], fleet.isEnabled), ...dynamicCommands];
     const map = new Map<CommandGroup, PaletteCommand[]>();
     for (const cmd of all) {
       const list = map.get(cmd.group) ?? [];

@@ -434,6 +434,37 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   await expect(page.getByRole("option", { name: /Agent Portal/ })).toHaveCount(0);
 });
 
+test("the command palette does not offer a switched-off engine's views, even from Recent", async ({ page }) => {
+  let grokOn = true;
+  await installFixtures(page, (path) => {
+    if (path !== "/admin/engines/state") return undefined;
+    const state = fixture(path) as { engines: Array<Record<string, unknown>> };
+    return { engines: state.engines.map((row) => (row.engine === "grok" ? { ...row, enabled: grokOn } : row)) };
+  });
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  const palette = page.getByRole("combobox", { name: "Search fleet and commands" });
+  await page.keyboard.press("Control+K");
+  await palette.fill("grok native");
+  await page.getByRole("option", { name: /Go to Engines \/ Grok native settings/ }).click();
+  await expect(page).toHaveURL(/engine=grok#grok-native-settings$/);
+
+  grokOn = false;
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  await page.keyboard.press("Control+K");
+  // The view just used would head the Recent group; with Grok off it is not offered.
+  await expect(page.getByRole("option", { name: /Engines \/ Codex/ }).first()).toBeAttached();
+  await expect(page.getByRole("option", { name: /Grok native settings/ })).toHaveCount(0);
+  await palette.fill("grok");
+  await expect(page.getByRole("option", { name: /Grok native settings/ })).toHaveCount(0);
+  // The switch that turns it back on is still offered.
+  await expect(page.getByRole("option", { name: /Go to Engines \/ On and off/ })).toBeVisible();
+  // A Settings row is found by its technical name.
+  await palette.fill("auto-update");
+  await expect(page.getByRole("option", { name: /Settings \/ Update hosts automatically/ })).toBeVisible();
+});
+
 test("dashboard renders while setup infrastructure checks are pending", async ({ page }) => {
   let release!: () => void;
   const pending = new Promise<void>(resolve => { release = resolve; });
