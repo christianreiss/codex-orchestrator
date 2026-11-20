@@ -149,9 +149,8 @@ export class SharedMemoriesService {
   /**
    * The discovery entry point. Takes no query on purpose: a zero-knowledge
    * agent must be able to see what the fleet remembers before it can guess
-   * search terms. The managed `#context` skill
-   * (`managed-context-skill.ts`) disqualifies host-scoped `memory_*` for
-   * exactly the lack of this call.
+   * search terms. The retired `#context` skill disqualified host-scoped
+   * `memory_*` for exactly the lack of this call.
    */
   async list(payload: Record<string, unknown>, host: Host | null = null): Promise<Record<string, unknown>> {
     const errors: Record<string, string[]> = {};

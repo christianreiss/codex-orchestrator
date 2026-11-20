@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { AUTHENTICATED_PEER_GUIDANCE } from './agent-messaging-guidance.js';
-import type { ManagedSkillManifest } from './managed-context-skill.js';
+import type { ManagedSkillManifest } from './managed-skills.js';
 
 export const MANAGED_CONFERENCE_SKILL_SLUG = 'conference';
 

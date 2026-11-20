@@ -196,7 +196,6 @@ export const AXES: readonly AxisSpec[] = [
   },
 ] as const;
 
-const AXIS_BY_ID = new Map<SecurityAxisId, AxisSpec>(AXES.map((axis) => [axis.id, axis]));
 
 // ────────────────────────────────────────────────────────────────────────────
 // Operation matrix
@@ -1243,8 +1242,4 @@ export function securityLevelCatalog(): {
     bands: SECURITY_BANDS,
     default_levels: DEFAULT_SECURITY_LEVELS,
   };
-}
-
-export function axisSpec(id: SecurityAxisId): AxisSpec {
-  return AXIS_BY_ID.get(id)!;
 }

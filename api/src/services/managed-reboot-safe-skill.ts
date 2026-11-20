@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ManagedSkillManifest } from './managed-context-skill.js';
+import type { ManagedSkillManifest } from './managed-skills.js';
 
 const description =
   'Prepare an operator-authorized Linux reboot and continue the exact native task once; inspect or recover a planned reboot handoff.';

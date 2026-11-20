@@ -33,7 +33,3 @@ export function normalizeProjectBoardRole(value: unknown): ProjectBoardRole | nu
   const role = String(value).trim().toLowerCase();
   return isProjectBoardRole(role) ? role : null;
 }
-
-export function projectBoardRoleList(): string {
-  return PROJECT_BOARD_ROLES.join(', ');
-}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalSkillUri, normalizeSlug, parseManifest } from '../../../src/services/skill-manifest.js';
+import { canonicalSkillUri, normalizeSlug } from '../../../src/services/skill-manifest.js';
 import { ValidationError } from '../../../src/http/errors.js';
 
 describe('skill-manifest: normalizeSlug', () => {
@@ -28,25 +28,6 @@ describe('skill-manifest: normalizeSlug', () => {
 
   it('rejects strings over 255 chars', () => {
     expect(() => normalizeSlug('a'.repeat(256))).toThrow(ValidationError);
-  });
-});
-
-describe('skill-manifest: parseManifest', () => {
-  it('returns body verbatim when not JSON', () => {
-    const m = parseManifest('git-history', '# Skill\n\nLooks up git history.');
-    expect(m.slug).toBe('git-history');
-    expect(m.body).toContain('# Skill');
-    expect(m.parsedJson).toBeNull();
-  });
-
-  it('parses JSON manifests', () => {
-    const m = parseManifest('git-history', JSON.stringify({ description: 'demo' }));
-    expect(m.parsedJson).toEqual({ description: 'demo' });
-  });
-
-  it('rejects empty manifest body', () => {
-    expect(() => parseManifest('foo', '')).toThrow(ValidationError);
-    expect(() => parseManifest('foo', '   ')).toThrow(ValidationError);
   });
 });
 

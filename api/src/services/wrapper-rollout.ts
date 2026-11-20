@@ -413,8 +413,7 @@ async function logRollout(db: Database, action: string, state: WrapperRolloutSta
 function publishState(state: WrapperRolloutState, advanced: boolean): void {
   // No per-host data: owners re-read their own signed config and never trust this.
   const payload = { rollout_id: state.id, status: state.status, stage: stageLabel(state.stages[state.stage_index]) };
-  if (advanced) wsPublisher.publish('version.wrapper_rollout_advanced', payload);
-  else wsPublisher.publish('version.wrapper_rollout', payload);
+  wsPublisher.publish(advanced ? ROLLOUT_ADVANCED_EVENT : ROLLOUT_CHANGED_EVENT, payload);
 }
 
 export async function loadRolloutHosts(db: Database): Promise<RolloutHost[]> {

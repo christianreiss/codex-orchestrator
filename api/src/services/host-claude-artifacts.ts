@@ -15,7 +15,8 @@ import { claudeArtifacts } from '../db/schema.js';
 import type { ClaudeArtifact, Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
 import { isEngine, type Engine } from '../util/engine.js';
-import { ARTIFACT_KINDS, type ArtifactKind, normalizeSlug } from './claude-frontmatter.js';
+import { ARTIFACT_KINDS, type ArtifactKind } from './claude-frontmatter.js';
+import { normalizeSlug } from './skill-manifest.js';
 
 const SHA_RE = /^[a-f0-9]{64}$/i;
 

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ManagedSkillManifest } from './managed-context-skill.js';
+import type { ManagedSkillManifest } from './managed-skills.js';
 const description =
   'Enable, inspect and stop bounded recovery for your current task after capacity, crash or hang; server keep-alives run independently of the model.';
 const manifest = `---

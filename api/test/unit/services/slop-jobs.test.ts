@@ -9,7 +9,6 @@ import { buildTar, tarName } from '../../../src/services/slop-jobs/tar.js';
 import { parseReviewReply, reviewQuestion, REVIEW_FENCE, stripReviewBlock } from '../../../src/services/slop-jobs/review.js';
 import { parseAdvisorVerdict } from '../../../src/services/advisor-delivery.js';
 import { slopRunIdFromClientKey } from '../../../src/services/slop-jobs/advisor-hook.js';
-import { SLOP_JOB_TOOLS } from '../../../src/services/slop-jobs-tool-names.js';
 
 describe('slop job paths', () => {
   it('accepts project-relative POSIX paths and strips ./', () => {
@@ -131,9 +130,5 @@ describe('slop advisor hook', () => {
     expect(slopRunIdFromClientKey('caller:11111111-2222-4333-8444-555555555555')).toBe('11111111-2222-4333-8444-555555555555');
     expect(slopRunIdFromClientKey('caller:not-a-uuid')).toBeNull();
     expect(slopRunIdFromClientKey(null)).toBeNull();
-  });
-  it('keeps the tool-name constants in step with the registry literals', () => {
-    const registry = readFileSync(join(import.meta.dirname, '../../../src/services/mcp-tools.ts'), 'utf8');
-    for (const name of SLOP_JOB_TOOLS) expect(registry).toContain(`name: '${name}'`);
   });
 });

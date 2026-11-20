@@ -18,16 +18,34 @@ import { buildManagedWatchdogSkill, isManagedWatchdogSlug } from './managed-watc
 import { buildManagedWakeCronSkill, isManagedWakeCronSlug } from './managed-wake-cron-skill.js';
 import type { Database } from '../db/client.js';
 import { getManagedCocoSkillIfEnabled, isManagedCocoSlug } from './managed-coco-skill.js';
-// `context` is retired: only the slug predicate and the shared manifest type are
-// still used. buildManagedContextSkill() stays exported but uncalled until
-// Release B deletes the module, so the reservation and the type keep working.
-import { isManagedContextSlug, type ManagedSkillManifest } from './managed-context-skill.js';
 import { buildManagedAfkSkill, isManagedAfkSlug } from './managed-afk-skill.js';
 import { buildManagedConferenceSkill, isManagedConferenceSlug } from './managed-conference-skill.js';
 import { buildManagedSkillManager, isManagedSkillManagerSlug } from './managed-skill-manager.js';
 import { buildManagedRebootSafeSkill, isManagedRebootSafeSlug } from './managed-reboot-safe-skill.js';
 
-export type { ManagedSkillManifest };
+export interface ManagedSkillManifest {
+  slug: string;
+  sha256: string;
+  display_name: string;
+  description: string;
+  manifest: string;
+  updated_at: string;
+  deleted_at: null;
+  engine: null;
+  uri: string;
+  canonical_uri: string;
+  managed: true;
+}
+
+/**
+ * `context` is retired (its manifest is no longer built or served); only the
+ * slug reservation remains. See `listManagedSkills` and `ops/retire-context-skill.ts`.
+ */
+export const MANAGED_CONTEXT_SKILL_SLUG = 'context';
+
+export function isManagedContextSlug(slug: string): boolean {
+  return slug.trim().toLowerCase() === MANAGED_CONTEXT_SKILL_SLUG;
+}
 
 /**
  * Stable stand-in for a row timestamp. Managed skills have no row, and a moving

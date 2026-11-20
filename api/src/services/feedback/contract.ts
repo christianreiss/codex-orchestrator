@@ -13,7 +13,6 @@ export const configSchema = z.object({
 }).strict().refine((c) => !c.runner_enabled || (c.engine !== null && c.model !== null), {
   message: 'Select an engine and model before enabling the feedback runner',
 });
-export type FeedbackConfig = z.infer<typeof configSchema>;
 export const versionStates = ['unknown', 'old_version', 'recent'] as const;
 export const reviewStates = ['pending', 'needs_retest', 'new', 'known', 'fixed', 'discarded', 'unclear'] as const;
 export const deliveryStates = ['local', 'pending', 'sent', 'uncertain', 'failed'] as const;

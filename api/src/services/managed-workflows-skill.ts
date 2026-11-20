@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Database } from '../db/client.js';
-import type { ManagedSkillManifest } from './managed-context-skill.js';
+import type { ManagedSkillManifest } from './managed-skills.js';
 import { SettingsService } from './settings.js';
 
 export const WORKFLOWS_MIN_CXX_VERSION = '0.9.111';

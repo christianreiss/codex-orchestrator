@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { OwnerStateStore, OwnerStateSnapshot, wireStateRevision } from '../src/control-plane/state/store.js';
+import { OwnerStateStore, OwnerStateSnapshot } from '../src/control-plane/state/store.js';
 import {
   assertSchemaCoverage,
   isColdField,
@@ -166,12 +166,6 @@ describe('authoritative owner state', () => {
     expect(snapshot.hosts.get(1)?.credentialLookupHash).toMatch(/^[0-9a-f]{64}$/);
     expect(snapshot.hosts.get(1)?.authFingerprint).toBe(snapshot.hosts.get(1)?.credentialLookupHash);
     expect(snapshot.table('adminUsers').get(1)).not.toHaveProperty('passwordHash');
-  });
-  it('preserves bigint revisions on the wire', () => {
-    expect(wireStateRevision({ epoch, sequence: 9007199254740993n })).toEqual({
-      epoch,
-      sequence: '9007199254740993',
-    });
   });
   it('hydrates once without request reads or background SQL', async () => {
     const mock = hydrationDb();

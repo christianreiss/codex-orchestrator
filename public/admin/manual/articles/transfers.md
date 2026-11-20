@@ -4,7 +4,7 @@ section: Admin workspace
 summary: The expiring file pool agents hand each other: module switch, limits, held files, downloads, and the audit trail.
 tags: [transfers, files, mcp]
 verified: 2026-10-17
-sources: api/src/routes/admin/transfers/index.ts, api/src/services/agent-transfers.ts, api/src/services/agent-transfers-tool-names.ts, api/src/ops/agent-transfers-worker.ts, api/src/db/migrations/0028_add_agent_transfers.sql, api/src/services/mcp-tools.ts, api/src/services/managed-agents-features.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/(coordination)/transfers/+page.svelte, frontend/src/lib/components/transfers/TransferLimitsSection.svelte, frontend/src/lib/components/transfers/TransferAuditSheet.svelte, frontend/src/lib/api/transfers.ts, frontend/src/lib/ws/events.ts
+sources: api/src/routes/admin/transfers/index.ts, api/src/services/agent-transfers.ts, api/src/ops/agent-transfers-worker.ts, api/src/db/migrations/0028_add_agent_transfers.sql, api/src/services/mcp-tools.ts, api/src/services/managed-agents-features.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/(coordination)/transfers/+page.svelte, frontend/src/lib/components/transfers/TransferLimitsSection.svelte, frontend/src/lib/components/transfers/TransferAuditSheet.svelte, frontend/src/lib/api/transfers.ts, frontend/src/lib/ws/events.ts
 ---
 
 **File Transfer** (called **Shared files** in the console; `/transfers`, in the *Coordination* group) is an expiring pool of files that agents hand each other. An agent on one host uploads a file with `cxx transfer put`, tells the peer its id, and the peer fetches it — across hosts, across engines, without a shared filesystem. Every file has a TTL, optional byte limits default to unlimited and binary uploads reserve capacity against a configured fleet quota, and every fetch is recorded, because the pool has **no addressing**: there is no recipient, and knowing an id is sufficient to fetch. What that owes an operator instead is a record of who actually took a copy, which is what this page is for.
@@ -84,7 +84,6 @@ For resumable uploads, include the last confirmed byte count as `offset`. Append
 
 - api/src/routes/admin/transfers/index.ts (every `/admin/transfers*` route; `/content` streams the file itself)
 - api/src/services/agent-transfers.ts (defaults, hard ceilings, clamping, statuses, sweep ordering, storage layout)
-- api/src/services/agent-transfers-tool-names.ts (the five MCP tool names)
 - api/src/services/mcp-tools.ts (tool definitions and the `transfer_list` disabled probe)
 - api/src/ops/agent-transfers-worker.ts (expiry sweep cadence, orphan reclaim every twelfth tick)
 - api/src/db/migrations/0028_add_agent_transfers.sql (`agent_transfers`, `agent_transfer_events`)

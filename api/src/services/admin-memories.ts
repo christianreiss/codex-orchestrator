@@ -6,7 +6,6 @@ import type { MemoryDetail, MemoryScope } from './admin-memory-model.js';
 
 export {
   MEMORY_SCOPES,
-  decodeMemoryGraphCursor,
   memoryEtagForState,
   memoryNodeId,
   parseMemoryNodeId,

@@ -6,9 +6,9 @@ import {
   parseFrontmatter,
   validateForKind,
   normalizeKind,
-  normalizeSlug,
   KIND_DIRS,
 } from '../../../src/services/claude-frontmatter.js';
+import { normalizeSlug } from '../../../src/services/skill-manifest.js';
 
 /** Extract the YAML frontmatter block (between the --- fences) from a .md body. */
 function frontmatterBlock(md: string): string {

@@ -24,7 +24,6 @@ import {
 } from './skill-provenance.js';
 
 export const MATTPOCOCK_SOURCE_TYPE = 'github:mattpocock/skills';
-export const MATTPOCOCK_SOURCE = MATTPOCOCK_SOURCE_TYPE;
 export const MATTPOCOCK_REPOSITORY = 'mattpocock/skills';
 export const MATTPOCOCK_REPOSITORY_URL = 'https://github.com/mattpocock/skills';
 export const MATTPOCOCK_REF = 'main';
@@ -164,7 +163,7 @@ async function sourceExclusive<T>(operation: () => Promise<T>): Promise<T> {
 
 function defaultState(): MattPocockSkillsState {
   return {
-    source: MATTPOCOCK_SOURCE,
+    source: MATTPOCOCK_SOURCE_TYPE,
     repository: MATTPOCOCK_REPOSITORY_URL,
     ref: MATTPOCOCK_REF,
     enabled: false,
@@ -1036,7 +1035,7 @@ export class MattPocockSkillsService {
   private publish(skillsChanged: boolean, state: MattPocockSkillsState): void {
     if (skillsChanged) {
       wsPublisher.publish('skill.updated', {
-        source: MATTPOCOCK_SOURCE,
+        source: MATTPOCOCK_SOURCE_TYPE,
         revision: state.revision,
         enabled: state.enabled,
       });

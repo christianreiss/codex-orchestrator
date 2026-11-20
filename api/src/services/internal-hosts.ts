@@ -9,7 +9,7 @@ import type { StateRow } from '../control-plane/state/catalog.js';
  * spawn target may show it, and pruning never touches it. Every such surface
  * filters with `visibleHost`.
  */
-import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, type SQL } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { hosts, type Host } from '../db/schema.js';
 
@@ -21,11 +21,6 @@ export const EXTERNAL_FQDN = 'external.internal';
 
 /** Drizzle predicate: the host is an ordinary fleet host. */
 export const visibleHost: SQL = isNull(hosts.internalRole);
-
-/** Raw-SQL predicate on a `hosts` alias, for hand-written queries. */
-export function visibleHostSql(alias = 'hosts'): SQL {
-  return sql.raw(`${alias}.internal_role IS NULL`);
-}
 
 export function isInternalHost(host: Pick<Host, 'internalRole'> | null | undefined): boolean {
   return Boolean(host?.internalRole);

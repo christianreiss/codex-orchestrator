@@ -23,11 +23,11 @@ import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import {
   type ArtifactKind,
-  normalizeSlug,
   parseFrontmatter,
   serializeFrontmatter,
   validateForKind,
 } from './claude-frontmatter.js';
+import { normalizeSlug } from './skill-manifest.js';
 
 export interface ArtifactView {
   id: number;

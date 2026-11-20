@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ManagedSkillManifest } from './managed-context-skill.js';
+import type { ManagedSkillManifest } from './managed-skills.js';
 const slug = 'wake-cron';
 const description =
   'Create, inspect, modify, pause and delete fleet Wake/Cron schedules; enable persistent native-session recovery only when explicitly requested.';

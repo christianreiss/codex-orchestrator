@@ -169,14 +169,6 @@ export function planPin(rows: readonly PinRow[], actor: string, body: RoomPinInp
   return { changed: true as const, insert, after: [insert, ...rows] };
 }
 
-export async function pinOf(db: Reader, roomId: string, eventId: string) {
-  const [row] = await db
-    .select()
-    .from(agentRoomPins)
-    .where(and(eq(agentRoomPins.roomId, roomId), eq(agentRoomPins.eventId, eventId)));
-  return row;
-}
-
 /** Plain text snippet of at most `max` characters (whitespace collapsed). */
 export function plainSnippet(text: string, max = 200): string {
   const flat = text.replace(/\s+/gu, ' ').trim();

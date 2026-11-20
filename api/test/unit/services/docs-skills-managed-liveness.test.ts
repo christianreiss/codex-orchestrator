@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { MANAGED_AFK_SKILL_SLUG } from '../../../src/services/managed-afk-skill.js';
 import { MANAGED_COCO_SKILL_SLUG } from '../../../src/services/managed-coco-skill.js';
 import { MANAGED_CONFERENCE_SKILL_SLUG } from '../../../src/services/managed-conference-skill.js';
-import { MANAGED_CONTEXT_SKILL_SLUG } from '../../../src/services/managed-context-skill.js';
+import { MANAGED_CONTEXT_SKILL_SLUG } from '../../../src/services/managed-skills.js';
 import { MANAGED_SKILL_MANAGER_SLUG } from '../../../src/services/managed-skill-manager.js';
 import { isManagedSkillSlug } from '../../../src/services/managed-skills.js';
 import { collectRegisteredRoutes } from '../routes/registered-routes.js';

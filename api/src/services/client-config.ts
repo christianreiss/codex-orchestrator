@@ -1255,7 +1255,7 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
  * searching, and reading are deliberately absent: they were already allowed, and
  * that asymmetry is the problem being fixed, not a pattern to extend.
  */
-const CURATION_TOOLS = [
+export const CURATION_TOOLS = [
   'feedback_submit',
   'feedback_claim',
   'feedback_update',
