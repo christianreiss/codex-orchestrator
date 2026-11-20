@@ -18,7 +18,7 @@ type spec struct {
 	arity arity
 }
 
-// Sources: Codex rust-v0.169.0 SharedCliOptions/TuiCli/exec cli.rs and Grok Build 1.0.70
+// Sources: Codex rust-v0.171.0 SharedCliOptions/TuiCli/exec cli.rs (help snapshot testdata/codex-0.171-value-options.json) and Grok Build 1.0.70
 // help/PagerArgs (worker options re-checked against 1.0.77). Comma-delimited vectors take one argv value unless num_args
 // explicitly says otherwise. An attached/equal value ends a variadic occurrence.
 var codex = map[string]spec{}
@@ -60,6 +60,8 @@ func init() {
 		{"--linux-sandbox-pid-namespace"}, {"--concurrent-requests"}, {"--remote-transport"}, {"--environment-id"}, {"--name"},
 		{"--aws-profile"}, {"--aws-region"}, {"--aws-service"}, {"--chatgpt-account-id"},
 		// Nested 0.169 utility help (including refused service commands).
+		// 0.171 `exec-server [forward] --tcp-upstream-proxy <HOST:PORT>`.
+		{"--tcp-upstream-proxy"},
 		{"--sock"}, {"--ref"}, {"--sparse"}, {"--connect"}, {"--out"}, {"--prettier"},
 		{"--attempts"}, {"--attempt"}, {"--branch"}, {"--limit"}, {"--cursor"},
 		// `plugin add -m` shares -m (and its required arity) with --model.

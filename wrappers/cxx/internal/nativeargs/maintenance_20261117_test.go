@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// Captured from every public native 0.169.0 help scope, including nested
+// Captured from every public native 0.171.0 help scope (74), including nested
 // utility/refused services; no account or running native session was used.
-func TestCodex0169AllHelpValueOptions(t *testing.T) {
-	raw, err := os.ReadFile("testdata/codex-0.169-value-options.json")
+func TestCodex0171AllHelpValueOptions(t *testing.T) {
+	raw, err := os.ReadFile("testdata/codex-0.171-value-options.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestCodex0169AllHelpValueOptions(t *testing.T) {
 		Version  string              `json:"version"`
 		Commands map[string][]string `json:"commands"`
 	}
-	if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot.Version != "0.169.0" {
+	if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot.Version != "0.171.0" {
 		t.Fatalf("invalid native snapshot: %v", err)
 	}
 	for scope, options := range snapshot.Commands {
