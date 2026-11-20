@@ -6,6 +6,7 @@
    */
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
+  import { engineLabel } from "$lib/constants/engines";
   import { ApiError } from "$lib/api/client";
   import { rolesApi, rolesKeys } from "$lib/api/roles";
   import { StateBlock } from "$lib/components/page";
@@ -115,7 +116,7 @@
             <p class="text-body-sm text-muted-foreground">Waiting for the judge. Without a verdict nothing is published.</p>
           {/if}
           {#each proposal.reviews as review (review.at)}
-            <p class="text-body-sm"><span class="font-medium">Review by {review.engine} agent {review.reviewer_address_id.slice(0, 8)}:</span> {review.verdict} — {review.reason}</p>
+            <p class="text-body-sm"><span class="font-medium">Review by {engineLabel(review.engine)} agent {review.reviewer_address_id.slice(0, 8)}:</span> {review.verdict} — {review.reason}</p>
           {/each}
           <details class="rounded-md border">
             <summary class="cursor-pointer select-none px-3 py-2 text-body-sm font-medium">Event trail ({detail.events.length})</summary>

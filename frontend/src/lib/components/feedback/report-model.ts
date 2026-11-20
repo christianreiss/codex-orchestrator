@@ -25,6 +25,8 @@ export const areaClass =
   "flex min-h-20 w-full rounded-md border border-input bg-card px-3 py-2 text-body-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
 export const humanize = (value: string): string => value.replaceAll("_", " ");
+/** Sentence-case label for a menu option: "in_progress" becomes "In progress". */
+export const sentence = (value: string): string => humanize(value).replace(/^./, (c) => c.toUpperCase());
 
 export function actorLabel(actor: Record<string, unknown> | null): string {
   if (!actor) return "Unassigned";

@@ -903,3 +903,9 @@ export async function installFixtures(page: Page, override?: FixtureOverride): P
     });
   });
 }
+
+/** Choose an option in the shared Select: open its trigger, then click the option by its visible name. */
+export async function pick(page: import("@playwright/test").Page, trigger: import("@playwright/test").Locator, name: string | RegExp) {
+  await trigger.click();
+  await page.getByRole("option", typeof name === "string" ? { name, exact: true } : { name }).click();
+}

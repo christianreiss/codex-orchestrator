@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SimpleSelect } from "$lib/components/ui/select";
   import { formatDateTime } from "$lib/utils/format";
   import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import { untrack } from "svelte";
@@ -60,17 +61,14 @@
   id="session-housekeeping"
   stacked
   label="Clean up old agent sessions"
-  term="session housekeeping"
   help="Keep recent conversations and remove older sessions to reclaim disk space, per engine and local user."
   details="Deletion permanently removes transcripts and their session history. Active sessions, pins, open goals, queued work and fleet resume or wake bindings stay protected. Protected or young sessions may exceed the budget. cxx waits for an idle engine and checks at most daily after a successful run."
   overrideCount={$overrides.data?.session_housekeeping?.[engine] ?? null}
-  overrideNoun={`${engine} rule`}
+  overrideNoun={`${ENGINE_META[engine].label} rule`}
 >
   <div class="flex flex-wrap items-center gap-3">
     <label for="housekeeping-engine-fleet" class="text-body-sm font-medium">Engine</label>
-    <select id="housekeeping-engine-fleet" class="h-9 rounded-md border bg-background px-3 text-body-sm" value={engine} onchange={(event) => (picked = event.currentTarget.value as Engine)} disabled={$save.isPending || dirty} aria-describedby="housekeeping-engine-hint">
-      {#each $fleet.enabled as option (option)}<option value={option}>{ENGINE_META[option].label}</option>{/each}
-    </select>
+    <SimpleSelect id="housekeeping-engine-fleet" aria-label="Engine" value={engine} onValueChange={(value) => (picked = value as Engine)} disabled={$save.isPending || dirty} aria-describedby="housekeeping-engine-hint" options={$fleet.enabled.map((option) => ({ value: option, label: ENGINE_META[option].label }))} />
     <span id="housekeeping-engine-hint" class="text-caption text-muted-foreground empty:hidden">{dirty ? "Save or reload this rule before switching engine." : ""}</span>
   </div>
   {#if $query.isPending}<p role="status" class="text-body-sm text-muted-foreground">Loading rules…</p>
@@ -83,9 +81,9 @@
       <fieldset disabled={!canManage || $save.isPending} class="space-y-3 disabled:opacity-60">
         <label class="flex items-center gap-2 text-body"><Switch checked={enabled} onCheckedChange={(value) => enabled = value} disabled={!canManage || $save.isPending} aria-label="Enable automatic housekeeping"/>Enable automatic housekeeping</label>
         <div class="grid gap-3 sm:grid-cols-3">
-          <label class="grid gap-1 text-body">Retention (days)<Input class="h-9" type="number" min="1" max="3650" step="1" bind:value={retention} required/></label>
-          <label class="grid gap-1 text-body">Budget (GiB)<Input class="h-9" type="number" min="0.0009765625" max="1024" step="any" bind:value={budget} required/></label>
-          <label class="grid gap-1 text-body">Minimum age under pressure (days)<Input class="h-9" type="number" min="1" max={retention} step="1" bind:value={minimum} required/></label>
+          <label class="grid gap-1 text-body">Retention (days)<Input class="max-w-xs h-9" type="number" min="1" max="3650" step="1" bind:value={retention} required/></label>
+          <label class="grid gap-1 text-body">Budget (GiB)<Input class="max-w-xs h-9" type="number" min="0.0009765625" max="1024" step="any" bind:value={budget} required/></label>
+          <label class="grid gap-1 text-body">Minimum age under pressure (days)<Input class="max-w-xs h-9" type="number" min="1" max={retention} step="1" bind:value={minimum} required/></label>
         </div>
       </fieldset>
       {#if !valid}<p role="alert" class="text-body text-destructive">Enter valid durations and a budget. Minimum age must not exceed retention.</p>{/if}

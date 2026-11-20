@@ -5,14 +5,17 @@
    */
   import { base } from "$app/paths";
   import { cn } from "$lib/utils/cn";
-  import { LIBRARY_TYPES, libraryListHref, type LibraryTypeId } from "./library-types";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
+  import { CLAUDE_ONLY_NOTE, libraryListHref, libraryTypeMeta, offeredLibraryTypes, type LibraryTypeId } from "./library-types";
 
   let { active }: { active: LibraryTypeId } = $props();
+  const fleet = useFleetEngines();
+  const types = $derived(offeredLibraryTypes($fleet.isEnabled("claude")));
 </script>
 
 <nav aria-label="Library content type" class="min-w-0 max-w-full overflow-x-auto">
   <ul class="inline-flex min-w-max gap-0.5 rounded-md border bg-muted/40 p-0.5">
-    {#each LIBRARY_TYPES as type (type.id)}
+    {#each types as type (type.id)}
       <li>
         <a
           href={`${base}${libraryListHref(type.id)}`}
@@ -32,3 +35,6 @@
     {/each}
   </ul>
 </nav>
+{#if libraryTypeMeta(active).claudeOnly}
+  <p class="mt-1.5 text-caption text-muted-foreground">{CLAUDE_ONLY_NOTE}</p>
+{/if}

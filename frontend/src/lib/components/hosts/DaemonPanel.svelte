@@ -68,9 +68,9 @@
       <details class="border-t pt-3">
         <summary class="cursor-pointer text-body font-medium">Limits and timeouts</summary>
         <div class="mt-3 grid gap-3 sm:grid-cols-3">
-          <div class="space-y-1.5"><Label for="host-daemon-slots">Parallel slots</Label><Input id="host-daemon-slots" type="number" min="1" max="64" bind:value={settings.max_parallel}/></div>
-          <div class="space-y-1.5"><Label for="host-daemon-idle">Idle timeout (minutes)</Label><Input id="host-daemon-idle" type="number" min="1" max="1440" bind:value={settings.idle_minutes}/></div>
-          <div class="space-y-1.5"><Label for="host-daemon-question">Question timeout (minutes)</Label><Input id="host-daemon-question" type="number" min="1" max="10080" bind:value={settings.question_minutes}/></div>
+          <div class="space-y-1.5"><Label for="host-daemon-slots">Parallel slots</Label><Input class="max-w-xs" id="host-daemon-slots" type="number" min="1" max="64" bind:value={settings.max_parallel}/></div>
+          <div class="space-y-1.5"><Label for="host-daemon-idle">Idle timeout (minutes)</Label><Input class="max-w-xs" id="host-daemon-idle" type="number" min="1" max="1440" bind:value={settings.idle_minutes}/></div>
+          <div class="space-y-1.5"><Label for="host-daemon-question">Question timeout (minutes)</Label><Input class="max-w-xs" id="host-daemon-question" type="number" min="1" max="10080" bind:value={settings.question_minutes}/></div>
         </div>
       </details>
     </fieldset>

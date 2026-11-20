@@ -76,10 +76,10 @@ test("daemon indicators are separate, enabled-only, and update live", async ({
   ).toBeVisible();
   await expect(
     page.locator('[data-daemon-state="yellow"]').first(),
-  ).toHaveAttribute("aria-label", /8\/8 Slots/);
+  ).toHaveAttribute("aria-label", /8\/8 slots/);
   await expect(
     page.locator('[data-daemon-state="red"]').first(),
-  ).toHaveAttribute("aria-label", /nicht erreichbar/);
+  ).toHaveAttribute("aria-label", /unreachable/);
   const row = page
     .getByRole("row")
     .filter({ has: page.getByText("daemon-4.test", { exact: true }) });
@@ -129,12 +129,12 @@ test('closed-window daemon remains online and can be opened from host details', 
   });
   await page.goto('/admin/hosts/1');
   await page.getByTestId('host-advanced').locator(':scope > summary').click();
-  await expect(page.getByText('Daemon · Online · Zugriff gesperrt')).toBeVisible();
+  await expect(page.getByText('Daemon · Online · access blocked')).toBeVisible();
   await expect(page.getByRole('link', {name:'Open remote sessions'})).toHaveAttribute('href', '/admin/clients?view=remote&host=1');
   await page.getByRole('button',{name:'Open access window',exact:true}).click();
   await expect(page.getByText(/^Access until /)).toBeVisible();
   expect(grants).toBe(1);
-  await expect(page.getByText('Daemon · Bereit')).toBeVisible();
+  await expect(page.getByText('Daemon · Ready')).toBeVisible();
   await page.getByRole('link', {name:'Open remote sessions'}).click();
   await page.getByRole('button', {name:'Start remote session',exact:true}).click();
   await expect(page.getByLabel('Host',{exact:true})).toHaveValue('1');

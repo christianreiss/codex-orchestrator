@@ -83,7 +83,7 @@
           <a href={`${base}/hosts/${host.id}`} class="block min-w-0 whitespace-normal font-mono font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
           <CopyButton value={host.fqdn} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy FQDN ${host.fqdn}`} toastMessage="FQDN copied" />
         </span>
-        <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"} · #{host.id}</span>
+        <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"}</span>
       </Table.Cell>
       <Table.Cell>
         <span class="inline-flex flex-wrap items-center gap-1.5">
@@ -93,7 +93,7 @@
       </Table.Cell>
       <Table.Cell class="max-w-[22rem]">
         {#if warnings.length === 0}
-          <span class="text-muted-foreground">Nothing</span>
+          <span class="sr-only">No problems</span>
         {:else}
           <span class="flex items-center gap-2">
             <span class="truncate">{warnings[0].text}</span>
@@ -166,7 +166,7 @@
                 <a href={`${base}/hosts/${host.id}`} class="block min-w-0 whitespace-normal font-mono font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
                 <CopyButton value={host.fqdn} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy FQDN ${host.fqdn}`} toastMessage="FQDN copied" />
               </span>
-              <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"} · #{host.id}</span>
+              <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"}</span>
             </div>
             <span class="inline-flex shrink-0 flex-wrap items-center justify-end gap-1.5">
               <StatusPill tone={STATUS[kind].tone} label={STATUS[kind].label} />
@@ -178,17 +178,16 @@
             <DaemonIndicator host={$daemons.data?.hosts.find((d) => d.host_id === host.id)} />
           </div>
           <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-body-sm">
-            <dt class="text-muted-foreground">Needs attention</dt>
-            <dd class="min-w-0">
-              {#if warnings.length === 0}<span class="text-muted-foreground">Nothing</span>
-              {:else}
+            {#if warnings.length > 0}
+              <dt class="text-muted-foreground">Needs attention</dt>
+              <dd class="min-w-0">
                 <span class="break-words">{warnings[0].text}</span>
                 {#if warnings.length > 1}<span class="text-caption text-muted-foreground"> +{warnings.length - 1} more</span>{/if}
                 {#if warnings.some((w) => w.fix === "review-access")}
                   <Button size="sm" variant="outline" class="mt-1" onclick={onReviewAccess}><ShieldAlert class="h-4 w-4" /> Review</Button>
                 {/if}
-              {/if}
-            </dd>
+              </dd>
+            {/if}
             <dt class="text-muted-foreground">Last contact</dt>
             <dd class="text-muted-foreground"><Timestamp value={hostLastSeen(host)} fallback="Never" /></dd>
           </dl>

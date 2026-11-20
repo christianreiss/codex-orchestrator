@@ -157,7 +157,7 @@
     {#if baseline}
       <div class="mt-3 space-y-2">
         <label for={`${sectionId}-json`} class="block text-caption font-medium">{ENGINE_META[engine].label} {settingsLabel} JSON</label>
-        <textarea id={`${sectionId}-json`} class="min-h-48 w-full rounded-md border bg-background p-3 font-mono text-caption focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
+        <textarea id={`${sectionId}-json`} class="min-h-48 w-full max-w-[56rem] rounded-md border bg-background p-3 font-mono text-caption focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
           bind:value={draft} spellcheck={false} readonly={!canManage} disabled={$mutation.isPending} aria-busy={$mutation.isPending}
           aria-invalid={Boolean(parsed.error || error || (!dirty && baseline.validation_error))} aria-describedby={`${sectionId}-feedback`}
           oninput={() => { error = null; saved = false; }}></textarea>

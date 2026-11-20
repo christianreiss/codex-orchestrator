@@ -1,3 +1,4 @@
+import { pick } from "./admin-fixtures";
 import { ownerStream } from "./owner-stream";
 import { expect, test, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -79,7 +80,7 @@ test('override badges link to Hosts and say when every host follows a setting', 
   await page.goto('/admin/settings?group=retention#session-housekeeping');
   const housekeeping = page.locator('#session-housekeeping');
   await expect(housekeeping.getByTestId('host-override-none')).toBeVisible();
-  await housekeeping.getByLabel('Engine').selectOption('claude');
+  await pick(page, housekeeping.getByLabel('Engine'), 'Claude');
   await expect(housekeeping.getByTestId('host-override-badge')).toContainText('3 hosts override');
 });
 test('legacy settings bookmarks redirect to their new section', async ({ page }) => {
@@ -100,9 +101,9 @@ test('immediate controls save, reload and recover after failure', async ({ page 
   const chat = page.getByRole('switch', { name: 'Tell agents how to treat keys pasted in chat', exact: true });
   await chat.click(); await expect(chat).not.toBeChecked();
   const mode = page.getByLabel('Role checks');
-  shared.fail = 'authorization'; await mode.selectOption('strict'); await expect(page.locator('#authorization')).toContainText('Save failed'); await expect(mode).toHaveValue('compatible'); await expect(mode).toBeEnabled();
-  shared.fail = ''; await mode.selectOption('strict'); await expect(mode).toHaveValue('strict'); await expect(mode).toBeEnabled();
-  await page.reload(); await expect(mode).toHaveValue('strict');
+  shared.fail = 'authorization'; await pick(page, mode, /^Strict/); await expect(page.locator('#authorization')).toContainText('Save failed'); await expect(mode).toHaveText(/^Compatible/); await expect(mode).toBeEnabled();
+  shared.fail = ''; await pick(page, mode, /^Strict/); await expect(mode).toHaveText(/^Strict/); await expect(mode).toBeEnabled();
+  await page.reload(); await expect(mode).toHaveText(/^Strict/);
 });
 test('numeric validation preserves inactive-host policy and retired retention is absent', async ({ page }) => {
   const shared = state(); await fixture(page, shared); await page.goto('/admin/settings');

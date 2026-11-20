@@ -51,7 +51,7 @@
   }
 </script>
 
-<Section title="Engines" description="Changes apply on the host's next cdx / clx / cgx run or its next scheduled maintenance tick.">
+<Section title="Engines" description="Changes apply on the host's next agent run or scheduled maintenance tick.">
   <div>
     {#each $fleet.enabled as engine (engine)}
       <ToggleRow

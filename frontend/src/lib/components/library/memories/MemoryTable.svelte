@@ -7,6 +7,7 @@
   import * as Table from "$lib/components/ui/table";
   import { displayMemoryKey, formatCharacters } from "$lib/components/memories/atlas-types";
   import type { MemoriesState } from "./memories-state.svelte";
+  import { engineLabel } from "$lib/constants/engines";
   import { loadFailure } from "$lib/api/access-denied";
 
   let { state }: { state: MemoriesState } = $props();
@@ -46,7 +47,7 @@
         <p class="mt-0.5 max-w-44 truncate text-caption text-muted-foreground">{item.host || item.project_slug || "Fleet-wide"}</p>
       </Table.Cell>
       <Table.Cell class="whitespace-nowrap tabular-nums">{formatCharacters(item.content_length ?? 0)}</Table.Cell>
-      <Table.Cell class="text-muted-foreground">{item.engine ?? "—"}</Table.Cell>
+      <Table.Cell class="text-muted-foreground">{item.engine ? engineLabel(item.engine) : "—"}</Table.Cell>
       <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground">{item.updated_at ? relativeTime(item.updated_at) : "—"}</Table.Cell>
       <Table.Cell>
         <div class="flex max-w-56 flex-wrap items-center gap-1">

@@ -1,12 +1,14 @@
 <script lang="ts">
   /**
-   * One fleet setting as a flat row: plain label, one line of help, the
-   * canonical term as secondary text and the control on the right. `stacked`
-   * puts the control (a small form) under the text instead of beside it.
+   * One fleet setting as a flat row: plain label, one line of help and the
+   * control on the right. The canonical term (`policy-terms.ts`, keyed by `id`)
+   * lives inside the "More" disclosure, not beside the label. `stacked` puts
+   * the control (a small form) under the text instead of beside it.
    */
   import type { Snippet } from "svelte";
   import { cn } from "$lib/utils/cn";
   import HostOverrideBadge from "./HostOverrideBadge.svelte";
+  import { policyTerm } from "./policy-terms";
 
   type Props = {
     id: string;
@@ -14,8 +16,6 @@
     /** Id of the control the label belongs to; omit for a form with several controls. */
     controlId?: string;
     help: string;
-    /** The canonical name, kept visible so docs and the CLI still match. */
-    term?: string;
     /** Longer explanation behind a "More" disclosure. */
     details?: string;
     stacked?: boolean;
@@ -27,7 +27,8 @@
     children?: Snippet;
     class?: string;
   };
-  let { id, label, controlId, help, term, details, stacked = false, overrideCount, overrideNoun, control, children, class: className }: Props = $props();
+  let { id, label, controlId, help, details, stacked = false, overrideCount, overrideNoun, control, children, class: className }: Props = $props();
+  const term = $derived(policyTerm(id));
 </script>
 
 <div {id} class={cn("scroll-mt-24 py-3", className)}>
@@ -39,7 +40,6 @@
         {:else}
           <h3 class="text-body font-medium">{label}</h3>
         {/if}
-        {#if term}<span class="text-caption text-muted-foreground">{term}</span>{/if}
         <HostOverrideBadge count={overrideCount} noun={overrideNoun} />
       </div>
       <p class="text-body-sm text-muted-foreground">{help}</p>
@@ -47,10 +47,11 @@
     {#if control}<div class="flex shrink-0 items-center">{@render control()}</div>{/if}
   </div>
   {@render children?.()}
-  {#if details}
+  {#if details || term}
     <details class="mt-1 text-body-sm text-muted-foreground">
       <summary class="w-fit cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">More</summary>
-      <p class="mt-1 max-w-2xl leading-relaxed">{details}</p>
+      {#if term}<p class="mt-1">Also known as <span class="font-medium text-foreground">{term}</span>.</p>{/if}
+      {#if details}<p class="mt-1 max-w-2xl leading-relaxed">{details}</p>{/if}
     </details>
   {/if}
 </div>

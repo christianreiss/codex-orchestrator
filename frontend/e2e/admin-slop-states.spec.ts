@@ -7,7 +7,7 @@ test("unknown project coordination state cannot be changed", async ({ page }) =>
   await page.route("**/admin/projects/state", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "State temporarily unavailable" }) }));
   await page.goto("/admin/projects");
   await expect(page.getByText("Project coordination state unavailable:", { exact: false })).toBeVisible();
-  await expect(page.getByRole("switch", { name: "Project coordination", exact: true })).toBeDisabled();
+  await expect(page.getByRole("switch", { name: "Enable project coordination", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Retry coordination state" })).toBeVisible();
 });
 

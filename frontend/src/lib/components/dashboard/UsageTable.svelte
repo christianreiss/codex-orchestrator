@@ -54,6 +54,7 @@
   </StateBlock>
 {:else}
 <DataTable
+  reflow
   items={visibleAccounts}
   {loading}
   {error}
@@ -83,7 +84,7 @@
           <span class="min-w-0 break-words">{account.label}</span>
         </a>
         <p class="mt-0.5 text-body-sm text-muted-foreground" data-testid="provider-plan">
-          {ENGINE_META[account.engine].account} · {account.plan?.name ?? "Plan unavailable"}{account.plan?.name && account.plan.stale ? " (last known)" : ""}
+          {ENGINE_META[account.engine].label} · {account.plan?.name ?? "Plan unavailable"}{account.plan?.name && account.plan.stale ? " (last known)" : ""}
         </p>
       </Table.Cell>
       <Table.Cell>
@@ -119,6 +120,7 @@
       </Table.Cell>
       <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground" data-testid="reset-in">
         {#if resets.length}
+          <span class="text-caption sm:hidden">Resets in</span>
           <div class="space-y-1">
             {#each resets as reset (reset.key)}
               <p>{#if reset.label}<span class="mr-1 text-caption">{reset.label}:</span>{/if}<time datetime={reset.at ?? undefined} title={reset.at ?? undefined}>{reset.when}</time></p>
@@ -129,7 +131,7 @@
       <Table.Cell class={cn("whitespace-nowrap text-body-sm", account.usage.stale && account.usage.fetched_at ? "text-warning" : "text-muted-foreground")}
         title={account.usage.stale && account.usage.fetched_at ? "Last known reading; the latest update did not succeed" : undefined}>
         {#if account.usage.fetched_at}
-          <Timestamp value={account.usage.fetched_at} />
+          <span class="sm:hidden">Updated&nbsp;</span><Timestamp value={account.usage.fetched_at} />
         {:else}No reading yet{/if}
       </Table.Cell>
     </Table.Row>

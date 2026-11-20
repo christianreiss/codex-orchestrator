@@ -7,7 +7,7 @@
   import Copy from "@lucide/svelte/icons/copy";
   import FileUp from "@lucide/svelte/icons/file-up";
   import { authStore } from "$lib/stores/auth";
-  import { DataTable, PageShell, StatStrip, Toolbar } from "$lib/components/page";
+  import { DataTable, PageShell, Toolbar } from "$lib/components/page";
   import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import TransferLimitsSection from "$lib/components/transfers/TransferLimitsSection.svelte";
   import TransferAuditSheet from "$lib/components/transfers/TransferAuditSheet.svelte";
@@ -15,7 +15,7 @@
   import * as Table from "$lib/components/ui/table";
   import { Button } from "$lib/components/ui/button";
   import { Badge } from "$lib/components/ui/badge";
-  import { formatBytes } from "$lib/utils/format";
+  import { formatMib } from "$lib/utils/format";
   import {
     transferDeleteMutation,
     transferDownloadMutation,
@@ -87,10 +87,6 @@
     ];
   }
 
-  const stats = $derived([
-    { label: "files held", value: moduleState?.live_count ?? "–" },
-    { label: moduleState && moduleState.quota_bytes > 0 ? `used of ${formatBytes(moduleState.quota_bytes)}` : "used (unlimited quota)", value: moduleState ? formatBytes(moduleState.used_bytes) : "–" },
-  ]);
 </script>
 
 <PageShell
@@ -105,8 +101,6 @@
 >
   {#if $stateQuery.isError}<p role="alert" class="text-body-sm text-destructive">Shared files state unavailable: {$stateQuery.error.message}. Previously loaded values may be stale.</p><Button variant="outline" size="sm" onclick={() => $stateQuery.refetch()}>Retry shared files state</Button>{/if}
   {#if $stateMutation.isError}<p role="alert" class="text-body-sm text-destructive">{$stateMutation.error.message}</p>{/if}
-  <StatStrip items={stats} />
-
   <section aria-labelledby="held-files-heading" class="space-y-2">
     <h2 id="held-files-heading" class="sr-only">Held files</h2>
     <Toolbar bind:search={filterState.values.q} filtersActive={filterState.active} onClearFilters={() => filterState.clear()} searchPlaceholder="Search held files" count={rows && all ? (rows.length === all.length ? `${all.length} file${all.length === 1 ? "" : "s"}` : `${rows.length} of ${all.length}`) : undefined} />
@@ -138,8 +132,8 @@
             <span class="block truncate text-caption text-muted-foreground">{item.mime_type ?? "unknown type"}{item.status !== "live" ? ` · ${transferStatusLabel(item.status)}` : ""}</span>
           </Table.Cell>
           <Table.Cell class="whitespace-nowrap text-right">
-            {formatBytes(item.size_bytes)}
-            {#if item.status === "uploading" && item.expected_size_bytes != null}<span class="text-muted-foreground">/ {formatBytes(item.expected_size_bytes)}</span>{/if}
+            {formatMib(item.size_bytes)}
+            {#if item.status === "uploading" && item.expected_size_bytes != null}<span class="text-muted-foreground">/ {formatMib(item.expected_size_bytes)}</span>{/if}
           </Table.Cell>
           <Table.Cell class="max-w-[12rem] truncate">{item.uploaded_by ?? "—"}</Table.Cell>
           <Table.Cell class="text-right">{item.download_count}</Table.Cell>

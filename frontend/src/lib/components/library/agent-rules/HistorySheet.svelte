@@ -67,7 +67,7 @@
           </Select.Content>
         </Select.Root>
         {#if history.serveMode === "locked"}
-          <Input aria-label="Locked version ID" type="number" placeholder="Version ID" bind:value={history.serveLockedId} min={1} />
+          <Input class="max-w-xs" aria-label="Locked version ID" type="number" placeholder="Version ID" bind:value={history.serveLockedId} min={1} />
         {/if}
         <Button size="sm" onclick={() => history.applyServeMode()} disabled={history.serving}>Apply</Button>
       </section>
@@ -77,7 +77,7 @@
         <div class="flex items-end gap-2">
           <div class="flex-1 space-y-1.5">
             <Label for="retention-days">Backups to keep</Label>
-            <Input id="retention-days" type="number" min={0} max={200} bind:value={history.retentionInput} />
+            <Input class="max-w-xs" id="retention-days" type="number" min={0} max={200} bind:value={history.retentionInput} />
           </div>
           <Button size="sm" variant="outline" onclick={() => history.saveRetention()} disabled={history.savingRetention}>Save retention</Button>
         </div>

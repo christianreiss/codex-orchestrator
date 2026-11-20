@@ -33,8 +33,14 @@
     filtered?: boolean;
     onClearFilters?: () => void;
     caption?: string;
+    /**
+     * Under 640 px each row becomes a stacked card (header hidden, cells one per line)
+     * instead of a table that scrolls sideways, so the key value stays in view. The row
+     * lays itself out; mark a cell `max-sm:absolute` to pin it to the card's corner.
+     */
+    reflow?: boolean;
   };
-  let { items, loading = false, error = null, onRetry, head, row, key, emptyTitle = "Nothing here yet", emptyDescription, emptyIcon, emptyAction, filtered = false, onClearFilters, caption }: Props = $props();
+  let { items, loading = false, error = null, onRetry, head, row, key, emptyTitle = "Nothing here yet", emptyDescription, emptyIcon, emptyAction, filtered = false, onClearFilters, caption, reflow = false }: Props = $props();
 
   const denial = $derived(accessDenied(error));
   const message = $derived(errorText(error));
@@ -59,7 +65,7 @@
 {:else if !denial && items?.length}
   {#if loading}<p role="status" class="text-body-sm text-muted-foreground">Refreshing… Previously loaded data remains visible.</p>{/if}
   <div class="min-w-0 max-w-full rounded-md border" aria-busy={loading}>
-    <Table.Root regionLabel={caption ?? emptyTitle} stickyHeader>
+    <Table.Root regionLabel={caption ?? emptyTitle} stickyHeader class={reflow ? "max-sm:[&_thead]:sr-only max-sm:[&_tbody_tr]:relative max-sm:[&_tbody_tr]:block max-sm:[&_tbody_tr]:py-2 max-sm:[&_tbody_td]:block max-sm:[&_tbody_td]:border-0 max-sm:[&_tbody_td]:py-1" : undefined}>
       {#if caption}<Table.Caption class="sr-only">{caption}</Table.Caption>{/if}
       <Table.Header><Table.Row>{@render head()}</Table.Row></Table.Header>
       <Table.Body>

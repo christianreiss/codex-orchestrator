@@ -17,6 +17,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
   import * as Sheet from "$lib/components/ui/sheet";
+  import HiddenEngineNote from "$lib/components/engines/HiddenEngineNote.svelte";
   import ConversationRow from "./ConversationRow.svelte";
   import BotIcon from "@lucide/svelte/icons/bot";
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
@@ -40,10 +41,12 @@
   let drafts = $state<Record<string, string>>({});
   let detailsOpen = $state(false);
   let heading = $state<HTMLHeadingElement | null>(null);
-  const entries = $derived(hosts.flatMap(host => host.sessions.map(session => ({ session, host }))));
-  const selectedEntry = $derived(entries.find(entry => entry.session.id === selectedId));
-  // Only engines switched on fleet-wide are offered or filtered by.
+  // Only engines switched on fleet-wide are offered, filtered by or listed; the rest are counted in a note.
   const fleet = useFleetEngines();
+  const allEntries = $derived(hosts.flatMap(host => host.sessions.map(session => ({ session, host }))));
+  const entries = $derived(allEntries.filter(entry => $fleet.isEnabled(entry.session.engine)));
+  const hiddenSessions = $derived(allEntries.filter(entry => (!fixedHost || entry.host.host_id === fixedHost) && !$fleet.isEnabled(entry.session.engine)).length);
+  const selectedEntry = $derived(allEntries.find(entry => entry.session.id === selectedId));
   const detail = createQuery<RemoteSession>(toStore(() => ({
     queryKey: ["daemon-sessions", selectedId], enabled: active && !!selectedId && canRead,
     queryFn: ({ queryKey, signal }) => api.get<RemoteSession>(`/admin/daemon-sessions/${queryKey[1]}`, { signal }),
@@ -56,7 +59,7 @@
     const terminal = ["closed", "failed", "unknown"].includes(session.status);
     return (!fixedHost || host.host_id === fixedHost) && (engineFilter === "all" || session.engine === engineFilter)
       && (filter === "all" || (filter === "ended" ? terminal : !terminal))
-      && `${session.title} ${host.fqdn} ${session.cwd} ${session.engine}`.toLowerCase().includes(search.trim().toLowerCase());
+      && `${session.title} ${host.fqdn} ${session.cwd} ${engineLabel(session.engine)}`.toLowerCase().includes(search.trim().toLowerCase());
   }).sort((a, b) => (b.session.lastActivityAt ?? b.session.createdAt ?? "").localeCompare(a.session.lastActivityAt ?? a.session.createdAt ?? "") || a.session.id.localeCompare(b.session.id)));
   const host = $derived(hosts.find(row => row.host_id === hostId));
   const startReason = $derived(!canManage ? "Remote session management is required." : error || stale ? "Refresh host status before starting work." : hostBlockReason(host) || (host?.engines?.includes(engine) ? "" : "This engine is not ready on the host."));
@@ -64,7 +67,7 @@
   // Plan mode is a native Claude/Grok permission mode (server PLAN_ENGINES);
   // Codex and Kimi Code have none, and a daemon older than cxx 0.9.146 would
   // ignore it, so the server refuses all three cases.
-  const planReason = $derived(engine === "codex" || engine === "kimi" ? `${engine === "codex" ? "Codex" : "Kimi Code"} has no plan mode; its sessions always run with the host's security posture.` : (host?.permission_mode_version ?? 0) < 1 ? "This host's daemon predates plan mode. Update cxx to 0.9.146 or newer." : "");
+  const planReason = $derived(engine === "codex" || engine === "kimi" ? `${engineLabel(engine)} has no plan mode; its sessions always run with the host's security posture.` : (host?.permission_mode_version ?? 0) < 1 ? "This host's daemon predates plan mode. Update cxx to 0.9.146 or newer." : "");
   const inPlan = $derived(selected?.permissionMode === "plan");
   const approveReason = $derived(!canManage || !canRead ? "Conversation access and remote session management are required." : error || stale || $detail.isError ? "Refresh session status before approving." : selected && ["running", "queued", "stopping"].includes(selected.status) ? "Wait until the agent has finished presenting its plan." : selected ? continuationBlockReason(selected, selectedHost) : "Select a session.");
   const live = $derived(selected?.status === "running" || Boolean(selected?.status === "waiting" && native?.pending_prompt && !native.read_only));
@@ -158,14 +161,15 @@
             <button class="rounded-full px-2.5 py-1 text-caption {filter === item.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}" aria-pressed={filter === item.key} onclick={() => filter = item.key}>{item.label}</button>
           {/each}
         </div>
-        {#if fixedHost}<p class="text-caption text-muted-foreground">{hosts.find(row => row.host_id === fixedHost)?.fqdn ?? `Host #${fixedHost}`} · <a class="text-primary underline" href={`${base}/clients?view=remote`}>All hosts</a></p>{/if}
+        <HiddenEngineNote count={hiddenSessions} />
+        {#if fixedHost}<p class="text-caption text-muted-foreground">{hosts.find(row => row.host_id === fixedHost)?.fqdn ?? "Unknown host"} · <a class="text-primary underline" href={`${base}/clients?view=remote`}>All hosts</a></p>{/if}
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
         {#if loading}<p role="status" class="p-5 text-body-sm text-muted-foreground">Loading remote sessions…</p>
         {:else if !visible.length}<div class="px-4 py-8 text-center"><BotIcon class="mx-auto h-6 w-6 text-muted-foreground" /><h2 class="mt-3 text-body-sm font-medium">No remote sessions match</h2><p class="mt-1 text-caption text-muted-foreground">Start a session or change the search and status filter.</p></div>
         {:else}{#each visible as { session, host } (session.id)}
           {@const state = remoteState(session.status)}
-          <ConversationRow id={`remote-${session.id}`} engine={session.engine} presence={state.presence} title={session.title} time={session.lastActivityAt ? listTime(session.lastActivityAt, new Date()) : ""} directory={host.fqdn ?? `Host #${host.host_id}`} preview={`${session.engine} · ${state.label}`} selected={selectedId === session.id} aria-pressed={selectedId === session.id} logo onclick={() => select(session.id)} />
+          <ConversationRow id={`remote-${session.id}`} engine={session.engine} presence={state.presence} title={session.title} time={session.lastActivityAt ? listTime(session.lastActivityAt, new Date()) : ""} directory={host.fqdn ?? "Unknown host"} preview={`${engineLabel(session.engine)} · ${state.label}`} selected={selectedId === session.id} aria-pressed={selectedId === session.id} logo onclick={() => select(session.id)} />
         {/each}{/if}
       </div>
     </section>
@@ -177,7 +181,7 @@
           <Button variant="ghost" size="sm" aria-expanded={detailsOpen} onclick={() => detailsOpen = !detailsOpen}>Details</Button>
         </header>
         {#if detailsOpen && selected}<div class="max-h-[40%] shrink-0 space-y-2 overflow-y-auto border-b bg-muted/20 p-4 text-caption">
-          <p class="break-all">{selected.engine} · {selected.cwd}</p>
+          <p class="break-all">{engineLabel(selected.engine)} · {selected.cwd}</p>
           {#if selectedHost}<a class="text-primary underline" href={`${base}/hosts/${selectedHost.host_id}`}>Host settings</a>{/if}
           {#if canRead}{#each selected.operations ?? [] as operation}<div class="whitespace-pre-wrap break-words border-t pt-2"><p>{operation.status}</p>{#if operation.result?.error}<p class="text-destructive">{operation.result.error}</p>{/if}{#if operation.result?.reply}<p>{operation.result.reply}</p>{/if}</div>{/each}{/if}
           {#if canManage && !['closed', 'stopping'].includes(selected.status)}<Button variant="outline" size="sm" disabled={$stop.isPending || $turn.isPending || !!error || stale} onclick={() => $stop.mutate(selected!.id)}>End session</Button>{/if}
@@ -214,7 +218,7 @@
   <Sheet.Content class="flex w-full flex-col overflow-y-auto sm:max-w-lg">
     <Sheet.Header><Sheet.Title>Start remote session</Sheet.Title><Sheet.Description>Choose a host and give the agent its first instruction.</Sheet.Description></Sheet.Header>
     <form class="mt-6 space-y-5" onsubmit={event => { event.preventDefault(); void submitStart(); }}>
-      <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-host">Host</label><select id="remote-host" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={hostId}><option value={0}>Choose a host</option>{#each hosts as row}<option value={row.host_id}>{row.fqdn ?? `Host #${row.host_id}`}{!row.enabled ? ' · Disabled' : ''}</option>{/each}</select></div>
+      <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-host">Host</label><select id="remote-host" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={hostId}><option value={0}>Choose a host</option>{#each hosts as row}<option value={row.host_id}>{row.fqdn ?? "Unknown host"}{!row.enabled ? ' · Disabled' : ''}</option>{/each}</select></div>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-engine">Engine</label><select id="remote-engine" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={engine}>{#each $fleet.enabled as value (value)}<option value={value} disabled={!host?.engines?.includes(value as Engine)}>{engineLabel(value)}</option>{/each}</select></div>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-title">Title</label><Input id="remote-title" bind:value={title} maxlength={160} required placeholder="What should this session accomplish?" /></div>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-prompt">Instruction</label><Textarea id="remote-prompt" bind:value={prompt} maxlength={100000} required rows={5} placeholder="Describe the task…" /></div>
