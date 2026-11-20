@@ -91,7 +91,7 @@ def test_unreachable_metadata_is_not_definitive():
 
 def test_real_253_stream_schema_has_no_usage_or_stop_reason():
     raw = '\n'.join(json.dumps(event) for event in [
-        {"role": "meta", "type": "system.version", "version": "2.6.2"},
+        {"role": "meta", "type": "system.version", "version": "2.7.2"},
         {"role": "assistant", "content": "OK"},
         {"role": "meta", "type": "session.resume_hint", "session_id": "test", "content": "resume"}])
     assert kimi.parse_result(raw) == {"output": "OK", "usage_known": False,

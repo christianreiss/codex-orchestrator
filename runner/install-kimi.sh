@@ -2,7 +2,7 @@
 # Install the pinned official bare binary only after manifest SHA-256 verification.
 set -eu
 arch=${1:-amd64}
-version=${KIMI_VERSION:-2.6.2}
+version=${KIMI_VERSION:-2.7.2}
 destination=${KIMI_INSTALL_PATH:-/usr/local/bin/kimi}
 case "$arch" in
   amd64|x86_64) platform=linux-x64 ;;
