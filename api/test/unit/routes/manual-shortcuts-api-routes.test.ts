@@ -33,7 +33,7 @@ function normalize(path: string): string {
   return (query === -1 ? path : path.slice(0, query)).replace(PLACEHOLDER, ':param');
 }
 
-/** `{openai|claude|grok}` stands for three routes; expand it before checking. */
+/** A `{a|b|c}` shorthand stands for several routes; expand it before checking. */
 function expand(path: string): string[] {
   const alternation = /\{([A-Za-z-]+(?:\|[A-Za-z-]+)+)\}/.exec(path);
   if (!alternation) return [path];
