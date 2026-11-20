@@ -1,5 +1,9 @@
 # 2026-11-20
 
+- **Switched-off engines disappear everywhere.** An engine switched off fleet-wide no longer appears outside the Engines page: Usage limits, Accounts, Hosts, setup, settings pickers, Overview, the Android companion's Quotas tab and the Plasma widget (both server-side via `/companion/v1/quotas`, no app release needed), the cxx launchpad and `cxx update`. The console reads one list from the new `GET /admin/engines/active`.
+
+- **Engine destroy reaches every host (cxx 0.9.191).** Destroy now also targets hosts that ran the engine earlier and were later unassigned, hosts registered or returning after the request, and the advisor host, which no longer regains a destroyed engine at boot. They show as pending until they report. Destroy also removes leftover launcher links in `~/.local/bin` and `~/bin` that point into the removed engine directories; hosts that already finished run this cleanup once more.
+
 - **API stability:** `GET /mcp`, and `POST /mcp` with a browser `Origin` header, no longer crash and restart the API with a second reply (`ERR_HTTP_HEADERS_SENT`); they answer 405/403 once. The `/v1/*` and `/anthropic/v1/*` OPTIONS handlers return their single 204 the same way.
 
 - **cxx 0.9.190:** `cdx` no longer prints `%!w(<nil>)` when its Codex receiver server exits cleanly. `cxx doctor` states that it checks local launchers only and names `cdx`/`clx`/`cgx`/`ckx doctor` for API reachability, TLS trust and sync.
