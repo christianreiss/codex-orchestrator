@@ -61,16 +61,11 @@ export async function registerCliAuthRoutes(app: FastifyInstance, ctx: RouteCont
   });
 
   app.get('/cli/auth/verify', async (req, reply) => {
-    // Optional: when an admin session is configured, gate this route. The
-    // foundation already exposes app.resolveAdmin so we use it best-effort.
-    // The legacy PHP redirected to /admin/login when unauthenticated; we
-    // surface a 401 instead since the front-end can intercept it.
+    // Anonymous browsers get a 401 so they know to log in; an admin session
+    // is redirected to the SPA approval page.
     try {
       const ctx2 = await app.resolveAdmin(req);
-      if (!ctx2 && (ctx.env.ADMIN_ACCESS_MODE !== 'open')) {
-        // Not enforced in tests; return 401 so the browser path knows to log in.
-        throw new ApiError('Admin session required', { status: 401, code: 'admin_required' });
-      }
+      if (!ctx2) throw new ApiError('Admin session required', { status: 401, code: 'admin_required' });
     } catch (err) {
       if (err instanceof ApiError) throw err;
     }

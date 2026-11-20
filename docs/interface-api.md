@@ -678,7 +678,7 @@ Host resource sync (`/skills`, `/agents/retrieve`, `/config/retrieve`) and cron 
 - CLI device auth — the `cdx`/`clx` device-code login flow, which mints a host without an admin-issued installer token:
   - `POST /cli/auth/start` — wrapper begins a login. Body: `fqdn`, optional `secure` (default `true`). Returns the request id, the user code, and `verify_url`. Exempt from the API kill switch.
   - `POST /cli/auth/poll/{id}` — wrapper polls the 64-hex request id until approved or denied; an approved response also carries `base_url`. Unknown ids return `404`.
-  - `GET /cli/auth/verify` — browser approval page read from `STATIC_ROOT`. This is the one route that reads `ADMIN_ACCESS_MODE`: anything but `open` requires an admin session.
+  - `GET /cli/auth/verify` — browser approval page read from `STATIC_ROOT`. It requires an admin session; an anonymous browser gets `401 admin_required`.
   - `POST /cli/auth/lookup` — admin session required; `{user_code}` resolves a pending request (`404` when unknown or expired).
   - `POST /cli/auth/approve` — owner/admin role required; `{user_code}` approves the request and registers the host. Approval can rotate an existing host credential, so it shares the Agent Messaging generation-fencing gate.
   - `POST /cli/auth/deny` — admin session required; `{user_code}` denies the request.
@@ -1443,7 +1443,7 @@ All four engine config GET/store routes share the revision contract: `revision` 
 
 - API key is bound to the first caller IP, plus one secondary IP when the host is dual-stack (one IPv4 + one IPv6); subsequent calls from new IPs are blocked unless `allow_roaming_ips` is enabled via admin or `?force=1` on `DELETE /auth`.
 - Insecure hosts auto-rebind to the current caller IP while their insecure window is active, so reinstall/rotate flows don’t get stuck on “IP bound” if the host comes back on a new address during that window. The IP check uses only an existing active grant; it neither creates an approval request nor extends the window. After authentication, the route applies its normal retrieve/store window policy.
-- Admin endpoints require the admin session cookie. The API never checks a client certificate: `auth-mtls` parses `X-MTLS-Fingerprint`/`-Subject`/`-Issuer` into `req.mtls` and no route reads it, so `X-MTLS-Present` changes nothing. The bundled `caddy` profile (`caddy/Caddyfile`) no longer issues or verifies certificates either — it terminates TLS and reverse-proxies every path alike — so lock down `/admin` via VPN or firewall, or put a proxy of your own that terminates mTLS in front.
+- Admin endpoints require the admin session cookie. The API never checks a client certificate: `X-MTLS-*` request headers are ignored. The bundled `caddy` profile (`caddy/Caddyfile`) no longer issues or verifies certificates either — it terminates TLS and reverse-proxies every path alike — so lock down `/admin` via VPN or firewall, or put a proxy of your own that terminates mTLS in front.
 - Runner IP bypass: when `AUTH_RUNNER_IP_BYPASS=1` and `AUTH_RUNNER_BYPASS_SUBNETS` contains CIDRs, runner-originated `/auth` validation can proceed without rebinding the stored host IP (logged as `auth.runner_ip_bypass`).
 - Runner auth: when `AUTH_RUNNER_SHARED_SECRET` is set on API and `RUNNER_SHARED_SECRET` is set on the runner, API calls to runner include `X-Runner-Auth`; runner rejects missing/invalid secrets with HTTP 401.
 - Encryption key: either `ENCRYPTION_ACTIVE_KEY` or the legacy `AUTH_ENCRYPTION_KEY` must hold 32 base64-encoded raw bytes. With neither set the env schema fails and the API does not start, keyring vars alone included.
@@ -1464,7 +1464,7 @@ The orchestrator does not meter request frequency and does not generate local ra
 
 ## Admin access control
 
-- Admin routes are protected by the admin session cookie (`requireAdmin`) and, on top of it, by the capability a route is assigned in `api/src/security/route-capabilities.ts` — the plugin refuses to start when a route under `/admin/` or `/cli/auth/` has no entry. No client certificate is checked anywhere: the bundled `caddy` profile terminates TLS without requesting one, and forwarded `X-MTLS-*` headers are parsed but never read by a route. `ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is read only by `/cli/auth/verify`, where anything but `open` requires an admin session; it does not gate `/admin/*`. Passkey/WebAuthn login issues the same session cookie.
+- Admin routes are protected by the admin session cookie (`requireAdmin`) and, on top of it, by the capability a route is assigned in `api/src/security/route-capabilities.ts` — the plugin refuses to start when a route under `/admin/` or `/cli/auth/` has no entry. No client certificate is checked anywhere: the bundled `caddy` profile terminates TLS without requesting one, and forwarded `X-MTLS-*` headers are never read. `/cli/auth/verify` requires an admin session as well. Passkey/WebAuthn login issues the same session cookie.
 - WebAuthn config:
   - `ADMIN_WEBAUTHN_RP_ID` overrides RP ID; otherwise the app prefers the `PUBLIC_BASE_URL` host before falling back to the trusted request host. Setting it also requires `ADMIN_WEBAUTHN_ORIGIN`: the env schema rejects the RP ID on its own, so the API fails to start.
   - `ADMIN_WEBAUTHN_RP_NAME` overrides RP display name.

@@ -10,18 +10,17 @@ Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 
 
 ## Request lifecycle
 
-1. TLS termination is optional. Caddy is included in the compose file but is guarded by `profiles: ["caddy"]` and is **not** started by a plain `docker compose up`. A proxy that terminates mTLS may forward `X-MTLS-Fingerprint` (and friends); the API records them only from peers inside `TRUSTED_PROXY_CIDRS`.
+1. TLS termination is optional. Caddy is included in the compose file but is guarded by `profiles: ["caddy"]` and is **not** started by a plain `docker compose up`.
 2. Every request enters Fastify in `api/src/server.ts`. The plugin order is fixed:
    1. `cookie` (`@fastify/cookie`, `onRequest` hook)
    2. `corsPlugin`
    3. `multipart` (`@fastify/multipart`, 16 MB file-size limit)
    4. `requestIdPlugin`
    5. `makeClientIpPlugin`
-   6. `authMtlsPlugin`
-   7. `makeAuthHostPlugin`
-   8. `makeAuthAdminPlugin`
-   9. `makeCapabilitiesPlugin` — must precede route registration: its `onRoute` hook attaches the capability guard named by `api/src/security/route-capabilities.ts` to every `/admin/*` route as it is added, and throws at `onReady` if any governed route has no inventory entry
-   10. `envelopePlugin` (registered last — catches errors from all plugins above)
+   6. `makeAuthHostPlugin`
+   7. `makeAuthAdminPlugin`
+   8. `makeCapabilitiesPlugin` — must precede route registration: its `onRoute` hook attaches the capability guard named by `api/src/security/route-capabilities.ts` to every `/admin/*` route as it is added, and throws at `onReady` if any governed route has no inventory entry
+   9. `envelopePlugin` (registered last — catches errors from all plugins above)
 
    Plugins live in `api/src/http/plugins/`. `db`, `env`, and `keyring` are decorated onto the Fastify instance during boot.
 3. `registerAllRoutes` in `api/src/routes/index.ts` wires the host-facing API, MCP, wrapper-v2, OpenAI- and Anthropic-compatible APIs, the OpenAI-shaped Grok gateway (`/grok/v1/*`), and the full admin surface. Each route group registers its handlers; admin routes attach `app.requireAdmin` as a preHandler (authentication), and the capabilities plugin adds the role check (authorization) — see [Roles and capabilities](/admin/manual/roles).
@@ -34,7 +33,7 @@ Orchestrator is a Node 22 + Fastify 5 + TypeScript HTTP service backed by MySQL 
 - **Services** — `api/src/services/*.ts`. Where business rules live: `host-auth.ts` (auth distribution + handshake), `host-management.ts` (registration, mutations, insecure windows), `runner-client.ts` (low-level HTTP transport to the auth-runner sidecar), `runner-validation.ts` (resolves + validates the canonical auth payload for an engine), `canonical-auth-store.ts` (stores candidate auth and decides whether the served payload is still verified), `runner-proxy.ts` (admin-triggered runner actions: run a prompt on demand, mint seed commands), `wrapper-config.ts` + `wrapper-signing-key.ts` (signed per-host wrapper config), `mcp-server.ts` + `mcp-tools.ts` (MCP JSON-RPC + tool registry), `admin-auth.ts` + `admin-passkey.ts` (admin login + WebAuthn), `chatgpt-usage.ts` (ChatGPT usage for the Overview, fetched by the orchestrator) and `claude-usage.ts` (Claude usage, pushed by `clx` through `POST /claude/usage/report` — the `CLAUDE_*` pricing env vars are parsed by `env.ts` but nothing consumes them), `agent-transfers.ts` (the file-transfer pool), `git-director.ts` (clone registry and merge arbitration), `skills.ts` / `agents.ts` / `memories.ts` (canonical content), `mailer.ts`, `cli-auth.ts`, and so on.
 - **Database** — Drizzle queries against a single schema in `api/src/db/schema.ts`. Services receive a `Database` handle (`api/src/db/client.ts`) and write SQL through Drizzle's typed query builder. No repository layer; tables are queried where they're used.
 - **MCP** — `api/src/services/mcp-server.ts`, `mcp-tools.ts`, `mcp-resources.ts`, `mcp-fs.ts`. The HTTP entry point is `/mcp` (routes in `api/src/routes/mcp/index.ts`); auth uses either a per-host API key or an `MCP_OPERATOR_TOKEN` bearer (operator capability). MCP routes use a fourth preflight based on `mcp_session_tokens` bearer tokens.
-- **Security primitives** — `api/src/security/`. `secret-box.ts` (libsodium XSalsa20-Poly1305, `sbox:v1` envelope, compatible with legacy PHP), `keyring.ts` (encryption key set + rotation), `password.ts` (argon2id with legacy bcrypt/phpass verification + transparent rehash on login), `mtls.ts` (proxy-forwarded mTLS claim parsing, gated on trusted-proxy CIDRs), and `hash.ts` (sha256 helpers).
+- **Security primitives** — `api/src/security/`. `secret-box.ts` (libsodium XSalsa20-Poly1305, `sbox:v1` envelope, compatible with legacy PHP), `keyring.ts` (encryption key set + rotation), `password.ts` (argon2id with legacy bcrypt/phpass verification + transparent rehash on login), and `hash.ts` (sha256 helpers).
 
 ## The runner sidecar
 

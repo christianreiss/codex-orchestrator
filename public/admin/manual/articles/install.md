@@ -95,7 +95,6 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 - `PUBLIC_BASE_URL` — canonical base URL the installer script embeds in the bootstrap transition launcher.
 - `PUBLIC_BASE_URL_REQUIRED` — bool, default `true`. Makes installer-command creation fail while no base URL is configured; it does not validate request `Host` headers.
-- `ADMIN_ACCESS_MODE` — `cookie` (default) or `open`; it decides only whether `/cli/auth/verify` requires an admin session.
 - `ADMIN_SESSION_COOKIE` — default `codex_admin_session`.
 - `ADMIN_SESSION_TTL_MINUTES` — default `43200` (30 days) in `env.ts`. `AdminAuthService.sessionTtlSeconds()` clamps this to 5 min – 7 days at login, so a fresh session starts at 7 days; `auth-admin.ts`'s `resolveAdmin` then rolls `expiresAt` forward on every authenticated request using the same TTL clamped to 5 min – 30 days, so an actively used session keeps renewing out to 30 days.
 - `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_NAME` — passkey relying-party metadata.
@@ -180,7 +179,7 @@ Caddy is configured via `caddy/Caddyfile`. The domain is set with `$CADDY_DOMAIN
 
 **Caddy terminates TLS and reverse-proxies every path to the API**, including `/admin*` and the admin WebSocket at `/admin/ws`. It does not request client certificates; the admin console is protected by its session cookie.
 
-If a proxy you run in front terminates mTLS, it may forward `X-MTLS-Fingerprint`, `X-MTLS-Subject` and `X-MTLS-Issuer`. The API records those on `req.mtls` when the peer is inside `TRUSTED_PROXY_CIDRS` and ignores them otherwise; no route authorizes on them.
+If a proxy you run in front terminates mTLS, the API does not read any `X-MTLS-*` header it forwards.
 
 ## Seeding the canonical auth
 

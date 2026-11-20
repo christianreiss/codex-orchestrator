@@ -34,12 +34,8 @@ describe('fresh-install setup contract', () => {
     expect(install).toContain('differ; make them identical and re-run');
   });
 
-  it('never writes an ADMIN_ACCESS_MODE the API rejects', () => {
-    // `none` is not in the zod enum; the previous quick installer wrote it and
-    // every stack it produced refused to boot.
-    expect(install).not.toContain('env_set ADMIN_ACCESS_MODE none');
-    expect(install).not.toContain('env_set ADMIN_ACCESS_MODE mtls');
-    expect(install).toContain('env_set ADMIN_ACCESS_MODE cookie');
+  it('no longer writes the retired ADMIN_ACCESS_MODE', () => {
+    expect(install).not.toContain('env_set ADMIN_ACCESS_MODE');
   });
 
   it('deletes the plaintext signing key only after the encrypted import', () => {

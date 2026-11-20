@@ -126,7 +126,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `/versions` is unauthenticated and returns version snapshot metadata when kill switch is off.
 
 5. **Admin panel (session-gated)**
-   - `/admin/*` is gated by the admin session cookie; admin session/capability checks gate mutating routes. `ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is read only by `/cli/auth/verify` and has never gated `/admin/*`.
+   - `/admin/*` is gated by the admin session cookie; admin session/capability checks gate mutating routes.
    - `/admin/setup/*` is the documented exception: `status`, `owner`, and `wizard` sit behind `requireAdminAfterSetup`, public only while `admin_users` is empty. `owner` is the serialized one-time claim and issues the session inline; `wizard` stores first-run position/completion in `setup_wizard_state` (a `versions` K/V blob) with `publish: false`, so nothing reacts to a step change. `setup_complete` is `criticalComplete && ownerCreated` and is true from step two of nine — do not treat it as "wizard finished".
    - `/admin/api/state` is the only reachable route when API kill switch is on.
    - `/admin/hosts/*` manages secure/insecure/roaming/IPv4/curl/reverse-DNS, lane/model/version overrides, VIP, insecure approvals/domain allows, auth clear/delete, and temporary expiry.

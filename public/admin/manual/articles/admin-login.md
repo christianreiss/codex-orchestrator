@@ -2,20 +2,20 @@
 title: Admin login and access
 section: Admin access and identity
 verified: 2026-10-17
-sources: api/src/http/plugins/auth-admin.ts, api/src/security/authorization-mode.ts, api/src/http/plugins/auth-mtls.ts, api/src/security/mtls.ts, api/src/http/plugins/client-ip.ts, api/src/services/admin-auth.ts, api/src/services/admin-passkey.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/pages/static.ts, api/src/routes/cli-auth/index.ts, api/src/env.ts, caddy/Caddyfile, frontend/src/routes/login/+page.svelte
+sources: api/src/http/plugins/auth-admin.ts, api/src/security/authorization-mode.ts, api/src/http/plugins/client-ip.ts, api/src/services/admin-auth.ts, api/src/services/admin-passkey.ts, api/src/services/admin-password.ts, api/src/services/mailer.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/pages/static.ts, api/src/routes/cli-auth/index.ts, api/src/env.ts, caddy/Caddyfile, frontend/src/routes/login/+page.svelte
 ---
 
 The admin surface has one gate: a session cookie, enforced once at least one admin user exists. Transport security is whatever your proxy provides. This server does not issue, request or verify client certificates.
 
-## Access modes
+## CLI device approval
 
-`ADMIN_ACCESS_MODE` is parsed by `api/src/env.ts` (enum `cookie` | `open`, default `cookie`). It gates exactly one thing: whether `GET /cli/auth/verify` (the CLI device-approval HTML page) requires an admin session — any value other than `open` requires one (`api/src/routes/cli-auth/index.ts`). It does **not** change what `app.requireAdmin`/`resolveAdmin` (`api/src/http/plugins/auth-admin.ts`) check — those are mode-unaware. The `mtls` value was removed when this server stopped issuing certificates; on that one route it had always meant the same as `cookie`.
+`GET /cli/auth/verify` (the CLI device-approval page) requires an admin session: an anonymous browser gets `401 admin_required`, an admin session is redirected to the SPA approval page (`api/src/routes/cli-auth/index.ts`). It does **not** change what `app.requireAdmin`/`resolveAdmin` (`api/src/http/plugins/auth-admin.ts`) check.
 
 ## Client certificates
 
 The bundled `caddy` profile terminates TLS and reverse-proxies every path to the API with one rule. It does not request client certificates, and there is no `/admin*` certificate gate any more — the previous one lived in a separate Caddy fragment, generated its own CA and client certificate at install time, and enforced nothing the admin session did not already enforce.
 
-A proxy *you* run may still terminate mTLS. If it forwards `X-MTLS-Fingerprint`, `X-MTLS-Subject` or `X-MTLS-Issuer`, `parseMtls` (`api/src/security/mtls.ts`) records them on `req.mtls` — but only when the connecting peer falls inside `TRUSTED_PROXY_CIDRS` with `TRUST_X_FORWARDED=1` (`api/src/http/plugins/client-ip.ts`). Anything arriving from another peer is discarded, because a direct caller can type those headers as easily as a proxy can. Both settings default to off, so an unconfigured server records nothing. No route consults `req.mtls` for an authorization decision.
+A proxy *you* run may still terminate mTLS; the API reads no `X-MTLS-*` header it forwards.
 
 ## When session gating is active
 
@@ -118,7 +118,7 @@ Authenticated admins can change their own password via `POST /admin/auth/passwor
 ## Source references
 
 - api/src/http/plugins/auth-admin.ts (requireAdmin decorator, resolveAdmin, cookie validation, session-row rolling clamp)
-- api/src/http/plugins/auth-mtls.ts, api/src/security/mtls.ts, api/src/http/plugins/client-ip.ts (proxy-forwarded mTLS claims into req.mtls, gated on TRUSTED_PROXY_CIDRS; not itself an authorization check)
+- api/src/http/plugins/client-ip.ts (client IP resolution from proxy-forwarded headers, gated on TRUSTED_PROXY_CIDRS)
 - api/src/services/admin-auth.ts (login, sessions, session-cookie TTL clamp, password verification + rehash)
 - api/src/services/admin-passkey.ts (WebAuthn registration + assertion, residentKey: 'discouraged', single-active-user lookup)
 - api/src/services/admin-password.ts (password reset token lifecycle)
@@ -126,7 +126,7 @@ Authenticated admins can change their own password via `POST /admin/auth/passwor
 - api/src/routes/admin/auth/index.ts (every /admin/auth/* route; `capabilities` and `authorization_mode` on the status payload)
 - api/src/security/authorization-mode.ts (`compatible` / `strict` enforcement modes)
 - api/src/routes/admin/pages/static.ts (SPA shell preHandler)
-- api/src/routes/cli-auth/index.ts (the only route that reads ADMIN_ACCESS_MODE)
-- api/src/env.ts (ADMIN_ACCESS_MODE, ADMIN_SESSION_TTL_MINUTES defaults)
+- api/src/routes/cli-auth/index.ts (`/cli/auth/verify` admin-session gate)
+- api/src/env.ts (ADMIN_SESSION_TTL_MINUTES default)
 - caddy/Caddyfile (TLS termination and reverse proxy; no client-certificate gate)
 - frontend/src/routes/login/+page.svelte (login page state machine, auto-passkey, phase transitions)

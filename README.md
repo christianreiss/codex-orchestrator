@@ -706,7 +706,7 @@ media.
 - **Encryption** — credential payloads, stored secret values and private agent-message bodies use libsodium secretbox with KID-based key rotation. Transfer files and chat-media bytes have no application-level encryption on the data volume; memory documents and other ordinary records are not encrypted secret fields.
 - **Runner validation** — a sidecar service validates auth before writes are accepted; reads are unaffected.
 - **Request admission** — there is no general HTTP traffic limiter. Individual features enforce their own limits, including publication rates, remote work slots, upload sizes and retention.
-- **Session-gated admin** — `/admin/*` is protected by the admin session cookie, with passkey (WebAuthn) login. Six roles sit behind a default-deny capability matrix; content-revealing reads (secrets, credentials, transcripts, transfer downloads) carry their own capability. A proxy in front may terminate mTLS and forward `X-MTLS-*`, which the API reads from trusted peers only.
+- **Session-gated admin** — `/admin/*` is protected by the admin session cookie, with passkey (WebAuthn) login. Six roles sit behind a default-deny capability matrix; content-revealing reads (secrets, credentials, transcripts, transfer downloads) carry their own capability.
 - **IP binding** — each host's API key locks to its IP on first use, with optional roaming.
 - **Container boundaries** — the API, quota worker and media worker use read-only root filesystems, dropped capabilities and `no-new-privileges`. The media worker runs without network access. Database and runner services have their own storage and execution requirements; see [`docker-compose.yml`](docker-compose.yml).
 

@@ -6,14 +6,13 @@ import { resolve } from 'node:path';
  * `docs/SECURITY.md` is the hardening checklist an operator works through, so a
  * knob named there that nothing reads is a setting someone applies believing it
  * hardened something. It had five: `ADMIN_SESSION_TTL_SECONDS` (the schema says
- * `ADMIN_SESSION_TTL_MINUTES`), `ADMIN_ACCESS_MODE=none` (not in the enum),
+ * `ADMIN_SESSION_TTL_MINUTES`), `ADMIN_ACCESS_MODE=none` (never in the enum),
  * `INSTALL_TOKEN_TTL_SECONDS` (a fixed constant), `MCP_ALLOWED_ORIGINS` and
  * `CODEX_SYNC_ALLOW_INSECURE`.
  *
  * Name coverage only — every backticked UPPER_SNAKE identifier in the doc has
  * to be declared by the API schema, read directly from `process.env` under
- * `api/src`, or listed below. Defaults and prose are not compared, except for
- * `ADMIN_ACCESS_MODE` values, which are checked against the zod enum.
+ * `api/src`, or listed below. Defaults and prose are not compared.
  */
 
 const ROOT = resolve(import.meta.dirname, '../../../..');
@@ -82,21 +81,6 @@ const processEnvVars = (): Set<string> => {
   return names;
 };
 
-/** Members of `ADMIN_ACCESS_MODE: z.enum([...])`. */
-const accessModes = (): Set<string> => {
-  const src = readFileSync(ENV_TS, 'utf8');
-  const decl = /ADMIN_ACCESS_MODE: z\.enum\(\[([^\]]+)\]\)/.exec(src);
-  expect(decl).not.toBeNull();
-  return new Set([...decl![1]!.matchAll(/'([a-z]+)'/g)].map((m) => m[1]!));
-};
-
-/** `ADMIN_ACCESS_MODE=cookie` and the `mtls|open` alternation form. */
-const documentedAccessModes = (): string[] => {
-  const doc = readFileSync(DOC, 'utf8');
-  const mentions = doc.matchAll(/ADMIN_ACCESS_MODE=([a-z]+(?:\|[a-z]+)*)/g);
-  return [...new Set([...mentions].flatMap((m) => m[1]!.split('|')))].sort();
-};
-
 describe('docs/SECURITY.md environment reference', () => {
   it('names only variables something reads', () => {
     const declared = new Set([...schemaKeys(), ...processEnvVars()]);
@@ -119,16 +103,6 @@ describe('docs/SECURITY.md environment reference', () => {
     expect(stale).toEqual([]);
   });
 
-  it('documents only ADMIN_ACCESS_MODE values the enum accepts', () => {
-    const modes = accessModes();
-    const documented = documentedAccessModes();
-    expect(documented.length).toBeGreaterThan(0);
-
-    // `ADMIN_ACCESS_MODE=none` fails the schema at boot, so a doc telling an
-    // operator to set it hands them a config the API refuses to start on.
-    expect(documented.filter((mode) => !modes.has(mode))).toEqual([]);
-  });
-
   // Pins the extractions, so a regex that quietly stops matching cannot turn
   // the checks above into comparisons of two empty lists.
   it('reads the names out of the doc and each source', () => {
@@ -145,10 +119,5 @@ describe('docs/SECURITY.md environment reference', () => {
     expect(keys.has('SMTP_SECURE')).toBe(true); // The last key before superRefine.
 
     expect(processEnvVars().has('TOKEN_MIN_LENGTH')).toBe(true); // runner-validation.ts
-    // `mtls` was removed when this server stopped issuing client certificates;
-    // it had always been a third spelling of `cookie` on the one route that
-    // reads this value.
-    expect(accessModes()).toEqual(new Set(['cookie', 'open']));
-    expect(documentedAccessModes()).toContain('open');
   });
 });

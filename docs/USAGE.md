@@ -61,7 +61,7 @@ If you prefer provisioning via API (CI, inventory tooling), the admin endpoint i
 
 - `POST /admin/hosts/register` with JSON body: `{"fqdn":"host1.example.com","secure":true,"vip":false,"engines":["codex","claude"]}`
 
-Use admin login + session cookie: that is the only admin check the API itself makes, whatever `ADMIN_ACCESS_MODE` says (it is read only by the `/cli/auth/verify` CLI-approval page).
+Use admin login + session cookie: that is the only admin check the API itself makes, including on the `/cli/auth/verify` CLI-approval page.
 
 The admin session is the whole check — this server does not issue or verify client certificates, and the bundled `caddy` profile does not request them. If you front it with a proxy that enforces mTLS, add whatever client credentials that proxy wants to the calls below; the API still requires the session cookie either way:
 

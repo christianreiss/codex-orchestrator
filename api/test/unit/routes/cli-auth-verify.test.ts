@@ -26,7 +26,6 @@ const ADMIN = {} as AdminContext;
 
 interface VerifyOptions {
   publicBaseUrl?: string;
-  adminAccessMode?: Env['ADMIN_ACCESS_MODE'];
   /** Left out for the anonymous browser that has no admin session yet. */
   admin?: AdminContext;
 }
@@ -35,10 +34,7 @@ async function getVerify(options: VerifyOptions = {}) {
   const app = await buildRouteApp();
   const admin = options.admin;
   if (admin) app.resolveAdmin = async () => admin;
-  const env = {
-    PUBLIC_BASE_URL: options.publicBaseUrl,
-    ADMIN_ACCESS_MODE: options.adminAccessMode ?? 'cookie',
-  } as Env;
+  const env = { PUBLIC_BASE_URL: options.publicBaseUrl } as Env;
   // The verify handler touches neither the DB nor the keyring; the services
   // this registrar builds only capture them.
   await registerCliAuthRoutes(app, { db: {} as never, env, keyring: {} as never } as RouteContext);
@@ -62,19 +58,12 @@ describe('GET /cli/auth/verify', () => {
     expect(response.headers.location).toBe('/admin/cli-auth/verify');
   });
 
-  it('401s an anonymous browser unless ADMIN_ACCESS_MODE is open', async () => {
+  it('401s an anonymous browser', async () => {
     const response = await getVerify({ publicBaseUrl: 'https://codex-auth.uggs.io' });
 
     expect(response.statusCode).toBe(401);
     expect(JSON.parse(response.payload)).toMatchObject({ status: 'error', code: 'admin_required' });
     expect(response.headers.location).toBeUndefined();
-  });
-
-  it('redirects an anonymous browser when ADMIN_ACCESS_MODE is open', async () => {
-    const response = await getVerify({ adminAccessMode: 'open' });
-
-    expect(response.statusCode).toBe(302);
-    expect(response.headers.location).toBe('/admin/cli-auth/verify');
   });
 
   it('points at a page the frontend still ships', () => {

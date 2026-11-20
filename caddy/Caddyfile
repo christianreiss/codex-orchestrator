@@ -17,9 +17,7 @@
 	# One rule for every path. `/admin*` used to be split out into its own
 	# fragment so a client certificate could be demanded for it; this server no
 	# longer issues or verifies certificates, and the console is protected by its
-	# admin session instead. If something in front of this terminates mTLS and
-	# forwards `X-MTLS-*`, the API reads those headers — but only from a peer
-	# inside TRUSTED_PROXY_CIDRS, and it still gates nothing on them.
+	# admin session instead.
 	handle {
 		reverse_proxy api:8080 {
 			header_up X-Forwarded-Proto https

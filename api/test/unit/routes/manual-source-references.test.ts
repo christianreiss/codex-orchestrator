@@ -51,7 +51,7 @@ const BULLET = /^-\s+(\S+)/;
 
 /**
  * `- api/src/env.ts (defaults)`, `` - `api/src/services/agents.ts` `` and
- * `- api/src/http/plugins/auth-mtls.ts, api/src/security/mtls.ts (…)` all cite
+ * `- api/src/http/plugins/capabilities.ts, api/src/security/route-capabilities.ts (…)` all cite
  * their first path in the leading token: strip the backticks the two quoted
  * articles wrap it in, and the comma that separates it from a second path.
  */
@@ -125,7 +125,7 @@ describe('manual article source references', () => {
     expect(cited.has('api/src/server.ts')).toBe(true);
     // Backticks and the separating comma come off; the note after does not join.
     expect(cited.has('api/src/routes/admin/hosts/index.ts')).toBe(true);
-    expect(cited.has('api/src/http/plugins/auth-mtls.ts')).toBe(true);
+    expect(cited.has('api/src/http/plugins/capabilities.ts')).toBe(true);
     // Prose above the section, and wrapped continuation lines, stay out.
     const sample = collectCitations(
       'sample.md',

@@ -17,7 +17,6 @@ const env = {
   INSECURE_GRACE_MINUTES: 60,
   PUBLIC_BASE_URL: 'https://orchestrator.example',
   STATIC_ROOT: '',
-  ADMIN_ACCESS_MODE: 'open',
 } as unknown as Parameters<typeof buildHostApiTestApp>[0]['env'];
 
 const apiKey = 'sk-codex-deadbeef-cafe';

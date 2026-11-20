@@ -4,7 +4,7 @@
 #
 # Replaces bin/setup.sh (correct, but it could not provision a database and
 # demanded a Go toolchain) and bin/setup-quick.sh (prettier, but it wrote an
-# ADMIN_ACCESS_MODE the API rejects and never built any wrapper signing
+# setting the API rejects and never built any wrapper signing
 # material, so its stacks were locked behind /setup forever).
 #
 # Three properties are load-bearing:
@@ -671,12 +671,6 @@ step_secrets() {
   env_set AUTH_RUNNER_SHARED_SECRET "$shared"
   env_set RUNNER_SHARED_SECRET "$shared"
 
-  # `mtls` was a valid value until this server stopped issuing certificates;
-  # a stale `.env` carrying it would now fail schema validation at boot.
-  local mode
-  mode="$(env_get ADMIN_ACCESS_MODE || true)"
-  [[ "$mode" == "cookie" || "$mode" == "open" ]] || env_set ADMIN_ACCESS_MODE cookie
-
   lock_env_perms
   step_done "secrets present, $ENV_PATH mode 0600"
 }
@@ -1335,7 +1329,7 @@ cmd_print_env() {
   [[ -f "$ENV_PATH" ]] || { printf 'no env file at %s\n' "$ENV_PATH" >&2; exit 1; }
   local key
   for key in APP_ENV PUBLIC_BASE_URL CODEX_SYNC_BASE_URL DATA_ROOT CADDY_DOMAIN \
-             CADDY_TLS_FRAGMENT ADMIN_ACCESS_MODE TRUST_X_FORWARDED \
+             CADDY_TLS_FRAGMENT TRUST_X_FORWARDED \
              TRUSTED_PROXY_CIDRS DB_DATABASE DB_USERNAME INSTALLATION_ID; do
     printf '%-24s %s\n' "$key" "$(env_get "$key" || printf '(unset)')"
   done

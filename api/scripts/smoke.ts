@@ -35,7 +35,6 @@ import { requestIdPlugin } from '../src/http/plugins/request-id.js';
 import { makeClientIpPlugin } from '../src/http/plugins/client-ip.js';
 import { makeAuthHostPlugin } from '../src/http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from '../src/http/plugins/auth-admin.js';
-import { makeAuthMtlsPlugin } from '../src/http/plugins/auth-mtls.js';
 import { corsPlugin } from '../src/http/plugins/cors.js';
 import { registerAllRoutes } from '../src/routes/index.js';
 import type { Database } from '../src/db/client.js';
@@ -81,7 +80,6 @@ async function main() {
   await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024 } });
   await app.register(requestIdPlugin);
   await app.register(makeClientIpPlugin(env));
-  await app.register(makeAuthMtlsPlugin(env));
   await app.register(makeAuthHostPlugin(db));
   await app.register(makeAuthAdminPlugin(db, env));
   await app.register(envelopePlugin);

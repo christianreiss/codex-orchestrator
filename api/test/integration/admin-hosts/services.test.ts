@@ -33,7 +33,6 @@ function buildEnv(): Env {
     DB_PASSWORD: 'test',
     DB_CHARSET: 'utf8mb4',
     DB_POOL_SIZE: 10,
-    ADMIN_ACCESS_MODE: 'cookie',
     ADMIN_SESSION_COOKIE: 'codex_admin_session',
     ADMIN_SESSION_TTL_MINUTES: 720,
     ADMIN_WS_ENABLED: false,

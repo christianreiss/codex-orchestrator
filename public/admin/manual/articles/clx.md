@@ -358,7 +358,7 @@ When a host has no config yet, `clx` drives a device-code exchange:
 2. Poll POST `/cli/auth/poll/:id` until approved or denied.
 
 On the admin side an operator navigates to **Authorize CLI** (`/cli/auth/verify`,
-requires an admin session unless `ADMIN_ACCESS_MODE=open`):
+requires an admin session):
 
 - **Step 1** — Enter the device code shown on the host terminal.
 - **Step 2** — Confirm: review session details (FQDN shown), then click
