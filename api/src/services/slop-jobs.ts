@@ -41,7 +41,8 @@ import {
   normalizeSlopPath,
   type SlopFileKind,
 } from './slop-jobs/paths.js';
-import { MAX_DIFF_LINES, unifiedDiff } from './slop-jobs/diff.js';
+import { compareRuns, MAX_DIFF_LINES, unifiedDiff } from './slop-jobs/diff.js';
+import { withUnsupportedCoverageNote } from './slop-jobs/coverage.js';
 import { buildTar, tarName, type TarEntry } from './slop-jobs/tar.js';
 import { parseReviewReply, reviewQuestion, stripReviewBlock } from './slop-jobs/review.js';
 import { slopAdvisorEvents } from './slop-jobs/advisor-hook.js';
@@ -66,6 +67,7 @@ interface SlopReport {
   coverage: string[];
   [key: string]: unknown;
 }
+const isSuppressed = (f: Record<string, unknown>) => typeof f['suppression'] === 'string' && f['suppression'] !== '';
 interface WorkerResult {
   state: 'done' | 'failed';
   exit_code: number;
@@ -569,7 +571,7 @@ export class SlopJobsService {
       await this.finish(id, 'failed', { error: 'The slop worker did not finish the scan within 60 s; is the slop-worker service running?' });
       return this.runResponse(await this.runRow(id), 0);
     }
-    await this.recordScan(id, scan);
+    await this.recordScan(id, scan, 'full');
     if (scan.state !== 'done' || !scan.report) {
       await this.finish(id, 'failed', { error: `slop scan failed (exit ${scan.exit_code}): ${(scan.stderr ?? '').slice(-500)}` });
       return this.runResponse(await this.runRow(id), 0);
@@ -608,28 +610,27 @@ export class SlopJobsService {
     if (!from || !to) throw new NotFoundError('Both runs must exist; a run diff needs at least two runs', 'slop_run_not_found');
     const a = this.parseJson<SlopReport>(from.reportJson),
       b = this.parseJson<SlopReport>(to.reportJson);
-    const fa = new Map((a?.findings ?? []).map((f) => [f.id, f])),
-      fb = new Map((b?.findings ?? []).map((f) => [f.id, f]));
     const brief = (f: SlopReport['findings'][number]) => ({ id: f.id, rule: f.rule, priority: f.priority, kind: f.kind, location: f.location, message: f['message'] });
-    const sa = this.parseJson<Snapshot>(from.snapshotJson) ?? {},
-      sb = this.parseJson<Snapshot>(to.snapshotJson) ?? {};
+    const cmp = compareRuns(
+      { mode: from.mode, findings: a?.findings ?? [], files: this.parseJson<Snapshot>(from.snapshotJson) ?? {} },
+      { mode: to.mode, findings: b?.findings ?? [], files: this.parseJson<Snapshot>(to.snapshotJson) ?? {} },
+    );
     return {
       from: this.runSummary(from),
       to: this.runSummary(to),
       findings: {
-        new: [...fb.values()].filter((f) => !fa.has(f.id)).map(brief),
-        resolved: [...fa.values()].filter((f) => !fb.has(f.id)).map(brief),
-        unchanged: [...fb.values()].filter((f) => fa.has(f.id)).length,
+        new: cmp.findings.new.map(brief),
+        resolved: cmp.findings.resolved.map(brief),
+        ...(cmp.mixed_modes ? { not_rechecked: cmp.findings.not_rechecked.map(brief) } : {}),
+        unchanged: cmp.findings.unchanged,
       },
-      files: {
-        added: Object.keys(sb).filter((p) => !sa[p]),
-        removed: Object.keys(sa).filter((p) => !sb[p]),
-        changed: Object.keys(sb)
-          .filter((p) => sa[p] && sa[p]!.sha256 !== sb[p]!.sha256)
-          .map((p) => ({ path: p, from_rev: sa[p]!.rev, to_rev: sb[p]!.rev })),
-      },
+      files: cmp.files,
       description_changed: from.descriptionRev !== to.descriptionRev,
-      note: 'Finding ids derive from rule, location and evidence: moved code shows up as resolved + new.',
+      note:
+        'Finding ids derive from rule, location and evidence: moved code shows up as resolved + new.' +
+        (cmp.mixed_modes
+          ? ' The runs differ in mode: a quick run reviews nothing and snapshots only source files, so the full run\'s review findings are listed as not_rechecked (not resolved; run full again to confirm a fix) and screenshots/a11y exports are counted in files.not_compared instead of added/removed/changed.'
+          : ''),
     };
   }
 
@@ -691,8 +692,14 @@ export class SlopJobsService {
   }
 
   private counts(report: SlopReport | null) {
-    const counts = { P0: 0, P1: 0, P2: 0, measured: 0, review: 0 } as Record<string, number>;
+    const counts = { P0: 0, P1: 0, P2: 0, measured: 0, review: 0, suppressed: 0 } as Record<string, number>;
     for (const f of report?.findings ?? []) {
+      // An inline `slop-ok: <reason>` comment (scanner `suppression`) is the author's acknowledgement:
+      // counted apart so P0/P1/P2 stay the open findings.
+      if (isSuppressed(f)) {
+        counts['suppressed'] = (counts['suppressed'] ?? 0) + 1;
+        continue;
+      }
       counts[f.priority] = (counts[f.priority] ?? 0) + 1;
       counts[f.kind] = (counts[f.kind] ?? 0) + 1;
     }
@@ -767,11 +774,11 @@ export class SlopJobsService {
     }
   }
 
-  private async recordScan(runId: string, scan: WorkerResult) {
+  private async recordScan(runId: string, scan: WorkerResult, mode: 'quick' | 'full') {
     await this.write((tx) =>
       tx.update(slopRuns)
       .set({
-        scanJson: scan.report ? JSON.stringify(scan.report) : null,
+        scanJson: scan.report ? JSON.stringify(withUnsupportedCoverageNote(scan.report, mode)) : null,
         slopVersion: scan.slop_version ?? null,
         guidelinesSha256: scan.guidelines_sha256 ?? null,
         exitCode: scan.exit_code,
@@ -897,12 +904,12 @@ export class SlopJobsService {
       }
       const scan = await this.readResult(dir, 'scan');
       if (!scan) return;
-      await this.recordScan(run.id, scan);
+      await this.recordScan(run.id, scan, 'quick');
       if (scan.state !== 'done' || !scan.report) {
         await this.finish(run.id, 'failed', { error: `slop scan failed (exit ${scan.exit_code}): ${(scan.stderr ?? '').slice(-500)}` });
         return;
       }
-      await this.finish(run.id, scan.exit_code === 3 ? 'incomplete' : 'completed', { reportJson: JSON.stringify(scan.report) });
+      await this.finish(run.id, scan.exit_code === 3 ? 'incomplete' : 'completed', { reportJson: JSON.stringify(withUnsupportedCoverageNote(scan.report, 'quick')) });
       return;
     }
     if (run.status === 'reviewing') {
@@ -953,7 +960,7 @@ export class SlopJobsService {
         return;
       }
       await this.finish(run.id, report.exit_code === 3 ? 'incomplete' : 'completed', {
-        reportJson: JSON.stringify(report.report),
+        reportJson: JSON.stringify(withUnsupportedCoverageNote(report.report, 'full')),
         exitCode: report.exit_code,
       });
     }
@@ -1082,12 +1089,18 @@ export class SlopJobsService {
     if (verdict) lines.push(`Advisor verdict: **${verdict.verdict}** — ${verdict.summary ?? ''}`);
     if (run.error) lines.push(`Note: ${run.error}`);
     if (!report) return lines.join('\n');
+    const line = (f: SlopReport['findings'][number]) =>
+      `- \`${f.location}\` **${f.rule}** (${f.kind}, ${f.id}): ${String(f['message'] ?? '')} — Remedy: ${String(f['remedy'] ?? '')}${f['alternative'] ? ` — Alternative: ${String(f['alternative'])}` : ''}`;
     for (const priority of ['P0', 'P1', 'P2']) {
-      const list = report.findings.filter((f) => f.priority === priority);
+      const list = report.findings.filter((f) => f.priority === priority && !isSuppressed(f));
       if (!list.length) continue;
       lines.push('', `## ${priority} (${list.length})`);
-      for (const f of list)
-        lines.push(`- \`${f.location}\` **${f.rule}** (${f.kind}, ${f.id}): ${String(f['message'] ?? '')} — Remedy: ${String(f['remedy'] ?? '')}${f['alternative'] ? ` — Alternative: ${String(f['alternative'])}` : ''}`);
+      for (const f of list) lines.push(line(f));
+    }
+    const suppressed = report.findings.filter(isSuppressed);
+    if (suppressed.length) {
+      lines.push('', `## Suppressed (${suppressed.length})`, 'Acknowledged by an inline `slop-ok: <reason>` comment; not counted in P0/P1/P2.');
+      for (const f of suppressed) lines.push(`${line(f)} — Suppressed (${f.priority}): ${String(f['suppression'])}`);
     }
     if (report.errors.length) lines.push('', '## Errors', ...report.errors.map((e) => `- ${e}`));
     if (report.coverage.length) lines.push('', '## Coverage', ...report.coverage.map((c) => `- ${c}`));

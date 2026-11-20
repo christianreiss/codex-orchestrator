@@ -145,6 +145,16 @@ manual groups, conferences, direct requests and task results are unchanged.
 - `{kind:"service", host_id, service}` reserves a named host service; `*` covers all services.
 - `{kind:"remote", fqdn, service}` reserves a named remote target without fleet enrollment; `*` covers its services.
 
+Each kind accepts only its own fields (a Git resource also tolerates a
+redundant `path`). The native tool schema is one flattened object listing every
+field, so the property descriptions and the tool description name the per-kind
+fields. `host_id` selects a managed fleet host (`agent_list` entries carry it
+beside `fqdn`) and defaults to the authenticated session's host when omitted.
+`fqdn` on a path, Git or service resource, or `host_id` on a remote one, fails
+with `validation_failed`; the message names the fields that kind accepts and the
+selector to use instead. `fqdn` is never resolved to a managed host: a claim is
+an exclusion lock and its stored identity stays `host_id`.
+
 ### Shared lab VMs
 
 VMs use these existing service keys; there is no separate `vm` resource kind.

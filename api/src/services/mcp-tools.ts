@@ -1,5 +1,5 @@
 import type { SlopJobsService } from './slop-jobs.js';
-import { ApiError } from '../http/errors.js';
+import { ApiError, ValidationError } from '../http/errors.js';
 import type { HostSpawnService } from './host-spawn.js';
 import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
@@ -364,11 +364,50 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
  * them in a handler. Returns a human-readable message, or null when `args`
  * satisfies the schema.
  */
+const COMPACT_SKILL_FIELDS = ['slug', 'display_name', 'sha256', 'allow_implicit_invocation', 'uri'] as const;
+
+/**
+ * `skill_list` narrowing, applied to the whole listing (stored and managed
+ * Skills alike) so both are filtered the same way. With neither argument the
+ * listing is returned untouched, byte for byte.
+ */
+function narrowSkillListing<T extends { skills: Record<string, unknown>[] }>(
+  listing: T,
+  args: Record<string, unknown>,
+): T {
+  const rawQuery = args['query'];
+  const rawCompact = args['compact'];
+  if (rawQuery !== undefined && rawQuery !== null && typeof rawQuery !== 'string') {
+    throw new ValidationError("'query' must be a string", { param: 'query' });
+  }
+  if (rawCompact !== undefined && rawCompact !== null && typeof rawCompact !== 'boolean') {
+    throw new ValidationError("'compact' must be a boolean", { param: 'compact' });
+  }
+  const query = typeof rawQuery === 'string' ? rawQuery.trim().toLowerCase() : '';
+  const compact = rawCompact === true;
+  if (!query && !compact) return listing;
+  let skills = listing.skills;
+  if (query) {
+    skills = skills.filter((skill) =>
+      ['slug', 'display_name', 'description'].some((field) => {
+        const value = skill[field];
+        return typeof value === 'string' && value.toLowerCase().includes(query);
+      }),
+    );
+  }
+  if (compact) {
+    skills = skills.map((skill) =>
+      Object.fromEntries(COMPACT_SKILL_FIELDS.filter((field) => field in skill).map((field) => [field, skill[field]])),
+    );
+  }
+  return { ...listing, skills };
+}
+
 function validateAgainstSchema(schema: Record<string, unknown>, args: Record<string, unknown>): string | null {
   const required = Array.isArray(schema['required']) ? (schema['required'] as unknown[]) : [];
   const properties =
     schema['properties'] && typeof schema['properties'] === 'object'
-      ? (schema['properties'] as Record<string, { type?: unknown; enum?: unknown }>)
+      ? (schema['properties'] as Record<string, { type?: unknown; enum?: unknown; minLength?: unknown }>)
       : {};
   // Missing-required is checked BEFORE undeclared-argument, and the order is
   // load-bearing. `normalizeArgs` turns a bare scalar it cannot place into
@@ -378,7 +417,10 @@ function validateAgainstSchema(schema: Record<string, unknown>, args: Record<str
   for (const key of required) {
     if (typeof key !== 'string') continue;
     const value = args[key];
-    if (value === undefined || value === null || value === '') {
+    // An explicit `minLength: 0` marks a required string that may be empty
+    // (shared_memory_replace.new_text deletes text by replacing it with '').
+    const mayBeEmpty = value === '' && properties[key]?.minLength === 0;
+    if (value === undefined || value === null || (value === '' && !mayBeEmpty)) {
       return "'" + key + "' is required";
     }
     const propType = properties[key]?.type;
@@ -688,6 +730,24 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         },
       },
       handler: async (args, host, engine) => shared.write(args, host, engine ?? null),
+    });
+    inputs.push({
+      definition: {
+        name: 'shared_memory_replace',
+        description:
+          'Correct one fact in a shared memory document without re-sending its body. Replaces exactly one occurrence of old_text with new_text (may be empty to delete the text) on the server. Fails when old_text occurs zero times or more than once, so include enough surrounding text to be unique. expected_sha256 is required: pass the memory.sha256 from shared_memory_read; a changed document is a conflict, so re-read and retry. Title, summary, tags and metadata are kept. Same size limit and revision history as shared_memory_write. For a larger rewrite use shared_memory_write; to add material use shared_memory_append.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            old_text: { type: 'string' },
+            new_text: { type: 'string', minLength: 0 },
+            expected_sha256: { type: 'string' },
+          },
+          required: ['slug', 'old_text', 'new_text', 'expected_sha256'],
+        },
+      },
+      handler: async (args, host, engine) => shared.replace(args, host, engine ?? null),
     });
     inputs.push({
       definition: {
@@ -1410,14 +1470,19 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'skill_list',
       description:
-        'Authoritative first step for any Skill-related request: list fleet Skills available to this host before consulting local Skill files.',
+        'Authoritative first step for any Skill-related request: list fleet Skills available to this host before consulting local Skill files. Optional `query` keeps only Skills whose slug, display name or description contains the text (case-insensitive); `compact: true` returns only slug, display_name, sha256, allow_implicit_invocation and uri per Skill. No arguments returns the full listing.',
       inputSchema: {
         type: 'object',
-        properties: {},
+        properties: {
+          query: { type: 'string' },
+          compact: { type: 'boolean' },
+        },
       },
     },
-    handler: async (_args, host, requestEngine) =>
-      deps.skills.listSkills(host, requestEngine ?? ENGINE_CODEX),
+    handler: async (args, host, requestEngine) => {
+      const listing = await deps.skills.listSkills(host, requestEngine ?? ENGINE_CODEX);
+      return narrowSkillListing(listing, args);
+    },
   });
   inputs.push({
     definition: {
@@ -1991,7 +2056,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_put',
         description:
-          'Upload one file into a slop job at a project-relative path (e.g. `src/routes/+page.svelte`, `DESIGN.md`, `shots/home-dark-390.png`). Uploading an existing path creates the next revision (v2, v3, ...); identical bytes are a no-op. Pass text inline as `content` (max 256 KiB) or upload with `cxx transfer put FILE --ttl-seconds 3600 --json` and pass `transfer_id` (max 2 MiB per file, 200 files, 50 MiB per job). `kind`: `source` (scanned; default for text), `screenshot` (png/jpg/webp; default for those extensions; full runs only) or `a11y` (JSON audit export with `{tool, findings: []}`; full runs only). Accessibility trees such as Playwright ariaSnapshot YAML belong in `source`; they are review evidence, not automated audit findings. `remove: true` drops the path from the current set (history stays). A `DESIGN.md` at the root is the design brief.',
+          'Upload one file into a slop job at a project-relative path (e.g. `src/routes/+page.svelte`, `DESIGN.md`, `shots/home-dark-390.png`). Uploading an existing path creates the next revision (v2, v3, ...); identical bytes are a no-op. Pass text inline as `content` (max 256 KiB) or upload with `cxx transfer put FILE --ttl-seconds 3600 --json` and pass `transfer_id` (max 2 MiB per file, 200 files, 50 MiB per job). `kind`: `source` (default for text; the deterministic scan only reads web `.ts/.tsx/.js/.jsx/.html/.css/.scss/.vue/.svelte/.astro/.mdx`, `.swift`, `.qml` and C++ sources, other source files such as `.php`, `.kt` or `.xml` are skipped by it and only seen by the advisor of a full run, as the `coverage` of each run states), `screenshot` (png/jpg/webp; default for those extensions; full runs only) or `a11y` (JSON audit export with `{tool, findings: []}`; full runs only). Accessibility trees such as Playwright ariaSnapshot YAML belong in `source`; they are review evidence, not automated audit findings. `remove: true` drops the path from the current set (history stays). A `DESIGN.md` at the root is the design brief.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2014,7 +2079,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     inputs.push({
       definition: {
         name: 'slop_job_import',
-        description: 'Import source files atomically from one File Transfer JSON bundle, preserving original paths, bytes, scanner line numbers and per-file revisions. Create UTF-8 JSON {"version":1,"files":[{"path":"src/app.ts","content":"source text","sha256":"optional lowercase SHA-256 of UTF-8 content"}]}, upload with cxx transfer put FILE --ttl-seconds 3600 --json, then pass transfer_id. Source only; no archive extraction, screenshots, symlinks or removals. Limits unchanged: 200 current files, 2 MiB/file, 50 MiB decoded/job; bundle transport max 64 MiB. Duplicate/colliding paths, invalid hashes and over-cap imports fail as a whole. Identical retries are no-ops; omitted paths stay unchanged. Split larger applications into jobs. Requires File Transfer enabled.',
+        description: 'Import files atomically from one File Transfer JSON bundle, preserving original paths, bytes, scanner line numbers and per-file revisions. Create UTF-8 JSON {"version":1,"files":[{"path":"src/app.ts","content":"source text","sha256":"optional lowercase SHA-256 of the decoded bytes"}]}, upload with cxx transfer put FILE --ttl-seconds 3600 --json, then pass transfer_id. Entries are source by default. Screenshots and a11y exports go in the same bundle to refresh a capture set in one call: {"path":"shots/home.png","content_base64":"<base64 of the PNG>"} (kind defaults from the extension; binary needs content_base64, a11y entries must be JSON). Each entry has exactly one of content or content_base64. No archive extraction, symlinks or removals. Limits unchanged: 200 current files, 2 MiB/file, 50 MiB decoded/job; bundle transport max 64 MiB (base64 adds a third). Duplicate/colliding paths, invalid hashes, bad base64 and over-cap imports fail as a whole. The result lists every path with rev and `unchanged`; identical files are no-ops, so a full refresh only appends revisions for changed paths. Omitted paths stay unchanged. Split larger applications into jobs. Requires File Transfer enabled.',
         inputSchema: { type: 'object', properties: { job_id: job, transfer_id: { type: 'string', description: 'Completed transfer id from cxx transfer put.' } }, additionalProperties: false, required: ['job_id', 'transfer_id'] },
       },
       handler: async (args, host) => { await slop.assertEnabled(); return slop.importSources(args, host); },
@@ -2040,7 +2105,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_run',
         description:
-          'Start a run over the current files. `mode: "quick"` runs the deterministic slop scan over source files only (screenshots and description are ignored; seconds). `mode: "full"` runs the same scan and then has the server-hosted Fleet Advisor review sources, screenshots, a11y exports, description, the design guidelines and the quick report; its findings are validated by slop before they are recorded (locations must exist). Full runs take minutes, need a managed agent session and File Transfer enabled, and the advisor answer also reaches you as an ADVISOR/1 message. Results are kept per run; re-run after uploading new revisions. `client_message_id` (UUID) makes retries idempotent. `wait_seconds` (0-25, default 20 for quick) waits for the result.',
+          'Start a run over the current files. `mode: "quick"` runs the deterministic slop scan over source files only (screenshots and description are ignored; seconds). `mode: "full"` runs the same scan and then has the server-hosted Fleet Advisor review sources, screenshots, a11y exports, description, the design guidelines and the quick report; its findings are validated by slop before they are recorded (locations must exist). Full runs take minutes, need a managed agent session and File Transfer enabled, and the advisor answer also reaches you as an ADVISOR/1 message. Results are kept per run; re-run after uploading new revisions. Source files with unsupported extensions are skipped by the deterministic scan: the run `coverage` then lists the skipped and the covered extensions and states that those files got only the advisor review in a full run and none in a quick run. `client_message_id` (UUID) makes retries idempotent. `wait_seconds` (0-25, default 20 for quick) waits for the result.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2076,7 +2141,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_result',
         description:
-          'Fetch a run result (default: the latest run; `run` takes a run id or its sequence number). Returns the run summary and the full slop report (version 2: findings with id, rule, priority P0-P2, kind measured|review, location, evidence, message, remedy, acceptance, alternative), or `format: "markdown"` for a readable digest. `wait_seconds` (0-25) waits for a running run. Status: completed, incomplete (coverage gaps or rejected review findings; see report.errors) or failed (see error). Review findings are judgments with an alternative explanation, never measurements.',
+          'Fetch a run result (default: the latest run; `run` takes a run id or its sequence number). Returns the run summary and the full slop report (version 2: findings with id, rule, priority P0-P2, kind measured|review, location, evidence, message, remedy, acceptance, alternative), or `format: "markdown"` for a readable digest. `wait_seconds` (0-25) waits for a running run. Status: completed, incomplete (coverage gaps or rejected review findings; see report.errors) or failed (see error). Review findings are judgments with an alternative explanation, never measurements. A finding acknowledged in the source with an inline `slop-ok: <reason>` comment carries `suppression` (the reason): `counts.suppressed` tallies it and it is left out of `counts.P0/P1/P2` and the measured/review counts; the markdown digest lists it under "Suppressed" with its reason. There are no job-level acknowledgements.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -2098,7 +2163,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_diff',
         description:
-          'Diff inside a slop job. With `path`: unified diff between two revisions of that file (`from_rev`/`to_rev`, default previous vs. latest; binary files report hash changes only). With `from_run`/`to_run` (run id or sequence; default the two latest runs): findings that are new, resolved or unchanged, plus files added, removed or changed between the run snapshots.',
+          'Diff inside a slop job. With `path`: unified diff between two revisions of that file (`from_rev`/`to_rev`, default previous vs. latest; binary files report hash changes only). With `from_run`/`to_run` (run id or sequence; default the two latest runs): findings that are new, resolved or unchanged, plus files added, removed or changed between the run snapshots. When the runs differ in mode (one is quick), the full run\'s review findings are listed under `findings.not_rechecked` instead of `resolved` (a quick run never reviews; run full again to confirm a fix) and screenshots/a11y exports, which a quick run does not snapshot, are only counted in `files.not_compared`.',
         inputSchema: {
           type: 'object',
           properties: {

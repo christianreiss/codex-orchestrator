@@ -104,7 +104,7 @@ export async function registerOpenAiCompatRoutes(
   // OPTIONS: short-circuit at preHandler; CORS plugin sets the headers.
   app.options('/v1/*', async (_req, reply) => {
     reply.envelopeRaw = true;
-    reply.code(204).send();
+    return reply.code(204).send();
   });
 
   app.post('/v1/chat/completions', {

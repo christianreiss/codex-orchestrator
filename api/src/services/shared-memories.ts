@@ -617,6 +617,86 @@ export class SharedMemoriesService {
   }
 
   /**
+   * Correct one fact in a document without re-sending the body. Applies an
+   * exact, unique string replacement server-side and stores the result through
+   * `write`, so the row lock, expected-digest check, size limit, revision bump
+   * (with the prior body kept for undo) and audit entry are exactly those of a
+   * whole-body write. `expected_sha256` is required: it is checked against the
+   * live body here, and then handed to `write`, which re-checks it under the
+   * lock — an edit that lands between the two is a conflict, never a lost update.
+   * Labels (title, summary, tags, metadata) are carried over untouched.
+   */
+  async replace(
+    payload: Record<string, unknown>,
+    host: Host | null = null,
+    engine: Engine | null = null,
+  ): Promise<Record<string, unknown>> {
+    const errors: Record<string, string[]> = {};
+    const slug = this.normalizeSlug(payload['slug'] ?? payload['id'] ?? payload['key'], errors);
+    const oldText = payload['old_text'];
+    const newText = payload['new_text'];
+    const expected = payload['expected_sha256'];
+    if (typeof oldText !== 'string' || oldText === '') {
+      errors['old_text'] = ['old_text is required and must be a non-empty string'];
+    } else if (oldText.length > MAX_CONTENT_CHARS) {
+      errors['old_text'] = [`old_text must be ${MAX_CONTENT_CHARS} characters or fewer`];
+    }
+    if (typeof newText !== 'string') {
+      errors['new_text'] = ['new_text is required and must be a string (it may be empty)'];
+    } else if (newText.length > MAX_CONTENT_CHARS) {
+      errors['new_text'] = [`new_text must be ${MAX_CONTENT_CHARS} characters or fewer`];
+    }
+    if (typeof expected !== 'string' || expected.trim() === '') {
+      errors['expected_sha256'] = ['expected_sha256 is required: pass the memory.sha256 you read'];
+    }
+    if (
+      Object.keys(errors).length ||
+      slug === null ||
+      typeof oldText !== 'string' ||
+      typeof newText !== 'string' ||
+      typeof expected !== 'string'
+    ) {
+      throw new ValidationError('Validation failed', {
+        extra: { errors: Object.keys(errors).length ? errors : { slug: ['slug is required'] } },
+      });
+    }
+
+    const doc = await this.findBySlug(slug);
+    if (!doc) throw new NotFoundError(`shared memory "${slug}" not found`, 'shared_memory_not_found');
+    if (doc.contentSha256 !== expected.trim()) {
+      throw new ConflictError(
+        `shared memory "${slug}" changed since it was read (expected_sha256 ${expected.trim()}, current ${doc.contentSha256}); re-read before replacing`,
+        'shared_memory_conflict',
+      );
+    }
+
+    // Overlapping matches count: "aa" in "aaa" is ambiguous, not unique.
+    let occurrences = 0;
+    let first = -1;
+    for (let at = doc.content.indexOf(oldText); at !== -1; at = doc.content.indexOf(oldText, at + 1)) {
+      if (first === -1) first = at;
+      if (++occurrences > 1) break;
+    }
+    if (occurrences !== 1) {
+      throw new ValidationError('Validation failed', {
+        extra: {
+          errors: {
+            old_text: [
+              occurrences === 0
+                ? 'old_text does not occur in the document; re-read it and copy the text exactly'
+                : 'old_text occurs more than once; include more surrounding text so it matches exactly once',
+            ],
+          },
+        },
+      });
+    }
+
+    const content = doc.content.slice(0, first) + newText + doc.content.slice(first + oldText.length);
+    const result = await this.write({ slug, content, expected_sha256: doc.contentSha256 }, host, engine);
+    return { ...result, replacements: 1 };
+  }
+
+  /**
    * Grow a document without reading it first. This is the multi-writer safe
    * path: two agents appending concurrently both keep their text, where a
    * read-modify-write pair would silently drop one of them.

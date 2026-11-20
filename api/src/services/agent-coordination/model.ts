@@ -21,15 +21,28 @@ const remoteTarget = z.string().trim().toLowerCase().transform(v => v.replace(/\
     isIP(v) !== 0 || (!/^[\d.]+$/.test(v) && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(v)),
   'Expected a hostname or an unbracketed IP address'))
   .transform(v => isIP(v) === 6 ? new URL(`http://[${v}]/`).hostname.slice(1, -1) : v);
+// Native MCP schemas expose one flattened resource object with every kind's
+// fields, so an unrecognized key names what this kind accepts and which
+// selector to use instead. fqdn is deliberately not resolved to a managed host:
+// claims are exclusion locks and keep one canonical identity (host_id).
+const resourceKeys = (kind: string, accepted: string): { errorMap: z.ZodErrorMap } => ({
+  errorMap: (issue, ctx) => {
+    if (issue.code !== z.ZodIssueCode.unrecognized_keys) return { message: ctx.defaultError };
+    const hint = kind === 'remote'
+      ? issue.keys.includes('host_id') ? ' host_id selects a managed fleet host with kind path, git or service.' : ''
+      : issue.keys.includes('fqdn') ? " Select the managed fleet host with host_id (omit it for this session's host); fqdn belongs only to kind remote, for an unmanaged SSH target." : '';
+    return { message: `${ctx.defaultError}. kind ${kind} accepts ${accepted}.${hint}` };
+  },
+});
 export const resourceSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('remote'),
       fqdn: remoteTarget,
       service: z.string().trim().min(1).max(255),
-    })
+    }, resourceKeys('remote', 'fqdn and service'))
     .strict(),
-  z.object({ kind: z.literal('path'), host_id: z.number().int().positive(), path: absolute }).strict(),
+  z.object({ kind: z.literal('path'), host_id: z.number().int().positive(), path: absolute }, resourceKeys('path', 'host_id and path')).strict(),
   z
     .object({
       kind: z.literal('git'),
@@ -39,14 +52,14 @@ export const resourceSchema = z.discriminatedUnion('kind', [
       // redundant path for compatibility; Git identity remains common_dir/branch.
       path: absolute.optional(),
       branch: z.string().min(1).max(255).optional(),
-    })
+    }, resourceKeys('git', 'host_id, common_dir, optional branch and optional path'))
     .strict(),
   z
     .object({
       kind: z.literal('service'),
       host_id: z.number().int().positive(),
       service: z.string().trim().min(1).max(255),
-    })
+    }, resourceKeys('service', 'host_id and service'))
     .strict(),
 ]);
 export type Resource = z.infer<typeof resourceSchema>;

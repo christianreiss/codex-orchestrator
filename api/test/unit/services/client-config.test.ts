@@ -805,6 +805,7 @@ describe('client-config: memory curation permissions', () => {
       'mcp__clx__feedback_update',
       'mcp__clx__shared_memory_write',
       'mcp__clx__shared_memory_append',
+      'mcp__clx__shared_memory_replace',
       'mcp__clx__shared_memory_delete',
       'mcp__clx__project_memory_upsert',
       'mcp__clx__project_memory_delete',

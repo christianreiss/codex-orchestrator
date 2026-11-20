@@ -1,7 +1,10 @@
 # `clx` Wrapper Interface
 
 From cxx 0.9.180, `cxx doctor` checks the local PATH commands without loading
-signed config, contacting the API or starting background services. Use
+signed config, contacting the API or starting background services. Its report
+states that scope and points to the installed `cdx`/`clx`/`cgx`/`ckx doctor`
+(all four when none is on PATH) for API reachability, TLS trust and sync, which
+the engine-neutral check does not cover. Use
 `cxx doctor --fix` to repair recognized legacy transition scripts when a stale
 `cdx`, `clx`, `cgx` or `ckx` fails with HTTP 401 despite a current `cxx`.
 Both historical `INSTALL_MODE=shim` and `INSTALL_CONTEXT=transition` formats
@@ -1470,7 +1473,7 @@ change the model.
   entries from the configured MCP server names, so curating fleet state is never
   the action that interrupts the user: for every enabled `mcpServers` entry the
   fleet renders (managed and operator-supplied alike)
-  `mcp__<server>__{shared_memory_write,shared_memory_append,shared_memory_delete,project_memory_upsert,project_memory_delete,project_update,project_archive,project_unarchive,project_feedback_update,transfer_put,transfer_delete}`,
+  `mcp__<server>__{shared_memory_write,shared_memory_append,shared_memory_replace,shared_memory_delete,project_memory_upsert,project_memory_delete,project_update,project_archive,project_unarchive,project_feedback_update,transfer_put,transfer_delete}`,
   and, when the bus is provisioned, `mcp__plugin_cxx-receiver_cxx-agent__<tool>`
   for every Agent Messaging tool. That plugin-scoped server name is not a typo:
   on Claude the messaging server is provided by the wrapper's own `cxx-receiver`

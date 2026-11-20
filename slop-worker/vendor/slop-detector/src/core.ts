@@ -99,12 +99,18 @@ export function finding(
   };
 }
 export type Lang = "web" | "swift" | "qml" | "cpp";
-const extensions: [RegExp, Lang][] = [
-  [/\.(?:tsx?|jsx?|html|css|scss|vue|svelte|astro|mdx)$/, "web"],
-  [/\.swift$/, "swift"],
-  [/\.qml$/, "qml"],
-  [/\.(?:cpp|cc|cxx|h|hh|hpp|hxx)$/, "cpp"],
+/** Extensions the deterministic rules cover, per language (also reported in the coverage notes). */
+const supported: [string[], Lang][] = [
+  [["ts", "tsx", "js", "jsx", "html", "css", "scss", "vue", "svelte", "astro", "mdx"], "web"],
+  [["swift"], "swift"],
+  [["qml"], "qml"],
+  [["cpp", "cc", "cxx", "h", "hh", "hpp", "hxx"], "cpp"],
 ];
+export const supportedExtensions = supported.flatMap(([exts]) => exts.map((e) => `.${e}`));
+const extensions: [RegExp, Lang][] = supported.map(([exts, lang]) => [
+  new RegExp(`\\.(?:${exts.join("|")})$`),
+  lang,
+]);
 export const langOf = (file: string): Lang | undefined =>
   extensions.find(([re]) => re.test(file))?.[1];
 const all: Lang[] = ["web", "swift", "qml", "cpp"],
@@ -485,6 +491,7 @@ export async function scan(
     "unsupported extension": 0,
   };
   let longLines = 0;
+  const unsupportedExt = new Map<string, number>();
   const skip = new Set([
     "node_modules",
     ".git",
@@ -525,7 +532,11 @@ export async function scan(
       return;
     }
     const lang = langOf(p);
-    if (!lang) return void skips["unsupported extension"]++;
+    if (!lang) {
+      const ext = path.extname(base).toLowerCase() || "(no extension)";
+      unsupportedExt.set(ext, (unsupportedExt.get(ext) ?? 0) + 1);
+      return void skips["unsupported extension"]++;
+    }
     if (/^(?:moc|qrc)_.*\.cpp$/.test(base)) return;
     if (excluded.some((re) => re.test(posix))) return void skips.excluded++;
     if (
@@ -604,6 +615,15 @@ export async function scan(
   if (longLines)
     skipNotes.push(`${longLines} long lines (over 1000 characters)`);
   if (skipNotes.length) r.coverage.push(`Skipped: ${skipNotes.join(", ")}.`);
+  if (unsupportedExt.size) {
+    const listed = [...unsupportedExt].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    r.coverage.push(
+      `Unsupported extensions skipped: ${listed
+        .slice(0, 20)
+        .map(([ext, n]) => `${ext} (${n})`)
+        .join(", ")}${listed.length > 20 ? `, +${listed.length - 20} more` : ""}. Deterministic rules cover only ${supportedExtensions.join(" ")}.`,
+    );
+  }
   return r;
 }
 export function exitCode(r: Report) {

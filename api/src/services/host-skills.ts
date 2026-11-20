@@ -22,6 +22,7 @@ import {
   listManagedSkills,
   type ManagedSkillManifest,
 } from './managed-skills.js';
+import { isManagedRolesSlug, rolesSkillDisabledView } from './managed-roles-skill.js';
 import {
   allowsImplicitSkillInvocation,
   effectiveSkillDigest,
@@ -333,6 +334,9 @@ export class HostSkillsService {
     const snapshot = await this.readStoredSkillSnapshot(normalized, engine);
     const row = snapshot?.row;
     if (!row) {
+      // The reserved `roles` slug is served only while the module is on; say
+      // "disabled" rather than letting that read as a Skill that does not exist.
+      if (isManagedRolesSlug(normalized)) return rolesSkillDisabledView();
       return {
         status: 'missing',
         slug: normalized,
