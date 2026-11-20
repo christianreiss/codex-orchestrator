@@ -577,9 +577,7 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
     "listen_enabled": false
   }
   // orchestrator / host / wrapper blocks are identical to cdx; host includes
-  // engines / engines_list for the cron coordinator's engine membership. host.agent_messaging_enabled
-  // is a retired compatibility field mirroring the effective value, kept only so
-  // wrappers older than 0.7.8 keep accepting the config; it gates nothing.
+  // engines / engines_list for the cron coordinator's engine membership.
 }
 ```
 
@@ -1530,9 +1528,9 @@ change the model.
   an agent inspects the fleet it is running inside, and the fleet documentation
   tells it to.
 - `statusLine` defaults to `{ "type": "command", "command": "cxx claude-quota-statusline" }`
-  when no admin statusLine is configured and the host's own self-reported wrapper
-  version is at least 0.7.24 (an older binary is never handed a command it does
-  not understand). An admin-configured statusLine always wins and, when present,
+  when no admin statusLine is configured (every supported cxx ships the command;
+  until 2026-11-20 it waited for the host to report 0.7.24 or newer). An
+  admin-configured statusLine always wins and, when present,
   suppresses this default — which also takes that host's Claude quota telemetry
   offline, since the statusline command is the only source of it.
   From cxx 0.9.113, the reporter accepts both Unix-second numbers (native

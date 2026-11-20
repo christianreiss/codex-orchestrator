@@ -442,7 +442,6 @@ The config:
     "fqdn": "host01.example.com",
     "secure": true,
     "browseros_mcp_enabled": false,
-    "agent_messaging_enabled": false,
     "engines": "codex,claude",
     "engines_list": ["codex", "claude"]
   },
@@ -1369,9 +1368,9 @@ requires the global switch — the only switch — an active host, and the targe
 engine to remain enabled. An **insecure** host is eligible too, but only while
 its allowed window (`insecure_enabled_until`) is open; outside it the server
 refuses with `agent_messaging_insecure_window_closed`. The signed
-`agent_messaging.enabled` value is the wrapper's local gate;
-`host.agent_messaging_enabled` is a retired compatibility field that mirrors it
-and gates nothing (cxx <= 0.7.7 rejected the whole config without it). When enabled, managed Codex config contains the
+`agent_messaging.enabled` value is the wrapper's local gate. The retired
+`host.agent_messaging_enabled` mirror is no longer served (cxx <= 0.7.7 needed it,
+and the wrapper still decodes it from older signed configs). When enabled, managed Codex config contains the
 stdio MCP server `cxx-agent` (`cxx agent mcp`) with the direct/conference tools:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
 `agent_message_get`, `agent_cancel`,

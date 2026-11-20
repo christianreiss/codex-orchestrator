@@ -1004,7 +1004,6 @@ describe('wrapper-config', () => {
       expect(payload.agent_messaging.receiver_enabled).toBe(false);
       expect(payload.agent_messaging.capacity_continue_enabled).toBe(false);
       expect(payload.agent_messaging.channel_preview_enabled).toBe(false);
-      expect(payload.host.agent_messaging_enabled).toBe(false);
     });
 
     it('leaves an enabled sibling engine running while another is suspended', async () => {
