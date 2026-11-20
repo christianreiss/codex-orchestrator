@@ -773,9 +773,10 @@ newer than the local Claude CLI.
 ### Auth generation, logout, and insecure cleanup
 
 `~/.claude/.credentials.json` is the sole read authority because it is the file
-Claude Code actually consumes. `~/.clx/auth/credentials.json` is only an
-optional write-through compatibility mirror and can never green-light a missing
-native file or resurrect logout. Wrapper-owned
+Claude Code actually consumes. The retired `~/.clx/auth/credentials.json`
+mirror is never read or written, so it can never green-light a missing native
+file or resurrect logout; a stale copy (refresh token included) is unlinked on
+the next credential commit, logout or purge. Wrapper-owned
 `~/.clx/auth/generation.json` binds a stable RFC3339 `last_refresh` to the
 native content digest without injecting wrapper fields into Claude's file.
 Concurrent readers of identical native bytes therefore upload the same
@@ -802,8 +803,7 @@ purge race an orphaned Claude process. Destructive or unconditional writers
 acquire the exclusive side before rename/removal. Server/runner conditional
 writeback may proceed beside an active child: it holds the auth-file lock and
 commits only if the exact pre-request native generation is unchanged, with the native
-file as the final commit point after generation metadata and any existing
-compatibility mirror. Competing responses for the same request generation use
+file as the final commit point after generation metadata. Competing responses for the same request generation use
 the persisted canonical `last_refresh`: a strictly newer response can advance a
 prior wrapper-materialized response, an older response cannot roll it back, and
 equal-stamp/different-content responses fail closed as an ambiguous rotation.
@@ -887,9 +887,9 @@ session delivery lock fails immediately and preserves the pending notice.
 Engine-specific details:
 
 - Credentials are read only from `~/.claude/.credentials.json`. Server-accepted
-  credentials are written there atomically and mirrored to
-  `~/.clx/auth/credentials.json` only when that legacy sidecar already exists;
-  the sidecar is never a fallback source. Before commit, the normalized native
+  credentials are written there atomically. The retired
+  `~/.clx/auth/credentials.json` sidecar is never written or used as a fallback
+  source; a stale copy is removed on the next credential commit. Before commit, the normalized native
   bytes are parsed again and must contain either a non-empty Claude OAuth access
   token or a genuine `sk-ant-api...` key. Empty OAuth plus a derived
   `sk-ant-oat...` bearer is not runnable and is rejected.

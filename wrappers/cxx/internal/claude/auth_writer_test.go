@@ -205,39 +205,6 @@ func TestWriteAuthAllowsGenuineAPIKeyFallbackBesideEmptyOAuth(t *testing.T) {
 	}
 }
 
-func TestWriteAuthHonoursClxPathWhenPreStaged(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	dir := filepath.Join(home, ".clx", "auth")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatalf("mkdir clx: %v", err)
-	}
-	// Seed an empty placeholder so AuthPath chooses the clx location.
-	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte(`{}`), 0o600); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	payload := json.RawMessage(`{"api_key":"new"}`)
-	if err := WriteAuth(payload); err != nil {
-		t.Fatalf("WriteAuth: %v", err)
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "credentials.json"))
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if string(raw) != `{"api_key":"new"}` {
-		t.Errorf("clx location not updated: %q", raw)
-	}
-	claudeRaw, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-	if err != nil {
-		t.Fatalf("read claude mirror: %v", err)
-	}
-	if string(claudeRaw) != `{"api_key":"new"}` {
-		t.Errorf("claude location not mirrored: %q", claudeRaw)
-	}
-}
-
 func TestReadAuthForUploadBackfillsLastRefreshOnlyInMemory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -723,45 +690,6 @@ func TestAcceptedCanonicalDigestIsReusedOnlyForMatchingNativeGeneration(t *testi
 	}
 	if changedSnap.DigestForServer() == wantCanonical || changedSnap.DigestForServer() != changedSnap.Generation.Digest {
 		t.Fatalf("stale canonical digest leaked across native generation: %+v", changedSnap)
-	}
-}
-
-func TestConcurrentWriteAuthKeepsNativeAndMirrorConsistent(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	clxDir := filepath.Join(home, ".clx", "auth")
-	if err := os.MkdirAll(clxDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(clxDir, "credentials.json"), []byte(`{}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	payloads := []json.RawMessage{
-		json.RawMessage(`{"last_refresh":"2026-07-17T10:00:00Z","claudeAiOauth":{"accessToken":"one"}}`),
-		json.RawMessage(`{"last_refresh":"2026-07-17T10:00:01Z","claudeAiOauth":{"accessToken":"two"}}`),
-	}
-	var wg sync.WaitGroup
-	for _, payload := range payloads {
-		payload := payload
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := WriteAuth(payload); err != nil {
-				t.Errorf("WriteAuth: %v", err)
-			}
-		}()
-	}
-	wg.Wait()
-	native, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mirror, err := os.ReadFile(filepath.Join(clxDir, "credentials.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(native) != string(mirror) {
-		t.Fatalf("native/mirror split brain: native=%s mirror=%s", native, mirror)
 	}
 }
 
