@@ -293,7 +293,7 @@
 <DraftGuard preserveOnSamePath dirty={Object.values(drafts).some((draft) => draft.trim().length > 0) || Object.values(uploads).some((items) => items.length > 0) || Object.values(roomDrafts).some((draft) => draft.text.trim().length > 0 || draft.uploads.length > 0)} />
 
 {#if canRemoteManage}
-  <RemoteSessions active={workspace === "remote"} hosts={$daemonHosts.data?.hosts ?? []} loading={$daemonHosts.isPending} error={$daemonHosts.error} stale={!$daemonHosts.dataUpdatedAt || $wsStatus !== "open"} agents={allRows} bind:selectedId={remoteId} bind:startOpen={startRemote} {refresh}
+  <RemoteSessions active={workspace === "remote"} engineFilter={engine} hosts={$daemonHosts.data?.hosts ?? []} loading={$daemonHosts.isPending} error={$daemonHosts.error} stale={!$daemonHosts.dataUpdatedAt || $wsStatus !== "open"} agents={allRows} bind:selectedId={remoteId} bind:startOpen={startRemote} {refresh}
     onselect={(id) => { selectedId = id; }} fixedHost={embedded ? spawnHost : Number(page.url.searchParams.get("host")) || undefined} compact={embedded}>
     {#snippet conversation(id: string, controls: Snippet, live: boolean)}
       {#if selected?.id === id}{@render nativeConversation(controls, live)}{/if}
@@ -332,7 +332,8 @@
       <section class="min-h-0 min-w-0 flex-col border-r {selected || selectedRoom ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
         <div class="flex items-center justify-between border-b px-3 py-2 text-caption text-muted-foreground">
           <h2 id="shared-room-heading" tabindex="-1" class="font-medium text-foreground">{roomView === 'history' ? 'History' : 'Conversations'}</h2>
-          <Button variant="ghost" size="sm" aria-pressed={roomView === 'history'} onclick={()=>roomView=roomView === 'history' ? 'active' : 'history'}>{roomView === 'history' ? 'Active' : 'History'}</Button>
+          <!-- A filter on this list, not a second view switch. -->
+          <button type="button" class="ml-auto mr-1 rounded-full px-2.5 py-1 text-caption {roomView === 'history' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}" aria-pressed={roomView === 'history'} title="Show ended conferences and closed rooms" onclick={()=>roomView=roomView === 'history' ? 'active' : 'history'}>History</button>
           {#if $authStore.can('agent_messaging.reveal_content')}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="Search messages" aria-haspopup="dialog" onclick={()=>messageSearchOpen=true}><SearchIcon class="h-4 w-4"/></Button>{/if}
           {#if canRemoteManage}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="New conversation" onclick={()=>newRoomOpen=true}><PlusIcon class="h-4 w-4"/></Button>{/if}
         </div>

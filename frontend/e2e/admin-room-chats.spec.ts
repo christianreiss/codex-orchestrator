@@ -211,7 +211,9 @@ test("History keeps closed conferences readable independently of the session too
   await page.goto("/admin/agents");
   await expect(page.locator(`#room-${GROUP}`)).toBeVisible();
   await expect(page.locator(`#room-${CONF}`)).toHaveCount(0);
-  await page.getByRole("button", { name: "History", exact: true }).click();
+  const history = page.getByRole("region", { name: "Client directory" }).getByRole("button", { name: "History", exact: true });
+  await history.click();
+  await expect(history).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByRole("heading", { name: "History", exact: true }),
   ).toBeVisible();
@@ -221,10 +223,9 @@ test("History keeps closed conferences readable independently of the session too
   await expect(page.getByRole("heading", { name: "Direct messages" })).toHaveCount(0);
   await page.locator(`#room-${CONF}`).click();
   await expect(page.getByText("This conference has ended.")).toBeVisible();
-  await page
-    .getByRole("region", { name: "Client directory" })
-    .getByRole("button", { name: "Active", exact: true })
-    .click();
+  // History is a filter chip: pressing it again returns to current conversations.
+  await history.click();
+  await expect(history).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator(`#room-${GROUP}`)).toBeVisible();
   await expect(page.locator(`#room-${CONF}`)).toHaveCount(0);
 });

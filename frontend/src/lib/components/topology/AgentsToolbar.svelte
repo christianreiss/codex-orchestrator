@@ -1,5 +1,9 @@
 <script lang="ts">
-  /** The one filter row of the Agents page, shared by the Live and Graph views. */
+  /**
+   * The one filter row of the Agents page. One switch picks what the page
+   * shows (Chats, Remote sessions, Graph) and one engine filter serves all
+   * three.
+   */
   import { engineLabel } from "$lib/constants/engines";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { useQueryClient } from "@tanstack/svelte-query";
@@ -19,6 +23,13 @@
   const remote = $derived(agents.view === "live" && agents.workspace === "remote");
   const statuses = $derived([...new Set(agents.model.agents.map((a) => a.node.presence))]);
   const hosts = $derived([...new Map([...agents.model.communicators, ...agents.model.agents].map((a) => [a.node.host_id, a.node.host])).entries()]);
+  const section = $derived(agents.view === "graph" ? "graph" : remote ? "remote" : "chats");
+  function show(next: "chats" | "remote" | "graph") {
+    if (next === "graph") return agents.setView("graph");
+    agents.workspace = next === "remote" ? "remote" : "agents";
+    agents.liveSelectedId = null;
+    if (agents.view === "graph") agents.setView("live");
+  }
   const count = $derived(
     agents.view === "graph" && agents.topology.current.data
       ? `${agents.visibleModel.agents.length} of ${agents.model.agents.length} agents`
@@ -39,27 +50,18 @@
 {#snippet filters()}
   <SegmentedControl
     label="Agents view"
-    value={agents.view}
-    onChange={(next) => agents.setView(next === "graph" ? "graph" : "live")}
+    value={section}
+    onChange={show}
     options={[
-      { value: "live", label: "Chats", hint: "Direct messages, shared rooms and conferences" },
+      { value: "chats", label: "Chats", hint: "Direct messages, shared rooms and conferences" },
+      ...(canManage ? [{ value: "remote" as const, label: "Remote sessions", hint: "Sessions launched by a host daemon" }] : []),
       { value: "graph", label: "Graph", hint: "How agents connect to the server (topology)" },
     ]}
   />
-  {#if agents.view === "live" && canManage}
-    <SegmentedControl
-      label="Client workspace"
-      value={agents.workspace}
-      onChange={(next) => { agents.workspace = next === "remote" ? "remote" : "agents"; agents.liveSelectedId = null; }}
-      options={[{ value: "agents", label: "Agents" }, { value: "remote", label: "Remote sessions", hint: "Sessions launched by a host daemon" }]}
-    />
-  {/if}
-  {#if !remote}
-    <select aria-label="Engine" id="client-engine" bind:value={agents.engine} class={selectClass}>
-      <option value="all">All engines</option>
-      {#each $fleet.enabled as engine (engine)}<option value={engine}>{engineLabel(engine)}</option>{/each}
-    </select>
-  {/if}
+  <select aria-label="Engine" id="client-engine" bind:value={agents.engine} class={selectClass}>
+    <option value="all">All engines</option>
+    {#each $fleet.enabled as engine (engine)}<option value={engine}>{engineLabel(engine)}</option>{/each}
+  </select>
   {#if agents.view === "graph"}
     <select aria-label="Filter status" bind:value={agents.status} class={selectClass}>
       <option value="all">All statuses</option>
