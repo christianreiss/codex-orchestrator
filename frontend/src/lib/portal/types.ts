@@ -25,11 +25,6 @@ export interface PresenceTimings {
 /** Lifecycle of an operator close note, read off its queue row server-side. */
 export type CloseState = "pending" | "acknowledged" | "undeliverable";
 
-export interface PortalUser {
-  id: number;
-  display_name: string;
-}
-
 export interface PendingPrompt {
   id: string;
   question: string;
@@ -152,4 +147,3 @@ export interface TimelineSource {
   setScroller(fn: (smooth: boolean) => void): void;
 }
 
-export type Phase = "loading" | "ready" | "disabled" | "login" | "error";

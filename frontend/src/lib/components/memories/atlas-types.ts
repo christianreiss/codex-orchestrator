@@ -14,10 +14,6 @@ export const MEMORY_NODE_HEIGHT = 118;
 export const RELATION_NODE_WIDTH = 184;
 export const RELATION_NODE_HEIGHT = 68;
 
-export function isMemoryNode(node: MemoryGraphNode | null | undefined): boolean {
-  return node?.kind === "memory" && typeof node.record_id === "number" && !!node.scope;
-}
-
 export function displayMemoryKey(node: MemoryGraphNode): string {
   return node.memory_id ?? node.key ?? node.title ?? node.label ?? node.id;
 }

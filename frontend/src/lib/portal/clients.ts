@@ -13,12 +13,6 @@ export function clientClock(snapshot: AgentSessionsResponse | undefined, updated
   return Number.isFinite(generated) && updatedAt > 0 ? generated + Math.max(0, now - updatedAt) : now;
 }
 
-export function snapshotIsStale(updatedAt: number, now: number, timings: PresenceTimings = {}): boolean {
-  const window = timings.heartbeat_fresh_seconds;
-  const freshMs = typeof window === "number" && Number.isFinite(window) && window > 0 ? window * 1000 : 45_000;
-  return updatedAt <= 0 || now - updatedAt > freshMs;
-}
-
 /**
  * The Chats rule shared with the Android app: an agent is listed as a current
  * chat only while it is online (listening, working or idle) and not read-only.
@@ -28,21 +22,6 @@ export function isOnlineActiveAgent(row: AgentSessionRow, now: number, timings: 
   if (row.read_only) return false;
   const presence = livePresence(row, now, timings);
   return presence === "listening" || presence === "working" || presence === "idle";
-}
-
-export function clientCounts(rows: AgentSessionRow[], now: number, timings: PresenceTimings = {}) {
-  const counts = { online: 0, attention: 0, offline: 0, ended: 0, codex: 0, claude: 0, grok: 0, kimi: 0 };
-  for (const row of rows) {
-    const presence = livePresence(row, now, timings);
-    counts[row.engine]++;
-    if (presence === "ended") counts.ended++;
-    else {
-      if (needsOperator(row)) counts.attention++;
-      if (presence === "offline") counts.offline++;
-      else counts.online++;
-    }
-  }
-  return counts;
 }
 
 export function visibleClients(

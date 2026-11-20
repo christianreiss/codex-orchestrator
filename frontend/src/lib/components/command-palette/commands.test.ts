@@ -328,7 +328,7 @@ describe("deep-link navigation commands", () => {
   // the route itself is what has to exist.
   const deepIds = STATIC_COMMANDS.filter((cmd) => cmd.id.startsWith("deep:")).map((cmd) => cmd.id);
   const deepHrefs = DEEP_NAV.map((entry) => entry.href.split("#")[0]);
-  const navIds = NAV.map((item) => `nav:${item.href}`);
+  const navIds = NAV.map((item) => `nav:${item.route}`);
 
   it("found the route tree and the deep-link entries", () => {
     assert.ok(routes.length > 10, `only ${routes.length} routes discovered under ${routesDir}`);

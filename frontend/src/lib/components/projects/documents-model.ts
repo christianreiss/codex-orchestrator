@@ -1,7 +1,6 @@
 /** One list for a project's notes and files, with a kind filter and search. */
 import type { ProjectFile, ProjectNote } from "$lib/api/types";
 
-export type DocKind = "note" | "file";
 export type KindFilter = "all" | "notes" | "files";
 
 export const KIND_OPTIONS: Array<{ value: KindFilter; label: string }> = [

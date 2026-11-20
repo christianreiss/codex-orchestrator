@@ -86,12 +86,3 @@ export function assignProvenance(
   return out;
 }
 
-/** How many distinct blocks a set of keys covers, for "contributes to N blocks". */
-export function countBlocks(assigned: readonly (string | null)[], keys: readonly string[]): number {
-  const wanted = new Set(keys);
-  const seen = new Set<string>();
-  for (const key of assigned) {
-    if (key !== null && wanted.has(key)) seen.add(key);
-  }
-  return seen.size;
-}

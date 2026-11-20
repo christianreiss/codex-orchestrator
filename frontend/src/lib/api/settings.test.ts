@@ -142,7 +142,6 @@ interface QueryCase {
 const QUERY_CASES: QueryCase[] = [
   { name: 'hostSpawnQuery', build: () => asQuery(settings.hostSpawnQuery()), queryKey: ['settings', 'host-spawn'], method: 'GET', path: '/admin/host-spawn/state' },
   { name: "hostOverridesQuery", build: () => asQuery(settings.hostOverridesQuery()), queryKey: ["settings", "host-overrides"], method: "GET", path: "/admin/settings/host-overrides" },
-  { name: "prunePolicyQuery", build: () => asQuery(settings.prunePolicyQuery()), queryKey: ["settings", "prune-policy"], method: "GET", path: "/admin/prune-policy" },
   { name: "grokSettingsQuery", build: () => asQuery(settings.grokSettingsQuery()), queryKey: ["settings", "grok-settings"], method: "GET", path: "/admin/grok/settings" },
   { name: "kimiSettingsQuery", build: () => asQuery(settings.kimiSettingsQuery()), queryKey: ["settings", "kimi-settings"], method: "GET", path: "/admin/kimi/settings" },
   { name: "grokModelsQuery", build: () => asQuery(settings.grokModelsQuery()), queryKey: ["settings", "grok-models"], method: "GET", path: "/admin/grok/models" },
@@ -511,18 +510,6 @@ const MUTATION_CASES: MutationCase[] = [
     request: { method: "POST", path: "/admin/scaling", body: { enabled: true } },
     invalidates: [KEYS.scaling],
   },
-  {
-    name: "prunePolicyMutation",
-    build: (opts) => asMutation(settings.prunePolicyMutation(opts)),
-    variables: { inactivity_days: 30 },
-    request: {
-      method: "POST",
-      path: "/admin/prune-policy",
-      body: { inactivity_days: 30 },
-    },
-    // The widget owns its own query cache entry and refreshes it on settle.
-    invalidates: [],
-  },
 ];
 
 beforeEach(() => {
@@ -632,9 +619,6 @@ describe("module surface", () => {
     "modelTierCheckMutation",
     "modelTierCheckQuery",
     "modelTierCheckQueryKey",
-    "prunePolicyMutation",
-    "prunePolicyQuery",
-    "prunePolicyQueryKey",
     "quotaModeMutation",
     "quotaModeQuery",
     "quotaModeQueryKey",

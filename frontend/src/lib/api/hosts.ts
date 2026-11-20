@@ -108,16 +108,6 @@ export function createDeleteHostMutation(qc: QueryClient) {
   });
 }
 
-export function createClearHostAuthMutation(qc: QueryClient) {
-  return createMutation<void, ApiError, { id: number | string }>({
-    mutationFn: ({ id }) => api.post<void>(`/admin/hosts/${id}/clear`),
-    onSuccess: (_data, vars) => {
-      void qc.invalidateQueries({ queryKey: hostsKeys.detail(vars.id) });
-      void qc.invalidateQueries({ queryKey: hostsKeys.list() });
-    },
-  });
-}
-
 export function createReleaseIpBindingMutation(qc: QueryClient) {
   return createMutation<
     { host: HostDetail },
@@ -548,21 +538,12 @@ export function hostCxxWrapperState(
   return { display: reported.find(Boolean) ?? "—", drift: false };
 }
 
-export const HOST_ONLINE_WINDOW_MS = 45_000;
-
 export type HostStatusKind = "online" | "offline" | "auth-missing";
 
 function parseHostTime(value: string | null | undefined): number | null {
   if (!value) return null;
   const ts = Date.parse(value);
   return Number.isNaN(ts) ? null : ts;
-}
-
-export function hostLatestRefreshMs(
-  host: Pick<HostListItem, "last_refresh" | "claude_last_refresh" | "grok_last_refresh" | "kimi_last_refresh">,
-): number | null {
-  const value = hostLatestRefresh(host);
-  return parseHostTime(value);
 }
 
 export function hostLatestRefresh(

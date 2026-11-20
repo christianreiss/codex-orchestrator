@@ -56,7 +56,6 @@ registerHooks({
 // hiding it behind a variable keeps both happy. Types come from the cast.
 const hostsModule: string = "./hosts.ts";
 const {
-  HOST_ONLINE_WINDOW_MS,
   withPresenceReceipt,
   hostCxxWrapperState,
   hostEngines,
@@ -64,7 +63,6 @@ const {
   hostLastSeen,
   hostLastSeenMs,
   hostLatestRefresh,
-  hostLatestRefreshMs,
   hostMatchesFilter,
   hostStatusKind,
   hostStatusLabel,
@@ -285,15 +283,8 @@ describe("hostLatestRefresh", () => {
   const claude = "2026-07-21T08:00:00.000Z";
 
   it("picks the newer of the two mint times", () => {
-    assert.equal(
-      hostLatestRefreshMs({ last_refresh: codex, claude_last_refresh: claude }),
-      Date.parse(claude),
-    );
-    assert.equal(
-      hostLatestRefreshMs({ last_refresh: claude, claude_last_refresh: codex }),
-      Date.parse(claude),
-    );
     assert.equal(hostLatestRefresh({ last_refresh: codex, claude_last_refresh: claude }), claude);
+    assert.equal(hostLatestRefresh({ last_refresh: claude, claude_last_refresh: codex }), claude);
   });
 
   it("breaks a tie towards codex and hands back the original string form", () => {
@@ -312,16 +303,11 @@ describe("hostLatestRefresh", () => {
 
   it("falls through to claude when only it parses", () => {
     assert.equal(hostLatestRefresh({ last_refresh: "never", claude_last_refresh: claude }), claude);
-    assert.equal(
-      hostLatestRefreshMs({ last_refresh: "never", claude_last_refresh: claude }),
-      Date.parse(claude),
-    );
   });
 
   it("is null when neither parses", () => {
     assert.equal(hostLatestRefresh({ last_refresh: null, claude_last_refresh: null }), null);
     assert.equal(hostLatestRefresh({ last_refresh: "never", claude_last_refresh: "" }), null);
-    assert.equal(hostLatestRefreshMs({ last_refresh: "never", claude_last_refresh: null }), null);
   });
 });
 
@@ -460,7 +446,7 @@ describe("hostStatusKind", () => {
     assert.equal(hostStatusKind(makeHost({ canonical_digest: null })), "online");
   });
   it("expires exactly at 45 seconds", () => {
-    const host = makeHost({ presence_heartbeat_at: iso(NOW - HOST_ONLINE_WINDOW_MS) });
+    const host = makeHost({ presence_heartbeat_at: iso(NOW - 45_000) });
     assert.equal(hostStatusKind(host, NOW - 1), "online");
     assert.equal(hostStatusKind(host, NOW), "offline");
   });

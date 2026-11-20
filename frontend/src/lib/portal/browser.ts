@@ -7,10 +7,6 @@ export function prefersReducedMotion(): boolean {
   return reduceMotion?.matches ?? false;
 }
 
-export function scrollBehavior(): ScrollBehavior {
-  return prefersReducedMotion() ? "auto" : "smooth";
-}
-
 /* ── time ────────────────────────────────────────────────────────────────── */
 
 export function clockTime(value: string): string {
@@ -29,11 +25,6 @@ export function shortAge(from: string, now: number): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
   if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
   return `${Math.floor(seconds / 86_400)}d`;
-}
-
-export function shortPath(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  return parts.length > 3 ? `…/${parts.slice(-3).join("/")}` : path;
 }
 
 /* ── code copy ───────────────────────────────────────────────────────────── */

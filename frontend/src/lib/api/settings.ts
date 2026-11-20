@@ -33,7 +33,6 @@ import type {
   ModelDefaultsEngine,
   ModelDefaultsUpdate,
   ModelDefaultsValue,
-  PrunePolicyValue,
   QuotaModeValue,
   ReverseDnsValue,
   ScalingStatus,
@@ -317,15 +316,6 @@ export function hostOverridesQuery() {
   });
 }
 
-export const prunePolicyQueryKey = ["settings", "prune-policy"] as const;
-
-export function prunePolicyQuery() {
-  return createQuery<PrunePolicyValue>({
-    queryKey: prunePolicyQueryKey,
-    queryFn: () => api.get<PrunePolicyValue>("/admin/prune-policy"),
-  });
-}
-
 /* ────────────────────────── 5. Auto-update ───────────────────────── */
 
 export const autoUpdateQueryKey = ["settings", "auto-update"] as const;
@@ -552,21 +542,6 @@ export function scalingMutation(opts: MutationOpts<ScalingStatus, unknown> = {})
       void qc.invalidateQueries({ queryKey: scalingQueryKey });
       opts.onSettled?.(...args);
     },
-  });
-}
-
-/* ─────────────────────── 11. Prune policy ────────────────────────── */
-// No GET endpoint exists for prune policy; the only field is
-// `inactivity_window_days`. The Settings page lets admins edit raw
-// JSON for the payload. We read the current value from the codex
-// versions snapshot when available.
-
-export function prunePolicyMutation(
-  opts: MutationOpts<PrunePolicyValue, { inactivity_days: number }> = {},
-) {
-  return createMutation<PrunePolicyValue, Error, { inactivity_days: number }>({
-    mutationFn: (payload) => api.post<PrunePolicyValue>("/admin/prune-policy", payload),
-    ...opts,
   });
 }
 

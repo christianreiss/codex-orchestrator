@@ -7,7 +7,7 @@ import type { Agent, CloseState, Presence } from "./types";
 // import needs the ".ts" extension TypeScript rejects on a static import.
 registerHooks({ resolve(specifier, context, nextResolve) { return nextResolve(specifier === "./activity" ? "./activity.ts" : specifier, context); } });
 const presenceModule: string = "./presence.ts";
-const { groupAgents, groupFor, livePresence, matchesAgent, notListeningDetail, presenceView } = (await import(presenceModule)) as typeof import("./presence");
+const { groupFor, livePresence, notListeningDetail, presenceView } = (await import(presenceModule)) as typeof import("./presence");
 
 const NOW = Date.parse("2026-08-01T12:00:00.000Z");
 
@@ -82,29 +82,13 @@ describe("notListeningDetail", () => {
   });
 });
 
-describe("groupAgents", () => {
+describe("groupFor", () => {
   it("puts anything needing attention first, whatever its presence", () => {
     const offlineButWaiting = agent({
       id: "waiting", presence: "offline", heartbeat_at: "2026-08-01T11:00:00.000Z",
       attention: { since: "2026-08-01T11:30:00.000Z", summary: "Approve?" },
     });
     assert.equal(groupFor(offlineButWaiting, NOW), "attention");
-    const groups = groupAgents([agent({ id: "live" }), offlineButWaiting], NOW);
-    assert.equal(groups[0]!.key, "attention");
-    assert.deepEqual(groups.map((g) => g.key), ["attention", "listening"]);
-  });
-
-  it("omits empty groups and sorts each by most recent activity", () => {
-    const older = agent({ id: "older", last_event_at: "2026-08-01T10:00:00.000Z" });
-    const newer = agent({ id: "newer", last_event_at: "2026-08-01T11:50:00.000Z" });
-    const groups = groupAgents([older, newer], NOW);
-    assert.equal(groups.length, 1);
-    assert.deepEqual(groups[0]!.agents.map((a) => a.id), ["newer", "older"]);
-  });
-
-  it("falls back to started_at when a session has no events", () => {
-    const noEvents = agent({ id: "fresh", last_event_at: null });
-    assert.doesNotThrow(() => groupAgents([noEvents], NOW));
   });
 });
 
@@ -144,8 +128,7 @@ describe("working", () => {
 
   it("gets its own group, ahead of listening", () => {
     assert.equal(groupFor(working(), NOW), "working");
-    const groups = groupAgents([agent({ id: "idle-one", presence: "listening" }), working({ id: "busy" })], NOW);
-    assert.deepEqual(groups.map((g) => g.key), ["working", "listening"]);
+    assert.equal(groupFor(agent({ id: "idle-one", presence: "listening" }), NOW), "listening");
   });
 });
 
@@ -242,15 +225,5 @@ describe("automatic receiver proof", () => {
     const view = presenceView(row, NOW);
     assert.equal(view.canSend, false);
     assert.match(view.detail, /unconfirmed/);
-  });
-});
-
-describe("matchesAgent", () => {
-  it("matches every term across host, user, directory and engine", () => {
-    const row = agent({ host: "web01.example", username: "ops", cwd: "/srv/api", engine: "claude" });
-    assert.equal(matchesAgent(row, ""), true);
-    assert.equal(matchesAgent(row, "WEB01 api"), true);
-    assert.equal(matchesAgent(row, "clx ops"), true);
-    assert.equal(matchesAgent(row, "codex"), false);
   });
 });

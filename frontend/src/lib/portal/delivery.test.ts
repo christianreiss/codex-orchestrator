@@ -5,7 +5,7 @@ import type { EventRow } from "./types";
 // `node --test` strips types but resolves specifiers verbatim, so the runtime
 // import needs the ".ts" extension TypeScript rejects on a static import.
 const deliveryModule: string = "./delivery.ts";
-const { deliveryFor, deliveryIndex, isOptimistic, optimisticEvent, reconcileOptimistic } = (await import(deliveryModule)) as typeof import("./delivery");
+const { deliveryFor, deliveryIndex, isOptimistic } = (await import(deliveryModule)) as typeof import("./delivery");
 
 let cursor = 0;
 function event(type: string, payload: Record<string, unknown> = {}): EventRow {
@@ -43,29 +43,6 @@ describe("delivery state", () => {
   it("reports nothing for incoming messages", () => {
     const incoming = event("assistant_message", { text: "hello" });
     assert.equal(deliveryFor(incoming, deliveryIndex([incoming])), null);
-  });
-});
-
-describe("optimistic sends", () => {
-  it("uses a negative cursor so it sorts last and keys stably", () => {
-    const optimistic = optimisticEvent("a", "c1", "hello", "2026-08-01T12:00:00.000Z");
-    assert.ok(isOptimistic(optimistic));
-    assert.ok(optimistic.cursor < 0);
-    assert.equal(deliveryFor(optimistic, new Map()), "sending");
-  });
-
-  // The server mints its own message_id, so the pairing is the text.
-  it("drops the placeholder when the real event arrives", () => {
-    const optimistic = optimisticEvent("a", "c1", "hello", "2026-08-01T12:00:00.000Z");
-    const real = event("user_message", { message_id: "server-id", text: "hello" });
-    const next = reconcileOptimistic([optimistic], real);
-    assert.equal(next.length, 0);
-  });
-
-  it("leaves the timeline alone for unrelated events", () => {
-    const optimistic = optimisticEvent("a", "c1", "hello", "2026-08-01T12:00:00.000Z");
-    const other = event("assistant_message", { text: "hello" });
-    assert.equal(reconcileOptimistic([optimistic], other).length, 1);
   });
 });
 
