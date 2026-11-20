@@ -394,6 +394,8 @@ func PrintWrapperHelp(w io.Writer, caps terminalui.Caps) {
 		{Usage: "--skip-boot", Description: "Suppress the wrapper's banner and footer."},
 		{Usage: "--allow-concurrent-sync", Description: "Continue when another cgx lifecycle holds the content sync lock."},
 		{Usage: "--execute PROMPT", Description: "Send one protected-file prompt and return native JSON."},
+		{Usage: "CGX_CONFIG_PATH / CGX_GROK_BIN", Description: "Override the signed cgx config path or native Grok binary."},
+		{Usage: "GROK_ALLOW_FQDN_MISMATCH=1", Description: "Explicitly bypass the baked hostname check."},
 		{Usage: "-4", Description: "Prefer IPv4 for orchestrator connections."},
 	})
 }

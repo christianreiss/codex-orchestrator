@@ -202,3 +202,17 @@ func TestUninstallRefusesActiveOriginalHomeBeforeRemoteMutation(t *testing.T) {
 		t.Fatal("active managed home removed")
 	}
 }
+
+// Managed failures use the shared operator failure notice, as cgx does, rather
+// than a bare "ckx: <error>" line.
+func TestManagedFailuresUseTheOperatorFailureNotice(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var out, errout bytes.Buffer
+	if code := Run([]string{"--config", "/fixture/missing/ckx.json", "status"}, &out, &errout); code != 1 {
+		t.Fatalf("missing config exit=%d: %s", code, errout.String())
+	}
+	text := errout.String()
+	if strings.HasPrefix(text, "ckx: ") || !strings.Contains(text, "Operation could not finish") || !strings.Contains(text, "ckx") {
+		t.Fatalf("failure not rendered as an operator notice: %q", text)
+	}
+}
