@@ -6,7 +6,6 @@ import multipart from '@fastify/multipart';
 import { loadEnv } from './env.js';
 import { loggerOptions } from './util/log.js';
 import { createDb } from './db/client.js';
-import { setLivenessLedger } from './services/liveness-ledger.js';
 import { createOwnedControlPlane } from './control-plane/bootstrap.js';
 import { acquireStorageOwnership } from './control-plane/storage-owner.js';
 import { composeOwnerServices } from './ops/owner-composition.js';
@@ -165,8 +164,6 @@ export async function buildServer() {
   startChatGptUsageWorker(app, db, env);
   startFeedbackWorker(app, { db, env, keyring });
 
-  // Transport presence is volatile; no heartbeat ledger writes or SQL cache resync.
-  setLivenessLedger(undefined);
   } catch (error) { await app.close(); throw error; }
 
   attachShutdown(app);
