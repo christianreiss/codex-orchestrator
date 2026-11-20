@@ -31,7 +31,7 @@ export function executeColdRead(
   return raw.execute(query);
 }
 
-/** Freshness proofs must not be made from a periodically reconciled read cache. */
+/** Marks a freshness proof: the request must read authoritative state. */
 export function authoritativeReads<T>(run: () => T): T {
   return fresh.run(true, run);
 }

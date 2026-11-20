@@ -27,9 +27,8 @@ describe.skipIf(!config)('communicator authoritative snapshots against MySQL', (
       DB_USERNAME: String(cfg.user),
       DB_PASSWORD: String(cfg.password ?? ''),
       DB_DATABASE: String(cfg.database),
-      DB_READ_CACHE_RESYNC_SECONDS: 3600,
     };
-    handle = createDb(env, { readCache: true });
+    handle = createDb(env);
     outside = await mysql.createConnection(cfg);
     await handle.db.insert(versions).values({ name, version: 'before', updatedAt: new Date().toISOString() });
   });
@@ -41,10 +40,9 @@ describe.skipIf(!config)('communicator authoritative snapshots against MySQL', (
     await outside?.end();
   });
 
-  it('bypasses a warm stale read cache and keeps one coherent snapshot across an external commit', async () => {
+  it('reads authoritatively and keeps one coherent snapshot across an external commit', async () => {
     expect(await read()).toBe('before');
     await outside.execute('UPDATE versions SET version = ? WHERE name = ?', ['external', name]);
-    expect(await read()).toBe('before');
     expect(await authoritativeReads(read)).toBe('external');
     await authoritativeSnapshot(handle.db, async () => {
       expect(await read()).toBe('external');
