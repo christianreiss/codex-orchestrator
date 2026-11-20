@@ -79,7 +79,7 @@ describe("runner state", () => {
 
   it("fails an engine the runner reported failing, and every engine when it is unreachable", () => {
     const runner = { ...base, engines: { codex: { state: "fail" }, claude: { state: "ok" } } };
-    assert.deepEqual(failedRunnerEngines(runner, ["codex", "claude", "grok"]), ["codex"]);
+    assert.deepEqual(failedRunnerEngines(runner, ["codex", "claude", "grok", "kimi"]), ["codex"]);
     assert.deepEqual(failedRunnerEngines({ ...base, ready: false }, ["codex", "claude"]), ["codex", "claude"]);
   });
 

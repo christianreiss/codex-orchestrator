@@ -237,11 +237,10 @@ python3 scripts/check-engine-parity.py
 | Path | Reason |
 |---|---|
 
-### Scoped contracts and fixtures (85)
+### Scoped contracts and fixtures (84)
 
 | Path | Reason |
 |---|---|
-| `DESIGN.md` | Dated design/verification history records the then-existing Codex/Claude/Grok surfaces; no current engine dispatch or allow-list. |
 | `api/src/services/companion/quota-push.ts` | Only Grok has a monthly long-window label; other engines, including Kimi, use the generic short/weekly windows. |
 | `api/src/services/connectors/oauth.ts` | Published OAuth metadata allow-list identifies hosted ChatGPT/Claude/Grok connector clients; Kimi Code is not a hosted connector provider. |
 | `api/src/services/managed-skill-manager.ts` | Built-in creator examples name Codex skill-creator and Grok /create-skill; shared canonical Skill guidance already says all four engines. |
