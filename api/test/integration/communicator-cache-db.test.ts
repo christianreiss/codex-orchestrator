@@ -92,8 +92,10 @@ describe.skipIf(!config)('communicator authoritative snapshots against MySQL', (
       protocol: 2,
       request_id: randomUUID(),
       method: 'POST',
-      path: '/config/retrieve',
-      body: { engine: 'codex' },
+      // /sync/bootstrap carries the rendered client config since the per-item
+      // /config/retrieve route was retired; include_auth: false keeps it a content read.
+      path: '/sync/bootstrap',
+      body: { engine: 'codex', include_auth: false },
       headers: {},
       known: {},
     };
@@ -104,6 +106,7 @@ describe.skipIf(!config)('communicator authoritative snapshots against MySQL', (
       expect(first.statusCode, first.payload).toBe(200);
       const resources = first.json().data.resources;
       expect(resources.length).toBeGreaterThan(0);
+      expect(resources.some((r: { path: string[] }) => r.path.includes('config'))).toBe(true);
       input.known = Object.fromEntries(
         resources.map((r: { path: string[]; revision: string }) => [JSON.stringify(r.path), r.revision]),
       );
