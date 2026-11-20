@@ -61,9 +61,10 @@
   const host = $derived(hosts.find(row => row.host_id === hostId));
   const startReason = $derived(!canManage ? "Remote session management is required." : error || stale ? "Refresh host status before starting work." : hostBlockReason(host) || (host?.engines?.includes(engine) ? "" : "This engine is not ready on the host."));
   const resumeReason = $derived(!canManage || !canRead ? "Conversation access and remote session management are required." : error || stale || $detail.isError ? "Refresh session status before continuing." : native?.pending_prompt ? "Answer the pending question when the agent is reachable." : selected ? continuationBlockReason(selected, selectedHost) : "Select a session.");
-  // Plan mode is a native Claude/Grok permission mode; Codex has none, and a
-  // daemon older than cxx 0.9.146 would ignore it, so the server refuses both.
-  const planReason = $derived(engine === "codex" ? "Codex has no plan mode; its sessions always run with the host's security posture." : (host?.permission_mode_version ?? 0) < 1 ? "This host's daemon predates plan mode. Update cxx to 0.9.146 or newer." : "");
+  // Plan mode is a native Claude/Grok permission mode (server PLAN_ENGINES);
+  // Codex and Kimi Code have none, and a daemon older than cxx 0.9.146 would
+  // ignore it, so the server refuses all three cases.
+  const planReason = $derived(engine === "codex" || engine === "kimi" ? `${engine === "codex" ? "Codex" : "Kimi Code"} has no plan mode; its sessions always run with the host's security posture.` : (host?.permission_mode_version ?? 0) < 1 ? "This host's daemon predates plan mode. Update cxx to 0.9.146 or newer." : "");
   const inPlan = $derived(selected?.permissionMode === "plan");
   const approveReason = $derived(!canManage || !canRead ? "Conversation access and remote session management are required." : error || stale || $detail.isError ? "Refresh session status before approving." : selected && ["running", "queued", "stopping"].includes(selected.status) ? "Wait until the agent has finished presenting its plan." : selected ? continuationBlockReason(selected, selectedHost) : "Select a session.");
   const live = $derived(selected?.status === "running" || Boolean(selected?.status === "waiting" && native?.pending_prompt && !native.read_only));
