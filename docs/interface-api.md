@@ -3607,7 +3607,7 @@ availability, selected effort and account entitlement retain their own controls.
 See [Session scopes, rooms and resource claims](agent-coordination.md) for the
 automatic host/project check-in, room APIs, claim lifecycle, engine parity, grouped
 agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduces
-`agent_context_get/update`, `agent_room_list/read/send`, and
+`agent_context_get/update`, `agent_room_list/read/send` (since 2026-11-20 `agent_room_send` is a compatibility alias of `agent_chat_send` and `agent_room_read` returns membership and claim events only), and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
 Remote resource claims retain the `fqdn` field name but accept canonical DNS
@@ -3692,8 +3692,8 @@ not inherit it. User publications retain their normal delivery semantics.
 - `POST /host/agent-sessions/:id/agent-messaging/context/get` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/context/update` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/rooms/list` — see [coordination contract](agent-coordination.md).
-- `POST /host/agent-sessions/:id/agent-messaging/rooms/read` — scope events and members, with numeric scope cursors. Every response includes `history.coverage: "scope_events_only"`, a notice that shared-chat contributions are excluded, and `history.unified_chat: {tool:"agent_chat_read",arguments:{room_id:<scope_id>}}`. Read `/chats/read` with that room ID for unified history; scope cursors must not be reused there. See [coordination contract](agent-coordination.md).
-- `POST /host/agent-sessions/:id/agent-messaging/rooms/send` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/read` — membership and claim events plus members, with numeric scope cursors; chat is excluded (read it with `/chats/read`, `room_id` equal to the scope ID). See [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/send` — compatibility alias of `/chats/send` with `room_id` equal to `scope_id`. See [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/claims/acquire` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/claims/status` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/claims/release` — see [coordination contract](agent-coordination.md).
@@ -3701,8 +3701,6 @@ not inherit it. User publications retain their normal delivery semantics.
 - `POST /admin/agent-messaging/scopes/state` — see [coordination contract](agent-coordination.md).
 - `GET /admin/agent-messaging/scopes` — see [coordination contract](agent-coordination.md).
 - `GET /admin/agent-messaging/scopes/:scopeId/members` — see [coordination contract](agent-coordination.md).
-- `POST /admin/agent-messaging/scopes/read` — see [coordination contract](agent-coordination.md).
-- `POST /admin/agent-messaging/scopes/send` — see [coordination contract](agent-coordination.md).
 - `POST /admin/agent-messaging/scopes/resolve` — see [coordination contract](agent-coordination.md).
 
 ### Agents page navigation

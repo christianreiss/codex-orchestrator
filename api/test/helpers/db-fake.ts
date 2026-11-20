@@ -199,8 +199,9 @@ function filterRows(rows: Row[], where: unknown): Row[] {
   const conditions = containsOr(where) ? [] : whereConditions(where);
   if (conditions.length > 0) {
     return rows.filter((row) =>
-      conditions.every(({ column, value, values }) => {
+      conditions.every(({ column, value, values, not }) => {
         const actual = rowValue(row, column);
+        if (not) return actual !== not.value;
         if (values) return values.includes(actual);
         return value === null ? actual === null || actual === undefined : actual === value;
       }),
@@ -215,6 +216,8 @@ interface WhereCondition {
   column: string;
   value?: unknown;
   values?: unknown[];
+  /** `column <> value` (drizzle `ne`). */
+  not?: { value: unknown };
 }
 
 function whereConditions(where: unknown): WhereCondition[] {
@@ -237,6 +240,10 @@ function visitConditions(value: unknown, out: WhereCondition[], seen: WeakSet<ob
   const operator = chunks.map(stringChunkValue).join('').toLowerCase();
   if (column && /\sin\s/.test(operator)) {
     out.push({ column: column.name, values: whereValues(value) });
+    return;
+  }
+  if (column && param && /\s<>\s/.test(operator)) {
+    out.push({ column: column.name, not: { value: param.value } });
     return;
   }
   if (column && param && /\s=\s/.test(operator)) {

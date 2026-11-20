@@ -417,7 +417,7 @@ native conversation activity contract in `interface-api.md`.
 See [Session scopes, rooms and resource claims](agent-coordination.md) for the
 automatic host/project check-in, room APIs, claim lifecycle, engine parity, grouped
 agent graph, migration 0078 and rollout/rollback contract. cxx 0.9.103 introduces
-`agent_context_get/update`, `agent_room_list/read/send`, and
+`agent_context_get/update`, `agent_room_list/read/send` (since 2026-11-20 `agent_room_send` is a compatibility alias of `agent_chat_send` and `agent_room_read` returns membership and claim events only), and
 `resource_claim_acquire/status/release` on the session-bound cxx-agent MCP server.
 The feature starts disabled and never grants permission for the reserved action.
 
@@ -426,7 +426,7 @@ The feature starts disabled and never grants permission for the reserved action.
 
 - **agent_scope_bindings** — scope coordination protocol 1 (`repository_key` VARCHAR(191) NOT NULL, `project_slug` VARCHAR(191) NOT NULL, `updated_at` VARCHAR(100) NOT NULL). See [lifecycle and access contracts](agent-coordination.md).
 
-- **agent_scope_events** — scope coordination protocol 1 (`id` CHAR(36) NOT NULL, `scope_id` CHAR(36) NOT NULL, `sequence` BIGINT UNSIGNED NOT NULL, `kind` VARCHAR(32) NOT NULL, `actor` VARCHAR(191) NOT NULL, `request_id` CHAR(36) NOT NULL, `body_enc` LONGTEXT NOT NULL, `dispatched` TINYINT NOT NULL DEFAULT 0, `created_at` VARCHAR(100) NOT NULL). See [lifecycle and access contracts](agent-coordination.md).
+- **agent_scope_events** — scope coordination protocol 1 (`id` CHAR(36) NOT NULL, `scope_id` CHAR(36) NOT NULL, `sequence` BIGINT UNSIGNED NOT NULL, `kind` VARCHAR(32) NOT NULL, `actor` VARCHAR(191) NOT NULL, `request_id` CHAR(36) NOT NULL, `body_enc` LONGTEXT NOT NULL, `dispatched` TINYINT NOT NULL DEFAULT 0, `created_at` VARCHAR(100) NOT NULL). Since 2026-11-20 it holds membership (`presence`) and `claim` events only; scope chat is written to `agent_room_events` and historic `chat` rows here stay readable through the merged room-chat read. See [lifecycle and access contracts](agent-coordination.md).
 
 - **agent_scope_members** — scope coordination protocol 1 (`id` CHAR(36) NOT NULL, `scope_id` CHAR(36) NOT NULL, `session_id` CHAR(36) NOT NULL, `generation` INT UNSIGNED NOT NULL, `protocol` INT UNSIGNED NOT NULL DEFAULT 0, `context_hash` CHAR(64) NOT NULL DEFAULT '', `state` VARCHAR(16) NOT NULL, `joined_at` VARCHAR(100) NOT NULL, `updated_at` VARCHAR(100) NOT NULL). See [lifecycle and access contracts](agent-coordination.md).
 
