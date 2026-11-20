@@ -18,7 +18,7 @@ def test_verified_manifest_install_or_refusal(tmp_path, arch, platform, failure)
         pytest.skip("jq required by installer")
     fixture = tmp_path / "fixtures"
     fixture.mkdir()
-    binary = b'#!/bin/sh\nprintf "2.6.2\\n"\n' if failure != "version" else b'#!/bin/sh\nprintf "2.0.0\\n"\n'
+    binary = b'#!/bin/sh\nprintf "2.7.2\\n"\n' if failure != "version" else b'#!/bin/sh\nprintf "2.0.0\\n"\n'
     (fixture / "binary").write_bytes(binary)
     checksum = hashlib.sha256(binary).hexdigest() if failure != "checksum" else "0" * 64
     entry = {"filename": "kimi.bin" if failure != "path" else "../unsafe", "checksum": checksum}

@@ -167,7 +167,11 @@ func TestGrokAuthForcingFlagsAreKnownBooleans(t *testing.T) {
 		{[]string{"agent", "--reauth", "stdio"}, "--reauth", true},
 		{[]string{"agent", "----reauthenticate", "stdio"}, "--reauth", true},
 		{[]string{"--model", "--force-login"}, "--force-login", false},
-		{[]string{"-p", "--oauth"}, "--oauth", false},
+		// -p is optional-valued since 1.0.91 (1.0.89 rejected `-p --oauth` natively),
+		// so a flag after a bare -p is a flag, not the prompt.
+		{[]string{"-p", "--oauth"}, "--oauth", true},
+		{[]string{"-p", "text", "--oauth"}, "--oauth", true},
+		{[]string{"-p=--oauth"}, "--oauth", false},
 		{[]string{"--print=--force-login"}, "--force-login", false},
 		{[]string{"agent", "--model", "--reauth", "stdio"}, "--reauth", false},
 	} {

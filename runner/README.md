@@ -6,7 +6,7 @@ All four engines are supported:
 
 - **Codex** path uses `/usr/local/bin/codex exec` with the installed Codex Rust CLI.
 - **Claude** path uses `/usr/local/bin/claude --print` with the installed `@anthropic-ai/claude-code` npm CLI.
-- **Kimi** path uses Kimi Code 2.6.2 stream-json in a private `KIMI_CODE_HOME`, with access-only credential projection and all native tools denied. The server alone owns refresh.
+- **Kimi** path uses Kimi Code 2.7.2 stream-json in a private `KIMI_CODE_HOME`, with access-only credential projection and all native tools denied. The server alone owns refresh.
 - **Grok** path uses the pinned official `grok` CLI with `--prompt-file` and JSON output in an isolated, access-only `GROK_HOME`; the server owns Grok refresh, so the runner never spends a refresh token.
 - Skill/memory/project endpoints accept an `engine: "codex" | "claude" | "grok" | "kimi"` field in the request body (defaults to `codex` for back-compat).
 - A dedicated `POST /verify-claude` endpoint validates Anthropic API keys against
@@ -22,18 +22,18 @@ docker build -t codex-auth-runner -f runner/Dockerfile runner
 
 The image bundles:
 
-- Kimi Code 2.6.2 from the official versioned binary manifest, with SHA-256 verification and a version assertion (`install-kimi.sh`, amd64/arm64).
-- Grok Build 1.0.88 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
+- Kimi Code 2.7.2 from the official versioned binary manifest, with SHA-256 verification and a version assertion (`install-kimi.sh`, amd64/arm64).
+- Grok Build 1.0.89 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
 
-- The Codex CLI (default `rust-v0.169.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so probes and gateway requests run the same model catalog as real hosts. Confirmed on 2026-10-15: 0.154.0 rejects `gpt-6.1-sol` with ChatGPT credentials; 0.162.1 completes the same prompt with the same refresh-stripped credentials. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
-- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.326` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
+- The Codex CLI (default `rust-v0.171.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so probes and gateway requests run the same model catalog as real hosts. Confirmed on 2026-10-15: 0.154.0 rejects `gpt-6.1-sol` with ChatGPT credentials; 0.162.1 completes the same prompt with the same refresh-stripped credentials. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
+- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.329` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
-Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.88 with separate Linux amd64/arm64 sha512 integrity digests, verified against the exact
-platform dependencies of `@xai-official/grok@1.0.88` on 2026-11-17, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All four CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
+Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.89 with separate Linux amd64/arm64 sha512 integrity digests, verified against the exact
+platform dependencies of `@xai-official/grok@1.0.89` on 2026-11-20, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All four CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
 
-These are runner execution pins, separate from host minimum-version and private-install fallback policies. Reviewed on 2026-11-17: Codex 0.169.0 is the normal stable release; Claude 2.1.326 tracks npm `latest`/`next` (the conservative `stable` tag remains 2.1.311); Grok 1.0.88 is both npm `latest` and `alpha`, despite the older public changelog/stable pointer. Local channel labels do not change the distributed version.
+These are runner execution pins, separate from host minimum-version and private-install fallback policies. Verified 2026-11-20: Codex 0.171.0 (latest GitHub release and npm `latest`, tag commit `ccf9be8cc458bd6b8336fe84d68d8893f2691a5e`; the two musl release asset digests in `runner/Dockerfile` were verified by hashing the real downloads); Claude 2.1.329 tracks npm `latest`/`next` (the conservative `stable` tag remains 2.1.311); Grok 1.0.89 is npm `latest` and the `x.ai/cli/stable` pointer (verified against `@xai-official/grok@1.0.89`). Local channel labels do not change the distributed version.
 
-Kimi 2.6.2 uses the verified versioned manifest and Linux binaries. Kimi 2.6.3 was published during this review, but its normal `code.kimi.com` and CDN versioned manifests still returned HTTP 404 at the runner build cutoff (2026-11-17 15:30 UTC), so this image retains deliverable 2.6.2. The vendor `code.kimi.com/kimi-code/latest` endpoint still reports 2.5.3; neither that host discovery endpoint nor global recovery minimums are changed by this image pin.
+Kimi 2.7.2 uses the verified versioned manifest and Linux binaries. Verified 2026-11-20: `code.kimi.com/kimi-code/latest` reports 2.7.2, whose CDN manifest (SHA-256 `a685369a0d4ce1f57c4fc7d4392d9bc6780a7f132cd41ddc24cd7cd8ef14aa76`) lists the linux-x64 binary SHA-256 `7f82148d26467874400d19ee8d23ead13cece9cd0c17648a5622cae480a5a596`. The 2.7.2 stream-json shape was compared with 2.6.2 against a mock provider using the runner's own argv shape; it was not proven against a real account. Neither the vendor discovery endpoint nor global recovery minimums are changed by this image pin.
 
 The image records what it installed in `RUNNER_CODEX_VERSION`, `RUNNER_CLAUDE_VERSION`, and `RUNNER_GROK_VERSION`, `RUNNER_KIMI_VERSION`, and names the engines it must have in `RUNNER_REQUIRED_ENGINES` (`codex,claude,grok,kimi`). `entrypoint.sh` and `app.py` both refuse to start when one of those is absent or has drifted, so a runner can never advertise an engine it cannot actually run.
 
@@ -95,32 +95,32 @@ Returns what the image actually carries, probed once at import:
     "codex": {
       "available": true,
       "binary": "/usr/local/bin/codex",
-      "version": "0.169.0",
-      "expected_version": "0.169.0",
+      "version": "0.171.0",
+      "expected_version": "0.171.0",
       "version_matches": true,
       "detail": "ready"
     },
     "claude": {
       "available": true,
       "binary": "/usr/local/bin/claude",
-      "version": "2.1.326",
-      "expected_version": "2.1.326",
+      "version": "2.1.329",
+      "expected_version": "2.1.329",
       "version_matches": true,
       "detail": "ready"
     },
     "grok": {
       "available": true,
       "binary": "/usr/local/bin/grok",
-      "version": "1.0.88",
-      "expected_version": "1.0.88",
+      "version": "1.0.89",
+      "expected_version": "1.0.89",
       "version_matches": true,
       "detail": "ready"
     },
     "kimi": {
       "available": true,
       "binary": "/usr/local/bin/kimi",
-      "version": "2.6.2",
-      "expected_version": "2.6.2",
+      "version": "2.7.2",
+      "expected_version": "2.7.2",
       "version_matches": true,
       "detail": "ready"
     }
@@ -605,13 +605,13 @@ request timeout plus 300 seconds. Only allowlisted locale/certificate environmen
 values survive; telemetry and updates are disabled. Homes are removed after
 success, failure, timeout or cancellation. `system` uses a private agent profile (and `SYSTEM.md`); the profile explicitly sets `tools: []`.
 The runner rejects images, sampling, stop sequences and output caps before launch.
-`stream-json` 2.6.2 exposes assistant text but no usage or stop reason; output
+`stream-json` 2.7.2 exposes assistant text but no usage or stop reason; output
 therefore carries `usage_known: false`, `finish_reason: null` and
 `native_stop_reason: null`. Tool-call output is rejected on this inference surface.
 
-Kimi 2.6.2 rejects `-p` together with `--auto`; the runner omits that flag because print mode already uses auto permissions.
+Kimi 2.7.2 rejects `-p` together with `--auto`; the runner omits that flag because print mode already uses auto permissions.
 
-For non-default subscription environments (including `.ai`), native Kimi 2.6.2
+For non-default subscription environments (including `.ai`), native Kimi 2.7.2
 requires a scoped OAuth slot: `oauth/kimi-code-env-<digest>`, where `digest` is
 the first 16 hex characters of SHA-256 of compact JSON `{oauthHost,baseUrl}`
 in that order. The runner retains `credentials/kimi-code.json` and writes an

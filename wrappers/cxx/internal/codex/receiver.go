@@ -54,9 +54,13 @@ func startReceiverServer(ctx context.Context, binary string, args, env []string,
 	if nativeargs.Has("codex", args, "--remote") {
 		return args, func() {}, fmt.Errorf("existing remote endpoint owns the native session")
 	}
-	// A terminal does not make exec/e/review interactive. Codex accepts
-	// --remote only for the TUI; keep these commands on the existing direct
-	// transport, with the caller's managed identity and safety leases intact.
+	// A terminal does not make exec/e/review interactive. Keep these commands on
+	// the existing direct transport, with the caller's managed identity and
+	// safety leases intact. Codex 0.171 also accepts --remote on exec, resume,
+	// fork and review, but every --remote is refused before this point
+	// (nativeargs.UnsupportedService); in-TUI /rc and /remote start an unmanaged
+	// local daemon that no argv guard can see (documented gap, see
+	// docs/interface-cdx.md).
 	command, _ := nativeargs.Command("codex", args)
 	if command == "exec" || command == "e" || command == "review" {
 		return args, func() {}, nil

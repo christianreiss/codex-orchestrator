@@ -347,7 +347,7 @@ class RunnerDockerfileFailsClosedTest(unittest.TestCase):
 
 class KimiImageTest(unittest.TestCase):
     def test_kimi_pin_and_installer_ship_with_runner(self):
-        self.assertEqual("2.6.2", ARGS.get("KIMI_VERSION"))
+        self.assertEqual("2.7.2", ARGS.get("KIMI_VERSION"))
         with open(os.path.join(os.path.dirname(__file__), "install-kimi.sh"), encoding="utf-8") as source:
             installer = source.read()
         default = re.search(r"version=\$\{KIMI_VERSION:-([^}]+)\}", installer)

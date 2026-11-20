@@ -212,6 +212,43 @@ refresh ownership and native isolation differ. See [Grok interface](interface-cg
 Source-of-truth contract for the `clx` wrapper (Claude Code fleet wrapper).
 Mirrors `docs/interface-cdx.md` with engine-specific deltas called out explicitly.
 
+### Anthropic profile and federation credential sources (2026-11-20)
+
+Claude Code ranks Anthropic profile and workload-identity-federation sources above
+the subscription OAuth login ([authentication precedence](https://code.claude.com/docs/en/authentication.md),
+[WIF reference](https://platform.claude.com/docs/en/manage-claude/wif-reference.md)).
+`runtimeAuthOverrideEnv` therefore also lists `ANTHROPIC_PROFILE`,
+`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`,
+`ANTHROPIC_WORKSPACE_ID` and `ANTHROPIC_SERVICE_ACCOUNT_ID`, next to
+`ANTHROPIC_IDENTITY_TOKEN*`. Inherited copies are removed from the child environment
+and the per-run `--settings` overlay blanks them (`""`), so a value in user/project
+settings `env` cannot win either. There is no exemption beyond the existing ones:
+the launch path always builds the filtered env and the overlay, in OAuth and API-key
+mode, for `login` / `auth login` and with `--bare` (still rewritten to `--safe-mode`
+for OAuth launches); only `ANTHROPIC_API_KEY` stays mode-dependent.
+
+Verified on Claude Code 2.1.329 with `auth status --text` in a throwaway `HOME` that
+holds a fabricated subscription credential: a named profile whose file exists, and the
+rule-plus-organization pair (workspace and service-account IDs only modify it), switch
+the source to a `Profile:` row when set in the process environment or in settings
+`env`. With the overlay the `Login method:` row (the fleet login) wins in both cases.
+`TestNativeOracleProfileSelectorsLoseToFleetLogin` (gated on `NATIVE_CLAUDE_ORACLE`)
+repeats this, including negative controls, against any native binary.
+
+**Known gap, not implemented: profile files.** A profile named `default` (or the one
+named in `<config_dir>/active_config`) with auth mode `oidc_federation` under
+`~/.config/anthropic/configs/` still outranks the stored login; blanking the selectors
+does not change that (2.1.329: `Profile: credentials-file · oidc_federation · profile
+default`). Setting `ANTHROPIC_CONFIG_DIR` to an empty directory restores the login in
+that probe, but the wrapper does not do it: the authentication docs say Claude's
+Console keyless `/login` writes its `user_oauth` profile into that directory, an
+in-session `/login` cannot be exempted by argument inspection, and a settings-`env`
+value is expected (not tested) to reach Bash-tool, hook and MCP subprocesses, moving
+`ant` CLI/SDK configuration with it. An inherited `ANTHROPIC_CONFIG_DIR` that points at
+a foreign profile directory is part of the same gap; both the env filter and the
+overlay leave it alone (pinned by a unit test). Removing such a profile (`ant auth
+logout` or deleting the file from `configs/`) is a host operator action.
+
 ### Native command maintenance (cxx 0.9.66)
 
 The native dispatch and flag grammar were checked against Claude Code
@@ -1189,6 +1226,19 @@ continues. Calls already approved by rules, the permission mode or auto mode's
 classifier still run. `false` behaves like unset and cannot override `true` in
 another native settings scope. Project/local settings cannot enable it.
 
+`mcp_tool` hooks accept the optional `onFailure` field, `"continue"` or `"block"`
+(any other value is rejected with HTTP 422 at `native_settings.hooks.<Event>.<i>.hooks.<j>.onFailure`),
+like `command` and `http` hooks. `"block"` turns a failed MCP hook (server not
+connected, tool error, or on blocking events a non-empty answer) into the
+exit-code-2 outcome of that event; `"continue"` or omission lets the action go
+ahead. Claude Code ignores the field before **2.1.328**, which would silently fail
+open, so a host render of any `mcp_tool` hook carrying `onFailure` (either value)
+requires an observed `claudeClientVersion` of at least 2.1.328 and is refused with
+the usual "run clx update" error for older or unreported versions. Admin authoring and
+preview are not gated, other hosts and hooks without the field keep the existing
+floor, and `command`/`http` hooks are unchanged. See the
+[hooks reference](https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails).
+
 Native also omits question and plan tools (agent-team plan tools are an exception),
 cancels unanswered MCP elicitation, and does not query a permission-host callback;
 `PermissionRequest`/`Elicitation` hooks may still answer supported requests.
@@ -1202,7 +1252,7 @@ Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.326 on 2026-11-17. Validation rejects unknown
+checked against Claude Code 2.1.329 on 2026-11-20. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys

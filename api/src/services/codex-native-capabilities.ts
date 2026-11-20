@@ -1,4 +1,4 @@
-/** Exact 0.164.0–0.169.0 field paths; map identifiers are never interpreted as paths. */
+/** Exact 0.164.0–0.171.0 field paths; map identifiers are never interpreted as paths. */
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -97,4 +97,39 @@ export function needsCodex169(value: Record<string, unknown>): boolean {
       const oauth = record(record(provider).gateway_oauth);
       return ['device_authorization_url', 'credential_export'].some(key => Object.hasOwn(oauth, key));
     });
+}
+
+const hasNestedToolNames = (guardian: Record<string, unknown>, key: string) =>
+  Object.values(record(guardian[key])).some(section => Object.hasOwn(record(section), 'nested_tool_names'));
+
+/** New 0.170 fields only (schema diff 0.169 to 0.170); section/map identifiers stay opaque.
+ * The async elastic sections first appear in 0.171, so only the sync sections gate here. */
+export function needsCodex170(value: Record<string, unknown>): boolean {
+  const features = record(value.features);
+  return Object.hasOwn(features, 'multi_environment_mcp')
+    || ['headers_helper', 'headers_helper_refresh_interval_ms'].some(key => Object.hasOwn(record(value.otel), key))
+    || hasNestedToolNames(record(features.guardianv2), 'sync_elastic_sections');
+}
+
+const features171 = ['catalog_apps_instructions', 'file_backed_tool_audio', 'guardian_nested_approval_context',
+  'mcp_shared_repl_cwd', 'per_environment_context', 'restored_history_prewarm', 'safe_image_decoder', 'utc_environment_date'];
+const keymap171: Readonly<Record<string, readonly string[]>> = {
+  composer: ['redo', 'undo'], global: ['choose_cloud_environment'], pager: ['mark_markdown'],
+};
+
+/** New 0.171 fields only (schema diff 0.170 to 0.171). Root tables that first
+ * appear in 0.171 gate on presence, even when empty, like earlier new tables. */
+export function needsCodex171(value: Record<string, unknown>): boolean {
+  const features = record(value.features), tui = record(value.tui), keymap = record(tui.keymap);
+  return features171.some(key => Object.hasOwn(features, key))
+    || ['code_mode', 'responses', 'rollout_trace'].some(key => Object.hasOwn(value, key))
+    || Object.hasOwn(tui, 'status_line_provider')
+    || Object.entries(keymap171).some(([context, actions]) => actions.some(action => Object.hasOwn(record(keymap[context]), action)))
+    || Object.values(record(value.marketplaces)).some(marketplace => Object.hasOwn(record(marketplace), 'auto_update'))
+    || ['async_elastic_budgeting', 'async_elastic_sections'].some(key => Object.hasOwn(record(features.guardianv2), key))
+    || Object.hasOwn(record(features.multi_agent_v2), 'interrupt_at_item_boundary')
+    || Object.hasOwn(record(features.token_budget), 'context_window_as_tool_output')
+    || ['limit_budget', 'reminder_at_context_start'].some(key => Object.hasOwn(record(features.rollout_budget), key))
+    || Object.hasOwn(record(features.network_proxy), 'transparent_tcp')
+    || Object.values(record(value.permissions)).some(profile => Object.hasOwn(record(record(profile).network), 'transparent_tcp'));
 }

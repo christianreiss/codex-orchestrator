@@ -17,7 +17,7 @@ func TestKimiHelpSnapshotCoversOptions(t *testing.T) {
 		Commands            map[string]string `json:"commands"`
 		HiddenSourceOptions map[string]string `json:"hidden_source_options"`
 	}
-	if json.Unmarshal(raw, &data) != nil || data.Version != "2.6.2" {
+	if json.Unmarshal(raw, &data) != nil || data.Version != "2.7.2" {
 		t.Fatal("invalid snapshot")
 	}
 	for scope, table := range kimiScopedOptions {

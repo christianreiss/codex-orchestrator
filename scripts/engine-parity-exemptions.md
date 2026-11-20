@@ -133,6 +133,7 @@ python3 scripts/check-engine-parity.py
 | `api/test/unit/services/grok-auth.test.ts` | Grok-only test/fixture for grok auth.test; Kimi has its own provider path. |
 | `api/test/unit/services/grok-custom-context.test.ts` | Grok-only test/fixture for grok custom context.test; Kimi has its own provider path. |
 | `api/test/unit/services/grok-188-settings.test.ts` | Grok 1.0.88 native settings, conditional version floors, exact dotted-key ownership and offline parser/helper non-execution fixtures; this provider-specific grammar is not a supported-engine enumeration. |
+| `api/test/unit/services/grok-189-settings.test.ts` | Grok 1.0.89 native settings, conditional version floors and inactive version_overrides fixtures; this provider-specific grammar is not a supported-engine enumeration. |
 | `api/test/unit/services/grok-native-settings.test.ts` | Grok-only test/fixture for grok native settings.test; Kimi has its own provider path. |
 | `api/test/unit/services/grok-native-structures.test.ts` | Grok-only test/fixture for grok native structures.test; Kimi has its own provider path. |
 | `api/test/unit/services/grok-permission-rules.test.ts` | Grok-only test/fixture for grok permission rules.test; Kimi has its own provider path. |
@@ -210,6 +211,7 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/nativeargs/maintenance_20261028_test.go` | Grok-only test/fixture for maintenance 20261028 test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/nativeargs/maintenance_20261101_test.go` | Grok-only test/fixture for maintenance 20261101 test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/nativeargs/maintenance_20261106_grok_test.go` | Grok-only test/fixture for maintenance 20261106 grok test; Kimi has its own provider path. |
+| `wrappers/cxx/internal/nativeargs/maintenance_20261120_grok_test.go` | Grok-only native grammar test; Kimi's grammar is covered by maintenance_20261120_kimi_test.go. |
 | `wrappers/cxx/internal/nativeargs/testdata/grok-1.0.70-help.json` | Grok-only test/fixture for grok 1.0.70 help; Kimi has its own provider path. |
 
 ### Historical database migrations and fixtures (16)

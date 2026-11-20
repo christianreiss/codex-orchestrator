@@ -236,9 +236,11 @@ remain authoritative; queue admission and successful work results are separate.
 Codex `exec`/`e` (including wrapper `--execute`) and `review` use the direct native
 transport even when stdin/stdout are terminals. They retain managed identity,
 account/auth leases and process supervision, but do not start a private TUI
-app-server or receive the TUI-only `--remote` argument. Interactive starts and
-TUI `resume`/`fork` retain their private receiver. Claude and Grok transports are
-unchanged.
+app-server. Codex 0.171 also accepts `--remote`/`--remote-auth-token-env` on
+`exec`, `exec resume`, `exec fork` and `exec review`; the wrapper refuses every
+`--remote` before configuration/auth work (see below), so an exec never reaches an
+unmanaged endpoint through argv. Interactive starts and TUI `resume`/`fork` retain
+their private receiver. Claude and Grok transports are unchanged.
 
 `cxx native-entry install` repairs entries from locally verified signed configs;
 `cxx native-entry remove` removes managed entries and shell blocks for rollback.
@@ -299,10 +301,14 @@ so `resume -i a.png UUID` and `exec -i a.png resume UUID` still read `UUID` (and
 also covers `queue --thread/--message`, `migrate-rollouts --thread`, and the
 value options of the utility and refused commands (`sandbox`, `mcp add|login`,
 `app-server`, `exec-server`, `cloud`, `plugin add`); a unit test pins it to the
-0.167.0 help corpus and the complete 74-scope 0.169.0 public help tree
-(verified 2026-11-17). The latter adds `exec-server --chatgpt-account-id`,
+0.167.0 help corpus and the complete 74-scope 0.171.0 public help tree
+(verified 2026-11-20; commit `ccf9be8cc458bd6b8336fe84d68d8893f2691a5e`, binary
+SHA-256 `b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0`). The
+0.169 tree added `exec-server --chatgpt-account-id`,
 `exec-server forward --connect`, `app-server proxy --sock`, generator
-`--out`/`--prettier`, and marketplace `--ref`/`--sparse` value boundaries. Native
+`--out`/`--prettier`, and marketplace `--ref`/`--sparse` value boundaries; 0.171
+adds `exec-server [forward] --tcp-upstream-proxy <HOST:PORT>` and the exec-scope
+`--remote`/`--remote-auth-token-env` pair. Native
 `--trust` stays a boolean; the wrapper never inserts it automatically. An opt-in
 `NATIVE_CODEX_ORACLE` test compares it with a live binary. Readers do not interpret those utility commands' semantics; the
 table only keeps their values (including command- or flag-shaped ones) opaque.
@@ -310,7 +316,12 @@ table only keeps their values (including command- or flag-shaped ones) opaque.
 Direct public `app-server`, `exec-server`, `remote-control`, `agents` and `--remote`
 invocations are refused before configuration/auth work: their independent or
 external processes do not inherit the wrapper's private account/auth broker,
-receiver and teardown lifecycle. Their native `--help` remains available. This
+receiver and teardown lifecycle. Their native `--help` remains available. `--remote` is
+refused wherever it appears (including `exec`, `exec resume|fork|review`), while an
+option value that is merely spelled `--remote` stays data. Documented gap,
+deliberately out of product: the in-TUI `/rc` and `/remote` commands configure an
+unmanaged local daemon (`$CODEX_HOME/app-server-daemon`, device pairing) that no
+argv guard can catch. This
 does not affect the wrapper-owned private app-server used by normal managed
 interactive launches; help acceptance alone is not remote lifecycle support.
 
@@ -2239,9 +2250,83 @@ This is agent-executed guidance shared by all four engines, adopted on the next
 sync/launch, not wrapper-enforced automation. See
 [Automatic repository delivery](interface-api.md#automatic-repository-delivery).
 
+## Native configuration maintenance (Codex 0.171.0)
+
+### Codex 0.171 scope update (2026-11-20)
+
+The Engines native-settings editor now validates the exact published 0.171.0
+schema (`rust-v0.171.0`, commit `ccf9be8cc458bd6b8336fe84d68d8893f2691a5e`,
+SHA-256 `025625b51c9c7f51f87d89c5b5ec8a47acb6e4fe90737b95880fc1b3f9e52fdd`,
+106 root fields; the 0.170.0 schema is SHA-256
+`424ede5c2e3d9183a92d0a1c361139bf3664b2ee95d03d730063463fe865dec5`). Nothing
+was removed from the schema between 0.169 and 0.171, so no data migration is
+needed; the retired-feature rejections of 0.169 are unchanged.
+
+New fields conditionally require an **observed** host version, in root settings
+and in every profile sidecar, even when false or empty. A host reporting an
+earlier or no version is refused at render/sync time; existing fields keep their
+earlier floors.
+
+- **0.170.0:** `features.multi_environment_mcp`, `otel.headers_helper`,
+  `otel.headers_helper_refresh_interval_ms` and `nested_tool_names` in
+  `features.guardianv2.sync_elastic_sections.<name>`.
+- **0.171.0:** the root tables `code_mode` (`heartbeat_interval_s`), `responses`
+  (`process_mode`) and `rollout_trace` (`max_bytes`, `max_payload_bytes`);
+  `tui.status_line_provider` (`"default"` or `{ server, tool }`);
+  `marketplaces.<name>.auto_update`; the keymap actions `composer.undo`,
+  `composer.redo`, `global.choose_cloud_environment` and `pager.mark_markdown`;
+  eight feature switches (`catalog_apps_instructions`, `file_backed_tool_audio`,
+  `guardian_nested_approval_context`, `mcp_shared_repl_cwd`,
+  `per_environment_context`, `restored_history_prewarm`, `safe_image_decoder`,
+  `utc_environment_date`); `features.guardianv2.async_elastic_budgeting` and
+  `async_elastic_sections` (including their `nested_tool_names`);
+  `features.multi_agent_v2.interrupt_at_item_boundary`;
+  `features.token_budget.context_window_as_tool_output`;
+  `features.rollout_budget.limit_budget` and `reminder_at_context_start`; and
+  `transparent_tcp` in `features.network_proxy` and
+  `permissions.<profile>.network`.
+
+`features.rollout_budget` follows `resolve_rollout_budget_config`
+(`codex-rs/core/src/config/mod.rs`, `rust-v0.171.0`): the allowance is either
+`limit_tokens` or the new `limit_budget`; setting both is rejected even while the
+feature is disabled, an enabled budget needs one of them, and
+`reminder_at_remaining_tokens` stays required. `otel.headers_helper` names a
+command that the native host runs; validation and rendering never execute it.
+Parser probes establish syntax/config-load compatibility only.
+
+Guardian elastic budgets follow `resolve_elastic_budget` (core config) and
+`ElasticBudgetConfig` (`codex-rs/guardian-context/src/budget.rs`). Native Codex
+checks a side only while `features.guardianv2.sync_elastic_budgeting` or
+`async_elastic_budgeting` is `true`; Guardian's own `enabled` does not matter,
+and a disabled or omitted switch keeps any section map. An enabled side needs a
+nonempty `<side>_elastic_sections` whose keys are the 14 native sections
+(`transcript_messages`, `transcript_tools`, `transcript_selected_exec_results`,
+`root_conversation_messages`, `retained_user_instructions`, `trusted_user_answers`,
+`sender_user_messages`, `planned_action`, `previous_reviews`, `trusted_tools`,
+`trusted_skills`, `transcript_images`, `node_repl_evidence`, `permission_context`)
+or their eight native aliases, each section at most once. Minimum and entry cap
+must be nonzero, the entry cap at most the minimum and 9000, and an optional
+`max_total_section_tokens` at least the minimum. Only the sync-only
+`transcript_selected_exec_results` may carry `nested_tool_names`, and there they
+must be nonempty and nonblank; on every other section, async included, only `[]`
+passes once budgeting is on. The section minimums must sum to exactly 128000,
+counting native defaults for omitted sections (`transcript_messages` 5000,
+`transcript_tools` 1000, `transcript_selected_exec_results` 0, every other 900).
+The sync rules are identical in 0.170 and 0.171. Root settings, each profile
+sidecar and the merged render document are checked; a saved budget that violates
+them stays readable with an editable `validation_error`, is never rewritten, and
+is not rendered for hosts until corrected. Source:
+[budget rules](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/guardian-context/src/budget.rs),
+confirmed by throwaway-home probes of the 0.170.0 and 0.171.0 binaries.
+
+Source: [versioned schema](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/core/config.schema.json),
+audited 2026-11-20. The configuration reference moved to
+`https://learn.chatgpt.com/docs/config-file/config-reference`; it lags the schema
+for the newest keys, so the schema stays authoritative.
+
 ## Native configuration maintenance (Codex 0.169.0)
 
-The Engines native-settings editor validates the exact published 0.169.0 schema
+The previous 0.169.0 audit validated the exact published 0.169.0 schema
 (`rust-v0.169.0`, commit `d32063f96c2dff1dc96af839b3952abb6acfeda4`,
 SHA-256 `f515f420927460250181097af8dc72b80a6be4f01f4324a0efef816e46cc9c86`).
 The 103 root fields and complete nested definitions are retained; existing

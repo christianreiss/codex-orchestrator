@@ -43,6 +43,12 @@ func assertGrokHelpValues(t *testing.T, path []string, help string) {
 			continue
 		}
 		short, long, isOptional := match[1], match[2], match[3] == "["
+		// The 1.0.70 help declares `--single <PROMPT>` (required); 1.0.91+ declares
+		// `[PROMPT]`. The table deliberately models the optional superset: they only
+		// differ for a next token that starts with `-`, a native error before 1.0.91.
+		if long == "--single" {
+			isOptional = true
+		}
 		for _, flag := range []string{long, short} {
 			if flag == "" {
 				continue

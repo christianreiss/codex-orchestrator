@@ -9,10 +9,10 @@ import (
 	"testing"
 )
 
-// Captured from every public native 0.169.0 help scope, including nested
+// Captured from every public native 0.171.0 help scope (74), including nested
 // utility/refused services; no account or running native session was used.
-func TestCodex0169AllHelpValueOptions(t *testing.T) {
-	raw, err := os.ReadFile("testdata/codex-0.169-value-options.json")
+func TestCodex0171AllHelpValueOptions(t *testing.T) {
+	raw, err := os.ReadFile("testdata/codex-0.171-value-options.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestCodex0169AllHelpValueOptions(t *testing.T) {
 		Version  string              `json:"version"`
 		Commands map[string][]string `json:"commands"`
 	}
-	if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot.Version != "0.169.0" {
+	if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot.Version != "0.171.0" {
 		t.Fatalf("invalid native snapshot: %v", err)
 	}
 	for scope, options := range snapshot.Commands {
@@ -59,7 +59,7 @@ func TestCodex0169AllHelpValueOptions(t *testing.T) {
 	}
 }
 
-func TestKimi262OpaqueScopedOptionsAndAliases(t *testing.T) {
+func TestKimi272OpaqueScopedOptionsAndAliases(t *testing.T) {
 	for _, tc := range []struct {
 		args        []string
 		flag, value string
@@ -99,8 +99,8 @@ func TestKimi262OpaqueScopedOptionsAndAliases(t *testing.T) {
 	}
 }
 
-func TestKimi262UnsupportedLifecycleBoundaries(t *testing.T) {
-	for _, args := range [][]string{{"exec-server"}, {"exec-server", "--listen", "stdio"}, {"__plugin_run_node", "entry.js"}, {"__update_download", "2.6.2"}, {"--environment", "remote"}, {"--environment-cwd", "/work"}} {
+func TestKimi272UnsupportedLifecycleBoundaries(t *testing.T) {
+	for _, args := range [][]string{{"exec-server"}, {"exec-server", "--listen", "stdio"}, {"__plugin_run_node", "entry.js"}, {"__update_download", "2.7.2"}, {"--environment", "remote"}, {"--environment-cwd", "/work"}} {
 		if got := UnsupportedService("kimi", args); got != args[0] {
 			t.Fatalf("%q: refusal %q", args, got)
 		}
@@ -112,7 +112,7 @@ func TestKimi262UnsupportedLifecycleBoundaries(t *testing.T) {
 	}
 }
 
-func TestKimi262NativeHelpOptionOracle(t *testing.T) {
+func TestKimi272NativeHelpOptionOracle(t *testing.T) {
 	binary := os.Getenv("NATIVE_KIMI_ORACLE")
 	if binary == "" {
 		t.Skip("native help oracle not configured")

@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { ValidationError } from '../http/errors.js';
 import { renderGrokNativeToml } from './grok-native-settings.js';
 
-// Audited against MoonshotAI/kimi-code tag @moonshot-ai/kimi-code@2.6.2
-// (6a8493df3e1d796a63f7c7ca0de76c1e690cd943), configSection contributions.
+// Audited against MoonshotAI/kimi-code tag @moonshot-ai/kimi-code@2.7.2
+// (56145f849caa305d42acd09b67fb65d11146f887), configSection contributions.
 // Fixed schema keys are strict; record names and header/env keys remain literal.
 // Keep the original JSON after validation: parsing must never inject defaults or
 // silently strip an authored setting. Native files/auth/registry state are separate.
@@ -135,6 +135,7 @@ export function normalizeKimiNativeSettings(value: unknown): Record<string, unkn
   for (const section of ['task', 'background']) if (Object.hasOwn(record(input[section]) ?? {}, 'max_running_tasks'))
     reject(`${section}.max_running_tasks`, 'removed in Kimi 2.6; no current replacement');
   if (Object.hasOwn(input, 'cron')) reject('cron', 'internal environment-bound controls are not persistent user settings');
+  if (Object.hasOwn(input, 'hosts')) reject('hosts', 'SSH hosts are consumed only by the Kimi web/desktop server bridge, which is outside the managed ckx lifecycle');
   if (Object.hasOwn(record(input.thinking) ?? {}, 'forced_effort')) reject('thinking.forced_effort', 'owned by KIMI_MODEL_THINKING_EFFORT; use thinking.effort for user defaults');
   const result = schema.safeParse(input);
   if (!result.success) {
@@ -170,14 +171,14 @@ export function migrateStoredKimiNativeSettings(value: unknown): unknown {
 }
 
 /** Additions relative to the source-audited 2.5.3 floor; map names are opaque. */
-export function kimiNativeMinimum(value: unknown): '2.5.3' | '2.6.2' {
+export function kimiNativeMinimum(value: unknown): '2.5.3' | '2.6.2' | '2.7.0' {
   const root = record(value) ?? {};
-  const providers = record(root.providers) ?? {};
+  const providers = Object.values(record(root.providers) ?? {}).map(value => record(value) ?? {});
   const pool = record(record(root.secondary_model)?.models) ?? {};
-  return Object.values(providers).some(value => {
-    const provider = record(value) ?? {};
-    return Object.hasOwn(provider, 'search_url') || Object.hasOwn(provider, 'feedback_url');
-  }) || Object.hasOwn(pool, 'primary') ? '2.6.2' : '2.5.3';
+  // 2.7.0 added the Bedrock provider type; older CLIs cannot construct it.
+  if (providers.some(provider => provider.type === 'bedrock')) return '2.7.0';
+  return providers.some(provider => Object.hasOwn(provider, 'search_url') || Object.hasOwn(provider, 'feedback_url'))
+    || Object.hasOwn(pool, 'primary') ? '2.6.2' : '2.5.3';
 }
 /** Same TOML encoding primitives; Kimi's schema and ownership are independent. */
 export const renderKimiNativeToml = renderGrokNativeToml;

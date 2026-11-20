@@ -1,7 +1,8 @@
 /**
- * Codex 0.169.0 native configuration, audited 2026-11-17.
- * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.169.0/codex-rs/core/config.schema.json
- * Original SHA-256: f515f420927460250181097af8dc72b80a6be4f01f4324a0efef816e46cc9c86.
+ * Codex 0.171.0 native configuration, audited 2026-11-20.
+ * Schema: https://raw.githubusercontent.com/openai/codex/rust-v0.171.0/codex-rs/core/config.schema.json
+ * (tag commit ccf9be8cc458bd6b8336fe84d68d8893f2691a5e)
+ * Original SHA-256: 025625b51c9c7f51f87d89c5b5ec8a47acb6e4fe90737b95880fc1b3f9e52fdd.
  * Feature retirement comes from `codex features list`, not the schema: upstream
  * deliberately retains removed keys in that schema for compatibility.
  */
@@ -214,10 +215,18 @@ export function normalizeCodexNativeSettings(value: unknown): NativeSettings | u
 /** Validate the final render-equivalent object after explicit fleet overrides. */
 export function validateCodexConfigDocument(out: NativeSettings, opts: { partialFeatures?: boolean; path?: string } = {}): void {
   const path = opts.path ?? 'native_settings';
+  // resolve_rollout_budget_config, codex-rs/core/src/config/mod.rs (rust-v0.171.0).
   const budget = nativeRecord(nativeRecord(out.features).rollout_budget);
+  const budgetPath = `${path}.features.rollout_budget`;
+  if (Object.hasOwn(budget, 'limit_tokens') && Object.hasOwn(budget, 'limit_budget')) {
+    throw new ValidationError(`${budgetPath}: limit_tokens and limit_budget cannot both be set`, { param: `${budgetPath}.limit_budget` });
+  }
   if (!opts.partialFeatures && budget.enabled === true) {
-    for (const key of ['limit_tokens', 'reminder_at_remaining_tokens']) {
-      if (!Object.hasOwn(budget, key)) throw new ValidationError(`${path}.features.rollout_budget.${key} is required when enabled`, { param: `${path}.features.rollout_budget.${key}` });
+    if (!Object.hasOwn(budget, 'limit_tokens') && !Object.hasOwn(budget, 'limit_budget')) {
+      throw new ValidationError(`${budgetPath}.limit_tokens or limit_budget is required when enabled`, { param: `${budgetPath}.limit_tokens` });
+    }
+    if (!Object.hasOwn(budget, 'reminder_at_remaining_tokens')) {
+      throw new ValidationError(`${budgetPath}.reminder_at_remaining_tokens is required when enabled`, { param: `${budgetPath}.reminder_at_remaining_tokens` });
     }
   }
   if (!validate(out)) {
@@ -228,6 +237,79 @@ export function validateCodexConfigDocument(out: NativeSettings, opts: { partial
     throw new ValidationError(`${path}${location}${property}: ${error?.message ?? 'invalid Codex configuration'}`, { param: `${path}${location}${property}` });
   }
   validateCodexNativeSemantics(out, path);
+  // Every elastic rule hangs on the merged enable switch, so partial overlays wait for the final document.
+  if (!opts.partialFeatures) validateCodexGuardianElasticBudgets(nativeRecord(nativeRecord(out.features).guardianv2), path);
+}
+
+/** Native minimum assumed for each omitted section (canonical names only). */
+const elasticSectionDefaults: Readonly<Record<string, number>> = {
+  transcript_messages: 5000, transcript_tools: 1000, transcript_selected_exec_results: 0,
+  root_conversation_messages: 900, retained_user_instructions: 900, trusted_user_answers: 900,
+  sender_user_messages: 900, planned_action: 900, previous_reviews: 900, trusted_tools: 900,
+  trusted_skills: 900, transcript_images: 900, node_repl_evidence: 900, permission_context: 900,
+};
+const elasticSectionAliases: Readonly<Record<string, string>> = {
+  root_messages: 'root_conversation_messages', retained_instructions: 'retained_user_instructions',
+  user_answers: 'trusted_user_answers', sender_messages: 'sender_user_messages',
+  tool_descriptions: 'planned_action', planned_action_tool_descriptions: 'planned_action',
+  images: 'transcript_images', repl_evidence: 'node_repl_evidence',
+};
+
+/**
+ * Guardian elastic budgets: `resolve_elastic_budget` in codex-rs/core/src/config/mod.rs and
+ * `ElasticBudgetConfig`/`ElasticSectionLimits` in codex-rs/guardian-context/src/budget.rs
+ * (rust-v0.171.0; sync is unchanged since 0.170). A side is checked only when its
+ * `<side>_elastic_budgeting` is true; Guardian's own `enabled` switch does not matter.
+ * Section minimums, with native defaults for omitted sections, must equal
+ * DEFAULT_MAX_INPUT_TOKENS (128000) exactly; entry caps are bounded by
+ * MAX_TEXT_PART_ESTIMATED_TOKENS (9000). Runs after the schema has checked types.
+ */
+function validateCodexGuardianElasticBudgets(guardian: NativeSettings, path: string): void {
+  for (const side of ['sync', 'async'] as const) {
+    if (guardian[`${side}_elastic_budgeting`] !== true) continue;
+    const field = `${path}.features.guardianv2.${side}_elastic_sections`;
+    const sections = nativeRecord(guardian[`${side}_elastic_sections`]);
+    if (Object.keys(sections).length === 0) {
+      throw new ValidationError(`${field}: at least one section is required when ${side}_elastic_budgeting is enabled`, { param: field });
+    }
+    const minimums = new Map<string, number>();
+    // Native decodes a BTreeMap, so the first reported problem follows sorted names.
+    for (const name of Object.keys(sections).sort()) {
+      const at = `${field}.${name}`;
+      const fail = (key: string, message: string): never => {
+        throw new ValidationError(`${at}${key}: ${message}`, { param: `${at}${key}` });
+      };
+      const section = Object.hasOwn(elasticSectionAliases, name) ? elasticSectionAliases[name]
+        : Object.hasOwn(elasticSectionDefaults, name) ? name : undefined;
+      if (section === undefined) fail('', `unknown elastic section; expected one of ${Object.keys(elasticSectionDefaults).join(', ')} or a native alias`);
+      const limits = nativeRecord(sections[name]);
+      const toolNames = Array.isArray(limits.nested_tool_names) ? limits.nested_tool_names : [];
+      if (section === 'transcript_selected_exec_results') {
+        if (side === 'async') fail('', 'only supported for sync elastic budgeting');
+        // Rust `str::trim` strips Unicode White_Space, which differs from JS `trim`.
+        if (toolNames.length === 0 || toolNames.some(tool => /^\p{White_Space}*$/u.test(String(tool)))) {
+          fail('.nested_tool_names', 'requires nonblank tool names');
+        }
+      } else if (toolNames.length > 0) {
+        fail('.nested_tool_names', 'only supported for transcript_selected_exec_results');
+      }
+      const minimum = Number(limits.min_total_section_tokens), entry = Number(limits.max_section_entry_tokens);
+      if (minimum === 0) fail('.min_total_section_tokens', 'must be greater than zero');
+      if (entry === 0) fail('.max_section_entry_tokens', 'must be greater than zero');
+      if (entry > minimum) fail('.max_section_entry_tokens', 'must not exceed min_total_section_tokens');
+      if (entry > 9000) fail('.max_section_entry_tokens', 'must not exceed 9000');
+      if (Object.hasOwn(limits, 'max_total_section_tokens') && Number(limits.max_total_section_tokens) < minimum) {
+        fail('.max_total_section_tokens', 'must be at least min_total_section_tokens');
+      }
+      if (minimums.has(section!)) fail('', `duplicates the ${section} section; native aliases name the same section`);
+      minimums.set(section!, minimum);
+    }
+    const total = Object.entries(elasticSectionDefaults)
+      .reduce((sum, [section, fallback]) => sum + (minimums.get(section) ?? fallback), 0);
+    if (total !== 128000) {
+      throw new ValidationError(`${field}: section minimums (including native defaults for omitted sections: transcript_messages 5000, transcript_tools 1000, transcript_selected_exec_results 0, every other section 900) must sum to exactly 128000; got ${total}`, { param: field });
+    }
+  }
 }
 
 /** Native constraints described by the schema but enforced outside JSON Schema. */

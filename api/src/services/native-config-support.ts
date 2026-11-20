@@ -1,6 +1,6 @@
 import { kimiNativeMinimum } from './kimi-native-settings.js';
-import { GROK_188_FEATURES, GROK_188_UI_FIELDS, GROK_188_MODEL_FIELDS } from './grok-native-fields.js';
-import { needsCodex164, needsCodex165, needsCodex166, needsCodex167, needsCodex168, needsCodex169 } from './codex-native-capabilities.js';
+import { GROK_188_FEATURES, GROK_188_UI_FIELDS, GROK_188_MODEL_FIELDS, GROK_189_FEATURES, GROK_189_CONTEXTUAL_HINTS } from './grok-native-fields.js';
+import { needsCodex164, needsCodex165, needsCodex166, needsCodex167, needsCodex168, needsCodex169, needsCodex170, needsCodex171 } from './codex-native-capabilities.js';
 import type { Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
 import type { Engine } from '../util/engine.js';
@@ -80,6 +80,9 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
     || has(record(native.telemetry), 'otel_shutdown_timeout')
     || Object.values(record(native.model)).some(value => GROK_188_MODEL_FIELDS.some(key => has(record(value), key)))
     || Object.values(record(native.mcp_servers)).some(value => has(record(value), 'headers_helper'))) require('1.0.88');
+  // 1.0.89 additions: 1.0.88 reports all four as unrecognized config keys.
+  if (GROK_189_FEATURES.some(key => has(features, key))
+    || GROK_189_CONTEXTUAL_HINTS.some(key => has(record(ui.contextual_hints), key))) require('1.0.89');
   if (includeOverrides && Array.isArray(native.version_overrides)) for (const layer of native.version_overrides) {
     const patch = record(layer);
     if (observed && ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)
@@ -104,6 +107,17 @@ function grokZdrApplies(native: Record<string, unknown>, observed: string): bool
       || (typeof patch.maximum_version === 'string' && versionCompare(observed, patch.maximum_version) > 0)) return false;
     return Object.hasOwn(record(patch.features), 'zdr_access_enabled');
   });
+}
+
+/** `onFailure` on an `mcp_tool` hook needs Claude Code 2.1.328; older CLIs ignore it and fail open. */
+function claudeMcpHookHasOnFailure(hooks: unknown): boolean {
+  return Object.values(record(hooks)).some(groups => Array.isArray(groups) && groups.some(group => {
+    const handlers = record(group).hooks;
+    return Array.isArray(handlers) && handlers.some(handler => {
+      const h = record(handler);
+      return h.type === 'mcp_tool' && Object.hasOwn(h, 'onFailure');
+    });
+  }));
 }
 
 export function assertNativeConfigSupport(settings: unknown, host: Host | null, engine: Engine): void {
@@ -142,7 +156,9 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
   const codex167 = engine === 'codex' && scopes.some(needsCodex167);
   const codex168 = engine === 'codex' && scopes.some(needsCodex168);
   const codex169 = engine === 'codex' && scopes.some(needsCodex169);
-  if (!root && !profile && !codex168 && !codex169 && !codex163 && !codex164 && !codex165 && !codex166 && !codex167) return;
+  const codex170 = engine === 'codex' && scopes.some(needsCodex170);
+  const codex171 = engine === 'codex' && scopes.some(needsCodex171);
+  if (!root && !profile && !codex168 && !codex169 && !codex170 && !codex171 && !codex163 && !codex164 && !codex165 && !codex166 && !codex167) return;
   const raw = engine === 'codex' ? host.clientVersion : host.claudeClientVersion;
   const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
   const claudeNestedNamespaces = engine === 'claude'
@@ -151,7 +167,8 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
     && Object.hasOwn(record(record(value.native_settings).permissions), 'blockWritesOutsideWorkingDirectories');
   const claudeDenyPrompts = engine === 'claude'
     && Object.hasOwn(record(record(value.native_settings).permissions), 'denyInsteadOfPrompting');
-  const minimum = codex169 ? '0.169.0' : codex168 ? '0.168.0' : codex167 ? '0.167.0' : codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeDenyPrompts ? '2.1.319' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
+  const claudeMcpHookOnFailure = engine === 'claude' && claudeMcpHookHasOnFailure(record(value.native_settings).hooks);
+  const minimum = codex171 ? '0.171.0' : codex170 ? '0.170.0' : codex169 ? '0.169.0' : codex168 ? '0.168.0' : codex167 ? '0.167.0' : codex166 ? '0.166.0' : codex165 ? '0.165.0' : codex164 ? '0.164.0' : codex163 ? '0.163.0' : claudeMcpHookOnFailure ? '2.1.328' : claudeDenyPrompts ? '2.1.319' : claudeWriteBoundary ? '2.1.314' : claudeNestedNamespaces ? '2.1.305' : NATIVE_CONFIG_MIN_VERSIONS[engine];
   if (!observed || versionCompare(observed, minimum) < 0) {
     throw new ValidationError(`${engine} native settings require CLI ${minimum} or newer; observed ${observed ?? 'unreported'}. Run ${engine === 'codex' ? 'cdx' : 'clx'} update (or cron run to report an already installed version), then retry sync.`, {
       param: root ? 'settings.native_settings' : profile ? 'settings.profiles' : 'settings',

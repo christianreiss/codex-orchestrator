@@ -24,7 +24,7 @@ const render = (version: string | null, settings: unknown) => renderTomlForHost(
 describe('Codex 0.167 native configuration', () => {
   it('uses the latest exact official versioned schema', () => {
     expect(createHash('sha256').update(readFileSync(new URL('../../../src/services/codex-config-schema.json', import.meta.url))).digest('hex'))
-      .toBe('f515f420927460250181097af8dc72b80a6be4f01f4324a0efef816e46cc9c86');
+      .toBe('025625b51c9c7f51f87d89c5b5ec8a47acb6e4fe90737b95880fc1b3f9e52fdd');
   });
 
   it('keeps the retired feature list unchanged (0.167 removes no feature keys)', () => {
