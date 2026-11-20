@@ -372,7 +372,7 @@ On an attended terminal, `cxx` with no arguments opens a keyboard picker:
   readings older than 30 minutes say `stale`, and missing/reset readings show
   `week --`. Grok currently has no weekly reading.
 - **Model and effort**: `↑`/`↓` pick the model and `←`/`→` the reasoning effort.
-- **Fleet default (0.9.183)**: `d` saves the highlighted model and effort as the selected engine's central default and keeps the picker open. Any active host may do this for its assigned, enabled engines; host overrides still win. `d` sits with the other key actions; a `★` marks the fleet-default model and effort inside the model card wherever the cursor is, and each compass card names its engine's default once that grid has been opened. Session-only efforts cannot be saved. Defaults load asynchronously; offline launching still works. Deploy the server endpoint before distributing the wrapper.
+- **Fleet default (0.9.183)**: `d` saves the highlighted model and effort as the selected engine's central default and keeps the picker open. Any active host may do this for its assigned, enabled engines; host overrides still win. `d` sits with the other key actions; a `★` marks the fleet-default model and effort inside the model card wherever the cursor is, and each compass card names its engine's default, read with one concurrent GET per enabled engine when the compass opens (quiet on failure, reused by the grid). Session-only efforts cannot be saved. Defaults load asynchronously; offline launching still works. Deploy the server endpoint before distributing the wrapper.
 - **Start**: `enter` starts a new chat, `c` continues the latest session in this
   directory, and `r` opens the native resume picker.
 

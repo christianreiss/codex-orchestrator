@@ -54,11 +54,33 @@ const savingNotice = "Saving fleet default..."
 // unavailableNotice is the one sentence for an older server without defaults.
 const unavailableNotice = "Fleet defaults require a server update"
 
+// loadFleet reads the focused engine's default when its grid opens.
 func (p *picker) loadFleet() tea.Cmd {
-	if p.defaults == nil || p.stage != stageGrid || p.current().Disabled != "" {
+	if p.stage != stageGrid {
 		return nil
 	}
-	engine := p.current().Name
+	return p.fetchFleet(p.focus)
+}
+
+// prefetchFleet reads every shown engine's default when the compass opens,
+// so each card can name it. The server has no batch read, so this is one
+// concurrent GET per engine. Results land in the state the grid reads:
+// entering a grid whose default is known or still in flight sends nothing,
+// and a failure stays quiet until that grid opens and asks again. Like the
+// grid load, it runs under the picker context, which Run cancels on exit.
+func (p *picker) prefetchFleet() tea.Cmd {
+	var cmds []tea.Cmd
+	for i := range p.engines {
+		cmds = append(cmds, p.fetchFleet(i))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (p *picker) fetchFleet(i int) tea.Cmd {
+	if p.defaults == nil || p.engines[i].Disabled != "" {
+		return nil
+	}
+	engine := p.engines[i].Name
 	state := p.fleet[engine]
 	if state == nil {
 		state = &fleetState{}
@@ -153,7 +175,8 @@ func (p *picker) acceptFleet(msg fleetMsg) {
 		if msg.uncertain {
 			state.value = nil
 		}
-		if msg.engine == p.current().Name {
+		// Only the open grid explains a failure; the compass stays quiet.
+		if p.stage == stageGrid && msg.engine == p.current().Name {
 			p.notice = "Fleet default: " + msg.err.Error()
 			if errors.Is(msg.err, ErrDefaultsUnavailable) {
 				p.notice = unavailableNotice

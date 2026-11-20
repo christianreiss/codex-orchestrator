@@ -116,10 +116,11 @@ func (p *picker) Init() tea.Cmd {
 	if p.stage == stageGrid {
 		return tea.Batch(p.restart(true), p.loadFleet())
 	}
+	var tick tea.Cmd
 	if p.animate {
-		return p.tick()
+		tick = p.tick()
 	}
-	return nil
+	return tea.Batch(tick, p.prefetchFleet())
 }
 
 // restart replays the reveal animation; path=false replays only the branch.
@@ -239,6 +240,11 @@ func (p *picker) enter(slot int) (tea.Model, tea.Cmd) {
 		return p, nil
 	}
 	p.stage = stageGrid
+	// A compass prefetch that found an older server said nothing; the grid
+	// says it once, as its own GET would have.
+	if state := p.fleet[p.current().Name]; state != nil && state.unavailable && p.notice == "" {
+		p.notice = unavailableNotice
+	}
 	return p, tea.Batch(p.restart(true), p.loadFleet())
 }
 
