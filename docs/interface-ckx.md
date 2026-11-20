@@ -59,6 +59,15 @@ native defaults. The other five retain their existing fleet effort defaults and
 all model tiers remain unchanged. These declarations do not verify account or
 plan entitlement, nor raise the fleet's configured context limits.
 
+**Open operator decision (recorded 2026-11-20, unchanged):** the official model
+table and its effort-mapping section name the provider default effort `high` for
+K3.1 Pro, K3.1 Pro Highspeed, K3 and K3 256K, and `max` for `kimi-for-coding`
+(K2.8 Preview). The fleet registry, which is rendered as native `default_effort`,
+keeps the inverse (`max` and `high`). The table also lists up to 1,048,576
+context tokens for `kimi-for-coding`, while the fleet caps it at 262,144. Neither
+value was changed without an account catalog or an operator ruling. See
+[the 2026-11-20 audit](engine-maintenance-2026-11-20.md#kimi-code).
+
 New writes through both generic config preview/store and model defaults reject
 unsupported efforts with 422. Structured `reasoning_effort` accepts the selected
 model's adjustable levels. Native `thinking.effort` accepts those levels plus
