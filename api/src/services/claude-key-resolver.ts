@@ -1,5 +1,3 @@
-import { ownerRuntimeFor, setOwnerRequestPrincipal } from '../control-plane/state/runtime.js';
-import { recordGatewayKeyUse } from './gateway-key-usage.js';
 /**
  * Anthropic-compatible API-key resolver. Accepts the same three header forms
  * the legacy PHP `ClaudeApiController::authenticate()` honoured:
@@ -8,18 +6,15 @@ import { recordGatewayKeyUse } from './gateway-key-usage.js';
  *   x-api-key: <key>              (raw, no prefix — matches Anthropic public API)
  *   Authorization: x-api-key <k>  (legacy curl fallback)
  *
- * Resolves to an active `openai_api_keys` row with `engine='claude'`. Bumps
- * `use_count` + `last_used_at` on success, throws Anthropic-shaped
- * authentication_error on miss.
+ * Resolves through `OpenAiKeyService.findActiveByBearer` (the lookup every
+ * gateway surface shares) to an active `openai_api_keys` row with
+ * `engine='claude'`. Bumps `use_count` + `last_used_at` on success, throws
+ * Anthropic-shaped authentication_error on miss.
  */
 import type { FastifyRequest, preHandlerHookHandler } from 'fastify';
-import { and, eq } from 'drizzle-orm';
-import { openaiApiKeys } from '../db/schema.js';
-import type { Database } from '../db/client.js';
 import { ApiError } from '../http/errors.js';
-import { sha256 } from '../security/hash.js';
-import { nowIso } from '../util/timestamp.js';
 import { CLAUDE_ENGINE } from './claude-keys.js';
+import type { OpenAiKeyService } from './openai-keys.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -89,7 +84,9 @@ function makeAuthError(message: string, code: string): ApiError {
   });
 }
 
-export function createClaudeKeyResolver(db: Database): ClaudeKeyResolver {
+export function createClaudeKeyResolver(
+  keys: Pick<OpenAiKeyService, 'findActiveByBearer' | 'touch'>,
+): ClaudeKeyResolver {
   async function resolve(req: FastifyRequest): Promise<ClaudeApiKeyContext> {
     const raw = extractAnthropicApiKey(
       req.headers as Record<string, string | string[] | undefined>,
@@ -100,43 +97,19 @@ export function createClaudeKeyResolver(db: Database): ClaudeKeyResolver {
         'invalid_api_key',
       );
     }
-    const keyHash = sha256(raw);
-    const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();const row=owner.state.snapshot().table('openaiApiKeys').by('keyHash',keyHash).find(row=>row.engine===CLAUDE_ENGINE);
-      if(!row||row.isActive!==1||row.expiresAt&&Date.parse(row.expiresAt)<=Date.now())throw makeAuthError('Invalid or expired API key.','invalid_api_key');
-      setOwnerRequestPrincipal({principal:`gateway-key:${row.id}`,revalidate(snapshot){const key=snapshot.table('openaiApiKeys').get(row.id);if(!key||key.keyHash!==keyHash||key.engine!==CLAUDE_ENGINE||key.backendEngine!==row.backendEngine||key.isActive!==1||key.expiresAt&&Date.parse(key.expiresAt)<=Date.now())throw makeAuthError('API key authority changed.','invalid_api_key');}});
-      recordGatewayKeyUse(db,row.id);return {id:row.id,name:row.name,keyPrefix:row.keyPrefix,adminUserId:row.adminUserId??null,backendEngine:row.backendEngine??null};
-    }
-
-    const rows = await db
-      .select()
-      .from(openaiApiKeys)
-      .where(and(eq(openaiApiKeys.keyHash, keyHash), eq(openaiApiKeys.engine, CLAUDE_ENGINE)))
-      .limit(1);
-    const row = rows[0];
-    if (!row) throw makeAuthError('Invalid API key.', 'invalid_api_key');
-    if (row.isActive !== 1) throw makeAuthError('API key is disabled.', 'invalid_api_key');
-    if (row.expiresAt && row.expiresAt < nowIso()) {
-      throw makeAuthError('API key has expired.', 'invalid_api_key');
-    }
-
-    // Best-effort touch; never block the request on a touch failure.
-    try {
-      await db
-        .update(openaiApiKeys)
-        .set({ useCount: row.useCount + 1, lastUsedAt: nowIso(), updatedAt: nowIso() })
-        .where(eq(openaiApiKeys.id, row.id));
-    } catch {
-      /* ignore */
-    }
-
-    const ctx: ClaudeApiKeyContext = {
+    // One lookup for every gateway surface: active, unexpired, engine-scoped,
+    // and (under the owner) bound to the request principal.
+    const row = await keys.findActiveByBearer(raw, CLAUDE_ENGINE);
+    if (!row) throw makeAuthError('Invalid or expired API key.', 'invalid_api_key');
+    // Best-effort usage bump; never blocks the request.
+    await keys.touch(row.id);
+    return {
       id: row.id,
       name: row.name,
       keyPrefix: row.keyPrefix,
       adminUserId: row.adminUserId ?? null,
       backendEngine: row.backendEngine ?? null,
     };
-    return ctx;
   }
 
   const preHandler: preHandlerHookHandler = async (req) => {

@@ -1,12 +1,11 @@
 /**
- * Direct coverage for the two proxy kill switches. Every route-level test
- * injects a hand-written stub, so the real flag parsing, the deliberate
- * fail-open on a broken `versions` read and the Claude-side TTL cache are only
- * exercised here.
+ * Direct coverage for the proxy kill switch (OpenAI, Claude and Kimi flags all
+ * use `makeOpenAiKillSwitch`). Every route-level test injects a hand-written
+ * stub, so the real flag parsing and the deliberate fail-open on a broken
+ * `versions` read are only exercised here.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { makeOpenAiKillSwitch } from '../../../src/services/openai-kill-switch.js';
-import { createClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
 import { ApiError } from '../../../src/http/errors.js';
 import type { Database } from '../../../src/db/client.js';
 
@@ -110,7 +109,7 @@ function flagRow(name: string, version: string | null): VersionRow {
   return { name, version, updatedAt: '2026-07-28T00:00:00.000Z' };
 }
 
-/** The two switches share the read path; only the guard method name differs. */
+/** Both flag configurations share one implementation. */
 interface Subject {
   isDisabled(): Promise<boolean>;
   guard(): Promise<void>;
@@ -126,11 +125,11 @@ const implementations = [
     },
   },
   {
-    label: 'createClaudeKillSwitch',
+    label: 'makeOpenAiKillSwitch (claude flag)',
     flag: CLAUDE_FLAG,
     make: (db: Database): Subject => {
-      const killSwitch = createClaudeKillSwitch(db);
-      return { isDisabled: () => killSwitch.isDisabled(), guard: () => killSwitch.ensureEnabled() };
+      const killSwitch = makeOpenAiKillSwitch(db, CLAUDE_FLAG, 'Claude');
+      return { isDisabled: () => killSwitch.isDisabled(), guard: () => killSwitch.throwIfDisabled() };
     },
   },
 ];
@@ -205,81 +204,6 @@ describe('makeOpenAiKillSwitch', () => {
     row.version = 'on';
     await expect(killSwitch.isDisabled()).resolves.toBe(true);
     expect(stub.selects).toBe(2);
-  });
-});
-
-describe('createClaudeKillSwitch', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('serves a second read from the 1s TTL cache', async () => {
-    const row = flagRow(CLAUDE_FLAG, 'true');
-    const stub = createVersionsDb([row]);
-    const killSwitch = createClaudeKillSwitch(stub.db);
-
-    await expect(killSwitch.isDisabled()).resolves.toBe(true);
-    row.version = 'false';
-    await expect(killSwitch.isDisabled()).resolves.toBe(true);
-    expect(stub.selects).toBe(1);
-  });
-
-  it('re-reads once the TTL window has elapsed', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-28T00:00:00.000Z'));
-    const row = flagRow(CLAUDE_FLAG, 'true');
-    const stub = createVersionsDb([row]);
-    const killSwitch = createClaudeKillSwitch(stub.db);
-
-    await expect(killSwitch.isDisabled()).resolves.toBe(true);
-    row.version = 'false';
-    vi.setSystemTime(new Date('2026-07-28T00:00:01.001Z'));
-    await expect(killSwitch.isDisabled()).resolves.toBe(false);
-    expect(stub.selects).toBe(2);
-  });
-
-  it('updates the existing row via setDisabled', async () => {
-    const row = flagRow(CLAUDE_FLAG, 'false');
-    const stub = createVersionsDb([row]);
-    const killSwitch = createClaudeKillSwitch(stub.db);
-
-    await killSwitch.setDisabled(true);
-
-    const [update] = stub.updates;
-    expect(stub.inserts).toEqual([]);
-    expect(stub.updates).toHaveLength(1);
-    expect(update?.name).toBe(CLAUDE_FLAG);
-    expect(update?.set.version).toBe('true');
-    expect(update?.set.updatedAt).toEqual(expect.any(String));
-    expect(row.version).toBe('true');
-
-    await killSwitch.setDisabled(false);
-    expect(row.version).toBe('false');
-  });
-
-  it('inserts the flag row via setDisabled when it is missing', async () => {
-    const stub = createVersionsDb([]);
-    const killSwitch = createClaudeKillSwitch(stub.db);
-
-    await killSwitch.setDisabled(true);
-
-    const [inserted] = stub.inserts;
-    expect(stub.updates).toEqual([]);
-    expect(stub.inserts).toHaveLength(1);
-    expect(inserted).toMatchObject({ name: CLAUDE_FLAG, version: 'true' });
-    expect(inserted?.updatedAt).toEqual(expect.any(String));
-  });
-
-  it('clears the cache so the next read hits the DB', async () => {
-    const stub = createVersionsDb([flagRow(CLAUDE_FLAG, 'false')]);
-    const killSwitch = createClaudeKillSwitch(stub.db);
-
-    await expect(killSwitch.isDisabled()).resolves.toBe(false);
-    await killSwitch.setDisabled(true);
-    const selectsAfterWrite = stub.selects;
-
-    await expect(killSwitch.isDisabled()).resolves.toBe(true);
-    expect(stub.selects).toBe(selectsAfterWrite + 1);
   });
 });
 

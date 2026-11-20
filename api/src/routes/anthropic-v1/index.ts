@@ -14,7 +14,7 @@
  *   POST    /anthropic/v1/embeddings            (501 — Anthropic has no embeddings API)
  *
  * Auth: `claude-key-resolver` preHandler (Bearer / x-api-key / raw).
- * Kill-switch: `claude-kill-switch` preHandler (versions flag `claude_api_disabled`).
+ * Kill-switch: `makeOpenAiKillSwitch` preHandler (versions flag `claude_api_disabled`).
  *
  * Streaming: synthesised SSE events from the completed runner response, same
  * shape as the legacy PHP `AnthropicCompat::messageStreamEvents`.
@@ -28,10 +28,8 @@ import {
   createClaudeKeyResolver,
   type ClaudeKeyResolver,
 } from '../../services/claude-key-resolver.js';
-import {
-  createClaudeKillSwitch,
-  type ClaudeKillSwitch,
-} from '../../services/claude-kill-switch.js';
+import { OpenAiKeyService } from '../../services/openai-keys.js';
+import { makeOpenAiKillSwitch, type KillSwitch } from '../../services/openai-kill-switch.js';
 import type { ClaudeModelsService } from '../../services/claude-models.js';
 import {
   createRunnerClaudeAdapter,
@@ -74,7 +72,7 @@ interface AnthropicModels {
 
 interface AnthropicRouteDeps {
   keyResolver: ClaudeKeyResolver;
-  killSwitch: ClaudeKillSwitch;
+  killSwitch: KillSwitch;
   /** The backend this request runs on right now, with its adapter and models. */
   backend(req: FastifyRequest): Promise<{ backend: GatewayBackend; adapter: RunnerClaudeAdapter | null; models: AnthropicModels }>;
   /** Throws 503 when that backend engine is switched off fleet-wide. */
@@ -89,7 +87,7 @@ export interface RegisterAnthropicCompatOptions {
   /** Test override for the key resolver. */
   keyResolver?: ClaudeKeyResolver;
   /** Test override for the kill switch. */
-  killSwitch?: ClaudeKillSwitch;
+  killSwitch?: KillSwitch;
   /** Test override for the models service. */
   models?: ClaudeModelsService;
   /** Shared backends + routing; built per registration when absent. */
@@ -104,8 +102,8 @@ export async function registerAnthropicCompatRoutes(
   options: RegisterAnthropicCompatOptions = {},
 ): Promise<void> {
   const runGeneration = createGatewayLifecycle(app);
-  const keyResolver = options.keyResolver ?? createClaudeKeyResolver(ctx.db);
-  const killSwitch = options.killSwitch ?? createClaudeKillSwitch(ctx.db);
+  const keyResolver = options.keyResolver ?? createClaudeKeyResolver(new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring }));
+  const killSwitch = options.killSwitch ?? makeOpenAiKillSwitch(ctx.db, 'claude_api_disabled', 'Claude');
   const gateway = options.gateway ?? defaultGatewayWiring(ctx, app.log);
   const identity = SURFACE.identityBackend;
   const adapters = new Map<Engine, RunnerClaudeAdapter | null>();
@@ -444,7 +442,7 @@ export async function registerAnthropicCompatRoutes(
 
 function killSwitchHook(deps: AnthropicRouteDeps) {
   return async function checkKillSwitch(_req: FastifyRequest) {
-    await deps.killSwitch.ensureEnabled();
+    await deps.killSwitch.throwIfDisabled();
   };
 }
 

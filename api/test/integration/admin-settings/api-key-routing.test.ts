@@ -46,7 +46,7 @@ describe('per-key engine creation across API formats', () => {
         expect(list.json().data[0]).toMatchObject({ backend_engine: 'claude' });
         expect(list.body).not.toContain(body.key);
         if (namespace === 'claude') {
-          const resolved = await createClaudeKeyResolver(ctx.db).resolve({ headers: { 'x-api-key': body.key } } as unknown as FastifyRequest);
+          const resolved = await createClaudeKeyResolver(new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring })).resolve({ headers: { 'x-api-key': body.key } } as unknown as FastifyRequest);
           expect(resolved.backendEngine).toBe('claude');
         } else {
           const resolved = await new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring }).findActiveByBearer(body.key, namespace === 'openai' ? 'codex' : namespace as 'grok' | 'kimi');

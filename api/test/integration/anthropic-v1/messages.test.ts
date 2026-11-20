@@ -15,7 +15,7 @@ import type {
   ClaudeKeyResolver,
 } from '../../../src/services/claude-key-resolver.js';
 import { extractAnthropicApiKey } from '../../../src/services/claude-key-resolver.js';
-import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
+import type { KillSwitch } from '../../../src/services/openai-kill-switch.js';
 import type { ClaudeModelsService } from '../../../src/services/claude-models.js';
 import { CLAUDE_MODEL_LINES, CLAUDE_SUPPORTED_MODELS } from '../../../src/services/claude-models.js';
 
@@ -75,19 +75,18 @@ function stubKeyResolver(): ClaudeKeyResolver {
   };
 }
 
-function stubKillSwitch(disabled = false): ClaudeKillSwitch {
+function stubKillSwitch(disabled = false): KillSwitch {
   return {
     isDisabled: async () => disabled,
-    ensureEnabled: async () => {
+    throwIfDisabled: async () => {
       if (disabled) {
-        throw new ApiError('Claude API is currently disabled by administrator', {
+        throw new ApiError('Claude API disabled by administrator', {
           status: 503,
           code: 'api_disabled',
           type: 'api_error',
         });
       }
     },
-    setDisabled: async () => undefined,
   };
 }
 

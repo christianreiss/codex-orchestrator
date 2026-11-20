@@ -12,7 +12,7 @@ import type { RouteContext } from '../../../src/routes/index.js';
 import { createGatewayBackends, type GatewayWiring } from '../../../src/services/gateway-backends.js';
 import type { OpenAiKeyService } from '../../../src/services/openai-keys.js';
 import type { ClaudeKeyResolver } from '../../../src/services/claude-key-resolver.js';
-import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
+import type { KillSwitch } from '../../../src/services/openai-kill-switch.js';
 import type { Engine } from '../../../src/util/engine.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { createDbFake } from '../../helpers/db-fake.js';
@@ -61,7 +61,7 @@ async function harness(backends: Record<'openai' | 'anthropic', Engine>, disable
       req.claudeApiKey = { id: 1, name: 'test', keyPrefix: 'sk-ant-', adminUserId: null };
     },
   };
-  const claudeKillSwitch: ClaudeKillSwitch = { isDisabled: async () => false, ensureEnabled: async () => undefined, setDisabled: async () => undefined };
+  const claudeKillSwitch: KillSwitch = { isDisabled: async () => false, throwIfDisabled: async () => undefined };
   await registerOpenAiCompatRoutes(app, ctx, { gateway, keys, killSwitch });
   await registerAnthropicCompatRoutes(app, ctx, { gateway, keyResolver, killSwitch: claudeKillSwitch });
   await app.ready();
