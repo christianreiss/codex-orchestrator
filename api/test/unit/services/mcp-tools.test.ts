@@ -163,6 +163,10 @@ const stubSharedMemories = {
     sharedCalls.push({ method: 'append', args, engine });
     return { status: 'appended', slug: args['slug'] };
   },
+  replace: async (args: Record<string, unknown>, _host: Host, engine: unknown) => {
+    sharedCalls.push({ method: 'replace', args, engine });
+    return { status: 'updated', slug: args['slug'], replacements: 1 };
+  },
   delete: async (args: Record<string, unknown>, _host: Host, engine: unknown) => {
     sharedCalls.push({ method: 'delete', args, engine });
     return { status: 'deleted', slug: args['slug'] };
@@ -234,9 +238,61 @@ describe('McpToolsRegistry', () => {
 
   it('does not expose an engine override on skill_list', () => {
     const definition = registry.list().find((tool) => tool.name === 'skill_list');
-    expect(definition?.inputSchema['properties']).toEqual({});
+    expect(definition?.inputSchema['properties']).toEqual({
+      query: { type: 'string' },
+      compact: { type: 'boolean' },
+    });
     expect(definition?.description).toMatch(/authoritative first step/i);
     expect(definition?.description).toMatch(/before consulting local Skill files/i);
+  });
+
+  describe('skill_list narrowing', () => {
+    const rows = [
+      { slug: 'fleet-reflect', sha256: 'a', display_name: 'Fleet Reflect', description: 'Close out work', allow_implicit_invocation: true, uri: 'skill://fleet-reflect', managed: true, updated_at: 't' },
+      { slug: 'deploy-crane', sha256: 'b', display_name: null, description: 'Deploy to PRODUCTION', allow_implicit_invocation: false, uri: 'skill://deploy-crane', managed: false, updated_at: 't' },
+      { slug: 'roles', sha256: 'c', display_name: 'Role Manager', description: null, allow_implicit_invocation: true, uri: 'skill://roles', managed: true, updated_at: 't' },
+    ];
+    const listing = { engine: 'claude' as const, skills: rows };
+    const narrowRegistry = new McpToolsRegistry({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: { listSkills: async () => listing } as unknown as HostSkillsService,
+    });
+    const call = async (args: unknown) => {
+      const result = await narrowRegistry.dispatch('skill_list', args, host);
+      return { isError: result.isError, text: (result.content as Array<{ text?: string }>)[0]?.text ?? '' };
+    };
+
+    it('returns the unchanged listing without arguments', async () => {
+      const result = await call({});
+      expect(result.isError).toBe(false);
+      expect(result.text).toBe(JSON.stringify(listing));
+      expect((await call({ query: '  ', compact: false })).text).toBe(JSON.stringify(listing));
+    });
+
+    it('filters case-insensitively over slug, display name and description', async () => {
+      const slugs = async (query: string) =>
+        (JSON.parse((await call({ query })).text) as { skills: Array<{ slug: string }> }).skills.map((s) => s.slug);
+      expect(await slugs('REFLECT')).toEqual(['fleet-reflect']);
+      expect(await slugs('production')).toEqual(['deploy-crane']);
+      expect(await slugs('role m')).toEqual(['roles']);
+      expect(await slugs('nothing-matches')).toEqual([]);
+    });
+
+    it('compact keeps only the five identifying fields', async () => {
+      const parsed = JSON.parse((await call({ compact: true, query: 'deploy' })).text);
+      expect(parsed).toEqual({
+        engine: 'claude',
+        skills: [
+          { slug: 'deploy-crane', display_name: null, sha256: 'b', allow_implicit_invocation: false, uri: 'skill://deploy-crane' },
+        ],
+      });
+    });
+
+    it('rejects arguments of the wrong type', async () => {
+      expect((await call({ query: 7 })).isError).toBe(true);
+      expect((await call({ compact: 'yes' })).isError).toBe(true);
+    });
   });
 
   it('registers and dispatches the host Skill mutation tools', async () => {
@@ -621,7 +677,29 @@ describe('shared_memory_* tools', () => {
     expect(names).toContain('shared_memory_read');
     expect(names).toContain('shared_memory_write');
     expect(names).toContain('shared_memory_append');
+    expect(names).toContain('shared_memory_replace');
     expect(names).toContain('shared_memory_delete');
+  });
+
+  it('shared_memory_replace requires all four fields but allows an empty new_text', async () => {
+    const def = reg.list().find((t) => t.name === 'shared_memory_replace');
+    expect(def?.inputSchema['required']).toEqual(['slug', 'old_text', 'new_text', 'expected_sha256']);
+    expect(def?.description).toMatch(/exactly one occurrence/i);
+
+    const args = { slug: 'a', old_text: 'stale line', new_text: '', expected_sha256: 'abc' };
+    await expect(reg.dispatch('shared_memory_replace', args, host, 'host', 'claude')).resolves.toMatchObject({
+      isError: false,
+    });
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'replace', args, engine: 'claude' });
+
+    const before = sharedCalls.length;
+    for (const missing of ['slug', 'old_text', 'new_text', 'expected_sha256']) {
+      const partial: Record<string, unknown> = { ...args };
+      if (missing === 'new_text') delete partial[missing];
+      else partial[missing] = '';
+      await expect(reg.dispatch('shared_memory_replace', partial, host)).resolves.toMatchObject({ isError: true });
+    }
+    expect(sharedCalls).toHaveLength(before);
   });
 
   // The whole point of the substrate: a zero-knowledge agent must be able to

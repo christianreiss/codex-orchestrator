@@ -318,6 +318,96 @@ describe('SharedMemoriesService.write', () => {
   });
 });
 
+describe('SharedMemoriesService.replace', () => {
+  async function seeded(content = '# Crane\n\nRepo lives at /old/path.\nDeploys are manual.') {
+    const db = makeDb();
+    const created = (await service(db).write(
+      { slug: 'doc', content, title: 'Crane', summary: 'how crane ships', tags: ['ops'], metadata: { owner: 'sre' } },
+      host,
+    )) as { memory: { sha256: string } };
+    return { db, sha: created.memory.sha256 };
+  }
+
+  it('replaces one exact occurrence through the write path and keeps labels', async () => {
+    const { db, sha } = await seeded();
+    const out = (await service(db).replace(
+      { slug: 'doc', old_text: '/old/path', new_text: '/new/path', expected_sha256: sha },
+      otherHost,
+      'claude',
+    )) as Record<string, unknown>;
+
+    expect(out['status']).toBe('updated');
+    expect(out['replacements']).toBe(1);
+    const row = (db.tables.get(sharedMemories) ?? [])[0]!;
+    expect(row['content']).toBe('# Crane\n\nRepo lives at /new/path.\nDeploys are manual.');
+    expect(row['revision']).toBe(2);
+    expect(row['title']).toBe('Crane');
+    expect(row['summary']).toBe('how crane ships');
+    expect(row['tags']).toEqual(['ops']);
+    expect(row['metadata']).toEqual({ owner: 'sre' });
+    expect(row['sourceHostId']).toBe(9);
+    const revisions = db.tables.get(sharedMemoryRevisions) ?? [];
+    expect(revisions).toHaveLength(2);
+    expect(revisions[1]).toMatchObject({ op: 'replace', prevContent: '# Crane\n\nRepo lives at /old/path.\nDeploys are manual.' });
+    expect(chunkRowsFor(db, Number(row['id'])).every((r) => r['revision'] === 2)).toBe(true);
+    expect((out['memory'] as Record<string, unknown>)['sha256']).not.toBe(sha);
+  });
+
+  it('treats an empty new_text as a deletion and replacement text literally', async () => {
+    const { db, sha } = await seeded('keep this\nremove me\nand $& stays');
+    await service(db).replace({ slug: 'doc', old_text: '\nremove me', new_text: '', expected_sha256: sha });
+    const row = (db.tables.get(sharedMemories) ?? [])[0]!;
+    expect(row['content']).toBe('keep this\nand $& stays');
+    const sha2 = (await service(db).read({ slug: 'doc' }) as { memory: { sha256: string } }).memory.sha256;
+    await service(db).replace({ slug: 'doc', old_text: 'keep', new_text: "$1 $& $'", expected_sha256: sha2 });
+    expect((db.tables.get(sharedMemories) ?? [])[0]!['content']).toBe("$1 $& $' this\nand $& stays");
+  });
+
+  it('fails when old_text occurs zero times, more than once, or only as an overlap', async () => {
+    const { db, sha } = await seeded('alpha beta alpha\naaa');
+    const run = (old_text: string) =>
+      fieldErrors(service(db).replace({ slug: 'doc', old_text, new_text: 'x', expected_sha256: sha }));
+    expect(await run('gamma')).toMatch(/does not occur/);
+    expect(await run('alpha')).toMatch(/more than once/);
+    expect(await run('aa')).toMatch(/more than once/);
+    expect((db.tables.get(sharedMemories) ?? [])[0]!['revision']).toBe(1);
+  });
+
+  it('rejects a stale expected_sha256 as a conflict and changes nothing', async () => {
+    const { db } = await seeded();
+    await expect(
+      service(db).replace({ slug: 'doc', old_text: 'manual', new_text: 'automatic', expected_sha256: 'stale' }),
+    ).rejects.toMatchObject({ code: 'shared_memory_conflict' });
+    expect((db.tables.get(sharedMemories) ?? [])[0]!['content']).toContain('manual');
+  });
+
+  it('requires slug, old_text, a string new_text and expected_sha256', async () => {
+    const { db, sha } = await seeded();
+    const base = { slug: 'doc', old_text: 'manual', new_text: 'x', expected_sha256: sha };
+    expect(await fieldErrors(service(db).replace({ ...base, expected_sha256: '' }))).toMatch(/expected_sha256/);
+    expect(await fieldErrors(service(db).replace({ ...base, old_text: '' }))).toMatch(/old_text/);
+    expect(await fieldErrors(service(db).replace({ ...base, new_text: undefined }))).toMatch(/new_text/);
+    expect(await fieldErrors(service(db).replace({ ...base, slug: '' }))).toMatch(/slug/);
+  });
+
+  it('reports a missing or soft-deleted document as not found', async () => {
+    const db = makeDb([{ slug: 'gone', content: 'text', deletedAt: '2026-07-02T09:00:00Z' }]);
+    for (const slug of ['gone', 'never-existed'])
+      await expect(
+        service(db).replace({ slug, old_text: 'text', new_text: 'x', expected_sha256: 'any' }),
+      ).rejects.toMatchObject({ code: 'shared_memory_not_found' });
+  });
+
+  it('enforces the 1 MiB limit on the result', async () => {
+    const { db, sha } = await seeded('x'.repeat(MAX_CONTENT_CHARS - 5) + ' TAIL');
+    expect(
+      await fieldErrors(
+        service(db).replace({ slug: 'doc', old_text: 'TAIL', new_text: 'much longer tail', expected_sha256: sha }),
+      ),
+    ).toMatch(/characters or fewer/);
+  });
+});
+
 describe('SharedMemoriesService.append', () => {
   it('creates the document when the slug is new', async () => {
     const db = makeDb();

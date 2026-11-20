@@ -1261,6 +1261,7 @@ const CURATION_TOOLS = [
   'feedback_update',
   'shared_memory_write',
   'shared_memory_append',
+  'shared_memory_replace',
   'shared_memory_delete',
   'project_memory_upsert',
   'project_memory_delete',

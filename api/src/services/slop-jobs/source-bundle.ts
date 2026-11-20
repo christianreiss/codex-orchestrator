@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { ConflictError, NotFoundError, ValidationError } from '../../http/errors.js';
-import { normalizeSlopPath, pathsCollide, SLOP_LIMITS, type SlopFileKind } from './paths.js';
+import { inferSlopKind, isLikelyText, normalizeSlopPath, pathsCollide, SLOP_LIMITS, type SlopFileKind } from './paths.js';
 
 /** Independent transport bound; decoded job and per-file limits stay unchanged. */
 export const MAX_SOURCE_BUNDLE_BYTES = 64 * 1024 * 1024;
@@ -13,30 +13,51 @@ export function parseSourceBundle(bytes: Buffer): SourceEntry[] {
   let bundle: unknown;
   try { bundle = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
   catch { throw new ValidationError('source bundle must be UTF-8 JSON'); }
-  if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) throw new ValidationError('source bundle must be {version: 1, files: [{path, content, sha256?}]}');
+  if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) throw new ValidationError('source bundle must be {version: 1, files: [{path, content | content_base64, sha256?, kind?}]}');
   const { version, files } = bundle as Record<string, unknown>;
   if (version !== 1 || !Array.isArray(files) || !files.length || files.length > SLOP_LIMITS.maxJobFiles)
     throw new ValidationError(`source bundle version must be 1 with 1-${SLOP_LIMITS.maxJobFiles} files`);
   const seen = new Set<string>();
   let total = 0;
   return files.map((raw: unknown) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ValidationError('each source entry must be {path, content, sha256?}');
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ValidationError('each bundle entry must be {path, content | content_base64, sha256?, kind?}');
     const entry = raw as Record<string, unknown>;
-    if (Object.keys(entry).some((key) => !['path', 'content', 'sha256'].includes(key))) throw new ValidationError('source entries allow only path, content and sha256');
+    if (Object.keys(entry).some((key) => !['path', 'content', 'content_base64', 'sha256', 'kind'].includes(key)))
+      throw new ValidationError('bundle entries allow only path, content, content_base64, sha256 and kind');
     const path = normalizeSlopPath(entry.path);
     if (seen.has(path)) throw new ValidationError(`duplicate source path: ${path}`);
     if ([...seen].some((other) => pathsCollide(other, path))) throw new ValidationError(`source path collision: ${path}`);
     seen.add(path);
-    if (typeof entry.content !== 'string') throw new ValidationError(`source content must be text: ${path}`);
-    const content = Buffer.from(entry.content, 'utf8');
-    if (content.toString('utf8') !== entry.content || content.includes(0)) throw new ValidationError(`source must be valid UTF-8 text without NUL: ${path}`);
-    if (content.length > SLOP_LIMITS.maxFileBytes) throw new ValidationError(`source file exceeds ${SLOP_LIMITS.maxFileBytes} bytes: ${path}`);
+    if ((entry.content === undefined) === (entry.content_base64 === undefined))
+      throw new ValidationError(`pass exactly one of content or content_base64: ${path}`);
+    let content: Buffer, kind: SlopFileKind;
+    if (entry.content_base64 === undefined) {
+      // Text entries stay `source` unless the caller says `a11y`; binary screenshots need content_base64.
+      if (typeof entry.content !== 'string') throw new ValidationError(`source content must be text: ${path}`);
+      content = Buffer.from(entry.content, 'utf8');
+      if (content.toString('utf8') !== entry.content || content.includes(0)) throw new ValidationError(`source must be valid UTF-8 text without NUL: ${path}`);
+      kind = entry.kind === undefined ? 'source' : inferSlopKind(path, entry.kind);
+      if (kind === 'screenshot') throw new ValidationError(`screenshots must be sent as content_base64: ${path}`);
+    } else {
+      const encoded = entry.content_base64;
+      if (typeof encoded !== 'string' || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded))
+        throw new ValidationError(`content_base64 must be canonical base64: ${path}`);
+      content = Buffer.from(encoded, 'base64');
+      if (content.toString('base64') !== encoded) throw new ValidationError(`content_base64 must be canonical base64: ${path}`);
+      kind = inferSlopKind(path, entry.kind);
+      if (kind !== 'screenshot' && !isLikelyText(content)) throw new ValidationError(`${path} is not UTF-8 text; only screenshots may be binary`);
+    }
+    if (content.length > SLOP_LIMITS.maxFileBytes) throw new ValidationError(`file exceeds ${SLOP_LIMITS.maxFileBytes} bytes: ${path}`);
+    if (kind === 'a11y') {
+      try { JSON.parse(content.toString('utf8')); }
+      catch { throw new ValidationError(`a11y files must be JSON exports ({tool, findings[]}): ${path}`); }
+    }
     total += content.length;
-    if (total > SLOP_LIMITS.maxJobBytes) throw new ValidationError('source bundle exceeds the job byte limit');
+    if (total > SLOP_LIMITS.maxJobBytes) throw new ValidationError('bundle exceeds the job byte limit');
     const digest = createHash('sha256').update(content).digest('hex');
     if (entry.sha256 !== undefined && (typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256) || entry.sha256 !== digest))
-      throw new ValidationError(`source SHA-256 mismatch or invalid digest: ${path}`);
-    return { path, kind: 'source', sha256: digest, sizeBytes: content.length, bytes: content };
+      throw new ValidationError(`SHA-256 mismatch or invalid digest: ${path}`);
+    return { path, kind, sha256: digest, sizeBytes: content.length, bytes: content };
   });
 }
 

@@ -173,7 +173,7 @@ export async function registerAnthropicCompatRoutes(
     url: '/anthropic/v1/*',
     handler: async (_req, reply) => {
       reply.envelopeRaw = true;
-      reply.status(204).send();
+      return reply.status(204).send();
     },
   });
 

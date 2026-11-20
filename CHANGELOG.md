@@ -1,12 +1,29 @@
 # 2026-11-20
 
+- **API stability:** `GET /mcp`, and `POST /mcp` with a browser `Origin` header, no longer crash and restart the API with a second reply (`ERR_HTTP_HEADERS_SENT`); they answer 405/403 once. The `/v1/*` and `/anthropic/v1/*` OPTIONS handlers return their single 204 the same way.
+
+- **cxx 0.9.190:** `cdx` no longer prints `%!w(<nil>)` when its Codex receiver server exits cleanly. `cxx doctor` states that it checks local launchers only and names `cdx`/`clx`/`cgx`/`ckx doctor` for API reachability, TLS trust and sync.
+
+- **Resource claims:** `resource_claim_acquire` lists the fields each resource kind accepts (from cxx 0.9.190), and `fqdn` on a path, git or service claim now fails with an error that says to use `host_id` (omit it for this session's host) or kind `remote`.
+
+- **MCP:** `skill_list` accepts `query` and `compact` to shrink the listing; without arguments its output is unchanged. The new `shared_memory_replace` corrects one fact in a shared memory document by an exact, digest-guarded replacement without re-sending the body. Reading the `roles` Skill while the roles module is off now answers `status: "disabled"` (`roles_disabled`) instead of `missing`.
+
+- **Slop jobs:** findings suppressed with an inline `slop-ok` comment count in `counts.suppressed` and their own `## Suppressed` digest section instead of P0/P1/P2. `slop_job_diff` between a full and a quick run lists the full run's review findings as `not_rechecked` and no longer reports screenshots or a11y exports as removed. Runs name the unsupported extensions they skipped and the extensions the deterministic rules cover (this note needs the rebuilt slop worker image). `slop_job_import` can refresh screenshots and a11y exports in one transfer (`content_base64` plus `kind`).
+
 - **Engine maintenance:** native configuration coverage is now reviewed against Codex 0.171.0, Claude Code 2.1.329, Grok Build 1.0.89 and Kimi Code 2.7.2. Tiering is unchanged and no models were added or retired. See the [audit report](docs/engine-maintenance-2026-11-20.md).
-- **CXX 0.9.190 Claude credential source:** `clx` strips `ANTHROPIC_PROFILE` and the workload-identity-federation variables (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_WORKSPACE_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`) from inherited environments and blanks them in its settings overlay. They can no longer replace the fleet account's login. A default federation profile file under `~/.config/anthropic` still takes precedence natively and must be removed by the host operator.
-- **CXX 0.9.190 native argument handling** follows Codex 0.171 (`exec-server --tcp-upstream-proxy`), Kimi Code 2.7.2 (`server` and `web --json` options, `install-app`) and six hidden Claude Code root value options such as `--metadata`. Option values that look like commands or flags stay values. After a bare Grok `-p`, a following flag is now treated as a flag, as in Grok 1.0.91 and later. Codex `exec --remote` is refused; the in-TUI `/rc` and `/remote` daemon remains outside the managed lifecycle.
+
+- **CXX 0.9.191 Claude credential source:** `clx` strips `ANTHROPIC_PROFILE` and the workload-identity-federation variables (`ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_ORGANIZATION_ID`, `ANTHROPIC_WORKSPACE_ID`, `ANTHROPIC_SERVICE_ACCOUNT_ID`) from inherited environments and blanks them in its settings overlay. They can no longer replace the fleet account's login. A default federation profile file under `~/.config/anthropic` still takes precedence natively and must be removed by the host operator.
+
+- **CXX 0.9.191 native argument handling** follows Codex 0.171 (`exec-server --tcp-upstream-proxy`), Kimi Code 2.7.2 (`server` and `web --json` options, `install-app`) and six hidden Claude Code root value options such as `--metadata`. Option values that look like commands or flags stay values. After a bare Grok `-p`, a following flag is now treated as a flag, as in Grok 1.0.91 and later. Codex `exec --remote` is refused; the in-TUI `/rc` and `/remote` daemon remains outside the managed lifecycle.
+
 - **Codex native settings** accept the official 0.171.0 configuration schema. New 0.170 and 0.171 fields require a host reporting that CLI version. `features.rollout_budget` accepts `limit_budget` as an alternative to `limit_tokens` and rejects both together. Guardian elastic budgets that Codex itself would refuse to load are now rejected at save. When `sync_elastic_budgeting` or `async_elastic_budgeting` is on, the validator checks section names, per-section limits and `nested_tool_names`, and requires the section minimums to add up to exactly 128000. Previously these budgets saved without error and then failed on every host. A stored budget that breaks these rules stays editable but is not rendered for hosts until corrected.
+
 - **Claude native settings** accept `onFailure: "continue" | "block"` on `mcp_tool` hooks, so admins can author fail-closed MCP policy hooks. Hosts must report Claude Code 2.1.328 or newer, because older CLIs ignore the field and fail open.
+
 - **Grok native settings** accept the 1.0.89 booleans `features.auto_title_border`, `features.dashboard_workspace_mode`, `features.slow_link_paint_floor` and `ui.contextual_hints.thinking_collapse` on hosts reporting 1.0.89 or newer. Alpha-only 1.0.90+ fields are deferred.
+
 - **Kimi native settings:** a provider with `type = "bedrock"` requires Kimi Code 2.7.0 or newer, and the `[hosts]` section is refused with an explicit reason.
+
 - **Auth runner** pins Codex 0.171.0, Claude Code 2.1.329, Grok Build 1.0.89 and Kimi Code 2.7.2. Rebuild and recreate `auth-runner` to pick them up.
 
 # 2026-11-19

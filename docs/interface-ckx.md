@@ -3,7 +3,10 @@
 From cxx 0.9.183, the shared model selector offers `d` to save the Kimi model and reasoning effort together as its central fleet default without leaving the selector. Models with no effort send explicit `null`; the existing context-window setting is preserved. Any active Kimi-assigned host may save; host overrides retain precedence. See `docs/interface-cdx.md` for save states and offline behavior.
 
 From cxx 0.9.180, `cxx doctor` checks the local PATH commands without loading
-signed config, contacting the API or starting background services. Use
+signed config, contacting the API or starting background services. Its report
+states that scope and points to the installed `cdx`/`clx`/`cgx`/`ckx doctor`
+(all four when none is on PATH) for API reachability, TLS trust and sync, which
+the engine-neutral check does not cover. Use
 `cxx doctor --fix` to repair recognized legacy transition scripts when a stale
 `cdx`, `clx`, `cgx` or `ckx` fails with HTTP 401 despite a current `cxx`.
 Both historical `INSTALL_MODE=shim` and `INSTALL_CONTEXT=transition` formats

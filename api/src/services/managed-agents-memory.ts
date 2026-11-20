@@ -85,7 +85,7 @@ it cannot be listed, so it can never tell you what exists.
 verified, correcting it is part of the task you are already doing — not follow-up work. Writing
 through \`shared_memory_write\`, \`resource_create\`, or \`resource_update\` on \`shared://\` replaces
 the entire body: only from a complete read, preserving unaffected content, with its digest as
-\`expected_sha256\`; those tool descriptions give the procedure. Use \`shared_memory_delete\` or \`resource_delete\` on \`shared://\` only when the whole record is
+\`expected_sha256\`; those tool descriptions give the procedure. To correct a single fact, \`shared_memory_replace\` swaps one exact text in place without re-sending the body. Use \`shared_memory_delete\` or \`resource_delete\` on \`shared://\` only when the whole record is
 invalid or superseded, not because one fact inside it is stale. If the complete body cannot be loaded
 and preserved safely, do not overwrite it; report the blocked correction. Never leave a corrected
 fact beside the stale one — near-duplicates are how this corpus rots into uselessness, and wrong

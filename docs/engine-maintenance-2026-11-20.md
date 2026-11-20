@@ -84,7 +84,7 @@ Shared files touched by several branches were resolved during integration:
 One agent (CDX-SCHEMA-171) owned the four-engine version stamps
 (`NATIVE_CONFIG_SCOPES.md` coverage sentence, `NativeSettingsEditor.svelte`
 references, e2e labels). The coordinator alone edited CHANGELOG, `wrappers/Makefile`
-(cxx 0.9.189 → 0.9.190) and `public/admin`.
+(cxx 0.9.189 → 0.9.191; 0.9.190 went to the same-day feedback sweep) and `public/admin`.
 
 ## Per-engine results
 
@@ -364,14 +364,14 @@ subagent):
 - All thirteen fix commits were merged into the integration branch with `--no-ff`
   merges, not cherry-picked, so every fix SHA is reachable from it. Coordinator
   commits:
-  - CHANGELOG and wrapper `VERSION` 0.9.189 → 0.9.190
+  - CHANGELOG and wrapper `VERSION` 0.9.189 → 0.9.191
   - the rebuilt `public/admin`
   - this report with the Kimi open-decision note
   - a final commit with the CDX-ELASTIC-171 CHANGELOG sentence and these report
     updates
 - `public/admin` needs no rebuild for CDX-ELASTIC-171, which changed no frontend code.
 - Not merged into `main`, not pushed, not deployed, as instructed. A runner image
-  rebuild, the cxx 0.9.190 publication and an API deployment are part of a
+  rebuild, the cxx 0.9.191 publication and an API deployment are part of a
   separately commissioned rollout.
 - The eight implementation worktrees and their branches (`eng-*`, plus the unused
   harness `worktree-agent-*` branches) were clean and fully integrated. They were

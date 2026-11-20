@@ -25,6 +25,24 @@ describe('vendored slop source coverage and typography', () => {
       expect(report.coverage).toContain('Skipped: 1 unsupported extension.');
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
+  it('names skipped unsupported extensions and the extensions the rules cover', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'slop-ext-'));
+    try {
+      await writeFile(join(dir, 'View.kt'), 'fun a() {}');
+      await writeFile(join(dir, 'Other.KT'), 'fun b() {}');
+      await writeFile(join(dir, 'page.php'), '<?php echo 1;');
+      await writeFile(join(dir, 'app.ts'), 'export const a = 1;');
+      const report = await scan(dir, ['View.kt', 'Other.KT', 'page.php', 'app.ts']);
+      const line = report.coverage.find((c: string) => c.startsWith('Unsupported extensions skipped:'));
+      expect(line).toMatch(/^Unsupported extensions skipped: \.kt \(2\), \.php \(1\)\. Deterministic rules cover only \.ts \.tsx /);
+      expect(line).toContain(' .swift .qml .cpp ');
+      expect(Object.keys(report.sources)).toEqual(['app.ts']);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+  it('adds no extension note when every source is supported', async () => {
+    const report = await scanText('ok.ts', 'export const a = 1;');
+    expect(report.coverage.some((c: string) => c.startsWith('Unsupported extensions'))).toBe(false);
+  });
 });
 
 async function scanText(name: string, text: string) {
