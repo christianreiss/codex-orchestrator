@@ -86,6 +86,7 @@
   {/if}
 
   <DataTable
+    reflow
     items={visible}
     loading={$query.isPending}
     error={$query.error ?? null}
