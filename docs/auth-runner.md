@@ -2,11 +2,11 @@
 
 The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, revises skill and project drafts from a conversation, and executes one-shot prompts by running `/usr/local/bin/codex` (or the Claude or Grok CLI) in an isolated temp `$HOME`.
 
-The runner also pins Claude Code 2.1.326 (latest normal release reviewed on
-2026-11-17; vendor conservative stable channel: 2.1.311) and Grok Build
-1.0.88 (npm `latest` and `alpha`, reviewed on 2026-11-17; the public changelog/stable pointer lags). These image pins do not change host minimum-version policy.
+The runner also pins Claude Code 2.1.329 (latest normal release verified on
+2026-11-20; vendor conservative stable channel: 2.1.311) and Grok Build
+1.0.89 (npm `latest` and the `x.ai/cli/stable` pointer, verified on 2026-11-20). These image pins do not change host minimum-version policy.
 
-The bundled Codex CLI is pinned to 0.169.0, matching the fleet catalog. Older
+The bundled Codex CLI is pinned to 0.171.0 (verified 2026-11-20), matching the fleet catalog. Older
 0.154.0 runners reject `gpt-6.1-sol` with ChatGPT credentials even while
 `/health` and the gateway's `/v1/models` return success. A runner update requires
 rebuilding and recreating the `auth-runner` service; restarting the API alone
@@ -389,7 +389,7 @@ This is completed-step transport, not provider token streaming.
 
 ## Kimi execution isolation
 
-Kimi Code 2.6.2 is installed from its versioned binary manifest with SHA-256
+Kimi Code 2.7.2 is installed from its versioned binary manifest with SHA-256
 verification and exact version assertion for Linux amd64/arm64. The image
 requires `codex,claude,grok,kimi` and records `RUNNER_KIMI_VERSION` for readiness.
 Each request has a private `KIMI_CODE_HOME`, canonical `device_id`, provider/model
@@ -398,11 +398,11 @@ zero expiry fields). Canonical expiry must exceed timeout plus 300 seconds.
 Telemetry and auto-update are disabled. Native tools are removed through
 `--agent-file` with `tools: []`; `permission.rules` deny `*` alone does **not**
 block Bash in `-p` mode. `system` is written to private `SYSTEM.md` and an explicit agent profile with `tools: []`. Kimi rejects images, sampling controls, stop
-sequences and output caps. Its 2.6.2 stream-json supplies assistant/tool/meta
+sequences and output caps. Its 2.7.2 stream-json supplies assistant/tool/meta
 messages, no usage or stop reason: `usage_known: false`, `finish_reason: null`.
 Private homes are removed on success, error, timeout and cancellation.
 
-Kimi 2.6.2 rejects `-p` together with `--auto`; runner invocations never combine
+Kimi 2.7.2 rejects `-p` together with `--auto`; runner invocations never combine
 `-p` with `--auto` or `--yolo`. Print mode already uses Never Ask permissions.
 
 The API's OpenAI and Anthropic gateway adapters send `engine: "kimi"` to the
@@ -418,11 +418,11 @@ private CLI credential projection. No refresh token is sent to `/exec`.
 Kimi usage/finish metadata stays unknown: OpenAI uses null usage and finish
 reason; Anthropic uses required zero usage integers and a null stop reason.
 
-For non-default subscription environments (including `.ai`), native Kimi 2.6.2
+For non-default subscription environments (including `.ai`), native Kimi 2.7.2
 requires a scoped OAuth slot: `oauth/kimi-code-env-<digest>`, where `digest` is
 the first 16 hex characters of SHA-256 of compact JSON `{oauthHost,baseUrl}`
 in that order. The runner retains `credentials/kimi-code.json` and writes an
 identical access-only scoped alias; config references that slot and OAuth host.
 Neither file contains a spendable refresh token.
 
-The runner image retains deliverable Kimi 2.6.2: 2.6.3 was published during this review, but its normal versioned manifests on code.kimi.com and the CDN still returned HTTP 404 at the 2026-11-17 15:30 UTC build cutoff. The vendor latest endpoint remains 2.5.3; host discovery and global recovery minimums are separate policies.
+The runner image pins Kimi 2.7.2, verified on 2026-11-20: the vendor `latest` endpoint reports 2.7.2 and its CDN manifest lists the linux-x64 SHA-256 `7f82148d26467874400d19ee8d23ead13cece9cd0c17648a5622cae480a5a596`. The 2.7.2 stream-json shape matched 2.6.2 against a mock provider using the runner's argv; it was not proven against a real account. Host discovery and global recovery minimums are separate policies.

@@ -21,12 +21,12 @@ RUN apt-get update \
 #
 # The SHA256s are the release assets' published digests. A tag can be moved;
 # a digest cannot, so the download is verified before anything is unpacked.
-ARG CODEX_TAG=rust-v0.169.0
-ARG CODEX_VERSION=0.169.0
+ARG CODEX_TAG=rust-v0.171.0
+ARG CODEX_VERSION=0.171.0
 ARG CODEX_ASSET_AMD64=codex-x86_64-unknown-linux-musl.tar.gz
 ARG CODEX_ASSET_ARM64=codex-aarch64-unknown-linux-musl.tar.gz
-ARG CODEX_SHA256_AMD64=9af4d751fce183faedea629437d5252dbf458eeb04130cf4f97be844621ea985
-ARG CODEX_SHA256_ARM64=97b97d87eea075c5cb7709c7f6156a451622a7667953ecda40e0276637196f3f
+ARG CODEX_SHA256_AMD64=01baa2e47809f8597be5b2f8abd4e4dfe3fb5bcb6e504c2fbaaad97056c15e8d
+ARG CODEX_SHA256_ARM64=bcf50b836385e51bd2976ab2bbe92b1b08a1cbe37712eb8dbe378aa78d24871c
 ARG TARGETARCH
 RUN set -euo pipefail; \
     arch="${TARGETARCH:-amd64}"; \
@@ -68,11 +68,11 @@ RUN set -euo pipefail; \
     npm --version
 
 # --- Claude Code CLI (exact latest-normal release, verified) ---
-# Latest normal release as of 2026-11-17; vendor conservative stable is 2.1.311.
+# Latest normal release as of 2026-11-20; vendor conservative stable is 2.1.311.
 # No `|| true`. The previous form installed whatever npm served that minute and
 # swallowed the failure, so a registry hiccup produced an image that claimed
 # dual-engine readiness with no `claude` on PATH at all.
-ARG CLAUDE_CODE_VERSION=2.1.326
+ARG CLAUDE_CODE_VERSION=2.1.329
 RUN set -euo pipefail; \
     npm install -g --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     command -v claude >/dev/null || { echo "claude not on PATH after install" >&2; exit 1; }; \
@@ -88,14 +88,14 @@ WORKDIR /app
 # Official Grok native npm artifact, pinned by version AND sha512 integrity.
 # Extract only package/bin/grok.br; Node's built-in Brotli avoids installers.
 COPY install-grok.mjs /tmp/install-grok.mjs
-ARG GROK_VERSION=1.0.88
+ARG GROK_VERSION=1.0.89
 RUN set -eu; GROK_VERSION="${GROK_VERSION}" node /tmp/install-grok.mjs "${TARGETARCH:-amd64}"; \
     grok --version | grep -F "grok ${GROK_VERSION} "; \
     rm /tmp/install-grok.mjs
 
 # Kimi Code native binary, pinned manifest and SHA-256 verified.
 COPY install-kimi.sh /tmp/install-kimi.sh
-ARG KIMI_VERSION=2.6.2
+ARG KIMI_VERSION=2.7.2
 RUN KIMI_VERSION="${KIMI_VERSION}" sh /tmp/install-kimi.sh "${TARGETARCH:-amd64}" \
     && rm /tmp/install-kimi.sh
 
