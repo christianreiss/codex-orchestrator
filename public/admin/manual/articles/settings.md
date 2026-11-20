@@ -56,7 +56,7 @@ provider binaries are outside this policy.
 
 #### Auto-update
 
-`GET /admin/auto-update`, `POST /admin/auto-update` — boolean flag, shown in Settings → Hosts as **Update hosts automatically**. Fleet default for background wrapper and CLI upgrades. Individual host rows can override this. From cxx 0.8.2, maintenance checks every 15 minutes and launches can queue a missed check without waiting; starting or finishing a session never runs an installer inline. Turning auto-update off keeps content/auth sync and the shared schedule working.
+`GET /admin/auto-update`, `POST /admin/auto-update` — boolean flag, shown in Settings → Hosts as **Update hosts automatically**. Fleet default for background wrapper and CLI upgrades; it is on until you turn it off. Individual host rows can override this. Starting or finishing a session never runs an installer inline. Turning auto-update off stops the upgrades and, from cxx 0.9.82, removes the nightly maintenance line on hosts without an override; launches still run their own maintenance (content and auth sync).
 
 #### Reverse DNS
 
@@ -120,7 +120,7 @@ The Codex on/off switch is under **Engine master switches** above. `GET/POST /ad
 
 #### Codex silent mode
 
-`GET /admin/cdx-silent`, `POST /admin/cdx-silent` — boolean flag. Baked into the wrapper config so hosts go quiet on next sync.
+`GET /admin/cdx-silent`, `POST /admin/cdx-silent` — boolean flag. Baked into the Codex wrapper config (`engine_options.silent`) so Codex hosts go quiet once they fetch a fresh signed config.
 
 #### Quotas
 

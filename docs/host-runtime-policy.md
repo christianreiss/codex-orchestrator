@@ -34,8 +34,9 @@ Status: authoritative operator decision (Chris, 2026-10-14). Applies from cxx
   that runs `cxx cron run --due` once per night, at a stable per-host minute
   between 02:00 and 04:59 local time.
 - "Auto-update" is the host's effective auto-update setting: the per-host
-  override when set, otherwise the fleet default. It reaches the host as
-  `wrapper.auto_update` in the signed config.
+  override when set, otherwise the fleet default (`/admin/auto-update`, on
+  while unset). It reaches the host as `wrapper.auto_update` in the signed
+  config, and the same value gates binary updates in `/cron/check`.
 - The nightly run updates and synchronises, then exits. It never starts a worker
   or a relay.
 

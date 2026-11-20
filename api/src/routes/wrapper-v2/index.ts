@@ -18,6 +18,7 @@ import {
 } from '../../services/wrapper-signing-key.js';
 import {
   createWrapperConfigService,
+  createWrapperConfigSettingsLoader,
   canonicalStringify,
   WrapperBinaryUnavailableError,
   WrapperSigningUnavailableError,
@@ -96,6 +97,7 @@ export async function registerWrapperV2Routes(
   const configService = createWrapperConfigService({
     db: ctx.db,
     keyring: ctx.keyring,
+    settings: createWrapperConfigSettingsLoader(ctx.db),
     binaries,
     signing,
     installationId,

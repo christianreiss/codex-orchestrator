@@ -35,7 +35,7 @@ import { effectiveSkillDigest } from './skill-provenance.js';
 import { readModelPolicy, type ModelPolicy } from './model-policy.js';
 import { modelLaunchCatalog } from './model-defaults.js';
 import { normalizeClaudeModelReference } from './claude-models.js';
-import { isTruthyFlagValue } from './settings.js';
+import { isTruthyFlagValue, SettingsService } from './settings.js';
 import { withSpan, type TraceSpan } from '../observability/tracing.js';
 
 /**
@@ -203,7 +203,7 @@ export interface WrapperConfigDeps {
 }
 
 export interface WrapperConfigSettingsLoader {
-  silentFlag(): Promise<boolean>;
+  silentFlag(engine: Engine): Promise<boolean>;
   adminThemeHint(): Promise<string | null>;
   autoUpdateDefault(): Promise<boolean>;
   wrapperTrack(): Promise<string>;
@@ -215,6 +215,30 @@ function defaultSettings(): WrapperConfigSettingsLoader {
     silentFlag: async () => false,
     adminThemeHint: async () => null,
     autoUpdateDefault: async () => true,
+    wrapperTrack: async () => 'stable',
+  };
+}
+
+/** The fleet `<persona>_silent` flag behind `engine_options.silent`. */
+const SILENT_FLAG_KEYS: Record<Engine, string> = {
+  codex: 'cdx_silent',
+  claude: 'clx_silent',
+  grok: 'cgx_silent',
+  kimi: 'ckx_silent',
+};
+
+/**
+ * The production loader: the admin settings rows the bake reads. Until
+ * 2026-11-20 the route passed none, so `POST /admin/cdx-silent`,
+ * `POST /admin/theme` and the fleet auto-update toggle never reached a signed
+ * config (API-HOST-01). There is no stored wrapper track.
+ */
+export function createWrapperConfigSettingsLoader(db: Database): WrapperConfigSettingsLoader {
+  const settings = new SettingsService(db);
+  return {
+    silentFlag: (engine) => settings.getFlag(SILENT_FLAG_KEYS[engine], false),
+    adminThemeHint: async () => (await settings.getString('admin_theme'))?.trim().toLowerCase() || null,
+    autoUpdateDefault: () => settings.getFleetAutoUpdate(),
     wrapperTrack: async () => 'stable',
   };
 }
@@ -550,7 +574,7 @@ if (engine === 'kimi')
         activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
         activeClientConfig(engine),
         activeSkills(engine),
-        settings.silentFlag(),
+        settings.silentFlag(engine),
         settings.adminThemeHint(),
         wrapperBlock(host, engine, publicBaseUrl, platform),
         agentMessagingGloballyEnabled(),

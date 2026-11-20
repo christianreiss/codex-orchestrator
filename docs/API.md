@@ -722,14 +722,14 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `DELETE /admin/claude/{kind}/{slug}` — soft-delete an artifact so hosts retrieve `status:deleted`.
   - `POST /admin/claude/settings` — update the separate Anthropic-compatible API proxy defaults. Body: `{default_model?, max_tokens? (256-200000)}`. Gated as authored content (`content.manage`; the GET is `content.read`), not as a fleet setting. Supported models: `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5-5`, `claude-sonnet-5` (default), `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`).
-- `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean).
+- `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean); baked into the Codex signed config as `engine_options.silent`.
 - `GET /admin/subagent-model-selection` / `POST /admin/subagent-model-selection` — read/set the default-off subagent model selection guidance (`enabled` boolean).
 - `GET /admin/model-tier-check` / `POST /admin/model-tier-check` — read/set the default-on cross-engine Model Class Check (`enabled` boolean).
 - `GET /admin/api-keys-in-chat` / `POST /admin/api-keys-in-chat` — read/set the default-off cross-engine instruction for operator-supplied API keys (`enabled` boolean).
 - `GET /admin/agents-generation-mode` / `POST /admin/agents-generation-mode` — read/set the fleet-wide master switch for AGENTS.md/CLAUDE.md generation (`mode`: `managed` default, `manual`, or `off`). Applied at render time only; no position suppresses the mandatory policy block or the managed feature block.
-- `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it.
+- `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it. Unset reads as on everywhere (signed `wrapper.auto_update`, `/auth`, `/versions`, `/cron/check`, dashboard).
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set the authorization mode (`{mode: "compatible"|"strict"}`). GET also returns `would_deny`: what `strict` would have refused, from this installation's own traffic. Requires `security.manage_authorization`, enforced under both modes.
-- `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default).
+- `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default); baked into signed wrapper configs as `engine_options.admin_theme_hint`.
 - `GET /admin/log-retention` / `POST /admin/log-retention` — retired compatibility endpoint: always returns `{enabled:false,supported:false,reason:"retired_no_worker"}`. Old durations are ignored and no setting is persisted.
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` are excluded.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
