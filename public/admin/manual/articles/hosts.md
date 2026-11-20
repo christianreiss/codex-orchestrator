@@ -69,7 +69,7 @@ Online means connected now: the API requires a communicator connection or an age
 
 ## Host detail page
 
-Visiting `/hosts/[id]` (click a row) loads the detail view. Page data is fetched from `GET /admin/hosts/{id}/detail`. A separate `GET /admin/hosts/{id}/auth` endpoint also exists (`engine` and `include_body` query params) for pulling a host's canonical digest/auth view directly, but the detail page itself does not call it.
+Visiting `/hosts/[id]` (click a row) loads the detail view. Page data is fetched from `GET /admin/hosts/{id}/detail`.
 
 ### Header and status
 
@@ -111,7 +111,6 @@ Every mutation names a capability. Deleting a host, toggling its engines, and fl
 | Action | Endpoint |
 |--------|----------|
 | Delete host | `DELETE /admin/hosts/{id}` |
-| Clear baked auth (endpoint only; no button on the page) | `POST /admin/hosts/{id}/clear` |
 | Release IP binding | `POST /admin/hosts/{id}/release-ip-binding` |
 | Toggle roaming | `POST /admin/hosts/{id}/roaming` |
 | Mark secure / insecure | `POST /admin/hosts/{id}/secure` |

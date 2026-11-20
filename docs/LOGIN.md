@@ -99,12 +99,11 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
   more. Upgrading is therefore a behavioral no-op; a fresh install gets
   `strict` and is default-deny from first boot. `GET`/`POST
   /admin/authorization` read and change it, and `GET` also returns what
-  `strict` would have refused on this fleet's own traffic. Two capabilities are
-  enforced under both modes: `auth.reveal_credential` and
-  `security.manage_authorization`. See `api/src/security/authorization-mode.ts`
+  `strict` would have refused on this fleet's own traffic. `security.manage_authorization` is
+  enforced under both modes. See `api/src/security/authorization-mode.ts`
   and the route-by-route proof in
   `api/test/integration/security/authorization-compatibility.test.ts`.
-- Six reads carry their own capability instead of the domain's `.read`,
+- Five reads carry their own capability instead of the domain's `.read`,
   because each returns bearer material or private content:
   - `GET /admin/agent-portal/users/{id}/link` → `agent_portal.reveal_link`. The
     permanent portal link is a reusable credential.
@@ -121,10 +120,6 @@ Setup bootstrap uses `GET /admin/setup/status` (public only while there are no u
   - `POST /admin/agent-messaging/messages/{id}/reveal` →
     `agent_messaging.reveal_content`. An explicit audited mutation whose
     plaintext response is `no-store` and `no-cache`.
-  - `GET /admin/hosts/{id}/auth?include_body=1` → `auth.reveal_credential`. The
-    response carries the canonical credential the fleet hands to its hosts.
-    Without the flag the same route is metadata and every role may read it, so
-    the requirement is raised by the handler rather than by the URL.
   Every listing beside them is metadata-only, so a `viewer` may inspect state,
   addresses, conversations, and message metadata without seeing content.
 - Host registration and API-key rotation (`POST /admin/hosts/register`), device

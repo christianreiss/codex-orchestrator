@@ -867,50 +867,6 @@ if (engines.includes(ENGINE_KIMI)) new ModelDefaultsService(this.db).stageKimiDe
     return { host };
   }
 
-  async clear(id: number): Promise<{ host: ManagedHost }> {
-    const host = await this.requireById(id);
-    const owner = ownerRuntimeFor(this.db);
-    if (owner) {
-      await mutateOwnerState(owner, { kind: 'host.auth.clear', payload: { id }, prepare(ctx) {
-        const current = ctx.draft.table('hosts').get(id);
-        if (!current) throw new NotFoundError('Host not found', 'host_not_found');
-        const patch = { lastRefresh: null, authDigest: null, claudeLastRefresh: null, claudeAuthDigest: null, grokLastRefresh: null, grokAuthDigest: null, kimiLastRefresh: null, kimiAuthDigest: null, updatedAt: nowIso() };
-        for (const row of ctx.draft.table('hostAuthDigests').by('hostId', id)) ctx.draft.removeRow('hostAuthDigests', row);
-        ctx.draft.upsert('hosts', { ...current, ...patch });
-        ctx.write(async tx => tx.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id)));
-        ctx.write(async tx => tx.update(hosts).set(patch).where(eq(hosts.id, id)));
-        ctx.write(async tx => persistAuditLog(tx, { hostId: id, action: 'admin.host.clear', details: JSON.stringify({ fqdn: current.fqdn }), createdAt: nowIso() }));
-        adminAudit(ctx, 'host.updated', { host_id: id, fqdn: current.fqdn, action: 'clear' }, nowIso(), id);
-        return null;
-      } });
-      wsPublisher.publish('host.updated', { id, fqdn: host.fqdn });
-      return { host: (await this.requireById(id)) };
-    }
-    await this.db.delete(hostAuthDigests).where(eq(hostAuthDigests.hostId, id));
-    await this.db
-      .update(hosts)
-      .set({
-        lastRefresh: null,
-        authDigest: null,
-        claudeLastRefresh: null,
-        claudeAuthDigest: null,
-        grokLastRefresh: null,
-        kimiLastRefresh: null,
-        grokAuthDigest: null,
-        kimiAuthDigest: null,
-        updatedAt: nowIso(),
-      })
-      .where(eq(hosts.id, id));
-    await this.writeLog(id, 'admin.host.clear', { fqdn: host.fqdn });
-    const fresh = (await this.findById(id))!;
-    await this.events.appendAndPublish(
-      'host.updated',
-      { host_id: id, fqdn: host.fqdn, action: 'clear' },
-      { hostId: id, wsType: 'host.updated', wsPayload: { id, fqdn: host.fqdn } },
-    );
-    return { host: fresh };
-  }
-
   /**
    * Clear static IPv4/IPv6 bindings before a planned network move. The next
    * authenticated host request establishes a fresh binding under the existing

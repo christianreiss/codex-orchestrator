@@ -228,10 +228,6 @@ export async function registerAgentMessagingRoutes(
     const body = z.object({ value: z.string().min(1).max(96) }).strict().parse(req.body ?? {});
     return await messaging.translate(body.value, id, token);
   });
-  app.get('/admin/agent-messaging/translate', { preHandler: app.requireAdmin }, async req => {
-    const query = z.object({ value: z.string().min(1).max(96) }).strict().parse(req.query);
-    return await messaging.translate(query.value);
-  });
   app.post('/host/agent-sessions/:id/agent-messaging/list', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');

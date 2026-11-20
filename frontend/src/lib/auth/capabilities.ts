@@ -31,7 +31,6 @@ export const CAPABILITIES = [
   "security.manage_authorization",
   "auth.read_metadata",
   "auth.manage",
-  "auth.reveal_credential",
   "keys.manage",
   "content.read",
   "content.manage",

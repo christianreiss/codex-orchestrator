@@ -135,7 +135,6 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 | `security.manage_authorization` | yes | yes | — | — | — | — |
 | `auth.read_metadata` | yes | yes | yes | yes | yes | yes |
 | `auth.manage` | yes | yes | yes | — | — | — |
-| `auth.reveal_credential` | yes | yes | — | — | — | — |
 | `keys.manage` | yes | yes | — | — | — | — |
 | `content.read` | yes | yes | yes | yes | yes | yes |
 | `content.manage` | yes | yes | — | — | — | — |
@@ -183,18 +182,12 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
   `workflows.run`. Workflow execution controls are also available to fleet
   operators; template management remains with owner/admin.
 - `viewer` and the legacy `user` are read-only.
-- Three reads are their own capability rather than part of the domain's `.read`,
+- Two reads are their own capability rather than part of the domain's `.read`,
   because each returns bearer material or private content:
-  `secrets.reveal` (plaintext credential), `agent_messaging.reveal_content` (a decrypted
-  message body), and `auth.reveal_credential` (the canonical credential the
-  fleet distributes to hosts). Every listing beside them is metadata-only.
-- `auth.reveal_credential` is the one capability a route raises *itself*.
-  `GET /admin/hosts/{id}/auth` is metadata — digests and refresh timestamps —
-  until `include_body=1`, which adds the live credential body. The inventory
-  gives the route `auth.read_metadata` as its floor; the handler calls
-  `app.assertCapability(req, 'auth.reveal_credential')` when the flag is set. A
-  `fleet_operator` holds `auth.manage` and may therefore replace the fleet's
-  credential, but never read the current one back out.
+  `secrets.reveal` (plaintext credential) and `agent_messaging.reveal_content` (a
+  decrypted message body). Every listing beside them is metadata-only.
+- No route returns a stored canonical credential body. A `fleet_operator` holds
+  `auth.manage` and may replace the fleet's credential.
 - `account.self_manage` is held by every role: signing out, changing your own
   password, and managing your own passkeys must not depend on a grant an
   operator can lose.
@@ -228,11 +221,8 @@ pins the no-op: it holds a hand-written copy of the routes that were owner/admin
 only before the layer landed against the runtime legacy-route list, so widening
 either list alone fails.
 
-Two capabilities are enforced under *both* modes: `auth.reveal_credential`
-(reading a stored canonical credential body back out — a privilege escalation
-with no caller in the console, the wrappers, or the runner) and
-`security.manage_authorization` (the mode itself; a posture every account could
-flip would not be one).
+`security.manage_authorization` is enforced under *both* modes (the mode itself;
+a posture every account could flip would not be one).
 
 ### Moving to strict
 
@@ -452,7 +442,6 @@ Admin routes:
 - **Log retention** controls have been removed: no worker enforced their old windows. The compatibility endpoint reports unsupported and ignores old submitted values. Agent-session lifecycle cleanup remains separate.
 - **Hosts**:
   - List: `GET /admin/hosts`.
-  - Host auth view: `GET /admin/hosts/{id}/auth` (`include_body=true` adds canonical auth body; `engine` can be supplied via body/query/header and defaults to `codex`).
   - Register/rotate host key + installer token: `POST /admin/hosts/register`.
     - Required: `fqdn`.
     - Optional: `secure` (default `true`), `vip` (default `false`), `temporary`, `curl_insecure`, `reverse_dns_mode` (`global|enabled|disabled`), `duration_minutes` (`0..480`).
@@ -463,7 +452,6 @@ Admin routes:
   - Host actions:
     - Mint existing-key installer: `POST /admin/hosts/{id}/installer` (replaces pending installer tokens for that host).
     - Delete host: `DELETE /admin/hosts/{id}`.
-    - Clear host auth state/digests: `POST /admin/hosts/{id}/clear` (clears both Codex and Claude host auth linkage/digests for that host).
     - Toggle roaming: `POST /admin/hosts/{id}/roaming` (`allow` bool).
     - Toggle secure flag: `POST /admin/hosts/{id}/secure` (`secure` bool).
     - Toggle VIP: `POST /admin/hosts/{id}/vip` (`vip` bool).

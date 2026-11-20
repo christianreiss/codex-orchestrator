@@ -67,13 +67,10 @@ export function registerAgentGroupRoutes(
   app.get('/admin/agent-messaging/subscriptions', { preHandler: app.requireAdmin }, () =>
     messaging.listAdminSubscriptions(),
   );
-  const publishAdmin = async (req: FastifyRequest, topic?: string) => {
-    const body =
-      topic === undefined
-        ? publishSchema.parse(req.body)
-        : publishSchema.omit({ topic: true }).parse(req.body);
+  const publishAdmin = async (req: FastifyRequest) => {
+    const body = publishSchema.parse(req.body);
     const result = await messaging.publishAdmin({
-      topic: topic ?? (body as z.infer<typeof publishSchema>).topic,
+      topic: body.topic,
       content: body.content,
       clientMessageId: body.client_message_id,
       ttlSeconds: body.ttl_seconds,
@@ -89,9 +86,6 @@ export function registerAgentGroupRoutes(
     return result;
   };
   app.post('/admin/agent-messaging/publish', { preHandler: app.requireAdmin }, (req) => publishAdmin(req));
-  app.post('/admin/agent-messaging/groups/:slug/publish', { preHandler: app.requireAdmin }, (req) =>
-    publishAdmin(req, `group:${z.string().parse((req.params as { slug?: string }).slug)}`),
-  );
 
   app.post('/host/agent-sessions/:id/agent-messaging/groups/list', (req) => {
     z.object({})

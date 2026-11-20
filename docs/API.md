@@ -418,7 +418,6 @@ Session operations use the short-lived bridge bearer in
 - `GET /admin/agent-messaging/groups/{slug}` — inspect group members (`agent_messaging.read`).
 - `DELETE /admin/agent-messaging/groups/{slug}` — delete any empty group and free its slug; `409 agent_messaging_group_members_remain` while members remain (`agent_messaging.manage`, audited).
 - `GET /admin/agent-messaging/subscriptions` — inspect subscription metadata (`agent_messaging.read`).
-- `POST /admin/agent-messaging/groups/{slug}/publish` — publish as Server to the selected group (`agent_messaging.manage`).
 - `POST /admin/agent-messaging/publish` — publish as Server to a group or the Server feed, `agent:00000000-0000-4000-8000-000000000001` (`agent_messaging.manage`). These routes do not force-subscribe agents.
 
 - `POST /host/agent-sessions/{id}/agent-messaging/list` — discover eligible
@@ -656,7 +655,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/hosts/{id}/release-ip-binding` — clear the pinned `ip4`/`ip6` so the next authenticated request re-pins.
 - `POST /admin/hosts/{id}/auto-update` — set the per-host auto-update override (`override`: `true` | `false` | `null` to follow the fleet setting).
 - `POST /admin/hosts/{id}/browseros-mcp` — toggle the BrowserOS MCP server in the host's baked config (`browseros_mcp` boolean).
-- `GET /admin/hosts/{id}/auth` — canonical digest/last_refresh and recent digests for the selected engine; optional auth body via `?include_body=1`. Engine can be supplied via body/query/header and defaults to `codex`; the response includes `engine` plus the Codex, Claude, Grok, and Kimi host-side fields.
 - `POST /admin/hosts/{id}/roaming` — toggle `allow_roaming_ips` (`allow` boolean).
 - `POST /admin/hosts/{id}/secure` — toggle secure/insecure mode.
 - `GET /admin/wrapper/rollout` — staged cxx rollout status (`hosts.read`): `enabled` (the effective switch), `enabled_source` (`setting` when an operator chose, `env` for the `CXX_WRAPPER_ROLLOUT_ENABLED` default), configured `settings` (`stages`, `soak_minutes`), the current `rollout` (state plus `stage`, `next_stage`, `soak_ends_at`, `confirmed_host_ids`) or `null`, and every host's `canary` / `excluded` / `running` / `admitted`.
@@ -684,7 +682,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `POST /admin/insecure-approvals/{id}/approve` — approve pending request and open host window. Optional `duration_minutes` (`0..480`); when omitted the grant is 480 minutes rather than the host's stored sliding window, and the granted length is stored as the host's `insecure_window_minutes` so the next request does not collapse it back to ten.
 - `POST /admin/insecure-approvals/{id}/deny` — deny pending request.
 - `POST /admin/insecure-domain-allows/{id}/revoke` — revoke domain auto-allow.
-- `POST /admin/hosts/{id}/clear` — clear host canonical auth linkage/digests for Codex, Claude, Grok, and Kimi.
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — admin upload/seed canonical `auth.json` (JSON body or `file`); optional `host_id`; requires positive live runner validation.
 - `POST /admin/auth/seed-command` — issue one-time `curl -fsSL ... | bash` seed command for `{engine:"codex"|"claude"|"grok"}` (default Codex). Generated scripts read `~/.codex/auth.json` for Codex or `~/.claude/.credentials.json` for Claude, accept both API-key and Claude Code OAuth credential shapes, normalize plain credential files by adding `last_refresh` when missing, and print server validation errors on upload failure. The Grok script never reads a live `~/.grok/auth.json`: it runs a dedicated `grok login --device-auth` in a throwaway `GROK_HOME` and erases it after upload, because xAI rotates refresh tokens and a login must have exactly one refresher; `GROK_SEED_AUTH_PATH` explicitly opts into uploading an existing file nothing else will use. TTL `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900).
@@ -1054,7 +1051,6 @@ Wrapper 0.9.21 observes native output and Linux process activity. Only the wrapp
 - `POST /host/agent-messaging/translate` — read-only host-authenticated name/UUID lookup with `{value: string}`; uses host/IP/window policy, the messaging master switch and engine eligibility. Does not register a launch.
 - `POST /host/agent-sessions/:id/agent-messaging/translate` — the same lookup using a managed launch's bridge token.
 - `POST /host/agent-sessions/:id/agent-messaging/self` — authenticated current launch name, UUID, native binding and task-title metadata; `{}` body and the session bridge token. See [confirmed launch identity](interface-api.md#confirmed-launch-identity-cxx-0937).
-- `GET /admin/agent-messaging/translate` — the same lookup with `?value=Claudia`, admin session and `agent_messaging.read`.
 - `POST /host/agent-messaging/list` — read-only host-scope inventory of this host's registered agents for operator shells (`cxx agent list` outside a lifecycle); host API key, closed body `{engine?, include_offline?}`, no scope/host/paging. Returns presence, resumability, receiver and per-address live/accepted queue counts. See [host-scope agent inventory](interface-api.md#host-scope-agent-inventory-read-only).
 
 Returns `{name, uuid, address, session_id, status, started_at, ended_at, cooldown_until, direction}`. Names are pre-filled German female names and are reserved per launch until end/expiry plus 24 hours. UUIDs remain canonical; names may be reused. Native resume is a new launch. Direct message/request and conference invitation recipients accept names; committed deliveries and their retries retain the original target UUID. See `docs/interface-api.md` for the full naming contract.
@@ -1188,7 +1184,6 @@ Attachment uploads use a caller-generated UUID, declared filename/MIME/size and 
 - `GET /admin/agent-sessions/:id/attachments/:attachmentId` — Return name, MIME, size, SHA-256, upload offset and processing status.
 - `GET /admin/agent-sessions/:id/attachments/:attachmentId/content` — Stream original or ?variant=transcript.json|frame-NN.jpg; optional inline=1 for safe media.
 - `DELETE /admin/agent-sessions/:id/attachments/:attachmentId` — Discard the authenticated author's unlinked upload.
-- `POST /admin/agent-sessions/:id/notices/resolve` — Resolve {notice_id,client_event_id} explicitly; admin/device authorization.
 - `POST /companion/v1/agents/:id/attachments` — Create/resume upload: {id,name,mime_type,size_bytes,sha256?}.
 - `POST /companion/v1/agents/:id/attachments/:attachmentId/chunks` — Upload {offset,content_b64}; returns persisted uploaded_bytes.
 - `POST /companion/v1/agents/:id/attachments/:attachmentId/seal` — Seal completed bytes after SHA-256 verification.

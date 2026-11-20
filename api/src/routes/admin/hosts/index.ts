@@ -10,8 +10,6 @@
  * and `insecure-window-admin`) owns the actual DB work.
  */
 import type { FastifyInstance } from 'fastify';
-import { ownerRuntimeFor } from '../../../control-plane/state/runtime.js';
-import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
 import { ValidationError } from '../../../http/errors.js';
@@ -28,15 +26,11 @@ import {
   MIN_FLEET_WINDOW_MINUTES,
   MAX_FLEET_WINDOW_MINUTES,
 } from '../../../services/insecure-fleet-window.js';
-import {
-  createRunnerValidationService,
-  type RunnerValidationService,
-} from '../../../services/runner-validation.js';
 import { parseReverseDnsModeInput, tinyintToModeString } from '../../../services/reverse-dns.js';
 import { hostEnginesList } from '../../../services/host-engine-policy.js';
 import { summarizeHostAgentsExtra } from '../../../services/host-agents-extra.js';
-import { hostAuthDigests, type Host } from '../../../db/schema.js';
-import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
+import type { Host } from '../../../db/schema.js';
+import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, isEngine, type Engine } from '../../../util/engine.js';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Zod schemas
@@ -193,12 +187,6 @@ function parseId(raw: unknown, name = 'id'): number {
   return Number.parseInt(s, 10);
 }
 
-function parseIncludeBody(raw: unknown): boolean {
-  if (raw === undefined || raw === null) return false;
-  const s = String(raw).toLowerCase().trim();
-  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
-}
-
 function hostToWire(h: Omit<Host, 'apiKey' | 'apiKeyEnc'>): Record<string, unknown> {
   return {
     id: h.id,
@@ -260,18 +248,10 @@ function parseZod<T extends z.ZodTypeAny>(schema: T, body: unknown): z.infer<T> 
 // Registration
 // ────────────────────────────────────────────────────────────────────────────
 
-export interface AdminHostAuthView {
-  canonical_last_refresh: string | null;
-  canonical_digest: string | null;
-  recent_digests: string[];
-  auth: Record<string, unknown> | null;
-}
-
 export interface AdminHostRoutesOverrides {
   daemonService?: Pick<HostDaemonService, 'configureEnabled'>;
   hostService?: HostManagementService;
   insecure?: InsecureWindowAdminService;
-  authView?: (host: Omit<Host, 'apiKey' | 'apiKeyEnc'>, engine: Engine, includeBody: boolean) => Promise<AdminHostAuthView>;
 }
 
 export async function registerAdminHostsRoutes(
@@ -290,37 +270,6 @@ export async function registerAdminHostsRoutes(
       events,
     });
   const insecure = overrides.insecure ?? new InsecureWindowAdminService({ db: ctx.db, env: ctx.env, events });
-  const runnerValidation: RunnerValidationService = createRunnerValidationService({
-    db: ctx.db,
-    keyring: ctx.keyring,
-  });
-  const authView =
-    overrides.authView ??
-    (async (host: Omit<Host, 'apiKey' | 'apiKeyEnc'>, engine: Engine, includeBody: boolean): Promise<AdminHostAuthView> => {
-      const canonicalRow = await runnerValidation.resolveCanonicalPayload(engine);
-      const validated = runnerValidation.validateCanonicalPayload(canonicalRow);
-      const distributableAuth = canonicalRow ? runnerValidation.canonicalAuthFromPayload(canonicalRow) : null;
-      const owner = ownerRuntimeFor(ctx.db);
-      owner?.assertOwner();
-      const digests = owner ? owner.state.snapshot().table('hostAuthDigests').all()
-        .filter(row => row.hostId === host.id && row.engine === engine)
-        .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen)).slice(0, 3) : await ctx.db
-        .select({ digest: hostAuthDigests.digest })
-        .from(hostAuthDigests)
-        .where(and(eq(hostAuthDigests.hostId, host.id), eq(hostAuthDigests.engine, engine)))
-        .orderBy(desc(hostAuthDigests.lastSeen))
-        .limit(3);
-      const engineLastRefresh =
-        engine === ENGINE_KIMI ? host.kimiLastRefresh ?? null : engine === ENGINE_GROK ? host.grokLastRefresh ?? null : engine === ENGINE_CLAUDE ? host.claudeLastRefresh ?? null : host.lastRefresh ?? null;
-      const engineDigest =
-        engine === ENGINE_KIMI ? host.kimiAuthDigest ?? null : engine === ENGINE_GROK ? host.grokAuthDigest ?? null : engine === ENGINE_CLAUDE ? host.claudeAuthDigest ?? null : host.authDigest ?? null;
-      return {
-        canonical_last_refresh: validated?.last_refresh ?? engineLastRefresh,
-        canonical_digest: validated?.digest ?? engineDigest,
-        recent_digests: digests.map((d) => d.digest),
-        auth: includeBody ? distributableAuth : null,
-      };
-    });
 
   // ─── #1 POST /admin/hosts/register ───
   app.route({
@@ -397,37 +346,6 @@ export async function registerAdminHostsRoutes(
     },
   });
 
-  // ─── #3 GET /admin/hosts/:id/auth ───
-  app.route({
-    method: 'GET',
-    url: '/admin/hosts/:id/auth',
-    preHandler: [app.requireAdmin],
-    handler: async (req) => {
-      const id = parseId((req.params as { id: string }).id);
-      const query = (req.query ?? {}) as { engine?: string; include_body?: string };
-      // Absent means Codex for compatibility; a present-but-invalid value is
-      // a caller error, not a reason to read the other engine's canonical auth.
-      const engine: Engine = parseEngine(query.engine, ENGINE_CODEX);
-      const includeBody = parseIncludeBody(query.include_body);
-      // Without the flag this is metadata — digests and refresh timestamps.
-      // With it, the response carries the canonical credential the fleet hands
-      // to hosts, which is a different thing to be allowed to read. The route's
-      // inventory capability is the floor; the body needs the reveal grant.
-      if (includeBody) await app.assertCapability(req, 'auth.reveal_credential');
-      const host = await hostService.requireById(id);
-      const view = await authView(host, engine, includeBody);
-      return {
-        host: hostToWire(host),
-        engine,
-        canonical_last_refresh: view.canonical_last_refresh,
-        canonical_digest: view.canonical_digest,
-        recent_digests: view.recent_digests,
-        auth: view.auth,
-        api_calls: host.apiCalls,
-      };
-    },
-  });
-
   // ─── #4 POST /admin/hosts/:id/installer ───
   app.route({
     method: 'POST',
@@ -473,18 +391,6 @@ export async function registerAdminHostsRoutes(
         });
       }
       const host = await hostService.setEngines(id, body.engines);
-      return { host: hostToWire(host) };
-    },
-  });
-
-  // ─── #6 POST /admin/hosts/:id/clear ───
-  app.route({
-    method: 'POST',
-    url: '/admin/hosts/:id/clear',
-    preHandler: [app.requireAdmin],
-    handler: async (req) => {
-      const id = parseId((req.params as { id: string }).id);
-      const { host } = await hostService.clear(id);
       return { host: hostToWire(host) };
     },
   });
