@@ -14,7 +14,8 @@ See [the verified model contract](interface-cdx.md#astra-62-model-support-2026-1
 
 cxx 0.9.180 repairs stale generated PATH launchers during alias reconciliation,
 including updates with an already-current binary. `cxx doctor` diagnoses this
-locally; `cxx doctor --fix` replaces recognized legacy transition scripts without
+locally (launchers only; it names `cdx doctor` and its siblings for API and TLS
+checks); `cxx doctor --fix` replaces recognized legacy transition scripts without
 API access. Custom launchers and other installations stay untouched. See
 [the wrapper interface](interface-cdx.md).
 
