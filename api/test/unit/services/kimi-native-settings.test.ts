@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeKimiNativeSettings, migrateStoredKimiNativeSettings, kimiNativeOwnedPaths } from '../../../src/services/kimi-native-settings.js';
+import { normalizeKimiNativeSettings, migrateStoredKimiNativeSettings, kimiNativeOwnedPaths, kimiNativeMinimum } from '../../../src/services/kimi-native-settings.js';
 import { ClientConfigService, renderTomlForHost } from '../../../src/services/client-config.js';
 
 const service = new ClientConfigService({} as never);
@@ -23,6 +23,7 @@ const invalid = [
   { permission: { rules: [{ decision: 'allow', pattern: 'Bash(' }] } },
   { permission: { rules: [{ decision: 'allow', pattern: 'Read', scope: 'session-runtime' }] } },
   { services: { unknown: { base_url: 'https://example.com' } } }, { cron: { disabled: true } },
+  { hosts: { box: { host: 'example', enabled: true } } }, { hosts: {} },
   { token_counting: { strategy: 'bogus' } }, { model_catalog: { refresh_interval_ms: -1 } },
   { environments: { default: 'missing' } }, { environments: { local: { type: 'ssh', host: 'test' } } },
   { nativeTypo: true },
@@ -54,6 +55,13 @@ describe('Kimi native settings schema and retirements', () => {
     expect(rendered.content).toContain('refresh_on_start = false');
     expect(rendered.content).toContain('remoteBin = "/bin/kimi"');
     expect(input.permission.rules[0]).not.toHaveProperty('scope');
+  });
+  it('refuses [hosts] with a specific reason while other unknown keys keep the generic one', () => {
+    expect(() => normalizeKimiNativeSettings({ hosts: { box: { host: 'example' } } })).toThrow(/native_settings\.hosts: SSH hosts are consumed only by the Kimi web\/desktop server bridge/);
+    expect(() => normalizeKimiNativeSettings({ nativeTypo: true })).toThrow(/native_settings\.nativeTypo: unsupported user setting/);
+    expect(() => normalizeKimiNativeSettings({ services: { unknown: {} } })).toThrow(/unsupported user setting/);
+    // A provider or model that merely uses the name "hosts" stays a literal map key.
+    expect(() => normalizeKimiNativeSettings({ providers: { hosts: { type: 'openai' } }, models: { hosts: { model: 'm' } } })).not.toThrow();
   });
   it('heals exact stored legacy paths without overwriting explicit successors or unrelated data', () => {
     const input = { loop_control: { max_retries_per_step: 4, max_attempts_per_step: 8, max_steps_per_run: 0, reserved_context_size: 100 },
@@ -97,5 +105,27 @@ describe('Kimi native conditional capabilities', () => {
       { providers: { 'feedback_url': { type: 'openai' } } }, { models: { primary: { model: 'literal' } } },
     ]) expect(() => render('2.5.3', input)).not.toThrow();
     expect(() => render('2.5.2', { watch: { enabled: false } })).toThrow(/2\.5\.3/);
+  });
+  it.each([{ providers: { aws: { type: 'bedrock' } } }, { providers: { example: { type: 'openai' }, aws: { type: 'bedrock', env: { AWS_REGION: 'eu-central-1' } } } },
+    { providers: { aws: { type: 'bedrock', search_url: '' } } },
+  ])('requires 2.7.0 for the Bedrock provider type, even alongside 2.6.2 features: %j', input => {
+    expect(kimiNativeMinimum(input)).toBe('2.7.0');
+    expect(() => render('2.6.2', input)).toThrow(/2\.7\.0.*ckx update/);
+    expect(() => render('2.5.3', input)).toThrow(/2\.7\.0.*ckx update/);
+    expect(() => render(null, input)).toThrow(/2\.7\.0.*unreported/);
+    expect(() => render('not-a-version', input)).toThrow(/unreported/);
+    expect(() => render('Kimi Code 2.6.3', input)).toThrow(/2\.7\.0/);
+    expect(() => render('Kimi Code 2.7.0', input)).not.toThrow();
+    expect(() => render('2.7.2', input)).not.toThrow();
+  });
+  it('does not gate empty, differently typed or literally named providers on 2.7.0', () => {
+    for (const input of [{ providers: { bedrock: { type: 'openai' } } }, { providers: { example: { type: '' } } },
+      { providers: { example: {} } }, { providers: { example: { type: 'Bedrock' } } }, { models: { bedrock: { model: 'literal' } } },
+      { default_provider: 'bedrock' }, {}, { secondary_model: { default_model: 'primary', models: { primary: 'bedrock' } } },
+    ]) expect(kimiNativeMinimum(input)).not.toBe('2.7.0');
+    expect(kimiNativeMinimum({ providers: { example: { type: 'openai' } } })).toBe('2.5.3');
+    expect(kimiNativeMinimum({ providers: { example: { search_url: '' } } })).toBe('2.6.2');
+    expect(kimiNativeMinimum(undefined)).toBe('2.5.3');
+    expect(() => render('2.5.3', { providers: { bedrock: { type: 'openai' } } })).not.toThrow();
   });
 });
