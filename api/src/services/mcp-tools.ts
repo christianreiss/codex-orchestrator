@@ -1,5 +1,5 @@
 import type { SlopJobsService } from './slop-jobs.js';
-import { ApiError } from '../http/errors.js';
+import { ApiError, ValidationError } from '../http/errors.js';
 import type { HostSpawnService } from './host-spawn.js';
 import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
@@ -364,6 +364,45 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
  * them in a handler. Returns a human-readable message, or null when `args`
  * satisfies the schema.
  */
+const COMPACT_SKILL_FIELDS = ['slug', 'display_name', 'sha256', 'allow_implicit_invocation', 'uri'] as const;
+
+/**
+ * `skill_list` narrowing, applied to the whole listing (stored and managed
+ * Skills alike) so both are filtered the same way. With neither argument the
+ * listing is returned untouched, byte for byte.
+ */
+function narrowSkillListing<T extends { skills: Record<string, unknown>[] }>(
+  listing: T,
+  args: Record<string, unknown>,
+): T {
+  const rawQuery = args['query'];
+  const rawCompact = args['compact'];
+  if (rawQuery !== undefined && rawQuery !== null && typeof rawQuery !== 'string') {
+    throw new ValidationError("'query' must be a string", { param: 'query' });
+  }
+  if (rawCompact !== undefined && rawCompact !== null && typeof rawCompact !== 'boolean') {
+    throw new ValidationError("'compact' must be a boolean", { param: 'compact' });
+  }
+  const query = typeof rawQuery === 'string' ? rawQuery.trim().toLowerCase() : '';
+  const compact = rawCompact === true;
+  if (!query && !compact) return listing;
+  let skills = listing.skills;
+  if (query) {
+    skills = skills.filter((skill) =>
+      ['slug', 'display_name', 'description'].some((field) => {
+        const value = skill[field];
+        return typeof value === 'string' && value.toLowerCase().includes(query);
+      }),
+    );
+  }
+  if (compact) {
+    skills = skills.map((skill) =>
+      Object.fromEntries(COMPACT_SKILL_FIELDS.filter((field) => field in skill).map((field) => [field, skill[field]])),
+    );
+  }
+  return { ...listing, skills };
+}
+
 function validateAgainstSchema(schema: Record<string, unknown>, args: Record<string, unknown>): string | null {
   const required = Array.isArray(schema['required']) ? (schema['required'] as unknown[]) : [];
   const properties =
@@ -1410,14 +1449,19 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'skill_list',
       description:
-        'Authoritative first step for any Skill-related request: list fleet Skills available to this host before consulting local Skill files.',
+        'Authoritative first step for any Skill-related request: list fleet Skills available to this host before consulting local Skill files. Optional `query` keeps only Skills whose slug, display name or description contains the text (case-insensitive); `compact: true` returns only slug, display_name, sha256, allow_implicit_invocation and uri per Skill. No arguments returns the full listing.',
       inputSchema: {
         type: 'object',
-        properties: {},
+        properties: {
+          query: { type: 'string' },
+          compact: { type: 'boolean' },
+        },
       },
     },
-    handler: async (_args, host, requestEngine) =>
-      deps.skills.listSkills(host, requestEngine ?? ENGINE_CODEX),
+    handler: async (args, host, requestEngine) => {
+      const listing = await deps.skills.listSkills(host, requestEngine ?? ENGINE_CODEX);
+      return narrowSkillListing(listing, args);
+    },
   });
   inputs.push({
     definition: {

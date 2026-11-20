@@ -234,9 +234,61 @@ describe('McpToolsRegistry', () => {
 
   it('does not expose an engine override on skill_list', () => {
     const definition = registry.list().find((tool) => tool.name === 'skill_list');
-    expect(definition?.inputSchema['properties']).toEqual({});
+    expect(definition?.inputSchema['properties']).toEqual({
+      query: { type: 'string' },
+      compact: { type: 'boolean' },
+    });
     expect(definition?.description).toMatch(/authoritative first step/i);
     expect(definition?.description).toMatch(/before consulting local Skill files/i);
+  });
+
+  describe('skill_list narrowing', () => {
+    const rows = [
+      { slug: 'fleet-reflect', sha256: 'a', display_name: 'Fleet Reflect', description: 'Close out work', allow_implicit_invocation: true, uri: 'skill://fleet-reflect', managed: true, updated_at: 't' },
+      { slug: 'deploy-crane', sha256: 'b', display_name: null, description: 'Deploy to PRODUCTION', allow_implicit_invocation: false, uri: 'skill://deploy-crane', managed: false, updated_at: 't' },
+      { slug: 'roles', sha256: 'c', display_name: 'Role Manager', description: null, allow_implicit_invocation: true, uri: 'skill://roles', managed: true, updated_at: 't' },
+    ];
+    const listing = { engine: 'claude' as const, skills: rows };
+    const narrowRegistry = new McpToolsRegistry({
+      memories: stubMemories,
+      projects: stubProjects,
+      skills: { listSkills: async () => listing } as unknown as HostSkillsService,
+    });
+    const call = async (args: unknown) => {
+      const result = await narrowRegistry.dispatch('skill_list', args, host);
+      return { isError: result.isError, text: (result.content as Array<{ text?: string }>)[0]?.text ?? '' };
+    };
+
+    it('returns the unchanged listing without arguments', async () => {
+      const result = await call({});
+      expect(result.isError).toBe(false);
+      expect(result.text).toBe(JSON.stringify(listing));
+      expect((await call({ query: '  ', compact: false })).text).toBe(JSON.stringify(listing));
+    });
+
+    it('filters case-insensitively over slug, display name and description', async () => {
+      const slugs = async (query: string) =>
+        (JSON.parse((await call({ query })).text) as { skills: Array<{ slug: string }> }).skills.map((s) => s.slug);
+      expect(await slugs('REFLECT')).toEqual(['fleet-reflect']);
+      expect(await slugs('production')).toEqual(['deploy-crane']);
+      expect(await slugs('role m')).toEqual(['roles']);
+      expect(await slugs('nothing-matches')).toEqual([]);
+    });
+
+    it('compact keeps only the five identifying fields', async () => {
+      const parsed = JSON.parse((await call({ compact: true, query: 'deploy' })).text);
+      expect(parsed).toEqual({
+        engine: 'claude',
+        skills: [
+          { slug: 'deploy-crane', display_name: null, sha256: 'b', allow_implicit_invocation: false, uri: 'skill://deploy-crane' },
+        ],
+      });
+    });
+
+    it('rejects arguments of the wrong type', async () => {
+      expect((await call({ query: 7 })).isError).toBe(true);
+      expect((await call({ compact: 'yes' })).isError).toBe(true);
+    });
   });
 
   it('registers and dispatches the host Skill mutation tools', async () => {
