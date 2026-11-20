@@ -34,11 +34,11 @@ describe("route registry", () => {
       ["hosts", ["hosts"]],
       ["agents", ["agents"]],
       ["projects", ["projects"]],
-      ["coordination", ["agent-messaging", "schedules", "git-director", "transfers", "external-clients", "connectors", "workflows"]],
+      ["coordination", ["agent-messaging", "schedules", "git-director", "transfers", "workflows"]],
       ["activity", ["activity", "reports"]],
       ["providers", ["provider-accounts", "engines", "limits"]],
       ["library", ["library"]],
-      ["access", ["people", "api-keys", "secrets", "settings"]],
+      ["access", ["people", "api-keys", "connectors", "external-clients", "secrets", "settings"]],
     ]);
     assert.deepEqual(NAV_FOOTER.map((entry) => entry.id), ["manual", "account"]);
   });
@@ -86,6 +86,8 @@ describe("route registry", () => {
     assert.equal(hubIdFor("/api-keys"), "access");
     assert.equal(hubIdFor("/secrets"), "access");
     assert.equal(hubIdFor("/settings"), "access");
+    assert.equal(hubIdFor("/connectors"), "access");
+    assert.equal(hubIdFor("/external-clients"), "access");
     assert.equal(hubIdFor("/activity"), "activity");
     assert.equal(hubIdFor("/reports"), "activity");
     assert.equal(hubIdFor("/library/skills/deploy-bot"), "library");
@@ -105,6 +107,36 @@ describe("route registry", () => {
   });
 });
 
+describe("labels say what the page is", () => {
+  it("names pages after their content and keeps the old words and route words searchable", () => {
+    assert.equal(item("agent-messaging").label, "Messaging");
+    assert.equal(item("schedules").label, "Wake-ups");
+    assert.equal(item("reports").label, "Feedback");
+    for (const [id, words] of [
+      ["agent-messaging", ["messages"]],
+      ["schedules", ["timed wake-ups", "schedules"]],
+      ["git-director", ["git director"]],
+      ["transfers", ["transfers"]],
+      ["reports", ["reports"]],
+    ] as const) {
+      for (const word of words) assert.ok(item(id).keywords.includes(word), `${id} is not found by "${word}"`);
+    }
+  });
+
+  it("gives every page of a multi-page hub its own icon, distinct from the hub's", () => {
+    for (const hub of HUBS.filter((candidate) => candidate.items.length > 1)) {
+      const icons = hub.items.map((entry) => entry.icon);
+      assert.equal(new Set(icons).size, icons.length, `${hub.id} repeats an icon among its pages`);
+      assert.ok(!icons.includes(hub.icon), `${hub.id} reuses its own icon for a page`);
+    }
+  });
+
+  it("describes the Overview as the place for what needs the operator", () => {
+    assert.match(item("overview").description, /needs you/i);
+    assert.match(HUBS.find((hub) => hub.id === "overview")!.description, /needs you/i);
+  });
+});
+
 describe("location text", () => {
   it("uses direct task labels and preserves useful detail breadcrumbs", () => {
     assert.equal(getPageContext("/engines"), "Engines");
@@ -113,6 +145,8 @@ describe("location text", () => {
     assert.equal(getPageContext("/library/skills/deploy-bot"), "Library / Skills / Deploy bot");
     assert.equal(getPageContext("/library/agent-rules"), "Library / Agent rules");
     assert.equal(getPageContext("/projects/fleet/board"), "Projects / Fleet / Board");
+    assert.equal(getPageContext("/projects/fleet/slop"), "Projects / Fleet / Design review");
+    assert.equal(getPageContext("/reports"), "Feedback");
     assert.deepEqual(getBreadcrumbs("/projects/fleet/board"), [
       { label: "Projects", route: "/projects" },
       { label: "Fleet", route: "/projects/fleet" },

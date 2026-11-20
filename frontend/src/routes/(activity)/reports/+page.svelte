@@ -77,7 +77,7 @@
 </script>
 
 <PageShell
-  title="Reports"
+  title="Feedback"
   description="Bugs, missing features and verified improvements for the orchestrator itself."
   toggle={{
     label: "Agent reports",

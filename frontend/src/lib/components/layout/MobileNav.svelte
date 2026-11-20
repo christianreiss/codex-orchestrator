@@ -23,18 +23,16 @@
   const pendingApprovals = insecureApprovalsPendingQuery();
   const approvalsAlert = $derived(($pendingApprovals.data?.requests?.length ?? 0) > 0 || $pendingApprovals.isError);
   const menuActive = $derived([...MOBILE_NAV_OVERFLOW, ...NAV_FOOTER].some((item) => isActive(item, path)));
-  // The bar links straight to each primary hub's first page; the sheet lists
-  // every other page, grouped under its hub, so no route is tab-only on a phone.
-  const barRoutes = new Set(MOBILE_NAV_PRIMARY.map((hub) => hub.route));
-  const menuSections = $derived([
+  // The bar links straight to the frequent hubs. The sheet mirrors the desktop
+  // rail: every hub in rail order with its pages beneath it (a one-page hub is
+  // a single entry), so every page is reachable on a phone.
+  const menuSections = [
     ...NAV_SECTIONS.map((section) => ({
       ...section,
-      hubs: section.hubs
-        .map((hub) => ({ ...hub, menuItems: hub.items.filter((item) => !barRoutes.has(item.route)) }))
-        .filter((hub) => hub.menuItems.length),
-    })).filter((section) => section.hubs.length),
+      hubs: section.hubs.map((hub) => ({ ...hub, label: hub.items.length > 1 ? hub.label : "", menuItems: hub.items })),
+    })),
     { id: "utilities", label: "Utilities" as const, hubs: [{ id: "utilities", label: "", menuItems: NAV_FOOTER }] },
-  ]);
+  ];
 
   async function signOut() {
     menuOpen = false;
@@ -70,11 +68,11 @@
       {#each menuSections as section (section.id)}
         <section>
           <h2 class="mb-1 px-1 text-caption font-semibold text-muted-foreground">{section.label}</h2>
-          <div class="space-y-3">
+          <div class="space-y-2">
             {#each section.hubs as hub (hub.id)}
-              <div>
+              <div class={hub.label ? "pt-1" : ""}>
                 {#if hub.label}<h3 class="mb-1 px-1 text-body-sm font-medium text-foreground">{hub.label}</h3>{/if}
-                <ul class="grid gap-1 sm:grid-cols-2">
+                <ul class={cn("grid gap-1 sm:grid-cols-2", hub.label && "border-l pl-2")} aria-label={hub.label ? `${hub.label} pages` : undefined}>
                   {#each hub.menuItems as item (item.id)}
                     {@const Icon = item.icon}
                     {@const active = isActive(item, path)}

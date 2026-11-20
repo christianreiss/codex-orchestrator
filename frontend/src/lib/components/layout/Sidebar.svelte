@@ -8,6 +8,8 @@
   import { authActions, authStore } from "$lib/stores/auth";
   import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import InsecureApprovalsNavAlert from "./InsecureApprovalsNavAlert.svelte";
+  import { fleetDisabledTitle, useFleetEngines } from "$lib/engines/fleet-engines";
+  import { engineLabel } from "$lib/constants/engines";
   import * as Tooltip from "$lib/components/ui/tooltip";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
@@ -16,6 +18,8 @@
 
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   const auth = $derived($authStore);
+  // Engine-specific pages stay listed while their engine is off; the entry says so.
+  const fleet = useFleetEngines();
 
   function openShortcuts(): void {
     window.dispatchEvent(new CustomEvent("codex:open-shortcuts"));
@@ -49,6 +53,7 @@
             {#each section.hubs as hub (hub.id)}
               {@const Icon = hub.icon}
               {@const active = isActive(hub, path)}
+              {@const pages = active && hub.items.length > 1 ? hub.items : []}
               <li>
                 <Tooltip.Root>
                 <Tooltip.Trigger>
@@ -57,9 +62,13 @@
                   href={`${base}${hub.route}`}
                   class={cn(
                     "relative flex min-h-9 items-center gap-2.5 rounded-md px-2.5 py-2 text-body-sm font-medium md:max-lg:justify-center md:max-lg:px-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                    active ? "bg-primary/15 text-primary before:absolute before:-left-3 md:max-lg:before:-left-2 before:h-5 before:w-0.5 before:rounded-md before:bg-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    active && "text-primary before:absolute before:-left-3 md:max-lg:before:-left-2 before:h-5 before:w-0.5 before:rounded-md before:bg-primary",
+                    // A one-page hub is the page; a hub with pages is the section they sit in.
+                    active && !pages.length && "bg-primary/15",
+                    active && pages.length > 0 && "hover:bg-muted",
+                    !active && "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
-                  aria-current={active ? "page" : undefined}
+                  aria-current={active ? (pages.length ? "true" : "page") : undefined}
                   title={`${hub.label}: ${hub.description}`}
                 >
                   <Icon class="h-4 w-4 shrink-0" />
@@ -68,6 +77,37 @@
                 </Tooltip.Trigger>
                 <Tooltip.Content side="right" class="max-w-64 lg:hidden">{hub.label} · {hub.description}</Tooltip.Content>
                 </Tooltip.Root>
+                {#if pages.length}
+                  <!-- The active hub's peers: the one place a page's siblings are listed (NAV-4). -->
+                  <ul class="mb-1 ml-[1.0625rem] mt-0.5 space-y-0.5 border-l pl-2 md:max-lg:mx-0 md:max-lg:mt-1 md:max-lg:border-l-0 md:max-lg:border-t md:max-lg:pl-0 md:max-lg:pt-1" aria-label={`${hub.label} pages`}>
+                    {#each pages as item (item.id)}
+                      {@const PageIcon = item.icon}
+                      {@const current = isActive(item, path)}
+                      {@const off = item.engine && !$fleet.isEnabled(item.engine)}
+                      <li>
+                        <Tooltip.Root>
+                        <Tooltip.Trigger>
+                        {#snippet child({ props })}<a
+                          {...props}
+                          href={`${base}${item.route}`}
+                          class={cn(
+                            "flex min-h-8 items-center gap-2 rounded-md px-2 py-1.5 text-body-sm outline-none transition-colors md:max-lg:justify-center md:max-lg:px-0 focus-visible:ring-2 focus-visible:ring-ring",
+                            current ? "bg-primary/15 font-medium text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                          )}
+                          aria-current={current ? "page" : undefined}
+                          title={item.description}
+                        >
+                          <PageIcon class="h-4 w-4 shrink-0 lg:hidden" />
+                          <span class="min-w-0 break-words md:max-lg:sr-only">{item.label}</span>
+                          {#if off}<span class="ml-auto shrink-0 text-caption md:max-lg:sr-only" title={fleetDisabledTitle(engineLabel(item.engine!))}>Off</span>{/if}
+                        </a>{/snippet}
+                        </Tooltip.Trigger>
+                        <Tooltip.Content side="right" class="max-w-64 lg:hidden">{item.label} · {item.description}</Tooltip.Content>
+                        </Tooltip.Root>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
               </li>
             {/each}
           </ul>

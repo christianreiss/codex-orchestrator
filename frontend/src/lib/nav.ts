@@ -2,14 +2,16 @@
  * The console route registry.
  *
  * Navigation is deliberately data rather than markup: the desktop rail,
- * mobile sheet, hub tab strips, command palette, breadcrumbs, document titles
- * and active states all consume the same records. A page gets one stable id and
- * one owner; labels are never copied into an individual shell component.
+ * mobile sheet, command palette, breadcrumbs, document titles and active
+ * states all consume the same records. A page gets one stable id and one
+ * owner; labels are never copied into an individual shell component.
  *
  * Two levels: `NAV` is every page (what the palette and breadcrumbs address),
- * `HUBS` groups those pages into the handful of rail entries. A hub's pages
- * share a route-group layout (`routes/(hub)/+layout.svelte`) that renders the
- * tab strip, so no URL depends on the grouping.
+ * `HUBS` groups those pages into the handful of rail entries. The rail lists
+ * the active hub's pages as indented children and the mobile sheet lists every
+ * hub's pages, so a page carries at most one in-page tab row of its own (an
+ * engine, a settings group, a project view). The `routes/(hub)` directories
+ * only keep the source tree in the same shape; no URL depends on the grouping.
  */
 import {
   Activity,
@@ -28,13 +30,17 @@ import {
   Lock,
   MessageSquareShare,
   MessageSquareText,
+  Plug,
   RadioTower,
+  ScrollText,
   Server,
+  Settings,
   ShieldCheck,
   SlidersHorizontal,
   UserRoundCog,
   Users,
   Waypoints,
+  Workflow,
 } from "@lucide/svelte";
 import type { Component } from "svelte";
 import type { Engine } from "$lib/constants/engines";
@@ -67,17 +73,15 @@ export interface NavItem {
   icon: Component;
   /** A route matcher where a simple route prefix is not sufficient. */
   match?: RegExp;
-  /** Optional label for the tab-strip row this page sits in (see TabNav `group`). */
-  subgroup?: string;
   /**
-   * The one engine this destination serves. Its tab is annotated while that
-   * engine is switched off fleet-wide; it is never hidden, since the content
-   * stays editable.
+   * The one engine this destination serves. Its navigation entry is annotated
+   * while that engine is switched off fleet-wide; it is never hidden, since
+   * the content stays editable.
    */
   engine?: Engine;
 }
 
-/** One rail entry: a set of related pages behind a shared tab strip. */
+/** One rail entry: a set of related pages, listed under it while it is active. */
 export interface NavHub {
   id: HubId;
   section: HubSection;
@@ -109,7 +113,7 @@ export interface Breadcrumb {
 export const NAV: NavItem[] = [
   {
     id: "overview", group: "overview", route: "/dashboard", label: "Overview",
-    description: "What needs attention, then fleet health", keywords: ["home", "health", "usage", "attention"], icon: LayoutDashboard,
+    description: "What needs you, then provider usage, engines and login verification", keywords: ["home", "health", "usage", "attention", "needs you", "dashboard"], icon: LayoutDashboard,
   },
   {
     id: "hosts", group: "hosts", route: "/hosts", label: "Hosts",
@@ -118,45 +122,40 @@ export const NAV: NavItem[] = [
   {
     id: "agents", group: "agents", route: "/agents", label: "Agents",
     description: "Running agents, live, and how they are connected",
-    keywords: ["clients", "topology", "sessions", "wrappers", "live", "presence", "working", "graph", "connections", "communicator", "cdx", "clx", "cgx"], icon: RadioTower,
+    keywords: ["clients", "topology", "sessions", "wrappers", "live", "presence", "working", "graph", "connections", "communicator", "remote sessions", "cdx", "clx", "cgx", "ckx"], icon: RadioTower,
   },
   {
     id: "projects", group: "projects", route: "/projects", label: "Projects",
     description: "Shared boards, documents and reports", keywords: ["coordination", "todos", "notes", "board"], icon: FolderKanban,
   },
   {
-    id: "agent-messaging", group: "coordination", route: "/agent-messaging", label: "Messages",
-    description: "Conversations between agents", keywords: ["agents", "codex", "claude", "grok", "kimi", "kimi", "relay", "messaging", "conference"], icon: MessageSquareShare,
+    id: "agent-messaging", group: "coordination", route: "/agent-messaging", label: "Messaging",
+    description: "Agent addresses, groups and the delivery log", keywords: ["messages", "agent messaging", "agents", "codex", "claude", "grok", "kimi", "relay", "conference", "delivery"], icon: MessageSquareShare,
   },
   {
-    id: "schedules", group: "coordination", route: "/schedules", label: "Timed wake-ups",
-    description: "Scheduled prompts and session recovery", keywords: ["wake", "cron", "schedule", "interval", "resume"], icon: CalendarClock,
+    id: "schedules", group: "coordination", route: "/schedules", label: "Wake-ups",
+    description: "Scheduled prompts and session recovery", keywords: ["timed wake-ups", "schedules", "wake", "cron", "schedule", "interval", "resume"], icon: CalendarClock,
   },
   {
     id: "git-director", group: "coordination", route: "/git-director", label: "Git merges",
-    description: "Open merge requests and who is working where", keywords: ["git", "director", "worktree", "merge", "branch", "lease", "clone"], icon: GitMerge,
+    description: "Open merge requests and who is working where", keywords: ["git director", "git-director", "git", "worktree", "merge", "branch", "lease", "clone"], icon: GitMerge,
   },
   {
     id: "transfers", group: "coordination", route: "/transfers", label: "Shared files",
-    description: "Files agents hand each other, and when they expire", keywords: ["file", "transfer", "upload", "download", "artifact", "ttl", "expiry"], icon: FileUp,
+    description: "Files agents hand each other, and when they expire", keywords: ["transfers", "file transfer", "file", "upload", "download", "artifact", "ttl", "expiry"], icon: FileUp,
   },
-  {
-    id: "external-clients", group: "coordination", route: "/external-clients", label: "External clients",
-    description: "Bots and bridges outside the fleet that take part in messaging", keywords: ["bot", "hermes", "bridge", "trust", "key", "non-fleet", "external", "communication interface"], icon: Bot,
-  },
-  { id: "connectors", group: "coordination", route: "/connectors", label: "Connectors", description: "OAuth access for ChatGPT, Claude, Grok and Kimi Code", keywords: ["oauth", "chatgpt", "claude", "grok"], icon: Bot },
-  { id: "workflows", group: "coordination", route: "/workflows", label: "Workflows", description: "Reusable instructions, shared runs and reports", keywords: ["tasks", "runs", "evaluation", "reports"], icon: Waypoints },
+  { id: "workflows", group: "coordination", route: "/workflows", label: "Workflows", description: "Reusable instructions, shared runs and reports", keywords: ["tasks", "runs", "evaluation", "reports"], icon: Workflow },
   {
     id: "activity", group: "activity", route: "/activity", label: "Activity",
-    description: "Configuration and system changes", keywords: ["audit", "logs", "events", "diagnostics", "troubleshooting"], icon: Activity,
+    description: "Configuration and system changes", keywords: ["audit", "logs", "events", "diagnostics", "troubleshooting"], icon: ScrollText,
   },
   {
-    id: "reports", group: "activity", route: "/reports", label: "Reports",
-    description: "Bugs and requests about the orchestrator itself", keywords: ["feedback", "bugs", "features", "improvements"], icon: MessageSquareText,
+    id: "reports", group: "activity", route: "/reports", label: "Feedback",
+    description: "Bugs and requests about the orchestrator itself", keywords: ["reports", "feedback", "bugs", "features", "improvements"], icon: MessageSquareText,
   },
   {
     id: "provider-accounts", group: "providers", route: "/accounts", label: "Accounts",
-    description: "ChatGPT, Claude, Grok and Kimi Code logins and their usage", keywords: ["accounts", "chatgpt", "claude", "grok", "kimi", "quota", "credentials", "balance"], icon: UserRoundCog,
+    description: "Provider logins and their usage", keywords: ["accounts", "chatgpt", "claude", "grok", "kimi", "quota", "credentials", "balance"], icon: UserRoundCog,
   },
   {
     id: "engines", group: "providers", route: "/engines", label: "Engines",
@@ -170,7 +169,7 @@ export const NAV: NavItem[] = [
   },
   {
     id: "library", group: "library", route: "/library", label: "Library",
-    description: "Skills, agent rules, memories and Claude reply styles",
+    description: "Skills, agent rules, memories and reply styles",
     keywords: ["skills", "skill", "instructions", "agent rules", "agents.md", "claude.md", "memory", "memories", "subagents", "commands", "output styles", "reply styles"], icon: Library,
     match: /^\/library(?:\/|$)/,
   },
@@ -180,7 +179,12 @@ export const NAV: NavItem[] = [
   },
   {
     id: "api-keys", group: "access", route: "/api-keys", label: "API keys",
-    description: "Keys for the OpenAI, Anthropic, Grok and Kimi Code gateways", keywords: ["keys", "access", "gateway", "openai", "anthropic", "grok", "proxy", "availability", "routing"], icon: KeyRound,
+    description: "Keys for the inference gateways", keywords: ["keys", "access", "gateway", "openai", "anthropic", "grok", "kimi", "proxy", "availability", "routing"], icon: KeyRound,
+  },
+  { id: "connectors", group: "access", route: "/connectors", label: "Connectors", description: "OAuth access for AI chat apps", keywords: ["oauth", "chat apps", "chatgpt", "claude", "grok", "kimi"], icon: Plug },
+  {
+    id: "external-clients", group: "access", route: "/external-clients", label: "External clients",
+    description: "Bots and bridges outside the fleet that take part in messaging", keywords: ["bot", "hermes", "bridge", "trust", "key", "non-fleet", "external", "communication interface"], icon: Bot,
   },
   {
     id: "secrets", group: "access", route: "/secrets", label: "Secrets",
@@ -188,7 +192,7 @@ export const NAV: NavItem[] = [
   },
   {
     id: "settings", group: "access", route: "/settings", label: "Settings",
-    description: "Fleet-wide behavior: hosts, agents, rollout, data retention", keywords: ["rollout", "canary", "rtk", "supervisor", "chatty", "policies", "dns", "prune", "retention", "insecure", "auto-update", "approval", "coordination", "project rooms", "host rooms", "resource claims"], icon: ShieldCheck,
+    description: "Fleet-wide behavior: hosts, agents, rollout, data retention", keywords: ["rollout", "canary", "rtk", "supervisor", "chatty", "policies", "dns", "prune", "retention", "insecure", "auto-update", "approval", "coordination", "project rooms", "host rooms", "resource claims"], icon: Settings,
   },
   {
     id: "manual", group: "Utilities", route: "/manual", label: "Manual",
@@ -205,15 +209,15 @@ type HubDefinition = Omit<NavHub, "route" | "items">;
 
 /** Rail order within a section is the order here. */
 const HUB_DEFINITIONS: HubDefinition[] = [
-  { id: "overview", section: "Operate", label: "Overview", description: "What needs attention", icon: LayoutDashboard, mobilePriority: 1 },
+  { id: "overview", section: "Operate", label: "Overview", description: "What needs you", icon: LayoutDashboard, mobilePriority: 1 },
   { id: "hosts", section: "Operate", label: "Hosts", description: "Machines and their access", icon: Server, mobilePriority: 2 },
   { id: "agents", section: "Operate", label: "Agents", description: "Running agents, live", icon: RadioTower, mobilePriority: 4 },
   { id: "projects", section: "Operate", label: "Projects", description: "Boards, documents and reports", icon: FolderKanban, mobilePriority: 3 },
-  { id: "coordination", section: "Operate", label: "Coordination", description: "Messages, workflows, wake-ups, git merges and shared files", icon: Waypoints },
-  { id: "activity", section: "Operate", label: "Activity", description: "What changed, and reports about the orchestrator", icon: Activity },
+  { id: "coordination", section: "Operate", label: "Coordination", description: "Messaging, wake-ups, git merges, shared files and workflows", icon: Waypoints },
+  { id: "activity", section: "Operate", label: "Activity", description: "What changed, and feedback about the orchestrator", icon: Activity },
   { id: "providers", section: "Configure", label: "Providers", description: "Provider accounts and engine defaults", icon: Cpu },
   { id: "library", section: "Configure", label: "Library", description: "Skills, agent rules, memories and reply styles", icon: Library },
-  { id: "access", section: "Configure", label: "Access & Settings", description: "People, API keys, secrets and fleet-wide settings", icon: KeyRound },
+  { id: "access", section: "Configure", label: "Access & Settings", description: "People, API keys, connectors, external clients, secrets and fleet-wide settings", icon: ShieldCheck },
 ];
 
 export const HUBS: NavHub[] = HUB_DEFINITIONS.map((hub) => {
@@ -252,6 +256,9 @@ function humanize(segment: string): string {
 
 const CONTEXT_BY_ROUTE = new Map(NAV.map((item) => [item.route, item.label]));
 
+/** Project views whose label is not the humanized URL segment. */
+export const PROJECT_VIEW_LABELS: Record<string, string> = { slop: "Design review" };
+
 function detailTrail(parent: Breadcrumb, detail: string): Breadcrumb[] {
   return [parent, { label: detail }];
 }
@@ -274,7 +281,7 @@ export function getBreadcrumbs(pathname: string): Breadcrumb[] {
   if (pathname.startsWith("/projects/")) {
     const project = humanize(segments[1] ?? "");
     return segments[2]
-      ? [{ label: "Projects", route: "/projects" }, { label: project, route: `/projects/${encodeURIComponent(segments[1] ?? "")}` }, { label: humanize(segments[2]) }]
+      ? [{ label: "Projects", route: "/projects" }, { label: project, route: `/projects/${encodeURIComponent(segments[1] ?? "")}` }, { label: PROJECT_VIEW_LABELS[segments[2]] ?? humanize(segments[2]) }]
       : detailTrail({ label: "Projects", route: "/projects" }, project);
   }
   if (pathname.startsWith("/library/")) {

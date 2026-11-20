@@ -44,9 +44,9 @@
 </script>
 
 <PageShell
-  title="Messages"
-  description="Conversations between Codex, Claude, Grok, Kimi Code and Server agents (agent messaging)."
-  toggle={{ label: "Enable messages", checked: service.checked, disabled: service.disabled, onChange: (next) => service.request(next) }}
+  title="Messaging"
+  description="Agent addresses, groups and the delivery log."
+  toggle={{ label: "Enable messaging", checked: service.checked, disabled: service.disabled, onChange: (next) => service.request(next) }}
 >
   {#snippet actions()}
     <Button variant="outline" size="sm" onclick={refresh}><RefreshCw class="h-4 w-4" /> Refresh</Button>

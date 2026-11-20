@@ -65,6 +65,7 @@ const ICON_NAMES = [
   "SlidersHorizontal",
   "UserRoundCog",
   "Waypoints",
+  "Workflow",
   "Zap",
   "Smartphone",
   "Wrench",
@@ -201,10 +202,10 @@ describe("STATIC_COMMANDS", () => {
 
   it("uses the plain page labels and none of the retired ones", () => {
     const labels = STATIC_COMMANDS.map((command) => command.label);
-    for (const label of ["Go to Messages", "Go to Timed wake-ups", "Go to Git merges", "Go to Shared files", "Go to Reports", "Go to People", "Go to API keys", "Go to Secrets", "Go to Settings"]) {
+    for (const label of ["Go to Messaging", "Go to Wake-ups", "Go to Git merges", "Go to Shared files", "Go to Feedback", "Go to Connectors", "Go to External clients", "Go to People", "Go to API keys", "Go to Secrets", "Go to Settings"]) {
       assert.ok(labels.includes(label), `${label} is missing`);
     }
-    for (const retired of ["Go to Agent Messaging", "Go to Agent Portal", "Go to Fleet Instructions", "Go to Admin Users"]) {
+    for (const retired of ["Go to Agent Messaging", "Go to Agent Portal", "Go to Fleet Instructions", "Go to Admin Users", "Go to Messages", "Go to Timed wake-ups", "Go to Reports"]) {
       assert.ok(!labels.includes(retired), `${retired} should be gone`);
     }
   });

@@ -378,7 +378,8 @@ test("desktop shell exposes direct task navigation and the command palette", asy
     await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Overview", { exact: true })).toBeVisible();
   }
 
-  // The rail is nine flat hubs with no disclosure; every page is one tab away.
+  // The rail is nine hubs with no disclosure; the active hub lists its pages
+  // beneath it, so every page is one click away and no page needs a hub tab row.
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
   const hubs: Array<[string, string]> = [
     ["Overview", "/admin/dashboard"], ["Hosts", "/admin/hosts"], ["Agents", "/admin/agents"], ["Projects", "/admin/projects"],
@@ -390,16 +391,29 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   }
   await expect(primary.getByRole("button")).toHaveCount(0);
   const hubPages: Array<[string, string, string[]]> = [
-    ["Coordination", "/admin/agent-messaging", ["Messages", "Timed wake-ups", "Git merges", "Shared files"]],
-    ["Activity", "/admin/activity", ["Activity", "Reports"]],
-    ["Providers", "/admin/accounts", ["Accounts", "Engines"]],
-    ["Access & Settings", "/admin/people", ["People", "API keys", "Secrets", "Settings"]],
+    ["Coordination", "/admin/agent-messaging", ["Messaging", "Wake-ups", "Git merges", "Shared files", "Workflows"]],
+    ["Activity", "/admin/activity", ["Activity", "Feedback"]],
+    ["Providers", "/admin/accounts", ["Accounts", "Engines", "Usage limits"]],
+    ["Access & Settings", "/admin/people", ["People", "API keys", "Connectors", "External clients", "Secrets", "Settings"]],
   ];
   for (const [hub, path, pages] of hubPages) {
     await page.goto(path);
-    const tabs = page.getByRole("navigation", { name: `${hub} pages` });
-    for (const label of pages) await expect(tabs.getByRole("link", { name: label, exact: true })).toBeVisible();
+    const children = primary.getByRole("list", { name: `${hub} pages` });
+    await expect(children.getByRole("link")).toHaveText(pages);
+    // The page is the current location; its hub is the section it sits in.
+    await expect(children.getByRole("link", { name: pages[0], exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(primary.getByRole("link", { name: hub, exact: true }).first()).toHaveAttribute("aria-current", "true");
+    // No second navigation row above the page: the hub tab strip is gone.
+    await expect(page.getByRole("main").getByRole("navigation", { name: `${hub} pages` })).toHaveCount(0);
   }
+  // Moved pages keep their URLs and now sit under Access & Settings.
+  await page.goto("/admin/connectors");
+  await expect(primary.getByRole("list", { name: "Access & Settings pages" }).getByRole("link", { name: "Connectors", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(primary.getByRole("list", { name: "Coordination pages" })).toHaveCount(0);
+  // A one-page hub is itself the current page and lists nothing beneath it.
+  await page.goto("/admin/library");
+  await expect(primary.getByRole("link", { name: "Library", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(primary.getByRole("list", { name: "Library pages" })).toHaveCount(0);
   await page.goto("/admin/quick-settings");
   await expect(page).toHaveURL(/\/admin\/engines#defaults$/);
   await expect(page.getByRole("heading", { name: "Engines", level: 1 })).toBeVisible();
@@ -458,7 +472,7 @@ test("Overview counts hosts and stored accounts", async ({ page }) => {
   await expect(page.getByRole("link", { name: "2", exact: true })).toHaveAttribute("href", "/admin/hosts");
   await expect(page.getByText("hosts", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "3", exact: true }).first()).toHaveAttribute("href", "/admin/accounts");
-  await expect(page.getByText("stored accounts", { exact: true })).toBeVisible();
+  await expect(page.getByText("accounts for enabled engines", { exact: true })).toBeVisible();
   await expect(page.getByText("paused or being removed", { exact: true })).toBeVisible();
 });
 
@@ -515,7 +529,7 @@ test("failed initial auth status preserves the route instead of opening setup", 
   await expect(page.getByRole("heading", { name: "Set up Codex Orchestrator" })).toHaveCount(0);
 });
 
-test("daily navigation keeps the rail flat and preserves access on desktop and mobile", async ({ page }, info) => {
+test("daily navigation keeps the rail to nine hubs and preserves access on desktop and mobile", async ({ page }, info) => {
   await page.goto("/admin/dashboard");
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
   for (const name of ["Overview", "Agents", "Projects", "Hosts", "Coordination", "Activity", "Providers", "Library", "Access & Settings"]) {
@@ -524,9 +538,19 @@ test("daily navigation keeps the rail flat and preserves access on desktop and m
   await page.screenshot({ path: info.outputPath("workspace-desktop.png") });
   await primary.getByRole("link", { name: "Activity", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Activity", level: 1 })).toBeVisible();
-  await expect(primary.getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
+  // The Activity hub and its Activity page share a name: the hub is the
+  // section, only the page is the current location.
+  const activityHub = primary.getByRole("link", { name: "Activity", exact: true }).first();
+  const activityPage = primary.getByRole("list", { name: "Activity pages" }).getByRole("link", { name: "Activity", exact: true });
+  await expect(activityHub).toHaveAttribute("aria-current", "true");
+  await expect(activityPage).toHaveAttribute("aria-current", "page");
+  await expect(primary.locator('[aria-current="page"]')).toHaveCount(1);
   await page.goto("/admin/activity?type=tools");
-  await expect(primary.getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(activityPage).toHaveAttribute("aria-current", "page");
+  await primary.getByRole("link", { name: "Feedback", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Feedback", level: 1 })).toBeVisible();
+  await expect(activityPage).not.toHaveAttribute("aria-current", /.+/);
+  await expect(activityHub).toHaveAttribute("aria-current", "true");
   await page.goto("/admin/topology");
   await expect(primary.getByRole("link", { name: "Agents", exact: true })).toHaveAttribute("aria-current", "page");
 
@@ -537,7 +561,11 @@ test("daily navigation keeps the rail flat and preserves access on desktop and m
   await expect(mobile.getByRole("link", { name: "Activity", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   await page.screenshot({ path: info.outputPath("workspace-mobile-menu.png") });
-  await page.getByRole("dialog").getByRole("link", { name: /^Activity/ }).click();
+  // The sheet mirrors the rail: a multi-page hub is a heading over its pages.
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("list", { name: "Access & Settings pages" }).getByRole("link")).toHaveCount(6);
+  await expect(sheet.getByRole("list", { name: "Coordination pages" }).getByRole("link", { name: /^Connectors/ })).toHaveCount(0);
+  await sheet.getByRole("link", { name: /^Activity/ }).click();
   await expect(page.getByRole("heading", { name: "Activity", level: 1 })).toBeVisible();
 });
 
@@ -830,12 +858,12 @@ test("operator tables use the full workspace and the mobile menu retains all rou
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("link", { name: /Library/ })).toBeVisible();
-  for (const label of ["Messages", "Timed wake-ups", "Git merges", "Shared files"]) {
-    await expect(dialog.getByRole("link", { name: new RegExp(label) })).toBeVisible();
+  for (const label of ["Messaging", "Wake-ups", "Git merges", "Shared files", "Workflows", "Connectors", "External clients", "Feedback"]) {
+    await expect(dialog.getByRole("link", { name: new RegExp(`^${label}`) })).toBeVisible();
   }
   await expect(dialog.getByRole("link", { name: /Agent Portal/ })).toHaveCount(0);
-  await dialog.getByRole("link", { name: /Timed wake-ups/ }).click();
-  await expect(page.getByRole("heading", { name: "Timed wake-ups", exact: true })).toBeVisible();
+  await dialog.getByRole("link", { name: /^Wake-ups/ }).click();
+  await expect(page.getByRole("heading", { name: "Wake-ups", exact: true })).toBeVisible();
   await expect(dialog).toHaveCount(0);
 });
 
@@ -1366,7 +1394,7 @@ test("control navigation highlights mobile account destinations", async ({ page 
 
 test("Agent Messaging uses peer URL-backed operational views", async ({ page }) => {
   await page.goto("/admin/agent-messaging?view=conversations");
-  await expect(page.getByRole("heading", { name: "Messages", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Messaging", level: 1 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Conversations", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("agent:console ↔ agent:review")).toBeVisible();
 
