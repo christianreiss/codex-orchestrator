@@ -43,6 +43,12 @@ const DOCS = [
   'docs/interface-api.md',
   'docs/MCP.md',
 ];
+/**
+ * Docs that are still scanned for wrong names but are not required to contribute
+ * any: `docs/API.md` is the route catalogue and names no environment variable
+ * (deployment settings live in the other docs and in `docs/interface-api.md`).
+ */
+const NAME_FREE_DOCS = ['docs/API.md'];
 const ENV_TS = resolve(ROOT, 'api/src/env.ts');
 const COMPOSE = resolve(ROOT, 'docker-compose.yml');
 const RUNNER = resolve(ROOT, 'runner/app.py');
@@ -151,8 +157,11 @@ describe('operator docs environment reference', () => {
   // turn the checks above into comparisons of two empty lists.
   it('reads the names out of each doc and each source', () => {
     const documented = documentedVars();
-    // Every doc has to contribute names, or one of the seven goes unchecked.
-    expect([...new Set([...documented.values()].flat())].sort()).toEqual([...DOCS].sort());
+    // Every doc has to contribute names, or one of them goes unchecked. The
+    // catalogue is the one deliberate exception (NAME_FREE_DOCS).
+    expect([...new Set([...documented.values()].flat())].sort()).toEqual(
+      DOCS.filter((doc) => !NAME_FREE_DOCS.includes(doc)).sort(),
+    );
     expect(documented.get('PUBLIC_BASE_URL')).toContain('docs/USAGE.md');
     expect(documented.has('ADMIN_SESSION_TTL_MINUTES')).toBe(true);
     expect(documented.has('RUNNER_SHARED_SECRET')).toBe(true);
