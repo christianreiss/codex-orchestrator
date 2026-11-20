@@ -32,7 +32,7 @@ hosts, and let `cdx` (Codex), `clx` (Claude), `cgx` (Grok), and `ckx` (Kimi) kee
 auth, config, skills, and agent instructions. A built-in MCP server then gives
 every agent in the fleet shared memory, a project board, merge arbitration,
 peer messaging, secrets, and a file drop. Start agents remotely, schedule work,
-and answer them from the console or Android companion.
+run shared workflows, and answer them from the console or Android companion.
 
 > [!NOTE]
 > **All four engines are first-class.** `cdx`, `clx`, `cgx`, and `ckx` are personas of
@@ -84,6 +84,7 @@ account selection, registration and other lifecycle checks run alongside it.
 - **Auth, config, skills, and agent instructions** land on every host each time you launch.
 - **Engine-native config**: `config.toml` for Codex (written wholesale), `settings.json` for Claude (deep-merged, so your own keys survive), and fleet-owned keys of `~/.grok/config.toml` for Grok and `~/.kimi-code/config.toml` for Kimi.
 - **Signed per-host config**: each host gets its own Ed25519-signed config and API key.
+- **Emergency launch**: `cdx emergency`, `clx emergency`, `cgx emergency` or `ckx emergency` start the native CLI directly from a secure host while the orchestrator is down.
 - **Managed native commands**: `codex`, `claude`, `grok` and `kimi` retain their native command grammar through per-user shims into `cxx`.
 - **Background upgrades**: scheduled checks install pinned engine releases into private prefixes; explicit `cxx update` reports wrapper, engine and content results in one run.
 - **Session housekeeping**: configurable retention and disk budgets clean up old local sessions while preserving active, pinned and fleet-resumable work. Preview cleanup and pin sessions from the CLI.
@@ -136,10 +137,13 @@ with the required capability.
 
 ### Answer your agents from your phone
 
-The paired **Android companion** provides Chats and Hosts, direct replies,
-question buttons, media capture/playback, host-access approvals and push
-notifications. It can start a conversation or a task on a daemon-ready host
-and continue the same native session. Pair each phone from
+The paired **Android companion** (0.10) opens on **Needs you**: questions,
+notices and host approvals sit above your active agents and rooms. Tabs are
+Chats · Hosts · Quotas. Reply directly, answer with question buttons, capture
+and play media, approve host access and receive push notifications. A message
+to a busy agent waits in the queue ("Waiting for the agent") and can be
+withdrawn. A "+" button starts a conversation or task on a daemon-ready host
+and continues the same native session. Pair each phone from
 **Account → Android devices** and revoke it independently when needed.
 
 Chat and approvals work without push; notifications require configured
@@ -188,6 +192,14 @@ Enabled hosts reach the orchestrator's MCP server through the same tool families
 - **File Transfer** — a TTL'd pool where agents hand each other build artifacts, heap dumps, or tarballs, chunked over MCP and audited on every fetch.
 - **Secrets** — encrypted working credentials delivered over MCP on demand, with audited reads and no automatic plaintext file on the host.
 
+### Workflows, roles and supervision
+
+- **Workflows** are versioned instructions with a goal, dependent tasks and acceptance criteria. A run pins one version; agents claim and execute tasks while the server checks ownership, dependencies and completion. It never executes instruction text. [Workflows](docs/workflows.md).
+- **Agent roles** package a specialist responsibility (design review first) as a versioned `ROLE.md`. A role describes how to work; it grants no permission. Off by default. [Agent roles](docs/agent-roles.md).
+- **Fleet Advisor** gives an agent a second opinion from a server-hosted model on an uncertain fix, task tier or failure. The answer is a verdict, never authority.
+- **Slop jobs** let agents run a quick or full review of UI work (sources, screenshots, terminal UIs) and compare reruns before reporting it done.
+- **Task supervisor** (opt-in) watches accepted work and claimed workflow tasks and surfaces missing handoffs and failed native sessions on the Agents graph. [Supervisor](docs/agent-supervisor.md).
+
 ### Merges without the mid-air collisions
 
 ![Git Director activity with registered worktrees, agent tasks, branches and declared paths](docs/img/git-director.png)
@@ -228,6 +240,12 @@ The policy builder composes the canonical
 shows the exact document any host will receive — including one concise guidance block per
 enabled feature, so agents learn the house rules without you writing them
 twice. [How the document is assembled.](#dynamic-agent-instructions)
+
+The **Engines** page also edits each engine's native user defaults: Codex
+`config.toml` and named profiles, Claude `settings.json`, and the Grok and Kimi
+`config.toml`, with validation, preview and a draft that survives a failed
+save. Managed policy planes stay native-owned; see
+[native configuration scopes](docs/NATIVE_CONFIG_SCOPES.md).
 
 ### An assistant inside the console
 
@@ -733,6 +751,10 @@ Start with the [documentation index](docs/README.md) for current guides, contrac
 | [`interface-cdx.md`](docs/interface-cdx.md) | Codex wrapper interface contract |
 | [`interface-clx.md`](docs/interface-clx.md) | Claude wrapper interface contract |
 | [`interface-cgx.md`](docs/interface-cgx.md) | Grok wrapper interface contract |
+| [`interface-ckx.md`](docs/interface-ckx.md) | Kimi Code wrapper interface contract |
+| [`workflows.md`](docs/workflows.md) / [`agent-roles.md`](docs/agent-roles.md) | Shared workflow runs and agent roles |
+| [`NATIVE_CONFIG_SCOPES.md`](docs/NATIVE_CONFIG_SCOPES.md) | Which native engine settings the fleet authors |
+| [`communicator.md`](docs/communicator.md) | Local communicator, sync and receiver lifecycle |
 | [`wrapper-v2-architecture.md`](docs/wrapper-v2-architecture.md) | How the signed `cxx` wrapper is built and updated |
 | [`auth-runner.md`](docs/auth-runner.md) / [`auth-resilience.md`](docs/auth-resilience.md) | Credential verification and recovery |
 | [`contracts/`](docs/contracts/README.md) | JSON schemas for the wrapper ↔ server contract |
