@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * The `/admin/overview` handler returns one `ok({...})` literal, and both docs
- * plus the dashboard's `OverviewResponse` describe it by hand. All three drifted
+ * The `/admin/overview` handler returns one `ok({...})` literal, and the spec
+ * (`docs/interface-api.md`) plus the dashboard's `OverviewResponse` describe it
+ * by hand. `docs/API.md` is a route catalogue and carries no payload keys. All three drifted
  * onto keys the literal never produced (`has_canonical_auth`, `seed_required`,
  * `seed_reasons`, `tokens_day`/`tokens_week`/`tokens_month`), so the client type
  * invited reads that are always `undefined`. The route's path is covered
@@ -18,7 +19,6 @@ const ROUTE = resolve(import.meta.dirname, '../../../src/routes/admin/overview/i
 const CLIENT = resolve(import.meta.dirname, '../../../../frontend/src/lib/api/overview.ts');
 const DOCS: Record<string, string> = {
   'docs/interface-api.md': resolve(import.meta.dirname, '../../../../docs/interface-api.md'),
-  'docs/API.md': resolve(import.meta.dirname, '../../../../docs/API.md'),
 };
 
 /** Names a doc bullet or `OverviewResponse` may carry even though the literal cannot produce them. */

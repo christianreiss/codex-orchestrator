@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { collectRegisteredRoutes } from './registered-routes.js';
 
 /**
- * `manual-shortcuts-api-routes.test.ts` holds the manual's API reference to the
- * app, but the reference article is not the only place the manual names
- * endpoints: the other articles carry the same claims inline as
+ * `manual-shortcuts-api-routes.test.ts` keeps the manual's API reference page
+ * free of copied route tables, but that page is not the only place the manual
+ * names endpoints: the other articles carry the same claims inline as
  * `` `METHOD /path` `` code spans — `settings.md` alone names some forty of
  * them — and a route rename left those spans describing an app that no longer
  * exists, with nothing to catch it.
@@ -23,9 +23,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ARTICLES = resolve(HERE, '../../../../public/admin/manual/articles');
 
 /**
- * The shipped articles, minus `shortcuts-api.md` — its tables are the API
- * reference and `manual-shortcuts-api-routes.test.ts` already checks them —
- * and minus `mcp.md`, which documents MCP tools rather than HTTP routes.
+ * The shipped articles, minus `shortcuts-api.md` — its inline spans are
+ * checked by `manual-shortcuts-api-routes.test.ts` — and minus `mcp.md`, which documents MCP tools rather than HTTP routes.
  */
 const ARTICLE_FILES = [
   'admin-login.md',
