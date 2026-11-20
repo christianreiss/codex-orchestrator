@@ -62,17 +62,13 @@ type Result struct {
 	Reported       bool   // /cron/report succeeded
 }
 
-// Tick is the action taken by `cdx cron run`. It checks the orchestrator,
-// applies any wrapper self-update (re-exec'ing into the new binary), then
-// applies any Codex update, and finally reports the post-update versions
-// back via /cron/report. A second /cron/report attempt is made on the first
-// failure; persistent failure returns an error so callers can exit non-zero.
-func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
-	return TickWithOptions(ctx, cfg, false)
-}
-
-// TickWithOptions is Tick with presentation state carried through unattended
-// self/peer updates. Minimal mode stays portable even after a re-exec.
+// TickWithOptions is the action taken by `cdx cron run`. It checks the
+// orchestrator, applies any wrapper self-update (re-exec'ing into the new
+// binary), then applies any Codex update, and finally reports the post-update
+// versions back via /cron/report. A second /cron/report attempt is made on the
+// first failure; persistent failure returns an error so callers can exit
+// non-zero. Presentation state (minimal) is carried through unattended
+// self/peer updates and stays portable even after a re-exec.
 func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Result, error) {
 	logger := slog.Default()
 	ensureCronPath()

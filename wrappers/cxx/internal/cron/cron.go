@@ -610,22 +610,6 @@ func loadAnySeedConfigWithKey(pubkey ed25519.PublicKey) (*config.Config, error) 
 	return nil, fmt.Errorf("no usable signed cxx engine config found: %w", errors.Join(errs...))
 }
 
-// validateEnabledConfigs checks identity only. Signed wrapper metadata is a
-// release hint and may legitimately lag the running cxx or differ briefly
-// across engines during a rolling config refresh.
-func validateEnabledConfigs(byEngine map[string]*config.Config, first *config.Config, engines []string) error {
-	for _, engine := range engines {
-		cfg := byEngine[engine]
-		if cfg == nil {
-			continue
-		}
-		if cfg.Host.ID != first.Host.ID || cfg.Host.FQDN != first.Host.FQDN {
-			return fmt.Errorf("%s config belongs to a different host", engine)
-		}
-	}
-	return nil
-}
-
 func installUserCron(bin string, minute, hour int) error {
 	cur, err := readCrontab()
 	if err != nil {
@@ -998,20 +982,6 @@ func buildCronLine(minute, hour int, bin, logFile string, environment map[string
 	cmd := fmt.Sprintf("%s %s cron run --due >> %s 2>&1", strings.Join(assignments, " "), shellEscape(bin), shellEscape(logFile))
 	cmd = strings.ReplaceAll(cmd, "%", `\%`)
 	return fmt.Sprintf("%s %s %s", cronSchedule(minute, hour), cmd, Marker)
-}
-
-func stripManaged(body string) []string {
-	var out []string
-	for _, line := range strings.Split(body, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if !isManagedCrontabLine(line) {
-			out = append(out, line)
-		}
-	}
-	return out
 }
 
 func isManagedCrontabLine(line string) bool {

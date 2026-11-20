@@ -702,10 +702,6 @@ func quotaTelemetryWarning(q *orchestrator.ChatGPTQuota, now time.Time) string {
 	return ""
 }
 
-func quotaProjectionNote(used int, limSec, resetSec int64) string {
-	return quotaProjectionNoteAt(used, limSec, resetSec, resetSec)
-}
-
 func quotaProjectionNoteAt(used int, limSec, resetSec, remainingSec int64) string {
 	if used <= 0 || !ui.ProjectionReady(limSec, resetSec) {
 		return ""

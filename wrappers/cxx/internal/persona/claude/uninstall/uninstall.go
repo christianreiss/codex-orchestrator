@@ -267,11 +267,6 @@ func removeTreeReport(stdout, stderr io.Writer, dir string) error {
 	return nil
 }
 
-func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsername string) []string {
-	out, _ := otherUsersOrErr(ctx, client, currentUsername)
-	return out
-}
-
 func otherUsersOrErr(ctx context.Context, client *orchestrator.Client, currentUsername string) ([]string, error) {
 	hostname, _ := os.Hostname()
 	body := map[string]any{

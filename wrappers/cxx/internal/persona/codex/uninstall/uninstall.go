@@ -238,19 +238,10 @@ func authDeletePath() string {
 	return "/auth?force=1&engine=codex"
 }
 
-// otherUsers calls POST /host/users with the current username/hostname and
-// returns every other registered username. Network/JSON failures collapse to
-// an empty slice — kept for compatibility with callers that only need the
-// best-effort result. Run uses otherUsersOrErr instead so it can fail closed
-// on error rather than silently treating a failed lookup as "no other users".
-func otherUsers(ctx context.Context, client *orchestrator.Client, currentUsername string) []string {
-	out, _ := otherUsersOrErr(ctx, client, currentUsername)
-	return out
-}
-
-// otherUsersOrErr is otherUsers but propagates the transport/JSON error
-// instead of swallowing it, so the safety-net check can distinguish "no other
-// users" from "couldn't ask".
+// otherUsersOrErr calls POST /host/users with the current username/hostname,
+// returns every other registered username, and
+// propagates the transport/JSON error instead of swallowing it, so the
+// safety-net check can distinguish "no other users" from "couldn't ask".
 func otherUsersOrErr(ctx context.Context, client *orchestrator.Client, currentUsername string) ([]string, error) {
 	hostname, _ := os.Hostname()
 	body := map[string]any{

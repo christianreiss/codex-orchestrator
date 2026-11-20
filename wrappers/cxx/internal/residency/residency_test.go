@@ -37,18 +37,15 @@ func TestNamespacesConvergeDefaultsWithoutCollapsingCustomRoots(t *testing.T) {
 func TestEveryOutstandingWorkKindBlocksHandoff(t *testing.T) {
 	work := []Workload{{Accepted: 1}, {PeerClaims: 1}, {Children: 1}, {Receipts: 1}, {Writes: 1}, {Requests: 1}, {LegacyClients: 1}, {Accepted: -1}}
 	for _, w := range work {
-		if w.Quiet() || !KeepResident(false, false, w) {
+		if w.Quiet() {
 			t.Fatalf("outstanding work ignored: %+v", w)
 		}
 		if err := Next(Draining, HandoffReady, Evidence{AdmissionFenced: true, Workload: w}); err == nil {
 			t.Fatalf("unsafe handoff accepted: %+v", w)
 		}
 	}
-	if KeepResident(false, false, Workload{}) {
-		t.Fatal("idle nonresident retained")
-	}
-	if !KeepResident(true, false, Workload{}) || !KeepResident(false, true, Workload{}) {
-		t.Fatal("residence requires execution")
+	if !(Workload{}).Quiet() {
+		t.Fatal("idle workload reported outstanding work")
 	}
 }
 

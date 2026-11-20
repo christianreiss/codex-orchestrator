@@ -27,7 +27,7 @@ func TestPruneKeepsOnlyThePublishedVersion(t *testing.T) {
 	if err := os.WriteFile(cli, []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := PruneEngine(root, cli, testLock, nil)
+	removed, err := Prune(root, KeepFor(root, cli), testLock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestPruneRemovesAbandonedInstallStages(t *testing.T) {
 	if err := os.WriteFile(cli, []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := PruneEngine(root, cli, testLock, nil)
+	removed, err := Prune(root, KeepFor(root, cli), testLock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestPruneWithoutAResolvedPointerIsANoOp(t *testing.T) {
 	root := t.TempDir()
 	seed(t, root, "3.0.0-aaa", "3.0.1-bbb")
 	for _, cli := range []string{"", filepath.Join(t.TempDir(), "elsewhere", "claude")} {
-		removed, err := PruneEngine(root, cli, testLock, nil)
+		removed, err := Prune(root, KeepFor(root, cli), testLock, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -99,7 +99,7 @@ func TestPruneSkipsWhileAnInstallerHoldsTheLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer held.Release()
-	removed, err := PruneEngine(root, cli, testLock, nil)
+	removed, err := Prune(root, KeepFor(root, cli), testLock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestPruneLeavesPlainFilesAlone(t *testing.T) {
 	if err := os.WriteFile(cli, []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PruneEngine(root, cli, testLock, nil); err != nil {
+	if _, err := Prune(root, KeepFor(root, cli), testLock, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(lock); err != nil {

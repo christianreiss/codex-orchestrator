@@ -382,17 +382,6 @@ func Prepare(engine, session string) (*Delivery, error) {
 	return result, err
 }
 
-func Consume(engine, session string) (*Notice, error) {
-	delivery, err := Prepare(engine, session)
-	if err != nil || delivery == nil {
-		return nil, err
-	}
-	if err = delivery.Commit(); err != nil {
-		return nil, err
-	}
-	return &delivery.Notice, nil
-}
-
 // Prime suppresses a notice that predates this session: it launched with the
 // content already on disk. Later passes remain eligible for delivery.
 func Prime(engine, session string) error {

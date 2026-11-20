@@ -61,13 +61,9 @@ type Result struct {
 	Reported       bool
 }
 
-// Tick is the action taken by `clx cron run`.
-func Tick(ctx context.Context, cfg *config.Config) (Result, error) {
-	return TickWithOptions(ctx, cfg, false)
-}
-
-// TickWithOptions is Tick with presentation state carried through unattended
-// self/peer updates. Minimal mode stays portable even after a re-exec.
+// TickWithOptions is the action taken by `clx cron run`. Presentation state
+// (minimal) is carried through unattended self/peer updates and stays portable
+// even after a re-exec.
 func TickWithOptions(ctx context.Context, cfg *config.Config, minimal bool) (Result, error) {
 	logger := slog.Default()
 	ensureCronPath()

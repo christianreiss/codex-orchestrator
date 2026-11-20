@@ -71,7 +71,7 @@ func TestTickHonorsConfiguredCAForCheckAndReport(t *testing.T) {
 	}
 	cfg := minimalCfg(t, server.URL)
 	cfg.Orchestrator.CABundlePath = &bundle
-	res, err := Tick(context.Background(), cfg)
+	res, err := TickWithOptions(context.Background(), cfg, false)
 	if err != nil || !res.Reported || checks.Load() != 1 || reports.Load() != 1 {
 		t.Fatalf("custom-CA maintenance=%+v checks=%d reports=%d err=%v", res, checks.Load(), reports.Load(), err)
 	}
@@ -89,7 +89,7 @@ func TestTickRejectsNativeUpdateWithoutTarget(t *testing.T) {
 		_, _ = w.Write([]byte(`{"action":"update"}`))
 	}))
 	defer server.Close()
-	res, err := Tick(context.Background(), minimalCfg(t, server.URL))
+	res, err := TickWithOptions(context.Background(), minimalCfg(t, server.URL), false)
 	if err == nil || !strings.Contains(err.Error(), "without target") || res.CodexAction == "updated" || res.Reported {
 		t.Fatalf("missing native target=%+v err=%v", res, err)
 	}
@@ -148,7 +148,7 @@ func TestTickNoUpdateReportsAndReturns(t *testing.T) {
 
 	cfg := minimalCfg(t, srv.URL)
 	stubManagedSync(t)
-	res, err := Tick(context.Background(), cfg)
+	res, err := TickWithOptions(context.Background(), cfg, false)
 	if err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestTickDisableStillSyncsAndReportsWithoutRemovingSchedule(t *testing.T) {
 
 	cfg := minimalCfg(t, srv.URL)
 	stubManagedSync(t)
-	res, err := Tick(context.Background(), cfg)
+	res, err := TickWithOptions(context.Background(), cfg, false)
 	if err != nil {
 		t.Fatalf("Tick disable: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestTickWrapperUpdateLoopGuard(t *testing.T) {
 
 	cfg := minimalCfg(t, srv.URL)
 	stubManagedSync(t)
-	_, err := Tick(context.Background(), cfg)
+	_, err := TickWithOptions(context.Background(), cfg, false)
 	if err == nil {
 		t.Fatal("expected loop-detected error")
 	}
@@ -245,7 +245,7 @@ func TestTickWrapperUpdateRefusesIncompleteMetadata(t *testing.T) {
 
 	cfg := minimalCfg(t, srv.URL)
 	stubManagedSync(t)
-	_, err := Tick(context.Background(), cfg)
+	_, err := TickWithOptions(context.Background(), cfg, false)
 	if err == nil {
 		t.Fatal("expected metadata-incomplete error")
 	}
@@ -289,7 +289,7 @@ func TestTickReportRetriesThenFails(t *testing.T) {
 		cancel()
 	}()
 	stubManagedSync(t)
-	_, err := Tick(ctx, cfg)
+	_, err := TickWithOptions(ctx, cfg, false)
 	if err == nil {
 		t.Fatal("expected report failure error")
 	}
@@ -342,7 +342,7 @@ func TestTickSyncsManagedContentAfterEngineUpdate(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	res, err := Tick(context.Background(), minimalCfg(t, srv.URL))
+	res, err := TickWithOptions(context.Background(), minimalCfg(t, srv.URL), false)
 	if err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestTickReportsVersionsAndFailsWhenContentSyncFails(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	res, err := Tick(context.Background(), minimalCfg(t, srv.URL))
+	res, err := TickWithOptions(context.Background(), minimalCfg(t, srv.URL), false)
 	if err == nil || !strings.Contains(err.Error(), "Configuration sync") {
 		t.Fatalf("failed content sync reported success: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestTickSkipsSyncWhenWrapperUpdatePathTaken(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	if _, err := Tick(context.Background(), minimalCfg(t, srv.URL)); err == nil {
+	if _, err := TickWithOptions(context.Background(), minimalCfg(t, srv.URL), false); err == nil {
 		t.Fatal("expected the restart-loop guard to fail the tick")
 	}
 	if calls != 0 {

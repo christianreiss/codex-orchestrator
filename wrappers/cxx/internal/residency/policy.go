@@ -58,10 +58,6 @@ func (w Workload) Quiet() bool {
 		w.Receipts == 0 && w.Writes == 0 && w.Requests == 0 && w.LegacyClients == 0
 }
 
-func KeepResident(explicit, executionAccepting bool, w Workload) bool {
-	return explicit || executionAccepting || !w.Quiet()
-}
-
 type Phase string
 
 const (

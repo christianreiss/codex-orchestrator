@@ -121,7 +121,7 @@ func TestSharedSessionLeaseProvesLastProcessInEitherExitOrder(t *testing.T) {
 			leases := make([]*Lock, 2)
 			for i := range leases {
 				var err error
-				leases[i], err = AcquireShared("cdx-auth-sessions-test")
+				leases[i], err = TryAcquireShared("cdx-auth-sessions-test")
 				if err != nil {
 					t.Fatalf("shared lease %d: %v", i, err)
 				}

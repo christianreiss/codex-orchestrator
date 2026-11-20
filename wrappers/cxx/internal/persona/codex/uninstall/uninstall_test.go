@@ -50,7 +50,7 @@ func TestOtherUsersStripsCurrentAndDeduplicates(t *testing.T) {
 			},
 		})
 	})
-	got := otherUsers(context.Background(), c, "alice")
+	got, _ := otherUsersOrErr(context.Background(), c, "alice")
 	want := []string{"bob", "carol"}
 	if len(got) != len(want) {
 		t.Fatalf("got=%v want=%v", got, want)
@@ -73,7 +73,7 @@ func TestOtherUsersHonoursRootLevelUsersShape(t *testing.T) {
 			},
 		})
 	})
-	got := otherUsers(context.Background(), c, "alice")
+	got, _ := otherUsersOrErr(context.Background(), c, "alice")
 	if len(got) != 1 || got[0] != "dave" {
 		t.Errorf("got = %v", got)
 	}
@@ -84,7 +84,7 @@ func TestOtherUsersReturnsEmptyOnNetworkError(t *testing.T) {
 		w.WriteHeader(500)
 	})
 	srv.Close()
-	got := otherUsers(context.Background(), c, "alice")
+	got, _ := otherUsersOrErr(context.Background(), c, "alice")
 	if got != nil {
 		t.Errorf("got = %v, want nil", got)
 	}
