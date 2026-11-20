@@ -103,7 +103,7 @@
           <p class="mt-0.5 text-caption text-muted-foreground">{address.queue_depth ?? 0} queued · {address.continuity}</p>
         </Table.Cell>
         <Table.Cell class="max-w-[16rem]">
-          <p class="truncate">{address.fqdn ?? `Host #${address.host_id}`}</p>
+          <p class="truncate">{address.fqdn ?? "Unknown host"}</p>
           <p class="truncate text-caption text-muted-foreground" title={address.cwd}>{address.username} · {address.host_secure ? "secure" : "insecure"} · {address.host_engines.join(" + ") || "no engines"}</p>
         </Table.Cell>
         <Table.Cell class="text-muted-foreground"><Timestamp value={address.last_seen_at} fallback="Never" /></Table.Cell>

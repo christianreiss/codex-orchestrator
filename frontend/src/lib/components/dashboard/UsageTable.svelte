@@ -131,7 +131,7 @@
       <Table.Cell class={cn("whitespace-nowrap text-body-sm", account.usage.stale && account.usage.fetched_at ? "text-warning" : "text-muted-foreground")}
         title={account.usage.stale && account.usage.fetched_at ? "Last known reading; the latest update did not succeed" : undefined}>
         {#if account.usage.fetched_at}
-          <span class="sm:hidden">Updated </span><Timestamp value={account.usage.fetched_at} />
+          <span class="sm:hidden">Updated&nbsp;</span><Timestamp value={account.usage.fetched_at} />
         {:else}No reading yet{/if}
       </Table.Cell>
     </Table.Row>

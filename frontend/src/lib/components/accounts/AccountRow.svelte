@@ -60,7 +60,7 @@
   </Table.Cell>
   <Table.Cell><AccountUsage {account} /></Table.Cell>
   <Table.Cell class="whitespace-nowrap text-body-sm">
-    <span class="text-muted-foreground sm:hidden">Sessions: </span>{account.sessions.length}
+    <span class="text-muted-foreground sm:hidden">Sessions:&nbsp;</span>{account.sessions.length}
     {#if hosts.length || runnerTask}
       <div class="flex flex-wrap gap-x-2 text-caption">
         {#if runnerTask}<span class="text-muted-foreground">Runner task</span>{/if}
@@ -68,7 +68,7 @@
       </div>
     {/if}
   </Table.Cell>
-  <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground"><span class="sm:hidden">Verified: </span><Timestamp value={account.verification_checked_at} fallback="Never" /></Table.Cell>
+  <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground"><span class="sm:hidden">Verified:&nbsp;</span><Timestamp value={account.verification_checked_at} fallback="Never" /></Table.Cell>
   <Table.Cell class="w-10 text-right max-sm:absolute max-sm:right-1 max-sm:top-1 max-sm:w-auto">
     {#if canManage && account.state !== "removing"}<RowActions {actions} label={`Actions for ${account.label}`} />{/if}
   </Table.Cell>

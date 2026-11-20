@@ -16,7 +16,7 @@
     feedbackApi, feedbackKeys, feedbackPriorities, feedbackStatuses, feedbackTypes,
     type FeedbackItem, type FeedbackPriority, type FeedbackType,
   } from "$lib/api/feedback";
-  import { areaClass, controlClass, humanize } from "./report-model";
+  import { areaClass, controlClass, sentence } from "./report-model";
 
   type Props = { item: FeedbackItem; onDeleted: () => void };
   let { item, onDeleted }: Props = $props();
@@ -105,13 +105,13 @@
     <FormField id="tr-title" label="Title"><input id="tr-title" class={controlClass} bind:value={editTitle} required maxlength="255" /></FormField>
     <FormField id="tr-component" label="Component"><input id="tr-component" class={controlClass} bind:value={editComponent} required maxlength="100" /></FormField>
     <FormField id="tr-type" label="Type">
-      <SimpleSelect id="tr-type" aria-label="Type" class="w-full" bind:value={editType} options={feedbackTypes.map((value) => ({ value, label: humanize(value) }))} />
+      <SimpleSelect id="tr-type" aria-label="Type" class="w-full" bind:value={editType} options={feedbackTypes.map((value) => ({ value, label: sentence(value) }))} />
     </FormField>
     <FormField id="tr-priority" label="Priority">
-      <SimpleSelect id="tr-priority" aria-label="Priority" class="w-full" bind:value={editPriority} options={feedbackPriorities.map((value) => ({ value, label: humanize(value) }))} />
+      <SimpleSelect id="tr-priority" aria-label="Priority" class="w-full" bind:value={editPriority} options={feedbackPriorities.map((value) => ({ value, label: sentence(value) }))} />
     </FormField>
     <FormField id="tr-status" label="Report status" class="sm:col-span-2">
-      <SimpleSelect id="tr-status" aria-label="Report status" class="w-full" bind:value={nextStatus} options={[{ value: "", label: "Keep current status" }, ...feedbackStatuses.filter((s) => s !== "in_progress").map((value) => ({ value, label: humanize(value) }))]} />
+      <SimpleSelect id="tr-status" aria-label="Report status" class="w-full" bind:value={nextStatus} options={[{ value: "", label: "Keep current status" }, ...feedbackStatuses.filter((s) => s !== "in_progress").map((value) => ({ value, label: sentence(value) }))]} />
     </FormField>
     <FormField id="tr-note" label="Add evidence or comment" class="sm:col-span-2">
       <textarea id="tr-note" class={areaClass} bind:value={note} maxlength="32000" rows="3"></textarea>
