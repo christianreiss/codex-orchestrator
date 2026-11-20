@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from "svelte";
   import { browser } from "$app/environment";
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
   import type { Readable } from "svelte/store";
   import type { WsEvent } from "$lib/ws/client";
-  import { insecureApprovalsQuery, insecureSummaryQuery } from "$lib/api/insecure";
-  import { hostsSummary } from "$lib/stores/hosts-summary";
+  import { insecureApprovalsQuery } from "$lib/api/insecure";
   import { ghostCount, resolutions } from "$lib/stores/insecure-resolutions";
   import InsecureApprovalsDialog, {
     type InsecureDialogMode,
@@ -17,7 +18,8 @@
    * Auto-opens the modal (in `triage` mode) when a pending request appears
    * — on a WS push, a poll, or already on first load — and in
    * `manage` mode when any component dispatches
-   * `codex:open-insecure-approvals` on window. Also
+   * `codex:open-insecure-approvals` on window, or when the URL carries
+   * `?insecure=1` (the link every access badge and alert uses). Also
    * plays a short beep and (if the tab is in the background and the user
    * has granted permission) fires a desktop Notification.
    */
@@ -47,15 +49,6 @@
   // A request only becomes actionable once the host is waiting. Resolved rows
   // can still be present in a cached read while the server refetch is in flight.
   const waiting = $derived(pending.filter((r) => r.live !== false && !$resolutions.has(r.id)));
-
-  // This component is mounted in the root layout, which makes it the only place
-  // that can keep the TopBar honest about a fleet-wide auto-allow from every
-  // route -- the hosts page, the store's other writer, is usually not mounted.
-  const summary = insecureSummaryQuery();
-  $effect(() => {
-    const fleet = $summary.data?.fleet_window;
-    hostsSummary.setFleetWindowUntil(fleet?.open ? (fleet.until ?? null) : null);
-  });
 
   // Short cooldown so a backlog replay or burst of requests doesn't spam audio.
   let lastSoundAt = 0;
@@ -153,6 +146,25 @@
     }
   });
 
+  function openManage(): void {
+    mode = "manage";
+    open = true;
+    hadPendingRequests = false;
+  }
+
+  // `?insecure=1` is read here rather than by the Hosts page: this component
+  // owns the panel, so a directly loaded link opens it whatever mounts first.
+  // The parameter is dropped afterwards so a reload or Back does not reopen it.
+  $effect(() => {
+    if (page.url.searchParams.get("insecure") !== "1") return;
+    untrack(() => {
+      openManage();
+      const url = new URL(page.url);
+      url.searchParams.delete("insecure");
+      void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+    });
+  });
+
   function onDialogOpenChange(value: boolean): void {
     open = value;
     if (!value) hadPendingRequests = false;
@@ -175,11 +187,7 @@
       void $approvals.refetch?.();
     });
 
-    manualOpenListener = () => {
-      mode = "manage";
-      open = true;
-      hadPendingRequests = false;
-    };
+    manualOpenListener = openManage;
     window.addEventListener("codex:open-insecure-approvals", manualOpenListener);
     return () => clearInterval(clock);
   });

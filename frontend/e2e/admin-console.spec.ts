@@ -1570,6 +1570,39 @@ for (const mode of ["triage", "manage"] as const) {
   });
 }
 
+test("temporary access is counted on every route and its link opens the panel on a direct load", async ({ page }) => {
+  const until = new Date(Date.now() + 600_000).toISOString();
+  await installFixtures(page, (path) => path === "/admin/hosts/insecure"
+    ? {
+        count: 2, active: 2, domains: [], domains_active: 0, fleet_window: { open: false, until: null, opened_at: null },
+        hosts: [
+          { id: 1, fqdn: "build-01.example.test", active: true, insecure_enabled_until: until, secure: false },
+          // Only in its grace period: the Hosts page does not count it as open either.
+          { id: 2, fqdn: "build-02.example.test", active: true, insecure_enabled_until: new Date(Date.now() - 60_000).toISOString(), secure: false },
+        ],
+      }
+    : undefined);
+  // The badge counts the open window without the Hosts page ever being visited.
+  await page.goto("/admin/dashboard");
+  const badge = page.getByRole("banner").getByRole("link", { name: "1 temporary access windows open" });
+  await expect(badge).toHaveAttribute("href", "/admin/hosts?insecure=1");
+  // A directly loaded access link opens the panel, then drops the parameter so
+  // a reload does not reopen it.
+  await page.goto("/admin/hosts?insecure=1");
+  await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/hosts$/);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Hosts", level: 1 })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // The same link followed from another page lands in the panel too.
+  await page.goto("/admin/activity");
+  await badge.click();
+  await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/hosts$/);
+});
+
 
 test("Grok quick defaults honor model-specific effort and persist across reload", async ({ page }) => {
   const defaults = quickDefaults();
