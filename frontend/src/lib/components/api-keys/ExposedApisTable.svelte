@@ -82,9 +82,10 @@
               {backendLabel(row.backend)}
             </Select.Trigger>
             <Select.Content>
-              {#each backends as b (b.engine)}
+              <!-- Only engines switched on fleet-wide are offered; the current backend stays
+                   listed even when off, so the trigger keeps a matching item. -->
+              {#each backends.filter((b) => $fleet.isEnabled(b.engine) || b.engine === row.backend) as b (b.engine)}
                 {@const off = !$fleet.isEnabled(b.engine)}
-                <!-- The current backend stays selectable even when off, so the trigger keeps a matching item. -->
                 <Select.Item
                   value={b.engine}
                   label={b.label}

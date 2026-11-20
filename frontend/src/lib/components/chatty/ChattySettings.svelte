@@ -11,14 +11,23 @@
   import { Button } from '$lib/components/ui/button';
   import { FormField } from '$lib/components/ui/form-field';
   import * as Select from '$lib/components/ui/select';
-  import { ENGINES, engineLabel } from '$lib/constants/engines';
+  import { engineLabel } from '$lib/constants/engines';
+  import { useFleetEngines } from '$lib/engines/fleet-engines';
 
   interface Settings { enabled: boolean; engine_order: string[]; concurrency: number; queue_limit: number; steps: number; timeout_seconds: number }
-  // Every priority order of the four engines; the server requires all of them, once each.
+  // The server requires every engine once in the order. Only engines switched on
+  // fleet-wide are shown and reordered; switched-off ones keep their stored
+  // relative order at the end, out of sight.
+  const fleet = useFleetEngines();
   const permutations = (items: readonly string[]): string[][] =>
     items.length <= 1 ? [[...items]] : items.flatMap((item, i) => permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((rest) => [item, ...rest]));
-  const ORDERS = permutations(ENGINES).map((order) => order.join(','));
-  const arrow = (order: string) => order.split(',').map((engine) => engineLabel(engine)).join(' → ');
+  const ORDERS = $derived.by(() => {
+    const stored = $settings.data?.engine_order ?? [];
+    const on = stored.filter((engine) => $fleet.isEnabled(engine));
+    const off = stored.filter((engine) => !$fleet.isEnabled(engine));
+    return permutations(on).map((order) => [...order, ...off].join(','));
+  });
+  const arrow = (order: string) => order.split(',').filter((engine) => $fleet.isEnabled(engine)).map((engine) => engineLabel(engine)).join(' → ');
 
   const qc = useQueryClient();
   const canManage = $derived($authStore.can('chatty.manage'));

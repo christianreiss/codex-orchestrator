@@ -14,7 +14,7 @@
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
   import SeedAuthPanel from "$lib/components/setup/SeedAuthPanel.svelte";
-  import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { ENGINE_META, type Engine } from "$lib/constants/engines";
 
   type Props = {
     dialog: AccountDialog | null;
@@ -57,7 +57,7 @@
     {#key credentials}
       {#if credentials}
         <SeedAuthPanel
-          allowedEngines={target ? [target.engine] : scope !== "all" ? [scope] : [...ENGINES]}
+          allowedEngines={target ? [target.engine] : scope !== "all" ? [scope] : undefined}
           defaultEngine={target?.engine ?? (scope === "all" ? "codex" : scope)}
           accountId={target?.id}
           accountLabel={target ? undefined : label.trim() || undefined}

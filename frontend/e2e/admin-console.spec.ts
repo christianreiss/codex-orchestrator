@@ -1223,7 +1223,7 @@ test("accounts lists every provider with an always-visible engine filter", async
   await expect(page.getByText("No Grok accounts", { exact: true })).toBeVisible();
 });
 
-test("host table engine chips show assignments and fleet suspension on desktop and mobile", async ({ page }) => {
+test("host table engine chips show assignments and drop fleet-suspended engines on desktop and mobile", async ({ page }) => {
   let suspended = false;
   await installFixtures(page, path => path === "/admin/engines/state" ? {
     engines: ["codex", "claude", "grok", "kimi"].map(engine => ({
@@ -1246,8 +1246,9 @@ test("host table engine chips show assignments and fleet suspension on desktop a
   suspended = true;
   await page.reload();
   const row = page.getByRole("listitem").filter({ hasText: "console.example.test" });
-  await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true })).toHaveCount(1);
-  await expect(row.getByRole("img", { name: /^Claude: disabled fleet-wide/ }).filter({ visible: true })).toHaveAttribute("data-state", "inactive");
+  // A switched-off engine is not part of the fleet: the host keeps the assignment, the chip goes.
+  await expect(row.getByRole("img", { name: /^Codex: ready/ }).filter({ visible: true })).toHaveCount(1);
+  await expect(row.getByRole("img", { name: /^Claude:/ })).toHaveCount(0);
 });
 
 test("engine table reports independent counts, zeroes, and unavailable snapshots", async ({ page }) => {

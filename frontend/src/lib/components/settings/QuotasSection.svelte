@@ -1,6 +1,7 @@
 <script lang="ts">
   import QuotaPolicyEditor from "./QuotaPolicyEditor.svelte";
-  import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import * as Tabs from "$lib/components/ui/tabs";
   import type { QuotaAdviceSettings } from "$lib/api/types";
   import { Switch } from "$lib/components/ui/switch";
@@ -12,11 +13,16 @@
   import { Button } from "$lib/components/ui/button";
   import SectionCard from "$lib/components/engines/SettingGroup.svelte";
   import { quotaModeMutation, quotaModeQuery } from "$lib/api/settings";
+  import { base } from "$app/paths";
 
   type Props = { headingLevel?: 2 | 3 };
   let { headingLevel = 2 }: Props = $props();
 
-  let policyEngine = $state<Engine>(ENGINES[0]);
+  // Only engines switched on fleet-wide get a policy tab; a switched-off engine
+  // is not part of the fleet (its stored policy is kept for a re-enable).
+  const fleet = useFleetEngines();
+  let picked = $state<Engine | null>(null);
+  const policyEngine = $derived<Engine | undefined>(picked && $fleet.isEnabled(picked) ? picked : $fleet.enabled[0]);
 
   const query = quotaModeQuery();
   let lastSavedAt = $state<Date | null>(null);
@@ -175,18 +181,22 @@
 </SectionCard>
 
 <SectionCard id="quota-policy" title="Quota warnings and resume" description="Defaults for provider accounts; account overrides are edited under Accounts." {headingLevel}>
-  <Tabs.Root bind:value={policyEngine} class="flex flex-col gap-3">
-    <div class="-m-1 max-w-full overflow-x-auto p-1">
-      <Tabs.List class="w-max" aria-label="Engine quota policy">
-        {#each ENGINES as engine (engine)}
-          <Tabs.Trigger value={engine} class="shrink-0">{ENGINE_META[engine].label}</Tabs.Trigger>
-        {/each}
-      </Tabs.List>
-    </div>
-    {#each ENGINES as engine (engine)}
-      <Tabs.Content value={engine} id={`quota-policy-${engine}`} class="scroll-mt-20">
-        <QuotaPolicyEditor {engine} />
-      </Tabs.Content>
-    {/each}
-  </Tabs.Root>
+  {#if policyEngine}
+    <Tabs.Root value={policyEngine} onValueChange={(value) => (picked = value as Engine)} class="flex flex-col gap-3">
+      <div class="-m-1 max-w-full overflow-x-auto p-1">
+        <Tabs.List class="w-max" aria-label="Engine quota policy">
+          {#each $fleet.enabled as engine (engine)}
+            <Tabs.Trigger value={engine} class="shrink-0">{ENGINE_META[engine].label}</Tabs.Trigger>
+          {/each}
+        </Tabs.List>
+      </div>
+      {#each $fleet.enabled as engine (engine)}
+        <Tabs.Content value={engine} id={`quota-policy-${engine}`} class="scroll-mt-20">
+          <QuotaPolicyEditor {engine} />
+        </Tabs.Content>
+      {/each}
+    </Tabs.Root>
+  {:else}
+    <p class="text-body-sm text-muted-foreground">No engine is switched on. Turn one on under <a class="text-primary underline-offset-2 hover:underline" href={`${base}/engines`}>Engines</a>.</p>
+  {/if}
 </SectionCard>

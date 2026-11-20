@@ -5,11 +5,16 @@
   import { StateBlock } from '$lib/components/page';
   import { feedbackApi, feedbackKeys, type FeedbackConfiguration } from '$lib/api/feedback';
   import { controlClass } from './report-model';
+  import { engineLabel, isEngine, type Engine } from '$lib/constants/engines';
+  import { useFleetEngines } from '$lib/engines/fleet-engines';
 
   let { canManage, reportingEnabled }: { canManage: boolean; reportingEnabled: boolean } = $props();
   const client = useQueryClient();
   const query = createQuery({ queryKey: feedbackKeys.configuration, queryFn: feedbackApi.configuration });
   let draft = $state<FeedbackConfiguration | null>(null);
+  // Engines switched on fleet-wide; a stored switched-off choice stays visible as the current value only.
+  const fleet = useFleetEngines();
+  const reviewEngines = $derived<Engine[]>(draft?.engine && isEngine(draft.engine) && !$fleet.isEnabled(draft.engine) ? [...$fleet.enabled, draft.engine] : $fleet.enabled);
   let dirty = $state(false);
   let token = $state('');
   let disconnect = $state(false);
@@ -55,7 +60,7 @@
           <div class="grid gap-3 sm:grid-cols-2">
             <FormField id="feedback-engine" label="Review engine">
               <select id="feedback-engine" class={controlClass} bind:value={draft.engine}>
-                <option value={null}>Select engine</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option><option value="kimi">Kimi Code</option>
+                <option value={null}>Select engine</option>{#each reviewEngines as option (option)}<option value={option}>{engineLabel(option)}</option>{/each}
               </select>
             </FormField>
             <FormField id="feedback-model" label="Review model">

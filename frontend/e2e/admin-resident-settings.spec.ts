@@ -11,7 +11,7 @@ test('residence is saved independently of remote starts and survives reload', as
   let saved: Record<string, unknown> | undefined;
   await page.route('**/admin/**', route => {
     if (!route.request().headers().accept?.includes('application/json')) return route.continue();
-    const path = new URL(route.request().url()).pathname;
+    const path = new URL(route.request().url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     const json = (data: unknown) => route.fulfill({json:{status:'ok',data}});
     if (path === '/admin/auth/status') return json({authenticated:true,enforced:true,user:{id:1,username:'owner',roles:['owner']},capabilities:['admin.read','hosts.read','settings.read','agent_messaging.manage']});
     if (path === '/admin/setup/status') return json({setup_complete:true,critical_complete:true,checks:[],next_actions:[],wizard:{completed_at:stamp,dismissed_at:null}});

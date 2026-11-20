@@ -1,5 +1,7 @@
 <script lang="ts">
   /** The one filter row of the Agents page, shared by the Live and Graph views. */
+  import { engineLabel } from "$lib/constants/engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { useQueryClient } from "@tanstack/svelte-query";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Plus from "@lucide/svelte/icons/plus";
@@ -30,6 +32,8 @@
     void agents.topology.current.refetch();
   }
   const selectClass = "h-9 rounded-md border border-input bg-card px-3 text-body-sm";
+  // Only engines switched on fleet-wide can be filtered by.
+  const fleet = useFleetEngines();
 </script>
 
 {#snippet filters()}
@@ -53,9 +57,7 @@
   {#if !remote}
     <select aria-label="Engine" id="client-engine" bind:value={agents.engine} class={selectClass}>
       <option value="all">All engines</option>
-      <option value="codex">Codex</option>
-      <option value="claude">Claude</option>
-      <option value="grok">Grok</option><option value="kimi">Kimi Code</option>
+      {#each $fleet.enabled as engine (engine)}<option value={engine}>{engineLabel(engine)}</option>{/each}
     </select>
   {/if}
   {#if agents.view === "graph"}

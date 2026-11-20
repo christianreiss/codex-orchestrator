@@ -23,7 +23,7 @@
     type RunnerRunResult,
     type RunnerStatus,
   } from "$lib/api/runner";
-  import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { ENGINE_META, type Engine } from "$lib/constants/engines";
   import { relativeTime } from "$lib/utils/format";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { cn } from "$lib/utils/cn";
@@ -39,7 +39,7 @@
   const fleet = useFleetEngines();
 
   const runner = $derived<RunnerStatus | null>($state.data?.runner ?? null);
-  const anyRunning = $derived(ENGINES.some((engine) => pending(engine)));
+  const anyRunning = $derived($fleet.enabled.some((engine) => pending(engine)));
 
   const overall = $derived.by<{ label: string; variant: BadgeVariant }>(() => {
     if (!runner) return { label: "idle", variant: "secondary" };

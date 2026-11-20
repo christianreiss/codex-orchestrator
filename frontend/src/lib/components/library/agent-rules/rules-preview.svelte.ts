@@ -12,11 +12,12 @@ import { hostEngines, hostsListQuery } from "$lib/api/hosts";
 import type { SecurityLevels } from "$lib/api/agentPolicyProfiles";
 import type { AgentPolicyComposition, AgentPolicyProvenanceEntry } from "$lib/api/types";
 import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
+import { useFleetEngines } from "$lib/engines/fleet-engines";
+import { isEngine } from "$lib/constants/engines";
 import type { RulesDocState } from "./rules-doc.svelte";
 import type { RulesPostureState } from "./rules-posture.svelte";
 
 type Engine = "codex" | "claude" | "grok" | "kimi";
-const ENGINES: Engine[] = ["codex", "claude", "grok", "kimi"];
 export type PreviewMode = "effective" | "canonical";
 export type ActiveSetting =
   | { kind: "module"; id: string }
@@ -65,6 +66,9 @@ export class RulesPreviewState {
   doc!: RulesDocState;
   posture!: RulesPostureState;
   private hostsStore = fromStore(hostsListQuery());
+  /** Only engines switched on fleet-wide can be previewed; a switched-off one is not part of the fleet. */
+  private fleet = fromStore(useFleetEngines());
+  private previewable = (engine: string): engine is Engine => isEngine(engine) && this.fleet.current.isEnabled(engine);
 
   previewHostId = $state("");
   previewEngine = $state<Engine>("codex");
@@ -78,12 +82,12 @@ export class RulesPreviewState {
   hoveredKey = $state<string | null>(null);
 
   previewHosts = $derived(
-    (this.hostsStore.current.data?.hosts ?? []).filter((host) => hostEngines(host).some((engine) => ENGINES.includes(engine as Engine))),
+    (this.hostsStore.current.data?.hosts ?? []).filter((host) => hostEngines(host).some(this.previewable)),
   );
   hostsPending = $derived(this.hostsStore.current.isPending);
   previewHostEngines = $derived.by<Engine[]>(() => {
     const host = this.previewHosts.find((candidate) => String(candidate.id) === this.previewHostId);
-    return host ? (hostEngines(host).filter((engine) => ENGINES.includes(engine as Engine)) as Engine[]) : [];
+    return host ? hostEngines(host).filter(this.previewable) : [];
   });
   canRenderEffective = $derived(this.previewHosts.length > 0 && this.previewHostId !== "");
   activePreviewMode = $derived<PreviewMode>(this.canRenderEffective ? this.previewMode : "canonical");

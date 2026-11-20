@@ -12,12 +12,12 @@
  * refuses a disabled engine on its own with a 409 / 403.
  */
 import type { Engine } from "../constants/engines";
-import type { EngineStateRow } from "../api/types";
+import type { EngineActiveRow } from "../api/types";
 
 /** Canonical engine order; mirrors `ENGINES` in `constants/engines.ts`. */
 const ORDER: readonly Engine[] = ["codex", "claude", "grok", "kimi"];
 
-export interface FleetEngineView {
+export interface FleetEngineView<R extends EngineActiveRow = EngineActiveRow> {
   /** True once the server answered with engine rows. */
   known: boolean;
   /** Enabled engines, canonical order. Every engine while unknown. */
@@ -25,20 +25,20 @@ export interface FleetEngineView {
   /** Disabled engines, canonical order. Empty while unknown. */
   disabled: Engine[];
   /** The server rows as received (well-formed ones only). */
-  rows: EngineStateRow[];
+  rows: R[];
   isEnabled: (engine: string) => boolean;
-  row: (engine: string) => EngineStateRow | null;
+  row: (engine: string) => R | null;
 }
 
-function isRow(value: unknown): value is EngineStateRow {
+function isRow(value: unknown): value is EngineActiveRow {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
   return typeof row.engine === "string" && ORDER.includes(row.engine as Engine) && typeof row.enabled === "boolean";
 }
 
-export function fleetEngineView(data: unknown): FleetEngineView {
+export function fleetEngineView<R extends EngineActiveRow = EngineActiveRow>(data: unknown): FleetEngineView<R> {
   const raw = data && typeof data === "object" ? (data as { engines?: unknown }).engines : undefined;
-  const rows = Array.isArray(raw) ? raw.filter(isRow) : [];
+  const rows = (Array.isArray(raw) ? raw.filter(isRow) : []) as R[];
   const off = new Set<string>(rows.filter((row) => !row.enabled).map((row) => row.engine));
   return {
     known: rows.length > 0,

@@ -45,8 +45,7 @@
   import { createRegisterHostMutation } from "$lib/api/hosts";
   import { invalidateSetup } from "$lib/api/setup";
   import { autoCopyText } from "$lib/utils/clipboard";
-  import { Badge } from "$lib/components/ui/badge";
-  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import type { HostRegisterResponse } from "$lib/api/types";
 
   type Props = {
@@ -73,8 +72,8 @@
 
   const qc = useQueryClient();
   const register = createRegisterHostMutation();
-  // An engine switched off fleet-wide cannot be added to a host (the server
-  // answers 409). It stays visible, disabled, so the operator sees why.
+  // An engine switched off fleet-wide is not part of the fleet: it gets no
+  // card and cannot be added to a host (the server answers 409 anyway).
   const fleet = useFleetEngines();
 
   const schema = z.object({
@@ -241,23 +240,16 @@
       aria-describedby={errors.engines ? `${idPrefix}-engines-error` : undefined}
       class="grid grid-cols-1 gap-2 sm:grid-cols-3"
     >
-      {#each HOST_ENGINE_OPTIONS as opt (opt.id)}
+      {#each HOST_ENGINE_OPTIONS.filter((opt) => $fleet.isEnabled(opt.id)) as opt (opt.id)}
         <ChoiceCard
           mode="checkbox"
           size="sm"
           title={opt.label}
           description={opt.desc}
           checked={selectedEngines.includes(opt.id)}
-          disabled={!$fleet.isEnabled(opt.id)}
           onSelect={() => toggleEngine(opt.id)}
         >
-          {#snippet badge()}
-            {#if !$fleet.isEnabled(opt.id)}
-              <Badge variant="outline" title={fleetDisabledTitle(opt.label)}>{FLEET_DISABLED_TAG}</Badge>
-            {:else}
-              {@render kbd(opt.key)}
-            {/if}
-          {/snippet}
+          {#snippet badge()}{@render kbd(opt.key)}{/snippet}
         </ChoiceCard>
       {/each}
     </div>

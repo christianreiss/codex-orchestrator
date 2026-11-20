@@ -7,7 +7,7 @@
   import { base } from "$app/paths";
   import { page } from "$app/state";
   import { PageShell, Section, StateBlock, StatStrip, Timestamp, type Stat } from "$lib/components/page";
-  import { ENGINES, ENGINE_META } from "$lib/constants/engines";
+  import { ENGINE_META } from "$lib/constants/engines";
   import { Button } from "$lib/components/ui/button";
   import * as Tabs from "$lib/components/ui/tabs";
   import { accountsQuery } from "$lib/api/accounts";
@@ -20,11 +20,12 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Plus from "@lucide/svelte/icons/plus";
   import { loadFailure } from "$lib/api/access-denied";
-  import { engineStateQuery } from "$lib/api/settings";
+  import { engineActiveQuery } from "$lib/api/settings";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
 
   const fleet = useFleetEngines();
-  const engineState = engineStateQuery();
+  // Same key as the fleet store, so Refresh re-reads which engines belong to the fleet.
+  const engineState = engineActiveQuery();
   const overview = overviewQuery();
   const accounts = accountsQuery();
   const runner = createRunnerStateQuery();
@@ -53,7 +54,7 @@
     const rows = accountRows?.filter((account) => $fleet.isEnabled(account.engine));
     const paused = rows?.filter((account) => account.state !== "enabled").length ?? 0;
     const perEngine = rows
-      ? ENGINES.map((engine) => ({ engine, count: rows.filter((account) => account.engine === engine).length }))
+      ? $fleet.enabled.map((engine) => ({ engine, count: rows.filter((account) => account.engine === engine).length }))
           .filter((entry) => entry.count > 0)
           .map((entry) => `${ENGINE_META[entry.engine].label} ${entry.count}`)
           .join(" · ")

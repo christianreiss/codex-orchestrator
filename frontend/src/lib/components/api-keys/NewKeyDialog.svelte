@@ -181,8 +181,9 @@
                 <Select.Root type="single" value={backend ?? ""} onValueChange={(v) => { backend = v ? v as ApiBackendEngine : undefined; }} disabled={!setupReady || creating}>
                   <Select.Trigger id="key-backend" class="w-full">{backend ? BACKEND_LABEL[backend] : "Choose an engine"}</Select.Trigger>
                   <Select.Content>
-                    {#each engineRows as row (row.engine)}
-                      <Select.Item value={row.engine} label={`${row.label}${row.enabled ? "" : " (disabled)"}`} disabled={!row.enabled} aria-disabled={!row.enabled} />
+                    <!-- Only engines switched on fleet-wide are offered. -->
+                    {#each engineRows.filter((row) => row.enabled) as row (row.engine)}
+                      <Select.Item value={row.engine} label={row.label} />
                     {/each}
                   </Select.Content>
                 </Select.Root>

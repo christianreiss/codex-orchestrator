@@ -1127,6 +1127,22 @@ export interface EngineStateValue {
   engines: EngineStateRow[];
 }
 
+/**
+ * GET /admin/engines/active row (admin.read): the console's one source for
+ * which engines belong to the fleet. A switched-off engine appears nowhere
+ * but the Engines page.
+ */
+export interface EngineActiveRow {
+  engine: FleetEngineId;
+  label: string;
+  enabled: boolean;
+}
+
+export interface EngineActiveValue {
+  /** Always four rows, canonical order codex, claude, grok, kimi. */
+  engines: EngineActiveRow[];
+}
+
 export interface EngineStateUpdate {
   engine: FleetEngineId;
   enabled: boolean;

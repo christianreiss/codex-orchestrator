@@ -4,16 +4,16 @@
   import { PageShell, StatStrip, Toolbar, DataTable } from "$lib/components/page";
   import * as Table from "$lib/components/ui/table";
   import { Button } from "$lib/components/ui/button";
-  import { Alert, AlertDescription } from "$lib/components/ui/alert";
   import { accountsApi, accountsKeys, accountsQuery, type ProviderAccount } from "$lib/api/accounts";
   import { authStore } from "$lib/stores/auth";
-  import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { ENGINE_META, isEngine, type Engine } from "$lib/constants/engines";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
   import AccountRow from "$lib/components/accounts/AccountRow.svelte";
   import AccountDialogs, { type AccountDialog } from "$lib/components/accounts/AccountDialogs.svelte";
   import EngineFilter from "$lib/components/accounts/EngineFilter.svelte";
   import { isNearQuota, matchesSearch, needsAttention, sortAccounts, NEAR_QUOTA_PERCENT } from "$lib/components/accounts/account-state";
   import { UrlFilters } from "$lib/utils/url-filters.svelte";
+  import { base } from "$app/paths";
 
   const query = accountsQuery();
   const qc = useQueryClient();
@@ -21,11 +21,15 @@
   const canManage = $derived($authStore.can("auth.manage"));
 
   const filterState = new UrlFilters({ q: "", engine: "all" });
-  const scope = $derived<Engine | "all">((ENGINES as readonly string[]).includes(filterState.values.engine) ? (filterState.values.engine as Engine) : "all");
+  // A switched-off engine is not part of the fleet: no filter chip, no rows.
+  const scope = $derived<Engine | "all">(isEngine(filterState.values.engine) && $fleet.isEnabled(filterState.values.engine) ? filterState.values.engine : "all");
   const search = $derived(filterState.values.q);
   let dialog = $state<AccountDialog | null>(null);
 
-  const accounts = $derived($query.data?.accounts ?? []);
+  const stored = $derived($query.data?.accounts ?? []);
+  const accounts = $derived(stored.filter((a) => $fleet.isEnabled(a.engine)));
+  // Kept server-side for a re-enable; counted so nobody thinks they were lost.
+  const hidden = $derived(stored.length - accounts.length);
   const scoped = $derived(sortAccounts(scope === "all" ? accounts : accounts.filter((a) => a.engine === scope)));
   const visible = $derived(scoped.filter((a) => matchesSearch(a, search)));
   const attention = $derived(accounts.filter(needsAttention).length);
@@ -36,10 +40,7 @@
     { label: "near quota", value: nearQuota, tone: nearQuota ? ("warning" as const) : ("default" as const), hint: `Either usage window at ${NEAR_QUOTA_PERCENT}% or more` },
   ]);
 
-  // A fleet-disabled engine keeps its accounts, but anything that reaches the
-  // provider (add, replace, verify) is refused by the server until it is on.
-  const offEngines = $derived(ENGINES.filter((engine) => !$fleet.isEnabled(engine)));
-  const addDisabled = $derived(scope === "all" ? offEngines.length === ENGINES.length : !$fleet.isEnabled(scope));
+  const addDisabled = $derived($fleet.enabled.length === 0);
   const countLabel = $derived($query.data && (search.trim() || scope !== "all") ? `${visible.length} of ${accounts.length}` : "");
 
   const change = createMutation({
@@ -72,16 +73,13 @@
   {/snippet}
 
   <Toolbar bind:search={filterState.values.q} searchPlaceholder="Search accounts" count={countLabel} filtersActive={filterState.active} onClearFilters={() => filterState.clear()}>
-    {#snippet filters()}<EngineFilter value={scope} isEnabled={(engine) => $fleet.isEnabled(engine)} onChange={(next) => (filterState.values.engine = next)} />{/snippet}
+    {#snippet filters()}<EngineFilter value={scope} engines={$fleet.enabled} onChange={(next) => (filterState.values.engine = next)} />{/snippet}
   </Toolbar>
 
-  {#if offEngines.length}
-    <Alert variant="warning" class="rounded-md px-3 py-2">
-      <AlertDescription>
-        {offEngines.map((engine) => ENGINE_META[engine].label).join(", ")} {offEngines.length === 1 ? "is" : "are"} off fleet-wide. Accounts are kept but not refreshed, verified or used;
-        adding, replacing and verifying credentials is refused until the engine is back on under Engines.
-      </AlertDescription>
-    </Alert>
+  {#if hidden > 0}
+    <p class="text-body-sm text-muted-foreground" role="status">
+      {hidden} stored {hidden === 1 ? "account belongs" : "accounts belong"} to engines switched off fleet-wide and {hidden === 1 ? "is" : "are"} hidden. {hidden === 1 ? "It returns" : "They return"} when the engine is switched back on under <a class="text-primary underline-offset-2 hover:underline" href={`${base}/engines`}>Engines</a>.
+    </p>
   {/if}
 
   <DataTable

@@ -20,7 +20,7 @@ async function fixture(page: Page, overrides = false, manage = true, singleEngin
   await page.route('**/admin/**', route => {
     const req = route.request();
     if (!req.headers().accept?.includes('application/json')) return route.continue();
-    const path = new URL(req.url()).pathname;
+    const path = new URL(req.url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     const json = (data: unknown) => route.fulfill({ json: { status: 'ok', data } });
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: [manage ? 'owner' : 'viewer'] }, capabilities: ['admin.read', 'hosts.read', 'settings.read', ...(manage ? ['hosts.manage', 'agent_messaging.manage'] : [])] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: stamp } });
@@ -116,7 +116,9 @@ test('existing exceptions open Advanced by themselves and a manual collapse stic
   await expect(advanced(page)).toHaveAttribute('open', '');
   await expect(page.getByRole('region', { name: 'Codex engine overrides' })).toBeVisible();
   await expect(page.getByRole('switch', { name: 'Codex engine', exact: true })).toBeDisabled();
-  await expect(page.getByRole('switch', { name: 'Grok engine', exact: true })).toBeDisabled();
+  // Grok is switched off fleet-wide: it is not part of the fleet, so it gets no toggle.
+  await expect(page.getByRole('switch', { name: 'Grok engine', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('switch', { name: 'Claude engine', exact: true })).toBeVisible();
   await advanced(page).locator(':scope > summary').click();
   await expect(advanced(page)).not.toHaveAttribute('open', '');
   await page.reload();

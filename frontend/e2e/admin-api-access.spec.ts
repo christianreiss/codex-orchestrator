@@ -17,7 +17,7 @@ async function fixture(page: Page, options: { disabledEngine?: string; failSetti
   await page.route('**/admin/**', async route => {
     const req = route.request();
     if (req.resourceType() === 'document' || !req.headers().accept?.includes('application/json')) return route.continue();
-    const path = new URL(req.url()).pathname;
+    const path = new URL(req.url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     const json = (body: unknown, status = 200) => route.fulfill({ json: body, status });
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: ['owner'] }, capabilities: [...CAPABILITIES] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-15T00:00:00Z' } });
@@ -113,12 +113,13 @@ test('mobile wraps long keys and URLs and keeps actions available', async ({ pag
   await page.screenshot({ path: 'test-results/api-access-created-mobile.png' });
 });
 
-test('creation failures preserve the draft and disabled engines cannot be selected', async ({ page }) => {
+test('creation failures preserve the draft and disabled engines are not offered', async ({ page }) => {
   const { writes } = await fixture(page, { disabledEngine: 'grok', failCreate: true });
   await page.goto('/admin/api-keys?dialog=new');
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Engine', exact: true }).click();
-  await expect(page.getByRole('option', { name: 'Grok (disabled)', exact: true })).toBeDisabled();
+  await expect(page.getByRole('option', { name: 'Claude', exact: true })).toBeVisible();
+  await expect(page.getByRole('option', { name: /^Grok/ })).toHaveCount(0);
   await page.getByRole('option', { name: 'Claude', exact: true }).click();
   await dialog.getByLabel('Name', { exact: true }).fill('Keep my draft');
   await dialog.getByRole('button', { name: 'Create key', exact: true }).click();

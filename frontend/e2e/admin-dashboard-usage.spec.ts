@@ -34,7 +34,7 @@ async function fixtures(page: Page, accounts: ProviderAccount[], options: { wait
   });
   await page.route("**/admin/**", async route => {
     if (!["fetch", "xhr"].includes(route.request().resourceType())) return route.continue();
-    const path = new URL(route.request().url()).pathname;
+    const path = new URL(route.request().url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     let data: unknown = {};
     if (path === "/admin/auth/status") data = { authenticated: true, enforced: true, user: { id: 1, name: "Operator", username: "operator", access_level: "owner" }, roles: ["owner"], capabilities: ["settings.read", "auth.metadata.read"] };
     else if (path === "/admin/setup/status") data = { setup_complete: true, next_actions: [], checks: [], wizard: { completed_at: now } };

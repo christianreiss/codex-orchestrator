@@ -12,7 +12,7 @@ for (const width of [320, 1440]) test(`Codex Astra 6.2 uses its native default a
   await page.route('**/admin/**', route => {
     const req = route.request();
     if (!req.headers().accept?.includes('application/json')) return route.continue();
-    const path = new URL(req.url()).pathname;
+    const path = new URL(req.url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     const json = (data: unknown) => route.fulfill({ json: data });
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'owner', roles: ['owner'] }, capabilities: ['admin.read', 'settings.read', 'settings.manage', 'content.read'] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-26T00:00:00Z' } });
