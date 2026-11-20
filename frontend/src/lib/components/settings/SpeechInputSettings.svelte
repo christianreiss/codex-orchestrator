@@ -5,6 +5,7 @@
   import { Section } from "$lib/components/page";
   import { Button } from "$lib/components/ui/button";
   import * as Select from "$lib/components/ui/select";
+  import { engineLabel } from "$lib/constants/engines";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
   type Policy = { enabled: boolean; override: boolean | null; global: boolean; supported: boolean; activation: string | null; control: string };
   type Policies = { engines: Record<string, Policy> };
@@ -27,7 +28,7 @@
         {@const policy = $query.data.engines[target === "global" ? "codex" : target]}
         {@const value = target === "global" ? (policy.global ? "on" : "off") : policy.override === null ? "inherit" : policy.override ? "on" : "off"}
         <div class="flex flex-wrap items-center justify-between gap-3 py-3">
-          <div><h3 id={`speech-${target}`} class="text-body font-semibold capitalize">{target === "global" ? "Global default" : target}</h3>
+          <div><h3 id={`speech-${target}`} class="text-body font-semibold">{target === "global" ? "Global default" : engineLabel(target)}</h3>
             {#if target !== "global"}<p class="text-body-sm text-muted-foreground">Requested: {policy.enabled ? "On" : "Off"}. {target === "kimi" ? "Native speech input is not supported." : target === "codex" ? "Voice conversation via /voice; central enable/disable is unavailable in this CLI version." : target === "grok" ? "Controls the dictation shortcut; /voice remains available when off." : "Dictation via /voice hold. Requires a Claude.ai account and local microphone."}</p>{/if}
           </div>
           <Select.Root type="single" {value} {disabled} onValueChange={(v) => { if (v) void change(target, v); }}>

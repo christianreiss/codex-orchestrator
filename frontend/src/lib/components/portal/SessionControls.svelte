@@ -32,7 +32,6 @@
   id="agent-sessions"
   controlId="agent-sessions-toggle"
   label="Agent sessions"
-  term="agent portal"
   help="Record sessions and let operators talk to agents from the console and Android. Turning this off cancels pending input."
 >
   {#snippet control()}

@@ -80,7 +80,7 @@
   title="Feedback"
   description="Bugs, missing features and verified improvements for the orchestrator itself."
   toggle={{
-    label: "Agent reports",
+    label: "Enable agent reports",
     checked: enabled,
     disabled: !canManage || $stateMutation.isPending || $stateQuery.isPending,
     onChange: (next) => $stateMutation.mutate(next),

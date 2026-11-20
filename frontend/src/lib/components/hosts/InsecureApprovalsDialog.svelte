@@ -398,7 +398,7 @@
               {/if}
             </span>
             <span class="min-w-0 break-all font-mono text-base font-semibold" class:line-through={req.ghost}>
-              {req.fqdn || `Host #${req.host_id}`}
+              {req.fqdn || "Unknown host"}
             </span>
             {#if req.fqdn}<CopyButton value={req.fqdn} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy FQDN ${req.fqdn}`} toastMessage="FQDN copied" />{/if}
           </p>

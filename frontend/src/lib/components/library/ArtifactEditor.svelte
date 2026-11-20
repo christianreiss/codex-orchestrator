@@ -186,7 +186,10 @@
           </div>
         {/if}
         {#if serverSha}
-          <p class="border-t pt-3 font-mono text-caption text-muted-foreground" title={serverSha}>sha256: {serverSha.slice(0, 12)}…</p>
+          <details class="border-t pt-3 text-body-sm">
+            <summary class="w-fit cursor-pointer text-muted-foreground">Details</summary>
+            <p class="mt-2 break-all font-mono text-caption text-muted-foreground">sha256: {serverSha}</p>
+          </details>
         {/if}
       </div>
     {/snippet}

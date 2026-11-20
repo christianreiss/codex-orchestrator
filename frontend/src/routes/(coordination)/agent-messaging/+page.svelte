@@ -30,11 +30,11 @@
   const enabled = $derived(snapshot?.enabled ?? false);
   const pending = $derived((snapshot?.messages.queued ?? 0) + (snapshot?.messages.leased ?? 0) + (snapshot?.messages.accepted ?? 0));
   const stats = $derived([
-    { label: "addresses", value: snapshot?.addresses ?? 0 },
-    { label: "live", value: snapshot?.live_addresses ?? 0, tone: "success" as const },
-    { label: "relays", value: snapshot?.relays ?? 0 },
-    { label: "open conversations", value: snapshot?.open_conversations ?? 0 },
-    { label: "pending", value: pending, tone: pending > 0 ? ("warning" as const) : ("default" as const) },
+    { label: "Addresses", value: snapshot?.addresses ?? 0 },
+    { label: "Live", value: snapshot?.live_addresses ?? 0, tone: "success" as const },
+    { label: "Relays", value: snapshot?.relays ?? 0 },
+    { label: "Open conversations", value: snapshot?.open_conversations ?? 0 },
+    { label: "Pending", value: pending, tone: pending > 0 ? ("warning" as const) : ("default" as const) },
   ]);
 
   async function refresh() {
@@ -45,7 +45,7 @@
 
 <PageShell
   title="Messaging"
-  description="Agent addresses, groups and the delivery log."
+  description="Conversations between agents and the server."
   toggle={{ label: "Enable messaging", checked: service.checked, disabled: service.disabled, onChange: (next) => service.request(next) }}
 >
   {#snippet actions()}

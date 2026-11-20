@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import * as Dialog from "$lib/components/ui/dialog";
+  import { engineLabel } from "$lib/constants/engines";
   import { Button } from "$lib/components/ui/button";
   import { api } from "$lib/api/client";
   import { roomKeys, roomRoot } from "$lib/api/roomChats";
@@ -152,7 +153,7 @@
                   /><span class="min-w-0 flex-1 break-words"
                     >{agent.name ?? agent.alias ?? agent.address}<span
                       class="block text-caption text-muted-foreground"
-                      >{agent.engine} · {agent.fqdn ?? "Host unavailable"}</span
+                      >{engineLabel(agent.engine)} · {agent.fqdn ?? "Host unavailable"}</span
                     ></span
                   ></label
                 >{/each}{#if !candidates.length}<p

@@ -5,6 +5,7 @@
    * (list by default). The inspector and the edit/append dialogs are shared
    * with the rest of the memory tooling.
    */
+  import HiddenEngineNote from "$lib/components/engines/HiddenEngineNote.svelte";
   import Network from "@lucide/svelte/icons/network";
   import List from "@lucide/svelte/icons/list";
   import Plus from "@lucide/svelte/icons/plus";
@@ -23,7 +24,7 @@
   import { MemoriesState } from "./memories-state.svelte";
 
   const state = new MemoriesState();
-  const total = $derived(state.totals.all);
+  const total = $derived(Math.max(0, state.totals.all - state.hiddenCount));
   const count = $derived(`${total.toLocaleString()} ${total === 1 ? "memory" : "memories"}`);
 </script>
 
@@ -51,6 +52,8 @@
   </Toolbar>
 
   <MemoryScopeTags {state} />
+
+  <HiddenEngineNote count={state.hiddenCount} />
 
   {#if state.showMap}
     <MemoryMap {state} />

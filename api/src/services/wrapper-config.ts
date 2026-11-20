@@ -113,7 +113,6 @@ export interface WrapperConfigPayload {
     fqdn: string;
     secure: boolean;
     browseros_mcp_enabled?: boolean;
-    agent_messaging_enabled?: boolean;
     engines: string;
     engines_list: Engine[];
     /** Engines switched off fleet-wide; omitted when none are. */
@@ -242,27 +241,6 @@ export function createWrapperConfigSettingsLoader(db: Database): WrapperConfigSe
 }
 
 /**
- * First cxx release whose config validator accepts `agent_messaging.enabled`
- * on an insecure host. Everything older hard-refuses the *whole* signed
- * config, so such a host would silently freeze on its last good copy.
- */
-const MESSAGING_INSECURE_MIN_WRAPPER = [0, 7, 8];
-
-/**
- * Whether the wrapper a host last reported can parse a messaging-enabled
- * config while `host.secure` is false.
- *
- * This is a compatibility check, never a policy one: eligibility remains a
- * pure server decision, and a secure host is never consulted here. It only
- * withholds the bake from a wrapper that provably cannot read it. Unknown and
- * unparseable versions are treated as incapable, because the cost of guessing
- * wrong that way is one delayed config cycle, while guessing wrong the other
- * way stalls the host's config refresh until it happens to update.
- *
- * Retire this together with the `host.agent_messaging_enabled` shim once the
- * fleet is fully on 0.7.8.
- */
-/**
  * The wrapper version this host last reported for one engine. Wrapper v2 is a
  * single `cxx` binary serving both engines, so a version reported under the
  * peer engine describes the same executable and is a valid fallback when this
@@ -275,18 +253,6 @@ function reportedWrapperVersion(host: Host, engine: Engine): string | null {
         (version) => (version ?? '').trim() !== '',
       ) ?? null)
     : own;
-}
-
-export function wrapperAcceptsInsecureMessaging(reported: string | null | undefined): boolean {
-  const parts = (reported ?? '').trim().split(/[.+-]/);
-  if (parts.length === 0 || parts[0] === '') return false;
-  for (let i = 0; i < MESSAGING_INSECURE_MIN_WRAPPER.length; i++) {
-    const have = Number(parts[i] ?? 0);
-    if (!Number.isInteger(have) || have < 0) return false;
-    const need = MESSAGING_INSECURE_MIN_WRAPPER[i]!;
-    if (have !== need) return have > need;
-  }
-  return true;
 }
 
 export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConfigService {
@@ -593,16 +559,7 @@ if (engine === 'kimi')
     // insecure ones, whose calls the server authorizes per operation against
     // their allowed window. Gating the bake on the window instead would make
     // the agent_* tools appear and disappear every few minutes.
-    //
-    // The one exception is a wrapper too old to read the result: cxx <= 0.7.7
-    // rejects the entire signed config unless `host.secure` is also true, so
-    // baking it for such a host would freeze its config refresh rather than
-    // just withhold the bus. That is compatibility, not eligibility — see
-    // wrapperAcceptsInsecureMessaging — and it disappears as the fleet updates.
-    const messagingBaked =
-      messagingEnabled &&
-      engineActive &&
-      (Boolean(host.secure) || wrapperAcceptsInsecureMessaging(reportedWrapperVersion(host, engine)));
+    const messagingBaked = messagingEnabled && engineActive;
 
     // Bump config_version atomically; the new value becomes part of the
     // payload so the etag/signature change visibly when state changes.
@@ -655,11 +612,6 @@ if (engine === 'kimi')
         fqdn: host.fqdn,
         secure: Boolean(host.secure),
         browseros_mcp_enabled: Boolean(host.browserosMcpEnabled),
-        // Compatibility shim for wrappers older than 0.7.8, which reject the
-        // whole signed config when agent_messaging.enabled arrives without
-        // this flag. It mirrors the effective value and carries no decision;
-        // remove it once the fleet is fully on 0.7.8.
-        agent_messaging_enabled: messagingBaked,
         engines: host.engines,
         engines_list: hostEnginesList(host.engines),
         ...(fleetDisabled.length > 0 ? { fleet_disabled_engines: fleetDisabled } : {}),

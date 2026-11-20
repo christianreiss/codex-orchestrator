@@ -44,7 +44,6 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('CODEX_INSTALL_CURL_INSECURE=${CODEX_INSTALL_CURL_INSECURE:-0}');
     expect(out).toContain('curl $CURL_INSECURE_FLAG -fsSL');
     expect(out).toContain('CODEX_CONFIG_PATH=${CDX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/cdx.json}');
-    expect(out).toContain('INSTALL_CONTEXT=installer');
     expect(out).toContain("INSTALL_LABEL='Codex'");
     expect(out).toContain('ui_result_ok "READY"');
     // One common host schedule and tick bootstrap every enabled persona.
@@ -78,7 +77,7 @@ describe('install-token: shell builders', () => {
     expect(out).toContain('ensure_claude_prerequisites');
     expect(out).toContain('npm@10.9.2');
     expect(out).toContain('CLAUDE_CONFIG_PATH=${CLX_CONFIG_PATH:-$CONFIG_HOME/codex-orchestrator/clx.json}');
-    expect(out).toContain("ENGINE='claude'");
+    expect(out).toContain('HAS_CLAUDE=1');
   });
 
   it('builds a complete dual-engine installer from the host engine list', () => {

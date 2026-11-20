@@ -407,7 +407,7 @@
                 </Select.Content>
               </Select.Root>
             {:else}
-              <Input id="memory-host" value={memory?.host ?? `Host #${hostId}`} disabled />
+              <Input id="memory-host" value={memory?.host ?? "Unknown host"} disabled />
             {/if}
           </div>
         {/if}

@@ -306,7 +306,6 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | `/admin/manual/[slug]` | Read help; article | `PageShell`, `ManualSidebar`, `ArticleView` | Heading structure, code, long links, unknown slug |
 | `/admin/login` | Sign in; authentication | `AuthShell`, `FormField`, passkey/password steps | Keyboard, password manager, failure/recovery |
 | `/admin/password/reset` | Recover account; authentication | `AuthShell`, `FormField` | Request, valid/expired token and confirmation |
-| `/admin/cli-auth/verify` | Authorize CLI session; authentication | `AuthShell`, `CodeInput`, `SessionDetails` | Invalid/expired code, session identity and result |
 | `/admin/setup` | Provision fleet; setup | `WizardShell`; `AuthShell` for exceptional entry state | All nine steps, skip/resume, failed prerequisites |
 | `/admin/[...legacy]` | Redirect old route or show 404 | `legacyTarget`, framework error handling | Mapping/query/hash preservation; unknown route recovery |
 
@@ -328,7 +327,6 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | Schedule form/result, Git detail, transfer audit | `ListDetail` / domain sheets | Correct action and event scope; explicit uncertainty |
 | Toasts, banners, inline alerts and confirmation dialogs | Shared feedback/UI components | Durable errors inline; focus, live announcements and both themes |
 | Setup steps | Infrastructure, Owner, Engines, Credentials, Fleet defaults, Agent policy, Modules, Collaboration, First host | Test each step plus skip/resume; preserve shared `SeedAuthPanel`; first owner created is not wizard finished |
-| `/cli/auth/verify` server entry | Session-gated redirect to admin CLI-approval page; may return 401 | Preserve the existing authentication contract; avoid duplicating UI |
 | Retired `/go`, `/go/u/...`, `/admin/agent-portal` browser surface | No separate current portal page | Do not resurrect old portal login/theme scaffolding; current chat lives in Agents |
 
 API endpoints, downloaded user-authored files, generated provider payloads and the native Android app are not browser page designs. A future product-owned browser surface MUST join this inventory and follow this standard.
@@ -633,7 +631,7 @@ recorded debt. EX-2 records the single table density. `scripts/slop-grep.sh`
 rules) runs as `npm run slop` inside `npm run check`; accepted hits carry
 `slop-ok: <reason>` (modal scrim blur, the sticky table-header rule, prose quote
 and provenance rules, `@font-face`, brand and mascot artwork, reaction emoji,
-tabindex=-1 focus targets, the device-code input). The topology zoom group and
+tabindex=-1 focus targets). The topology zoom group and
 the manual's copy button lost their decorative backdrop blur (opaque background,
 no `shadow-sm`); the choice-card check mark drops `rounded-[1px]`; the Memory
 Atlas scope chip uses `.section-label`. Applicable rules: GOV-1, VIS-1/2/3/5.

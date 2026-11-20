@@ -125,7 +125,7 @@ test("workflow refresh preserves unsaved editor values and keyboard focus", asyn
 
 test("run filters survive report navigation and back",async({page})=>{
   await fixtures(page);await page.goto("/admin/workflows/runs?status=evaluating&evaluation=pending");
-  await expect(page.getByLabel("Run status")).toHaveValue("evaluating");await page.getByRole("link",{name:"Release 42 verification",exact:true}).click();await expect(page).toHaveURL(new RegExp(RUN_ID));await page.goBack();await expect(page.getByLabel("Run status")).toHaveValue("evaluating");await expect(page.getByLabel("Run evaluation")).toHaveValue("pending");
+  await expect(page.getByLabel("Run status")).toHaveText("Evaluating");await page.getByRole("link",{name:"Release 42 verification",exact:true}).click();await expect(page).toHaveURL(new RegExp(RUN_ID));await page.goBack();await expect(page.getByLabel("Run status")).toHaveText("Evaluating");await expect(page.getByLabel("Run evaluation")).toHaveText("Awaiting evaluation");
 });
 
 test("permission gates prevent editing and keep run chat reveal separate",async({page})=>{

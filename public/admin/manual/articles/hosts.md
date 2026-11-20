@@ -16,7 +16,7 @@ The host list is narrowed by a segmented status filter and a **More filters** me
 - **All hosts** — the full fleet, unfiltered.
 - **Online** — hosts whose computed status is "online" (see *Online status* below).
 - **Offline** — hosts whose computed status is "offline".
-- **Needs attention** — hosts with at least one warning in their *Needs attention* list (see *Host detail page* below).
+- **Needs attention** — hosts with at least one warning in their *Needs attention* list (see *Host detail page* below): a host that is offline, an open temporary-access window, a waiting access request, or missing credentials. The count and the status filter use the same definition, and a host with nothing to report shows an empty cell.
 
 The **More filters** menu holds attribute filters that can be combined with each other and with the status filter (a host must match every ticked one); the menu shows how many are active:
 
@@ -36,7 +36,7 @@ The host list page header carries:
 
 - **Add host** — the primary button; opens the *New host* slide-in sheet for full registration (also bound to the `n` shortcut and to `?add=1`). The installer command is copied automatically after registration. The old `/hosts/new` URL redirects to `/hosts?add=1`.
 - **▾** next to Add host — a menu with **Add host** and **Quick VM**, which opens the *Quick VM* dialog for a minimal-input registration. The installer command is copied automatically after provisioning.
-- **More** — a menu with **Seed canonical auth** (the shared `SeedAuthPanel`; the one-time command is copied automatically when generated) and **Review temporary access** (the insecure access dialog described under *The insecure approval queue* below, reachable whether or not a request is waiting). The dialog also opens automatically when the URL contains `?insecure=1` and when a new request arrives over the live feed, and a host with a waiting request shows a **Review** button in its Needs attention cell.
+- **More** — a menu with **Review temporary access** (the insecure access dialog described under *The insecure approval queue* below, reachable whether or not a request is waiting). The dialog also opens automatically when the URL contains `?insecure=1` and when a new request arrives over the live feed, and a host with a waiting request shows a **Review** button in its Needs attention cell.
 
 The old header **Insecure access** badge button is gone; open windows show as a countdown next to a host's status instead. There are no chord keyboard shortcuts for host navigation. Keyboard access is through the Cmd-K command palette and single-key shortcuts (`?`, `/`, `n`, Escape) only.
 
@@ -55,7 +55,7 @@ Full registration inputs (`POST /admin/hosts/register`):
 - `engines` — array of `codex` / `claude` / `grok` the host will run; any nonempty combination is accepted. Defaults come from `DEFAULT_HOST_ENGINES`.
 - `duration_minutes` — if insecure on registration, the length of the grace window in minutes (clamped to MIN=0 / MAX=480).
 
-In the *New host* sheet these appear as **Hostname (FQDN)**, an **Options** group (**Trusted**, **Skip TLS verification**, **Temporary**, **VIP**, **Persistent daemon**), and an **Engines** group (Codex, Claude, Grok).
+In the *New host* sheet these appear as **Hostname (FQDN)**, an **Options** group (**Trusted**, **Skip TLS verification**, **Temporary**, **VIP**, **Remote sessions (Linux service)**), and an **Engines** group (one card per engine that is switched on). One line under the engines says which keys toggle the options.
 
 Quick registration inputs (`POST /admin/hosts/quick-register`): `engines` and `duration_minutes` only.
 
@@ -73,7 +73,7 @@ Visiting `/hosts/[id]` (click a row) loads the detail view. Page data is fetched
 
 ### Header and status
 
-The page title is the hostname with `Host #id` below it. The header's primary action is **Get install command** (previously *Mint installer*): it generates a one-time installer via `POST /admin/hosts/{id}/installer` and shows the URL and command with copy buttons; **Create a new one** replaces it. The current **Skip TLS check** (`curl_insecure`) value is included so the copied command reflects the visible setting. Under the title a status pill shows the connection state (Online / Offline, see *Online status*) next to **Last contact**, from `last_contact_at`, the latest successful authenticated host request.
+The page title is the hostname. The header's primary action is **Get install command** (previously *Mint installer*): it generates a one-time installer via `POST /admin/hosts/{id}/installer` and shows the URL and command with copy buttons; **Create a new one** replaces it. The current **Skip TLS check** (`curl_insecure`) value is included so the copied command reflects the visible setting. Under the title a status pill shows the connection state (Online / Offline, see *Online status*) next to **Last contact**, from `last_contact_at`, the latest successful authenticated host request.
 
 ### Needs attention block
 
@@ -83,7 +83,7 @@ The first block on the page lists what is wrong with this host, each item with a
 - no credentials received yet (**Fix** gets a fresh install command);
 - informational, not counted: credentials older than the fleet's, some engines without credentials yet, a CLI or host agent (`cxx`) that is not at the target version or differs between engines (all of these repair themselves at the host's next run, so a stale host is not shown as a problem), temporary access is open (**Close** ends the window now), and an engine switched off fleet-wide (**Open Engines**).
 
-With nothing to report it reads "Nothing needs attention." Only the warnings feed the *Needs attention* column and status filter of the host list.
+An offline host and an open temporary-access window are warnings too, so the list and the host table agree. With nothing to report it reads "Nothing needs attention." Only the warnings feed the *Needs attention* column and status filter of the host list.
 
 ### Engines, access, and advanced controls
 
@@ -95,9 +95,10 @@ Below that, two sections sit side by side.
 
 **Agent instructions** holds optional extra rules for agents on this host only (`hosts.agents_extra`; read with `hosts.read`, saved with `hosts.manage` through `/admin/hosts/{id}/agents-extra`). The text is appended at the very end of the document this host is served, for every engine (Codex `AGENTS.md`, Claude `CLAUDE.md`, Grok `AGENTS.md`), under `## Host-specific instructions (<fqdn>)`, after the managed blocks and regardless of the generation mode. It is trimmed and limited to 32 KiB (the field counts bytes against that cap); **Save instructions** stores it, **Reset** discards the draft, and **Clear instructions** (with a confirmation; disabled while there are unsaved edits) removes it, as does saving blank text. A change alters the served document's digest, so the host rewrites its file on its next sync or launch; no wrapper update is needed, and hosts without instructions keep a byte-identical document. The Agent rules previews for this host include the section. If the text changed elsewhere while you edit, the draft is kept and **Reset** loads the current version. The audit entry `admin.host.agents_extra` records only size and SHA-256, not the text.
 
-**Advanced** is collapsed by default and opens by itself when the host carries per-host exceptions. It contains:
+**Network and access overrides** is its own collapsed section right after Engines and Access, because it is the first place to look when a host fails to connect; it opens by itself while the host is offline or skips TLS verification. It holds **Network and IP** — **Allow IP changes** (roaming), **Skip TLS check** (curl insecure), **Reverse DNS lookup** (a tri-state control: Fleet default / Always / Never), and **Release IP binding**, which clears both `ip4` and `ip6` (`POST /admin/hosts/{id}/release-ip-binding`) so the next successful auth re-binds; it is a clearing action, not an editable address field.
 
-- **Network and IP** — **Allow IP changes** (roaming), **Skip TLS check** (curl insecure), **Reverse DNS lookup** (a tri-state control: Fleet default / Always / Never), and **Release IP binding**, which clears both `ip4` and `ip6` (`POST /admin/hosts/{id}/release-ip-binding`) so the next successful auth re-binds; it is a clearing action, not an editable address field.
+**Command output filtering** (RTK) follows below as a collapsed one-line block (it normally inherits the fleet default, and it lists only the engines this host runs). **Overrides, integrations and remote sessions** is collapsed by default and opens by itself when the host carries per-host exceptions. It contains:
+
 - **Per-host exceptions** (host overrides) — per-engine **Version**, **Model**, and **Reasoning effort** overrides (Claude has Version and Model), and an **Agent rules document** pin by id (empty follows the fleet default).
 - **Fleet behaviour and integrations** — **Priority host** (VIP: usage limits only warn), **Update automatically** (auto-update), **Try new host-agent versions early** (the `cxx` rollout canary), and **BrowserOS MCP**.
 - **Remote sessions** and **Connection** (the CoCo communicator) panels.
@@ -175,4 +176,4 @@ Review endpoints:
 
 ## Kimi Code
 
-Select Kimi Code (hotkey **8**) to install `ckx` and the managed `kimi` command. Persistent daemon selection uses **9**. Host exceptions support a Kimi version, model and reasoning-effort override. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.
+Select Kimi Code (hotkey **8**) to install `ckx` and the managed `kimi` command. Remote sessions selection uses **9**. Host exceptions support a Kimi version, model and reasoning-effort override. See [Kimi Code (ckx)](ckx) for login, quota and receiver details.

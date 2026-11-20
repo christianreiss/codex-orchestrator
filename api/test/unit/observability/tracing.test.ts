@@ -31,7 +31,6 @@ import type {
 } from '../../../src/services/wrapper-signing-key.js';
 import type {
   BinaryBuild,
-  EngineManifest,
   PlatformManifest,
   WrapperBinRegistry,
 } from '../../../src/services/wrapper-bin-registry.js';
@@ -83,7 +82,6 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     insecureSessionRenewalBlocked: 0,
     curlInsecure: 0,
     browserosMcpEnabled: 0,
-    agentMessagingEnabled: 0,
     expiresAt: null,
     vip: 0,
     lanePreference: null,
@@ -114,7 +112,7 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     grokLastRefresh: null,
     kimiLastRefresh: null,
     configVersion: 4,
-    wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
+    wrapperCanary: 0, internalRole: null,
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
     ...overrides,
@@ -144,7 +142,6 @@ function fakeDb(): Database {
 
 function fakeBinaries(available = true): WrapperBinRegistry {
   const build: BinaryBuild = { version: '1.0.1', sha256: 'a'.repeat(64), size_bytes: 100 };
-  const manifest: EngineManifest = { engine: 'codex', platforms: {} };
   return {
     async manifestForPlatform(): Promise<PlatformManifest | null> {
       return null;
@@ -160,9 +157,6 @@ function fakeBinaries(available = true): WrapperBinRegistry {
     },
     async latestVersion() {
       return available ? build.version : null;
-    },
-    async engineManifest() {
-      return manifest;
     },
     async binaryDescriptor() {
       return null;

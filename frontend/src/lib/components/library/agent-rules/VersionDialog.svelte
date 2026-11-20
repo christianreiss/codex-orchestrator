@@ -20,9 +20,11 @@
       <div class="flex flex-wrap items-center gap-2 text-body-sm text-muted-foreground">
         <span>{version?.updated_at ? relativeTime(version.updated_at) : ""}</span>
         <span>·</span>
-        <span class="font-mono">sha256: {version?.sha256?.slice(0, 12)}…</span>
-        <span>·</span>
         <span>{formatBytes(version?.size_bytes ?? 0)}</span>
+        {#if version?.sha256}
+          <span>·</span>
+          <details class="inline"><summary class="inline cursor-pointer">Details</summary> <span class="break-all font-mono">sha256: {version.sha256}</span></details>
+        {/if}
       </div>
       <Textarea aria-label="Version preview" class="min-h-[50vh] font-mono text-caption" readonly value={version?.content ?? ""} />
     </div>

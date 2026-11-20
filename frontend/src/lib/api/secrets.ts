@@ -58,7 +58,7 @@ export const secretsApi = {
  * agent created is theirs to manage.
  */
 export function ownerLabel(secret: AdminSecret): string {
-  return secret.source_host_id === null ? "Operator" : `Host #${secret.source_host_id}`;
+  return secret.source_host_id === null ? "Operator" : "A host";
 }
 
 /** The MCP call an agent makes to read this secret — shown so operators can hand it over. */

@@ -32,7 +32,7 @@ import { isRfc3339 } from '../util/timestamp.js';
  *   }
  *
  * For platforms without a manifest file (older artifacts) `manifestForPlatform`
- * returns null and `engineManifest` falls back to a directory scan.
+ * returns null.
  */
 
 export interface BinaryBuild {
@@ -49,19 +49,6 @@ export interface PlatformManifest {
   arch: string;
   current: string;
   builds: BinaryBuild[];
-}
-
-export interface EngineManifest {
-  engine: Engine;
-  platforms: Record<
-    string,
-    {
-      version: string;
-      sha256: string;
-      size_bytes: number;
-      url_path: string;
-    }
-  >;
 }
 
 /** `cxx` is an artifact identity, deliberately not an orchestrator Engine. */
@@ -107,8 +94,6 @@ export interface WrapperBinRegistry {
   ): Promise<ResolvedWrapperBuild | null>;
   /** Returns the latest version string for engine+os+arch, or null. */
   latestVersion(engine: Engine, os: string, arch: string): Promise<string | null>;
-  /** Aggregates per-platform info into the `EngineManifest` shape served by /manifest. */
-  engineManifest(engine: Engine, publicBaseUrl: string): Promise<EngineManifest>;
   /** Returns metadata for a specific binary file, or null when absent. */
   binaryDescriptor(
     artifact: WrapperArtifact,
@@ -292,17 +277,6 @@ export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): Wrapp
     version: string,
   ): string {
     return join(versionDir(artifact, `${os}-${arch}`, version), binaryName(artifact));
-  }
-
-  async function listPlatforms(artifact: string): Promise<string[]> {
-    try {
-      const entries = await readdir(join(binRoot, artifact), { withFileTypes: true });
-      return entries
-        .filter((e) => e.isDirectory() && PLATFORM_RE.test(e.name))
-        .map((e) => e.name);
-    } catch {
-      return [];
-    }
   }
 
   async function sha256File(
@@ -495,25 +469,6 @@ export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): Wrapp
     async latestVersion(engine, os, arch) {
       const cur = await this.currentBuild(engine, os, arch);
       return cur?.version ?? null;
-    },
-
-    async engineManifest(engine, publicBaseUrl) {
-      const platforms = [
-        ...new Set([...(await listPlatforms(CXX_ARTIFACT)), ...(await listPlatforms(engine))]),
-      ].sort();
-      const out: EngineManifest = { engine, platforms: {} };
-      for (const platform of platforms) {
-        const [os, arch] = platform.split('-') as [string, string];
-        const build = await this.resolveCurrentBuild(engine, os, arch);
-        if (!build) continue;
-        out.platforms[platform] = {
-          version: build.version,
-          sha256: build.sha256,
-          size_bytes: build.size_bytes,
-          url_path: wrapperBinaryUrl(publicBaseUrl, build.artifact, os, arch, build.version),
-        };
-      }
-      return out;
     },
 
     async binaryDescriptor(artifact, os, arch, version) {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SimpleSelect } from "$lib/components/ui/select";
   import { formatDateTime } from "$lib/utils/format";
   import { authorizationQuery, authorizationMutation } from "$lib/api/settings";
   import { authStore } from "$lib/stores/auth";
@@ -18,26 +19,19 @@
 <PolicyRow
   id="authorization"
   label="Role checks"
-  term="authorization mode"
   controlId="authorization-mode"
   help="How strictly the server checks each role's capabilities on protected routes."
   details="Compatible mode preserves legacy role rules and records requests strict mode would refuse. Strict mode requires the capability assigned to each route. Recorded requests are evidence of past activity, not a guarantee about future access."
 >
   {#snippet control()}
-    <select
+    <SimpleSelect
       id="authorization-mode"
-      class="h-9 rounded-md border border-input bg-background px-3 text-body-sm"
+      aria-label="Role checks mode"
       value={$query.data?.mode ?? "compatible"}
       {disabled}
-      onchange={(event) => {
-        const mode = event.currentTarget.value === "strict" ? "strict" : "compatible";
-        event.currentTarget.value = $query.data?.mode ?? "compatible";
-        $mutation.mutate(mode);
-      }}
-    >
-      <option value="compatible">Compatible: legacy role rules</option>
-      <option value="strict">Strict: enforce capabilities</option>
-    </select>
+      onValueChange={(value) => $mutation.mutate(value === "strict" ? "strict" : "compatible")}
+      options={[{ value: "compatible", label: "Compatible: legacy role rules" }, { value: "strict", label: "Strict: enforce capabilities" }]}
+    />
   {/snippet}
   <p role="status" class="text-body-sm text-muted-foreground">
     {#if $query.isPending}Loading current setting…

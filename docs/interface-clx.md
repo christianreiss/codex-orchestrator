@@ -577,9 +577,7 @@ Same schema as cdx (`wrappers/schemas/host-config-v1.json`), with
     "listen_enabled": false
   }
   // orchestrator / host / wrapper blocks are identical to cdx; host includes
-  // engines / engines_list for the cron coordinator's engine membership. host.agent_messaging_enabled
-  // is a retired compatibility field mirroring the effective value, kept only so
-  // wrappers older than 0.7.8 keep accepting the config; it gates nothing.
+  // engines / engines_list for the cron coordinator's engine membership.
 }
 ```
 
@@ -635,13 +633,13 @@ An engine switched off fleet-wide (Admin → Engines → Engine master switches;
 
 ## Distribution surfaces
 
-The canonical binary is engine-neutral; the engine manifest and old URLs remain
-compatibility surfaces:
+The canonical binary is engine-neutral; the old per-engine URL remains a
+compatibility surface:
 
 | Method | Path |
 |---|---|
 | GET | `/wrapper/v2/bin/cxx/<os>-<arch>/v<ver>/cxx` |
-| GET | `/wrapper/v2/manifest/claude` |
+| GET | `/wrapper/v2/bin/claude/<os>-<arch>/v<ver>/clx` |
 
 `/wrapper/v2/bin/clx/.../clx` preserves exact immutable historical split bytes
 when present and otherwise may stream the matching published `cxx` bytes. New
@@ -654,7 +652,7 @@ orchestrator can bake the matching `binary_url` / SHA256 for this host.
 ## Managed CLAUDE.md feature guidance
 
 The admin editor and version history store only canonical base Markdown. During
-`/agents/retrieve` or bundled startup sync, the server derives the effective
+bundled startup sync (`/sync/bootstrap`), the server derives the effective
 Claude/host feature state and appends at most one
 `<!-- cxx:managed-policy:start -->` … `<!-- cxx:managed-policy:end -->` always prefixes the served document with Codex Orchestrator fleet identity, instruction precedence/safety floor, and Hard Stop Lines. The canonical builder/raw base follows, then `<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->` carries engine-appropriate capability guidance.
 block. Existing orchestrator-owned blocks are replaced so repeated renders are
@@ -1093,8 +1091,8 @@ analogue for. The orchestrator manages them as first-class fleet artifacts
   failure, or prune failure preserves the last-good manifest entry and file so
   a best-effort sync cannot turn a transient error into destructive cleanup.
 - Admin: `GET /admin/claude/:kind`, `GET /admin/claude/:kind/:slug`,
-  `POST /admin/claude/:kind/store`, `DELETE /admin/claude/:kind/:slug`. Host
-  surface is read-only: `GET /claude/:kind`, `POST /claude/:kind/retrieve`
+  `POST /admin/claude/:kind/store`, `DELETE /admin/claude/:kind/:slug`. Hosts
+  receive them read-only in the `claude_artifacts` block of `/sync/bootstrap`
   (these artifacts are admin-authored fleet-wide). `:kind` accepts singular or
   plural spellings.
 
@@ -1530,9 +1528,9 @@ change the model.
   an agent inspects the fleet it is running inside, and the fleet documentation
   tells it to.
 - `statusLine` defaults to `{ "type": "command", "command": "cxx claude-quota-statusline" }`
-  when no admin statusLine is configured and the host's own self-reported wrapper
-  version is at least 0.7.24 (an older binary is never handed a command it does
-  not understand). An admin-configured statusLine always wins and, when present,
+  when no admin statusLine is configured (every supported cxx ships the command;
+  until 2026-11-20 it waited for the host to report 0.7.24 or newer). An
+  admin-configured statusLine always wins and, when present,
   suppresses this default — which also takes that host's Claude quota telemetry
   offline, since the statusline command is the only source of it.
   From cxx 0.9.113, the reporter accepts both Unix-second numbers (native

@@ -1,4 +1,4 @@
-package kimi
+package privatehome
 
 import (
 	"os"
@@ -10,12 +10,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func privateDirectoryInUse(dir string) bool {
-	pid, err := privateDirectoryHolder(dir)
+func (s *Spec) inUse(dir string) bool {
+	pid, err := s.holder(dir)
 	return err != nil || pid != 0
 }
 
-func privateDirectoryHolder(dir string) (int, error) {
+func (s *Spec) holder(dir string) (int, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return 0, err
@@ -25,21 +25,30 @@ func privateDirectoryHolder(dir string) (int, error) {
 		if err != nil || pid == os.Getpid() {
 			continue
 		}
-		if processUsesPrivateDirectory(pid, dir) {
+		if s.processUses(pid, dir) {
 			return pid, nil
 		}
 	}
 	return 0, nil
 }
 
-func processUsesPrivateDirectory(pid int, dir string) bool {
+func (s *Spec) processUses(pid int, dir string) bool {
 	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
 	if err != nil {
 		return false
 	}
 	for _, item := range strings.Split(string(raw), "\x00") {
 		key, value, _ := strings.Cut(item, "=")
-		if (key == "KIMI_CODE_HOME" || key == "KIMI_AUTH_PATH") && (value == dir || strings.HasPrefix(value, dir+string(os.PathSeparator))) {
+		if s.envKey(key) && (value == dir || strings.HasPrefix(value, dir+string(os.PathSeparator))) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Spec) envKey(key string) bool {
+	for _, k := range s.EnvKeys {
+		if key == k {
 			return true
 		}
 	}
@@ -49,9 +58,9 @@ func processUsesPrivateDirectory(pid int, dir string) bool {
 // A native child can close the inherited lease while keeping its private home.
 // Wait on that process's kernel lifetime instead of rescanning all of /proc ten
 // times a second. Always rescan after exit to protect surviving descendants.
-func waitPrivateDirectoryIdle(dir string) {
+func (s *Spec) waitIdle(dir string) {
 	for {
-		pid, err := privateDirectoryHolder(dir)
+		pid, err := s.holder(dir)
 		if err == nil && pid == 0 {
 			return
 		}
@@ -70,7 +79,7 @@ func waitPrivateDirectoryIdle(dir string) {
 		}
 		// Opening before rechecking prevents PID reuse from selecting an
 		// unrelated process as the lifetime we wait for.
-		if processUsesPrivateDirectory(pid, dir) {
+		if s.processUses(pid, dir) {
 			for {
 				_, err = unix.Poll([]unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}, -1)
 				if err != unix.EINTR {

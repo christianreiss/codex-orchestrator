@@ -99,7 +99,6 @@ export const LEGACY_OWNER_ADMIN_ROUTES: ReadonlySet<string> = new Set([
   'POST /admin/users',
   'POST /admin/users/:id',
   'POST /admin/users/wipe',
-  'POST /cli/auth/approve',
 ]);
 
 /**

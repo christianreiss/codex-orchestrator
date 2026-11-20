@@ -7,7 +7,7 @@
 <ConfirmedSwitchSetting
   id="agent-supervisor"
   title="Agent supervisor"
-  description="External recovery for stalled work and missing handoffs across Codex, Claude, Grok and Kimi Code."
+  description="External recovery for stalled work and missing handoffs across all agents."
   toggleLabel="Enable fleet supervision"
   help="Reminds after ten minutes without progress. Recovers the same native session up to five times within two hours per incident. Active tools and user questions are protected."
   subject="the supervisor"

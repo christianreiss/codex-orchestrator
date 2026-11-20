@@ -1,41 +1,5 @@
 import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINE_COMMANDS, ENGINE_LABELS } from '../util/engine.js';
-import type { VersionSnapshot } from './version-snapshot.js';
-
-export function isLegacyShellWrapperVersion(value: unknown): boolean {
-  if (typeof value !== 'string') return false;
-  const version = value.trim();
-  return /^\d{4}\.\d{2}\.\d{2}(?:[-+][A-Za-z0-9._-]+)*$/.test(version);
-}
-
-export function legacyWrapperDownloadUrl(engine: Engine): string {
-  return `/wrapper/download?engine=${engine}`;
-}
-
-export function isCxxBinaryUrl(value: unknown): boolean {
-  if (typeof value !== 'string' || value.trim() === '') return false;
-  try {
-    const path = new URL(value, 'https://wrapper.invalid').pathname;
-    return /\/wrapper\/v2\/bin\/cxx\/(?:(?:linux|darwin)-(?:amd64|arm64)|freebsd-amd64)\/v[^/]+\/cxx$/.test(
-      path,
-    );
-  } catch {
-    return false;
-  }
-}
-
-export function withLegacyShellWrapperTransition(
-  summary: VersionSnapshot,
-  submittedWrapperVersion: unknown,
-  engine: Engine,
-): VersionSnapshot {
-  if (!isLegacyShellWrapperVersion(submittedWrapperVersion)) return summary;
-  return {
-    ...summary,
-    wrapper_sha256: null,
-    wrapper_url: legacyWrapperDownloadUrl(engine),
-  };
-}
 
 export function buildWrapperV2InstallerScript(opts: {
   fqdn: string;
@@ -63,11 +27,10 @@ export function buildWrapperV2InstallerScript(opts: {
 # Generated for host ${commentValue(opts.fqdn)}.
 set -eu
 
-${shellArgumentGuard(false)}
+${shellArgumentGuard()}
 
 BASE_URL=${shellQuote(opts.baseUrl.replace(/\/+$/, ''))}
 HOST_API_KEY=${shellQuote(opts.apiKey)}
-ENGINE=${shellQuote(opts.engine)}
 NAME=${shellQuote(name)}
 HOST_LABEL=${shellQuote(opts.fqdn)}
 INSTALL_LABEL=${shellQuote(installLabel)}
@@ -77,7 +40,6 @@ HAS_CODEX=${hasCodex ? '1' : '0'}
 HAS_CLAUDE=${needsClaude ? '1' : '0'}
 HAS_GROK=${requestedEngines.includes(ENGINE_GROK) ? '1' : '0'}
 HAS_KIMI=${requestedEngines.includes(ENGINE_KIMI) ? '1' : '0'}
-INSTALL_CONTEXT=installer
 CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${defaultCurlInsecure}}
 
 BIN_DIR=\${BIN_DIR:-/usr/local/bin}
@@ -131,47 +93,7 @@ exit 1
 `;
 }
 
-export function buildLegacyWrapperTransitionScript(opts: {
-  fqdn: string;
-  apiKey: string;
-  baseUrl: string;
-  engine: Engine;
-  allowInsecure?: boolean;
-  peerEngines?: Engine[];
-}): string {
-  const name = binaryName(opts.engine);
-  const peers = (opts.peerEngines ?? []).filter((engine) => engine !== opts.engine);
-  const requestedEngines = [...new Set<Engine>([opts.engine, ...peers])];
-  const hasCodex = requestedEngines.includes(ENGINE_CODEX);
-  const hasClaude = requestedEngines.includes(ENGINE_CLAUDE);
-  return `#!/bin/sh
-# Codex Orchestrator legacy transition launcher for ${name}.
-# Generated for host ${commentValue(opts.fqdn)}.
-set -eu
-
-${shellArgumentGuard(true)}
-
-BASE_URL=${shellQuote(opts.baseUrl.replace(/\/+$/, ''))}
-HOST_API_KEY=${shellQuote(opts.apiKey)}
-ENGINE=${shellQuote(opts.engine)}
-NAME=${shellQuote(name)}
-HOST_LABEL=${shellQuote(opts.fqdn)}
-INSTALL_LABEL=${shellQuote(ENGINE_LABELS[opts.engine])}
-PFSENSE_CODEX_ONLY=${requestedEngines.length === 1 && hasCodex ? '1' : '0'}
-NEEDS_CLAUDE=${hasClaude ? '1' : '0'}
-HAS_CODEX=${hasCodex ? '1' : '0'}
-HAS_CLAUDE=${hasClaude ? '1' : '0'}
-HAS_GROK=${requestedEngines.includes(ENGINE_GROK) ? '1' : '0'}
-HAS_KIMI=${requestedEngines.includes(ENGINE_KIMI) ? '1' : '0'}
-CODEX_INSTALL_CURL_INSECURE=\${CODEX_INSTALL_CURL_INSECURE:-${opts.allowInsecure ? '1' : '0'}}
-BIN_DIR=\${BIN_DIR:-/usr/local/bin}
-INSTALL_CONTEXT=transition
-
-${bootstrapBody()}
-`;
-}
-
-function shellArgumentGuard(transition: boolean): string {
+function shellArgumentGuard(): string {
   return `for argument in "$@"; do
   case "$argument" in
     -h|--help|--wrapper-help)
@@ -179,10 +101,10 @@ function shellArgumentGuard(transition: boolean): string {
       exit 0 ;;
   esac
 done
-${transition ? '' : `if [ "$#" -ne 0 ]; then
+if [ "$#" -ne 0 ]; then
   printf '%s\\n' 'Unsupported installer arguments. Use --help; no installation was started.' >&2
   exit 2
-fi`}`;
+fi`;
 }
 
 function bootstrapBody(): string {
@@ -481,6 +403,8 @@ PY_STEP_LOG
   fi
 }
 
+# Invoked indirectly by on_exit below.
+# shellcheck disable=SC2329
 cleanup() {
   for CLEAN_PATH in "$CODEX_BUNDLE" "$CLAUDE_BUNDLE" "$GROK_BUNDLE" "$KIMI_BUNDLE" "$BIN_TMP" "$STEP_LOG" "$NODE_SHIM_TMP" "$NPM_SHIM_TMP"; do
     if [ -n "$CLEAN_PATH" ]; then rm -f "$CLEAN_PATH"; fi
@@ -504,9 +428,7 @@ on_exit() {
   if [ "$INSTALL_EXIT" != "0" ] && [ "$INSTALL_FINISHED" = "0" ]; then
     ui_divider
     ui_result_fail "INCOMPLETE" "Setup stopped before every requested component was ready"
-    if [ "$INSTALL_CONTEXT" = "installer" ]; then
-      ui_hint "This single-use installer was consumed. Fix the cause, then mint and run a fresh installer."
-    fi
+    ui_hint "This single-use installer was consumed. Fix the cause, then mint and run a fresh installer."
   fi
   exit "$INSTALL_EXIT"
 }
@@ -846,20 +768,7 @@ verify_engine_cli() {
   ui_ok "$BOOT_NAME" "$BOOT_CLI" "$BOOT_VERSION" "available"
 }
 
-if [ "$INSTALL_CONTEXT" = "transition" ]; then
-  case "$0" in
-    */*) TRANSITION_SELF=$0 ;;
-    *) TRANSITION_SELF=$(command -v "$0" 2>/dev/null || printf '%s' "$0") ;;
-  esac
-  TRANSITION_DIR=$(dirname "$TRANSITION_SELF")
-  BIN_ROOT=$(CDPATH='' cd -P -- "$TRANSITION_DIR" 2>/dev/null && pwd)
-  if [ -z "$BIN_ROOT" ]; then
-    echo "Cannot resolve transition wrapper directory for $TRANSITION_SELF" >&2
-    exit 1
-  fi
-else
-  BIN_ROOT="$BIN_DIR"
-fi
+BIN_ROOT="$BIN_DIR"
 
 preflight
 bootstrap_space
@@ -893,9 +802,7 @@ ORIGINAL_GROK_BIN=$(command -v cgx 2>/dev/null || true)
 ORIGINAL_KIMI_BIN=$(command -v ckx 2>/dev/null || true)
 PATH="$BIN_ROOT:\${PATH:-}"
 export PATH
-if [ "$INSTALL_CONTEXT" = "installer" ]; then
-  ui_header
-fi
+ui_header
 BIN_TMP=$(mktemp "\${TMPDIR:-/tmp}/cxx.bin.XXXXXX")
 STEP_LOG=$(mktemp "\${TMPDIR:-/tmp}/cxx.install.XXXXXX")
 if [ "$HAS_CODEX" = "1" ]; then
@@ -1055,7 +962,7 @@ PY
 eval "$PY_OUT"
 ui_ok "cxx" "config" "$WRAPPER_VERSION" "ready"
 
-if [ "$INSTALL_CONTEXT" = "installer" ] && [ "$NEEDS_CLAUDE" = "1" ]; then
+if [ "$NEEDS_CLAUDE" = "1" ]; then
   ensure_claude_prerequisites || true
 fi
 
@@ -1116,9 +1023,6 @@ remove_relic() {
 }
 
 cleanup_known_relics() {
-  if [ "$INSTALL_CONTEXT" != "installer" ]; then
-    return 0
-  fi
   if [ "$BIN_ROOT" != "/usr/local/bin" ]; then
     return 0
   fi
@@ -1167,12 +1071,10 @@ if [ "$HAS_CODEX" = "1" ]; then install_alias cdx; fi
 if [ "$HAS_CLAUDE" = "1" ]; then install_alias clx; fi
 if [ "$HAS_GROK" = "1" ]; then install_alias cgx; fi
 if [ "$HAS_KIMI" = "1" ]; then install_alias ckx; fi
-if [ "$INSTALL_CONTEXT" = "installer" ]; then
-  if [ "$HAS_CODEX" = "0" ]; then remove_disabled_alias cdx; fi
-  if [ "$HAS_CLAUDE" = "0" ]; then remove_disabled_alias clx; fi
-  if [ "$HAS_GROK" = "0" ]; then remove_disabled_alias cgx; fi
-  if [ "$HAS_KIMI" = "0" ]; then remove_disabled_alias ckx; fi
-fi
+if [ "$HAS_CODEX" = "0" ]; then remove_disabled_alias cdx; fi
+if [ "$HAS_CLAUDE" = "0" ]; then remove_disabled_alias clx; fi
+if [ "$HAS_GROK" = "0" ]; then remove_disabled_alias cgx; fi
+if [ "$HAS_KIMI" = "0" ]; then remove_disabled_alias ckx; fi
 cleanup_known_relics
 ui_ok "cxx" "wrapper" "$WRAPPER_VERSION" "ready"
 exec 9>&-
@@ -1187,29 +1089,6 @@ if [ "$NATIVE_ENTRY_SUPPORTED" = "1" ]; then
     ui_warn "cxx" "native commands" "retry: cxx native-entry install" "integration not prepared"
     INSTALL_FAILED=1
   fi
-fi
-
-install_background_worker() {
-  # Keep the worker installed while agent messaging is off. It starts no model
-  # and makes no messaging requests in that state. Both engines upload native
-  # credential changes and retrieve canonical updates while a managed child is
-  # active. Detached native writers retain upload coverage after wrapper exit.
-  # Its presence also lets the WebUI activate messaging without another install.
-  ui_progress "cxx" "background worker" "" "installing…"
-  if "$TARGET_BIN" agent service install >"$STEP_LOG" 2>&1; then
-    ui_ok "cxx" "background worker" "" "ready"
-  else
-    ui_warn "cxx" "background worker" "" "service unavailable"
-    ui_hint "Retry as the desktop user: $TARGET_BIN agent service install"
-  fi
-}
-
-if [ "$INSTALL_CONTEXT" = "transition" ]; then
-  install_background_worker
-  INSTALL_FINISHED=1
-  cleanup
-  trap - EXIT INT TERM
-  exec "$TARGET_BIN" "$ENGINE" "$@"
 fi
 
 if [ "$HAS_CODEX" = "1" ] && [ -n "$ORIGINAL_CODEX_BIN" ] && [ "$ORIGINAL_CODEX_BIN" != "$BIN_ROOT/cdx" ]; then
@@ -1258,10 +1137,7 @@ if [ "$INSTALL_FAILED" = "0" ]; then
   if [ "$HAS_CLAUDE" = "1" ]; then sync_engine clx; fi
   if [ "$HAS_GROK" = "1" ]; then sync_engine cgx; fi
   if [ "$HAS_KIMI" = "1" ]; then sync_engine ckx; fi
-fi
-# These are consumed by the installer suffix. Keep the shared transition body
-# independently ShellCheck-clean even though its successful path execs above.
-: "$BIN_ROOT_ON_PATH" "$INSTALL_FAILED"`;
+fi`;
 }
 
 /**
@@ -1355,7 +1231,7 @@ export function buildInstallerLauncherScript(opts: {
 # installer with a POST and runs it. A failed check leaves the installer unused.
 set -eu
 
-${shellArgumentGuard(false)}
+${shellArgumentGuard()}
 
 INSTALL_URL=${shellQuote(opts.installUrl)}
 PFSENSE_CODEX_ONLY=${opts.engine === ENGINE_CODEX && (opts.enginesList ?? []).every((e) => e === ENGINE_CODEX) ? '1' : '0'}

@@ -10,7 +10,7 @@
   import { Label } from "$lib/components/ui/label";
   import { Button } from "$lib/components/ui/button";
   import { DraftGuard, Section } from "$lib/components/page";
-  import { formatBytes } from "$lib/utils/format";
+  import { formatMib } from "$lib/utils/format";
   import { formatDuration, transferLimitsMutation, type TransferState } from "$lib/api/transfers";
 
   // Named `moduleState`, not `state`: a local called `state` shadows the `$state` rune.
@@ -68,7 +68,7 @@
   <div class="space-y-1.5">
     <div class="flex items-baseline justify-between text-body-sm">
       <span class="text-muted-foreground">
-        {formatBytes(usedBytes)} {quotaBytes > 0 ? `of ${formatBytes(quotaBytes)} in use` : "in use · unlimited quota"}
+        {formatMib(usedBytes)} {quotaBytes > 0 ? `of ${formatMib(quotaBytes)} in use` : "in use · unlimited quota"}
         {#if moduleState}· {moduleState.live_count} file{moduleState.live_count === 1 ? "" : "s"} held{/if}
       </span>
       {#if quotaBytes > 0}<span class="tabular-nums text-muted-foreground">{usedPercent}%</span>{/if}
@@ -83,25 +83,25 @@
     {/if}
   </div>
 
-  <div class="mt-4 grid gap-3 sm:grid-cols-2">
+  <div class="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
     <div class="space-y-1">
       <Label for="transfer-default-ttl">Default TTL (minutes)</Label>
-      <Input id="transfer-default-ttl" type="number" min="1" bind:value={defaultTtlMinutes} disabled={!canManage} />
+      <Input id="transfer-default-ttl" class="max-w-xs" type="number" min="1" bind:value={defaultTtlMinutes} disabled={!canManage} />
       <p class="text-caption text-muted-foreground">{formatDuration(Number(defaultTtlMinutes) * 60)}</p>
     </div>
     <div class="space-y-1">
       <Label for="transfer-max-ttl">Maximum TTL (minutes)</Label>
-      <Input id="transfer-max-ttl" type="number" min="1" max="10080" bind:value={maxTtlMinutes} disabled={!canManage} />
+      <Input id="transfer-max-ttl" class="max-w-xs" type="number" min="1" max="10080" bind:value={maxTtlMinutes} disabled={!canManage} />
       <p class="text-caption text-muted-foreground">{formatDuration(Number(maxTtlMinutes) * 60)} · the ceiling every request is clamped to</p>
     </div>
     <div class="space-y-1">
       <Label for="transfer-max-file">Maximum file size (MiB)</Label>
-      <Input id="transfer-max-file" type="number" min="0" step="any" bind:value={maxFileMib} disabled={!canManage} />
+      <Input id="transfer-max-file" class="max-w-xs" type="number" min="0" step="any" bind:value={maxFileMib} disabled={!canManage} />
       <p class="text-caption text-muted-foreground">0 means unlimited; binary transfers have no fixed file-size cap.</p>
     </div>
     <div class="space-y-1">
       <Label for="transfer-quota">Pool quota (MiB)</Label>
-      <Input id="transfer-quota" type="number" min="0" step="any" bind:value={quotaMib} disabled={!canManage} />
+      <Input id="transfer-quota" class="max-w-xs" type="number" min="0" step="any" bind:value={quotaMib} disabled={!canManage} />
       <p class="text-caption text-muted-foreground">0 means unlimited. Usage includes reserved upload sizes.</p>
     </div>
   </div>

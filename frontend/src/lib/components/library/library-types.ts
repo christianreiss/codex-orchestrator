@@ -42,12 +42,13 @@ export type LibraryTypeMeta = {
   canonical?: string;
   /** One line under the page title. */
   description: string;
-  /** Claude-native content has no Codex or Grok counterpart. */
+  /** Claude-native content has no counterpart on any other engine; hidden while Claude is off fleet-wide. */
   claudeOnly: boolean;
   icon: Component;
 };
 
-const CLAUDE_ONLY_NOTE = "Claude-only: synced to Claude Code hosts, ignored by Codex, Grok and Kimi Code.";
+/** Shown once, as the caption of the type switch, while a Claude-only type is open. */
+export const CLAUDE_ONLY_NOTE = "Claude-only: synced to Claude Code hosts, ignored by every other engine.";
 
 export const LIBRARY_TYPES: readonly LibraryTypeMeta[] = [
   {
@@ -68,17 +69,22 @@ export const LIBRARY_TYPES: readonly LibraryTypeMeta[] = [
   },
   {
     id: "subagents", label: "Subagents", icon: Bot, claudeOnly: true,
-    description: `Focused assistants Claude can delegate to. ${CLAUDE_ONLY_NOTE}`,
+    description: "Focused assistants Claude can delegate to.",
   },
   {
     id: "commands", label: "Commands", canonical: "slash commands", icon: SquareTerminal, claudeOnly: true,
-    description: `Reusable slash-command prompts. ${CLAUDE_ONLY_NOTE}`,
+    description: "Reusable slash-command prompts.",
   },
   {
     id: "output-styles", label: "Reply styles", canonical: "output styles", icon: Palette, claudeOnly: true,
-    description: `How Claude formats and phrases its replies. ${CLAUDE_ONLY_NOTE}`,
+    description: "How Claude formats and phrases its replies.",
   },
 ];
+
+/** The types to offer: Claude-native ones disappear while Claude is switched off fleet-wide. */
+export function offeredLibraryTypes(claudeEnabled: boolean): readonly LibraryTypeMeta[] {
+  return claudeEnabled ? LIBRARY_TYPES : LIBRARY_TYPES.filter((entry) => !entry.claudeOnly);
+}
 
 export function libraryTypeMeta(id: LibraryTypeId): LibraryTypeMeta {
   return LIBRARY_TYPES.find((entry) => entry.id === id) ?? LIBRARY_TYPES[0]!;

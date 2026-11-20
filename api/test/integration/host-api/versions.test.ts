@@ -497,88 +497,12 @@ describe('POST /cron/check', () => {
     }
   });
 
-  it('projects split Go bytes directly for date wrappers while cxx is absent', async () => {
-    const dataRoot = await mkdtemp(join(tmpdir(), 'codex-auth-wrapper-split-legacy-'));
-    const binaryContents = 'historical split cdx';
-    const binarySha = createHash('sha256').update(binaryContents).digest('hex');
-    const binaryPath = join(
-      dataRoot,
-      'wrapper',
-      'v2',
-      'bin',
-      'codex',
-      'linux-amd64',
-      'v0.6.0',
-      'cdx',
-    );
-    await mkdir(dirname(binaryPath), { recursive: true });
-    await writeFile(binaryPath, binaryContents);
-    await writeFile(
-      join(dataRoot, 'wrapper', 'v2', 'bin', 'codex', 'linux-amd64', 'manifest.json'),
-      JSON.stringify({
-        engine: 'codex',
-        os: 'linux',
-        arch: 'amd64',
-        current: '0.6.0',
-        builds: [
-          {
-            version: '0.6.0',
-            sha256: binarySha,
-            size_bytes: Buffer.byteLength(binaryContents),
-          },
-        ],
-      }),
-    );
-    const db = createDbFake();
-    const apiKey = 'sk-codex-cron-test';
-    db.tables.set(hostsTable, [hostRow(apiKey)]);
-    db.tables.set(versionsTable, [
-      { name: 'client_version_codex', version: '0.130.0' },
-      { name: 'wrapper_version_codex', version: '0.6.0' },
-      { name: 'wrapper_sha256_codex', version: 'a'.repeat(64) },
-      {
-        name: 'wrapper_url_codex',
-        version: 'https://orchestrator.example/wrapper/v2/bin/codex/linux-amd64/v0.6.0/cdx',
-      },
-      { name: 'auto_update_enabled', version: '1' },
-    ]);
-    let app: Awaited<ReturnType<typeof buildHostApiTestApp>> | null = null;
-    try {
-      app = await buildHostApiTestApp({
-        db: db as any,
-        env: { ...env, DATA_ROOT: dataRoot },
-        keyring: makeKeyring(),
-      });
-      const r = await app.inject({
-        method: 'POST',
-        url: '/cron/check',
-        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
-        payload: JSON.stringify({
-          engine: 'codex',
-          client_version: '0.130.0',
-          wrapper_version: '2026.05.11-01',
-        }),
-      });
-      expect(r.statusCode).toBe(200);
-      const body = JSON.parse(r.payload);
-      expect(body.wrapper).toMatchObject({
-        action: 'update',
-        target_version: '0.6.0',
-        sha256: binarySha,
-        url: 'https://orchestrator.example/wrapper/v2/bin/codex/linux-amd64/v0.6.0/cdx',
-      });
-    } finally {
-      await app?.close();
-      await rm(dataRoot, { recursive: true, force: true });
-    }
-  });
-
   it.each(['2026.03.24-05', '2026.05.11-01'])(
-    'sends date wrapper %s to the transition launcher with an empty checksum, never null',
+    'no longer offers date wrapper %s a transition launcher',
     async (legacyVersion) => {
-      // Legacy cron parses the field with print(d.get('wrapper',{}).get('sha256','')):
-      // JSON null becomes the string "None" and fails every download as
-      // "hash mismatch", so legacy hosts never reached cxx.
+      // Date-versioned shell wrappers are unsupported and must be reinstalled:
+      // /cron/check names the plain cxx artifact and, as their date sorts above
+      // every release, offers no update.
       const dataRoot = await mkdtemp(join(tmpdir(), 'codex-auth-wrapper-legacy-transition-'));
       const binaryContents = 'common cxx binary';
       const binarySha = createHash('sha256').update(binaryContents).digest('hex');
@@ -629,10 +553,10 @@ describe('POST /cron/check', () => {
         const legacy = await check(legacyVersion);
         expect(legacy.statusCode).toBe(200);
         expect(JSON.parse(legacy.payload).wrapper).toEqual({
-          action: 'update',
+          action: 'no_update',
           target_version: '0.9.82',
-          sha256: '',
-          url: '/wrapper/download?engine=codex',
+          sha256: binarySha,
+          url: 'https://orchestrator.example/wrapper/v2/bin/cxx/linux-amd64/v0.9.82/cxx',
         });
         // Go wrappers keep the exact artifact checksum.
         const modern = await check('0.9.81');
@@ -922,7 +846,7 @@ function hostRow(apiKey: string) {
     claudeReasoningEffortOverride: null,
     claudeLastRefresh: null,
     configVersion: 0,
-    wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
+    wrapperCanary: 0, internalRole: null,
     createdAt: '2026-05-18T00:00:00Z',
     updatedAt: '2026-05-18T00:00:00Z',
   };

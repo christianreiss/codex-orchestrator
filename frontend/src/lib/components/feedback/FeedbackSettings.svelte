@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SimpleSelect } from "$lib/components/ui/select";
   import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
   import { Button } from '$lib/components/ui/button';
   import { FormField } from '$lib/components/ui/form-field';
@@ -48,10 +49,7 @@
     <form class="mt-4 grid max-w-2xl gap-4" onsubmit={(e) => { e.preventDefault(); save(); }} oninput={() => { dirty = true; saved = false; }} onchange={() => { dirty = true; saved = false; }}>
       <fieldset class="grid gap-4" disabled={!canManage || $mutation.isPending}>
         <FormField id="feedback-mode" label="Feedback mode">
-          <select id="feedback-mode" class={controlClass} bind:value={draft.mode}>
-            <option value="source_developer">Source Developer — local developer inbox</option>
-            <option value="user">User — local reports with GitHub checks</option>
-          </select>
+          <SimpleSelect id="feedback-mode" aria-label="Feedback mode" class="w-full" bind:value={draft.mode} options={[{ value: "source_developer", label: "Source Developer: local developer inbox" }, { value: "user", label: "User: local reports with GitHub checks" }]} />
         </FormField>
         {#if draft.mode === 'user'}
           <p class="break-words text-body-sm">Public destination: <a class="underline" href="https://github.com/christianreiss/codex-orchestrator/issues" target="_blank" rel="noreferrer">christianreiss/codex-orchestrator</a>. Every report is retained locally first.</p>
@@ -59,9 +57,7 @@
           {#if draft.runner_enabled && !reportingEnabled}<p role="status" class="text-body-sm text-muted-foreground">Server checks are paused while Agent reports is off. Enable Agent reports above to process the queue.</p>{/if}
           <div class="grid gap-3 sm:grid-cols-2">
             <FormField id="feedback-engine" label="Review engine">
-              <select id="feedback-engine" class={controlClass} bind:value={draft.engine}>
-                <option value={null}>Select engine</option>{#each reviewEngines as option (option)}<option value={option}>{engineLabel(option)}</option>{/each}
-              </select>
+              <SimpleSelect id="feedback-engine" aria-label="Review engine" class="w-full" value={draft.engine ?? ""} onValueChange={(value) => { if (draft) draft.engine = (value || null) as typeof draft.engine; }} options={[{ value: "", label: "Select engine" }, ...reviewEngines.map((option) => ({ value: option, label: engineLabel(option) }))]} />
             </FormField>
             <FormField id="feedback-model" label="Review model">
               <input id="feedback-model" class={controlClass} value={draft.model ?? ''} oninput={(e) => { if (draft) draft.model = e.currentTarget.value.trim() || null; }} required={draft.runner_enabled} placeholder="An enabled model from this engine" />

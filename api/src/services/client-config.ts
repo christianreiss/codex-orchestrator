@@ -107,7 +107,6 @@ import { isSafeVersion, versionCompare } from './wrapper-bin-registry.js';
 import {
   AGENT_MESSAGING_TOOLS,
   CLAUDE_AGENT_MESSAGING_SERVER,
-  LEGACY_CLAUDE_AGENT_MESSAGING_SERVER,
 } from './agent-messaging-tool-names.js';
 import { securityLevelEnforcement, type SecurityLevels } from './agent-security-levels.js';
 import {
@@ -1108,11 +1107,7 @@ function injectManagedMcp(
     // second, identically-named user-scope entry would duplicate all eighteen
     // tools across two processes, only one of which holds the delivery lease.
     managedNames.add('cxx-agent');
-    // A Claude host still running a pre-plugin wrapper gets the entry too: its
-    // wrapper passes the server on the command line, where Claude Code's
-    // channel check cannot see it, and this user-scope entry is the only thing
-    // that keeps `server:cxx-agent` resolvable there.
-    if (opts.engine !== ENGINE_CLAUDE || !hostCarriesClaudeMessagingPlugin(opts.host?.claudeWrapperVersion)) {
+    if (opts.engine !== ENGINE_CLAUDE) {
       managedEntries.push({
         name: 'cxx-agent',
         command: 'cxx',
@@ -1376,7 +1371,7 @@ function claudeAdvisorOmissions(settings: NormalizedSettings, partial: Record<st
 
 export function renderClaudeSettingsPartial(
   settings: NormalizedSettings,
-  opts: { agentMessagingEnabled?: boolean; messagingServer?: string } = {},
+  opts: { agentMessagingEnabled?: boolean } = {},
 ): { partial: Record<string, unknown>; owned_paths: string[]; omitted?: ClaudeSettingOmission[] } {
   const partial = withClaudeModelEffort(settings);
   const owned = claudeNativeOwnedPaths(partial);
@@ -1437,16 +1432,11 @@ export function renderClaudeSettingsPartial(
   // Not derived from `servers` like the curation rules above: on Claude the
   // messaging server is provided by clx's per-launch `cxx-receiver` plugin and
   // therefore never appears in the rendered `mcpServers`. The fleet switch is
-  // the signal, and the identifier is the plugin-scoped one Claude Code builds.
-  // The name itself is host-specific: a wrapper older than the plugin migration
-  // still sees the tools as `mcp__cxx-agent__*`, and an allowlist naming tools
-  // that host does not have prompts on every call. The caller resolves it from
-  // the host's self-reported wrapper version; a direct caller with no host in
-  // hand renders the current shape.
-  const messagingServer = opts.messagingServer ?? CLAUDE_AGENT_MESSAGING_SERVER;
+  // the signal, and the identifier is the plugin-scoped one Claude Code builds
+  // (every supported clx, 0.8.11 and newer, ships the plugin).
   const agentMessaging = opts.agentMessagingEnabled === true;
   const agentMessagingAllow = agentMessaging
-    ? AGENT_MESSAGING_TOOLS.map((tool) => `mcp__${messagingServer}__${tool}`)
+    ? AGENT_MESSAGING_TOOLS.map((tool) => `mcp__${CLAUDE_AGENT_MESSAGING_SERVER}__${tool}`)
     : [];
   // Same signal as the permission allowlist above: if the bus is provisioned,
   // this session is addressable, and an addressable session needs a ringer.
@@ -1495,51 +1485,6 @@ export function renderClaudeSettingsPartial(
   };
 }
 
-// The first wrapper release whose `clx` carries the `cxx-agent` stdio server
-// inside its per-launch `cxx-receiver` plugin, and therefore sees its tools as
-// `mcp__plugin_cxx-receiver_cxx-agent__*`.
-//
-// Gated for the same reason as the statusline below: config syncs ahead of a
-// host's self-update. An older `clx` still passes the server on the command
-// line and asks Claude Code to register `server:cxx-agent` as a channel --
-// which Claude Code resolves only against the enterprise/managed/user/project/
-// local MCP scopes, never the command line. Serving that host the new shape
-// unconditionally takes away the one user-scope entry that made the name
-// resolvable (dead channel, no inbound messages) and hands it an allowlist
-// naming tools it does not have (a permission prompt on every agent_* call).
-// Below this version a host keeps the old shape until its own wrapper updates.
-// CONFIRM AND UPDATE at release time, in step with wrappers/Makefile VERSION.
-const MIN_CLAUDE_PLUGIN_MESSAGING_VERSION = '0.8.11';
-
-/** The Claude messaging server name this host's own wrapper will actually see. */
-export function claudeMessagingServerFor(wrapperVersion: string | null | undefined): string {
-  const trimmed = (wrapperVersion ?? '').trim();
-  if (!trimmed) return LEGACY_CLAUDE_AGENT_MESSAGING_SERVER;
-  return versionCompare(trimmed, MIN_CLAUDE_PLUGIN_MESSAGING_VERSION) >= 0
-    ? CLAUDE_AGENT_MESSAGING_SERVER
-    : LEGACY_CLAUDE_AGENT_MESSAGING_SERVER;
-}
-
-function hostCarriesClaudeMessagingPlugin(wrapperVersion: string | null | undefined): boolean {
-  return claudeMessagingServerFor(wrapperVersion) === CLAUDE_AGENT_MESSAGING_SERVER;
-}
-
-// The first wrapper release expected to ship `cxx claude-quota-statusline`.
-// The latest tag at the time this feature was written was v0.7.23, which
-// does NOT contain it -- so this must be the NEXT tag cut, not the current
-// one, or a host already on today's release would be wrongly judged ready.
-// A host self-reports its own installed version, so this can only ever be
-// bumped AHEAD of the actual tag by mistake, not behind it -- but it must be
-// kept in sync with the tag this feature actually ships in, or the default
-// never turns on for anyone. CONFIRM AND UPDATE at release time.
-const MIN_CLAUDE_QUOTA_STATUSLINE_VERSION = '0.7.24';
-
-function hostSupportsClaudeQuotaStatusline(wrapperVersion: string | null | undefined): boolean {
-  const trimmed = (wrapperVersion ?? '').trim();
-  if (!trimmed) return false;
-  return versionCompare(trimmed, MIN_CLAUDE_QUOTA_STATUSLINE_VERSION) >= 0;
-}
-
 /** Host-aware partial render (applies per-host claude model + managed clx MCP). */
 export function renderClaudeSettingsPartialForHost(opts: HostRenderOptions): {
   partial: Record<string, unknown>;
@@ -1575,7 +1520,6 @@ export function renderClaudeSettingsPartialForHost(opts: HostRenderOptions): {
   });
   const { partial, owned_paths, omitted } = renderClaudeSettingsPartial(withManaged, {
     agentMessagingEnabled: opts.agentMessagingEnabled,
-    messagingServer: claudeMessagingServerFor(opts.host?.claudeWrapperVersion),
   });
   // Older wrappers interpret dots as hierarchy, so a literal map key must not
   // be served as an encoded path until the host can apply it correctly.
@@ -1611,15 +1555,9 @@ export function renderClaudeSettingsPartialForHost(opts: HostRenderOptions): {
   // subscription's OAuth token. An admin-configured statusLine (rendered
   // above) always wins over this default.
   //
-  // Gated on the host's OWN self-reported wrapper version: settings.json
-  // syncs independently of (and often before) a host's self-update, so an
-  // unconditional default would hand a host still running an older `cxx`
-  // binary a statusLine command that binary does not understand yet --
-  // exactly the version-skew incident class this fleet has broken on before
-  // (missing capability entries, stale embedded commits). The host cannot
-  // report a version it has not already updated to, so this can only ever
-  // enable the feature at or after the update, never before it.
-  if (!partial['statusLine'] && hostSupportsClaudeQuotaStatusline(opts.host?.claudeWrapperVersion)) {
+  // Host renders only: every supported cxx (0.7.24 and newer) ships
+  // `cxx claude-quota-statusline`.
+  if (!partial['statusLine'] && opts.host) {
     partial['statusLine'] = { type: 'command', command: 'cxx claude-quota-statusline' };
     owned_paths.push('statusLine');
   }

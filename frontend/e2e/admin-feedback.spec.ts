@@ -1,3 +1,4 @@
+import { pick } from "./admin-fixtures";
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import type { FeedbackItem, FeedbackConfiguration } from '../src/lib/api/feedback';
@@ -73,22 +74,22 @@ async function fixture(page: Page, manage = true, userMode = false) {
 test('activation, triage, evidence, verified fix and separate deployment', async ({ page }) => {
   const { writes } = await fixture(page);
   await page.goto('/admin/reports');
-  await expect(page.getByRole('switch', { name: 'Agent reports' })).not.toBeChecked();
-  await page.getByRole('switch', { name: 'Agent reports' }).click();
-  await expect(page.getByRole('switch', { name: 'Agent reports' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Enable agent reports' })).not.toBeChecked();
+  await page.getByRole('switch', { name: 'Enable agent reports' }).click();
+  await expect(page.getByRole('switch', { name: 'Enable agent reports' })).toBeChecked();
   expect(writes[0]).toEqual({ path: '/admin/feedback/state', body: { enabled: true } });
   await page.getByRole('button', { name: /Wrapper manifest parsing fails/ }).click();
   await expect(page.getByText('Original reproduction evidence', { exact: true })).toBeVisible();
   await page.getByLabel('Add evidence or comment').fill('Reproduced on all three engines');
   await page.getByRole('button', { name: 'Save update', exact: true }).click();
   await expect(page.getByText('v2 · updated', { exact: false })).toBeVisible();
-  await page.getByLabel('Report status', { exact: true }).selectOption('resolved');
+  await pick(page, page.getByLabel('Report status', { exact: true }), 'Resolved');
   await page.getByLabel('Resolution', { exact: true }).fill('Corrected manifest parser');
   await page.getByLabel('Fix reference', { exact: true }).fill('commit:abc123');
   await page.getByLabel('Verification', { exact: true }).fill('Regression test and builds passed');
   await page.getByRole('button', { name: 'Save update', exact: true }).click();
   await expect(page.getByText('Deployment: not deployed', { exact: true })).toBeVisible();
-  await page.getByLabel('Deployment', { exact: true }).selectOption('deployed');
+  await pick(page, page.getByLabel('Deployment', { exact: true }), 'Deployed');
   await page.getByLabel('Deployment reference').fill('release:v1');
   await page.getByRole('button', { name: 'Save update', exact: true }).click();
   await expect(page.getByText('Deployment: deployed · release:v1', { exact: true })).toBeVisible();
@@ -100,9 +101,9 @@ test('User feedback settings require explicit engine/model and persist automatic
   const { writes } = await fixture(page);
   await page.goto('/admin/reports');
   await page.getByText('Feedback destination and automatic checks', { exact: true }).click();
-  await page.getByLabel('Feedback mode', { exact: true }).selectOption('user');
+  await pick(page, page.getByLabel('Feedback mode', { exact: true }), /^User/);
   await page.getByLabel('Enable server checks and API retests').check();
-  await page.getByLabel('Review engine', { exact: true }).selectOption('claude');
+  await pick(page, page.getByLabel('Review engine', { exact: true }), 'Claude');
   await page.getByLabel('Review model', { exact: true }).fill('fixture-model');
   await page.getByLabel('GitHub token', { exact: true }).fill('test-only-not-a-real-token');
   await page.getByLabel('Allow automatic publication', { exact: false }).check();
@@ -168,7 +169,7 @@ test('mobile read-only details and retained disabled history', async ({ page }) 
   await page.setViewportSize({ width: 390, height: 844 });
   await fixture(page, false);
   await page.goto('/admin/reports');
-  await expect(page.getByRole('switch', { name: 'Agent reports' })).toBeDisabled();
+  await expect(page.getByRole('switch', { name: 'Enable agent reports' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'New report', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: /Wrapper manifest parsing fails/ }).click();
   await expect(page.getByRole('heading', { name: 'Original report', exact: true })).toBeVisible();
@@ -181,7 +182,7 @@ test('administrator can release an active claim with a reason', async ({ page })
   const context = await fixture(page);
   context.claim();
   await page.goto('/admin/reports');
-  await page.getByLabel('Filter status', { exact: true }).selectOption('in_progress');
+  await pick(page, page.getByLabel('Filter status', { exact: true }), 'In progress');
   await page.getByRole('button', { name: /Wrapper manifest parsing fails/ }).click();
   await page.getByLabel('Release reason').fill('Handing off to another agent');
   await page.getByRole('button', { name: 'Force release', exact: true }).click();

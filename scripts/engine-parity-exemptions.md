@@ -188,9 +188,6 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/grok/preexec.go` | Grok-only implementation of preexec; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/preexec_test.go` | Grok-only test/fixture for preexec test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/private_directory.go` | Grok-only implementation of private directory; Kimi has its own provider path. |
-| `wrappers/cxx/internal/grok/private_directory_linux.go` | Grok-only implementation of private directory linux; Kimi has its own provider path. |
-| `wrappers/cxx/internal/grok/private_directory_linux_test.go` | Grok-only test/fixture for private directory linux test; Kimi has its own provider path. |
-| `wrappers/cxx/internal/grok/private_directory_other.go` | Grok-only implementation of private directory other; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/private_directory_test.go` | Grok-only test/fixture for private directory test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/reaper_main_test.go` | Grok-only test/fixture for reaper main test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/grok/registry_canary_test.go` | Grok-only test/fixture for registry canary test; Kimi has its own provider path. |

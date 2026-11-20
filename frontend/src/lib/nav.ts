@@ -130,7 +130,7 @@ export const NAV: NavItem[] = [
   },
   {
     id: "agent-messaging", group: "coordination", route: "/agent-messaging", label: "Messaging",
-    description: "Agent addresses, groups and the delivery log", keywords: ["messages", "agent messaging", "agents", "codex", "claude", "grok", "kimi", "relay", "conference", "delivery"], icon: MessageSquareShare,
+    description: "Conversations between agents and the server", keywords: ["messages", "agent messaging", "agents", "codex", "claude", "grok", "kimi", "relay", "conference", "delivery"], icon: MessageSquareShare,
   },
   {
     id: "schedules", group: "coordination", route: "/schedules", label: "Wake-ups",
@@ -293,7 +293,6 @@ export function getBreadcrumbs(pathname: string): Breadcrumb[] {
   if (pathname.startsWith("/manual/")) return detailTrail({ label: "Manual", route: "/manual" }, humanize(segments[1] ?? ""));
   if (pathname === "/login") return [{ label: "Sign in" }];
   if (pathname === "/password/reset") return [{ label: "Reset password" }];
-  if (pathname.startsWith("/cli-auth")) return [{ label: "CLI authorization" }];
   if (pathname === "/setup") return [{ label: "Setup" }];
 
   const direct = CONTEXT_BY_ROUTE.get(pathname);

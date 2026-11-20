@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import Fastify, { type FastifyRequest } from 'fastify';
 import { describe, expect, it } from 'vitest';
-import { agentsDocuments, claudeArtifacts, clientConfigDocuments, skills, type Host } from '../../../src/db/schema.js';
+import { skills, type Host } from '../../../src/db/schema.js';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { registerProjectsClientRoutes } from '../../../src/routes/projects-client/index.js';
 import type { RouteContext } from '../../../src/routes/index.js';
@@ -18,70 +18,24 @@ async function buildApp(engines = 'codex,claude') {
     manifest: `${engine} instructions`, sha256: digest(`${engine} instructions`),
     displayName: `${engine} skill`, deletedAt: null, updatedAt: stamp,
   })));
-  db.tables.set(clientConfigDocuments, ['codex', 'claude'].map((engine, index) => ({
-    id: index + 1, engine, body: '{}', sha256: digest('{}'),
-    settings: { model: engine === 'codex' ? 'gpt-5.6-terra' : 'claude-opus-5' },
-    updatedAt: stamp,
-  })));
-  db.tables.set(agentsDocuments, [{ id: 1, engine: 'codex', body: 'Shared fleet instructions', sha256: digest('Shared fleet instructions'), updatedAt: stamp }]);
-  db.tables.set(claudeArtifacts, [{
-    id: 1, kind: 'subagent', slug: 'reviewer', engine: 'claude', body: 'Review changes',
-    sha256: digest('Review changes'), deletedAt: null, updatedAt: stamp,
-  }]);
   const app = Fastify({ logger: false });
   await app.register(envelopePlugin);
   app.decorate('requireHost', async (request: FastifyRequest) => { request.authHost = host; });
   await registerProjectsClientRoutes(app, {
     db, env: { PUBLIC_BASE_URL: 'https://orchestrator.example' }, keyring: null,
   } as unknown as RouteContext);
-  return { app, db };
+  return { app };
 }
 
-describe('host engine routing for synced resources', () => {
-  it.each(['codex', 'claude'])('uses current %s wrapper capabilities on direct config retrieval', async engine => {
-    const { app, db } = await buildApp();
-    db.tables.set(clientConfigDocuments, [{ id: 1, engine, body: '{}', sha256: digest('{}'),
-      settings: { orchestrator_mcp_enabled: true }, updatedAt: stamp }]);
-    try {
-      const current = await app.inject({ method: 'POST', url: '/config/retrieve',
-        headers: { 'x-engine': engine, 'x-wrapper-version': '0.9.79' }, payload: {} });
-      expect(current.statusCode).toBe(200);
-      expect(current.json().content).toContain('communicator');
-      const legacy = await app.inject({ method: 'POST', url: '/config/retrieve',
-        headers: { 'x-engine': engine }, payload: {} });
-      expect(legacy.statusCode).toBe(200);
-      expect(legacy.json().content).not.toContain('communicator');
-    } finally { await app.close(); }
-  });
-
+describe('host engine routing for the skill list', () => {
   it.each([
     { headers: { 'x-engine': 'claude' }, query: '' },
     { headers: { 'user-agent': 'clx/2.0.0' }, query: '' },
     { headers: {}, query: '?engine=claude' },
-  ])('serves Claude resources with header, query or legacy wrapper identity', async ({ headers, query }) => {
+  ])('serves the Claude list with header, query or legacy wrapper identity', async ({ headers, query }) => {
     const { app } = await buildApp();
     try {
-      const skill = await app.inject({ method: 'POST', url: `/skills/retrieve${query}`, headers, payload: { slug: 'claude-skill' } });
-      expect(skill.statusCode).toBe(200);
-      expect(skill.json()).toMatchObject({ status: 'updated', slug: 'claude-skill' });
-      const config = await app.inject({ method: 'POST', url: `/config/retrieve${query}`, headers, payload: {} });
-      expect(config.statusCode).toBe(200);
-      expect(config.json().engine).toBe('claude');
-      expect(JSON.parse(config.json().content)).toMatchObject({ model: 'claude-opus-5' });
-      expect(config.json().content).not.toContain('gpt-5.6-terra');
-      const agents = await app.inject({ method: 'POST', url: `/agents/retrieve${query}`, headers, payload: {} });
-      expect(agents.statusCode).toBe(200);
-      expect(agents.json().engine).toBe('claude');
-      expect(agents.json().content).toContain('Shared fleet instructions');
-    } finally {
-      await app.close();
-    }
-  });
-
-  it('filters skill lists using the requested engine header', async () => {
-    const { app } = await buildApp();
-    try {
-      const response = await app.inject({ method: 'GET', url: '/skills', headers: { 'x-engine': 'claude' } });
+      const response = await app.inject({ method: 'GET', url: `/skills${query}`, headers });
       expect(response.statusCode).toBe(200);
       expect(response.body).toContain('claude-skill');
       expect(response.body).not.toContain('codex-skill');
@@ -90,10 +44,10 @@ describe('host engine routing for synced resources', () => {
     }
   });
 
-  it.each(['/skills/retrieve', '/skills/store', '/agents/retrieve', '/config/retrieve'])('rejects contradictory hints on %s', async (url) => {
+  it('rejects contradictory hints', async () => {
     const { app } = await buildApp();
     try {
-      const response = await app.inject({ method: 'POST', url, headers: { 'x-engine': 'claude' }, payload: { engine: 'codex' } });
+      const response = await app.inject({ method: 'GET', url: '/skills?engine=codex', headers: { 'x-engine': 'claude' } });
       expect(response.statusCode).toBe(422);
       expect(response.body).toContain('conflicting engine hints');
     } finally {
@@ -101,42 +55,26 @@ describe('host engine routing for synced resources', () => {
     }
   });
 
-  it('enforces host engine eligibility for header-selected configuration', async () => {
+  it('enforces host engine eligibility for a header-selected engine', async () => {
     const { app } = await buildApp('codex');
     try {
-      const response = await app.inject({ method: 'POST', url: '/config/retrieve', headers: { 'x-engine': 'claude' }, payload: {} });
+      const response = await app.inject({ method: 'GET', url: '/skills', headers: { 'x-engine': 'claude' } });
       expect(response.statusCode).toBe(403);
       expect(response.json().code).toBe('engine_disabled');
     } finally {
       await app.close();
     }
   });
-});
 
-describe('Claude-native artifacts', () => {
-  it('defaults list and retrieval to Claude on Claude-only hosts', async () => {
-    const { app } = await buildApp('claude');
-    try {
-      const list = await app.inject({ method: 'GET', url: '/claude/agents' });
-      expect(list.statusCode).toBe(200);
-      expect(list.json()).toMatchObject({ engine: 'claude', items: [{ slug: 'reviewer' }] });
-      const result = await app.inject({ method: 'POST', url: '/claude/agents/retrieve', payload: { slug: 'reviewer' } });
-      expect(result.statusCode).toBe(200);
-      expect(result.json()).toMatchObject({ status: 'updated', content: 'Review changes' });
-    } finally {
-      await app.close();
-    }
-  });
-
-  it('rejects explicit Codex hints for both list and retrieval', async () => {
-    const { app } = await buildApp();
-    try {
-      const list = await app.inject({ method: 'GET', url: '/claude/agents?engine=codex' });
-      const result = await app.inject({ method: 'POST', url: '/claude/agents/retrieve', headers: { 'x-engine': 'codex' }, payload: { slug: 'reviewer' } });
-      expect(list.statusCode).toBe(422);
-      expect(result.statusCode).toBe(422);
-    } finally {
-      await app.close();
-    }
-  });
+  it.each(['/skills/retrieve', '/skills/store', '/agents/retrieve', '/config/retrieve', '/claude/agents/retrieve'])(
+    'no longer serves the pre-bundle POST %s',
+    async (url) => {
+      const { app } = await buildApp();
+      try {
+        expect((await app.inject({ method: 'POST', url, headers: { 'x-engine': 'claude' }, payload: {} })).statusCode).toBe(404);
+      } finally {
+        await app.close();
+      }
+    },
+  );
 });

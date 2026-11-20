@@ -50,6 +50,9 @@ for (const dark of [false, true]) test(`RTK host inheritance, unavailable status
     return undefined;
   });
   await page.goto('/admin/hosts/1');
+  // On a host the block is one collapsed line (it inherits the fleet default); the summary says so.
+  await expect(page.getByTestId('host-rtk')).toContainText('inherit the fleet default');
+  await page.getByTestId('host-rtk').locator(':scope > summary').click();
   const section=page.locator('#host-rtk');
   await expect(section).toContainText('Previous policy reported; awaiting sync');
   await expect(section).toContainText('Not reported');
@@ -116,6 +119,7 @@ test('RTK readiness ages locally while an idle host page remains open', async ({
  const policies=Object.fromEntries(engines.map(engine=>[engine,{enabled:true,fleet:true,override:null,source:'fleet',adapter_mode:'instructions',policy_revision:'r1',assigned:true,observation:{engine,ready:true,wrapper_version:'x',native_version:'x',rtk_version:'1.2.0',policy_revision:'r1',observed_at:'2026-11-07T12:00:05Z'}}]));
  await installFixtures(page,(path)=>path === '/admin/hosts/1/rtk'?{engines:policies}:undefined);
  await page.goto('/admin/hosts/1');
+ await page.getByTestId('host-rtk').locator(':scope > summary').click();
  const row=page.getByTestId('rtk-codex');
  await expect(row).toContainText('Guidance prepared at last report');
  await page.clock.runFor(30_000);

@@ -121,6 +121,15 @@ export function formatTime(input: DateInput, options: ZonedFormatOptions = {}): 
   return zoned(input, {}, options);
 }
 
+/** Byte size in MiB, the one unit the shared-files page uses for sizes, limits and usage. */
+export function formatMib(n: number | null | undefined): string {
+  if (n === null || n === undefined || Number.isNaN(n)) return "0 MiB";
+  const mib = n / 1024 / 1024;
+  if (mib === 0) return "0 MiB";
+  if (mib < 0.1) return "<0.1 MiB";
+  return `${mib >= 100 ? Math.round(mib) : mib.toFixed(1)} MiB`;
+}
+
 /** Format byte size as KB/MB/GB string. */
 export function formatBytes(n: number | null | undefined): string {
   if (n === null || n === undefined || Number.isNaN(n)) return "0 B";

@@ -12,7 +12,6 @@
   import HostsActions from "$lib/components/hosts/HostsActions.svelte";
   import NewHostSheet from "$lib/components/hosts/NewHostSheet.svelte";
   import QuickVmDialog from "$lib/components/hosts/QuickVmDialog.svelte";
-  import SeedAuthDialog from "$lib/components/hosts/SeedAuthDialog.svelte";
   import { loadFailure } from "$lib/api/access-denied";
 
   const hosts = hostsListQuery();
@@ -45,7 +44,6 @@
   // --- sheets and dialogs -------------------------------------------------
   let addOpen = $state(false);
   let quickOpen = $state(false);
-  let seedOpen = $state(false);
 
   function reviewAccess(): void {
     window.dispatchEvent(new CustomEvent("codex:open-insecure-approvals"));
@@ -80,7 +78,7 @@
 
 <PageShell title="Hosts" description="Every machine, and what needs doing on it." width="wide">
   {#snippet actions()}
-    <HostsActions onAdd={() => (addOpen = true)} onQuickVm={() => (quickOpen = true)} onSeedAuth={() => (seedOpen = true)} onReviewAccess={reviewAccess} />
+    <HostsActions onAdd={() => (addOpen = true)} onQuickVm={() => (quickOpen = true)} onReviewAccess={reviewAccess} />
   {/snippet}
   {#snippet subheader()}
     {#if !$hosts.isLoading && !$hosts.isError}<StatStrip items={stats} />{/if}
@@ -102,4 +100,3 @@
 
 <NewHostSheet bind:open={addOpen} onOpenChange={(o) => { addOpen = o; if (!o) dropParams("add", "dialog"); }} />
 <QuickVmDialog bind:open={quickOpen} onOpenChange={(o) => { quickOpen = o; if (!o) dropParams("dialog"); }} />
-<SeedAuthDialog bind:open={seedOpen} />

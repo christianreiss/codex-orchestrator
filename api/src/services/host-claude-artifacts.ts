@@ -13,10 +13,8 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { claudeArtifacts } from '../db/schema.js';
 import type { ClaudeArtifact, Host } from '../db/schema.js';
-import { ValidationError } from '../http/errors.js';
 import { isEngine, type Engine } from '../util/engine.js';
 import { ARTIFACT_KINDS, type ArtifactKind } from './claude-frontmatter.js';
-import { normalizeSlug } from './skill-manifest.js';
 
 const SHA_RE = /^[a-f0-9]{64}$/i;
 
@@ -73,66 +71,6 @@ export class HostClaudeArtifactsService {
       .where(and(eq(claudeArtifacts.kind, kind), isNull(claudeArtifacts.deletedAt)))
       .orderBy(asc(claudeArtifacts.slug));
     return rows.filter((r) => r.kind === kind && !r.deletedAt).sort((a, b) => a.slug.localeCompare(b.slug));
-  }
-
-  async list(
-    kind: ArtifactKind,
-    host: Host,
-    engine: Engine | null,
-  ): Promise<{ kind: ArtifactKind; engine: Engine | null; items: Record<string, unknown>[] }> {
-    const rows = (await this.liveRows(kind)).filter((r) => this.engineMatches(r.engine, engine));
-    const items = rows.map((r) => ({
-      slug: r.slug,
-      sha256: r.sha256,
-      display_name: r.displayName ?? null,
-      description: r.description ?? null,
-      model: r.model ?? null,
-      updated_at: r.updatedAt,
-      engine: r.engine ?? null,
-    }));
-    return { kind, engine, items };
-  }
-
-  async retrieve(
-    kind: ArtifactKind,
-    rawSlug: string,
-    providedSha: string | null,
-    host: Host,
-  ): Promise<Record<string, unknown>> {
-    const slug = normalizeSlug(rawSlug);
-    if (providedSha !== null && providedSha !== undefined && !SHA_RE.test(providedSha)) {
-      throw new ValidationError('Validation failed', {
-        extra: { errors: { sha256: ['sha256 must be a 64-char hex digest'] } },
-      });
-    }
-    const owner = ownerRuntimeFor(this.db);
-    owner?.assertOwner();
-    const rows = owner
-      ? owner.state.snapshot().table('claudeArtifacts').by('kind', kind)
-      : await this.db
-          .select()
-          .from(claudeArtifacts)
-          .where(and(eq(claudeArtifacts.kind, kind), eq(claudeArtifacts.slug, slug)));
-    const row = rows.find((r) => r.kind === kind && r.slug === slug);
-    if (!row) {
-      return { status: 'missing', kind, slug };
-    }
-    if (row.deletedAt) {
-      return { status: 'deleted', kind, slug, deleted_at: row.deletedAt };
-    }
-    const status = providedSha && safeHashEquals(row.sha256, providedSha) ? 'unchanged' : 'updated';
-    const result: Record<string, unknown> = {
-      status,
-      kind,
-      slug,
-      sha256: row.sha256,
-      display_name: row.displayName ?? null,
-      description: row.description ?? null,
-      model: row.model ?? null,
-      updated_at: row.updatedAt,
-    };
-    if (status !== 'unchanged') result['content'] = await this.content(row);
-    return result;
   }
 
   /**

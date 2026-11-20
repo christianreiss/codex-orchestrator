@@ -13,6 +13,8 @@
   import HostAttention from "$lib/components/hosts/detail/HostAttention.svelte";
   import RtkSettings from "$lib/components/settings/RtkSettings.svelte";
   import InstallCommand from "$lib/components/hosts/detail/InstallCommand.svelte";
+  import NetworkSection from "$lib/components/hosts/detail/NetworkSection.svelte";
+  import { hostEngines } from "$lib/api/hosts";
 
   const id = $derived(page.params.id ?? "");
   const detail = $derived(hostDetailQuery(id));
@@ -40,7 +42,7 @@
   </PageShell>
 {:else}
   {@const status = STATUS[hostStatusKind(host, now)]}
-  <PageShell title={host.fqdn} monoTitle description={`Host #${host.id}`} width="narrow">
+  <PageShell title={host.fqdn} monoTitle width="narrow">
     {#snippet actions()}
       <InstallCommand bind:this={installer} {id} fqdn={host.fqdn} curlInsecure={host.curl_insecure} />
     {/snippet}
@@ -57,9 +59,10 @@
       <EnginesSection {host} {id} />
       <AccessSection {host} {id} />
     </div>
+    <NetworkSection {host} {id} />
     {#key id}<AgentInstructions {id} fqdn={host.fqdn} />{/key}
-    {#key id}<RtkSettings hostId={id} />{/key}
     <AdvancedSection data={$detail.data} {id} />
+    {#key id}<RtkSettings hostId={id} engines={hostEngines(host)} />{/key}
     <DeleteHost {id} fqdn={host.fqdn} />
   </PageShell>
 {/if}

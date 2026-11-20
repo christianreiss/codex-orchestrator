@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
+  import { engineLabel } from "$lib/constants/engines";
   import Activity from "@lucide/svelte/icons/activity";
   import Braces from "@lucide/svelte/icons/braces";
   import Clock3 from "@lucide/svelte/icons/clock-3";
@@ -179,7 +180,7 @@
       <Sheet.Header class="pr-10">
         <div class="flex flex-wrap items-center gap-2">
           <Badge variant="outline" class="capitalize">{node?.scope ?? "Memory"}</Badge>
-          {#if node?.engine}<Badge variant="secondary">{node.engine}</Badge>{/if}
+          {#if node?.engine}<Badge variant="secondary">{engineLabel(node.engine)}</Badge>{/if}
         </div>
         <Sheet.Title class="mt-2 break-words font-mono text-base">
           {memory?.title || memory?.id || node?.memory_id || node?.key || node?.label || "Memory"}
@@ -349,7 +350,7 @@
                       <time class="text-caption text-muted-foreground" title={formatTimestamp(item.created_at)}>{item.created_at ? relativeTime(item.created_at) : "—"}</time>
                     </div>
                     <p class="mt-0.5 text-caption text-muted-foreground">
-                      {item.source}{item.source_engine ? ` · ${item.source_engine}` : ""}{item.admin_id ? ` · admin #${item.admin_id}` : ""}
+                      {item.source}{item.source_engine ? ` · ${engineLabel(item.source_engine)}` : ""}{item.admin_id ? ` · admin #${item.admin_id}` : ""}
                     </p>
                     <div class="mt-1.5 flex flex-wrap gap-1.5 text-caption text-muted-foreground">
                       {#if item.content_length != null}<span>{formatCharacters(item.content_length)}</span>{/if}

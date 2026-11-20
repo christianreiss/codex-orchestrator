@@ -26,7 +26,7 @@ Use these canonical destinations from the sidebar or command palette:
 |---|---|---|
 | **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), then Codex, Claude, Grok and Kimi Code tabs with each engine's state and usage, default model and effort, the **Only current models** policy, the CLI version, and a collapsed **Advanced** block (native settings, Codex silent mode and compaction, Claude client settings). |
 | **Usage limits** | `/limits` | Quota enforcement (`#quota-enforcement`), quota warnings and provider recommendations. |
-| **Settings** | `/settings` | Fleet-wide behaviour in four tabs, chosen with `?group=` (a link to any row, such as `/settings#agent-coordination`, opens the tab that holds it). **Hosts** (`hosts`): update hosts automatically (auto-update), look up host names (reverse DNS), allow temporary-access requests (insecure approval), let agents set up new hosts, and remove inactive hosts. **Agents** (`agents`): agent sessions, API keys pasted in chat, the model-tier self-check, subagent model selection, role checks (authorization mode), agent coordination, the agent supervisor switch and Chatty. **Rollout & tools** (`rollout`): the host-agent rollout (a switch, plus halt, resume, promote and release-to-all, each behind a confirmation), the communicator API level (read only) and command output filtering (RTK). **Retention** (`retention`): local session housekeeping, then server history retention (preview before run). Settings that individual hosts can override show a badge: **N hosts override** links to Hosts; **Every host follows this** means none does. |
+| **Settings** | `/settings` | Fleet-wide behaviour in four tabs, chosen with `?group=` (a link to any row, such as `/settings#agent-coordination`, opens the tab that holds it). **Hosts** (`hosts`): update hosts automatically (auto-update), look up host names (reverse DNS), allow temporary-access requests (insecure approval), let agents set up new hosts, and remove inactive hosts. **Agents** (`agents`): agent sessions, API keys pasted in chat, the model-tier self-check, subagent model selection, role checks (authorization mode), agent coordination, the agent supervisor switch and Chatty. **Rollout & tools** (`rollout`): the host-agent rollout (a switch, plus halt, resume, promote and release-to-all, each behind a confirmation), the communicator API level (read only) and command output filtering (RTK). **Retention** (`retention`): local session housekeeping, then server history retention (preview before run). Settings that individual hosts can override show a badge: **N hosts override** links to Hosts; **Every host follows this** means none does. Each row's **More** disclosure also names the setting by its canonical term ("Also known as auto-update", "reverse DNS"). |
 | **API keys** (in Access & Settings) | `/api-keys` | Issued keys first; **Configure** opens *Service availability & routing*: the **Routing** table, **Backend defaults**, and the global **All API traffic** control. |
 
 Each engine's section on Engines (`/engines#codex-defaults`, `#claude-defaults`, `#grok-defaults`; the former Quick Settings page redirects to `/engines#defaults`) saves the default model and effort immediately ("Selections save automatically"). Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change, and a failed read offers **Retry** (for example *Retry Codex defaults*). Clients receive defaults on their next sync; per-host exceptions (host overrides) take precedence.
@@ -249,7 +249,7 @@ See [Roles and capabilities](/admin/manual/roles) for the roles on offer and wha
 
 The **Agent rules** page in the Library (`/library/agent-rules`).
 
-Served to hosts via `POST /agents/retrieve`. Endpoints in `api/src/routes/admin/config/index.ts`:
+Served to hosts as the `agents` block of `POST /sync/bootstrap`. Endpoints in `api/src/routes/admin/config/index.ts`:
 
 - `GET /admin/agents` — current active version + version history.
 - `GET /admin/agents/versions/{id}` — body of a specific version.
@@ -355,7 +355,7 @@ The Codex `config.toml` builder. Endpoints in `api/src/routes/admin/config/index
 
 - `GET /admin/config` — current canonical config + per-host overrides.
 - `POST /admin/config/render` — render a TOML body from a structured form.
-- `POST /admin/config/store` — commit a new canonical version served via `POST /config/retrieve`.
+- `POST /admin/config/store` — commit a new canonical version served as the `config` block of `POST /sync/bootstrap`.
 
 `api/src/services/config-normalizer.ts` enforces valid model/reasoning-effort/personality shapes; `ClientConfigService` (`api/src/services/client-config.ts`) materialises the TOML a given host should receive given its overrides.
 

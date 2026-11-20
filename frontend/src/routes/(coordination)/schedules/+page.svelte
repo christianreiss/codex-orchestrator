@@ -20,6 +20,8 @@
   import ScheduleForm from "$lib/components/schedules/ScheduleForm.svelte";
   import { authStore } from "$lib/stores/auth";
   import { agentMessagingAddressesQuery } from "$lib/api/agentMessaging";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
+  import HiddenEngineNote from "$lib/components/engines/HiddenEngineNote.svelte";
   import { scheduleKeys, scheduleMutation, scheduleQuery, schedulesQuery, type Schedule } from "$lib/api/schedules";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
 
@@ -47,19 +49,25 @@
     },
     (error) => toast.error(error.message),
   );
-  const agents = $derived($addresses.data?.addresses ?? []);
+  const fleet = useFleetEngines();
+  const everyAgent = $derived($addresses.data?.addresses ?? []);
+  // Agents of a switched-off engine cannot be woken: not offered as a target, and wake-ups aimed at them are counted in a note.
+  const agents = $derived(everyAgent.filter((agent) => $fleet.isEnabled(agent.engine)));
+  const offAgents = $derived(new Set(everyAgent.filter((agent) => !$fleet.isEnabled(agent.engine)).map((agent) => agent.address)));
   // Wake-ups retired because their agent is gone stay one click away, not in the way.
   let show = $state<"active" | "all">("active");
   const all = $derived($listQuery.data?.schedules);
   const retired = $derived(all?.filter((row) => row.pause_reason === "agent_gone").length ?? 0);
-  const rows = $derived(show === "all" ? all : all?.filter((row) => row.pause_reason !== "agent_gone"));
+  const shown = $derived(show === "all" ? all : all?.filter((row) => row.pause_reason !== "agent_gone"));
+  const rows = $derived(shown?.filter((row) => !offAgents.has(row.target)));
+  const hiddenWakeups = $derived((shown?.length ?? 0) - (rows?.length ?? 0));
   const PAUSE_REASONS: Record<string, string> = {
     agent_gone: "Agent gone for 24 h or more. Enable to restore.",
     recovery_limit_reached: "Recovery limit reached",
   };
 
   function agentLabel(address: string) {
-    const agent = agents.find((item) => item.address === address);
+    const agent = everyAgent.find((item) => item.address === address);
     return agent ? agent.name || agent.alias || agent.username : address;
   }
   function view(row: Schedule) {
@@ -114,6 +122,7 @@
           />
         </div>
       {/if}
+      <HiddenEngineNote count={hiddenWakeups} />
       <DataTable
         items={rows}
         loading={$listQuery.isPending}

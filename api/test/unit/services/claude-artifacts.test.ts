@@ -102,14 +102,4 @@ describe('HostClaudeArtifactsService bundle/retrieve', () => {
     expect(bundle.command[0]).toMatchObject({ slug: 'c', sha256: shaC, status: 'updated', content: bodyC });
     expect(bundle['output-style']).toEqual([]);
   });
-
-  it('retrieve reports unchanged / updated / missing', async () => {
-    const { db, bodyA, shaA } = seeded();
-    const svc = new HostClaudeArtifactsService(db as unknown as Database);
-    expect((await svc.retrieve('subagent', 'a', shaA, host)).status).toBe('unchanged');
-    const upd = await svc.retrieve('subagent', 'a', 'f'.repeat(64), host);
-    expect(upd.status).toBe('updated');
-    expect(upd.content).toBe(bodyA);
-    expect((await svc.retrieve('subagent', 'nope', null, host)).status).toBe('missing');
-  });
 });

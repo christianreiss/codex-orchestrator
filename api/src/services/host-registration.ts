@@ -32,8 +32,10 @@ import { hostEnginesList } from './host-engine-policy.js';
 import { assertEnginesAddable, parseEnginesInput } from './host-management.js';
 
 /**
- * Host create + API-key rotate, used by the CLI auth approve path. Emits a
- * host.created / host.updated WS event and writes an admin_events audit row.
+ * Host create + API-key rotate. Emits a host.created / host.updated WS event
+ * and writes an admin_events audit row. Its only production caller, the
+ * `/cli/auth` approve path, was removed on 2026-11-20; the Grok/Kimi defaults
+ * and control-plane owner suites still exercise it.
  */
 
 export interface RegisteredHost {
