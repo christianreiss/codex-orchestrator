@@ -1261,8 +1261,8 @@ Contract: [agent-roles.md](agent-roles.md). Module switch `roles_enabled` (defau
 - `POST /host/agent-sessions/:id/agent-messaging/context/get` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/context/update` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/rooms/list` — see [coordination contract](agent-coordination.md).
-- `POST /host/agent-sessions/:id/agent-messaging/rooms/read` — see [coordination contract](agent-coordination.md).
-- `POST /host/agent-sessions/:id/agent-messaging/rooms/send` — see [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/read` — membership and claim events plus members; chat is excluded (read it with `/chats/read`, `room_id` equal to the scope ID). See [coordination contract](agent-coordination.md).
+- `POST /host/agent-sessions/:id/agent-messaging/rooms/send` — compatibility alias of `/chats/send` with `room_id` equal to `scope_id`. See [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/claims/acquire` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/claims/status` — see [coordination contract](agent-coordination.md).
 - `POST /host/agent-sessions/:id/agent-messaging/claims/release` — see [coordination contract](agent-coordination.md).
@@ -1270,8 +1270,6 @@ Contract: [agent-roles.md](agent-roles.md). Module switch `roles_enabled` (defau
 - `POST /admin/agent-messaging/scopes/state` — see [coordination contract](agent-coordination.md).
 - `GET /admin/agent-messaging/scopes` — see [coordination contract](agent-coordination.md).
 - `GET /admin/agent-messaging/scopes/:scopeId/members` — see [coordination contract](agent-coordination.md).
-- `POST /admin/agent-messaging/scopes/read` — see [coordination contract](agent-coordination.md).
-- `POST /admin/agent-messaging/scopes/send` — see [coordination contract](agent-coordination.md).
 - `POST /admin/agent-messaging/scopes/resolve` — see [coordination contract](agent-coordination.md).
 
 ## Shared conversations

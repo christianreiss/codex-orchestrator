@@ -122,6 +122,8 @@ export const MANAGED_BLOCK_UNNAMED_TOOLS: Partial<Record<AgentMessagingTool, str
     'explicit adoption of an already read queued request; its MCP description and docs/interface-cdx.md carry the procedure',
   agent_git_remote:
     'Git Director bookkeeping for an SSH checkout; its MCP description and docs/agent-coordination.md carry the procedure',
+  agent_room_send:
+    'compatibility alias of agent_chat_send with room_id equal to the scope ID; the managed block names agent_chat_send',
 };
 
 /**

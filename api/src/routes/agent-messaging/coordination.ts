@@ -121,21 +121,6 @@ export function registerCoordinationRoutes(
         .parse((req.query as { offset?: string }).offset),
     ),
   );
-  app.post('/admin/agent-messaging/scopes/read', { preHandler: app.requireAdmin }, async (req, reply) => {
-    reply.header('cache-control', 'no-store');
-    const result = await service.read(null, null, req.body);
-    await audit.record(
-      {
-        type: 'agent_coordination.revealed',
-        payload: { scope_id: result.scope.id, admin_user_id: req.admin!.user.id },
-      },
-      { broadcast: false },
-    );
-    return result;
-  });
-  app.post('/admin/agent-messaging/scopes/send', { preHandler: app.requireAdmin }, (req) =>
-    service.send(null, null, req.body, { id: req.admin!.user.id, name: req.admin!.user.name }),
-  );
   app.post('/admin/agent-messaging/scopes/resolve', { preHandler: app.requireAdmin }, async (req) => {
     const result = await service.claims.release(null, null, req.body, req.admin!.user.id);
     if (!ownerRuntimeFor(ctx.db)) await audit.record(
