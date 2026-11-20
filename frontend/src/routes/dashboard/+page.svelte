@@ -87,9 +87,6 @@
     </Button>
     <Button href={`${base}/hosts?dialog=new-host`}><Plus class="h-4 w-4" /> Add host</Button>
   {/snippet}
-  {#snippet subheader()}
-    <StatStrip items={stats} variant="tiles" />
-  {/snippet}
 
   <div class="flex flex-col gap-6">
     {#if $overview.isError}
@@ -104,6 +101,8 @@
     <NeedsYou />
 
     <OnboardingNotice />
+
+    <StatStrip items={stats} variant="tiles" />
 
     <Tabs.Root value={tab} onValueChange={selectTab} class="flex flex-col gap-4">
       <Tabs.List class="w-fit">

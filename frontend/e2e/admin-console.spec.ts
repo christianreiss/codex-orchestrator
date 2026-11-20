@@ -512,10 +512,12 @@ test("Overview says calmly when nothing needs you", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Needs you", level: 2 })).toBeVisible();
   await expect(page.getByText("Nothing needs you right now.", { exact: true })).toBeVisible();
   await expect(page.getByRole("list", { name: "Waiting on you" })).toHaveCount(0);
-  // It sits above the tabs.
+  // It comes first: above the count tiles, which sit above the tabs.
   const needsYou = await page.getByRole("heading", { name: "Needs you", level: 2 }).boundingBox();
+  const tiles = await page.getByText("accounts for enabled engines", { exact: true }).boundingBox();
   const tabs = await page.getByRole("tablist").boundingBox();
-  expect(needsYou!.y).toBeLessThan(tabs!.y);
+  expect(needsYou!.y).toBeLessThan(tiles!.y);
+  expect(tiles!.y).toBeLessThan(tabs!.y);
 });
 
 test("Overview lists what needs you, counted like the owning pages and linked to them", async ({ page }) => {
