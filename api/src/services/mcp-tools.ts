@@ -2076,7 +2076,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_result',
         description:
-          'Fetch a run result (default: the latest run; `run` takes a run id or its sequence number). Returns the run summary and the full slop report (version 2: findings with id, rule, priority P0-P2, kind measured|review, location, evidence, message, remedy, acceptance, alternative), or `format: "markdown"` for a readable digest. `wait_seconds` (0-25) waits for a running run. Status: completed, incomplete (coverage gaps or rejected review findings; see report.errors) or failed (see error). Review findings are judgments with an alternative explanation, never measurements.',
+          'Fetch a run result (default: the latest run; `run` takes a run id or its sequence number). Returns the run summary and the full slop report (version 2: findings with id, rule, priority P0-P2, kind measured|review, location, evidence, message, remedy, acceptance, alternative), or `format: "markdown"` for a readable digest. `wait_seconds` (0-25) waits for a running run. Status: completed, incomplete (coverage gaps or rejected review findings; see report.errors) or failed (see error). Review findings are judgments with an alternative explanation, never measurements. A finding acknowledged in the source with an inline `slop-ok: <reason>` comment carries `suppression` (the reason): `counts.suppressed` tallies it and it is left out of `counts.P0/P1/P2` and the measured/review counts; the markdown digest lists it under "Suppressed" with its reason. There are no job-level acknowledgements.',
         inputSchema: {
           type: 'object',
           properties: {

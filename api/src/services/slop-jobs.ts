@@ -66,6 +66,7 @@ interface SlopReport {
   coverage: string[];
   [key: string]: unknown;
 }
+const isSuppressed = (f: Record<string, unknown>) => typeof f['suppression'] === 'string' && f['suppression'] !== '';
 interface WorkerResult {
   state: 'done' | 'failed';
   exit_code: number;
@@ -691,8 +692,14 @@ export class SlopJobsService {
   }
 
   private counts(report: SlopReport | null) {
-    const counts = { P0: 0, P1: 0, P2: 0, measured: 0, review: 0 } as Record<string, number>;
+    const counts = { P0: 0, P1: 0, P2: 0, measured: 0, review: 0, suppressed: 0 } as Record<string, number>;
     for (const f of report?.findings ?? []) {
+      // An inline `slop-ok: <reason>` comment (scanner `suppression`) is the author's acknowledgement:
+      // counted apart so P0/P1/P2 stay the open findings.
+      if (isSuppressed(f)) {
+        counts['suppressed'] = (counts['suppressed'] ?? 0) + 1;
+        continue;
+      }
       counts[f.priority] = (counts[f.priority] ?? 0) + 1;
       counts[f.kind] = (counts[f.kind] ?? 0) + 1;
     }
@@ -1082,12 +1089,18 @@ export class SlopJobsService {
     if (verdict) lines.push(`Advisor verdict: **${verdict.verdict}** — ${verdict.summary ?? ''}`);
     if (run.error) lines.push(`Note: ${run.error}`);
     if (!report) return lines.join('\n');
+    const line = (f: SlopReport['findings'][number]) =>
+      `- \`${f.location}\` **${f.rule}** (${f.kind}, ${f.id}): ${String(f['message'] ?? '')} — Remedy: ${String(f['remedy'] ?? '')}${f['alternative'] ? ` — Alternative: ${String(f['alternative'])}` : ''}`;
     for (const priority of ['P0', 'P1', 'P2']) {
-      const list = report.findings.filter((f) => f.priority === priority);
+      const list = report.findings.filter((f) => f.priority === priority && !isSuppressed(f));
       if (!list.length) continue;
       lines.push('', `## ${priority} (${list.length})`);
-      for (const f of list)
-        lines.push(`- \`${f.location}\` **${f.rule}** (${f.kind}, ${f.id}): ${String(f['message'] ?? '')} — Remedy: ${String(f['remedy'] ?? '')}${f['alternative'] ? ` — Alternative: ${String(f['alternative'])}` : ''}`);
+      for (const f of list) lines.push(line(f));
+    }
+    const suppressed = report.findings.filter(isSuppressed);
+    if (suppressed.length) {
+      lines.push('', `## Suppressed (${suppressed.length})`, 'Acknowledged by an inline `slop-ok: <reason>` comment; not counted in P0/P1/P2.');
+      for (const f of suppressed) lines.push(`${line(f)} — Suppressed (${f.priority}): ${String(f['suppression'])}`);
     }
     if (report.errors.length) lines.push('', '## Errors', ...report.errors.map((e) => `- ${e}`));
     if (report.coverage.length) lines.push('', '## Coverage', ...report.coverage.map((c) => `- ${c}`));
