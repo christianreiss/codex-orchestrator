@@ -6,6 +6,7 @@
  * status must describe that pool, not the pointer. The scenarios run the real
  * runner validation over the database fake; only the runner verdict is faked.
  */
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,6 +24,10 @@ import {
   type CanonicalPayloadRow,
 } from '../../../src/services/runner-validation.js';
 import { SetupStatusService } from '../../../src/services/setup-status.js';
+import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
+import { bindOwnerRuntime, type OwnerRuntime } from '../../../src/control-plane/state/runtime.js';
+import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
+import type { StateSeed } from '../../../src/control-plane/state/catalog.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 import { fakeAuthStore, makeRunnerProxy, readyRunnerEnv } from '../../helpers/runner-proxy-factory.js';
 
@@ -123,6 +128,39 @@ describe('admin auth surfaces describe the account pool (API-AUTH-02)', () => {
     });
     expect(verified.map((input) => input.row.id)).toEqual([2]);
     expect(await setupCodexAuth(db)).toBe(true);
+  });
+
+  // Production reads owner RAM. A removed account keeps its payload rows with
+  // the body cleared (drainOwnedProviders); the head still points at one.
+  it('reads past a removed head account in owner state', async () => {
+    const removed = { ...payload(1, 1, 'failed', '2026-11-01T08:00:00Z'), body: null, verificationReason: 'account removed' };
+    const seed = {
+      providerAccounts: [
+        { ...account(1, 'enabled'), state: 'removed', payloadId: null, generation: 1, createdAt: '2026-11-01T08:00:00Z', updatedAt: '2026-11-03T08:00:00Z' },
+        { ...account(2, 'enabled'), generation: 2, createdAt: '2026-11-02T08:00:00Z', updatedAt: '2026-11-02T08:00:00Z' },
+      ],
+      authPayloads: [removed, payload(2, 2, 'verified', '2026-11-02T08:00:00Z')],
+      authCanonicalHeads: [{ engine: 'codex', payloadId: 1, generation: 1, updatedAt: '2026-11-01T08:00:00Z' }],
+    } as unknown as StateSeed;
+    const db = createDbFake();
+    const runtime = {
+      state: new OwnerStateStore(new OwnerStateSnapshot({ epoch: randomUUID(), sequence: 0n }, seed)),
+      deadlines: new DeadlineQueue((error) => { throw error; }),
+      assertOwner() {},
+      execute: () => { throw new Error('read-only scenario'); },
+    } as unknown as OwnerRuntime;
+    bindOwnerRuntime(db as unknown as Database, runtime);
+    const verified: Array<{ row: { id: number } }> = [];
+    try {
+      expect(await runner(db, (input) => verified.push(input as { row: { id: number } })).run({}, 'codex')).toMatchObject({
+        status: 'ok',
+        payload_id: 2,
+      });
+      expect(verified.map((input) => input.row.id)).toEqual([2]);
+      expect(await setupCodexAuth(db)).toBe(true);
+    } finally {
+      runtime.deadlines.close();
+    }
   });
 
   it('reports no usable auth when the only verified credential belongs to a paused account', async () => {
