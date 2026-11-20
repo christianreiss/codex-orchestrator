@@ -56,17 +56,17 @@ Sources were opened and reviewed on **2026-10-18**. “2026” describes the res
 
 ## 3. Tasks, navigation and page patterns
 
-**NAV-1 — One location model [A/M; P].** The registry in [nav.ts](frontend/src/lib/nav.ts) owns global labels, destinations, active state, command-palette entries and location context. Each setting MUST have one editable home; overview and related pages link there. Canonical browser routes MUST remain distinct from API paths. Renaming a browser page does not rename its API.
+**NAV-1 — One location model [A/M; P].** The registry in [nav.ts](frontend/src/lib/nav.ts) owns global labels, destinations, active state, command-palette entries and location context. Each setting MUST have one editable home; overview and related pages link there. Canonical browser routes MUST remain distinct from API paths. Renaming a browser page does not rename its API. Engine names are Codex, Claude, Grok and Kimi Code, produced by `engineLabel` and never by CSS `capitalize`; “ChatGPT” names only the plan type and “OpenAI” only the API wire format.
 
 **NAV-2 — Orientation [A/V/M; S1/P].** Each rendered page MUST have one meaningful `h1`, a matching document title, a visible current location and a clear main task. Child project views use the project heading plus a subordinate view heading. Descriptions explain purpose or consequences; omit sentences that merely repeat the title. Long names must be obtainable without hover alone and must not hide the task.
 
 **NAV-3 — Actions and disclosure [V/M; S11/P].** Give one action visual priority per task region. Put list-wide actions in the toolbar or page header, row actions beside the row, and selection actions beside the selection count. Do not duplicate the same primary action in header and toolbar. Frequent actions and active problems MUST NOT be hidden under “Advanced”. Collapsed sections use descriptive names such as “Network and access overrides”. Destructive settings sit last, separated from routine controls.
 
-**NAV-4 — Navigation depth [A/M; S9/P].** Preserve the current nine hubs and footer utilities as the starting structure. Use at most one local peer-navigation row; nested tab bars are prohibited. In-page panels use proper tab semantics and keyboard behavior; route destinations use links with current-location semantics. Filters, selection and pagination SHOULD survive back/forward navigation and use URL state where safe; credentials and message bodies MUST NOT enter URLs. List filters use `UrlFilters` (`frontend/src/lib/utils/url-filters.svelte.ts`): defaults stay out of the query string, other parameters are preserved, and the address bar reflects edits immediately for reload/copy. Real `replaceState` router navigations are debounced, keep focus/scroll, and finish before opening a detail so Back restores the filter.
+**NAV-4 — Navigation depth [A/M; S9/P].** Preserve the current nine hubs and footer utilities as the starting structure. A hub's pages appear as indented children of the active hub in the sidebar and beneath the hub in the mobile Menu; there is no hub tab strip, so the hub link carries `aria-current="true"` and the page link `aria-current="page"`. A page has at most one local peer-navigation row (tabs or one view switch); nested tab bars and stacked switchers are prohibited. In-page panels use proper tab semantics and keyboard behavior; route destinations use links with current-location semantics. Filters, selection and pagination SHOULD survive back/forward navigation and use URL state where safe; credentials and message bodies MUST NOT enter URLs. List filters use `UrlFilters` (`frontend/src/lib/utils/url-filters.svelte.ts`): defaults stay out of the query string, other parameters are preserved, and the address bar reflects edits immediately for reload/copy. Real `replaceState` router navigations are debounced, keep focus/scroll, and finish before opening a detail so Back restores the filter.
 
 | Pattern | Composition and acceptance rule | Existing building blocks | Verification |
 | --- | --- | --- | --- |
-| Overview | Exceptions needing action, concise health/usage context, links to owners. Each metric must answer an operator question and disclose its time/scope. | `PageShell`, `Section`, `StatStrip`, attention/usage components | V/M |
+| Overview | “Needs you” first: at most six exceptions needing action, each counted by the owning page's rule and linking there, one calm line when nothing is pending, and a named signal (never a calm line) when one could not be read. Then concise health/usage context and links to owners. Each metric must answer an operator question and disclose its time/scope. | `PageShell`, `NeedsYou`, `Section`, `StatStrip`, attention/usage components | A/V/M |
 | List | Title/action, search and filters, result count, comparable rows, scoped actions and pagination when needed. | `Toolbar`, `DataTable`, `SortableHead`, `RowActions` | A/V/M |
 | Detail | Identity and problems, task sections, infrequent options, destructive section last. | `PageShell`, `Section`, domain sections | V/M |
 | Settings | Named groups (one tab per group when there are more than a handful of rows), persistent labels, effective scope (fleet value plus how many hosts override it) and save status at the control; one vertical task sequence per group. Related fields stay together; the destructive action comes last. | `Section`, `FormField`, `Tabs`, `HostOverrideBadge`, domain settings | A/M |
@@ -90,11 +90,12 @@ owning components when moving a setting; update this table in the same change.
 | People (admin users) | `/admin/people` |
 | Shared secrets | `/admin/secrets` |
 | Engine switches, model/effort/version defaults and native engine configuration | `/admin/engines` |
-| Quota enforcement, quota warnings and usage-based scaling | `/admin/limits` |
+| Quota enforcement and quota warnings | `/admin/limits` |
 | Host-specific access, engine assignments, overrides and extra agent instructions | `/admin/hosts/[id]` |
 | Fleet host policy, host-agent rollout and communicator API level (read-only), agent-session controls, Chatty and retention | `/admin/settings` |
 | Fleet-wide agent coordination: project/host rooms and resource claims | `/admin/settings#agent-coordination` (Graph shows status and links here) |
 | Agent messaging service and coordination data | `/admin/agent-messaging` |
+| OAuth connectors for AI chat apps: policy, grants and setup | `/admin/connectors` |
 | External clients (bots outside the fleet): keys, trust level, enabled | `/admin/external-clients` |
 | Workflow module switch and reusable instructions | `/admin/workflows` and selected definition |
 | Schedule configuration, Git coordination settings and transfer limits | Their respective Coordination pages |
@@ -140,13 +141,17 @@ owning components when moving a setting; update this table in the same change.
 | 56 px md, +-------------------------------------------------------+
 | 256 px lg | main#main-content: inset 16 / 24 px, max 1600 px      |
 |           |   PageShell: h1 + one primary action                  |
-| hubs      |   at most one local tab row                           |
-|           |   Toolbar: search, filters, count, Clear filters      |
-| account,  |   DataTable / Sections / workspace                    |
+| hubs; the |   at most one local tab row or view switch            |
+| active    |   Toolbar: search, filters, count, Clear filters      |
+| hub lists |   DataTable / Sections / workspace                    |
+| its pages |                                                       |
+|           |                                                       |
+| account,  |                                                       |
 | utilities |                                                       |
 +-----------+-------------------------------------------------------+
-Below 768 px: no rail; MobileNav (64 px) and the Chatty launcher sit
-at the bottom and main keeps scroll padding above them.
+Below 768 px: no rail; MobileNav (64 px) holds the Chatty launcher at
+its right end, main keeps 1rem of scroll padding above it, and the
+Menu sheet lists every hub with that hub's pages beneath it.
 ```
 
 Alignment is left; only empty states and single-task authentication center.
@@ -204,9 +209,9 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 
 ## 5. Interaction and truthful state
 
-**INT-1 — Lists [A/M; S12/P].** Name columns and units; expose sort direction semantically. State active filters, visible count and selection scope. “Select all” must say whether it means this page or all filtered results. Preserve filters through opening/closing a detail. Provide “Clear filters” for no matches, and offer the same action in the `Toolbar` while a filter narrows the list (`filtersActive` with `onClearFilters`). The label is always “Clear filters”, not “Reset”. Avoid hover-only row actions. A row link and its buttons must be separately operable; do not make a whole row an unlabeled button. Never nest tables inside table cells to simulate a detail page.
+**INT-1 — Lists [A/M; S12/P].** Name columns and units; expose sort direction semantically. State active filters, visible count and selection scope. “Select all” must say whether it means this page or all filtered results. Preserve filters through opening/closing a detail. Provide “Clear filters” for no matches, and offer the same action in the `Toolbar` while a filter narrows the list (`filtersActive` with `onClearFilters`). The label is always “Clear filters”, not “Reset”. Avoid hover-only row actions. A row link and its buttons must be separately operable; do not make a whole row an unlabeled button. Never nest tables inside table cells to simulate a detail page. A row attributed to an engine that is switched off fleet-wide is hidden everywhere except Engines, and the list says so with the shared `HiddenEngineNote`.
 
-**INT-2 — Forms [A/M; S10/P].** Every field MUST have a persistent label and associated help/error text. Mark required/optional consistently within the form. Use submission-time validation by default; earlier validation requires a concrete benefit such as a length limit. Server validation remains authoritative. On failure retain safe inputs, show specific correction beside each field, and provide a linked summary for multi-field errors. Do not echo secrets in summaries or logs.
+**INT-2 — Forms [A/M; S10/P].** Every field MUST have a persistent label and associated help/error text. Mark required/optional consistently within the form. Use submission-time validation by default; earlier validation requires a concrete benefit such as a length limit. Server validation remains authoritative. Filter and settings selects use the shared `SimpleSelect` (`ui/select`), not a native `<select>`. On failure retain safe inputs, show specific correction beside each field, and provide a linked summary for multi-field errors. Do not echo secrets in summaries or logs.
 
 **INT-3 — Saving [A/M; P].** State whether changes save immediately or need an explicit save action. Show pending, saved and failed states near the affected controls. “Saved” requires confirmed acceptance; a transport timeout is not success. Preserve the attempted value or draft for recovery, distinguish it from effective state, and reconcile authoritative state before further dependent changes. Do not silently overwrite unsaved edits after a refresh. Warn before navigation that would discard a meaningful draft; keep ordinary navigation free of unnecessary confirmations. Explicit-save forms render `DraftGuard` with a `dirty` flag computed against the last confirmed server state; a dialog or sheet holding such a form also asks before Escape, overlay, close or Cancel discards it, because closing an overlay is not a navigation. Auto-saving controls need no guard.
 
@@ -214,7 +219,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 
 **INT-5 — Feedback [A/M; S8/P].** Put errors and durable results beside the affected task. Toasts may supplement but MUST NOT be the only record of a failed save or required action. Use polite live announcements for ordinary updates and assertive alerts only for urgent interruption. Do not announce each streamed token or steal focus on background refresh.
 
-**INT-6 — Time and measurements [A/M; P].** Show units, scope and observation age for operational data. Relative time MUST offer an exact timestamp with timezone via accessible detail. `Timestamp` renders relative time with the browser-local exact time and its zone name as title and accessible label (`absolute` shows the zoned time instead; `live` refreshes it); text outside a component uses `formatDateTime`/`formatTime` from `utils/format.ts`, never a bare `toLocaleString()`. No user setting chooses UTC versus local; local time with a visible zone is the product default. Overview pages state the age of their snapshot (“Updated 2 minutes ago”). Zero is a value; unavailable is not zero. Stale is not current, queued is not delivered, and reachable is not working. Do not infer success from connection status or request dispatch.
+**INT-6 — Time and measurements [A/M; P].** Show units, scope and observation age for operational data. Relative time MUST offer an exact timestamp with timezone via accessible detail. `Timestamp` renders relative time with the browser-local exact time and its zone name as title and accessible label (`absolute` shows the zoned time instead; `live` refreshes it); text outside a component uses `formatDateTime`/`formatTime` from `utils/format.ts`, never a bare `toLocaleString()`. No user setting chooses UTC versus local; local time with a visible zone is the product default. Overview pages state the age of their snapshot (“Updated 2 minutes ago”). Zero is a value; unavailable is not zero. Stale is not current, queued is not delivered, and reachable is not working. Do not infer success from connection status or request dispatch. A host needs attention when it is offline, has an open temporary-access window or a waiting access request, or lacks credentials; version drift is neutral.
 
 | State | Required presentation and recovery | Verification |
 | --- | --- | --- |
@@ -229,7 +234,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 | Offline / reconnecting | Show connection state, retained content and available actions; no false success | A/M |
 | Success | Show the confirmed result and next useful action without interrupting unrelated work | A/M |
 
-**INT-7 — State completeness [A/V/M; P].** Every data-bearing region MUST implement the applicable rows above. `StateBlock` currently covers only loading/error/empty; reuse it where sufficient and extend shared behavior in step 2. Do not collapse every failure into “Nothing here yet”.
+**INT-7 — State completeness [A/V/M; P].** Every data-bearing region MUST implement the applicable rows above. `StateBlock` currently covers only loading/error/empty; reuse it where sufficient and extend shared behavior in step 2. Do not collapse every failure into “Nothing here yet”. Status labels use one vocabulary in sentence case: Active, Ready, Failed, Stale.
 
 **INT-8 — Conversations [A/M; P].** Keep drafts and attachments attached to their conversation. Background events MUST NOT move a reader to the bottom unless they were already following the latest output; offer a new-message indicator instead. Preserve distinction between native activity, receiver readiness, attention and task outcome. An ambiguous send retry must follow the existing idempotency contract. Current questions remain actionable; historical choices must not answer a newer question.
 
@@ -241,7 +246,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 
 **ACC-3 — Focus and targets [A/M; S4/S6/P].** Meet the 24 × 24 CSS px AA target-size requirement or its documented spacing/inline exceptions. Our 44 px standalone touch default is stricter. Keep a visible focus indicator; product target is a 2 px contrasting outline with separation from the control. Sticky content MUST NOT cover the focused control; this product deliberately aims beyond AA's “not entirely hidden” minimum.
 
-**ACC-4 — Reflow and text [A/V/M; S5/P].** Verify 320 CSS px and 400% zoom from a 1280 px viewport, plus 200% text enlargement. Essential content/actions must remain available without page-wide horizontal scrolling. Tables and graphs may use a named, keyboard-accessible local scroll region; cells and surrounding text must still be readable. Check text-spacing overrides, long labels and virtual-keyboard opening. Reduced motion and increased contrast must not remove meaning.
+**ACC-4 — Reflow and text [A/V/M; S5/P].** Verify 320 CSS px and 400% zoom from a 1280 px viewport, plus 200% text enlargement. Essential content/actions must remain available without page-wide horizontal scrolling. Tables and graphs may use a named, keyboard-accessible local scroll region; cells and surrounding text must still be readable. Tables whose rows lead with a key value use `DataTable reflow`, which stacks each row below 640 px. Check text-spacing overrides, long labels and virtual-keyboard opening. Reduced motion and increased contrast must not remove meaning.
 
 **ACC-5 — Authentication [A/M; S7].** Permit paste, password managers and applicable autocomplete. Preserve passkey and recovery paths. Errors must be understandable without revealing account information beyond the existing security contract. Code approval must identify the session/action being authorized; a successful code submission is not a generic login success.
 
@@ -267,30 +272,30 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | Current entry / view | Primary task and pattern | Existing composition | Step-2 check |
 | --- | --- | --- | --- |
 | `/admin` | Entry redirect | Load redirects to dashboard; layout gates auth/setup | Signed-out, new fleet and unreachable paths |
-| `/admin/dashboard` | Prioritize attention; overview | `PageShell`, `Section`, `StatStrip`, attention/usage tables | Unknown/stale usage versus healthy zero; enabled-engine scope, all-disabled recovery, unknown-state fallback |
+| `/admin/dashboard` | Prioritize attention; overview | `PageShell`, `NeedsYou`, `Section`, `StatStrip`, attention/usage tables | Unknown/stale usage versus healthy zero; enabled-engine scope, all-disabled recovery, unknown-state fallback; Needs you counts match the owning pages and name an unreadable signal |
 | `/admin/hosts` | Find/register hosts; list | `PageShell`, `Toolbar`, `HostsTable`, add/seed sheets | Filter retention, loading and no matches |
 | `/admin/hosts/[id]` | Diagnose/manage one host; detail | `PageShell`, attention, engine/access sections, agent instructions (`Section`, `FormField`, `DraftGuard`, `SaveState`, explicit save, byte counter, confirmed clear), advanced/delete sections | Long identity, accessible repair, switched-off engine hidden (assignment kept); native model minimum and upgrade repair; instruction draft conflict, over-limit and failed-save recovery |
-| `/admin/agents` | Operate agents; conversation / graph | `PageShell`, `ClientsWorkspace`, `GraphView`, inspector; coordination status links to Settings | Both views, reconnect, focus and non-graph access; independent setting state when room loading fails |
+| `/admin/agents` | Operate agents; conversation / graph | `PageShell`, one view switch (Chats, Remote sessions, Graph) and one engine filter in `AgentsToolbar`, `ClientsWorkspace` with a History chip, `GraphView`, inspector; coordination status links to Settings | Both views, reconnect, focus and non-graph access; independent setting state when room loading fails |
 | `/admin/projects` | Browse/create projects; list | `PageShell`, `Toolbar`, `DataTable`, settings sheet | Selection scope and bulk destructive action |
 | `/admin/projects/[slug]` | Project entry redirect | Redirect to board | Encoded slugs and back navigation |
 | `/admin/projects/[slug]/board` | Manage work; board | Project shell, `Section`, columns, card sheet | Non-drag move, narrow layout, empty columns |
 | `/admin/projects/[slug]/documents` | Edit notes/files; list + editor | Project shell, `DataTable`, `ListDetail`, `Toolbar` | Both kinds, unsaved input, long content |
 | `/admin/projects/[slug]/reports` | Triage project reports; list/detail | Project shell, `Toolbar`, `ReportInbox`, `ListDetail` | Status vocabulary, mutation recovery |
-| `/admin/projects/[slug]/slop` | Inspect agents' slop review jobs, runs and findings; read-only | Project shell, `DataTable`, `EventRow` detail, `StateBlock` | Long finding lists, many runs per job, 320 px file table scroll region |
+| `/admin/projects/[slug]/slop` | Inspect agents' design-review (slop) jobs, runs and findings, shown as “Design review”; read-only | Project shell, `DataTable`, `EventRow` detail, `StateBlock` | Long finding lists, many runs per job, 320 px file table scroll region |
 | `/admin/projects/[slug]/activity` | Inspect project events; history | Project shell, `EventFeed`, `DataTable`, diagnostics | Pagination, timestamp context, long JSON |
-| `/admin/agent-messaging` | Inspect coordination; list/history | `PageShell`, domain toolbar, address/conversation/delivery/group/conference views | Every subview, unreadable raw payloads, action scope |
+| `/admin/agent-messaging` (Messaging) | Inspect coordination; list/history | `PageShell`, domain toolbar, address/conversation/delivery/group/conference views | Every subview, unreadable raw payloads, action scope |
 | `/admin/workflows` | Find reusable instructions; list | `PageShell`, `Toolbar`, `DataTable`, module switch | Disabled versus empty, search, pagination, stale/denied |
 | `/admin/workflows/new` | Author one reusable goal; editor | Structured `WorkflowEditor`, `FormField`, `SaveState`, `DraftGuard` | Validation, retained drafts, typed inputs, accessible task ordering/dependencies; opt-in required source receipts and applicability validation |
 | `/admin/workflows/definitions/[slug]` | Inspect/edit versioned instructions; detail/editor | Goal/tasks/knowledge, version comparison, run preparation | CAS conflict retains draft; historical pinning; revert publishes a new version |
 | `/admin/workflows/runs` | Find active work and evaluation; list | `PageShell`, filters, `DataTable`, pagination | Pending/evaluating/unknown outcomes; server filters and back navigation |
 | `/admin/workflows/runs/[id]` | Understand progress and final evidence; detail/history | Result, open work and unmet checks before readable handover fields/lists; section links, copyable report, disclosed raw values, passed checks, task evidence, participants, evaluation/diff and events | Direct link/reload, stale data, claim uncertainty, chat reveal permission, closed-group history; incomplete answer drafts, linked validation, versioned summary confirmation and correction before execution; attributable required-source checks and missing/unavailable/mismatch states; nested handovers, visible partial outcomes and keyboard disclosures |
-| `/admin/schedules` | Schedule/review prompts; list/detail | `PageShell`, `DataTable`, `ListDetail`, schedule form | Timezone, recurrence, failure and recovery meaning |
-| `/admin/git-director` | Inspect merge coordination; list/detail | `PageShell`, `Toolbar`, `DataTable`, `ListDetail`, settings | Pending versus granted/denied; stale evidence |
-| `/admin/connectors` | Configure OAuth connector policy, authorize and revoke connections; settings/authentication | `PageShell`, `Section`, `ScopeEditor`, shared buttons, provider setup guide | Policy off versus configuration readiness, retained permission choices, explicit consent and successful tool-call evidence |
-| `/admin/transfers` | Inspect shared files; list | `PageShell`, `DataTable`, `Toolbar`, audit sheet | Expiry, unavailable download, limits and deletion |
-| `/admin/external-clients` | Manage bots outside the fleet; list | `PageShell`, `DataTable`, `Toolbar`, create/edit dialog, one-time key dialog, `ConfirmDialog` | Key shown once, trust meaning, disabled versus not listening, denied manage, rotation and deletion |
+| `/admin/schedules` (Wake-ups) | Schedule/review prompts; list/detail | `PageShell`, `DataTable`, `ListDetail`, schedule form | Timezone, recurrence, failure and recovery meaning |
+| `/admin/git-director` (Git merges) | Inspect merge coordination; list/detail | `PageShell`, `Toolbar`, `DataTable`, `ListDetail`, settings | Pending versus granted/denied; stale evidence |
+| `/admin/connectors` (Access & Settings) | Configure OAuth connector policy, authorize and revoke connections; settings/authentication | `PageShell`, `Section`, `ScopeEditor`, shared buttons, provider setup guide | Policy off versus configuration readiness, retained permission choices, explicit consent and successful tool-call evidence |
+| `/admin/transfers` (Shared files) | Inspect shared files; list | `PageShell`, `DataTable`, `Toolbar`, audit sheet | Expiry, unavailable download, limits and deletion |
+| `/admin/external-clients` (Access & Settings) | Manage bots outside the fleet; list | `PageShell`, `DataTable`, `Toolbar`, create/edit dialog, one-time key dialog, `ConfirmDialog` | Key shown once, trust meaning, disabled versus not listening, denied manage, rotation and deletion |
 | `/admin/activity` | Inspect configuration/system changes; history | `PageShell`, filters, change events | Empty/error, details and legacy deep links; generic MCP call history removed 2026-10-24 |
-| `/admin/reports` | Triage fleet reports; list/detail | `PageShell`, `Toolbar`, `ReportInbox`, `ListDetail` | Create/detail, long evidence, status transitions; feedback destination/configuration, opt-in, old-version/retest and uncertain publication evidence |
+| `/admin/reports` (Feedback) | Triage feedback reports about the orchestrator; list/detail | `PageShell`, `Toolbar`, `ReportInbox`, `ListDetail` | Create/detail, long evidence, status transitions; feedback destination/configuration, opt-in, old-version/retest and uncertain publication evidence |
 | `/admin/accounts` | Manage provider accounts and quota overrides (PayG, warnings, reset recovery); list | `PageShell`, `Toolbar`, `DataTable`, account dialogs | Codex/Claude/Grok, missing quota, expired auth, switched-off engines hidden with a muted count |
 | `/admin/engines` | Configure providers; settings, one engine per tab (`?engine=`) | `PageShell`, `Tabs`, `Section`, engine master switches, `EngineSection`, `EngineDangerZone` | Per-engine deltas, tab and hash deep links, save failure, invalid saved native settings with an outside-disclosure correction action and retained editor draft, suspended/destroy states |
 | `/admin/limits` | Configure usage limits; settings | `PageShell`, `Section`, quota and scaling components, per-engine quota policy tabs | Hard/soft enforcement, per-engine warning policy, scaling tiers, save failure |
@@ -315,9 +320,9 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | --- | --- | --- |
 | Initial auth / setup probe | Layout loading/redirecting state or `AuthShell` “API unreachable” | No setup/login redirect loop on transient failure; retry keeps intended location |
 | Unknown route / unexpected page error | Catch-all throws 404; current `+error.svelte` uses `PageShell` and `StateBlock` with retry and Overview recovery | Check title, recovery and keyboard path in the surrounding frame |
-| Sidebar, top bar (incl. live-updates, temporary-access and unhandled-reports indicators), mobile menu, hub/project navigation | App shell, registry, `HubTabs`, `ProjectTabsNav` | All destinations reachable at touch widths; no contradictory active locations; indicators hidden at zero and without the read capability |
-| Cmd/Ctrl-K, global search, shortcuts help | Command palette, search modal, shortcuts components | Focus entry/exit, no results, accessible selection; shortcuts do not intercept typing |
-| Chatty assistant | Shared shell assistant and chatty components | Availability/role gates, drafts, errors and confirmation of concrete changes; server-verified answer links (navigate in place, phone panel minimizes), latest-answer suggestion chips and action buttons (safe navigation, or the shared `ConfirmDialog` with typed name for danger, then the existing admin endpoint) |
+| Sidebar, top bar (incl. live-updates, temporary-access and unhandled-reports indicators), mobile menu, hub/project navigation | App shell, registry (hub pages as `Sidebar` and `MobileNav` children), `ProjectTabsNav`, page-label store for detail breadcrumbs | All destinations reachable at touch widths; no contradictory active locations; indicators hidden at zero and without the read capability, and the temporary-access count read from the fleet-wide summary on every page |
+| Cmd/Ctrl-K, global search, shortcuts help | Command palette, search modal, shortcuts components | Focus entry/exit, no results, accessible selection; shortcuts do not intercept typing; a switched-off engine's views are not offered, Recent included; old page names and Settings row aliases still find their page |
+| Chatty assistant | Shared shell assistant and chatty components (English panel; Chatty answers in the language it is asked in) | Availability/role gates, drafts, errors and confirmation of concrete changes; server-verified answer links (navigate in place, phone panel minimizes), latest-answer suggestion chips and action buttons (safe navigation, or the shared `ConfirmDialog` with typed name for danger, then the existing admin endpoint) |
 | Client/session detail and attachments | Portal components inside Agents | Directory, retained chats, attention, timeline, composer, uploads, remote sessions, close/reconnect states |
 | Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One auth upload UI; focus return, pending/error, safety consequences |
 | Project About/settings, card editor, report creation/detail | Project and report sheets/dialogs | Preserve originating selection and draft; destructive scope clear |
@@ -408,7 +413,7 @@ No design exceptions were approved at adoption; EX-1 was added 2026-10-19, EX-2 
 
 | Exception ID | Rule | Exact surface | User need / alternative | Verification | Owner / decision date | Review or removal condition |
 | --- | --- | --- | --- | --- | --- | --- |
-| EX-1 | VIS-5 | Overview (`/admin/dashboard`) host and stored-account count tiles (`StatStrip variant="tiles"`) | Operators open the console to see fleet size first; each tile links to its owner page (Hosts, Accounts) and the per-engine split is shown inline. Alternative: the inline strip. | Visual check in both themes; `admin-design.spec.ts` sweep | Christian Reiß / 2026-10-19 | Remove (back to the inline strip) if the counts stop answering an operator question or no longer link to their owning page |
+| EX-1 | VIS-5 | Overview (`/admin/dashboard`) host and account count tiles (`StatStrip variant="tiles"`), below Needs you | Operators open the console to see fleet size first; each tile links to its owner page (Hosts, Accounts) and the per-engine split is shown inline. Alternative: the inline strip. | Visual check in both themes; `admin-design.spec.ts` sweep | Christian Reiß / 2026-10-19 | Remove (back to the inline strip) if the counts stop answering an operator question or no longer link to their owning page |
 | EX-2 | VIS-3 (table density) | Every `ui/table` / `DataTable` consumer | The design guidelines ask for a user-selectable density; operators get one density per table instead. Ops tables are fixed-purpose, and one density keeps a single tested layout for sticky headers, touch rows and reflow. Alternative: page-level comparison views or filters | `admin-design.spec.ts` reflow sweep; table rules in VIS-2/VIS-3 | Christian Reiß / 2026-11-05 | Revisit when operators report a measured need for a denser or roomier comparison view |
 
 ### Server-retention settings slice (2026-10-24)
@@ -738,3 +743,26 @@ passed all 41 cases, including delayed operations, keyboard activation, retained
 draft retry and unchanged/revised settings. Five scoped Axe reports have no
 violations or incomplete rules. Served review and runtime evidence is recorded
 in the feedback audit separately from the source change.
+
+### Navigation, Overview and app shell (2026-11-20)
+
+The nine hubs stay; their pages now appear as indented children of the active
+hub in the sidebar and beneath each hub in the mobile Menu, and `HubTabs` with
+its six hub layouts is gone. URLs and legacy redirects are unchanged. A page
+keeps at most one peer row of its own, which makes the NAV-4 claims of the
+Settings tabs redo and of the Engines engine tabs true. Connectors and External
+clients moved from Coordination to Access & Settings (route groups only).
+Labels follow their task: Messaging, Wake-ups (`/schedules`), Git merges,
+Shared files, Activity › Feedback (`/reports`) and project Design review; old
+names remain palette keywords. Overview opens with Needs you (UX-30): pending
+access approvals, open temporary-access windows, unclaimed feedback, agents
+waiting for an answer, accounts needing attention or near quota and a failed
+verification runner, each counted with the owning page's helper and linked to
+it. The top-bar access count reads the fleet-wide summary on every page, and the
+access-approval deep link opens on a direct load. Agents has one view switch and
+one engine filter, with History as a chip. Host detail names the host in its
+breadcrumb; back buttons that repeated the breadcrumb are gone. The palette
+hides switched-off engines' views and finds Settings rows by alias. Chatty is
+English, and its launcher docks into the mobile tab bar so it no longer covers
+the last row. Applicable rules: NAV-1/2/3/4, VIS-1/3/4, INT-1/5/6/7 and
+ACC-1/3/4. No exception.
