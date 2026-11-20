@@ -6,11 +6,14 @@ The pfSense Codex pilot uses the existing installer, signed config and cron endp
 
 `GET /companion/v1/quotas` uses the paired-device Bearer token and requires
 `admin.read` and `auth.read_metadata`, rechecked before returning the snapshot. It returns `engines` for
-Codex, Claude, Grok and Kimi, each with `engine`, `label`, `enabled` and `accounts`.
+the engines that are switched **on** fleet-wide (Codex, Claude, Grok and Kimi, in that order), each with
+`engine`, `label`, `enabled` (always `true`; kept for older clients) and `accounts`.
 Each account exposes only `id`, `label`, `state`, `fetched_at`, `stale`, and
 `windows` (`kind`, `used_percent`, `resets_at`, `limit_seconds`). Removed accounts
 are excluded. Codex/Claude retain short and weekly windows; Grok retains its
-current weekly/monthly window. Suspended engines remain readable as snapshots.
+current weekly/monthly window. An engine switched off fleet-wide is omitted with
+all of its accounts, so the companion and the plasmoid stop showing it without a
+client release (see [Engine master switches](#engine-master-switches)).
 The read makes no provider call, account-maintenance change or credential read.
 
 Android shows the Quotas tab to users with both read capabilities, refreshes on entry,
@@ -358,23 +361,47 @@ means **suspended**, never removed: host engine assignments, accounts, canonical
 auth, keys and installed CLIs are all kept, and switching it back on restores
 everything without a reinstall.
 
-The Overview dashboard is an operational view of **enabled engines**: Provider
-usage and its account counts exclude retained accounts belonging to disabled
-engines; Engines and Runner omit their rows and verification actions. This
-applies equally to Codex, Claude, Grok and Kimi. If every engine is disabled,
-each panel explains the disabled state and offers the engine-management route.
-Accounts and Engines management, and historical consumption, remain accessible;
-these display filters neither delete stored data nor prove completion of a
-Destroy/purge operation. Unknown, unavailable or malformed engine-state responses
-retain the existing all-enabled UI fallback; a confirmed response filters the
-current account snapshot immediately. Existing `engine.state.changed` query
-invalidation updates the display, and Overview's manual Refresh also reloads
-engine state. No API response filtering or data-retention contract changes.
+**Visibility rule.** A switched-off engine is not part of the fleet for any
+operational surface: it appears nowhere except the Engines management page
+(master switch, danger zone for re-enable/destroy/purge) and its destroy
+progress. This applies equally to Codex, Claude, Grok and Kimi:
+
+- Admin console: every per-engine list reads one store,
+  `frontend/src/lib/engines/fleet-engines.ts`, fed by
+  `GET /admin/engines/active` (`admin.read`, so every signed-in viewer gets it).
+  Overview, Usage limits (quota policy tabs), Accounts (filter chips, rows,
+  add dialog), Hosts (register form, Quick VM, engine chips, host Engines
+  toggles, version exceptions), setup engine cards, command-output filtering,
+  speech input, session housekeeping, Chatty engine order, memory/feedback
+  engine pickers, agent-rule previews, the Agents and remote-session engine
+  filters, and the API key/backend pickers show only enabled engines. A stored
+  switched-off value (memory provenance, feedback review engine, current API
+  backend) stays visible as the current value only.
+  Accounts of a switched-off engine are kept but hidden (a muted count says so);
+  a host keeps a switched-off assignment, which the host Engines toggles
+  preserve when another engine is changed. A guard test
+  (`frontend/src/lib/engines/engine-list-guard.test.ts`) fails when a component
+  iterates the fixed engine list outside the allowlist.
+- Unknown state (loading, error, malformed) keeps the all-enabled fallback, so
+  a transient failure never hides Codex; the server still refuses a
+  switched-off engine on its own.
+- Clients: `/companion/v1/quotas` omits switched-off engines (Android
+  companion, plasmoid); host daemon cards and Agent Messaging already list only
+  active host engines; served guidance builds its Model Class Check table from
+  active host engines; the cxx launchpad and `cxx update` skip suspended engines.
+- Historical consumption and audit rows keep their engine values; they are
+  history, not availability. These display filters neither delete stored data
+  nor prove completion of a Destroy/purge operation.
+- Explicitly invoking a suspended engine's wrapper (`cgx`, `cgx doctor`, …)
+  still explains that it is suspended fleet-wide.
 
 - Storage: `versions` rows `codex_engine_disabled`, `claude_engine_disabled`,
   `grok_engine_disabled` (truthy = off). A missing row means on, so existing
   installs are unchanged. Reads are cached for one second per process and
   invalidated by every write; a failed read serves the last value seen, else "on".
+- `GET /admin/engines/active` (`admin.read`) →
+  `{engines:[{engine,label,enabled}]}`, four rows in canonical order, no actor,
+  timestamp or host counts. The console's only engine-visibility source.
 - `GET /admin/engines/state` (`settings.read`) →
   `{engines:[{engine,label,enabled,updated_at,updated_by,assigned_hosts}]}`,
   always four rows in canonical order; `assigned_hosts` counts active hosts
@@ -437,9 +464,11 @@ engine state. No API response filtering or data-retention contract changes.
 
 Suspending an engine keeps everything; *destroy* removes it from every host.
 
-- `POST /admin/engines/{engine}/destroy` (`settings.manage`) `{confirm: "<engine>"}` requires the engine to be suspended. One transaction writes the `versions` row `<engine>_engine_destroy` (`{request_id, requested_at, requested_by}`), inserts one `engine_destroy_hosts` row (`pending`) per host carrying the engine, bumps every host's `config_version` and audits `admin.engine.destroy`. Idempotent: an open request is returned with `already_open`.
-- The signed wrapper config carries `host.destroy_engines: [{engine, request_id}]` for hosts that have a progress row. Wrappers older than this feature ignore the field and only suspend.
-- The cxx cron coordinator (`internal/cron/destroy.go`) runs `internal/enginedestroy` once per request id: native shim, alias, signed config, `~/.cxx/engines/<engine>`, npm-global install, the engine's home (`~/.grok` + `~/.cgx`; `~/.claude` + `~/.clx` + managed `mcpServers` in `~/.claude.json`; `$CODEX_HOME`/`~/.codex`), recognized idle temp runtime dirs and shell alias lines. From cxx 0.9.138, destruction refuses the user home and every ancestor (also through intermediate symlinks); custom native homes in dedicated directories remain supported. Shared-temp Grok cleanup requires a private directory owned by the current UID, its regular lifetime marker, an exclusive lease and an idle process fence. Unrecognized or foreign directories are preserved, and active owned directories are reported as residue for retry. User-authored `mcpServers` and other engines are untouched. It reports `running`, then `done` or `failed` with the residue to `POST /host/engine-destroy/report`, and writes `~/.cxx/state/engine-destroy-<engine>.json` only after a fully clean run, so failures retry on the next tick. The destroyed engine's config is never re-persisted afterwards.
+- **Targeted hosts** (`destroyTargetsHost` in `api/src/services/host-engine-policy.ts`): a host that carries the engine, or that ever reported the engine's native CLI version or credential digest (`<engine>_client_version`, `<engine>_auth_digest`). Host-level unassignment removes only config and alias and never clears those columns, so a host that dropped the engine earlier still holds its home and credentials and is targeted as well.
+- `POST /admin/engines/{engine}/destroy` (`settings.manage`) `{confirm: "<engine>"}` requires the engine to be suspended. One transaction writes the `versions` row `<engine>_engine_destroy` (`{request_id, requested_at, requested_by}`), inserts one `engine_destroy_hosts` row (`pending`) per targeted host, bumps every host's `config_version` and audits `admin.engine.destroy`. Idempotent: an open request is returned with `already_open`, and hosts targeted since are added.
+- The signed wrapper config carries `host.destroy_engines: [{engine, request_id}]` for hosts that have a progress row **or are targeted without one** (a host that came back later with an old install). Progress lists such a host as `pending`, purge counts it as unfinished, and its first `POST /host/engine-destroy/report` creates its row; a report from a host the request does not target is ignored (`recorded:false`). Wrappers older than cxx 0.9.95 ignore the field; their next codex/claude cron tick self-updates (fleet `auto_update_enabled`), and the updated binary applies the directive.
+- The internal advisor host is re-created at boot with every engine except those with an open destroy request, so purge stays effective across restarts.
+- The cxx cron coordinator (`internal/cron/destroy.go`) runs `internal/enginedestroy` once per request id: native shim, alias, signed config, `~/.cxx/engines/<engine>`, npm-global install, the engine's home (`~/.grok` + `~/.cgx`; `~/.claude` + `~/.clx` + managed `mcpServers` in `~/.claude.json`; `$CODEX_HOME`/`~/.codex`), recognized idle temp runtime dirs and shell alias lines. From cxx 0.9.138, destruction refuses the user home and every ancestor (also through intermediate symlinks); custom native homes in dedicated directories remain supported. Shared-temp Grok cleanup requires a private directory owned by the current UID, its regular lifetime marker, an exclusive lease and an idle process fence. Unrecognized or foreign directories are preserved, and active owned directories are reported as residue for retry. User-authored `mcpServers` and other engines are untouched. From cxx 0.9.191 it also removes symlinks in `~/.local/bin` and `~/bin` that point into one of those trees and no longer resolve (a native installer's `~/.local/bin/grok`); links that resolve or point elsewhere stay. It reports `running`, then `done` or `failed` with the residue to `POST /host/engine-destroy/report`, and writes `~/.cxx/state/engine-destroy-<engine>.json` (`{request_id, routine}`) only after a fully clean run, so failures retry on the next tick. A marker from an older routine (`routine` below `enginedestroy.Routine`, unversioned markers count as 1) does not count as done: the host runs the idempotent routine once more and reports again, so cleanup added later reaches hosts that already finished. The destroyed engine's config is never re-persisted afterwards.
 - `GET …/destroy` returns progress; `DELETE …/destroy` cancels (hosts that already finished stay destroyed); `POST …/destroy/purge {force?}` deletes the engine's auth payloads/entries, canonical head, provider accounts and sessions, seed/install tokens, host auth state and unassigns the engine from hosts that have another engine.
 - `POST /admin/engines/{engine}/state {enabled:true}` is refused (`409 engine_destroy_open`) while a request is open.
 - Destroy is irreversible for native credentials and history on the hosts.

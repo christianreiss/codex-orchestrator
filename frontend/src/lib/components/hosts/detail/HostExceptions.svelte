@@ -18,6 +18,7 @@
   import InputDialog from "../InputDialog.svelte";
   import OverridePopover from "../OverridePopover.svelte";
   import { runQuiet } from "./actions";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
 
   type Props = { host: HostDetailResponse["host"]; overview: HostDetailResponse["overview"] | undefined; id: string };
   let { host, overview, id }: Props = $props();
@@ -33,7 +34,9 @@
   const kimiDefaults = modelDefaultsQuery("kimi");
   const codexDefaults = modelDefaultsQuery("codex");
 
-  const engines = $derived(hostEngines(host));
+  const fleet = useFleetEngines();
+  // Exceptions only for engines switched on fleet-wide; a switched-off one is not part of the fleet.
+  const engines = $derived(hostEngines(host).filter((engine) => $fleet.isEnabled(engine)));
   const digest = (value: string | null | undefined) => (value ? value.slice(0, 16) + "…" : "—");
   const grokModel = $derived(host.grok_model_override ?? $grokDefaults.data?.model ?? DEFAULT_MODELS.grok);
   const kimiModel = $derived(host.kimi_model_override ?? $kimiDefaults.data?.model ?? DEFAULT_MODELS.kimi);

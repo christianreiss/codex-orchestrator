@@ -5,9 +5,12 @@
   import { Section } from "$lib/components/page";
   import { Button } from "$lib/components/ui/button";
   import * as Select from "$lib/components/ui/select";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   type Policy = { enabled: boolean; override: boolean | null; global: boolean; supported: boolean; activation: string | null; control: string };
   type Policies = { engines: Record<string, Policy> };
-  const engines = ["codex", "claude", "grok", "kimi"];
+  // The response keeps every engine; only engines switched on fleet-wide get a row.
+  const fleet = useFleetEngines();
+  const engines = $derived($fleet.enabled);
   const qc = useQueryClient();
   const query = createQuery({ queryKey: ["settings", "speech-input"], queryFn: () => api.get<Policies>("/admin/speech-input") });
   const save = createMutation({ mutationFn: ({ target, enabled }: { target: string; enabled: boolean | null }) => api.post<Policies>(`/admin/speech-input/${target}`, { enabled }), onSuccess: () => qc.invalidateQueries({ queryKey: ["settings", "speech-input"] }) });

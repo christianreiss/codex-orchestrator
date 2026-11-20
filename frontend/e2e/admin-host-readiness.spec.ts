@@ -25,7 +25,7 @@ async function fixture(page: Page, shared: ReturnType<typeof state>) {
   await page.routeWebSocket('**/host-readiness-ws', ws => { ownerStream(ws); emit = data => ws.send(data); });
   await page.route('**/admin/**', route => {
     const request = route.request(); if (!request.headers().accept?.includes('application/json')) return route.continue();
-    const path = new URL(request.url()).pathname;
+    const path = new URL(request.url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     const json = (data: unknown) => route.fulfill({ json: { status: 'ok', data } });
     if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'owner', roles: ['owner'] }, capabilities: ['admin.read', 'hosts.read', 'settings.read'] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-09T10:00:00Z', dismissed_at: null } });
@@ -67,5 +67,7 @@ test('host, settings and fleet events refresh dots without a page reload', async
   shared.rows[0].engine_readiness!.claude = readiness(); await emit('host.updated'); await expect(claude).toHaveAttribute('data-state', 'ready');
   shared.rows[0].engine_readiness!.claude = readiness('attention', ['cli_outdated']); await emit('settings.changed'); await expect(claude).toHaveAttribute('data-state', 'attention');
   shared.suspended = ['codex']; await emit('engine.state.changed');
-  await expect(row(page, 'secure.test').getByRole('img', { name: /^Codex: disabled fleet-wide/ })).toHaveAttribute('data-state', 'inactive');
+  // A switched-off engine is not part of the fleet: its chip goes, the others stay.
+  await expect(row(page, 'secure.test').getByRole('img', { name: /^Codex:/ })).toHaveCount(0);
+  await expect(claude).toHaveAttribute('data-state', 'attention');
 });

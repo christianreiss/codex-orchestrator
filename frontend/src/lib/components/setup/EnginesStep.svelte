@@ -1,12 +1,11 @@
 <script lang="ts">
   import { ChoiceCard } from "$lib/components/ui/choice-card";
-  import { Badge } from "$lib/components/ui/badge";
-  import { ENGINES, ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { ENGINE_META, type Engine } from "$lib/constants/engines";
   import { Button } from "$lib/components/ui/button";
-  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   let { engines = $bindable() }: { engines: Engine[] } = $props();
-  // A fleet-disabled engine cannot be seeded or installed, so it cannot be
-  // picked here; the card stays visible, disabled, to say why.
+  // A fleet-disabled engine is not part of the fleet: it gets no card and
+  // cannot be picked (the server refuses seeding or installing it anyway).
   const fleet = useFleetEngines();
   // Keep the recorded answer equal to what the cards show: an engine switched
   // off after it was chosen drops out of the selection.
@@ -22,23 +21,19 @@
 
 <div class="space-y-3">
   <div role="group" aria-label="Engines" class="grid gap-3 sm:grid-cols-2">
-    {#each ENGINES as engine (engine)}
-      {@const off = !$fleet.isEnabled(engine)}
+    {#each $fleet.enabled as engine (engine)}
       <ChoiceCard
         mode="checkbox"
         title={ENGINE_META[engine].label}
-        description={off ? fleetDisabledTitle(ENGINE_META[engine].label) : `Hosts get the ${ENGINE_META[engine].command} alias.`}
-        checked={!off && engines.includes(engine)}
-        disabled={off}
+        description={`Hosts get the ${ENGINE_META[engine].command} alias.`}
+        checked={engines.includes(engine)}
         onSelect={() => toggle(engine)}
-      >
-        {#snippet badge()}{#if off}<Badge variant="outline">{FLEET_DISABLED_TAG}</Badge>{/if}{/snippet}
-      </ChoiceCard>
+      />
     {/each}
   </div>
   <div class="flex gap-2">
     <Button variant="outline" size="sm" disabled={$fleet.enabled.length === 0} onclick={() => engines = [...$fleet.enabled]}>
-      {$fleet.disabled.length === 0 ? "All engines" : "All enabled engines"}
+      All engines
     </Button>
     <Button variant="outline" size="sm" onclick={() => engines = []}>None yet</Button>
   </div>

@@ -6,7 +6,8 @@
 // suspension (nothing is deleted) and host-level removal (config and alias
 // only), Run removes the engine's signed config, alias, native shim, pinned
 // binary store, npm-global install, home directories (including credentials
-// and history) and shell alias lines.
+// and history), shell alias lines, and symlinks in ~/.local/bin or ~/bin that
+// a native installer pointed into those removed trees.
 //
 // Run is idempotent and never returns early on a single failure: whatever it
 // could not remove comes back in Result.Residue so the server can show it.
@@ -58,6 +59,9 @@ func (r Result) Complete() bool { return len(r.Residue) == 0 }
 type run struct {
 	opt Options
 	res Result
+	// roots are the trees this routine owns, whether or not they still
+	// existed; dangling launcher links into them are removed at the end.
+	roots []string
 }
 
 // Run destroys engine on this host.
@@ -94,6 +98,7 @@ func (r *run) tree(path string) {
 		r.residue(path, errors.New("refused: unsafe path"))
 		return
 	}
+	r.roots = append(r.roots, path)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		return
 	}
@@ -200,6 +205,53 @@ func (r *run) destroy(ctx context.Context, engine string) {
 		r.npm(ctx, "@openai/codex")
 		r.npm(ctx, "codex-cli")
 	}
+	r.launcherLinks()
+}
+
+// launcherLinks removes symlinks in the user's launcher directories that point
+// into a tree this routine owns and no longer resolve, such as a native
+// installer's ~/.local/bin/grok -> ~/.grok/bin/grok. A link that still
+// resolves, or points anywhere else, belongs to someone else and stays.
+func (r *run) launcherLinks() {
+	for _, dir := range []string{filepath.Join(r.opt.Home, ".local", "bin"), filepath.Join(r.opt.Home, "bin")} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.Type()&os.ModeSymlink == 0 {
+				continue
+			}
+			link := filepath.Join(dir, entry.Name())
+			target, err := os.Readlink(link)
+			if err != nil {
+				continue
+			}
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(dir, target)
+			}
+			if !r.owned(filepath.Clean(target)) {
+				continue
+			}
+			if _, err := os.Stat(link); !errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
+				r.residue(link, err)
+				continue
+			}
+			r.res.Removed = append(r.res.Removed, link)
+		}
+	}
+}
+
+func (r *run) owned(target string) bool {
+	for _, root := range r.roots {
+		if target == root || strings.HasPrefix(target, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *run) npm(ctx context.Context, pkg string) {
@@ -318,11 +370,19 @@ func (r *run) stripManagedMCP(claudeJSON, sidecar string) {
 
 // --- completion marker -------------------------------------------------
 
+// Routine versions what Run removes. A marker written by an older routine
+// does not count as done, so a host that completed a request before a
+// cleanup step was added runs the (idempotent) routine once more and
+// reports again. Raise it whenever Run starts removing something new.
+// 1: unversioned markers; 2: launcher links into removed trees.
+const Routine = 2
+
 func markerPath(home, engine string) string {
 	return filepath.Join(home, ".cxx", "state", "engine-destroy-"+engine+".json")
 }
 
-// Done reports whether this host already completed request requestID.
+// Done reports whether this host already completed request requestID with
+// the current routine.
 func Done(home, engine, requestID string) bool {
 	b, err := os.ReadFile(markerPath(home, engine))
 	if err != nil {
@@ -330,17 +390,21 @@ func Done(home, engine, requestID string) bool {
 	}
 	var m struct {
 		RequestID string `json:"request_id"`
+		Routine   int    `json:"routine"`
 	}
-	return json.Unmarshal(b, &m) == nil && m.RequestID == requestID && requestID != ""
+	return json.Unmarshal(b, &m) == nil && m.RequestID == requestID && requestID != "" && m.Routine >= Routine
 }
 
-// MarkDone records a fully completed request.
+// MarkDone records a fully completed request and the routine that did it.
 func MarkDone(home, engine, requestID string) error {
 	p := markerPath(home, engine)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	b, _ := json.Marshal(map[string]string{"request_id": requestID})
+	b, _ := json.Marshal(struct {
+		RequestID string `json:"request_id"`
+		Routine   int    `json:"routine"`
+	}{requestID, Routine})
 	return os.WriteFile(p, b, 0o600)
 }
 

@@ -1,6 +1,6 @@
 import type { Host } from '../db/schema.js';
 import { ConflictError, ForbiddenError } from '../http/errors.js';
-import { ENGINE_CODEX, ENGINE_EXTERNAL, ENGINE_LABELS, ENGINES, isEngine, type Engine } from '../util/engine.js';
+import { ENGINE_CODEX, ENGINE_EXTERNAL, ENGINE_HOST_FIELDS, ENGINE_LABELS, ENGINES, isEngine, type Engine } from '../util/engine.js';
 
 /**
  * Fleet-wide engine master switch state (`services/engine-switch.ts`).
@@ -93,4 +93,17 @@ export function assertHostEngineEnabled(host: Pick<Host, 'engines'>, engine: Eng
  */
 export function assertHostEngineAssigned(host: Pick<Host, 'engines'>, engine: Engine): void {
   assertHostEngineEnabled(host, engine, ALL_ENGINES_ENABLED);
+}
+
+/**
+ * Whether a destroy request for `engine` must reach this host: it carries the
+ * engine now, or it once reported the engine's native CLI or credentials.
+ * Host-level unassignment removes only config and alias and never clears those
+ * columns, so a host that dropped the engine earlier still holds its home and
+ * credentials and is targeted too.
+ */
+export function destroyTargetsHost(host: { engines?: unknown } & Record<string, unknown>, engine: Engine): boolean {
+  if (hostEnginesList(host.engines).includes(engine)) return true;
+  const fields = ENGINE_HOST_FIELDS[engine];
+  return Boolean(host[fields.clientVersion] || host[fields.authDigest]);
 }

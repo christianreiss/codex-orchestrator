@@ -933,7 +933,9 @@ export async function installFixtures(page: Page, override?: FixtureOverride): P
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
     if (!request.headers().accept?.includes("application/json")) return route.continue();
-    const pathname = new URL(request.url()).pathname;
+    // `GET /admin/engines/active` is the visibility projection of `/admin/engines/state`
+    // (engine, label, enabled); serving the state rows keeps one fixture per switch.
+    const pathname = new URL(request.url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     let body: unknown;
     try {
       body = request.postDataJSON();

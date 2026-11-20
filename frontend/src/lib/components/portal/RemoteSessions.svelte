@@ -11,6 +11,8 @@
   import { hostBlockReason, continuationBlockReason, remoteState, remoteForAgent } from "$lib/portal/remote-sessions";
   import { listTime } from "$lib/portal/grouping";
   import { authStore } from "$lib/stores/auth";
+  import { engineLabel } from "$lib/constants/engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Textarea } from "$lib/components/ui/textarea";
@@ -40,6 +42,8 @@
   let heading = $state<HTMLHeadingElement | null>(null);
   const entries = $derived(hosts.flatMap(host => host.sessions.map(session => ({ session, host }))));
   const selectedEntry = $derived(entries.find(entry => entry.session.id === selectedId));
+  // Only engines switched on fleet-wide are offered or filtered by.
+  const fleet = useFleetEngines();
   const detail = createQuery<RemoteSession>(toStore(() => ({
     queryKey: ["daemon-sessions", selectedId], enabled: active && !!selectedId && canRead,
     queryFn: ({ queryKey, signal }) => api.get<RemoteSession>(`/admin/daemon-sessions/${queryKey[1]}`, { signal }),
@@ -57,9 +61,10 @@
   const host = $derived(hosts.find(row => row.host_id === hostId));
   const startReason = $derived(!canManage ? "Remote session management is required." : error || stale ? "Refresh host status before starting work." : hostBlockReason(host) || (host?.engines?.includes(engine) ? "" : "This engine is not ready on the host."));
   const resumeReason = $derived(!canManage || !canRead ? "Conversation access and remote session management are required." : error || stale || $detail.isError ? "Refresh session status before continuing." : native?.pending_prompt ? "Answer the pending question when the agent is reachable." : selected ? continuationBlockReason(selected, selectedHost) : "Select a session.");
-  // Plan mode is a native Claude/Grok permission mode; Codex has none, and a
-  // daemon older than cxx 0.9.146 would ignore it, so the server refuses both.
-  const planReason = $derived(engine === "codex" ? "Codex has no plan mode; its sessions always run with the host's security posture." : (host?.permission_mode_version ?? 0) < 1 ? "This host's daemon predates plan mode. Update cxx to 0.9.146 or newer." : "");
+  // Plan mode is a native Claude/Grok permission mode (server PLAN_ENGINES);
+  // Codex and Kimi Code have none, and a daemon older than cxx 0.9.146 would
+  // ignore it, so the server refuses all three cases.
+  const planReason = $derived(engine === "codex" || engine === "kimi" ? `${engine === "codex" ? "Codex" : "Kimi Code"} has no plan mode; its sessions always run with the host's security posture.` : (host?.permission_mode_version ?? 0) < 1 ? "This host's daemon predates plan mode. Update cxx to 0.9.146 or newer." : "");
   const inPlan = $derived(selected?.permissionMode === "plan");
   const approveReason = $derived(!canManage || !canRead ? "Conversation access and remote session management are required." : error || stale || $detail.isError ? "Refresh session status before approving." : selected && ["running", "queued", "stopping"].includes(selected.status) ? "Wait until the agent has finished presenting its plan." : selected ? continuationBlockReason(selected, selectedHost) : "Select a session.");
   const live = $derived(selected?.status === "running" || Boolean(selected?.status === "waiting" && native?.pending_prompt && !native.read_only));
@@ -146,7 +151,7 @@
       <div class="space-y-2 border-b p-3">
         <div class="flex gap-2">
           <Input aria-label="Find a remote session" type="search" placeholder="Search sessions or hosts" bind:value={search} class="h-8 min-w-0 bg-muted text-caption" />
-          <select aria-label="Remote engine" bind:value={engineFilter} class="h-8 w-28 shrink-0 rounded-md bg-muted px-2 text-caption"><option value="all">All engines</option><option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option><option value="kimi">Kimi Code</option></select>
+          <select aria-label="Remote engine" bind:value={engineFilter} class="h-8 w-28 shrink-0 rounded-md bg-muted px-2 text-caption"><option value="all">All engines</option>{#each $fleet.enabled as value (value)}<option {value}>{engineLabel(value)}</option>{/each}</select>
         </div>
         <div class="flex gap-1" role="group" aria-label="Show remote sessions">
           {#each [{ key: 'current', label: 'Current' }, { key: 'ended', label: 'Ended' }, { key: 'all', label: 'All' }] as item}
@@ -210,7 +215,7 @@
     <Sheet.Header><Sheet.Title>Start remote session</Sheet.Title><Sheet.Description>Choose a host and give the agent its first instruction.</Sheet.Description></Sheet.Header>
     <form class="mt-6 space-y-5" onsubmit={event => { event.preventDefault(); void submitStart(); }}>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-host">Host</label><select id="remote-host" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={hostId}><option value={0}>Choose a host</option>{#each hosts as row}<option value={row.host_id}>{row.fqdn ?? `Host #${row.host_id}`}{!row.enabled ? ' · Disabled' : ''}</option>{/each}</select></div>
-      <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-engine">Engine</label><select id="remote-engine" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={engine}>{#each ['codex', 'claude', 'grok', 'kimi'] as value}<option value={value} disabled={!host?.engines?.includes(value as Engine)}>{value === 'codex' ? 'Codex' : value === 'claude' ? 'Claude' : value === 'grok' ? 'Grok' : 'Kimi Code'}</option>{/each}</select></div>
+      <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-engine">Engine</label><select id="remote-engine" class="h-9 w-full rounded-md border bg-background px-3 text-body-sm" bind:value={engine}>{#each $fleet.enabled as value (value)}<option value={value} disabled={!host?.engines?.includes(value as Engine)}>{engineLabel(value)}</option>{/each}</select></div>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-title">Title</label><Input id="remote-title" bind:value={title} maxlength={160} required placeholder="What should this session accomplish?" /></div>
       <div class="space-y-1.5"><label class="text-body-sm font-medium" for="remote-prompt">Instruction</label><Textarea id="remote-prompt" bind:value={prompt} maxlength={100000} required rows={5} placeholder="Describe the task…" /></div>
       <details class="rounded-md border p-3"><summary class="cursor-pointer text-body-sm font-medium">Working directory</summary><div class="mt-3 space-y-1.5"><label class="text-body-sm" for="remote-cwd">Working directory</label><Input id="remote-cwd" bind:value={cwd} maxlength={1024} placeholder={host?.default_cwd || 'Service account home directory'} /></div></details>

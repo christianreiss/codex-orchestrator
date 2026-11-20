@@ -44,7 +44,7 @@
   } from "$lib/api/auth";
   import { invalidateSetup } from "$lib/api/setup";
   import { autoCopyText } from "$lib/utils/clipboard";
-  import { useFleetEngines, FLEET_DISABLED_TAG, fleetDisabledTitle } from "$lib/engines/fleet-engines";
+  import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
 
   type Props = {
     accountId?: number;
@@ -106,9 +106,9 @@
   const isApiKeyMode = $derived(engine === "codex" && uploadMode === "apikey");
   const busy = $derived($uploadAuth.isPending);
 
-  // Seeding a fleet-disabled engine is refused by the server (409). Such an
-  // engine stays visible in the picker, disabled, and the selection moves off
-  // it — including when the fleet state lands after the panel mounted.
+  // A fleet-disabled engine is not part of the fleet: the picker leaves it out
+  // and the selection moves off it — including when the fleet state lands
+  // after the panel mounted. The server refuses seeding it anyway (409).
   const fleet = useFleetEngines();
   const usableEngines = $derived(allowedEngines.filter((option) => $fleet.isEnabled(option)));
   const engineOff = $derived(!$fleet.isEnabled(engine));
@@ -247,18 +247,17 @@
 </script>
 
 {#snippet enginePicker(idPrefix: string)}
-  {#if allowedEngines.length > 1}
+  {#if usableEngines.length > 1}
     <div class="space-y-2">
       <Label id="{idPrefix}-engine-label">Engine</Label>
       <div role="radiogroup" aria-labelledby="{idPrefix}-engine-label" class="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        {#each allowedEngines as option (option)}
+        {#each usableEngines as option (option)}
           <ChoiceCard
             id="{idPrefix}-{option}"
             size="sm"
             title={engineLabel(option)}
-            description={$fleet.isEnabled(option) ? undefined : FLEET_DISABLED_TAG}
             checked={engine === option}
-            disabled={!$fleet.isEnabled(option) || busy || $seedCmd.isPending}
+            disabled={busy || $seedCmd.isPending}
             class="rounded-md"
             onSelect={() => (engine = option)}
           />

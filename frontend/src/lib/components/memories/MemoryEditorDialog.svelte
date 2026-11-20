@@ -26,6 +26,8 @@
   import * as Select from "$lib/components/ui/select";
   import { Textarea } from "$lib/components/ui/textarea";
   import KeyValueList, { type KeyValueRow } from "$lib/components/authoring/KeyValueList.svelte";
+  import { engineLabel, isEngine, type Engine } from "$lib/constants/engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
 
   type Props = {
     open: boolean;
@@ -61,6 +63,9 @@
   let metadataRows = $state<KeyValueRow[]>([]);
   let metadataTypes: Record<string, "string" | "number" | "boolean"> = {};
   let engine = $state(NONE);
+  // Provenance is history: switched-on engines are offered, and a stored switched-off one stays the current value.
+  const fleet = useFleetEngines();
+  const provenanceEngines = $derived<Engine[]>(isEngine(engine) && !$fleet.isEnabled(engine) ? [...$fleet.enabled, engine] : $fleet.enabled);
   let validationError = $state<string | null>(null);
   let conflict = $state<{ message: string; currentEtag: string | null } | null>(null);
   let expectedEtag = $state("");
@@ -452,10 +457,9 @@
               <Select.Trigger id="memory-engine"><Select.Value placeholder="No engine">{engine === NONE ? "No engine" : engine}</Select.Value></Select.Trigger>
               <Select.Content>
                 <Select.Item value={NONE} label="No engine">No engine</Select.Item>
-                <Select.Item value="codex" label="Codex">Codex</Select.Item>
-                <Select.Item value="claude" label="Claude">Claude</Select.Item>
-                <Select.Item value="grok" label="Grok">Grok</Select.Item>
-                <Select.Item value="kimi" label="Kimi Code">Kimi Code</Select.Item>
+                {#each provenanceEngines as option (option)}
+                  <Select.Item value={option} label={engineLabel(option)}>{engineLabel(option)}</Select.Item>
+                {/each}
               </Select.Content>
             </Select.Root>
           </div>

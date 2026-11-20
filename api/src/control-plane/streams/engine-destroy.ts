@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { inArray } from 'drizzle-orm';
 import { authEntries, engineDestroyHosts, versions } from '../../db/schema.js';
 import { ConflictError, NotFoundError } from '../../http/errors.js';
-import { hostEnginesList } from '../../services/host-engine-policy.js';
+import { destroyTargetsHost, hostEnginesList } from '../../services/host-engine-policy.js';
 import type { DestroyRequest, DestroyProgress, DestroyStatus } from '../../services/engine-destroy.js';
 import { ENGINES, type Engine } from '../../util/engine.js';
 import { type OwnerRuntime, mutateOwnerState, type OwnerMutationContext } from '../state/runtime.js';
@@ -36,10 +36,9 @@ export function ownedDestroyRequests(snapshot: OwnerStateSnapshot): DestroyReque
 export function ownedDestroyProgress(snapshot: OwnerStateSnapshot, engine: Engine): DestroyProgress {
   const request = ownedDestroyRequests(snapshot).find((r) => r.engine === engine) ?? null,
     counts: Record<DestroyStatus, number> = { pending: 0, running: 0, done: 0, failed: 0 };
+  const rows = request ? snapshot.table('engineDestroyHosts').by('requestId', request.request_id) : [];
   const hosts = request
-    ? snapshot
-        .table('engineDestroyHosts')
-        .by('requestId', request.request_id)
+    ? rows
         .flatMap((row) => {
           const host = snapshot.hosts.get(row.hostId);
           if (!host || host.internalRole !== null) return [];
@@ -56,6 +55,15 @@ export function ownedDestroyProgress(snapshot: OwnerStateSnapshot, engine: Engin
           ];
         })
     : [];
+  if (request) {
+    // Targeted hosts that have no row yet still owe the destroy.
+    const known = new Set(rows.map((row) => row.hostId));
+    for (const host of snapshot.hosts.all()) {
+      if (known.has(host.id) || host.internalRole !== null || !destroyTargetsHost(host, engine)) continue;
+      counts.pending++;
+      hosts.push({ host_id: host.id, fqdn: host.fqdn, status: 'pending', residue: [], reported_at: null });
+    }
+  }
   return { engine, request, counts, hosts };
 }
 function bumpHosts(c: OwnerMutationContext, now: string) {
@@ -109,7 +117,7 @@ export async function requestOwnedEngineDestroy(owner: OwnerRuntime, engine: Eng
       );
       const fresh = c.snapshot.hosts
         .all()
-        .filter((host) => hostEnginesList(host.engines).includes(engine) && !known.has(host.id));
+        .filter((host) => destroyTargetsHost(host, engine) && !known.has(host.id));
       for (const host of fresh) {
         const row = {
           requestId: request.request_id,
@@ -163,13 +171,30 @@ export async function recordOwnedDestroyReport(
     prepare(c) {
       const request = ownedDestroyRequests(c.snapshot).find((r) => r.engine === input.engine);
       if (!request || request.request_id !== input.request_id) return { recorded: false };
-      const row = c.snapshot.table('engineDestroyHosts').get([input.request_id, hostId]);
-      if (row)
+      const row = c.snapshot.table('engineDestroyHosts').get([input.request_id, hostId]),
+        now = new Date().toISOString();
+      if (row) {
         stageUpdate(c, 'engineDestroyHosts', [input.request_id, hostId], {
           status: input.status,
           residueJson: JSON.stringify(residue),
-          reportedAt: new Date().toISOString(),
+          reportedAt: now,
         });
+        return { recorded: true };
+      }
+      // A host targeted after the request opened gets its row from its first report.
+      const host = c.snapshot.hosts.get(hostId);
+      if (!host || !destroyTargetsHost(host, input.engine)) return { recorded: false };
+      const fresh = {
+        requestId: input.request_id,
+        hostId,
+        engine: input.engine,
+        status: input.status,
+        residueJson: JSON.stringify(residue),
+        reportedAt: now,
+        createdAt: now,
+      };
+      c.draft.upsert('engineDestroyHosts', fresh);
+      c.write((tx) => tx.insert(engineDestroyHosts).values(fresh));
       return { recorded: true };
     },
   });

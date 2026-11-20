@@ -7,7 +7,12 @@ import { readFleetEngineState } from '../engine-switch.js';
 import { ENGINES, ENGINE_LABELS } from '../../util/engine.js';
 import type { RouteContext } from '../../routes/index.js';
 
-/** Snapshot-only projection: no credentials, sessions, provider calls or account maintenance. */
+/**
+ * Snapshot-only projection: no credentials, sessions, provider calls or account maintenance.
+ * Engines switched off fleet-wide are omitted entirely: a suspended engine is
+ * not part of the fleet for the companion or the plasmoid, whatever accounts
+ * the server keeps for a later re-enable.
+ */
 export async function companionQuotas(ctx: RouteContext) {
   const owner = ownerRuntimeFor(ctx.db);
   owner?.assertOwner();
@@ -26,7 +31,7 @@ export async function companionQuotas(ctx: RouteContext) {
   const service = new ProviderAccountsService(ctx.db, ctx.keyring);
   return {
     engines: await Promise.all(
-      ENGINES.map(async (engine) => ({
+      ENGINES.filter((engine) => enabled[engine]).map(async (engine) => ({
         engine,
         label: ENGINE_LABELS[engine],
         enabled: enabled[engine],

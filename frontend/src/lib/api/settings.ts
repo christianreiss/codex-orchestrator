@@ -29,6 +29,7 @@ import type {
   EngineStateChange,
   EngineStateUpdate,
   EngineStateValue,
+  EngineActiveValue,
   HostOverrideCounts,
   InsecureApprovalValue,
   ModelDefaultsEngine,
@@ -100,6 +101,16 @@ export function apiSurfaceMutation(opts: MutationOpts<ApiSurfaceRow, ApiSurfaceU
 // those stop one exposed gateway; this turns a whole engine off for the fleet.
 
 export const engineStateQueryKey = ["settings", "engine-state"] as const;
+/** Under `settings` so `engine.state.changed` and `settings.changed` refresh it. */
+export const engineActiveQueryKey = ["settings", "engine-active"] as const;
+
+/** Which engines belong to the fleet; feeds `useFleetEngines` for every viewer. */
+export function engineActiveQuery() {
+  return createQuery<EngineActiveValue>({
+    queryKey: engineActiveQueryKey,
+    queryFn: () => api.get<EngineActiveValue>("/admin/engines/active"),
+  });
+}
 
 export function engineStateQuery() {
   return createQuery<EngineStateValue>({

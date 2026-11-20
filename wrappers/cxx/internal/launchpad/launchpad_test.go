@@ -295,10 +295,11 @@ func TestDiscoverUsesCatalogAndStartCursor(t *testing.T) {
 }
 
 func TestDiscoverFiltersAndDisables(t *testing.T) {
+	suspended := []string{"grok"}
 	src := Sources{
 		Load: func(engine string) (*config.Config, error) {
 			cfg := signed([]string{"codex", "grok"}, nil)
-			cfg.Host.FleetDisabledEngines = []string{"grok"}
+			cfg.Host.FleetDisabledEngines = suspended
 			if engine == "claude" {
 				return nil, errors.New("no config")
 			}
@@ -312,16 +313,23 @@ func TestDiscoverFiltersAndDisables(t *testing.T) {
 			return "", ""
 		},
 	}
+	// Grok is assigned but switched off fleet-wide: it is not part of the fleet.
 	engines := Discover(src)
-	if len(engines) != 2 || engines[0].Name != "codex" || engines[1].Name != "grok" {
+	if len(engines) != 1 || engines[0].Name != "codex" {
 		t.Fatalf("engines = %+v", engines)
 	}
-	if engines[0].Disabled != "not installed" || engines[1].Disabled != "suspended fleet-wide" {
-		t.Fatalf("disabled = %q / %q", engines[0].Disabled, engines[1].Disabled)
+	if engines[0].Disabled != "not installed" {
+		t.Fatalf("disabled = %q", engines[0].Disabled)
 	}
 	// Without a catalog the menu is the configured model plus generic efforts.
 	if m := engines[0].Models; len(m) != 1 || m[0].ID != "gpt-6-astra" || engines[0].Effort != "high" {
 		t.Fatalf("fallback menu = %+v effort=%s", m, engines[0].Effort)
+	}
+	// Switched back on, Grok returns with its own fallback menu.
+	suspended = nil
+	engines = Discover(src)
+	if len(engines) != 2 || engines[1].Name != "grok" || engines[1].Disabled != "" {
+		t.Fatalf("engines after re-enable = %+v", engines)
 	}
 	if m := engines[1].Models; len(m) != 1 || m[0].ID != "" {
 		t.Fatalf("grok fallback without local model = %+v", m)

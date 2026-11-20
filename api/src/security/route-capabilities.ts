@@ -258,6 +258,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/api/state': cap('settings.read'),
   'POST /admin/api/state': cap('settings.manage'),
   'GET /admin/api/surfaces': cap('settings.read'),
+  'GET /admin/engines/active': cap('admin.read'),
   'GET /admin/engines/state': cap('settings.read'),
   'POST /admin/engines/:engine/state': cap('settings.manage'),
   'GET /admin/engines/:engine/destroy': cap('settings.read'),

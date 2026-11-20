@@ -12,7 +12,7 @@ test('Chatty gates availability, persists the conversation and confirms concrete
   let cleared = 0;
   let decided = false;
   await page.route('**/admin/**', async route => {
-    const req = route.request(); const path = new URL(req.url()).pathname;
+    const req = route.request(); const path = new URL(req.url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     if (path === '/admin/chatty/events') return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
     if (!req.headers().accept?.includes('application/json')) return route.continue();
     const json = (data: unknown) => route.fulfill({ json: { status: 'ok', data } });

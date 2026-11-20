@@ -15,6 +15,9 @@
   import { accountsQuery } from "$lib/api/accounts";
   import { ENGINE_META, type Engine } from "$lib/constants/engines";
   import { useFleetEngines, FLEET_DISABLED_TAG } from "$lib/engines/fleet-engines";
+  import { fleetEngineView } from "$lib/engines/fleet-state";
+  import { engineStateQuery } from "$lib/api/settings";
+  import type { EngineStateRow } from "$lib/api/types";
   import { isNearQuota, needsAttention } from "$lib/components/accounts/account-state";
   import QuickModelDefaults from "$lib/components/settings/QuickModelDefaults.svelte";
   import ModelPolicySection from "$lib/components/settings/ModelPolicySection.svelte";
@@ -39,7 +42,9 @@
   const fleet = useFleetEngines();
   const accounts = accountsQuery();
   const off = $derived(!$fleet.isEnabled(engine));
-  const row = $derived($fleet.row(engine));
+  // Host counts are management data from /admin/engines/state (settings.read).
+  const stateQuery = engineStateQuery();
+  const row = $derived(fleetEngineView<EngineStateRow>($stateQuery.data).row(engine));
   const mine = $derived(($accounts.data?.accounts ?? []).filter((account) => account.engine === engine));
   const near = $derived(mine.filter(isNearQuota).length);
   const broken = $derived(mine.filter(needsAttention).length);

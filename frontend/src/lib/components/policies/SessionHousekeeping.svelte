@@ -10,6 +10,8 @@
   import { Input } from "$lib/components/ui/input";
   import { Switch } from "$lib/components/ui/switch";
   import PolicyRow from "./PolicyRow.svelte";
+  import { ENGINE_META } from "$lib/constants/engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   type Engine = "codex" | "claude" | "grok" | "kimi";
   type Policy = { enabled: boolean; retention_days: number; max_bytes: number; min_age_days: number };
   type Effective = Policy & { source: "fleet" | "host"; override: Policy | null; fleet: Policy };
@@ -24,7 +26,10 @@
     return result;
   } });
   const overrides = hostOverridesQuery();
-  let engine = $state<Engine>("codex");
+  // The response keeps all four rules; only engines switched on fleet-wide are offered.
+  const fleet = useFleetEngines();
+  let picked = $state<Engine>("codex");
+  const engine = $derived<Engine>($fleet.isEnabled(picked) ? picked : ($fleet.enabled[0] ?? picked));
   let enabled = $state(true);
   let retention = $state(30);
   let budget = $state(5);
@@ -63,8 +68,8 @@
 >
   <div class="flex flex-wrap items-center gap-3">
     <label for="housekeeping-engine-fleet" class="text-body-sm font-medium">Engine</label>
-    <select id="housekeeping-engine-fleet" class="h-9 rounded-md border bg-background px-3 text-body-sm" bind:value={engine} disabled={$save.isPending || dirty} aria-describedby="housekeeping-engine-hint">
-      <option value="codex">Codex</option><option value="claude">Claude</option><option value="grok">Grok</option><option value="kimi">Kimi Code</option>
+    <select id="housekeeping-engine-fleet" class="h-9 rounded-md border bg-background px-3 text-body-sm" value={engine} onchange={(event) => (picked = event.currentTarget.value as Engine)} disabled={$save.isPending || dirty} aria-describedby="housekeeping-engine-hint">
+      {#each $fleet.enabled as option (option)}<option value={option}>{ENGINE_META[option].label}</option>{/each}
     </select>
     <span id="housekeeping-engine-hint" class="text-caption text-muted-foreground empty:hidden">{dirty ? "Save or reload this rule before switching engine." : ""}</span>
   </div>

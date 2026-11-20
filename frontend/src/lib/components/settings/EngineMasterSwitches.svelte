@@ -38,7 +38,7 @@
   const hosts = hostsListQuery();
   const surfaces = apiSurfacesQuery();
 
-  const view = $derived(fleetEngineView($query.data));
+  const view = $derived(fleetEngineView<EngineStateRow>($query.data));
   const canMutate = $derived($authStore.can("settings.manage"));
 
   /**

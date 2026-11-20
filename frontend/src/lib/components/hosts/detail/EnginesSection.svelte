@@ -2,8 +2,8 @@
   /** Engines on this host: on/off and the version each one runs. */
   import { useQueryClient } from "@tanstack/svelte-query";
   import { Section } from "$lib/components/page";
-  import { ENGINES, ENGINE_META } from "$lib/constants/engines";
-  import { useFleetEngines, FLEET_DISABLED_TAG } from "$lib/engines/fleet-engines";
+  import { ENGINE_META } from "$lib/constants/engines";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { createHostEnginesMutation, hostEngines } from "$lib/api/hosts";
   import type { HostDetail, HostEngine } from "$lib/api/types";
   import ToggleRow from "../ToggleRow.svelte";
@@ -34,12 +34,14 @@
     return [
       version ? `Version ${version}` : assigned.includes(engine) ? "Version not reported yet" : "Not installed",
       pin ? `pinned to ${pin}` : null,
-      $fleet.isEnabled(engine) ? null : FLEET_DISABLED_TAG,
     ].filter(Boolean).join(" · ");
   }
-  // The last engine cannot be removed, and a fleet-disabled one cannot be added.
-  const locked = (engine: HostEngine) =>
-    $mutation.isPending || (assigned.includes(engine) && assigned.length <= 1) || (!assigned.includes(engine) && !$fleet.isEnabled(engine));
+  // Only engines switched on fleet-wide get a toggle. A switched-off engine the
+  // host carries stays in `assigned`, so changing another engine keeps it.
+  // The last switched-on engine cannot be removed: a host left with only a
+  // switched-off engine could not run anything.
+  const enabledAssigned = $derived(assigned.filter((engine) => $fleet.isEnabled(engine)));
+  const locked = (engine: HostEngine) => $mutation.isPending || (assigned.includes(engine) && enabledAssigned.length <= 1);
 
   async function set(engine: HostEngine, enabled: boolean): Promise<void> {
     const current: HostEngine[] = assigned.length ? [...assigned] : ["codex"];
@@ -51,7 +53,7 @@
 
 <Section title="Engines" description="Changes apply on the host's next cdx / clx / cgx run or its next scheduled maintenance tick.">
   <div>
-    {#each ENGINES as engine (engine)}
+    {#each $fleet.enabled as engine (engine)}
       <ToggleRow
         label={ENGINE_META[engine].label}
         ariaLabel={`${ENGINE_META[engine].label} engine`}

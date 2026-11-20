@@ -82,8 +82,6 @@
   const canRemint = $derived(!synced && (Boolean(usedAt) || expired));
 
   const engines = $derived(host ? hostEngines(host) : requestedEngines);
-  /** Assigned engines that are switched off fleet-wide: nothing to seed or wait for. */
-  const offEngines = $derived(engines.filter((engine) => !$fleet.isEnabled(engine)));
   const missingAuth = $derived.by((): AuthEngine[] => {
     const canonical = $setup.data?.canonical_auth;
     if (!canonical) return [];
@@ -199,14 +197,6 @@
       Checking every few seconds while this is open.
     {/if}
   </p>
-
-  {#if offEngines.length > 0}
-    <p class="text-body-sm text-muted-foreground">
-      {offEngines.map(engineLabel).join(" and ")}
-      {offEngines.length === 1 ? "is" : "are"} disabled fleet-wide, so this host will not run
-      {offEngines.length === 1 ? "it" : "them"} until {offEngines.length === 1 ? "it is" : "they are"} turned back on under Engines.
-    </p>
-  {/if}
 
   {#if missingAuth.length > 0 || canRemint}
     <div class="flex flex-wrap gap-2">

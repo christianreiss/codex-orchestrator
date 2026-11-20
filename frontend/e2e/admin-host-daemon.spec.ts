@@ -36,7 +36,7 @@ test("daemon indicators are separate, enabled-only, and update live", async ({
     const req = route.request();
     if (!req.headers().accept?.includes("application/json"))
       return route.continue();
-    const path = new URL(req.url()).pathname;
+    const path = new URL(req.url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     const json = (data: unknown) =>
       route.fulfill({ json: { status: "ok", data } });
     if (path === "/admin/auth/status")
@@ -110,7 +110,7 @@ test('closed-window daemon remains online and can be opened from host details', 
   await page.routeWebSocket('**/insecure-daemon-ws', ws => { ownerStream(ws); });
   await page.route('**/admin/**', route => {
     if (!route.request().headers().accept?.includes('application/json')) return route.continue();
-    const path = new URL(route.request().url()).pathname;
+    const path = new URL(route.request().url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     const json = (data: unknown) => route.fulfill({json:{status:'ok',data}});
     if(path==='/admin/auth/status') return json({authenticated:true,enforced:true,user:{id:1,username:'owner',roles:['owner']},capabilities:['admin.read','hosts.read','hosts.activate_insecure','agent_messaging.manage','agent_portal.read','settings.read']});
     if(path==='/admin/setup/status') return json({setup_complete:true,critical_complete:true,checks:[],next_actions:[],wizard:{completed_at:stamp(),dismissed_at:null}});

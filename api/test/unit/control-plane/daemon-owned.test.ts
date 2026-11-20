@@ -12,6 +12,7 @@ import {
   purgeOwnedEngine,
   ownedDestroyProgress,
 } from '../../../src/control-plane/streams/engine-destroy.js';
+import { destroyDirectivesForHost } from '../../../src/services/engine-destroy.js';
 import { LegacyDrainRegistry, captureLegacyDrainManifest, legacyDrainDeadline } from '../../../src/control-plane/legacy-drain.js';
 import {
   registerOwnedReceiver,
@@ -921,6 +922,64 @@ describe('explicit legacy process drain', () => {
 });
 
 describe('owned engine destruction', () => {
+  type OpenedDestroy = { request: { request_id: string }; hosts_targeted: number };
+  const fleetHost = (id: number, engines: string, extra: Record<string, unknown> = {}) => ({
+    id, fqdn: `h${id}.example`, apiKey: 'test', apiKeyHash: null, status: 'active', configVersion: 0, secure: 1,
+    engines, internalRole: null, expiresAt: null, insecureEnabledUntil: null, ...extra,
+  });
+
+  it('targets hosts that dropped the engine but once ran it, and never hosts that did not', async () => {
+    const h = harness({
+      versions: [{ name: 'grok_engine_disabled', version: '1' }],
+      hosts: [
+        fleetHost(1, 'codex,grok'),
+        fleetHost(2, 'codex', { grokClientVersion: '1.0.77' }),
+        fleetHost(3, 'codex', { grokAuthDigest: 'd'.repeat(64) }),
+        fleetHost(4, 'codex,claude'),
+      ],
+    });
+    const result = (await requestOwnedEngineDestroy(h.runtime, 'grok', 'fixture')) as unknown as OpenedDestroy;
+    expect(result).toMatchObject({ hosts_targeted: 3 });
+    const progress = ownedDestroyProgress(h.state.snapshot(), 'grok');
+    expect(progress.hosts.map((row) => row.host_id).sort()).toEqual([1, 2, 3]);
+    expect(await destroyDirectivesForHost(h.ctx.db, 2)).toEqual([{ engine: 'grok', request_id: result.request.request_id }]);
+    expect(await destroyDirectivesForHost(h.ctx.db, 4)).toEqual([]);
+  });
+
+  it('reaches a host targeted after the request: directive, pending count and row on first report', async () => {
+    const h = harness({ versions: [{ name: 'grok_engine_disabled', version: '1' }], hosts: [fleetHost(1, 'codex,grok'), fleetHost(2, 'codex')] });
+    const { request } = (await requestOwnedEngineDestroy(h.runtime, 'grok', 'fixture')) as unknown as OpenedDestroy;
+    await recordOwnedDestroyReport(h.runtime, 1, { engine: 'grok', request_id: request.request_id, status: 'done' }, []);
+    // Host 2 reports a Grok CLI after the request opened (e.g. it came back with an old install).
+    await mutateOwnerState(h.runtime, {
+      kind: 'fixture.grok-report',
+      payload: {},
+      prepare(c) {
+        c.draft.upsert('hosts', { ...c.snapshot.hosts.get(2)!, grokClientVersion: '1.0.50' });
+        return null;
+      },
+    });
+    expect(h.state.snapshot().table('engineDestroyHosts').get([request.request_id, 2])).toBeUndefined();
+    expect(await destroyDirectivesForHost(h.ctx.db, 2)).toEqual([{ engine: 'grok', request_id: request.request_id }]);
+    const progress = ownedDestroyProgress(h.state.snapshot(), 'grok');
+    expect(progress.counts).toMatchObject({ pending: 1, done: 1 });
+    expect(progress.hosts.find((row) => row.host_id === 2)).toMatchObject({ status: 'pending', reported_at: null });
+    await expect(purgeOwnedEngine(h.runtime, 'grok', { force: false, actor: 'fixture' })).rejects.toThrow('not completed');
+    expect(await recordOwnedDestroyReport(h.runtime, 2, { engine: 'grok', request_id: request.request_id, status: 'done' }, [])).toEqual({ recorded: true });
+    expect(h.state.snapshot().table('engineDestroyHosts').get([request.request_id, 2])).toMatchObject({ status: 'done', engine: 'grok' });
+    expect(ownedDestroyProgress(h.state.snapshot(), 'grok').counts).toMatchObject({ pending: 0, done: 2 });
+    // A host the request never targets cannot plant a row.
+    await mutateOwnerState(h.runtime, {
+      kind: 'fixture.host',
+      payload: {},
+      prepare(c) {
+        c.draft.upsert('hosts', fleetHost(5, 'codex') as never);
+        return null;
+      },
+    });
+    expect(await recordOwnedDestroyReport(h.runtime, 5, { engine: 'grok', request_id: request.request_id, status: 'done' }, [])).toEqual({ recorded: false });
+  });
+
   it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
     'requires %s suspension and completed host cleanup before purge',
     async (engine) => {

@@ -12,7 +12,9 @@
 
   let { host }: { host: HostListItem } = $props();
   const fleet = useFleetEngines();
-  const assigned = $derived(hostEngines(host).filter((engine): engine is keyof typeof ENGINE_META => engine in ENGINE_META));
+  // A switched-off engine is not part of the fleet: its chip is left out even
+  // though the host keeps the assignment for a later re-enable.
+  const assigned = $derived(hostEngines(host).filter((engine): engine is keyof typeof ENGINE_META => engine in ENGINE_META && $fleet.isEnabled(engine)));
 
   const reasons: Record<HostEngineReadinessReason, string> = {
     not_assigned: "not assigned", fleet_disabled: "disabled fleet-wide", auth_missing: "auth missing",
@@ -23,11 +25,8 @@
 
   function describe(engine: keyof typeof ENGINE_META) {
     const readiness = host.engine_readiness?.[engine];
-    const suspended = !$fleet.isEnabled(engine);
-    const state = suspended ? "inactive" : (readiness?.state ?? "attention");
-    const description = suspended
-      ? "disabled fleet-wide"
-      : !readiness ? "status unknown"
+    const state = readiness?.state ?? "attention";
+    const description = !readiness ? "status unknown"
       : readiness.state === "ready" ? "ready"
       : readiness.reasons.map((reason) => reasons[reason] ?? reason).join(", ");
     const versions = readiness

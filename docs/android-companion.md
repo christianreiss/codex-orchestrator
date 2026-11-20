@@ -452,11 +452,14 @@ notification; unavailable/offline push converges on the next authenticated snaps
 
 `GET /companion/v1/quotas` uses the paired-device Bearer token and requires
 `admin.read` and `auth.read_metadata`, rechecked before returning the snapshot. It returns `engines` for
-Codex, Claude, Grok and Kimi, each with `engine`, `label`, `enabled` and `accounts`.
+the engines switched on fleet-wide (Codex, Claude, Grok, Kimi order), each with `engine`, `label`,
+`enabled` and `accounts`.
 Each account exposes only `id`, `label`, `state`, `fetched_at`, `stale`, and
 `windows` (`kind`, `used_percent`, `resets_at`, `limit_seconds`). Removed accounts
 are excluded. Codex/Claude retain short and weekly windows; Grok retains its
-current weekly/monthly window. Suspended engines remain readable as snapshots.
+current weekly/monthly window. An engine switched off fleet-wide is omitted with
+its accounts, so every app version (and the Plasma widget) stops showing it
+without a client release.
 The read makes no provider call, account-maintenance change or credential read.
 
 Android shows the Quotas tab to users with both read capabilities, refreshes on entry,

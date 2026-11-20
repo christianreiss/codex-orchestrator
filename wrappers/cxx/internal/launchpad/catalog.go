@@ -83,20 +83,20 @@ type Sources struct {
 }
 
 // Discover lists the engines this host may launch, in screen order. An engine
-// appears only when its own signed config loads and assigns it.
+// appears only when its own signed config loads and assigns it. An engine
+// switched off fleet-wide is not part of the fleet and is left out entirely;
+// invoking its persona directly still explains the suspension.
 func Discover(src Sources) []Engine {
 	var out []Engine
 	for _, name := range engineOrder {
 		cfg, err := src.Load(name)
-		if err != nil || cfg == nil || !assigned(cfg, name) {
+		if err != nil || cfg == nil || !assigned(cfg, name) || cfg.EngineSuspended(name) {
 			continue
 		}
 		e := Engine{Name: name, Models: menu(name, cfg, src)}
 		switch {
 		case len(e.Models) == 0:
 			e.Disabled = "no current models enabled"
-		case cfg.EngineSuspended(name):
-			e.Disabled = "suspended fleet-wide"
 		case src.Installed != nil && !src.Installed(name):
 			e.Disabled = "not installed"
 		}

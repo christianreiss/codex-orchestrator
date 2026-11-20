@@ -1259,9 +1259,10 @@ behaviour: usage on stderr, exit 2.
 - **Engines.** An engine appears when its own signed config verifies and assigns
   it. They sit on a compass in fixed order: Codex left (`←`), Claude right (`→`),
   Grok below (`↓`), filtered to the engines present, so two engines use left and
-  right. With one engine the compass is skipped. A fleet-suspended engine, or a
-  Codex/Claude engine whose native CLI is missing, is shown greyed out with the
-  reason and cannot be launched.
+  right. With one engine the compass is skipped. A fleet-suspended engine is not
+  part of the fleet and is left out entirely (invoking its persona directly still
+  explains the suspension); a Codex/Claude engine whose native CLI is missing is
+  shown greyed out with the reason and cannot be launched.
 - **Weekly usage (cxx 0.9.68).** The main compass shows a compact `week N% used`
   notice under each engine; the single-engine grid shows it below the title.
   It reads observations cached during verified `/auth` or `/sync/bootstrap`
@@ -1876,7 +1877,8 @@ the shared wrapper once, updating and restarting it first when needed. Native Co
 parallel (at most four engine workers); credential guards remain sequential,
 and managed content/auth sync and version reports follow in Codex, Claude,
 Grok, Kimi order after all installs finish. Every assigned engine gets a result,
-including newly added, unchanged or suspended engines. Fleet suspension keeps
+including newly added or unchanged engines; an engine suspended fleet-wide is not
+part of the fleet and gets no row, check, install or sync. Fleet suspension keeps
 configs, aliases and installed CLIs; uncertain assignment probes preserve the
 existing layout and fail the update. Removal preserves provider binaries and
 user session data.

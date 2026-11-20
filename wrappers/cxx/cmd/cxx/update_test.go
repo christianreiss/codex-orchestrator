@@ -158,7 +158,8 @@ func TestHostUpdateUnassignedSeedAndSuspension(t *testing.T) {
 	if code := updateHost(context.Background(), nil, &out, ui.Caps{}, f.deps, true); code != 0 {
 		t.Fatal(code, &out)
 	}
-	if strings.Join(f.checks, ",") != "claude" || strings.Join(f.syncs, ",") != "claude" || strings.Join(f.installs, ",") != "claude" || !strings.Contains(out.String(), "suspended fleet-wide") {
+	// Grok is switched off fleet-wide: no row, check, install or sync.
+	if strings.Join(f.checks, ",") != "claude" || strings.Join(f.syncs, ",") != "claude" || strings.Join(f.installs, ",") != "claude" || strings.Contains(out.String(), "Grok") {
 		t.Fatalf("checks=%v syncs=%v installs=%v output=%s", f.checks, f.syncs, f.installs, &out)
 	}
 }
@@ -236,9 +237,14 @@ func TestHostUpdatePolicyAndOverrides(t *testing.T) {
 	if len(f.installs) != 0 || strings.Join(f.checks, ",") != "codex,claude" || strings.Join(f.syncs, ",") != "codex,claude" {
 		t.Fatalf("checks=%v installs=%v syncs=%v", f.checks, f.installs, f.syncs)
 	}
-	for _, text := range []string{"binary updates disabled", "binary override", "suspended fleet-wide"} {
+	for _, text := range []string{"binary updates disabled", "binary override"} {
 		if !strings.Contains(out.String(), text) {
 			t.Fatalf("missing %s", text)
+		}
+	}
+	for _, text := range []string{"Grok", "Kimi", "suspended"} {
+		if strings.Contains(out.String(), text) {
+			t.Fatalf("switched-off engine shown (%s): %s", text, &out)
 		}
 	}
 }
