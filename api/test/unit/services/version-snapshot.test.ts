@@ -49,6 +49,13 @@ describe('version-snapshot', () => {
     expect((await service.summary('claude')).runner_state).toBeNull();
   });
 
+  it('reports an unset auto_update_enabled row as on and a stored 0 as off', async () => {
+    const unset = createVersionSnapshotService({ db: makeDb([]), installationId: null });
+    expect((await unset.summary('codex')).auto_update_enabled).toBe(true);
+    const off = createVersionSnapshotService({ db: makeDb([{ name: 'auto_update_enabled', version: '0' }]), installationId: null });
+    expect((await off.summary('codex')).auto_update_enabled).toBe(false);
+  });
+
   it('returns engine-suffixed values when present', async () => {
     const db = makeDb([
       { name: 'client_version_codex', version: '0.42.0' },

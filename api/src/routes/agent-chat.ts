@@ -196,7 +196,6 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
     { preHandler: app.requireAdmin },
     handler('delete'),
   );
-  app.post('/admin/agent-sessions/:id/notices/resolve', { preHandler: app.requireAdmin }, handler('resolve'));
   app.post('/companion/v1/agents/:id/attachments', handler('create'));
   app.post('/companion/v1/rooms/:roomId/attachments', handler('create'));
   app.post('/companion/v1/rooms/:roomId/attachments/:attachmentId/chunks', handler('put'));

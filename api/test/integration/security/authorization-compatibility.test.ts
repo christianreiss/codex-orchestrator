@@ -310,7 +310,6 @@ describe('the exceptions are exceptions, not holes', () => {
       'GET /admin/agent-sessions/:id/attachments/:attachmentId',
       'GET /admin/agent-sessions/:id/attachments/:attachmentId/content',
       'DELETE /admin/agent-sessions/:id/attachments/:attachmentId',
-      'POST /admin/agent-sessions/:id/notices/resolve',
 
       'DELETE /admin/chatty/session',
       'GET /admin/chatty/events',
@@ -336,7 +335,6 @@ describe('the exceptions are exceptions, not holes', () => {
       'POST /admin/agent-messaging/addresses/:id/enabled',
       'POST /admin/agent-messaging/conversations/:id/cancel',
       'POST /admin/agent-messaging/groups',
-      'POST /admin/agent-messaging/groups/:slug/publish',
       'POST /admin/agent-messaging/messages/:id/fresh-start',
       'POST /admin/agent-messaging/messages/:id/quota-retry',
       'POST /admin/agent-messaging/messages/:id/redrive',

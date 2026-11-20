@@ -1189,34 +1189,6 @@ export interface CodexVersionsCheckResult {
   kimi_available_client?: CodexVersionsCheckResult["claude_available_client"];
 }
 
-export type ScalingReasoningEffort =
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
-  | "max"
-  | "ultra";
-export type ScalingLane = "normal" | "spark";
-
-export interface ScalingTierRule {
-  at_percent: number;
-  lane?: ScalingLane;
-  reasoning_effort?: ScalingReasoningEffort;
-  model?: string | null;
-}
-
-export interface ScalingRules {
-  enabled: boolean;
-  tiers: ScalingTierRule[];
-}
-
-export interface ScalingStatus {
-  enabled: boolean;
-  rules: ScalingRules | null;
-  active_tier?: ScalingTierRule | null;
-  [key: string]: unknown;
-}
-
 // users feature ↓
 /** Mirrors `VALID_ACCESS_LEVELS` in api/src/services/admin-auth.ts. */
 export const USER_ROLES = [

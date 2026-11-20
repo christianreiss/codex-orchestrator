@@ -43,7 +43,6 @@ describe.skipIf(!config)('Chatty administration owner on real MySQL', () => {
         'quota_policy_codex',
         'quota_policy_claude',
         'quota_policy_grok',
-        'usage_scaling_rules',
         'agent_supervisor_enabled',
         RETENTION_POLICY_KEY,
         RETENTION_RUN_KEY,
@@ -305,21 +304,6 @@ describe.skipIf(!config)('Chatty administration owner on real MySQL', () => {
         expect(
           await db.select().from(schema.versions).where(eq(schema.versions.name, 'quota_policy_codex')),
         ).toEqual([]);
-        const scaling = {
-          enabled: true,
-          tiers: [
-            { at_percent: 90, reasoning_effort: 'low', model: 'gpt-6-luna' },
-            { at_percent: 65, reasoning_effort: 'medium' },
-          ],
-        };
-        await execute('quota_scaling_update', scaling);
-        expect(
-          JSON.parse(
-            (
-              await db.select().from(schema.versions).where(eq(schema.versions.name, 'usage_scaling_rules'))
-            )[0]!.version!,
-          ),
-        ).toEqual({ enabled: true, tiers: [scaling.tiers[1], scaling.tiers[0]] });
         // No host work or recovery is seeded. Exercise only fleet configuration.
         expect(owner.runtime.state.snapshot().table('agentWorkStates').all()).toEqual([]);
         const watchdogsBefore = owner.runtime.state.snapshot().table('agentWatchdogs').all();

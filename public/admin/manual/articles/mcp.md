@@ -12,7 +12,7 @@ This article covers two distinct topics: the **server-side MCP endpoint** (what 
 ## Endpoint
 
 - `GET /mcp` — advisory probe. Returns 405 with the body `POST only, JSON-RPC 2.0` (and 403 when an Origin header is present and `MCP_ALLOW_REQUEST_HOST_ORIGIN=false`).
-- `POST /mcp` — full JSON-RPC surface: `initialize`, `notifications/initialized`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `resources/create`, `resources/update`, `resources/delete`, plus `prompts/list` (always empty, so a client's prompts capability probe succeeds) and `prompts/get` (answers `-32601` on purpose). Dot spellings (`tools.list`) and the legacy verbs (`list_tools`, `call_tool`, `read_resource`, …) are accepted aliases. `X-Engine` selects the engine for Skill reads and secret audit attribution: omitted resolves to `codex`, a malformed value is a validation error, and an engine disabled on that host is refused with `engine_disabled` before dispatch.
+- `POST /mcp` — full JSON-RPC surface: `initialize`, `notifications/initialized`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `resources/create`, `resources/update`, `resources/delete`, plus `prompts/list` (always empty, so a client's prompts capability probe succeeds) and `prompts/get` (answers `-32601` on purpose). Only the standard slash-form method names are accepted; the former dotted spellings (`tools.list`) and legacy verbs (`list_tools`, `call_tool`, `read_resource`, …) were removed. `X-Engine` selects the engine for Skill reads and secret audit attribution: omitted resolves to `codex`, a malformed value is a validation error, and an engine disabled on that host is refused with `engine_disabled` before dispatch.
 
 Both routes live in `api/src/routes/mcp/index.ts` and dispatch into `McpServer` (`api/src/services/mcp-server.ts`).
 
@@ -68,14 +68,14 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 - `project_list`, `project_bootstrap`, `project_detail`, `project_changes`, `project_create`
 - `project_update` — change the `about` block or roster after creation; `about` merges unless `replace` is set
 - `project_archive`, `project_unarchive` — close and reopen a project
-- `project_note_create`, `project_note_upsert`, `project_notes`, `project_note_delete`
+- `project_note_upsert`, `project_notes`, `project_note_delete`
 - `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`
 - `project_feedback_create`, `project_feedback_list`, `project_feedback_update`
 - `project_files` — file metadata only
-- `project_file_list`, `project_file_read`, `project_file_upsert`, `project_file_delete`
+- `project_file_read`, `project_file_upsert`, `project_file_delete`
 - `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search` — project-scoped memory (see *Project memory tools* below)
 
-`project_bootstrap`, `project_detail` and `project_file_list` return every file body and every note body. On a project that carries real artifacts that is a very large response — measured at 62 KB, 597 KB and 347 KB against live projects — so an agent following the bootstrap doctrine could exhaust its context before doing any work. They keep that shape because the admin console reads `content` out of them. `project_summary`, `project_files` and `project_notes` are the lean equivalents, and `project_file_read` accepts `offset`/`limit` to window a single body, returning `next_offset` and `truncated` exactly as `shared_memory_read` does. `project_changes` accepts `payloads: "preview"` to trim note and card bodies, and `since_seq` as an alias for `since`.
+`project_bootstrap` and `project_detail` return every file body and every note body. On a project that carries real artifacts that is a very large response — measured at 62 KB and 597 KB against live projects — so an agent following the bootstrap doctrine could exhaust its context before doing any work. They keep that shape because the admin console reads `content` out of them. `project_summary`, `project_files` and `project_notes` are the lean equivalents, and `project_file_read` accepts `offset`/`limit` to window a single body, returning `next_offset` and `truncated` exactly as `shared_memory_read` does. `project_changes` accepts `payloads: "preview"` to trim note and card bodies, and `since_seq` as an alias for `since`.
 
 Project and board tool schemas are closed, so an argument the tool does not declare is refused by name rather than dropped. The aliases the services accept are declared for that reason. `project_file_upsert` takes `encoding: "base64"` for binary artifacts, computing the digest and size over the decoded bytes; project files cap at 4 MiB decoded, where previously they had no limit beyond the 32 MiB request body. A missing mime type is inferred from the stored name's extension.
 

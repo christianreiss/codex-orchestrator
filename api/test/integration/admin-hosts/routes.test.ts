@@ -45,7 +45,6 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     reasoningEffortOverride: null,
     autoUpdateOverride: null,
     lastCronCheck: null,
-    scalingExempt: 0,
     engines: 'codex',
     claudeClientVersion: null,
     claudeClientVersionOverride: null,
@@ -109,10 +108,6 @@ function makeMocks() {
       calls.push({ method: 'delete', args: [id] });
       return { host: fakeHost({ id }) };
     },
-    clear: async (id: number) => {
-      calls.push({ method: 'clear', args: [id] });
-      return { host: fakeHost({ id }) };
-    },
     releaseIpBinding: async (id: number) => {
       calls.push({ method: 'releaseIpBinding', args: [id] });
       return fakeHost({ id, ip4: null, ip6: null });
@@ -128,10 +123,6 @@ function makeMocks() {
     setVip: async (id: number, vip: boolean) => {
       calls.push({ method: 'setVip', args: [id, vip] });
       return fakeHost({ id, vip: vip ? 1 : 0 });
-    },
-    setScalingExempt: async (id: number, exempt: boolean) => {
-      calls.push({ method: 'setScalingExempt', args: [id, exempt] });
-      return fakeHost({ id, scalingExempt: exempt ? 1 : 0 });
     },
     setAutoUpdateOverride: async (id: number, override: boolean | null) => {
       calls.push({ method: 'setAutoUpdateOverride', args: [id, override] });
@@ -316,19 +307,13 @@ async function build(options: BuildOptions): Promise<{ app: FastifyInstance; cal
     env: { DEFAULT_HOST_ENGINES: 'codex' } as never,
     keyring: {} as never,
   };
-  const authView = async () => ({
-    canonical_last_refresh: null,
-    canonical_digest: null,
-    recent_digests: [],
-    auth: null,
-  });
   const daemonService = options.daemonService ?? {
     configureEnabled: async (id: number, enabled: boolean) => {
       mocks.calls.push({ method: 'configureEnabled', args: [id, enabled] });
       return { ...daemonSettingsSchema.parse({ enabled }), host_id: id } as Awaited<ReturnType<HostDaemonService['configureEnabled']>>;
     },
   };
-  await registerAdminHostsRoutes(app, ctx, { hostService, insecure, authView, daemonService });
+  await registerAdminHostsRoutes(app, ctx, { hostService, insecure, daemonService });
   return { app, calls: mocks.calls };
 }
 
@@ -445,26 +430,6 @@ describe('admin hosts routes', () => {
       const body = JSON.parse(r.payload);
       expect(body.host.fqdn).toBe('tmp-x');
       expect(calls.find((c) => c.method === 'quickRegister')).toBeTruthy();
-      await app.close();
-    });
-  });
-
-  describe('GET /admin/hosts/:id/auth', () => {
-    it('returns the host shell', async () => {
-      const { app } = await build({ authenticated: true });
-      const r = await app.inject({ method: 'GET', url: '/admin/hosts/42/auth' });
-      expect(r.statusCode).toBe(200);
-      const body = JSON.parse(r.payload);
-      expect(body.host.id).toBe(42);
-      expect(body.engine).toBe('codex');
-      await app.close();
-    });
-
-    it('rejects non-numeric ids', async () => {
-      const { app } = await build({ authenticated: true });
-      const r = await app.inject({ method: 'GET', url: '/admin/hosts/abc/auth' });
-      // matched route, fails the parseId helper
-      expect(r.statusCode).toBe(422);
       await app.close();
     });
   });

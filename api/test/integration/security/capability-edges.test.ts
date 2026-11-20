@@ -1,5 +1,5 @@
 /**
- * The three seams where the capability layer hands control to something else,
+ * The two seams where the capability layer hands control to something else,
  * and where a wrong assumption fails open rather than closed.
  *
  * **Bootstrap.** Five routes are classified `capability-after-bootstrap`: the
@@ -10,14 +10,6 @@
  * / `requireAdminOrBootstrap`, which counts users and demands a session once
  * there is one. Delete that preHandler and the inventory still reports the
  * route as guarded while an anonymous request walks straight to the handler.
- *
- * **A read whose sensitivity depends on the request.**
- * `GET /admin/hosts/:id/auth` returns digests and refresh timestamps — until
- * `include_body=1`, which adds the canonical credential the fleet distributes
- * to its hosts. A single capability on the URL cannot express that: the floor
- * has to stay readable, and the body has to be a separate grant. The route
- * therefore raises its own requirement to `auth.reveal_credential` inside the
- * handler, and this pins both halves.
  *
  * **The SPA shell.** Several `/admin/*` URLs are both a Svelte client route and
  * a JSON endpoint, so `adminSpaHtmlPreHandler` sits ahead of the capability
@@ -36,8 +28,6 @@ import { requestIdPlugin } from '../../../src/http/plugins/request-id.js';
 import { makeCapabilitiesPlugin } from '../../../src/http/plugins/capabilities.js';
 import { registerCapabilityStack } from '../../helpers/capability-stack.js';
 import { registerAdminSecretsRoutes } from '../../../src/routes/admin/secrets/index.js';
-import { registerAdminHostsRoutes } from '../../../src/routes/admin/hosts/index.js';
-import { roleHasCapability } from '../../../src/security/capabilities.js';
 import { ROUTE_CAPABILITIES } from '../../../src/security/route-capabilities.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { secrets, versions } from '../../../src/db/schema.js';
@@ -202,76 +192,5 @@ describe('the SPA shell never carries data past a denial', () => {
       expect(response.statusCode, `Accept: ${accept}`).toBe(200);
       expect(response.body).not.toContain('ghp_live_credential_value');
     }
-  });
-});
-
-describe("a read that turns into a credential read", () => {
-  async function hostsApp(role: string): Promise<FastifyInstance> {
-    const app = Fastify({ logger: false });
-    apps.push(app);
-    await app.register(cookie);
-    await app.register(requestIdPlugin);
-    await registerCapabilityStack(app, { role });
-    await app.register(envelopePlugin);
-    await registerAdminHostsRoutes(app, { db: createDbFake() as never, env: {} as never, keyring } as RouteContext, {
-      hostService: {
-        requireById: async (id: number) => ({ id, name: "web01" }),
-      } as never,
-      authView: async (_host: unknown, _engine: unknown, includeBody: boolean) => ({
-        canonical_last_refresh: "2026-08-17T00:00:00Z",
-        canonical_digest: "sha256:abc",
-        recent_digests: [],
-        auth: includeBody ? { access_token: "oauth-live-fleet-token" } : null,
-      }),
-    } as never);
-    await app.ready();
-    return app;
-  }
-
-  const READERS = ["viewer", "user", "trusted_user", "fleet_operator"];
-
-  it("serves the metadata to every role", async () => {
-    for (const role of [...READERS, "owner", "admin"]) {
-      const app = await hostsApp(role);
-      const response = await app.inject({ method: "GET", url: "/admin/hosts/1/auth" });
-      expect(response.statusCode, `${role}: ${response.body}`).toBe(200);
-      expect(response.body).toContain("canonical_digest");
-      expect(response.body).not.toContain("oauth-live-fleet-token");
-    }
-  });
-
-  it("refuses the credential body to every role without auth.reveal_credential", async () => {
-    for (const role of READERS) {
-      const app = await hostsApp(role);
-      const response = await app.inject({
-        method: "GET",
-        url: "/admin/hosts/1/auth?include_body=1",
-      });
-      expect(response.statusCode, `${role}: ${response.body}`).toBe(403);
-      expect(response.json()).toMatchObject({
-        code: "admin_role_required",
-        required_capability: "auth.reveal_credential",
-      });
-      expect(response.body).not.toContain("oauth-live-fleet-token");
-    }
-  });
-
-  it("serves the body to owner and admin", async () => {
-    for (const role of ["owner", "admin"]) {
-      const app = await hostsApp(role);
-      const response = await app.inject({
-        method: "GET",
-        url: "/admin/hosts/1/auth?include_body=1",
-      });
-      expect(response.statusCode, `${role}: ${response.body}`).toBe(200);
-      expect(response.body).toContain("oauth-live-fleet-token");
-    }
-  });
-
-  it("keeps the reveal out of fleet_operator's grant on purpose", () => {
-    // `auth.manage` lets a fleet operator replace the fleet's credential.
-    // Reading the live one back out is the strictly more dangerous half.
-    expect(roleHasCapability("fleet_operator", "auth.manage")).toBe(true);
-    expect(roleHasCapability("fleet_operator", "auth.reveal_credential")).toBe(false);
   });
 });

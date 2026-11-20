@@ -11,9 +11,16 @@
  * every served AGENTS.md / CLAUDE.md (`managed-agents-features.ts`), and the
  * server itself. A rename that misses one of them leaves the fleet with
  * instructions pointing at a tool that no longer answers, or an unapproved tool
- * prompting on every call — and nothing fails loudly. Importing the names here,
- * and unioning this array into `mcp-tool-name-liveness.test.ts`, turns that
- * silent drift into a build break.
+ * prompting on every call — and nothing fails loudly.
+ *
+ * This array is the whole catalogue the wrapper serves, not only the tools the
+ * managed block names: `test/unit/contract/cxx-agent-tool-catalog.test.ts`
+ * holds it equal to the `tool(...)` definitions in
+ * `wrappers/cxx/internal/agentbus/`, so a tool added there without an entry
+ * here (and so without a permission rule) fails the API suite.
+ * `mcp-tool-name-liveness.test.ts` unions it into the live set and checks
+ * that the managed block names every entry, verbatim or as its family, apart
+ * from `MANAGED_BLOCK_UNNAMED_TOOLS`.
  */
 export const AGENT_MESSAGING_TOOLS = [
   'quota_get',
@@ -55,7 +62,6 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_receiver_status',
   'agent_portal_say',
   'agent_portal_ask',
-  'agent_portal_notify',
   'agent_portal_resolve',
   'agent_attachment_upload',
   'agent_attachment_get',
@@ -85,7 +91,38 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_role_propose',
   'agent_role_proposals',
   'agent_role_review',
+  'agent_accept',
+  'agent_git_remote',
+  // Named by the Workflows section as the `agent_workflow_*` family.
+  'agent_workflow_create',
+  'agent_workflow_revise',
+  'agent_workflow_archive',
+  'agent_workflow_run_create',
+  'agent_workflow_run_current',
+  'agent_workflow_run_control',
+  'agent_workflow_run_note',
+  'agent_workflow_run_evaluate',
+  'agent_workflow_run_finish',
+  'agent_workflow_invite',
+  'agent_workflow_membership',
+  'agent_workflow_task_claim',
+  'agent_workflow_task_update',
 ] as const;
+
+export type AgentMessagingTool = (typeof AGENT_MESSAGING_TOOLS)[number];
+
+/**
+ * Served tools the managed block deliberately does not name, with the reason.
+ * Every word of that block is paid on every turn of every agent, so a tool
+ * whose own MCP description carries its whole procedure stays out of it.
+ * They are still approved in the Claude allowlist like every other entry.
+ */
+export const MANAGED_BLOCK_UNNAMED_TOOLS: Partial<Record<AgentMessagingTool, string>> = {
+  agent_accept:
+    'explicit adoption of an already read queued request; its MCP description and docs/interface-cdx.md carry the procedure',
+  agent_git_remote:
+    'Git Director bookkeeping for an SSH checkout; its MCP description and docs/agent-coordination.md carry the procedure',
+};
 
 /**
  * The MCP server name Claude Code sees for the messaging server.

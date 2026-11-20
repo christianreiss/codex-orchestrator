@@ -25,6 +25,15 @@ describe('managed #afk portal skill', () => {
     expect(skill.manifest).toMatch(/Never read, request, print, or store a portal link/);
   });
 
+  // The /go magic-link webchat and its permanent bookmarked links were removed
+  // on 2026-10-09; the operator chat lives in the admin console and Android.
+  it('does not point users at the removed permanent portal link', () => {
+    expect(skill.manifest).not.toMatch(/permanent/i);
+    expect(skill.description).not.toMatch(/permanent/i);
+    expect(skill.manifest).not.toContain('Settings → Agent Portal');
+    expect(skill.manifest).toContain('Android companion');
+  });
+
   it('preserves the authority and output boundaries', () => {
     expect(skill.manifest).toMatch(/cannot approve, elevate, or broaden authority/);
     expect(skill.manifest).toMatch(/Never paste raw terminal output, secrets, hidden reasoning/);

@@ -60,7 +60,6 @@ export const PAGE_TARGETS = {
   'engine-state': { path: '/engines#engine-state', label: 'Engine-Schalter', capability: 'settings.read' },
   limits: { path: '/limits', label: 'Nutzungslimits', capability: 'settings.read' },
   'quota-enforcement': { path: '/limits#quota-enforcement', label: 'Kontingentdurchsetzung', capability: 'settings.read' },
-  scaling: { path: '/limits#scaling-rules', label: 'Nutzungsbasierte Skalierung', capability: 'settings.read' },
   library: { path: '/library', label: 'Bibliothek', capability: 'content.read' },
   'agent-rules': { path: '/library/agent-rules', label: 'Agent-Regeln', capability: 'content.read' },
   memories: { path: '/library?type=memories', label: 'Erinnerungen', capability: 'memory.read' },

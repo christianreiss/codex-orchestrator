@@ -2173,9 +2173,9 @@ Wrapper 0.9.55 renders the optional Linux daemon service with `WorkingDirectory=
 
 ## Rich operator agent chat (cxx 0.9.57)
 
-All four engines share six local MCP tools in managed lifecycles: `agent_portal_say`, `agent_portal_ask`, `agent_portal_notify`, `agent_portal_resolve`, `agent_attachment_upload` and `agent_attachment_get`. Reply tools also accept `attachments`, `reply_to`, `severity` and `notice_id`. The scope is the existing operator agent conversation; see [Agent chat](agent-chat.md).
+All four engines share five local MCP tools in managed lifecycles: `agent_portal_say`, `agent_portal_ask`, `agent_portal_resolve`, `agent_attachment_upload` and `agent_attachment_get`. Reply tools also accept `attachments`, `reply_to`, `severity` and `notice_id`. The scope is the existing operator agent conversation; see [Agent chat](agent-chat.md).
 
-Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Older wrappers can send `agent_portal_notify` or a reply with severity for the same inline highlight. Use `agent_portal_ask` for a question with answer controls.
+Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Use `agent_portal_ask` for a question with answer controls.
 
 `cxx portal ask --question "Deploy this release?" --summary "Choose the release" --answer-mode buttons --choices '[{"label":"Approve","value":"approve"},{"label":"Cancel","value":"cancel"}]'` creates a normal question. Use `--answer-mode text` or `both` for free text. `--attachments '["UUID"]'` accepts already sealed attachments. `cxx portal notify --severity blocker --notice-id UUID --summary "Waiting for the release decision"` sends a red inline message. `cxx portal resolve --notice-id UUID --summary "Release reviewed"` clears only that notice. MCP operations require stable caller-generated event/prompt/notice/upload UUIDs retained on retries. The CLI retains its existing invocation behavior.
 

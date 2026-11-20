@@ -29,6 +29,22 @@ export function isTruthyFlagValue(raw: string | null | undefined, defaultValue =
   return TRUTHY_FLAG_VALUES.has(normalized);
 }
 
+export const AUTO_UPDATE_ENABLED_KEY = 'auto_update_enabled';
+
+/**
+ * The fleet auto-update default, for every reader: the signed wrapper config
+ * (`wrapper.auto_update`, which keeps the host's nightly maintenance line),
+ * `/auth`, `/versions` and `/cron/check` (`auto_update_enabled`, which gates
+ * binary updates), the dashboard and `GET /admin/auto-update`. A host's
+ * `auto_update_override` still wins. An unset row means on: that is what the
+ * signed config always baked, so every host kept its maintenance line, while
+ * the other readers defaulted to off and reported a fleet that disagreed with
+ * itself (API-HOST-01). A stored off now turns both off.
+ */
+export function fleetAutoUpdateEnabled(raw: string | null | undefined): boolean {
+  return isTruthyFlagValue(raw, true);
+}
+
 export class SettingsService {
   constructor(private readonly db: Database) {}
 
@@ -64,6 +80,11 @@ export class SettingsService {
 
   async getFlag(key: string, defaultValue = false): Promise<boolean> {
     return isTruthyFlagValue(await this.getRaw(key), defaultValue);
+  }
+
+  /** The fleet auto-update default; see `fleetAutoUpdateEnabled`. */
+  async getFleetAutoUpdate(): Promise<boolean> {
+    return fleetAutoUpdateEnabled(await this.getRaw(AUTO_UPDATE_ENABLED_KEY));
   }
 
   async getInt(key: string, defaultValue: number): Promise<number> {

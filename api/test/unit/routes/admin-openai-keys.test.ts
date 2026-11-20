@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toAdminApiKey } from '../../../src/routes/admin/keys/openai.js';
+import { toAdminApiKey } from '../../../src/routes/admin/keys/gateway-keys.js';
 
 describe('admin OpenAI key wire shape', () => {
   it('keeps the legacy snake_case fields used by the admin UI', () => {

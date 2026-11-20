@@ -9,6 +9,7 @@ import {
 } from '../../db/schema.js';
 import { ConflictError, NotFoundError, UnauthorizedError } from '../../http/errors.js';
 import type { OwnerMutationContext } from './runtime.js';
+import type { PersistenceTransaction } from '../persistence.js';
 import type { StateRow } from './catalog.js';
 
 export type AdminMetadata = StateRow<'adminUsers'>;
@@ -103,22 +104,44 @@ export function patchAdminUser(
   ctx.write(async (tx) => tx.update(adminUsers).set(patch).where(eq(adminUsers.id, id)));
   return ctx.draft.table('adminUsers').get(id)!;
 }
+/**
+ * The one owner-path `admin_events` insert. Every owner mutation that audits
+ * goes through here (directly, or via `adminAudit`), because the row alone is
+ * not enough: `owner_admin_event_id` is what `/admin/ws/info`, Git Director and
+ * retention read as the latest event, and a bare insert leaves it behind until
+ * the next boot hydration. `owner-admin-event-head.test.ts` scans for bypasses.
+ */
+export async function insertOwnedAdminEvent(
+  ctx: Pick<OwnerMutationContext, 'draft'>,
+  tx: PersistenceTransaction,
+  values: { type: string; hostId: number | null; payload: unknown; createdAt: string },
+): Promise<number> {
+  const result = await tx.insert(adminEvents).values(values);
+  const id = Number(result[0]?.insertId);
+  if (!Number.isSafeInteger(id) || id < 1) throw new Error('Admin audit insert returned no identity');
+  // Derived metadata, reconstructed from the durable log at boot; no K/V write.
+  ctx.draft.upsert('versions', { name: 'owner_admin_event_id', version: String(id), updatedAt: values.createdAt });
+  return id;
+}
+
+/** Stage one audit row; returns a reader for its id, valid once the write has run. */
 export function adminAudit(
   ctx: OwnerMutationContext,
   type: string,
   payload: Record<string, unknown> | (() => Record<string, unknown>),
   createdAt = new Date().toISOString(),
   hostId: number | null = null,
-): void {
+): () => number {
+  let id = 0;
   ctx.write(async (tx) => {
-    const result = await tx
-      .insert(adminEvents)
-      .values({ type, hostId, payload: typeof payload === 'function' ? payload() : payload, createdAt });
-    const id = Number(result[0]?.insertId);
-    if (!Number.isSafeInteger(id) || id < 1) throw new Error('Admin audit insert returned no identity');
-    // Derived metadata, reconstructed from the durable log at boot; no K/V write.
-    ctx.draft.upsert('versions', { name: 'owner_admin_event_id', version: String(id), updatedAt: createdAt });
+    id = await insertOwnedAdminEvent(ctx, tx, {
+      type,
+      hostId,
+      payload: typeof payload === 'function' ? payload() : payload,
+      createdAt,
+    });
   });
+  return () => id;
 }
 
 export type PasskeyPrincipal = AdminMetadata & {

@@ -1,5 +1,5 @@
 import { stageEmulation, recordEmulation } from './quota-emulation.js';
-import { sameQuotaObservation } from '../control-plane/state/quota.js';
+import { sameQuotaObservation, stageClaudeQuota } from '../control-plane/state/quota.js';
 /**
  * Claude usage service — dashboard-parity counterpart to `chatgpt-usage.ts`,
  * but PUSH instead of PULL: the server never holds or calls out with a
@@ -167,17 +167,8 @@ export class ClaudeUsageService {
               sevenDayUsedPercent: values.sevenDayUsedPercent ?? null,
               sevenDayResetsAt: values.sevenDayResetsAt ?? null,
             } as ClaudeSnapshotRow;
-            ctx.draft.upsert('claudeUsageSnapshots', stored);
             // Quota semantics need both latest arrival and latest observed time.
-            const rows = ctx.draft
-                .table('claudeUsageSnapshots')
-                .all()
-                .filter((row) => row.accountId === stored.accountId),
-              arrived = rows.reduce((a, b) => (a.id > b.id ? a : b)),
-              observed = [...rows].sort((a, b) => b.fetchedAt.localeCompare(a.fetchedAt) || b.id - a.id)[0]!;
-            for (const row of rows)
-              if (row.id !== arrived.id && row.id !== observed.id)
-                ctx.draft.remove('claudeUsageSnapshots', row.id);
+            stageClaudeQuota(ctx.draft, stored);
           });
           return () => stored as unknown as import('../control-plane/commands.js').Json;
         },

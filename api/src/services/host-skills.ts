@@ -2,6 +2,7 @@ import { persistAuditLog } from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
 import { adminAudit } from '../control-plane/state/admin.js';
+import { upsertAuthoredSkill } from './skill-store.js';
 /**
  * Host-facing skills service. Mirrors the legacy SkillService for the host
  * surface (list / retrieve / store).
@@ -419,167 +420,40 @@ export class HostSkillsService {
       });
     }
 
-    const displayName = typeof displayNameRaw === 'string' ? displayNameRaw.trim() : null;
-    const description = typeof descriptionRaw === 'string' ? descriptionRaw.trim() : null;
-
-    const owner = ownerRuntimeFor(this.db);
-    if (owner) {
-      const result = await mutateOwnerState(owner, {
-        kind: 'host.skill.store',
-        payload: { slug, sha, hostId: host.id },
-        prepare: (ctx) => {
-          const existing = ctx.snapshot.table('skills').by('slug', slug)[0];
-          if (existing && isSourceOwnedSkill(existing))
-            throw new ConflictError('source-managed skill cannot be overwritten directly', 'managed_skill');
-          const name = displayNameRaw === undefined ? (existing?.displayName ?? null) : displayName,
-            descriptionValue = descriptionRaw === undefined ? (existing?.description ?? null) : description,
-            now = nowIso();
-          const status = !existing
-            ? 'created'
-            : existing.sha256 === sha &&
-                existing.displayName === name &&
-                existing.description === descriptionValue &&
-                existing.engine === null &&
-                !existing.deletedAt
-              ? 'unchanged'
-              : 'updated';
-          if (status !== 'unchanged') {
-            const values = {
-              slug,
-              sha256: sha,
-              manifest,
-              displayName: name,
-              description: descriptionValue,
-              sourceHostId: host.id,
-              engine: null,
-              updatedAt: now,
-              deletedAt: null,
-            };
-            if (existing) stageUpdate(ctx, 'skills', existing.id, values);
-            else {
-              const row = {
-                ...values,
-                createdAt: now,
-                sourceType: null,
-                sourceRepository: null,
-                sourcePath: null,
-                sourceRevision: null,
-                sourceLicense: null,
-                bundleSha256: null,
-              };
-              ctx.write(async (tx) => {
-                const result = await tx.insert(skills).values(row);
-                ctx.draft.upsert('skills', { id: Number(result[0].insertId), ...row });
-              });
-            }
-          }
-          adminAudit(ctx, 'skill.store', { slug, status }, now, host.id);
-          return {
-            status,
-            slug,
-            uri: skillUri(slug),
-            canonical_uri: skillUri(slug),
-            sha256: sha,
-            updated_at: status === 'unchanged' ? existing!.updatedAt : now,
-            managed: false,
-          };
-        },
-      });
-      const status = (result as { status: string }).status;
-      wsPublisher.publish(status === 'created' ? 'skill.stored' : 'skill.updated', {
+    // `undefined` keeps the stored value, `null` (or a blank string) clears it;
+    // see skill-store.ts. Host-authored Skills are always shared fleet scope:
+    // the host cannot choose an engine, and a store moves the row to `null`.
+    const blankToNull = (value: unknown) => (typeof value === 'string' ? value.trim() || null : value === null ? null : undefined);
+    const outcome = await upsertAuthoredSkill(
+      this.db,
+      {
         slug,
-        source_host_id: host.id,
-      });
-      return result as Record<string, unknown>;
-    }
-
-    // The unique slug lookup is a locking read. Under REPEATABLE READ it locks
-    // either the existing row or the unique-index gap, so an importer cannot
-    // insert a source-owned row between the ownership check and this write.
-    const persisted = await this.db.transaction(
-      async (tx) => {
-        const existingRows = await tx
-          .select()
-          .from(skills)
-          .where(eq(skills.slug, slug))
-          .for('update')
-          .limit(1);
-        const existing = existingRows[0];
-        if (existing && isSourceOwnedSkill(existing)) {
-          throw new ConflictError('source-managed skill cannot be overwritten directly', 'managed_skill');
-        }
-
-        const existingSha = existing?.sha256 ?? null;
-        const displayNameToPersist =
-          displayNameRaw === undefined ? (existing?.displayName ?? null) : displayName;
-        const descriptionToPersist =
-          descriptionRaw === undefined ? (existing?.description ?? null) : description;
-        const metadataChanged =
-          existing !== undefined &&
-          ((existing.displayName ?? null) !== displayNameToPersist ||
-            (existing.description ?? null) !== descriptionToPersist);
-        const scopeChanged = existing !== undefined && existing.engine !== null;
-        const status: 'created' | 'updated' | 'unchanged' = existing
-          ? existingSha &&
-            safeHashEquals(existingSha, sha) &&
-            !metadataChanged &&
-            !scopeChanged &&
-            !existing.deletedAt
-            ? 'unchanged'
-            : 'updated'
-          : 'created';
-
-        if (status === 'unchanged') {
-          return { status, savedSha: existingSha ?? sha, savedUpdatedAt: existing?.updatedAt ?? nowIso() };
-        }
-
-        const now = nowIso();
-        if (existing) {
-          await tx
-            .update(skills)
-            .set({
-              sha256: sha,
-              displayName: displayNameToPersist,
-              description: descriptionToPersist,
-              manifest,
-              sourceHostId: host.id,
-              engine: null,
-              updatedAt: now,
-              deletedAt: null,
-            })
-            .where(eq(skills.id, existing.id));
-        } else {
-          await tx.insert(skills).values({
-            slug,
-            sha256: sha,
-            displayName: displayNameToPersist,
-            description: descriptionToPersist,
-            manifest,
-            sourceHostId: host.id,
-            createdAt: now,
-            updatedAt: now,
-            deletedAt: null,
-            engine: null,
-          });
-        }
-        return { status, savedSha: sha, savedUpdatedAt: now };
+        manifest,
+        sha256: sha,
+        displayName: blankToNull(displayNameRaw),
+        description: blankToNull(descriptionRaw),
+        engine: null,
+        sourceHostId: host.id,
       },
-      { isolationLevel: 'repeatable read' },
+      {
+        command: { kind: 'host.skill.store', payload: { slug, sha, hostId: host.id } },
+        sourceOwnedMessage: 'source-managed skill cannot be overwritten directly',
+        ownerAudit: (ctx, status, now) => adminAudit(ctx, 'skill.store', { slug, status }, now, host.id),
+        plainAudit: (status) => this.recordLog(host.id, 'skill.store', { slug, status }),
+      },
     );
-
-    await this.recordLog(host.id, 'skill.store', { slug, status: persisted.status });
-    wsPublisher.publish(persisted.status === 'created' ? 'skill.stored' : 'skill.updated', {
+    wsPublisher.publish(outcome.status === 'created' ? 'skill.stored' : 'skill.updated', {
       slug,
       source_host_id: host.id,
     });
 
     return {
-      status: persisted.status,
+      status: outcome.status,
       slug,
       uri: skillUri(slug),
       canonical_uri: skillUri(slug),
-      sha256: persisted.savedSha,
-      updated_at: persisted.savedUpdatedAt,
+      sha256: outcome.sha256,
+      updated_at: outcome.updatedAt,
       managed: false,
     };
   }

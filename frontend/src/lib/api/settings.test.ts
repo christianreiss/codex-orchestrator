@@ -126,7 +126,6 @@ const KEYS = {
   cdxSilent: ["settings", "cdx-silent"],
   insecureApproval: ["settings", "insecure-approval"],
   quotaMode: ["settings", "quota-mode"],
-  scaling: ["settings", "scaling"],
   authorization: ["settings", "authorization"],
 } as const;
 
@@ -276,13 +275,6 @@ const QUERY_CASES: QueryCase[] = [
     queryKey: KEYS.quotaMode,
     method: "GET",
     path: "/admin/quota-mode",
-  },
-  {
-    name: "scalingQuery",
-    build: () => asQuery(settings.scalingQuery()),
-    queryKey: KEYS.scaling,
-    method: "GET",
-    path: "/admin/scaling",
   },
 ];
 
@@ -511,13 +503,6 @@ const MUTATION_CASES: MutationCase[] = [
     },
     invalidates: [KEYS.versionsCheck],
   },
-  {
-    name: "scalingMutation",
-    build: (opts) => asMutation(settings.scalingMutation(opts)),
-    variables: { enabled: true },
-    request: { method: "POST", path: "/admin/scaling", body: { enabled: true } },
-    invalidates: [KEYS.scaling],
-  },
 ];
 
 beforeEach(() => {
@@ -635,9 +620,6 @@ describe("module surface", () => {
     "reverseDnsMutation",
     "reverseDnsQuery",
     "reverseDnsQueryKey",
-    "scalingMutation",
-    "scalingQuery",
-    "scalingQueryKey",
     "subagentModelSelectionMutation",
     "subagentModelSelectionQuery",
     "subagentModelSelectionQueryKey",

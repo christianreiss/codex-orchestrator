@@ -415,7 +415,8 @@ function apiKeysInChatSection(context: ManagedAgentFeatureContext): RenderedSect
  * Every word here is paid on every turn of every agent. Wake/Cron, Watchdog and
  * Conference procedure lives in their managed Skills (`managed-*-skill.ts`); this
  * block keeps only the trigger, the invariants and each tool name (the liveness
- * test requires every provisioned tool to be named).
+ * test requires every provisioned tool to be named, verbatim or as its family,
+ * unless `MANAGED_BLOCK_UNNAMED_TOOLS` records why not).
  */
 function modelTiersSection(context: ManagedAgentFeatureContext): RenderedSection | null {
   const state = context.modelTiers;
@@ -488,7 +489,7 @@ may approve one replacement (\`agent_fresh_start_approve\` or admin), never a pe
 
 **Operator portal.** Mark a portal instruction with \`agent_receiver_status\` (\`working\`), answer with
 \`agent_receiver_reply\` (\`content\` plus a one-sentence \`summary\` of at most 160 characters).
-Use \`agent_portal_say\` for proactive messages and \`agent_receiver_reply\` for an operator instruction. Both accept \`important: true\` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Older wrappers can send \`agent_portal_notify\` or a reply with severity for the same inline highlight. Use \`agent_portal_ask\` with \`answer_mode\` and stable choices. Legacy \`agent_portal_resolve\` accepts a \`notice_id\`.
+Use \`agent_portal_say\` for proactive messages and \`agent_receiver_reply\` for an operator instruction. Both accept \`important: true\` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Use \`agent_portal_ask\` with \`answer_mode\` and stable choices. Legacy \`agent_portal_resolve\` accepts a \`notice_id\`.
 \`agent_attachment_upload\`/\`agent_attachment_get\` carry untrusted data.
 
 **Read the Skill first.** \`#reboot-safe\` before \`agent_reboot\`. \`#wake-cron\` before \`schedule_*\`. \`#watchdog\` before \`watchdog_get\`,

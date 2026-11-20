@@ -14,7 +14,7 @@ managed `workflows` and `invite` Skills before execution. On resume, use
 `agent_self` and `agent_workflow_run_current`. The final work response includes
 the run's report URL. See [workflow contracts and recovery](workflows.md).
 
-Native streamable HTTP MCP endpoint plus REST memory helpers for Codex, Claude, Grok, and Kimi hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill, which now carries the CoCo toolkit/help inline.
+Native streamable HTTP MCP endpoint for Codex, Claude, Grok, and Kimi hosts. When the optional Projects module is enabled, the same MCP surface also exposes shared-project coordination tools/resources that back the managed `coco` skill, which now carries the CoCo toolkit/help inline.
 
 Three memory substrates live behind this endpoint and they are not interchangeable: `memory_*` / `memory://...` is host-scoped (one row per host per key, invisible to other hosts), `project_memory_*` / `project://...` is project-scoped coordination state, and `shared_memory_*` / `shared://...` is the fleet-wide document corpus — no host and no project scoping, discoverable with `shared_memory_list` before you know any key. For CoCo specifically, coordination state stays project-only; `memory://...` is never a cross-server fallback.
 
@@ -22,22 +22,13 @@ Three memory substrates live behind this endpoint and they are not interchangeab
 
 - `POST /mcp` — JSON-RPC 2.0 streamable HTTP endpoint (`protocolVersion: 2025-03-26`). Accepts single or batch requests.
 - `GET /mcp` — probe endpoint. Checks `Origin`; when allowed, returns HTTP 405 with `Allow: POST`.
-- `POST /mcp/memories/store` — REST helper for memory store. Reserved keys matching `^coco(?:$|[._:-])` are rejected so CoCo shared handoffs go through Projects instead.
-- `POST /mcp/memories/retrieve` — REST helper for memory retrieve. Reserved `coco*` keys are rejected for the same reason.
-- `POST /mcp/memories/search` — REST helper for memory search.
-- `POST /mcp/memories/delete` — REST helper for memory delete. Reserved `coco*` keys are rejected.
-- `DELETE /mcp/memories/{id}` — delete by memory key (URL decoded).
-- `GET /shared-memories` and `POST /shared-memories/list` — REST helpers for the fleet-wide corpus index. No query needed.
-- `POST /shared-memories/search` — relevance search over document chunks; `degraded: true` when the full-text index is missing.
-- `POST /shared-memories/read` and `GET /shared-memories/{slug}` — bounded read window over a document (up to 1 MiB total).
-- `POST /shared-memories/write`, `POST /shared-memories/append` — create/replace and append. `expected_sha256` on write turns a lost update into a `409`.
-- `POST /shared-memories/delete` and `DELETE /shared-memories/{slug}` — soft delete; the slug stays reserved.
+
+The host REST mirrors of the knowledge tools (`/projects*`, `/mcp/memories/*`, `/shared-memories*`) were removed; `POST /mcp` is the only host surface for projects, host memory and shared memory.
 
 ## Auth & safety
 
-- Endpoints that authenticate (`POST /mcp` and `/mcp/memories/*`) accept MCP credentials via `X-API-Key` or `Authorization: Bearer ...`. Secure hosts typically use the host API key; insecure hosts receive a short-lived MCP bearer token in baked config.
+- Endpoints that authenticate (`POST /mcp`) accept MCP credentials via `X-API-Key` or `Authorization: Bearer ...`. Secure hosts typically use the host API key; insecure hosts receive a short-lived MCP bearer token in baked config.
 - `GET /mcp` does not authenticate hosts.
-- `/mcp/memories/*` authenticates through `app.requireHost` (`api/src/http/plugins/auth-host.ts`): the API key is matched by hash (legacy plaintext keys still resolve) and the host must be `active`. The IP-binding path of `hostAuth.authenticate` (`api/src/services/host-auth.ts`) — `allow_roaming_ips`, reverse DNS, insecure-window IP overrides — is what `/auth` and `/host/*` run, and it does not run here.
 - `POST /mcp` authenticates in `resolveHost()` (`api/src/routes/mcp/index.ts`): the credential is verified as a short-lived MCP session token first (`McpSessionService.verify`, 8h TTL) and otherwise resolved as a host API key (`app.resolveHostFromKey`); non-`active` hosts are then rejected. No sliding-window check runs on this route — for insecure hosts the session token's own expiry is the window. When the bearer is the `MCP_OPERATOR_TOKEN` (timing-safe compare) the caller gets the `operator` capability and host identity must then come from `X-API-Key` alone; the `X-API-Key` fallback is host-only by design.
 - `X-Engine` selects the engine for Skill reads and secret audit attribution: an omitted header still resolves to `codex`, but a malformed value is a validation error rather than a silent Codex default, and an engine disabled on that host answers 403 `engine_disabled` before JSON-RPC dispatch.
 - Origin checks apply to `/mcp` `GET` and `POST` only, and they are a single toggle rather than a list of allowed origins: with `MCP_ALLOW_REQUEST_HOST_ORIGIN` off (default `0`) any request carrying a non-empty `Origin` header is rejected with 403, and turning it on drops the check entirely. A missing or empty `Origin`, the normal case for non-browser MCP clients, is always allowed.
@@ -49,13 +40,13 @@ Three memory substrates live behind this endpoint and they are not interchangeab
 
 `ping` returns an empty result. Empty batches return one `-32600` error. Request IDs must be strings, finite numbers or the retained legacy null form; malformed IDs return `-32600` with a null response ID. Methods accept named object parameters only; malformed parameter envelopes return `-32602` before dispatch. Notifications remain unanswered.
 
-The four `group: methods` bullets below are the dispatch table: everything after the colon is backticked method spellings — a canonical name, then its aliases in parentheses — and nothing else. `api/test/unit/services/mcp-doc-methods.test.ts` compares them against the `case` labels of the `switch (method)` in `api/src/services/mcp-server.ts` and fails on any spelling that is in one and not the other, so notes about a group go on the indented bullet under it.
+The four `group: methods` bullets below are the dispatch table: everything after the colon is backticked method names and nothing else. Only the standard slash-form names are accepted; the former dotted and snake_case aliases (`tools.call`, `call_tool`, …) were removed. `api/test/unit/services/mcp-doc-methods.test.ts` compares them against the `case` labels of the `switch (method)` in `api/src/services/mcp-server.ts` and fails on any spelling that is in one and not the other, so notes about a group go on the indented bullet under it.
 
-- Core: `ping`, `initialize`, `notifications/initialized` (`notifications.initialized`).
+- Core: `ping`, `initialize`, `notifications/initialized`.
   - `initialize` includes server-wide instructions telling clients to inspect deferred tool catalogs instead of inferring absence and to use read-only `secret_list` before answering secrets-store availability or write-capability questions.
-- Tools: `tools/list` (`tools.list`, `list_tools`), `tools/call` (`tools.call`, `call_tool`).
-- Resources: `resources/templates/list` (`resources.templates.list`, `list_resource_templates`), `resources/list` (`resources.list`, `list_resources`), `resources/read` (`resources.read`, `read_resource`), `resources/create` (`resources.create`, `create_resource`), `resources/update` (`resources.update`, `update_resource`), `resources/delete` (`resources.delete`, `delete_resource`).
-- Prompts: `prompts/list` (`prompts.list`), `prompts/get` (`prompts.get`).
+- Tools: `tools/list`, `tools/call`.
+- Resources: `resources/templates/list`, `resources/list`, `resources/read`, `resources/create`, `resources/update`, `resources/delete`.
+- Prompts: `prompts/list`, `prompts/get`.
   - No prompts are served: the list is always empty, which is what makes a client's prompts capability probe succeed, and a get answers `-32601` deliberately.
 - Any other method answers `-32601` “Method not found”.
 
@@ -71,14 +62,14 @@ The `group: names` bullets below are the tool catalog: everything after the colo
 - Host-authenticated tools: `host_spawn_prepare`, `host_spawn_status`, `memory_store`, `memory_retrieve`, `memory_search`, `memory_delete`, `skill_list`, `skill_retrieve`, `skill_store`, `skill_delete`, `role_list`, `resource_list`, `resource_read`, `resource_create`, `resource_update`, `resource_delete`.
   - `role_list` is the agent-role catalog (listed only while `roles_enabled`); role content is read through `role://{slug}[@{version}][/{path}]` resources, and activation is `agent_role_activate` on `cxx-agent` — see [agent-roles.md](agent-roles.md). While `roles_enabled` is off, `skill_retrieve` / `resource_read` of `skill://roles` answer `status:"disabled"` with `reason:"roles_disabled"` and a one-line message instead of `missing`; `agent_role_*` calls answer `roles_disabled`.
   - `memory_*` is host-scoped scratch state — one row per host per key, invisible to other hosts. `skill_list`/`skill_retrieve` read synced Skills, which are also readable as `skill://{slug}` resources. Reads honor the caller's `X-Engine`; an omitted header retains the legacy `codex` default, a malformed one is rejected as a validation error, requests for an engine disabled on that host are rejected before JSON-RPC dispatch, and `skill_list` has no per-call engine override. `skill_list` takes two optional arguments: `query` (case-insensitive substring over slug, display name and description, applied to stored and managed Skills alike) and `compact: true` (each entry reduced to `slug`, `display_name`, `sha256`, `allow_implicit_invocation`, `uri`; the `{engine, skills}` envelope is unchanged). Without arguments the full listing is returned unchanged, so agents that only need to confirm one Skill should pass `query`/`compact` instead of reading the whole catalogue.
-  - `skill_store` creates, fully replaces, or revives one manifest-only Skill from `{slug, manifest, display_name?, description?}`. `skill_delete` soft-deletes by slug. Both mutations are last-writer-wins, always write shared `engine:null` Skills, record the authenticated host, and reject code-managed slugs or source-owned rows. The always-available managed `skill-manager` Skill covers both workflow questions and mutations: list first, retrieve before a write, and retrieve again to verify. Served Codex guidance makes that MCP path authoritative.
+  - `skill_store` creates, fully replaces, or revives one manifest-only Skill from `{slug, manifest, display_name?, description?}`; an omitted `display_name` or `description` keeps the stored value, `null` or a blank string clears it, and an identical store over a deleted Skill still revives it. `skill_delete` soft-deletes by slug. Both mutations are last-writer-wins, always write shared `engine:null` Skills, record the authenticated host, and reject code-managed slugs or source-owned rows. The always-available managed `skill-manager` Skill covers both workflow questions and mutations: list first, retrieve before a write, and retrieve again to verify. Served Codex guidance makes that MCP path authoritative.
 - Fleet-wide shared memory: `shared_memory_list`, `shared_memory_search`, `shared_memory_read`, `shared_memory_write`, `shared_memory_append`, `shared_memory_replace`, `shared_memory_delete`.
   - Visible to every host and every engine; `shared_memory_list` takes no required argument, which is what makes the corpus discoverable to an agent that knows nothing yet. Documents cap at 1 MiB; reads return a bounded window with `next_offset` for paging. `shared_memory_write` replaces the entire body: before updating an existing slug, read from offset 0 without chunk selectors through `truncated:false`, require one stable `memory.sha256`, preserve unaffected content, and never write back an excerpt, preview, chunk, or partial read. `shared_memory_replace` `{slug, old_text, new_text, expected_sha256}` (all required; `new_text` may be empty) corrects one fact without re-sending the body: the server replaces exactly one occurrence of `old_text` and stores the result through the same path as `shared_memory_write` (row lock, `expected_sha256` conflict check, 1 MiB limit, revision bump with the replaced body kept for restore, audit entry; title, summary, tags and metadata are kept). Zero or more than one occurrence of `old_text` is a validation error; a stale `expected_sha256` or a document that changes meanwhile is a `shared_memory_conflict`; a missing or deleted slug is `shared_memory_not_found`. Success returns the write result plus `replacements: 1`.
-- Projects: `project_list`, `project_summary`, `project_bootstrap`, `project_detail`, `project_changes`, `project_create`, `project_update`, `project_archive`, `project_unarchive`, `project_notes`, `project_files`, `project_feedback_list`, `project_note_create`, `project_note_upsert`, `project_note_delete`, `project_feedback_update`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_feedback_create`, `project_file_list`, `project_file_read`, `project_file_upsert`, `project_file_delete`, `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search`, `project_board_list`, `project_card_create`, `project_card_claim`, `project_card_move`, `project_card_release`, `project_card_update`, `project_card_get`.
+- Projects: `project_list`, `project_summary`, `project_bootstrap`, `project_detail`, `project_changes`, `project_create`, `project_update`, `project_archive`, `project_unarchive`, `project_notes`, `project_files`, `project_feedback_list`, `project_note_upsert`, `project_note_delete`, `project_feedback_update`, `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`, `project_feedback_create`, `project_file_read`, `project_file_upsert`, `project_file_delete`, `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search`, `project_board_list`, `project_card_create`, `project_card_claim`, `project_card_move`, `project_card_release`, `project_card_update`, `project_card_get`.
   - The non-board tools are registered **unconditionally**; `projects_module_enabled` gates only whether the managed `coco` skill is served and what the admin console says. A host can call `project_list` on a fleet that never turned the module on. `project_list` is compact by default: each record omits the (possibly tens of kilobytes) `about` document in favor of `about_bytes`; pass `include_about` to embed it, or read it with `project_summary`.
-  - `project_summary` is the call to make first. `project_bootstrap`, `project_detail` and `project_file_list` inline every file body and every note body, which on a project carrying real artifacts costs more context than the work they were meant to set up — measured at 62 KB, 597 KB and 347 KB on live projects. They keep that shape because the admin console reads `content` out of them; `project_summary`, `project_files` and `project_notes` are the lean equivalents, and `project_file_read` takes `offset`/`limit` to window one body with the same `next_offset`/`truncated` contract as `shared_memory_read`.
+  - `project_summary` is the call to make first. `project_bootstrap` and `project_detail` inline every file body and every note body, which on a project carrying real artifacts costs more context than the work they were meant to set up — measured at 62 KB and 597 KB on live projects (the former `project_file_list`, 347 KB, was retired in favor of `project_files`). They keep that shape because the admin console reads `content` out of them; `project_summary`, `project_files` and `project_notes` are the lean equivalents, and `project_file_read` takes `offset`/`limit` to window one body with the same `next_offset`/`truncated` contract as `shared_memory_read`.
   - `project_changes` takes `payloads: "preview"` to trim note and card bodies the same way memory events are already trimmed, and accepts `since_seq` as an alias for `since`.
-  - Every project and board tool schema is closed (`additionalProperties: false`), so a mistyped argument is refused by name instead of silently dropped. The service-layer aliases that were only ever reachable because nothing validated — `project`/`agents_markdown` on `project_create`, `name`/`text` on `project_file_upsert`, `id`/`memory_id`/`text` on `project_memory_upsert`, `q` on `project_memory_search`, `engine` on every board tool — are now declared rather than merely tolerated. A missing required argument is reported before an unknown one, so a bare scalar still answers `'slug' is required` rather than `'value' is not allowed`.
+  - Every project and board tool schema is closed (`additionalProperties: false`), so a mistyped argument is refused by name instead of silently dropped. The service-layer aliases that were only ever reachable because nothing validated — `project`/`agents_markdown` on `project_create`, `id`/`memory_id`/`text` on `project_memory_upsert`, `q` on `project_memory_search`, `engine` on every board tool — are now declared rather than merely tolerated. `project_file_upsert` declares no `name`/`text` aliases: its required `stored_name` and `content` are checked first, so an alias could never be the argument a call used. A missing required argument is reported before an unknown one, so a bare scalar still answers `'slug' is required` rather than `'value' is not allowed`.
   - Declared `enum`s are enforced, which they previously were not, and case-folded to match the services (`type: "Bug"` and `role: "Plan"` keep working).
   - A project's lifecycle can be completed from MCP for the first time: `project_update` changes the `about` block after creation (merging by default, `replace: true` to overwrite), and `project_archive`/`project_unarchive` write `coord_projects.archived_at` — a column with its own index that every listing already filtered on and that no code path had ever written, so the fleet's project list had been append-only. An archived project drops out of `project_list` (pass `include_archived`) and the resource catalogue, but stays readable and writable by slug.
   - `project_feedback_update` moves an item through `open | acknowledged | resolved | dismissed`. `coord_project_feedback.status` had a default of `open` and no writer at all.
@@ -105,7 +96,7 @@ The `group: names` bullets below are the tool catalog: everything after the colo
   - All authenticated fleet agents can manage all schedules. The managed `wake-cron` Skill documents once, five-field cron and interval timing; persistent recovery defaults off and requires an explicit progress timeout. Updates/deletes require the version returned by `schedule_get`. See [schedule contracts](interface-api.md#agent-wake--cron-schedules).
 - Operator/internal filesystem helpers: `fs_read_file`, `fs_write_file`, `fs_list_dir`, `fs_file_exists`, `fs_stat`, `fs_search_in_files`.
   - Registered with `capability: 'operator'`, and only when `MCP_FS_ROOT` points at an existing directory; they are not listed on the public host-authenticated `/mcp` route and return “method not found” if called there.
-- Dot aliases are accepted for tool names and normalized to underscores (for example `memory.store`, `resource.read`).
+- Tool names are matched exactly (underscores only); the former dotted spelling (`memory.store`) was removed.
 - `resources/templates/list` exposes templates `memory` (`memory://{key}`), `project` (`project://{slug}`), `project_summary` (`project://{slug}/summary`), `project_file` (`project://{slug}/files/{stored_name}`), `project_memory` (`project://{slug}/memory/{key}`), `skill` (`skill://{slug}`), `skill_file` (`skill://{slug}/{path}`), and — only when the shared-memory service is wired — `shared_memory` (`shared://{slug}`).
   - `api/test/unit/services/mcp-doc-templates.test.ts` compares the name/URI pairs on the bullet above against `McpResourcesService.listTemplates()` and fails on any pair one side has and the other lacks, so notes about the templates go here rather than up there.
 - Memory/resource/project tool responses are wrapped in `CallToolResult.content` blocks.
@@ -155,30 +146,11 @@ curl -s "$BASE/mcp" \
   }' | jq .
 ```
 
-## REST memory examples
-
-Store:
-```bash
-curl -s "$BASE/mcp/memories/store" \
-  -H "Authorization: Bearer $HOST_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"content":"triage notes","tags":["incident-42","ops"]}'
-```
-
-Search:
-```bash
-curl -s "$BASE/mcp/memories/search" \
-  -H "Authorization: Bearer $HOST_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"query":"incident-42","limit":5}' | jq .
-```
-
 ## Client hints
 
 - Every wrapper auto-adds an engine-labelled managed MCP server entry when `orchestrator_mcp_enabled = true` (default). Each entry uses `url = "$BASE/mcp"` (the base baked into the signed wrapper config, which honors `PUBLIC_BASE_URL` when set), static `Authorization` and `X-Engine: codex|claude|grok|kimi` headers, and the engine-specific name `cdx`, `clx`, `cgx`, or `ckx`.
 - `cdx` renders its entry into managed `config.toml` with `startup_timeout_sec = 30`. `clx` merges `mcpServers.clx` into the top level of `~/.claude.json`, where Claude Code reads user-scope MCP servers; user-authored entries and unrelated keys are preserved. `cgx` writes `[mcp_servers.cgx]` (plus `[mcp_servers.cxx-agent]` when Agent Messaging is on) into `~/.grok/config.toml` as fleet-owned paths; the rest of that file stays user-owned. See [interface-cgx.md](interface-cgx.md) for the managed runtime's MCP import rules.
 - When the Projects module is enabled, MCP also publishes a managed `coco` skill that assumes these `project_*` MCP tools/resources are available and embeds the native CoCo toolkit/help; no extra wrapper-side project sync path is needed. That skill tells operators that CoCo coordination handoffs are project-only, points fleet-wide reference documents at `shared_memory_*`, and blocks reserved `coco*` memory ids.
-- Tool names accept dot aliases in calls (`memory.store`, `resource.read`) while advertised tool names stay underscore-based.
 - Text content in tool results is wrapped in `CallToolResult.content` blocks for MCP clients that expect it.
 
 ### Local Watchdog tools (cxx 0.9.36)

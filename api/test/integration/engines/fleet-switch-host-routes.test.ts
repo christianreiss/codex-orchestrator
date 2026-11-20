@@ -55,7 +55,6 @@ function setupHost(db: ReturnType<typeof createDbFake>): void {
       reasoningEffortOverride: null,
       autoUpdateOverride: null,
       lastCronCheck: null,
-      scalingExempt: 0,
       engines: 'codex,claude',
       claudeClientVersion: null,
       claudeClientVersionOverride: null,

@@ -137,7 +137,7 @@ describe('docs/interface-api.md endpoint inventory', () => {
     expect(documented.has('POST /auth')).toBe(true);
     expect(documented.has('GET /admin/overview')).toBe(true);
     // Params and query strings normalize away.
-    expect(documented.has('POST /projects/:param/todos/:param/done')).toBe(true);
+    expect(documented.has('POST /admin/projects/:param/board/cards/:param/move')).toBe(true);
     expect(documented.has('GET /admin/logs')).toBe(true);
     // Method + path, so a documented verb the app never registers is caught.
     expect(documented.has('DELETE /auth')).toBe(true);

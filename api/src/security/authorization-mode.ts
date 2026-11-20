@@ -108,12 +108,6 @@ export const LEGACY_OWNER_ADMIN_ROUTES: ReadonlySet<string> = new Set([
  * it is worth being precise about what these are not: none has ever had a
  * caller to preserve.
  *
- * - `auth.reveal_credential` guards `?include_body=1` on the host auth read,
- *   which returns the canonical credential the fleet distributes to its hosts.
- *   It was reachable by any signed-in account, and nothing calls it — not the
- *   console, not the wrappers, not the runner; `public/admin/manual` says the
- *   host detail page does not use it. Preserving it would preserve a
- *   straight privilege escalation for the benefit of no existing user.
  * - `security.manage_authorization` guards the mode itself. If compatible mode
  *   relaxed it, every account could switch the fleet's posture — including
  *   switching it back — and the mode would protect nothing.
@@ -141,7 +135,6 @@ export const ALWAYS_ENFORCED: readonly Capability[] = [
   // New opt-in group publications are an operator action. Compatibility must
   // not let a viewer publish as Server or expose management controls.
   'agent_messaging.manage',
-  'auth.reveal_credential',
   'security.manage_authorization',
   'agent_portal.reveal_transcript',
   'agent_portal.manage',

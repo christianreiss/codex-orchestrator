@@ -71,11 +71,11 @@ describe('Kimi engine administration', () => {
   it('validates Kimi key mutations without accepting malformed identifiers', async () => {
     const { app } = await buildApp();
     for (const payload of [{}, { name: ' ' }])
-      expect((await app.inject({ method: 'POST', url: '/admin/kimi/keys', payload })).statusCode).toBe(422);
-    expect((await app.inject({ method: 'DELETE', url: '/admin/kimi/keys/no-id' })).statusCode).toBe(422);
+      expect((await app.inject({ method: 'POST', url: '/admin/kimi/keys', payload })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'DELETE', url: '/admin/kimi/keys/no-id' })).statusCode).toBe(400);
     expect(
       (await app.inject({ method: 'POST', url: '/admin/kimi/keys/1/toggle', payload: {} })).statusCode,
-    ).toBe(422);
+    ).toBe(400);
   });
 
   it('keeps the Kimi switch and model defaults separate from the other engines', async () => {

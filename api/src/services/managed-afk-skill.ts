@@ -4,7 +4,7 @@ import type { ManagedSkillManifest } from './managed-skills.js';
 export const MANAGED_AFK_SKILL_SLUG = 'afk';
 
 const DESCRIPTION =
-  'Use #afk to keep this root agent available in the permanent web portal without requesting attention unless user input is actually needed.';
+  'Use #afk to keep this root agent available in the operator portal without requesting attention unless user input is actually needed.';
 
 const MANIFEST = `---
 name: afk
@@ -14,10 +14,11 @@ description: "${DESCRIPTION}"
 # AFK portal relay
 
 The fleet agent portal already records this running root session. The portal is the
-whole channel: the notice, the conversation, and every reply live in the
-authenticated web portal, which the user reaches through their own permanent
-bookmarked link. Opening the relay means the agent is available; it does not mean
-the user needs to do anything.
+whole channel: the notice, the conversation, and every reply live in the operator
+chat, which the user reaches signed in to the admin console (Agents) or through the
+Android companion. The automatic receiver already makes this session reachable there;
+opening the relay means the agent is available; it does not mean the user needs to
+do anything.
 
 When #afk is requested:
 
@@ -70,9 +71,8 @@ the portal. Publish only the user-facing answer or bounded progress summary.
 
 Never send this notice anywhere yourself — no chat API, no webhook, no mail. The portal
 is the only sanctioned channel; use the scoped \`cxx portal\` commands above.
-Never read, request, print, or store a portal link or portal token: the link is bearer
-material that an owner or admin reads from Settings → Agent Portal, never something an
-agent hands out.
+Never read, request, print, or store a portal link or portal token: portal access is
+the user's own signed-in session, never something an agent hands out.
 `;
 
 export function isManagedAfkSlug(slug: string): boolean {

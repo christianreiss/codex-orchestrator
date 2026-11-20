@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { ownerRuntimeFor, mutateOwnerState, type OwnerMutationContext } from '../control-plane/state/runtime.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
+import { insertOwnedAdminEvent } from '../control-plane/state/admin.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { and, asc, eq, inArray, lt, lte, like, or, sql } from 'drizzle-orm';
@@ -394,10 +395,12 @@ export class FeedbackService {
     const byStatus: Record<string, number> = {};
     for (const row of all) byStatus[row.status] = (byStatus[row.status] ?? 0) + 1;
     const summary = { deleted: ids.length, events, cascaded_duplicates: all.length - rows.length, by_status: byStatus };
-    await tx.insert(adminEvents).values({ type: auditType, hostId: null, createdAt: new Date().toISOString(), payload: {
+    const audit = { type: auditType, hostId: null, createdAt: new Date().toISOString(), payload: {
       ...summary, ...criteria, admin_user_id: actor.admin_user_id ?? null,
       items: all.map((r) => ({ id: r.id, title: r.title, status: r.status, duplicate_of: r.duplicateOf })),
-    } });
+    } };
+    if (context) await insertOwnedAdminEvent(context, tx as never, audit);
+    else await tx.insert(adminEvents).values(audit);
     return { ...summary, ids };
   }
 

@@ -59,7 +59,6 @@ describe('GET /admin/hosts', () => {
       secure: 1,
       vip: 0,
       allow_roaming_ips: 0,
-      scaling_exempt: 0,
       curl_insecure: 0,
       browseros_mcp_enabled: 0,
       agent_messaging_enabled: 0,
@@ -110,7 +109,6 @@ describe('GET /admin/hosts', () => {
         secure: 1,
         vip: 0,
         allow_roaming_ips: 0,
-        scaling_exempt: 0,
         curl_insecure: 0,
         browseros_mcp_enabled: 0,
         agent_messaging_enabled: 0,
@@ -157,7 +155,7 @@ describe('GET /admin/hosts', () => {
   it('returns independent Grok host metadata and release freshness in the detail response', async () => {
     const mock = createMockDb();
     const fetchedAt = new Date().toISOString();
-    mock.insertRow('hosts', { id: 3, fqdn: 'third.example.test', status: 'active', engines: 'grok', secure: 1, vip: 0, allow_roaming_ips: 0, scaling_exempt: 0, curl_insecure: 0, browseros_mcp_enabled: 0, agent_messaging_enabled: 0, api_calls: 0, config_version: 0, grok_client_version: '1.0.46', grok_client_version_override: '1.0.46', grok_wrapper_version: '0.8.0', grok_model_override: 'grok-4.6', grok_reasoning_effort_override: 'xhigh' });
+    mock.insertRow('hosts', { id: 3, fqdn: 'third.example.test', status: 'active', engines: 'grok', secure: 1, vip: 0, allow_roaming_ips: 0, curl_insecure: 0, browseros_mcp_enabled: 0, agent_messaging_enabled: 0, api_calls: 0, config_version: 0, grok_client_version: '1.0.46', grok_client_version_override: '1.0.46', grok_wrapper_version: '0.8.0', grok_model_override: 'grok-4.6', grok_reasoning_effort_override: 'xhigh' });
     mock.insertRow('versions', { name: 'client_version_grok', version: '1.0.46', updated_at: fetchedAt });
     for (const [name, version] of [['grok-cli', '1.0.47'], ['codex-cli', '0.137.0'], ['claude-cli', '2.1.170']]) mock.insertRow('versions', { name: `github_release_${name}`, version: JSON.stringify({ name, version, fetched_at: fetchedAt }), updated_at: fetchedAt });
     const local = Fastify({ logger: false });

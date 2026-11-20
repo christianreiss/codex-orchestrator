@@ -15,6 +15,7 @@ import { wsPublisher } from '../ws/publisher.js';
 import type { WsEventType } from '../ws/events.js';
 import { nowIso } from '../util/timestamp.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
+import { adminAudit } from '../control-plane/state/admin.js';
 
 export interface AdminEventRecord {
   id: number;
@@ -53,8 +54,8 @@ export function makeAdminEventsWriter(db: Database): AdminEventsWriter {
     const json = Object.keys(payload).length > 0 ? payload : null;
     const owner=ownerRuntimeFor(db);
     if(owner)return await mutateOwnerState(owner,{kind:'admin.audit.append',payload:{type:cleanedType,hostId},prepare(ctx){
-      let id=0;ctx.write(async tx=>{const [inserted]=await tx.insert(adminEvents).values({type:cleanedType,hostId,payload:json,createdAt});id=Number(inserted.insertId);if(!Number.isSafeInteger(id)||id<1)throw new Error('Audit insert returned no identity');ctx.draft.upsert('versions',{name:'owner_admin_event_id',version:String(id),updatedAt:createdAt});});
-      return ()=>JSON.parse(JSON.stringify({id,type:cleanedType,hostId,payload:json,createdAt})) as import('../control-plane/commands.js').Json;
+      const id=adminAudit(ctx,cleanedType,json as Record<string, unknown>,createdAt,hostId);
+      return ()=>JSON.parse(JSON.stringify({id:id(),type:cleanedType,hostId,payload:json,createdAt})) as import('../control-plane/commands.js').Json;
     }}) as unknown as AdminEventRecord;
     const result = await db
       .insert(adminEvents)

@@ -19,7 +19,7 @@ import { initTracing, shutdownTracing } from '../../../src/observability/tracing
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-node';
 import { Keyring } from '../../../src/security/keyring.js';
 import type { Env } from '../../../src/env.js';
-import type { Host } from '../../../src/db/schema.js';
+import { versions, type Host } from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/client.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import {
@@ -73,7 +73,6 @@ function fakeHost(): Host {
     reasoningEffortOverride: null,
     autoUpdateOverride: null,
     lastCronCheck: null,
-    scalingExempt: 0,
     engines: 'codex',
     claudeClientVersion: null,
     claudeClientVersionOverride: null,
@@ -1130,6 +1129,73 @@ describe('wrapper-v2 routes', () => {
     });
     expect(r.statusCode).toBe(404);
     await app.close();
+  });
+
+  // API-HOST-01: until 2026-11-20 the route passed no settings loader, so
+  // the bake used constants and these admin settings never reached a host.
+  describe('fleet settings in the signed config (production routes)', () => {
+    /** fakeDb plus `versions` rows, matched by the `eq(versions.name, key)` parameter. */
+    function withSettings(host: Host, rows: Record<string, string>): Database {
+      const db = fakeDb(host) as unknown as { select: (...args: unknown[]) => { from: (t: unknown) => unknown } };
+      const select = db.select;
+      db.select = (...args: unknown[]) => {
+        const chain = select(...args);
+        return {
+          from: (t: unknown) => {
+            if (t !== versions) return chain.from(t);
+            return {
+              where: (predicate: { queryChunks?: unknown[] }) => {
+                const key = predicate.queryChunks?.find(
+                  (chunk): chunk is { value: string } => (chunk as { constructor?: { name?: string } })?.constructor?.name === 'Param',
+                )?.value;
+                const found = key !== undefined && key in rows ? [{ name: key, version: rows[key], updatedAt: null }] : [];
+                const result = Object.assign(Promise.resolve(found), { limit: async () => found });
+                return result;
+              },
+            };
+          },
+        };
+      };
+      return db as unknown as Database;
+    }
+
+    async function signedConfig(host: Host, rows: Record<string, string>, engine = 'codex') {
+      const app = await buildProductionApp(
+        { db: withSettings(host, rows), env: fakeEnv(), keyring: makeKeyring() },
+        makeSigner(kp.privateKey),
+        host,
+        BIN_ROOT,
+      );
+      try {
+        const r = await app.inject({ method: 'GET', url: `/wrapper/v2/config?engine=${engine}` });
+        expect(r.statusCode).toBe(200);
+        return (JSON.parse(r.payload) as {
+          payload: { engine_options: Record<string, unknown>; wrapper: { auto_update: boolean } };
+        }).payload;
+      } finally {
+        await app.close();
+      }
+    }
+
+    it('bakes the silent flag, the admin theme and a stored auto-update off', async () => {
+      const config = await signedConfig(fakeHost(), { cdx_silent: '1', admin_theme: 'dark-pink', auto_update_enabled: '0' });
+      expect(config.engine_options).toMatchObject({ silent: true, admin_theme_hint: 'dark-pink' });
+      expect(config.wrapper.auto_update).toBe(false);
+    });
+
+    it('keeps auto-update on while the fleet row is unset and lets the host override win', async () => {
+      const unset = await signedConfig(fakeHost(), {});
+      expect(unset.engine_options).toMatchObject({ silent: false, admin_theme_hint: null });
+      expect(unset.wrapper.auto_update).toBe(true);
+      const host = { ...fakeHost(), autoUpdateOverride: 1 };
+      expect((await signedConfig(host, { auto_update_enabled: '0' })).wrapper.auto_update).toBe(true);
+    });
+
+    it('reads each engine its own silent flag', async () => {
+      const host = { ...fakeHost(), engines: 'codex,claude' };
+      expect((await signedConfig(host, { clx_silent: '1' }, 'claude')).engine_options.silent).toBe(true);
+      expect((await signedConfig(host, { clx_silent: '1' }, 'codex')).engine_options.silent).toBe(false);
+    });
   });
 
   // Tracing is global state, so it is confined to this block: enabled in

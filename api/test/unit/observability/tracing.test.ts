@@ -90,7 +90,6 @@ function fakeHost(overrides: Partial<Host> = {}): Host {
     reasoningEffortOverride: null,
     autoUpdateOverride: null,
     lastCronCheck: null,
-    scalingExempt: 0,
     engines: 'codex',
     claudeClientVersion: null,
     claudeClientVersionOverride: null,

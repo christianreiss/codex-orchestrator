@@ -207,7 +207,7 @@ Un-reserving the slug is Release B, once the fleet has converged.
   manifest sha256 `fac714d40a871a45a598b0adac81e633669384db2ab5cfc6c59db70cedbc8e44`.
 
 - `#afk` — code-derived in `api/src/services/managed-afk-skill.ts`, unconditional.
-  Keeps a root agent available in the permanent web portal without raising
+  Keeps a root agent available in the operator portal (admin console and Android) without raising
   attention unless user input is actually needed; since cxx 0.8.4 opening it
   listens quietly rather than raising a false "Needs you", and
   `cxx portal resolve --summary TEXT` withdraws a notice.

@@ -248,18 +248,52 @@ describe('SkillsService.store upsert', () => {
     expect(rows[0]).toMatchObject({ description: null });
   });
 
-  it('resurrects a soft-deleted slug on update but not on an unchanged store', async () => {
+  // Until 2026-11-20 an identical store answered `unchanged` and left the
+  // Skill deleted, while the host entry point revived it (API-KNOW-04).
+  it('revives a soft-deleted slug even when the stored content is identical', async () => {
     const { service, rows } = makeService([skillRow({ deletedAt: '2026-02-02T00:00:00Z' })]);
 
-    await expect(
-      service.store({ slug: 'agentic', manifest: BODY, display_name: 'Agentic', description: 'Agentic skill' }),
-    ).resolves.toMatchObject({ status: 'unchanged' });
-    expect(rows[0]).toMatchObject({ deletedAt: '2026-02-02T00:00:00Z' });
+    const revived = await service.store({ slug: 'agentic', manifest: BODY });
+    expect(revived).toMatchObject({ status: 'updated', sha256: sha(BODY) });
+    expect(revived.updated_at).not.toBe(SEEDED_AT);
+    expect(rows[0]).toMatchObject({ deletedAt: null, displayName: 'Agentic', description: 'Agentic skill' });
 
+    await expect(service.store({ slug: 'agentic', manifest: BODY })).resolves.toMatchObject({ status: 'unchanged' });
     await expect(
       service.store({ slug: 'agentic', manifest: 'Revised body', display_name: 'Agentic' }),
     ).resolves.toMatchObject({ status: 'updated' });
     expect(rows[0]).toMatchObject({ deletedAt: null, manifest: 'Revised body', sha256: sha('Revised body') });
+  });
+
+  // The admin UI saves `{slug, manifest, display_name, description}` and never
+  // sends `engine`; each save used to wipe the engine scope, and any caller
+  // that left out display_name wiped the name (API-KNOW-04).
+  it('keeps display_name and engine when they are omitted', async () => {
+    const { service, rows } = makeService([skillRow({ engine: 'claude' })]);
+
+    await expect(service.store({ slug: 'agentic', manifest: BODY })).resolves.toMatchObject({ status: 'unchanged' });
+    expect(rows[0]).toMatchObject({ displayName: 'Agentic', description: 'Agentic skill', engine: 'claude' });
+
+    await service.store({ slug: 'agentic', manifest: 'Revised body', display_name: 'Agentic', description: 'Agentic skill' });
+    expect(rows[0]).toMatchObject({ manifest: 'Revised body', displayName: 'Agentic', engine: 'claude' });
+
+    // A non-string, non-null value is an omission, as for description.
+    await service.store({ slug: 'agentic', manifest: 'Revised body', display_name: 5, engine: 7 });
+    expect(rows[0]).toMatchObject({ displayName: 'Agentic', engine: 'claude' });
+  });
+
+  it('clears display_name and engine on an explicit null or a blank string', async () => {
+    const { service, rows } = makeService([skillRow({ engine: 'claude' })]);
+
+    await expect(service.store({ slug: 'agentic', manifest: BODY, display_name: null, engine: null })).resolves.toMatchObject({
+      status: 'updated',
+    });
+    expect(rows[0]).toMatchObject({ displayName: null, engine: null, description: 'Agentic skill' });
+
+    await service.store({ slug: 'agentic', manifest: BODY, display_name: 'Agentic', engine: 'codex' });
+    expect(rows[0]).toMatchObject({ displayName: 'Agentic', engine: 'codex' });
+    await service.store({ slug: 'agentic', manifest: BODY, display_name: '  ', engine: '', description: ' ' });
+    expect(rows[0]).toMatchObject({ displayName: null, engine: null, description: null });
   });
 });
 

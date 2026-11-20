@@ -44,7 +44,6 @@ describe('group and publication HTTP capabilities', () => {
     expect(subscriptions).toHaveBeenCalledOnce();
     for (const url of [
       '/admin/agent-messaging/publish',
-      '/admin/agent-messaging/groups/demo/publish',
       '/admin/agent-messaging/groups',
     ]) {
       expect((await app.inject({ method: 'POST', url, payload: {} })).statusCode).toBe(403);
@@ -77,8 +76,9 @@ describe('group and publication HTTP capabilities', () => {
     const { app, db } = await appFor('owner');
     const response = await app.inject({
       method: 'POST',
-      url: '/admin/agent-messaging/groups/demo/publish',
+      url: '/admin/agent-messaging/publish',
       payload: {
+        topic: 'group:demo',
         content: 'private publish body',
         client_message_id: ID,
         ttl_seconds: 60,

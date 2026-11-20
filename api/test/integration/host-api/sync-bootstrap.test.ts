@@ -241,7 +241,6 @@ function hostRow(apiKey: string, overrides: Record<string, unknown> = {}): Recor
     updatedAt: '2026-01-01T00:00:00Z',
     engines: 'codex',
     vip: 0,
-    scalingExempt: 0,
     curlInsecure: 0,
     browserosMcpEnabled: 0,
     configVersion: 0,

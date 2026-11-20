@@ -894,32 +894,20 @@ test("Claude client settings use one full-width operator workflow", async ({ pag
   await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
 });
 
-test("engine policy settings stay sequential and show the effective scaling tier", async ({ page }) => {
+test("engine policy settings land on the usage limits page", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   // The section moved off /engines; the old bookmark must land on it.
   await page.goto("/admin/engines#quota-enforcement");
   await expect(page).toHaveURL(/\/admin\/limits#quota-enforcement$/);
 
   await expect(page.getByRole("heading", { name: "Usage limits", level: 1 })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Usage-based scaling", level: 2 })).toBeVisible();
-  await expect(page.getByLabel("At %")).toHaveValue("75");
-  await expect(page.locator("#scaling")).toContainText(/Current state:\s*active/);
-  await expect(page.locator("#scaling")).toContainText(/Effective tier:\s*75%/);
-  await expect(page.locator("#scaling")).toContainText(/Lane:\s*spark/);
-
-  const quotaBox = await page.locator("#quotas").boundingBox();
-  const scalingBox = await page.locator("#scaling").boundingBox();
-  expect(quotaBox).not.toBeNull();
-  expect(scalingBox).not.toBeNull();
-  expect(scalingBox!.y).toBeGreaterThanOrEqual(quotaBox!.y + quotaBox!.height);
-  expect(Math.abs(quotaBox!.x - scalingBox!.x)).toBeLessThanOrEqual(1);
-  expect(Math.abs(quotaBox!.width - scalingBox!.width)).toBeLessThanOrEqual(1);
+  await expect(page.locator("#quotas")).toBeVisible();
   await expectNoSeriousAxeFindings(page);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Usage-based scaling", level: 2 })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save scaling" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Usage limits", level: 1 })).toBeVisible();
+  await expect(page.locator("#quotas")).toBeVisible();
 });
 
 test("account tabs preserve drafts, deep links and browser history", async ({ page }) => {

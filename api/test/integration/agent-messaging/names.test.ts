@@ -631,12 +631,6 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
       });
       expect(hostLookup.statusCode).toBe(200);
       expect(hostLookup.json()).toMatchObject({ name: agent.address.name });
-      const adminLookup = await app.inject({
-        method: 'GET',
-        url: `/admin/agent-messaging/translate?value=${agent.address.id}`,
-      });
-      expect(adminLookup.statusCode).toBe(200);
-      expect(adminLookup.json()).toMatchObject({ name: agent.address.name });
       expect(identities.length).toBe(before);
       expect(await db!.select().from(agentSessions).where(eq(agentSessions.hostId, host.id))).toHaveLength(1);
     } finally {

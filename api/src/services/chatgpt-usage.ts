@@ -1,5 +1,5 @@
 import { stageEmulation, recordEmulation } from './quota-emulation.js';
-import { sameQuotaObservation } from '../control-plane/state/quota.js';
+import { sameQuotaObservation, stageChatGptQuota } from '../control-plane/state/quota.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 /**
  * ChatGPT usage service — pulls the usage snapshot from chatgpt.com's
@@ -875,7 +875,7 @@ export class ChatGptUsageService {
           ) {
             inserted = { ...row, id: prior.id, createdAt: prior.createdAt } as ChatGptSnapshotRow;
             transientSnapshots.add(inserted);
-            context.draft.upsert('chatgptUsageSnapshots', inserted);
+            stageChatGptQuota(context.draft, inserted);
             return null;
           }
           context.write(async (tx) => {
@@ -883,7 +883,8 @@ export class ChatGptUsageService {
             const id = (result as unknown as [{ insertId?: number }])[0]?.insertId;
             if (!id) throw new Error('Missing usage snapshot insert ID');
             inserted = { ...row, id } as ChatGptSnapshotRow;
-            context.draft.upsert('chatgptUsageSnapshots', inserted);
+            // Bounded like hydration; without this every changed poll stayed in RAM until restart.
+            stageChatGptQuota(context.draft, inserted);
           });
           return null;
         },

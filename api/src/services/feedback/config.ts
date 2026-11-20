@@ -1,4 +1,5 @@
 import { ownerRuntimeFor, mutateOwnerState } from '../../control-plane/state/runtime.js';
+import { insertOwnedAdminEvent } from '../../control-plane/state/admin.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
@@ -50,7 +51,7 @@ export class FeedbackConfiguration {
         context.write(async tx => {
           for (const row of values) await tx.insert(versions).values(row).onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: now } });
           if (args.disconnect) await tx.delete(versions).where(eq(versions.name, FEEDBACK_TOKEN_KEY));
-          await tx.insert(adminEvents).values({ type: 'feedback.configuration', hostId: null, createdAt: now, payload: { admin_user_id: adminUserId, ...args.config, revision, token_changed: Boolean(tokenEnc || args.disconnect) } });
+          await insertOwnedAdminEvent(context, tx, { type: 'feedback.configuration', hostId: null, createdAt: now, payload: { admin_user_id: adminUserId, ...args.config, revision, token_changed: Boolean(tokenEnc || args.disconnect) } });
         });
         return null;
       } });

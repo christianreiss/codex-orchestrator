@@ -1,15 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { sql } from 'drizzle-orm';
-import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
-import { registerProjectsClientRoutes } from '../../../src/routes/projects-client/index.js';
 import { HostProjectsService } from '../../../src/services/host-projects.js';
 import { ProjectsService } from '../../../src/services/projects.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
-import type { RouteContext } from '../../../src/routes/index.js';
 import type { Host } from '../../../src/db/schema.js';
 
 /**
@@ -59,7 +55,6 @@ const handle = await getTestDb();
 describe.skipIf(!handle)('project memories against a real database', () => {
   let db: TestDb;
   let svc: HostProjectsService;
-  let app: FastifyInstance;
   let hostA: Host;
   let hostB: Host;
 
@@ -92,18 +87,9 @@ describe.skipIf(!handle)('project memories against a real database', () => {
     svc = new HostProjectsService(db);
     await svc.createProject({ slug: SLUG }, hostA);
     await svc.createProject({ slug: OTHER_SLUG }, hostA);
-
-    app = Fastify({ logger: false });
-    await app.register(envelopePlugin);
-    app.decorate('requireHost', async (req: FastifyRequest) => {
-      req.authHost = hostA;
-    });
-    await registerProjectsClientRoutes(app, { db, env: {}, keyring: {} } as unknown as RouteContext);
-    await app.ready();
   });
 
   afterAll(async () => {
-    await app?.close();
     await cleanup();
     await handle?.pool.end();
   });
@@ -282,64 +268,5 @@ describe.skipIf(!handle)('project memories against a real database', () => {
 
     const after = rowsOf(await exec(`SELECT COUNT(*) AS c FROM coord_project_memories WHERE project_id = ${projectId}`));
     expect(Number(after[0]!['c'])).toBe(0);
-  });
-
-  // Note on shape: the standard envelope spreads the payload at the root as well
-  // as nesting it under `data`, so our own `status: created|updated|unchanged`
-  // overwrites the envelope's `status: "ok"` at the root. That collision is
-  // pre-existing and identical on /mcp/memories/store, which returns the same
-  // field — so these routes stay consistent with it. Assert against `data`.
-  describe('REST mirror', () => {
-    it('round-trips upsert, list, get, search, and delete over HTTP', async () => {
-      const created = await app.inject({
-        method: 'POST',
-        url: `/projects/${SLUG}/memories`,
-        payload: { key: 'rest.route', content: 'written over REST', tags: ['http'] },
-      });
-      expect(created.statusCode).toBe(200);
-      expect(JSON.parse(created.payload).data).toMatchObject({ status: 'created', id: 'rest.route' });
-
-      const got = await app.inject({ method: 'GET', url: `/projects/${SLUG}/memories/rest.route` });
-      expect(JSON.parse(got.payload).data).toMatchObject({ status: 'found', memory: { content: 'written over REST' } });
-
-      // POST /memories/search must not be shadowed by GET /memories/:key.
-      const searched = await app.inject({ method: 'POST', url: `/projects/${SLUG}/memories/search`, payload: {} });
-      expect(searched.statusCode).toBe(200);
-      expect(JSON.parse(searched.payload).data.count).toBeGreaterThan(0);
-
-      const deleted = await app.inject({ method: 'DELETE', url: `/projects/${SLUG}/memories/rest.route` });
-      expect(JSON.parse(deleted.payload).data).toMatchObject({ status: 'deleted' });
-
-      const gone = await app.inject({ method: 'GET', url: `/projects/${SLUG}/memories/rest.route` });
-      expect(JSON.parse(gone.payload).data).toMatchObject({ status: 'missing' });
-    });
-
-    // The GET delivers flags as query strings; the MCP tool path delivers real
-    // booleans. Both have to mean the same thing.
-    it('coerces the include_content query-string flag', async () => {
-      await app.inject({
-        method: 'POST',
-        url: `/projects/${SLUG}/memories`,
-        payload: { key: 'rest.flag', content: 'full body over rest' },
-      });
-
-      const previews = await app.inject({ method: 'GET', url: `/projects/${SLUG}/memories` });
-      const previewRow = JSON.parse(previews.payload).data.memories.find((m: { key: string }) => m.key === 'rest.flag');
-      expect(previewRow).not.toHaveProperty('content');
-      expect(previewRow).toHaveProperty('preview');
-
-      const full = await app.inject({ method: 'GET', url: `/projects/${SLUG}/memories?include_content=true` });
-      const fullRow = JSON.parse(full.payload).data.memories.find((m: { key: string }) => m.key === 'rest.flag');
-      expect(fullRow.content).toBe('full body over rest');
-    });
-
-    it('rejects an invalid key through the route with a validation error', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: `/projects/${SLUG}/memories`,
-        payload: { key: 'bad key!', content: 'x' },
-      });
-      expect(res.statusCode).toBe(422);
-    });
   });
 });

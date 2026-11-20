@@ -41,6 +41,7 @@ import {
 } from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
+import { checkMemoryContent, checkMemoryKey, checkMemoryMetadata, checkMemoryTags, type Checked } from './memory-validation.js';
 import {
   STORED_NAME_TOO_LONG_MESSAGE,
   acceptFileBody,
@@ -63,15 +64,14 @@ import { SettingsService } from './settings.js';
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const STORED_NAME_RE = /^[^\0]+$/;
 
-// Memory validation mirrors mcp-memories.ts so the two stores stay interchangeable
-// from a caller's point of view. Deliberately NOT mirrored: that file's
-// `^coco(?:$|[._:-])` reservation, whose whole purpose is to redirect callers to
-// project-scoped state — i.e. to here. Reserving it again would reject the agent
-// that followed the advice.
-const MEMORY_KEY_RE = /^[A-Za-z0-9._:-]+$/;
-const MEMORY_MAX_CONTENT = 32000;
-const MEMORY_MAX_TAGS = 32;
-const MEMORY_MAX_TAG_LENGTH = 64;
+// Memory validation is shared with mcp-memories.ts (memory-validation.ts), so
+// the two stores stay interchangeable from a caller's point of view, except
+// that project scope does not reserve `coco…` keys: host memory refuses them
+// precisely to redirect callers here.
+function memoryField<T>(field: string, checked: Checked<T>): T {
+  if (checked.problems.length) throw new ValidationError('Validation failed', { extra: { errors: { [field]: checked.problems } } });
+  return checked.value;
+}
 const MEMORY_PREVIEW_CHARS = 280;
 const MEMORY_BOOTSTRAP_LIMIT = 8;
 const MEMORY_LIST_MAX = 500;
@@ -165,7 +165,7 @@ interface FileRow {
 /**
  * A file row without its body. Every listing path uses this: `content` is a
  * LONGTEXT column that routinely runs to hundreds of kilobytes, and inlining it
- * into a listing made `project_file_list` and `project_detail` cost more context
+ * into a listing made the former `project_file_list` tool and `project_detail` cost more context
  * than the work they were meant to set up. The body is one `project_file_read`
  * away, and that call windows.
  */
@@ -2456,17 +2456,7 @@ export class HostProjectsService {
     // deliberately, and a UUID key is unaddressable garbage in a shared
     // namespace. "Just dump text somewhere" is what project notes are for.
     const key = this.normalizeMemoryKey(payload['key'] ?? payload['id'] ?? payload['memory_id']);
-    const content = String(payload['content'] ?? payload['text'] ?? '').trim();
-    if (!content) {
-      throw new ValidationError('Validation failed', {
-        extra: { errors: { content: ['content is required'] } },
-      });
-    }
-    if (content.length > MEMORY_MAX_CONTENT) {
-      throw new ValidationError('Validation failed', {
-        extra: { errors: { content: [`content must be ${MEMORY_MAX_CONTENT} characters or fewer`] } },
-      });
-    }
+    const content = memoryField('content', checkMemoryContent(payload['content'] ?? payload['text']));
     return {
       key,
       content,
@@ -2475,68 +2465,18 @@ export class HostProjectsService {
     };
   }
 
+  // The rules live in memory-validation.ts, shared with host memory and the
+  // admin console; these adapters throw the first failing field.
   normalizeMemoryKey(value: unknown): string {
-    const key = String(value ?? '').trim();
-    if (!key)
-      throw new ValidationError('Validation failed', { extra: { errors: { key: ['key is required'] } } });
-    if (key.length > 128) {
-      throw new ValidationError('Validation failed', {
-        extra: { errors: { key: ['key must be 128 characters or fewer'] } },
-      });
-    }
-    if (!MEMORY_KEY_RE.test(key)) {
-      throw new ValidationError('Validation failed', {
-        extra: {
-          errors: { key: ['key may only contain letters, numbers, dots, underscores, hyphens, and colons'] },
-        },
-      });
-    }
-    return key;
+    return memoryField('key', checkMemoryKey(value, 'key', 'project'))!;
   }
 
   normalizeMemoryMetadata(value: unknown): Record<string, unknown> | null {
-    if (value === null || value === undefined) return null;
-    if (typeof value !== 'object' || Array.isArray(value)) {
-      throw new ValidationError('Validation failed', {
-        extra: { errors: { metadata: ['metadata must be an object'] } },
-      });
-    }
-    return value as Record<string, unknown>;
+    return memoryField('metadata', checkMemoryMetadata(value));
   }
 
   normalizeMemoryTags(value: unknown): string[] {
-    if (value === null || value === undefined) return [];
-    if (!Array.isArray(value)) {
-      throw new ValidationError('Validation failed', {
-        extra: { errors: { tags: ['tags must be an array of strings'] } },
-      });
-    }
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const tag of value) {
-      if (typeof tag !== 'string') {
-        throw new ValidationError('Validation failed', {
-          extra: { errors: { tags: ['tags must be strings'] } },
-        });
-      }
-      const t = tag.trim();
-      if (!t) continue;
-      if (t.length > MEMORY_MAX_TAG_LENGTH) {
-        throw new ValidationError('Validation failed', {
-          extra: { errors: { tags: [`tag "${t}" is longer than ${MEMORY_MAX_TAG_LENGTH} characters`] } },
-        });
-      }
-      const k = t.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(t);
-    }
-    if (out.length > MEMORY_MAX_TAGS) {
-      throw new ValidationError('Validation failed', {
-        extra: { errors: { tags: [`no more than ${MEMORY_MAX_TAGS} tags allowed`] } },
-      });
-    }
-    return out;
+    return memoryField('tags', checkMemoryTags(value));
   }
 
   /** REST GETs deliver flags as query strings; MCP tools deliver real booleans. */

@@ -6,6 +6,7 @@ import type { Engine } from '../util/engine.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINES } from '../util/engine.js';
 import { ENGINE_DISABLED_FLAGS } from './engine-switch.js';
 import { COMMUNICATOR_MIN_API_KEY, communicatorApiLevels } from './communicator-api-version.js';
+import { AUTO_UPDATE_ENABLED_KEY, fleetAutoUpdateEnabled } from './settings.js';
 import {
   coerceGrokVersionToMinimum,
   coerceKimiVersionToMinimum,
@@ -246,7 +247,7 @@ export function createVersionSnapshotService(deps: VersionSnapshotDeps): Version
         wrapper_url: get(`wrapper_url${suffix}`) ?? get('wrapper_url') ?? null,
         runner_state: get(engine === ENGINE_CODEX ? 'runner_state' : `runner_state_${engine}`) ?? null,
         api_disabled: flagValue(get('api_disabled'), false),
-        auto_update_enabled: flagValue(get('auto_update_enabled'), false),
+        auto_update_enabled: fleetAutoUpdateEnabled(get(AUTO_UPDATE_ENABLED_KEY)),
         cdx_silent: flagValue(get('cdx_silent'), false),
         clx_silent: flagValue(get('clx_silent'), false),
         cgx_silent: flagValue(get('cgx_silent'), false),

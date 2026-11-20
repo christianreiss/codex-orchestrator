@@ -611,6 +611,43 @@ function toCanonicalPayloadRow(row: typeof authPayloads.$inferSelect): Canonical
   };
 }
 
+/** Enabled provider accounts of `engine`: the pool a lease draws from. */
+export async function enabledProviderAccountIds(db: Pick<Database, 'select'>, engine: Engine): Promise<number[]> {
+  const owner = ownerRuntimeFor(db);
+  if (owner) {
+    owner.assertOwner();
+    return owner.state.snapshot().accounts.by('engine', engine).filter((a) => a.state === 'enabled').map((a) => a.id);
+  }
+  const rows = await db
+    .select({ id: providerAccounts.id })
+    .from(providerAccounts)
+    .where(and(eq(providerAccounts.engine, engine), eq(providerAccounts.state, 'enabled')));
+  return rows.map((row) => row.id);
+}
+
+/**
+ * The credential an admin surface describes for `engine` (Dashboard runner
+ * badge and login expiry, "Run verification"). The accountless head is a
+ * compatibility pointer for pre-account wrappers: it stays on the account
+ * that created it and resolves to null once that account is paused or
+ * removed, while leases keep serving the other enabled accounts
+ * (API-AUTH-02). So: the head while it is verified; otherwise the newest
+ * verified payload among `accountIds`; otherwise whatever the head resolved
+ * to, so a failed head still shows its verdict and expiry.
+ */
+export async function resolvePooledCanonicalPayload(
+  validation: Pick<RunnerValidationService, 'resolveCanonicalPayload'>,
+  engine: Engine,
+  accountIds: number[],
+): Promise<CanonicalPayloadRow | null> {
+  const head = await validation.resolveCanonicalPayload(engine);
+  if (head?.verificationState === 'verified') return head;
+  const pooled = (await Promise.all(accountIds.map((id) => validation.resolveCanonicalPayload(engine, id))))
+    .filter((row): row is CanonicalPayloadRow => row?.verificationState === 'verified')
+    .sort(compareCanonicalRowsNewestFirst);
+  return pooled[0] ?? head;
+}
+
 export function compareCanonicalRowsNewestFirst(a: CanonicalPayloadRow, b: CanonicalPayloadRow): number {
   const aNanos = parseRfc3339Nanos(a.lastRefresh);
   const bNanos = parseRfc3339Nanos(b.lastRefresh);

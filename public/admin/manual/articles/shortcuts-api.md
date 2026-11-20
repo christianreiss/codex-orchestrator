@@ -2,7 +2,7 @@
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
 verified: 2026-10-17
-sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/projects-mcp/index.ts, api/src/routes/agent-portal/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/routes/agent-messaging/index.ts, api/src/routes/admin/memories/index.ts, api/src/routes/admin/secrets/index.ts, api/src/routes/admin/git-director/index.ts, api/src/routes/admin/transfers/index.ts, api/src/routes/admin/agent-sessions/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/grok-v1/index.ts, api/src/services/api-surfaces.ts, api/src/services/gateway-backends.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/services/claude-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
+sources: api/src/routes/index.ts, api/src/routes/host-api/index.ts, api/src/routes/projects-mcp/index.ts, api/src/routes/agent-portal/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/routes/agent-messaging/index.ts, api/src/routes/admin/memories/index.ts, api/src/routes/admin/secrets/index.ts, api/src/routes/admin/git-director/index.ts, api/src/routes/admin/transfers/index.ts, api/src/routes/admin/agent-sessions/index.ts, api/src/routes/admin/project-board/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/routes/admin-auth-users/index.ts, api/src/routes/admin-overview-settings/index.ts, api/src/routes/admin-content/index.ts, api/src/routes/admin/auth/index.ts, api/src/routes/admin/setup/index.ts, api/src/routes/admin/hosts/index.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/overview/index.ts, api/src/routes/admin/users/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/routes/admin/projects/index.ts, api/src/routes/admin/manual/index.ts, api/src/routes/auth/index.ts, api/src/routes/host/index.ts, api/src/routes/install/index.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/mcp/index.ts, api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/grok-v1/index.ts, api/src/services/api-surfaces.ts, api/src/services/gateway-backends.ts, api/src/routes/projects-client/index.ts, api/src/routes/health.ts, api/src/ws/server.ts, api/src/services/openai-keys.ts, api/src/routes/admin/keys/gateway-keys.ts, api/src/services/claude-frontmatter.ts, api/src/db/schema.ts, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts
 ---
 
 Two reference tables, pulled from the code as of this manual's verified date.
@@ -86,7 +86,7 @@ Existing keys and older API callers that omit `backend_engine` retain endpoint-d
 
 ## Admin HTTP routes
 
-`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install), `projects-mcp` (host-facing projects/memories/skills plus `/mcp`), `wrapper-v2`, `agent-portal`, `agent-messaging`, `v1` (`/v1/*`), `anthropic-v1` (`/anthropic/v1/*`), `admin/keys` (OpenAI and Claude key admin), `grok-v1` (`/grok/v1/*`), `admin/grok` (Grok gateway admin + Grok keys), `admin-auth-users`, `admin/hosts`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects/skill sources), `admin/memories`, `admin/secrets`, `admin/git-director`, `admin/transfers`, `admin/agent-sessions`, `admin/project-board`, and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted, and every one of them additionally names a capability in `api/src/security/route-capabilities.ts` — see [Roles and capabilities](/admin/manual/roles).
+`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install), `projects-mcp` (host-facing skills/agents/config sync plus `/mcp`), `wrapper-v2`, `agent-portal`, `agent-messaging`, `v1` (`/v1/*`), `anthropic-v1` (`/anthropic/v1/*`), `admin/keys` (OpenAI and Claude key admin), `grok-v1` (`/grok/v1/*`), `admin/grok` (Grok gateway admin + Grok keys), `admin-auth-users`, `admin/hosts`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects/skill sources), `admin/memories`, `admin/secrets`, `admin/git-director`, `admin/transfers`, `admin/agent-sessions`, `admin/project-board`, and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted, and every one of them additionally names a capability in `api/src/security/route-capabilities.ts` — see [Roles and capabilities](/admin/manual/roles).
 
 ### Admin auth + passkeys
 
@@ -132,16 +132,13 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/hosts/register` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/quick-register` | api/src/routes/admin/hosts/index.ts |
 | GET | `/admin/hosts/:id/detail` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/hosts/:id/auth` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/installer` | api/src/routes/admin/hosts/index.ts |
 | DELETE | `/admin/hosts/:id` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/engines` | api/src/routes/admin/hosts/index.ts |
-| POST | `/admin/hosts/:id/clear` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/roaming` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/release-ip-binding` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/secure` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/vip` | api/src/routes/admin/hosts/index.ts |
-| POST | `/admin/hosts/:id/scaling-exempt` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/auto-update` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/insecure/enable` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/insecure/disable` | api/src/routes/admin/hosts/index.ts |
@@ -179,7 +176,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/insecure-approval` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/quota-mode` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/prune-policy` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/scaling` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/settings` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/grok/version` | api/src/routes/admin/settings/index.ts |
@@ -300,7 +296,7 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 | POST | `/admin/grok/keys/:id/toggle` | api/src/routes/admin/grok/index.ts |
 | DELETE | `/admin/grok/keys/:id` | api/src/routes/admin/grok/index.ts |
 
-`POST /admin/openai/keys`, `POST /admin/claude/keys`, and `POST /admin/grok/keys` accept `{ name, expires_at? }` and return `{ key, record }`. The `key` field contains the full plaintext key and is only present in this response — it is never returned again. All mutations publish WebSocket events (`apikey.created`, `apikey.toggled`, `apikey.deleted`) so connected admin clients invalidate their cache automatically.
+`POST /admin/openai/keys`, `POST /admin/claude/keys`, `POST /admin/grok/keys` and `POST /admin/kimi/keys` accept `{ name, expires_at?, backend_engine? }` and return `{ key, record }`; all four surfaces share one implementation, so a malformed body, a non-RFC3339 `expires_at`, a toggle without a boolean `active` or a non-numeric id is `400 invalid_request` on each of them. The `key` field contains the full plaintext key and is only present in this response — it is never returned again. All mutations publish WebSocket events (`apikey.created`, `apikey.toggled`, `apikey.deleted`) so connected admin clients invalidate their cache automatically.
 
 ### Admin Grok gateway
 
@@ -371,7 +367,7 @@ The host-facing relay and session bus routes (`/host/agent-relays/*`, `/host/age
 
 ### Admin projects
 
-Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mirrors the host-facing `/projects/*` surface in `api/src/routes/projects-client/index.ts` (registered by the `projects-mcp` barrel alongside `api/src/routes/mcp/index.ts`). See [projects](/admin/manual/projects) for the full shape — the host-facing `/projects/*` routes aren't re-listed in the tables above for that reason. The project board (`GET/POST /admin/project-board/state`, `GET /admin/projects/:slug/board`, and the `/admin/projects/:slug/board/cards*` and `/columns/:id` mutations) is registered separately from `api/src/routes/admin/project-board/index.ts`.
+Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and agents reach the same project service through MCP (`project_*` tools in `api/src/routes/mcp/index.ts`); there is no host REST mirror. See [projects](/admin/manual/projects) for the full shape. The project board (`GET/POST /admin/project-board/state`, `GET /admin/projects/:slug/board`, and the `/admin/projects/:slug/board/cards*` and `/columns/:id` mutations) is registered separately from `api/src/routes/admin/project-board/index.ts`.
 
 ### Admin manual
 
@@ -416,20 +412,6 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 | GET | `/skills` | api/src/routes/projects-client/index.ts |
 | POST | `/skills/retrieve` | api/src/routes/projects-client/index.ts |
 | POST | `/skills/store` | api/src/routes/projects-client/index.ts |
-| POST | `/mcp/memories/store` | api/src/routes/projects-client/index.ts |
-| POST | `/mcp/memories/retrieve` | api/src/routes/projects-client/index.ts |
-| POST | `/mcp/memories/search` | api/src/routes/projects-client/index.ts |
-| POST | `/mcp/memories/delete` | api/src/routes/projects-client/index.ts |
-| DELETE | `/mcp/memories/:id` | api/src/routes/projects-client/index.ts |
-| GET | `/shared-memories` | api/src/routes/projects-client/index.ts |
-| GET | `/shared-memories/:slug` | api/src/routes/projects-client/index.ts |
-| DELETE | `/shared-memories/:slug` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/list` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/read` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/search` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/write` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/append` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/delete` | api/src/routes/projects-client/index.ts |
 | GET | `/healthz` | api/src/routes/health.ts |
 | GET | `/readyz` | api/src/routes/health.ts |
 
@@ -461,11 +443,11 @@ Each of the three surfaces is served by a backend engine chosen in **Access → 
 - api/src/routes/grok-v1/index.ts (mounts the `/v1` handlers under `/grok` for the Grok gateway)
 - api/src/routes/admin/grok/index.ts (Grok keys, gateway state, default model, model toggles, client config)
 - api/src/services/grok-models.ts (Grok catalog and per-model gateway switches)
-- api/src/routes/projects-client/index.ts (host-facing `/projects/*`, mirrored by the admin projects routes)
+- api/src/routes/projects-client/index.ts (host-facing `/skills`, `/agents/retrieve`, `/config/retrieve`, `/claude/:kind*`)
 - api/src/routes/mcp/index.ts (MCP JSON-RPC)
 - api/src/routes/health.ts (liveness/readiness probes)
 - api/src/ws/server.ts (admin websocket)
-- api/src/services/openai-keys.ts, api/src/services/claude-keys.ts (key prefixes and auth)
+- api/src/services/openai-keys.ts, api/src/routes/admin/keys/gateway-keys.ts (key prefixes, validation and auth)
 - api/src/services/claude-frontmatter.ts (`:kind` normalization for Claude artifacts)
 - api/src/db/schema.ts (openai_api_keys table schema)
 - frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/KeysList.svelte (API keys section of the Access page)

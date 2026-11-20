@@ -165,8 +165,8 @@ export const NAV: NavItem[] = [
   },
   {
     id: "limits", group: "providers", route: "/limits", label: "Usage limits",
-    description: "Quota enforcement, quota warnings and usage-based scaling",
-    keywords: ["quota", "limit", "usage", "scaling", "tiers", "warnings", "resume", "provider recommendation", "hard", "soft"], icon: Gauge,
+    description: "Quota enforcement, quota warnings and provider recommendations",
+    keywords: ["quota", "limit", "usage", "warnings", "resume", "provider recommendation", "hard", "soft"], icon: Gauge,
   },
   {
     id: "library", group: "library", route: "/library", label: "Library",
