@@ -62,7 +62,7 @@ export function claudeCanonicalModelId(value: string): string {
  * Per-model metadata surfaced by the Models API: human-readable name, context
  * window (`max_input_tokens`) and output cap (`max_tokens`), from the registry.
  * The `capabilities` tree the upstream API also returns is deliberately not
- * synthesised here — see docs/API.md.
+ * synthesised here — see docs/interface-api.md (Anthropic-compatible API).
  */
 export const CLAUDE_MODEL_METADATA = Object.fromEntries(registryModels('claude').flatMap((entry) =>
   entry.api ? [[entry.id, { displayName: `Claude ${entry.label}`, maxInputTokens: entry.api.maxInputTokens, maxTokens: entry.api.maxTokens }]] : [],
