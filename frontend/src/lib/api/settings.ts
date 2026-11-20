@@ -36,7 +36,6 @@ import type {
   ModelDefaultsValue,
   QuotaModeValue,
   ReverseDnsValue,
-  ScalingStatus,
 } from "./types";
 import { claudeSettingsKeys } from "./claudeSettings";
 
@@ -528,29 +527,6 @@ export function quotaModeMutation(opts: MutationOpts<QuotaModeValue, Partial<Quo
     ...opts,
     onSettled: (...args) => {
       void qc.invalidateQueries({ queryKey: quotaModeQueryKey });
-      opts.onSettled?.(...args);
-    },
-  });
-}
-
-/* ────────────────────────── 10. Scaling ──────────────────────────── */
-
-export const scalingQueryKey = ["settings", "scaling"] as const;
-
-export function scalingQuery() {
-  return createQuery<ScalingStatus>({
-    queryKey: scalingQueryKey,
-    queryFn: () => api.get<ScalingStatus>("/admin/scaling"),
-  });
-}
-
-export function scalingMutation(opts: MutationOpts<ScalingStatus, unknown> = {}) {
-  const qc = useQueryClient();
-  return createMutation<ScalingStatus, Error, unknown>({
-    mutationFn: (payload) => api.post<ScalingStatus>("/admin/scaling", payload),
-    ...opts,
-    onSettled: (...args) => {
-      void qc.invalidateQueries({ queryKey: scalingQueryKey });
       opts.onSettled?.(...args);
     },
   });

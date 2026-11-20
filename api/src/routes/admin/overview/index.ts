@@ -33,7 +33,6 @@ import { hostEngineReadiness } from '../../../services/host-engine-readiness.js'
 import { ClientVersionsService, isClientVersionStale } from '../../../services/client-versions.js';
 import { ChatGptUsageService } from '../../../services/chatgpt-usage.js';
 import { DashboardStatsService } from '../../../services/dashboard-stats.js';
-import { UsageScalingService } from '../../../services/usage-scaling.js';
 import {
   RunnerProxyService,
   assertNoRunRequestFields,
@@ -210,7 +209,6 @@ export async function registerAdminOverviewRoutes(
     runnerValidation,
   });
   const dashboard = new DashboardStatsService(ctx.db);
-  const scaling = new UsageScalingService(settings);
   const authStore = createCanonicalAuthStoreService({
     db: ctx.db,
     keyring: ctx.keyring,
@@ -279,7 +277,6 @@ export async function registerAdminOverviewRoutes(
       clientVersionLock,
       claudeApiDisabled,
       claudeDefaultModel,
-      scalingStatus,
     ] = await Promise.all([
       settings.getFlag('quota_hard_fail', true),
       settings.getInt('quota_limit_percent', 95),
@@ -293,7 +290,6 @@ export async function registerAdminOverviewRoutes(
       settings.getWithMeta('client_version_lock'),
       settings.getFlag('claude_api_disabled', false),
       settings.getString('claude_default_model', CLAUDE_DEFAULT_MODEL),
-      scaling.currentStatus(),
     ]);
 
     // Version distribution — derived from hostRows already in scope, no extra queries.
@@ -384,7 +380,6 @@ kimi_version_stale: isClientVersionStale(kimiAvailable?.fetched_at),
       inactivity_window_days: inactivityWindowDays,
       client_version_lock: clientVersionLock.value,
       client_version_lock_updated_at: clientVersionLock.updatedAt,
-      scaling: scalingStatus,
       claude_api_disabled: claudeApiDisabled,
       claude_default_model: claudeDefaultModel,
       fleet_disabled_engines: disabledEngines(await readFleetEngineState(ctx.db)),
@@ -473,7 +468,6 @@ kimi_version_stale: isClientVersionStale(kimiAvailable?.fetched_at),
           secure: h.secure === 1,
           vip: h.vip === 1,
           allow_roaming_ips: h.allowRoamingIps === 1,
-          scaling_exempt: h.scalingExempt === 1,
           curl_insecure: h.curlInsecure === 1,
           browseros_mcp_enabled: h.browserosMcpEnabled === 1,
           wrapper_canary: h.wrapperCanary === 1,

@@ -25,13 +25,13 @@ Use these canonical destinations from the sidebar or command palette:
 | Destination | URL | Contents |
 |---|---|---|
 | **Engines** | `/engines` | Engine master switches (Codex, Claude, Grok on/off for the whole fleet), then Codex, Claude, Grok and Kimi Code tabs with each engine's state and usage, default model and effort, the **Only current models** policy, the CLI version, and a collapsed **Advanced** block (native settings, Codex silent mode and compaction, Claude client settings). |
-| **Usage limits** | `/limits` | Quota enforcement (`#quota-enforcement`), quota warnings, provider recommendations and usage-based scaling (`#scaling-rules`). |
+| **Usage limits** | `/limits` | Quota enforcement (`#quota-enforcement`), quota warnings and provider recommendations. |
 | **Settings** | `/settings` | Fleet-wide behaviour in four tabs, chosen with `?group=` (a link to any row, such as `/settings#agent-coordination`, opens the tab that holds it). **Hosts** (`hosts`): update hosts automatically (auto-update), look up host names (reverse DNS), allow temporary-access requests (insecure approval), let agents set up new hosts, and remove inactive hosts. **Agents** (`agents`): agent sessions, API keys pasted in chat, the model-tier self-check, subagent model selection, role checks (authorization mode), agent coordination, the agent supervisor switch and Chatty. **Rollout & tools** (`rollout`): the host-agent rollout (a switch, plus halt, resume, promote and release-to-all, each behind a confirmation), the communicator API level (read only) and command output filtering (RTK). **Retention** (`retention`): local session housekeeping, then server history retention (preview before run). Settings that individual hosts can override show a badge: **N hosts override** links to Hosts; **Every host follows this** means none does. |
 | **API keys** (in Access & Settings) | `/api-keys` | Issued keys first; **Configure** opens *Service availability & routing*: the **Routing** table, **Backend defaults**, and the global **All API traffic** control. |
 
 Each engine's section on Engines (`/engines#codex-defaults`, `#claude-defaults`, `#grok-defaults`; the former Quick Settings page redirects to `/engines#defaults`) saves the default model and effort immediately ("Selections save automatically"). Selecting a model also selects its catalog default effort; only supported effort levels appear, and models without effort support show **No effort setting**. A failed save restores the confirmed selection and refreshes the server state before another change, and a failed read offers **Retry** (for example *Retry Codex defaults*). Clients receive defaults on their next sync; per-host exceptions (host overrides) take precedence.
 
-Rarely changed settings sit in each engine's collapsed **Advanced** disclosure, which opens by itself when a link such as `/engines#claude-client` points inside it. **Usage limits** is `/limits#quota-enforcement`, **Usage-based scaling** is `/limits#scaling-rules`, and **Host agent rollout** is `/settings?group=rollout#cxx-rollout`. Old Engines anchors redirect to these owners. The **Per-host exceptions** button in the page header opens Hosts, where individual model and version choices take precedence over fleet defaults.
+Rarely changed settings sit in each engine's collapsed **Advanced** disclosure, which opens by itself when a link such as `/engines#claude-client` points inside it. **Usage limits** is `/limits#quota-enforcement` and **Host agent rollout** is `/settings?group=rollout#cxx-rollout`. Old Engines anchors redirect to these owners. The **Per-host exceptions** button in the page header opens Hosts, where individual model and version choices take precedence over fleet defaults.
 
 Old `/settings?tab=…`, `/policies`, `/quick-settings`, and `/authoring/settings` bookmarks redirect to the corresponding destination (`/authoring/settings` goes to `/engines#claude-client`).
 
@@ -131,10 +131,6 @@ The Codex on/off switch is under **Engine master switches** above. `POST /admin/
 | `week_partition` | string: `'off'` \| `'5'` \| `'7'` | Rolling window length (off, 5-day, or 7-day). |
 | `hard_fail` | boolean | Whether exceeding the quota hard-blocks the host. |
 | `limit_percent` | integer 50–100 (default 95) | Percentage of the quota ceiling that triggers enforcement. |
-
-#### Scaling
-
-`GET /admin/scaling`, `POST /admin/scaling` — configures `UsageScalingService` rules (`api/src/services/usage-scaling.ts`).
 
 ### Claude
 
@@ -412,7 +408,6 @@ The following variables are read from the process environment at startup. They c
 - `api/src/services/client-config.ts`, `api/src/services/config-normalizer.ts`
 - `api/src/services/client-versions.ts` — version lock read/write shape (no `locked` request field)
 - `api/src/services/host-auth.ts` — `pruneInactiveHosts`; confirms the prune-policy setting has no scheduled caller
-- `api/src/services/usage-scaling.ts`
 
 ### Session housekeeping
 

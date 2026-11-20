@@ -71,7 +71,7 @@ registry covers hosts, provider accounts, engine switches, models/configuration,
 skills, fleet instructions, Claude artifacts, projects, notes, board cards, shared
 memory, users, gateway-key state, metadata, schedules and watchdog suspension.
 It also reads workflow runs and manages workflow definitions, agent roles and
-proposals, fleet/account quota policies, quota advice/scaling, server retention,
+proposals, fleet/account quota policies, quota advice, server retention,
 and fleet supervisor configuration, and lists external clients (read-only).
 Supervisor diagnostics and pause controls are available; no tool launches an
 agent or enables individual task recovery.

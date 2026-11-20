@@ -411,27 +411,6 @@ export function fixture(pathname: string): Record<string, unknown> {
       };
     case "/admin/quota-mode":
       return { hard_fail: true, limit_percent: 95, week_partition: 7 };
-    case "/admin/scaling":
-      return {
-        enabled: true,
-        rules: {
-          enabled: true,
-          tiers: [
-            {
-              at_percent: 75,
-              lane: "spark",
-              reasoning_effort: "high",
-              model: "gpt-5.6-sol",
-            },
-          ],
-        },
-        active_tier: {
-          at_percent: 75,
-          lane: "spark",
-          reasoning_effort: "high",
-          model: "gpt-5.6-sol",
-        },
-      };
     case "/admin/overview":
       return {
         totals: { hosts: 2 },

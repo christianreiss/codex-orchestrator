@@ -36,7 +36,6 @@ export function tabEngineForHash(hash: string): AnchorEngine | null {
 /** Sections that used to live on /engines and moved; the hash keeps its name on the new page. */
 const MOVED_ANCHORS: Record<string, string> = {
   "quota-enforcement": "/limits",
-  "scaling-rules": "/limits",
   "cxx-rollout": "/settings",
   chatty: "/settings",
 };

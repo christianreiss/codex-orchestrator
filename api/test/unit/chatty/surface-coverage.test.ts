@@ -37,7 +37,6 @@ describe('Chatty admin surface coverage', () => {
       'quota_policy_update',
       'account_quota_policy_update',
       'quota_mode_update',
-      'quota_scaling_update',
     ]) {
       expect(
         tools.find((tool) => tool.name === name),

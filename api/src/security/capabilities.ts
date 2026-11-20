@@ -79,11 +79,6 @@ export const CAPABILITIES = [
   // Uploading canonical credentials, minting seed commands, and driving the
   // runner's verification path.
   'auth.manage',
-  // Reading a stored canonical credential *body* back out — the live token the
-  // fleet distributes to hosts. Separate from `auth.manage`, and stricter:
-  // uploading a new credential and reading the current one back are different
-  // risks, and the second is the one that walks out the door.
-  'auth.reveal_credential',
 
   // Provider API keys (OpenAI, Anthropic). Separate from `settings.manage`
   // because these are billable bearer credentials, not preferences.
@@ -164,10 +159,9 @@ export function isCapability(value: string): value is Capability {
  * one's own account. `viewer` and the legacy `user` role hold exactly this and
  * nothing else.
  *
- * Note what is *not* here: `secrets.reveal`, `auth.reveal_credential`,
- * `agent_portal.reveal_transcript` and
+ * Note what is *not* here: `secrets.reveal`, `agent_portal.reveal_transcript` and
  * `agent_messaging.reveal_content`. Each returns bearer material or private
- * content, so each is a grant of its own even though all four read.
+ * content, so each is a grant of its own even though all three read.
  */
 const READ_ONLY: readonly Capability[] = [
   'admin.read',

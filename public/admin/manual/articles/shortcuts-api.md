@@ -132,16 +132,13 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/hosts/register` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/quick-register` | api/src/routes/admin/hosts/index.ts |
 | GET | `/admin/hosts/:id/detail` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/hosts/:id/auth` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/installer` | api/src/routes/admin/hosts/index.ts |
 | DELETE | `/admin/hosts/:id` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/engines` | api/src/routes/admin/hosts/index.ts |
-| POST | `/admin/hosts/:id/clear` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/roaming` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/release-ip-binding` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/secure` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/vip` | api/src/routes/admin/hosts/index.ts |
-| POST | `/admin/hosts/:id/scaling-exempt` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/auto-update` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/insecure/enable` | api/src/routes/admin/hosts/index.ts |
 | POST | `/admin/hosts/:id/insecure/disable` | api/src/routes/admin/hosts/index.ts |
@@ -179,7 +176,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/insecure-approval` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/quota-mode` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/prune-policy` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/scaling` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/settings` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/grok/version` | api/src/routes/admin/settings/index.ts |

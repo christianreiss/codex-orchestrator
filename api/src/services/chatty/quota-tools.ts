@@ -8,7 +8,6 @@ import { SettingsService } from '../settings.js';
 import { ProviderAccountsService } from '../provider-accounts.js';
 import { quotaPolicySchema, quotaPolicyKey, readQuotaPolicy, DEFAULT_QUOTA_POLICY } from '../quota-policy.js';
 import { readQuotaAdvice, parseQuotaAdvice, QUOTA_ADVICE_KEY } from '../quota-advice.js';
-import { UsageScalingService } from '../usage-scaling.js';
 import { wsPublisher } from '../../ws/publisher.js';
 import { engineSchema } from './contracts.js';
 import { define } from './tool-definition.js';
@@ -33,34 +32,8 @@ const modeShape = {
   week_partition: z.enum(['off', '5', '7']),
   advice: adviceSchema.optional(),
 };
-const scalingShape = {
-  enabled: z.boolean(),
-  tiers: z.array(
-    z
-      .object({
-        at_percent: z.number().min(0).max(100),
-        lane: z.enum(['normal', 'spark']).optional(),
-        reasoning_effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']).optional(),
-        model: z.string().nullable().optional(),
-      })
-      .strict(),
-  ),
-};
 const modeKeys = ['quota_hard_fail', 'quota_limit_percent', 'quota_week_partition', QUOTA_ADVICE_KEY];
 const settings = (c: ToolContext) => new SettingsService(c.db);
-const scaling = (c: ToolContext) => new UsageScalingService(settings(c));
-/** Reuse canonical scaling validation without issuing a separate settings command. */
-class ScalingDraftSettings extends SettingsService {
-  private rules: string | null = null;
-  override async set(key: string, value: string): Promise<void> {
-    if (key !== 'usage_scaling_rules') throw new Error('Unexpected scaling setting');
-    this.rules = value;
-  }
-  override async getRaw(key: string): Promise<string | null> {
-    if (key !== 'usage_scaling_rules') throw new Error('Unexpected scaling setting');
-    return this.rules;
-  }
-}
 const account = (c: ToolContext, accountId: number) =>
   new ProviderAccountsService(c.db, c.keyring).get(accountId);
 async function rawSnapshot(c: ToolContext, keys: string[]) {
@@ -260,36 +233,6 @@ export function quotaTools(): ChattyTool[] {
         confirm: true,
         snapshot: (c) => rawSnapshot(c, [QUOTA_ADVICE_KEY]),
         href: () => '/admin/limits#quota-enforcement',
-      },
-    ),
-    define(
-      'quota_scaling_read',
-      'Read usage scaling rules; no provider refresh or host mutation.',
-      'settings.read',
-      {},
-      (c) => scaling(c).currentStatus(),
-    ),
-    define(
-      'quota_scaling_update',
-      'Replace usage scaling rules. This stores policy and does not launch host work.',
-      'settings.manage',
-      scalingShape,
-      async (c, a) => {
-        const staged = new UsageScalingService(new ScalingDraftSettings(c.db));
-        const errors = await staged.storeRules(a);
-        if (errors.length) throw new ConflictError(errors.join('; '));
-        const result = await staged.currentStatus();
-        return store(
-          c,
-          'admin.scaling',
-          { usage_scaling_rules: JSON.stringify(result.rules) },
-          { ...result },
-        );
-      },
-      {
-        confirm: true,
-        snapshot: (c) => rawSnapshot(c, ['usage_scaling_rules']),
-        href: () => '/admin/limits#scaling-rules',
       },
     ),
   ];

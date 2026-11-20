@@ -20,7 +20,6 @@ const SETTINGS_SECTION_DESTINATIONS: Record<string, string> = {
   "claude-version": "/engines#claude-defaults",
   "cdx-silent": "/engines#codex-defaults",
   quotas: "/limits#quota-enforcement",
-  scaling: "/limits#scaling-rules",
   "claude-fleet-settings": "/engines#claude-client",
   // Rows of the current Settings page (auto-update, reverse-dns, insecure-approval, prune-policy, ...)
   // are not listed: the page itself opens the tab that holds the hash (settings-anchors.ts).

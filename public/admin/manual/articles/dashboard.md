@@ -3,7 +3,7 @@ title: Dashboard
 summary: The Overview page and its Provider, Engines and Runner tabs, plus refresh recovery.
 section: Admin workspace
 verified: 2026-10-19
-sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/lib/components/dashboard/OnboardingNotice.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/UsageTable.svelte, frontend/src/lib/components/dashboard/EngineTable.svelte, frontend/src/lib/components/dashboard/RunnerStatus.svelte, frontend/src/lib/nav.ts, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
+sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/lib/components/dashboard/OnboardingNotice.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/UsageTable.svelte, frontend/src/lib/components/dashboard/EngineTable.svelte, frontend/src/lib/components/dashboard/RunnerStatus.svelte, frontend/src/lib/nav.ts, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard
@@ -55,7 +55,7 @@ remains readable until the configured retention period expires.
 
 ## Overview endpoint
 
-`GET /admin/overview` returns: host count (`totals.hosts`), the reported-install buckets under `version_distribution.install`, `last_refresh`, `avg_refresh_age_days`, version summaries for the codex, claude, and grok engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, and a full set of settings flags (quota thresholds, scaling status, theme, retention policy, client version lock, and others).
+`GET /admin/overview` returns: host count (`totals.hosts`), the reported-install buckets under `version_distribution.install`, `last_refresh`, `avg_refresh_age_days`, version summaries for the codex, claude, and grok engines, a `chatgpt_usage` snapshot and `chatgpt_usage_summary`, and a full set of settings flags (quota thresholds, theme, retention policy, client version lock, and others).
 
 ## Setup resume card
 
@@ -106,7 +106,6 @@ Failed first loads show an error and a retry control rather than a successful ze
 - api/src/routes/admin/overview/index.ts (`/admin/overview`, `/admin/logs`, `/admin/runner/*`, `/admin/toasts`)
 - api/src/services/chatgpt-usage.ts (quota fetch/cache/history, graph-snapshot write)
 - api/src/services/dashboard-stats.ts (recent/latest `logs` rows; unused `dashboard_graph_quota_snapshots` reader)
-- api/src/services/usage-scaling.ts (`scaling` field on `/admin/overview`; not rendered on the dashboard today)
 - api/src/db/schema.ts (`dashboard_graph_quota_snapshots`, `chatgpt_usage_snapshots`, `logs`)
 - frontend/src/routes/dashboard/+page.svelte (Overview layout and tabs)
 - frontend/src/lib/components/dashboard/OnboardingNotice.svelte (setup resume notice)

@@ -26,11 +26,9 @@ export function administrationProjection(
       ? [`quota_policy_account_${String(args.id)}`, `quota_policy_${account?.engine ?? ''}`]
       : name.startsWith('quota_policy_')
         ? [`quota_policy_${String(args.engine)}`]
-        : name.startsWith('quota_scaling_')
-          ? ['usage_scaling_rules']
-          : name.startsWith('quota_advice_')
-            ? ['quota_advice']
-            : ['quota_hard_fail', 'quota_limit_percent', 'quota_week_partition', 'quota_advice'];
+        : name.startsWith('quota_advice_')
+          ? ['quota_advice']
+          : ['quota_hard_fail', 'quota_limit_percent', 'quota_week_partition', 'quota_advice'];
     add('versions', (row) => keys.includes(String(row.name)));
   } else if (name.startsWith('workflow_')) {
     add('versions', (row) => ['workflows_enabled', 'agent_messaging_enabled'].includes(String(row.name)));

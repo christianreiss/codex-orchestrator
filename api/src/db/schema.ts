@@ -91,7 +91,6 @@ export const hosts = mysqlTable(
     reasoningEffortOverride: varchar('reasoning_effort_override', { length: 32 }),
     autoUpdateOverride: tinyint('auto_update_override'),
     lastCronCheck: varchar('last_cron_check', { length: 100 }),
-    scalingExempt: tinyint('scaling_exempt').notNull().default(0),
     engines: varchar('engines', { length: 32 }).notNull().default('codex'),
     claudeClientVersion: varchar('claude_client_version', { length: 64 }),
     claudeClientVersionOverride: varchar('claude_client_version_override', { length: 64 }),

@@ -779,7 +779,6 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `POST /admin/hosts/register` — owner/admin role required. Mint a host + single-use installer token for a given FQDN; calling it again for the same FQDN rotates that host’s API key, deletes prior pending installers, generation-fences any Agent Messaging runtime for the former credential, and issues a fresh one. Optional body `secure` (default `true`) marks the host as secure vs. insecure (ephemeral auth); optional body `vip` (default `false`) flags the host as VIP immediately (always warn on quota). Optional body `temporary` (boolean): when `true`, enables sliding expiry (2 hours since last successful host contact) by setting `expires_at`; each authenticated host request refreshes it. When `false`, clears any previous `expires_at`. Optional body `curl_insecure` (boolean): when `true`, bakes the host's signed wrapper config with `allow_insecure: true` (TLS verification bypass for sync), returns an installer command using `curl -k`, and makes the installer reuse `curl -k` for its own downloads. Optional body `daemon_enabled` (strict boolean) stores persistent-daemon enablement before returning the installer. New hosts use the canonical daemon defaults; re-registration changes only enablement, preserving the configured service user and limits. Omission preserves existing daemon configuration (new hosts remain disabled). The New Host/setup UI defaults this option off. Installation uses the existing Linux/systemd wrapper-sync path and requires root and eligible Agent Messaging; enablement alone is not readiness. A configuration/audit failure returns an error rather than installer success; host registration may already have occurred. Optional body `reverse_dns_mode` (`global` | `enabled` | `disabled`) sets the per-host override for reverse DNS enforcement. Optional body `engines` selects `codex`, `claude`, or both for the host and drives installer minting mode. Optional body `duration_minutes` (integer 0–480) applies when `secure=false` and sets the initial insecure window duration (and persisted `insecure_window_minutes`) for the new/rotated host; when omitted, insecure registration keeps the default 30-minute provisioning window and stored 10-minute extension duration. Installer tokens capture the public base URL (trusted Host/proto or `PUBLIC_BASE_URL`) and return installer metadata with `mode` (`codex`, `claude`, `both`) plus a human label; creation fails if no valid base is available.
 - `POST /admin/hosts/quick-register` — mint an insecure temporary throwaway host without a supplied FQDN. Body requires `engines` (any nonempty combination of `codex`, `claude`, `grok`, and `kimi`) and accepts optional `duration_minutes` (integer 0–480). The server generates a short `tmp-YYYYMMDD-HHMMSS-xxxxxx` name, sets `secure=false`, `vip=false`, `curl_insecure=false`, and `expires_at` to 2 hours ahead, then returns the same host + installer metadata shape as `/admin/hosts/register`.
 - `GET /admin/hosts/{id}/detail` — single-host detail card: the host row plus per-engine version summaries, available client versions, canonical auth metadata, and the global `auto_update_enabled` / `reverse_dns_enabled` / `inactivity_window_days` context. The host object carries `installer_used_at` / `installer_expires_at` from its latest install token (both `null` when none). Unknown ids return `404 host_not_found`. This is the JSON payload behind the `/admin/hosts/{id}` page.
-- `GET /admin/hosts/{id}/auth` — canonical digest/last refresh, recent digests, optional `auth` body (`?include_body=1`). Engine selection follows the same request-body/query/header resolution as host-facing routes and defaults to `codex`; the response includes the selected `engine`, engine-specific canonical digest/refresh, engine-scoped `recent_digests`, and the full host block still includes the Codex, Claude, Grok, and Kimi host fields (`last_refresh`/`auth_digest`, `claude_last_refresh`/`claude_auth_digest`, and `grok_last_refresh`/`grok_auth_digest`, each engine's client/wrapper version pair, `claude_client_version_override`, and `engines`).
 - `POST /admin/hosts/{id}/installer` — re-mint a single-use installer token for an existing host without rotating its API key. Optional body `engines` targets any combination of the four engines, and optional body `curl_insecure` atomically updates the host's curl-insecure flag before minting so the returned copied command reflects the visible Host Detail toggle state. When omitted, the installer uses the host's stored engine set and current `curl_insecure` flag. The endpoint deletes prior pending installer tokens for that host and returns `{host, installer}` with the same installer metadata shape as registration. Hosts whose encrypted API key is unavailable return `409 host_api_key_unavailable`.
 - `POST /admin/hosts/{id}/engines` — replace the host engine switch set. Body: `{engines:["codex"|"claude"|"grok"|"kimi", ...]}`; at least one engine is required. The stored value is canonicalized as a comma-separated list in `codex,claude,grok,kimi` order (for example `codex`, `claude,grok`, or `codex,claude,grok,kimi`). Disabled engines are rejected on host-facing engine-scoped routes with `403 engine_disabled`; the next successful `cdx`/`clx`/`cgx`/`ckx` run reconciles the peer wrappers locally.
 - `POST /admin/hosts/{id}/secure` — toggle the host’s security mode (`secure:
@@ -791,7 +790,6 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `POST /admin/wrapper/rollout/:action` — `halt` (optional `reason`), `resume` (restarts the current stage's soak), `promote` (next stage now) or `complete` (release to every host now); `hosts.manage`. Returns the status body; `409` when no rollout is active or halted. Halting never reverts an updated host.
 - `POST /admin/hosts/:id/wrapper-canary` — `{enabled: boolean}`; marks a host as a rollout canary (`hosts.manage`). A canary added during a rollout is admitted immediately.
 - `POST /admin/hosts/{id}/vip` — toggle VIP status (`vip: true` means quota kill switch is never enforced for this host; warn-only even when the global policy is deny).
-- `POST /admin/hosts/{id}/scaling-exempt` — toggle `scaling_exempt` so the host is ignored by the scaling rules read/written through `/admin/scaling`.
 - `POST /admin/hosts/{id}/auto-update` — set the per-host auto-update override. Body: `{override: true|false|null}`; `null` follows the fleet `/admin/auto-update` setting.
 - `POST /admin/hosts/{id}/browseros-mcp` — toggle BrowserOS MCP for one host. Body: `{ "browseros_mcp": true|false }`. When enabled, the next Codex config sync injects `[mcp_servers.browseros]` for `http://127.0.0.1:9000/mcp` and `cdx` shows a BrowserOS startup chip.
 - `POST /admin/hosts/{id}/insecure/enable` — for insecure hosts only; opens a sliding window where `/auth` calls are permitted. Optional JSON body `duration_minutes` sets the window length (integer 0–480, defaults to the last stored value or 10). Each `/auth` call extends the window by the configured duration.
@@ -815,7 +813,6 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `GET /admin/hosts/{id}/agents-extra` — read the host's optional extra agent instructions (`hosts.read`). Returns `{host_id, fqdn, content, size_bytes, sha256, max_bytes}`; `content` and `sha256` are `null` and `size_bytes` is `0` when none are set. `max_bytes` is the server cap (32768 UTF-8 bytes). The text is deliberately not part of `GET /admin/hosts` or the host detail payload.
 - `PUT /admin/hosts/{id}/agents-extra` — set or clear them (`hosts.manage`). Body: `{content: string|null}` (strict). The text is trimmed and CRLF is normalized to LF; blank or `null` clears it (`hosts.agents_extra = NULL`). More than 32768 bytes after trimming, NUL bytes or a non-string answer `422 validation_failed` (`param: content`). Same response shape as GET. Writes an `admin.host.agents_extra` audit entry carrying only `agents_extra_bytes` + `agents_extra_sha256` (or `cleared: true`), never the text, and publishes `host.updated`. Every engine's served document for this host changes on its next `/agents/retrieve` or bundled sync (see `POST /agents/retrieve`).
 - `POST /admin/hosts/{id}/agents-version` — set per-host AGENTS.md version override. Body: `{selection: "global"|<version_id>}` (or `agents_document_id_override` as a numeric/null). `global` clears the override and uses the fleet setting; selecting a version pins this host to a specific AGENTS.md revision.
-- `POST /admin/hosts/{id}/clear` — clears canonical auth state for the host across all four engines. It resets `last_refresh`/`auth_digest`, `claude_last_refresh`/`claude_auth_digest`, and `grok_last_refresh`/`grok_auth_digest`, deletes all `host_auth_states` rows for that host, and prunes all recent `host_auth_digests` rows for that host regardless of engine.
 - `DELETE /admin/hosts/{id}` — delete host + digests.
 - `POST /admin/auth/upload` — validate/store canonical `auth.json` (system or host-scoped). A configured, reachable runner and positive live verdict are mandatory.
 - `POST /admin/auth/seed-command` — mint a one-time seed command (`curl -fsSL ... | bash`) that uploads local canonical credentials to the server. Body accepts `{engine: "codex"|"claude"|"grok"|"kimi"}` and defaults to `codex`; Codex scripts read `~/.codex/auth.json`, while Claude scripts read `~/.claude/.credentials.json` including current Claude Code OAuth credentials. Grok scripts never read a live `~/.grok/auth.json`: they run a dedicated `grok login --device-auth` in a throwaway `GROK_HOME` and erase it after upload, because xAI rotates refresh tokens and a login must have exactly one refresher; `GROK_SEED_AUTH_PATH` explicitly opts into uploading an existing file nothing else will use. The script normalizes plain credential files by adding `last_refresh` when missing and prints server validation errors on upload failure. Returns `command`, `engine`, and `expires_at`. Tokens expire after `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900s). The server atomically reserves a token for one store attempt and releases it after ordinary validation/runner/store failure so the same recovery token can retry. An unsafe runner refresh/readback failure keeps the token consumed because the submitted refresh token may already be spent or its replacement may already be stored pending.
@@ -861,7 +858,6 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default). The Svelte console renders `auto`/`light`/`dark` as neutral system/light/dark modes; historical `auto-pink`, `bright-pink`, and `dark-pink` values remain accepted for compatibility and are normalized client-side. The selected value also rides along in the `/auth` `versions` block as `admin_theme`.
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean). Per-host `/admin/hosts/{id}/auto-update` overrides win over it.
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set how the capability matrix is enforced. Body `{mode: "compatible"|"strict"}`. The GET returns `{mode, updated_at, would_deny}`, where `would_deny` lists the distinct `{role, capability, route, first_seen, last_seen}` triples this installation served under `compatible` that `strict` would refuse — the answer to "what breaks if I switch", drawn from the fleet's own traffic over the last 30 days. Requires `security.manage_authorization`, which is enforced under **both** modes: `compatible` grants `settings.manage` to every role, so a posture any account could change would not be one. Migration `0022` sets `compatible` on installations that already had users and `strict` on fresh ones; see [ADMIN.md](ADMIN.md#roles--capabilities).
-- `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` through `/admin/hosts/{id}/scaling-exempt` are excluded.
 - `GET /admin/prune-policy` — `{inactivity_window_days}` (`settings.read`; default 30, clamped 0..60). Replaces the Settings page's former read of `/admin/overview`.
 - `GET /admin/settings/host-overrides` — `settings.read`; counts of hosts that override a fleet setting: `{auto_update, reverse_dns, rtk:{<engine>:n}, session_housekeeping:{<engine>:n}}`. Counts only, no host detail; rows of removed hosts are ignored. Backs the "N hosts override" badges on Settings.
 - `POST /admin/prune-policy` — set host inactivity pruning window. Body `{inactivity_days: 0..60}`.
@@ -1672,9 +1668,8 @@ capabilities: `GET /admin/agent-messaging/groups`, `POST /admin/agent-messaging/
 Server-created ones; same `409` while members remain; audited as
 `agent_messaging.group.deleted`),
 `GET /admin/agent-messaging/subscriptions`,
-`POST /admin/agent-messaging/groups/:slug/publish`, and
-`POST /admin/agent-messaging/publish` with the same publication body. Admins
-publish as Server to a group or the Server feed; they cannot force-subscribe an
+and `POST /admin/agent-messaging/publish` (the body names the group or Server-feed
+topic). Admins publish as Server to a group or the Server feed; they cannot force-subscribe an
 agent. `agent_messaging.groups.changed` and `agent_messaging.subscriptions.changed`
 invalidate the central admin queries. Listings expose metadata; plaintext
 delivery content retains the separate audited reveal capability.
@@ -2089,25 +2084,6 @@ that metadata; every mutation and plaintext reveal requires `owner` or `admin`:
   human alias.
 - `POST /admin/agent-messaging/addresses/{id}/enabled` — enable/disable one
   address; enabling rechecks every upstream gate.
-- `GET /admin/agent-messaging/conferences` — metadata for the newest rooms; optional
-  `status=open|adjourned` (`open` includes `adjourning`; omitted means all),
-  `limit=1..500` (default 100). Includes chair, active/total members and last activity.
-- `GET /admin/agent-messaging/conferences/{id}` — room metadata and all members,
-  including departed members, fleet-derived host/engine/presence, dispatch delivery
-  status/error, task deadline, last report, and message budget. The room PIN is omitted.
-- `GET /admin/agent-messaging/conferences/{id}/messages` — merged metadata timeline
-  from the members' stored conversation IDs, including ordinary replies. `limit=1..100`
-  defaults to 100; use either `before` or `after` with a positive safe integer
-  `dispatch_order` cursor. No cursor returns the latest page; `before` returns its
-  preceding page; `after` returns the next page. Each response is chronological and
-  includes `oldest_cursor`, `newest_cursor`, and `has_more` in the requested direction.
-- `POST /admin/agent-messaging/conferences/{id}/reveal` — body
-  `{ "message_ids": ["uuid", ...] }` (1..100 IDs); all IDs must belong to that room.
-  Returns those messages with decrypted `content`. Requires
-  `agent_messaging.reveal_content`; records `agent_messaging.conference.revealed`
-  with actor, room and message IDs only, without broadcast, and sets no-store headers.
-  Conference GETs require `agent_messaging.read`. These routes never claim,
-  acknowledge, sweep, or alter work, and remain usable when messaging is disabled.
 - `GET /admin/agent-messaging/conversations` — metadata listing, optionally
   filtered by status and bounded to 1..500.
 - `POST /admin/agent-messaging/conversations/{id}/cancel` — cancel an open
@@ -2746,7 +2722,6 @@ Read-only lookup surfaces (all use the same resolver):
 | --- | --- | --- |
 | `POST /host/agent-messaging/translate` | Host API key and host/IP/window policy; an active assigned engine | `{value: string}` |
 | `POST /host/agent-sessions/:id/agent-messaging/translate` | Session bridge token | `{value: string}` |
-| `GET /admin/agent-messaging/translate` | Admin session and `agent_messaging.read` | `?value=Claudia` |
 
 Response: `{name, uuid, address, session_id, status, started_at, ended_at,
 cooldown_until, direction}`. `direction` is `name_to_uuid` or `uuid_to_name`.
@@ -3193,7 +3168,7 @@ operation: `POST /admin/hosts/:id/engines`, `POST /admin/hosts/:id/auto-update`,
 and records no Chatty receipt for them.
 
 The typed administration registry includes confirmed mutations for workflow
-definitions, roles/proposals, quota policies/scaling, server retention and fleet
+definitions, roles/proposals, quota policies, server retention and fleet
 supervisor configuration. Workflow runs and recovery are observable; launching
 work, creating/reactivating schedules and activating task recovery remain
 excluded. Retention-run success is admission of an asynchronous product cleanup,
@@ -3403,7 +3378,6 @@ Attachment uploads use a caller-generated UUID, declared filename/MIME/size and 
 - `GET /admin/agent-sessions/:id/attachments/:attachmentId` — Return name, MIME, size, SHA-256, upload offset and processing status.
 - `GET /admin/agent-sessions/:id/attachments/:attachmentId/content` — Stream original or ?variant=transcript.json|frame-NN.jpg; optional inline=1 for safe media.
 - `DELETE /admin/agent-sessions/:id/attachments/:attachmentId` — Discard the authenticated author's unlinked upload.
-- `POST /admin/agent-sessions/:id/notices/resolve` — Resolve {notice_id,client_event_id} explicitly; admin/device authorization.
 - `POST /companion/v1/agents/:id/attachments` — Create/resume upload: {id,name,mime_type,size_bytes,sha256?}.
 - `POST /companion/v1/agents/:id/attachments/:attachmentId/chunks` — Upload {offset,content_b64}; returns persisted uploaded_bytes.
 - `POST /companion/v1/agents/:id/attachments/:attachmentId/seal` — Seal completed bytes after SHA-256 verification.
@@ -3818,7 +3792,7 @@ nothing older remains). The cursor is bound to `scope` and `room_id` (`422` othe
 stored or audited; the audit event `conversation_search.performed` records only scope
 and counts.
 
-Room directories on web, companion and agent bridges accept `view: active|history|all` (query parameter on GET; body field on bridge list), defaulting to `active`. History contains adjourned conferences once every retained roster member is offline, including resumable sessions; Active omits them. Presence uses the configured heartbeat freshness window and includes members already marked left. Expired open conferences use their effective adjourned state; open and adjourning rooms otherwise remain active. Filtering happens before pagination. This is read-only directory cleanup: conference records, messages and audited history reads remain available in History, the conference inspector and room read APIs.
+Room directories on web, companion and agent bridges accept `view: active|history|all` (query parameter on GET; body field on bridge list), defaulting to `active`. History contains adjourned conferences once every retained roster member is offline, including resumable sessions; Active omits them. Presence uses the configured heartbeat freshness window and includes members already marked left. Expired open conferences use their effective adjourned state; open and adjourning rooms otherwise remain active. Filtering happens before pagination. This is read-only directory cleanup: conference records, messages and audited history reads remain available in History and the room read APIs.
 
 ### Model catalog policy
 
