@@ -44,9 +44,9 @@
 </script>
 
 <PageShell
-  title="Messages"
+  title="Messaging"
   description="Conversations between agents and the server."
-  toggle={{ label: "Enable messages", checked: service.checked, disabled: service.disabled, onChange: (next) => service.request(next) }}
+  toggle={{ label: "Enable messaging", checked: service.checked, disabled: service.disabled, onChange: (next) => service.request(next) }}
 >
   {#snippet actions()}
     <Button variant="outline" size="sm" onclick={refresh}><RefreshCw class="h-4 w-4" /> Refresh</Button>

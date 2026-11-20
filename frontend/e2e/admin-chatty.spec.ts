@@ -45,43 +45,43 @@ test('Chatty gates availability, persists the conversation and confirms concrete
     return json({});
   });
   await page.goto('/admin/hosts');
-  await page.getByRole('button', { name: 'Chatty öffnen' }).click();
+  await page.getByRole('button', { name: 'Open Chatty' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('combobox')).toHaveCount(0);
-  const engines = dialog.getByRole('group', { name: 'Chatty Engine', exact: true });
-  const models = dialog.getByRole('group', { name: 'Chatty Modell', exact: true });
-  await expect(engines.getByRole('button', { name: 'Automatisch' })).toHaveAttribute('aria-pressed', 'true');
+  const engines = dialog.getByRole('group', { name: 'Chatty engine', exact: true });
+  const models = dialog.getByRole('group', { name: 'Chatty model', exact: true });
+  await expect(engines.getByRole('button', { name: 'Automatic' })).toHaveAttribute('aria-pressed', 'true');
   for (const name of ['Codex', 'Claude', 'Grok']) {
     const engine = engines.getByRole('button', { name, exact: true });
     await engine.click();
     await expect(engine).toHaveAttribute('aria-pressed', 'true');
-    await expect(models.getByRole('button', { name: 'Standardmodell' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(models.getByRole('button', { name: 'Default model' })).toHaveAttribute('aria-pressed', 'true');
     await models.getByRole('button', { name: 'Testmodell', exact: true }).click();
     await expect(models.getByRole('button', { name: 'Testmodell', exact: true })).toHaveAttribute('aria-pressed', 'true');
     expect(selection).toEqual({ engine: name.toLowerCase(), model: 'model' });
-    await models.getByRole('button', { name: 'Standardmodell' }).click();
-    await expect(models.getByRole('button', { name: 'Standardmodell' })).toHaveAttribute('aria-pressed', 'true');
+    await models.getByRole('button', { name: 'Default model' }).click();
+    await expect(models.getByRole('button', { name: 'Default model' })).toHaveAttribute('aria-pressed', 'true');
     expect(selection.model).toBe(null);
   }
-  await expect(models.getByRole('button', { name: 'Standardmodell' })).toBeEnabled();
+  await expect(models.getByRole('button', { name: 'Default model' })).toBeEnabled();
   await page.screenshot({ path: '/tmp/chatty-selection-buttons-desktop.png', animations: 'disabled' });
-  await engines.getByRole('button', { name: 'Automatisch' }).click();
+  await engines.getByRole('button', { name: 'Automatic' }).click();
   await expect(models).toHaveCount(0);
   expect(selection).toEqual({ engine: null, model: null });
-  await page.getByRole('textbox', { name: 'Nachricht an Chatty' }).fill('Lösche den Host test.example');
-  await page.getByRole('button', { name: 'Nachricht senden' }).click();
+  await page.getByRole('textbox', { name: 'Message to Chatty' }).fill('Lösche den Host test.example');
+  await page.getByRole('button', { name: 'Send message' }).click();
   await expect(page.getByText('Host test.example löschen')).toBeVisible();
   expect(decided).toBe(false);
   for (const button of await engines.getByRole('button').all()) await expect(button).toBeDisabled();
-  await page.getByText('Änderung ansehen').click();
+  await page.getByText('View change').click();
   await expect(dialog.getByText('"id": 42', { exact: false })).toBeVisible();
-  await page.getByRole('button', { name: 'Bestätigen', exact: true }).click();
-  await expect(page.getByText('Änderung ausgeführt')).toBeVisible();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByText('Change applied')).toBeVisible();
   expect(decided).toBe(true);
-  await page.getByRole('button', { name: 'Chatty minimieren' }).click();
-  await page.getByRole('button', { name: 'Chatty öffnen' }).click();
-  await expect(page.getByText('Änderung ausgeführt')).toBeVisible();
+  await page.getByRole('button', { name: 'Minimize Chatty' }).click();
+  await page.getByRole('button', { name: 'Open Chatty' }).click();
+  await expect(page.getByText('Change applied')).toBeVisible();
   await page.screenshot({ path: '/tmp/chatty-desktop-preview.png' });
   const audit = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
   expect(audit.violations).toEqual([]);
@@ -94,33 +94,33 @@ test('Chatty gates availability, persists the conversation and confirms concrete
   await longModel.focus();
   await longModel.press('Enter');
   await expect(longModel).toHaveAttribute('aria-pressed', 'true');
-  await expect(models.getByRole('button', { name: 'Standardmodell' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(models.getByRole('button', { name: 'Default model' })).toHaveAttribute('aria-pressed', 'false');
   await expect(longModel).toBeEnabled();
   expect(selection).toEqual({ engine: 'codex', model: 'model-large' });
   expect(await models.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: '/tmp/chatty-selection-buttons-mobile.png', animations: 'disabled' });
-  await page.getByRole('textbox', { name: 'Nachricht an Chatty' }).fill('Unsaved old draft');
-  await page.getByRole('button', { name: 'Neues Gespräch' }).click();
+  await page.getByRole('textbox', { name: 'Message to Chatty' }).fill('Unsaved old draft');
+  await page.getByRole('button', { name: 'New conversation' }).click();
   await expect.poll(() => cleared).toBe(1);
   await expect(page.getByRole('button', { name: 'Jetzt leeren' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Behalten' })).toHaveCount(0);
-  await expect(page.getByRole('textbox', { name: 'Nachricht an Chatty' })).toHaveValue('');
-  await expect(page.getByRole('textbox', { name: 'Nachricht an Chatty' })).toBeFocused();
-  await expect(page.getByText('Änderung ausgeführt')).toHaveCount(0);
-  await page.getByRole('textbox', { name: 'Nachricht an Chatty' }).fill('Neues Thema');
-  await page.getByRole('button', { name: 'Nachricht senden' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message to Chatty' })).toHaveValue('');
+  await expect(page.getByRole('textbox', { name: 'Message to Chatty' })).toBeFocused();
+  await expect(page.getByText('Change applied')).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Message to Chatty' }).fill('Neues Thema');
+  await page.getByRole('button', { name: 'Send message' }).click();
   await expect(dialog.getByText('Neues Thema', { exact: true })).toBeVisible();
   expect(generation).toBe(2);
-  await page.getByRole('button', { name: 'Neues Gespräch' }).click();
+  await page.getByRole('button', { name: 'New conversation' }).click();
   await expect.poll(() => cleared).toBe(2);
-  await expect(page.getByRole('button', { name: 'Bestätigen', exact: true })).toHaveCount(0);
-  await expect(page.getByText('Was möchtest du wissen oder ändern?', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0);
+  await expect(page.getByText('What do you want to know or change?', { exact: false })).toBeVisible();
   ready = false;
   await page.reload();
-  await page.getByRole('button', { name: 'Chatty öffnen' }).click();
-  await expect(page.getByText('Chatty ist gerade nicht verfügbar.', { exact: false })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Nachricht senden' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Open Chatty' }).click();
+  await expect(page.getByText('Chatty is not available right now.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
 });
 
 test('Chatty answers carry verified console links and follow-up suggestions', async ({ page }) => {
@@ -138,15 +138,15 @@ test('Chatty answers carry verified console links and follow-up suggestions', as
   });
   await page.route('**/admin/chatty/events', route => route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' }));
   await page.goto('/admin/hosts');
-  await page.getByRole('button', { name: 'Chatty öffnen' }).click();
+  await page.getByRole('button', { name: 'Open Chatty' }).click();
   const dialog = page.getByRole('dialog');
-  const links = dialog.getByRole('group', { name: 'Verweise aus Chattys Antwort' });
+  const links = dialog.getByRole('group', { name: "Links from Chatty's answer" });
   await expect(links.getByRole('link')).toHaveCount(2);
-  const host = links.getByRole('link', { name: 'Host console.example.test öffnen' });
+  const host = links.getByRole('link', { name: 'Open host console.example.test' });
   await expect(host).toHaveAttribute('href', '/admin/hosts/1');
-  await expect(links.getByRole('link', { name: /^Hilfe: Hosts/ })).toHaveAttribute('href', '/admin/manual/hosts');
+  await expect(links.getByRole('link', { name: /^Help: Hosts/ })).toHaveAttribute('href', '/admin/manual/hosts');
   for (const label of ['Externer Link', 'Doppelte Basis', 'Skript', 'Alte Rückfrage']) await expect(dialog.getByText(label)).toHaveCount(0);
-  await expect(dialog.getByText('Ein Verweis konnte nicht geprüft werden und wurde weggelassen.')).toBeVisible();
+  await expect(dialog.getByText('One link could not be verified and was left out.')).toBeVisible();
   const audit = await new AxeBuilder({ page }).include('[role="dialog"]').analyze();
   expect(audit.violations).toEqual([]);
   await page.screenshot({ path: '/tmp/chatty-rich-elements-desktop.png' });
@@ -159,13 +159,13 @@ test('Chatty answers carry verified console links and follow-up suggestions', as
   await expect(host).toBeVisible();
 
   // A suggestion sends exactly its visible text as the next message.
-  await dialog.getByRole('group', { name: 'Vorgeschlagene Rückfragen' }).getByRole('button', { name: 'Ist console.example.test aktuell?' }).click();
+  await dialog.getByRole('group', { name: 'Suggested follow-up questions' }).getByRole('button', { name: 'Ist console.example.test aktuell?' }).click();
   await expect.poll(() => sent).toEqual(['Ist console.example.test aktuell?']);
-  await expect(dialog.getByRole('group', { name: 'Vorgeschlagene Rückfragen' })).toHaveCount(0);
+  await expect(dialog.getByRole('group', { name: 'Suggested follow-up questions' })).toHaveCount(0);
 
   // On a phone the full-screen panel minimizes after navigation and reopens with the same conversation.
   await page.setViewportSize({ width: 390, height: 844 });
-  const manual = links.getByRole('link', { name: /^Hilfe: Hosts/ });
+  const manual = links.getByRole('link', { name: /^Help: Hosts/ });
   const bounds = await manual.boundingBox();
   expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -173,8 +173,8 @@ test('Chatty answers carry verified console links and follow-up suggestions', as
   await manual.click();
   await expect(page).toHaveURL(/\/admin\/manual\/hosts$/);
   await expect(dialog).toHaveCount(0);
-  await page.getByRole('button', { name: 'Chatty öffnen' }).click();
-  await expect(page.getByRole('dialog').getByRole('link', { name: 'Host console.example.test öffnen' })).toBeVisible();
+  await page.getByRole('button', { name: 'Open Chatty' }).click();
+  await expect(page.getByRole('dialog').getByRole('link', { name: 'Open host console.example.test' })).toBeVisible();
 });
 
 test('Chatty action buttons navigate directly or confirm through the existing admin endpoints', async ({ page }) => {
@@ -190,13 +190,13 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
       body: {
         text: `${host} nutzt nur Codex.`, engine: 'codex', model: 'test', sources: [],
         elements: [
-          action('enable', 'host.engine.enable', 'confirm', `Claude auf ${host} aktivieren`, { host: 1, engine: 'claude' }),
-          action('disable', 'host.engine.disable', 'danger', `Codex auf ${host} deaktivieren`, { host: 1, engine: 'codex' }),
-          action('filter', 'hosts.filter', 'safe', 'Hosts anzeigen: offline', { status: 'offline' }),
-          action('old', 'account.verify', 'confirm', 'Konto Alt prüfen', { account: 3 }, '2026-10-01T00:00:00Z'),
+          action('enable', 'host.engine.enable', 'confirm', `Enable Claude on ${host}`, { host: 1, engine: 'claude' }),
+          action('disable', 'host.engine.disable', 'danger', `Disable Codex on ${host}`, { host: 1, engine: 'codex' }),
+          action('filter', 'hosts.filter', 'safe', 'Show hosts: offline', { status: 'offline' }),
+          action('old', 'account.verify', 'confirm', 'Verify account Alt', { account: 3 }, '2026-10-01T00:00:00Z'),
           // Tampered: a mutation that claims to be safe must not render as a direct click.
-          action('tampered', 'host.engine.disable', 'safe', 'Sofort deaktivieren', { host: 1, engine: 'codex' }),
-          { type: 'action', action: 'host.delete', risk: 'danger', label: 'Host löschen', params: { host: 1 }, proposal: token('x'), expires_at: future },
+          action('tampered', 'host.engine.disable', 'safe', 'Disable now', { host: 1, engine: 'codex' }),
+          { type: 'action', action: 'host.delete', risk: 'danger', label: 'Delete host', params: { host: 1 }, proposal: token('x'), expires_at: future },
         ],
       },
     },
@@ -205,7 +205,7 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
   const posts: Array<{ path: string; body: unknown }> = [];
   let disableChecks = 0;
   const check = (title: string, confirm: string, plan: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
-    available: true, risk: 'confirm', title, confirm_label: confirm, confirm_text: null, summary: [`${title} Zusammenfassung.`],
+    available: true, risk: 'confirm', title, confirm_label: confirm, confirm_text: null, summary: [`${title} Summary.`],
     target: { kind: 'host', id: 1, name: host }, plan, params: {}, expires_at: future, ...extra,
   });
   await installFixtures(page, (path, body) => {
@@ -215,33 +215,33 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
       const proposal = (body as { proposal: string }).proposal;
       verifications.push(proposal);
       if (proposal === token('enable'))
-        return { ...check(`Claude auf ${host} aktivieren?`, 'Claude aktivieren', { host_id: 1, engine: 'claude', engines_before: ['codex'], engines_after: ['codex', 'claude'] }), action: 'host.engine.enable', label: `Claude auf ${host} aktivieren` };
+        return { ...check(`Enable Claude on ${host}?`, 'Enable Claude', { host_id: 1, engine: 'claude', engines_before: ['codex'], engines_after: ['codex', 'claude'] }), action: 'host.engine.enable', label: `Enable Claude on ${host}` };
       if (proposal === token('disable')) {
         // The host changed between opening the dialog and confirming: the second check returns a new plan.
         const before = ++disableChecks === 1 ? ['codex', 'claude'] : ['codex', 'claude', 'grok', 'kimi'];
-        return { ...check(`Codex auf ${host} deaktivieren?`, 'Codex deaktivieren', { host_id: 1, engine: 'codex', engines_before: before, engines_after: before.filter(e => e !== 'codex') }, { risk: 'danger', confirm_text: host }), action: 'host.engine.disable', label: `Codex auf ${host} deaktivieren` };
+        return { ...check(`Disable Codex on ${host}?`, 'Disable Codex', { host_id: 1, engine: 'codex', engines_before: before, engines_after: before.filter(e => e !== 'codex') }, { risk: 'danger', confirm_text: host }), action: 'host.engine.disable', label: `Disable Codex on ${host}` };
       }
-      return { available: false, reason: 'expired', detail: 'Dieser Vorschlag ist abgelaufen.' };
+      return { available: false, reason: 'expired', detail: 'This suggestion has expired.' };
     }
     if (path === '/admin/hosts/1/engines') { posts.push({ path, body }); return { host: { id: 1, fqdn: host } }; }
     return undefined;
   });
   await page.route('**/admin/chatty/events', route => route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' }));
   await page.goto('/admin/dashboard');
-  await page.getByRole('button', { name: 'Chatty öffnen' }).click();
+  await page.getByRole('button', { name: 'Open Chatty' }).click();
   const panel = page.getByRole('dialog', { name: 'Chatty' });
-  const group = panel.getByRole('group', { name: 'Aktionen aus Chattys Antwort' });
+  const group = panel.getByRole('group', { name: "Actions from Chatty's answer" });
   await expect(group.getByRole('button')).toHaveCount(3);
   await expect(group.getByRole('link')).toHaveCount(1);
-  for (const label of ['Sofort deaktivieren', 'Host löschen']) await expect(panel.getByText(label)).toHaveCount(0);
-  await expect(group.getByRole('button', { name: /Konto Alt prüfen/ })).toBeDisabled();
-  await expect(panel.getByText('Aktionsvorschläge gelten 15 Minuten', { exact: false })).toBeVisible();
+  for (const label of ['Disable now', 'Delete host']) await expect(panel.getByText(label)).toHaveCount(0);
+  await expect(group.getByRole('button', { name: /Verify account Alt/ })).toBeDisabled();
+  await expect(panel.getByText('Suggested actions stay valid for 15 minutes', { exact: false })).toBeVisible();
   await page.screenshot({ path: '/tmp/chatty-actions-desktop.png' });
   expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
 
   // Confirm: the dialog names the target and the change; the click goes to the existing engines endpoint.
-  await group.getByRole('button', { name: /Claude auf console\.example\.test aktivieren/ }).click();
-  const confirm = page.getByRole('dialog', { name: `Claude auf ${host} aktivieren?` });
+  await group.getByRole('button', { name: /Enable Claude on console\.example\.test/ }).click();
+  const confirm = page.getByRole('dialog', { name: `Enable Claude on ${host}?` });
   await expect(confirm.getByText(`Host ${host}`)).toBeVisible();
   // Scan the settled dialog: mid-fade colors blend with the overlay and are not what the operator reads.
   await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
@@ -253,49 +253,82 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
   await expect(confirm).toHaveCount(0);
   await expect(panel).toBeVisible();
   expect(posts).toEqual([]);
-  await group.getByRole('button', { name: /Claude auf console\.example\.test aktivieren/ }).click();
-  await confirm.getByRole('button', { name: 'Claude aktivieren' }).click();
+  await group.getByRole('button', { name: /Enable Claude on console\.example\.test/ }).click();
+  await confirm.getByRole('button', { name: 'Enable Claude' }).click();
   await expect.poll(() => posts).toEqual([{ path: '/admin/hosts/1/engines', body: { engines: ['codex', 'claude'] } }]);
   await expect(confirm).toHaveCount(0);
-  await expect(panel.getByText(`Claude auf ${host} aktivieren: ausgeführt`)).toBeVisible();
+  await expect(panel.getByText(`Enable Claude on ${host}: done`)).toBeVisible();
   expect(verifications.filter(v => v === token('enable'))).toHaveLength(3);
 
   // Danger: typing the host name is required, and a changed target needs a new confirmation.
-  await group.getByRole('button', { name: /Codex auf console\.example\.test deaktivieren/ }).click();
-  const danger = page.getByRole('dialog', { name: `Codex auf ${host} deaktivieren?` });
-  const go = danger.getByRole('button', { name: 'Codex deaktivieren' });
+  await group.getByRole('button', { name: /Disable Codex on console\.example\.test/ }).click();
+  const danger = page.getByRole('dialog', { name: `Disable Codex on ${host}?` });
+  const go = danger.getByRole('button', { name: 'Disable Codex' });
   await expect(go).toBeDisabled();
   await danger.getByRole('textbox').fill('console.example');
   await expect(go).toBeDisabled();
   await danger.getByRole('textbox').fill(host);
   await expect(go).toBeEnabled();
   await go.click();
-  await expect(danger.getByText('Der Zustand hat sich geändert', { exact: false })).toBeVisible();
+  await expect(danger.getByText('The state has changed', { exact: false })).toBeVisible();
   expect(posts).toHaveLength(1);
   await go.click();
-  await expect.poll(() => posts.at(-1)).toEqual({ path: '/admin/hosts/1/engines', body: { engines: ['claude', 'grok'] } });
-  await expect(panel.getByText(`Codex auf ${host} deaktivieren: ausgeführt`)).toBeVisible();
+  await expect.poll(() => posts.at(-1)).toEqual({ path: '/admin/hosts/1/engines', body: { engines: ['claude', 'grok', 'kimi'] } });
+  await expect(panel.getByText(`Disable Codex on ${host}: done`)).toBeVisible();
   // Outcome lines sit on the answer background; scan them once the confirmation has closed.
   await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
   expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
 
   // On a phone the confirmation still fits.
   await page.setViewportSize({ width: 390, height: 844 });
-  await group.getByRole('button', { name: /Claude auf console\.example\.test aktivieren/ }).click();
-  await expect(confirm.getByRole('button', { name: 'Claude aktivieren' })).toBeEnabled();
+  await group.getByRole('button', { name: /Enable Claude on console\.example\.test/ }).click();
+  await expect(confirm.getByRole('button', { name: 'Enable Claude' })).toBeEnabled();
   // The shared dialog's opening animation briefly overrides its centering transform.
   await expect.poll(() => confirm.evaluate(el => el.getAnimations({ subtree: true }).length)).toBe(0);
   await page.screenshot({ path: '/tmp/chatty-action-confirm-mobile.png' });
   const small = await confirm.boundingBox();
   expect(small!.x).toBeGreaterThanOrEqual(0); expect(small!.x + small!.width).toBeLessThanOrEqual(390);
-  await confirm.getByRole('button', { name: 'Abbrechen' }).click();
+  await confirm.getByRole('button', { name: 'Cancel' }).click();
   await page.setViewportSize({ width: 1280, height: 800 });
 
   // Safe navigation runs directly, without a verification round trip.
   const before = verifications.length;
-  await group.getByRole('link', { name: 'Hosts anzeigen: offline' }).click();
+  await group.getByRole('link', { name: 'Show hosts: offline' }).click();
   await expect(page).toHaveURL(/\/admin\/hosts\?status=offline$/);
   expect(verifications.length).toBe(before);
+});
+
+test('the Chatty launcher never covers the last row or the phone tab bar', async ({ page }) => {
+  await installFixtures(page, (path) => path === '/admin/chatty/status'
+    ? { visible: true, ready: true, enabled: true, knowledge_version: 'test', engines: [{ engine: 'codex', ready: true, reason: null, default_model: 'test', models: [{ id: 'test', display_name: 'Test' }] }] }
+    : undefined);
+  type Box = { x: number; y: number; width: number; height: number };
+  const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  // Scroll main to its end and return where its content stops.
+  const contentBottom = () => page.evaluate(() => {
+    const main = document.querySelector('main')!;
+    main.scrollTop = main.scrollHeight;
+    return (main.firstElementChild as HTMLElement).getBoundingClientRect().bottom;
+  });
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto('/admin/accounts');
+    await expect(page.getByRole('heading', { name: 'Accounts', level: 1 })).toBeVisible();
+    const launcher = (await page.getByRole('button', { name: 'Open Chatty' }).boundingBox())!;
+    const bottom = await contentBottom();
+    if (width >= 768) {
+      expect(bottom, `content clears the launcher at ${width}px`).toBeLessThanOrEqual(launcher.y);
+      continue;
+    }
+    // Below 768 px the launcher docks into the tab bar, next to the Menu button.
+    const bar = (await page.getByRole('navigation', { name: 'Mobile primary navigation' }).boundingBox())!;
+    const menu = (await page.getByRole('button', { name: /Open navigation menu/ }).boundingBox())!;
+    expect(overlaps(launcher, menu), `launcher and Menu at ${width}px`).toBe(false);
+    expect(launcher.y, `launcher inside the tab bar at ${width}px`).toBeGreaterThanOrEqual(bar.y);
+    expect(launcher.y + launcher.height).toBeLessThanOrEqual(bar.y + bar.height);
+    expect(bottom, `content clears the tab bar at ${width}px`).toBeLessThanOrEqual(bar.y);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
 });
 
 for (const role of ['owner', 'viewer']) {
@@ -310,7 +343,7 @@ test(`Chatty is absent for ${role} without eligible access`, async ({ page }) =>
   });
   await page.goto('/admin/hosts');
   await expect(page.locator('main')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Chatty öffnen' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open Chatty' })).toHaveCount(0);
 });
 
 }

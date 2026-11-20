@@ -3,10 +3,9 @@
   import { page } from "$app/state";
   import { goto } from "$app/navigation";
   import { PageShell, StatStrip, Toolbar, type Stat } from "$lib/components/page";
-  import { hostsListQuery, isInsecureWindowActive } from "$lib/api/hosts";
+  import { hostsListQuery } from "$lib/api/hosts";
   import { insecureApprovalsQuery } from "$lib/api/insecure";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
-  import { hostsSummary } from "$lib/stores/hosts-summary";
   import { HostsListState } from "$lib/components/hosts/hostsListState.svelte";
   import HostsTable from "$lib/components/hosts/HostsTable.svelte";
   import HostsFilters from "$lib/components/hosts/HostsFilters.svelte";
@@ -42,11 +41,6 @@
     ];
   });
 
-  // The top bar reads the number of open temporary-access windows from here.
-  $effect(() => {
-    hostsSummary.setActiveInsecureWindows(list.all.filter((r) => isInsecureWindowActive(r.host)).length);
-  });
-
   // --- sheets and dialogs -------------------------------------------------
   let addOpen = $state(false);
   let quickOpen = $state(false);
@@ -62,15 +56,12 @@
     void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
   }
 
-  // Deep links: ?add=1 (and the older ?dialog=new-host), ?dialog=quick-vm, ?insecure=1.
+  // Deep links: ?add=1 (and the older ?dialog=new-host), ?dialog=quick-vm.
+  // ?insecure=1 belongs to InsecureApprovalsAutoPopup, which owns that panel.
   $effect(() => {
     const params = page.url.searchParams;
     if (params.get("add") === "1" || params.get("dialog") === "new-host") addOpen = true;
     if (params.get("dialog") === "quick-vm") quickOpen = true;
-    if (params.get("insecure") === "1") {
-      reviewAccess();
-      dropParams("insecure");
-    }
   });
 
   onMount(() => {

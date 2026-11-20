@@ -38,7 +38,7 @@ Host-facing surface: agents reach projects only through MCP (`project_*` tools a
 
 The `/projects/[slug]` pages share a header fed by a lean project summary. The header shows the project `title` (from `about.title`) with the description (or the slug when it differs) as a subtitle, an **Archived** badge when applicable, and the actions **Projects** (back), **About**, and **More** (**Archive project** / **Reopen project**, **Delete project** with a confirm dialog).
 
-A tab nav (`ProjectTabsNav`) routes to **Board**, **Documents**, **Reports**, and **Activity**; badges carry the open-card count (`counts.open_todos`), the notes plus files count, and the open reports count. The project root URL opens the board. The older `/projects/{slug}/todos`, `/notes`, `/files`, and `/feedback` URLs redirect to the board, the Documents tab (`?kind=notes` or `?kind=files`), and the Reports tab.
+A tab nav (`ProjectTabsNav`) routes to **Board**, **Documents**, **Reports**, **Design review** (agents' slop review jobs, `/projects/{slug}/slop`) and **Activity**; badges carry the open-card count (`counts.open_todos`), the notes plus files count, and the open reports count. The project root URL opens the board. The older `/projects/{slug}/todos`, `/notes`, `/files`, and `/feedback` URLs redirect to the board, the Documents tab (`?kind=notes` or `?kind=files`), and the Reports tab.
 
 ## Identity: about and roster
 

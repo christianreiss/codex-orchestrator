@@ -20,8 +20,8 @@ failures may fall back to the next usable engine; manual selection never silentl
 changes engine. Replies identify the engine and model. Grok refresh uses the
 existing centralized owner; all runner homes contain access-only projections.
 
-Engine and model selection use compact buttons in the chat: Automatisch follows
-the configured engine order, and Standardmodell follows the selected engine’s
+Engine and model selection use compact buttons in the chat: Automatic follows
+the configured engine order, and Default model follows the selected engine’s
 default. The selected choice is highlighted. Model buttons scroll horizontally
 when needed; selection is locked during active work. Minimize, stop and new chat
 also live in the chat. The trash button
@@ -138,9 +138,10 @@ section) are executed by the console through the ordinary admin endpoints.
 
 ## Action buttons
 
-An answer can also offer up to three action buttons, for example "Habe ich einen
-Host example.com?" → [Host example.com öffnen] plus [Claude auf example.com
-aktivieren]. The model writes only `{"type":"action","action":"host.engine.enable",
+An answer can also offer up to three action buttons, for example "Do I have a
+host example.com?" → [Open host example.com] plus [Enable Claude on
+example.com]. The panel and these server-written labels are English; Chatty's
+own answer follows the language of the question. The model writes only `{"type":"action","action":"host.engine.enable",
 "params":{"host":"example.com","engine":"claude"}}`; it never writes a URL, request
 body, label or risk. It can check proposals first with the read-only
 `ui_actions_check` tool.

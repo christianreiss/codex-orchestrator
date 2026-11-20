@@ -1,7 +1,8 @@
 <script lang="ts">
   /**
-   * Overview. Three tabs, one question each: how much quota is left (Provider),
-   * what is installed (Engines), and whether logins still verify (Runner).
+   * Overview. First what is waiting on the operator (Needs you), then three
+   * tabs, one question each: how much quota is left (Provider), what is
+   * installed (Engines), and whether logins still verify (Runner).
    */
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
@@ -14,6 +15,7 @@
   import { createRunnerStateQuery } from "$lib/api/runner";
   import { overviewQuery } from "$lib/api/overview";
   import OnboardingNotice from "$lib/components/dashboard/OnboardingNotice.svelte";
+  import NeedsYou from "$lib/components/dashboard/NeedsYou.svelte";
   import UsageTable from "$lib/components/dashboard/UsageTable.svelte";
   import EngineTable from "$lib/components/dashboard/EngineTable.svelte";
   import RunnerStatus from "$lib/components/dashboard/RunnerStatus.svelte";
@@ -75,7 +77,7 @@
   });
 </script>
 
-<PageShell title="Overview" description="Provider quota, installed engines and login verification.">
+<PageShell title="Overview" description="What needs you, then provider usage, engines and login verification.">
   {#snippet actions()}
     {#if updatedAt}
       <span class="text-body-sm text-muted-foreground">{#if fetching}Refreshing…{:else}Updated <Timestamp value={updatedAt} live />{/if}</span>
@@ -84,9 +86,6 @@
       <RefreshCw class="h-4 w-4 {fetching ? 'animate-spin' : ''}" /> Refresh
     </Button>
     <Button href={`${base}/hosts?dialog=new-host`}><Plus class="h-4 w-4" /> Add host</Button>
-  {/snippet}
-  {#snippet subheader()}
-    <StatStrip items={stats} variant="tiles" />
   {/snippet}
 
   <div class="flex flex-col gap-6">
@@ -99,7 +98,11 @@
       />
     {/if}
 
+    <NeedsYou />
+
     <OnboardingNotice />
+
+    <StatStrip items={stats} variant="tiles" />
 
     <Tabs.Root value={tab} onValueChange={selectTab} class="flex flex-col gap-4">
       <Tabs.List class="w-fit">

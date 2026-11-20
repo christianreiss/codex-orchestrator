@@ -149,14 +149,14 @@ export type ActionResolution = ({ ok: true } & ResolvedAction) | ActionRefusal;
 const refuse = (reason: ActionRefusal['reason'], detail: string): ActionRefusal => ({ ok: false, reason, detail });
 const engineList = (engines: Engine[]) => engines.map((e) => ENGINE_LABELS[e]).join(', ');
 const ordered = (engines: Engine[]) => ENGINES.filter((e) => engines.includes(e));
-const WINDOW_LABEL = { '1h': 'letzte Stunde', '24h': 'letzte 24 Stunden', '7d': 'letzte 7 Tage' } as const;
-const STATUS_LABEL = { online: 'online', offline: 'offline', attention: 'mit Handlungsbedarf' } as const;
+const WINDOW_LABEL = { '1h': 'last hour', '24h': 'last 24 hours', '7d': 'last 7 days' } as const;
+const STATUS_LABEL = { online: 'online', offline: 'offline', attention: 'needs attention' } as const;
 const FLAG_LABEL = {
-  vip: 'Priorität (VIP)',
-  roaming: 'IP-Wechsel erlaubt',
-  secure: 'vertrauenswürdig',
-  insecure: 'nicht vertrauenswürdig',
-  unprovisioned: 'noch nicht angemeldet',
+  vip: 'priority (VIP)',
+  roaming: 'IP changes allowed',
+  secure: 'secure',
+  insecure: 'insecure',
+  unprovisioned: 'not provisioned yet',
 } as const;
 
 /**
@@ -196,10 +196,10 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
       const parts = [status ? STATUS_LABEL[status] : null, flag ? FLAG_LABEL[flag] : null].filter(Boolean);
       return done({
         params: { ...(status ? { status } : {}), ...(flag ? { flag } : {}) },
-        label: `Hosts anzeigen: ${parts.join(', ')}`,
-        title: 'Gefilterte Hostliste öffnen',
-        summary: [`Öffnet die Hostliste mit dem Filter ${parts.join(', ')}.`],
-        confirm_label: 'Öffnen',
+        label: `Show hosts: ${parts.join(', ')}`,
+        title: 'Open the filtered host list',
+        summary: [`Opens the host list filtered to ${parts.join(', ')}.`],
+        confirm_label: 'Open',
         confirm_text: null,
         target: null,
         plan: { status, flag },
@@ -212,10 +212,10 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
       const name = cleanLabel(h.fqdn, 48);
       return done({
         params: { host: h.id, ...(window ? { window } : {}) },
-        label: `Aktivität von ${name}${window ? ` (${WINDOW_LABEL[window]})` : ''}`,
-        title: 'Gefilterte Aktivität öffnen',
-        summary: [`Öffnet die Aktivität, gefiltert auf ${name}.`],
-        confirm_label: 'Öffnen',
+        label: `Activity of ${name}${window ? ` (${WINDOW_LABEL[window]})` : ''}`,
+        title: 'Open the filtered activity',
+        summary: [`Opens Activity filtered to ${name}.`],
+        confirm_label: 'Open',
         confirm_text: null,
         target: { kind: 'host', id: h.id, name },
         plan: { host_id: h.id, window },
@@ -236,14 +236,14 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
         const after = ordered([...before, e]);
         return done({
           params: { host: h.id, engine: e },
-          label: `${label} auf ${name} aktivieren`,
-          title: `${label} auf ${name} aktivieren?`,
+          label: `Enable ${label} on ${name}`,
+          title: `Enable ${label} on ${name}?`,
           summary: [
-            `Host ${name} erhält zusätzlich die Engine ${label}.`,
-            `Engines vorher: ${engineList(before)}. Danach: ${engineList(after)}.`,
-            'Offene Installer-Links dieses Hosts werden ungültig; der Host übernimmt die Änderung bei seiner nächsten Synchronisierung.',
+            `Host ${name} also gets the ${label} engine.`,
+            `Engines before: ${engineList(before)}. After: ${engineList(after)}.`,
+            "This host's open installer links stop working; the host picks up the change at its next sync.",
           ],
-          confirm_label: `${label} aktivieren`,
+          confirm_label: `Enable ${label}`,
           confirm_text: null,
           target: { kind: 'host', id: h.id, name },
           plan: { host_id: h.id, engine: e, engines_before: before, engines_after: after },
@@ -254,15 +254,15 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
       const after = before.filter((x) => x !== e);
       return done({
         params: { host: h.id, engine: e },
-        label: `${label} auf ${name} deaktivieren`,
-        title: `${label} auf ${name} deaktivieren?`,
+        label: `Disable ${label} on ${name}`,
+        title: `Disable ${label} on ${name}?`,
         summary: [
-          `Host ${name} verliert die Engine ${label}.`,
-          `Engines vorher: ${engineList(before)}. Danach: ${engineList(after)}.`,
-          `Agent-Nachrichten für ${label} auf diesem Host werden ausgesetzt, offene Installer-Links ungültig. Bei der nächsten Synchronisierung entfernt der Host Konfiguration und CLI dieser Engine.`,
-          'Rückgängig: die Engine erneut aktivieren; der Host installiert sie dann neu.',
+          `Host ${name} loses the ${label} engine.`,
+          `Engines before: ${engineList(before)}. After: ${engineList(after)}.`,
+          `Agent messages for ${label} on this host are suspended and open installer links stop working. At its next sync the host removes this engine's configuration and CLI.`,
+          'To undo, enable the engine again; the host then reinstalls it.',
         ],
-        confirm_label: `${label} deaktivieren`,
+        confirm_label: `Disable ${label}`,
         // What the operator sees is what they type: the cleaned, untruncated name.
         confirm_text: cleanLabel(h.fqdn, 255),
         target: { kind: 'host', id: h.id, name },
@@ -275,16 +275,16 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
       const enabled = p.enabled as boolean;
       if (h.autoUpdateOverride === enabled) return refuse('no_change', 'The host already has this auto-update override.');
       const name = cleanLabel(h.fqdn, 48);
-      const state = enabled ? 'einschalten' : 'ausschalten';
+      const state = enabled ? 'on' : 'off';
       return done({
         params: { host: h.id, enabled },
-        label: `Auto-Update für ${name} ${state}`,
-        title: `Auto-Update für ${name} ${state}?`,
+        label: `Turn auto-update ${state} for ${name}`,
+        title: `Turn auto-update ${state} for ${name}?`,
         summary: [
-          `Setzt für Host ${name} eine Auto-Update-Ausnahme: ${enabled ? 'an' : 'aus'}.`,
-          `Bisher: ${h.autoUpdateOverride === null ? 'Flotten-Standard' : h.autoUpdateOverride ? 'an' : 'aus'}. Die Hostseite kann die Ausnahme jederzeit ändern.`,
+          `Sets an auto-update exception for host ${name}: ${state}.`,
+          `Until now: ${h.autoUpdateOverride === null ? 'fleet default' : h.autoUpdateOverride ? 'on' : 'off'}. The host page can change the exception at any time.`,
         ],
-        confirm_label: `Auto-Update ${state}`,
+        confirm_label: `Turn auto-update ${state}`,
         confirm_text: null,
         target: { kind: 'host', id: h.id, name },
         plan: { host_id: h.id, enabled },
@@ -301,13 +301,13 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
       const name = cleanLabel(h.fqdn, 48);
       return done({
         params: { host: h.id },
-        label: `Unsicheren Zugang von ${name} schließen`,
-        title: `Unsicheren Zugang von ${name} schließen?`,
+        label: `Close temporary access for ${name}`,
+        title: `Close temporary access for ${name}?`,
         summary: [
-          `Beendet das offene Zugangsfenster von Host ${name} (bisher bis ${h.insecureUntil.toISOString()}).`,
-          'Der Host kann Zugangsdaten erst nach einer neuen Freigabe wieder abrufen.',
+          `Ends the open access window of host ${name} (open until ${h.insecureUntil.toISOString()}).`,
+          'The host can fetch credentials again only after a new approval.',
         ],
-        confirm_label: 'Zugang schließen',
+        confirm_label: 'Close access',
         confirm_text: null,
         target: { kind: 'host', id: h.id, name },
         plan: { host_id: h.id },
@@ -321,13 +321,13 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
       const name = cleanLabel(account.label, 48);
       return done({
         params: { account: account.id },
-        label: `Konto ${name} prüfen`,
-        title: `Konto ${name} jetzt prüfen?`,
+        label: `Verify account ${name}`,
+        title: `Verify account ${name} now?`,
         summary: [
-          `Prüft die gespeicherten ${ENGINE_LABELS[account.engine]}-Zugangsdaten des Kontos ${name} live beim Runner.`,
-          'Das Ergebnis aktualisiert den Prüfstatus des Kontos; Zugangsdaten werden nicht angezeigt.',
+          `Checks the stored ${ENGINE_LABELS[account.engine]} credentials of account ${name} live with the verification runner.`,
+          "The result updates the account's verification status; no credentials are shown.",
         ],
-        confirm_label: 'Konto prüfen',
+        confirm_label: 'Verify account',
         confirm_text: null,
         target: { kind: 'account', id: account.id, name },
         plan: { account_id: account.id },
@@ -336,13 +336,13 @@ async function resolveParsed(action: ActionId, p: Record<string, unknown>, looku
     case 'versions.check':
       return done({
         params: {},
-        label: 'Nach neuen CLI-Versionen suchen',
-        title: 'Nach neuen CLI-Versionen suchen?',
+        label: 'Check for new CLI versions',
+        title: 'Check for new CLI versions?',
         summary: [
-          'Fragt die aktuellen Releases von Codex, Claude Code, Grok Build und Kimi Code ab und aktualisiert die Versionsanzeige.',
-          'Es wird nichts installiert und keine Version festgelegt.',
+          'Looks up the current releases of Codex, Claude Code, Grok Build and Kimi Code and refreshes the version display.',
+          'Nothing is installed and no version is pinned.',
         ],
-        confirm_label: 'Versionen prüfen',
+        confirm_label: 'Check versions',
         confirm_text: null,
         target: null,
         plan: {},
@@ -509,7 +509,7 @@ export async function verifyProposal(
 ): Promise<({ ok: true; expires_at: string } & ResolvedAction) | ActionRefusal | { ok: false; reason: 'expired'; detail: string }> {
   const opened = openProposal(keyring, binding, token);
   if (!opened)
-    return { ok: false, reason: 'expired', detail: 'Dieser Vorschlag ist abgelaufen oder gehört zu einer anderen Sitzung. Frag Chatty erneut.' };
+    return { ok: false, reason: 'expired', detail: 'This suggestion has expired or belongs to another session. Ask Chatty again.' };
   const resolved = await resolveAction({ action: opened.action, params: opened.params }, can, lookups);
   return resolved.ok ? { ...resolved, expires_at: opened.expires_at } : resolved;
 }

@@ -4,12 +4,12 @@ section: Admin workspace
 summary: Bots and bridges outside the fleet that join agent messaging with their own key, name and trust level.
 tags: [external-clients, bots, messaging, trust]
 verified: 2026-11-05
-sources: api/src/routes/external/index.ts, api/src/services/external-clients/index.ts, api/src/services/external-clients/bridge.ts, api/src/services/external-clients/normalize.ts, api/src/control-plane/state/names.ts, api/src/db/migrations/0124_external_clients.sql, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, frontend/src/routes/(coordination)/external-clients/+page.svelte, frontend/src/lib/components/external-clients/ExternalClientDialog.svelte, frontend/src/lib/api/externalClients.ts, docs/external-clients.md
+sources: api/src/routes/external/index.ts, api/src/services/external-clients/index.ts, api/src/services/external-clients/bridge.ts, api/src/services/external-clients/normalize.ts, api/src/control-plane/state/names.ts, api/src/db/migrations/0124_external_clients.sql, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, frontend/src/routes/(access)/external-clients/+page.svelte, frontend/src/lib/components/external-clients/ExternalClientDialog.svelte, frontend/src/lib/api/externalClients.ts, docs/external-clients.md
 ---
 
 An **external client** is a bot or bridge that takes part in agent messaging without being a `cdx`/`clx`/`cgx` wrapper session: a chat bot, a Matrix or IRC bridge, a home-automation agent. It gets its own agent address, its configured name as a fixed agent name, and presence, and appears in `agent_list` like any other agent, with engine `external`. It only ever gets the **communication surface**: sending, replying, reporting a work result, reading its inbox, a heartbeat, and listing agents. Git, deploy, secrets, Skills, projects, memory and file transfers stay unavailable. It is not a fourth provider engine: there is no master switch, no provider account and no wrapper for it.
 
-The page is **Coordination → External clients** (`/external-clients`). The wire contract for bot authors is `docs/external-clients.md`.
+The page is **Access & Settings → External clients** (`/external-clients`). The wire contract for bot authors is `docs/external-clients.md`.
 
 ## Creating a client
 
@@ -111,7 +111,7 @@ Chatty can list external clients and their status (`external_clients_list`, read
 - api/src/control-plane/state/names.ts (launch-name pool, quarantine and the reserved external name)
 - api/src/db/migrations/0124_external_clients.sql (`external_clients`, unique name and key hash)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`external_clients.read` / `external_clients.manage`)
-- frontend/src/routes/(coordination)/external-clients/+page.svelte (table, status badges, row actions)
+- frontend/src/routes/(access)/external-clients/+page.svelte (table, status badges, row actions)
 - frontend/src/lib/components/external-clients/ExternalClientDialog.svelte (create/edit form)
 - frontend/src/lib/api/externalClients.ts (queries, mutations, trust help text)
 - docs/external-clients.md (wire contract for client authors)

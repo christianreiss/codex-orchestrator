@@ -56,11 +56,14 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 - One registry (`frontend/src/lib/nav.ts`) drives navigation, mobile Menu, the
   command palette, title, breadcrumb, and active state. Nine hubs are grouped under
   **Operate** (Overview, Hosts, Agents, Projects, Coordination, Activity) and
-  **Configure** (Providers, Library, Access & Settings). Coordination contains
-  Messages, Timed wake-ups, Git merges, Shared files and Workflows; Providers
-  contains Accounts, Engines and Usage limits; Activity contains Activity and Reports.
-  Access & Settings contains separate People, API keys, Secrets and Settings pages.
-  Manual and Account stay in the sidebar footer.
+  **Configure** (Providers, Library, Access & Settings). The active hub lists its
+  pages as indented children in the sidebar (and the mobile Menu lists every
+  hub's pages); there is no hub tab strip. Coordination contains Messaging,
+  Wake-ups, Git merges, Shared files and Workflows; Providers contains Accounts,
+  Engines and Usage limits; Activity contains Activity and Feedback. Access &
+  Settings contains separate People, API keys, Connectors, External clients,
+  Secrets and Settings pages. Manual and Account stay in the sidebar footer.
+  Overview opens with a "Needs you" list built from existing signals.
 - Settings is a live page at `/admin/settings`: four tabs (`?group=hosts|agents|rollout|retention`),
   where a link to any row (`#agent-coordination`, `#rtk`, …) opens the tab holding it
   (`frontend/src/lib/components/settings/settings-anchors.ts`). Rows that hosts can override

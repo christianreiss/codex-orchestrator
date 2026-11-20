@@ -41,6 +41,8 @@ import {
   Users,
 } from "@lucide/svelte";
 import { NAV } from "$lib/nav";
+import type { Engine } from "$lib/constants/engines";
+import { POLICY_PALETTE_ENTRIES } from "$lib/components/policies/policy-terms";
 import { setTheme } from "$lib/stores/theme";
 import { authActions } from "$lib/stores/auth";
 import { commandPalette } from "$lib/stores/command-palette";
@@ -78,6 +80,8 @@ export interface PaletteCommand {
   group: CommandGroup;
   icon?: Component;
   keywords?: string[];
+  /** The one engine this command serves: not offered while that engine is switched off fleet-wide. */
+  engine?: Engine;
   run: () => void | Promise<void>;
 }
 
@@ -117,6 +121,8 @@ export interface DeepNavEntry {
   icon: Component;
   description?: string;
   keywords?: string[];
+  /** The one engine this view serves; see `PaletteCommand.engine`. */
+  engine?: Engine;
 }
 
 /** Deep-link navigation entries (in addition to top-level NAV). */
@@ -128,22 +134,23 @@ export const DEEP_NAV: DeepNavEntry[] = [
     href: "/library/agent-rules",
     label: "Library / Agent rules",
     icon: FileText,
-    description: "Instructions every Codex, Claude, Grok and Kimi Code agent receives (AGENTS.md / CLAUDE.md)",
+    description: "Instructions every agent receives (AGENTS.md / CLAUDE.md)",
     keywords: ["fleet instructions", "agents.md", "claude.md", "codex", "claude", "grok", "kimi", "policy"],
   },
   { href: "/library?type=memories", label: "Library / Memories", icon: Brain, description: "Shared notes agents can search and add to", keywords: ["memory", "notes"] },
-  { href: "/library?type=subagents", label: "Library / Subagents", icon: Library, description: "Claude subagents", keywords: ["agents", "claude"] },
-  { href: "/library?type=commands", label: "Library / Commands", icon: Terminal, description: "Claude slash commands", keywords: ["slash", "claude"] },
-  { href: "/library?type=output-styles", label: "Library / Reply styles", icon: Library, description: "How Claude words its replies (output styles)", keywords: ["output styles", "claude"] },
-  { href: "/engines#engine-state", label: "Engines / On and off", icon: Server, description: "Switch Codex, Claude, Grok and Kimi Code on or off for the whole fleet", keywords: ["master switch", "suspend", "enable", "disable", "codex", "claude", "grok", "kimi"] },
-  { href: "/engines?engine=codex#codex-async-compaction", label: "Engines / Codex async compaction", icon: Wrench, description: "Experimental: prepare conversation compaction in the background (Codex 0.163.0+)", keywords: ["async compaction", "async", "compaction", "compact", "context", "codex", "experimental", "kompaktierung", "kompakt"] },
-  { href: "/engines?engine=codex#cdx-silent", label: "Engines / Silence cdx output", icon: Terminal, description: "Suppress non-essential output from cdx CLI invocations across the fleet", keywords: ["silent", "quiet", "cdx", "output", "codex", "wrapper"] },
-  { href: "/engines?engine=codex#codex-native-settings", label: "Engines / Codex native settings", icon: FileText, description: "Fleet-owned config.toml values for managed Codex clients", keywords: ["config.toml", "native config", "codex", "toml"] },
-  { href: "/engines?engine=codex#codex-profile-settings", label: "Engines / Codex profiles", icon: FileText, description: "Named Codex config profiles (cdx <profile>)", keywords: ["profile", "profiles", "config.toml", "codex"] },
-  { href: "/engines?engine=claude#claude-client", label: "Engines / Claude client settings", icon: FileText, description: "Owned Claude Code settings.json values: permissions, hooks, status line", keywords: ["settings.json", "permissions", "hooks", "status line", "advisor", "claude"] },
-  { href: "/engines?engine=claude#claude-native-settings", label: "Engines / Claude native settings", icon: FileText, description: "Fleet-owned native configuration for managed Claude clients", keywords: ["native config", "settings.json", "claude"] },
-  { href: "/engines?engine=grok#grok-native-settings", label: "Engines / Grok native settings", icon: FileText, description: "Fleet-owned native configuration for managed Grok clients", keywords: ["native config", "grok"] },
-  { href: "/engines?engine=kimi#kimi-native-settings", label: "Engines / Kimi Code native settings", icon: FileText, description: "Fleet-owned native configuration for managed Kimi Code clients", keywords: ["native config", "kimi"] },
+  { href: "/library?type=subagents", label: "Library / Subagents", icon: Library, description: "Claude subagents", keywords: ["agents", "claude"], engine: "claude" },
+  { href: "/library?type=commands", label: "Library / Commands", icon: Terminal, description: "Claude slash commands", keywords: ["slash", "claude"], engine: "claude" },
+  { href: "/library?type=output-styles", label: "Library / Reply styles", icon: Library, description: "How Claude words its replies (output styles)", keywords: ["output styles", "claude"], engine: "claude" },
+  // The one place a switched-off engine is managed, so it stays offered whatever is off.
+  { href: "/engines#engine-state", label: "Engines / On and off", icon: Server, description: "Switch engines on or off for the whole fleet", keywords: ["master switch", "suspend", "enable", "disable", "codex", "claude", "grok", "kimi"] },
+  { href: "/engines?engine=codex#codex-async-compaction", label: "Engines / Codex async compaction", icon: Wrench, description: "Experimental: prepare conversation compaction in the background (Codex 0.163.0+)", keywords: ["async compaction", "async", "compaction", "compact", "context", "codex", "experimental", "kompaktierung", "kompakt"], engine: "codex" },
+  { href: "/engines?engine=codex#cdx-silent", label: "Engines / Silence cdx output", icon: Terminal, description: "Suppress non-essential output from cdx CLI invocations across the fleet", keywords: ["silent", "quiet", "cdx", "output", "codex", "wrapper"], engine: "codex" },
+  { href: "/engines?engine=codex#codex-native-settings", label: "Engines / Codex native settings", icon: FileText, description: "Fleet-owned config.toml values for managed Codex clients", keywords: ["config.toml", "native config", "codex", "toml"], engine: "codex" },
+  { href: "/engines?engine=codex#codex-profile-settings", label: "Engines / Codex profiles", icon: FileText, description: "Named Codex config profiles (cdx <profile>)", keywords: ["profile", "profiles", "config.toml", "codex"], engine: "codex" },
+  { href: "/engines?engine=claude#claude-client", label: "Engines / Claude client settings", icon: FileText, description: "Owned Claude Code settings.json values: permissions, hooks, status line", keywords: ["settings.json", "permissions", "hooks", "status line", "advisor", "claude"], engine: "claude" },
+  { href: "/engines?engine=claude#claude-native-settings", label: "Engines / Claude native settings", icon: FileText, description: "Fleet-owned native configuration for managed Claude clients", keywords: ["native config", "settings.json", "claude"], engine: "claude" },
+  { href: "/engines?engine=grok#grok-native-settings", label: "Engines / Grok native settings", icon: FileText, description: "Fleet-owned native configuration for managed Grok clients", keywords: ["native config", "grok"], engine: "grok" },
+  { href: "/engines?engine=kimi#kimi-native-settings", label: "Engines / Kimi Code native settings", icon: FileText, description: "Fleet-owned native configuration for managed Kimi Code clients", keywords: ["native config", "kimi"], engine: "kimi" },
   { href: "/settings?group=hosts", label: "Settings / Hosts", icon: Server, description: "Fleet-wide host behavior: auto-update, DNS, temporary access", keywords: ["policies", "auto-update", "insecure", "dns"] },
   { href: "/settings?group=agents#agent-supervisor", label: "Settings / Agent supervisor", icon: Network, description: "External recovery and missing handoffs", keywords: ["supervisor", "capacity", "hang", "handoff", "recovery"] },
   { href: "/settings?group=agents#agent-coordination", label: "Settings / Agent coordination", icon: Network, description: "Fleet-wide project and host rooms and resource claims", keywords: ["coordination", "project rooms", "host rooms", "resource claims", "enable"] },
@@ -153,6 +160,8 @@ export const DEEP_NAV: DeepNavEntry[] = [
   { href: "/account#security", label: "Account / Password & passkeys", icon: Lock, description: "Change your password or manage passkeys", keywords: ["password", "passkeys", "webauthn", "security"] },
   { href: "/account#appearance", label: "Account / Appearance", icon: Palette, description: "Light, dark or system theme", keywords: ["theme", "dark", "light"] },
   { href: "/account#devices", label: "Account / Android devices", icon: Smartphone, description: "Pair or revoke the Android companion app", keywords: ["phone", "companion", "pair"] },
+  // Every Settings row, so a row's old or technical name (auto-update, reverse DNS) still finds it.
+  ...POLICY_PALETTE_ENTRIES.map((entry) => ({ ...entry, icon: Wrench })),
 ];
 
 function buildNavigationCommands(): PaletteCommand[] {
@@ -168,6 +177,7 @@ function buildNavigationCommands(): PaletteCommand[] {
       group: "Navigation",
       icon: d.icon,
       keywords: ["go", "navigate", "open", d.label.toLowerCase(), ...(d.keywords ?? [])],
+      engine: d.engine,
       run() {
         void goto(`${base}${d.href}`);
         commandPalette.close();
@@ -225,10 +235,10 @@ function buildActionCommands(): PaletteCommand[] {
     {
       id: "action:new-api-key",
       label: "New API key",
-      description: "Issue a key for the OpenAI, Anthropic, or Grok gateway",
+      description: "Issue a key for an inference gateway",
       group: "Actions",
       icon: Plus,
-      keywords: ["api", "key", "openai", "claude", "grok", "create"],
+      keywords: ["api", "key", "gateway", "openai", "anthropic", "claude", "grok", "kimi", "create"],
       run() {
         void goto(`${base}/api-keys?dialog=new`);
         commandPalette.close();
@@ -315,6 +325,14 @@ export const STATIC_COMMANDS: PaletteCommand[] = [
  * original entry in its own group. Ids with no matching static command
  * (stale/renamed) are dropped.
  */
+/**
+ * The commands to offer: drops those serving an engine that is switched off
+ * fleet-wide (the "engine-state" entry has no engine and always stays).
+ */
+export function forFleet(commands: PaletteCommand[], isEnabled: (engine: Engine) => boolean): PaletteCommand[] {
+  return commands.filter((command) => !command.engine || isEnabled(command.engine));
+}
+
 export function buildRecentCommands(ids: string[]): PaletteCommand[] {
   const byId = new Map(STATIC_COMMANDS.map((cmd) => [cmd.id, cmd]));
   const recents: PaletteCommand[] = [];

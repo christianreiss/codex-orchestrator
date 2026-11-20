@@ -48,7 +48,7 @@
   const suggestions = (event: ChattyEvent) => (event.body.elements ?? []).flatMap((e) => (e?.type === 'suggestion' && typeof e.text === 'string' && e.text.trim() ? [e.text] : []));
   const actions = (event: ChattyEvent) => (event.body.elements ?? []).flatMap((e) => { const action = chattyAction(e); return action && (action.risk !== 'safe' || actionPath(action)) ? [action] : []; });
   const riskIcons = { safe: ListFilter, confirm: Play, danger: TriangleAlert } as const;
-  const riskHint = { safe: '', confirm: ' (mit Bestätigung)', danger: ' (gefährlich, mit Namenseingabe)' } as const;
+  const riskHint = { safe: '', confirm: ' (asks for confirmation)', danger: ' (dangerous: you type the name to confirm)' } as const;
   /** Proposals expire server-side; the clock only greys out buttons that would be refused anyway. */
   let clock = $state(Date.now());
   let pendingAction = $state<ChattyActionElement | null>(null);
@@ -70,7 +70,7 @@
   }
   async function operation(fn: () => Promise<unknown>) {
     busy = true; error = '';
-    try { await fn(); await refresh(); } catch (e) { error = e instanceof Error ? e.message : 'Chatty konnte die Anfrage nicht abschließen.'; }
+    try { await fn(); await refresh(); } catch (e) { error = e instanceof Error ? e.message : 'Chatty could not finish the request.'; }
     finally { busy = false; }
   }
   async function send(suggestion?: string) {
@@ -137,7 +137,7 @@
 
 {#if $authStore.can('chatty.use') && $status.data?.visible}
   <Dialog.Root bind:open>
-    <Dialog.Trigger class="chatty-launcher" lang="de" aria-label="Chatty öffnen" title={$status.data.ready ? 'Chatty' : 'Chatty · kein KI-Zugang verfügbar'}>
+    <Dialog.Trigger class="chatty-launcher" aria-label="Open Chatty" title={$status.data.ready ? 'Chatty' : 'Chatty · no AI access available'}>
       <svg viewBox="0 0 48 48" aria-hidden="true" class:thinking={active?.status === 'running'}>
         <path d="M10 8h28a5 5 0 0 1 5 5v20a5 5 0 0 1-5 5H22l-9 6v-6h-3a5 5 0 0 1-5-5V13a5 5 0 0 1 5-5Z" fill="currentColor" />
         <g class="face" fill="var(--chatty-face, #142020)"><circle cx="17" cy="22" r="2.4"/><circle cx="31" cy="22" r="2.4"/></g><!-- slop-ok: Chatty mascot artwork -->
@@ -146,48 +146,48 @@
       {#if !$status.data.ready}<span class="offline" aria-hidden="true"></span>{/if}
     </Dialog.Trigger>
     <Dialog.Portal>
-      <Dialog.Content class="chatty-panel" lang="de" onOpenAutoFocus={(e) => { e.preventDefault(); void tick().then(() => input?.focus()); }} onInteractOutside={(e) => e.preventDefault()}>
+      <Dialog.Content class="chatty-panel" onOpenAutoFocus={(e) => { e.preventDefault(); void tick().then(() => input?.focus()); }} onInteractOutside={(e) => e.preventDefault()}>
         <div class="flex items-center justify-between border-b p-3">
-          <div><Dialog.Title class="font-semibold">Chatty</Dialog.Title><Dialog.Description class="text-body-sm text-muted-foreground">Dein Assistent für den Orchestrator</Dialog.Description></div>
+          <div><Dialog.Title class="font-semibold">Chatty</Dialog.Title><Dialog.Description class="text-body-sm text-muted-foreground">Your assistant for the orchestrator</Dialog.Description></div>
           <div class="flex gap-1">
-            <button class="icon-button" aria-label="Neues Gespräch" title="Neues Gespräch" disabled={busy} onclick={() => void newChat()}><Trash2 size={17}/></button>
-            <Dialog.Close class="icon-button" aria-label="Chatty minimieren"><Minus size={19}/></Dialog.Close>
+            <button class="icon-button" aria-label="New conversation" title="New conversation" disabled={busy} onclick={() => void newChat()}><Trash2 size={17}/></button>
+            <Dialog.Close class="icon-button" aria-label="Minimize Chatty"><Minus size={19}/></Dialog.Close>
           </div>
         </div>
         <div class="min-w-0 shrink-0 space-y-1 border-b px-3 py-2">
-          <div class="flex flex-wrap gap-1" role="group" aria-label="Chatty Engine">
-            <button type="button" class="selection-button" aria-pressed={!$session.data?.selection.engine} disabled={selectionLocked} onclick={() => void select('')}>Automatisch</button>
+          <div class="flex flex-wrap gap-1" role="group" aria-label="Chatty engine">
+            <button type="button" class="selection-button" aria-pressed={!$session.data?.selection.engine} disabled={selectionLocked} onclick={() => void select('')}>Automatic</button>
             {#each $status.data.engines as engine (engine.engine)}
               <button type="button" class="selection-button inline-flex items-center gap-1.5" aria-pressed={$session.data?.selection.engine === engine.engine} disabled={selectionLocked}
-                aria-label={`${engineLabel(engine.engine)}${engine.ready ? '' : ' · nicht verfügbar'}`}
-                title={engine.ready ? undefined : engine.reason ?? 'Nicht verfügbar'} onclick={() => void select(engine.engine)}>
+                aria-label={`${engineLabel(engine.engine)}${engine.ready ? '' : ' · unavailable'}`}
+                title={engine.ready ? undefined : engine.reason ?? 'Unavailable'} onclick={() => void select(engine.engine)}>
                 {engineLabel(engine.engine)}{#if !engine.ready}<span class="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true"></span>{/if}
               </button>
             {/each}
           </div>
           {#if $session.data?.selection.engine}
-            <div class="flex gap-1 overflow-x-auto py-1" role="group" aria-label="Chatty Modell">
-              <button type="button" class="selection-button" aria-pressed={!$session.data.selection.model} disabled={selectionLocked} onclick={() => void select($session.data!.selection.engine!)}>Standardmodell</button>
+            <div class="flex gap-1 overflow-x-auto py-1" role="group" aria-label="Chatty model">
+              <button type="button" class="selection-button" aria-pressed={!$session.data.selection.model} disabled={selectionLocked} onclick={() => void select($session.data!.selection.engine!)}>Default model</button>
               {#each selectedEngine?.models ?? [] as model (model.id)}
                 <button type="button" class="selection-button max-w-[16rem] truncate" title={model.display_name} aria-pressed={$session.data.selection.model === model.id} disabled={selectionLocked} onclick={() => void select($session.data!.selection.engine!, model.id)}>{model.display_name}</button>
               {/each}
             </div>
           {/if}
         </div>
-        <div bind:this={timeline} onscroll={trackReading} class="min-h-0 flex-1 overflow-y-auto p-3" role="log" aria-label="Chatty Gespräch" aria-live="polite" aria-relevant="additions">
-          {#if $session.data?.has_older}<button class="mb-3 text-body-sm underline" onclick={() => void more()} disabled={busy}>Ältere Nachrichten laden</button>{/if}
-          {#if !$session.isPending && events.length === 0}<p class="py-8 text-body text-muted-foreground">Was möchtest du wissen oder ändern? Ich kann das Produkt erklären, den aktuellen Zustand nachsehen und Verwaltungsaufgaben erledigen.</p>{/if}
+        <div bind:this={timeline} onscroll={trackReading} class="min-h-0 flex-1 overflow-y-auto p-3" role="log" aria-label="Chatty conversation" aria-live="polite" aria-relevant="additions">
+          {#if $session.data?.has_older}<button class="mb-3 text-body-sm underline" onclick={() => void more()} disabled={busy}>Load older messages</button>{/if}
+          {#if !$session.isPending && events.length === 0}<p class="py-8 text-body text-muted-foreground">What do you want to know or change? I can explain the product, look up the current state and carry out admin tasks.</p>{/if}
           {#each events as event (event.id)}
             <article class="mb-3 rounded-md p-3 text-body {event.kind === 'user' ? 'ml-6 bg-primary/10' : 'bg-muted/60'}">
-              {#if event.kind === 'user'}<p class="mb-1 text-body-sm font-semibold">Du</p><p class="whitespace-pre-wrap">{event.body.text}</p>
+              {#if event.kind === 'user'}<p class="mb-1 text-body-sm font-semibold">You</p><p class="whitespace-pre-wrap">{event.body.text}</p>
               {:else if event.kind === 'answer' || event.kind === 'question'}
-                <p class="mb-1 text-body-sm font-semibold">Chatty{event.body.engine ? ` · ${event.body.engine}` : ''}{event.body.model ? ` · ${event.body.model}` : ''}</p>
+                <p class="mb-1 text-body-sm font-semibold">Chatty{event.body.engine ? ` · ${engineLabel(event.body.engine)}` : ''}{event.body.model ? ` · ${event.body.model}` : ''}</p>
                 <MarkdownBody text={event.body.text ?? ''}/>
                 {#if event.kind === 'answer'}
                   {@const eventLinks = links(event)}
                   {@const eventSuggestions = event.id === latestAnswer ? suggestions(event) : []}
                   {#if eventLinks.length}
-                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Verweise aus Chattys Antwort">
+                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Links from Chatty's answer">
                       {#each eventLinks as link (link.path)}
                         {@const Icon = linkIcons[link.kind] ?? ArrowRight}
                         <Button href={`${base}${link.path}`} variant="outline" class="chatty-element max-w-full justify-start text-left" onclick={(e: MouseEvent) => void navigate(e, link.path)}>
@@ -198,7 +198,7 @@
                   {/if}
                   {@const eventActions = actions(event)}
                   {#if eventActions.length}
-                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Aktionen aus Chattys Antwort">
+                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Actions from Chatty's answer">
                       {#each eventActions as action (action.proposal)}
                         {@const Icon = riskIcons[action.risk]}
                         {@const path = action.risk === 'safe' ? actionPath(action) : null}
@@ -209,19 +209,19 @@
                         {:else}
                           {@const expired = isExpired(action, clock)}
                           <Button variant="secondary" class="chatty-element max-w-full justify-start text-left {action.risk === 'danger' ? 'chatty-action-danger' : ''}" disabled={expired} onclick={(e: MouseEvent) => runAction(e, action)}>
-                            <Icon size={16} aria-hidden="true" class="shrink-0"/><span class="min-w-0 break-words">{action.label}<span class="sr-only">{riskHint[action.risk]}{expired ? ', abgelaufen' : ''}</span></span>
+                            <Icon size={16} aria-hidden="true" class="shrink-0"/><span class="min-w-0 break-words">{action.label}<span class="sr-only">{riskHint[action.risk]}{expired ? ', expired' : ''}</span></span>
                           </Button>
                         {/if}
                       {/each}
                     </div>
-                    {#if eventActions.some((a) => a.risk !== 'safe' && isExpired(a, clock))}<p class="mt-2 text-body-sm text-muted-foreground">Aktionsvorschläge gelten 15 Minuten in dieser Anmeldung. Frag Chatty erneut, um sie neu prüfen zu lassen.</p>{/if}
+                    {#if eventActions.some((a) => a.risk !== 'safe' && isExpired(a, clock))}<p class="mt-2 text-body-sm text-muted-foreground">Suggested actions stay valid for 15 minutes in this sign-in. Ask Chatty again to have them checked anew.</p>{/if}
                     {#each eventActions as action (action.proposal)}
                       {@const outcome = outcomes[action.proposal]}
                       {#if outcome}<p class="mt-2 flex items-start gap-1.5 text-body-sm {outcome.ok ? 'text-success' : 'text-destructive'}">{#if outcome.ok}<Check size={16} aria-hidden="true" class="mt-0.5 shrink-0"/>{:else}<CircleAlert size={16} aria-hidden="true" class="mt-0.5 shrink-0"/>{/if}<span class="min-w-0 break-words">{outcome.text}</span></p>{/if}
                     {/each}
                   {/if}
                   {#if eventSuggestions.length}
-                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Vorgeschlagene Rückfragen">
+                    <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="Suggested follow-up questions">
                       {#each eventSuggestions as suggestion (suggestion)}
                         <button type="button" class="chatty-element chatty-suggestion" disabled={!canSend} onclick={() => void send(suggestion)}>
                           <MessageSquarePlus size={16} aria-hidden="true" class="shrink-0"/><span class="min-w-0 break-words">{suggestion}</span>
@@ -229,32 +229,32 @@
                       {/each}
                     </div>
                   {/if}
-                  {#if event.body.elements_omitted}<p class="mt-2 text-body-sm text-muted-foreground">{event.body.elements_omitted === 1 ? 'Ein Verweis' : `${event.body.elements_omitted} Verweise`} konnte{event.body.elements_omitted === 1 ? '' : 'n'} nicht geprüft werden und {event.body.elements_omitted === 1 ? 'wurde' : 'wurden'} weggelassen.</p>{/if}
+                  {#if event.body.elements_omitted}<p class="mt-2 text-body-sm text-muted-foreground">{event.body.elements_omitted === 1 ? 'One link' : `${event.body.elements_omitted} links`} could not be verified and {event.body.elements_omitted === 1 ? 'was' : 'were'} left out.</p>{/if}
                 {/if}
                 {#each event.body.sources ?? [] as source}<details class="mt-2 text-body-sm"><summary class="cursor-pointer underline">{source.heading || source.title}</summary><pre class="mt-2 whitespace-pre-wrap">{source.body}</pre></details>{/each}
                 {#if event.kind === 'question' && active?.id === event.runId && active.status === 'waiting_input'}<div class="mt-2 flex flex-wrap gap-2">{#each event.body.options ?? [] as option}<button class="rounded-md border p-2" disabled={!canSend} onclick={() => void send(option)}>{option}</button>{/each}</div>{/if}
               {:else if event.kind === 'action'}
                 <p class="font-medium">{event.body.description}</p>
-                <details class="mt-2"><summary class="cursor-pointer">Änderung ansehen</summary><pre class="max-h-52 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify(event.body.arguments, null, 2)}</pre><p class="mt-2 text-body-sm">Aktueller Zustand</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify(event.body.before, null, 2)}</pre></details>
-                {#if pending(event)}<div class="mt-3 flex gap-3"><button class="rounded-md bg-primary px-3 py-2 text-primary-foreground" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/actions/${event.body.id}/decision`, { generation: $session.data!.generation, approve: true }))}>Bestätigen</button><button disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/actions/${event.body.id}/decision`, { generation: $session.data!.generation, approve: false }))}>Ablehnen</button></div>{/if}
+                <details class="mt-2"><summary class="cursor-pointer">View change</summary><pre class="max-h-52 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify(event.body.arguments, null, 2)}</pre><p class="mt-2 text-body-sm">Current state</p><pre class="max-h-40 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify(event.body.before, null, 2)}</pre></details>
+                {#if pending(event)}<div class="mt-3 flex gap-3"><button class="rounded-md bg-primary px-3 py-2 text-primary-foreground" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/actions/${event.body.id}/decision`, { generation: $session.data!.generation, approve: true }))}>Confirm</button><button disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/actions/${event.body.id}/decision`, { generation: $session.data!.generation, approve: false }))}>Reject</button></div>{/if}
               {:else if event.kind === 'result'}
-                <p>Änderung {event.body.status === 'succeeded' ? 'ausgeführt' : event.body.status === 'approved' ? 'bestätigt' : event.body.status === 'rejected' ? 'abgelehnt' : event.body.status === 'failed' ? 'fehlgeschlagen' : event.body.status}</p>
-                {#if event.body.result}<details><summary>Ergebnisbeleg</summary><pre class="max-h-52 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify({ action: event.body.tool, result: event.body.result }, null, 2)}</pre></details>{/if}
-                {#if event.body.href?.startsWith('/admin/')}<a class="underline" href={event.body.href}>Im Orchestrator öffnen</a>{/if}
+                <p>Change {event.body.status === 'succeeded' ? 'applied' : event.body.status === 'approved' ? 'confirmed' : event.body.status === 'rejected' ? 'rejected' : event.body.status === 'failed' ? 'failed' : event.body.status}</p>
+                {#if event.body.result}<details><summary>Result record</summary><pre class="max-h-52 overflow-auto whitespace-pre-wrap text-body-sm">{JSON.stringify({ action: event.body.tool, result: event.body.result }, null, 2)}</pre></details>{/if}
+                {#if event.body.href?.startsWith('/admin/')}<a class="underline" href={event.body.href}>Open in the orchestrator</a>{/if}
               {:else}<p class="text-body-sm text-muted-foreground">{event.body.text ?? event.body.status}</p>{/if}
             </article>
           {/each}
           <div bind:this={bottom}></div>
         </div>
-        <div class="px-3">{#if unreadOutput}<Button variant="outline" size="sm" onclick={followLatest}>Neue Nachrichten anzeigen</Button>{/if}</div>
+        <div class="px-3">{#if unreadOutput}<Button variant="outline" size="sm" onclick={followLatest}>Show new messages</Button>{/if}</div>
         <ChattyActionDialog element={pendingAction} bind:open={actionOpen} onOutcome={(proposal, outcome) => { outcomes = { ...outcomes, [proposal]: outcome }; }}/>
         <div class="border-t p-3">
-          {#if !$status.data.ready}<p class="mb-2 text-body-sm text-muted-foreground">Chatty ist gerade nicht verfügbar. Prüfe aktivierte Engines, verifizierte Konten, Kontingent und Runner unter <a class="underline" href="/admin/settings">Einstellungen</a>.</p>{/if}
+          {#if !$status.data.ready}<p class="mb-2 text-body-sm text-muted-foreground">Chatty is not available right now. Check that an engine is switched on with a verified account, quota left and a working verification runner, then the Chatty settings under <a class="underline" href={`${base}/settings#chatty`}>Settings</a>.</p>{/if}
           {#if error || $session.error}<p class="mb-2 text-body text-destructive" role="alert">{error || $session.error?.message}</p>{/if}
-          {#if active}<div class="mb-2 flex items-center justify-between text-body-sm text-muted-foreground"><span>{active.status === 'waiting_confirmation' ? 'Wartet auf Bestätigung' : active.status === 'waiting_input' ? 'Rückfrage' : active.status === 'queued' ? 'In der Warteschlange' : 'Chatty arbeitet …'}</span><button class="flex items-center gap-1" aria-label="Anfrage stoppen" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/runs/${active.id}/cancel`))}><Square size={12}/> Stoppen</button></div>{/if}
+          {#if active}<div class="mb-2 flex items-center justify-between text-body-sm text-muted-foreground"><span>{active.status === 'waiting_confirmation' ? 'Waiting for your confirmation' : active.status === 'waiting_input' ? 'Waiting for your answer' : active.status === 'queued' ? 'Queued' : 'Chatty is working…'}</span><button class="flex items-center gap-1" aria-label="Stop request" disabled={busy} onclick={() => void operation(() => api.post(`/admin/chatty/runs/${active.id}/cancel`))}><Square size={12}/> Stop</button></div>{/if}
           <form class="flex items-end gap-2" onsubmit={(e) => { e.preventDefault(); void send(); }}>
-            <textarea bind:this={input} bind:value={draft} oninput={() => draftRevision++} aria-label="Nachricht an Chatty" placeholder="Frag Chatty …" rows="2" maxlength="16000" class="max-h-36 min-w-0 flex-1 resize-y rounded-md border bg-background p-2 text-body" onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } }}></textarea>
-            <button type="submit" class="icon-button bg-primary text-primary-foreground disabled:opacity-40" aria-label="Nachricht senden" disabled={!canSend || !draft.trim()}><Send size={18}/></button>
+            <textarea bind:this={input} bind:value={draft} oninput={() => draftRevision++} aria-label="Message to Chatty" placeholder="Ask Chatty…" rows="2" maxlength="16000" class="max-h-36 min-w-0 flex-1 resize-y rounded-md border bg-background p-2 text-body" onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void send(); } }}></textarea>
+            <button type="submit" class="icon-button bg-primary text-primary-foreground disabled:opacity-40" aria-label="Send message" disabled={!canSend || !draft.trim()}><Send size={18}/></button>
           </form>
         </div>
       </Dialog.Content>
@@ -282,5 +282,5 @@
   .thinking { animation: ponder 1.8s ease-in-out infinite; }
   @keyframes ponder { 50% { transform: rotate(-5deg) translateY(-2px); } }
   @media (prefers-reduced-motion: reduce) { .thinking { animation: none; } }
-  @media (max-width: 767px) { :global(.chatty-launcher) { bottom: calc(5rem + env(safe-area-inset-bottom)); right: 1rem; } :global(.chatty-panel) { inset: .5rem; bottom: calc(.5rem + env(safe-area-inset-bottom)); width: auto; height: auto; } }
+  @media (max-width: 767px) { :global(.chatty-launcher) { bottom: calc(.375rem + env(safe-area-inset-bottom)); right: .5rem; z-index: 41; } :global(.chatty-panel) { inset: .5rem; bottom: calc(.5rem + env(safe-area-inset-bottom)); width: auto; height: auto; } }
 </style>

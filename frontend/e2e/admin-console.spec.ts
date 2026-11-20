@@ -378,7 +378,8 @@ test("desktop shell exposes direct task navigation and the command palette", asy
     await expect(page.getByRole("navigation", { name: "Breadcrumb" }).getByText("Overview", { exact: true })).toBeVisible();
   }
 
-  // The rail is nine flat hubs with no disclosure; every page is one tab away.
+  // The rail is nine hubs with no disclosure; the active hub lists its pages
+  // beneath it, so every page is one click away and no page needs a hub tab row.
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
   const hubs: Array<[string, string]> = [
     ["Overview", "/admin/dashboard"], ["Hosts", "/admin/hosts"], ["Agents", "/admin/agents"], ["Projects", "/admin/projects"],
@@ -390,16 +391,29 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   }
   await expect(primary.getByRole("button")).toHaveCount(0);
   const hubPages: Array<[string, string, string[]]> = [
-    ["Coordination", "/admin/agent-messaging", ["Messages", "Timed wake-ups", "Git merges", "Shared files"]],
-    ["Activity", "/admin/activity", ["Activity", "Reports"]],
-    ["Providers", "/admin/accounts", ["Accounts", "Engines"]],
-    ["Access & Settings", "/admin/people", ["People", "API keys", "Secrets", "Settings"]],
+    ["Coordination", "/admin/agent-messaging", ["Messaging", "Wake-ups", "Git merges", "Shared files", "Workflows"]],
+    ["Activity", "/admin/activity", ["Activity", "Feedback"]],
+    ["Providers", "/admin/accounts", ["Accounts", "Engines", "Usage limits"]],
+    ["Access & Settings", "/admin/people", ["People", "API keys", "Connectors", "External clients", "Secrets", "Settings"]],
   ];
   for (const [hub, path, pages] of hubPages) {
     await page.goto(path);
-    const tabs = page.getByRole("navigation", { name: `${hub} pages` });
-    for (const label of pages) await expect(tabs.getByRole("link", { name: label, exact: true })).toBeVisible();
+    const children = primary.getByRole("list", { name: `${hub} pages` });
+    await expect(children.getByRole("link")).toHaveText(pages);
+    // The page is the current location; its hub is the section it sits in.
+    await expect(children.getByRole("link", { name: pages[0], exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(primary.getByRole("link", { name: hub, exact: true }).first()).toHaveAttribute("aria-current", "true");
+    // No second navigation row above the page: the hub tab strip is gone.
+    await expect(page.getByRole("main").getByRole("navigation", { name: `${hub} pages` })).toHaveCount(0);
   }
+  // Moved pages keep their URLs and now sit under Access & Settings.
+  await page.goto("/admin/connectors");
+  await expect(primary.getByRole("list", { name: "Access & Settings pages" }).getByRole("link", { name: "Connectors", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(primary.getByRole("list", { name: "Coordination pages" })).toHaveCount(0);
+  // A one-page hub is itself the current page and lists nothing beneath it.
+  await page.goto("/admin/library");
+  await expect(primary.getByRole("link", { name: "Library", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(primary.getByRole("list", { name: "Library pages" })).toHaveCount(0);
   await page.goto("/admin/quick-settings");
   await expect(page).toHaveURL(/\/admin\/engines#defaults$/);
   await expect(page.getByRole("heading", { name: "Engines", level: 1 })).toBeVisible();
@@ -418,6 +432,37 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   await page.keyboard.press("Control+K");
   await page.getByRole("combobox", { name: "Search fleet and commands" }).fill("Agent Portal");
   await expect(page.getByRole("option", { name: /Agent Portal/ })).toHaveCount(0);
+});
+
+test("the command palette does not offer a switched-off engine's views, even from Recent", async ({ page }) => {
+  let grokOn = true;
+  await installFixtures(page, (path) => {
+    if (path !== "/admin/engines/state") return undefined;
+    const state = fixture(path) as { engines: Array<Record<string, unknown>> };
+    return { engines: state.engines.map((row) => (row.engine === "grok" ? { ...row, enabled: grokOn } : row)) };
+  });
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  const palette = page.getByRole("combobox", { name: "Search fleet and commands" });
+  await page.keyboard.press("Control+K");
+  await palette.fill("grok native");
+  await page.getByRole("option", { name: /Go to Engines \/ Grok native settings/ }).click();
+  await expect(page).toHaveURL(/engine=grok#grok-native-settings$/);
+
+  grokOn = false;
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  await page.keyboard.press("Control+K");
+  // The view just used would head the Recent group; with Grok off it is not offered.
+  await expect(page.getByRole("option", { name: /Engines \/ Codex/ }).first()).toBeAttached();
+  await expect(page.getByRole("option", { name: /Grok native settings/ })).toHaveCount(0);
+  await palette.fill("grok");
+  await expect(page.getByRole("option", { name: /Grok native settings/ })).toHaveCount(0);
+  // The switch that turns it back on is still offered.
+  await expect(page.getByRole("option", { name: /Go to Engines \/ On and off/ })).toBeVisible();
+  // A Settings row is found by its technical name.
+  await palette.fill("auto-update");
+  await expect(page.getByRole("option", { name: /Settings \/ Update hosts automatically/ })).toBeVisible();
 });
 
 test("dashboard renders while setup infrastructure checks are pending", async ({ page }) => {
@@ -458,8 +503,81 @@ test("Overview counts hosts and stored accounts", async ({ page }) => {
   await expect(page.getByRole("link", { name: "2", exact: true })).toHaveAttribute("href", "/admin/hosts");
   await expect(page.getByText("hosts", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "3", exact: true }).first()).toHaveAttribute("href", "/admin/accounts");
-  await expect(page.getByText("stored accounts", { exact: true })).toBeVisible();
+  await expect(page.getByText("accounts for enabled engines", { exact: true })).toBeVisible();
   await expect(page.getByText("paused or being removed", { exact: true })).toBeVisible();
+});
+
+test("Overview says calmly when nothing needs you", async ({ page }) => {
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("heading", { name: "Needs you", level: 2 })).toBeVisible();
+  await expect(page.getByText("Nothing needs you right now.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Waiting on you" })).toHaveCount(0);
+  // It comes first: above the count tiles, which sit above the tabs.
+  const needsYou = await page.getByRole("heading", { name: "Needs you", level: 2 }).boundingBox();
+  const tiles = await page.getByText("accounts for enabled engines", { exact: true }).boundingBox();
+  const tabs = await page.getByRole("tablist").boundingBox();
+  expect(needsYou!.y).toBeLessThan(tiles!.y);
+  expect(tiles!.y).toBeLessThan(tabs!.y);
+});
+
+test("Overview lists what needs you, counted like the owning pages and linked to them", async ({ page }) => {
+  const soon = new Date(Date.now() + 600_000).toISOString();
+  const sessions = fixture("/admin/agent-sessions") as { sessions: Record<string, unknown>[] };
+  const asking = { ...sessions.sessions[0], pending_prompt: { id: "p1", version: 1, question: "Merge now?", options: [], created_at: new Date().toISOString() } };
+  const account = (id: number, engine: string, patch: Record<string, unknown>) => ({
+    id, engine, label: `${engine}-${id}`, state: "enabled", verification_state: "verified", verification_reason: null, refresh_state: "idle",
+    verification_checked_at: null, generation: 1, sessions: [],
+    usage: { fetched_at: null, stale: false, short_used_percent: 10, short_resets_at: null, weekly_used_percent: 10, weekly_resets_at: null }, ...patch,
+  });
+  await installFixtures(page, (path) => {
+    if (path === "/admin/insecure-approvals/pending") {
+      return { requests: [{ id: 7, host_id: 1, fqdn: "build-01.example.test", status: "pending", live: true, requested_at: new Date().toISOString(), expires_at: soon }] };
+    }
+    if (path === "/admin/hosts/insecure") {
+      return { count: 1, active: 1, domains: [], domains_active: 0, fleet_window: { open: false, until: null, opened_at: null },
+        hosts: [{ id: 2, fqdn: "build-02.example.test", active: true, insecure_enabled_until: soon, secure: false }] };
+    }
+    if (path === "/admin/agent-sessions") return { ...sessions, sessions: [asking] };
+    if (path === "/admin/runner") return { runner: { configured: true, ready: true, url: "http://runner", detail: "", engines: { codex: { state: "fail" }, claude: { state: "ok" } } } };
+    if (path === "/admin/accounts") {
+      return { accounts: [
+        account(1, "codex", { refresh_state: "login_required" }),
+        account(2, "claude", { usage: { fetched_at: null, stale: false, short_used_percent: 92, short_resets_at: null, weekly_used_percent: 40, weekly_resets_at: null } }),
+        account(3, "claude", {}),
+      ] };
+    }
+    if (path === "/admin/feedback/summary") return { open: 3, in_progress: 1, blocked: 0 };
+  });
+  await page.goto("/admin/dashboard");
+  const list = page.getByRole("list", { name: "Waiting on you" });
+  await expect(list.getByRole("link")).toHaveCount(6);
+  const rows = await list.getByRole("link").evaluateAll((links) =>
+    links.map((link) => [link.textContent?.replace(/\s+/g, " ").trim(), link.getAttribute("href")]));
+  expect(rows).toEqual([
+    ["1 host is waiting for temporary access approval", "/admin/hosts?insecure=1"],
+    ["1 agent is waiting for your answer", "/admin/agents"],
+    ["1 temporary access window is open", "/admin/hosts?insecure=1"],
+    ["1 engine fails login verification", "/admin/dashboard?tab=runner"],
+    ["2 accounts need attention or are near quota 1 needs attention · 1 near quota", "/admin/accounts"],
+    ["3 unclaimed feedback reports", "/admin/reports"],
+  ]);
+  await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
+  // A waiting request opens its own triage box; dismissed, the row still leads to the access panel.
+  await expect(page.getByRole("dialog", { name: "build-01.example.test is asking for access" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await list.getByRole("link", { name: /waiting for temporary access approval/ }).click();
+  await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
+});
+
+test("Overview names a signal it could not read instead of calling the fleet calm", async ({ page }) => {
+  await page.route("**/admin/runner", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ status: "error", message: "Runner proxy down" }) }));
+  await page.goto("/admin/dashboard");
+  await expect(page.getByRole("alert").filter({ hasText: "Could not check verification runner" })).toBeVisible();
+  await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
+  await page.unroute("**/admin/runner");
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page.getByText("Nothing needs you right now.", { exact: true })).toBeVisible();
 });
 
 test("a first-run fleet still enters setup after the background check", async ({ page }) => {
@@ -515,7 +633,7 @@ test("failed initial auth status preserves the route instead of opening setup", 
   await expect(page.getByRole("heading", { name: "Set up Codex Orchestrator" })).toHaveCount(0);
 });
 
-test("daily navigation keeps the rail flat and preserves access on desktop and mobile", async ({ page }, info) => {
+test("daily navigation keeps the rail to nine hubs and preserves access on desktop and mobile", async ({ page }, info) => {
   await page.goto("/admin/dashboard");
   const primary = page.getByRole("navigation", { name: "Primary navigation" });
   for (const name of ["Overview", "Agents", "Projects", "Hosts", "Coordination", "Activity", "Providers", "Library", "Access & Settings"]) {
@@ -524,11 +642,27 @@ test("daily navigation keeps the rail flat and preserves access on desktop and m
   await page.screenshot({ path: info.outputPath("workspace-desktop.png") });
   await primary.getByRole("link", { name: "Activity", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Activity", level: 1 })).toBeVisible();
-  await expect(primary.getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
+  // The Activity hub and its Activity page share a name: the hub is the
+  // section, only the page is the current location.
+  const activityHub = primary.getByRole("link", { name: "Activity", exact: true }).first();
+  const activityPage = primary.getByRole("list", { name: "Activity pages" }).getByRole("link", { name: "Activity", exact: true });
+  await expect(activityHub).toHaveAttribute("aria-current", "true");
+  await expect(activityPage).toHaveAttribute("aria-current", "page");
+  await expect(primary.locator('[aria-current="page"]')).toHaveCount(1);
   await page.goto("/admin/activity?type=tools");
-  await expect(primary.getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(activityPage).toHaveAttribute("aria-current", "page");
+  await primary.getByRole("link", { name: "Feedback", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Feedback", level: 1 })).toBeVisible();
+  await expect(activityPage).not.toHaveAttribute("aria-current", /.+/);
+  await expect(activityHub).toHaveAttribute("aria-current", "true");
   await page.goto("/admin/topology");
   await expect(primary.getByRole("link", { name: "Agents", exact: true })).toHaveAttribute("aria-current", "page");
+
+  // A short compact rail scrolls itself so the current page is never below the fold.
+  await page.setViewportSize({ width: 900, height: 600 });
+  await page.goto("/admin/settings");
+  await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  await expect(primary.locator('[aria-current="page"]')).toBeInViewport();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin/dashboard");
@@ -537,7 +671,11 @@ test("daily navigation keeps the rail flat and preserves access on desktop and m
   await expect(mobile.getByRole("link", { name: "Activity", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   await page.screenshot({ path: info.outputPath("workspace-mobile-menu.png") });
-  await page.getByRole("dialog").getByRole("link", { name: /^Activity/ }).click();
+  // The sheet mirrors the rail: a multi-page hub is a heading over its pages.
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("list", { name: "Access & Settings pages" }).getByRole("link")).toHaveCount(6);
+  await expect(sheet.getByRole("list", { name: "Coordination pages" }).getByRole("link", { name: /^Connectors/ })).toHaveCount(0);
+  await sheet.getByRole("link", { name: /^Activity/ }).click();
   await expect(page.getByRole("heading", { name: "Activity", level: 1 })).toBeVisible();
 });
 
@@ -830,12 +968,12 @@ test("operator tables use the full workspace and the mobile menu retains all rou
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("link", { name: /Library/ })).toBeVisible();
-  for (const label of ["Messages", "Timed wake-ups", "Git merges", "Shared files"]) {
-    await expect(dialog.getByRole("link", { name: new RegExp(label) })).toBeVisible();
+  for (const label of ["Messaging", "Wake-ups", "Git merges", "Shared files", "Workflows", "Connectors", "External clients", "Feedback"]) {
+    await expect(dialog.getByRole("link", { name: new RegExp(`^${label}`) })).toBeVisible();
   }
   await expect(dialog.getByRole("link", { name: /Agent Portal/ })).toHaveCount(0);
-  await dialog.getByRole("link", { name: /Timed wake-ups/ }).click();
-  await expect(page.getByRole("heading", { name: "Timed wake-ups", exact: true })).toBeVisible();
+  await dialog.getByRole("link", { name: /^Wake-ups/ }).click();
+  await expect(page.getByRole("heading", { name: "Wake-ups", exact: true })).toBeVisible();
   await expect(dialog).toHaveCount(0);
 });
 
@@ -979,6 +1117,15 @@ test("project detail and standalone approval keep their task-focused layouts", a
 
 test("host detail orders problems, engines and access before a collapsed Advanced block", async ({ page }) => {
   await page.goto("/admin/hosts/1");
+  await expect(page.getByRole("heading", { name: "console.example.test", level: 1 })).toBeVisible();
+  // The breadcrumb names the host rather than its id, and the name does not linger.
+  const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(crumbs.getByText("console.example.test", { exact: true })).toBeVisible();
+  await expect(crumbs.getByText("Host #1", { exact: true })).toHaveCount(0);
+  await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Hosts", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Hosts", level: 1 })).toBeVisible();
+  await expect(crumbs.getByText("console.example.test", { exact: true })).toHaveCount(0);
+  await page.goBack();
   await expect(page.getByRole("heading", { name: "console.example.test", level: 1 })).toBeVisible();
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Get install command" })).toBeVisible();
@@ -1363,7 +1510,7 @@ test("control navigation highlights mobile account destinations", async ({ page 
 
 test("Agent Messaging uses peer URL-backed operational views", async ({ page }) => {
   await page.goto("/admin/agent-messaging?view=conversations");
-  await expect(page.getByRole("heading", { name: "Messages", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Messaging", level: 1 })).toBeVisible();
   await expect(page.getByRole("button", { name: "Conversations", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("agent:console ↔ agent:review")).toBeVisible();
 
@@ -1538,6 +1685,39 @@ for (const mode of ["triage", "manage"] as const) {
     }
   });
 }
+
+test("temporary access is counted on every route and its link opens the panel on a direct load", async ({ page }) => {
+  const until = new Date(Date.now() + 600_000).toISOString();
+  await installFixtures(page, (path) => path === "/admin/hosts/insecure"
+    ? {
+        count: 2, active: 2, domains: [], domains_active: 0, fleet_window: { open: false, until: null, opened_at: null },
+        hosts: [
+          { id: 1, fqdn: "build-01.example.test", active: true, insecure_enabled_until: until, secure: false },
+          // Only in its grace period: the Hosts page does not count it as open either.
+          { id: 2, fqdn: "build-02.example.test", active: true, insecure_enabled_until: new Date(Date.now() - 60_000).toISOString(), secure: false },
+        ],
+      }
+    : undefined);
+  // The badge counts the open window without the Hosts page ever being visited.
+  await page.goto("/admin/dashboard");
+  const badge = page.getByRole("banner").getByRole("link", { name: "1 temporary access windows open" });
+  await expect(badge).toHaveAttribute("href", "/admin/hosts?insecure=1");
+  // A directly loaded access link opens the panel, then drops the parameter so
+  // a reload does not reopen it.
+  await page.goto("/admin/hosts?insecure=1");
+  await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/hosts$/);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Hosts", level: 1 })).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // The same link followed from another page lands in the panel too.
+  await page.goto("/admin/activity");
+  await badge.click();
+  await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/hosts$/);
+});
 
 
 test("Grok quick defaults honor model-specific effort and persist across reload", async ({ page }) => {

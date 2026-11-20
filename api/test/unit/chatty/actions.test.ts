@@ -81,8 +81,8 @@ describe('Chatty action registry', () => {
       ok: true,
       risk: 'confirm',
       params: { host: 7, engine: 'claude' },
-      label: 'Claude auf example.com aktivieren',
-      confirm_label: 'Claude aktivieren',
+      label: 'Enable Claude on example.com',
+      confirm_label: 'Enable Claude',
       confirm_text: null,
       target: { kind: 'host', id: 7, name: 'example.com' },
       plan: { host_id: 7, engine: 'claude', engines_before: ['codex'], engines_after: ['codex', 'claude'] },
@@ -101,7 +101,7 @@ describe('Chatty action registry', () => {
     expect(await resolveAction({ action: 'hosts.filter', params: { status: 'offline', flag: 'vip' } }, admin, lookups())).toMatchObject({
       ok: true,
       risk: 'safe',
-      label: 'Hosts anzeigen: offline, Priorität (VIP)',
+      label: 'Show hosts: offline, priority (VIP)',
       plan: { status: 'offline', flag: 'vip' },
     });
     expect(await resolveAction({ action: 'activity.host', params: { host: 'example.com', window: '24h' } }, admin, lookups())).toMatchObject({
@@ -120,7 +120,7 @@ describe('Chatty action registry', () => {
     });
     expect(await resolveAction({ action: 'account.verify', params: { account: '3' } }, admin, lookups())).toMatchObject({
       ok: true,
-      label: 'Konto Claude Team prüfen',
+      label: 'Verify account Claude Team',
       plan: { account_id: 3 },
     });
     expect(await resolveAction({ action: 'versions.check', params: {} }, admin, lookups())).toMatchObject({ ok: true, plan: {} });
@@ -238,7 +238,7 @@ describe('Chatty action proposals', () => {
       'versions.check',
     ]);
     const first = elements[0]!;
-    expect(first).toMatchObject({ type: 'action', risk: 'confirm', label: 'Grok auf example.com aktivieren', params: { host: 7, engine: 'grok' } });
+    expect(first).toMatchObject({ type: 'action', risk: 'confirm', label: 'Enable Grok on example.com', params: { host: 7, engine: 'grok' } });
     expect(first.type === 'action' && openProposal(keyring, binding, first.proposal)).toMatchObject({ action: 'host.engine.enable' });
     expect(Object.keys(first).sort()).toEqual(['action', 'expires_at', 'label', 'params', 'proposal', 'risk', 'type']);
     expect(rejected).toEqual([
@@ -262,7 +262,7 @@ describe('Chatty action proposals', () => {
       ],
     })) as { actions: Array<Record<string, unknown>> };
     expect(out.actions).toMatchObject([
-      { action: 'host.engine.enable', available: true, risk: 'confirm', label: 'Claude auf example.com aktivieren' },
+      { action: 'host.engine.enable', available: true, risk: 'confirm', label: 'Enable Claude on example.com' },
       { action: 'host.engine.enable', available: false, reason: 'no_change' },
     ]);
     expect(JSON.stringify(out)).not.toContain('proposal');

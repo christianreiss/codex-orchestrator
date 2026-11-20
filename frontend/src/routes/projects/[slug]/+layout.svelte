@@ -4,7 +4,6 @@
   import { goto } from "$app/navigation";
   import { createQuery, createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
-  import ArrowLeft from "@lucide/svelte/icons/arrow-left";
   import Info from "@lucide/svelte/icons/info";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -24,7 +23,7 @@
   let { children } = $props();
 
   const qc = useQueryClient();
-  const section = $derived(({ board: "Board", documents: "Documents", reports: "Reports", slop: "Slop", activity: "Activity" } as Record<string, string>)[page.url.pathname.split("/").at(-1) ?? ""] ?? "Board");
+  const section = $derived(({ board: "Board", documents: "Documents", reports: "Reports", slop: "Design review", activity: "Activity" } as Record<string, string>)[page.url.pathname.split("/").at(-1) ?? ""] ?? "Board");
   const slug = $derived(page.params.slug ?? "");
 
   // The lean summary, not `fetchProject`: this query runs on every tab, and the
@@ -73,7 +72,6 @@
 <PageShell {title} width="wide" description={blurb || (slug !== title ? slug : undefined)}>
   {#snippet actions()}
     {#if archivedAt}<Badge variant="outline">Archived</Badge>{/if}
-    <Button variant="ghost" size="sm" href="{base}/projects"><ArrowLeft class="h-4 w-4" /> Projects</Button>
     <Button variant="outline" size="sm" onclick={() => (aboutOpen = true)}><Info class="h-4 w-4" /> About</Button>
     <DropdownMenu.Root>
       <DropdownMenu.Trigger

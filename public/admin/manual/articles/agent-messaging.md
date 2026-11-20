@@ -7,7 +7,7 @@ verified: 2026-10-19
 sources: api/src/routes/agent-messaging/index.ts, api/src/routes/agent-portal/admin-host.ts, api/src/services/agent-messaging.ts, api/src/services/agent-messaging-tool-names.ts, api/src/services/agent-presence.ts, api/src/services/agent-session-work.ts, api/src/ops/agent-messaging-worker.ts, api/src/db/schema.ts, api/src/db/migrations/0014_add_agent_messaging.sql, api/src/db/migrations/0021_add_agent_conferences.sql, frontend/src/routes/(coordination)/agent-messaging/+page.svelte, frontend/src/lib/components/agent-messaging/service-toggle.svelte.ts, wrappers/cxx/internal/agentbus, wrappers/cxx/internal/agentportal/broker.go
 ---
 
-Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
+Grok Build (`cgx`) is supported alongside Codex, Claude and Kimi Code; see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
 Managed native `codex`, `claude` and `grok` commands share Fleet accounts and
@@ -528,7 +528,7 @@ agent as a non-root user.
 
 ## Operator workspace
 
-Open **Operate → Coordination → Messages** (`/agent-messaging`; the console calls agent messaging "Messages") to inspect:
+Open **Operate → Coordination → Messaging** (`/agent-messaging`) to inspect:
 
 - Fleet enabled state, eligible/live address counts, relay and queue counts.
 - Recorded direction totals for nine Codex/Claude/Grok pairs and six Server lanes; accepted delivery and recorded responses are distinguished.
@@ -555,11 +555,11 @@ response sets `Cache-Control: no-store` and `Pragma: no-cache`, and it does not
 broadcast a reveal event. The **Delivery log** holds one closeable message reveal at a time and clears it
 when the caller's role, filters, or loaded result set changes.
 
-Conferences are not a Messages view: open and past conferences, their members, the
+Conferences are not a Messaging view: open and past conferences, their members, the
 combined timeline and **End conference** live in **Agents → Chats** (History shows
 closed ones). Reading message content there is audited like the Delivery log.
 
-The **Enable messages** switch in the Messages page header owns the fleet switch — the only Agent Messaging switch.
+The **Enable messaging** switch in the Messaging page header owns the fleet switch — the only Agent Messaging switch.
 Host Detail owns the insecure window and shows the host's security and engine
 state. Re-enabling the fleet switch or an address never resurrects
 canceled/ambiguous work automatically; reopening a window needs no resurrection
@@ -644,7 +644,7 @@ There is no automatic Agent Messaging history purge.
 - api/src/db/migrations/0014_add_agent_messaging.sql — idempotent Agent Messaging DDL and default-off keys
 - api/src/db/migrations/0021_add_agent_conferences.sql — conference rooms and rosters
 - frontend/src/routes/(coordination)/agent-messaging/+page.svelte — operations UI and reveal lifecycle
-- frontend/src/lib/components/agent-messaging/service-toggle.svelte.ts — fleet switch (Enable messages)
+- frontend/src/lib/components/agent-messaging/service-toggle.svelte.ts — fleet switch (Enable messaging)
 - wrappers/cxx/internal/agentbus/ — engine commands, relay worker, and service management
 - wrappers/cxx/internal/agentportal/broker.go — private Unix broker and shutdown behavior
 

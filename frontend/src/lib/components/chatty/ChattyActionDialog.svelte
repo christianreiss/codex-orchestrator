@@ -37,9 +37,9 @@
 
   /** The server check must describe the clicked action and a request the console allows. */
   function accept(result: ChattyProposalCheck, current: ChattyActionElement): { verified: Verified; request: ActionRequest } | string {
-    if (!result.available) return result.detail || "Dieser Vorschlag ist nicht mehr gültig. Frag Chatty erneut.";
+    if (!result.available) return result.detail || "This suggestion is no longer valid. Ask Chatty again.";
     const request = result.action === current.action && result.risk === ACTION_RISK[current.action] ? actionRequest(current.action, result.plan) : null;
-    return request ? { verified: result, request } : "Die Konsole kann diesen Vorschlag nicht ausführen.";
+    return request ? { verified: result, request } : "The console cannot carry out this suggestion.";
   }
 
   async function check(current: ChattyActionElement) {
@@ -49,7 +49,7 @@
       if (typeof outcome === "string") error = outcome;
       else checked = outcome.verified;
     } catch (e) {
-      error = e instanceof Error ? e.message : "Der Vorschlag konnte nicht geprüft werden.";
+      error = e instanceof Error ? e.message : "The suggestion could not be checked.";
     } finally {
       checking = false;
     }
@@ -63,21 +63,21 @@
     switch (request.kind) {
       case "host-engines":
         await $hostEngines.mutateAsync({ id: request.hostId, engines: request.engines });
-        return "ausgeführt";
+        return "done";
       case "host-auto-update":
         await $autoUpdate.mutateAsync({ id: request.hostId, value: request.enabled });
-        return "ausgeführt";
+        return "done";
       case "host-insecure-close":
         await $disableInsecure.mutateAsync({ id: request.hostId });
-        return "ausgeführt";
+        return "done";
       case "account-verify": {
         const result = await accountsApi.verify(request.accountId);
         void qc.invalidateQueries({ queryKey: accountsKeys.all() });
-        return `Prüfergebnis: ${result.verification_state}${result.reason ? ` (${result.reason})` : ""}`;
+        return `Check result: ${result.verification_state}${result.reason ? ` (${result.reason})` : ""}`;
       }
       case "versions-check":
         await $versionsCheck.mutateAsync();
-        return "ausgeführt";
+        return "done";
     }
   }
 
@@ -92,7 +92,7 @@
       if (typeof outcome === "string") { error = outcome; checked = null; return; }
       if (!samePlan(outcome.verified.plan, shown.plan) || outcome.verified.title !== shown.title) {
         checked = outcome.verified;
-        error = "Der Zustand hat sich geändert. Prüfe die aktualisierte Beschreibung und bestätige erneut.";
+        error = "The state has changed. Review the updated description and confirm again.";
         return;
       }
       let result: string;
@@ -102,8 +102,8 @@
         // A refused request did not run; a transport failure or server error has an unknown outcome.
         const refused = e instanceof ApiError && e.status >= 400 && e.status < 500;
         const text = refused
-          ? `Nicht ausgeführt: ${e.message}`
-          : "Ergebnis unbekannt. Prüfe den aktuellen Zustand, bevor du es erneut versuchst.";
+          ? `Not carried out: ${e.message}`
+          : "Outcome unknown. Check the current state before you try again.";
         error = text;
         onOutcome(current.proposal, { ok: false, text: `${shown.label}: ${text}` });
         return;
@@ -111,7 +111,7 @@
       onOutcome(current.proposal, { ok: true, text: `${shown.label}: ${result}` });
       open = false;
     } catch (e) {
-      error = e instanceof Error ? e.message : "Der Vorschlag konnte nicht geprüft werden.";
+      error = e instanceof Error ? e.message : "The suggestion could not be checked.";
     } finally {
       busy = false;
     }
@@ -120,30 +120,30 @@
 
 <ConfirmDialog
   bind:open
-  title={checked?.title ?? element?.label ?? "Aktion prüfen"}
-  confirmLabel={checked?.confirm_label ?? "Bestätigen"}
-  cancelLabel="Abbrechen"
-  busyLabel="Wird ausgeführt …"
+  title={checked?.title ?? element?.label ?? "Review action"}
+  confirmLabel={checked?.confirm_label ?? "Confirm"}
+  cancelLabel="Cancel"
+  busyLabel="Running…"
   destructive={element?.risk === "danger"}
   {busy}
   confirmDisabled={checking || !checked}
   requireText={checked?.risk === "danger" ? checked.confirm_text : null}
-  requireTextLabel="Zur Bestätigung den Namen eingeben"
+  requireTextLabel="Type the name to confirm"
   {error}
   onConfirm={confirm}
   onClose={() => { checked = null; error = null; }}
 >
   <div class="space-y-3 text-body" aria-live="polite">
     {#if checking}
-      <p class="text-muted-foreground">Vorschlag wird gegen den aktuellen Zustand geprüft …</p>
+      <p class="text-muted-foreground">Checking the suggestion against the current state…</p>
     {:else if checked}
       {#if checked.target}
-        <p><span class="text-muted-foreground">Ziel:</span> <span class="break-all font-medium">{checked.target.kind === "host" ? "Host" : "Konto"} {checked.target.name}</span> <span class="text-muted-foreground">(ID {checked.target.id})</span></p>
+        <p><span class="text-muted-foreground">Target:</span> <span class="break-all font-medium">{checked.target.kind === "host" ? "Host" : "Account"} {checked.target.name}</span> <span class="text-muted-foreground">(ID {checked.target.id})</span></p>
       {/if}
       <ul class="list-disc space-y-1 pl-5">
         {#each checked.summary as line}<li class="break-words">{line}</li>{/each}
       </ul>
-      <p class="text-body-sm text-muted-foreground">Läuft über dieselbe Verwaltungsfunktion wie auf der zugehörigen Seite und mit deinen Rechten, nicht über Chatty.</p>
+      <p class="text-body-sm text-muted-foreground">Runs through the same admin function as its page, with your permissions, not through Chatty.</p>
     {/if}
   </div>
 </ConfirmDialog>

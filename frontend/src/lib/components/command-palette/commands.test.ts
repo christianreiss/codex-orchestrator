@@ -65,6 +65,7 @@ const ICON_NAMES = [
   "SlidersHorizontal",
   "UserRoundCog",
   "Waypoints",
+  "Workflow",
   "Zap",
   "Smartphone",
   "Wrench",
@@ -135,7 +136,7 @@ const navModule: string = "$lib/nav";
 const { NAV } = (await import(navModule)) as typeof import("$lib/nav");
 
 const commandsModule: string = "./commands.ts";
-const { COMMAND_GROUPS, DEEP_NAV, STATIC_COMMANDS, buildDynamicSources, buildRecentCommands, groupOrder } =
+const { COMMAND_GROUPS, DEEP_NAV, STATIC_COMMANDS, buildDynamicSources, buildRecentCommands, forFleet, groupOrder } =
   (await import(commandsModule)) as typeof import("./commands");
 
 interface SeedRows {
@@ -201,10 +202,10 @@ describe("STATIC_COMMANDS", () => {
 
   it("uses the plain page labels and none of the retired ones", () => {
     const labels = STATIC_COMMANDS.map((command) => command.label);
-    for (const label of ["Go to Messages", "Go to Timed wake-ups", "Go to Git merges", "Go to Shared files", "Go to Reports", "Go to People", "Go to API keys", "Go to Secrets", "Go to Settings"]) {
+    for (const label of ["Go to Messaging", "Go to Wake-ups", "Go to Git merges", "Go to Shared files", "Go to Feedback", "Go to Connectors", "Go to External clients", "Go to People", "Go to API keys", "Go to Secrets", "Go to Settings"]) {
       assert.ok(labels.includes(label), `${label} is missing`);
     }
-    for (const retired of ["Go to Agent Messaging", "Go to Agent Portal", "Go to Fleet Instructions", "Go to Admin Users"]) {
+    for (const retired of ["Go to Agent Messaging", "Go to Agent Portal", "Go to Fleet Instructions", "Go to Admin Users", "Go to Messages", "Go to Timed wake-ups", "Go to Reports"]) {
       assert.ok(!labels.includes(retired), `${retired} should be gone`);
     }
   });
@@ -239,6 +240,34 @@ describe("STATIC_COMMANDS", () => {
   });
 });
 
+describe("switched-off engines", () => {
+  it("tags every engine-specific view with its engine", () => {
+    for (const entry of DEEP_NAV) {
+      const engine = new URLSearchParams(entry.href.split("#")[0].split("?")[1] ?? "").get("engine");
+      if (engine) assert.equal(entry.engine, engine, entry.href);
+    }
+    for (const type of ["subagents", "commands", "output-styles"]) {
+      assert.equal(DEEP_NAV.find((entry) => entry.href === `/library?type=${type}`)?.engine, "claude");
+    }
+  });
+
+  it("offers none of an engine's views while it is off, recents included, but keeps the switch itself", () => {
+    const off = new Set(["grok", "claude"]);
+    const offered = forFleet([...buildRecentCommands(["deep:/engines?engine=grok#grok-native-settings"]), ...STATIC_COMMANDS], (engine) => !off.has(engine));
+    const ids = offered.map((command) => command.id);
+    assert.ok(!ids.some((id) => /engine=(grok|claude)|type=(subagents|commands|output-styles)/.test(id)), ids.filter((id) => /grok|claude/.test(id)).join(", "));
+    assert.ok(ids.includes("deep:/engines?engine=codex#codex-native-settings"));
+    assert.ok(ids.includes("deep:/engines#engine-state"));
+    assert.equal(forFleet(STATIC_COMMANDS, () => true).length, STATIC_COMMANDS.length);
+  });
+
+  it("names no engine in a description that is shown whichever engines are on", () => {
+    for (const command of STATIC_COMMANDS.filter((candidate) => !candidate.engine)) {
+      assert.doesNotMatch(command.description ?? "", /\b(Codex|Grok|Kimi Code|ChatGPT|OpenAI)\b/, command.id);
+    }
+  });
+});
+
 describe("engine settings are searchable", () => {
   const anchorsModule: string = "../engines/engine-anchors.ts";
   const componentsDir = fileURLToPath(new URL("..", import.meta.url));
@@ -257,6 +286,12 @@ describe("engine settings are searchable", () => {
       .map((e) => (e.isDirectory() ? readSvelte(join(dir, e.name)) : e.name.endsWith(".svelte") ? readFileSync(join(dir, e.name), "utf8") : ""))
       .join("\n");
   }
+
+  it("finds each Settings row by its old or technical name", () => {
+    assert.ok(search("auto-update").includes("deep:/settings?group=hosts#auto-update"));
+    assert.ok(search("reverse dns").includes("deep:/settings?group=hosts#reverse-dns"));
+    assert.ok(search("insecure-host approvals").includes("deep:/settings?group=hosts#insecure-approval"));
+  });
 
   it("finds Codex async compaction by English and German terms", () => {
     for (const term of ["compaction", "async", "compact", "kompakt", "kompaktierung"]) {

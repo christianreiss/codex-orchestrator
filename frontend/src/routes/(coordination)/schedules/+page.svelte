@@ -104,7 +104,7 @@
   const title = $derived(editing ? (editTarget ? "Edit wake-up" : "New wake-up") : ($detailQuery.data?.schedule.name ?? "Wake-up details"));
 </script>
 
-<PageShell title="Timed wake-ups" description="Prompts sent to an agent on a schedule, with optional recovery of the same session (wake/cron).">
+<PageShell title="Wake-ups" description="Prompts sent to an agent on a schedule, with optional recovery of the same session (wake/cron).">
   {#snippet actions()}
     <Button variant="outline" size="sm" onclick={() => client.invalidateQueries({ queryKey: scheduleKeys.all })}><RefreshCw class="h-4 w-4" /> Refresh</Button>
     {#if canManage}<Button onclick={() => openForm(null)}><Plus class="h-4 w-4" /> Create schedule</Button>{/if}
@@ -132,7 +132,7 @@
         emptyTitle="No timed wake-ups yet"
         emptyDescription="Regular wake-ups wait for a receiver. Persistent recovery resumes the same session."
         emptyIcon={AlarmClock}
-        caption="Timed wake-ups"
+        caption="Wake-ups"
       >
         {#snippet head()}
           <Table.Head>Wake-up</Table.Head>

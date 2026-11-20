@@ -1,7 +1,7 @@
 <script lang="ts" generics="T extends string">
   /**
    * A one-level view switch: a few mutually exclusive ways to look at the same
-   * page. Not tabs, so it never nests under the hub strip as a second tab row.
+   * page. Not tabs, so a page that has one never gets a second tab row.
    */
   import { cn } from "$lib/utils/cn";
 

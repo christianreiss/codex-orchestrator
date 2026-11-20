@@ -44,8 +44,8 @@ request was admitted; ask for its run status before treating deletion as complet
 
 ## Links and suggestions in answers
 
-An answer can end with buttons. "Habe ich einen Host example.com?" can be answered
-with "Ja" plus a **Host example.com öffnen** button; other buttons open a project,
+An answer can end with buttons. "Do I have a host example.com?" can be answered
+with "Yes" plus an **Open host example.com** button; other buttons open a project,
 skill, workflow, run, the Accounts page, a console page or a help article. Chips
 with a speech-bubble icon are suggested follow-up questions: selecting one sends
 exactly that text as your next message. Only the newest answer offers them.
@@ -55,7 +55,7 @@ may read it before it builds the button and its label. She cannot produce extern
 links. When a reference cannot be verified, the button is left out and the answer
 notes it. On a phone the panel minimizes after you follow a link; reopen it to
 continue the same conversation. Besides links, an answer can offer up to three
-action buttons (for example "Claude auf example.com aktivieren"). Filter buttons only
+action buttons (for example "Enable Claude on example.com"). Filter buttons only
 navigate. Any change opens a confirmation dialog that names the target and the effect;
 dangerous ones require typing the host name. Confirming calls the same function as the
 page button, with your permissions; Chatty does not run it. Proposals expire after

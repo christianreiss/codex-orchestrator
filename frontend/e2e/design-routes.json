@@ -32,7 +32,7 @@
     "path": "/admin/agent-messaging"
   },
   {
-    "source": "src/routes/(coordination)/connectors/+page.svelte",
+    "source": "src/routes/(access)/connectors/+page.svelte",
     "path": "/admin/connectors"
   },
   {
@@ -160,7 +160,7 @@
     "path": "/admin/workflows/runs/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
   },
   {
-    "source": "src/routes/(coordination)/external-clients/+page.svelte",
+    "source": "src/routes/(access)/external-clients/+page.svelte",
     "path": "/admin/external-clients"
   },
   {

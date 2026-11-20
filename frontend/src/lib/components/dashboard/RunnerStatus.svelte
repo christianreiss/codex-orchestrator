@@ -24,6 +24,7 @@
     type RunnerStatus,
   } from "$lib/api/runner";
   import { ENGINE_META, type Engine } from "$lib/constants/engines";
+  import { runnerEngineStatus, runnerToken } from "./runner-state";
   import { relativeTime } from "$lib/utils/format";
   import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { cn } from "$lib/utils/cn";
@@ -52,25 +53,12 @@
   }
   const pending = (engine: Engine): boolean => mutationFor(engine).isPending;
 
-  function statusOf(engine: Engine): RunnerEngineStatus | null {
-    const direct = runner?.engines?.[engine];
-    if (direct) return direct;
-    const legacy = runner?.last_result;
-    if (legacy && typeof legacy === "object" && !Array.isArray(legacy)) {
-      const candidate = legacy[engine];
-      if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) return candidate as RunnerEngineStatus;
-    }
-    return null;
-  }
+  const statusOf = (engine: Engine): RunnerEngineStatus | null => runnerEngineStatus(runner, engine);
 
   function tokenFor(engine: Engine): string {
     if (pending(engine)) return "running";
     if (!$fleet.isEnabled(engine)) return "disabled";
-    if (!runner) return "idle";
-    if (!runner.configured) return "unconfigured";
-    const raw = (statusOf(engine)?.state ?? "").toLowerCase();
-    if (raw === "running" || raw === "ok" || raw === "fail" || raw === "idle") return raw;
-    return runner.ready ? "idle" : "fail";
+    return runnerToken(runner, engine);
   }
 
   const TOKENS: Record<string, { label: string; variant: BadgeVariant }> = {

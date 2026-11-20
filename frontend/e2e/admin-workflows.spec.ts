@@ -119,7 +119,7 @@ test("workflow refresh preserves unsaved editor values and keyboard focus", asyn
   await expect.poll(()=>state.sockets.length).toBeGreaterThan(0);current.document.title="A newly published server title";current.version=3;
   state.sockets.at(-1)!.send(JSON.stringify({type:"workflow.changed",payload:{workflow_id:WORKFLOW_ID}}));
   await expect(page.getByRole("heading",{name:"A newly published server title",exact:true})).toBeVisible();await expect(title).toHaveValue("Unsaved operator draft");await expect(title).toBeFocused();
-  page.once("dialog",dialog=>dialog.dismiss());await page.getByRole("link",{name:"Back to workflows",exact:true}).click();await expect(title).toHaveValue("Unsaved operator draft");expect(state.errors).toEqual([]);
+  page.once("dialog",dialog=>dialog.dismiss());await page.getByRole("navigation",{name:"Breadcrumb"}).getByRole("link",{name:"Workflows",exact:true}).click();await expect(title).toHaveValue("Unsaved operator draft");expect(state.errors).toEqual([]);
 });
 
 

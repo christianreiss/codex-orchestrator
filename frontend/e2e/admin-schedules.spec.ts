@@ -26,7 +26,7 @@ async function fixture(page:Page, manage=true) {
 test('create, inspect, pause, edit and delete an explicit persistent interval',async({page})=>{
  const calls=await fixture(page);
  await page.goto('/admin/schedules');
- await expect(page.getByRole('heading',{name:'Timed wake-ups',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Wake-ups',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Create schedule'}).click();
  await page.getByText('Recovery and resume limits',{exact:true}).click();
  await expect(page.getByRole('checkbox',{name:/Persistent recovery/})).not.toBeChecked();
@@ -68,7 +68,7 @@ test('create, inspect, pause, edit and delete an explicit persistent interval',a
 });
 test('read-only users have no scheduling mutations on mobile',async({page})=>{
  await page.setViewportSize({width:390,height:844});await fixture(page,false);await page.goto('/admin/schedules');
- await expect(page.getByRole('heading',{name:'Timed wake-ups',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Wake-ups',exact:true})).toBeVisible();
  await expect(page.getByRole('button',{name:'Create schedule'})).toHaveCount(0);
 });
 

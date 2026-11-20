@@ -19,8 +19,10 @@
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
   import { getBreadcrumbs } from "$lib/nav";
+  import { pageLabel } from "$lib/stores/page-label";
   import { commandPalette } from "$lib/stores/command-palette";
-  import { hostsSummary } from "$lib/stores/hosts-summary";
+  import { insecureSummaryQuery } from "$lib/api/insecure";
+  import { isInsecureWindowActive } from "$lib/api/hosts";
   import { wsStatus } from "$lib/stores/ws-status";
   import { setTheme, themeStore, type ThemeChoice } from "$lib/stores/theme";
   import { accountKeys, setTheme as persistTheme } from "$lib/api/account";
@@ -83,12 +85,21 @@
   );
   const openReports = $derived(canReadFeedback ? ($feedbackSummary.data?.open ?? 0) : 0);
 
-  const activeWindows = $derived($hostsSummary.activeInsecureWindows);
+  // Temporary access comes from the fleet-wide summary (kept current by the
+  // `host.updated` and `insecure.*` invalidations), so the badge is right on
+  // every route and on a direct load, not only after visiting /hosts. Windows
+  // are counted with the Hosts page's own rule.
+  const insecureSummary = insecureSummaryQuery();
+  const activeWindows = $derived(($insecureSummary.data?.hosts ?? []).filter((host) => isInsecureWindowActive(host)).length);
   // A fleet-wide auto-allow outranks the per-host count: it is a state of the
-  // whole fleet, and it is live on every route rather than only on /hosts.
-  const fleetWindowUntil = $derived($hostsSummary.fleetWindowUntil);
+  // whole fleet.
+  const fleetWindowUntil = $derived.by(() => {
+    const fleet = $insecureSummary.data?.fleet_window;
+    return fleet?.open ? (fleet.until ?? null) : null;
+  });
   const path = $derived(page.url.pathname.replace(base, "") || "/");
-  const breadcrumbs = $derived(getBreadcrumbs(path));
+  // A detail page names its object (a host's FQDN) once it has loaded.
+  const breadcrumbs = $derived(getBreadcrumbs(path, $pageLabel?.path === page.url.pathname ? $pageLabel.label : undefined));
   const wsIndicator = $derived.by(() => {
     if ($wsStatus === "open") return { tone: "online" as const, label: "Live", tooltip: "Live updates connected" };
     if ($wsStatus === "idle") return { tone: "warning" as const, label: "Connecting", tooltip: "Waiting for live updates" };

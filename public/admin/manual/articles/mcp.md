@@ -119,7 +119,7 @@ user's request.
 
 ## Wake / Cron schedules
 
-The admin **Timed wake-ups** page (wake/cron; `/schedules`, in the Coordination group) and the managed `wake-cron` Skill use the same fleet records. Choose a stored prompt and exact agent target, with one-time, cron, or interval timing. Persistent recovery is unchecked by default; enable it only on explicit request and supply a progress timeout. It resumes a known native session through the existing cxx-agent worker. Linux supervisors can stop only their owned stalled child after a fresh policy check; quiet active tools are protected. Missing transcripts block recovery. Pause/delete cancels pending attempts while accepted work continues. Ambiguous crash recovery may repeat side effects.
+The admin **Wake-ups** page (wake/cron; `/schedules`, in the Coordination group) and the managed `wake-cron` Skill use the same fleet records. Choose a stored prompt and exact agent target, with one-time, cron, or interval timing. Persistent recovery is unchecked by default; enable it only on explicit request and supply a progress timeout. It resumes a known native session through the existing cxx-agent worker. Linux supervisors can stop only their owned stalled child after a fresh policy check; quiet active tools are protected. Missing transcripts block recovery. Pause/delete cancels pending attempts while accepted work continues. Ambiguous crash recovery may repeat side effects.
 
 ## Resources
 

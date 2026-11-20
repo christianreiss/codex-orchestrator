@@ -52,7 +52,7 @@ async function fixture(page: Page, read = true, manage = true) {
   });
   return state;
 }
-const workspace = (page: Page) => page.getByRole("group", { name: "Client workspace" });
+const workspace = (page: Page) => page.getByRole("group", { name: "Agents view" });
 async function openRemote(page: Page) {
   await page.goto("/admin/agents?view=remote");
   await expect(page.locator(`#remote-${REMOTE}`)).toBeVisible();
@@ -71,13 +71,33 @@ test("remote and ordinary agents stay separate and use the same real conversatio
   await expect(page.getByText("Diagnostic operation output")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Nativen Session-Verlauf öffnen" })).toHaveCount(0);
   await page.getByLabel("Continue remote session").fill("Check remaining work");
-  await workspace(page).getByRole("button", { name: "Agents", exact: true }).click();
+  await workspace(page).getByRole("button", { name: "Chats", exact: true }).click();
   await workspace(page).getByRole("button", { name: "Remote sessions", exact: true }).click();
   await expect(page.getByLabel("Continue remote session")).toHaveValue("Check remaining work");
   await state.update();
   await expect(page.getByLabel("Continue remote session")).toHaveValue("Check remaining work");
   await page.screenshot({ path: "/tmp/rebecca-remote-desktop.png", fullPage: true });
   expect((await new AxeBuilder({ page }).include('section[aria-label="Remote session conversation"]').analyze()).violations).toEqual([]);
+});
+
+test("one switch picks Chats, Remote sessions or Graph, with one engine filter for all three", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await fixture(page);
+  await page.goto("/admin/agents?view=graph");
+  await expect(page.getByRole("group", { name: "Agents view" })).toHaveCount(1);
+  await expect(workspace(page).getByRole("button")).toHaveText(["Chats", "Remote sessions", "Graph"]);
+  await expect(workspace(page).getByRole("button", { name: "Graph", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await workspace(page).getByRole("button", { name: "Remote sessions", exact: true }).click();
+  await expect(page).not.toHaveURL(/view=graph/);
+  await expect(page.locator(`#remote-${REMOTE}`)).toBeVisible();
+  await expect(workspace(page).getByRole("button", { name: "Remote sessions", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("Engine", { exact: true })).toHaveCount(1);
+  await page.getByLabel("Engine", { exact: true }).selectOption("claude");
+  await expect(page.locator(`#remote-${REMOTE}`)).toHaveCount(0);
+  await page.getByLabel("Engine", { exact: true }).selectOption("all");
+  await workspace(page).getByRole("button", { name: "Chats", exact: true }).click();
+  await expect(page.locator(`#client-${OTHER}`)).toBeVisible();
+  await expect(page.locator(`#remote-${REMOTE}`)).toHaveCount(0);
 });
 
 test("native and remote bookmarks select the right workspace without pinning later selection", async ({ page }) => {
@@ -99,7 +119,7 @@ test("start panel supports all engines and keeps one request ID after a lost res
   await page.goto("/admin/agents");
   await page.getByRole("button", { name: "Start remote session", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
-  await page.getByLabel("Engine", { exact: true }).selectOption("grok");
+  await page.getByRole("dialog").getByLabel("Engine", { exact: true }).selectOption("grok");
   await page.getByLabel("Title", { exact: true }).fill("Build helper");
   await page.getByLabel("Instruction", { exact: true }).fill("Run the build");
   await page.getByRole("button", { name: "Start session", exact: true }).click();
@@ -195,7 +215,8 @@ test("search and engine filters handle a long retained list", async ({ page }) =
   await page.goto("/admin/agents?view=remote");
   await page.getByRole("group", { name: "Show remote sessions" }).getByRole("button", { name: "Ended", exact: true }).click();
   await expect(page.locator('[id^="remote-history-"]')).toHaveCount(50);
-  await page.getByLabel("Remote engine").selectOption("grok");
+  // The toolbar's one engine filter also filters remote sessions.
+  await page.getByLabel("Engine", { exact: true }).selectOption("grok");
   await expect(page.locator('[id^="remote-history-"]')).toHaveCount(25);
   await page.getByLabel("Find a remote session").fill("Archived review 48");
   await expect(page.locator('[id^="remote-history-"]')).toHaveCount(1);

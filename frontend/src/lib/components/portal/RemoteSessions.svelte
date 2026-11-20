@@ -22,8 +22,8 @@
   import BotIcon from "@lucide/svelte/icons/bot";
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
 
-  let { compact = false, active = true, hosts, agents, loading, error, stale, selectedId = $bindable(null), startOpen = $bindable(false), fixedHost, refresh, onselect, conversation }: {
-    compact?: boolean; active?: boolean; hosts: DaemonHost[]; agents: AgentSessionRow[]; loading: boolean; error: Error | null; stale: boolean;
+  let { compact = false, active = true, engineFilter = "all", hosts, agents, loading, error, stale, selectedId = $bindable(null), startOpen = $bindable(false), fixedHost, refresh, onselect, conversation }: {
+    compact?: boolean; active?: boolean; /** The Agents toolbar's engine filter. */ engineFilter?: string; hosts: DaemonHost[]; agents: AgentSessionRow[]; loading: boolean; error: Error | null; stale: boolean;
     selectedId?: string | null; startOpen?: boolean; fixedHost?: number; refresh: () => void;
     onselect: (id: string | null) => void; conversation: Snippet<[string, Snippet, boolean]>;
   } = $props();
@@ -31,7 +31,6 @@
   const canManage = $derived($authStore.can("agent_messaging.manage"));
   let search = $state("");
   let filter = $state("current");
-  let engineFilter = $state("all");
   let hostId = $state(0);
   let engine = $state<Engine>("codex");
   let title = $state("");
@@ -154,7 +153,6 @@
       <div class="space-y-2 border-b p-3">
         <div class="flex gap-2">
           <Input aria-label="Find a remote session" type="search" placeholder="Search sessions or hosts" bind:value={search} class="h-8 min-w-0 bg-muted text-caption" />
-          <select aria-label="Remote engine" bind:value={engineFilter} class="h-8 w-28 shrink-0 rounded-md bg-muted px-2 text-caption"><option value="all">All engines</option>{#each $fleet.enabled as value (value)}<option {value}>{engineLabel(value)}</option>{/each}</select>
         </div>
         <div class="flex gap-1" role="group" aria-label="Show remote sessions">
           {#each [{ key: 'current', label: 'Current' }, { key: 'ended', label: 'Ended' }, { key: 'all', label: 'All' }] as item}
