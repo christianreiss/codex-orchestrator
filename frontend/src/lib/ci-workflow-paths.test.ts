@@ -6,11 +6,11 @@ import { fileURLToPath } from "node:url";
 
 /**
  * `.github/workflows/frontend.yml` fired on `frontend/**` and itself, but the
- * frontend suite is not confined to `frontend/`: `api/cli-auth.test.ts` reads
- * the CLI auth service out of the api to pin the device-code alphabet against
- * the service that issues it. A commit that edited only the api therefore ran
- * no frontend job at all — and the api workflow does not run this suite — so
- * the parity that test exists to catch shipped unseen. Only the local gate,
+ * frontend suite is not confined to `frontend/`: `auth/capability-parity.test.ts`
+ * reads the capability vocabulary out of the api to pin the SPA's copy against
+ * it. A commit that edited only the api therefore ran no frontend job at all —
+ * and the api workflow does not run this suite — so the parity that test
+ * exists to catch shipped unseen. Only the local gate,
  * which always runs everything, saw it.
  *
  * So the filters are held against the suite itself: every quoted path literal
@@ -28,7 +28,7 @@ const WORKFLOW = ".github/workflows/frontend.yml";
 const EVENTS = ["push", "pull_request"] as const;
 
 /** The cross-package read this guard was written for, named from the root. */
-const PARITY_TEST = "frontend/src/lib/api/cli-auth.test.ts";
+const PARITY_TEST = "frontend/src/lib/auth/capability-parity.test.ts";
 
 /**
  * Top-level segments a path literal names without the suite depending on the
@@ -39,7 +39,7 @@ const PARITY_TEST = "frontend/src/lib/api/cli-auth.test.ts";
 const ALLOWED: Record<string, string> = {};
 
 /**
- * A quoted literal that spells a path: `"../../../../api/src/services/cli-auth.ts"`,
+ * A quoted literal that spells a path: `"../../../../api/src/security/capabilities.ts"`,
  * or a root-relative `"docs/API.md"`. A bare filename is not one, an endpoint
  * is not one either — every route in this suite starts with `/` — and
  * excluding `$` keeps interpolated templates out.
@@ -74,7 +74,7 @@ function testFiles(): string[] {
 interface Reference {
   /** The repo-root-relative top-level segment, e.g. `api`. */
   segment: string;
-  /** `frontend/src/lib/api/cli-auth.test.ts:91 ../../../../api/src/services/cli-auth.ts` */
+  /** `frontend/src/lib/auth/capability-parity.test.ts:30 ../../../../api/src/security/capabilities.ts` */
   where: string;
 }
 
@@ -174,8 +174,8 @@ describe("frontend workflow path triggers", () => {
 
     const literals = (text: string): string[] =>
       [...text.matchAll(PATH_LITERAL)].map((match) => match[2] ?? "");
-    assert.deepEqual(literals('new URL("../../../../api/src/services/cli-auth.ts", import.meta.url)'), [
-      "../../../../api/src/services/cli-auth.ts",
+    assert.deepEqual(literals('resolve(HERE, "../../../../api/src/security/capabilities.ts")'), [
+      "../../../../api/src/security/capabilities.ts",
     ]);
     assert.deepEqual(literals('readFileSync(resolve(ROOT, "api/src/server.ts"))'), [
       "api/src/server.ts",

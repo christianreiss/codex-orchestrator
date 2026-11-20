@@ -400,10 +400,7 @@ session delivery lock fails immediately and preserves the pending notice.
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/wrapper/v2/meta` | per-platform manifest + the primary key's `signing_kid` (DB row id) and `signing_fingerprint` (sha256 of the raw Ed25519 public key, lowercase hex) |
 | GET | `/wrapper/v2/config[?sig=1]` | signed per-host config JSON (or detached signature) |
-| GET | `/wrapper/v2/download` | raw Go binary for the calling host's detected platform |
-| GET | `/wrapper/download` | legacy shell-transition launcher that writes v2 config, installs the binary, then execs it |
 | GET | `/wrapper/v2/bin/cxx/<os>-<arch>/v<ver>/cxx` | the common binary; ETag = SHA256 |
 
 Config, download, and cron-check calls send `X-Wrapper-Platform: <os>-<arch>`
@@ -414,7 +411,7 @@ orchestrator can bake the matching `binary_url` / SHA256 for this host.
 
 The orchestrator's `api/src/services/wrapper-config.ts` produces a JSON blob
 matching `wrappers/schemas/host-config-v1.json` and signs it with Ed25519. The
-installer and the legacy transition launcher write the result to
+installer writes the result to
 `~/.config/codex-orchestrator/cdx.json` (and its detached signature next door).
 On startup the Go binary verifies the signature against the public key embedded
 at build time, then loads the config. The binary is single-key: it verifies with
@@ -445,7 +442,6 @@ The config:
     "fqdn": "host01.example.com",
     "secure": true,
     "browseros_mcp_enabled": false,
-    "agent_messaging_enabled": false,
     "engines": "codex,claude",
     "engines_list": ["codex", "claude"]
   },
@@ -493,7 +489,7 @@ The config:
 ## Managed AGENTS.md feature guidance
 
 The admin editor and version history store only canonical base Markdown. During
-`/agents/retrieve` or bundled startup sync, the server derives the effective
+bundled startup sync (`/sync/bootstrap`), the server derives the effective
 Codex/host feature state and composes the served document from three parts:
 `<!-- cxx:managed-policy:start -->` … `<!-- cxx:managed-policy:end -->` always
 prefixes it with Codex Orchestrator fleet identity, instruction precedence/safety
@@ -603,8 +599,7 @@ codex-cli 0.156.1 and newer refuse `--profile <name>` while `config.toml` holds
 `$CODEX_HOME/<name>.config.toml` on top of the base config instead (confirmed on
 0.156.1, 0.157.0 and 0.158.0, 2026-09-29). For those hosts the server keeps
 `[profiles.*]` out of the rendered `config.toml` and ships each fleet profile as a
-`profiles: [{name, sha256, content}]` entry on the config reply (`/config/retrieve`
-and the `config` block of `/sync/bootstrap`; see `docs/interface-api.md`). A host
+`profiles: [{name, sha256, content}]` entry in the `config` block of `/sync/bootstrap` (see `docs/interface-api.md`). A host
 counts as new when its last reported `client_version` is 0.156.1+ or unknown.
 
 The wrapper writes each entry to `$CODEX_HOME/<name>.config.toml` only when its
@@ -1373,9 +1368,9 @@ requires the global switch — the only switch — an active host, and the targe
 engine to remain enabled. An **insecure** host is eligible too, but only while
 its allowed window (`insecure_enabled_until`) is open; outside it the server
 refuses with `agent_messaging_insecure_window_closed`. The signed
-`agent_messaging.enabled` value is the wrapper's local gate;
-`host.agent_messaging_enabled` is a retired compatibility field that mirrors it
-and gates nothing (cxx <= 0.7.7 rejected the whole config without it). When enabled, managed Codex config contains the
+`agent_messaging.enabled` value is the wrapper's local gate. The retired
+`host.agent_messaging_enabled` mirror is no longer served (cxx <= 0.7.7 needed it,
+and the wrapper still decodes it from older signed configs). When enabled, managed Codex config contains the
 stdio MCP server `cxx-agent` (`cxx agent mcp`) with the direct/conference tools:
 `agent_list`, `agent_send`, `agent_request`, `agent_wait`, `agent_reply`,
 `agent_message_get`, `agent_cancel`,

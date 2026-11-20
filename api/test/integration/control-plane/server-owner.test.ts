@@ -1,4 +1,3 @@
-import { createCliAuthService } from '../../../src/services/cli-auth.js';
 import { createHostRegistrationService } from '../../../src/services/host-registration.js';
 import { createInsecureWindowService } from '../../../src/services/insecure-window.js';
 import { HostSpawnService } from '../../../src/services/host-spawn.js';
@@ -128,50 +127,18 @@ describe.skipIf(!handle)('complete owner server composition', () => {
         insecure: createInsecureWindowService({ db: app.db, env: app.env }),
         defaultHostEngines: 'codex,claude,grok,kimi',
       });
-      const login = createCliAuthService({ db: app.db, keyring: app.keyring, registration });
-      const started = await login.start({
-        fqdn: 'cli-owner.fixture.test',
-        secure: false,
-        ip: null,
-        userAgent: null,
-      });
-      const pollBudget = installSqlBudget(pool);
-      pollBudget.track(app.controlPlane.ownership.heldConnection());
-      try {
-        for (let i = 0; i < 100; i++) {
-          expect(await login.poll(started.request_id)).toEqual({ status: 'pending' });
-          expect((await login.lookup(started.user_code))?.fqdn).toBe('cli-owner.fixture.test');
-        }
-        expect(pollBudget.snapshot()).toEqual([]);
-      } finally {
-        pollBudget.restore();
-      }
       const principal = { principal: 'system:test', revalidate() {} };
       // A prepared action permits exactly one domain command, including Grok
-      // first-use defaults, credentials, insecure window and approval resolution.
-      const approved = await withOwnerActionIdentity(
+      // first-use defaults, credentials and the insecure window.
+      const registered = await withOwnerActionIdentity(
         { id: randomUUID(), principal, revalidateTarget() {} },
-        () => login.approve(started.user_code, 1, 'test'),
+        () => registration.registerOrRotate({ fqdn: 'cli-owner.fixture.test', secure: false, createdBy: 'test' }),
       );
-      expect(runtime.state.snapshot().hosts.get(approved.host_id)?.engines).toBe('codex,claude,grok,kimi');
+      expect(runtime.state.snapshot().hosts.get(registered.host.id)?.engines).toBe('codex,claude,grok,kimi');
       expect(
-        new Date(runtime.state.snapshot().hosts.get(approved.host_id)!.insecureEnabledUntil!).getTime(),
+        new Date(runtime.state.snapshot().hosts.get(registered.host.id)!.insecureEnabledUntil!).getTime(),
       ).toBeGreaterThan(Date.now());
       expect(runtime.state.snapshot().table('clientConfigDocuments').by('engine', 'grok')).toHaveLength(1);
-      const consumed = await Promise.all([login.poll(started.request_id), login.poll(started.request_id)]);
-      expect(consumed.map((x) => x.status).sort()).toEqual(['approved', 'consumed']);
-      await expect(login.deny(started.user_code)).rejects.toThrow('already resolved');
-      const race = await login.start({
-        fqdn: 'cli-race.fixture.test',
-        secure: true,
-        ip: null,
-        userAgent: null,
-      });
-      const decisions = await Promise.allSettled([
-        login.approve(race.user_code, 1, 'test'),
-        login.deny(race.user_code),
-      ]);
-      expect(decisions.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
       const hosts = new HostManagementService({
         db: app.db,
         keyring: app.keyring,

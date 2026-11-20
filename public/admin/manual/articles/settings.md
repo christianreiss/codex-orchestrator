@@ -249,7 +249,7 @@ See [Roles and capabilities](/admin/manual/roles) for the roles on offer and wha
 
 The **Agent rules** page in the Library (`/library/agent-rules`).
 
-Served to hosts via `POST /agents/retrieve`. Endpoints in `api/src/routes/admin/config/index.ts`:
+Served to hosts as the `agents` block of `POST /sync/bootstrap`. Endpoints in `api/src/routes/admin/config/index.ts`:
 
 - `GET /admin/agents` — current active version + version history.
 - `GET /admin/agents/versions/{id}` — body of a specific version.
@@ -355,7 +355,7 @@ The Codex `config.toml` builder. Endpoints in `api/src/routes/admin/config/index
 
 - `GET /admin/config` — current canonical config + per-host overrides.
 - `POST /admin/config/render` — render a TOML body from a structured form.
-- `POST /admin/config/store` — commit a new canonical version served via `POST /config/retrieve`.
+- `POST /admin/config/store` — commit a new canonical version served as the `config` block of `POST /sync/bootstrap`.
 
 `api/src/services/config-normalizer.ts` enforces valid model/reasoning-effort/personality shapes; `ClientConfigService` (`api/src/services/client-config.ts`) materialises the TOML a given host should receive given its overrides.
 

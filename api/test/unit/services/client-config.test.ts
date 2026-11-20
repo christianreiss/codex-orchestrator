@@ -480,20 +480,14 @@ describe('client-config: renderClaudeSettingsPartialForHost statusLine default',
     expect(partial.statusLine).toEqual({ type: 'command', command: 'cxx claude-quota-statusline' });
   });
 
-  // A host self-reports its OWN installed version, so this can only lag the
-  // actual binary, never lead it -- withholding the default here is what
-  // stops an older `cxx` (which does not understand the new statusLine
-  // command yet) from being handed a statusLine it cannot run.
-  it('withholds the default from a host on an older wrapper, to avoid handing it a command it cannot run', () => {
-    // 0.7.23 is the latest tag as of writing and does not ship this command.
-    const { partial, owned_paths } = render('0.7.23');
-    expect(partial).not.toHaveProperty('statusLine');
-    expect(owned_paths).not.toContain('statusLine');
-  });
-
-  it('withholds the default when the host has never reported a wrapper version', () => {
-    const { partial } = render(null);
-    expect(partial).not.toHaveProperty('statusLine');
+  // Every supported cxx (0.7.24 and newer) ships the command, so the default
+  // no longer waits for the host to report a new-enough wrapper.
+  it('installs the default for a host that reports an old or no wrapper version', () => {
+    for (const version of ['0.7.23', null]) {
+      const { partial, owned_paths } = render(version);
+      expect(partial.statusLine).toEqual({ type: 'command', command: 'cxx claude-quota-statusline' });
+      expect(owned_paths).toContain('statusLine');
+    }
   });
 
   it('lets an admin-configured statusLine win over the fleet default, even on a new-enough wrapper', () => {
@@ -839,9 +833,6 @@ describe('client-config: memory curation permissions', () => {
 });
 
 describe('client-config: Claude Agent Messaging permissions', () => {
-  // The shape served to a Claude host follows that host's OWN wrapper version:
-  // config syncs ahead of a self-update, so a host still on a pre-plugin
-  // wrapper must keep the shape its binary actually produces.
   const claudeMessagingRender = (claudeWrapperVersion: string | null = '0.8.11') => renderClaudeSettingsPartialForHost({
     settings: { orchestrator_mcp_enabled: false },
     host: {
@@ -890,30 +881,16 @@ describe('client-config: Claude Agent Messaging permissions', () => {
     expect(allow.some((rule) => rule.startsWith('mcp__cxx-agent__'))).toBe(false);
   });
 
-  // Claude Code resolves a `server:<name>` channel against the enterprise,
-  // managed, user, project and local MCP scopes only. A pre-plugin wrapper
-  // passes the server on the command line, which is in none of them, so this
-  // user-scope entry is the only thing keeping that host's channel alive --
-  // and its tools are still `mcp__cxx-agent__*`.
-  it('keeps the user-scope server and its tool names for a pre-plugin wrapper', () => {
-    const { partial, owned_paths } = claudeMessagingRender('0.8.10');
+  // Every supported clx (0.8.11 and newer) ships the plugin, so the served
+  // shape no longer follows the host's reported wrapper version.
+  it.each(['0.8.10', null])('serves the plugin shape to a host reporting %s', (version) => {
+    const { partial, owned_paths } = claudeMessagingRender(version);
     const servers = (partial.mcpServers ?? {}) as Record<string, Record<string, unknown>>;
-    expect(servers['cxx-agent']).toBeDefined();
-    expect(owned_paths).toContain('mcpServers.cxx-agent');
+    expect(servers['cxx-agent']).toBeUndefined();
+    expect(owned_paths).not.toContain('mcpServers.cxx-agent');
     const allow = (partial.permissions as Record<string, unknown>).allow as string[];
-    expect(allow).toEqual(expect.arrayContaining([
-      'mcp__cxx-agent__agent_list',
-      'mcp__cxx-agent__agent_send',
-    ]));
-    expect(allow.some((rule) => rule.startsWith('mcp__plugin_cxx-receiver_cxx-agent__'))).toBe(false);
-  });
-
-  // A host that has never reported a wrapper version cannot be assumed to have
-  // upgraded, so it is treated as pre-plugin.
-  it('treats an unknown wrapper version as pre-plugin', () => {
-    const { partial } = claudeMessagingRender(null);
-    const servers = (partial.mcpServers ?? {}) as Record<string, Record<string, unknown>>;
-    expect(servers['cxx-agent']).toBeDefined();
+    expect(allow).toContain('mcp__plugin_cxx-receiver_cxx-agent__agent_send');
+    expect(allow.some((rule) => rule.startsWith('mcp__cxx-agent__'))).toBe(false);
   });
 
   it('still names the plain server on Codex, which has no plugin surface', () => {

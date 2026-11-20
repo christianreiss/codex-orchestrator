@@ -31,7 +31,6 @@ import type {
 } from '../../../src/services/wrapper-signing-key.js';
 import type {
   BinaryBuild,
-  EngineManifest,
   PlatformManifest,
   WrapperBinRegistry,
 } from '../../../src/services/wrapper-bin-registry.js';
@@ -144,7 +143,6 @@ function fakeDb(): Database {
 
 function fakeBinaries(available = true): WrapperBinRegistry {
   const build: BinaryBuild = { version: '1.0.1', sha256: 'a'.repeat(64), size_bytes: 100 };
-  const manifest: EngineManifest = { engine: 'codex', platforms: {} };
   return {
     async manifestForPlatform(): Promise<PlatformManifest | null> {
       return null;
@@ -160,9 +158,6 @@ function fakeBinaries(available = true): WrapperBinRegistry {
     },
     async latestVersion() {
       return available ? build.version : null;
-    },
-    async engineManifest() {
-      return manifest;
     },
     async binaryDescriptor() {
       return null;

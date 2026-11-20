@@ -191,7 +191,7 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
      collides with a local route. Defaults to `172.30.250.0/24`.
    - Admin surface: `/admin/*` is gated by the admin session cookie. The API runs
      no client-certificate check of its own — this server neither issues nor
-     verifies certificates. `/cli/auth/verify` requires an admin session too.
+     verifies certificates.
    - Admin login:
      - `ADMIN_SESSION_COOKIE` (default `codex_admin_session`)
      - `ADMIN_SESSION_TTL_MINUTES` (default 43200; an issued session is clamped

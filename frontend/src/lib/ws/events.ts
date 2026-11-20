@@ -49,7 +49,7 @@ export function ownerStateInvalidations(payload: unknown): QueryKey[] {
     else if (name==="secrets") events=["secret.updated"];
     else if (name==="openaiApiKeys") events=["api-key.changed"];
     else if (name.startsWith("wrapper")) events=["version.wrapper_rollout"];
-    else if (["controlPlaneOutbox","installTokens","authSeedTokens","cliAuthRequests","mcpSessionTokens","schemaMigrations","agentTransfers"].includes(name)) events=[];
+    else if (["controlPlaneOutbox","installTokens","authSeedTokens","mcpSessionTokens","schemaMigrations","agentTransfers"].includes(name)) events=[];
     else return [[]];
     for(const event of events) keys.push(...(DEFAULT_INVALIDATIONS[event] ?? [[]]));
   }

@@ -113,7 +113,7 @@ describe('manual shortcuts-api article route tables', () => {
     // Params, optional-parameter brackets and trailing prose normalize away.
     expect(documented.has('DELETE /admin/passkeys/:param')).toBe(true);
     expect(documented.has('GET /wrapper/v2/config')).toBe(true);
-    expect(documented.has('GET /wrapper')).toBe(true);
+    expect(documented.has('GET /wrapper/v2/bin/:param/:param/v:version/:param')).toBe(true);
     // The keyboard-shortcut and prefix tables are not route tables.
     expect(documented.has('OpenAI-compat (Codex) sk-cdx-')).toBe(false);
   });

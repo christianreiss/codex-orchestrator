@@ -32,7 +32,6 @@ import type { WrapperSigner, WrapperSigningKeyService } from '../../../src/servi
 import type {
   WrapperBinRegistry,
   BinaryBuild,
-  EngineManifest,
   PlatformManifest,
 } from '../../../src/services/wrapper-bin-registry.js';
 
@@ -122,17 +121,6 @@ function fakeBinaries(): WrapperBinRegistry {
     sha256: 'a'.repeat(64),
     size_bytes: 100,
   };
-  const manifest: EngineManifest = {
-    engine: 'codex',
-    platforms: {
-      'linux-amd64': {
-        version: '1.0.1',
-        sha256: 'a'.repeat(64),
-        size_bytes: 100,
-        url_path: 'https://example.com/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
-      },
-    },
-  };
   return {
     async manifestForPlatform(): Promise<PlatformManifest | null> {
       return null;
@@ -148,9 +136,6 @@ function fakeBinaries(): WrapperBinRegistry {
     },
     async latestVersion() {
       return '1.0.1';
-    },
-    async engineManifest() {
-      return manifest;
     },
     async binaryDescriptor(artifact) {
       return artifact === 'cxx'
@@ -1019,7 +1004,6 @@ describe('wrapper-config', () => {
       expect(payload.agent_messaging.receiver_enabled).toBe(false);
       expect(payload.agent_messaging.capacity_continue_enabled).toBe(false);
       expect(payload.agent_messaging.channel_preview_enabled).toBe(false);
-      expect(payload.host.agent_messaging_enabled).toBe(false);
     });
 
     it('leaves an enabled sibling engine running while another is suspended', async () => {

@@ -39,7 +39,6 @@ export const TABLE_POLICY = {
   installTokens: 'owned',
   hostSpawns: 'owned',
   authSeedTokens: 'owned',
-  cliAuthRequests: 'owned',
   skills: 'owned',
   skillFiles: 'owned',
   secrets: 'owned',

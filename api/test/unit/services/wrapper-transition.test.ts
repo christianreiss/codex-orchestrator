@@ -14,14 +14,8 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import {
-  buildLegacyWrapperTransitionScript,
-  buildWrapperV2InstallerScript,
-  isLegacyShellWrapperVersion,
-  withLegacyShellWrapperTransition,
-} from '../../../src/services/wrapper-transition.js';
-import { ENGINE_COMMANDS, type Engine } from '../../../src/util/engine.js';
-import type { VersionSnapshot } from '../../../src/services/version-snapshot.js';
+import { buildWrapperV2InstallerScript } from '../../../src/services/wrapper-transition.js';
+import type { Engine } from '../../../src/util/engine.js';
 
 function writeExecutable(path: string, body: string): void {
   writeFileSync(path, body, 'utf8');
@@ -331,125 +325,6 @@ os.statvfs = simulated
   }
 }
 
-function runLegacyTransitionFixture(engine: Engine): {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-  aliasTarget: string | null;
-  cxxExists: boolean;
-} {
-  const dir = mkdtempSync(join(tmpdir(), 'wrapper-transition-run-'));
-  try {
-    const fakeBin = join(dir, 'fake-bin');
-    const home = join(dir, 'home');
-    const dataHome = join(dir, 'data');
-    mkdirSync(fakeBin);
-    mkdirSync(home);
-    mkdirSync(dataHome);
-    const fakeWrapper = join(dir, 'fake-wrapper');
-    writeExecutable(fakeWrapper, '#!/bin/sh\nprintf "%s|%s\\n" "$(basename "$0")" "$*"\n');
-    const wrapperSha = createHash('sha256').update(readFileSync(fakeWrapper)).digest('hex');
-    const bundle = join(dir, 'bundle.json');
-    writeFileSync(
-      bundle,
-      JSON.stringify({
-        payload: {
-          wrapper: {
-            version: '0.6.50',
-            binary_url: 'https://o.example/wrapper/v2/bin/cxx/linux-amd64/v0.6.50/cxx',
-            binary_sha256: wrapperSha,
-          },
-        },
-        signature: { value: 'fixture-signature' },
-      }),
-      'utf8',
-    );
-    writeExecutable(
-      join(fakeBin, 'curl'),
-      `#!/bin/sh
-out=
-url=
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -o) out=$2; shift 2 ;;
-    http://*|https://*) url=$1; shift ;;
-    *) shift ;;
-  esac
-done
-case "$url" in
-  */wrapper/v2/config*) cp "$FAKE_BUNDLE" "$out" ;;
-  */wrapper/v2/bin/cxx/*/cxx) cp "$FAKE_WRAPPER" "$out" ;;
-  *) exit 46 ;;
-esac
-`,
-    );
-    // A legacy wrapper installs this launcher over its own resolved cdx/clx
-    // path before re-execing it. Keep that exact basename/path in the fixture
-    // so the test proves the regular shell is replaced by the managed alias.
-    const launcher = join(dir, ENGINE_COMMANDS[engine]);
-    writeFileSync(
-      launcher,
-      buildLegacyWrapperTransitionScript({
-        fqdn: 'fixture.example',
-        apiKey: 'sk-fixture',
-        baseUrl: 'https://o.example',
-        engine,
-      }),
-      'utf8',
-    );
-    const result = spawnSync('sh', [launcher, '--status'], {
-      encoding: 'utf8',
-      env: {
-        ...fixtureEnvironment(home),
-        XDG_DATA_HOME: dataHome,
-        PATH: `${fakeBin}:/usr/bin:/bin`,
-        TERM: 'dumb',
-        NO_COLOR: '1',
-        FAKE_BUNDLE: bundle,
-        FAKE_WRAPPER: fakeWrapper,
-      },
-    });
-    const binRoot = dir;
-    let aliasTarget: string | null = null;
-    try {
-      aliasTarget = readlinkSync(join(binRoot, ENGINE_COMMANDS[engine]));
-    } catch {
-      // Assertion below reports a missing/non-link alias clearly.
-    }
-    return {
-      ...result,
-      aliasTarget,
-      cxxExists: existsSync(join(binRoot, 'cxx')),
-    };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-function snapshot(): VersionSnapshot {
-  return {
-    client_version: '0.130.0',
-    client_version_override: null,
-    client_version_enforce_exact: false,
-    client_version_fetched_at: null,
-    wrapper_version: '0.6.0',
-    wrapper_sha256: 'a'.repeat(64),
-    wrapper_url: 'https://o.example/wrapper/v2/bin/codex/linux-amd64/v0.6.0/cdx',
-    runner_state: 'ok',
-    api_disabled: false,
-    auto_update_enabled: true,
-    cdx_silent: false,
-    clx_silent: false,
-    cgx_silent: false,
-    agent_messaging_enabled: false,
-    fleet_disabled_engines: [],
-    installation_id: 'inst',
-    engine: 'codex',
-    api_version: 1,
-    min_api: 1,
-  };
-}
-
 describe('wrapper transition helpers', () => {
   it.each(['0.6.50', '0.9.23'])('keeps native entry installation compatible with wrapper %s', (wrapperVersion) => {
     const result = runDualInstallerFixture({ wrapperVersion });
@@ -487,94 +362,32 @@ describe('wrapper transition helpers', () => {
     expect(result.wrapperInvocations.filter(command => command.includes('sync'))).toHaveLength(engines.length);
   });
 
-  it.each(['installer', 'codex', 'claude', 'grok', 'kimi'] as const)(
-    '%s fixture preserves inherited host config files', (mode) => {
-      const external = mkdtempSync(join(tmpdir(), 'wrapper-host-canaries-'));
-      const canaries: string[] = [];
-      try {
-        const xdg = join(external, 'xdg');
-        vi.stubEnv('XDG_CONFIG_HOME', xdg);
-        for (const name of ['cdx', 'clx', 'cgx']) {
-          const override = join(external, 'overrides', name + '.json');
-          vi.stubEnv(name.toUpperCase() + '_CONFIG_PATH', override);
-          for (const path of [override, join(xdg, 'codex-orchestrator', name + '.json')]) {
-            mkdirSync(dirname(path), { recursive: true });
-            for (const suffix of ['', '.sig']) {
-              const file = path + suffix;
-              writeFileSync(file, 'preserve-host-config', { mode: 0o600 });
-              canaries.push(file);
-            }
+  it('installer fixture preserves inherited host config files', () => {
+    const external = mkdtempSync(join(tmpdir(), 'wrapper-host-canaries-'));
+    const canaries: string[] = [];
+    try {
+      const xdg = join(external, 'xdg');
+      vi.stubEnv('XDG_CONFIG_HOME', xdg);
+      for (const name of ['cdx', 'clx', 'cgx']) {
+        const override = join(external, 'overrides', name + '.json');
+        vi.stubEnv(name.toUpperCase() + '_CONFIG_PATH', override);
+        for (const path of [override, join(xdg, 'codex-orchestrator', name + '.json')]) {
+          mkdirSync(dirname(path), { recursive: true });
+          for (const suffix of ['', '.sig']) {
+            const file = path + suffix;
+            writeFileSync(file, 'preserve-host-config', { mode: 0o600 });
+            canaries.push(file);
           }
         }
-        const result = mode === 'installer'
-          ? runDualInstallerFixture({ engines: ['codex', 'claude', 'grok', 'kimi'] })
-          : runLegacyTransitionFixture(mode);
-        for (const file of canaries) expect(readFileSync(file, 'utf8'), file).toBe('preserve-host-config');
-        expect(result.status, result.stderr).toBe(0);
-      } finally {
-        vi.unstubAllEnvs();
-        rmSync(external, { recursive: true, force: true });
       }
-    },
-  );
-
-  it('transitions a Grok shell persona to the shared cxx binary', () => {
-    const result = runLegacyTransitionFixture('grok');
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.aliasTarget).toBe('cxx');
-    expect(result.stdout).toContain('grok --status');
+      const result = runDualInstallerFixture({ engines: ['codex', 'claude', 'grok', 'kimi'] });
+      for (const file of canaries) expect(readFileSync(file, 'utf8'), file).toBe('preserve-host-config');
+      expect(result.status, result.stderr).toBe(0);
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(external, { recursive: true, force: true });
+    }
   });
-
-  it('detects date-style shell wrapper versions only', () => {
-    expect(isLegacyShellWrapperVersion('2026.05.11-01')).toBe(true);
-    expect(isLegacyShellWrapperVersion('2026.05.11-01+local')).toBe(true);
-    expect(isLegacyShellWrapperVersion('0.6.0')).toBe(false);
-    expect(isLegacyShellWrapperVersion(null)).toBe(false);
-  });
-
-  it('points legacy wrappers at the transition launcher without a static checksum', () => {
-    const out = withLegacyShellWrapperTransition(snapshot(), '2026.05.11-01', 'codex');
-    expect(out.wrapper_url).toBe('/wrapper/download?engine=codex');
-    expect(out.wrapper_sha256).toBeNull();
-  });
-
-  it('leaves Go wrapper summaries on the static binary URL', () => {
-    const base = snapshot();
-    const out = withLegacyShellWrapperTransition(base, '0.6.0', 'codex');
-    expect(out).toBe(base);
-  });
-
-  it('builds a transition launcher that fetches signed config before exec', () => {
-    const out = buildLegacyWrapperTransitionScript({
-      fqdn: 'h.example',
-      apiKey: 'sk-codex-test',
-      baseUrl: 'https://o.example/',
-      engine: 'codex',
-      allowInsecure: true,
-      peerEngines: ['claude'],
-    });
-    expect(out).toContain('legacy transition launcher');
-    expect(out).toContain("BASE_URL='https://o.example'");
-    expect(out).toContain('/wrapper/v2/config?engine=codex');
-    expect(out).toContain('/wrapper/v2/config?engine=claude');
-    expect(out).toContain('CODEX_CONFIG_PATH=${CDX_CONFIG_PATH:-');
-    expect(out).toContain('CODEX_INSTALL_CURL_INSECURE=${CODEX_INSTALL_CURL_INSECURE:-1}');
-    expect(out).toContain('INSTALL_CONTEXT=transition');
-    expect(out).toContain('TRANSITION_DIR=$(dirname "$TRANSITION_SELF")');
-    expect(out).toContain("BIN_ROOT=$(CDPATH='' cd -P -- \"$TRANSITION_DIR\"");
-    expect(out).toContain('exec "$TARGET_BIN" "$ENGINE" "$@"');
-  });
-
-  it.each(['codex', 'claude'] as const)(
-    'date-version transition installs cxx and retains the explicit %s persona',
-    (engine) => {
-      const result = runLegacyTransitionFixture(engine);
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain(`cxx|${engine} --status`);
-      expect(result.cxxExists).toBe(true);
-      expect(result.aliasTarget).toBe('cxx');
-    },
-  );
 
   it('installer reports a conflicting resolved wrapper path without unconditional shell noise', () => {
     const out = buildWrapperV2InstallerScript({
@@ -620,7 +433,7 @@ describe('wrapper transition helpers', () => {
     expect(out).toContain('if ! ensure_bin_root; then');
     const call = out.indexOf('\npreflight\n');
     expect(call).toBeGreaterThan(-1);
-    expect(call).toBeLessThan(out.indexOf('\n  ui_header\n'));
+    expect(call).toBeLessThan(out.indexOf('\nui_header\n'));
   });
 
   it('stops on one preflight line with a fix when the bin root is not writable', () => {
@@ -835,26 +648,6 @@ describe('wrapper transition helpers', () => {
           '',
         ].join('\n'),
       );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('emits POSIX shell syntax that sh can parse', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'wrapper-transition-'));
-    try {
-      const file = join(dir, 'cdx');
-      writeFileSync(
-        file,
-        buildLegacyWrapperTransitionScript({
-          fqdn: 'h.example',
-          apiKey: 'sk-codex-test',
-          baseUrl: 'https://o.example/',
-          engine: 'codex',
-        }),
-        'utf8',
-      );
-      execFileSync('sh', ['-n', file]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

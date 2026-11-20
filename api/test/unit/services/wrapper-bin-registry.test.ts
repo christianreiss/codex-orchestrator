@@ -259,28 +259,6 @@ describe('wrapper-bin-registry', () => {
     ).resolves.toBeNull();
   });
 
-  it('builds an engine manifest with per-platform URL paths', async () => {
-    const reg = createWrapperBinRegistry({ binRoot: BIN_ROOT });
-    const m = await reg.engineManifest('codex', 'https://api.example.com/');
-    expect(m.engine).toBe('codex');
-    expect(m.platforms['linux-amd64']).toBeDefined();
-    expect(m.platforms['linux-amd64']!.url_path).toBe(
-      'https://api.example.com/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
-    );
-    expect(m.platforms['darwin-arm64']).toBeDefined();
-    expect(m.platforms['darwin-arm64']!.url_path).toBe(
-      'https://api.example.com/wrapper/v2/bin/cxx/darwin-arm64/v1.0.1/cxx',
-    );
-  });
-
-  it('projects the common cxx binary into the Claude manifest', async () => {
-    const reg = createWrapperBinRegistry({ binRoot: BIN_ROOT });
-    const m = await reg.engineManifest('claude', 'http://localhost:8080');
-    expect(m.platforms['linux-amd64']!.url_path).toBe(
-      'http://localhost:8080/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
-    );
-  });
-
   it('describes a specific binary file', async () => {
     const reg = createWrapperBinRegistry({ binRoot: BIN_ROOT });
     const desc = await reg.binaryDescriptor('codex', 'linux', 'amd64', '1.0.1');

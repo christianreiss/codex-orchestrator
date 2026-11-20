@@ -388,40 +388,6 @@ export const authSeedTokens = mysqlTable(
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// cli_auth_requests
-// ────────────────────────────────────────────────────────────────────────────
-
-export const cliAuthRequests = mysqlTable(
-  'cli_auth_requests',
-  {
-    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
-    requestId: char('request_id', { length: 64 }).notNull(),
-    requestIdEnc: longtext('request_id_enc'),
-    userCode: char('user_code', { length: 9 }).notNull(),
-    userCodeHash: char('user_code_hash', { length: 64 }).notNull(),
-    fqdn: varchar('fqdn', { length: 255 }).notNull(),
-    secure: tinyint('secure').notNull().default(1),
-    status: varchar('status', { length: 16 }).notNull().default('pending'),
-    approvedByUserId: bigint('approved_by_user_id', { mode: 'number', unsigned: true }),
-    hostId: bigint('host_id', { mode: 'number', unsigned: true }),
-    apiKeyEnc: longtext('api_key_enc'),
-    ip: varchar('ip', { length: 64 }),
-    userAgent: varchar('user_agent', { length: 255 }),
-    expiresAt: varchar('expires_at', { length: 100 }).notNull(),
-    createdAt: varchar('created_at', { length: 100 }).notNull(),
-    approvedAt: varchar('approved_at', { length: 100 }),
-    consumedAt: varchar('consumed_at', { length: 100 }),
-    engine: varchar('engine', { length: 16 }).notNull().default('codex'),
-  },
-  (t) => ({
-    requestIdUnique: uniqueIndex('request_id').on(t.requestId),
-    userCodeIdx: index('idx_cli_auth_user_code').on(t.userCodeHash),
-    expiresIdx: index('idx_cli_auth_expires').on(t.expiresAt),
-    statusIdx: index('idx_cli_auth_status').on(t.status),
-  }),
-);
-
-// ────────────────────────────────────────────────────────────────────────────
 // skills
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -2253,7 +2219,6 @@ export type Secret = typeof secrets.$inferSelect;
 export type Log = typeof logs.$inferSelect;
 export type Version = typeof versions.$inferSelect;
 export type SchemaMigration = typeof schemaMigrations.$inferSelect;
-export type CliAuthRequest = typeof cliAuthRequests.$inferSelect;
 export type GitClone = typeof gitClones.$inferSelect;
 export type GitWorktree = typeof gitWorktrees.$inferSelect;
 export type GitMergeRequest = typeof gitMergeRequests.$inferSelect;
