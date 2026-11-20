@@ -195,7 +195,7 @@ func TestCategoryMetadataKeepsLegacyLedgerCompatible(t *testing.T) {
 	if err != nil || notice == nil {
 		t.Fatalf("notice: %+v %v", notice, err)
 	}
-	dir, _ := paths("claude")
+	dir, _ := mailbox.Path("claude")
 	ledger := filepath.Join(dir, "session.seen")
 	seen, err := os.ReadFile(ledger)
 	if err != nil || string(seen) != notice.Generation {
@@ -222,7 +222,7 @@ func TestPrimeDoesNotNeedPublisherLock(t *testing.T) {
 			if err := Publish(Notice{Generation: strings.Repeat("a", 64), Engine: engine, Kinds: []string{KindInstructions}}); err != nil {
 				t.Fatal(err)
 			}
-			err := withLock(engine, func(dir string) error { return Prime(engine, "fresh") })
+			err := mailbox.WithLock(engine, func(dir string) error { return Prime(engine, "fresh") })
 			if err != nil {
 				t.Fatalf("startup baseline lost under publisher contention: %v", err)
 			}
@@ -241,7 +241,7 @@ func TestPrimePinsBaselineAndPreservesConcurrentPublication(t *testing.T) {
 			if err := Publish(baseline); err != nil {
 				t.Fatal(err)
 			}
-			delivery, err := preparePrime(engine, "fresh")
+			delivery, err := mailbox.PreparePrime(engine, "fresh")
 			if err != nil || delivery == nil {
 				t.Fatalf("prepare: %v", err)
 			}
@@ -270,7 +270,7 @@ func TestPrimeFailsImmediatelyOnSessionContention(t *testing.T) {
 	if err := Publish(Notice{Generation: strings.Repeat("a", 64), Engine: "codex", Kinds: []string{KindSkills}}); err != nil {
 		t.Fatal(err)
 	}
-	delivery, err := preparePrime("codex", "fresh")
+	delivery, err := mailbox.PreparePrime("codex", "fresh")
 	if err != nil || delivery == nil {
 		t.Fatalf("prepare: %v", err)
 	}
