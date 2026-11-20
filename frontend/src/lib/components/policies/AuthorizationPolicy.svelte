@@ -18,7 +18,6 @@
 <PolicyRow
   id="authorization"
   label="Role checks"
-  term="authorization mode"
   controlId="authorization-mode"
   help="How strictly the server checks each role's capabilities on protected routes."
   details="Compatible mode preserves legacy role rules and records requests strict mode would refuse. Strict mode requires the capability assigned to each route. Recorded requests are evidence of past activity, not a guarantee about future access."

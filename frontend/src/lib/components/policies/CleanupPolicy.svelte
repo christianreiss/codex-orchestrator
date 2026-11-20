@@ -54,7 +54,6 @@
 <PolicyRow
   id={kind}
   label="Remove inactive hosts"
-  term="prune policy"
   help="Hosts that have not checked in within this many days are removed; 0 turns it off."
   details="Set 0 to disable inactivity pruning. Temporary-host expiry and removal of hosts never provisioned within 30 minutes are separate lifecycle rules and still apply. Removed hosts must be registered again to return to the fleet."
 >
