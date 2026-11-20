@@ -121,7 +121,7 @@ func TestPendingConnectionRecoversWithoutChangingCapability(t *testing.T) {
 	}))
 	defer server.Close()
 	runtime, err := StartConnection(context.Background(), &config.Config{Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "host-key"}, AgentMessaging: config.AgentMessaging{Enabled: true}}, StartInput{Engine: "codex"})
-	if err == nil || runtime == nil || runtime.Session() == nil || runtime.Broker() == nil {
+	if err == nil || runtime == nil || runtime.Session() == nil || runtime.broker == nil {
 		t.Fatalf("pending connection runtime=%v err=%v", runtime, err)
 	}
 	socket := os.Getenv(envSocket)
