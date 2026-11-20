@@ -154,7 +154,7 @@ describe('operator docs environment reference', () => {
     // Every doc has to contribute names, or one of the seven goes unchecked.
     expect([...new Set([...documented.values()].flat())].sort()).toEqual([...DOCS].sort());
     expect(documented.get('PUBLIC_BASE_URL')).toContain('docs/USAGE.md');
-    expect(documented.has('ADMIN_ACCESS_MODE')).toBe(true);
+    expect(documented.has('ADMIN_SESSION_TTL_MINUTES')).toBe(true);
     expect(documented.has('RUNNER_SHARED_SECRET')).toBe(true);
     expect(documented.has('MTLS')).toBe(false); // `X-MTLS-*` is a header, not a var.
 

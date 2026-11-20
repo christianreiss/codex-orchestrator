@@ -47,13 +47,6 @@ export interface StateRevision {
   readonly epoch: string;
   readonly sequence: bigint;
 }
-export interface WireStateRevision {
-  readonly epoch: string;
-  readonly sequence: string;
-}
-export function wireStateRevision(revision: StateRevision): WireStateRevision {
-  return { epoch: revision.epoch, sequence: revision.sequence.toString(10) };
-}
 export function sameStateRevision(a: StateRevision, b: StateRevision): boolean {
   return a.epoch === b.epoch && a.sequence === b.sequence;
 }

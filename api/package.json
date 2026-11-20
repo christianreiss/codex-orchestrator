@@ -24,7 +24,6 @@
     "test:db:setup": "TEST_USE_DB=1 tsx test/fixtures/apply-schema-baseline.ts",
     "test:fixtures": "vitest run test/unit/security",
     "drizzle:generate": "drizzle-kit generate",
-    "drizzle:push": "drizzle-kit push",
     "drizzle:studio": "drizzle-kit studio",
     "docs:capabilities": "tsx scripts/render-capability-docs.ts",
     "models:generate": "tsx scripts/generate-model-views.ts"
@@ -47,7 +46,6 @@
     "fastify": "^5.2.0",
     "fastify-plugin": "^5.1.0",
     "ipaddr.js": "^2.2.0",
-    "libsodium": "^0.8.4",
     "libsodium-wrappers": "^0.7.15",
     "mysql2": "^3.11.5",
     "nodemailer": "^9.0.3",

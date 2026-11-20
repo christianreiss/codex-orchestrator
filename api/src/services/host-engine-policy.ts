@@ -39,11 +39,6 @@ export function disabledEngines(fleet: FleetEngineState): Engine[] {
   return ENGINES.filter((engine) => !fleet[engine]);
 }
 
-/** Engines switched on fleet-wide, in canonical order. */
-export function enabledEngines(fleet: FleetEngineState): Engine[] {
-  return ENGINES.filter((engine) => fleet[engine]);
-}
-
 /**
  * The one refusal every host-facing route uses for a fleet-disabled engine.
  * The code is the same `engine_disabled` host-level removal uses — every

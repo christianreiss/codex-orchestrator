@@ -7,7 +7,6 @@ import { makeClientIpPlugin } from '../../src/http/plugins/client-ip.js';
 import { makeAuthHostPlugin } from '../../src/http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from '../../src/http/plugins/auth-admin.js';
 import { makeCapabilitiesPlugin } from '../../src/http/plugins/capabilities.js';
-import { makeAuthMtlsPlugin } from '../../src/http/plugins/auth-mtls.js';
 import { corsPlugin } from '../../src/http/plugins/cors.js';
 import { notFoundHandler } from '../../src/http/not-found.js';
 import type { Database } from '../../src/db/client.js';
@@ -49,7 +48,7 @@ export interface BuildAppOptions {
 
 /**
  * Build a Fastify app pre-wired with the same plugin stack as `src/server.ts`
- * (cookie, cors, multipart, request-id, client-ip, auth-mtls, auth-host,
+ * (cookie, cors, multipart, request-id, client-ip, auth-host,
  * auth-admin, capabilities, envelope) but without the static handler, route
  * registration, or WS server. Routes can be added by the caller via
  * `app.get(...)` etc. before invoking `inject()`.
@@ -89,7 +88,6 @@ export async function buildAppWithDb(
   await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024 } });
   await app.register(requestIdPlugin);
   await app.register(makeClientIpPlugin(env));
-  await app.register(makeAuthMtlsPlugin(env));
   if (!opts.minimal) {
     await app.register(makeAuthHostPlugin(db));
     await app.register(makeAuthAdminPlugin(db, env));

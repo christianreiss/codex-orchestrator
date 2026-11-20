@@ -5,12 +5,7 @@
  * corpus quietly stops being used and nothing else fails.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  MANAGED_MEMORY_HEADING,
-  appendManagedMemoryBlock,
-  buildManagedMemoryBlock,
-  managedMemoryBlockSha,
-} from '../../../src/services/managed-agents-memory.js';
+import { buildManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
 
 describe('managed memory block', () => {
@@ -47,10 +42,8 @@ describe('managed memory block', () => {
     expect(codex).toMatch(/host-local/i);
   });
 
-  it('gives the two engines different blocks and different digests', () => {
+  it('gives the two engines different blocks', () => {
     expect(buildManagedMemoryBlock(ENGINE_CODEX)).not.toBe(buildManagedMemoryBlock(ENGINE_CLAUDE));
-    expect(managedMemoryBlockSha(ENGINE_CODEX)).not.toBe(managedMemoryBlockSha(ENGINE_CLAUDE));
-    expect(managedMemoryBlockSha(ENGINE_CODEX)).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('forbids storing secrets in any store', () => {
@@ -101,24 +94,6 @@ describe('managed memory block', () => {
     expect(block).toMatch(/deploy\.crane/);
     expect(block).toMatch(/store the \*why\*/i);
     expect(block).toMatch(/absolute dates/i);
-  });
-
-  it('appends after the canonical body, separated by a blank line', () => {
-    const out = appendManagedMemoryBlock('# AGENTS.md\n\nHouse rules.\n', ENGINE_CODEX);
-    expect(out.startsWith('# AGENTS.md\n\nHouse rules.')).toBe(true);
-    expect(out).toContain(`\n\n${MANAGED_MEMORY_HEADING}`);
-  });
-
-  it('is idempotent — a served copy pasted back into the editor gains no second block', () => {
-    const once = appendManagedMemoryBlock('# AGENTS.md\n', ENGINE_CODEX);
-    const twice = appendManagedMemoryBlock(once, ENGINE_CODEX);
-    expect(twice).toBe(once);
-    expect(twice.split(MANAGED_MEMORY_HEADING)).toHaveLength(2);
-  });
-
-  it('serves the block alone when the canonical document is empty', () => {
-    expect(appendManagedMemoryBlock('', ENGINE_CLAUDE)).toBe(buildManagedMemoryBlock(ENGINE_CLAUDE));
-    expect(appendManagedMemoryBlock('   \n\n', ENGINE_CLAUDE)).toBe(buildManagedMemoryBlock(ENGINE_CLAUDE));
   });
 
   // The former `< 1600` ceiling was removed deliberately when #context was

@@ -49,5 +49,4 @@ function ensureDbEnv(): void {
   if (!process.env.DB_HOST) process.env.DB_HOST = '127.0.0.1';
   if (!process.env.DB_PORT) process.env.DB_PORT = '3306';
   if (!process.env.PUBLIC_BASE_URL_REQUIRED) process.env.PUBLIC_BASE_URL_REQUIRED = 'false';
-  if (!process.env.ADMIN_ACCESS_MODE) process.env.ADMIN_ACCESS_MODE = 'cookie';
 }

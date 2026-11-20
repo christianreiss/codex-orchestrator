@@ -6,7 +6,6 @@ export const GROK_OIDC_ISSUER = 'https://auth.x.ai';
 export const GROK_OIDC_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
 export const GROK_AUTH_SCOPE = `${GROK_OIDC_ISSUER}::${GROK_OIDC_CLIENT_ID}`;
 export const GROK_AUTH_TARGET = 'cli-chat-proxy.grok.com';
-export const GROK_USER_URL = `https://${GROK_AUTH_TARGET}/v1/user?include=subscription`;
 
 export interface GrokCredential {
   scope: string;

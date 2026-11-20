@@ -54,8 +54,6 @@ const KEY_ORDER: readonly string[] = [
   'disable-model-invocation',
 ];
 
-const SLUG_RE = /^[A-Za-z0-9._-]+$/;
-
 /** Accepts singular or plural / hyphen-or-underscore spellings of a kind. */
 export function normalizeKind(raw: unknown): ArtifactKind {
   const s = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
@@ -79,22 +77,6 @@ export function normalizeKind(raw: unknown): ArtifactKind {
     default:
       throw new ValidationError(`unknown artifact kind: ${raw}`, { param: 'kind' });
   }
-}
-
-export function normalizeSlug(raw: unknown): string {
-  if (typeof raw !== 'string') throw new ValidationError('slug is required', { param: 'slug' });
-  const slug = raw.trim();
-  if (slug === '') throw new ValidationError('slug is required', { param: 'slug' });
-  if (slug.length > 255) throw new ValidationError('slug must be 255 characters or fewer', { param: 'slug' });
-  if (slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
-    throw new ValidationError('slug cannot include path separators', { param: 'slug' });
-  }
-  if (!SLUG_RE.test(slug)) {
-    throw new ValidationError('slug may only contain letters, numbers, dots, underscores, and hyphens', {
-      param: 'slug',
-    });
-  }
-  return slug;
 }
 
 function needsQuoting(s: string): boolean {

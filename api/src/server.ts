@@ -6,7 +6,6 @@ import multipart from '@fastify/multipart';
 import { loadEnv } from './env.js';
 import { loggerOptions } from './util/log.js';
 import { createDb } from './db/client.js';
-import { setLivenessLedger } from './services/liveness-ledger.js';
 import { createOwnedControlPlane } from './control-plane/bootstrap.js';
 import { acquireStorageOwnership } from './control-plane/storage-owner.js';
 import { composeOwnerServices } from './ops/owner-composition.js';
@@ -39,7 +38,6 @@ import { makeClientIpPlugin } from './http/plugins/client-ip.js';
 import { makeAuthHostPlugin } from './http/plugins/auth-host.js';
 import { makeAuthAdminPlugin } from './http/plugins/auth-admin.js';
 import { makeCapabilitiesPlugin } from './http/plugins/capabilities.js';
-import { makeAuthMtlsPlugin } from './http/plugins/auth-mtls.js';
 import { corsPlugin } from './http/plugins/cors.js';
 
 import { registerAllRoutes } from './routes/index.js';
@@ -132,14 +130,13 @@ export async function buildServer() {
   app.decorate('keyring', keyring);
 
   // Plugins (order matters: cookies + cors + request-id + client-ip first;
-  // auth-mtls before auth-host/auth-admin; envelope last so it can
+  // envelope last so it can
   // catch errors thrown by any of the above)
   await app.register(cookie, { hook: 'onRequest' });
   await app.register(corsPlugin);
   await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024 } });
   await app.register(requestIdPlugin);
   await app.register(makeClientIpPlugin(env));
-  await app.register(makeAuthMtlsPlugin(env));
   await app.register(makeAuthHostPlugin(db));
   await app.register(makeAuthAdminPlugin(db, env));
   // Must precede route registration: its onRoute hook only sees routes added
@@ -165,8 +162,6 @@ export async function buildServer() {
   startChatGptUsageWorker(app, db, env);
   startFeedbackWorker(app, { db, env, keyring });
 
-  // Transport presence is volatile; no heartbeat ledger writes or SQL cache resync.
-  setLivenessLedger(undefined);
   } catch (error) { await app.close(); throw error; }
 
   attachShutdown(app);

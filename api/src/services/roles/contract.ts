@@ -9,7 +9,6 @@
  */
 import yaml from 'js-yaml';
 import { ApiError, ValidationError } from '../../http/errors.js';
-import { FILE_MAX_DECODED_BYTES } from '../project-file-encoding.js';
 
 export const ROLES_ENABLED_KEY = 'roles_enabled';
 /** First cxx that serves the agent_role_* tools and the role-aware SessionStart hook. */
@@ -18,7 +17,6 @@ export const ROLE_MANIFEST_PATH = 'ROLE.md';
 
 /** Manifest plus `core` files, delivered whole on every activation. */
 export const ROLE_CORE_MAX_BYTES = 48 * 1024;
-export const ROLE_FILE_MAX_BYTES = FILE_MAX_DECODED_BYTES;
 export const ROLE_VERSION_MAX_BYTES = 16 * 1024 * 1024;
 export const ROLE_MAX_FILES = 256;
 export const ROLE_PATH_MAX = 512;
@@ -34,10 +32,8 @@ export const ROLE_LOAD_MODES = ['core', 'on_demand'] as const;
 export type RoleLoadMode = (typeof ROLE_LOAD_MODES)[number];
 
 export const ROLE_ACTIVATION_KINDS = ['operator_prompt', 'portal', 'spawn', 'peer', 'self_upgrade'] as const;
-export type RoleActivationKind = (typeof ROLE_ACTIVATION_KINDS)[number];
 
 export const ROLE_PROPOSAL_KINDS = ['file_add', 'file_change', 'file_remove', 'manifest_change', 'note', 'revert'] as const;
-export type RoleProposalKind = (typeof ROLE_PROPOSAL_KINDS)[number];
 
 export type RoleRisk = 'additive' | 'modifying' | 'core' | 'revert';
 export type RoleProposalStatus = 'checking' | 'in_review' | 'held' | 'applied' | 'rejected' | 'withdrawn' | 'superseded';

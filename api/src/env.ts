@@ -87,11 +87,6 @@ const schema = z
     DB_PASSWORD: z.string(),
     DB_CHARSET: z.string().default('utf8mb4'),
     DB_POOL_SIZE: intish(10),
-    // RAM read cache for hosts/versions/host_daemons (db/read-cache.ts). The
-    // resync period bounds how long an out-of-process edit (manual SQL, CLI)
-    // can stay invisible; writes made by the API itself invalidate at once.
-    DB_READ_CACHE_ENABLED: boolish.default(true),
-    DB_READ_CACHE_RESYNC_SECONDS: intish(15).pipe(z.number().int().min(0).max(3600)),
 
     // Encryption (kept compatible with legacy AUTH_ENCRYPTION_KEY / KEYS / ACTIVE_KID)
     ENCRYPTION_ACTIVE_KEY: z.string().optional(),
@@ -109,16 +104,13 @@ const schema = z
     // full CLI turn and may legitimately take minutes. Keep the two budgets
     // independent so a slow completion cannot inherit the probe deadline.
     AUTH_RUNNER_EXEC_TIMEOUT: intish(600).pipe(z.number().int().min(1).max(600)),
-    AUTH_RUNNER_CODEX_BASE_URL: z.string().optional(),
     AUTH_RUNNER_IP_BYPASS: boolish.default(false),
     AUTH_RUNNER_BYPASS_SUBNETS: z.string().default(''),
-    AUTH_RUNNER_PREFLIGHT_SECONDS: intish(28800),
     // Start-side launch-gate freshness: when a wrapper retrieves auth and the
     // served canonical was last runner-verified longer ago than this, the
     // background auth-verification worker refreshes it. Host startup reads the
     // stored verdict and never waits on a live runner probe.
     AUTH_RUNNER_VERIFY_TTL_SECONDS: intish(900),
-    AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS: intish(300),
     // Ceiling for the worker's dynamic probe schedule: the re-check interval
     // grows with how long the credential has been proven good (factor-2
     // ladder starting at the TTL) and is capped here. Successful gateway
@@ -127,11 +119,6 @@ const schema = z
     AUTH_SEED_TOKEN_TTL_SECONDS: intish(900),
 
     // Admin
-    //
-    // Whether `/cli/auth/verify` requires an admin session. It has never had
-    // anything to do with certificates — `mtls` was a third spelling of
-    // `cookie` here — and was dropped when this server stopped issuing them.
-    ADMIN_ACCESS_MODE: z.enum(['cookie', 'open']).default('cookie'),
     ADMIN_SESSION_COOKIE: z.string().default('codex_admin_session'),
     ADMIN_SESSION_TTL_MINUTES: intish(60 * 24 * 30),
     ADMIN_WS_ENABLED: boolish.default(false),
@@ -161,13 +148,10 @@ const schema = z
     // Fleet Advisor: parallel advisor sessions in the `advisor` container.
     ADVISOR_MAX_PARALLEL: intish(8).pipe(z.number().int().min(1).max(64)),
     AGENT_PORTAL_BRIDGE_TTL_SECONDS: intish(900).pipe(z.number().int().positive()),
-    AGENT_PORTAL_PURGE_INTERVAL_SECONDS: intish(300).pipe(z.number().int().positive()),
 
-    // Agent file transfer. The module switch and every byte/TTL bound live in
-    // `versions` so an operator can change them from the console; only the
-    // sweep cadence is an env knob, because it is a property of the deployment
-    // rather than of the policy. Bytes land under DATA_ROOT/transfers.
-    TRANSFERS_PURGE_INTERVAL_SECONDS: intish(300).pipe(z.number().int().positive()),
+    // Agent file transfer: the module switch and every byte/TTL bound live in
+    // `versions` (console-managed); the sweeper is deadline-driven. Bytes land
+    // under DATA_ROOT/transfers.
 
     // The two windows that actually decide what the operator sees. They used to
     // be hardcoded constants while the far coarser TTLs above were tunable,
@@ -209,7 +193,6 @@ const schema = z
     OTEL_SERVICE_NAME: z.string().default('codex-orchestrator-api'),
 
     // Behavior toggles
-    STRICT_HOST_VALIDATION: boolish.default(true),
     MCP_ALLOW_REQUEST_HOST_ORIGIN: boolish.default(false),
     INSECURE_GRACE_MINUTES: intish(60),
     // Schema convergence. On by default: the API applies every pending file in
@@ -223,7 +206,6 @@ const schema = z
     MIGRATIONS_LOCK_TIMEOUT: intish(120),
     // Escape hatch for a non-standard layout; empty means "next to the bundle".
     MIGRATIONS_DIR: z.string().optional(),
-    RUN_BACKFILLS_ON_BOOT: boolish.default(false),
 
     // MCP operator-capability auth + filesystem tools.
     // When MCP_OPERATOR_TOKEN is set, requests presenting `Authorization:
@@ -241,25 +223,6 @@ const schema = z
     // Default engines
     DEFAULT_HOST_ENGINES: z.string().default('codex'),
 
-    // Pricing
-    GPT51_CACHED_PER_1K: z.string().optional(),
-    GPT51_INPUT_PER_1K: z.string().optional(),
-    GPT51_OUTPUT_PER_1K: z.string().optional(),
-    PRICING_URL: z.string().optional(),
-    PRICING_CURRENCY: z.string().default('USD'),
-    CHATGPT_PLUS_PLAN_COST: z.string().optional(),
-    CHATGPT_PRO_PLAN_COST: z.string().optional(),
-
-    // Claude pricing
-    CLAUDE_OPUS_CACHED_PER_1K: z.string().optional(),
-    CLAUDE_OPUS_INPUT_PER_1K: z.string().optional(),
-    CLAUDE_OPUS_OUTPUT_PER_1K: z.string().optional(),
-    CLAUDE_SONNET_CACHED_PER_1K: z.string().optional(),
-    CLAUDE_SONNET_INPUT_PER_1K: z.string().optional(),
-    CLAUDE_SONNET_OUTPUT_PER_1K: z.string().optional(),
-    CLAUDE_HAIKU_CACHED_PER_1K: z.string().optional(),
-    CLAUDE_HAIKU_INPUT_PER_1K: z.string().optional(),
-    CLAUDE_HAIKU_OUTPUT_PER_1K: z.string().optional(),
     ANTHROPIC_API_KEY: z.string().optional(),
 
     // Quota cron
@@ -272,8 +235,6 @@ const schema = z
         const n = typeof v === 'number' ? v : Number(v);
         return Number.isFinite(n) && n > 0 ? n : 10;
       }),
-    CHATGPT_USAGE_HEALTH_PATH: z.string().default('/tmp/chatgpt-usage-health.json'),
-    CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS: intish(),
 
     INSTALLATION_ID: z.string().optional(),
     DATA_ROOT: z.string().optional(),

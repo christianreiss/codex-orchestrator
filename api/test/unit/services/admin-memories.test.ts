@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { decodeMemoryGraphCursor } from '../../../src/services/admin-memory-model.js';
 import {
-  decodeMemoryGraphCursor,
   memoryEtagForState,
   memoryNodeId,
   parseMemoryNodeId,

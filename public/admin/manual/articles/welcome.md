@@ -15,9 +15,7 @@ This manual is the in-app operator reference. Every article is written from the 
 
 ## Who uses this admin
 
-The admin surface is gated by `app.requireAdmin` (the Fastify decorator added by `api/src/http/plugins/auth-admin.ts`). It reads the cookie named by `ADMIN_SESSION_COOKIE` (default `codex_admin_session`), hashes the token, joins `adminSessions` + `adminUsers`, and checks expiry and `user.active`. `ADMIN_SESSION_TTL_MINUTES` defaults to `43200` (30 days) in `api/src/env.ts`. Login and authenticated requests share `adminSessionTtlSeconds()`, clamped to 5 minutes–7 days. The default therefore creates a seven-day session, and subsequent authenticated requests renew it by that same capped lifetime. `requireAdmin` itself is mode-unaware: it does not inspect `ADMIN_ACCESS_MODE`. Transport-layer concerns (proxy-forwarded mTLS claims via the separate `auth-mtls` plugin) are handled outside this decorator, and no route authorizes on them.
-
-`ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is declared in `env.ts` and consumed by `cli-auth/index.ts` for the CLI login guard; it does not affect the cookie check that `requireAdmin` performs.
+The admin surface is gated by `app.requireAdmin` (the Fastify decorator added by `api/src/http/plugins/auth-admin.ts`). It reads the cookie named by `ADMIN_SESSION_COOKIE` (default `codex_admin_session`), hashes the token, joins `adminSessions` + `adminUsers`, and checks expiry and `user.active`. `ADMIN_SESSION_TTL_MINUTES` defaults to `43200` (30 days) in `api/src/env.ts`. Login and authenticated requests share `adminSessionTtlSeconds()`, clamped to 5 minutes–7 days. The default therefore creates a seven-day session, and subsequent authenticated requests renew it by that same capped lifetime.
 
 Every route guarded by `requireAdmin` requires a valid session cookie. Public login/recovery endpoints and first-owner/setup endpoints use separate guards; while `admin_users` is empty, the bootstrap endpoints allow the first owner to be created. Role labels are stored on `admin_users.access_level` — `owner`, `admin`, `viewer`, `fleet_operator` (`ROLE_FLEET`), `trusted_user` (`ROLE_TRUSTED`), and the legacy `user`. `requireAdmin` only authenticates; what each role may *do* is decided by the capability layer in `api/src/security/` — every admin route names one capability, and the role → capability matrix is the sole place a role string is compared against anything. The roster is managed in the **People** page of **Access & Settings** (`/people`; these are the admin users); see [Roles and capabilities](/admin/manual/roles).
 
@@ -75,7 +73,7 @@ Each article is stamped with a `verified:` date visible as the pill at the top. 
 - api/src/services/admin-auth.ts (login-time session TTL clamp, role constants, countAdmins)
 - api/src/http/plugins/auth-admin.ts (requireAdmin, resolveAdmin, rolling session TTL clamp)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (role → capability matrix and the per-route inventory)
-- api/src/env.ts (ADMIN_ACCESS_MODE, ADMIN_SESSION_COOKIE, ADMIN_SESSION_TTL_MINUTES)
+- api/src/env.ts (ADMIN_SESSION_COOKIE, ADMIN_SESSION_TTL_MINUTES)
 - frontend/src/routes/+page.svelte (the `/admin` front door and its wait-for-auth behaviour)
 - frontend/src/routes/setup/+page.svelte (first-run wizard)
 - frontend/src/lib/nav.ts (left rail navigation items)

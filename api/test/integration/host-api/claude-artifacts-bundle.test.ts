@@ -17,7 +17,6 @@ const env = {
   ENCRYPTION_ACTIVE_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
   INSECURE_GRACE_MINUTES: 60,
   STATIC_ROOT: '',
-  ADMIN_ACCESS_MODE: 'open',
   PUBLIC_BASE_URL: 'https://o.example',
 } as unknown as Parameters<typeof buildHostApiTestApp>[0]['env'];
 

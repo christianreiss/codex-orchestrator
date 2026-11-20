@@ -18,7 +18,7 @@ import { OPENAI_DEFAULT_MODEL } from '../../../src/services/openai-models.js';
 import { CLAUDE_MODEL_LINES, type ClaudeModel } from '../../../src/services/claude-models.js';
 import type { OpenAiKeyService } from '../../../src/services/openai-keys.js';
 import type { ClaudeKeyResolver } from '../../../src/services/claude-key-resolver.js';
-import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
+import type { KillSwitch } from '../../../src/services/openai-kill-switch.js';
 import { versions } from '../../../src/db/schema.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 import type { Engine } from '../../../src/util/engine.js';
@@ -117,7 +117,7 @@ async function harness(backend: Engine, opts: { assigned?: Engine; disabled?: En
       req.claudeApiKey = { backendEngine: opts.assigned, id: 1, name: 'test', keyPrefix: 'sk-ant-', adminUserId: null };
     },
   };
-  const claudeKillSwitch: ClaudeKillSwitch = { isDisabled: async () => false, ensureEnabled: ensureEndpoint, setDisabled: async () => undefined };
+  const claudeKillSwitch: KillSwitch = { isDisabled: async () => false, throwIfDisabled: ensureEndpoint };
 
   await registerOpenAiCompatRoutes(app, ctx, { gateway, keys, killSwitch });
   await registerGrokCompatRoutes(app, ctx, { gateway, keys, killSwitch });

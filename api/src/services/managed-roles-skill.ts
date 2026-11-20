@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { SettingsService } from './settings.js';
 import type { Database } from '../db/client.js';
-import type { ManagedSkillManifest } from './managed-context-skill.js';
+import type { ManagedSkillManifest } from './managed-skills.js';
 import { ROLES_ENABLED_KEY } from './roles/contract.js';
 
 export const MANAGED_ROLES_SKILL_SLUG = 'roles';

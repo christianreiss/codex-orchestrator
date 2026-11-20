@@ -4,7 +4,7 @@
 #
 # Replaces bin/setup.sh (correct, but it could not provision a database and
 # demanded a Go toolchain) and bin/setup-quick.sh (prettier, but it wrote an
-# ADMIN_ACCESS_MODE the API rejects and never built any wrapper signing
+# setting the API rejects and never built any wrapper signing
 # material, so its stacks were locked behind /setup forever).
 #
 # Three properties are load-bearing:
@@ -136,7 +136,6 @@ declare -a FORCE_STEPS=()
 
 ARG_DATA_ROOT=""
 ARG_URL=""
-ARG_RUNNER_URL=""
 ARG_TLS=""            # acme | file | selfsigned | none
 ARG_DOMAIN=""
 ARG_ACME_EMAIL=""
@@ -185,8 +184,8 @@ Options
   --data-root PATH           Where persistent data lives. Defaults to
                              /var/docker_data/<domain of --url>.
   --url URL                  Public HTTPS URL hosts will use (PUBLIC_BASE_URL).
-  --runner-url URL           Legacy AUTH_RUNNER_CODEX_BASE_URL; defaults to the
-                             stored value, else --url. Never prompted for.
+  --runner-url URL           Deprecated and ignored (accepted so existing scripts
+                             keep working).
   --tls MODE                 acme | file | selfsigned | none. Required with
                              --non-interactive: there is no safe default.
                              `none` means a reverse proxy you run terminates TLS.
@@ -252,7 +251,7 @@ parse_args() {
       --force) FORCE_STEPS+=("$(need_value "$1" "${2-}")"); shift ;;
       --data-root) ARG_DATA_ROOT="$(need_value "$1" "${2-}")"; shift ;;
       --url) ARG_URL="$(need_value "$1" "${2-}")"; shift ;;
-      --runner-url) ARG_RUNNER_URL="$(need_value "$1" "${2-}")"; shift ;;
+      --runner-url) need_value "$1" "${2-}" >/dev/null; shift ;; # deprecated no-op
       --tls) ARG_TLS="$(need_value "$1" "${2-}")"; shift ;;
       --domain) ARG_DOMAIN="$(need_value "$1" "${2-}")"; shift ;;
       --acme-email) ARG_ACME_EMAIL="$(need_value "$1" "${2-}")"; shift ;;
@@ -672,12 +671,6 @@ step_secrets() {
   env_set AUTH_RUNNER_SHARED_SECRET "$shared"
   env_set RUNNER_SHARED_SECRET "$shared"
 
-  # `mtls` was a valid value until this server stopped issuing certificates;
-  # a stale `.env` carrying it would now fail schema validation at boot.
-  local mode
-  mode="$(env_get ADMIN_ACCESS_MODE || true)"
-  [[ "$mode" == "cookie" || "$mode" == "open" ]] || env_set ADMIN_ACCESS_MODE cookie
-
   lock_env_perms
   step_done "secrets present, $ENV_PATH mode 0600"
 }
@@ -718,10 +711,9 @@ step_dataroot() {
 }
 
 step_urls() {
-  local public_url runner_url host default_url previous_url
+  local public_url host default_url
   default_url="$(env_get PUBLIC_BASE_URL || true)"
   [[ -z "$default_url" || "$default_url" == *example.com* ]] && default_url=""
-  previous_url="$default_url"
   ask public_url "Public HTTPS URL hosts will use" "$default_url" "$ARG_URL"
   require_inputs
   [[ -n "$public_url" ]] || fatal "a public base URL is required; hosts bake it into their wrapper config"
@@ -729,18 +721,6 @@ step_urls() {
   public_url="${public_url%/}"
   env_set PUBLIC_BASE_URL "$public_url"
   env_set CODEX_SYNC_BASE_URL "$public_url"
-
-  # Nobody knows what to answer for this, so it is not asked: --runner-url,
-  # else a value someone deliberately set, else the public URL. A stored value
-  # that merely tracked the old public URL follows the new one.
-  runner_url="$ARG_RUNNER_URL"
-  if [[ -z "$runner_url" ]]; then
-    runner_url="$(env_get AUTH_RUNNER_CODEX_BASE_URL || true)"
-    runner_url="${runner_url%/}"
-    [[ -z "$runner_url" || "$runner_url" == *example.com* || "$runner_url" == "$previous_url" ]] &&
-      runner_url="$public_url"
-  fi
-  env_set AUTH_RUNNER_CODEX_BASE_URL "${runner_url%/}"
 
   host="${public_url#*://}"; host="${host%%/*}"; host="${host%%:*}"
   [[ -n "$host" ]] && env_set CADDY_DOMAIN "$host"
@@ -1349,7 +1329,7 @@ cmd_print_env() {
   [[ -f "$ENV_PATH" ]] || { printf 'no env file at %s\n' "$ENV_PATH" >&2; exit 1; }
   local key
   for key in APP_ENV PUBLIC_BASE_URL CODEX_SYNC_BASE_URL DATA_ROOT CADDY_DOMAIN \
-             CADDY_TLS_FRAGMENT ADMIN_ACCESS_MODE TRUST_X_FORWARDED \
+             CADDY_TLS_FRAGMENT TRUST_X_FORWARDED \
              TRUSTED_PROXY_CIDRS DB_DATABASE DB_USERNAME INSTALLATION_ID; do
     printf '%-24s %s\n' "$key" "$(env_get "$key" || printf '(unset)')"
   done

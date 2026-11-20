@@ -127,11 +127,6 @@ export const RESPONSE_VERBOSITY_LEVEL_DEFINITIONS: readonly ResponseVerbosityLev
 
 const LEVEL_DEFINITION_BY_LEVEL = new Map(RESPONSE_VERBOSITY_LEVEL_DEFINITIONS.map((d) => [d.level, d]));
 
-/** Level label for admin UI display; level 0 included for reference. */
-export function responseVerbosityLevelLabel(level: ResponseVerbosityLevel): string {
-  return LEVEL_DEFINITION_BY_LEVEL.get(level)?.label ?? 'Full (today)';
-}
-
 function markdownForLevel(level: ResponseVerbosityLevel): string {
   if (level === 0) return LEVEL_0_MARKDOWN;
   const def = LEVEL_DEFINITION_BY_LEVEL.get(level);
@@ -143,15 +138,6 @@ function markdownForLevel(level: ResponseVerbosityLevel): string {
 export function renderResponseStyleOverride(level: ResponseVerbosityLevel): string | null {
   if (level === 0) return null;
   return markdownForLevel(level);
-}
-
-/**
- * Plain body text for a level, e.g. for reuse in the Claude output-style
- * documents (Component B) so the two channels never drift apart.
- */
-export function responseVerbosityBodyText(level: ResponseVerbosityLevel): string {
-  const def = LEVEL_DEFINITION_BY_LEVEL.get(level) ?? LEVEL_DEFINITION_BY_LEVEL.get(0)!;
-  return `Keep responses ${def.label.toLowerCase()}.\n\n- Success: ${def.bullets.success}\n- Failure: ${def.bullets.failure}`;
 }
 
 /**

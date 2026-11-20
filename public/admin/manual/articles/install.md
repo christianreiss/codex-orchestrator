@@ -34,7 +34,7 @@ docker compose --profile caddy up -d
 ## First boot
 
 1. **Clone and run the installer.** `bin/install.sh` prompts for `.env` values, generates all installation-owned secrets plus an installation-specific wrapper signing key, builds/publishes all five `cxx` platforms, provisions the schema, imports the private key encrypted, starts the critical stack with bounded waiting, and probes both local and public readiness. Continue only when it prints `READY` and the exact `/admin/setup` URL; `INCOMPLETE` is always non-zero.
-2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` mirrors the database; the hand-written SQL in `api/src/db/migrations/` is what actually changes it. Those migrations *extend* a schema rather than create one, so an empty database is bootstrapped from `api/src/db/baseline/schema.sql` by `migrate.js --init-schema` — which applies the baseline only when `information_schema` reports no application tables, then migrates on top, and is therefore safe to re-run against a populated database. The API applies every pending migration on boot (`RUN_MIGRATIONS_ON_BOOT`, default on) and `scripts/deploy.sh` applies them explicitly before starting the stack, so a normal deploy needs no manual step. To drive it yourself: `docker compose run --rm -T api node migrate.js` (or `--list` / `--check` / `--dry-run`). Do **not** use `drizzle:push` against a real database — it reconciles the whole mirror and cannot express FULLTEXT indexes or foreign keys.
+2. **Schema.** The Drizzle schema in `api/src/db/schema.ts` mirrors the database; the hand-written SQL in `api/src/db/migrations/` is what actually changes it. Those migrations *extend* a schema rather than create one, so an empty database is bootstrapped from `api/src/db/baseline/schema.sql` by `migrate.js --init-schema` — which applies the baseline only when `information_schema` reports no application tables, then migrates on top, and is therefore safe to re-run against a populated database. The API applies every pending migration on boot (`RUN_MIGRATIONS_ON_BOOT`, default on) and `scripts/deploy.sh` applies them explicitly before starting the stack, so a normal deploy needs no manual step. To drive it yourself: `docker compose run --rm -T api node migrate.js` (or `--list` / `--check` / `--dry-run`). Do **not** use `drizzle-kit push` against a real database — it reconciles the whole mirror and cannot express FULLTEXT indexes or foreign keys.
 3. **Claim the first owner.** `/admin/setup` is the only console surface for an empty install. The claim is serialized, always creates one active owner, and signs it in immediately. Do not expose an unclaimed installation.
 4. **Finish operational onboarding.** The setup wizard continues past the owner claim through engines, credentials, fleet defaults, agent policy, modules, collaboration and an optional first host. None of those block the console, and everything unanswered stays on the Overview page's resume notice until verified canonical auth, host registration, and first sync are present.
 5. **Wrapper signing lifecycle.** Setup injects the generated public key through Go linker data without modifying tracked `pubkey.pem`, imports the private PEM as a secretbox envelope, verifies DB read-back/signing, and only then removes plaintext. Existing installations are never auto-rotated; mismatches and mixed artifacts fail closed.
@@ -94,8 +94,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 ### Core
 
 - `PUBLIC_BASE_URL` — canonical base URL the installer script embeds in the bootstrap transition launcher.
-- `PUBLIC_BASE_URL_REQUIRED` — bool, default `true`. Fails startup if `PUBLIC_BASE_URL` is missing.
-- `ADMIN_ACCESS_MODE` — `cookie` (default) or `open`; it decides only whether `/cli/auth/verify` requires an admin session.
+- `PUBLIC_BASE_URL_REQUIRED` — bool, default `true`. Makes installer-command creation fail while no base URL is configured; it does not validate request `Host` headers.
 - `ADMIN_SESSION_COOKIE` — default `codex_admin_session`.
 - `ADMIN_SESSION_TTL_MINUTES` — default `43200` (30 days) in `env.ts`. `AdminAuthService.sessionTtlSeconds()` clamps this to 5 min – 7 days at login, so a fresh session starts at 7 days; `auth-admin.ts`'s `resolveAdmin` then rolls `expiresAt` forward on every authenticated request using the same TTL clamped to 5 min – 30 days, so an actively used session keeps renewing out to 30 days.
 - `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`, `ADMIN_WEBAUTHN_RP_NAME` — passkey relying-party metadata.
@@ -108,9 +107,7 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 - `AGENT_PORTAL_RETENTION_HOURS` — default `24`; how long an ended agent session stays readable on the Agents page and the portal.
 - `AGENT_PORTAL_BRIDGE_TTL_SECONDS` — default `900`; lifetime of the per-session bridge token a wrapper uses to register and heartbeat.
-- `AGENT_PORTAL_PURGE_INTERVAL_SECONDS` — default `300`; cadence of the portal worker that purges expired sessions and bridges.
 - `AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS` (default `45`) and `AGENT_PORTAL_RELAY_FRESH_SECONDS` (default `60`) — the two windows that decide whether a client shows as online and whether its instruction relay counts as open.
-- `TRANSFERS_PURGE_INTERVAL_SECONDS` — default `300`; cadence of the file-transfer expiry sweeper. Every other transfer bound (TTLs, file size, pool quota, the module switch) is set from the console, not the environment.
 
 ### Observability
 
@@ -120,14 +117,11 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 ### Auth runner
 
 - `AUTH_RUNNER_URL`, `AUTH_RUNNER_SHARED_SECRET` — how the API reaches the Python runner. **Note:** the compose file passes `RUNNER_SHARED_SECRET` to the `auth-runner` container; `AUTH_RUNNER_SHARED_SECRET` is what the API reads. These are separate variables for different services.
-- `AUTH_RUNNER_CODEX_BASE_URL` — Codex auth base URL for the runner.
 - `AUTH_RUNNER_TIMEOUT` — default `8` (seconds). HTTP timeout used for calls to the runner (health checks, verify, exec).
 - `AUTH_RUNNER_VERIFY_TTL_SECONDS` — default `900`. Minimum re-check interval for the background auth-verification worker's dynamic schedule.
-- `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` — default `300`. Wake-up interval for the background worker (`api/src/ops/auth-verification-worker.ts`, started from `server.ts`) that replaced synchronous runner verification on the request/boot path; a wake-up only probes when the schedule says a re-check is due.
 - `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` — default `21600`. Ceiling for the dynamic schedule: the re-check interval grows with how long the credential has been proven good, and successful gateway traffic counts as proof (probes stay idle while real traffic flows).
 - `AUTH_RUNNER_IP_BYPASS` — bool, default `false`. Bypass runner IP checks.
 - `AUTH_RUNNER_BYPASS_SUBNETS` — subnets exempt from runner IP checks (used when `AUTH_RUNNER_IP_BYPASS` is true).
-- `AUTH_RUNNER_PREFLIGHT_SECONDS` — still declared in `env.ts` (default `28800`) but no longer read anywhere in `api/src`; superseded by `AUTH_RUNNER_VERIFY_TTL_SECONDS` / `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` above.
 
 ### Encryption / keyring
 
@@ -143,7 +137,6 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 - `TRUST_X_FORWARDED` — trust the `X-Forwarded-*` headers from upstream proxies.
 - `TRUSTED_PROXY_CIDRS` — CIDRs of trusted proxies.
-- `STRICT_HOST_VALIDATION` — bool, default `true`.
 - `MCP_ALLOW_REQUEST_HOST_ORIGIN` — bool, default `false`.
 - `INSECURE_GRACE_MINUTES` — default `60`. Grace window for insecure hosts.
 
@@ -157,7 +150,6 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 - `RUN_MIGRATIONS_ON_BOOT` — bool, default `true`. Applies every pending file in `api/src/db/migrations/` before the listener opens (`api/src/ops/boot-migrations.ts`). Setting it to `0` does not disable the *check*: boot still fails when a migration is pending, so the API never serves against an unexpected schema.
 - `MIGRATIONS_LOCK_TIMEOUT` — int seconds, default `120`. How long to wait for the `GET_LOCK` migration lock when several API instances boot at once.
 - `MIGRATIONS_DIR` — optional path override for the migration directory. Empty means "next to the bundle" (`dist/migrations`), which is correct for the shipped image.
-- `RUN_BACKFILLS_ON_BOOT` — bool, default `false`. Declared but not consumed anywhere in `api/src`; the auth-generation backfill in `ops/boot-checks.ts` runs unconditionally and is idempotent.
 
 ### MCP
 
@@ -172,13 +164,9 @@ These are the variables consumed by `api/src/env.ts`. The file is parsed with Zo
 
 - `DEFAULT_HOST_ENGINES` — `codex`, `claude`, or `codex,claude`; default when registering.
 
-### Pricing
+### ChatGPT quota refresh
 
-- `GPT51_INPUT_PER_1K`, `GPT51_OUTPUT_PER_1K` (and other `GPT51_*` variants)
-- `CHATGPT_PLUS_PLAN_COST`, `CHATGPT_PRO_PLAN_COST`
-- `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`, `CHATGPT_USAGE_HEALTH_PATH` (default `/tmp/chatgpt-usage-health.json`), `CHATGPT_USAGE_HEALTH_MAX_AGE_SECONDS`
-- `CLAUDE_OPUS_INPUT_PER_1K`, `CLAUDE_OPUS_OUTPUT_PER_1K`, `CLAUDE_SONNET_INPUT_PER_1K`, `CLAUDE_SONNET_OUTPUT_PER_1K`, `CLAUDE_HAIKU_INPUT_PER_1K`, `CLAUDE_HAIKU_OUTPUT_PER_1K` (plus `*_CACHED_PER_1K` variants), `ANTHROPIC_API_KEY` — parsed by `env.ts`, but unused elsewhere in `api/src`. Claude usage on the Overview comes from host-pushed reports (`api/src/services/claude-usage.ts`), not from these prices.
-- `PRICING_URL`, `PRICING_CURRENCY`
+- `CHATGPT_USAGE_CRON_INTERVAL`, `CHATGPT_BASE_URL`, `CHATGPT_USAGE_TIMEOUT`
 
 Check `.env.example` in the repo for the full, current list.
 
@@ -191,7 +179,7 @@ Caddy is configured via `caddy/Caddyfile`. The domain is set with `$CADDY_DOMAIN
 
 **Caddy terminates TLS and reverse-proxies every path to the API**, including `/admin*` and the admin WebSocket at `/admin/ws`. It does not request client certificates; the admin console is protected by its session cookie.
 
-If a proxy you run in front terminates mTLS, it may forward `X-MTLS-Fingerprint`, `X-MTLS-Subject` and `X-MTLS-Issuer`. The API records those on `req.mtls` when the peer is inside `TRUSTED_PROXY_CIDRS` and ignores them otherwise; no route authorizes on them.
+If a proxy you run in front terminates mTLS, the API does not read any `X-MTLS-*` header it forwards.
 
 ## Seeding the canonical auth
 

@@ -8,7 +8,6 @@ import { registerKimiCompatRoutes } from '../../../src/routes/kimi-v1/index.js';
 import { registerGrokCompatRoutes } from '../../../src/routes/grok-v1/index.js';
 import { ApiError } from '../../../src/http/errors.js';
 import type { KillSwitch } from '../../../src/services/openai-kill-switch.js';
-import type { ClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
 
 /**
  * Both proxy families advertise a blanket kill switch, but the hook is attached
@@ -55,17 +54,16 @@ function disabledOpenAiKillSwitch(): KillSwitch {
   };
 }
 
-function disabledClaudeKillSwitch(): ClaudeKillSwitch {
+function disabledClaudeKillSwitch(): KillSwitch {
   return {
     isDisabled: async () => true,
-    ensureEnabled: async () => {
-      throw new ApiError('Claude API is currently disabled by administrator', {
+    throwIfDisabled: async () => {
+      throw new ApiError('Claude API disabled by administrator', {
         status: 503,
         code: 'api_disabled',
         type: 'api_error',
       });
     },
-    setDisabled: async () => undefined,
   };
 }
 

@@ -9,7 +9,6 @@
 import { describe, expect, it } from 'vitest';
 import { SettingsService, isTruthyFlagValue } from '../../../src/services/settings.js';
 import { makeOpenAiKillSwitch } from '../../../src/services/openai-kill-switch.js';
-import { createClaudeKillSwitch } from '../../../src/services/claude-kill-switch.js';
 import type { Database } from '../../../src/db/client.js';
 
 const OPENAI_FLAG = 'openai_api_disabled';
@@ -76,9 +75,9 @@ const readers = [
       makeOpenAiKillSwitch(versionsDb([{ name: OPENAI_FLAG, version: value }])).isDisabled(),
   },
   {
-    label: 'createClaudeKillSwitch',
+    label: 'makeOpenAiKillSwitch (claude flag)',
     read: (value: string) =>
-      createClaudeKillSwitch(versionsDb([{ name: CLAUDE_FLAG, version: value }])).isDisabled(),
+      makeOpenAiKillSwitch(versionsDb([{ name: CLAUDE_FLAG, version: value }]), CLAUDE_FLAG, 'Claude').isDisabled(),
   },
 ];
 

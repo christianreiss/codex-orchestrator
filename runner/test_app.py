@@ -908,11 +908,9 @@ class RunnerRouteAuthTest(unittest.TestCase):
     UNAUTHENTICATED_ROUTES = frozenset(
         {
             ("GET", "/health"),
-            ("GET", "/skills/summarize"),
             ("GET", "/skills/generate"),
             ("GET", "/skills/assist"),
             ("GET", "/projects/assist"),
-            ("GET", "/memories/summarize"),
             ("GET", "/exec"),
         }
     )
@@ -1044,7 +1042,7 @@ class RunnerRouteAuthTest(unittest.TestCase):
     def test_get_on_post_only_routes_returns_readiness_hint(self):
         runner_app.RUNNER_SHARED_SECRET = "runner-secret"
 
-        for path in ("/skills/summarize", "/exec"):
+        for path in ("/skills/generate", "/exec"):
             with self.subTest(path=path):
                 response = self.client.get(path)
 
@@ -1232,7 +1230,6 @@ class RunnerResponseContractTest(unittest.TestCase):
     # Every draft handler reports its failure the same way.
     DRAFT_FAIL_KEYS = DRAFT_KEYS | {"reason"}
 
-    SUMMARY_OK_KEYS = DRAFT_KEYS | {"summary"}
     SKILL_DRAFT_KEYS = frozenset(
         {"slug", "display_name", "description", "tags", "what", "when", "steps"}
     )
@@ -1515,29 +1512,6 @@ class RunnerResponseContractTest(unittest.TestCase):
         )
 
         self.assertBodyCarries(response, self.EXEC_CLAUDE_OK_KEYS)
-
-    def test_skill_summary_body_carries_every_key_a_consumer_reads(self):
-        """No caller under api/src posts here yet (docs/auth-runner.md records
-        that), so this body's shape — `summary` on ok, `reason` on failure,
-        beside the engine version key — is pinned here for whoever posts to it.
-        """
-        self.assertDraftContract(
-            "/skills/summarize",
-            {"slug": "banana-drill", "manifest": "# Banana Drill\n\nPeel, then drill."},
-            "Runs the banana drill for operators who ask for one.",
-            self.SUMMARY_OK_KEYS,
-        )
-
-    def test_memory_summary_body_carries_every_key_a_consumer_reads(self):
-        """Same shape as /skills/summarize and, like it, without an api/src
-        caller today; the key set is pinned so the two stay interchangeable.
-        """
-        self.assertDraftContract(
-            "/memories/summarize",
-            {"memory_key": "banana-drill", "content": "Peel the banana before drilling."},
-            "Records how the banana drill is run.",
-            self.SUMMARY_OK_KEYS,
-        )
 
     def test_skill_generate_body_carries_every_key_the_api_reads(self):
         """SkillDraftsService.generate (api/src/services/skill-drafts.ts) reads

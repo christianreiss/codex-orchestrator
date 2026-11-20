@@ -13,7 +13,7 @@ contracts describe it.
 - `src/server.ts` — acquires storage/database ownership, hydrates current state, composes services, registers Fastify plugins/routes and starts maintenance.
 - `src/control-plane/` — sole API owner, command serialization, receipts/outbox, connection presence, bounded current state and protected response completion.
 - `src/ops/` — boot/migrations, owner maintenance obligations, provider usage, retention and shutdown. Quota refresh runs in the API owner; the standalone quota writer is retired.
-- `src/db/schema.ts` — Drizzle mirror of the current schema; idempotent SQL under `src/db/migrations/` is applied by the migration runner, not `drizzle:push`. See [database operations](src/db/README.md).
+- `src/db/schema.ts` — Drizzle mirror of the current schema; idempotent SQL under `src/db/migrations/` is applied by the migration runner, not `drizzle-kit push`. See [database operations](src/db/README.md).
 - `src/security/` — secret-box (libsodium, `sbox:v1` compat), password (bcrypt/phpass/argon2), keyring.
 - `src/http/envelope/` — three envelope formatters (standard / openai / anthropic).
 - `src/http/plugins/` — auth preflights, request-id, CORS.

@@ -50,7 +50,7 @@ describe.skipIf(!handle)('per-key routing persistence against MySQL', () => {
         expect(list.find((row: { id: number }) => row.id === body.record.id)).toMatchObject({ backend_engine: backend ?? null });
         expect(JSON.stringify(list)).not.toContain(body.key);
         const authenticated = namespace === 'claude'
-          ? await createClaudeKeyResolver(handle!.db).resolve({ headers: { 'x-api-key': body.key } } as unknown as FastifyRequest)
+          ? await createClaudeKeyResolver(keys).resolve({ headers: { 'x-api-key': body.key } } as unknown as FastifyRequest)
           : await keys.findActiveByBearer(body.key, engine);
         expect(authenticated?.backendEngine).toBe(backend ?? null);
         expect(await keys.findActiveByBearer(body.key, engine === 'codex' ? 'grok' : 'codex')).toBeNull();

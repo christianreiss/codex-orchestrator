@@ -4,7 +4,7 @@ section: Admin workspace
 summary: Fleet commit preferences, clone and worktree registry, merge leases and verdicts, the judge, and operator overrides.
 tags: [git, merge, worktree, coordination]
 verified: 2026-10-17
-sources: api/src/services/git-commit-settings.ts, api/src/services/managed-agents-features.ts, frontend/src/lib/components/settings/GitCommitSettingsSection.svelte, api/src/routes/admin/git-director/index.ts, api/src/services/git-director.ts, api/src/services/git-director-judge.ts, api/src/services/git-director-tool-names.ts, api/src/services/mcp-tools.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/(coordination)/git-director/+page.svelte, frontend/src/lib/components/git-director/GitDetail.svelte, frontend/src/lib/api/gitDirector.ts
+sources: api/src/services/git-commit-settings.ts, api/src/services/managed-agents-features.ts, frontend/src/lib/components/settings/GitCommitSettingsSection.svelte, api/src/routes/admin/git-director/index.ts, api/src/services/git-director.ts, api/src/services/git-director-judge.ts, api/src/services/mcp-tools.ts, api/src/security/capabilities.ts, api/src/security/route-capabilities.ts, api/src/env.ts, frontend/src/routes/(coordination)/git-director/+page.svelte, frontend/src/lib/components/git-director/GitDetail.svelte, frontend/src/lib/api/gitDirector.ts
 ---
 
 Several agents work this fleet's repositories at once, often in separate worktrees of one checkout. The **Git Director** (called **Git merges** in the console; `/git-director`, in the *Coordination* group) is how they see each other: a registry of who is working in which clone, and an arbiter for merges into shared branches. It never touches a worktree — every agent runs its own git commands and reports what it did. The console page is where an operator watches the registry, forces a verdict, or releases a worktree an agent abandoned.
@@ -40,7 +40,7 @@ The **History** view shows **Reclaimed** registrations (rows that expired or who
 
 ## How arbitration works
 
-The vocabulary (`api/src/services/git-director-tool-names.ts`): `git_list`, `git_register`, `git_join`, `git_merge_request`, `git_merge_status`, `git_release`. Constants in `api/src/services/git-director.ts`:
+The vocabulary (registered in `api/src/services/mcp-tools.ts`): `git_list`, `git_register`, `git_join`, `git_merge_request`, `git_merge_status`, `git_release`. Constants in `api/src/services/git-director.ts`:
 
 - An unbound registration lives `REGISTRATION_TTL_SECONDS = 3600` and is refreshed by calls naming its worktree, including `git_list`, and by polling an active merge request. A registration bound to a fresh live session survives that TTL.
 - A worktree's `branch` and `head_sha` are the agent's own report, never read from disk, and `head_observed_at` is when that HEAD was reported. A `git_list` heartbeat refreshes `heartbeat_at` only; it updates the recorded snapshot when it also carries `head_sha` and/or `branch`.
@@ -65,7 +65,6 @@ Agents are told to pass `changed_paths` from `git diff --name-only base...head`:
 - api/src/routes/admin/git-director/index.ts (state, listing, decide, release — built without a judge)
 - api/src/services/git-director.ts (registration and lease TTLs, sweep-on-read, deterministic verdicts, `adminDecide`, `adminEvictWorktree`)
 - api/src/services/git-director-judge.ts (the Claude judge: 20-second timeout, declines rather than blocks, fences agent text)
-- api/src/services/git-director-tool-names.ts (the six MCP tool names)
 - api/src/services/mcp-tools.ts (tool definitions)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`git_director.read` / `git_director.manage`)
 - api/src/env.ts (`AGENT_PORTAL_HEARTBEAT_FRESH_SECONDS`, reused as the registry's freshness window)

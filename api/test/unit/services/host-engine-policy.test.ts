@@ -8,7 +8,6 @@ import {
   assertHostEngineAssigned,
   assertHostEngineEnabled,
   disabledEngines,
-  enabledEngines,
   fleetEngineConflictError,
   hostEnginesList,
   type FleetEngineState,
@@ -119,9 +118,8 @@ describe('fleet engine switch', () => {
     expect(activeHostEngines('codex,claude', ALL)).toEqual(['codex', 'claude']);
   });
 
-  it('lists disabled and enabled engines in canonical order', () => {
+  it('lists disabled engines in canonical order', () => {
     expect(disabledEngines(CLAUDE_OFF)).toEqual(['claude']);
-    expect(enabledEngines(CLAUDE_OFF)).toEqual(['codex', 'grok', 'kimi']);
     expect(disabledEngines(ALL)).toEqual([]);
   });
 

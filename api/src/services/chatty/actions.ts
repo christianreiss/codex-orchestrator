@@ -92,7 +92,6 @@ export const ACTION_SPECS: Record<ActionId, { risk: ActionRisk; capability: Capa
 export const actionRequestSchema = z
   .object({ action: z.enum(ACTION_IDS), params: z.record(z.unknown()).default({}) })
   .strict();
-export type ActionRequest = z.infer<typeof actionRequestSchema>;
 
 export interface ActionHost {
   id: number;

@@ -1,34 +1,12 @@
-import { getTableName, is } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/mysql2';
-import { MySqlTable } from 'drizzle-orm/mysql-core';
 import mysql from 'mysql2/promise';
 import type { Env } from '../env.js';
-import { installReadCache, type ReadCache } from './read-cache.js';
 import { scopedDatabase } from './fresh-read.js';
 import * as schema from './schema.js';
 
 export type Database = ReturnType<typeof createDb>['db'];
 
-/**
- * Tables the API process serves from RAM (see read-cache.ts). Only tables this
- * process is the sole writer of belong here; quota-cron and the CLI tools call
- * createDb without the cache.
- */
-export const READ_CACHE_TABLES = {
-  hosts: { uniqueColumns: ['id', 'api_key_hash', 'api_key', 'fqdn'], rowKey: 'id' },
-  versions: { uniqueColumns: ['name'], rowKey: 'name' },
-  host_daemons: { uniqueColumns: ['host_id'], rowKey: 'host_id' },
-  provider_accounts: { uniqueColumns: ['id'], rowKey: 'id' },
-};
-
-/** Every table name in the schema, so the read cache can refuse statements naming any other table. */
-export function schemaTableNames(): string[] {
-  return Object.values(schema)
-    .filter((value) => is(value, MySqlTable))
-    .map((table) => getTableName(table as MySqlTable));
-}
-
-export function createDb(env: Env, options: { readCache?: boolean } = {}) {
+export function createDb(env: Env) {
   const pool = mysql.createPool({
     host: env.DB_HOST,
     port: env.DB_PORT,
@@ -45,16 +23,7 @@ export function createDb(env: Env, options: { readCache?: boolean } = {}) {
     dateStrings: true,
   });
 
-  let readCache: ReadCache | undefined;
-  if (options.readCache) {
-    readCache = installReadCache(pool, {
-      tables: READ_CACHE_TABLES,
-      allTables: schemaTableNames(),
-      resyncMs: (env.DB_READ_CACHE_RESYNC_SECONDS ?? 15) * 1000,
-    });
-  }
-
   const db = scopedDatabase(drizzle(pool, { schema, mode: 'default' }));
 
-  return { db, pool, readCache };
+  return { db, pool };
 }

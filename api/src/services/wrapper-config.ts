@@ -184,8 +184,6 @@ export interface WrapperConfigService {
 export interface WrapperConfigDeps {
   communicatorEnabled?: boolean;
   communicatorSyncEnabled?: boolean;
-  /** Enabled only by the coordinated owner cutover after all writers are migrated. */
-  communicatorStateEnabled?: boolean;
   communicatorRuntimeEnabled?: boolean;
   communicatorUpdateEnabled?: boolean;
   /**
@@ -607,7 +605,7 @@ if (engine === 'kimi')
         ...(deps.communicatorEnabled && deps.communicatorSyncEnabled
           ? { communicator_sync_protocol: 1 }
           : {}),
-        ...(deps.communicatorEnabled && (deps.communicatorStateEnabled ?? !!owner)
+        ...(deps.communicatorEnabled && owner
           ? { communicator_state_protocol: 1 }
           : {}),
         ...(deps.communicatorRuntimeEnabled && !freebsd ? { communicator_runtime_protocol: 1 } : {}),

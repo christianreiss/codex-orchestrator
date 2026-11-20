@@ -21,7 +21,6 @@ import {
   OWNED_TABLE_NAMES,
   stateColumns,
   workingSetPredicate,
-  type OwnedTableName,
   type StateSeed,
 } from './catalog.js';
 import {
@@ -549,9 +548,4 @@ export async function hydrateOwnerState(
     ),
     stats: Object.freeze({ rows: totalRows, metadataBytes, tables: Object.freeze(counts) }),
   };
-}
-
-/** Explicit selection for tests and maintenance inspection; never includes payload bodies. */
-export function ownerHydrationTables(): readonly OwnedTableName[] {
-  return OWNED_TABLE_NAMES;
 }

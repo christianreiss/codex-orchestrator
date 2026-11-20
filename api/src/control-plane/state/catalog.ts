@@ -175,7 +175,6 @@ export const TABLE_POLICY = {
 } as const;
 
 type Tables = typeof schema;
-export type SchemaTableName = { [K in keyof Tables]: Tables[K] extends MySqlTable ? K : never }[keyof Tables];
 export type OwnedTableName = {
   [K in keyof typeof TABLE_POLICY]: (typeof TABLE_POLICY)[K] extends 'owned' ? K : never;
 }[keyof typeof TABLE_POLICY];

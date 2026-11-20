@@ -196,7 +196,6 @@ export const AXES: readonly AxisSpec[] = [
   },
 ] as const;
 
-const AXIS_BY_ID = new Map<SecurityAxisId, AxisSpec>(AXES.map((axis) => [axis.id, axis]));
 
 // ────────────────────────────────────────────────────────────────────────────
 // Operation matrix
@@ -655,22 +654,6 @@ export const SECURITY_PRESETS: readonly SecurityPreset[] = [
 const PRESET_BY_ID = new Map(SECURITY_PRESETS.map((preset) => [preset.id, preset]));
 
 export const DEFAULT_SECURITY_LEVELS: SecurityLevels = PRESET_BY_ID.get('standard')!.levels;
-
-/** The preset this vector matches exactly, or null when it has been nudged. */
-export function matchingPreset(levels: SecurityLevels): SecurityPreset | null {
-  return (
-    SECURITY_PRESETS.find((preset) =>
-      SECURITY_AXIS_IDS.every((id) => preset.levels[id] === levels[id]),
-    ) ?? null
-  );
-}
-
-/** Axes that differ from the named preset, for the console's "modified: N axes". */
-export function axesModifiedFrom(presetId: string, levels: SecurityLevels): SecurityAxisId[] {
-  const preset = PRESET_BY_ID.get(presetId);
-  if (!preset) return [];
-  return SECURITY_AXIS_IDS.filter((id) => preset.levels[id] !== levels[id]);
-}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Normalization
@@ -1243,8 +1226,4 @@ export function securityLevelCatalog(): {
     bands: SECURITY_BANDS,
     default_levels: DEFAULT_SECURITY_LEVELS,
   };
-}
-
-export function axisSpec(id: SecurityAxisId): AxisSpec {
-  return AXIS_BY_ID.get(id)!;
 }

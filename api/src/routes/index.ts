@@ -30,8 +30,10 @@ import { registerHostApiRoutes } from './host-api/index.js';
 import { registerProjectsMcpRoutes } from './projects-mcp/index.js';
 import { registerWrapperV2Routes } from './wrapper-v2/index.js';
 
-import { registerOpenAiCompatWorktree } from './openai-compat/index.js';
-import { registerAnthropicCompatBundle } from './anthropic-compat/index.js';
+import { registerOpenAiCompatRoutes } from './v1/index.js';
+import { registerAdminOpenAiKeyRoutes } from './admin/keys/openai.js';
+import { registerAnthropicCompatRoutes } from './anthropic-v1/index.js';
+import { registerAdminClaudeKeyRoutes } from './admin/keys/claude.js';
 import { registerKimiCompatRoutes } from './kimi-v1/index.js';
 import { registerGrokCompatRoutes } from './grok-v1/index.js';
 import { createGatewayWiring } from '../services/gateway-backends.js';
@@ -103,8 +105,10 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   // One backend set for all four surfaces: each engine's bundle — Grok's
   // single auth owner included — exists once, whichever surfaces route to it.
   const gateway = createGatewayWiring(ctx, app.log);
-  await registerOpenAiCompatWorktree(app, ctx, gateway);
-  await registerAnthropicCompatBundle(app, ctx, { gateway });
+  await registerOpenAiCompatRoutes(app, ctx, { gateway });
+  await registerAdminOpenAiKeyRoutes(app, ctx);
+  await registerAnthropicCompatRoutes(app, ctx, { gateway });
+  await registerAdminClaudeKeyRoutes(app, ctx);
   await registerGrokCompatRoutes(app, ctx, { gateway });
   await registerKimiCompatRoutes(app, ctx, { gateway });
 

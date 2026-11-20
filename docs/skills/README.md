@@ -183,8 +183,9 @@ image as the tools.
 list, so leaving the slug reserved without also tombstoning the old row would have
 un-shadowed it and started serving the superseded 2026-07-19 manifest to the whole
 fleet. `api/src/ops/retire-context-skill.ts` tombstones that row on boot,
-signature-matched so an operator-authored replacement survives. Un-reserving the
-slug and deleting the module is Release B, once the fleet has converged.
+signature-matched so an operator-authored replacement survives. The manifest/builder
+module is gone; only the slug reservation (`managed-skills.ts`) and that boot hook remain.
+Un-reserving the slug is Release B, once the fleet has converged.
 
 ## Current manifests
 

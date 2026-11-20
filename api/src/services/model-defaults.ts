@@ -43,12 +43,6 @@ export interface ModelDefaultsResponse {
   stored_model?: string;
 }
 
-export interface ModelDefaultsUpdate {
-  model: string;
-  reasoning_effort?: string | null;
-  context_window?: number | null;
-}
-
 const CODEX_CATALOG: readonly ModelDefaultsCatalogEntry[] = SUPPORTED_MODELS.map(
   (model) => {
     const efforts = MODEL_REASONING_EFFORTS[model];

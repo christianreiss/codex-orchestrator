@@ -28,7 +28,6 @@ export const KIMI_MODEL_CAPABILITIES = modelTable(
   'kimi',
   (entry) => entry.kimiCapabilities ?? [],
 ) as Record<KimiModel, NonNullable<ModelEntry['kimiCapabilities']>>;
-export const KIMI_MODEL_CONTEXT_TOKENS = 1_048_576;
 /** Native subscription catalog windows (Kimi Build 1.0.46, 2026-10-03). */
 export const KIMI_CONTEXT_WINDOWS = [262_144, 1_048_576] as const;
 export const KIMI_DEFAULT_CONTEXT_WINDOW = 262_144;

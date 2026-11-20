@@ -59,7 +59,7 @@ Twelve, in order, each independently re-runnable:
 |------|--------------|
 | `prereqs` | Checks the host commands listed above and Docker/Compose v2. Reports whether wrapper builds will use the host toolchain or a container. |
 | `secrets` | `.env` from `.env.example` at mode 0600; generates `AUTH_ENCRYPTION_KEY`, `INSTALLATION_ID`, database credentials, and one runner shared secret written to both names. |
-| `urls` | `PUBLIC_BASE_URL`, `CODEX_SYNC_BASE_URL`, `CADDY_DOMAIN`, and `AUTH_RUNNER_CODEX_BASE_URL` (not prompted: `--runner-url`, else the stored value, else the public URL). |
+| `urls` | `PUBLIC_BASE_URL`, `CODEX_SYNC_BASE_URL`, and `CADDY_DOMAIN`. (`--runner-url` is accepted and ignored.) |
 | `dataroot` | Prompts for `DATA_ROOT` (default `/var/docker_data/<public host>`) and creates the directory tree. |
 | `tls` | `acme`, `file`, `selfsigned` or `none`; sets `TRUST_X_FORWARDED` + `TRUSTED_PROXY_CIDRS` to match. |
 | `wrappers` | Generates this installation's Ed25519 keypair, then cross-compiles and publishes `cxx` for four platforms with that public key baked in. |
@@ -169,9 +169,9 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
      wrapper binaries and file-transfer payloads (`transfers/`) — lands under
      `${DATA_ROOT}/store` on the host.
    - File transfer: the module switch and its byte/TTL bounds live in the
-     console (`versions`), not in `.env`. `TRANSFERS_PURGE_INTERVAL_SECONDS`
-     (default 300) is the only env knob — how often the API sweeps expired
-     transfer bytes off `DATA_ROOT`.
+     console (`versions`), not in `.env`. Expired
+     transfer bytes are swept off `DATA_ROOT` by a deadline-driven worker, so
+     there is no env knob.
      **`${DATA_ROOT}/store/transfers` must be owned by uid 10001**, the user the
      API container runs as. It is the only path under the store the API *writes*
      to — everything else there it reads, which is why the rest can stay
@@ -191,8 +191,7 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
      collides with a local route. Defaults to `172.30.250.0/24`.
    - Admin surface: `/admin/*` is gated by the admin session cookie. The API runs
      no client-certificate check of its own — this server neither issues nor
-     verifies certificates. `ADMIN_ACCESS_MODE` (`cookie` default, or `open`)
-     decides only whether `/cli/auth/verify` requires an admin session.
+     verifies certificates. `/cli/auth/verify` requires an admin session too.
    - Admin login:
      - `ADMIN_SESSION_COOKIE` (default `codex_admin_session`)
      - `ADMIN_SESSION_TTL_MINUTES` (default 43200; an issued session is clamped
@@ -204,29 +203,26 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
        one hour.
    - Runner knobs: `AUTH_RUNNER_URL` (blank leaves verification unavailable, so
      existing verified auth may still be served but every new canonical-auth
-     store is blocked), `AUTH_RUNNER_CODEX_BASE_URL` (legacy compatibility
-     setting; no longer sent to the runner request body), `AUTH_RUNNER_TIMEOUT`,
+     store is blocked), `AUTH_RUNNER_TIMEOUT`,
      `AUTH_RUNNER_VERIFY_TTL_SECONDS`,
-     `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`,
      `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS`, `AUTH_RUNNER_SHARED_SECRET`
      (required whenever `AUTH_RUNNER_URL` is set, and must equal
      `RUNNER_SHARED_SECRET`), and `AUTH_RUNNER_IP_BYPASS` +
      `AUTH_RUNNER_BYPASS_SUBNETS`.
    - Proxy trust: `TRUST_X_FORWARDED` and `TRUSTED_PROXY_CIDRS`. Together they
-     decide which peers may speak for the client — they gate `X-Forwarded-For`,
-     `X-Real-IP`, and the `X-MTLS-Fingerprint` / `-Subject` / `-Issuer` claims a
-     proxy that terminates mTLS may forward. Both default to off, so an
+     decide which peers may speak for the client — they gate `X-Forwarded-For`
+     and `X-Real-IP`. Both default to off, so an
      unconfigured server believes no forwarded header at all. Scope the CIDRs
      tightly; anything inside them can claim to be any client.
    - Origin policy: `MCP_ALLOW_REQUEST_HOST_ORIGIN`, `APP_ENV`,
-     `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED`, `STRICT_HOST_VALIDATION`.
+     `PUBLIC_BASE_URL`, `PUBLIC_BASE_URL_REQUIRED` (refuses to build an installer
+     command while no base URL is set; request `Host` headers are not validated).
    - Schema: `RUN_MIGRATIONS_ON_BOOT` (default on) applies every pending file
      under `api/src/db/migrations/` before the API opens a listener. Turning it
      off does not turn off the *check* — boot still fails while a migration is
      pending. `MIGRATIONS_LOCK_TIMEOUT` (default 120) bounds the advisory-lock
      wait when several instances boot at once, `MIGRATIONS_DIR` overrides the
-     directory for a non-standard layout, and `RUN_BACKFILLS_ON_BOOT` (default
-     off) runs the data backfills.
+     directory for a non-standard layout.
    - Token TTLs: `AUTH_SEED_TOKEN_TTL_SECONDS` (default 900). One-time installer
      tokens are fixed at 1800s in the API and have no env knob.
    - Traffic shaping: the API has no in-process request-rate limiter; configure one at the trusted edge if required.
@@ -383,8 +379,7 @@ refuses to run while a signing-key rotation leaves more than one active key.
   Leaving it blank keeps existing verified auth readable but blocks every
   canonical-changing store. The API keeps canonical Codex/Claude auth fresh (and
   statically verifies Grok's, whose refresh the server owns) from
-  a background worker (`AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS`, default
-  300s; probes back off dynamically to `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS`,
+  a deadline-driven background worker (probes back off dynamically to `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS`,
   default 6h, and successful gateway traffic counts as verification) instead of
   blocking wrapper startup. Admin seed and admin upload paths
   run through the same strict runner validation as host `/auth` stores.
@@ -422,9 +417,7 @@ every re-run and against an existing deployment. See `api/src/db/README.md`.
 
 Caddy terminates TLS and reverse-proxies everything to the API. It does not
 request client certificates. If you put your own proxy in front that does
-terminate mTLS, it may forward `X-MTLS-Fingerprint` / `-Subject` / `-Issuer`; the
-API reads those headers from peers inside `TRUSTED_PROXY_CIDRS` and ignores them
-from anyone else. Nothing in the API authorizes on them today.
+terminate mTLS, the API does not read any `X-MTLS-*` header it forwards.
 
 ### Private CAs and strict TLS clients
 
@@ -550,10 +543,10 @@ The wizard's credentials step is also reachable afterwards from Hosts → More �
   the encryption key and auth payloads. The installer keeps `.env` at mode 0600.
 - Admin login is the operator workflow once users exist. There is no
   certificate-based bypass and no certificate-based gate.
-- Forwarded headers — including any `X-MTLS-*` your proxy sets — are trusted only
+- Forwarded headers (`X-Forwarded-For`, `X-Real-IP`) are trusted only
   when `TRUST_X_FORWARDED=1` and the caller's IP matches `TRUSTED_PROXY_CIDRS`.
   Scope those CIDRs tightly.
-- In production keep `PUBLIC_BASE_URL` set and `STRICT_HOST_VALIDATION=1`.
+- In production keep `PUBLIC_BASE_URL` set.
 - If you enable `AUTH_RUNNER_IP_BYPASS`, scope `AUTH_RUNNER_BYPASS_SUBNETS` to
   internal CIDRs only.
 - The API does not meter request rates. Put traffic shaping at the proxy when

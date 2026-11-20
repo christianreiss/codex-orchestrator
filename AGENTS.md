@@ -19,7 +19,7 @@ Source-of-truth references live in `docs/interface-api.md`, `docs/interface-db.m
 The HTTP layer is a **Node 22 + Fastify 5 + Drizzle + TypeScript** server rooted at `api/`.
 
 - Entrypoint: `api/src/server.ts` (Fastify boot, plugin registration, `LISTEN_PORT`/`LISTEN_HOST`).
-- Schema: `api/src/db/schema.ts` (Drizzle mirror of every MySQL table; the existing DB is the source of truth — Drizzle Kit generates a no-op initial migration). Schema *changes* are hand-written SQL in `api/src/db/migrations/`, applied by the runner in `api/src/db/migrator.ts` — on API boot and from `scripts/deploy.sh`, never by `drizzle:push`. Every migration must be idempotent; see `api/src/db/README.md`.
+- Schema: `api/src/db/schema.ts` (Drizzle mirror of every MySQL table; the existing DB is the source of truth — Drizzle Kit generates a no-op initial migration). Schema *changes* are hand-written SQL in `api/src/db/migrations/`, applied by the runner in `api/src/db/migrator.ts` — on API boot and from `scripts/deploy.sh`, never by `drizzle-kit push`. Every migration must be idempotent; see `api/src/db/README.md`.
 - Crypto: `api/src/security/secret-box.ts` reads/writes the `sbox:v1[:kid=…]:<b64>` envelope via `libsodium-wrappers`. Password verifier (`api/src/security/password.ts`) accepts bcrypt + phpass + argon2id and transparently rehashes to argon2id on next login.
 - Response envelopes: three formatters (`standard` / `openai` / `anthropic`) wired by `api/src/http/envelope/select.ts`; one `onSend` hook reshapes any handler's return value into the right shape based on URL prefix.
 - Routes live under `api/src/routes/<group>/` and are mounted by `api/src/routes/index.ts`. Services live under `api/src/services/` — no god services. A service that outgrows one file keeps its class as the facade and moves cohesive slices into `api/src/services/<service>/`, each behind a small `…Core` interface naming exactly what it borrows back (see `agent-messaging/`); call sites and exports stay put.
@@ -111,9 +111,9 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - Runner validation runs before every host, admin, seed, or bootstrap candidate can advance canonical auth. Runner `updated_auth` can replace uploads when it is same/newer; runner unreachability or non-OK status blocks acceptance, and non-verified replacements remain quarantined.
    - Host uninstall uses `DELETE /auth` (IP binding enforced unless `?force=1`).
 
-3. **Runner + preflight**
-   - First non-admin request after the preflight interval (`AUTH_RUNNER_PREFLIGHT_SECONDS`, default 8h), excluding `/versions` and `/mcp`, refreshes GitHub client version cache and runs runner preflight.
-   - Failure recovery uses backoffs (60s short backoff, 15m retry window, stale-OK threshold 6h, boot-change retry).
+3. **Runner + auth verification**
+   - There is no request-path preflight. A deadline-driven auth-verification worker (`api/src/ops/auth-verification-worker.ts`, started when `AUTH_RUNNER_URL` is set) wakes when a canonical credential changes or a re-check falls due, probes each engine's canonical payload through the runner and records the verdict (`verification_state`); successful gateway traffic counts as proof. `/auth` retrieve reads the stored verdict and never probes inline.
+   - `AUTH_RUNNER_VERIFY_TTL_SECONDS` / `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` bound the dynamic probe schedule; runner telemetry lives in `versions` (`runner_state`, `runner_last_*`).
    - Runner IP bypass requires `AUTH_RUNNER_IP_BYPASS` enabled and matching CIDRs in `AUTH_RUNNER_BYPASS_SUBNETS`.
 
 4. **Telemetry + sync extras**
@@ -126,7 +126,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `/versions` is unauthenticated and returns version snapshot metadata when kill switch is off.
 
 5. **Admin panel (session-gated)**
-   - `/admin/*` is gated by the admin session cookie; admin session/capability checks gate mutating routes. `ADMIN_ACCESS_MODE` (`cookie` default, or `open`) is read only by `/cli/auth/verify` and has never gated `/admin/*`.
+   - `/admin/*` is gated by the admin session cookie; admin session/capability checks gate mutating routes.
    - `/admin/setup/*` is the documented exception: `status`, `owner`, and `wizard` sit behind `requireAdminAfterSetup`, public only while `admin_users` is empty. `owner` is the serialized one-time claim and issues the session inline; `wizard` stores first-run position/completion in `setup_wizard_state` (a `versions` K/V blob) with `publish: false`, so nothing reacts to a step change. `setup_complete` is `criticalComplete && ownerCreated` and is true from step two of nine — do not treat it as "wizard finished".
    - `/admin/api/state` is the only reachable route when API kill switch is on.
    - `/admin/hosts/*` manages secure/insecure/roaming/IPv4/curl/reverse-DNS, lane/model/version overrides, VIP, insecure approvals/domain allows, auth clear/delete, and temporary expiry.

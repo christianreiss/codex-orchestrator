@@ -171,7 +171,7 @@ not a migration and does not rename constraints on an existing deployment.
   supplies that starting point, outside the migration sequence.
 - `--init-schema` provisions; it never repairs. A database that is populated but
   wrong is an operator problem, not something the installer will overwrite.
-- Do not use `drizzle:push` against a real database. It reconciles the whole
+- Do not use `drizzle-kit push` against a real database. It reconciles the whole
   hand-maintained mirror instead of applying `migrations/`, and can express
   neither FULLTEXT indexes nor foreign keys — which is exactly why 0003 and 0006
   carry backstops that add both after the fact.

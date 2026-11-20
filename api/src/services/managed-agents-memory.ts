@@ -34,7 +34,6 @@
  * checkpoint competes with finishing, which is exactly what produced zero
  * corrections.
  */
-import { createHash } from 'node:crypto';
 import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, type Engine } from '../util/engine.js';
 
 export const MANAGED_MEMORY_HEADING = '## Memory (managed)';
@@ -100,20 +99,4 @@ updating an existing record over minting a near-duplicate slug. Name slugs \`<ar
 
 Never store secrets — keys, tokens, credentials, customer data — in any of them.
 `;
-}
-
-export function managedMemoryBlockSha(engine: Engine): string {
-  return createHash('sha256').update(buildManagedMemoryBlock(engine)).digest('hex');
-}
-
-/**
- * Append the managed block to a canonical document, separated by a blank line
- * and idempotent: a canonical body that already carries the heading (because an
- * operator pasted a served copy back into the editor) is returned untouched
- * rather than gaining a second copy.
- */
-export function appendManagedMemoryBlock(body: string, engine: Engine): string {
-  if (body.includes(MANAGED_MEMORY_HEADING)) return body;
-  const trimmed = body.replace(/\s+$/, '');
-  return trimmed === '' ? buildManagedMemoryBlock(engine) : `${trimmed}\n\n${buildManagedMemoryBlock(engine)}`;
 }

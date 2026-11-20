@@ -5,9 +5,7 @@ Code-truth operator map for `/admin/*`. Source of truth is runtime code (`api/sr
 ## Access & Auth
 - UI shell served by `adminSpaHtmlPreHandler` in `api/src/routes/admin/pages/static.ts`: `/admin/`, `/admin/login`, `/admin/hosts/{id}`. Admin session state is hydrated client-side via `/admin/auth/status`.
 - Every guarded `/admin/*` route is gated by the admin session cookie through `requireAdmin` (`api/src/http/plugins/auth-admin.ts`). No admin route checks a client certificate.
-- `ADMIN_ACCESS_MODE` accepts `cookie` (default) or `open`, and `api/src/routes/cli-auth/index.ts` is the only file that reads it: any value except `open` makes `/cli/auth/verify` require an admin session. It has no effect on `/admin/*`.
 - There is no client-certificate gate here any more. The bundled `caddy` profile terminates TLS and reverse-proxies; it does not request client certificates, and this server neither issues nor verifies them.
-- `authMtlsPlugin` (`api/src/http/plugins/auth-mtls.ts`) publishes the `X-MTLS-*` claims an upstream proxy may forward into `req.mtls` — `present` is just a non-empty `X-MTLS-Fingerprint` — and only when the connecting peer is inside `TRUSTED_PROXY_CIDRS`, because a direct caller can set those headers too. Nothing else in `api/src` consults `req.mtls`.
 - `requireAdmin` always requires a valid session for an active user. First-run exceptions use separate bootstrap guards while `admin_users` is empty.
 - After the installation is claimed:
   - `/admin/` redirects to `/admin/login` when no valid session.
@@ -416,8 +414,7 @@ Admin routes:
   (`transfers.manage`) unlinks the bytes and keeps the row and trail.
 - Storage is `<DATA_ROOT>/transfers/<id[0:2]>/<id>`. The sweeper
   (`api/src/ops/agent-transfers-worker.ts`) runs at boot and every
-  `TRANSFERS_PURGE_INTERVAL_SECONDS` (default 300), reclaims orphans older than
-  an hour every twelfth tick, and the service also sweeps on every read. Bytes
+  deadline-driven, reclaims orphans once at owner startup, and the service also sweeps on every read. Bytes
   are unlinked before the row's status changes, so a crash mid-sweep leaves a
   harmless retry rather than a retired row guarding an undeleted file.
 - WS events: `transfers.changed`, `transfers.module_toggled`,

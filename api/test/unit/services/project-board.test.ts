@@ -34,9 +34,7 @@ import {
   isProjectBoardRole,
   normalizeProjectBoardRole,
   PROJECT_BOARD_ROLES,
-  projectBoardRoleList,
 } from '../../../src/services/project-board-roles.js';
-import { PROJECT_BOARD_TOOLS } from '../../../src/services/project-board-tool-names.js';
 
 const NOW = '2026-08-27T12:00:00Z';
 
@@ -266,10 +264,6 @@ describe('normalizeProjectBoardRole', () => {
       expect(normalizeProjectBoardRole(input)).toBeNull();
     },
   );
-
-  it('renders the vocabulary for an error message', () => {
-    expect(projectBoardRoleList()).toBe('plan, code, review, verify, ops');
-  });
 });
 
 describe('normalizeResolution', () => {
@@ -468,12 +462,5 @@ describe('findDependencyCycle', () => {
 
   it('catches a cycle that does not run through the starting card', () => {
     expect(findDependencyCycle(graph({ a: ['b'], b: ['c'], c: ['b'] }), 'a')).toEqual(['b', 'c', 'b']);
-  });
-});
-
-describe('the tool name registry', () => {
-  it('names seven tools, all under the project_ prefix the module already owns', () => {
-    expect(PROJECT_BOARD_TOOLS).toHaveLength(7);
-    for (const name of PROJECT_BOARD_TOOLS) expect(name.startsWith('project_')).toBe(true);
   });
 });

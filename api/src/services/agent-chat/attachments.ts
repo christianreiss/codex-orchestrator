@@ -12,7 +12,6 @@ import {
   agentSessions,
   hostDaemonPortalBindings,
   hostDaemonSessions,
-  type AgentSession,
 } from '../../db/schema.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../http/errors.js';
 import { decrypt, encrypt } from '../../security/secret-box.js';
@@ -393,7 +392,4 @@ export class ChatAttachments {
     }
     return rows.length;
   }
-}
-export function chatAttachmentOwner(session: AgentSession) {
-  return `agent:${session.id}`;
 }

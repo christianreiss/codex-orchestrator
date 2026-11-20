@@ -62,16 +62,6 @@ class VerifyRequest(BaseModel):
     )
 
 
-class SkillSummaryRequest(BaseModel):
-    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
-    slug: str = Field(..., description="Skill slug")
-    manifest: str = Field(..., description="SKILL.md contents to summarize")
-    engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
-    timeout_seconds: Optional[float] = Field(
-        None, description="Timeout for the summary call (seconds)"
-    )
-
-
 class SkillGenerateRequest(BaseModel):
     auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
     prompt: str = Field(..., description="Free-text operator request for the skill")
@@ -106,16 +96,6 @@ class SkillAssistRequest(BaseModel):
     engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
     timeout_seconds: Optional[float] = Field(
         None, description="Timeout for the assist call (seconds)"
-    )
-
-
-class MemorySummaryRequest(BaseModel):
-    auth_json: dict = Field(..., description="auth.json payload used for Codex auth")
-    memory_key: str = Field(..., description="Memory key identifier")
-    content: str = Field(..., description="Memory content to summarize")
-    engine: Literal["codex", "claude", "grok", "kimi"] = Field("codex", description="AI engine to use")
-    timeout_seconds: Optional[float] = Field(
-        None, description="Timeout for the summary call (seconds)"
     )
 
 
@@ -846,18 +826,6 @@ def _run_probe(payload: VerifyRequest) -> dict:
         shutil.rmtree(home_dir, ignore_errors=True)
 
 
-def _sanitize_skill_summary(text: str) -> str:
-    summary = " ".join(text.replace("\r", "\n").split())
-    summary = summary.strip(" \t\n\r`\"'-")
-    if summary.startswith("* "):
-        summary = summary[2:].strip()
-    if summary.startswith("- "):
-        summary = summary[2:].strip()
-    if len(summary) > 180:
-        summary = summary[:177].rstrip(" ,;:.") + "..."
-    return summary
-
-
 def _sanitize_skill_line(value: str, *, max_len: int = 200) -> str:
     sanitized = " ".join(value.replace("\r", "\n").split()).strip(" \t\n\r`\"'-")
     if len(sanitized) > max_len:
@@ -951,31 +919,6 @@ def _normalize_assisted_project(data: dict) -> dict:
     }
 
 
-def _skill_summary_prompt(slug: str, manifest: str) -> str:
-    return (
-        "Summarize this Codex skill for an AGENTS.md skills inventory. "
-        "Return exactly one plain sentence, no markdown, no quotes, max 18 words. "
-        "Describe what the skill is used for, not implementation details.\n\n"
-        f"Skill slug: {slug}\n\n"
-        "SKILL.md:\n"
-        f"{manifest}"
-    )
-
-
-def _memory_summary_prompt(memory_key: str, content: str) -> str:
-    truncated = content[:4000]
-    if len(content) > 4000:
-        truncated += "\n... (truncated)"
-    return (
-        "Summarize this memory entry for an AGENTS.md memory inventory. "
-        "Return exactly one plain sentence, no markdown, no quotes, max 18 words. "
-        "Describe what information this memory contains.\n\n"
-        f"Memory key: {memory_key}\n\n"
-        "Content:\n"
-        f"{truncated}"
-    )
-
-
 def _skill_generation_prompt(prompt: str, slug_hint: str) -> str:
     slug_hint_block = f"Existing slug hint: {slug_hint}\n\n" if slug_hint else ""
     return (
@@ -1055,78 +998,6 @@ def _project_assist_prompt(payload: ProjectAssistRequest) -> str:
         "Current project snapshot JSON:\n"
         f"{snapshot}"
     )
-
-
-def _summarize_skill(payload: SkillSummaryRequest) -> dict:
-    slug = payload.slug.strip()
-    manifest = payload.manifest.strip()
-    if slug == "":
-        raise HTTPException(status_code=400, detail="slug is required")
-    if manifest == "":
-        raise HTTPException(status_code=400, detail="manifest is required")
-
-    engine = payload.engine
-    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
-    try:
-        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_engine_exec(_skill_summary_prompt(slug, manifest), env, timeout, engine)
-        stdout = (proc.stdout or "").strip()
-        stderr = (proc.stderr or "").strip()
-        summary = _sanitize_skill_summary(stdout)
-        ok = proc.returncode == 0 and summary != ""
-
-        result = {
-            "status": "ok" if ok else "fail",
-            "latency_ms": latency_ms,
-            "reachable": True,
-            _engine_version_key(engine): _engine_version(env, engine),
-        }
-        if ok:
-            result["summary"] = summary
-            return result
-
-        parts = [p for p in [stderr, stdout] if p]
-        message = "\n".join(parts).strip()
-        result["reason"] = message[:400] if message else "summary failed"
-        return result
-    finally:
-        shutil.rmtree(home_dir, ignore_errors=True)
-
-
-def _summarize_memory(payload: MemorySummaryRequest) -> dict:
-    memory_key = payload.memory_key.strip()
-    content = payload.content.strip()
-    if memory_key == "":
-        raise HTTPException(status_code=400, detail="memory_key is required")
-    if content == "":
-        raise HTTPException(status_code=400, detail="content is required")
-
-    engine = payload.engine
-    env, home_dir, _ = _prepare_engine_env(payload.auth_json, engine)
-    try:
-        timeout = payload.timeout_seconds or DEFAULT_TIMEOUT
-        proc, latency_ms = _run_engine_exec(_memory_summary_prompt(memory_key, content), env, timeout, engine)
-        stdout = (proc.stdout or "").strip()
-        stderr = (proc.stderr or "").strip()
-        summary = _sanitize_skill_summary(stdout)
-        ok = proc.returncode == 0 and summary != ""
-
-        result = {
-            "status": "ok" if ok else "fail",
-            "latency_ms": latency_ms,
-            "reachable": True,
-            _engine_version_key(engine): _engine_version(env, engine),
-        }
-        if ok:
-            result["summary"] = summary
-            return result
-
-        parts = [p for p in [stderr, stdout] if p]
-        message = "\n".join(parts).strip()
-        result["reason"] = message[:400] if message else "summary failed"
-        return result
-    finally:
-        shutil.rmtree(home_dir, ignore_errors=True)
 
 
 def _generate_skill(payload: SkillGenerateRequest) -> dict:
@@ -1298,11 +1169,6 @@ def verify_claude(payload: VerifyRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/skills/summarize")
-def summarize_skill_health():
-    return {"status": "ok"}
-
-
 @app.get("/skills/generate")
 def generate_skill_health():
     return {"status": "ok"}
@@ -1316,20 +1182,6 @@ def assist_skill_health():
 @app.get("/projects/assist")
 def assist_project_health():
     return {"status": "ok"}
-
-
-@app.post("/skills/summarize")
-def summarize_skill(payload: SkillSummaryRequest, request: Request):
-    _require_runner_auth(request)
-
-    try:
-        return _summarize_skill(payload)
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="summary timeout")
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/skills/generate")
@@ -1368,25 +1220,6 @@ def assist_project(payload: ProjectAssistRequest, request: Request):
         return _assist_project(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="project assist timeout")
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@app.get("/memories/summarize")
-def summarize_memory_health():
-    return {"status": "ok"}
-
-
-@app.post("/memories/summarize")
-def summarize_memory(payload: MemorySummaryRequest, request: Request):
-    _require_runner_auth(request)
-
-    try:
-        return _summarize_memory(payload)
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="summary timeout")
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

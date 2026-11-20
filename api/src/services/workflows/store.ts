@@ -26,7 +26,6 @@ export type Run = typeof workflowRuns.$inferSelect;
 export type Task = typeof workflowRunTasks.$inferSelect;
 export type Member = typeof workflowRunMembers.$inferSelect;
 export type Definition = typeof workflows.$inferSelect;
-export type Version = typeof workflowVersions.$inferSelect;
 export type Session = { tx: WorkflowTx; actor: WorkflowActor; now: string };
 export const leaseUntil = (now: string) => new Date(Date.parse(now) + WORKFLOW_LEASE_MS).toISOString();
 export const expired = (until: string | null, now: string) => !until || until <= now;

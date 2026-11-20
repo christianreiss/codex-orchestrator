@@ -9,14 +9,14 @@ import { buildManagedWatchdogSkill } from '../../../src/services/managed-watchdo
 import { buildManagedWakeCronSkill } from '../../../src/services/managed-wake-cron-skill.js';
 import { managedSkillManagerManifest } from '../../../src/services/managed-skill-manager.js';
 import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
-import { MCP_TOOL_NAMES } from '../../../src/services/shared-memory-tool-names.js';
+import { CURATION_TOOLS } from '../../../src/services/client-config.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
 
 /**
  * `docs/MCP.md` and the manual article are pinned against the registry, but the
  * text agents actually act on is not those: it is the CoCo skill manifest, the
- * CoCo bootstrap guidance, the managed AGENTS/CLAUDE memory block and the
- * `#context` manifest, all of which name tools as free prose and all of which
+ * CoCo bootstrap guidance and the managed AGENTS/CLAUDE memory block, all of
+ * which name tools as free prose and all of which
  * ship to every host. A rename in `api/src/services/mcp-tools.ts` leaves the
  * fleet instructed to call tools that no longer exist, and nothing fails —
  * agents just quietly stop using the store.
@@ -214,11 +214,13 @@ describe('mcp tool names in managed agent-facing content', () => {
     ).toEqual([]);
   });
 
-  it('keeps every MCP_TOOL_NAMES value pointing at a registered tool', () => {
-    const dead = Object.entries(MCP_TOOL_NAMES).filter(([, name]) => !registered.includes(name));
+  it('keeps every CURATION_TOOLS entry pointing at a registered tool', () => {
+    // The Claude permission allowlist: a renamed tool would silently bring
+    // back the permission prompt the entry exists to suppress.
+    const dead = CURATION_TOOLS.filter((name) => !registered.includes(name));
     expect(
-      dead.map(([key, name]) => `${key}: ${name}`),
-      'api/src/services/shared-memory-tool-names.ts names tools the registry does not register',
+      dead,
+      'api/src/services/client-config.ts CURATION_TOOLS names tools the registry does not register',
     ).toEqual([]);
   });
 

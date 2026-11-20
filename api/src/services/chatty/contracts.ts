@@ -64,7 +64,6 @@ export const modelResponseSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
 ]);
-export type ModelResponse = z.infer<typeof modelResponseSchema>;
 export type ChattySelection = z.infer<typeof selectionSchema>;
 export type ChattyContext = z.infer<typeof contextSchema>;
 export type RunStatus =
