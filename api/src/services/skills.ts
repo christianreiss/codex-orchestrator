@@ -20,6 +20,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { canonicalSkillUri, normalizeSlug } from './skill-manifest.js';
+import { upsertAuthoredSkill } from './skill-store.js';
 import { findManagedSkill, isManagedSkillSlug, listManagedSkills, type ManagedSkillManifest } from './managed-skills.js';
 import {
   allowsImplicitSkillInvocation,
@@ -73,6 +74,12 @@ function sha256Hex(s: string): string {
 }
 
 const MUTATION_TRANSACTION_CONFIG = { isolationLevel: 'repeatable read' as const };
+
+/** A string field the caller may omit: trimmed text, `null` to clear, `undefined` to keep. */
+function optionalText(value: unknown): string | null | undefined {
+  if (typeof value === 'string') return value.trim() || null;
+  return value === null ? null : undefined;
+}
 
 function toView(row: typeof skills.$inferSelect): SkillView {
   const slug = row.slug;
@@ -190,18 +197,11 @@ export class SkillsService {
     if (manifest.trim() === '') {
       throw new ValidationError('manifest is required', { param: 'manifest' });
     }
-    const displayName = typeof input.display_name === 'string'
-      ? input.display_name.trim() || null
-      : null;
-    const descriptionRaw = input.description;
-    const description = typeof descriptionRaw === 'string'
-      ? descriptionRaw.trim() || null
-      : descriptionRaw === null
-        ? null
-        : undefined;
-    const engine = typeof input.engine === 'string' && input.engine.trim() !== ''
-      ? input.engine.trim()
-      : null;
+    // `undefined` keeps the stored value, `null` (or a blank string) clears it;
+    // see skill-store.ts. The admin UI never sends `engine`.
+    const displayName = optionalText(input.display_name);
+    const description = optionalText(input.description);
+    const engine = optionalText(input.engine);
 
     const computedSha = sha256Hex(manifest);
     if (typeof input.sha256 === 'string' && input.sha256.trim() !== '') {
@@ -214,113 +214,33 @@ export class SkillsService {
       }
     }
 
-    const owner=ownerRuntimeFor(this.db);
-    if(owner){
-      const result=await mutateOwnerState(owner,{kind:'skill.store',payload:{slug,sha256:computedSha,displayName,description:description??null,engine},prepare:ctx=>{
-        const existing=ctx.snapshot.table('skills').by('slug',slug)[0];
-        if(existing&&isSourceOwnedSkill(existing))throw new ConflictError('source-managed skill cannot be stored directly','managed_skill');
-        const now=nowIso(),persistedDescription=description===undefined?existing?.description??null:description;
-        const status=!existing?'created':existing.sha256===computedSha&&existing.displayName===displayName&&existing.description===persistedDescription&&existing.engine===engine?'unchanged':'updated';
-        const timestamp=status==='unchanged'?existing!.updatedAt:now;
-        if(status!=='unchanged'){
-          const values={slug,sha256:computedSha,displayName,description:persistedDescription,manifest,sourceHostId,engine,updatedAt:now,deletedAt:null};
-          if(existing)stageUpdate(ctx,'skills',existing.id,values);
-          else{const row={...values,sourceType:null,sourceRepository:null,sourcePath:null,sourceRevision:null,sourceLicense:null,bundleSha256:null,createdAt:now};ctx.write(async tx=>{const inserted=await tx.insert(skills).values(row);ctx.draft.upsert('skills',{id:Number(inserted[0].insertId),...row});});}
-          adminAudit(ctx,'skill.stored',{slug,status,sha256:computedSha});
-        }
-        return {status,slug,uri:canonicalSkillUri(slug),canonical_uri:canonicalSkillUri(slug),sha256:computedSha,updated_at:timestamp,managed:false};
-      }}) as unknown as StoreSkillResult;
-      if(result.status!=='unchanged'){wsPublisher.publish('skill.stored',{slug,status:result.status});wsPublisher.publish('skill.updated',{slug});}
-      return result;
-    }
-
-    // The unique slug lookup is a locking read. Under REPEATABLE READ it locks
-    // either the existing row or the unique-index gap, so source promotion
-    // cannot change ownership between this check and the write.
-    const result = await this.db.transaction(async (tx) => {
-      const existingRows = await tx
-        .select()
-        .from(skills)
-        .where(eq(skills.slug, slug))
-        .for('update')
-        .limit(1);
-      const existing = existingRows[0];
-      if (existing && isSourceOwnedSkill(existing)) {
-        throw new ConflictError('source-managed skill cannot be stored directly', 'managed_skill');
-      }
-
-      const nowTs = nowIso();
-      if (!existing) {
-        await tx.insert(skills).values({
-          slug,
-          sha256: computedSha,
-          displayName,
-          description: description ?? null,
-          manifest,
-          sourceHostId,
-          engine,
-          createdAt: nowTs,
-          updatedAt: nowTs,
-        });
-        return {
-          status: 'created' as const,
-          slug,
-          uri: canonicalSkillUri(slug),
-          canonical_uri: canonicalSkillUri(slug),
-          sha256: computedSha,
-          updated_at: nowTs,
-          managed: false as const,
-        };
-      }
-
-      const persistedDescription = description === undefined ? existing.description : description;
-      const metadataUnchanged = existing.displayName === displayName
-        && existing.description === persistedDescription
-        && existing.engine === engine;
-      const shaUnchanged = existing.sha256 === computedSha;
-
-      if (shaUnchanged && metadataUnchanged) {
-        return {
-          status: 'unchanged' as const,
-          slug,
-          uri: canonicalSkillUri(slug),
-          canonical_uri: canonicalSkillUri(slug),
-          sha256: existing.sha256,
-          updated_at: existing.updatedAt,
-          managed: false as const,
-        };
-      }
-
-      await tx
-        .update(skills)
-        .set({
-          sha256: computedSha,
-          displayName,
-          description: persistedDescription,
-          manifest,
-          sourceHostId,
-          engine,
-          updatedAt: nowTs,
-          deletedAt: null,
-        })
-        .where(eq(skills.id, existing.id));
-
-      return {
-        status: 'updated' as const,
-        slug,
-        uri: canonicalSkillUri(slug),
-        canonical_uri: canonicalSkillUri(slug),
-        sha256: computedSha,
-        updated_at: nowTs,
-        managed: false as const,
-      };
-    }, MUTATION_TRANSACTION_CONFIG);
-
-    if (result.status !== 'unchanged') {
-      wsPublisher.publish('skill.stored', { slug, status: result.status });
+    const outcome = await upsertAuthoredSkill(
+      this.db,
+      { slug, manifest, sha256: computedSha, displayName, description, engine, sourceHostId },
+      {
+        command: {
+          kind: 'skill.store',
+          payload: { slug, sha256: computedSha, displayName: displayName ?? null, description: description ?? null, engine: engine ?? null },
+        },
+        sourceOwnedMessage: 'source-managed skill cannot be stored directly',
+        ownerAudit: (ctx, status) => {
+          if (status !== 'unchanged') adminAudit(ctx, 'skill.stored', { slug, status, sha256: computedSha });
+        },
+      },
+    );
+    if (outcome.status !== 'unchanged') {
+      wsPublisher.publish('skill.stored', { slug, status: outcome.status });
       wsPublisher.publish('skill.updated', { slug });
     }
-    return result;
+    return {
+      status: outcome.status,
+      slug,
+      uri: canonicalSkillUri(slug),
+      canonical_uri: canonicalSkillUri(slug),
+      sha256: outcome.sha256,
+      updated_at: outcome.updatedAt,
+      managed: false,
+    };
   }
 
   /**

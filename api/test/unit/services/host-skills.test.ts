@@ -264,6 +264,24 @@ describe('HostSkillsService authored skill lifecycle', () => {
     });
   });
 
+  // One upsert serves both store entry points (skill-store.ts): a blank name
+  // or description now clears it to null as on the admin side, instead of
+  // persisting an empty string.
+  it('keeps omitted metadata and clears blank metadata to null', async () => {
+    const db = makeDb(false);
+    const service = new HostSkillsService(db as never);
+    const manifest = '---\nname: meta-check\ndescription: Meta\n---\n\nBody\n';
+
+    await service.store({ slug: 'meta-check', manifest, display_name: 'Meta Check', description: 'Meta' }, host);
+    await expect(service.store({ slug: 'meta-check', manifest }, host)).resolves.toMatchObject({ status: 'unchanged' });
+    expect(db.tables.get(skillsTable)?.[0]).toMatchObject({ displayName: 'Meta Check', description: 'Meta' });
+
+    await expect(
+      service.store({ slug: 'meta-check', manifest, display_name: ' ', description: '' }, host),
+    ).resolves.toMatchObject({ status: 'updated' });
+    expect(db.tables.get(skillsTable)?.[0]).toMatchObject({ displayName: null, description: null, engine: null });
+  });
+
   it('normalizes an existing engine-scoped manifest to shared fleet scope', async () => {
     const manifest = '---\nname: legacy-skill\ndescription: Legacy\n---\n\nBody\n';
     const db = makeDb(false, [
