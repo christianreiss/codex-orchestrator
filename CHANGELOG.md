@@ -65,6 +65,16 @@
   - The communicator owner no longer inherits update and cron hand-off markers. Before, these could make it skip a wrapper update and still report it as applied.
   - Removed: the foreground installers, peer reconciliation, the old per-resource sync fallback, the Spark quota display, `CDX_CODEX_INSTALL_DIR` and the `~/.cxx/rollback` sweep.
 
+- **Admin console review:** the first full UX pass over every page.
+  - **Navigation:** the active hub lists its pages as sidebar entries, so every page has at most one tab row. External clients and Connectors moved to Access & Settings. Timed wake-ups, Messages, Reports and Slop are now Wake-ups, Messaging, Feedback and Design review; the old words still find them in the command palette.
+  - **Overview** opens with "Needs you": pending approvals, open access windows, unclaimed feedback, agents waiting on an answer, accounts near their limit and a failed verification runner, each linked to the page that owns it.
+  - **Engine names and visibility:** engines are named Codex, Claude, Grok and Kimi Code everywhere. A switched-off engine no longer appears in palette entries, Library tabs, memories, remote sessions, wake-up targets or Connectors; a note counts the hidden items.
+  - **Hosts:** offline hosts and open access windows count as needing attention, and version drift is neutral. "Seed canonical auth" moved to Providers › Accounts › Add account. Host detail puts diagnosis first and gives network overrides their own section. The breadcrumb shows the FQDN instead of "Host #id".
+  - **Agents** has one view switch (Chats, Remote sessions, Graph). Workflow runs filter as you type.
+  - **Settings:** alias tags moved into each row's More menu and the palette.
+  - **Smaller fixes:** one status vocabulary, the shared select in filters and settings, bounded editor widths, and usage tables that reflow on phones. Chatty is in English, and on phones its launcher sits in the tab bar.
+  - **Bugs fixed:** the top-bar access-window badge no longer needs a prior visit to Hosts, and the access-approval link opens its dialog on a direct load.
+
 - **cxx 0.9.191 launchpad:** `d` (set fleet default) is a key chip next to `enter`, `c`, `r` and `q` instead of a hint line, and the current fleet default is marked with ★ (`*` in ASCII terminals) in the model card and on every engine card of the hub, which loads the defaults in the background when it opens. The layout is calmer: one centred footer, MODEL and EFFORT section labels, dimmed keys that cannot act, a clearer empty state, and "usage not reported" for Grok.
 
 - **Docs:** the dated one-off reports and finished plans are deleted; git history keeps them. The engine maintenance report lives at `docs/reports/engine-maintenance.md` and each run overwrites it. Kimi parity exemptions moved to `scripts/engine-parity-exemptions.md`.
