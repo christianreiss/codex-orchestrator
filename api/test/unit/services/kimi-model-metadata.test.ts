@@ -10,18 +10,16 @@ import { clientConfigDocuments } from '../../../src/db/schema.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 
 type Row = Record<string, unknown>;
-interface NativeModel {
-  capability: Record<string, boolean>;
-  alwaysThinking: boolean;
-  supportEfforts?: string[];
-  defaultEffort?: string;
-  overrides?: Partial<NativeModel>;
-}
+interface NativeThinkingMeta { supportEfforts?: string[]; defaultEffort?: string; offEffort?: string; alwaysThinking?: boolean; adaptiveThinking?: boolean }
+interface NativeSpec { provider: string; name: string; capability: Record<string, boolean>; thinking?: NativeThinkingMeta }
+interface NativeOverrides extends NativeThinkingMeta { capability?: Record<string, boolean> }
+// Kimi 2.7.2 LlmModelSpec-based catalog definition.
+interface NativeModel { id: string; spec: NativeSpec; overrides?: NativeOverrides }
 interface NativeCatalog {
   toCatalogModelDefinition(alias: string, row: Row, provider: string): NativeModel;
 }
 interface NativeThinking {
-  resolveThinkingEffortForModel(requested: string | undefined, defaults: Row, model: Row, strict: boolean): string;
+  resolveThinkingEffortForModel(requested: string | undefined, defaults: Row, model: NativeSpec, strict: boolean): string;
 }
 
 // Execute upstream functions themselves. Imports, DI registrations and classes
@@ -37,8 +35,8 @@ function nativeFunctions<T>(name: string, sha256: string): T {
   return exports as T;
 }
 
-const catalog = nativeFunctions<NativeCatalog>('catalog-runtime', 'cbe6db10d881b0fe8afbdefd6e75bf3a6284084a3ddc5b5cd4a0b8361c14c8ab');
-const thinking = nativeFunctions<NativeThinking>('thinking', '6172f923db96ac3c5c03e1e64752dbf09e7b8da16c07aeb91323a50a9b36a266');
+const catalog = nativeFunctions<NativeCatalog>('catalog-runtime', 'dd5fcd63e2a401a86022187e0a25372094d269771f01c16c7dacb5bd3c6d2874');
+const thinking = nativeFunctions<NativeThinking>('thinking', 'fce8e63b44c56b0bb7b8c987cdf72d49419b76c9bd3b068dbedbab2d25b75b31');
 
 // Native configSection.modelsFromToml translates field casing recursively.
 function fromToml(value: unknown): unknown {
@@ -49,8 +47,21 @@ function fromToml(value: unknown): unknown {
 function nativeModel(row: Row): NativeModel {
   return catalog.toCatalogModelDefinition('test', fromToml(row) as Row, 'managed:kimi-code');
 }
+// Mirrors upstream provider-catalog applyModelOverrides precedence (2.7.2):
+// an override wins over the model's own spec, field by field.
+function effectiveSpec(model: NativeModel): NativeSpec {
+  const o = model.overrides;
+  if (!o) return model.spec;
+  const meta = model.spec.thinking;
+  const hasThinkingOverride = ['supportEfforts', 'defaultEffort', 'offEffort', 'alwaysThinking', 'adaptiveThinking'].some(key => o[key as keyof NativeOverrides] !== undefined);
+  return { ...model.spec, capability: o.capability ?? model.spec.capability,
+    thinking: meta === undefined && !hasThinkingOverride ? undefined : {
+      supportEfforts: o.supportEfforts ?? meta?.supportEfforts, defaultEffort: o.defaultEffort ?? meta?.defaultEffort,
+      offEffort: o.offEffort ?? meta?.offEffort, alwaysThinking: o.alwaysThinking ?? meta?.alwaysThinking,
+      adaptiveThinking: o.adaptiveThinking ?? meta?.adaptiveThinking } };
+}
 function effectiveEffort(model: NativeModel, requested?: string, defaults: Row = {}): string {
-  return thinking.resolveThinkingEffortForModel(requested, defaults, { ...model, capabilities: model.capability }, true);
+  return thinking.resolveThinkingEffortForModel(requested, defaults, effectiveSpec(model), true);
 }
 
 describe('Kimi native model metadata consumer', () => {
@@ -59,12 +70,12 @@ describe('Kimi native model metadata consumer', () => {
 
   it.each(KIMI_SUPPORTED_MODELS)('enables declared thinking and media for %s in the actual consumer', id => {
     const model = nativeModel(models[`kimi-code/${id}`]!);
-    expect(model.capability.thinking).toBe(true);
-    expect(model.capability.image_in).toBe(true);
-    expect(model.capability.video_in).toBe(id !== 'k3-256k');
-    expect(model.capability.audio_in).toBe(false);
-    expect(model.capability.tool_use).toBe(true);
-    expect(model.alwaysThinking).toBe(id.startsWith('k3.1-pro'));
+    expect(model.spec.capability.thinking).toBe(true);
+    expect(model.spec.capability.image_in).toBe(true);
+    expect(model.spec.capability.video_in).toBe(id !== 'k3-256k');
+    expect(model.spec.capability.audio_in).toBe(false);
+    expect(model.spec.capability.tool_use).toBe(true);
+    expect(model.spec.thinking?.alwaysThinking).toBe(id.startsWith('k3.1-pro'));
     const expected = id === 'kimi-for-coding-highspeed' ? 'on' : id === 'kimi-for-coding' ? 'high' : 'max';
     expect(effectiveEffort(model)).toBe(expected);
   });
@@ -129,12 +140,12 @@ describe('Kimi native model metadata consumer', () => {
     } } }));
     const entries = output.models as Record<string, Row>;
     expect(entries.custom).toEqual(custom);
-    expect(nativeModel(entries.custom!).capability.audio_in).toBe(true);
+    expect(nativeModel(entries.custom!).spec.capability.audio_in).toBe(true);
     expect(entries['kimi-code/k3']).toMatchObject({ display_name: 'My model', overrides });
     const base = nativeModel(entries['kimi-code/k3']!);
-    const overridden = { ...base, ...base.overrides };
-    expect(effectiveEffort(overridden)).toBe('low');
-    expect(overridden.capability.video_in).toBe(false);
+    expect(effectiveEffort(base)).toBe('low');
+    expect(effectiveSpec(base).capability.video_in).toBe(false);
+    expect(base.spec.capability.video_in).toBe(true);
   });
 });
 

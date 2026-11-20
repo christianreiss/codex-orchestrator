@@ -178,8 +178,14 @@ Process environment for every managed start: `KIMI_CODE_HOME=<private home>`,
 `…/binaries/<version>/<filename>` (bare binary; the host redirects to
 `cdn.kimi.com`), verify sha256, install to `~/.cxx/engines/kimi/<version>/kimi`,
 probe `kimi --version`, prune with `enginestore`. Latest pointer:
-`https://code.kimi.com/kimi-code/latest` (plain text). Pin: `2.5.3`
-(2026-11-10). No Node runtime is required.
+`https://code.kimi.com/kimi-code/latest` (plain text); it returned `2.7.2` on
+2026-11-20. Unlocked hosts (`client_version_kimi=latest`) resolve the target
+through that pointer (`client-versions.ts`), so they install the current stable
+release on the next `ckx update`. The `2.5.3` constants (`PinnedVersion` in the
+wrapper, `KIMI_MIN_CLIENT_VERSION` in `kimi-auth.ts`) are only the first-launch
+install version and the wrapper/API floor, not the version fleet hosts run; the
+API constant also doubles as the `X-Msh-Version` header, so it deliberately
+stays. No Node runtime is required.
 
 ### Usage and quota
 
@@ -736,7 +742,9 @@ Claude 2.1.92+ projects `voice.enabled` while preserving other voice settings; i
 ## Native configuration maintenance (2026-11-17)
 
 The Engines editor validates user `config.toml` defaults against the source-tagged
-[Kimi Code 2.6.2 configuration sections](https://github.com/MoonshotAI/kimi-code/tree/6a8493df3e1d796a63f7c7ca0de76c1e690cd943/packages/agent-core-v2/src).
+[Kimi Code 2.7.2 configuration sections](https://github.com/MoonshotAI/kimi-code/tree/56145f849caa305d42acd09b67fb65d11146f887/packages/agent-core-v2/src)
+(reviewed 2026-11-20; 2.6.2 was the previous baseline, and the only section
+added since is `[hosts]`, see below).
 Fixed root and nested keys reject unknown settings, wrong types and ignored
 retirements. Map names (provider/model aliases, headers, environment variables,
 secondary-model aliases) remain literal, including dots; validation executes no
@@ -778,6 +786,12 @@ fields and reserves the pool name `primary`. Provider/header names that merely
 contain those strings do not trigger a gate. Admin authoring/preview remains
 independent of installed hosts; delivery of these additions to an old or
 unreported host fails with the required version and `ckx update` instruction.
+A provider with `type = "bedrock"` (new in 2.7.0) requires an observed **2.7.0+**
+client in the same way (`kimiNativeMinimum` returns `2.7.0`, also when a
+`search_url` is present). The gate matches the exact type string on any provider
+entry; a provider or model that is merely named `bedrock` or has an empty or
+other `type` does not trigger it. AWS credentials come from the host's shell
+credential chain, not from this configuration.
 
 New input rejects `loop_control.max_retries_per_step` and
 `max_steps_per_run` with their `max_attempts_per_step` / `max_steps_per_turn`
@@ -796,7 +810,11 @@ Other engines, literal map names, sibling settings and historical TOML body/hash
 snapshots are preserved. New input cannot reintroduce removed keys.
 Internal environment-bound `cron` controls and `thinking.forced_effort` are not
 persistent user settings; the latter uses `KIMI_MODEL_THINKING_EFFORT`, while
-`thinking.effort` remains the user default.
+`thinking.effort` remains the user default. The `[hosts."<name>"]` section
+(2.7.0+: `host`, `name`, `enabled`, `identity_file`, `remote_bin`) is refused with
+its own reason: it is consumed only by Kimi's web/desktop server SSH-host
+bridge, which is outside the managed `ckx` lifecycle. Other unknown keys keep the
+generic "unsupported user setting" error.
 
 Verification used official SHA-256-verified Linux x64 binaries: 2.5.3
 `fba921820696dfa3ed5951c26e6d5cb307cd3929bf8b76215caf510fa8265090`
@@ -837,6 +855,39 @@ step and usage facts. `UserPromptSubmit` and the managed hook's
 `session_id`/`hook_event_name` inputs and stderr/block result contract stay
 compatible. This is source-inspected timing/continuation behavior, not a proven
 managed regression or an end-to-end receiver acceptance result.
+
+### Reviewed baseline moved to 2.7.2 (2026-11-20)
+
+Stable 2.7.2 (tag commit `56145f849caa305d42acd09b67fb65d11146f887`,
+2026-11-20T09:06Z) is what `/latest` serves. Against 2.6.2 its upstream
+`config-manifest.toml` differs by exactly one new section, `hosts`; type and
+range checks are unchanged, and no option was removed or deprecated. The central
+schema, the Bedrock gate and the `[hosts]` refusal above cover that delta. 2.7.1
+and 2.7.2 only fix Web-UI effort/composer behaviour. Native `doctor` on 2.7.2
+accepted a managed-style config and one with a Bedrock provider plus `[hosts]`;
+as before, doctor success does not prove consumer support. From 2.7 a
+`permission` or `[environments]` section that fails native validation falls back
+to defaults or the last-known-good value with diagnostics only, so central
+validation remains the gate.
+
+The model-consumer fixture (`api/test/fixtures/kimi-native-2.6/`, directory name
+kept) now executes the 2.7.2 `packages/core/src/llm/thinking.ts` and
+`catalog-runtime.ts` with recorded SHA-256 digests. The consumers moved to the
+nested `LlmModelSpec` shape; the semantics for rendered metadata (always-thinking
+K3.1 Pro, image-but-not-video `k3-256k`, Highspeed without adjustable efforts)
+are unchanged.
+
+Stop-hook probe, 2026-11-20 (throwaway home, mock provider, exit 2 plus stderr
+reason): on 2.6.2 `-p` never invoked the `Stop` hook. On 2.7.2 `-p` invokes it and
+the block is registered, but the process exits right after the first model
+request and the continuation turn never runs (the hook queue is aborted on
+dispose). In headless runs, blocking `Stop` to hand over pending peer mail is
+therefore best-effort at most, which is no regression against 2.6.2. The
+interactive TUI was not probed: upstream source runs `Stop` after the turn ends
+and a block starts a `system_trigger/stop_hook` continuation turn, but the turn
+that continuation ends is not followed by a second `Stop`. This was recorded
+only; no code was changed.
+
 ## Explicit task-title and result reconciliation
 
 `agent_session_name(name, replace?)` preserves an existing title by default.
