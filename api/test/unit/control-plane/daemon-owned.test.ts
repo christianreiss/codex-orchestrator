@@ -988,6 +988,41 @@ describe('owner provider observation writes', () => {
       insert({ status: 'ok', fetchedAt: now, nextEligibleAt: now, createdAt: now }),
     ).rejects.toThrow('no longer eligible');
   });
+  // Every changed poll used to stay in owner RAM until restart (~288 rows per
+  // account per day); provider-lease decisions sort that list each time.
+  it('keeps the owned ChatGPT history bounded to what hydration would load', async () => {
+    const h = harness({
+      providerAccounts: [{ id: 7, engine: 'codex', state: 'enabled', mergedIntoAccountId: null }],
+    });
+    const service = new ChatGptUsageService(h.ctx.db, undefined, { accountId: 7, keyring: h.ctx.keyring });
+    const insert = (
+      service as unknown as { insertSnapshot(v: Record<string, unknown>): Promise<{ id: number }> }
+    ).insertSnapshot.bind(service);
+    const midnight = new Date();
+    midnight.setUTCHours(0, 0, 0, 0);
+    const at = (minutes: number) => new Date(midnight.getTime() + minutes * 60_000).toISOString();
+    const weekly = (used: number) => ({ primaryLimitSeconds: 604800, primaryUsedPercent: used });
+    // Yesterday's rows, then today's first weekly observation (the dailyUsage baseline).
+    await insert({ status: 'ok', fetchedAt: at(-30), nextEligibleAt: at(-30), createdAt: at(-30), ...weekly(1) });
+    const baseline = await insert({ status: 'ok', fetchedAt: at(1), nextEligibleAt: at(1), createdAt: at(1), ...weekly(2) });
+    for (let i = 0; i < 20; i++) {
+      const t = at(2 + i);
+      await insert({ status: 'ok', fetchedAt: t, nextEligibleAt: t, createdAt: t, ...weekly(3 + i) });
+    }
+    const failed = await insert({ status: 'error', fetchedAt: at(40), nextEligibleAt: at(40), createdAt: at(40), error: 'boom' });
+    const owned = h.state.snapshot().table('chatgptUsageSnapshots').by('accountId', 7);
+    const ids = owned.map((row) => row.id);
+    // Newest arrival/observation (the failure), newest usable, today's baseline.
+    expect(owned.length).toBeLessThanOrEqual(4);
+    expect(ids).toContain(failed.id);
+    expect(ids).toContain(baseline.id);
+    expect(owned.find((row) => row.status === 'ok' && row.id !== baseline.id)?.primaryUsedPercent).toBe(22);
+    const daily = await service.dailyUsage(
+      owned.find((row) => row.primaryUsedPercent === 22)! as never,
+      new Date(at(41)),
+    );
+    expect(daily).toEqual({ daily_used_percent: 20, daily_baseline_at: at(1) });
+  });
 });
 
 describe('owned advisor composition', () => {
