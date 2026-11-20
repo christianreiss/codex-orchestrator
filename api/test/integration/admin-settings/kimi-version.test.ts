@@ -19,24 +19,6 @@ async function buildApp() {
 }
 
 describe('Kimi admin version controls', () => {
-  it('follows latest by default without creating a global lock', async () => {
-    const { app, db } = await buildApp();
-    const response = await app.inject({ method: 'GET', url: '/admin/kimi/version' });
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      client_version: 'latest',
-      client_version_lock: null,
-      client_version_enforce_exact: false,
-    });
-    expect((db.tables.get(versions) ?? []).some((row) => row.name === 'client_version_lock_kimi')).toBe(
-      false,
-    );
-    expect((await app.inject({ method: 'GET', url: '/admin/kimi/version/lock' })).json()).toMatchObject({
-      locked_version: null,
-      locked_at: null,
-    });
-    await app.close();
-  });
   it('pins only Kimi and rejects unsupported older native releases', async () => {
     const { app, db } = await buildApp();
     db.tables.set(versions, [
@@ -50,9 +32,6 @@ describe('Kimi admin version controls', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ locked_version: '2.5.4' });
-    expect((await app.inject({ method: 'GET', url: '/admin/kimi/version/lock' })).json()).toMatchObject({
-      locked_version: '2.5.4',
-    });
     expect(
       (await app.inject({ method: 'POST', url: '/admin/kimi/version', payload: { selection: '2.5.2' } }))
         .statusCode,

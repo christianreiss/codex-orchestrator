@@ -15,7 +15,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 - **IP binding**: the first successful authenticated host request pins caller IP (`ip4`/`ip6`); later mismatches return `403` unless roaming is enabled (`allow_roaming_ips`), a dual-stack secondary bind is possible, or `DELETE /auth?force=1` is used. When reverse-DNS enforcement is active, `/auth` also requires forward A/AAAA + PTR match for caller IP. Forwarded headers are trusted only when `TRUST_X_FORWARDED=1` and the socket peer address matches `TRUSTED_PROXY_CIDRS`. Runner subnet bypass is possible when `AUTH_RUNNER_IP_BYPASS=1` and caller IP matches `AUTH_RUNNER_BYPASS_SUBNETS`.
 - **Host security modes**: hosts default to `secure=true`. Setting `secure=false` marks the host insecure. New insecure hosts get a provisioning window (default 30 minutes, or `/admin/hosts/register` `duration_minutes`). Admins can open/extend a 0–480 minute sliding window with `POST /admin/hosts/{id}/insecure/enable` (default stored window 10). Window checks are enforced for `/auth` retrieve (non-`store`), `/sync/status`, `/sync/bootstrap`, `/host/lane`, and `/mcp`; `POST /auth` with `command=store` is currently not gated by the insecure window in code. `/sync/bootstrap` and `/sync/status` are gated only when the request actually asks for credentials — `include_auth:false` (what the unattended wrapper cron tick sends) is served without a window check, without sliding the window, and without opening an approval, like every other content route. Closed-window requests return `403 Insecure host API access disabled`, or `423 Insecure host approval pending` when insecure approvals are enabled and admin websocket presence is active.
 - **Base URL policy**: in production, keep `PUBLIC_BASE_URL` set (`PUBLIC_BASE_URL_REQUIRED=1`) and optionally enforce host matching with `STRICT_HOST_VALIDATION=1`.
-- **Kill switch**: `POST /admin/api/state` sets persistent `api_disabled`. It is read by `POST /auth`, `POST /sync/status`, `POST /sync/bootstrap`, `POST /claude/usage/report` and `GET /versions`, which answer `503 api_disabled` while it is set; nothing else reads it. The OpenAI-, Anthropic-, and Grok-compatible lanes have their own flags (`openai_api_disabled` via `/admin/openai/state`, `claude_api_disabled` via `/admin/claude/state`, `grok_api_disabled` via `/admin/grok/state`), and the remaining host routes (`/mcp`, `/skills`, `/agents/retrieve`, `/config/retrieve`, cron, wrapper, projects, shared memories) and `/admin/*` keep serving.
+- **Kill switch**: `POST /admin/api/state` sets persistent `api_disabled`. It is read by `POST /auth`, `POST /sync/status`, `POST /sync/bootstrap`, `POST /claude/usage/report` and `GET /versions`, which answer `503 api_disabled` while it is set; nothing else reads it. The exposed API surfaces have their own flags (`openai_api_disabled`, `claude_api_disabled`, `grok_api_disabled`, `kimi_api_disabled`), set through `POST /admin/api/surfaces/{surface}`, and the remaining host routes (`/mcp`, `/skills`, `/agents/retrieve`, `/config/retrieve`, cron, wrapper, projects, shared memories) and `/admin/*` keep serving.
 - **Request rates**: the orchestrator has no in-process request-rate limiter. Authentication and authorization still apply normally; traffic shaping belongs at the deployment edge.
 - **Pruning**: hosts inactive for `inactivity_window_days` (default 30; `0` disables; max 60), never-provisioned hosts older than 30 minutes, or hosts with `expires_at` in the past are deleted during auth/register/admin-host flows (logs `host.pruned`). Temporary host `expires_at` is refreshed on successful authenticated contact (2-hour idle window).
 
@@ -366,7 +366,7 @@ Sets/clears host lane preference. Body: `{ "lane": "normal" | null }` (`null` cl
 - `POST /claude/{kind}/retrieve` — body: `slug` (or legacy `filename`) + optional `sha256` (64-hex). Returns `status` `missing` | `deleted` | `unchanged` | `updated`, plus the artifact body when updated.
 
 ### Claude usage
-- `POST /claude/usage/report` — host reports what Claude Code's own statusLine payload said for the current `rate_limits` reading. Body: optional `five_hour`/`seven_day` objects (`used_percent`, `resets_at`), optional `source` (defaults `statusline`). Pushed by the clx wrapper's fleet-owned statusLine command on a local throttle; the server never fetches this itself (see `GET /admin/claude/usage`). A report with neither window present is accepted (200 `{status:"ignored"}`) but stored nowhere. Auth required.
+- `POST /claude/usage/report` — host reports what Claude Code's own statusLine payload said for the current `rate_limits` reading. Body: optional `five_hour`/`seven_day` objects (`used_percent`, `resets_at`), optional `source` (defaults `statusline`). Pushed by the clx wrapper's fleet-owned statusLine command on a local throttle; the server never fetches this itself. A report with neither window present is accepted (200 `{status:"ignored"}`) but stored nowhere. Auth required.
 
 ### Shared memories
 Fleet-wide durable corpus (`shared://{slug}`), deliberately not host-filtered: every host reads and writes the same documents, and `engine` is recorded as provenance only. Auth required.
@@ -697,7 +697,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/engines/active` — `admin.read`; `{engines:[{engine,label,enabled}]}`, the console's engine-visibility source (switched-off engines appear nowhere but the Engines page).
 - `GET /admin/engines/state` / `POST /admin/engines/{engine}/state` — fleet-wide engine master switches. GET returns `{engines:[{engine,label,enabled,updated_at,updated_by,assigned_hosts}]}`; POST `{enabled: boolean}` switches one engine on or off for the whole fleet and returns the row plus `previous` and `hosts_suspended`. Off suspends everything for that engine (host routes `403 engine_disabled` with `scope:"fleet"`, gateways routed to it `503 api_disabled`, provider-touching admin actions `409`) while keeping assignments, accounts and keys. See `docs/interface-api.md` → Engine master switches.
 - `GET /admin/engines/{engine}/destroy` / `POST /admin/engines/{engine}/destroy` / `POST /admin/engines/{engine}/destroy/purge` / `DELETE /admin/engines/{engine}/destroy` — fleet-wide **destroy engine**: remove an engine completely from every host. POST `{confirm: "<engine>"}` opens a request (engine must already be suspended; `409 engine_not_suspended` otherwise) and re-bakes every host config with `host.destroy_engines`; GET returns `{engine, request, counts, hosts:[{host_id,fqdn,status,residue,reported_at}]}`; `purge` `{force?}` then drops the engine's stored credentials, accounts and host assignments (refused with `409 engine_destroy_incomplete` while hosts are unfinished unless `force`); DELETE cancels. Hosts report via `POST /host/engine-destroy/report`. Re-enabling the engine is refused (`409 engine_destroy_open`) until the request is cancelled. See `docs/interface-api.md` → Engine destroy.
-- `GET /admin/openai/state` / `POST /admin/openai/state` — read/set persisted `openai_api_disabled` flag (toggles OpenAI-compatible API independently).
 - OpenAI-compatible API keys (Codex-scoped; Claude-scoped keys live under `/admin/claude/keys`, Grok `sk-cgx-` keys under `/admin/grok/keys`):
   - `GET /admin/openai/keys` — list keys (`id`, `name`, `key_prefix`, `is_active`, `use_count`, `last_used_at`, `expires_at`, timestamps).
   - `POST /admin/openai/keys` — issue a key. Body: `{name, expires_at?}`. Returns the full key once, alongside the record.
@@ -710,9 +709,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/claude/keys` — create a new Claude API key. Body: `{name, expires_at?}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
   - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
-  - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). `settings.read` / `settings.manage`.
   - `GET /admin/claude/settings` — get the separate Anthropic-compatible API proxy defaults. Returns `{status, data: {default_model, max_tokens, disabled}}`; this does not control Claude Code's fleet `model` / `effortLevel`.
-  - `GET /admin/claude/version` — Claude Code fleet version summary (same shape the Codex version card uses).
   - `POST /admin/claude/version` — set the fleet Claude Code version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`; `latest`/`auto` clear the lock and refresh from upstream.
   - `GET /admin/communicator/api-version` — communicator API level state: `{api_version, min_api, default_min_api, override_min_api, override_updated_at, clients}` with per-host and per-communicator tallies of clients below the minimum, below the current level and at it. Requires `settings.read`.
   - `POST /admin/communicator/api-version` — raise or clear the operator minimum. Body `{ min_api: <1..api_version> | null }`; anything else is a `422`. Requires `settings.manage`; audit-logged as `admin.communicator_min_api`.
@@ -733,7 +730,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it.
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set the authorization mode (`{mode: "compatible"|"strict"}`). GET also returns `would_deny`: what `strict` would have refused, from this installation's own traffic. Requires `security.manage_authorization`, enforced under both modes.
 - `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default).
-- `GET /admin/log-retention` / `POST /admin/log-retention` — retired compatibility endpoint: always returns `{enabled:false,supported:false,reason:"retired_no_worker"}`. Old durations are ignored and no setting is persisted.
 - `GET /admin/scaling` / `POST /admin/scaling` — read the scaling status and store the scaling rules; invalid rules return `422 validation_failed` with per-rule errors. Hosts flagged `scaling_exempt` are excluded.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
 - `GET /admin/response-verbosity` / `POST /admin/response-verbosity` — read/set the fleet-wide response-verbosity dial (`level`: `0..4`, `0` default/no-op). Projected into the served AGENTS.md/CLAUDE.md `## Default Response Shape` policy text, and (for `clx` hosts) into a `verbosity-*` Claude output style via `outputStyle` in settings.json.
@@ -744,27 +740,17 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - Runner: `GET /admin/runner` (config/telemetry/state/timestamps/counts/canonical metadata), `POST /admin/runner/run` (force Codex runner validation), `POST /admin/runner/run-claude` (force Claude runner validation), `POST /admin/runner/run-grok` (read-only Grok subscription verification).
 - Logs:
   - `GET /admin/logs?limit=50`
-- ChatGPT usage:
-  - `GET /admin/chatgpt/usage[?force=1]`
-  - `GET /admin/chatgpt/usage/history?days=60[&from=&until=&interval=raw|hour|day&lane=normal|spark|both&window=primary|secondary|both]`
-  - `POST /admin/chatgpt/usage/refresh`
-- Claude usage (read-only — pushed by hosts via `POST /claude/usage/report`, so there is no refresh endpoint):
-  - `GET /admin/claude/usage`
-  - `GET /admin/claude/usage/history?days=60[&from=&until=]`
 - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/generate`, `POST /admin/skills/assist`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. `POST /admin/skills/assist` is the conversational variant of `generate`: body `{messages[], mode: "new"|"edit", skill?}` (an `edit` mode carries the current skill), and it returns `503 runner_unavailable` without a configured runner and canonical auth. `POST /admin/skills/generate` is an admin-only runner-backed draft helper that fills the skill editor but does not persist anything until `store` is called. Code-managed and source-owned skills are returned with `managed:true`; direct store/delete attempts are rejected.
 - `GET /admin/skill-sources/mattpocock` — return the Matt Pocock source state: `{source, repository, ref, enabled, auto_update, status, revision, upstream_version, skill_count, file_count, last_checked_at, last_synced_at, last_error}`. `source` is `github:mattpocock/skills`, `repository` is `https://github.com/mattpocock/skills`, `ref` is `main`, and `status` is `disabled`, `ok`, or `error`. Any authenticated admin role may read it. Inclusion defaults off and causes no outbound traffic while off.
 - `POST /admin/skill-sources/mattpocock` — owner/admin only. The non-empty body may contain either or both booleans `{enabled?, auto_update?}` and no other keys; returns the same source state. Fresh source state defaults auto-update on; a preference configured while disabled is preserved when inclusion is enabled. Disabling auto-update pins the last-known-good revision. Disabling inclusion soft-deletes the source-owned skills from served inventory but retains their rows, files, and last-known-good metadata. A later enable validates that complete cached revision and restores it without a GitHub request; a missing, incomplete, or damaged cache instead triggers a fresh import from the immutable upstream SHA.
 - `POST /admin/skill-sources/mattpocock/refresh` — owner/admin only; accepts no request body. Force an immediate enabled-source check and return the same source state on success. The normal worker checks enabled sources with auto-update every six hours. Each check resolves `main` to an immutable commit SHA and atomically advances only after the complete allowlisted bundle and MIT notice validate; failure records `last_error`/`last_checked_at` without displacing the last-known-good revision.
 - Projects module: `GET /admin/projects/state`, `POST /admin/projects/state`, `GET /admin/projects/feedback`, `GET /admin/projects`, `POST /admin/projects`, `DELETE /admin/projects/{slug}`, `GET /admin/projects/{slug}`, `GET /admin/projects/{slug}/summary` (counts and the about block without the project's contents — what the detail page's header and tiles read, since `GET /admin/projects/{slug}` carries every file body), `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `POST /admin/projects/{slug}/archive`, `POST /admin/projects/{slug}/unarchive`, `GET /admin/projects/{slug}/changes`, `GET /admin/projects/{slug}/files/{id}`, `POST /admin/projects/{slug}/feedback/{id}`, plus `POST /admin/projects/{slug}/assist` (runner-backed draft helper; `503 runner_unavailable` without a runner and canonical auth) and the note/todo/file/feedback subroutes mirroring the host `/projects` surface:
   - Notes: `GET /admin/projects/{slug}/notes`, `POST /admin/projects/{slug}/notes`, `POST /admin/projects/{slug}/notes/{id}`, `DELETE /admin/projects/{slug}/notes/{id}`.
-  - Todos: `GET /admin/projects/{slug}/todos`, `POST /admin/projects/{slug}/todos`, `POST /admin/projects/{slug}/todos/{id}`, `POST /admin/projects/{slug}/todos/{id}/done`, `POST /admin/projects/{slug}/todos/{id}/undone`, `DELETE /admin/projects/{slug}/todos/{id}`.
   - Files: `GET /admin/projects/{slug}/files`, `POST /admin/projects/{slug}/files`, `DELETE /admin/projects/{slug}/files/{id}`.
   - Feedback: `GET /admin/projects/{slug}/feedback`, `POST /admin/projects/{slug}/feedback`.
   - Slop jobs (read-only; agents own them through `slop_job_*` MCP tools, see [interface-api.md](interface-api.md#slop-jobs)): `GET /admin/projects/{slug}/slop-jobs` (jobs with file/revision counts and the latest run), `GET /admin/projects/{slug}/slop-jobs/{id}` (description, current files, every run with its report). `GET /admin/slop-jobs/state` returns `{enabled, jobs, updated_at}`; `POST /admin/slop-jobs/state` `{enabled}` flips the fleet switch `slop_jobs_enabled` (default on). While it is off the `slop_job_*` tools disappear from `tools/list`, direct calls fail with `slop_jobs_disabled`, the served guidance drops its slop paragraph, and the sweeper keeps expiring existing jobs.
 - Agents: `GET /admin/agents`, `GET /admin/agents/render?host_id={id}&engine=codex|claude|grok|kimi`, `POST /admin/agents/compose`, `POST /admin/agents/render`, `GET /admin/agents/versions/{id}`, `POST /admin/agents/store`, `POST /admin/agents/serve`, `POST /admin/agents/revert`, `POST /admin/agents/retention`, `DELETE /admin/agents/versions/{id}`. Admin views include the nullable `builder_state` and the current module catalog. `compose` validates and renders `{composition}` without persistence; POST `render` combines an unsaved `{composition}` or raw `{content}` with a selected host's live managed policy/features. Both return `provenance` — the document's highlightable blocks in order, so a console can link a setting to the text it produced — and POST `render` additionally returns `axis_sections`, the policy sections each security axis contributes to. Both are preview-only and never reach `/agents/retrieve`. `store` accepts the legacy raw body or a structured composition and always snapshots rendered base Markdown. GET `render` remains the saved-current preview. `revert` takes `{version_id, engine?}` and republishes the body plus builder provenance; `retention` sets `{backup_limit}` (null clears the stored limit).
 - Agent policy profiles: `GET /admin/agent-policy-profiles`, `POST /admin/agent-policy-profiles`, `POST /admin/agent-policy-profiles/{id}`, `DELETE /admin/agent-policy-profiles/{id}`, `POST /admin/agent-policy-profiles/{id}/default`, `POST /admin/agent-policy-profiles/assign`, `GET /admin/agent-policy-profiles/enforcement?host_id={id}`. A profile is a named security-level vector, not a document: the canonical prose stays one fleet document so a wording fix reaches every profile, while posture varies per host. Assignment is orthogonal to `agents_document_id_override`, which pins which prose document a host receives. `assign` accepts `profile_id: null` to clear back to the fleet default; the default profile cannot be deleted. `enforcement` is a read-only projection onto engine config naming the axis governing each knob, plus the keys deliberately not enforced.
-- MCP memories: `GET /admin/mcp/memories`, `DELETE /admin/mcp/memories/{id}` (numeric record id).
-- Shared memories: `GET /admin/shared-memories` (recency listing; `q` switches to relevance search, plus `tags`, `prefix`, `limit`, `offset`), `GET /admin/shared-memories/{slug}`, `DELETE /admin/shared-memories/{slug}`. Fleet-wide, so there is no host filter.
 - Memory lifecycle (`{scope}` is `host`, `project`, or `shared`; mutations require the owner or admin role and carry an `ETag`):
   - `GET /admin/memories/graph` — cross-scope memory graph.
   - `GET /admin/memories/audit` — memory audit trail.
@@ -792,7 +778,6 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/projects/{slug}/board/cards/{id}/move` — `{column, note?}`. Never refuses: a role mismatch or an exceeded WIP limit still moves the card and comes back in `advisories`, which are also written to the log.
   - `POST /admin/projects/{slug}/board/cards/{id}/release` — `{reason?}` takes a claim back on the operator's behalf. The escape hatch for a holder that is unreachable but not detectably dead — a wedged process, a sleeping laptop — which neither automatic reclaim signal catches.
   - `DELETE /admin/projects/{slug}/board/cards/{id}` — archive rather than delete, so the card's events keep a row to point at.
-  - `POST /admin/projects/{slug}/board/columns/{id}` — reshape one lane: `{title?, wip_limit?, allowed_roles?, position?, default_next_column_id?}`. There is no create or delete; migration 0026 seeds the seven lanes, and deleting one would have to answer what becomes of the cards in it.
 - Git Director (registry of which agent is working in which git clone, plus an advisory arbiter over merges into shared branches; forcing a verdict and the module switch require the owner, admin, or fleet role):
   - `GET /admin/git-director/state` — module switch, the model used for contended verdicts, and live clone/worktree counts.
   - `GET /admin/git-director/commit-settings` — fleet-wide `{message_style: "short" | "long", ai_attribution: boolean}`; requires `git_director.read`. Missing or invalid stored values default to short / false without inserting a row.
@@ -915,7 +900,7 @@ Selection runs once per native CLI launch. It prefers verified enabled accounts 
 
 Kimi Code exposes the OpenAI-shaped `/kimi/v1` surface with `sk-ckx-` bearer
 keys. `versions.kimi_api_disabled=1` is seeded by migration 0130; operators
-must opt in through `/admin/kimi/state` or `/admin/api/surfaces/kimi`.
+must opt in through `/admin/api/surfaces/kimi`.
 Missing switch metadata or a failed switch read leaves this surface disabled.
 Its backend defaults to `kimi` (`api_surface_backend_kimi`) and can be changed
 independently of its key namespace and kill switch, like every other surface.
@@ -956,18 +941,13 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 - `POST /admin/grok/keys` — Issue a scoped sk-cgx- gateway key, returned once.
 - `POST /admin/grok/keys/:id/toggle` — Change a Grok gateway key active state.
 - `DELETE /admin/grok/keys/:id` — Remove a Grok gateway key.
-- `GET /admin/grok/state` — Read the independent Grok API switch.
-- `POST /admin/grok/state` — Set the independent Grok API switch.
 - `GET /admin/grok/settings` — Read gateway default_model and disabled.
 - `POST /admin/grok/settings` — Change gateway default model/switch; unsupported parameters rejected.
 - `GET /admin/grok/models` — List native catalog with enabled flags.
 - `POST /admin/grok/models/:model/toggle` — Enable/disable a Grok gateway model.
 - `GET /admin/grok/config` — Read engine-specific managed config metadata.
-- `GET /admin/grok/config/retrieve` — Retrieve engine-specific managed config.
 - `POST /admin/grok/config/render` — Preview native TOML config.
 - `POST /admin/grok/config/store` — Save managed Grok config.
-- `GET /admin/grok/version` — Read Grok CLI version metadata.
-- `GET /admin/grok/version/lock` — Read the independent exact CLI pin.
 - `POST /admin/grok/version` — Set/clear the independent exact CLI pin.
 - `POST /admin/hosts/:id/grok-version` — Set/clear a host-specific Grok CLI pin.
 - `POST /admin/runner/run-grok` — Run a read-only subscription verification with no credential bytes returned.
@@ -978,18 +958,13 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 - `POST /admin/kimi/keys` — Issue a scoped sk-ckx- gateway key, returned once.
 - `POST /admin/kimi/keys/:id/toggle` — Change a Kimi gateway key active state.
 - `DELETE /admin/kimi/keys/:id` — Remove a Kimi gateway key.
-- `GET /admin/kimi/state` — Read the independent Kimi API switch.
-- `POST /admin/kimi/state` — Set the independent Kimi API switch.
 - `GET /admin/kimi/settings` — Read gateway default_model and disabled.
 - `POST /admin/kimi/settings` — Change gateway default model/switch; unsupported parameters rejected.
 - `GET /admin/kimi/models` — List native catalog with enabled flags.
 - `POST /admin/kimi/models/:model/toggle` — Enable/disable a Kimi gateway model.
 - `GET /admin/kimi/config` — Read engine-specific managed config metadata.
-- `GET /admin/kimi/config/retrieve` — Retrieve engine-specific managed config.
 - `POST /admin/kimi/config/render` — Preview native TOML config.
 - `POST /admin/kimi/config/store` — Save managed Kimi config.
-- `GET /admin/kimi/version` — Read Kimi CLI version metadata.
-- `GET /admin/kimi/version/lock` — Read the independent exact CLI pin.
 - `POST /admin/kimi/version` — Set/clear the independent exact CLI pin.
 - `POST /admin/hosts/:id/kimi-version` — Set/clear a host-specific Kimi CLI pin.
 - `POST /admin/runner/run-kimi` — Run a read-only subscription verification with no credential bytes returned.

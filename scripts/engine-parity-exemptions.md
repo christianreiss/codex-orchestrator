@@ -140,7 +140,6 @@ python3 scripts/check-engine-parity.py
 | `frontend/src/lib/assets/engines/grok.svg` | Grok-only implementation of grok; Kimi has its own provider path. |
 | `frontend/src/lib/components/dashboard/GrokUsage.svelte` | Grok-only implementation of GrokUsage; Kimi has its own provider path. |
 | `frontend/src/lib/components/settings/GrokEngineSection.svelte` | Grok-only implementation of GrokEngineSection; Kimi has its own provider path. |
-| `frontend/src/lib/components/settings/GrokVersionSection.svelte` | Grok-only implementation of GrokVersionSection; Kimi has its own provider path. |
 | `runner/grok.py` | Grok-only implementation of grok; Kimi has its own provider path. |
 | `runner/install-grok.mjs` | Grok-only implementation of install grok; Kimi has its own provider path. |
 | `runner/test_grok.py` | Grok-only test/fixture for test grok; Kimi has its own provider path. |

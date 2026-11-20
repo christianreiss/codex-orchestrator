@@ -161,8 +161,8 @@ describe("toast events", () => {
 
 describe("mapped events", () => {
   it("invalidates exactly the keys the map names", () => {
-    emit("log.created");
-    assert.deepEqual(qc.keys, [["logs"], ["logs", "api"], ["logs", "events"]]);
+    emit("host.deleted");
+    assert.deepEqual(qc.keys, [["hosts"], ["overview"], ["agent-messaging"]]);
   });
 
   it("invalidates the mapped keys for every entry in the map", () => {
@@ -266,7 +266,7 @@ describe("project-scoped events", () => {
 describe("the returned unsubscribe", () => {
   it("stops the wiring from reacting to further events", () => {
     unsubscribe();
-    emit("log.created");
+    emit("host.deleted");
     emit("toast", { message: "hello" });
     assert.deepEqual(qc.keys, []);
     assert.deepEqual(toastStub.calls, []);

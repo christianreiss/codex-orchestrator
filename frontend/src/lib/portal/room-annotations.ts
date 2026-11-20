@@ -79,21 +79,6 @@ export function searchPath(params: {
   return `${SEARCH_ROOT}?${query}`;
 }
 
-/** Optimistic local toggle; the server's `reactions` replace it on success. */
-export function toggledReactions(list: readonly ReactionSummary[], emoji: string, on: boolean): ReactionSummary[] {
-  const found = list.find((r) => r.emoji === emoji);
-  if (on) {
-    if (found?.mine) return [...list];
-    return found
-      ? list.map((r) => (r.emoji === emoji ? { ...r, count: r.count + 1, mine: true } : r))
-      : [...list, { emoji, count: 1, mine: true }];
-  }
-  if (!found?.mine) return [...list];
-  return list
-    .map((r) => (r.emoji === emoji ? { ...r, count: r.count - 1, mine: false } : r))
-    .filter((r) => r.count > 0);
-}
-
 export function reactionLabel(r: ReactionSummary): string {
   const people = r.count === 1 ? "1 reaction" : `${r.count} reactions`;
   return `${r.emoji} ${people}${r.mine ? ", including yours. Remove yours" : ". Add yours"}`;

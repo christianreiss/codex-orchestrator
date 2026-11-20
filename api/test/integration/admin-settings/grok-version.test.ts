@@ -19,24 +19,6 @@ async function buildApp() {
 }
 
 describe('Grok admin version controls', () => {
-  it('follows latest by default without creating a global lock', async () => {
-    const { app, db } = await buildApp();
-    const response = await app.inject({ method: 'GET', url: '/admin/grok/version' });
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      client_version: 'latest',
-      client_version_lock: null,
-      client_version_enforce_exact: false,
-    });
-    expect((db.tables.get(versions) ?? []).some((row) => row.name === 'client_version_lock_grok')).toBe(
-      false,
-    );
-    expect((await app.inject({ method: 'GET', url: '/admin/grok/version/lock' })).json()).toMatchObject({
-      locked_version: null,
-      locked_at: null,
-    });
-    await app.close();
-  });
   it('pins only Grok and rejects unsupported older native releases', async () => {
     const { app, db } = await buildApp();
     db.tables.set(versions, [
@@ -50,9 +32,6 @@ describe('Grok admin version controls', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ locked_version: '1.0.51' });
-    expect((await app.inject({ method: 'GET', url: '/admin/grok/version/lock' })).json()).toMatchObject({
-      locked_version: '1.0.51',
-    });
     expect(
       (await app.inject({ method: 'POST', url: '/admin/grok/version', payload: { selection: '1.0.49' } }))
         .statusCode,

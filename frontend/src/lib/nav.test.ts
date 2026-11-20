@@ -14,7 +14,7 @@ registerHooks({
 });
 
 const navModule: string = "./nav.ts";
-const { HUBS, MOBILE_NAV_OVERFLOW, MOBILE_NAV_PRIMARY, NAV, NAV_FOOTER, NAV_SECTIONS, getBreadcrumbs, getDocumentTitle, getPageContext, hubFor, isActive } =
+const { HUBS, MOBILE_NAV_OVERFLOW, MOBILE_NAV_PRIMARY, NAV, NAV_FOOTER, NAV_SECTIONS, getBreadcrumbs, getPageContext, isActive } =
   (await import(navModule)) as typeof import("./nav");
 
 function item(id: string): NavItem {
@@ -57,7 +57,6 @@ describe("route registry", () => {
       assert.equal(hub.route, hub.items[0]?.route, `${hub.id} should link to its first page`);
     }
     for (const entry of NAV) {
-      assert.equal(entry.href, entry.route, `${entry.id} compatibility href drifted from route`);
       assert.ok(entry.keywords.length > 0, `${entry.id} has no command-palette keywords`);
       assert.ok(entry.description.length > 0, `${entry.id} has no description`);
     }
@@ -81,7 +80,7 @@ describe("route registry", () => {
   });
 
   it("lights the rail hub for any page it owns, including detail routes", () => {
-    const hubIdFor = (path: string) => hubFor(path)?.id;
+    const hubIdFor = (path: string) => HUBS.find((hub) => isActive(hub, path))?.id;
     assert.equal(hubIdFor("/agents"), "agents");
     assert.equal(hubIdFor("/people"), "access");
     assert.equal(hubIdFor("/api-keys"), "access");

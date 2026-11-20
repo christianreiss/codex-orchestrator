@@ -111,7 +111,7 @@ const runnerModule: string = "./runner.ts";
 const runner = (await import(runnerModule)) as typeof import("./runner");
 
 const eventsModule: string = "../ws/events.ts";
-const { DEFAULT_INVALIDATIONS } = (await import(eventsModule)) as typeof import("../ws/events");
+const { ownerStateInvalidations } = (await import(eventsModule)) as typeof import("../ws/events");
 
 const asQuery = (built: unknown): BuiltQuery => built as unknown as BuiltQuery;
 const asMutation = (built: unknown): BuiltMutation => built as unknown as BuiltMutation;
@@ -181,7 +181,7 @@ describe("run mutations", () => {
 });
 
 describe("runner owner events", () => {
-  it("invalidates runner queries when the observed state changes", () => {
-    assert.deepEqual(DEFAULT_INVALIDATIONS["runner.state.changed"], [["runner"]]);
+  it("invalidates runner queries when the versions snapshot changes", () => {
+    assert.deepEqual(ownerStateInvalidations({ tables: ["versions"] }).filter((key) => key[0] === "runner"), [["runner"]]);
   });
 });

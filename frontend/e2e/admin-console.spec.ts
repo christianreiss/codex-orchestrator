@@ -1469,7 +1469,7 @@ test("Claude login expiry remains visible with successful verification and clear
   await expect(claude).toContainText("Claude login expired");
   expiryState = "ok";
   // Canonical renewal publishes a state transition; quiet pages never poll.
-  await publish("runner.state.changed", { engine: "claude" });
+  await publish("control_state.changed", { tables: ["versions"] });
   await expect(claude).not.toContainText("Claude login expired", { timeout: 20_000 });
 });
 

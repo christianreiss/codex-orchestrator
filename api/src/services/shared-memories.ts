@@ -5,7 +5,7 @@ import {
   ownerRuntimeFor,
   type OwnerMutationContext,
 } from '../control-plane/state/runtime.js';
-import { stageDelete, stageUpdate } from '../control-plane/state/rows.js';
+import { stageUpdate } from '../control-plane/state/rows.js';
 import type { Json } from '../control-plane/commands.js';
 /**
  * Fleet-wide shared memory: one corpus of large documents, readable and
@@ -986,60 +986,6 @@ export class SharedMemoriesService {
   // Admin
   // ──────────────────────────────────────────────────────────────────────
 
-  async adminList(input: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const query = String(input['query'] ?? input['q'] ?? '').trim();
-    if (query !== '') {
-      const found = (await this.search({
-        query,
-        limit: normalizeInt(input['limit'], 50, 1, 200),
-        mode: 'documents',
-        tags: input['tags'],
-      })) as Record<string, unknown>;
-      return { ...found, view: 'search' };
-    }
-    const listed = await this.list({
-      limit: normalizeInt(input['limit'], 50, 1, 200),
-      offset: input['offset'],
-      tags: input['tags'],
-      prefix: input['prefix'],
-    });
-    return { ...listed, view: 'list' };
-  }
-
-  async adminDetail(slug: string): Promise<Record<string, unknown>> {
-    const errors: Record<string, string[]> = {};
-    const normalized = this.normalizeSlug(slug, errors);
-    if (Object.keys(errors).length || !normalized)
-      throw new ValidationError('Validation failed', { extra: { errors } });
-    const doc = await this.findBySlug(normalized);
-    if (!doc) throw new NotFoundError('Shared memory not found', 'shared_memory_not_found');
-    const revisions = await this.db
-      .select()
-      .from(sharedMemoryRevisions)
-      .where(eq(sharedMemoryRevisions.memoryId, doc.id))
-      .orderBy(desc(sharedMemoryRevisions.revision))
-      .limit(20);
-    return {
-      status: 'ok',
-      memory: { ...this.summarize(doc, true), content: doc.content },
-      revisions: revisions.map((r) => ({
-        revision: r.revision,
-        op: r.op,
-        sha256: r.contentSha256,
-        content_length: r.contentLength,
-        delta_length: r.deltaLength,
-        source_host_id: r.sourceHostId,
-        source_engine: r.sourceEngine,
-        note: r.note,
-        // Not the body itself — a detail view should not ship N copies of a
-        // 1 MiB document. This says whether `restore` can still undo this
-        // revision, which is the only thing a caller needs to decide.
-        restorable: r.prevContent !== null && r.prevContent !== undefined,
-        created_at: r.createdAt,
-      })),
-    };
-  }
-
   /**
    * Undo a replace by putting back the body the document had before it.
    *
@@ -1086,60 +1032,6 @@ export class SharedMemoriesService {
     }
 
     return this.write({ slug, content: prev }, host, engine);
-  }
-
-  /**
-   * Admin delete is a hard delete: it frees the slug for reuse, matching how
-   * `MemoriesService.adminDelete` frees the `(host_id, memory_key)` slot.
-   */
-  async adminDelete(slug: string): Promise<Record<string, unknown>> {
-    const errors: Record<string, string[]> = {};
-    const normalized = this.normalizeSlug(slug, errors);
-    if (Object.keys(errors).length || !normalized)
-      throw new ValidationError('Validation failed', { extra: { errors } });
-    const owner = ownerRuntimeFor(this.db);
-    if (owner) {
-      await mutateOwnerState(owner, {
-        kind: 'shared.memory.admin.delete',
-        payload: { slug: normalized },
-        prepare: (ctx) => {
-          const row = ctx.snapshot.table('sharedMemories').by('slug', normalized)[0];
-          if (!row) throw new NotFoundError('Shared memory not found', 'shared_memory_not_found');
-          ctx.write(async (tx) => {
-            await tx.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, row.id));
-            await tx.delete(sharedMemoryRevisions).where(eq(sharedMemoryRevisions.memoryId, row.id));
-          });
-          stageDelete(ctx, 'sharedMemories', row.id);
-          ctx.write(async (tx) =>
-            persistAuditLog(tx, {
-              hostId: null,
-              action: 'shared_memory.admin.delete',
-              details: JSON.stringify({ slug: normalized, id: row.id }),
-              createdAt: nowIso(),
-              engine: null,
-            }),
-          );
-          return null;
-        },
-      });
-      this.publish('shared_memory.deleted', { slug: normalized });
-      this.publish('shared_memory.changed', { slug: normalized });
-      return { deleted: normalized };
-    }
-    const rows = await this.db
-      .select()
-      .from(sharedMemories)
-      .where(eq(sharedMemories.slug, normalized))
-      .limit(1);
-    const row = rows[0];
-    if (!row) throw new NotFoundError('Shared memory not found', 'shared_memory_not_found');
-    await this.db.delete(sharedMemoryChunks).where(eq(sharedMemoryChunks.memoryId, row.id));
-    await this.db.delete(sharedMemoryRevisions).where(eq(sharedMemoryRevisions.memoryId, row.id));
-    await this.db.delete(sharedMemories).where(eq(sharedMemories.id, row.id));
-    await this.recordLog(null, 'shared_memory.admin.delete', { slug: normalized, id: row.id });
-    this.publish('shared_memory.deleted', { slug: normalized, id: row.id });
-    this.publish('shared_memory.changed', { slug: normalized, id: row.id });
-    return { deleted: normalized };
   }
 
   // ──────────────────────────────────────────────────────────────────────

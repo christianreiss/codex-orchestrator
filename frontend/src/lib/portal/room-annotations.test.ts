@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 
 // `node --test` resolves specifiers verbatim, so the runtime import needs ".ts".
 const modulePath: string = "./room-annotations.ts";
-const { highlightSegments, searchPath, toggledReactions, reactionLabel, QUICK_REACTIONS } = (await import(
+const { highlightSegments, searchPath, reactionLabel, QUICK_REACTIONS } = (await import(
   modulePath
 )) as typeof import("./room-annotations");
 
@@ -41,17 +41,6 @@ describe("search path", () => {
 });
 
 describe("reaction toggles", () => {
-  it("adds, joins and removes the operator's own reaction", () => {
-    const added = toggledReactions([], "👍", true);
-    assert.deepEqual(added, [{ emoji: "👍", count: 1, mine: true }]);
-    assert.deepEqual(toggledReactions(added, "👍", true), added);
-    const joined = toggledReactions([{ emoji: "🎉", count: 2, mine: false }], "🎉", true);
-    assert.deepEqual(joined, [{ emoji: "🎉", count: 3, mine: true }]);
-    assert.deepEqual(toggledReactions(added, "👍", false), []);
-    assert.deepEqual(toggledReactions([{ emoji: "🎉", count: 2, mine: false }], "🎉", false), [
-      { emoji: "🎉", count: 2, mine: false },
-    ]);
-  });
   it("names the action for assistive technology", () => {
     assert.equal(reactionLabel({ emoji: "👍", count: 2, mine: true }), "👍 2 reactions, including yours. Remove yours");
     assert.equal(reactionLabel({ emoji: "👀", count: 1, mine: false }), "👀 1 reaction. Add yours");

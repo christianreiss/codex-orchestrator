@@ -18,7 +18,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "@playwright/test";
 import { adminFixture } from "./fixtures.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));

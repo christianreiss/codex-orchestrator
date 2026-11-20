@@ -5,7 +5,7 @@ import type { ProvenanceEntry } from "./provenance";
 // Same indirection the other unit tests use: node's runner needs the real `.ts`
 // specifier, which TypeScript will not accept in a static import.
 const sourceModule: string = "./provenance.ts";
-const { assignProvenance, countBlocks } = (await import(sourceModule)) as typeof import("./provenance");
+const { assignProvenance } = (await import(sourceModule)) as typeof import("./provenance");
 
 function entry(key: string, headings: string[], group: ProvenanceEntry["group"] = "module"): ProvenanceEntry {
   return { key, label: key, group, headings };
@@ -140,10 +140,4 @@ test("resolves the real fleet headings after marked has rendered them", async ()
     assignProvenance(entries, rendered),
     headings.map((_, i) => `block:${i}`),
   );
-});
-
-test("countBlocks counts distinct blocks actually present in the document", () => {
-  const assigned = ["policy:safety_floor", "policy:hard_stops", "policy:hard_stops", null];
-  assert.equal(countBlocks(assigned, ["policy:safety_floor", "policy:hard_stops"]), 2);
-  assert.equal(countBlocks(assigned, ["policy:standing_authorizations"]), 0);
 });

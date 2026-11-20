@@ -48,10 +48,10 @@ remains readable until the configured retention period expires.
 
 ## Data sources
 
-- **Overview** — `GET /admin/overview` (registered in `api/src/routes/admin/overview/index.ts`, alongside `/admin/logs`, `/admin/chatgpt/usage*`, `/admin/runner/*`, and `/admin/toasts` — other admin route groups such as hosts, settings, config, auth, and users are registered from sibling files under `api/src/routes/admin/`) returns host totals, versions, quota settings, and the cached ChatGPT summary.
+- **Overview** — `GET /admin/overview` (registered in `api/src/routes/admin/overview/index.ts`, alongside `/admin/logs`, `/admin/runner/*`, and `/admin/toasts` — other admin route groups such as hosts, settings, config, auth, and users are registered from sibling files under `api/src/routes/admin/`) returns host totals, versions, quota settings, and the cached ChatGPT summary.
 - **Provider usage** — the Provider usage table reads `GET /admin/accounts`, one row per provider account with its quota windows. `ChatGptUsageService` (`api/src/services/chatgpt-usage.ts`) reads canonical Codex auth and stores the ChatGPT quota snapshots behind those windows.
-- **Claude usage** — Claude Code's statusline supplies new usage while the client runs. `GET /admin/claude/usage` returns the latest host report and `GET /admin/claude/usage/history` its history; the Overview no longer renders a separate Claude usage card.
-- **Graph stats** — `dashboard_graph_quota_snapshots` is a compact quota-history table, kept separate from the verbose raw `logs` table. `ChatGptUsageService` writes a row to it on every quota fetch (`recordGraphSnapshot()`). `DashboardStatsService` (`api/src/services/dashboard-stats.ts`) exposes a `quotaSnapshots()` reader over the same table, but nothing in the current API or frontend calls it. The ChatGPT history endpoint (`GET /admin/chatgpt/usage/history`) reads `chatgpt_usage_snapshots` directly via `ChatGptUsageService.history()`; the Overview page no longer draws a history chart.
+- **Claude usage** — Claude Code's statusline supplies new usage while the client runs. Hosts push it through `POST /claude/usage/report`, and no admin endpoint exposes the raw snapshot; the Overview no longer renders a separate Claude usage card.
+- **Graph stats** — `dashboard_graph_quota_snapshots` is a compact quota-history table, kept separate from the verbose raw `logs` table. `ChatGptUsageService` writes a row to it on every quota fetch (`recordGraphSnapshot()`). `DashboardStatsService` (`api/src/services/dashboard-stats.ts`) exposes a `quotaSnapshots()` reader over the same table, but nothing in the current API or frontend calls it. No admin endpoint serves the ChatGPT history any more (`ChatGptUsageService.history()` has no route caller); the Overview page no longer draws a history chart.
 
 ## Overview endpoint
 
@@ -103,7 +103,7 @@ Failed first loads show an error and a retry control rather than a successful ze
 
 ## Source references
 
-- api/src/routes/admin/overview/index.ts (`/admin/overview`, `/admin/logs`, `/admin/chatgpt/usage*`, `/admin/runner/*`, `/admin/toasts`)
+- api/src/routes/admin/overview/index.ts (`/admin/overview`, `/admin/logs`, `/admin/runner/*`, `/admin/toasts`)
 - api/src/services/chatgpt-usage.ts (quota fetch/cache/history, graph-snapshot write)
 - api/src/services/dashboard-stats.ts (recent/latest `logs` rows; unused `dashboard_graph_quota_snapshots` reader)
 - api/src/services/usage-scaling.ts (`scaling` field on `/admin/overview`; not rendered on the dashboard today)

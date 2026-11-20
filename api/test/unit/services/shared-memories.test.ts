@@ -778,36 +778,6 @@ describe('SharedMemoriesService.delete', () => {
   });
 });
 
-describe('SharedMemoriesService admin surface', () => {
-  it('hard-deletes so the slug can be reused', async () => {
-    const db = makeDb();
-    await service(db).write({ slug: 'doc', content: 'body' }, host);
-    const out = (await service(db).adminDelete('doc')) as Record<string, unknown>;
-    expect(out).toEqual({ deleted: 'doc' });
-    expect(db.tables.get(sharedMemories)).toHaveLength(0);
-    expect(db.tables.get(sharedMemoryChunks)).toHaveLength(0);
-    expect(db.tables.get(sharedMemoryRevisions)).toHaveLength(0);
-  });
-
-  it('404s on an unknown slug', async () => {
-    await expect(service(makeDb()).adminDelete('nope')).rejects.toThrow(/not found/i);
-  });
-
-  it('returns full content plus the revision trail in detail', async () => {
-    const db = makeDb();
-    await service(db).write({ slug: 'doc', content: 'v1' }, host);
-    await service(db).write({ slug: 'doc', content: 'v2' }, otherHost);
-
-    const out = (await service(db).adminDetail('doc')) as {
-      memory: Record<string, unknown>;
-      revisions: Array<Record<string, unknown>>;
-    };
-    expect(out.memory['content']).toBe('v2');
-    expect(out.revisions).toHaveLength(2);
-    expect(out.revisions.map((r) => r['op']).sort()).toEqual(['create', 'replace']);
-  });
-});
-
 describe('provenance', () => {
   it('records the writing host and engine without scoping reads to them', async () => {
     const db = makeDb();

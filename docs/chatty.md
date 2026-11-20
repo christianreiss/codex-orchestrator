@@ -203,9 +203,8 @@ engine master switches, opening insecure access (host or fleet window), marking
 hosts secure/insecure, releasing IP bindings, workflow runs, schedules, agent
 sessions and messaging. A host "sync now" action does not exist because hosts pull
 their configuration and there is no admin endpoint that pushes a sync; enabling or
-disabling an engine is picked up at the host's next synchronization. ChatGPT usage
-refresh (`POST /admin/chatgpt/usage/refresh`) is Codex-only, with no Claude, Grok or Kimi
-counterpart, so it is not offered; `account.verify` covers all four engines.
+disabling an engine is picked up at the host's next synchronization.
+`account.verify` covers all four engines.
 
 Deviation from the original design note: the token is stateless rather than stored,
 so no migration is needed. The short lifetime, the session and generation binding

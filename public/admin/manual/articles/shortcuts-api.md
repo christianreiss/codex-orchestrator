@@ -179,14 +179,10 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/insecure-approval` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/quota-mode` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/prune-policy` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/log-retention` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/scaling` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/openai/state` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/claude/state` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/claude/settings` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
-| GET/POST | `/admin/grok/version` | api/src/routes/admin/settings/index.ts |
-| GET | `/admin/grok/version/lock` | api/src/routes/admin/settings/index.ts |
+| POST | `/admin/claude/version` | api/src/routes/admin/settings/index.ts |
+| POST | `/admin/grok/version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/codex-version` | api/src/routes/admin/settings/index.ts |
 | POST | `/admin/versions/check` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/model-defaults/:engine` | api/src/routes/admin/settings/index.ts |
@@ -195,7 +191,7 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET/POST | `/admin/response-verbosity` | api/src/routes/admin/settings/index.ts |
 | GET/POST | `/admin/authorization` | api/src/routes/admin/settings/index.ts |
 
-`GET/POST /admin/openai/state` and `GET/POST /admin/claude/state` are the engine kill-switches; `GET/POST /admin/grok/state` (in *Admin Grok gateway* below) is the Grok gateway's. A POST with `{ disabled: true }` halts all requests authenticated by keys of that engine. See the kill-switch card description above for the UI equivalent.
+`POST /admin/api/surfaces/{surface}` with `{ disabled }` is the per-API kill switch (surfaces `openai`, `anthropic`, `grok`, `kimi`). Disabling halts all requests to that exposed API. See the kill-switch card description above for the UI equivalent.
 
 ### Admin overview / dashboard
 
@@ -204,11 +200,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET | `/admin/overview` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/ws/info` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/toasts` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/chatgpt/usage` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/chatgpt/usage/history` | api/src/routes/admin/overview/index.ts |
-| POST | `/admin/chatgpt/usage/refresh` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/claude/usage` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/claude/usage/history` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/runner` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/runner/run` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/runner/run-claude` | api/src/routes/admin/overview/index.ts |
@@ -240,11 +231,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | POST | `/admin/agent-policy-profiles/:id/default` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/agent-policy-profiles/assign` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/agent-policy-profiles/enforcement` | api/src/routes/admin/config/index.ts |
-| GET | `/admin/mcp/memories` | api/src/routes/admin/config/index.ts |
-| DELETE | `/admin/mcp/memories/:id` | api/src/routes/admin/config/index.ts |
-| GET | `/admin/shared-memories` | api/src/routes/admin/config/index.ts |
-| GET | `/admin/shared-memories/:slug` | api/src/routes/admin/config/index.ts |
-| DELETE | `/admin/shared-memories/:slug` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/skills` | api/src/routes/admin/config/index.ts |
 | GET | `/admin/skills/:slug` | api/src/routes/admin/config/index.ts |
 | POST | `/admin/skills/generate` | api/src/routes/admin/config/index.ts |
@@ -254,8 +240,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET | `/admin/skill-sources/mattpocock` | api/src/routes/admin/skill-sources/index.ts |
 | POST | `/admin/skill-sources/mattpocock` | api/src/routes/admin/skill-sources/index.ts |
 | POST | `/admin/skill-sources/mattpocock/refresh` | api/src/routes/admin/skill-sources/index.ts |
-
-`/admin/mcp/memories` and `/admin/shared-memories` are the deprecated per-scope reads and deletes; the console uses the unified `/admin/memories/*` surface below.
 
 ### Admin memories (Memory Atlas)
 
@@ -322,16 +306,14 @@ Mirrors `/admin/config`, `/admin/agents`, and `/admin/skills` above, but scoped 
 
 | Method | Route | Source |
 |--------|-------|--------|
-| GET/POST | `/admin/grok/state` | api/src/routes/admin/grok/index.ts |
 | GET/POST | `/admin/grok/settings` | api/src/routes/admin/grok/index.ts |
 | GET | `/admin/grok/models` | api/src/routes/admin/grok/index.ts |
 | POST | `/admin/grok/models/:model/toggle` | api/src/routes/admin/grok/index.ts |
 | GET | `/admin/grok/config` | api/src/routes/admin/grok/index.ts |
-| GET | `/admin/grok/config/retrieve` | api/src/routes/admin/grok/index.ts |
 | POST | `/admin/grok/config/render` | api/src/routes/admin/grok/index.ts |
 | POST | `/admin/grok/config/store` | api/src/routes/admin/grok/index.ts |
 
-`/admin/grok/state` is the independent `grok_api_disabled` gateway switch, `/admin/grok/settings` holds the gateway default model, and `/admin/grok/models/:model/toggle` takes `{ enabled }`. The `/admin/grok/config*` routes read, render, and store the Grok client config document (`~/.grok/config.toml`). See [Engines, Policies, and API Access](/admin/manual/settings).
+`/admin/grok/settings` holds the gateway default model, and `/admin/grok/models/:model/toggle` takes `{ enabled }`. The `/admin/grok/config*` routes read, render, and store the Grok client config document (`~/.grok/config.toml`). See [Engines, Policies, and API Access](/admin/manual/settings).
 
 ### Admin Agent Messaging
 

@@ -2,7 +2,7 @@
 title: Engines, Settings, and API keys
 section: Admin workspace
 verified: 2026-11-12
-sources: frontend/src/routes/(providers)/engines/+page.svelte, frontend/src/lib/components/settings/EngineMasterSwitches.svelte, api/src/routes/admin/engines/index.ts, api/src/services/engine-switch.ts, frontend/src/routes/(access)/settings/+page.svelte, frontend/src/lib/components/settings/settings-anchors.ts, frontend/src/lib/components/settings/tabs/HostsTab.svelte, frontend/src/lib/components/settings/WrapperRolloutSection.svelte, api/src/services/host-override-counts.ts, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ApiConfigure.svelte, frontend/src/lib/legacy-admin-routes.ts, frontend/src/lib/components/policies/AuthorizationPolicy.svelte, frontend/src/lib/components/policies/TogglePolicy.svelte, frontend/src/lib/components/policies/CleanupPolicy.svelte, frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts, frontend/src/lib/components/library/SkillSourceSheet.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/QuickModelDefaults.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/memories.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
+sources: frontend/src/routes/(providers)/engines/+page.svelte, frontend/src/lib/components/settings/EngineMasterSwitches.svelte, api/src/routes/admin/engines/index.ts, api/src/services/engine-switch.ts, frontend/src/routes/(access)/settings/+page.svelte, frontend/src/lib/components/settings/settings-anchors.ts, frontend/src/lib/components/settings/tabs/HostsTab.svelte, frontend/src/lib/components/settings/WrapperRolloutSection.svelte, api/src/services/host-override-counts.ts, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ApiConfigure.svelte, frontend/src/lib/legacy-admin-routes.ts, frontend/src/lib/components/policies/AuthorizationPolicy.svelte, frontend/src/lib/components/policies/TogglePolicy.svelte, frontend/src/lib/components/policies/CleanupPolicy.svelte, frontend/src/lib/components/authoring/HooksEditor.svelte, frontend/src/lib/constants/models.ts, frontend/src/lib/components/library/SkillSourceSheet.svelte, frontend/src/lib/api/skillSources.ts, frontend/src/lib/components/settings/QuickModelDefaults.svelte, frontend/src/lib/components/settings/ClaudeFleetSettings.svelte, frontend/src/lib/components/command-palette/commands.ts, api/src/routes/admin/settings/index.ts, api/src/routes/admin/config/index.ts, api/src/routes/admin/skill-sources/index.ts, api/src/services/mattpocock-skills.ts, api/src/ops/mattpocock-skills-worker.ts, api/src/services/model-defaults.ts, api/src/services/agents.ts, api/src/services/skills.ts, api/src/services/skill-provenance.ts, api/src/services/mcp-resources.ts, api/src/services/client-config.ts, api/src/services/config-normalizer.ts, api/src/services/client-versions.ts, api/src/services/host-auth.ts, api/src/db/migrations/0007_add_skill_provenance.sql, wrappers/cxx/internal/persona/claude/lifecycle/collections.go
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
@@ -80,7 +80,7 @@ provider binaries are outside this policy.
 
 #### Log retention
 
-The unused log-retention controls have been removed. No cleanup worker enforced the old windows. The compatibility endpoint `GET/POST /admin/log-retention` returns `enabled:false`, `supported:false`, and `reason:retired_no_worker`; old submitted durations are ignored. Agent-session cleanup is configured separately under Data retention.
+The unused log-retention controls have been removed. No cleanup worker enforced the old windows. The `/admin/log-retention` compatibility endpoint has been removed. Agent-session cleanup is configured separately under Data retention.
 
 ### Engine master switches
 
@@ -97,7 +97,7 @@ Switching it back on resumes hosts on their next launch or maintenance tick (wit
 
 #### Codex engine
 
-The Codex on/off switch is under **Engine master switches** above. `GET/POST /admin/openai/state` is the separate switch for the `/v1` exposed API only (the **Routing** table under **Access → API keys → Configure**).
+The Codex on/off switch is under **Engine master switches** above. `POST /admin/api/surfaces/{surface}` with `{ disabled }` is the separate switch for the `/v1` exposed API only (the **Routing** table under **Access → API keys → Configure**).
 
 #### Fleet model and effort
 
@@ -140,7 +140,7 @@ The Codex on/off switch is under **Engine master switches** above. `GET/POST /ad
 
 #### Claude engine
 
-The Claude on/off switch is under **Engine master switches** above. `GET/POST /admin/claude/state` is the separate switch for the `/anthropic/v1` exposed API only.
+The Claude on/off switch is under **Engine master switches** above. `POST /admin/api/surfaces/{surface}` with `{ disabled }` is the separate switch for the `/anthropic/v1` exposed API only.
 
 #### Fleet model and effort
 
@@ -176,7 +176,7 @@ This endpoint controls only API proxy behaviour. It is independent from the flee
 
 #### Claude version
 
-`GET /admin/claude/version`, `POST /admin/claude/version` — set the fleet-wide pinned Claude CLI version. The POST body is `{ selection }`: either a semver string (e.g. `2.1.170`) or `'latest'`/`'auto'` to clear the pin. There is no separate `locked` boolean in the request; the response reports the resulting `locked_version` and `locked_at`.
+`POST /admin/claude/version` — set the fleet-wide pinned Claude CLI version. The POST body is `{ selection }`: either a semver string (e.g. `2.1.170`) or `'latest'`/`'auto'` to clear the pin. There is no separate `locked` boolean in the request; the response reports the resulting `locked_version` and `locked_at`.
 
 #### Fleet settings.json
 
@@ -201,7 +201,7 @@ A live read-only preview of the rendered `settings.json` is shown alongside the 
 
 #### Grok engine
 
-The Grok on/off switch is under **Engine master switches** above. `GET/POST /admin/grok/state` is the separate switch for the `/grok/v1` exposed API only.
+The Grok on/off switch is under **Engine master switches** above. `POST /admin/api/surfaces/{surface}` with `{ disabled }` is the separate switch for the `/grok/v1` exposed API only.
 
 #### Fleet model and effort
 
@@ -218,13 +218,12 @@ These are native supported IDs; subscription availability is provider-owned. Cod
 
 #### Grok version
 
-`GET /admin/grok/version`, `GET /admin/grok/version/lock`, `POST /admin/grok/version` — the fleet-wide Grok Build CLI version, kept separate from Codex and Claude. The POST body is `{ selection }`: `'latest'`/`'auto'` clears the pin; otherwise a semver of at least `1.0.46`. The response reports `locked_version` and `locked_at`.
+`POST /admin/grok/version` — the fleet-wide Grok Build CLI version, kept separate from Codex and Claude. The POST body is `{ selection }`: `'latest'`/`'auto'` clears the pin; otherwise a semver of at least `1.0.46`. The response reports `locked_version` and `locked_at`.
 
 #### Grok API gateway
 
-The **Grok API gateway** card under *Access → API keys → Configure → Backend defaults → Grok* configures the Grok backend — used by `/grok/v1` and by any other exposed API routed to Grok (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
+The **Grok API gateway** card under *Access → API keys → Configure → Backend defaults → Grok* configures the Grok backend — used by `/grok/v1` and by any other exposed API routed to Grok. The `/grok/v1` row's **Enabled** switch in the **Routing** table (`POST /admin/api/surfaces/grok`, stored as `grok_api_disabled`) gates only `/grok/v1`, independently of the other APIs and of which backend serves it (see [Keyboard shortcuts and API reference](/admin/manual/shortcuts-api)):
 
-- `GET /admin/grok/state`, `POST /admin/grok/state` — `{ disabled }`, stored as `grok_api_disabled` and shown as the `/grok/v1` row's **Enabled** switch in the **Routing** table. It gates only `/grok/v1`, independently of the other APIs and of which backend serves it.
 - `GET /admin/grok/settings`, `POST /admin/grok/settings` — **Gateway default model** (`default_model`, a supported Grok model; default `grok-4.7`), used when a request names no model. Any field other than `default_model` and `disabled` is refused with 400 `unsupported_parameter`; there is no max-tokens setting.
 - `GET /admin/grok/models`, `POST /admin/grok/models/{model}/toggle` with `{ enabled }` — per-model switches. A disabled model is left out of the model list of every API routed to Grok (`/grok/v1/models` by default) and rejected at inference with 403 `model_disabled`; managed Grok Build hosts are unaffected.
 
@@ -344,7 +343,7 @@ are untouched.
 
 The **Memories** type of the Library (`/library?type=memories`).
 
-Host, project, and shared memory in one workspace over the unified `/admin/memories/*` routes (`api/src/routes/admin/memories/index.ts`); the older `GET /admin/mcp/memories` list and `DELETE /admin/mcp/memories/{id}` remain for compatibility. See [Memories and the Memory Atlas](/admin/manual/memories); the host-side surface is the MCP `memory_*`, `project_memory_*`, and `shared_memory_*` tools (see [mcp](/admin/manual/mcp)).
+Host, project, and shared memory in one workspace over the unified `/admin/memories/*` routes (`api/src/routes/admin/memories/index.ts`) (the older per-scope `/admin/mcp/memories` and `/admin/shared-memories` routes are gone). See [Memories and the Memory Atlas](/admin/manual/memories); the host-side surface is the MCP `memory_*`, `project_memory_*`, and `shared_memory_*` tools (see [mcp](/admin/manual/mcp)).
 
 ### Secrets, Git merges, Shared files, Agents, and Messages
 
@@ -407,13 +406,13 @@ The following variables are read from the process environment at startup. They c
 - `api/src/services/model-defaults.ts` — engine catalogs and model/effort persistence
 - `api/src/services/grok-models.ts` — Grok catalog, efforts, gateway model toggles
 - `api/src/routes/admin/grok/index.ts` — Grok gateway state, default model, model toggles, keys
-- `frontend/src/lib/components/settings/GrokEngineSection.svelte`, `frontend/src/lib/components/settings/GrokVersionSection.svelte` — Grok API gateway card and Grok version control
+- `frontend/src/lib/components/settings/GrokEngineSection.svelte`, `frontend/src/lib/components/settings/EngineVersionSection.svelte` — Grok API gateway card and the per-engine fleet version control
 - `api/src/routes/admin/config/index.ts` — agents, skills, memories, profile builder, fleet Claude config
 - `api/src/routes/admin/users/index.ts`
 - `api/src/routes/admin/projects/index.ts`
 - `api/src/services/agents.ts`
 - `api/src/services/skills.ts`, `api/src/services/skill-drafts.ts`, `api/src/services/skill-manifest.ts`
-- `api/src/services/memories.ts`, `api/src/services/mcp-memories.ts`
+- `api/src/services/mcp-memories.ts`
 - `api/src/services/client-config.ts`, `api/src/services/config-normalizer.ts`
 - `api/src/services/client-versions.ts` — version lock read/write shape (no `locked` request field)
 - `api/src/services/host-auth.ts` — `pruneInactiveHosts`; confirms the prune-policy setting has no scheduled caller

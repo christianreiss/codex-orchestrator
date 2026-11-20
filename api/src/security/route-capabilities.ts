@@ -13,7 +13,7 @@
  *
  * Keys are `METHOD /pattern`, where the pattern is exactly the string passed to
  * `app.get`/`app.post`/… — not a request URL. Fastify prefers a static segment
- * over a parametric one, so `/admin/claude/state` and `/admin/claude/:kind` are
+ * over a parametric one, so `/admin/claude/keys` and `/admin/claude/:kind` are
  * separate entries and the static one wins at dispatch. `HEAD` is resolved
  * against its `GET` entry, since Fastify derives head routes from get routes.
  */
@@ -129,10 +129,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/manual/article/:slug': cap('admin.read'),
   'GET /admin/manual/search': cap('admin.read'),
   'GET /admin/runner': cap('admin.read'),
-  'GET /admin/chatgpt/usage': cap('admin.read'),
-  'GET /admin/chatgpt/usage/history': cap('admin.read'),
-  'GET /admin/claude/usage': cap('admin.read'),
-  'GET /admin/claude/usage/history': cap('admin.read'),
 
   'GET /admin/agent-supervisor': cap('agent_messaging.read'),
   'POST /admin/agent-supervisor/state': cap('agent_messaging.manage'),
@@ -266,22 +262,9 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/engines/:engine/destroy/purge': cap('settings.manage'),
   'DELETE /admin/engines/:engine/destroy': cap('settings.manage'),
   'POST /admin/api/surfaces/:surface': cap('settings.manage'),
-  'GET /admin/openai/state': cap('settings.read'),
-  'POST /admin/openai/state': cap('settings.manage'),
-  'GET /admin/claude/state': cap('settings.read'),
-  'POST /admin/claude/state': cap('settings.manage'),
-  'GET /admin/claude/version': cap('settings.read'),
   'POST /admin/claude/version': cap('settings.manage'),
-  'GET /admin/grok/state': cap('settings.read'),
-  'GET /admin/kimi/state': cap('settings.read'),
-  'POST /admin/grok/state': cap('settings.manage'),
-  'POST /admin/kimi/state': cap('settings.manage'),
-  'GET /admin/grok/version': cap('settings.read'),
-  'GET /admin/kimi/version': cap('settings.read'),
   'POST /admin/grok/version': cap('settings.manage'),
   'POST /admin/kimi/version': cap('settings.manage'),
-  'GET /admin/grok/version/lock': cap('settings.read'),
-  'GET /admin/kimi/version/lock': cap('settings.read'),
   'POST /admin/codex-version': cap('settings.manage'),
   'GET /admin/model-policy/:engine': cap('settings.read'),
   'PUT /admin/model-policy/:engine': cap('settings.manage'),
@@ -317,13 +300,11 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/session-housekeeping/:engine': cap('settings.manage'),
   'GET /admin/hosts/:id/session-housekeeping': cap('hosts.read'),
   'POST /admin/hosts/:id/session-housekeeping/:engine': cap('hosts.manage'),
-  'GET /admin/log-retention': cap('settings.read'),
   'GET /admin/server-retention': cap('settings.read'),
   'POST /admin/server-retention': cap('settings.manage'),
   'POST /admin/server-retention/preview': cap('settings.read'),
   'POST /admin/server-retention/run': cap('settings.manage'),
   'GET /admin/server-retention/runs/:id': cap('settings.read'),
-  'POST /admin/log-retention': cap('settings.manage'),
   'GET /admin/prune-policy': cap('settings.read'),
   'POST /admin/prune-policy': cap('settings.manage'),
   'GET /admin/settings/host-overrides': cap('settings.read'),
@@ -346,7 +327,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/versions/check': cap('settings.manage'),
   'GET /admin/communicator/api-version': cap('settings.read'),
   'POST /admin/communicator/api-version': cap('settings.manage'),
-  'POST /admin/chatgpt/usage/refresh': cap('settings.manage'),
 
   // ── Authored content ─────────────────────────────────────────────────────
   // `render` and `compose` are POSTs because they take a document body, but
@@ -377,8 +357,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/kimi/settings': cap('content.manage'),
   'GET /admin/grok/config': cap('content.read'),
   'GET /admin/kimi/config': cap('content.read'),
-  'GET /admin/grok/config/retrieve': cap('content.read'),
-  'GET /admin/kimi/config/retrieve': cap('content.read'),
   'POST /admin/grok/config/render': cap('content.read'),
   'POST /admin/kimi/config/render': cap('content.read'),
   'POST /admin/grok/config/store': cap('content.manage'),
@@ -453,11 +431,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'DELETE /admin/memories/:scope/:recordId': cap('memory.write'),
   'POST /admin/memories/shared/:recordId/append': cap('memory.write'),
   'POST /admin/memories/shared/:recordId/restore': cap('memory.write'),
-  'GET /admin/shared-memories': cap('memory.read'),
-  'GET /admin/shared-memories/:slug': cap('memory.read'),
-  'DELETE /admin/shared-memories/:slug': cap('memory.write'),
-  'GET /admin/mcp/memories': cap('memory.read'),
-  'DELETE /admin/mcp/memories/:id': cap('memory.write'),
 
   // ── Projects ─────────────────────────────────────────────────────────────
   'GET /admin/projects': cap('projects.read'),
@@ -472,7 +445,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/projects/:slug/files': cap('projects.read'),
   'GET /admin/projects/:slug/files/:id': cap('projects.read'),
   'GET /admin/projects/:slug/notes': cap('projects.read'),
-  'GET /admin/projects/:slug/todos': cap('projects.read'),
   'POST /admin/projects': cap('projects.manage'),
   'POST /admin/projects/state': cap('projects.manage'),
   'DELETE /admin/projects/:slug': cap('projects.manage'),
@@ -488,11 +460,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/projects/:slug/notes/:id': cap('projects.manage'),
   'DELETE /admin/projects/:slug/notes/:id': cap('projects.manage'),
   'POST /admin/projects/:slug/roster': cap('projects.manage'),
-  'POST /admin/projects/:slug/todos': cap('projects.manage'),
-  'POST /admin/projects/:slug/todos/:id': cap('projects.manage'),
-  'DELETE /admin/projects/:slug/todos/:id': cap('projects.manage'),
-  'POST /admin/projects/:slug/todos/:id/done': cap('projects.manage'),
-  'POST /admin/projects/:slug/todos/:id/undone': cap('projects.manage'),
 
   // ── Fleet secrets ────────────────────────────────────────────────────────
   'GET /admin/secrets': cap('secrets.read_metadata'),
@@ -517,7 +484,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/projects/:slug/board/cards/:id/move': cap('projects.manage'),
   'POST /admin/projects/:slug/board/cards/:id/release': cap('projects.manage'),
   'DELETE /admin/projects/:slug/board/cards/:id': cap('projects.manage'),
-  'POST /admin/projects/:slug/board/columns/:id': cap('projects.manage'),
   'GET /admin/git-director': cap('git_director.read'),
   'GET /admin/git-director/state': cap('git_director.read'),
   'GET /admin/git-director/commit-settings': cap('git_director.read'),

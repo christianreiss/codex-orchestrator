@@ -97,13 +97,6 @@ export interface ProjectNote {
   updated_at?: string | null;
 }
 
-/**
- * Project board. Todos are a view of the same cards since migration 0026 — a
- * todo id is its card number — so `ProjectTodo` above is the narrower window
- * onto these rows, not a separate kind of thing.
- */
-export type ProjectBoardRole = "plan" | "code" | "review" | "verify" | "ops";
-
 export interface BoardCardClaim {
   held: boolean;
   role?: string | null;
@@ -361,10 +354,6 @@ export interface AdminApiKey {
 export interface AdminApiKeyCreated {
   key: string;
   record: AdminApiKey;
-}
-
-export interface AdminApiKillSwitchState {
-  disabled: boolean;
 }
 
 export interface CreateApiKeyPayload {
@@ -719,28 +708,6 @@ export interface ClaudeConfigStoreResult {
 
 // Memories
 
-export interface MemoryEntry {
-  id: string | number | null;
-  record_id?: number | null;
-  host_id?: number | string | null;
-  host?: string | null;
-  content: string;
-  metadata?: Record<string, unknown> | null;
-  tags?: string[];
-  summary?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  score?: number | null;
-}
-
-export interface MemoriesListResponse {
-  status: "ok" | string;
-  query?: string;
-  host_id?: number | string | null;
-  limit?: number;
-  count?: number;
-  matches: MemoryEntry[];
-}
 // cli-auth-verify feature ↓
 /**
  * Response payload from `POST /cli/auth/lookup`. Describes a pending
@@ -1049,28 +1016,6 @@ export interface ManualManifest {
   articles: ManualArticleSummary[];
 }
 
-export interface ManualAnchor {
-  id: string;
-  text: string;
-  level: number;
-}
-
-export interface ManualSearchDoc {
-  slug: string;
-  title: string;
-  section: string;
-  summary: string;
-  anchors: ManualAnchor[];
-  /** Optional preview / body excerpts present in some indexes. */
-  body?: string;
-  tokens?: string[];
-}
-
-export interface ManualSearchIndex {
-  version: string;
-  docs: ManualSearchDoc[];
-}
-
 // settings feature ↓
 export interface ApiStateValue {
   disabled: boolean;
@@ -1227,21 +1172,12 @@ export interface QuotaModeValue {
   week_partition: number | "off" | "5" | "7";
 }
 
-export interface PrunePolicyValue {
-  inactivity_window_days: number;
-}
-
 /** GET /admin/settings/host-overrides: how many hosts diverge from each fleet-wide setting. */
 export interface HostOverrideCounts {
   auto_update: number;
   reverse_dns: number;
   rtk: Record<"codex" | "claude" | "grok" | "kimi", number>;
   session_housekeeping: Record<"codex" | "claude" | "grok" | "kimi", number>;
-}
-
-export interface CodexVersionLockValue {
-  locked_version: string | null;
-  locked_at: string | null;
 }
 
 export interface CodexVersionsSummary {

@@ -35,9 +35,9 @@ describe('wsPublisher fan-out', () => {
     wsPublisher.subscribe(first);
     wsPublisher.subscribe(second);
 
-    wsPublisher.publish('log.created', { id: 7 });
+    wsPublisher.publish('host.updated', { id: 7 });
 
-    const event = { type: 'log.created', payload: { id: 7 }, ts: NOW, ...wsPublisher.cursor() };
+    const event = { type: 'host.updated', payload: { id: 7 }, ts: NOW, ...wsPublisher.cursor() };
     expect(first).toHaveBeenCalledTimes(1);
     expect(first).toHaveBeenCalledWith(event);
     expect(second).toHaveBeenCalledWith(event);
@@ -82,7 +82,7 @@ describe('wsPublisher backlog', () => {
   it('drops the oldest event once the cap is reached', () => {
     wsPublisher.setBacklogCap(2);
 
-    for (const id of [1, 2, 3]) wsPublisher.publish('log.created', { id });
+    for (const id of [1, 2, 3]) wsPublisher.publish('host.updated', { id });
 
     expect(wsPublisher.recent().map((e) => e.payload)).toEqual([{ id: 2 }, { id: 3 }]);
   });
@@ -91,7 +91,7 @@ describe('wsPublisher backlog', () => {
     for (const cap of [0, -5]) {
       wsPublisher.setBacklogCap(cap);
 
-      for (const id of [1, 2, 3]) wsPublisher.publish('log.created', { id });
+      for (const id of [1, 2, 3]) wsPublisher.publish('host.updated', { id });
 
       expect(
         wsPublisher.recent().map((e) => e.payload),
@@ -101,7 +101,7 @@ describe('wsPublisher backlog', () => {
   });
 
   it('returns the tail of the backlog, newest last, defaulting to 50', () => {
-    for (let id = 1; id <= 60; id += 1) wsPublisher.publish('log.created', { id });
+    for (let id = 1; id <= 60; id += 1) wsPublisher.publish('host.updated', { id });
 
     const fifty = wsPublisher.recent();
     expect(fifty).toHaveLength(50);

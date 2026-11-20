@@ -10,21 +10,11 @@ export const HEARTBEAT_FRESH_MS = 45_000;
 
 /** Set from the served timings once bootstrap completes. */
 let heartbeatFreshMs = HEARTBEAT_FRESH_MS;
-let configuredTimings: PresenceTimings = {};
-
-export function setPresenceTimings(timings: PresenceTimings | undefined): void {
-  configuredTimings = timings ?? {};
-  setHeartbeatFreshMs(timings?.heartbeat_fresh_seconds);
-}
 
 export function setHeartbeatFreshMs(seconds: number | undefined): void {
   if (typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0) {
     heartbeatFreshMs = seconds * 1000;
   }
-}
-
-export function heartbeatFreshWindowMs(): number {
-  return heartbeatFreshMs;
 }
 
 export interface PresenceView {
@@ -41,7 +31,7 @@ export interface PresenceView {
  * wall-clock time. Without this the UI would keep claiming an agent is
  * listening for up to a full poll interval after it stopped.
  */
-export function livePresence(agent: Agent, now: number, timings: PresenceTimings = configuredTimings): Presence {
+export function livePresence(agent: Agent, now: number, timings: PresenceTimings = {}): Presence {
   if (agent.presence === "ended" || agent.ended_at) return "ended";
   if (agent.presence === "offline") return "offline";
   const freshMs = positiveWindow(timings.heartbeat_fresh_seconds, heartbeatFreshMs);
@@ -117,7 +107,7 @@ export function endedDetail(agent: Agent, now: number): string {
   return `Finished — readable for ${hours} more ${hours === 1 ? "hour" : "hours"}`;
 }
 
-export function presenceView(agent: Agent, now: number, timings: PresenceTimings = configuredTimings): PresenceView {
+export function presenceView(agent: Agent, now: number, timings: PresenceTimings = {}): PresenceView {
   const presence = livePresence(agent, now, timings);
   const activity = liveActivity(agent, now);
   if (activity !== null && presence !== "offline" && presence !== "ended") {
@@ -173,17 +163,6 @@ export const GROUP_ORDER: GroupKey[] = [
   "ended",
 ];
 
-export const GROUP_LABEL: Record<GroupKey, string> = {
-  attention: "Needs you",
-  waiting: "Waiting for you",
-  unknown: "Unknown activity",
-  working: "Working",
-  listening: "Listening",
-  idle: "Idle",
-  offline: "Offline",
-  ended: "Recently ended",
-};
-
 export function needsOperator(agent: Pick<Agent, "attention" | "pending_prompt">): boolean {
   return !!((agent.attention && !agent.attention.severity) || (agent.pending_prompt && !agent.pending_prompt.answer_mode));
 }
@@ -198,23 +177,4 @@ export function groupFor(agent: Agent, now: number): GroupKey {
   if (presence === "ended") return "ended";
   if (needsOperator(agent)) return "attention";
   return presence === "offline" ? presence : liveActivity(agent, now) ?? presence;
-}
-
-export function groupAgents(agents: Agent[], now: number): Array<{ key: GroupKey; agents: Agent[] }> {
-  const buckets = new Map<GroupKey, Agent[]>(GROUP_ORDER.map((key) => [key, []]));
-  for (const agent of agents) buckets.get(groupFor(agent, now))!.push(agent);
-  for (const list of buckets.values()) {
-    list.sort((a, b) => (b.last_event_at ?? b.started_at).localeCompare(a.last_event_at ?? a.started_at));
-  }
-  return GROUP_ORDER.map((key) => ({ key, agents: buckets.get(key)! })).filter((g) => g.agents.length > 0);
-}
-
-/** Conversation-list search: every whitespace-separated term must match somewhere. */
-export function matchesAgent(agent: Agent, query: string): boolean {
-  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return true;
-  const haystack = [agent.host, agent.username, agent.cwd, agent.engine, ({ codex: "cdx", claude: "clx", grok: "cgx", kimi: "ckx" }[agent.engine])]
-    .join(" ")
-    .toLocaleLowerCase();
-  return terms.every((term) => haystack.includes(term));
 }

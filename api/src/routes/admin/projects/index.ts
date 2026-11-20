@@ -21,12 +21,6 @@ import { ProviderAccountsService } from '../../../services/provider-accounts.js'
  *   POST   /admin/projects/:slug/notes
  *   POST   /admin/projects/:slug/notes/:id
  *   DELETE /admin/projects/:slug/notes/:id
- *   GET    /admin/projects/:slug/todos
- *   POST   /admin/projects/:slug/todos
- *   POST   /admin/projects/:slug/todos/:id
- *   POST   /admin/projects/:slug/todos/:id/done
- *   POST   /admin/projects/:slug/todos/:id/undone
- *   DELETE /admin/projects/:slug/todos/:id
  *   GET    /admin/projects/:slug/files
  *   POST   /admin/projects/:slug/files
  *   DELETE /admin/projects/:slug/files/:id
@@ -261,68 +255,6 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
         throw new ValidationError('note id must be a positive integer', { param: 'id' });
       }
       return content.deleteNote(decodeURIComponent(req.params.slug), id, null);
-    },
-  );
-
-  // ── todos ────────────────────────────────────────────────────────────────
-
-  app.get<{ Params: { slug: string } }>(
-    '/admin/projects/:slug/todos',
-    { preHandler: [adminSpa, app.requireAdmin] },
-    async (req) => content.listTodos(decodeURIComponent(req.params.slug)),
-  );
-
-  app.post<{ Params: { slug: string }; Body: Record<string, unknown> }>(
-    '/admin/projects/:slug/todos',
-    { preHandler: app.requireAdmin },
-    async (req) => content.createTodo(decodeURIComponent(req.params.slug), asRecord(req.body), null),
-  );
-
-  app.post<{ Params: { slug: string; id: string }; Body: Record<string, unknown> }>(
-    '/admin/projects/:slug/todos/:id',
-    { preHandler: app.requireAdmin },
-    async (req) => {
-      const id = parseInteger(req.params.id);
-      if (id === null || id <= 0) {
-        throw new ValidationError('todo id must be a positive integer', { param: 'id' });
-      }
-      return content.updateTodo(decodeURIComponent(req.params.slug), id, asRecord(req.body), null);
-    },
-  );
-
-  app.post<{ Params: { slug: string; id: string } }>(
-    '/admin/projects/:slug/todos/:id/done',
-    { preHandler: app.requireAdmin },
-    async (req) => {
-      const id = parseInteger(req.params.id);
-      if (id === null || id <= 0) {
-        throw new ValidationError('todo id must be a positive integer', { param: 'id' });
-      }
-      return content.setTodoDone(decodeURIComponent(req.params.slug), id, true, null);
-    },
-  );
-
-  app.post<{ Params: { slug: string; id: string } }>(
-    '/admin/projects/:slug/todos/:id/undone',
-    { preHandler: app.requireAdmin },
-    async (req) => {
-      const id = parseInteger(req.params.id);
-      if (id === null || id <= 0) {
-        throw new ValidationError('todo id must be a positive integer', { param: 'id' });
-      }
-      return content.setTodoDone(decodeURIComponent(req.params.slug), id, false, null);
-    },
-  );
-
-  app.delete<{ Params: { slug: string; id: string } }>(
-    '/admin/projects/:slug/todos/:id',
-    { preHandler: app.requireAdmin },
-    async (req) => {
-      const id = parseInteger(req.params.id);
-      if (id === null || id <= 0) {
-        throw new ValidationError('todo id must be a positive integer', { param: 'id' });
-      }
-      return content.deleteTodo(decodeURIComponent(req.params.slug), id, null);
     },
   );
 

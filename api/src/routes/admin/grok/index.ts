@@ -53,14 +53,6 @@ export async function registerAdminGrokRoutes(app: FastifyInstance, ctx: RouteCo
     return { message: 'Key deleted' };
   });
 
-  app.get('/admin/grok/state', { preHandler: app.requireAdmin }, async () => ({ disabled: await settings.getFlag('grok_api_disabled', false) }));
-  app.post('/admin/grok/state', { preHandler: app.requireAdmin }, async req => {
-    const disabled = normalizeBool((req.body as { disabled?: unknown })?.disabled);
-    if (disabled === null) throw new ValidationError('disabled must be boolean', { param: 'disabled' });
-    await settings.setFlag('grok_api_disabled', disabled);
-    await audit('admin.grok_api.state', { disabled });
-    return { disabled };
-  });
   async function proxySettings() {
     return { default_model: await settings.getString('grok_default_model', GROK_DEFAULT_MODEL), disabled: await settings.getFlag('grok_api_disabled', false) };
   }
@@ -93,7 +85,6 @@ export async function registerAdminGrokRoutes(app: FastifyInstance, ctx: RouteCo
   });
 
   app.get('/admin/grok/config', { preHandler: app.requireAdmin }, () => config.adminFetch('grok'));
-  app.get('/admin/grok/config/retrieve', { preHandler: app.requireAdmin }, () => config.adminFetch('grok'));
   app.post('/admin/grok/config/render', { preHandler: app.requireAdmin }, async req => config.render((req.body as { settings?: unknown })?.settings, 'grok'));
   app.post('/admin/grok/config/store', { preHandler: app.requireAdmin }, async req => config.store((req.body ?? {}) as { settings?: unknown; sha256?: unknown; expected_revision?: unknown }, null, 'grok'));
 }

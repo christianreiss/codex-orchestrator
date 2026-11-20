@@ -86,16 +86,6 @@ export async function registerAdminKimiRoutes(app: FastifyInstance, ctx: RouteCo
     return { message: 'Key deleted' };
   });
 
-  app.get('/admin/kimi/state', { preHandler: app.requireAdmin }, async () => ({
-    disabled: await settings.getFlag('kimi_api_disabled', true),
-  }));
-  app.post('/admin/kimi/state', { preHandler: app.requireAdmin }, async (req) => {
-    const disabled = normalizeBool((req.body as { disabled?: unknown })?.disabled);
-    if (disabled === null) throw new ValidationError('disabled must be boolean', { param: 'disabled' });
-    await settings.setFlag('kimi_api_disabled', disabled);
-    await audit('admin.kimi_api.state', { disabled });
-    return { disabled };
-  });
   async function proxySettings() {
     return {
       default_model: await settings.getString('kimi_default_model', KIMI_DEFAULT_MODEL),
@@ -138,7 +128,6 @@ export async function registerAdminKimiRoutes(app: FastifyInstance, ctx: RouteCo
   });
 
   app.get('/admin/kimi/config', { preHandler: app.requireAdmin }, () => config.adminFetch('kimi'));
-  app.get('/admin/kimi/config/retrieve', { preHandler: app.requireAdmin }, () => config.adminFetch('kimi'));
   app.post('/admin/kimi/config/render', { preHandler: app.requireAdmin }, async (req) =>
     config.render((req.body as { settings?: unknown })?.settings, 'kimi'),
   );

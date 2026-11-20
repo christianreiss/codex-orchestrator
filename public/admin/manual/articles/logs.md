@@ -20,7 +20,7 @@ Generic MCP call recording and its Tool calls view have been removed. Discovery,
 
 ## Cleanup
 
-The former log-retention settings had no cleanup worker. Their controls have been removed. `GET/POST /admin/log-retention` remains a compatibility endpoint returning `enabled:false`, `supported:false`, `reason:retired_no_worker`; old submitted windows are ignored. This does not change the separate host and agent-session lifecycle cleanup.
+The former log-retention settings had no cleanup worker. Their controls have been removed. The `/admin/log-retention` compatibility endpoint has been removed. This does not change the separate host and agent-session lifecycle cleanup.
 
 ## Live updates
 

@@ -61,8 +61,6 @@ export interface NavItem {
   group: NavGroup;
   /** Canonical client route, without SvelteKit's /admin base. */
   route: string;
-  /** Compatibility alias for existing consumers; always mirrors route. */
-  href: string;
   label: string;
   description: string;
   keywords: string[];
@@ -107,14 +105,8 @@ export interface Breadcrumb {
   route?: string;
 }
 
-type NavDefinition = Omit<NavItem, "href">;
-
-function define(item: NavDefinition): NavItem {
-  return { ...item, href: item.route };
-}
-
 /** Page order within a hub is tab order. */
-const REGISTRY: NavDefinition[] = [
+export const NAV: NavItem[] = [
   {
     id: "overview", group: "overview", route: "/dashboard", label: "Overview",
     description: "What needs attention, then fleet health", keywords: ["home", "health", "usage", "attention"], icon: LayoutDashboard,
@@ -209,8 +201,6 @@ const REGISTRY: NavDefinition[] = [
   },
 ];
 
-export const NAV: NavItem[] = REGISTRY.map(define);
-
 type HubDefinition = Omit<NavHub, "route" | "items">;
 
 /** Rail order within a section is the order here. */
@@ -248,10 +238,6 @@ export function isActive(target: NavItem | NavHub, pathname: string): boolean {
   if ("items" in target) return target.items.some((item) => isActive(item, pathname));
   if (target.match) return target.match.test(pathname);
   return pathname === target.route || pathname.startsWith(target.route + "/");
-}
-
-export function hubFor(pathname: string): NavHub | undefined {
-  return HUBS.find((hub) => isActive(hub, pathname));
 }
 
 function humanize(segment: string): string {
@@ -313,6 +299,3 @@ export function getPageContext(pathname: string): string {
   return getBreadcrumbs(pathname).map((crumb) => crumb.label).join(" / ");
 }
 
-export function getDocumentTitle(pathname: string): string {
-  return `${getPageContext(pathname)} · Codex Orchestrator`;
-}

@@ -480,12 +480,6 @@ export async function registerAdminSettingsRoutes(
     return ok({ inactivity_window_days: days });
   });
 
-  // Compatibility for old clients: these settings never had a cleanup worker.
-  // Do not persist or claim to enable a policy that cannot take effect.
-  const retiredRetention = { enabled: false, supported: false, reason: 'use_server_retention_api', replacement: '/admin/server-retention' };
-  app.get('/admin/log-retention', { preHandler: app.requireAdmin }, async () => ok(retiredRetention));
-  app.post('/admin/log-retention', { preHandler: app.requireAdmin }, async () => ok(retiredRetention));
-
   // ── scaling ───────────────────────────────────────────────────────────────
   app.get('/admin/scaling', { preHandler: app.requireAdmin }, async () => {
     return ok(await scaling.currentStatus());
@@ -575,10 +569,6 @@ kimi_versions: summaryKimi,
   });
 
   // ── claude/version ────────────────────────────────────────────────────────
-  app.get('/admin/claude/version', { preHandler: app.requireAdmin }, async () => {
-    const summary = await clientVersions.versionSummary('claude');
-    return ok(summary);
-  });
   app.post('/admin/claude/version', { preHandler: app.requireAdmin }, async (req) => {
     const body = (req.body ?? {}) as { selection?: unknown };
     if (typeof body.selection !== 'string' || body.selection.trim() === '') {
@@ -612,20 +602,6 @@ kimi_versions: summaryKimi,
   });
 
   // Grok targets remain isolated from Codex/Claude and start at the verified baseline.
-  app.get('/admin/grok/version', { preHandler: app.requireAdmin }, async () => {
-    return ok(await clientVersions.versionSummary('grok'));
-  });
-  app.get('/admin/kimi/version', { preHandler: app.requireAdmin }, async () => {
-    return ok(await clientVersions.versionSummary('kimi'));
-  });
-  app.get('/admin/grok/version/lock', { preHandler: app.requireAdmin }, async () => {
-    const lock = await settings.getWithMeta('client_version_lock_grok');
-    return ok({ locked_version: lock.value, locked_at: lock.updatedAt });
-  });
-app.get('/admin/kimi/version/lock', { preHandler: app.requireAdmin }, async () => {
-    const lock = await settings.getWithMeta('client_version_lock_kimi');
-    return ok({ locked_version: lock.value, locked_at: lock.updatedAt });
-  });
   app.post('/admin/grok/version', { preHandler: app.requireAdmin }, async (req) => {
     const body = (req.body ?? {}) as { selection?: unknown };
     if (typeof body.selection !== 'string' || body.selection.trim() === '') {
@@ -673,32 +649,6 @@ app.get('/admin/kimi/version/lock', { preHandler: app.requireAdmin }, async () =
     }
     await recordLog(ctx, 'admin.kimi_version', { selection: logSelection, locked_version: lock.locked_version });
     return ok(lock);
-  });
-
-  // ── openai/state (per-engine kill switch) ─────────────────────────────────
-  app.get('/admin/openai/state', { preHandler: app.requireAdmin }, async () => {
-    return ok({ disabled: await settings.getFlag('openai_api_disabled', false) });
-  });
-  app.post('/admin/openai/state', { preHandler: app.requireAdmin }, async (req) => {
-    const body = (req.body ?? {}) as { disabled?: unknown };
-    const disabled = normalizeBool(body.disabled);
-    if (disabled === null) throw new ValidationError('disabled must be boolean', { param: 'disabled' });
-    await settings.setFlag('openai_api_disabled', disabled);
-    await recordLog(ctx, 'admin.openai_api.state', { disabled });
-    return ok({ disabled });
-  });
-
-  // ── claude/state (per-engine kill switch) ─────────────────────────────────
-  app.get('/admin/claude/state', { preHandler: app.requireAdmin }, async () => {
-    return ok({ disabled: await settings.getFlag('claude_api_disabled', false) });
-  });
-  app.post('/admin/claude/state', { preHandler: app.requireAdmin }, async (req) => {
-    const body = (req.body ?? {}) as { disabled?: unknown };
-    const disabled = normalizeBool(body.disabled);
-    if (disabled === null) throw new ValidationError('disabled must be boolean', { param: 'disabled' });
-    await settings.setFlag('claude_api_disabled', disabled);
-    await recordLog(ctx, 'admin.claude_api.state', { disabled });
-    return ok({ disabled });
   });
 
   // ── api/surfaces — exposed API → backend engine routing ──────────────────

@@ -6,6 +6,5 @@
   ],
   "project": ["src/**/*.{ts,svelte}"],
   "ignore": ["src/lib/components/ui/**"],
-  "ignoreDependencies": ["tslib", "@types/dompurify"],
   "ignoreExportsUsedInFile": true
 }

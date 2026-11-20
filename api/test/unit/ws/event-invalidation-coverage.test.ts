@@ -33,6 +33,10 @@ const FRONTEND_EVENTS = resolve(HERE, '../../../../frontend/src/lib/ws/events.ts
 const UNMAPPED_EVENT_TYPES: Record<string, string> = {
   'host.daemon.operation.queued': 'Internal post-commit transport wake; host.daemon.changed already invalidates the operator views.',
   toast: 'not an invalidation — wireWsToQueryClient hands the payload to the sonner toaster',
+  'chatgpt.usage.updated':
+    'no console query reads usage events; the Provider usage table refreshes through accounts.updated',
+  'claude.usage.updated':
+    'no console query reads usage events; the Provider usage table refreshes through accounts.updated',
   'version.wrapper_published':
     'communicator update trigger only — no console query reads the published release from this event',
   'host.force_delete_ip_mismatch':
@@ -289,10 +293,35 @@ function invalidationKeys(source: string): string[] {
   return keys;
 }
 
+/**
+ * Keys of `DEFAULT_INVALIDATIONS` that no API publish site feeds because the
+ * browser itself emits them. Everything else in the map has to be published,
+ * or the entry is a dead route that only looks like coverage.
+ */
+const CLIENT_ONLY_EVENT_KEYS: Record<string, string> = {
+  'transport.connected': 'emitted by lib/ws/client.ts when the socket (re)opens',
+  'transport.resync': 'emitted by lib/ws/client.ts when the server asks for a resync',
+  'api-key.changed': 'emitted locally by the API-key pages after a mutation',
+};
+
 const sites = collectPublishSites();
 const publishedTypes = new Set(sites.flatMap((site) => site.types ?? []));
 const mappedTypes = new Set(invalidationKeys(readFileSync(FRONTEND_EVENTS, 'utf8')));
 const catalogedTypes = new Set<string>(WS_EVENT_TYPES);
+
+/**
+ * Dotted string literals anywhere under `api/src` except the catalog itself.
+ * Some writers (daemon-operations streams, the project board's `emit`) take the
+ * event type as an argument the publish-site scan cannot follow; the literal
+ * still has to exist in the producing code, which is what this proves.
+ */
+const producerLiterals = new Set<string>();
+for (const file of readdirSync(API_SRC, { recursive: true, encoding: 'utf8' })) {
+  if (!file.endsWith('.ts') || file === join('ws', 'events.ts')) continue;
+  for (const match of readFileSync(join(API_SRC, file), 'utf8').matchAll(/(['"`])([a-z][a-z0-9_-]*(?:\.[a-z0-9_-]+)+)\1/g)) {
+    producerLiterals.add(match[2]!);
+  }
+}
 
 describe('WS event invalidation coverage', () => {
   it('extracts the publish sites it is meant to guard', () => {
@@ -351,6 +380,17 @@ describe('WS event invalidation coverage', () => {
       orphaned,
       'nothing under api/src publishes it and DEFAULT_INVALIDATIONS does not route it — ' +
         'drop it from WS_EVENT_TYPES in api/src/ws/events.ts',
+    ).toEqual([]);
+  });
+
+  it('maps no event type that nothing publishes', () => {
+    const dead = [...mappedTypes].filter(
+      (type) => !publishedTypes.has(type) && !producerLiterals.has(type) && !(type in CLIENT_ONLY_EVENT_KEYS),
+    );
+    expect(
+      dead,
+      'nothing under api/src produces these DEFAULT_INVALIDATIONS keys: drop the entry, ' +
+        'or add it to CLIENT_ONLY_EVENT_KEYS here with the reason the browser emits it',
     ).toEqual([]);
   });
 

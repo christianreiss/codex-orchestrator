@@ -84,13 +84,6 @@ describe('Kimi engine administration', () => {
       { name: 'openai_api_disabled', version: '0' },
       { name: 'claude_api_disabled', version: '0' },
     ]);
-    expect((await app.inject({ method: 'GET', url: '/admin/kimi/state' })).json().data).toEqual({
-      disabled: true,
-    });
-    expect(
-      (await app.inject({ method: 'POST', url: '/admin/kimi/state', payload: { disabled: true } })).json()
-        .data,
-    ).toEqual({ disabled: true });
     expect((await app.inject({ method: 'GET', url: '/admin/kimi/settings' })).json().data).toEqual({
       default_model: 'k3.1-pro',
       disabled: true,
@@ -132,9 +125,6 @@ describe('Kimi engine administration', () => {
       (await app.inject({ method: 'POST', url: '/admin/kimi/settings', payload: { disabled: 'invalid' } }))
         .statusCode,
     ).toBe(422);
-    expect((await app.inject({ method: 'POST', url: '/admin/kimi/state', payload: {} })).statusCode).toBe(
-      422,
-    );
   });
 
   it('lists native models and enforces catalog switches when resolving gateway requests', async () => {
@@ -216,7 +206,7 @@ describe('Kimi engine administration', () => {
     });
     expect(stored.statusCode).toBe(200);
     expect(db.tables.get(clientConfigDocuments)?.[0]).toMatchObject({ engine: 'kimi' });
-    for (const url of ['/admin/kimi/config', '/admin/kimi/config/retrieve'])
+    for (const url of ['/admin/kimi/config'])
       expect((await app.inject({ method: 'GET', url })).json()).toMatchObject({
         status: 'ok',
         sha256: rendered.sha256,

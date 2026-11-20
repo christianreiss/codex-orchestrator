@@ -5,7 +5,6 @@ import { ApiError } from '../../../http/errors.js';
 import { AdminEventsService } from '../../../services/admin-events.js';
 import { HostProjectsService } from '../../../services/host-projects.js';
 import { ProjectBoardService } from '../../../services/project-board.js';
-import { PROJECT_BOARD_ROLES } from '../../../services/project-board-roles.js';
 import { SettingsService } from '../../../services/settings.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
 
@@ -19,10 +18,9 @@ import { adminSpaHtmlPreHandler } from '../pages/static.js';
  * Per-project routes hang off `/admin/projects/:slug/board`, where they cannot
  * collide with anything.
  *
- * There is no column create or delete. Migration 0026 seeds seven lanes and
- * `POST …/columns/:id` reshapes them; deleting one would have to answer what
- * happens to the cards in it, which is a product question rather than a
- * plumbing one, and it is not one an operator should answer by accident.
+ * There is no column create, delete or edit. Migration 0026 seeds seven lanes;
+ * deleting one would have to answer what happens to the cards in it, which is a
+ * product question rather than a plumbing one.
  */
 
 const stateSchema = z.object({
@@ -59,14 +57,6 @@ const moveCardSchema = z.object({
 
 const releaseCardSchema = z.object({
   reason: z.string().trim().max(255).optional().nullable(),
-});
-
-const updateColumnSchema = z.object({
-  title: z.string().trim().min(1).max(255).optional(),
-  wip_limit: z.number().int().min(0).nullable().optional(),
-  allowed_roles: z.array(z.enum(PROJECT_BOARD_ROLES)).nullable().optional(),
-  position: z.number().int().min(0).optional(),
-  default_next_column_id: z.string().trim().nullable().optional(),
 });
 
 function badRequest(issue: { message?: string; path?: (string | number)[] } | undefined): ApiError {
@@ -167,11 +157,5 @@ export async function registerAdminProjectBoardRoutes(
 
   app.delete('/admin/projects/:slug/board/cards/:id', { preHandler: app.requireAdmin }, async (req) => {
     return await board.archiveCard({ slug: slugOf(req), card: idOf(req) }, null);
-  });
-
-  app.post('/admin/projects/:slug/board/columns/:id', { preHandler: app.requireAdmin }, async (req) => {
-    const parsed = updateColumnSchema.safeParse(req.body ?? {});
-    if (!parsed.success) throw badRequest(parsed.error.issues[0]);
-    return await board.adminUpdateColumn(slugOf(req), idOf(req), parsed.data);
   });
 }

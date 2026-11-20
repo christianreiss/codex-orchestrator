@@ -228,11 +228,12 @@ describe('what the console is told it may do', () => {
     expect(granted.has('keys.manage')).toBe(true);
 
     // `memory.write` is granted, and that is not an oversight. The six old
-    // gates covered `/admin/memories/*` and never covered
-    // `DELETE /admin/shared-memories/:slug` or `DELETE /admin/mcp/memories/:id`,
-    // which carry the same capability — so a signed-in viewer really could
-    // delete shared and MCP memories, and compatibility reproduces that
-    // faithfully rather than quietly fixing it. `strict` is where it closes.
+    // gates covered `/admin/memories/*` and never covered the per-scope
+    // `DELETE /admin/shared-memories/:slug` and `DELETE /admin/mcp/memories/:id`
+    // routes (since removed), which carried the same capability — so a
+    // signed-in viewer really could delete shared and MCP memories, and
+    // compatibility keeps that grant rather than quietly fixing it. `strict`
+    // is where it closes.
     expect(granted.has('memory.write')).toBe(true);
     expect(capabilitiesForRole('viewer')).not.toContain('memory.write');
   });
