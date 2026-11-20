@@ -8,6 +8,7 @@ Durable fleet memory lives in the Codex Orchestrator, shared across hosts and en
 Look up relevant context through its MCP tools: shared_memory_list or shared_memory_search,
 then shared_memory_read. Use project_bootstrap and project_memory_* for project context.
 Save durable fleet knowledge with shared_memory_write or shared_memory_append;
+correct a single fact in place with shared_memory_replace;
 save project facts with project_memory_upsert. Search before creating a new record.
 memory_* is host-local scratch, not the shared lookup surface.
 Follow the managed AGENTS.md / CLAUDE.md curation rules, including complete reads and

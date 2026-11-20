@@ -407,7 +407,7 @@ function validateAgainstSchema(schema: Record<string, unknown>, args: Record<str
   const required = Array.isArray(schema['required']) ? (schema['required'] as unknown[]) : [];
   const properties =
     schema['properties'] && typeof schema['properties'] === 'object'
-      ? (schema['properties'] as Record<string, { type?: unknown; enum?: unknown }>)
+      ? (schema['properties'] as Record<string, { type?: unknown; enum?: unknown; minLength?: unknown }>)
       : {};
   // Missing-required is checked BEFORE undeclared-argument, and the order is
   // load-bearing. `normalizeArgs` turns a bare scalar it cannot place into
@@ -417,7 +417,10 @@ function validateAgainstSchema(schema: Record<string, unknown>, args: Record<str
   for (const key of required) {
     if (typeof key !== 'string') continue;
     const value = args[key];
-    if (value === undefined || value === null || value === '') {
+    // An explicit `minLength: 0` marks a required string that may be empty
+    // (shared_memory_replace.new_text deletes text by replacing it with '').
+    const mayBeEmpty = value === '' && properties[key]?.minLength === 0;
+    if (value === undefined || value === null || (value === '' && !mayBeEmpty)) {
       return "'" + key + "' is required";
     }
     const propType = properties[key]?.type;
@@ -727,6 +730,24 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         },
       },
       handler: async (args, host, engine) => shared.write(args, host, engine ?? null),
+    });
+    inputs.push({
+      definition: {
+        name: 'shared_memory_replace',
+        description:
+          'Correct one fact in a shared memory document without re-sending its body. Replaces exactly one occurrence of old_text with new_text (may be empty to delete the text) on the server. Fails when old_text occurs zero times or more than once, so include enough surrounding text to be unique. expected_sha256 is required: pass the memory.sha256 from shared_memory_read; a changed document is a conflict, so re-read and retry. Title, summary, tags and metadata are kept. Same size limit and revision history as shared_memory_write. For a larger rewrite use shared_memory_write; to add material use shared_memory_append.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            old_text: { type: 'string' },
+            new_text: { type: 'string', minLength: 0 },
+            expected_sha256: { type: 'string' },
+          },
+          required: ['slug', 'old_text', 'new_text', 'expected_sha256'],
+        },
+      },
+      handler: async (args, host, engine) => shared.replace(args, host, engine ?? null),
     });
     inputs.push({
       definition: {

@@ -163,6 +163,10 @@ const stubSharedMemories = {
     sharedCalls.push({ method: 'append', args, engine });
     return { status: 'appended', slug: args['slug'] };
   },
+  replace: async (args: Record<string, unknown>, _host: Host, engine: unknown) => {
+    sharedCalls.push({ method: 'replace', args, engine });
+    return { status: 'updated', slug: args['slug'], replacements: 1 };
+  },
   delete: async (args: Record<string, unknown>, _host: Host, engine: unknown) => {
     sharedCalls.push({ method: 'delete', args, engine });
     return { status: 'deleted', slug: args['slug'] };
@@ -673,7 +677,29 @@ describe('shared_memory_* tools', () => {
     expect(names).toContain('shared_memory_read');
     expect(names).toContain('shared_memory_write');
     expect(names).toContain('shared_memory_append');
+    expect(names).toContain('shared_memory_replace');
     expect(names).toContain('shared_memory_delete');
+  });
+
+  it('shared_memory_replace requires all four fields but allows an empty new_text', async () => {
+    const def = reg.list().find((t) => t.name === 'shared_memory_replace');
+    expect(def?.inputSchema['required']).toEqual(['slug', 'old_text', 'new_text', 'expected_sha256']);
+    expect(def?.description).toMatch(/exactly one occurrence/i);
+
+    const args = { slug: 'a', old_text: 'stale line', new_text: '', expected_sha256: 'abc' };
+    await expect(reg.dispatch('shared_memory_replace', args, host, 'host', 'claude')).resolves.toMatchObject({
+      isError: false,
+    });
+    expect(sharedCalls.at(-1)).toMatchObject({ method: 'replace', args, engine: 'claude' });
+
+    const before = sharedCalls.length;
+    for (const missing of ['slug', 'old_text', 'new_text', 'expected_sha256']) {
+      const partial: Record<string, unknown> = { ...args };
+      if (missing === 'new_text') delete partial[missing];
+      else partial[missing] = '';
+      await expect(reg.dispatch('shared_memory_replace', partial, host)).resolves.toMatchObject({ isError: true });
+    }
+    expect(sharedCalls).toHaveLength(before);
   });
 
   // The whole point of the substrate: a zero-knowledge agent must be able to
