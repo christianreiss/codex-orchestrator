@@ -471,28 +471,6 @@ export function fixture(pathname: string): Record<string, unknown> {
         feedback: [{ id: 1, type: "bug", title: "Sample", body: "Sample feedback" }],
         recent_changes: [],
       };
-    case "/admin/projects/fleet-console/todos":
-      return {
-        project: "fleet-console",
-        todos: [
-          {
-            id: 1,
-            title: "Refresh runner image",
-            detail: "Verify the new image on a staging host.",
-            done: false,
-            created_at: "2026-08-01T08:00:00Z",
-            updated_at: "2026-08-01T08:00:00Z",
-          },
-          {
-            id: 2,
-            title: "Capture baseline",
-            detail: "",
-            done: true,
-            created_at: "2026-08-01T08:00:00Z",
-            updated_at: "2026-08-01T08:00:00Z",
-          },
-        ],
-      };
     case "/admin/projects/fleet-console/board":
       return {
         project: "fleet-console",

@@ -463,7 +463,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/projects/:slug/files': cap('projects.read'),
   'GET /admin/projects/:slug/files/:id': cap('projects.read'),
   'GET /admin/projects/:slug/notes': cap('projects.read'),
-  'GET /admin/projects/:slug/todos': cap('projects.read'),
   'POST /admin/projects': cap('projects.manage'),
   'POST /admin/projects/state': cap('projects.manage'),
   'DELETE /admin/projects/:slug': cap('projects.manage'),
@@ -479,11 +478,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/projects/:slug/notes/:id': cap('projects.manage'),
   'DELETE /admin/projects/:slug/notes/:id': cap('projects.manage'),
   'POST /admin/projects/:slug/roster': cap('projects.manage'),
-  'POST /admin/projects/:slug/todos': cap('projects.manage'),
-  'POST /admin/projects/:slug/todos/:id': cap('projects.manage'),
-  'DELETE /admin/projects/:slug/todos/:id': cap('projects.manage'),
-  'POST /admin/projects/:slug/todos/:id/done': cap('projects.manage'),
-  'POST /admin/projects/:slug/todos/:id/undone': cap('projects.manage'),
 
   // ── Fleet secrets ────────────────────────────────────────────────────────
   'GET /admin/secrets': cap('secrets.read_metadata'),
@@ -508,7 +502,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/projects/:slug/board/cards/:id/move': cap('projects.manage'),
   'POST /admin/projects/:slug/board/cards/:id/release': cap('projects.manage'),
   'DELETE /admin/projects/:slug/board/cards/:id': cap('projects.manage'),
-  'POST /admin/projects/:slug/board/columns/:id': cap('projects.manage'),
   'GET /admin/git-director': cap('git_director.read'),
   'GET /admin/git-director/state': cap('git_director.read'),
   'GET /admin/git-director/commit-settings': cap('git_director.read'),

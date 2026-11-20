@@ -19,7 +19,6 @@ import type {
   ProjectNote,
   ProjectSummary,
   ProjectSummaryResponse,
-  ProjectTodo,
   BoardResponse,
   BoardCard,
   BoardColumn,
@@ -112,38 +111,6 @@ export const updateNote = (slug: string, id: number, payload: NotePayload) =>
 export const deleteNote = (slug: string, id: number) =>
   api.delete<{ project: string; deleted: number }>(`${BASE}/${encodeSlug(slug)}/notes/${id}`);
 
-// ─────────────────────────── Todos ──────────────────────────────────────
-
-export const fetchTodos = (slug: string): Promise<{ project: string; todos: ProjectTodo[] }> =>
-  api.get(`${BASE}/${encodeSlug(slug)}/todos`);
-
-export interface TodoPayload {
-  title: string;
-  detail?: string;
-}
-
-export const createTodo = (slug: string, payload: TodoPayload) =>
-  api.post<{ project: string; todo: ProjectTodo }>(`${BASE}/${encodeSlug(slug)}/todos`, payload);
-
-export const updateTodo = (slug: string, id: number, payload: TodoPayload) =>
-  api.post<{ project: string; todo: ProjectTodo }>(
-    `${BASE}/${encodeSlug(slug)}/todos/${id}`,
-    payload,
-  );
-
-export const markTodoDone = (slug: string, id: number) =>
-  api.post<{ project: string; todo: ProjectTodo }>(
-    `${BASE}/${encodeSlug(slug)}/todos/${id}/done`,
-  );
-
-export const markTodoUndone = (slug: string, id: number) =>
-  api.post<{ project: string; todo: ProjectTodo }>(
-    `${BASE}/${encodeSlug(slug)}/todos/${id}/undone`,
-  );
-
-export const deleteTodo = (slug: string, id: number) =>
-  api.delete<{ project: string; deleted: number }>(`${BASE}/${encodeSlug(slug)}/todos/${id}`);
-
 // ─────────────────────────── Board ──────────────────────────────────────
 //
 // The module switch lives outside `/admin/projects/…` because that tree routes
@@ -211,20 +178,6 @@ export const releaseCard = (slug: string, id: string, reason?: string) =>
 export const deleteCard = (slug: string, id: string) =>
   api.delete<{ project: string; deleted: number }>(
     `${BASE}/${encodeSlug(slug)}/board/cards/${encodeURIComponent(id)}`,
-  );
-
-export interface ColumnPayload {
-  title?: string;
-  wip_limit?: number | null;
-  allowed_roles?: string[] | null;
-  position?: number;
-  default_next_column_id?: string | null;
-}
-
-export const updateColumn = (slug: string, id: string, payload: ColumnPayload) =>
-  api.post<{ project: string; column: BoardColumn }>(
-    `${BASE}/${encodeSlug(slug)}/board/columns/${encodeURIComponent(id)}`,
-    payload,
   );
 
 // ─────────────────────────── Files ──────────────────────────────────────
@@ -366,7 +319,6 @@ export const projectKeys = {
   // invalidates ["project", slug] refreshes the header and tiles too.
   summary: (slug: string) => ["project", slug, "summary"] as const,
   notes: (slug: string) => ["project", slug, "notes"] as const,
-  todos: (slug: string) => ["project", slug, "todos"] as const,
   // Matches the key `projectDetailSubKey` builds for every project.card.* and
   // project.board.* websocket event; a mismatch here silently stops the board
   // updating when another agent moves a card.

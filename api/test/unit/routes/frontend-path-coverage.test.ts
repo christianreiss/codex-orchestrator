@@ -286,7 +286,7 @@ describe('frontend API path coverage', () => {
     expect(routePaths).toContain('/admin/runner/run');
     expect(calledPaths.has('/admin/runner/run')).toBe(true);
     // Resolved through a module-local const, an object literal and a builder.
-    expect(calledPaths.has('/admin/projects/:param/todos/:param')).toBe(true);
+    expect(calledPaths.has('/admin/projects/:param/notes/:param')).toBe(true);
     expect(calledPaths.has('/admin/openai/keys')).toBe(true);
     expect(calledPaths.has('/admin/claude/keys')).toBe(true);
     expect(calledPaths.has('/admin/manual/article/:param')).toBe(true);

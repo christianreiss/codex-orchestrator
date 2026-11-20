@@ -7,7 +7,6 @@ import type {
   FeedbackPayload,
   FilePayload,
   NotePayload,
-  TodoPayload,
 } from "./projects";
 import type { ProjectAbout } from "./types";
 
@@ -69,7 +68,6 @@ const ENCODED = "a%2Fb%20c-%C3%BC";
 const ID = 7;
 /** Cards are addressed by their uuid in the admin API, not by their number. */
 const CARD_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
-const COLUMN_ID = "11111111-1111-4111-8111-111111111111";
 
 const ABOUT: ProjectAbout = { title: "Atlas", description: "the coordination project" };
 const CREATE_PAYLOAD: CreateProjectPayload = {
@@ -78,7 +76,6 @@ const CREATE_PAYLOAD: CreateProjectPayload = {
   roster_markdown: "# roster",
 };
 const NOTE_PAYLOAD: NotePayload = { header: "header", body: "body" };
-const TODO_PAYLOAD: TodoPayload = { title: "title", detail: "detail" };
 const FILE_PAYLOAD: FilePayload = {
   stored_name: "notes.md",
   mime_type: "text/markdown",
@@ -246,55 +243,6 @@ const BUILDER_CASES: BuilderCase[] = [
     slugged: true,
   },
   {
-    name: "fetchTodos",
-    call: () => projects.fetchTodos(SLUG),
-    method: "GET",
-    path: `/admin/projects/${ENCODED}/todos`,
-    body: undefined,
-    slugged: true,
-  },
-  {
-    name: "createTodo",
-    call: () => projects.createTodo(SLUG, TODO_PAYLOAD),
-    method: "POST",
-    path: `/admin/projects/${ENCODED}/todos`,
-    body: { title: "title", detail: "detail" },
-    slugged: true,
-  },
-  {
-    name: "updateTodo",
-    call: () => projects.updateTodo(SLUG, ID, TODO_PAYLOAD),
-    method: "POST",
-    path: `/admin/projects/${ENCODED}/todos/${ID}`,
-    body: { title: "title", detail: "detail" },
-    slugged: true,
-  },
-  {
-    name: "markTodoDone",
-    call: () => projects.markTodoDone(SLUG, ID),
-    method: "POST",
-    path: `/admin/projects/${ENCODED}/todos/${ID}/done`,
-    // The flip carries no payload at all, not even an empty object.
-    body: undefined,
-    slugged: true,
-  },
-  {
-    name: "markTodoUndone",
-    call: () => projects.markTodoUndone(SLUG, ID),
-    method: "POST",
-    path: `/admin/projects/${ENCODED}/todos/${ID}/undone`,
-    body: undefined,
-    slugged: true,
-  },
-  {
-    name: "deleteTodo",
-    call: () => projects.deleteTodo(SLUG, ID),
-    method: "DELETE",
-    path: `/admin/projects/${ENCODED}/todos/${ID}`,
-    body: undefined,
-    slugged: true,
-  },
-  {
     name: "fetchBoard",
     call: () => projects.fetchBoard(SLUG),
     method: "GET",
@@ -374,14 +322,6 @@ const BUILDER_CASES: BuilderCase[] = [
     method: "DELETE",
     path: `/admin/projects/${ENCODED}/board/cards/${CARD_ID}`,
     body: undefined,
-    slugged: true,
-  },
-  {
-    name: "updateColumn",
-    call: () => projects.updateColumn(SLUG, COLUMN_ID, { wip_limit: 3 }),
-    method: "POST",
-    path: `/admin/projects/${ENCODED}/board/columns/${COLUMN_ID}`,
-    body: { wip_limit: 3 },
     slugged: true,
   },
   {
@@ -498,7 +438,7 @@ describe("slug encoding", () => {
   const SLUGGED_CASES = BUILDER_CASES.filter((builderCase) => builderCase.slugged);
 
   it("covers every builder that takes a slug", () => {
-    assert.equal(SLUGGED_CASES.length, 35);
+    assert.equal(SLUGGED_CASES.length, 28);
   });
 
   for (const builderCase of SLUGGED_CASES) {
@@ -555,7 +495,6 @@ describe("projectKeys", () => {
   it("keys each per-project view", () => {
     assert.deepEqual(projects.projectKeys.detail(SLUG), ["project", SLUG]);
     assert.deepEqual(projects.projectKeys.notes(SLUG), ["project", SLUG, "notes"]);
-    assert.deepEqual(projects.projectKeys.todos(SLUG), ["project", SLUG, "todos"]);
     assert.deepEqual(projects.projectKeys.files(SLUG), ["project", SLUG, "files"]);
     assert.deepEqual(projects.projectKeys.feedback(SLUG), ["project", SLUG, "feedback"]);
     assert.deepEqual(projects.projectKeys.changes(SLUG), ["project", SLUG, "changes"]);
@@ -567,7 +506,6 @@ describe("projectKeys", () => {
     const detail = projects.projectKeys.detail(SLUG);
     const subViews = [
       projects.projectKeys.notes(SLUG),
-      projects.projectKeys.todos(SLUG),
       projects.projectKeys.files(SLUG),
       projects.projectKeys.feedback(SLUG),
       projects.projectKeys.changes(SLUG),
@@ -591,13 +529,11 @@ describe("module surface", () => {
     "createFeedback",
     "createNote",
     "createProject",
-    "createTodo",
     "createCard",
     "deleteCard",
     "deleteFile",
     "deleteNote",
     "deleteProject",
-    "deleteTodo",
     "archiveProject",
     "unarchiveProject",
     "fetchFile",
@@ -615,21 +551,16 @@ describe("module surface", () => {
     "fetchSlopJob",
     "fetchSlopJobs",
     "fetchSlopState",
-    "fetchTodos",
-    "markTodoDone",
-    "markTodoUndone",
     "moveCard",
     "projectKeys",
     "releaseCard",
     "setBoardEnabled",
     "setSlopEnabled",
     "updateCard",
-    "updateColumn",
     "updateAbout",
     "updateNote",
     "updateProjectsState",
     "updateRoster",
-    "updateTodo",
     "upsertFile",
   ].sort();
 

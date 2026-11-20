@@ -1039,10 +1039,6 @@ All four engine config GET/store routes share the revision contract: `revision` 
   - `DELETE /admin/projects/{slug}/board/cards/{id}` — archives the card rather
     than deleting it, so its `coord_project_events` history keeps a row to point
     at.
-  - `POST /admin/projects/{slug}/board/columns/{id}` — `{title?, wip_limit?,
-    allowed_roles?, position?, default_next_column_id?}`. There is deliberately
-    no create or delete: 0026 seeds the seven lanes, and deleting one would have
-    to answer what becomes of the cards in it.
 - **Git Director** — a registry of which agent is working in which git clone,
   plus an advisory arbiter over merges into shared branches. The arbitration
   unit is the clone on a host (`git rev-parse --git-common-dir`), so every
@@ -1433,7 +1429,6 @@ All four engine config GET/store routes share the revision contract: `revision` 
   - `GET /admin/projects/{slug}/summary` returns `{ project: { slug, about, roster_markdown, latest_seq, created_at, updated_at, archived_at, counts, feedback_by_type } }` and nothing else — no notes, todos, files or events. The SPA's detail layout runs on every tab and used to call `GET /admin/projects/{slug}`, which carries every file body.
   - `POST /admin/projects/{slug}/about`, `POST /admin/projects/{slug}/roster`, `POST /admin/projects/{slug}/archive`, `POST /admin/projects/{slug}/unarchive`, `GET /admin/projects/{slug}/files/{id}` (one file with its body, so the console's editor does not have to fetch every body to edit one), `POST /admin/projects/{slug}/feedback/{id}` (triage) and `GET /admin/projects/{slug}/changes` mirror the host `/projects/{slug}/*` surface, as do the note/todo/file/feedback subroutes:
     - Notes: `GET /admin/projects/{slug}/notes`, `POST /admin/projects/{slug}/notes`, `POST /admin/projects/{slug}/notes/{id}`, `DELETE /admin/projects/{slug}/notes/{id}`.
-    - Todos: `GET /admin/projects/{slug}/todos`, `POST /admin/projects/{slug}/todos`, `POST /admin/projects/{slug}/todos/{id}`, `POST /admin/projects/{slug}/todos/{id}/done`, `POST /admin/projects/{slug}/todos/{id}/undone`, `DELETE /admin/projects/{slug}/todos/{id}`.
     - Files: `GET /admin/projects/{slug}/files`, `POST /admin/projects/{slug}/files`, `DELETE /admin/projects/{slug}/files/{id}`.
     - Feedback: `GET /admin/projects/{slug}/feedback`, `POST /admin/projects/{slug}/feedback`.
 
