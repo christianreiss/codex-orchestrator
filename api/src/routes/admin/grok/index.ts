@@ -1,57 +1,28 @@
 import { appendAuditLog } from '../../../services/audit-log.js';
-import { parseKeyBackend } from '../../../services/api-key-routing.js';
+import { gatewayKeyHandlers } from '../keys/gateway-keys.js';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../index.js';
-import { ApiError, NotFoundError, ValidationError } from '../../../http/errors.js';
-import { OpenAiKeyService } from '../../../services/openai-keys.js';
+import { ApiError, ValidationError } from '../../../http/errors.js';
 import { SettingsService } from '../../../services/settings.js';
 import { ClientConfigService } from '../../../services/client-config.js';
 import { createGrokModelsService, GROK_DEFAULT_MODEL, normalizeGrokModel, type GrokModel } from '../../../services/grok-models.js';
 import { normalizeBool } from '../../../services/config-normalizer.js';
 import { logs } from '../../../db/schema.js';
 import { nowIso } from '../../../util/timestamp.js';
-import { wsPublisher } from '../../../ws/publisher.js';
 
 export async function registerAdminGrokRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
-  const keys = new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring });
   const settings = new SettingsService(ctx.db);
   const config = new ClientConfigService(ctx.db);
   const models = createGrokModelsService(ctx.db);
-  const idFrom = (params: unknown) => {
-    const id = Number((params as { id: string }).id);
-    if (!Number.isSafeInteger(id) || id <= 0) throw new ValidationError('Invalid key id', { param: 'id' });
-    return id;
-  };
   async function audit(action: string, detail: Record<string, unknown>) {
     await appendAuditLog(ctx.db,{ action, engine: 'grok', details: JSON.stringify(detail), createdAt: nowIso() });
   }
-  const wireKey = (row: Awaited<ReturnType<typeof keys.issue>>['record']) => ({ id: row.id, name: row.name, key_prefix: row.keyPrefix, is_active: row.isActive === 1, use_count: Number(row.useCount), last_used_at: row.lastUsedAt, expires_at: row.expiresAt, engine: 'grok', backend_engine: row.backendEngine ?? null, created_at: row.createdAt, updated_at: row.updatedAt });
 
-  app.get('/admin/grok/keys', { preHandler: app.requireAdmin }, async () => (await keys.listByEngine('grok')).map(row => wireKey(row as Awaited<ReturnType<typeof keys.issue>>['record'])));
-  app.post('/admin/grok/keys', { preHandler: app.requireAdmin }, async req => {
-    const body = (req.body ?? {}) as { name?: unknown; expires_at?: unknown; backend_engine?: unknown };
-    if (typeof body.name !== 'string' || !body.name.trim()) throw new ValidationError('name is required', { param: 'name' });
-    const issued = await keys.issue({ backendEngine: await parseKeyBackend(ctx.db, body.backend_engine), engine: 'grok', name: body.name.trim(), adminUserId: req.admin?.user.id ?? null, expiresAt: typeof body.expires_at === 'string' ? body.expires_at : null });
-    await audit('grok.key.create', { key_id: issued.record.id, name: issued.record.name });
-    wsPublisher.publish('apikey.created', { id: issued.record.id, engine: 'grok' });
-    return { key: issued.key, record: wireKey(issued.record) };
-  });
-  app.post('/admin/grok/keys/:id/toggle', { preHandler: app.requireAdmin }, async req => {
-    const id = idFrom(req.params);
-    const active = normalizeBool((req.body as { active?: unknown })?.active);
-    if (active === null) throw new ValidationError('active must be boolean', { param: 'active' });
-    if (!await keys.setActive(id, active, 'grok')) throw new NotFoundError('Key not found');
-    await audit('grok.key.toggle', { key_id: id, active });
-    wsPublisher.publish('apikey.toggled', { id, engine: 'grok', active });
-    return { message: active ? 'Key enabled' : 'Key disabled' };
-  });
-  app.delete('/admin/grok/keys/:id', { preHandler: app.requireAdmin }, async req => {
-    const id = idFrom(req.params);
-    if (!await keys.delete(id, 'grok')) throw new NotFoundError('Key not found');
-    await audit('grok.key.delete', { key_id: id });
-    wsPublisher.publish('apikey.deleted', { id, engine: 'grok' });
-    return { message: 'Key deleted' };
-  });
+  const keyRoutes = gatewayKeyHandlers(ctx, 'grok');
+  app.get('/admin/grok/keys', { preHandler: app.requireAdmin }, keyRoutes.list);
+  app.post('/admin/grok/keys', { preHandler: app.requireAdmin }, keyRoutes.create);
+  app.post('/admin/grok/keys/:id/toggle', { preHandler: app.requireAdmin }, keyRoutes.toggle);
+  app.delete('/admin/grok/keys/:id', { preHandler: app.requireAdmin }, keyRoutes.remove);
 
   app.get('/admin/grok/state', { preHandler: app.requireAdmin }, async () => ({ disabled: await settings.getFlag('grok_api_disabled', false) }));
   app.post('/admin/grok/state', { preHandler: app.requireAdmin }, async req => {

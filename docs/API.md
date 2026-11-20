@@ -34,7 +34,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 
 Base URL: `/anthropic/v1/`. All Anthropic endpoints use the Anthropic error envelope and CORS headers (`Access-Control-Allow-Headers` includes `x-api-key` and `anthropic-version`).
 
-**Authentication**: `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-...` header. Keys are managed via `/admin/claude/keys` endpoints and use the `sk-claude-` prefix.
+**Authentication**: `Authorization: Bearer sk-ant-...` or `x-api-key: sk-ant-...` header. Keys are managed via `/admin/claude/keys` endpoints and use the `sk-ant-` prefix.
 
 Every `/anthropic/v1/*` response carries a `request-id: req_<hex>` header (distinct from this gateway's own general-purpose `x-request-id`) for diagnostics. The gateway does not add request-rate-limit headers or enforce a per-key RPM budget.
 
@@ -699,11 +699,12 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/openai/keys` — issue a key. Body: `{name, expires_at?}`. Returns the full key once, alongside the record.
   - `POST /admin/openai/keys/{id}/toggle` — enable/disable a key (`active` boolean).
   - `DELETE /admin/openai/keys/{id}` — delete a key. Unknown ids return `404 not_found`.
+  - Validation and responses: all four key surfaces (`/admin/{openai,claude,grok,kimi}/keys`) share one implementation (`api/src/routes/admin/keys/gateway-keys.ts`). `name` is a required non-blank string of at most 255 characters; `expires_at` is optional (`null` or blank means never), otherwise RFC3339; toggle needs a boolean `active` (`true`/`false`, `1`/`0` and their strings are accepted); `:id` must be a positive integer. Any violation, or a body that is not a JSON object, is `400 invalid_request`; an id from another surface's namespace is `404 not_found`. Records carry the same fields on every surface (`admin_user_id` included). Toggle returns `{id, active, message}`, delete `{id, message}`; each mutation writes a `<surface>.key.create|toggle|delete` audit row and an `apikey.*` WS event.
 - `GET /admin/model-defaults/{engine}` — read the `codex`, `claude`, or `grok` fleet CLI default. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort}]}`. It is read-only: when no engine config row exists it reports the catalog default without persisting it.
 - `POST /admin/model-defaults/{engine}` — strict body `{model, reasoning_effort?: string|null}`. Omitted/null effort selects the model default; invalid engine/model/effort or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; its model-specific effort sets/defaults match the per-host contract above, with Sol using its provider-native `low` default. Claude persists `model` / `effortLevel`. Claude capabilities: Fable 5.1, Fable 5, Opus 5, Opus 4.8, and Sonnet 5 support persistent `low|medium|high|xhigh` (default `high`); Opus 4.7 supports the same set with default `xhigh`; Sonnet 4.6 supports `low|medium|high` (default `high`); Haiku 4.5 has no persistent effort (`null`). Claude Code documents `max` as session-only, so it is deliberately excluded from this fleet-persistent API.
 - Claude admin endpoints:
   - `GET /admin/claude/keys` — list all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
-  - `POST /admin/claude/keys` — create a new Claude API key. Body: `{name, expires_at?}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
+  - `POST /admin/claude/keys` — create a new Claude API key. Body: `{name, expires_at?}`. Returns the full key (shown once) and the record. Keys use the `sk-ant-` prefix.
   - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
   - `GET /admin/claude/state` / `POST /admin/claude/state` — read/set persisted `claude_api_disabled` flag (toggles Anthropic-compatible API independently). `settings.read` / `settings.manage`.

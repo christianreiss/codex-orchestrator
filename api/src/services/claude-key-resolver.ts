@@ -19,7 +19,7 @@ import type { Database } from '../db/client.js';
 import { ApiError } from '../http/errors.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso } from '../util/timestamp.js';
-import { CLAUDE_ENGINE } from './claude-keys.js';
+import { ENGINE_CLAUDE as CLAUDE_ENGINE } from '../util/engine.js';
 
 declare module 'fastify' {
   interface FastifyRequest {

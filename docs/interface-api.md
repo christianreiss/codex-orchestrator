@@ -319,6 +319,7 @@ so a change applies without a restart.
   return `409 engine_disabled`. Creation and list records include nullable
   `backend_engine`; the legacy `engine` field remains the key namespace.
   Assignments cannot be edited; issue a replacement key to change the engine.
+- Validation and responses: all four key surfaces (`/admin/{openai,claude,grok,kimi}/keys`) share one implementation (`api/src/routes/admin/keys/gateway-keys.ts`). `name` is a required non-blank string of at most 255 characters; `expires_at` is optional (`null` or blank means never), otherwise RFC3339; toggle needs a boolean `active` (`true`/`false`, `1`/`0` and their strings are accepted); `:id` must be a positive integer. Any violation, or a body that is not a JSON object, is `400 invalid_request`; an id from another surface's namespace is `404 not_found`. Records carry the same fields on every surface (`admin_user_id` included). Toggle returns `{id, active, message}`, delete `{id, message}`; each mutation writes a `<surface>.key.create|toggle|delete` audit row and an `apikey.*` WS event.
 - The backend supplies the canonical credential snapshot, the runner `engine`,
   the capability table and the model catalog. Each engine's backend exists once
   per API process, so Grok and Kimi each share their central refresher across surfaces.
