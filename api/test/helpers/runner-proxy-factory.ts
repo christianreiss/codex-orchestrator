@@ -169,6 +169,7 @@ export function makeRunnerProxy(
     authStore: fakeAuthStore(),
     seedTokens: recordingSeedTokens(),
     readTelemetry: async () => new Map<string, string>(),
+    poolAccountIds: async () => [],
     ...overrides,
   });
 }

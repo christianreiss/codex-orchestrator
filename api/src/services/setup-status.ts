@@ -1,11 +1,9 @@
 import { visibleHost } from './internal-hosts.js';
-import { and, eq, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { join, resolve } from 'node:path';
 import type { Database } from '../db/client.js';
 import {
   adminUsers,
-  authCanonicalHeads,
-  authPayloads,
   clientConfigDocuments,
   hosts,
   schemaMigrations,
@@ -28,6 +26,7 @@ import { createSetupWizardService, type SetupWizardState } from './setup-wizard.
 import { ENGINE_CODEX, ENGINE_LABELS, type Engine } from '../util/engine.js';
 import { ALL_ENGINES_ENABLED, readFleetEngineState } from './engine-switch.js';
 import { ownerRuntimeFor, type OwnerRuntime } from '../control-plane/state/runtime.js';
+import { createRunnerValidationService, enabledProviderAccountIds, resolvePooledCanonicalPayload } from './runner-validation.js';
 
 // The deployed migration files cannot change during one owner epoch. A new
 // process hydrates and verifies its own bundle before admitting traffic.
@@ -304,24 +303,17 @@ export class SetupStatusService {
     return { id: 'wrappers', label: 'Wrapper platform matrix', ok: true, critical: true, detail: `${platforms.length} platforms at ${[...versions][0]}` };
   }
 
+  /**
+   * The same pool view as the Dashboard runner badge
+   * (`resolvePooledCanonicalPayload`): a verified head, or a verified payload
+   * on any enabled provider account. The head alone is not engine state
+   * (API-AUTH-02): it stays on its first account, so it went on reporting a
+   * paused account as ready and missed healthy ones.
+   */
   private async hasCanonicalAuth(engine: Engine): Promise<boolean> {
-    const owner = ownerRuntimeFor(this.db);
-    if (owner) { owner.assertOwner(); const snapshot=owner.state.snapshot(); return snapshot.table('authCanonicalHeads').by('engine',engine).some(head=>{const row=snapshot.table('authPayloads').get(head.payloadId);return row?.engine===engine&&row.verificationState==='verified';}); }
-    const heads = await this.db
-      .select({ payloadId: authCanonicalHeads.payloadId })
-      .from(authCanonicalHeads)
-      .where(eq(authCanonicalHeads.engine, engine));
-    const payloadId = heads[0]?.payloadId;
-    if (payloadId === undefined) return false;
-    const rows = await this.db
-      .select({ id: authPayloads.id })
-      .from(authPayloads)
-      .where(and(
-        eq(authPayloads.id, payloadId),
-        eq(authPayloads.engine, engine),
-        eq(authPayloads.verificationState, 'verified'),
-      ));
-    return rows.length > 0;
+    const validation = createRunnerValidationService({ db: this.db, keyring: this.keyring });
+    const row = await resolvePooledCanonicalPayload(validation, engine, await enabledProviderAccountIds(this.db, engine));
+    return row?.engine === engine && row.verificationState === 'verified';
   }
 }
 

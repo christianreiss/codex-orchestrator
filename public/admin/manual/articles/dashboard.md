@@ -3,7 +3,7 @@ title: Dashboard
 summary: The Overview page and its Provider, Engines and Runner tabs, plus refresh recovery.
 section: Admin workspace
 verified: 2026-10-19
-sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/lib/components/dashboard/OnboardingNotice.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/UsageTable.svelte, frontend/src/lib/components/dashboard/EngineTable.svelte, frontend/src/lib/components/dashboard/RunnerStatus.svelte, frontend/src/lib/nav.ts, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
+sources: api/src/routes/admin/overview/index.ts, api/src/routes/admin/setup/index.ts, api/src/services/setup-status.ts, api/src/services/setup-wizard.ts, api/src/services/chatgpt-usage.ts, api/src/services/dashboard-stats.ts, api/src/services/usage-scaling.ts, api/src/services/runner-proxy.ts, api/src/services/runner-validation.ts, api/src/db/schema.ts, frontend/src/routes/dashboard/+page.svelte, frontend/src/lib/components/dashboard/OnboardingNotice.svelte, frontend/src/lib/api/setup.ts, frontend/src/lib/components/dashboard/UsageTable.svelte, frontend/src/lib/components/dashboard/EngineTable.svelte, frontend/src/lib/components/dashboard/RunnerStatus.svelte, frontend/src/lib/nav.ts, frontend/src/lib/api/overview.ts, frontend/src/lib/api/runner.ts
 ---
 
 # Dashboard
@@ -87,9 +87,9 @@ What chatgpt.com returns is not fixed: on 2026-07-11 it dropped the normal lane'
 
 ## Runner
 
-The **Runner** tab (Verification runner) polls `GET /admin/runner` every 15 seconds and shows a row for each of Codex, Claude, Grok, and Kimi Code; each engine's runner health is recorded independently. Each row contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness.
+The **Runner** tab (Verification runner) polls `GET /admin/runner` every 15 seconds and shows a row for each of Codex, Claude, Grok, and Kimi Code; each engine's runner health is recorded independently. Each row contains its verification status, last check, last successful verification, any reported failure detail, and a **Run verification** button. A missing success is shown as **No success recorded**; the latest attempt is not treated as proof of success. **Not checked** represents an idle engine. The overall badge describes the shared runner's configuration and readiness. An engine row describes its account pool: it stays green while any enabled account holds a verified login, so pausing or removing the first account you added no longer turns the row grey while other accounts keep serving.
 
-The Codex button calls `POST /admin/runner/run`; the Claude button calls `POST /admin/runner/run-claude`; the Grok button calls `POST /admin/runner/run-grok`. While any of these requests runs, its row shows **Verifying…** and all three buttons are disabled to prevent overlapping manual checks from this page. Completion refreshes runner state. If status cannot refresh, the last result stays visible with a stale warning and **Retry runner state**; verification buttons remain disabled until state can be read successfully.
+**Run verification** checks the same login the row describes: the original (first) login while it is verified, otherwise the newest verified login on an enabled account. Use **Verify** on the Accounts page to check one particular account. The Codex button calls `POST /admin/runner/run`; the Claude button calls `POST /admin/runner/run-claude`; the Grok button calls `POST /admin/runner/run-grok`. While any of these requests runs, its row shows **Verifying…** and all three buttons are disabled to prevent overlapping manual checks from this page. Completion refreshes runner state. If status cannot refresh, the last result stays visible with a stale warning and **Retry runner state**; verification buttons remain disabled until state can be read successfully.
 
 ## Refresh
 
@@ -107,6 +107,7 @@ Failed first loads show an error and a retry control rather than a successful ze
 - api/src/services/chatgpt-usage.ts (quota fetch/cache/history, graph-snapshot write)
 - api/src/services/dashboard-stats.ts (recent/latest `logs` rows; unused `dashboard_graph_quota_snapshots` reader)
 - api/src/services/usage-scaling.ts (`scaling` field on `/admin/overview`; not rendered on the dashboard today)
+- api/src/services/runner-proxy.ts, api/src/services/runner-validation.ts (`/admin/runner*` over the account pool: `resolvePooledCanonicalPayload`)
 - api/src/db/schema.ts (`dashboard_graph_quota_snapshots`, `chatgpt_usage_snapshots`, `logs`)
 - frontend/src/routes/dashboard/+page.svelte (Overview layout and tabs)
 - frontend/src/lib/components/dashboard/OnboardingNotice.svelte (setup resume notice)

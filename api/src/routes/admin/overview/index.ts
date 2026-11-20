@@ -43,7 +43,7 @@ import {
   type RunnerRunRequest,
 } from '../../../services/runner-proxy.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
-import { createRunnerValidationService } from '../../../services/runner-validation.js';
+import { createRunnerValidationService, enabledProviderAccountIds } from '../../../services/runner-validation.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, ENGINE_HOST_FIELDS, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
@@ -231,6 +231,7 @@ export async function registerAdminOverviewRoutes(
     authStore,
     seedTokens: createSeedTokenStore(ctx.db),
     readTelemetry: createRunnerTelemetryReader(ctx.db),
+    poolAccountIds: (engine) => enabledProviderAccountIds(ctx.db, engine),
   });
   const adminEventsService = createAdminEventsService(ctx.db);
 

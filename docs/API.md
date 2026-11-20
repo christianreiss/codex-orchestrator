@@ -832,7 +832,10 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   or cannot persist the refresh fails the old lineage closed. In every case
   only a still-verified head is distributable.
   Manual `POST /admin/runner/run`, `POST /admin/runner/run-claude`, and
-  `POST /admin/runner/run-grok` bypass interval guards.
+  `POST /admin/runner/run-grok` bypass interval guards. They, the
+  `GET /admin/runner` badge and setup status's `canonical_auth` describe the
+  engine's account pool: the accountless head while it is verified, otherwise
+  the newest verified payload on an enabled provider account.
 - Runner endpoint auth is available via `AUTH_RUNNER_SHARED_SECRET` (API) + `RUNNER_SHARED_SECRET` (runner), using header `X-Runner-Auth`.
 
 ## Housekeeping & Storage
