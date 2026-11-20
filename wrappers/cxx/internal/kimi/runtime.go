@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +21,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeengine"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 	"github.com/pelletier/go-toml"
@@ -209,7 +209,7 @@ func NewRuntime(baseHome string, cfg *config.Config, client *orchestrator.Client
 // Maintenance is scoped to the original native home, even though credentials
 // themselves live in isolated homes. No remote or local removal precedes it.
 func TryAcquireMaintenance(baseHome string) (*ipc.Lock, error) {
-	return ipc.TryAcquireExclusivePath(filepath.Join(baseHome, ".ckx-sessions.lock"))
+	return nativeStore.TryAcquireMaintenance(baseHome)
 }
 
 // AttachChild preserves the activity lease if the wrapper is killed while an
@@ -229,43 +229,8 @@ func (r *Runtime) AttachChild(cmd *exec.Cmd) (func(), error) {
 	return func() { closePrivate(); _ = lease.Release() }, nil
 }
 
-func copyOptional(source, dest string) error {
-	f, err := os.Open(source)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if info, err := f.Stat(); err != nil {
-		return err
-	} else if !info.Mode().IsRegular() {
-		return nil
-	}
-	raw, err := io.ReadAll(io.LimitReader(f, (16<<20)+1))
-	if err != nil {
-		return err
-	}
-	if len(raw) > 16<<20 {
-		return errors.New("native config asset exceeds snapshot limit")
-	}
-	return AtomicWrite(dest, raw, 0o600)
-}
-func mergeMap(dst, src map[string]any) {
-	for key, value := range src {
-		if nested, ok := value.(map[string]any); ok {
-			target, _ := dst[key].(map[string]any)
-			if target == nil {
-				target = map[string]any{}
-			}
-			mergeMap(target, nested)
-			dst[key] = target
-		} else {
-			dst[key] = value
-		}
-	}
-}
+func copyOptional(source, dest string) error { return nativeStore.CopyOptional(source, dest) }
+func mergeMap(dst, src map[string]any)       { nativeengine.MergeMap(dst, src) }
 
 func (r *Runtime) Apply(raw json.RawMessage, generation int64) error {
 	envelope, credential, err := nativeProjection(raw)
@@ -294,10 +259,7 @@ func (r *Runtime) Apply(raw json.RawMessage, generation int64) error {
 	}
 	return nil
 }
-func tokenDigest(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
+func tokenDigest(token string) string { return nativeengine.TokenDigest(token) }
 func (r *Runtime) record(credential Credential, generation int64) {
 	i := issuance{Generation: generation, Digest: tokenDigest(credential.Key), ExpiresAt: time.Time{}}
 	next := []issuance{i}
@@ -396,10 +358,7 @@ var sessionNotFoundRecheck communicator.RecheckPolicy
 
 // SessionNotFound reports the server's 404 "Account session not found", which a
 // connection-mode lease answers while its provider attachment is redialing.
-func SessionNotFound(err error) bool {
-	var httpErr *orchestrator.HTTPError
-	return errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusNotFound
-}
+func SessionNotFound(err error) bool { return nativeengine.SessionNotFound(err) }
 
 // RefreshConfirmed is Refresh for the session's readiness loop. A 404 is
 // re-checked (communicator.NotFoundRechecks times, NotFoundRecheckSpacing apart)
@@ -415,21 +374,10 @@ func (r *Runtime) RefreshConfirmed(ctx context.Context, callTimeout time.Duratio
 }
 
 func confirmRefresh(ctx context.Context, policy communicator.RecheckPolicy, call func(context.Context) error) error {
-	err := call(ctx)
-	if !SessionNotFound(err) {
-		return err
-	}
-	return communicator.ConfirmNotFound(ctx, policy, call, SessionNotFound)
+	return nativeengine.ConfirmRefresh(ctx, policy, call)
 }
 
-func FatalAuthError(err error) bool {
-	var httpErr *orchestrator.HTTPError
-	if !errors.As(err, &httpErr) {
-		return false
-	}
-	return httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusNotFound ||
-		(httpErr.StatusCode == http.StatusConflict && httpErr.Code != "communicator_outcome_unknown")
-}
+func FatalAuthError(err error) bool { return nativeengine.FatalAuthError(err) }
 
 func (r *Runtime) lock(ctx context.Context) error {
 	for !r.mu.TryLock() {

@@ -11,7 +11,7 @@
   import { authStore } from "$lib/stores/auth";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { cn } from "$lib/utils/cn";
-  import { ENGINE_META, isEngine } from "$lib/constants/engines";
+  import { ENGINE_META, engineLabel, isEngine } from "$lib/constants/engines";
   import {
     agentAddressAliasMutation,
     agentAddressEnabledMutation,
@@ -92,7 +92,7 @@
         <Table.Cell class="max-w-[20rem]">
           <div class="flex flex-wrap items-center gap-1.5">
             <strong class="truncate font-mono text-body-sm">{routeLabel(address)}</strong>
-            <span class="inline-flex items-center gap-1.5 text-body-sm text-muted-foreground"><span class={cn("h-2 w-2 rounded-full", isEngine(address.engine) ? ENGINE_META[address.engine].color : "bg-muted-foreground/40")} aria-hidden="true"></span>{address.engine}</span>
+            <span class="inline-flex items-center gap-1.5 text-body-sm text-muted-foreground"><span class={cn("h-2 w-2 rounded-full", isEngine(address.engine) ? ENGINE_META[address.engine].color : "bg-muted-foreground/40")} aria-hidden="true"></span>{engineLabel(address.engine)}</span>
             {#if !address.eligible}<Badge variant="warning">Ineligible</Badge>{/if}
           </div>
           <p class="flex items-center gap-1 font-mono text-caption text-muted-foreground"><span class="min-w-0 truncate" title={address.address}>{address.address}</span><CopyButton value={address.address} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy address ${address.address}`} toastMessage="Address copied" /></p>
@@ -103,7 +103,7 @@
           <p class="mt-0.5 text-caption text-muted-foreground">{address.queue_depth ?? 0} queued · {address.continuity}</p>
         </Table.Cell>
         <Table.Cell class="max-w-[16rem]">
-          <p class="truncate">{address.fqdn ?? `Host #${address.host_id}`}</p>
+          <p class="truncate">{address.fqdn ?? "Unknown host"}</p>
           <p class="truncate text-caption text-muted-foreground" title={address.cwd}>{address.username} · {address.host_secure ? "secure" : "insecure"} · {address.host_engines.join(" + ") || "no engines"}</p>
         </Table.Cell>
         <Table.Cell class="text-muted-foreground"><Timestamp value={address.last_seen_at} fallback="Never" /></Table.Cell>

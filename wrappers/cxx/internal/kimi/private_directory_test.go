@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/privatehome"
 )
 
 // Runs in an actual independent wrapper process so SIGKILL cannot run defers.
@@ -171,10 +172,10 @@ func TestSweepPrivateDirectoriesRequiresOwnershipAndIdleLock(t *testing.T) {
 	_ = os.Mkdir(unowned, 0700)
 	idle := filepath.Join(root, "session-idle")
 	_ = os.Mkdir(idle, 0700)
-	_ = os.WriteFile(filepath.Join(idle, privateLeaseName), nil, 0600)
+	_ = os.WriteFile(filepath.Join(idle, privatehome.LeaseName), nil, 0600)
 	live := filepath.Join(root, "session-live")
 	_ = os.Mkdir(live, 0700)
-	lock, err := ipc.TryAcquireSharedPath(filepath.Join(live, privateLeaseName))
+	lock, err := ipc.TryAcquireSharedPath(filepath.Join(live, privatehome.LeaseName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,5 +190,36 @@ func TestSweepPrivateDirectoriesRequiresOwnershipAndIdleLock(t *testing.T) {
 		if _, err := os.Stat(dir); err != nil {
 			t.Fatalf("protected directory removed: %s", dir)
 		}
+	}
+}
+
+// Kimi's close step erases the access credentials first and keeps the
+// directory when the durable catalog cannot be recovered yet.
+func TestRemoveIdleKeepsDirectoryWhenCatalogRecoveryFails(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "ckx-runtime-catalog")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		privatehome.LeaseName:                          "",
+		filepath.Join("home", "credentials", "k.json"): "access",
+		durableCatalogFile:                             "{",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed, err := RemoveIdlePrivateDirectory(dir)
+	if removed || err == nil {
+		t.Fatalf("catalog failure removed directory: %v %v", removed, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "home", "credentials")); !os.IsNotExist(err) {
+		t.Fatal("access credentials survived the close step")
+	}
+	if _, err := os.Stat(filepath.Join(dir, durableCatalogFile)); err != nil {
+		t.Fatal("directory removed before catalog recovery")
 	}
 }

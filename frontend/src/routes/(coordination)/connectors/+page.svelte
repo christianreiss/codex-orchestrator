@@ -20,13 +20,21 @@
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import ScopeEditor from "$lib/components/connectors/ScopeEditor.svelte";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
+  import HiddenEngineNote from "$lib/components/engines/HiddenEngineNote.svelte";
   const config = connectorConfig(),
     connections = connectorConnections(),
     client = useQueryClient();
   let approving = $state(true);
   let draft = $state<Policy | null>(null),
     consentScope = $state(emptyScope()),
-    provider = $state<"chatgpt" | "claude" | "grok" | "kimi">("chatgpt");
+    chosenApp = $state<"chatgpt" | "claude" | "grok" | "kimi">("chatgpt");
+  // A chat app that fronts a switched-off engine is not offered; the policy and existing connections stay as they are.
+  const fleet = useFleetEngines();
+  const CHAT_APPS = [{ id: "chatgpt", name: "ChatGPT", engine: "codex" }, { id: "claude", name: "Claude", engine: "claude" }, { id: "grok", name: "Grok", engine: "grok" }, { id: "kimi", name: "Kimi Code", engine: "kimi" }] as const;
+  const apps = $derived(CHAT_APPS.filter((app) => $fleet.isEnabled(app.engine)));
+  const hiddenApps = $derived(CHAT_APPS.length - apps.length);
+  const provider = $derived<"chatgpt" | "claude" | "grok" | "kimi">(apps.some((app) => app.id === chosenApp) ? chosenApp : (apps[0]?.id ?? chosenApp));
   let reviewed = $state<{
       scope: Scope;
       operations: string[];
@@ -224,10 +232,11 @@
     {:else}
       <Section title="Set up a chat app">
         <div class="flex flex-wrap gap-2" role="group" aria-label="Choose chat app">
-          {#each [{ id: "chatgpt", name: "ChatGPT" }, { id: "claude", name: "Claude" }, { id: "grok", name: "Grok" }, { id: "kimi", name: "Kimi Code" }] as app}
-            <Button variant={provider === app.id ? "default" : "outline"} aria-pressed={provider === app.id} onclick={() => { provider = app.id as typeof provider; $register.reset(); }}>{app.name}</Button>
+          {#each apps as app (app.id)}
+            <Button variant={provider === app.id ? "default" : "outline"} aria-pressed={provider === app.id} onclick={() => { chosenApp = app.id; $register.reset(); }}>{app.name}</Button>
           {/each}
         </div>
+        <HiddenEngineNote count={hiddenApps} />
         <p class="my-4 text-body-sm" role="status">
           {!c.ready ? "Not ready: an administrator must configure a public HTTPS base URL on the server." : !c.policy.enabled ? "Connector access is off. An administrator can enable it in connector policy." : !c.policy.providers[provider] ? `${provider} connections are disabled. An administrator can enable them in connector policy.` : "Configuration ready. Authorize and make a test call to verify the connection."}
         </p>

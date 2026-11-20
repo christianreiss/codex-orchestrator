@@ -1,0 +1,21 @@
+CLX DOCTOR | <when>
+CHECKS
+FAIL DEPS      | missing: curl
+OK   PATHS     | claude=<bin>/claude; wrapper=<exe>
+WARN LAUNCHERS | canonical cxx unavailable: <exe>
+FAIL AUTH      | invalid credentials (no usable Claude token)
+OK   CONFIG    | path=<home>/.claude/settings.json; 16 bytes; updated <1m
+<perms row>
+OK   MCP       | configured
+OK   SYNC      | auth=valid
+OK   API       | reachable (http 200)
+OK   LATENCY   | <latency>
+OK   DISK      | <n>MB free
+<cron row>
+OK   SSH ENV   | session=ssh; TERM=xterm-golden; TERM_PROGRAM=golden-term
+OK   CLI       | claude=2.9.1; wrapper=1.2.3; <os>/<arch>
+GUIDANCE
+WARN HINT 1    | Install curl; Claude Code requires it.
+WARN HINT 2    | Repair recognized legacy PATH launchers with `cxx doctor --fix`; this works without API access.
+VERDICT
+FAIL RESULT    | 2 checks failed

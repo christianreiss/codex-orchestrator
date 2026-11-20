@@ -172,14 +172,17 @@
           <Textarea id="meta-description" rows={3} bind:value={description} disabled={isManaged} />
         </FormField>
         {#if metadata.length}
-          <dl class="grid gap-x-4 gap-y-2 border-t pt-3 text-body-sm sm:grid-cols-2">
-            {#each metadata as item (item.label)}
-              <div class="min-w-0">
-                <dt class="text-muted-foreground">{item.label}</dt>
-                <dd class={item.mono ? "break-all font-mono" : undefined} title={item.title}>{item.value}</dd>
-              </div>
-            {/each}
-          </dl>
+          <details class="border-t pt-3 text-body-sm">
+            <summary class="w-fit cursor-pointer text-muted-foreground">Details</summary>
+            <dl class="mt-2 grid gap-x-4 gap-y-2 sm:grid-cols-2">
+              {#each metadata as item (item.label)}
+                <div class="min-w-0">
+                  <dt class="text-muted-foreground">{item.label}</dt>
+                  <dd class={item.mono ? "break-all font-mono" : undefined} title={item.title}>{item.value}</dd>
+                </div>
+              {/each}
+            </dl>
+          </details>
         {/if}
       </div>
     {/snippet}

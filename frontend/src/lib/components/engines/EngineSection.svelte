@@ -49,7 +49,7 @@
 
 <Section id="{engine}-defaults" title={meta.label} description={`Fleet defaults for managed ${meta.command} clients. Per-host exceptions take precedence.`}>
   {#snippet actions()}
-    <Badge variant={off ? "warning" : "success"}>{off ? FLEET_DISABLED_TAG : "On"}</Badge>
+    <Badge variant={off ? "warning" : "success"}>{off ? FLEET_DISABLED_TAG : "Active"}</Badge>
   {/snippet}
 
   <div class="divide-y">

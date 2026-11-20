@@ -9,7 +9,7 @@
 
   type Props = { value: Engine | "all"; engines: readonly Engine[]; onChange: (next: Engine | "all") => void };
   let { value, engines, onChange }: Props = $props();
-  const options = $derived([{ id: "all" as const, label: "All" }, ...engines.map((id) => ({ id, label: ENGINE_META[id].account }))]);
+  const options = $derived([{ id: "all" as const, label: "All" }, ...engines.map((id) => ({ id, label: ENGINE_META[id].label }))]);
 </script>
 
 <div class="inline-flex min-h-9 max-w-full flex-wrap items-center gap-0.5 rounded-md border bg-muted/40 p-0.5" role="group" aria-label="Filter by engine">

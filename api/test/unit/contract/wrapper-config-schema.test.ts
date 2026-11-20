@@ -116,7 +116,6 @@ function fakeHost(): Host {
     insecureSessionRenewalBlocked: 0,
     curlInsecure: 0,
     browserosMcpEnabled: 1,
-    agentMessagingEnabled: 0,
     expiresAt: null,
     vip: 0,
     lanePreference: null,
@@ -147,7 +146,7 @@ function fakeHost(): Host {
     grokLastRefresh: null,
     kimiLastRefresh: null,
     configVersion: 4,
-    wrapperTrack: 'v2', wrapperCanary: 0, internalRole: null,
+    wrapperCanary: 0, internalRole: null,
     createdAt: '2026-05-01T00:00:00Z',
     updatedAt: '2026-05-15T00:00:00Z',
   };

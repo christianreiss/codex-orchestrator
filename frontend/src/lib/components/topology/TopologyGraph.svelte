@@ -6,7 +6,7 @@
   import ZoomInIcon from "@lucide/svelte/icons/zoom-in";
   import ZoomOutIcon from "@lucide/svelte/icons/zoom-out";
   import MaximizeIcon from "@lucide/svelte/icons/maximize";
-  import { ENGINE_META, isEngine } from "$lib/constants/engines";
+  import { ENGINE_META, engineLabel, isEngine } from "$lib/constants/engines";
   import { radialLayout, traversalOrder, SERVER_ID, polar, type PlacedNode } from "$lib/topology/layout";
   import { runtimeStyle, communicatorAppearance, communicatorLabel, matchesQuery, nodeState, type GraphModel } from "$lib/topology/model";
   import type { TopologyAgent, TopologyCommunicator, TopologyServer } from "$lib/api/topology";
@@ -311,7 +311,7 @@
     const a = item.node;
     const where =
       a.association.state === "unattributed" ? "communicator not established" : a.association.state === "stale" ? "carried by a communicator, link quiet" : "carried by a communicator";
-    return `Agent ${a.name}, ${a.engine}, ${item.ghost ? "ended" : a.presence}, ${where}`;
+    return `Agent ${a.name}, ${engineLabel(a.engine)}, ${item.ghost ? "ended" : a.presence}, ${where}`;
   }
   const preview = $derived([...model.communicators, ...model.agents].find(item => item.node.id === (hoverId ?? focusId)));
 </script>

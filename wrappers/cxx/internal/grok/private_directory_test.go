@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/privatehome"
 )
 
 // Runs in an actual independent wrapper process so SIGKILL cannot run defers.
@@ -171,10 +172,10 @@ func TestSweepPrivateDirectoriesRequiresOwnershipAndIdleLock(t *testing.T) {
 	_ = os.Mkdir(unowned, 0700)
 	idle := filepath.Join(root, "session-idle")
 	_ = os.Mkdir(idle, 0700)
-	_ = os.WriteFile(filepath.Join(idle, privateLeaseName), nil, 0600)
+	_ = os.WriteFile(filepath.Join(idle, privatehome.LeaseName), nil, 0600)
 	live := filepath.Join(root, "session-live")
 	_ = os.Mkdir(live, 0700)
-	lock, err := ipc.TryAcquireSharedPath(filepath.Join(live, privateLeaseName))
+	lock, err := ipc.TryAcquireSharedPath(filepath.Join(live, privatehome.LeaseName))
 	if err != nil {
 		t.Fatal(err)
 	}

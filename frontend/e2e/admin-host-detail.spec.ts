@@ -72,7 +72,8 @@ test('page order: problems first, then engines and access, Advanced collapsed, D
   await page.goto('/admin/hosts/1');
   await expect(page.getByRole('heading', { name: 'workstation.example.test', level: 1 })).toBeVisible();
   await expect(page.getByRole('tab')).toHaveCount(0);
-  expect((await page.locator('main').getByRole('heading', { level: 2 }).allTextContents()).slice(0, 6)).toEqual(['Needs attention', 'Engines', 'Access', 'Agent instructions', 'Command output filtering', 'Delete host']);
+  // Command output filtering is a collapsed one-line block, not a heading, until opened.
+  expect((await page.locator('main').getByRole('heading', { level: 2 }).allTextContents()).slice(0, 6)).toEqual(['Needs attention', 'Engines', 'Access', 'Agent instructions', 'Delete host']);
   await expect(advanced(page)).not.toHaveAttribute('open', '');
   await expect(page.getByRole('heading', { name: 'Remote sessions', exact: true })).toBeHidden();
   // Grok is switched off fleet-wide in the fixture: that is information with a link to Engines, not a failure.

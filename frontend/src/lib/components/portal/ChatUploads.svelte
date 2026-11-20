@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
-  import { buttonVariants } from '$lib/components/ui/button';
+  import { Button, buttonVariants } from '$lib/components/ui/button';
   import { attachmentBase, uploadChatFile, type UploadItem } from '$lib/portal/chat-files';
   let { session, items, onitems, disabled = false }: {session: string; items: UploadItem[]; onitems: (session: string, items: UploadItem[]) => void; disabled?: boolean} = $props();
   let error = $state('');
@@ -44,17 +44,17 @@
 </script>
 <div class="border-t px-4 py-2 text-caption">
   <div class="flex flex-wrap items-center gap-3">
-    <label class={`${buttonVariants({variant:'outline'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Attach files<input type="file" multiple class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
-    <label class={`${buttonVariants({variant:'outline'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Photo<input type="file" accept="image/*" capture="environment" class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
-    {#if recording}<button type="button" class="text-destructive" onclick={stop}>Stop {recording} recording</button>
-    {:else}<button type="button" disabled={disabled} onclick={() => record('audio')}>Record audio</button><button type="button" disabled={disabled} onclick={() => record('video')}>Record video</button>{/if}
+    <label class={`${buttonVariants({variant:'outline',size:'sm'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Attach files<input type="file" multiple class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
+    <label class={`${buttonVariants({variant:'outline',size:'sm'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Photo<input type="file" accept="image/*" capture="environment" class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
+    {#if recording}<Button type="button" variant="outline" size="sm" class="text-destructive" onclick={stop}>Stop {recording} recording</Button>
+    {:else}<Button type="button" variant="outline" size="sm" {disabled} onclick={() => record('audio')}>Record audio</Button><Button type="button" variant="outline" size="sm" {disabled} onclick={() => record('video')}>Record video</Button>{/if}
   </div>
   {#if error}<p role="alert" class="mt-1 text-destructive">{error}</p>{/if}
   {#each items as item (item.id)}
     {#if item.file.type.startsWith("image/")}<img src={preview(item.file)} alt={item.file.name} class="mt-2 max-h-20 rounded-md" />{/if}
     <div class="mt-2 flex items-center gap-2"><span class="min-w-0 flex-1 truncate">{item.file.name} · {item.state === 'uploading' ? `${Math.round(item.progress*100)}%` : item.state}</span>
-      {#if item.state === 'failed'}<button type="button" onclick={() => upload(item)}>Retry upload</button>{/if}
-      <button type="button" disabled={disabled} onclick={() => remove(item)}>Remove</button>
+      {#if item.state === 'failed'}<Button type="button" variant="outline" size="sm" onclick={() => upload(item)}>Retry upload</Button>{/if}
+      <Button type="button" variant="ghost" size="sm" {disabled} onclick={() => remove(item)}>Remove</Button>
     </div>
     {#if item.error}<p class="text-destructive">{item.error}</p>{/if}
   {/each}

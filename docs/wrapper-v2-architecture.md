@@ -213,15 +213,16 @@ does not serve fails the suite.
 `hosts.config_version` — bumped by `wrapper-config.ts` so the binary sees a new
 version every time the input changes.
 
-`hosts.wrapper_track` — vestigial. Historically `legacy|v2` and defaulting to
-`v2`, but the value is unvalidated and nothing acts on it: it gates nothing and
-is kept only for compatibility. The per-host gate is `hosts.engines`, enforced by
-`assertHostEngineEnabled`. (`wrapper-config.ts` has a wrapper track setting of
-the same name, surfaced as `track` in the baked wrapper block; its only
-implementation is the no-op settings-loader default, so it is always `stable` —
-a different thing that happens to share the word.)
+`hosts.wrapper_track` — retired. Historically `legacy|v2` and defaulting to
+`v2`, but the value was unvalidated and nothing acted on it. The column is still
+present in the database but no longer mapped; a follow-up migration drops it. The
+per-host gate is `hosts.engines`, enforced by `assertHostEngineEnabled`.
+(`wrapper-config.ts` has a wrapper track setting of the same name, surfaced as
+`track` in the baked wrapper block; its only implementation is the no-op
+settings-loader default, so it is always `stable` — a different thing that
+happens to share the word.)
 
-`wrapper_signing_keys`, `wrapper_v2_binaries` — operator-facing inventory.
+`wrapper_signing_keys` — the signing-key inventory. `wrapper_v2_binaries` is retired (still in the database, no longer mapped; a follow-up migration drops it): binaries come from the on-disk registry.
 
 ## Operator bootstrap
 
@@ -246,7 +247,7 @@ and recovery.
 After that, hitting `/wrapper/v2/config` with a valid host API key returns the
 signed config. The v2 routes gate on the signing key first — none configured
 is a 503 `wrapper_v2_unavailable` — and then on the requested engine being listed
-in `hosts.engines`, a 403 `engine_disabled` otherwise. `wrapper_track` gates
+in `hosts.engines`, a 403 `engine_disabled` otherwise. The retired `wrapper_track` gated
 nothing, so the bakery is live for every host whose engine is enabled.
 
 The fleet-wide engine master switch is deliberately **not** a 403 here. An

@@ -183,12 +183,13 @@ test("direction receipts include every engine and Server while groups keep focus
     server_directions: ["codex", "claude", "grok", "kimi"].flatMap(engine => [{ source_engine: "server", target_engine: engine, total: 2, completed: 2, pending: 0, dead: 0, ambiguous: 0 }, { source_engine: engine, target_engine: "server", total: 3, completed: 3, pending: 0, dead: 0, ambiguous: 0 }]),
   } }));
   await open(page);
-  await expect(page.getByText("server → codex", { exact: true })).not.toBeVisible();
+  await expect(page.getByText("Server → Codex", { exact: true })).not.toBeVisible();
   await page.locator("summary").filter({ hasText: "Traffic by engine" }).click();
+  const names: Record<string, string> = { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi Code" };
   for (const engine of ["codex", "claude", "grok", "kimi"]) {
-    await expect(page.getByText(`server → ${engine}`, { exact: true })).toBeVisible();
-    await expect(page.getByText(`${engine} → server`, { exact: true })).toBeVisible();
-    for (const target of ["codex", "claude", "grok", "kimi"]) await expect(page.getByText(`${engine} → ${target}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`Server → ${names[engine]}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${names[engine]} → Server`, { exact: true })).toBeVisible();
+    for (const target of ["codex", "claude", "grok", "kimi"]) await expect(page.getByText(`${names[engine]} → ${names[target]}`, { exact: true })).toBeVisible();
   }
 });
 

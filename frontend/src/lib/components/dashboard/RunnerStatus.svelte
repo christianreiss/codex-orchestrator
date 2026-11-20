@@ -42,9 +42,9 @@
   const anyRunning = $derived($fleet.enabled.some((engine) => pending(engine)));
 
   const overall = $derived.by<{ label: string; variant: BadgeVariant }>(() => {
-    if (!runner) return { label: "idle", variant: "secondary" };
-    if (!runner.configured) return { label: "not configured", variant: "destructive" };
-    return runner.ready ? { label: "ready", variant: "success" } : { label: "fail", variant: "destructive" };
+    if (!runner) return { label: "Idle", variant: "secondary" };
+    if (!runner.configured) return { label: "Not configured", variant: "destructive" };
+    return runner.ready ? { label: "Ready", variant: "success" } : { label: "Failed", variant: "destructive" };
   });
 
   function mutationFor(engine: Engine) {
@@ -75,11 +75,11 @@
 
   const TOKENS: Record<string, { label: string; variant: BadgeVariant }> = {
     ok: { label: "OK", variant: "success" },
-    fail: { label: "fail", variant: "destructive" },
-    unconfigured: { label: "not configured", variant: "destructive" },
-    running: { label: "running", variant: "secondary" },
-    disabled: { label: "disabled fleet-wide", variant: "secondary" },
-    idle: { label: "not checked", variant: "secondary" },
+    fail: { label: "Failed", variant: "destructive" },
+    unconfigured: { label: "Not configured", variant: "destructive" },
+    running: { label: "Running", variant: "secondary" },
+    disabled: { label: "Disabled fleet-wide", variant: "secondary" },
+    idle: { label: "Not checked", variant: "secondary" },
   };
 
   function run(engine: Engine) {
@@ -112,7 +112,7 @@
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2">
       <Badge variant={overall.variant}>{overall.label}</Badge>
       {#if $state.isError}
-        <Badge variant="warning" title={$state.error?.message ?? "Runner status may be stale"}>stale</Badge>
+        <Badge variant="warning" title={$state.error?.message ?? "Runner status may be stale"}>Stale</Badge>
       {/if}
       <span class="min-w-0 flex-1 truncate text-body-sm text-muted-foreground" title={runner.url ?? runner.detail}>
         {runner.detail || runner.url || "Verification sidecar"}

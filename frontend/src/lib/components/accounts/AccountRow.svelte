@@ -14,6 +14,8 @@
     account: ProviderAccount;
     engineOn: boolean;
     canManage: boolean;
+    /** Host id to FQDN, so a session links to the host by name. */
+    hostNames: ReadonlyMap<number, string>;
     busy: boolean;
     onQuota: () => void;
     onRename: () => void;
@@ -22,7 +24,7 @@
     onToggle: () => void;
     onRemove: () => void;
   };
-  let { account, engineOn, canManage, busy, onQuota, onRename, onReplace, onVerify, onToggle, onRemove }: Props = $props();
+  let { account, engineOn, canManage, hostNames, busy, onQuota, onRename, onReplace, onVerify, onToggle, onRemove }: Props = $props();
 
   const meta = $derived(ENGINE_META[account.engine]);
   const status = $derived(accountStatus(account, engineOn, meta.command));
@@ -42,34 +44,32 @@
 </script>
 
 <Table.Row>
-  <Table.Cell class="min-w-56">
+  <Table.Cell class="min-w-56 max-sm:pr-12">
     <div class="flex items-start gap-2">
       <span class={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", dot[status.tone])} aria-hidden="true"></span>
       <div class="min-w-0">
-        <div class="truncate font-medium" title={`Account #${account.id}`}>{account.label}</div>
+        <div class="truncate font-medium" title={account.label}>{account.label}</div>
         <div class={cn("text-caption", textTone[status.tone])}>
           <span class={status.tone === "danger" ? "font-medium" : ""}>{status.label}</span>{#if status.detail}<span class="text-muted-foreground">{" · "}{status.detail}</span>{/if}
+        </div>
+        <div class="text-caption text-muted-foreground">
+          <span class="inline-flex items-center gap-1.5"><span class={cn("h-2 w-2 rounded-full", meta.color)} aria-hidden="true"></span>{meta.label}</span>{#if account.plan?.name}{" · "}{account.plan.name}{/if}{#if account.quota_policy?.unlimited}{" · "}PayG / unlimited{/if}
         </div>
       </div>
     </div>
   </Table.Cell>
-  <Table.Cell class="whitespace-nowrap text-body-sm">
-    <span class="inline-flex items-center gap-1.5"><span class={cn("h-2 w-2 rounded-full", meta.color)} aria-hidden="true"></span>{meta.account}</span>
-    {#if account.quota_policy?.unlimited}<div class="text-caption text-muted-foreground">PayG / unlimited</div>{/if}
-    {#if account.plan?.name}<div class="text-caption text-muted-foreground">{account.plan.name}</div>{/if}
-  </Table.Cell>
   <Table.Cell><AccountUsage {account} /></Table.Cell>
   <Table.Cell class="whitespace-nowrap text-body-sm">
-    {account.sessions.length}
+    <span class="text-muted-foreground sm:hidden">Sessions:&nbsp;</span>{account.sessions.length}
     {#if hosts.length || runnerTask}
       <div class="flex flex-wrap gap-x-2 text-caption">
         {#if runnerTask}<span class="text-muted-foreground">Runner task</span>{/if}
-        {#each hosts as hostId (hostId)}<a class="text-primary underline-offset-2 hover:underline" href={`${base}/hosts/${hostId}`}>Host #{hostId}</a>{/each}
+        {#each hosts as hostId (hostId)}<a class="text-primary underline-offset-2 hover:underline" href={`${base}/hosts/${hostId}`}>{hostNames.get(hostId) ?? "Unknown host"}</a>{/each}
       </div>
     {/if}
   </Table.Cell>
-  <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground" ><Timestamp value={account.verification_checked_at} fallback="Never" /></Table.Cell>
-  <Table.Cell class="w-10 text-right">
+  <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground"><span class="sm:hidden">Verified:&nbsp;</span><Timestamp value={account.verification_checked_at} fallback="Never" /></Table.Cell>
+  <Table.Cell class="w-10 text-right max-sm:absolute max-sm:right-1 max-sm:top-1 max-sm:w-auto">
     {#if canManage && account.state !== "removing"}<RowActions {actions} label={`Actions for ${account.label}`} />{/if}
   </Table.Cell>
 </Table.Row>

@@ -44,6 +44,8 @@ and templates without questions. Already existing runs retain their original flo
 The final report preserves the confirmed request and its history alongside results.
 New runs require cxx 0.9.114 or newer; older agents can finish historical runs.
 
+The **Workflow runs** list filters as you type: a search box, status, outcome and evaluation menus, and a Workflow and a Participant picker (no UUID fields and no Search button). The filters are kept in the address, so Back from a report returns to the same list. A run's continuation assignment is one **Copy assignment** button; the text itself is behind **Show the text**.
+
 ## Let agents collaborate
 
 An agent can invite an appropriate colleague on another host. The colleague

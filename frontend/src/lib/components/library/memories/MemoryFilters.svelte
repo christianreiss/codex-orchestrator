@@ -3,6 +3,7 @@
   import FilterX from "@lucide/svelte/icons/filter-x";
   import { Button } from "$lib/components/ui/button";
   import * as Select from "$lib/components/ui/select";
+  import { engineLabel } from "$lib/constants/engines";
   import { ALL, type MemoriesState } from "./memories-state.svelte";
 
   let { state }: { state: MemoriesState } = $props();
@@ -12,7 +13,7 @@
 <Select.Root type="single" value={state.hostFilter} onValueChange={(value) => state.setFilter("host", value || ALL)}>
   <Select.Trigger class="w-36" aria-label="Filter by host">
     <Select.Value placeholder="All hosts">
-      {state.hostFilter === ALL ? "All hosts" : facets.hosts.find((item) => String(item.id) === state.hostFilter)?.label ?? `Host #${state.hostFilter}`}
+      {state.hostFilter === ALL ? "All hosts" : facets.hosts.find((item) => String(item.id) === state.hostFilter)?.label ?? "Unknown host"}
     </Select.Value>
   </Select.Trigger>
   <Select.Content>
@@ -35,11 +36,11 @@
 
 <Select.Root type="single" value={state.engineFilter} onValueChange={(value) => state.setFilter("engine", value || ALL)}>
   <Select.Trigger class="w-32" aria-label="Filter by engine">
-    <Select.Value placeholder="All engines">{state.engineFilter === ALL ? "All engines" : state.engineFilter}</Select.Value>
+    <Select.Value placeholder="All engines">{state.engineFilter === ALL ? "All engines" : engineLabel(state.engineFilter)}</Select.Value>
   </Select.Trigger>
   <Select.Content>
     <Select.Item value={ALL} label="All engines">All engines</Select.Item>
-    {#each facets.engines as engine (engine.value)}<Select.Item value={engine.value} label={engine.value}>{engine.value} ({engine.count})</Select.Item>{/each}
+    {#each state.engineFacets as engine (engine.value)}<Select.Item value={engine.value} label={engineLabel(engine.value)}>{engineLabel(engine.value)} ({engine.count})</Select.Item>{/each}
   </Select.Content>
 </Select.Root>
 

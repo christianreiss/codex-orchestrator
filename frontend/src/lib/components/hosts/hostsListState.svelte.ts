@@ -114,7 +114,7 @@ export class HostsListState {
     const pending = this.#pending();
     const disabled = this.#disabled();
     return this.#hosts().map((host) => {
-      const items = hostAttention(host, { pendingApproval: pending.has(host.id), disabledEngines: disabled });
+      const items = hostAttention(host, { pendingApproval: pending.has(host.id), disabledEngines: disabled, now: this.now });
       return { host, items, attention: attentionCount(items) };
     });
   });

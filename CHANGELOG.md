@@ -1,5 +1,72 @@
 # 2026-11-20
 
+- **Cleanup release: read before upgrading.** This release removes long-superseded surface; the bullets below list it. Hosts still running the date-versioned shell wrapper must be reinstalled. Every Go `cxx` keeps updating itself as before: `/cron/check`, `/wrapper/v2/config`, `/wrapper/v2/bin` and `/cron/report` are unchanged. An install without a stored auto-update setting now treats auto-update as on everywhere. Before, the signed config already baked it on while `/cron/check` answered `disable`, so after the upgrade such hosts start updating cxx and the native CLIs nightly. To keep updates off, switch auto-update off in Settings; a stored off now also removes the nightly maintenance line on hosts without an override.
+
+- **Removed host and wire surface:**
+  - the date-versioned shell-wrapper bundle and the `/cli/auth` device-code login (`cdx login` of the bash wrapper);
+  - the pre-bundle host routes `/agents/retrieve`, `/config/retrieve`, `/skills/retrieve`, host `/skills/store` and `/claude/{kind}` (hosts sync through `/sync/bootstrap`);
+  - `/wrapper/v2/meta`, the manifest route, bare `/wrapper/v2/download` and `GET /wrapper`;
+  - the host REST mirrors of the knowledge tools (`/projects/*`, `/mcp/memories/*`, `/shared-memories/*`); agents use the MCP `project_*`, `memory_*` and `shared_memory_*` tools;
+  - the runner endpoints `/skills/summarize` and `/memories/summarize`, which nothing called;
+  - the signed-config compatibility shims for cxx older than 0.8.11.
+
+- **Removed MCP surface:**
+  - the non-standard JSON-RPC method aliases (`tools.call`, `call_tool`, `resources.*` and similar) and dotted tool names; only the standard slash methods and underscore tool names are accepted;
+  - `project_file_list` (use `project_files` or `project_file_read`);
+  - `project_note_create` (use `project_note_upsert`);
+  - `agent_portal_notify` (use `agent_portal_say` or `agent_receiver_reply` with `important=true`).
+
+  The served fleet guidance changes accordingly.
+
+- **Scope rooms use the shared room chat.**
+  - `agent_room_send` is a compatibility alias of `agent_chat_send`, with the same `client_request_id` idempotency. As in shared chats, a plain agent post no longer pushes a notice to the other members.
+  - `agent_room_read` returns membership and claim events only. Read scope chat with `agent_chat_read`, which still shows historic scope chat.
+  - The Topology scope chat uses the shared chat routes, so `POST /admin/agent-messaging/scopes/read` and `/scopes/send` are gone.
+
+- **Usage-based scaling is removed.** It stored and displayed tiers but never changed behaviour. Quota limits are unchanged. Migration 0147 deletes the stored rules.
+
+- **Removed admin routes without a console caller:**
+  - per-engine API state switches, project todos, board column edit, usage, log retention, the version GETs, the `config/retrieve` aliases and the legacy memory routes;
+  - the conference inspector routes;
+  - `GET /admin/hosts/:id/auth`, the plaintext credential reveal, with its `auth.reveal_credential` capability;
+  - `POST /admin/hosts/:id/clear`, `POST /admin/agent-messaging/groups/:slug/publish`, `GET /admin/agent-messaging/translate` and `POST /admin/agent-sessions/:id/notices/resolve`.
+
+  `GET /admin/hosts` no longer returns the vestigial `wrapper_track`.
+
+- **Configuration removed:**
+  - unused environment keys, among them `DB_READ_CACHE_*`, `AUTH_RUNNER_CODEX_BASE_URL` and `TRANSFERS_PURGE_INTERVAL_SECONDS`;
+  - `ADMIN_ACCESS_MODE` and the mTLS claim plugin;
+  - the documentation of `STRICT_HOST_VALIDATION`, which was never implemented;
+  - the unused `libsodium` dependency and the `drizzle:push` script.
+
+  `INSECURE_GRACE_MINUTES` is clamped to 480 minutes.
+
+- **Database: nothing is dropped in this release.** No release reads `hosts.scaling_exempt`, `hosts.agent_messaging_enabled`, `hosts.wrapper_track`, `cli_auth_requests`, `wrapper_v2_binaries` or `dashboard_graph_claude_quota_snapshots` any more. A follow-up migration drops them once every instance runs this release; see `docs/interface-db.md`.
+
+- **Console and API fixes:**
+  - The Dashboard runner badge, Run verification and setup status describe the account pool, so pausing or removing the first account no longer greys out a healthy engine.
+  - The fleet Codex silent flag, admin theme and auto-update setting reach hosts through the signed config.
+  - The Claude proxy default model applies to OpenAI-wire requests without a model; max tokens is stored only.
+  - The Claude gateway uses the same kill switch and key lookup as the other surfaces. Invalid, disabled and expired keys all answer "Invalid or expired API key.".
+  - The admin gateway-key routes share one validation, so a bad body returns 400 for every engine.
+  - Admin, host and project memory writes share one validator.
+  - Skill stores keep omitted metadata and revive deleted Skills.
+  - Claude hosts approve every cxx-agent tool, including the workflow tools, without a prompt.
+  - Owner RAM no longer accumulates Codex usage snapshots, and every owned admin-event write advances the owner event head.
+  - The four engine version sections are one component, and the version forms stay disabled until the current selection has loaded.
+  - Searching Kimi sessions by `ckx` works in the client directory.
+
+- **cxx 0.9.191 wrapper cleanup:**
+  - `clx` no longer copies Claude credentials into `~/.clx/auth/credentials.json`, and it deletes a stale copy.
+  - With memory routing on, `ckx` stops rewriting AGENTS.md on every sync, and later syncs no longer fail with the ownership-path error.
+  - `ckx` reports failures with the same operator notice as `cgx`.
+  - `cgx --help` lists `CGX_CONFIG_PATH`, `CGX_GROK_BIN` and `GROK_ALLOW_FQDN_MISMATCH`.
+  - `clx --uninstall` gives up on the npm check after 5 s, as `cdx` does.
+  - The communicator owner no longer inherits update and cron hand-off markers. Before, these could make it skip a wrapper update and still report it as applied.
+  - Removed: the foreground installers, peer reconciliation, the old per-resource sync fallback, the Spark quota display, `CDX_CODEX_INSTALL_DIR` and the `~/.cxx/rollback` sweep.
+
+- **Docs:** the dated one-off reports and finished plans are deleted; git history keeps them. The engine maintenance report lives at `docs/reports/engine-maintenance.md` and each run overwrites it. Kimi parity exemptions moved to `scripts/engine-parity-exemptions.md`.
+
 - **Switched-off engines disappear everywhere.** An engine switched off fleet-wide no longer appears outside the Engines page: Usage limits, Accounts, Hosts, setup, settings pickers, Overview, the Android companion's Quotas tab and the Plasma widget (both server-side via `/companion/v1/quotas`, no app release needed), the cxx launchpad and `cxx update`. The console reads one list from the new `GET /admin/engines/active`.
 
 - **Engine destroy reaches every host (cxx 0.9.191).** Destroy now also targets hosts that ran the engine earlier and were later unassigned, hosts registered or returning after the request, and the advisor host, which no longer regains a destroyed engine at boot. They show as pending until they report. Destroy also removes leftover launcher links in `~/.local/bin` and `~/bin` that point into the removed engine directories; hosts that already finished run this cleanup once more.

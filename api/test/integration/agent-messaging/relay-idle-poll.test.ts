@@ -46,7 +46,6 @@ describe.skipIf(!config)(
         status: 'active',
         secure: 1,
         engines: ENGINES.join(','),
-        agentMessagingEnabled: 1,
         createdAt: now,
         updatedAt: now,
       });

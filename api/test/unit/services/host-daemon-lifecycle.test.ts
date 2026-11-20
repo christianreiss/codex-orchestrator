@@ -45,7 +45,6 @@ describe('host daemon service decisions', () => {
             apiKey: 'test-daemon-key',
               engines: 'codex,claude,grok,kimi',
               secure: 1,
-              agentMessagingEnabled: 1,
               status: 'active',
               authDigest: 'test',
               claudeAuthDigest: 'test',
@@ -356,8 +355,7 @@ describe('host daemon service decisions', () => {
     expect((await service.view(1)).health.reasons).toContain('messaging_or_api_disabled');
     await expect(service.eligible(1)).rejects.toThrow('disabled');
   });
-  it('ignores the retired per-host messaging flag for connection, health and starts', async () => {
-    row(hosts).agentMessagingEnabled = 0;
+  it('connects, reports green health and starts while the fleet switch is on', async () => {
     expect((await service.view(1)).health.state).toBe('green');
     await expect(service.eligible(1)).resolves.toBeDefined();
     const runtime = (await service.settings(1)).runtime!;

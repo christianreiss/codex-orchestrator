@@ -8,11 +8,11 @@ sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, a
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
 subscription login, centralized renewal, native receiver, and gateway details.
 
-Open **Providers → Accounts** (`/accounts`) to manage the ChatGPT and Claude credentials shared by your fleet. Each engine has its own pool: three Claude subscriptions work with clx even when there are no ChatGPT accounts. cdx requires its own ChatGPT or OpenAI credentials.
+Open **Providers → Accounts** (`/accounts`) to manage the provider credentials shared by your fleet. Each engine has its own pool: three Claude subscriptions work with clx even when there are no Codex accounts. cdx requires its own ChatGPT or OpenAI credentials. The engine appears under each account's name (there is no separate Engine column), with its plan, and a session links to the host by name. Below 640 px each account is a stacked card instead of a table.
 
 ## Add and maintain accounts
 
-Choose **ChatGPT** or **Claude**, then **Add account**. Give it an optional name and upload native credentials through the same panel used during setup and host seeding. A live runner verification must succeed before credentials can be assigned. The command tab issues a one-time seed command; uploading directly lets you name the account immediately.
+Choose **Codex** or **Claude** (or another engine that is switched on), then **Add account**. Give it an optional name and upload native credentials through the same panel used during setup and host seeding. A live runner verification must succeed before credentials can be assigned. The command tab issues a one-time seed command; uploading directly lets you name the account immediately.
 
 An account is a subscription, not a login session. Client uploads with a known distinct provider identity can enroll another account automatically. Fresh opaque OAuth tokens reuse the sole account or the account assigned to that session/host; access/refresh lineage also matches known credentials. With multiple accounts and no assignment, an opaque upload needs **Replace credentials** on the intended account. Use **Add account** (upload or untargeted seed command) to explicitly enroll an additional opaque account.
 

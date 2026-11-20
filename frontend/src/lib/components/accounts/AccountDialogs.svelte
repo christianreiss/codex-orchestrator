@@ -40,7 +40,7 @@
   const target = $derived(dialog && dialog.kind !== "add" ? dialog.account : null);
   const title = $derived(
     target && dialog?.kind === "replace" ? `Replace ${target.label} credentials`
-      : scope !== "all" ? `Add ${ENGINE_META[scope].account} account` : "Add account",
+      : scope !== "all" ? `Add ${ENGINE_META[scope].label} account` : "Add account",
   );
   const removeOpen = $derived(dialog?.kind === "remove");
 </script>

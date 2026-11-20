@@ -149,30 +149,30 @@
           <Select.Item value="off">Off</Select.Item>
         </Select.Content>
       </Select.Root>
-      <p class="text-body-sm text-muted-foreground">Compares OpenAI, Claude and Kimi Code usage and time until reset; Grok subscription quota is unavailable and is not compared. Automated starts only show a hint. A switch opens a new session.</p>
+      <p class="text-body-sm text-muted-foreground">Compares provider usage and time until reset, for providers that report quota. Automated starts only show a hint. A switch opens a new session.</p>
     </div>
     <div class="grid gap-1.5">
       <Label for="advice-high">High usage (%)</Label>
-      <Input id="advice-high" type="number" min={1} max={100} step={1} bind:value={advice.high_usage_percent} />
+      <Input class="max-w-xs" id="advice-high" type="number" min={1} max={100} step={1} bind:value={advice.high_usage_percent} />
     </div>
     <div class="grid gap-1.5">
       <Label for="advice-projected">Critical estimated usage at reset (%)</Label>
-      <Input id="advice-projected" type="number" min={100} max={500} step={1} bind:value={advice.projected_usage_percent} />
+      <Input class="max-w-xs" id="advice-projected" type="number" min={100} max={500} step={1} bind:value={advice.projected_usage_percent} />
     </div>
     <div class="grid gap-1.5">
       <Label for="advice-gap">Minimum pressure difference (points)</Label>
-      <Input id="advice-gap" type="number" min={1} max={100} step={1} bind:value={advice.min_pressure_gap} />
+      <Input class="max-w-xs" id="advice-gap" type="number" min={1} max={100} step={1} bind:value={advice.min_pressure_gap} />
       <p class="text-body-sm text-muted-foreground">100 pressure points means a threshold is reached. The alternative must stay below 100.</p>
     </div>
     <div class="grid gap-1.5">
       <Label for="advice-age">Maximum measurement age (minutes)</Label>
-      <Input id="advice-age" type="number" min={1} max={120} step={1} bind:value={advice.max_age_minutes} />
+      <Input class="max-w-xs" id="advice-age" type="number" min={1} max={120} step={1} bind:value={advice.max_age_minutes} />
     </div>
     <div class="flex items-center gap-3 sm:col-span-2">
       <Switch id="advice-remember" checked={advice.remember_day} onCheckedChange={(v) => (advice.remember_day = v)} />
       <Label for="advice-remember">Allow remembering the provider until local midnight</Label>
     </div>
-    <p class="text-body-sm text-muted-foreground sm:col-span-2">Remembered choices apply to this computer's user across cdx, clx, and cgx. Use --quota-choice-reset to choose again.</p>
+    <p class="text-body-sm text-muted-foreground sm:col-span-2">Remembered choices apply to this computer's user across all engines. Use --quota-choice-reset to choose again.</p>
   </div>
 
   <div class="pt-2">

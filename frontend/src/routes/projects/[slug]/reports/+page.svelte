@@ -24,8 +24,9 @@
   const TYPES: ProjectFeedbackType[] = ["feature", "bug", "issue", "test", "note"];
   // `status` once had no writer anywhere, so every item ever filed was still open. A review inbox that cannot be closed is a list nobody reads.
   const STATUSES: ProjectFeedbackStatus[] = ["open", "acknowledged", "resolved", "dismissed"];
-  const STATUS_BADGE: Record<ProjectFeedbackStatus, BadgeVariant> = { open: "warning", acknowledged: "default", resolved: "success", dismissed: "outline" };
-  const TYPE_BADGE: Record<ProjectFeedbackType, BadgeVariant> = { feature: "default", bug: "destructive", note: "secondary", issue: "destructive", test: "outline" };
+  const sentence = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
+  const STATUS_BADGE: Record<ProjectFeedbackStatus, BadgeVariant> = { open: "secondary", acknowledged: "default", resolved: "success", dismissed: "outline" };
+  const TYPE_BADGE: Record<ProjectFeedbackType, BadgeVariant> = { feature: "outline", bug: "outline", note: "outline", issue: "outline", test: "outline" };
   const statusOf = (entry: ProjectFeedback): ProjectFeedbackStatus => entry.status ?? "open";
 
   const filterState = new UrlFilters({ q: "", status: "", type: "" });
@@ -117,8 +118,8 @@
       {#if entry}
         <div class="space-y-4">
           <div class="flex flex-wrap items-center gap-2">
-            <Badge variant={TYPE_BADGE[entry.type] ?? "default"}>{entry.type}</Badge>
-            <Badge variant={STATUS_BADGE[statusOf(entry)]}>{statusOf(entry)}</Badge>
+            <Badge variant={TYPE_BADGE[entry.type] ?? "default"}>{sentence(entry.type)}</Badge>
+            <Badge variant={STATUS_BADGE[statusOf(entry)]}>{sentence(statusOf(entry))}</Badge>
             <span class="text-caption text-muted-foreground"><Timestamp value={entry.created_at} /></span>
           </div>
           <p class="whitespace-pre-wrap break-words text-body">{entry.body}</p>
