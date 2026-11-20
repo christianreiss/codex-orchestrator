@@ -150,9 +150,7 @@ engine-specific deltas are called out in [clx](/admin/manual/clx):
    containing: engine, auth digest + candidate bytes, agents digest,
    settings/config digest, username, and home dir. The server returns auth,
    agents content, config/settings content, and the compatibility `sessions`
-   activity object in one response. If the server returns `404`, `501`, or
-   `405` the wrapper falls back to sequential legacy calls: `POST /auth`,
-   `POST /agents/retrieve`, `POST /config/retrieve`.
+   activity object in one response. There is no per-resource fallback.
    Legacy auth convergence is two-way: a newer usable local generation is
    preserved and offered through `store`; only a validation-shaped 400/422
    rejection plus an already-retrieved verified canonical can authorize older

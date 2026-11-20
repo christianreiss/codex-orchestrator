@@ -126,47 +126,6 @@ func TestAuthCandidateAcceptedDistinguishesStoreArbitration(t *testing.T) {
 	}
 }
 
-func TestRetrieveAgents(t *testing.T) {
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"status":"ok","data":{"status":"updated","content":"# CLAUDE.md\n"}}`))
-	})
-	body, err := c.RetrieveAgents(context.Background(), "")
-	if err != nil {
-		t.Fatalf("agents: %v", err)
-	}
-	if string(body) != "# CLAUDE.md\n" {
-		t.Fatalf("body = %q", string(body))
-	}
-}
-
-func TestRetrieveConfigUnwrapsContentAndSendsSha(t *testing.T) {
-	var requestBody string
-	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		requestBody = string(body)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "ok",
-			"data": map[string]any{
-				"status":  "updated",
-				"content": `{"model":"claude-sonnet-4-6"}` + "\n",
-			},
-		})
-	})
-	body, err := c.RetrieveConfig(context.Background(), "abc")
-	if err != nil {
-		t.Fatalf("config: %v", err)
-	}
-	if string(body) != `{"model":"claude-sonnet-4-6"}`+"\n" {
-		t.Fatalf("body = %q", string(body))
-	}
-	if !strings.Contains(requestBody, `"sha256":"abc"`) {
-		t.Fatalf("missing sha256 in request: %s", requestBody)
-	}
-	if strings.Contains(requestBody, `"digest"`) {
-		t.Fatalf("request still used digest: %s", requestBody)
-	}
-}
-
 // insecureWriteErr writes a standard error envelope with the given HTTP status
 // and machine code, matching the orchestrator's insecure-approval responses.
 func insecureWriteErr(w http.ResponseWriter, status int, code, message string) {

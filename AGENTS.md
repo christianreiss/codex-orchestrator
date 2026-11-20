@@ -117,8 +117,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 
 4. **Telemetry + sync extras**
    - `/host/users` records username/hostname combos for uninstall cleanup and returns known users.
-   - `/skills` lists/retrieves/stores canonical skill manifests by slug/sha.
-   - `/agents/retrieve` syncs canonical AGENTS doc; `/config/retrieve` syncs rendered client config.
+   - `GET /skills` lists canonical skill manifests; skill bodies, the canonical AGENTS doc and the rendered client config reach hosts through `/sync/bootstrap` (skills also through MCP).
    - `/host/lane` gets/sets lane preference (`normal`, `null`; legacy `spark` heals to `null`) with insecure-window enforcement.
    - `/wrapper/v2/config` + `/wrapper/v2/bin/...` (plus the `/wrapper/v2/download/{artifact}/...` alias for cxx 0.9.71–0.9.74) serve the v2 binary bakery. Date-versioned shell wrappers are unsupported and need a reinstall.
    - `/mcp` serves JSON-RPC MCP tools/resources, including the host-scoped `memory_*`, fleet-wide `shared_memory_*` and `project_*` knowledge tools (there is no host REST mirror for them) (GET probe advertises POST-only, with origin allowlist checks).

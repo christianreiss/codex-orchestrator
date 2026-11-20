@@ -654,7 +654,7 @@ orchestrator can bake the matching `binary_url` / SHA256 for this host.
 ## Managed CLAUDE.md feature guidance
 
 The admin editor and version history store only canonical base Markdown. During
-`/agents/retrieve` or bundled startup sync, the server derives the effective
+bundled startup sync (`/sync/bootstrap`), the server derives the effective
 Claude/host feature state and appends at most one
 `<!-- cxx:managed-policy:start -->` … `<!-- cxx:managed-policy:end -->` always prefixes the served document with Codex Orchestrator fleet identity, instruction precedence/safety floor, and Hard Stop Lines. The canonical builder/raw base follows, then `<!-- cxx:managed-features:start -->` … `<!-- cxx:managed-features:end -->` carries engine-appropriate capability guidance.
 block. Existing orchestrator-owned blocks are replaced so repeated renders are
@@ -1093,8 +1093,8 @@ analogue for. The orchestrator manages them as first-class fleet artifacts
   failure, or prune failure preserves the last-good manifest entry and file so
   a best-effort sync cannot turn a transient error into destructive cleanup.
 - Admin: `GET /admin/claude/:kind`, `GET /admin/claude/:kind/:slug`,
-  `POST /admin/claude/:kind/store`, `DELETE /admin/claude/:kind/:slug`. Host
-  surface is read-only: `GET /claude/:kind`, `POST /claude/:kind/retrieve`
+  `POST /admin/claude/:kind/store`, `DELETE /admin/claude/:kind/:slug`. Hosts
+  receive them read-only in the `claude_artifacts` block of `/sync/bootstrap`
   (these artifacts are admin-authored fleet-wide). `:kind` accepts singular or
   plural spellings.
 

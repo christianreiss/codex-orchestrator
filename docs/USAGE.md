@@ -260,8 +260,8 @@ for the verified compatibility boundary.
   writes from native/local writes. Distinct canonical digests at the same
   instant preserve the first response but fail the invocation as an ambiguous
   ordering conflict.
-- `${CODEX_HOME:-~/.codex}/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/config/retrieve`). Written `0600`, and an existing group/world-readable copy is tightened on the next sync, because the managed MCP entry carries the fleet bearer in its `[mcp_servers.cdx.env]` table. A custom `CODEX_HOME` is a fully managed home and receives the same content (bearer and `auth.json` included); native utilities such as `codex mcp add` do not sync, so isolated CLI checks run there without fleet content.
-- `${CODEX_HOME:-~/.codex}/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/agents/retrieve`).
+- `${CODEX_HOME:-~/.codex}/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`). Written `0600`, and an existing group/world-readable copy is tightened on the next sync, because the managed MCP entry carries the fleet bearer in its `[mcp_servers.cdx.env]` table. A custom `CODEX_HOME` is a fully managed home and receives the same content (bearer and `auth.json` included); native utilities such as `codex mcp add` do not sync, so isolated CLI checks run there without fleet content.
+- `${CODEX_HOME:-~/.codex}/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`).
 - No local Skill mirror is maintained. `cdx` reads Skills through MCP `skill://{slug}`. `~/.agents/skills`, `${CODEX_HOME:-~/.codex}/skills` and `${CODEX_HOME:-~/.codex}/prompts` belong to the user and are never deleted by the wrapper.
 
 For Claude, `~/.claude/.credentials.json` is the only authoritative local auth

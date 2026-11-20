@@ -405,13 +405,7 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and age
 | POST | `/seed/auth/:token` | api/src/routes/install/index.ts |
 | GET/POST | `/seed/v2/auth/:token` | api/src/routes/install/index.ts |
 | GET/POST | `/mcp` | api/src/routes/mcp/index.ts |
-| POST | `/agents/retrieve` | api/src/routes/projects-client/index.ts |
-| POST | `/config/retrieve` | api/src/routes/projects-client/index.ts |
-| GET | `/claude/:kind` | api/src/routes/projects-client/index.ts |
-| POST | `/claude/:kind/retrieve` | api/src/routes/projects-client/index.ts |
 | GET | `/skills` | api/src/routes/projects-client/index.ts |
-| POST | `/skills/retrieve` | api/src/routes/projects-client/index.ts |
-| POST | `/skills/store` | api/src/routes/projects-client/index.ts |
 | GET | `/healthz` | api/src/routes/health.ts |
 | GET | `/readyz` | api/src/routes/health.ts |
 
@@ -443,7 +437,7 @@ Each of the three surfaces is served by a backend engine chosen in **Access → 
 - api/src/routes/grok-v1/index.ts (mounts the `/v1` handlers under `/grok` for the Grok gateway)
 - api/src/routes/admin/grok/index.ts (Grok keys, gateway state, default model, model toggles, client config)
 - api/src/services/grok-models.ts (Grok catalog and per-model gateway switches)
-- api/src/routes/projects-client/index.ts (host-facing `/skills`, `/agents/retrieve`, `/config/retrieve`, `/claude/:kind*`)
+- api/src/routes/projects-client/index.ts (host-facing `GET /skills`)
 - api/src/routes/mcp/index.ts (MCP JSON-RPC)
 - api/src/routes/health.ts (liveness/readiness probes)
 - api/src/ws/server.ts (admin websocket)

@@ -490,7 +490,7 @@ The config:
 ## Managed AGENTS.md feature guidance
 
 The admin editor and version history store only canonical base Markdown. During
-`/agents/retrieve` or bundled startup sync, the server derives the effective
+bundled startup sync (`/sync/bootstrap`), the server derives the effective
 Codex/host feature state and composes the served document from three parts:
 `<!-- cxx:managed-policy:start -->` … `<!-- cxx:managed-policy:end -->` always
 prefixes it with Codex Orchestrator fleet identity, instruction precedence/safety
@@ -600,8 +600,7 @@ codex-cli 0.156.1 and newer refuse `--profile <name>` while `config.toml` holds
 `$CODEX_HOME/<name>.config.toml` on top of the base config instead (confirmed on
 0.156.1, 0.157.0 and 0.158.0, 2026-09-29). For those hosts the server keeps
 `[profiles.*]` out of the rendered `config.toml` and ships each fleet profile as a
-`profiles: [{name, sha256, content}]` entry on the config reply (`/config/retrieve`
-and the `config` block of `/sync/bootstrap`; see `docs/interface-api.md`). A host
+`profiles: [{name, sha256, content}]` entry in the `config` block of `/sync/bootstrap` (see `docs/interface-api.md`). A host
 counts as new when its last reported `client_version` is 0.156.1+ or unknown.
 
 The wrapper writes each entry to `$CODEX_HOME/<name>.config.toml` only when its

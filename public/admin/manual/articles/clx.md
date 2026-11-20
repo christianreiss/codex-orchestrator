@@ -142,9 +142,8 @@ Implemented in `wrappers/cxx/internal/persona/claude/lifecycle/` as `lifecycle.R
 3. **POST `/sync/bootstrap`** with a `BundleRequest` carrying: `engine=claude`,
    `include_auth=true`, auth digest, auth candidate, agents digest, config
    digest, `home`, `username`, and artifact digests for subagents, commands,
-   output-styles, and skills. Falls back to legacy separate `POST /auth`,
-   `POST /agents/retrieve`, and `POST /config/retrieve` calls if the server
-   returns 404, 501, or 405. Legacy auth convergence preserves a newer usable
+   output-styles, and skills. There is no per-resource fallback. Legacy auth
+   convergence preserves a newer usable
    local generation and attempts store; only a validation-shaped 400/422 plus
    an already-retrieved verified canonical permits older replacement.
    Transient, security/policy, and rate failures preserve local auth, while
@@ -461,8 +460,8 @@ failure, or prune failure keeps the last-good file and manifest entry for retry
 instead of silently deleting working state. Admin CRUD lives at
 `GET /admin/claude/:kind`, `GET /admin/claude/:kind/:slug`,
 `POST /admin/claude/:kind/store`, and `DELETE /admin/claude/:kind/:slug`
-(backed by `api/src/services/claude-artifacts.ts`); the host-facing surface is
-read-only (`GET /claude/:kind`, `POST /claude/:kind/retrieve`).
+(backed by `api/src/services/claude-artifacts.ts`); hosts receive the set
+read-only in the `claude_artifacts` block of `/sync/bootstrap`.
 
 ## Source references
 

@@ -146,8 +146,6 @@ describe('docs/USAGE.md endpoint reference', () => {
       '/auth',
       '/sync/status',
       '/sync/bootstrap',
-      '/config/retrieve',
-      '/agents/retrieve',
       '/wrapper/v2/config',
       '/admin/hosts/register',
       '/admin/api/state',

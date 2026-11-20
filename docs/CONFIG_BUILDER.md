@@ -11,8 +11,8 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
   for model defaults.
 - API: `/admin/config` (GET metadata + `content` + `settings`),
   `/admin/config/render` (preview without saving), `/admin/config/store`
-  (persist normalized `settings`), and `/config/retrieve` (host-facing baked
-  download) retain the full advanced `config.toml` contract for managed
+  (persist normalized `settings`), and the `config` block of `/sync/bootstrap`
+  (host-facing baked download) retain the full advanced `config.toml` contract for managed
   automation and integrations.
 
 ## Flow
@@ -21,7 +21,7 @@ Server-owned `config.toml` with per-host baking, delivered by `cdx`. This doc is
    `/admin/config`, previews a structured `settings` payload through
    `/admin/config/render`, and stores it through `/admin/config/store`.
 2. Server normalizes and renders TOML, stores both the rendered file and the normalized `settings`, and returns `sha256` + size.
-3. Hosts call `/config/retrieve` with their API key. The server:
+3. Hosts receive it as the `config` block of `POST /sync/bootstrap`. The server:
    - Applies any per-host `model_override` + `reasoning_effort_override` to the effective settings.
    - Injects managed HTTP MCP auth for the host: the host API key on secure hosts, or a short-lived MCP bearer on insecure hosts (when orchestrator MCP is enabled).
    - When that managed Codex MCP entry is successfully injected, appends a `[[skills.config]]` entry with `name = "skill-creator"` and `enabled = false` so the built-in local creator cannot bypass authoritative fleet Skill discovery. MCP-disabled or unavailable renders do not suppress it.
@@ -179,9 +179,10 @@ Recognized OTEL input keys are `environment`, `exporter`, `endpoint`, `protocol`
   ```
 - Fetch baked config for a host:
   ```bash
-  curl -s "$BASE/config/retrieve" \
+  curl -s "$BASE/sync/bootstrap" \
     -H "Authorization: Bearer $HOST_API_KEY" \
-    -d '{"sha256":""}' | jq .
+    -H "Content-Type: application/json" \
+    -d '{"engine":"codex","include_auth":false}' | jq .data.config
   ```
 
 ## Model provider controls

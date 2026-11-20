@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 )
 
@@ -42,19 +41,4 @@ func (c *Client) ListSkills(ctx context.Context) ([]Skill, error) {
 		return out.Skills, nil
 	}
 	return out.Data.Skills, nil
-}
-
-// SkillRetrieved is the body returned by /skills/retrieve. The orchestrator
-// returns the manifest contents which we persist on disk.
-type SkillRetrieved struct {
-	Status string          `json:"status"`
-	Data   json.RawMessage `json:"data,omitempty"`
-}
-
-func (c *Client) RetrieveSkill(ctx context.Context, slug string) (json.RawMessage, error) {
-	out := &SkillRetrieved{}
-	if err := c.JSON(ctx, http.MethodPost, "/skills/retrieve", map[string]string{"slug": slug, "engine": "codex"}, out, 1); err != nil {
-		return nil, err
-	}
-	return out.Data, nil
 }
