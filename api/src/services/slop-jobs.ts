@@ -41,7 +41,7 @@ import {
   normalizeSlopPath,
   type SlopFileKind,
 } from './slop-jobs/paths.js';
-import { MAX_DIFF_LINES, unifiedDiff } from './slop-jobs/diff.js';
+import { compareRuns, MAX_DIFF_LINES, unifiedDiff } from './slop-jobs/diff.js';
 import { buildTar, tarName, type TarEntry } from './slop-jobs/tar.js';
 import { parseReviewReply, reviewQuestion, stripReviewBlock } from './slop-jobs/review.js';
 import { slopAdvisorEvents } from './slop-jobs/advisor-hook.js';
@@ -609,28 +609,27 @@ export class SlopJobsService {
     if (!from || !to) throw new NotFoundError('Both runs must exist; a run diff needs at least two runs', 'slop_run_not_found');
     const a = this.parseJson<SlopReport>(from.reportJson),
       b = this.parseJson<SlopReport>(to.reportJson);
-    const fa = new Map((a?.findings ?? []).map((f) => [f.id, f])),
-      fb = new Map((b?.findings ?? []).map((f) => [f.id, f]));
     const brief = (f: SlopReport['findings'][number]) => ({ id: f.id, rule: f.rule, priority: f.priority, kind: f.kind, location: f.location, message: f['message'] });
-    const sa = this.parseJson<Snapshot>(from.snapshotJson) ?? {},
-      sb = this.parseJson<Snapshot>(to.snapshotJson) ?? {};
+    const cmp = compareRuns(
+      { mode: from.mode, findings: a?.findings ?? [], files: this.parseJson<Snapshot>(from.snapshotJson) ?? {} },
+      { mode: to.mode, findings: b?.findings ?? [], files: this.parseJson<Snapshot>(to.snapshotJson) ?? {} },
+    );
     return {
       from: this.runSummary(from),
       to: this.runSummary(to),
       findings: {
-        new: [...fb.values()].filter((f) => !fa.has(f.id)).map(brief),
-        resolved: [...fa.values()].filter((f) => !fb.has(f.id)).map(brief),
-        unchanged: [...fb.values()].filter((f) => fa.has(f.id)).length,
+        new: cmp.findings.new.map(brief),
+        resolved: cmp.findings.resolved.map(brief),
+        ...(cmp.mixed_modes ? { not_rechecked: cmp.findings.not_rechecked.map(brief) } : {}),
+        unchanged: cmp.findings.unchanged,
       },
-      files: {
-        added: Object.keys(sb).filter((p) => !sa[p]),
-        removed: Object.keys(sa).filter((p) => !sb[p]),
-        changed: Object.keys(sb)
-          .filter((p) => sa[p] && sa[p]!.sha256 !== sb[p]!.sha256)
-          .map((p) => ({ path: p, from_rev: sa[p]!.rev, to_rev: sb[p]!.rev })),
-      },
+      files: cmp.files,
       description_changed: from.descriptionRev !== to.descriptionRev,
-      note: 'Finding ids derive from rule, location and evidence: moved code shows up as resolved + new.',
+      note:
+        'Finding ids derive from rule, location and evidence: moved code shows up as resolved + new.' +
+        (cmp.mixed_modes
+          ? ' The runs differ in mode: a quick run reviews nothing and snapshots only source files, so the full run\'s review findings are listed as not_rechecked (not resolved; run full again to confirm a fix) and screenshots/a11y exports are counted in files.not_compared instead of added/removed/changed.'
+          : ''),
     };
   }
 

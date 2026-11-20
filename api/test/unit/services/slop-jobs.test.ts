@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { inferSlopKind, normalizeSlopPath, pathsCollide, isLikelyText } from '../../../src/services/slop-jobs/paths.js';
-import { unifiedDiff } from '../../../src/services/slop-jobs/diff.js';
+import { compareRuns, unifiedDiff } from '../../../src/services/slop-jobs/diff.js';
 import { buildTar, tarName } from '../../../src/services/slop-jobs/tar.js';
 import { parseReviewReply, reviewQuestion, REVIEW_FENCE, stripReviewBlock } from '../../../src/services/slop-jobs/review.js';
 import { parseAdvisorVerdict } from '../../../src/services/advisor-delivery.js';
@@ -62,6 +62,47 @@ describe('slop job diff', () => {
     const created = unifiedDiff('', 'one\ntwo\n', '/dev/null', 'f@1');
     expect(created.diff).toContain('@@ -0,0 +1,2 @@');
     expect(created.added).toBe(2);
+  });
+});
+
+describe('slop job run comparison', () => {
+  const file = (kind: string, sha = 'a') => ({ rev: 1, sha256: sha, kind });
+  const full = {
+    mode: 'full',
+    findings: [
+      { id: 'review:1', kind: 'review' },
+      { id: 'abc', kind: 'measured' },
+      { id: 'def', kind: 'measured' },
+    ],
+    files: { 'src/a.ts': file('source', 'a'), 'shots/home.png': file('screenshot'), 'a11y.json': file('a11y') },
+  };
+  const quick = { mode: 'quick', findings: [{ id: 'abc', kind: 'measured' }], files: { 'src/a.ts': file('source', 'b') } };
+
+  it('does not call a full run review finding resolved when a quick run follows', () => {
+    const cmp = compareRuns(full, quick);
+    expect(cmp.findings.resolved.map((f) => f.id)).toEqual(['def']);
+    expect(cmp.findings.not_rechecked.map((f) => f.id)).toEqual(['review:1']);
+    expect(cmp.findings.unchanged).toBe(1);
+  });
+  it('does not report screenshots and a11y exports as removed when a quick run follows', () => {
+    const cmp = compareRuns(full, quick);
+    expect(cmp.files.removed).toEqual([]);
+    expect(cmp.files.not_compared).toBe(2);
+    expect(cmp.files.changed).toEqual([{ path: 'src/a.ts', from_rev: 1, to_rev: 1 }]);
+  });
+  it('does not report them as added when a quick run is followed by a full one', () => {
+    const cmp = compareRuns(quick, full);
+    expect(cmp.files.added).toEqual([]);
+    expect(cmp.files.not_compared).toBe(2);
+    expect(cmp.findings.new.map((f) => f.id).sort()).toEqual(['def', 'review:1']);
+  });
+  it('keeps the plain comparison between runs of the same mode', () => {
+    const later = { ...full, findings: [{ id: 'abc', kind: 'measured' }], files: { 'src/a.ts': file('source', 'a') } };
+    const cmp = compareRuns(full, later);
+    expect(cmp.findings.resolved.map((f) => f.id)).toEqual(['review:1', 'def']);
+    expect(cmp.findings.not_rechecked).toEqual([]);
+    expect(cmp.files.removed.sort()).toEqual(['a11y.json', 'shots/home.png']);
+    expect(cmp.files.not_compared).toBe(0);
   });
 });
 

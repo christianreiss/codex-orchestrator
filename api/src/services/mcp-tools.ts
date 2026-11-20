@@ -2098,7 +2098,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_diff',
         description:
-          'Diff inside a slop job. With `path`: unified diff between two revisions of that file (`from_rev`/`to_rev`, default previous vs. latest; binary files report hash changes only). With `from_run`/`to_run` (run id or sequence; default the two latest runs): findings that are new, resolved or unchanged, plus files added, removed or changed between the run snapshots.',
+          'Diff inside a slop job. With `path`: unified diff between two revisions of that file (`from_rev`/`to_rev`, default previous vs. latest; binary files report hash changes only). With `from_run`/`to_run` (run id or sequence; default the two latest runs): findings that are new, resolved or unchanged, plus files added, removed or changed between the run snapshots. When the runs differ in mode (one is quick), the full run\'s review findings are listed under `findings.not_rechecked` instead of `resolved` (a quick run never reviews; run full again to confirm a fix) and screenshots/a11y exports, which a quick run does not snapshot, are only counted in `files.not_compared`.',
         inputSchema: {
           type: 'object',
           properties: {
