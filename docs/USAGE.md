@@ -262,8 +262,7 @@ for the verified compatibility boundary.
   ordering conflict.
 - `${CODEX_HOME:-~/.codex}/config.toml` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/config/retrieve`). Written `0600`, and an existing group/world-readable copy is tightened on the next sync, because the managed MCP entry carries the fleet bearer in its `[mcp_servers.cdx.env]` table. A custom `CODEX_HOME` is a fully managed home and receives the same content (bearer and `auth.json` included); native utilities such as `codex mcp add` do not sync, so isolated CLI checks run there without fleet content.
 - `${CODEX_HOME:-~/.codex}/AGENTS.md` — synced from server startup sync (`/sync/status` + `/sync/bootstrap`; fallback `/agents/retrieve`).
-- Legacy `${CODEX_HOME:-~/.codex}/prompts/` and `.prompt-baseline.json` state is removed automatically by current wrappers.
-- No local Skill mirror is maintained. `cdx` reads Skills through MCP `skill://{slug}` and prunes stale `~/.agents/skills` plus `${CODEX_HOME:-~/.codex}/skills` leftovers during upgrade.
+- No local Skill mirror is maintained. `cdx` reads Skills through MCP `skill://{slug}`. `~/.agents/skills`, `${CODEX_HOME:-~/.codex}/skills` and `${CODEX_HOME:-~/.codex}/prompts` belong to the user and are never deleted by the wrapper.
 
 For Claude, `~/.claude/.credentials.json` is the only authoritative local auth
 file. `~/.clx/auth/credentials.json`, when already present, is a compatibility

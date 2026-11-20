@@ -127,7 +127,7 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out.HostSecure = result.HostSecure
 	case "skills":
 		before := contentSnapshot()
-		result := combineResourceSync(syncSkills(ctx, client, logger), pruneLegacySkillDirs(wrapperVersion(cfg), logger))
+		result := syncSkills(ctx, client, logger)
 		out.Resources["skills"] = resourceToWire(result)
 		_ = contentnotice.PublishChanges("claude", agentsPath(), before, contentSnapshot())
 	case "bootstrap", "content":
@@ -147,7 +147,6 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 			break
 		}
 		out.Resources = map[string]communicator.ResourceResult{"agents": resourceToWire(agents), "config": resourceToWire(settings), "skills": resourceToWire(nativeSkills)}
-		nativeSkills = combineResourceSync(nativeSkills, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 		if req.Operation == "content" {
 			// MCP-served Skills leave no file behind; the /skills fingerprint is
 			// what tells a running session that skill_list changed.

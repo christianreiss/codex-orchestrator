@@ -1,3 +1,7 @@
+# 2026-11-20
+
+- **Wrapper no longer deletes user skills and prompts.** A bash-era cleanup was meant to run once but was keyed to the wrapper version, so on the first sync after every wrapper update `cdx` deleted `~/.agents/skills`, `$CODEX_HOME/skills` and `$CODEX_HOME/prompts`, and `clx` deleted `~/.agents/skills` and `~/.clx/skills` — including user-authored native skills and custom prompts. The cleanup is removed; those directories now belong to the user.
+
 # 2026-11-19
 
 - CXX 0.9.189 restores Codex Code Mode on pfSense by executing the CLI directly with private library mappings. Maintenance repairs a 0.9.188 launcher even when the native client version is already current.

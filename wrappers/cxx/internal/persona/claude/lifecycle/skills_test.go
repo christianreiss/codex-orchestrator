@@ -2,7 +2,6 @@ package lifecycle
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 )
 
@@ -72,73 +73,39 @@ func TestFingerprintSkillsChangesWhenShaChanges(t *testing.T) {
 	}
 }
 
-func TestPruneLegacySkillDirsOneShot(t *testing.T) {
+// User-authored native skills and prompts must survive every sync and every
+// wrapper release. Until 2026-11 a per-version "legacy cleanup" deleted these
+// directories on the first sync after each wrapper update.
+func TestSyncSkillsKeepsUserSkillAndPromptDirs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	// Legacy bash-era caches that MUST be pruned.
+	t.Setenv("CODEX_HOME", "")
 	dirs := []string{
-		filepath.Join(home, ".agents", "skills"),
-		filepath.Join(home, ".clx", "skills"),
+		filepath.Join(home, ".agents", "skills", "mine"),
+		filepath.Join(home, ".claude", "skills", "git-commit"),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatalf("mkdir %s: %v", d, err)
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "SKILL.md"), []byte("user content"), 0o644); err != nil {
+			t.Fatal(err)
 		}
 	}
-	// ~/.claude/skills is now the fleet-managed on-disk skill store and MUST survive.
-	keep := filepath.Join(home, ".claude", "skills", "git-commit", "SKILL.md")
-	if err := os.MkdirAll(filepath.Dir(keep), 0o755); err != nil {
-		t.Fatalf("mkdir claude skills: %v", err)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"skills":[{"slug":"git","sha256":"abc"}]}`)
+	}))
+	defer server.Close()
+	cfg := &config.Config{Engine: "claude", Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "fixture"}}
+	// The communicator "skills" operation is where the old prune ran unconditionally.
+	if got := CommunicatorWork(context.Background(), cfg, communicator.SyncRequest{Operation: "skills"}); got.Error != nil {
+		t.Fatalf("skills operation = %+v", got.Error)
 	}
-	if err := os.WriteFile(keep, []byte("---\nname: git-commit\n---\n"), 0o644); err != nil {
-		t.Fatalf("write skill: %v", err)
-	}
-	logger := slog.Default()
-	pruneLegacySkillDirs("1.2.3", logger)
 	for _, d := range dirs {
-		if _, err := os.Stat(d); !os.IsNotExist(err) {
-			t.Fatalf("expected %s pruned, stat err=%v", d, err)
+		if _, err := os.Stat(filepath.Join(d, "SKILL.md")); err != nil {
+			t.Fatalf("user content in %s was removed: %v", d, err)
 		}
-	}
-	if _, err := os.Stat(keep); err != nil {
-		t.Fatalf("~/.claude/skills must NOT be pruned (fleet-managed): %v", err)
-	}
-	// Second call is a no-op while sentinel exists.
-	if err := os.MkdirAll(dirs[0], 0o755); err != nil {
-		t.Fatalf("recreate: %v", err)
-	}
-	pruneLegacySkillDirs("1.2.3", logger)
-	if _, err := os.Stat(dirs[0]); err != nil {
-		t.Fatalf("sentinel-guarded run unexpectedly pruned: %v", err)
-	}
-	// Bumping the wrapper version must invalidate the sentinel.
-	pruneLegacySkillDirs("1.2.4", logger)
-	if _, err := os.Stat(dirs[0]); !os.IsNotExist(err) {
-		t.Fatalf("version bump should retrigger prune; stat err=%v", err)
-	}
-}
-
-func TestPruneLegacySkillDirsRetriesAfterFailure(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	target := filepath.Join(home, ".clx", "skills")
-	if err := os.MkdirAll(target, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	failed := pruneLegacySkillDirsWith("9.9.9", logger, func(string) error { return errors.New("busy") })
-	if failed.Err == nil || failed.Updated {
-		t.Fatalf("failed prune = %+v, want visible retryable error", failed)
-	}
-	if _, err := os.Stat(legacyCleanupSentinel("9.9.9")); !os.IsNotExist(err) {
-		t.Fatalf("failed prune wrote sentinel: %v", err)
-	}
-	retried := pruneLegacySkillDirs("9.9.9", logger)
-	if retried.Err != nil || !retried.Updated {
-		t.Fatalf("retry prune = %+v", retried)
-	}
-	if _, err := os.Stat(target); !os.IsNotExist(err) {
-		t.Fatalf("retry did not remove target: %v", err)
 	}
 }
 

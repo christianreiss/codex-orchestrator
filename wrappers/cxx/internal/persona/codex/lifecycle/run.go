@@ -528,9 +528,6 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			} else {
 				skillsSync = syncSkillsListed(ctx, client, logger, listed)
 			}
-			if !communicator.SyncManaged(client.BaseURL) {
-				skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
-			}
 		}
 	}
 

@@ -9,13 +9,12 @@
 //     (slug, sha256) fingerprint of the list, and compare against
 //     the cached digest under ~/.cache/codex-orchestrator/clx-skills-digest.
 //     Any change marks the boot screen's "skills" dot as updated.
-//  2. One-shot purge of legacy bash-era on-disk skill caches (`~/.agents/skills`,
-//     `~/.clx/skills`) the first time we boot at this wrapper version.
-//     `~/.claude/skills` is NOT purged — it is the fleet-managed native skill
-//     fallback store reconciled by applyClaudeSkills. MCP content does not
-//     register native Claude Code Skills.
 //
-// Both operations are best-effort: any failure is logged at debug and the
+// `~/.claude/skills` is the fleet-managed native skill fallback store
+// reconciled by applyClaudeSkills. MCP content does not register native
+// Claude Code Skills.
+//
+// The probe is best-effort: any failure is logged at debug and the
 // caller never refuses to launch over it.
 package lifecycle
 
@@ -24,7 +23,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,17 +41,6 @@ func skillsDigestPath() string {
 		return ""
 	}
 	return filepath.Join(home, ".cache", "codex-orchestrator", "clx-skills-digest")
-}
-
-func legacyCleanupSentinel(version string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	if version == "" {
-		version = "dev"
-	}
-	return filepath.Join(home, ".cache", "codex-orchestrator", "clx-cleanup-v"+version)
 }
 
 func syncSkills(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (state summary.ResourceSync) {
@@ -149,63 +136,4 @@ func writeSkillsDigest(fp string) error {
 		return err
 	}
 	return os.Rename(tmp, p)
-}
-
-func pruneLegacySkillDirs(version string, logger *slog.Logger) summary.ResourceSync {
-	return pruneLegacySkillDirsWith(version, logger, os.RemoveAll)
-}
-
-func pruneLegacySkillDirsWith(version string, logger *slog.Logger, removeAll func(string) error) summary.ResourceSync {
-	state := summary.ResourceSync{Checked: true}
-	sentinel := legacyCleanupSentinel(version)
-	if sentinel == "" {
-		state.Err = errors.New("legacy skill cleanup sentinel path unavailable")
-		return state
-	}
-	if _, err := os.Stat(sentinel); err == nil {
-		return state
-	} else if !os.IsNotExist(err) {
-		state.Err = err
-		return state
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		state.Err = err
-		return state
-	}
-	// NOTE: ~/.claude/skills is reconciled by applyClaudeSkills using ownership
-	// manifests, including retirement when MCP supplies Skill content. Only legacy
-	// caches below are purged. A host already pruned at an older version self-heals:
-	// the wrapper advertises no skill digest → the server returns content → the
-	// skills are rewritten on the next run.
-	targets := []string{
-		filepath.Join(home, ".agents", "skills"),
-		filepath.Join(home, ".clx", "skills"),
-	}
-	for _, t := range targets {
-		if _, err := os.Stat(t); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			state.Err = errors.Join(state.Err, fmt.Errorf("stat %s: %w", t, err))
-			continue
-		}
-		if err := removeAll(t); err != nil {
-			logger.Debug("legacy skill dir prune failed", "path", t, "err", err)
-			state.Err = errors.Join(state.Err, fmt.Errorf("prune %s: %w", t, err))
-			continue
-		}
-		state.Updated = true
-		logger.Debug("pruned legacy skill cache", "path", t)
-	}
-	if state.Err != nil {
-		return state
-	}
-	if err := os.MkdirAll(filepath.Dir(sentinel), 0o700); err != nil {
-		state.Err = err
-		return state
-	}
-	if err := os.WriteFile(sentinel, []byte(version+"\n"), 0o600); err != nil {
-		state.Err = err
-	}
-	return state
 }

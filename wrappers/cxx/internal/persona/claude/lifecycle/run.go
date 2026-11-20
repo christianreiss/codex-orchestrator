@@ -432,14 +432,11 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 
 		// The native bundle already checks and applies the complete skill set.
 		// Only older servers that omit it need a separate fingerprint request.
-		// Preserve native write failures and one-shot legacy cleanup outcomes.
+		// Preserve native write failures.
 		if !concurrent {
 			skillsSync = nativeSkillsSync
 			if !nativeSkillsSync.Checked {
 				skillsSync = combineOptionalResourceSync(syncSkills(ctx, client, logger), nativeSkillsSync)
-			}
-			if !communicator.SyncManaged(client.BaseURL) {
-				skillsSync = combineResourceSync(skillsSync, pruneLegacySkillDirs(wrapperVersion(cfg), logger))
 			}
 		}
 	}

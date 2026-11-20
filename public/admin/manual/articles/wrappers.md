@@ -227,10 +227,9 @@ engine-specific deltas are called out in [clx](/admin/manual/clx):
    green, a changed digest gets the updated marker, failures warn, and an
    intentionally skipped check is dim. The combined agents/config marker uses
    the same evidence-based states; Claude native fallback Skill application or MCP-mode owned-copy cleanup
-   contributes to the skills marker, not config. On the first run of a new
-   wrapper version, it performs a one-shot purge of legacy on-disk skill
-   directories (`~/.agents/skills`, effective `CODEX_HOME/skills`, and effective
-   `CODEX_HOME/prompts`).
+   contributes to the skills marker, not config. The wrapper never deletes
+   `~/.agents/skills`, effective `CODEX_HOME/skills` or effective
+   `CODEX_HOME/prompts`; those hold user-authored skills and prompts.
 9. **Boot screen** — render the shared responsive
     outcome/context/version/health card to stderr. Redirects, dumb/narrow
     terminals, and `--minimal` use stable width-bounded ANSI-free ASCII.

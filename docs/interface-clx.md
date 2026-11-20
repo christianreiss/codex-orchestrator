@@ -1007,10 +1007,11 @@ Engine-specific details:
   `disable-model-invocation: true`, so an upstream explicit-only Skill stays
   explicit-only. Prune/strip/uninstall remove only
   manifest-recorded Skill directories; user-authored directories are never
-  touched. Legacy bash-era caches are still purged one-shot:
-  `~/.agents/skills`, `~/.clx/skills`. **`~/.claude/skills` is no longer
-  wholesale-purged** — it remains the native fallback store. Failed pruning
-  remains tracked so the next sync retries it.
+  touched, and `~/.agents/skills` is never deleted. `~/.claude/skills` is not
+  wholesale-purged — it remains the native fallback store. Failed pruning
+  remains tracked so the next sync retries it. (Until cxx 0.9.189 a per-version
+  bash-era cleanup also deleted `~/.agents/skills` and `~/.clx/skills` on the
+  first sync after every wrapper update.)
 - The Matt Pocock source is an admin opt-in and is off by default; this contract
   does not mean it is enabled on a given fleet. When enabled, only the upstream
   plugin allowlist at a validated immutable SHA enters the served inventory

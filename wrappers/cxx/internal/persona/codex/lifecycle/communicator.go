@@ -142,7 +142,7 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		}
 	case "skills":
 		before := contentSnapshot()
-		result := combineResourceSync(syncSkills(ctx, client, logger), pruneLegacySkillDirs(wrapperVersion(cfg), logger))
+		result := syncSkills(ctx, client, logger)
 		out.Resources["skills"] = resourceToWire(result)
 		instructions, _ := agentsPath()
 		_ = contentnotice.PublishChanges("codex", instructions, before, contentSnapshot())
@@ -160,7 +160,7 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		}
 		out.Resources = map[string]communicator.ResourceResult{"agents": resourceToWire(agents), "config": resourceToWire(settings)}
 		if req.Operation == "content" {
-			out.Resources["skills"] = resourceToWire(combineResourceSync(syncSkills(ctx, client, logger), pruneLegacySkillDirs(wrapperVersion(cfg), logger)))
+			out.Resources["skills"] = resourceToWire(syncSkills(ctx, client, logger))
 		}
 		// Running sessions loaded the previous content at startup. A launching
 		// session primes itself after this pass, so only its peers are told.

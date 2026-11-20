@@ -7,11 +7,8 @@
 //     fingerprint of the list, and compare against the cached digest under
 //     ~/.cache/codex-orchestrator/skills-digest. Any change marks the boot
 //     screen's "skills" dot as updated.
-//  2. One-shot purge of the legacy on-disk skill caches (`~/.agents/skills`,
-//     `~/.codex/skills`, `~/.codex/prompts`) the first time we boot at this
-//     wrapper version — they would otherwise shadow the MCP-served copies.
 //
-// Both operations are best-effort: any failure is logged at debug and the
+// The probe is best-effort: any failure is logged at debug and the
 // caller never refuses to launch over it.
 package lifecycle
 
@@ -20,7 +17,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"log/slog"
 	"os"
@@ -40,17 +36,6 @@ func skillsDigestPath() string {
 		return ""
 	}
 	return filepath.Join(home, ".cache", "codex-orchestrator", "skills-digest")
-}
-
-func legacyCleanupSentinel(version string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	if version == "" {
-		version = "dev"
-	}
-	return filepath.Join(home, ".cache", "codex-orchestrator", "cleanup-v"+version)
 }
 
 // syncSkills pings /skills and returns a truthful best-effort health result.
@@ -205,69 +190,4 @@ func writeSkillsDigest(fp string) error {
 		return err
 	}
 	return os.Rename(tmp, p)
-}
-
-// pruneLegacySkillDirs deletes the bash-era on-disk skill caches once per
-// wrapper version (sentinel-gated). v2 reads skills via MCP only; leaving the
-// old trees in place would let stale manifests shadow live ones.
-func pruneLegacySkillDirs(version string, logger *slog.Logger) summary.ResourceSync {
-	return pruneLegacySkillDirsWith(version, logger, os.RemoveAll)
-}
-
-func pruneLegacySkillDirsWith(version string, logger *slog.Logger, removeAll func(string) error) summary.ResourceSync {
-	state := summary.ResourceSync{Checked: true}
-	sentinel := legacyCleanupSentinel(version)
-	if sentinel == "" {
-		state.Err = errors.New("legacy skill cleanup sentinel path unavailable")
-		return state
-	}
-	if _, err := os.Stat(sentinel); err == nil {
-		return state // already cleaned for this wrapper version
-	} else if !os.IsNotExist(err) {
-		state.Err = err
-		return state
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		state.Err = err
-		return state
-	}
-	codexHome, err := codex.CodexHome()
-	if err != nil {
-		state.Err = err
-		return state
-	}
-	targets := []string{
-		filepath.Join(home, ".agents", "skills"),
-		filepath.Join(codexHome, "skills"),
-		filepath.Join(codexHome, "prompts"),
-	}
-	for _, t := range targets {
-		if _, err := os.Stat(t); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			state.Err = errors.Join(state.Err, fmt.Errorf("stat %s: %w", t, err))
-			continue
-		}
-		if err := removeAll(t); err != nil {
-			logger.Debug("legacy skill dir prune failed", "path", t, "err", err)
-			state.Err = errors.Join(state.Err, fmt.Errorf("prune %s: %w", t, err))
-			continue
-		}
-		state.Updated = true
-		logger.Debug("pruned legacy skill cache", "path", t)
-	}
-	if state.Err != nil {
-		return state
-	}
-	// Drop the sentinel only after a complete successful pass so any partial
-	// prune retries on the next run and remains visible as an attention state.
-	if err := os.MkdirAll(filepath.Dir(sentinel), 0o700); err != nil {
-		state.Err = err
-		return state
-	}
-	if err := os.WriteFile(sentinel, []byte(version+"\n"), 0o600); err != nil {
-		state.Err = err
-	}
-	return state
 }
