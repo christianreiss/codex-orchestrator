@@ -166,7 +166,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 ## Admin WebUI
 
 - **Before designing, changing or reviewing any browser UI**, read [`DESIGN.md`](DESIGN.md), the binding design standard for all web surfaces, including authentication, setup, agent chat, help and failure states. Reuse its shared components and tokens, verify the affected rule IDs, and document exceptions in its exception register. Keep its surface inventory current.
-- Source: `frontend/` (Svelte 5 + SvelteKit + Tailwind CSS + shadcn-svelte / bits-ui + lucide-svelte + svelte-sonner + @tanstack/svelte-query + mode-watcher). Built with Vite to a static SPA.
+- Source: `frontend/` (Svelte 5 + SvelteKit + Tailwind CSS + shadcn-svelte / bits-ui + @lucide/svelte + svelte-sonner + @tanstack/svelte-query + mode-watcher). Built with Vite to a static SPA.
 - Build output: `public/admin/` (committed). The API serves `index.html` verbatim from `STATIC_ROOT` for any unknown `/admin/*` route — no server-side injection; the SPA hydrates its session state from `GET /admin/auth/status`. `public/admin/manual/` ships article content consumed by the in-app help system.
 - Develop with `cd frontend && npm install && npm run dev`; produce the deploy artifacts with `npm run build` (output is copied into `public/admin/` by `scripts/copy-build.mjs`). `npm run check` runs `svelte-check`.
 - Routing uses `paths.base = '/admin'`. Routes live under `frontend/src/routes/`; `frontend/src/lib/nav.ts` owns canonical navigation and `frontend/src/lib/legacy-admin-routes.ts` owns retired URL mappings. See `DESIGN.md` for the complete browser-surface inventory.

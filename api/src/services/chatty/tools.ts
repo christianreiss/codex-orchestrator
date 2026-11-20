@@ -301,7 +301,7 @@ export function administrationTools(): ChattyTool[] {
         if (saved?.sha256 !== result.sha256) throw new ConflictError('Skill receipt could not be verified');
         return { ...result, synchronization: 'Stored centrally; host synchronization is separate.' };
       },
-      { snapshot: skillSnapshot, href: (a) => `/admin/authoring/skills/${encodeURIComponent(a.slug)}` },
+      { snapshot: skillSnapshot, href: (a) => `/admin/library/skills/${encodeURIComponent(a.slug)}` },
     ),
     define(
       'skill_delete',
@@ -410,7 +410,7 @@ export function administrationTools(): ChattyTool[] {
         active: z.boolean().optional(),
       },
       async (c, a) => user(c).update(a.id, a),
-      { confirm: true, snapshot: userSnapshot, href: () => '/admin/users' },
+      { confirm: true, snapshot: userSnapshot, href: () => '/admin/people' },
     ),
     define(
       'user_delete',
