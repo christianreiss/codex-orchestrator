@@ -15,10 +15,15 @@
   import InstallCommand from "$lib/components/hosts/detail/InstallCommand.svelte";
   import NetworkSection from "$lib/components/hosts/detail/NetworkSection.svelte";
   import { hostEngines } from "$lib/api/hosts";
+  import { setPageLabel } from "$lib/stores/page-label";
 
   const id = $derived(page.params.id ?? "");
   const detail = $derived(hostDetailQuery(id));
   const host = $derived($detail.data?.host);
+  // The breadcrumb names the host, not "Host #id".
+  $effect(() => {
+    if (host?.fqdn) return setPageLabel(page.url.pathname, host.fqdn);
+  });
 
   let now = $state(Date.now());
   $effect(() => {

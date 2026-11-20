@@ -146,6 +146,10 @@ describe("location text", () => {
     assert.equal(getPageContext("/library/agent-rules"), "Library / Agent rules");
     assert.equal(getPageContext("/projects/fleet/board"), "Projects / Fleet / Board");
     assert.equal(getPageContext("/projects/fleet/slop"), "Projects / Fleet / Design review");
+    // A detail page's own name for its object replaces the URL's placeholder.
+    assert.deepEqual(getBreadcrumbs("/hosts/12", "build-01.example.test"), [{ label: "Hosts", route: "/hosts" }, { label: "build-01.example.test" }]);
+    assert.deepEqual(getBreadcrumbs("/hosts/12", "  "), [{ label: "Hosts", route: "/hosts" }, { label: "Host #12" }]);
+    assert.deepEqual(getBreadcrumbs("/reports", "ignored"), [{ label: "Feedback" }]);
     assert.equal(getPageContext("/reports"), "Feedback");
     assert.deepEqual(getBreadcrumbs("/projects/fleet/board"), [
       { label: "Projects", route: "/projects" },

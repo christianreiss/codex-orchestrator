@@ -19,6 +19,7 @@
   import { base } from "$app/paths";
   import { goto } from "$app/navigation";
   import { getBreadcrumbs } from "$lib/nav";
+  import { pageLabel } from "$lib/stores/page-label";
   import { commandPalette } from "$lib/stores/command-palette";
   import { insecureSummaryQuery } from "$lib/api/insecure";
   import { isInsecureWindowActive } from "$lib/api/hosts";
@@ -97,7 +98,8 @@
     return fleet?.open ? (fleet.until ?? null) : null;
   });
   const path = $derived(page.url.pathname.replace(base, "") || "/");
-  const breadcrumbs = $derived(getBreadcrumbs(path));
+  // A detail page names its object (a host's FQDN) once it has loaded.
+  const breadcrumbs = $derived(getBreadcrumbs(path, $pageLabel?.path === page.url.pathname ? $pageLabel.label : undefined));
   const wsIndicator = $derived.by(() => {
     if ($wsStatus === "open") return { tone: "online" as const, label: "Live", tooltip: "Live updates connected" };
     if ($wsStatus === "idle") return { tone: "warning" as const, label: "Connecting", tooltip: "Waiting for live updates" };

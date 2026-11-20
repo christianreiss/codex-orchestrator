@@ -1110,6 +1110,15 @@ test("project detail and standalone approval keep their task-focused layouts", a
 test("host detail orders problems, engines and access before a collapsed Advanced block", async ({ page }) => {
   await page.goto("/admin/hosts/1");
   await expect(page.getByRole("heading", { name: "console.example.test", level: 1 })).toBeVisible();
+  // The breadcrumb names the host rather than its id, and the name does not linger.
+  const crumbs = page.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(crumbs.getByText("console.example.test", { exact: true })).toBeVisible();
+  await expect(crumbs.getByText("Host #1", { exact: true })).toHaveCount(0);
+  await page.getByRole("navigation", { name: "Primary navigation" }).getByRole("link", { name: "Hosts", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Hosts", level: 1 })).toBeVisible();
+  await expect(crumbs.getByText("console.example.test", { exact: true })).toHaveCount(0);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "console.example.test", level: 1 })).toBeVisible();
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Get install command" })).toBeVisible();
   const headings = await page.locator("main").getByRole("heading", { level: 2 }).allTextContents();

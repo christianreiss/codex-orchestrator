@@ -267,8 +267,17 @@ function detailTrail(parent: Breadcrumb, detail: string): Breadcrumb[] {
  * Produces the visible breadcrumb trail from the same registry that owns
  * navigation and document titles. Detail labels deliberately stay textual:
  * the parent route is the only stable, linkable ancestor for mutable objects.
+ * `detailLabel` is the name a detail page gave its object (see
+ * `stores/page-label.ts`); it replaces the last crumb, which the URL alone
+ * can only call "Host #12".
  */
-export function getBreadcrumbs(pathname: string): Breadcrumb[] {
+export function getBreadcrumbs(pathname: string, detailLabel?: string): Breadcrumb[] {
+  const trail = trailFor(pathname);
+  if (!detailLabel?.trim() || trail.length < 2) return trail;
+  return [...trail.slice(0, -1), { ...trail[trail.length - 1]!, label: detailLabel.trim() }];
+}
+
+function trailFor(pathname: string): Breadcrumb[] {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0 || pathname === "/dashboard") return [{ label: "Overview" }];
   if (pathname.startsWith("/workflows/")) {
@@ -301,7 +310,7 @@ export function getBreadcrumbs(pathname: string): Breadcrumb[] {
 }
 
 /** Human-readable current location for the compact top bar and document title. */
-export function getPageContext(pathname: string): string {
-  return getBreadcrumbs(pathname).map((crumb) => crumb.label).join(" / ");
+export function getPageContext(pathname: string, detailLabel?: string): string {
+  return getBreadcrumbs(pathname, detailLabel).map((crumb) => crumb.label).join(" / ");
 }
 
