@@ -29,6 +29,10 @@ type engineUpdateJob struct {
 // Only independent checks and private native installations overlap. Credential
 // guards, content/auth sync, version reports and daemon changes stay serialized.
 func updateEngines(ctx context.Context, w io.Writer, caps ui.Caps, engines []engineUpdate, deps hostUpdateDeps) int {
+	engines = fleetEngines(engines)
+	if len(engines) == 0 {
+		return 0
+	}
 	labels := make([]string, len(engines))
 	for i, e := range engines {
 		labels[i] = config.EngineLabel(e.name)
@@ -63,6 +67,20 @@ func updateEngines(ctx context.Context, w io.Writer, caps ui.Caps, engines []eng
 	return worst
 }
 
+// fleetEngines drops engines switched off fleet-wide: they are not part of
+// the fleet, so they get no update row, check, install or sync. An engine
+// whose config failed to load stays, so the failure is reported.
+func fleetEngines(engines []engineUpdate) []engineUpdate {
+	out := make([]engineUpdate, 0, len(engines))
+	for _, e := range engines {
+		if e.loadErr == nil && e.cfg.EngineSuspended(e.name) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 func parallelJobs(jobs []*engineUpdateJob, work func(*engineUpdateJob)) {
 	var workers sync.WaitGroup
 	for _, j := range jobs {
@@ -90,10 +108,6 @@ func (j *engineUpdateJob) prepare(deps hostUpdateDeps) {
 	}
 	if j.e.loadErr != nil {
 		j.finish(1, ui.ToneFail, "config failed: "+j.e.loadErr.Error())
-		return
-	}
-	if j.e.cfg.EngineSuspended(j.e.name) {
-		j.finish(0, ui.ToneWarn, "skipped: suspended fleet-wide")
 		return
 	}
 	j.before = deps.version(j.ctx, j.e.name)

@@ -277,7 +277,7 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 }
 
 func skipUpdateEngines(w io.Writer, caps ui.Caps, engines []engineUpdate, reason string) {
-	for _, e := range engines {
+	for _, e := range fleetEngines(engines) {
 		row := ui.StartUpdateRow(w, caps, config.EngineLabel(e.name), "")
 		row.Finish(ui.ToneWarn, "", "skipped: "+reason)
 	}

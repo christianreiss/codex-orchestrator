@@ -2,6 +2,7 @@ package enginedestroy
 
 import (
 	"context"
+	"errors"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"os"
 	"path/filepath"
@@ -138,6 +139,73 @@ func TestMarker(t *testing.T) {
 	}
 	if !Done(home, "grok", "r1") || Done(home, "grok", "r2") || Done(home, "claude", "r1") {
 		t.Fatal("marker must match engine and request id exactly")
+	}
+	// A marker from the unversioned routine makes the host run the current one once more.
+	if err := os.WriteFile(markerPath(home, "grok"), []byte(`{"request_id":"r1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if Done(home, "grok", "r1") {
+		t.Fatal("an older routine's marker must not count as done")
+	}
+}
+
+func TestDestroyRemovesDanglingLauncherLinksOnly(t *testing.T) {
+	home := t.TempDir()
+	other := t.TempDir()
+	mustWrite := func(path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustLink := func(target, link string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustWrite(filepath.Join(home, ".grok", "bin", "grok"))
+	mustWrite(filepath.Join(other, "tool"))
+	mustLink(filepath.Join(home, ".grok", "bin", "grok"), filepath.Join(home, ".local", "bin", "grok"))
+	mustLink("../.grok/bin/grok", filepath.Join(home, "bin", "grok"))
+	mustLink(filepath.Join(other, "tool"), filepath.Join(home, ".local", "bin", "tool"))
+	mustLink(filepath.Join(home, "gone", "elsewhere"), filepath.Join(home, ".local", "bin", "unrelated"))
+	opt := Options{
+		Home:   home,
+		Getenv: func(k string) string { return map[string]string{"TMPDIR": filepath.Join(home, "tmp")}[k] },
+		ConfigPath: func(string) (string, error) {
+			return filepath.Join(home, ".config", "codex-orchestrator", "cgx.json"), nil
+		},
+		NPMUninstall: func(context.Context, string) error { return nil },
+	}
+	res, err := Run(context.Background(), "grok", opt)
+	if err != nil || !res.Complete() {
+		t.Fatalf("err=%v residue=%v", err, res.Residue)
+	}
+	for _, gone := range []string{filepath.Join(home, ".local", "bin", "grok"), filepath.Join(home, "bin", "grok")} {
+		if _, err := os.Lstat(gone); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s should be removed: %v", gone, err)
+		}
+	}
+	// A link that resolves, or dangles into a tree the routine does not own, stays.
+	for _, kept := range []string{filepath.Join(home, ".local", "bin", "tool"), filepath.Join(home, ".local", "bin", "unrelated")} {
+		if _, err := os.Lstat(kept); err != nil {
+			t.Errorf("%s must stay: %v", kept, err)
+		}
+	}
+	// A host that already destroyed the engine under the old routine still loses the link.
+	mustLink(filepath.Join(home, ".grok", "bin", "grok"), filepath.Join(home, ".local", "bin", "grok"))
+	if res, err := Run(context.Background(), "grok", opt); err != nil || !res.Complete() {
+		t.Fatalf("rerun err=%v residue=%v", err, res.Residue)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".local", "bin", "grok")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("rerun left the dangling link: %v", err)
 	}
 }
 
