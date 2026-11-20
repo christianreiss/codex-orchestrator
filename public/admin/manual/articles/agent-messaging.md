@@ -620,8 +620,8 @@ redrive history; and `agent_bus_relays` stores one generation-fenced relay per
 host user. `agent_bus_conferences` and `agent_bus_conference_members` store rooms
 and their rosters — membership and authority only, since the traffic itself rides
 the ordinary conversation and message tables. `agent_sessions.agent_bus_address_id`
-connects the shared wrapper lifecycle to the bus. `hosts.agent_messaging_enabled`
-is the retired per-host switch and is no longer read.
+connects the shared wrapper lifecycle to the bus. The retired per-host
+switch `hosts.agent_messaging_enabled` is no longer read or mapped.
 
 Message bodies and delivery error text are libsodium secretbox ciphertext at
 rest. The maintenance worker expires TTLs, retries expired unaccepted leases,
