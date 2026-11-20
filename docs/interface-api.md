@@ -4181,6 +4181,19 @@ and legacy admission. Explicit other-host IDs and strict external remote
 resources retain their existing meaning. Explicit null/zero/invalid IDs are
 rejected; existing native ownership proofs are still mandatory.
 
+Per-kind resource fields (2026-11-20): path `{host_id, path}`, git
+`{host_id, common_dir, branch?, path?}`, service `{host_id, service}`, remote
+`{fqdn, service}`; any other key is rejected. Because the native tool schema is
+one flattened object, `fqdn` on path/git/service (or `host_id` on remote) now
+fails `validation_failed` with a message naming that kind's accepted fields and
+the selector to use instead, for example `resources.0: Unrecognized key(s) in
+object: 'fqdn'. kind service accepts host_id and service. Select the managed
+fleet host with host_id (omit it for this session's host); fqdn belongs only to
+kind remote, for an unmanaged SSH target.` `fqdn` is not resolved to a managed
+host, so stored claim identity stays `host_id`. The `resource_claim_acquire`
+tool and its `host_id`/`fqdn` property descriptions state the same per-kind
+fields.
+
 Claim ownership diagnostics include short recovery actions in the error text
 as well as caller-only structured `claim_connection` metadata, so older MCP
 clients that expose only the message still receive actionable guidance.
