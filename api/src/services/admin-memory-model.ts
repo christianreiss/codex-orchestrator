@@ -1,6 +1,16 @@
 import { ConflictError, ValidationError } from '../http/errors.js';
 import { sha256 } from '../security/hash.js';
 import { isEngine, type Engine } from '../util/engine.js';
+import {
+  checkMemoryContent,
+  checkMemoryKey,
+  checkMemoryMetadata,
+  checkMemoryTags,
+  MEMORY_MAX_TAG_LENGTH,
+  MEMORY_MAX_TAGS,
+  type Checked,
+  type MemoryKeyScope,
+} from './memory-validation.js';
 
 export const MEMORY_SCOPES = ['host', 'project', 'shared'] as const;
 export type MemoryScope = (typeof MEMORY_SCOPES)[number];
@@ -206,24 +216,34 @@ export function normalizeList(value: unknown): string[] {
   return out;
 }
 
-export function normalizeTags(value: unknown): string[] {
+/**
+ * Host and project scope use the rules every memory store shares
+ * (memory-validation.ts): an array of strings, nothing else. Shared scope
+ * keeps its own rule, which also takes a comma-separated string, matching
+ * what `shared_memory_*` accepts.
+ */
+export function normalizeTags(value: unknown, scope: MemoryScope): string[] {
+  if (scope !== 'shared') return firstProblem('tags', checkMemoryTags(value));
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) && typeof value !== 'string') {
     throw new ValidationError('tags must be an array of strings', { param: 'tags' });
   }
   const out = normalizeList(value);
-  if (out.length > 32) throw new ValidationError('no more than 32 tags allowed', { param: 'tags' });
-  const tooLong = out.find((tag) => tag.length > 64);
-  if (tooLong) throw new ValidationError(`tag "${tooLong}" is longer than 64 characters`, { param: 'tags' });
+  if (out.length > MEMORY_MAX_TAGS) throw new ValidationError(`no more than ${MEMORY_MAX_TAGS} tags allowed`, { param: 'tags' });
+  const tooLong = out.find((tag) => tag.length > MEMORY_MAX_TAG_LENGTH);
+  if (tooLong) throw new ValidationError(`tag "${tooLong}" is longer than ${MEMORY_MAX_TAG_LENGTH} characters`, { param: 'tags' });
   return out;
 }
 
+/** Throw the first problem of a shared memory rule with its `param`. */
+function firstProblem<T>(param: string, checked: Checked<T>): T {
+  const [problem] = checked.problems;
+  if (problem) throw new ValidationError(problem, { param });
+  return checked.value;
+}
+
 export function normalizeMetadata(value: unknown): Record<string, unknown> | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== 'object' || Array.isArray(value)) {
-    throw new ValidationError('metadata must be an object or null', { param: 'metadata' });
-  }
-  return value as Record<string, unknown>;
+  return firstProblem('metadata', checkMemoryMetadata(value));
 }
 
 export function normalizePositiveInt(value: unknown, param: string): number {
@@ -234,23 +254,8 @@ export function normalizePositiveInt(value: unknown, param: string): number {
   return parsed;
 }
 
-export function normalizeMemoryKey(value: unknown, scope: 'host' | 'project'): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new ValidationError('id is required', { param: 'id' });
-  }
-  const key = value.trim();
-  if (key.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(key)) {
-    throw new ValidationError(
-      'id may contain at most 128 letters, numbers, dots, underscores, hyphens, and colons',
-      { param: 'id' },
-    );
-  }
-  if (scope === 'host' && /^coco(?:$|[._:-])/i.test(key)) {
-    throw new ValidationError('ids beginning with coco are reserved for shared project coordination', {
-      param: 'id',
-    });
-  }
-  return key;
+export function normalizeMemoryKey(value: unknown, scope: MemoryKeyScope): string {
+  return firstProblem('id', checkMemoryKey(value, 'id', scope))!;
 }
 
 export function normalizeSharedSlug(value: unknown): string {
@@ -265,14 +270,7 @@ export function normalizeSharedSlug(value: unknown): string {
 }
 
 export function normalizeContent(value: unknown, max: number): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new ValidationError('content is required', { param: 'content' });
-  }
-  const content = value.trim();
-  if (content.length > max) {
-    throw new ValidationError(`content must be ${max} characters or fewer`, { param: 'content' });
-  }
-  return content;
+  return firstProblem('content', checkMemoryContent(value, max));
 }
 
 export function normalizeNullableText(value: unknown, param: string, max: number): string | null {

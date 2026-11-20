@@ -32,6 +32,7 @@ import {
 import { bindOwnerRuntime, type OwnerRuntime } from '../src/control-plane/state/runtime.js';
 import { AgentPolicyProfilesService } from '../src/services/agent-policy-profiles.js';
 import { SkillsService } from '../src/services/skills.js';
+import { HostSkillsService } from '../src/services/host-skills.js';
 import { ClaudeArtifactsService } from '../src/services/claude-artifacts.js';
 import { AgentCoordination } from '../src/services/agent-coordination/index.js';
 import type { AgentMessagingService } from '../src/services/agent-messaging.js';
@@ -583,6 +584,28 @@ describe('owner canonical content metadata', () => {
     expect(await profiles.resolveForHost(1)).toEqual(profile.levels);
     await expect(profiles.remove(profile.id)).rejects.toThrow('default profile');
     expect(h.select).not.toHaveBeenCalled();
+  });
+  // Owner path of the shared authored-Skill upsert (API-KNOW-04): omitted
+  // metadata is kept, an identical store revives a deleted Skill, and a host
+  // store moves the row to shared scope while keeping its name.
+  it('keeps omitted skill metadata and revives a deleted skill through both store entries', async () => {
+    const h = setup(),
+      skills = new SkillsService(h.db),
+      hostSkills = new HostSkillsService(h.db),
+      host = { id: 1, fqdn: 'owner.test' } as Host;
+    await skills.store({ slug: 'owner-meta', manifest: '# Meta', display_name: 'Meta', engine: 'claude' });
+    const row = () => h.state.snapshot().table('skills').by('slug', 'owner-meta')[0]!;
+    await expect(skills.store({ slug: 'owner-meta', manifest: '# Meta' })).resolves.toMatchObject({ status: 'unchanged' });
+    await skills.store({ slug: 'owner-meta', manifest: '# Meta 2' });
+    expect(row()).toMatchObject({ displayName: 'Meta', engine: 'claude', deletedAt: null });
+    await skills.softDelete('owner-meta');
+    expect(row().deletedAt).toBeTruthy();
+    await expect(skills.store({ slug: 'owner-meta', manifest: '# Meta 2' })).resolves.toMatchObject({ status: 'updated' });
+    expect(row()).toMatchObject({ displayName: 'Meta', engine: 'claude', deletedAt: null });
+    await expect(hostSkills.store({ slug: 'owner-meta', manifest: '# Meta 2' }, host)).resolves.toMatchObject({
+      status: 'updated',
+    });
+    expect(row()).toMatchObject({ displayName: 'Meta', engine: null, sourceHostId: 1, deletedAt: null });
   });
   it('stages skill and Claude metadata without retaining content bodies', async () => {
     const h = setup(),

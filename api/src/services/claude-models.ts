@@ -12,6 +12,7 @@ import { eq } from 'drizzle-orm';
 import { versions } from '../db/schema.js';
 import type { Database } from '../db/client.js';
 import { ApiError } from '../http/errors.js';
+import { SettingsService } from './settings.js';
 import { MODEL_REGISTRY, modelTable, offeredModelIds, registryModels, upgradeMap, type ClaudeModel, type ClaudeModelLine } from './model-registry/index.js';
 
 export const CLAUDE_DEFAULT_MODEL = MODEL_REGISTRY.claude.defaultModel as ClaudeModel;
@@ -146,6 +147,19 @@ export interface ClaudeModelsService {
 
 const FLAG = 'claude_models_disabled';
 
+/** `versions` key of the admin "Proxy default model" (`/admin/claude/settings`). */
+export const CLAUDE_DEFAULT_MODEL_SETTING = 'claude_default_model';
+
+/** A supported id, or a legacy id upgraded to one; undefined otherwise. */
+function canonicalClaudeModel(lower: string): ClaudeModel | undefined {
+  if ((CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(lower)) return lower as ClaudeModel;
+  // Own properties only: a bare index would resolve an id like `toString`
+  // or `constructor` to an inherited Object.prototype member instead of 404ing.
+  return Object.prototype.hasOwnProperty.call(CLAUDE_LEGACY_MODEL_UPGRADES, lower)
+    ? CLAUDE_LEGACY_MODEL_UPGRADES[lower]
+    : undefined;
+}
+
 export function createClaudeModelsService(db: Database): ClaudeModelsService {
   let cache: { disabled: Set<string>; ts: number } | null = null;
   const TTL_MS = 5_000;
@@ -163,6 +177,11 @@ export function createClaudeModelsService(db: Database): ClaudeModelsService {
     );
     cache = { disabled: set, ts: Date.now() };
     return set;
+  }
+
+  async function savedDefaultModel(): Promise<ClaudeModel | null> {
+    const saved = (await new SettingsService(db).getString(CLAUDE_DEFAULT_MODEL_SETTING))?.trim().toLowerCase() ?? '';
+    return canonicalClaudeModel(saved) ?? null;
   }
 
   return {
@@ -204,17 +223,12 @@ export function createClaudeModelsService(db: Database): ClaudeModelsService {
 
     async resolveRequestedModel(value) {
       const raw = typeof value === 'string' ? value.trim() : '';
-      if (raw === '') return CLAUDE_DEFAULT_MODEL;
+      // The operator's proxy default (Engines → Claude), like Grok and Kimi read
+      // theirs. A saved id the catalog no longer knows falls back to the
+      // constant rather than failing every request that omits `model`.
+      if (raw === '') return (await savedDefaultModel()) ?? CLAUDE_DEFAULT_MODEL;
       const lower = raw.toLowerCase();
-      // Own properties only: a bare index would resolve an id like `toString`
-      // or `constructor` to an inherited Object.prototype member instead of 404ing.
-      const legacy = Object.prototype.hasOwnProperty.call(CLAUDE_LEGACY_MODEL_UPGRADES, lower)
-        ? CLAUDE_LEGACY_MODEL_UPGRADES[lower]
-        : undefined;
-      const canonical: ClaudeModel | undefined =
-        (CLAUDE_SUPPORTED_MODELS as readonly string[]).includes(lower)
-          ? (lower as ClaudeModel)
-          : legacy;
+      const canonical = canonicalClaudeModel(lower);
       if (!canonical) {
         // Upstream returns 404 not_found_error for an unknown/typo'd model id.
         throw new ApiError(

@@ -1254,6 +1254,9 @@ function renderClaudeSettings(settings: NormalizedSettings): string {
  * The memory tools an agent needs to CURATE rather than merely read. Listing,
  * searching, and reading are deliberately absent: they were already allowed, and
  * that asymmetry is the problem being fixed, not a pattern to extend.
+ *
+ * Every name must be a tool `mcp-tools.ts` registers; the rename guard is
+ * `test/unit/services/mcp-tool-name-liveness.test.ts`.
  */
 export const CURATION_TOOLS = [
   'feedback_submit',

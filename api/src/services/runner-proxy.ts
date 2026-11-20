@@ -7,7 +7,7 @@ import { assessLoginExpiry, type LoginExpiry } from './login-expiry.js';
 import { lt } from 'drizzle-orm';
 import { ServiceUnavailableError, ValidationError } from '../http/errors.js';
 import type { Env } from '../env.js';
-import type { RunnerValidationService } from './runner-validation.js';
+import { resolvePooledCanonicalPayload, type RunnerValidationService } from './runner-validation.js';
 import type { CanonicalAuthStoreService } from './canonical-auth-store.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINE_LABELS, parseEngine, type Engine } from '../util/engine.js';
 import type { Database } from '../db/client.js';
@@ -115,6 +115,8 @@ export interface RunnerProxyDeps {
   authStore: CanonicalAuthStoreService;
   seedTokens: SeedTokenStore;
   readTelemetry: RunnerTelemetryReader;
+  /** Enabled provider accounts of an engine (`enabledProviderAccountIds`). */
+  poolAccountIds: (engine: Engine) => Promise<number[]>;
 }
 
 export function createSeedTokenStore(db: Database): SeedTokenStore {
@@ -244,7 +246,7 @@ export class RunnerProxyService {
     }
 
     const validation = this.deps.runnerValidation;
-    const row = await validation.resolveCanonicalPayload(engine);
+    const row = await this.pooledPayload(engine);
     const validated = row ? validation.validateCanonicalPayload(row) : null;
     const auth = row ? validation.canonicalAuthFromPayload(row) : null;
     if (!row || !validated || !auth) {
@@ -365,6 +367,11 @@ export class RunnerProxyService {
     };
   }
 
+  /** The head while it is verified, else a verified enabled account; see resolvePooledCanonicalPayload. */
+  private async pooledPayload(engine: Engine) {
+    return resolvePooledCanonicalPayload(this.deps.runnerValidation, engine, await this.deps.poolAccountIds(engine));
+  }
+
   /**
    * Runner telemetry is historical metadata, whereas a green engine badge is
    * a statement about auth that can be used now.  A fresh database has neither
@@ -374,7 +381,7 @@ export class RunnerProxyService {
    */
   private async canonicalStatus(engine: Engine): Promise<{ verified: boolean; expiry: LoginExpiry }> {
     const validation = this.deps.runnerValidation;
-    const row = await validation.resolveCanonicalPayload(engine);
+    const row = await this.pooledPayload(engine);
     const auth = row ? validation.canonicalAuthFromPayload(row) : null;
     // A failed verification must not hide the selected login's expiry.
     const validated = validation.validateCanonicalPayload(row);

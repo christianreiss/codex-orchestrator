@@ -149,11 +149,11 @@ describe('admin memory input normalizers', () => {
     expect(normalizeMemoryKey('a-b_c:d.1', 'host')).toBe('a-b_c:d.1');
     expect(normalizeMemoryKey('k'.repeat(128), 'host')).toHaveLength(128);
 
-    expect(() => normalizeMemoryKey('k'.repeat(129), 'host')).toThrow(/at most 128/);
+    expect(() => normalizeMemoryKey('k'.repeat(129), 'host')).toThrow(/id must be 128 characters or fewer/);
     expect(() => normalizeMemoryKey('deploy crane', 'host')).toThrow(ValidationError);
     expect(() => normalizeMemoryKey('deploy/crane', 'host')).toThrow(ValidationError);
     expect(() => normalizeMemoryKey('   ', 'host')).toThrow(/id is required/);
-    expect(() => normalizeMemoryKey(42, 'host')).toThrow(/id is required/);
+    expect(() => normalizeMemoryKey(42, 'host')).toThrow(/id must be a string/);
 
     expect(() => normalizeMemoryKey('coco', 'host')).toThrow(/reserved/);
     expect(() => normalizeMemoryKey('COCO.plan', 'host')).toThrow(/reserved/);
@@ -172,21 +172,31 @@ describe('admin memory input normalizers', () => {
     expect(() => normalizeSharedSlug(null)).toThrow(/id is required/);
   });
 
-  it('normalizes, dedupes and bounds tags', () => {
-    expect(normalizeTags(undefined)).toEqual([]);
-    expect(normalizeTags(null)).toEqual([]);
-    expect(normalizeTags(['Ops', ' ops ', 'OPS', 'Deploy'])).toEqual(['Ops', 'Deploy']);
-    expect(normalizeTags('ops, deploy ,')).toEqual(['ops', 'deploy']);
-    expect(normalizeTags(['ops', 42, null])).toEqual(['ops']);
-    expect(normalizeTags(Array.from({ length: 32 }, (_, index) => `tag-${index}`))).toHaveLength(32);
-    expect(normalizeTags(['t'.repeat(64)])).toEqual(['t'.repeat(64)]);
+  it.each(['host', 'project', 'shared'] as const)('normalizes, dedupes and bounds %s tags', (scope) => {
+    expect(normalizeTags(undefined, scope)).toEqual([]);
+    expect(normalizeTags(null, scope)).toEqual([]);
+    expect(normalizeTags(['Ops', ' ops ', 'OPS', 'Deploy'], scope)).toEqual(['Ops', 'Deploy']);
+    expect(normalizeTags(Array.from({ length: 32 }, (_, index) => `tag-${index}`), scope)).toHaveLength(32);
+    expect(normalizeTags(['t'.repeat(64)], scope)).toEqual(['t'.repeat(64)]);
 
-    expect(() => normalizeTags(Array.from({ length: 33 }, (_, index) => `tag-${index}`))).toThrow(
+    expect(() => normalizeTags(Array.from({ length: 33 }, (_, index) => `tag-${index}`), scope)).toThrow(
       /no more than 32 tags/,
     );
-    expect(() => normalizeTags(['t'.repeat(65)])).toThrow(/longer than 64 characters/);
-    expect(() => normalizeTags({ ops: true })).toThrow(/tags must be an array of strings/);
-    expect(() => normalizeTags(7)).toThrow(ValidationError);
+    expect(() => normalizeTags(['t'.repeat(65)], scope)).toThrow(/longer than 64 characters/);
+    expect(() => normalizeTags({ ops: true }, scope)).toThrow(/tags must be an array of strings/);
+    expect(() => normalizeTags(7, scope)).toThrow(ValidationError);
+  });
+
+  // Host and project scope share memory-validation.ts with memory_store and
+  // project_memory_upsert; shared scope matches shared_memory_*.
+  it.each(['host', 'project'] as const)('takes only an array of strings for %s tags', (scope) => {
+    expect(() => normalizeTags('ops, deploy ,', scope)).toThrow(/tags must be an array of strings/);
+    expect(() => normalizeTags(['ops', 42, null], scope)).toThrow(/tags must be strings/);
+  });
+
+  it('also takes a comma-separated string for shared tags and skips non-strings', () => {
+    expect(normalizeTags('ops, deploy ,', 'shared')).toEqual(['ops', 'deploy']);
+    expect(normalizeTags(['ops', 42, null], 'shared')).toEqual(['ops']);
   });
 
   it('requires trimmed content within the caller-supplied limit', () => {

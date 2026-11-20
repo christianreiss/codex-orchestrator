@@ -13,7 +13,7 @@ import { appendAuditLog } from '../../../services/audit-log.js';
 import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../index.js';
 import { readQuotaAdvice, parseQuotaAdvice, QUOTA_ADVICE_KEY } from '../../../services/quota-advice.js';
-import { SettingsService } from '../../../services/settings.js';
+import { AUTO_UPDATE_ENABLED_KEY, SettingsService } from '../../../services/settings.js';
 import {
   ClientVersionsService,
   coerceCodexVersionToMinimum,
@@ -304,13 +304,13 @@ export async function registerAdminSettingsRoutes(
 
   // ── auto-update ───────────────────────────────────────────────────────────
   app.get('/admin/auto-update', { preHandler: app.requireAdmin }, async () => {
-    return ok({ enabled: await settings.getFlag('auto_update_enabled', false) });
+    return ok({ enabled: await settings.getFleetAutoUpdate() });
   });
   app.post('/admin/auto-update', { preHandler: app.requireAdmin }, async (req) => {
     const body = (req.body ?? {}) as { enabled?: unknown };
     const enabled = normalizeBool(body.enabled);
     if (enabled === null) throw new ValidationError('enabled must be boolean', { param: 'enabled' });
-    await settings.setFlag('auto_update_enabled', enabled);
+    await settings.setFlag(AUTO_UPDATE_ENABLED_KEY, enabled);
     await recordLog(ctx, 'admin.auto_update', { enabled });
     return ok({ enabled });
   });

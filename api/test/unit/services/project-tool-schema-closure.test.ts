@@ -65,8 +65,6 @@ describe('project tool schemas', () => {
   const ALIASES: Array<[tool: string, alias: string, readAt: string]> = [
     ['project_create', 'project', 'host-projects.ts normalizeSlug(payload.slug ?? payload.project)'],
     ['project_create', 'agents_markdown', 'host-projects.ts createProject roster fallback'],
-    ['project_file_upsert', 'name', 'host-projects.ts normalizeFilePayload stored_name fallback'],
-    ['project_file_upsert', 'text', 'host-projects.ts normalizeFilePayload content fallback'],
     ['project_memory_upsert', 'id', 'host-projects.ts normalizeMemoryPayload key fallback'],
     ['project_memory_upsert', 'memory_id', 'host-projects.ts normalizeMemoryPayload key fallback'],
     ['project_memory_upsert', 'text', 'host-projects.ts normalizeMemoryPayload content fallback'],
@@ -81,6 +79,16 @@ describe('project tool schemas', () => {
       expect(schema!.properties, `read at: ${readAt}`).toContain(alias);
     });
   }
+
+  // `stored_name` and `content` are required, and required arguments are
+  // checked before anything else, so a `name`/`text` alias on this tool could
+  // never be the one a call actually used. The REST route keeps its fallback.
+  it('does not advertise project_file_upsert aliases its required fields make unreachable', () => {
+    const schema = byName.get('project_file_upsert');
+    expect(schema).toBeDefined();
+    expect(schema!.properties).not.toContain('name');
+    expect(schema!.properties).not.toContain('text');
+  });
 
   it('declares engine on every board tool, which all of them read', () => {
     const board = tools.filter((t) => /^project_(board|card)_/.test(t.name));

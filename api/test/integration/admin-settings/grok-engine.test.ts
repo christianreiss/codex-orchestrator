@@ -43,9 +43,9 @@ describe('Grok engine administration', () => {
 
   it('validates Grok key mutations without accepting malformed identifiers', async () => {
     const { app } = await buildApp();
-    for (const payload of [{}, { name: ' ' }]) expect((await app.inject({ method: 'POST', url: '/admin/grok/keys', payload })).statusCode).toBe(422);
-    expect((await app.inject({ method: 'DELETE', url: '/admin/grok/keys/no-id' })).statusCode).toBe(422);
-    expect((await app.inject({ method: 'POST', url: '/admin/grok/keys/1/toggle', payload: {} })).statusCode).toBe(422);
+    for (const payload of [{}, { name: ' ' }]) expect((await app.inject({ method: 'POST', url: '/admin/grok/keys', payload })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'DELETE', url: '/admin/grok/keys/no-id' })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: '/admin/grok/keys/1/toggle', payload: {} })).statusCode).toBe(400);
   });
 
   it('keeps the Grok switch and model defaults separate from the other engines', async () => {

@@ -56,7 +56,7 @@ provider binaries are outside this policy.
 
 #### Auto-update
 
-`GET /admin/auto-update`, `POST /admin/auto-update` — boolean flag, shown in Settings → Hosts as **Update hosts automatically**. Fleet default for background wrapper and CLI upgrades. Individual host rows can override this. From cxx 0.8.2, maintenance checks every 15 minutes and launches can queue a missed check without waiting; starting or finishing a session never runs an installer inline. Turning auto-update off keeps content/auth sync and the shared schedule working.
+`GET /admin/auto-update`, `POST /admin/auto-update` — boolean flag, shown in Settings → Hosts as **Update hosts automatically**. Fleet default for background wrapper and CLI upgrades; it is on until you turn it off. Individual host rows can override this. Starting or finishing a session never runs an installer inline. Turning auto-update off stops the upgrades and, from cxx 0.9.82, removes the nightly maintenance line on hosts without an override; launches still run their own maintenance (content and auth sync).
 
 #### Reverse DNS
 
@@ -120,7 +120,7 @@ The Codex on/off switch is under **Engine master switches** above. `POST /admin/
 
 #### Codex silent mode
 
-`GET /admin/cdx-silent`, `POST /admin/cdx-silent` — boolean flag. Baked into the wrapper config so hosts go quiet on next sync.
+`GET /admin/cdx-silent`, `POST /admin/cdx-silent` — boolean flag. Baked into the Codex wrapper config (`engine_options.silent`) so Codex hosts go quiet once they fetch a fresh signed config.
 
 #### Quotas
 
@@ -159,12 +159,12 @@ On a new installation, GET displays the effective Sonnet 5 / `high` default with
 
 #### Claude API defaults
 
-Claude API proxy defaults (default model and max tokens used when proxying Claude API calls) are controlled by a separate endpoint: `GET /admin/claude/settings`, `POST /admin/claude/settings`. Fields:
+Claude API proxy defaults are controlled by a separate endpoint: `GET /admin/claude/settings`, `POST /admin/claude/settings`. Fields:
 
 | Field | Type | Constraints |
 |---|---|---|
-| `default_model` | string | Must be a supported Claude model; default `claude-sonnet-5`. |
-| `max_tokens` | integer | 256–200 000, default 8 192. |
+| `default_model` | string | Must be a supported Claude model; default `claude-sonnet-5`. Used for gateway requests that omit `model` while Claude answers them. |
+| `max_tokens` | integer | 256–200 000, default 8 192. Stored only: the CLI runner cannot enforce an output cap, so no request uses it. |
 
 Supported proxy models are `claude-fable-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5`, `claude-opus-4-7`, `claude-sonnet-4-6`, and `claude-haiku-4-5-20251001`.
 

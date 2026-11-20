@@ -146,6 +146,22 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
   return { state, runtime, presence, fake, ctx, service };
 }
 describe('connection-owned daemon commands', () => {
+  // The daemon audits used to be bare inserts on the owner path, so the
+  // derived latest-event head (/admin/ws/info, Git Director, retention) lagged
+  // behind them until the next boot hydration.
+  it('advances the owner admin-event head with every daemon audit', async () => {
+    const at = new Date().toISOString();
+    const h = harness({
+      hostDaemonSessions: [{ id: 's1', hostId: 1, engine: 'codex', owner: 'owner', status: 'idle', lastActivityAt: at, createdAt: at, updatedAt: at }],
+    });
+    await h.service.setPermissionMode('s1', 'plan', 'owner').catch(() => undefined);
+    await h.service.stop('s1', 'owner');
+    const rows = (h.fake.tables.get(schema.adminEvents) ?? []) as Array<{ id: number; type: string }>;
+    expect(rows.map((row) => row.type)).toContain('host.daemon.stop_requested');
+    const last = Math.max(...rows.map((row) => row.id));
+    expect(Number(h.state.snapshot().setting('owner_admin_event_id'))).toBe(last);
+  });
+
   it('rejects oversized Kimi start/turn prompts before owner mutations', async () => {
     const h = harness({ hostDaemonSessions: [{ id: 'kimi-session', hostId: 1, engine: 'kimi', owner: 'owner', status: 'idle' }] });
     const before = h.state.revision();
@@ -1046,6 +1062,41 @@ describe('owner provider observation writes', () => {
     await expect(
       insert({ status: 'ok', fetchedAt: now, nextEligibleAt: now, createdAt: now }),
     ).rejects.toThrow('no longer eligible');
+  });
+  // Every changed poll used to stay in owner RAM until restart (~288 rows per
+  // account per day); provider-lease decisions sort that list each time.
+  it('keeps the owned ChatGPT history bounded to what hydration would load', async () => {
+    const h = harness({
+      providerAccounts: [{ id: 7, engine: 'codex', state: 'enabled', mergedIntoAccountId: null }],
+    });
+    const service = new ChatGptUsageService(h.ctx.db, undefined, { accountId: 7, keyring: h.ctx.keyring });
+    const insert = (
+      service as unknown as { insertSnapshot(v: Record<string, unknown>): Promise<{ id: number }> }
+    ).insertSnapshot.bind(service);
+    const midnight = new Date();
+    midnight.setUTCHours(0, 0, 0, 0);
+    const at = (minutes: number) => new Date(midnight.getTime() + minutes * 60_000).toISOString();
+    const weekly = (used: number) => ({ primaryLimitSeconds: 604800, primaryUsedPercent: used });
+    // Yesterday's rows, then today's first weekly observation (the dailyUsage baseline).
+    await insert({ status: 'ok', fetchedAt: at(-30), nextEligibleAt: at(-30), createdAt: at(-30), ...weekly(1) });
+    const baseline = await insert({ status: 'ok', fetchedAt: at(1), nextEligibleAt: at(1), createdAt: at(1), ...weekly(2) });
+    for (let i = 0; i < 20; i++) {
+      const t = at(2 + i);
+      await insert({ status: 'ok', fetchedAt: t, nextEligibleAt: t, createdAt: t, ...weekly(3 + i) });
+    }
+    const failed = await insert({ status: 'error', fetchedAt: at(40), nextEligibleAt: at(40), createdAt: at(40), error: 'boom' });
+    const owned = h.state.snapshot().table('chatgptUsageSnapshots').by('accountId', 7);
+    const ids = owned.map((row) => row.id);
+    // Newest arrival/observation (the failure), newest usable, today's baseline.
+    expect(owned.length).toBeLessThanOrEqual(4);
+    expect(ids).toContain(failed.id);
+    expect(ids).toContain(baseline.id);
+    expect(owned.find((row) => row.status === 'ok' && row.id !== baseline.id)?.primaryUsedPercent).toBe(22);
+    const daily = await service.dailyUsage(
+      owned.find((row) => row.primaryUsedPercent === 22)! as never,
+      new Date(at(41)),
+    );
+    expect(daily).toEqual({ daily_used_percent: 20, daily_baseline_at: at(1) });
   });
 });
 

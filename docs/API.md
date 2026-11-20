@@ -33,7 +33,7 @@ Base URL: `https://codex-auth.example.com` (all examples omit the host). Respons
 
 Base URL: `/anthropic/v1/`. All Anthropic endpoints use the Anthropic error envelope and CORS headers (`Access-Control-Allow-Headers` includes `x-api-key` and `anthropic-version`).
 
-**Authentication**: `Authorization: Bearer sk-claude-...` or `x-api-key: sk-claude-...` header. Keys are managed via `/admin/claude/keys` endpoints and use the `sk-claude-` prefix.
+**Authentication**: `Authorization: Bearer sk-ant-...` or `x-api-key: sk-ant-...` header. Keys are managed via `/admin/claude/keys` endpoints and use the `sk-ant-` prefix.
 
 Every `/anthropic/v1/*` response carries a `request-id: req_<hex>` header (distinct from this gateway's own general-purpose `x-request-id`) for diagnostics. The gateway does not add request-rate-limit headers or enforce a per-key RPM budget.
 
@@ -697,14 +697,15 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `POST /admin/openai/keys` — issue a key. Body: `{name, expires_at?}`. Returns the full key once, alongside the record.
   - `POST /admin/openai/keys/{id}/toggle` — enable/disable a key (`active` boolean).
   - `DELETE /admin/openai/keys/{id}` — delete a key. Unknown ids return `404 not_found`.
+  - Validation and responses: all four key surfaces (`/admin/{openai,claude,grok,kimi}/keys`) share one implementation (`api/src/routes/admin/keys/gateway-keys.ts`). `name` is a required non-blank string of at most 255 characters; `expires_at` is optional (`null` or blank means never), otherwise RFC3339; toggle needs a boolean `active` (`true`/`false`, `1`/`0` and their strings are accepted); `:id` must be a positive integer. Any violation, or a body that is not a JSON object, is `400 invalid_request`; an id from another surface's namespace is `404 not_found`. Records carry the same fields on every surface (`admin_user_id` included). Toggle returns `{id, active, message}`, delete `{id, message}`; each mutation writes a `<surface>.key.create|toggle|delete` audit row and an `apikey.*` WS event.
 - `GET /admin/model-defaults/{engine}` — read the `codex`, `claude`, or `grok` fleet CLI default. Returns `{status:"ok", engine, model, reasoning_effort, catalog:[{model, persistent_efforts, default_effort}]}`. It is read-only: when no engine config row exists it reports the catalog default without persisting it.
 - `POST /admin/model-defaults/{engine}` — strict body `{model, reasoning_effort?: string|null}`. Omitted/null effort selects the model default; invalid engine/model/effort or extra fields return HTTP 422 `validation_failed`. Codex persists `model` / `model_reasoning_effort`; its model-specific effort sets/defaults match the per-host contract above, with Sol using its provider-native `low` default. Claude persists `model` / `effortLevel`. Claude capabilities: Fable 5.1, Fable 5, Opus 5, Opus 4.8, and Sonnet 5 support persistent `low|medium|high|xhigh` (default `high`); Opus 4.7 supports the same set with default `xhigh`; Sonnet 4.6 supports `low|medium|high` (default `high`); Haiku 4.5 has no persistent effort (`null`). Claude Code documents `max` as session-only, so it is deliberately excluded from this fleet-persistent API.
 - Claude admin endpoints:
   - `GET /admin/claude/keys` — list all Claude API keys (engine-filtered). Returns `{status, data: [{id, name, key_prefix, is_active, use_count, last_used_at, expires_at, engine, created_at, updated_at}]}`.
-  - `POST /admin/claude/keys` — create a new Claude API key. Body: `{name, expires_at?}`. Returns the full key (shown once) and the record. Keys use the `sk-claude-` prefix.
+  - `POST /admin/claude/keys` — create a new Claude API key. Body: `{name, expires_at?}`. Returns the full key (shown once) and the record. Keys use the `sk-ant-` prefix.
   - `POST /admin/claude/keys/{id}/toggle` — enable or disable a Claude API key. Body: `{active: bool}`.
   - `DELETE /admin/claude/keys/{id}` — revoke (delete) a Claude API key.
-  - `GET /admin/claude/settings` — get the separate Anthropic-compatible API proxy defaults. Returns `{status, data: {default_model, max_tokens, disabled}}`; this does not control Claude Code's fleet `model` / `effortLevel`.
+  - `GET /admin/claude/settings` — get the separate Anthropic-compatible API proxy defaults. Returns `{status, data: {default_model, max_tokens, disabled}}`. `default_model` answers gateway requests that omit `model` while Claude is the answering backend, as the Grok and Kimi defaults do; an id the catalog no longer knows falls back to the built-in default. `max_tokens` is stored only: the CLI runner transport cannot enforce an output cap (`max_tokens` is accepted-unenforceable there and the runner does not forward it), so no request uses it. This does not control Claude Code's fleet `model` / `effortLevel`.
   - `POST /admin/claude/version` — set the fleet Claude Code version policy. Body `{ selection: "latest" | "auto" | "<x.y.z>" }`; `latest`/`auto` clear the lock and refresh from upstream.
   - `GET /admin/communicator/api-version` — communicator API level state: `{api_version, min_api, default_min_api, override_min_api, override_updated_at, clients}` with per-host and per-communicator tallies of clients below the minimum, below the current level and at it. Requires `settings.read`.
   - `POST /admin/communicator/api-version` — raise or clear the operator minimum. Body `{ min_api: <1..api_version> | null }`; anything else is a `422`. Requires `settings.manage`; audit-logged as `admin.communicator_min_api`.
@@ -717,14 +718,14 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   - `DELETE /admin/claude/{kind}/{slug}` — soft-delete an artifact so hosts retrieve `status:deleted`.
   - `POST /admin/claude/settings` — update the separate Anthropic-compatible API proxy defaults. Body: `{default_model?, max_tokens? (256-200000)}`. Gated as authored content (`content.manage`; the GET is `content.read`), not as a fleet setting. Supported models: `claude-fable-5-1`, `claude-fable-5`, `claude-opus-5-5`, `claude-opus-5`, `claude-opus-4-8`, `claude-sonnet-5-5`, `claude-sonnet-5` (default), `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`.
 - `GET /admin/quota-mode` / `POST /admin/quota-mode` — read/set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`).
-- `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean).
+- `GET /admin/cdx-silent` / `POST /admin/cdx-silent` — read/set wrapper silent mode (`silent` boolean); baked into the Codex signed config as `engine_options.silent`.
 - `GET /admin/subagent-model-selection` / `POST /admin/subagent-model-selection` — read/set the default-off subagent model selection guidance (`enabled` boolean).
 - `GET /admin/model-tier-check` / `POST /admin/model-tier-check` — read/set the default-on cross-engine Model Class Check (`enabled` boolean).
 - `GET /admin/api-keys-in-chat` / `POST /admin/api-keys-in-chat` — read/set the default-off cross-engine instruction for operator-supplied API keys (`enabled` boolean).
 - `GET /admin/agents-generation-mode` / `POST /admin/agents-generation-mode` — read/set the fleet-wide master switch for AGENTS.md/CLAUDE.md generation (`mode`: `managed` default, `manual`, or `off`). Applied at render time only; no position suppresses the mandatory policy block or the managed feature block.
-- `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it.
+- `GET /admin/auto-update` / `POST /admin/auto-update` — read/set the fleet auto-update flag (`enabled` boolean); per-host overrides win over it. Unset reads as on everywhere (signed `wrapper.auto_update`, `/auth`, `/versions`, `/cron/check`, dashboard).
 - `GET /admin/authorization` / `POST /admin/authorization` — read/set the authorization mode (`{mode: "compatible"|"strict"}`). GET also returns `would_deny`: what `strict` would have refused, from this installation's own traffic. Requires `security.manage_authorization`, enforced under both modes.
-- `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default).
+- `GET /admin/theme` / `POST /admin/theme` — read/set the stored admin UI theme (`auto` default); baked into signed wrapper configs as `engine_options.admin_theme_hint`.
 - `GET /admin/reverse-dns` / `POST /admin/reverse-dns` — read/set global reverse DNS enforcement (`enabled` boolean).
 - `GET /admin/response-verbosity` / `POST /admin/response-verbosity` — read/set the fleet-wide response-verbosity dial (`level`: `0..4`, `0` default/no-op). Projected into the served AGENTS.md/CLAUDE.md `## Default Response Shape` policy text, and (for `clx` hosts) into a `verbosity-*` Claude output style via `outputStyle` in settings.json.
 - `GET /admin/address-form` / `POST /admin/address-form` — read/set the fleet-wide formal/informal address form (`form`: `informal` default, `formal`). Rendered as the `## Address Form` section of the managed policy block of every engine's served AGENTS.md/CLAUDE.md. Capabilities `settings.read` / `settings.manage`.
@@ -814,7 +815,10 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
   or cannot persist the refresh fails the old lineage closed. In every case
   only a still-verified head is distributable.
   Manual `POST /admin/runner/run`, `POST /admin/runner/run-claude`, and
-  `POST /admin/runner/run-grok` bypass interval guards.
+  `POST /admin/runner/run-grok` bypass interval guards. They, the
+  `GET /admin/runner` badge and setup status's `canonical_auth` describe the
+  engine's account pool: the accountless head while it is verified, otherwise
+  the newest verified payload on an enabled provider account.
 - Runner endpoint auth is available via `AUTH_RUNNER_SHARED_SECRET` (API) + `RUNNER_SHARED_SECRET` (runner), using header `X-Runner-Auth`.
 
 ## Housekeeping & Storage

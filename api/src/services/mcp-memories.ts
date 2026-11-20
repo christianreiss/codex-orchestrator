@@ -19,14 +19,15 @@ import { ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
+import { checkMemoryContent, checkMemoryKey, checkMemoryMetadata, checkMemoryTags, type Checked } from './memory-validation.js';
 
-const MAX_CONTENT = 32000;
 /** Row cap for the no-index fallback scan, so a failed search cannot read the whole table. */
 const FALLBACK_SCAN_ROWS = 500;
-const MAX_TAGS = 32;
-const MAX_TAG_LENGTH = 64;
-const KEY_RE = /^[A-Za-z0-9._:-]+$/;
-const RESERVED_COCO = /^coco(?:$|[._:-])/i;
+
+function collect<T>(checked: Checked<T>, field: string, errors: Record<string, string[]>): T {
+  if (checked.problems.length) errors[field] = (errors[field] ?? []).concat(checked.problems);
+  return checked.value;
+}
 
 export class McpMemoriesService {
   constructor(private readonly db: Database) {}
@@ -39,13 +40,7 @@ export class McpMemoriesService {
     const errors: Record<string, string[]> = {};
     let memoryKey = this.normalizeKey(payload['id'] ?? payload['memory_id'] ?? payload['key'], true, errors);
 
-    const contentRaw = payload['content'] ?? payload['text'] ?? '';
-    const content = String(contentRaw ?? '').trim();
-    if (!content) errors['content'] = (errors['content'] ?? []).concat('content is required');
-    if (content.length > MAX_CONTENT)
-      errors['content'] = (errors['content'] ?? []).concat(
-        `content must be ${MAX_CONTENT} characters or fewer`,
-      );
+    const content = this.normalizeContent(payload['content'] ?? payload['text'], errors);
 
     const metadata = this.normalizeMetadata(payload['metadata'], errors);
     const tags = this.normalizeTags(payload['tags'], errors);
@@ -452,76 +447,22 @@ export class McpMemoriesService {
     };
   }
 
+  // The rules live in memory-validation.ts, shared with project memory and
+  // the admin console; these adapters collect their problems by field.
   normalizeKey(value: unknown, allowNull: boolean, errors: Record<string, string[]>): string | null {
-    if (value === null || value === undefined) {
-      if (allowNull) return null;
-      errors['id'] = (errors['id'] ?? []).concat('id is required');
-      return null;
-    }
-    if (typeof value !== 'string') {
-      errors['id'] = (errors['id'] ?? []).concat('id must be a string');
-      return null;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      if (allowNull) return null;
-      errors['id'] = (errors['id'] ?? []).concat('id is required');
-      return null;
-    }
-    if (trimmed.length > 128)
-      errors['id'] = (errors['id'] ?? []).concat('id must be 128 characters or fewer');
-    if (!KEY_RE.test(trimmed)) {
-      errors['id'] = (errors['id'] ?? []).concat(
-        'id may only contain letters, numbers, dots, underscores, hyphens, and colons',
-      );
-    }
-    if (RESERVED_COCO.test(trimmed)) {
-      errors['id'] = (errors['id'] ?? []).concat(
-        'ids beginning with coco are reserved for CoCo shared handoffs; use shared projects (`/projects` or `project_*`) instead of host-scoped MCP memory',
-      );
-    }
-    return trimmed;
+    return collect(checkMemoryKey(value, 'id', 'host', allowNull), 'id', errors);
+  }
+
+  normalizeContent(value: unknown, errors: Record<string, string[]>): string {
+    return collect(checkMemoryContent(value), 'content', errors);
   }
 
   normalizeMetadata(value: unknown, errors: Record<string, string[]>): Record<string, unknown> | null {
-    if (value === null || value === undefined) return null;
-    if (typeof value !== 'object' || Array.isArray(value)) {
-      errors['metadata'] = (errors['metadata'] ?? []).concat('metadata must be an object');
-      return null;
-    }
-    return value as Record<string, unknown>;
+    return collect(checkMemoryMetadata(value), 'metadata', errors);
   }
 
   normalizeTags(value: unknown, errors: Record<string, string[]>): string[] {
-    if (value === null || value === undefined) return [];
-    if (!Array.isArray(value)) {
-      errors['tags'] = (errors['tags'] ?? []).concat('tags must be an array of strings');
-      return [];
-    }
-    const out: string[] = [];
-    const seen = new Set<string>();
-    for (const tag of value) {
-      if (typeof tag !== 'string') {
-        errors['tags'] = (errors['tags'] ?? []).concat('tags must be strings');
-        continue;
-      }
-      const t = tag.trim();
-      if (!t) continue;
-      if (t.length > MAX_TAG_LENGTH) {
-        errors['tags'] = (errors['tags'] ?? []).concat(
-          `tag "${t}" is longer than ${MAX_TAG_LENGTH} characters`,
-        );
-        continue;
-      }
-      const k = t.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(t);
-    }
-    if (out.length > MAX_TAGS) {
-      errors['tags'] = (errors['tags'] ?? []).concat(`no more than ${MAX_TAGS} tags allowed`);
-    }
-    return out;
+    return collect(checkMemoryTags(value), 'tags', errors);
   }
 
   private normalizedArray(items: string[]): string[] {

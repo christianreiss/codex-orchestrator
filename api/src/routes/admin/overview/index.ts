@@ -24,7 +24,7 @@ import { desc, eq } from 'drizzle-orm';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
-import { adminEvents, hosts, insecureDomainAllows, installTokens } from '../../../db/schema.js';
+import { hosts, insecureDomainAllows, installTokens } from '../../../db/schema.js';
 import { SettingsService } from '../../../services/settings.js';
 import { makeAdminEventsWriter } from '../../../services/admin-events-writer.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
@@ -41,7 +41,7 @@ import {
   type RunnerRunRequest,
 } from '../../../services/runner-proxy.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
-import { createRunnerValidationService } from '../../../services/runner-validation.js';
+import { createRunnerValidationService, enabledProviderAccountIds } from '../../../services/runner-validation.js';
 import { createAdminEventsService } from '../../../services/admin-events.js';
 import { ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, ENGINE_HOST_FIELDS, isEngine, parseEngine, type Engine } from '../../../util/engine.js';
 import { nowIso, parseIso } from '../../../util/timestamp.js';
@@ -223,6 +223,7 @@ export async function registerAdminOverviewRoutes(
     authStore,
     seedTokens: createSeedTokenStore(ctx.db),
     readTelemetry: createRunnerTelemetryReader(ctx.db),
+    poolAccountIds: (engine) => enabledProviderAccountIds(ctx.db, engine),
   });
   const adminEventsService = createAdminEventsService(ctx.db);
 
@@ -285,7 +286,7 @@ export async function registerAdminOverviewRoutes(
       settings.getString('admin_theme', 'auto'),
       settings.getFlag('reverse_dns_enabled', false),
       settings.getFlag('insecure_approval_enabled', false),
-      settings.getFlag('auto_update_enabled', false),
+      settings.getFleetAutoUpdate(),
       settings.getInt('inactivity_window_days', 30),
       settings.getWithMeta('client_version_lock'),
       settings.getFlag('claude_api_disabled', false),
@@ -542,7 +543,7 @@ kimi_recent_digests: [],
         clientVersions.versionSummary('claude'),
         clientVersions.availableClientVersion(false, 'codex'),
         clientVersions.availableClientVersion(false, 'claude'),
-        settings.getFlag('auto_update_enabled', false),
+        settings.getFleetAutoUpdate(),
         settings.getFlag('reverse_dns_enabled', false),
         settings.getInt('inactivity_window_days', 30),
         canonicalMetadata(ENGINE_CODEX),
@@ -857,16 +858,10 @@ kimi_version_stale: isClientVersionStale(kimiAvailable?.fetched_at),
     const now = nowIso();
     let eventId: number | null = null;
     try {
-      const result = await ctx.db.insert(adminEvents).values({
-        type: 'toast',
-        hostId: null,
-        payload: payload as unknown as Record<string, unknown>,
-        createdAt: now,
-      });
-      const insertId = Array.isArray(result)
-        ? (result[0] as { insertId?: number }).insertId
-        : (result as unknown as { insertId?: number }).insertId;
-      if (typeof insertId === 'number') eventId = insertId;
+      // Through the shared writer, so on the owner path the derived latest-event
+      // head advances with the row (a bare insert left it behind until reboot).
+      const record = await makeAdminEventsWriter(ctx.db).append('toast', payload as unknown as Record<string, unknown>);
+      if (record.id > 0) eventId = record.id;
     } catch (err) {
       app.log.warn({ err }, 'failed to record admin toast event');
     }

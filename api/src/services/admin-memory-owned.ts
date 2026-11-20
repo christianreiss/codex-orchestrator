@@ -34,11 +34,13 @@ import {
   normalizeNullableText,
   normalizePositiveInt,
   normalizeSharedSlug,
+  normalizeList,
   normalizeTags,
   sameValue,
   type MemoryScope,
   type UnifiedMemoryRow,
 } from './admin-memory-model.js';
+import { MEMORY_MAX_CONTENT } from './memory-validation.js';
 
 type Action = 'created' | 'updated' | 'deleted' | 'appended' | 'restored';
 /** Admin content commands share one draft, transaction, ETag check and audit. */
@@ -68,7 +70,7 @@ export class AdminMemoryOwned {
         title: r.memoryKey,
         summary: r.summary,
         metadata: r.metadata as Record<string, unknown> | null,
-        tags: normalizeTags(r.tags),
+        tags: normalizeList(r.tags),
         ownerHostId: r.hostId,
         ownerHost: ctx.draft.table('hosts').get(r.hostId)?.fqdn ?? null,
         engine: r.engine,
@@ -84,7 +86,7 @@ export class AdminMemoryOwned {
         title: r.memoryKey,
         summary: null,
         metadata: r.metadata as Record<string, unknown> | null,
-        tags: normalizeTags(r.tags),
+        tags: normalizeList(r.tags),
         projectId: r.projectId,
         projectSlug: ctx.draft.table('coordProjects').get(r.projectId)?.slug ?? null,
         sourceHostId: r.sourceHostId,
@@ -100,7 +102,7 @@ export class AdminMemoryOwned {
       title: r.title,
       summary: r.summary,
       metadata: r.metadata as Record<string, unknown> | null,
-      tags: normalizeTags(r.tags),
+      tags: normalizeList(r.tags),
       sourceHostId: r.sourceHostId,
       sourceHost: r.sourceHostId ? (ctx.draft.table('hosts').get(r.sourceHostId)?.fqdn ?? null) : null,
       engine: r.sourceEngine,
@@ -171,8 +173,8 @@ export class AdminMemoryOwned {
             scope === 'shared'
               ? normalizeSharedSlug(input.id ?? input.slug ?? input.key)
               : normalizeMemoryKey(input.id ?? input.key, scope),
-          content = normalizeContent(input.content, scope === 'shared' ? MAX_CONTENT_CHARS : 32000),
-          tags = normalizeTags(input.tags),
+          content = normalizeContent(input.content, scope === 'shared' ? MAX_CONTENT_CHARS : MEMORY_MAX_CONTENT),
+          tags = normalizeTags(input.tags, scope),
           metadata = normalizeMetadata(input.metadata),
           now = nowIso();
         if (scope === 'shared') {
@@ -308,7 +310,7 @@ export class AdminMemoryOwned {
           return null;
         }
         let content = hasOwn(input, 'content')
-          ? normalizeContent(input.content, scope === 'shared' ? MAX_CONTENT_CHARS : 32000)
+          ? normalizeContent(input.content, scope === 'shared' ? MAX_CONTENT_CHARS : MEMORY_MAX_CONTENT)
           : before.content;
         if (action === 'appended') {
           const addition = normalizeContent(input.content, MAX_CONTENT_CHARS);
@@ -329,7 +331,7 @@ export class AdminMemoryOwned {
             );
           content = kept.prevContent;
         }
-        const tags = hasOwn(input, 'tags') ? normalizeTags(input.tags) : before.tags,
+        const tags = hasOwn(input, 'tags') ? normalizeTags(input.tags, scope) : before.tags,
           metadata = hasOwn(input, 'metadata') ? normalizeMetadata(input.metadata) : before.metadata,
           summary = hasOwn(input, 'summary')
             ? normalizeNullableText(input.summary, 'summary', 1000)

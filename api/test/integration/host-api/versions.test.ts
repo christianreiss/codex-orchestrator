@@ -134,6 +134,28 @@ describe('POST /cron/check', () => {
     }
   });
 
+  // API-HOST-01: the signed config always baked auto-update on for an unset
+  // fleet row; /cron/check and /versions now agree with it instead of off.
+  it('treats an unset fleet auto-update row as on', async () => {
+    const db = createDbFake();
+    const apiKey = 'sk-host-update-default-test';
+    db.tables.set(hostsTable, [{ ...hostRow(apiKey), autoUpdateOverride: null }]);
+    db.tables.set(versionsTable, [{ name: 'client_version_codex', version: '0.132.0' }]);
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring: makeKeyring() });
+    try {
+      const cron = await app.inject({
+        method: 'POST', url: '/cron/check',
+        headers: { authorization: `Bearer ${apiKey}` },
+        payload: { client_version: '0.130.0' },
+      });
+      expect(cron.statusCode).toBe(200);
+      expect(cron.json()).toMatchObject({ action: 'update', target_version: '0.132.0' });
+      expect((await app.inject({ method: 'GET', url: '/versions' })).json().auto_update_enabled).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
   it.each(['codex', 'claude'] as const)('honors host auto-update enable/disable/inherit for %s', async (engine) => {
     for (const fleetEnabled of [true, false]) {
       for (const override of [null, 0, 1]) {

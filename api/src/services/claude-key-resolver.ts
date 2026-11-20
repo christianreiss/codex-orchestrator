@@ -13,7 +13,7 @@
  */
 import type { FastifyRequest, preHandlerHookHandler } from 'fastify';
 import { ApiError } from '../http/errors.js';
-import { CLAUDE_ENGINE } from './claude-keys.js';
+import { ENGINE_CLAUDE as CLAUDE_ENGINE } from '../util/engine.js';
 import type { OpenAiKeyService } from './openai-keys.js';
 
 declare module 'fastify' {

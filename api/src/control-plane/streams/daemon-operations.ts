@@ -5,7 +5,6 @@ import { eq, inArray, and, desc } from 'drizzle-orm';
 import {
   hostDaemonSessions,
   hostDaemonOperations,
-  adminEvents,
   companionDaemonFollows,
   companionFollows,
   hostDaemonPortalBindings,
@@ -14,6 +13,7 @@ import {
 } from '../../db/schema.js';
 import { mutateOwnerState, type OwnerMutationContext } from '../state/runtime.js';
 import { stageUpdate } from '../state/rows.js';
+import { adminAudit } from '../state/admin.js';
 import { DaemonState } from './daemon-state.js';
 import { daemonAccepting } from '../../services/host-daemon/policy.js';
 import { isInternalHost } from '../../services/internal-hosts.js';
@@ -210,13 +210,14 @@ export class DaemonOperations extends DaemonState {
     c.write(async (tx) => {
       await tx.insert(hostDaemonSessions).values(session);
       await tx.insert(hostDaemonOperations).values(operation);
-      await tx.insert(adminEvents).values({
-        type: 'host.daemon.start_requested',
-        hostId: input.host_id,
-        payload: { owner: actor, session_id: id, operation_id: opId, engine: input.engine },
-        createdAt: at,
-      });
     });
+    adminAudit(
+      c,
+      'host.daemon.start_requested',
+      { owner: actor, session_id: id, operation_id: opId, engine: input.engine },
+      at,
+      input.host_id,
+    );
     if (portalInput) this.follow(c, portalInput.deviceId, id);
     return { operation_id: opId, session_id: id };
   }
@@ -472,13 +473,12 @@ export class DaemonOperations extends DaemonState {
         c.draft.upsert('hostDaemonOperations', operation);
         c.write((tx) => tx.insert(hostDaemonOperations).values(operation));
         stageUpdate(c, 'hostDaemonSessions', id, { status: 'queued', lastActivityAt: at });
-        c.write((tx) =>
-          tx.insert(adminEvents).values({
-            type: 'host.daemon.start_requested',
-            hostId,
-            payload: { owner: actor ?? 'operator', session_id: id, operation_id: opId, kind: 'resume' },
-            createdAt: at,
-          }),
+        adminAudit(
+          c,
+          'host.daemon.start_requested',
+          { owner: actor ?? 'operator', session_id: id, operation_id: opId, kind: 'resume' },
+          at,
+          hostId,
         );
         return { operation_id: opId, session_id: id };
       },
@@ -520,13 +520,12 @@ export class DaemonOperations extends DaemonState {
         if ((current.permissionMode ?? 'default') === mode) return false;
         assertPermissionMode(current.engine, mode, c.snapshot.daemons.get(current.hostId)?.runtime);
         stageUpdate(c, 'hostDaemonSessions', id, { permissionMode: storedPermissionMode(mode) });
-        c.write((tx) =>
-          tx.insert(adminEvents).values({
-            type: 'host.daemon.permission_mode_changed',
-            hostId: current.hostId,
-            payload: { session_id: id, permission_mode: mode, actor },
-            createdAt: now(),
-          }),
+        adminAudit(
+          c,
+          'host.daemon.permission_mode_changed',
+          { session_id: id, permission_mode: mode, actor },
+          now(),
+          current.hostId,
         );
         return true;
       },
@@ -560,14 +559,7 @@ export class DaemonOperations extends DaemonState {
       status: ['running', 'stopping'].includes(current.status) ? 'stopping' : 'closed',
     });
     stageAdvisorSessionStopped(c, this.ctx.keyring, current, actor);
-    c.write((tx) =>
-      tx.insert(adminEvents).values({
-        type: 'host.daemon.stop_requested',
-        hostId,
-        payload: { session_id: id, actor },
-        createdAt: now(),
-      }),
-    );
+    adminAudit(c, 'host.daemon.stop_requested', { session_id: id, actor }, now(), hostId);
     return hostId;
   }
   async bind(hostId: number, operationId: string, claim: string, sessionId: string, addressId: string) {

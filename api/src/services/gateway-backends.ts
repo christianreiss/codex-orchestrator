@@ -28,7 +28,6 @@ import { buildModelObject, OPENAI_MODELS, resolveRequestedModel, UnsupportedMode
 import { assertControlsSupported, capabilitiesFor } from './transport-capabilities.js';
 import { API_SURFACES, createSurfaceRouting, identityRouting, type ApiSurfaceId, type SurfaceRouting } from './api-surfaces.js';
 import { readModelPolicy, applyModelPolicy, buildModelPolicy } from './model-policy.js';
-import { CLAUDE_DEFAULT_MODEL } from './claude-models.js';
 import { GROK_DEFAULT_MODEL } from './grok-models.js';
 import { SettingsService } from './settings.js';
 import { readFleetEngineState } from './engine-switch.js';
@@ -214,7 +213,7 @@ function modelsFor(engine: Engine, ctx: GatewayContext): GatewayBackendModels {
       // Upgrade known IDs before checking manual disables on the successor.
       let requested = typeof value === 'string' ? value.trim() : '';
       if (engine === ENGINE_CLAUDE) requested = requested.toLowerCase();
-      if (!requested) requested = engine === ENGINE_CLAUDE ? CLAUDE_DEFAULT_MODEL
+      if (!requested) requested = engine === ENGINE_CLAUDE ? await base.resolve(undefined)
         : engine === ENGINE_GROK ? await new SettingsService(ctx.db).getString('grok_default_model', GROK_DEFAULT_MODEL) ?? GROK_DEFAULT_MODEL
         : engine === ENGINE_KIMI ? await new SettingsService(ctx.db).getString('kimi_default_model', KIMI_DEFAULT_MODEL) ?? KIMI_DEFAULT_MODEL
         : resolveRequestedModel(undefined);
