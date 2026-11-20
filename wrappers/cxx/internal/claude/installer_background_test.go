@@ -27,7 +27,7 @@ func stagedInstallFixture(t *testing.T) (string, string) {
 	t.Setenv("npm_config_registry", "http://127.0.0.1:1")
 	old := filepath.Join(bin, "claude")
 	writeScript(t, old, "#!/bin/sh\necho '2.1.1 (Claude Code)'\n")
-	if err := cacheClaude(old); err != nil {
+	if err := cacheClaudeContext(context.Background(), old); err != nil {
 		t.Fatal(err)
 	}
 	return home, bin
@@ -188,9 +188,9 @@ func TestBackgroundClaudeRetainsPreviouslyPublishedPrefix(t *testing.T) {
 	}
 	previous, _ := FindCLI()
 	writeScript(t, filepath.Join(bin, "npm"), strings.ReplaceAll(stagedNpmFixture, "2.1.2", "2.1.3"))
-	// The legacy entry point also uses private staging once a managed prefix
-	// is selected, so an explicit caller cannot overwrite a running install.
-	if err := EnsureClaude(context.Background(), "2.1.3", true, nil); err != nil {
+	// A later install stages a fresh private prefix, so it cannot overwrite
+	// the release a running session uses.
+	if err := EnsureClaudeBackground(context.Background(), "2.1.3", true, nil); err != nil {
 		t.Fatal(err)
 	}
 	if current, _ := FindCLI(); current == previous {

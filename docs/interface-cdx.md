@@ -949,7 +949,6 @@ but this table omits fails the API suite.
 |---|---|
 | `CDX_CONFIG_PATH` | Absolute path of the signed host config, ahead of `$XDG_CONFIG_HOME/codex-orchestrator/cdx.json` and the `~/.config/...` default. The detached signature is still read from `<path>.sig` |
 | `CDX_CODEX_BIN` | Absolute path of the upstream `codex` CLI, used ahead of the path cache and `PATH`. An inaccessible value is an error, not a fallback |
-| `CDX_CODEX_INSTALL_DIR` | Destination for the legacy explicit Codex installer. Unattended upgrades use private versioned prefixes under `~/.cxx/engines/codex` |
 | `CDX_SKIP_BANNER` | `1` forces the compact ASCII boot screen even on a rich interactive terminal |
 | `CDX_AUTH_SESSION_HANDOFF` | Internal, wrapper-set: the encoded session + purge-request leases handed to the re-exec'd binary after a self-update. It is consumed and unset on startup; operators do not set it |
 | `CLX_CONFIG_PATH` | Peer reconciliation reads the same override as `clx` when deciding where to write the peer's signed `clx.json` |

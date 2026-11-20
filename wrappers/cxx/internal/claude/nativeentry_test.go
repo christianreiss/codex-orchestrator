@@ -26,16 +26,13 @@ func TestFindCLISkipsManagedNativeEntryAndStaleCache(t *testing.T) {
 	if err := os.WriteFile(vendor, []byte("#!/bin/sh\necho 2.1.168\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := cacheClaude(shim); err != nil {
+	if err := cacheClaudeContext(context.Background(), shim); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+vendorDir)
 	got, err := FindCLI()
 	if err != nil || got != vendor {
 		t.Fatalf("FindCLI=%q err=%v want %q", got, err, vendor)
-	}
-	if cacheClaudeIfMatches(context.Background(), shim, "") {
-		t.Fatal("installer accepted managed shim")
 	}
 	t.Setenv("CLX_CLAUDE_BIN", shim)
 	if _, err := FindCLI(); err == nil {

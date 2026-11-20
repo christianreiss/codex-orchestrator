@@ -472,9 +472,8 @@ but this table omits fails the API suite.
 | `CLX_SKIP_BANNER` | `1` forces the compact ASCII boot screen even on a rich interactive terminal |
 | `CDX_CONFIG_PATH` | Peer reconciliation reads the same override as `cdx` when deciding where to write the peer's signed `cdx.json` |
 
-There is no `CLX_CLAUDE_INSTALL_DIR` counterpart to cdx's
-`CDX_CODEX_INSTALL_DIR`: unattended Claude installs use private versioned npm
-prefixes under `~/.cxx/engines/claude`. Other variables affecting a run are
+There is no install-directory override: Claude installs and upgrades use
+private versioned npm prefixes under `~/.cxx/engines/claude`. Other variables affecting a run are
 engine-level rather than wrapper-owned: `CLAUDE_ALLOW_FQDN_MISMATCH`,
 `CLAUDE_FORCE_IPV4` / `CODEX_FORCE_IPV4`, `ANTHROPIC_MODEL` (runtime model
 fallback), the inherited `CLAUDE_CONFIG_DIR` the wrapper strips,
