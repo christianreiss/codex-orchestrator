@@ -298,6 +298,39 @@ test('Chatty action buttons navigate directly or confirm through the existing ad
   expect(verifications.length).toBe(before);
 });
 
+test('the Chatty launcher never covers the last row or the phone tab bar', async ({ page }) => {
+  await installFixtures(page, (path) => path === '/admin/chatty/status'
+    ? { visible: true, ready: true, enabled: true, knowledge_version: 'test', engines: [{ engine: 'codex', ready: true, reason: null, default_model: 'test', models: [{ id: 'test', display_name: 'Test' }] }] }
+    : undefined);
+  type Box = { x: number; y: number; width: number; height: number };
+  const overlaps = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  // Scroll main to its end and return where its content stops.
+  const contentBottom = () => page.evaluate(() => {
+    const main = document.querySelector('main')!;
+    main.scrollTop = main.scrollHeight;
+    return (main.firstElementChild as HTMLElement).getBoundingClientRect().bottom;
+  });
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto('/admin/accounts');
+    await expect(page.getByRole('heading', { name: 'Accounts', level: 1 })).toBeVisible();
+    const launcher = (await page.getByRole('button', { name: 'Open Chatty' }).boundingBox())!;
+    const bottom = await contentBottom();
+    if (width >= 768) {
+      expect(bottom, `content clears the launcher at ${width}px`).toBeLessThanOrEqual(launcher.y);
+      continue;
+    }
+    // Below 768 px the launcher docks into the tab bar, next to the Menu button.
+    const bar = (await page.getByRole('navigation', { name: 'Mobile primary navigation' }).boundingBox())!;
+    const menu = (await page.getByRole('button', { name: /Open navigation menu/ }).boundingBox())!;
+    expect(overlaps(launcher, menu), `launcher and Menu at ${width}px`).toBe(false);
+    expect(launcher.y, `launcher inside the tab bar at ${width}px`).toBeGreaterThanOrEqual(bar.y);
+    expect(launcher.y + launcher.height).toBeLessThanOrEqual(bar.y + bar.height);
+    expect(bottom, `content clears the tab bar at ${width}px`).toBeLessThanOrEqual(bar.y);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+});
+
 for (const role of ['owner', 'viewer']) {
 test(`Chatty is absent for ${role} without eligible access`, async ({ page }) => {
   await page.route('**/admin/**', route => {
