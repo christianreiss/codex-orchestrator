@@ -480,12 +480,13 @@ subagents, plugins, goals, memory, native command/HTTP hooks, notification hooks
 and built-in or command status lines. Features are configured only when an
 operator supplies them; support does not turn experimental features on.
 
-The field/type registry is audited against published Grok Build **1.0.88**
-(2026-11-17), selected by the official npm `latest` tag. The public changelog still
-ends at 1.0.77; distribution tags and native channel labels are separate evidence.
-The verified artifact prints `grok 1.0.88 (2fe3608f7398)` in a clean home. Its
-bundled complete reference is SHA-256
-`a74c01b5c3e99834d0005d4a3985f3d4867f209ee8dfadd71e51e24e72c79466`.
+The field/type registry is audited against published Grok Build **1.0.89**
+(2026-11-20), which is both the official npm `latest` tag and the native `stable`
+channel. The public changelog still ends at 1.0.77; distribution tags and native
+channel labels are separate evidence. The verified artifact prints
+`grok 1.0.89 (28be5bb1bf65)` in a clean home. Its bundled complete reference is
+SHA-256 `18eb6e45fd09f381052a257415cc45244d18a0ba2540791221cf8af50733b23e`
+(1.0.88: `a74c01b5c3e99834d0005d4a3985f3d4867f209ee8dfadd71e51e24e72c79466`).
 The older [public source reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md)
 is supplemented by the matching bundled configuration, hooks and status-line guides and
 [current settings reference](https://docs.x.ai/build/settings/reference).
@@ -1815,6 +1816,39 @@ managed/requirements scope and is owned by the fleet updater. Worker services,
 experiments and `hints.api_key_models_note_seen` remain outside user defaults.
 No login, refresh, cloud launch, native daemon restart or model tier change is
 performed by editing these defaults.
+
+## Grok 1.0.89 user settings (2026-11-20)
+
+Stable 1.0.89 adds four optional Boolean user fields to `config.toml`, accepted by
+the native editor and API: `features.auto_title_border` (daemon route only),
+`features.dashboard_workspace_mode` (replaces `features.workspace_dashboard`),
+`features.slow_link_paint_floor` and `ui.contextual_hints.thinking_collapse`.
+The 1.0.88 `inspect` reports all four as unrecognized config keys while 1.0.89
+accepts them, which fixes 1.0.89 as their first release. No defaults are inserted;
+omission stays omission.
+
+Every authored value, including `false`, requires a reported Grok CLI **1.0.89**
+or newer; `version_overrides` layers that are inactive for the observed version
+do not raise another host's floor, and unrelated `ui.contextual_hints.*` keys keep
+their earlier floor. Version 1.0.88 and unreported hosts are refused with a
+"require CLI 1.0.89" message and told to run `cgx update`. The 1.0.88 to 1.0.89
+help tree is byte-identical, so argv and `nativeargs` are unchanged.
+
+Deliberately deferred until the alpha channel is promoted to stable (not
+registered, so the API still rejects them as unknown Grok settings):
+
+- 1.0.90: `auto_mode.classifier_model`, `auto_mode.classify_timeout_ms`
+  (native clamp 1000-120000), `auto_mode.prompt_type`
+  (`full|bare_instructions|just_command`), `auto_mode.reasoning_effort`
+  (`none` through `max`) and `model.<id>.supports_reasoning_text_replay`.
+- 1.0.91: `features.shared_daemon_keep_alive`, which only matters with the
+  already refused `shared_daemon` or leader mode and would share that refusal.
+- 1.0.92: `features.wrap_image_relay` and `models.headless_retry_deadline_secs`
+  (0 disables, default 300).
+- Planned 1.0.90 removal of `dashboard.grouping` and `features.workspace_dashboard`
+  (absent from the 1.0.90 reference and the 1.0.92 binary). They stay valid and
+  registered on 1.0.89; a "removed in 1.0.90" rejection and version-layer note
+  belong to the promotion change. This is a documented deferral, not implemented.
 
 ## Configuration scope and client compatibility
 

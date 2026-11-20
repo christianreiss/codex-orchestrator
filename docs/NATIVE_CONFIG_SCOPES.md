@@ -163,6 +163,12 @@ identity and receiver lifetime. Native artifact-base policy, worker configuratio
 experiments and per-machine picker hints remain separately owned. See
 [the exact fields and decisions](interface-cgx.md#grok-1088-user-settings).
 
+Four further Boolean fields from Grok 1.0.89 (`features.auto_title_border`,
+`features.dashboard_workspace_mode`, `features.slow_link_paint_floor`,
+`ui.contextual_hints.thinking_collapse`) follow the same rules with a reported
+1.0.89 floor; alpha-only 1.0.90+ fields are deferred. See
+[the 1.0.89 block](interface-cgx.md#grok-1089-user-settings-2026-11-20).
+
 ## Native version compatibility
 
 Nonempty Codex native settings, including profile native settings, require a

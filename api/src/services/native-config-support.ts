@@ -1,5 +1,5 @@
 import { kimiNativeMinimum } from './kimi-native-settings.js';
-import { GROK_188_FEATURES, GROK_188_UI_FIELDS, GROK_188_MODEL_FIELDS } from './grok-native-fields.js';
+import { GROK_188_FEATURES, GROK_188_UI_FIELDS, GROK_188_MODEL_FIELDS, GROK_189_FEATURES, GROK_189_CONTEXTUAL_HINTS } from './grok-native-fields.js';
 import { needsCodex164, needsCodex165, needsCodex166, needsCodex167, needsCodex168, needsCodex169 } from './codex-native-capabilities.js';
 import type { Host } from '../db/schema.js';
 import { ValidationError } from '../http/errors.js';
@@ -80,6 +80,9 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
     || has(record(native.telemetry), 'otel_shutdown_timeout')
     || Object.values(record(native.model)).some(value => GROK_188_MODEL_FIELDS.some(key => has(record(value), key)))
     || Object.values(record(native.mcp_servers)).some(value => has(record(value), 'headers_helper'))) require('1.0.88');
+  // 1.0.89 additions: 1.0.88 reports all four as unrecognized config keys.
+  if (GROK_189_FEATURES.some(key => has(features, key))
+    || GROK_189_CONTEXTUAL_HINTS.some(key => has(record(ui.contextual_hints), key))) require('1.0.89');
   if (includeOverrides && Array.isArray(native.version_overrides)) for (const layer of native.version_overrides) {
     const patch = record(layer);
     if (observed && ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)

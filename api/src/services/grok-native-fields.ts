@@ -1,6 +1,7 @@
-/** Grok Build native field registry, audited 2026-11-17.
- * Published npm latest: 1.0.88. Bundled 26-config-reference.md SHA-256:
- * a74c01b5c3e99834d0005d4a3985f3d4867f209ee8dfadd71e51e24e72c79466.
+/** Grok Build native field registry, audited 2026-11-20.
+ * Published npm latest and native stable: 1.0.89. Bundled 26-config-reference.md
+ * SHA-256: 18eb6e45fd09f381052a257415cc45244d18a0ba2540791221cf8af50733b23e
+ * (1.0.88 reference a74c01b5c3e99834d0005d4a3985f3d4867f209ee8dfadd71e51e24e72c79466).
  * Public source (Apache-2.0; supplemented by the newer bundled reference):
  * https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md
  * Supplemented by the bundled 05-configuration.md, 10-hooks.md (1.0.77 handler
@@ -34,11 +35,16 @@ export const GROK_188_MODEL_FIELDS = [
   'prompt_harness', 'supports_tool_schema_const', 'supports_tool_schema_root_union',
   'supports_tool_schema_untyped_union',
 ] as const;
+/** Additions first proven in the published 1.0.89 artifact (1.0.88 flags all four as unrecognized). */
+export const GROK_189_FEATURES = ['auto_title_border', 'dashboard_workspace_mode', 'slow_link_paint_floor'] as const;
+export const GROK_189_CONTEXTUAL_HINTS = ['thinking_collapse'] as const;
 
 export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "env.*": ["string"],
   "features.ask_local_reads": ["boolean"],
   "features.auto_review_protected_paths": ["boolean"],
+  "features.auto_title_border": ["boolean"],
+  "features.dashboard_workspace_mode": ["boolean"],
   "features.fail_silent_opens": ["boolean"],
   "features.history_tree": ["boolean"],
   "features.inline_code_copy": ["boolean"],
@@ -51,6 +57,7 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "features.paged_full_load": ["boolean"],
   "features.pending_steer": ["boolean"],
   "features.resume_refusals": ["boolean"],
+  "features.slow_link_paint_floor": ["boolean"],
   "mcp_servers.*.headers_helper": ["string"],
   "model.*.prompt_harness": ["string"],
   "model.*.supports_tool_schema_const": ["boolean"],
@@ -455,6 +462,7 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "ui.contextual_hints.send_now": ["boolean"],
   "ui.contextual_hints.small_screen": ["boolean"],
   "ui.contextual_hints.ssh_wrap": ["boolean"],
+  "ui.contextual_hints.thinking_collapse": ["boolean"],
   "ui.contextual_hints.undo": ["boolean"],
   "ui.contextual_hints.word_select": ["boolean"],
   "ui.cursor_blink": ["boolean"],
