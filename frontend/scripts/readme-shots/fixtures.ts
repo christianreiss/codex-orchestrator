@@ -497,27 +497,6 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
           install: { both: 4, codex_only: 2, claude_only: 2, neither: 0 },
         },
       };
-    case "/admin/chatgpt/usage":
-      return { snapshot: { plan_type: "pro", fetched_at: ago(180), primary_window: { used_percent: 61, limit_seconds: 604800, reset_after_seconds: 3600 * 61 }, secondary_window: { used_percent: 28, limit_seconds: 18000, reset_after_seconds: 9120 }, spark_window: { primary_window: { used_percent: 12, limit_seconds: 18000 } } } };
-    case "/admin/claude/usage":
-      return { snapshot: { source: "statusline", fetched_at: ago(240), five_hour_used_percent: 34, seven_day_used_percent: 47 } };
-    case "/admin/chatgpt/usage/history":
-    case "/admin/claude/usage/history": {
-      const points = (offset: number) => Array.from({ length: 30 }, (_, i) => ({
-        ts: new Date(NOW - (29 - i) * 86400000).toISOString(),
-        value: 15 + Math.round(35 * Math.abs(Math.sin((i + offset) / 4))),
-      }));
-      const claude = pathname.startsWith("/admin/claude");
-      return {
-        days: Number(search.get("days") ?? 30), interval: "day", lane: "both", window: "both",
-        series: claude
-          ? [{ key: "five_hour", label: "5-hour window", points: points(2) }, { key: "seven_day", label: "Weekly window", points: points(5) }]
-          : [
-            { key: "normal_primary", label: "Weekly window", lane: "normal", window: "primary", limit_seconds: 604800, points: points(0) },
-            { key: "normal_secondary", label: "5-hour window", lane: "normal", window: "secondary", limit_seconds: 18000, points: points(3) },
-          ],
-      };
-    }
     case "/admin/runner":
       return { runner: { configured: true, ready: true, detail: "All three verification engines are ready.", engines: {
         codex: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "not_applicable", expires_at: null, days_remaining: null } },

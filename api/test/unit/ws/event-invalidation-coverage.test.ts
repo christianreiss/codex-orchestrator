@@ -33,6 +33,10 @@ const FRONTEND_EVENTS = resolve(HERE, '../../../../frontend/src/lib/ws/events.ts
 const UNMAPPED_EVENT_TYPES: Record<string, string> = {
   'host.daemon.operation.queued': 'Internal post-commit transport wake; host.daemon.changed already invalidates the operator views.',
   toast: 'not an invalidation — wireWsToQueryClient hands the payload to the sonner toaster',
+  'chatgpt.usage.updated':
+    'no console query reads usage events; the Provider usage table refreshes through accounts.updated',
+  'claude.usage.updated':
+    'no console query reads usage events; the Provider usage table refreshes through accounts.updated',
   'version.wrapper_published':
     'communicator update trigger only — no console query reads the published release from this event',
   'host.force_delete_ip_mismatch':

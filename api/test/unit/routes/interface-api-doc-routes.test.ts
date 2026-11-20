@@ -71,7 +71,7 @@ const ENTRY = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS)\s+(\/\S*)$/;
 /**
  * Drop everything from the first `?`/`[` — documented query strings
  * (`/admin/logs?limit=`) and optional-parameter brackets
- * (`/admin/chatgpt/usage[?force=1]`) are not path segments — and turn
+ * (`/admin/example[?flag=1]`) are not path segments — and turn
  * `{param}` / `:param` segments into `PARAM`.
  */
 function normalizeDocPath(documented: string): string {
@@ -136,10 +136,9 @@ describe('docs/interface-api.md endpoint inventory', () => {
     const documented = new Set(entries.map((entry) => `${entry.method} ${entry.path}`));
     expect(documented.has('POST /auth')).toBe(true);
     expect(documented.has('GET /admin/overview')).toBe(true);
-    // Params, query strings and optional-parameter brackets normalize away.
+    // Params and query strings normalize away.
     expect(documented.has('POST /projects/:param/todos/:param/done')).toBe(true);
     expect(documented.has('GET /admin/logs')).toBe(true);
-    expect(documented.has('GET /admin/chatgpt/usage')).toBe(true);
     // Method + path, so a documented verb the app never registers is caught.
     expect(documented.has('DELETE /auth')).toBe(true);
     expect(documented.has('OPTIONS /anthropic/v1/messages')).toBe(true);

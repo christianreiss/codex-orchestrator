@@ -129,10 +129,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/manual/article/:slug': cap('admin.read'),
   'GET /admin/manual/search': cap('admin.read'),
   'GET /admin/runner': cap('admin.read'),
-  'GET /admin/chatgpt/usage': cap('admin.read'),
-  'GET /admin/chatgpt/usage/history': cap('admin.read'),
-  'GET /admin/claude/usage': cap('admin.read'),
-  'GET /admin/claude/usage/history': cap('admin.read'),
 
   'GET /admin/agent-supervisor': cap('agent_messaging.read'),
   'POST /admin/agent-supervisor/state': cap('agent_messaging.manage'),
@@ -337,7 +333,6 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/versions/check': cap('settings.manage'),
   'GET /admin/communicator/api-version': cap('settings.read'),
   'POST /admin/communicator/api-version': cap('settings.manage'),
-  'POST /admin/chatgpt/usage/refresh': cap('settings.manage'),
 
   // ── Authored content ─────────────────────────────────────────────────────
   // `render` and `compose` are POSTs because they take a document body, but

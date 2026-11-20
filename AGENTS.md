@@ -131,7 +131,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - `/admin/api/state` is the only reachable route when API kill switch is on.
    - `/admin/hosts/*` manages secure/insecure/roaming/IPv4/curl/reverse-DNS, lane/model/version overrides, VIP, insecure approvals/domain allows, auth clear/delete, and temporary expiry.
    - `/admin/quota-mode` manages `quota_hard_fail`, `quota_limit_percent` (clamped 50–100), and `quota_week_partition` (`off|5|7`); `/admin/hosts/{id}/vip` forces warn-only behavior for VIP hosts.
-   - `/admin/chatgpt/usage*`, `/admin/config*`, `/admin/agents*`, `/admin/skills*`, `/admin/mcp/*`, `/admin/logs`, and `/admin/ws/info` back dashboard operations.
+   - `/admin/config*`, `/admin/agents*`, `/admin/skills*`, `/admin/memories/*`, `/admin/logs`, and `/admin/ws/info` back dashboard operations.
 
 ## Operational Checkpoints
 

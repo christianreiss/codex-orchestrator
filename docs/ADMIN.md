@@ -526,10 +526,7 @@ Admin routes:
   - Status: `GET /admin/runner` (enabled/url/base/timeout, last check/ok/fail, state, boot id, 24h counts, last validation/store log, canonical auth metadata).
   - Manual Codex run: `POST /admin/runner/run` (no body fields; runs the canonical verification pipeline and reports `verdict` / `applied` / digests).
   - Manual Claude run: `POST /admin/runner/run-claude` (same contract).
-- **ChatGPT, Logs**:
-  - ChatGPT usage snapshot: `GET /admin/chatgpt/usage` (`force` optional, cooldown is 300s unless forced).
-  - ChatGPT usage history: `GET /admin/chatgpt/usage/history` (`days`, `from`, `until`, `interval=raw|hour|day`, `lane=normal|spark|both`, `window=primary|secondary|both`).
-  - Force ChatGPT refresh: `POST /admin/chatgpt/usage/refresh`.
+- **Logs**:
   - Audit logs: `GET /admin/logs` (`limit`, repository clamps to `1..500`).
 - **Content Sync Surfaces**:
   - Skills: `GET /admin/skills`, `GET /admin/skills/{slug}`, `POST /admin/skills/generate`, `POST /admin/skills/store`, `DELETE /admin/skills/{slug}`. `POST /admin/skills/generate` uses the runner plus canonical auth to draft a skill into the admin modal, but it never persists anything until `store` runs. When Projects is enabled, the managed `coco` skill appears here as read-only and cannot be overwritten/deleted directly.

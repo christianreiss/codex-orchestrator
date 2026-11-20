@@ -202,11 +202,6 @@ The four `/admin/setup/*` routes are the noted exception to the session rule: th
 | GET | `/admin/overview` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/ws/info` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/toasts` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/chatgpt/usage` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/chatgpt/usage/history` | api/src/routes/admin/overview/index.ts |
-| POST | `/admin/chatgpt/usage/refresh` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/claude/usage` | api/src/routes/admin/overview/index.ts |
-| GET | `/admin/claude/usage/history` | api/src/routes/admin/overview/index.ts |
 | GET | `/admin/runner` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/runner/run` | api/src/routes/admin/overview/index.ts |
 | POST | `/admin/runner/run-claude` | api/src/routes/admin/overview/index.ts |

@@ -37,7 +37,7 @@ const ENTRY = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS)\s+(\/\S*)$/;
 /**
  * Drop everything from the first `?`/`[` — documented query strings
  * (`/admin/logs?limit=50`) and optional-parameter brackets
- * (`/admin/chatgpt/usage[?force=1]`) are not path segments — and reduce every
+ * (`/admin/example[?flag=1]`) are not path segments — and reduce every
  * placeholder to `PARAM`, so `{version}` and `:version` compare equal even in a
  * segment that also carries literal text (`/v{version}` / `/v:version`).
  *
