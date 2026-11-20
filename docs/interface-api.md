@@ -3370,7 +3370,7 @@ Existing operator-to-agent chat accepts optional `metadata` with `attachments` (
 
 `severity: important|critical|blocker` plus a stable `notice_id` classifies a message as Needs you.
 
-Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Older wrappers can send `agent_portal_notify` or a reply with severity for the same inline highlight. Use `agent_portal_ask` for a question with answer controls.
+Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Use `agent_portal_ask` for a question with answer controls.
 
 Ordinary questions do not imply urgency. Unresolved notices remain visible for offline/ended sessions and retain their existing conversation context until explicitly resolved. Opening a chat, answering a question or receiving another reply does not resolve these notices. Resolution names one notice. Push deduplicates per notice and severity; repeated identical notices do not create repeated alarms.
 

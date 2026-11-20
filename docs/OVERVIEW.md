@@ -302,7 +302,7 @@ see [Smart queue](smart-queue.md) for limits, canary setup and rollback.
 ## What it is
 
 
-Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Older wrappers can send `agent_portal_notify` or a reply with severity for the same inline highlight. Use `agent_portal_ask` for a question with answer controls.
+Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Use `agent_portal_ask` for a question with answer controls.
 
 Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex, Claude, and Grok subscription credentials for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx`/`clx`/`cgx` wrappers. The same API also ships Skills, shared project coordination, fleet memories and secrets, agent-to-agent messaging, a TTL'd file transfer pool, token-usage telemetry, and ChatGPT/Claude usage snapshots.
 

@@ -34,7 +34,7 @@ Metadata is encrypted in MySQL; file bytes are private on the store volume. Down
 ## Agent usage
 
 
-Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Older wrappers can send `agent_portal_notify` or a reply with severity for the same inline highlight. Use `agent_portal_ask` for a question with answer controls.
+Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Use `agent_portal_ask` for a question with answer controls.
 
 Use `agent_portal_ask` with stable `client_event_id`, `prompt_id`, `answer_mode` and optional `choices`. The operator answers in the same conversation. Retain caller IDs on retry.
 
