@@ -145,6 +145,22 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
   return { state, runtime, presence, fake, ctx, service };
 }
 describe('connection-owned daemon commands', () => {
+  // The daemon audits used to be bare inserts on the owner path, so the
+  // derived latest-event head (/admin/ws/info, Git Director, retention) lagged
+  // behind them until the next boot hydration.
+  it('advances the owner admin-event head with every daemon audit', async () => {
+    const at = new Date().toISOString();
+    const h = harness({
+      hostDaemonSessions: [{ id: 's1', hostId: 1, engine: 'codex', owner: 'owner', status: 'idle', lastActivityAt: at, createdAt: at, updatedAt: at }],
+    });
+    await h.service.setPermissionMode('s1', 'plan', 'owner').catch(() => undefined);
+    await h.service.stop('s1', 'owner');
+    const rows = (h.fake.tables.get(schema.adminEvents) ?? []) as Array<{ id: number; type: string }>;
+    expect(rows.map((row) => row.type)).toContain('host.daemon.stop_requested');
+    const last = Math.max(...rows.map((row) => row.id));
+    expect(Number(h.state.snapshot().setting('owner_admin_event_id'))).toBe(last);
+  });
+
   it('rejects oversized Kimi start/turn prompts before owner mutations', async () => {
     const h = harness({ hostDaemonSessions: [{ id: 'kimi-session', hostId: 1, engine: 'kimi', owner: 'owner', status: 'idle' }] });
     const before = h.state.revision();

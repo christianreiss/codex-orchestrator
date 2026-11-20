@@ -24,7 +24,7 @@ import { desc, eq } from 'drizzle-orm';
 import type { RouteContext } from '../../index.js';
 import { ok } from '../../../http/reply.js';
 import { ValidationError, NotFoundError } from '../../../http/errors.js';
-import { adminEvents, hosts, insecureDomainAllows, installTokens } from '../../../db/schema.js';
+import { hosts, insecureDomainAllows, installTokens } from '../../../db/schema.js';
 import { SettingsService } from '../../../services/settings.js';
 import { makeAdminEventsWriter } from '../../../services/admin-events-writer.js';
 import { InsecureWindowAdminService } from '../../../services/insecure-window-admin.js';
@@ -947,16 +947,10 @@ kimi_version_stale: isClientVersionStale(kimiAvailable?.fetched_at),
     const now = nowIso();
     let eventId: number | null = null;
     try {
-      const result = await ctx.db.insert(adminEvents).values({
-        type: 'toast',
-        hostId: null,
-        payload: payload as unknown as Record<string, unknown>,
-        createdAt: now,
-      });
-      const insertId = Array.isArray(result)
-        ? (result[0] as { insertId?: number }).insertId
-        : (result as unknown as { insertId?: number }).insertId;
-      if (typeof insertId === 'number') eventId = insertId;
+      // Through the shared writer, so on the owner path the derived latest-event
+      // head advances with the row (a bare insert left it behind until reboot).
+      const record = await makeAdminEventsWriter(ctx.db).append('toast', payload as unknown as Record<string, unknown>);
+      if (record.id > 0) eventId = record.id;
     } catch (err) {
       app.log.warn({ err }, 'failed to record admin toast event');
     }
