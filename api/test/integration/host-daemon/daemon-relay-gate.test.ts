@@ -36,7 +36,6 @@ describe.skipIf(!handle)('daemon relay acceptance gate with MySQL', () => {
       reverseDnsMode: 0,
       engines: 'codex,claude,grok,kimi',
       secure: 1,
-      agentMessagingEnabled: 1,
       authDigest: 'fixture',
       claudeAuthDigest: 'fixture',
       grokAuthDigest: 'fixture',

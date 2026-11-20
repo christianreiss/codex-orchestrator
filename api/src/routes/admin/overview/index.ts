@@ -508,7 +508,6 @@ kimi_recent_digests: [],
           authed: auth.authed,
           auth_outdated: auth.auth_outdated,
           config_version: Number(h.configVersion ?? 0),
-          wrapper_track: h.wrapperTrack,
           ...installerState(latestInstaller.get(Number(h.id))),
         };
       }),

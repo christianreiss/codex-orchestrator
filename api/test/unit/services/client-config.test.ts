@@ -839,7 +839,6 @@ describe('client-config: Claude Agent Messaging permissions', () => {
       id: 7,
       fqdn: 'host.example',
       secure: 1,
-      agentMessagingEnabled: 1,
       claudeWrapperVersion,
     } as never,
     baseUrl: null,
@@ -896,7 +895,7 @@ describe('client-config: Claude Agent Messaging permissions', () => {
   it('still names the plain server on Codex, which has no plugin surface', () => {
     const { content } = renderTomlForHost({
       settings: { orchestrator_mcp_enabled: false },
-      host: { id: 7, fqdn: 'host.example', secure: 1, agentMessagingEnabled: 1 } as never,
+      host: { id: 7, fqdn: 'host.example', secure: 1 } as never,
       baseUrl: null,
       apiKey: null,
       agentMessagingEnabled: true,

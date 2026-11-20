@@ -44,7 +44,7 @@ try {
     if (counts.adminaudit) tables.push('admin_events');
     if (counts.conversations) tables.push('agent_bus_messages');
     if (counts.receipts) tables.push('control_plane_command_receipts');
-    if (counts.quota) tables.push('chatgpt_usage_snapshots','claude_usage_snapshots','dashboard_graph_quota_snapshots','dashboard_graph_claude_quota_snapshots');
+    if (counts.quota) tables.push('chatgpt_usage_snapshots','claude_usage_snapshots','dashboard_graph_quota_snapshots');
     for (const table of tables) {
       const [rows] = await handle.execute(sql`OPTIMIZE TABLE ${sql.identifier(table)}`);
       const outcomes = rows as unknown as Array<{ Msg_type: string; Msg_text: string }>;

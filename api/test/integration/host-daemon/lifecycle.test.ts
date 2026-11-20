@@ -34,7 +34,6 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
       reverseDnsMode: 0,
       engines: 'codex,claude,grok,kimi',
       secure: 1,
-      agentMessagingEnabled: 1,
       authDigest: 'test',
       claudeAuthDigest: 'test',
       grokAuthDigest: 'test',
@@ -294,14 +293,13 @@ describe.skipIf(!handle)('durable host daemon lifecycle', () => {
     expect((await service.session(start.session_id)).status).toBe('closed');
   });
   it('honors fleet messaging policy and expired insecure windows', async () => {
-    await handle!.db.update(hosts).set({ agentMessagingEnabled: 0 }).where(eq(hosts.id, id));
     await expect(service.start(input(), 'agent:owner')).resolves.toHaveProperty('session_id');
     await handle!.db.update(versions).set({ version: '0' }).where(eq(versions.name, 'agent_messaging_enabled'));
     await expect(service.start(input(), 'agent:owner')).rejects.toThrow('disabled');
     await handle!.db.update(versions).set({ version: '1' }).where(eq(versions.name, 'agent_messaging_enabled'));
     await handle!.db
       .update(hosts)
-      .set({ agentMessagingEnabled: 1, secure: 0, insecureEnabledUntil: null })
+      .set({ secure: 0, insecureEnabledUntil: null })
       .where(eq(hosts.id, id));
     await expect(service.start(input(), 'agent:owner')).rejects.toThrow('window is closed');
     await handle!.db.update(hosts).set({ secure: 1 }).where(eq(hosts.id, id));

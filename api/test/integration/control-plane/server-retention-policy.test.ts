@@ -20,7 +20,7 @@ describe.skipIf(!config)('retention policy on MySQL', () => {
   it('deletes optional quota history while preserving latest provider readings and usable baselines', async () => {
     const pool=mysql.createPool({...config!,connectionLimit:4}),db=drizzle(pool,{schema,mode:'default'}),keyring=testKeyring();
     const old=new Date(946684800000+Math.floor(Math.random()*86400000)).toISOString(),later='2001-01-01T00:00:00.000Z',now=new Date().toISOString();
-    const accounts:number[]=[],graphs:number[]=[],claudeGraphs:number[]=[];
+    const accounts:number[]=[],graphs:number[]=[];
     let plane:Awaited<ReturnType<typeof createOwnedControlPlane>>|undefined;
     try {
       for(const engine of ['codex','claude']){const [row]=await db.insert(schema.providerAccounts).values({engine,label:randomUUID(),createdAt:now,updatedAt:now}).$returningId();accounts.push(row!.id);}
@@ -28,7 +28,6 @@ describe.skipIf(!config)('retention policy on MySQL', () => {
       await db.insert(schema.claudeUsageSnapshots).values([{accountId:accounts[1],fetchedAt:old,createdAt:old},{accountId:accounts[1],fetchedAt:now,createdAt:now}]);
       for(const fetchedAt of [old,now]) {
         const [a]=await db.insert(schema.dashboardGraphQuotaSnapshots).values({fetchedAt,createdAt:fetchedAt}).$returningId();graphs.push(a!.id);
-        const [b]=await db.insert(schema.dashboardGraphClaudeQuotaSnapshots).values({snapshotAt:fetchedAt,createdAt:fetchedAt}).$returningId();claudeGraphs.push(b!.id);
       }
       plane=await createOwnedControlPlane({pool,handle:db,env:{...loadTestEnv(),DB_DATABASE:String(config!.database)},keyring,error(error){throw error;}});
       for(let i=0;i<5;i++) await mutateOwnerState(plane.runtime,{kind:'test.quota.retention',payload:{},prepare(ctx){ctx.write(async tx=>{await purgeCold(ctx,tx,'quota',{...DEFAULT_SERVER_RETENTION,armed:true});});return null;}});
@@ -36,13 +35,10 @@ describe.skipIf(!config)('retention policy on MySQL', () => {
       expect((await db.select().from(schema.claudeUsageSnapshots).where(eq(schema.claudeUsageSnapshots.accountId,accounts[1]!))).map(r=>r.fetchedAt)).toEqual([now]);
       expect(await db.select().from(schema.dashboardGraphQuotaSnapshots).where(eq(schema.dashboardGraphQuotaSnapshots.id,graphs[0]!))).toHaveLength(0);
       expect(await db.select().from(schema.dashboardGraphQuotaSnapshots).where(eq(schema.dashboardGraphQuotaSnapshots.id,graphs[1]!))).toHaveLength(1);
-      expect(await db.select().from(schema.dashboardGraphClaudeQuotaSnapshots).where(eq(schema.dashboardGraphClaudeQuotaSnapshots.id,claudeGraphs[0]!))).toHaveLength(0);
-      expect(await db.select().from(schema.dashboardGraphClaudeQuotaSnapshots).where(eq(schema.dashboardGraphClaudeQuotaSnapshots.id,claudeGraphs[1]!))).toHaveLength(1);
     } finally {
       await plane?.close();
       for(const id of accounts) {await db.delete(schema.chatgptUsageSnapshots).where(eq(schema.chatgptUsageSnapshots.accountId,id));await db.delete(schema.claudeUsageSnapshots).where(eq(schema.claudeUsageSnapshots.accountId,id));await db.delete(schema.providerAccounts).where(eq(schema.providerAccounts.id,id));}
       for(const id of graphs) await db.delete(schema.dashboardGraphQuotaSnapshots).where(eq(schema.dashboardGraphQuotaSnapshots.id,id));
-      for(const id of claudeGraphs) await db.delete(schema.dashboardGraphClaudeQuotaSnapshots).where(eq(schema.dashboardGraphClaudeQuotaSnapshots.id,id));
       await pool.end();
     }
   });
