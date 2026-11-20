@@ -10,7 +10,10 @@ import { ownedDestroyRequests, ownedDestroyProgress, requestOwnedEngineDestroy, 
  * The server side is a request flag plus one progress row per host:
  *
  *   - `versions` row `<engine>_engine_destroy` holds the request (JSON).
- *   - `engine_destroy_hosts` holds per-host status (`pending|running|done|failed`).
+ *   - `engine_destroy_hosts` holds per-host status (`pending|running|done|failed`)
+ *     for every host `destroyTargetsHost` names: it carries the engine or once
+ *     reported it. A targeted host without a row (it gained the engine later)
+ *     still gets the directive, counts as pending, and gets its row on report.
  *   - The signed wrapper config carries `host.destroy_engines` while a request
  *     exists, so a host acts on its next sync; the wrapper is idempotent and
  *     remembers the request id it already completed.
@@ -44,7 +47,9 @@ import { wsPublisher } from '../ws/publisher.js';
 import { nowIso } from '../util/timestamp.js';
 import { ENGINES, type Engine } from '../util/engine.js';
 import { ConflictError, NotFoundError, ValidationError } from '../http/errors.js';
-import { hostEnginesList } from './host-engine-policy.js';
+import { destroyTargetsHost, hostEnginesList } from './host-engine-policy.js';
+
+export { destroyTargetsHost } from './host-engine-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 
 export const ENGINE_DESTROY_FLAGS: Readonly<Record<Engine, string>> = Object.freeze({
@@ -108,13 +113,14 @@ export async function assertNoDestroyRequest(db: Pick<Database, 'select'>, engin
 
 /**
  * The `{engine, request_id}` pairs a host must act on: open requests for which
- * the host has a progress row. Hosts without a row never carried the engine.
+ * the host has a progress row, or that target it (`destroyTargetsHost`) without
+ * one yet, so a host never misses a request because its row is absent.
  */
 export async function destroyDirectivesForHost(
   db: Pick<Database, 'select'>,
   hostId: number,
 ): Promise<Array<{ engine: Engine; request_id: string }>> {
-  const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();const snapshot=owner.state.snapshot(),mine=new Set(snapshot.table('engineDestroyHosts').by('hostId',hostId).map(row=>row.requestId));return ownedDestroyRequests(snapshot).filter(r=>mine.has(r.request_id)).map(r=>({engine:r.engine,request_id:r.request_id}));}
+  const owner=ownerRuntimeFor(db);if(owner){owner.assertOwner();const snapshot=owner.state.snapshot(),host=snapshot.hosts.get(hostId),mine=new Set(snapshot.table('engineDestroyHosts').by('hostId',hostId).map(row=>row.requestId));return ownedDestroyRequests(snapshot).filter(r=>mine.has(r.request_id)||(host!==undefined&&destroyTargetsHost(host,r.engine))).map(r=>({engine:r.engine,request_id:r.request_id}));}
   try {
     const requests = await readDestroyRequests(db);
     if (requests.length === 0) return [];
@@ -123,6 +129,10 @@ export async function destroyDirectivesForHost(
       .from(engineDestroyHosts)
       .where(and(eq(engineDestroyHosts.hostId, hostId), inArray(engineDestroyHosts.requestId, requests.map((r) => r.request_id))));
     const mine = new Set(rows.map((r) => r.requestId));
+    if (requests.some((r) => !mine.has(r.request_id))) {
+      const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
+      for (const r of requests) if (host && destroyTargetsHost(host, r.engine)) mine.add(r.request_id);
+    }
     return requests.filter((r) => mine.has(r.request_id)).map((r) => ({ engine: r.engine, request_id: r.request_id }));
   } catch {
     // Config baking must not fail because the destroy tables are unreadable;
@@ -165,9 +175,7 @@ export async function requestEngineDestroy(
       if (rows.length === 0) await tx.insert(versions).values({ name: flag, version: value, updatedAt: now });
       else await tx.update(versions).set({ version: value, updatedAt: now }).where(eq(versions.name, flag));
     }
-    const carrying = (await tx.select({ id: hosts.id, engines: hosts.engines }).from(hosts)).filter((h) =>
-      hostEnginesList(h.engines).includes(engine),
-    );
+    const carrying = (await tx.select().from(hosts)).filter((h) => destroyTargetsHost(h, engine));
     const known = new Set(
       (await tx.select({ hostId: engineDestroyHosts.hostId }).from(engineDestroyHosts).where(eq(engineDestroyHosts.requestId, request.request_id))).map((r) => r.hostId),
     );
@@ -233,11 +241,32 @@ export async function recordHostReport(
   const owner=ownerRuntimeFor(db);if(owner){const result=await recordOwnedDestroyReport(owner,hostId,input,residue);wsPublisher.publish('engine.state.changed',{engine:input.engine});return result as {recorded:boolean};}
   const open = await readDestroyRequest(db, input.engine);
   if (!open || open.request_id !== input.request_id) return { recorded: false };
-  const res = await db
-    .update(engineDestroyHosts)
-    .set({ status: input.status, residueJson: JSON.stringify(residue), reportedAt: nowIso() })
-    .where(and(eq(engineDestroyHosts.requestId, input.request_id), eq(engineDestroyHosts.hostId, hostId)));
-  void res;
+  const now = nowIso();
+  const [existing] = await db
+    .select({ hostId: engineDestroyHosts.hostId })
+    .from(engineDestroyHosts)
+    .where(and(eq(engineDestroyHosts.requestId, input.request_id), eq(engineDestroyHosts.hostId, hostId)))
+    .limit(1);
+  if (existing) {
+    await db
+      .update(engineDestroyHosts)
+      .set({ status: input.status, residueJson: JSON.stringify(residue), reportedAt: now })
+      .where(and(eq(engineDestroyHosts.requestId, input.request_id), eq(engineDestroyHosts.hostId, hostId)));
+  } else {
+    // A host targeted after the request opened (see destroyTargetsHost) gets
+    // its progress row from its first report.
+    const [host] = await db.select().from(hosts).where(eq(hosts.id, hostId)).limit(1);
+    if (!host || !destroyTargetsHost(host, input.engine)) return { recorded: false };
+    await db.insert(engineDestroyHosts).values({
+      requestId: input.request_id,
+      hostId,
+      engine: input.engine,
+      status: input.status,
+      residueJson: JSON.stringify(residue),
+      reportedAt: now,
+      createdAt: now,
+    });
+  }
   wsPublisher.publish('engine.state.changed', { engine: input.engine });
   return { recorded: true };
 }
@@ -254,26 +283,37 @@ export async function listDestroyProgress(db: Database, engine: Engine): Promise
   const request = await readDestroyRequest(db, engine);
   const counts: Record<DestroyStatus, number> = { pending: 0, running: 0, done: 0, failed: 0 };
   if (!request) return { engine, request: null, counts, hosts: [] };
-  const rows = await db
-    .select({
-      hostId: engineDestroyHosts.hostId,
-      fqdn: hosts.fqdn,
-      status: engineDestroyHosts.status,
-      residueJson: engineDestroyHosts.residueJson,
-      reportedAt: engineDestroyHosts.reportedAt,
-    })
-    .from(engineDestroyHosts)
-    .innerJoin(hosts, eq(hosts.id, engineDestroyHosts.hostId))
-    .where(and(eq(engineDestroyHosts.requestId, request.request_id), visibleHost));
-  const list = rows.map((r) => {
+  const [rows, visible] = await Promise.all([
+    db
+      .select({
+        hostId: engineDestroyHosts.hostId,
+        status: engineDestroyHosts.status,
+        residueJson: engineDestroyHosts.residueJson,
+        reportedAt: engineDestroyHosts.reportedAt,
+      })
+      .from(engineDestroyHosts)
+      .where(eq(engineDestroyHosts.requestId, request.request_id)),
+    db.select().from(hosts).where(visibleHost),
+  ]);
+  const byId = new Map(visible.map((h) => [h.id, h]));
+  const list = rows.flatMap((r) => {
+    const host = byId.get(r.hostId);
+    if (!host) return [];
     let residue: string[] = [];
     try {
       const p = JSON.parse(r.residueJson ?? '[]');
       if (Array.isArray(p)) residue = p.filter((x): x is string => typeof x === 'string');
     } catch { /* residue is advisory */ }
     if (r.status in counts) counts[r.status as DestroyStatus] += 1;
-    return { host_id: r.hostId, fqdn: r.fqdn, status: r.status, residue, reported_at: r.reportedAt };
+    return [{ host_id: r.hostId, fqdn: host.fqdn, status: r.status, residue, reported_at: r.reportedAt }];
   });
+  // Targeted hosts that have no row yet still owe the destroy.
+  const known = new Set(rows.map((r) => r.hostId));
+  for (const host of visible) {
+    if (known.has(host.id) || !destroyTargetsHost(host, engine)) continue;
+    counts.pending += 1;
+    list.push({ host_id: host.id, fqdn: host.fqdn, status: 'pending', residue: [], reported_at: null });
+  }
   return { engine, request, counts, hosts: list };
 }
 

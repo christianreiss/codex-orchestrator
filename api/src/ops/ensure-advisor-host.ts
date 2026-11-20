@@ -20,6 +20,7 @@ import { decryptOrNull, encrypt } from '../security/secret-box.js';
 import { sha256 } from '../security/hash.js';
 import { nowIso } from '../util/timestamp.js';
 import { ENGINES } from '../util/engine.js';
+import { readDestroyRequests } from '../services/engine-destroy.js';
 import { ADVISOR_FQDN, ADVISOR_ROLE } from '../services/internal-hosts.js';
 import { HostDaemonService } from '../services/host-daemon/service.js';
 import { daemonSettingsSchema } from '../services/host-daemon/policy.js';
@@ -60,7 +61,18 @@ async function adoptLegacy(db: Database): Promise<Host | null> {
   return adopted ?? null;
 }
 
-async function create(db: Database, keyring: Keyring): Promise<Host> {
+/**
+ * Every engine except those with an open destroy request: a destroyed engine
+ * must not come back to the advisor host on the next boot after purge
+ * unassigned it. Cancelling the request restores it on the following boot.
+ */
+export async function advisorHostEngines(db: Pick<Database, 'select'>): Promise<string> {
+  const destroyed = new Set((await readDestroyRequests(db).catch(() => [])).map((r) => r.engine));
+  const engines = ENGINES.filter((engine) => !destroyed.has(engine));
+  return (engines.length ? engines : ENGINES).join(',');
+}
+
+async function create(db: Database, keyring: Keyring, engines: string): Promise<Host> {
   const apiKey = `sk-codex-${randomBytes(32).toString('hex')}`;
   const apiKeyHash = sha256(apiKey);
   const now = nowIso();
@@ -75,7 +87,7 @@ async function create(db: Database, keyring: Keyring): Promise<Host> {
     // has no PTR record.
     allowRoamingIps: 1,
     reverseDnsMode: 0,
-    engines: ENGINES.join(','),
+    engines,
     internalRole: ADVISOR_ROLE,
     createdAt: now,
     updatedAt: now,
@@ -106,6 +118,7 @@ async function writeBootstrap(env: Env, host: Host, keyring: Keyring): Promise<A
 
 export async function ensureAdvisorHost(db: Database, env: Env, keyring: Keyring): Promise<AdvisorHostBootstrapResult> {
   let status: AdvisorHostBootstrapResult['status'] = 'present';
+  const engines = await advisorHostEngines(db);
   let [host] = await db.select().from(hosts).where(eq(hosts.internalRole, ADVISOR_ROLE)).limit(1);
   if (!host) {
     const adopted = await adoptLegacy(db);
@@ -113,15 +126,15 @@ export async function ensureAdvisorHost(db: Database, env: Env, keyring: Keyring
       host = adopted;
       status = 'adopted';
     } else {
-      host = await create(db, keyring);
+      host = await create(db, keyring, engines);
       status = 'created';
     }
   }
-  if (host.status !== 'active' || host.fqdn !== ADVISOR_FQDN || host.secure !== 1 || host.engines !== ENGINES.join(',')) {
-    // Every engine, so callers may pick any the fleet has enabled.
+  if (host.status !== 'active' || host.fqdn !== ADVISOR_FQDN || host.secure !== 1 || host.engines !== engines) {
+    // Every engine that is not being destroyed, so callers may pick any the fleet has enabled.
     await db
       .update(hosts)
-      .set({ status: 'active', fqdn: ADVISOR_FQDN, secure: 1, allowRoamingIps: 1, reverseDnsMode: 0, expiresAt: null, engines: ENGINES.join(','), updatedAt: nowIso() })
+      .set({ status: 'active', fqdn: ADVISOR_FQDN, secure: 1, allowRoamingIps: 1, reverseDnsMode: 0, expiresAt: null, engines, updatedAt: nowIso() })
       .where(eq(hosts.id, host.id));
     [host] = await db.select().from(hosts).where(eq(hosts.id, host.id)).limit(1);
   }

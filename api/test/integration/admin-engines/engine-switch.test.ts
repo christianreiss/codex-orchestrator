@@ -39,6 +39,21 @@ describe('/admin/engines', () => {
     await app.close();
   });
 
+  it('serves the console active-engine list without actor, timestamps or host counts', async () => {
+    const { app } = await buildApp(new Map([[versions, [{ name: 'grok_engine_disabled', version: '1' }, { name: 'kimi_engine_disabled', version: '1' }]]]));
+    const reply = await app.inject({ method: 'GET', url: '/admin/engines/active' });
+    expect(reply.statusCode).toBe(200);
+    expect(JSON.parse(reply.payload).data).toEqual({
+      engines: [
+        { engine: 'codex', label: 'Codex', enabled: true },
+        { engine: 'claude', label: 'Claude', enabled: true },
+        { engine: 'grok', label: 'Grok', enabled: false },
+        { engine: 'kimi', label: 'Kimi Code', enabled: false },
+      ],
+    });
+    await app.close();
+  });
+
   it('switches an engine off: flag row, config bump on every host, audit row, events', async () => {
     const publish = vi.spyOn(wsPublisher, 'publish');
     const { app, db } = await buildApp(new Map([[hosts, [host(1, 'codex,claude'), host(2, 'codex')]]]));

@@ -1,6 +1,7 @@
 /**
  * /admin/engines/* — fleet-wide engine master switches.
  *
+ *   GET  /admin/engines/active           {engine,label,enabled} per engine (admin.read)
  *   GET  /admin/engines/state            one row per engine
  *   POST /admin/engines/:engine/state    { enabled: boolean }
  *   GET    /admin/engines/:engine/destroy        progress of a destroy request
@@ -15,8 +16,8 @@ import type { FastifyInstance } from 'fastify';
 import type { RouteContext } from '../../index.js';
 import { ValidationError } from '../../../http/errors.js';
 import { ok } from '../../../http/reply.js';
-import { isEngine } from '../../../util/engine.js';
-import { listEngineStates, setFleetEngineEnabled } from '../../../services/engine-switch.js';
+import { ENGINE_LABELS, ENGINES, isEngine } from '../../../util/engine.js';
+import { listEngineStates, readFleetEngineState, setFleetEngineEnabled } from '../../../services/engine-switch.js';
 import {
   assertNoDestroyRequest,
   cancelEngineDestroy,
@@ -26,6 +27,14 @@ import {
 } from '../../../services/engine-destroy.js';
 
 export async function registerAdminEngineRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
+  // The console's single source for "which engines belong to the fleet". Every
+  // signed-in viewer needs it to hide switched-off engines, so it carries no
+  // actor, timestamp or host counts (those stay on /state, settings.read).
+  app.get('/admin/engines/active', { preHandler: app.requireAdmin }, async () => {
+    const fleet = await readFleetEngineState(ctx.db);
+    return ok({ engines: ENGINES.map((engine) => ({ engine, label: ENGINE_LABELS[engine], enabled: fleet[engine] })) });
+  });
+
   app.get('/admin/engines/state', { preHandler: app.requireAdmin }, async () => {
     return ok({ engines: await listEngineStates(ctx.db) });
   });

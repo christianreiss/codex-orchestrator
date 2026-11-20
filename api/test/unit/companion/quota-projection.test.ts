@@ -4,8 +4,9 @@ import { companionQuotas } from '../../../src/services/companion/quotas.js';
 vi.mock('../../../src/services/quota-observation.js', () => ({ quotaSnapshot: async () => null }));
 
 vi.mock('../../../src/control-plane/state/runtime.js', () => ({ ownerRuntimeFor: () => null }));
+const fleet = vi.hoisted(() => ({ state: { codex: true, claude: true, grok: true, kimi: true } }));
 vi.mock('../../../src/services/engine-switch.js', () => ({
-  readFleetEngineState: async () => ({ codex: true, claude: true, grok: false, kimi: false }),
+  readFleetEngineState: async () => fleet.state,
 }));
 vi.mock('../../../src/services/provider-accounts.js', () => ({
   ProviderAccountsService: class {
@@ -42,6 +43,7 @@ describe('companion quota projection', () => {
       db: { select: () => ({ from: () => ({ orderBy: async () => rows }) }) },
       keyring: {},
     } as unknown as RouteContext;
+    fleet.state = { codex: true, claude: true, grok: true, kimi: true };
     const result = await companionQuotas(ctx);
     expect(result.engines.map((e) => e.engine)).toEqual(['codex', 'claude', 'grok', 'kimi']);
     expect(result.engines[0]!.accounts).toHaveLength(1);
@@ -54,9 +56,21 @@ describe('companion quota projection', () => {
       limit_seconds: 18000,
     });
     expect(result.engines[2]!).toMatchObject({
-      enabled: false,
+      enabled: true,
       accounts: [{ windows: [{ kind: 'monthly', used_percent: 42 }] }],
     });
     expect(JSON.stringify(result)).not.toContain('never disclose');
+  });
+
+  it('omits engines switched off fleet-wide, accounts included', async () => {
+    const rows = ['codex', 'claude', 'grok', 'kimi'].map((engine, index) => ({ id: index + 1, engine, label: engine, state: 'enabled' }));
+    const ctx = {
+      db: { select: () => ({ from: () => ({ orderBy: async () => rows }) }) },
+      keyring: {},
+    } as unknown as RouteContext;
+    fleet.state = { codex: true, claude: true, grok: false, kimi: false };
+    const result = await companionQuotas(ctx);
+    expect(result.engines.map((e) => e.engine)).toEqual(['codex', 'claude']);
+    expect(JSON.stringify(result)).not.toMatch(/grok|kimi/i);
   });
 });

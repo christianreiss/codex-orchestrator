@@ -397,6 +397,7 @@
       "DELETE /admin/agent-messaging/groups/:slug",
       "DELETE /admin/chatty/session",
       "DELETE /admin/engines/:engine/destroy",
+      "GET /admin/engines/active",
       "DELETE /admin/feedback/:id",
       "POST /admin/feedback/purge",
       "GET /admin/*",
