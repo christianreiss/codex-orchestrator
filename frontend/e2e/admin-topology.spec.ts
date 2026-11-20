@@ -444,17 +444,20 @@ test('groups agents by project and directory and posts an operator message to th
   const members = tree().agents.map(a => ({ session_id: a.id, agent_id: a.address, name: a.name, engine: a.engine, host_id: a.host_id, host: a.host, cwd: a.cwd, workspace: { git_root: '/srv/work', git_common_dir: '/srv/work/.git', branch: 'main' }, coordinated: true }));
   const rooms = [{ id: project, key: 'repo:test', kind: 'project', title: 'Shared project', cursor: 1, member_count: 3, members, next_member_offset: null }, { id: '22222222-2222-4333-8444-555555555555', key: 'host:4', kind: 'host', title: 'web01.example', cursor: 1, member_count: 2, members: members.slice(0,2), next_member_offset: null }];
   const messages: Array<Record<string, unknown>> = [];
-  await page.route('**/admin/agent-messaging/scopes**', async route => {
+  await page.route('**/admin/agent-messaging/scopes**', route => route.fulfill({ json: { enabled: true, rooms, claims: [] } }));
+  // Scope rooms are shared rooms: the chat posts and reads through the shared chat routes.
+  await page.route('**/admin/agent-messaging/chats/**', async route => {
     const path = new URL(route.request().url()).pathname;
-    if (path.endsWith('/send')) {
+    if (path.endsWith('/chats/send')) {
       const body = route.request().postDataJSON();
-      expect(body.scope_id).toBe(project);
+      expect(body.room_id).toBe(project);
       expect(body.client_request_id).toMatch(/^[0-9a-f-]{36}$/);
-      messages.push({ id: body.client_request_id, sequence: messages.length + 1, kind: 'chat', actor: 'operator:1', body: { name: 'Operator', content: body.content }, created_at: new Date().toISOString() });
+      expect(body.ask_all).toBe(true);
+      messages.push({ id: body.client_request_id, kind: 'chat', actor: 'operator:1', name: 'Operator', content: body.content, attachments: [], created_at: new Date().toISOString() });
       return route.fulfill({ json: { id: body.client_request_id, status: 'stored' } });
     }
-    if (path.endsWith('/read')) return route.fulfill({ json: { events: messages, next_before: null, cursor: messages.length, members, member_count: 3 } });
-    return route.fulfill({ json: { enabled: true, rooms, claims: [] } });
+    if (path.endsWith('/chats/read')) return route.fulfill({ json: { room: { id: project, kind: 'project', title: 'Shared project', description: '', status: 'open', created_at: new Date().toISOString(), members: [] }, events: messages, next_before: null } });
+    return route.fallback();
   });
   await open(page);
   await page.getByLabel('Group clouds', { exact: true }).selectOption('project');
@@ -483,21 +486,23 @@ test('host group chats reach the full host room independently of filters and clo
   const rooms = [{ id: hostId, key: 'host:4', kind: 'host', title: 'web01.example', cursor: 0, member_count: 3, members, next_member_offset: null },
     { id: 'singleton', key: 'host:5', kind: 'host', title: 'single.example', cursor: 0, member_count: 1, members: members.slice(0, 1), next_member_offset: null }];
   const messages: Array<Record<string, unknown>> = [];
-  await page.route('**/admin/agent-messaging/scopes**', async route => {
+  await page.route('**/admin/agent-messaging/scopes**', route => route.fulfill({ json: { enabled: true, protocol: 1, rooms, claims: [] } }));
+  await page.route('**/admin/agent-messaging/chats/**', async route => {
     const path = new URL(route.request().url()).pathname;
-    if (path.endsWith('/send')) {
+    if (path.endsWith('/chats/send')) {
       const body = route.request().postDataJSON();
-      expect(body.scope_id).toBe(hostId);
+      expect(body.room_id).toBe(hostId);
       expect(body.client_request_id).toMatch(/^[0-9a-f-]{36}$/);
-      expect(Object.keys(body).sort()).toEqual(['client_request_id', 'content', 'scope_id']);
-      messages.push({ id: body.client_request_id, sequence: 1, kind: 'chat', actor: 'operator:1', body: { name: 'Operator', content: body.content }, created_at: new Date().toISOString() });
+      expect(body).toMatchObject({ attachments: [], recipients: [], ask_all: true });
+      expect(Object.keys(body).sort()).toEqual(['ask_all', 'attachments', 'client_request_id', 'content', 'recipients', 'room_id']);
+      messages.push({ id: body.client_request_id, kind: 'chat', actor: 'operator:1', name: 'Operator', content: body.content, attachments: [], created_at: new Date().toISOString() });
       return route.fulfill({ json: { id: body.client_request_id, status: 'stored' } });
     }
-    if (path.endsWith('/read')) {
-      expect(route.request().postDataJSON().scope_id).toBe(hostId);
-      return route.fulfill({ json: { events: messages, next_before: null, cursor: messages.length, members, member_count: 3 } });
+    if (path.endsWith('/chats/read')) {
+      expect(route.request().postDataJSON().room_id).toBe(hostId);
+      return route.fulfill({ json: { room: { id: hostId, kind: 'host', title: 'web01.example', description: '', status: 'open', created_at: new Date().toISOString(), members: [] }, events: messages, next_before: null } });
     }
-    return route.fulfill({ json: { enabled: true, protocol: 1, rooms, claims: [] } });
+    return route.fallback();
   });
   await open(page);
   await expect(page.getByLabel('Group clouds')).toHaveValue('connection');
