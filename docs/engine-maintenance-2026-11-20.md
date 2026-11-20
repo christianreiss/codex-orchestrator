@@ -77,6 +77,7 @@ No tier change was proposed, so no tier subagent was needed.
 | NATIVE-ARGS/CLX | Claude | Six hidden required-value root options were missing, so values could be read as subcommands. Fix: table entries and tests | `eng-native-args` `febb675a9` | Integrated `766e94fea` |
 | NATIVE-ARGS/CGX | Grok | 1.0.91+ `-p [PROMPT]` is optional, and `--system-prompt-file` was missing. Fix: optional-value superset and the new option; the variadic prompt is deferred. Follow-up from the final test run: agentportal expectations and parity exemption | `eng-native-args` `7cf5b6bad`, `ad8700f4f` | Integrated `766e94fea`, follow-up `690305641` |
 | RUNNER-PINS | All | Runner pinned 0.169.0 / 2.1.326 / 1.0.88 / 2.6.2. Fix: 0.171.0 / 2.1.329 / 1.0.89 / 2.7.2 with verified digests | `eng-runner-pins` `6e172b7e9` | Integrated `ffb596090` |
+| CDX-ELASTIC-171 | Codex | Review finding from the integration. With `<side>_elastic_budgeting = true`, native 0.170/0.171 refuses Guardian elastic budgets that the central validator accepted, so they would fail at native load on every host. Fix: enforce the native rules at save and render (details below) | `eng-cdx-elastic-171` `aed80bca6` (based on `d9ff46495`) | Integrated `fbd1b732e` |
 
 Shared files touched by several branches were resolved during integration:
 `native-config-support.ts`, the interface documents and `docs/NATIVE_CONFIG_SCOPES.md`.
@@ -258,6 +259,50 @@ Final re-run after both follow-ups (HEAD `690305641` plus docs):
 | Go full suite with `NATIVE_CODEX_ORACLE` (0.171.0), `NATIVE_CLAUDE_ORACLE` (2.1.329), `NATIVE_GROK_ORACLE` (verified 1.0.89) | 6,156 passed, 0 failed, 16 skipped. Codex, Claude, Grok help oracles and the Claude profile-selector oracle passed. The Kimi 2.7.2 oracle was skipped (no binary on the integrated run; it passed on the NATIVE-ARGS branch against the digest-verified 2.7.2 binary) |
 | Runner `pytest -q` / `ruff check .` | 267 passed, 2 skipped / clean |
 
+Remaining CI workflow steps (`.github/workflows/{api,wrappers,frontend,runner}.yml`),
+run on `d9ff46495`:
+
+| Check | Result |
+| --- | --- |
+| api `npm run lint` / `npm run build` | 0 errors (237 warnings) / passed |
+| api `test/unit/contract` + `test/unit/routes` after the docs commits | 64 files passed, 2 failed; both are the baseline `docs/API.md` rescue-route coverage failures |
+| `gofmt -l` | changed Go files clean. Repo-wide, it flags only `internal/app/kimi/doctor.go` (import order), which this branch does not touch: pre-existing |
+| `staticcheck` 2025.1.1 | 2 findings, both in files this branch does not touch: ST1013 `agentbus/receiver_restart_test.go:189`, U1000 `codex/installer.go:624` (`installBinary` unused). Pre-existing |
+| `go vet -tags cxx_otel ./...` | passed |
+| `go test -race` / `go test -tags cxx_otel` (the five changed packages) | all ok |
+| `make test-terminal` | 595 terminal cases passed |
+| Cross builds `linux/{amd64,arm64}`, `darwin/{amd64,arm64}`, `freebsd/amd64` (`CGO_ENABLED=0`) | all built |
+| frontend `npm run build` again after the CHANGELOG/VERSION commit | no drift in `public/admin` |
+| Commit hygiene `ba35fff0..HEAD` | every commit has exactly one `AI-Assisted-By: Claude` trailer, no co-author or "generated with" lines |
+
+CDX-ELASTIC-171 was found while reviewing the integration (prompt §3: review
+findings get their own subagent). It ran in its own worktree from `d9ff46495`.
+- RED first:
+  - Throwaway-home `features list` probes of the real 0.170.0 and 0.171.0
+    binaries: 29 cases for sync and async on 0.171, and sync on 0.170.
+  - Upstream source at rust-v0.171.0: `resolve_elastic_budget` and
+    `guardian-context/src/budget.rs`.
+- The native rules go beyond the three the earlier implementer reported. They
+  apply only while `<side>_elastic_budgeting = true`, regardless of Guardian's own
+  `enabled`.
+  - The section map must be nonempty, with only the 14 sections or 8 aliases,
+    each once.
+  - Minimum and entry cap must be nonzero; the entry cap must be at most the
+    minimum and at most 9000; an optional maximum must be at least the minimum.
+  - `nested_tool_names` is allowed only on the sync-only
+    `transcript_selected_exec_results`, where it must be nonempty and nonblank.
+  - Minimums, counting native defaults for omitted sections, must sum to exactly
+    128000.
+  - Sync rules are identical in 0.170 and 0.171.
+- The integrated tree was checked as follows:
+  - `codex-native-171.test.ts` with `CODEX_NATIVE_TEST_BIN` = 0.171.0: 138/138,
+    including the 34-case native oracle.
+  - `tsc` clean.
+  - Parity 253/253, 0 untriaged, 0 stale.
+  - Full API units on merge `fbd1b732e`: 588 files passed, 2 failed, 144 skipped;
+    8,964 passed, 2 failed, 1,333 skipped. The failures are the same as the
+    baseline.
+
 Research coverage check (prompt §3, read-only diff review by each research
 subagent):
 - Codex: all three findings covered, and the `async_elastic_*` 0.171 correction
@@ -281,11 +326,22 @@ subagent):
   - Slop/Advisor review
   - the Kimi 2.7.2 grammar oracle on the integrated tree (it passed on the
     NATIVE-ARGS branch; the integration added no Kimi grammar change)
-- Codex: with Guardian elastic budgeting enabled, native 0.171 also requires
-  closed section keys, `nested_tool_names` only on
-  `transcript_selected_exec_results`, and section minimums summing to 128000. The
-  central validator does not model these, so a mis-authored enabled budget fails
-  at native load rather than at save.
+  - full-module `go test -race ./...` and `make test-traced` (only the changed
+    packages were run)
+  - `govulncheck`
+  - the MySQL `npm run test:coverage` tier in full
+- Codex elastic budgets (CDX-ELASTIC-171, fixed in this run). Before deploying,
+  check the stored Codex document (root and profiles) for
+  `sync_elastic_budgeting = true`:
+  - Sync budgets have been authorable since 0.168. Saved documents are not
+    healed: a stored budget that breaks the rules stays editable, carries a
+    `validation_error` and now makes rendering throw. That blocks the Codex config
+    for every host until someone corrects it. The same pattern was used for the
+    gateway fix on 2026-11-17.
+  - Such a budget would already fail native load anyway.
+  - Each profile sidecar is checked on its own. A profile that relies on the
+    root's sections would be rejected even though the merged native config might
+    load. This was inferred from the renderer and not probed.
 - Codex: the `codex-native-keymap.ts` header still cites the 0.166 source; the
   0.171 keymap only adds actions, which the schema covers.
 - Claude: the default profile-file gap and the unrefused cloud/remote flag
@@ -305,18 +361,21 @@ subagent):
 
 ## Delivery and cleanup
 
-- All twelve fix commits were merged into the integration branch with `--no-ff`
-  merges, not cherry-picked, so every fix SHA is reachable from it. Two
-  coordinator commits follow:
+- All thirteen fix commits were merged into the integration branch with `--no-ff`
+  merges, not cherry-picked, so every fix SHA is reachable from it. Coordinator
+  commits:
   - CHANGELOG and wrapper `VERSION` 0.9.189 → 0.9.190
   - the rebuilt `public/admin`
-- This report and the Kimi open-decision note are committed last.
+  - this report with the Kimi open-decision note
+  - a final commit with the CDX-ELASTIC-171 CHANGELOG sentence and these report
+    updates
+- `public/admin` needs no rebuild for CDX-ELASTIC-171, which changed no frontend code.
 - Not merged into `main`, not pushed, not deployed, as instructed. A runner image
   rebuild, the cxx 0.9.190 publication and an API deployment are part of a
   separately commissioned rollout.
-- The seven implementation worktrees and their branches (`eng-*`, plus the unused
-  harness `worktree-agent-*` branches at the base) were clean and fully integrated.
-  They were removed with `git worktree remove` and `git branch -d`.
+- The eight implementation worktrees and their branches (`eng-*`, plus the unused
+  harness `worktree-agent-*` branches) were clean and fully integrated. They were
+  removed with `git worktree remove` and `git branch -d`.
 - The disposable MySQL container `cxo-test-mysql-engine` and the scratch Grok
   binary were removed. Research subagents worked read-only, without worktrees.
 
@@ -337,3 +396,5 @@ subagent):
 - `GROK_CONTEXT_WINDOWS` and `KIMI_CONTEXT_WINDOWS` carry stale
   "1.0.46, 2026-10-03" provenance comments. `KIMI_MODEL_CONTEXT_TOKENS` has no consumer.
 - Kimi wrapper `Stop`/`UserPromptSubmit` comments still cite 2.5.3.
+- Pre-existing CI lint, untouched by this run: `codex/installer.go` `installBinary`
+  is dead (staticcheck U1000), and `internal/app/kimi/doctor.go` is not gofmt-clean.
