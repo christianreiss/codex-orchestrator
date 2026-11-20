@@ -25,7 +25,6 @@
     { value: "groups", label: "Groups", hint: "Opt-in audiences and subscriptions" },
   ];
   const segment = $derived(VIEW_OPTIONS.some((option) => option.value === model.view) ? model.view : "");
-  const showLimit = $derived(model.view !== "groups");
   const conversationLabel = $derived(CONVERSATION_STATUSES.find((option) => option.value === model.conversationStatus)?.label ?? "All conversations");
   const messageLabel = $derived(model.messageStatus === "all" ? "All deliveries" : model.messageStatus.charAt(0).toUpperCase() + model.messageStatus.slice(1));
 </script>
@@ -94,26 +93,6 @@
         {#if model.conversationId.trim() !== "" && !model.validConversationId}
           <p id="message-conversation-id-error" class="mt-1 text-caption text-destructive">Enter a complete conversation UUID.</p>
         {/if}
-      </div>
-    {/if}
-  {/snippet}
-  {#snippet actions()}
-    {#if showLimit}
-      <div class="flex flex-col gap-1">
-      <Label for="message-result-limit">Result limit</Label>
-      <Select
-        type="single"
-        value={String(model.limit)}
-        onValueChange={(value: unknown) => {
-          const next = Number(value);
-          if ((LIMITS as readonly number[]).includes(next)) model.limit = next;
-        }}
-      >
-        <SelectTrigger id="message-result-limit" class="w-28" aria-label="Result limit">{model.limit}</SelectTrigger>
-        <SelectContent>
-          {#each LIMITS as size (size)}<SelectItem value={String(size)} label={String(size)}>{size}</SelectItem>{/each}
-        </SelectContent>
-      </Select>
       </div>
     {/if}
   {/snippet}

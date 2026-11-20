@@ -79,7 +79,7 @@
             <span>{formatBytes(rendered.size_bytes ?? 0)}</span>
             {#if rendered.sha256}
               <span>·</span>
-              <span class="font-mono" title={rendered.sha256}>sha256: {rendered.sha256.slice(0, 12)}…</span>
+              <details class="inline"><summary class="inline cursor-pointer">Details</summary> <span class="break-all font-mono">sha256: {rendered.sha256}</span></details>
             {/if}
           </div>
           <CopyButton value={rendered.content ?? ""} label="Copy document" copiedLabel="Copied" size="sm" toastMessage="Rendered AGENTS.md copied" />

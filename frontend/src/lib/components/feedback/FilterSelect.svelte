@@ -1,12 +1,11 @@
 <script lang="ts">
-  /** A native filter select ("All statuses" + options). Native so it works on every device and with `selectOption`. */
-  import { filterClass, humanize } from "./report-model";
+  /** A filter select ("All statuses" + options) on the shared Select. */
+  import { SimpleSelect } from "$lib/components/ui/select";
+  import { humanize } from "./report-model";
 
   type Props = { label: string; value: string; options: readonly string[]; allLabel: string };
   let { label, value = $bindable(), options, allLabel }: Props = $props();
+  const items = $derived([{ value: "", label: allLabel }, ...options.map((option) => ({ value: option, label: humanize(option).replace(/^./, (c) => c.toUpperCase()) }))]);
 </script>
 
-<select aria-label={label} class="{filterClass} w-40" bind:value>
-  <option value="">{allLabel}</option>
-  {#each options as option (option)}<option value={option}>{humanize(option)}</option>{/each}
-</select>
+<SimpleSelect aria-label={label} bind:value options={items} class="w-40" />

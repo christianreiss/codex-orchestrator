@@ -13,7 +13,7 @@
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { Skeleton } from "$lib/components/ui/skeleton";
-  import { formatBytes } from "$lib/utils/format";
+  import { formatMib } from "$lib/utils/format";
   import {
     transferActionLabel,
     transferEventsQuery,
@@ -33,7 +33,7 @@
       <Sheet.Header>
         <Sheet.Title class="break-all">{row.name}</Sheet.Title>
         <Sheet.Description>
-          {formatBytes(row.size_bytes)}
+          {formatMib(row.size_bytes)}
           {#if row.mime_type}· {row.mime_type}{/if}
           · expires <Timestamp value={row.expires_at} />
         </Sheet.Description>
