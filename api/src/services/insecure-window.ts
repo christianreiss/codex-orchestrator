@@ -36,9 +36,9 @@ import { wsPublisher } from '../ws/publisher.js';
  *     the fleet deadline or turn it into an approval prompt.
  */
 
-const MIN_WINDOW = 0;
-const MAX_WINDOW = 480;
-const DEFAULT_WINDOW = 10;
+export const MIN_INSECURE_WINDOW_MINUTES = 0;
+export const MAX_INSECURE_WINDOW_MINUTES = 480;
+export const DEFAULT_INSECURE_WINDOW_MINUTES = 10;
 /** Window a freshly registered insecure host gets to install and sync. */
 export const PROVISIONING_WINDOW_MINUTES = 30;
 const APPROVAL_DENY_COOLDOWN_SECONDS = 60;
@@ -148,7 +148,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
     const host = ctx.draft.table('hosts').get(hostId);
     if (!host) throw new ForbiddenError('Host not found', 'host_not_found');
     const initialMinutes = windowMinutes !== undefined ? clampWindow(windowMinutes) : PROVISIONING_WINDOW_MINUTES;
-    const storedMinutes = windowMinutes !== undefined ? clampWindow(windowMinutes) : DEFAULT_WINDOW;
+    const storedMinutes = windowMinutes !== undefined ? clampWindow(windowMinutes) : DEFAULT_INSECURE_WINDOW_MINUTES;
     const enabledUntil = new Date(Date.now() + initialMinutes * 60_000);
     const patch = { insecureEnabledUntil: enabledUntil, insecureSessionRenewalBlocked: 0, insecureGraceUntil: computeGrace(enabledUntil, storedMinutes, env), insecureWindowMinutes: storedMinutes, updatedAt: nowIso() };
     ctx.draft.upsert('hosts', { ...host, ...patch });
@@ -433,7 +433,7 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
       const initialMinutes =
         windowMinutes !== undefined ? clampWindow(windowMinutes) : PROVISIONING_WINDOW_MINUTES;
       const storedMinutes =
-        windowMinutes !== undefined ? clampWindow(windowMinutes) : DEFAULT_WINDOW;
+        windowMinutes !== undefined ? clampWindow(windowMinutes) : DEFAULT_INSECURE_WINDOW_MINUTES;
       const enabledUntil = new Date(Date.now() + initialMinutes * 60_000);
       const grace = computeGrace(enabledUntil, storedMinutes, env);
       const owner = ownerRuntimeFor(db);
@@ -462,19 +462,29 @@ export function createInsecureWindowService(deps: InsecureWindowDeps): InsecureW
   };
 }
 
-function clampWindow(v: number | null | undefined): number {
-  const n = typeof v === 'number' && Number.isFinite(v) ? Math.floor(v) : DEFAULT_WINDOW;
-  if (n < MIN_WINDOW) return MIN_WINDOW;
-  if (n > MAX_WINDOW) return MAX_WINDOW;
-  return n;
+/** Window length in minutes, clamped to [0, 480]; the stored default when unset. */
+export function clampInsecureMinutes(n: number | null | undefined, fallback: number): number {
+  const v = typeof n === 'number' && Number.isFinite(n) ? Math.trunc(n) : fallback;
+  if (v < MIN_INSECURE_WINDOW_MINUTES) return MIN_INSECURE_WINDOW_MINUTES;
+  if (v > MAX_INSECURE_WINDOW_MINUTES) return MAX_INSECURE_WINDOW_MINUTES;
+  return v;
 }
 
-function computeGrace(enabledUntil: Date, windowMinutes: number, env: Env): Date | null {
+export function computeGraceUntil(
+  enabledUntil: Date | null,
+  windowMinutes: number,
+  graceMinutes: number,
+): Date | null {
+  if (!enabledUntil) return null;
   if (windowMinutes <= 0) return null;
-  const graceMinutes = env.INSECURE_GRACE_MINUTES ?? 60;
   if (graceMinutes <= 0) return null;
   return new Date(enabledUntil.getTime() + graceMinutes * 60_000);
 }
+
+const clampWindow = (v: number | null | undefined) => clampInsecureMinutes(v, DEFAULT_INSECURE_WINDOW_MINUTES);
+
+const computeGrace = (enabledUntil: Date, windowMinutes: number, env: Env) =>
+  computeGraceUntil(enabledUntil, windowMinutes, clampInsecureMinutes(env.INSECURE_GRACE_MINUTES, 60));
 
 function parseDate(v: Date | string | null | undefined): Date | null {
   if (!v) return null;

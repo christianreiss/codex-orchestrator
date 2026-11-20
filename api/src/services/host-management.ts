@@ -51,7 +51,14 @@ import {
 import { coerceCodexVersionToMinimum, GROK_MIN_CLIENT_VERSION, KIMI_MIN_CLIENT_VERSION, isSemanticVersion, isSupportedGrokVersion, isSupportedKimiVersion } from './client-versions.js';
 import { suspendAgentMessagingRuntimeLocked } from './agent-messaging.js';
 import { revokeHostMcpSessionsLocked, stageRevokeHostMcpSessions } from './mcp-session.js';
-import { PROVISIONING_WINDOW_MINUTES } from './insecure-window.js';
+import {
+  clampInsecureMinutes,
+  computeGraceUntil,
+  DEFAULT_INSECURE_WINDOW_MINUTES,
+  MAX_INSECURE_WINDOW_MINUTES,
+  MIN_INSECURE_WINDOW_MINUTES,
+  PROVISIONING_WINDOW_MINUTES,
+} from './insecure-window.js';
 import { ModelDefaultsService } from './model-defaults.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { fleetEngineConflictError, type FleetEngineState } from './host-engine-policy.js';
@@ -60,10 +67,14 @@ import { fleetEngineConflictError, type FleetEngineState } from './host-engine-p
 // Constants (mirrored from legacy PHP)
 // ────────────────────────────────────────────────────────────────────────────
 
-export const MIN_INSECURE_WINDOW_MINUTES = 0;
-export const MAX_INSECURE_WINDOW_MINUTES = 480;
-export const DEFAULT_INSECURE_WINDOW_MINUTES = 10;
-export { PROVISIONING_WINDOW_MINUTES };
+export {
+  clampInsecureMinutes,
+  computeGraceUntil,
+  DEFAULT_INSECURE_WINDOW_MINUTES,
+  MAX_INSECURE_WINDOW_MINUTES,
+  MIN_INSECURE_WINDOW_MINUTES,
+  PROVISIONING_WINDOW_MINUTES,
+};
 export const QUICK_REGISTER_TTL_SECONDS = 7200;
 export const INSTALL_TOKEN_TTL_SECONDS_DEFAULT = 1800;
 
@@ -139,28 +150,6 @@ export function normalizeSemver(input: string): string {
   let v = input.trim();
   if (v.startsWith('v') || v.startsWith('V')) v = v.slice(1);
   return v;
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Insecure window helpers (clamp + grace)
-// ────────────────────────────────────────────────────────────────────────────
-
-export function clampInsecureMinutes(n: number | null | undefined, fallback: number): number {
-  const v = typeof n === 'number' && Number.isFinite(n) ? Math.trunc(n) : fallback;
-  if (v < MIN_INSECURE_WINDOW_MINUTES) return MIN_INSECURE_WINDOW_MINUTES;
-  if (v > MAX_INSECURE_WINDOW_MINUTES) return MAX_INSECURE_WINDOW_MINUTES;
-  return v;
-}
-
-export function computeGraceUntil(
-  enabledUntil: Date | null,
-  windowMinutes: number,
-  graceMinutes: number,
-): Date | null {
-  if (!enabledUntil) return null;
-  if (windowMinutes <= 0) return null;
-  if (graceMinutes <= 0) return null;
-  return new Date(enabledUntil.getTime() + graceMinutes * 60_000);
 }
 
 // ────────────────────────────────────────────────────────────────────────────

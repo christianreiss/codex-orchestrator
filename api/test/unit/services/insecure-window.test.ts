@@ -249,4 +249,18 @@ describe('createInsecureWindowService', () => {
       });
     });
   });
+
+  describe('the grace period', () => {
+    it('clamps INSECURE_GRACE_MINUTES to the 480 minute window ceiling when opening a window', async () => {
+      const tables = new Map<unknown, Record<string, unknown>[]>();
+      tables.set(hosts, [insecureHost() as unknown as Record<string, unknown>]);
+      const db = createDbFake(tables);
+      const svc = createInsecureWindowService({ db: db as never, env: { INSECURE_GRACE_MINUTES: 100_000 } as Env });
+
+      await svc.openInitial(42, 10);
+
+      const set = db.updates[0]!.set as { insecureEnabledUntil: Date; insecureGraceUntil: Date };
+      expect(set.insecureGraceUntil.getTime() - set.insecureEnabledUntil.getTime()).toBe(480 * 60_000);
+    });
+  });
 });
