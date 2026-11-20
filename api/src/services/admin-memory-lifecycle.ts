@@ -42,6 +42,7 @@ import {
   type MemoryScope,
   type UnifiedMemoryRow,
 } from './admin-memory-model.js';
+import { MEMORY_MAX_CONTENT } from './memory-validation.js';
 
 export class AdminMemoryLifecycle {
   constructor(private readonly db: Database) {}
@@ -198,9 +199,9 @@ export class AdminMemoryLifecycle {
   ): Promise<{ status: 'created'; memory: MemoryDetail }> {
     const hostId = normalizePositiveInt(input['host_id'], 'host_id');
     const key = normalizeMemoryKey(input['id'] ?? input['key'], 'host');
-    const content = normalizeContent(input['content'], 32_000);
+    const content = normalizeContent(input['content'], MEMORY_MAX_CONTENT);
     const metadata = normalizeMetadata(input['metadata']);
-    const tags = normalizeTags(input['tags']);
+    const tags = normalizeTags(input['tags'], 'host');
     const summary = normalizeNullableText(input['summary'], 'summary', 1000);
     const engine = normalizeEngine(input['engine']);
     const row = await this.db.transaction(async (tx) => {
@@ -276,9 +277,9 @@ export class AdminMemoryLifecycle {
     const projectSlug = typeof input['project_slug'] === 'string' ? input['project_slug'].trim() : '';
     if (!projectSlug) throw new ValidationError('project_slug is required', { param: 'project_slug' });
     const key = normalizeMemoryKey(input['id'] ?? input['key'], 'project');
-    const content = normalizeContent(input['content'], 32_000);
+    const content = normalizeContent(input['content'], MEMORY_MAX_CONTENT);
     const metadata = normalizeMetadata(input['metadata']);
-    const tags = normalizeTags(input['tags']);
+    const tags = normalizeTags(input['tags'], 'project');
     const row = await this.db.transaction(async (tx) => {
       const projectRows = await tx
         .select()
@@ -378,9 +379,9 @@ export class AdminMemoryLifecycle {
       if (!before) throw new NotFoundError('Memory not found', 'memory_not_found');
       assertEtag(input['expected_etag'], before);
       const next = {
-        content: hasOwn(input, 'content') ? normalizeContent(input['content'], 32_000) : before.content,
+        content: hasOwn(input, 'content') ? normalizeContent(input['content'], MEMORY_MAX_CONTENT) : before.content,
         metadata: hasOwn(input, 'metadata') ? normalizeMetadata(input['metadata']) : before.metadata,
-        tags: hasOwn(input, 'tags') ? normalizeTags(input['tags']) : before.tags,
+        tags: hasOwn(input, 'tags') ? normalizeTags(input['tags'], 'host') : before.tags,
         summary: hasOwn(input, 'summary')
           ? normalizeNullableText(input['summary'], 'summary', 1000)
           : before.summary,
@@ -444,9 +445,9 @@ export class AdminMemoryLifecycle {
       if (!before) throw new NotFoundError('Memory not found', 'memory_not_found');
       assertEtag(input['expected_etag'], before);
       const next = {
-        content: hasOwn(input, 'content') ? normalizeContent(input['content'], 32_000) : before.content,
+        content: hasOwn(input, 'content') ? normalizeContent(input['content'], MEMORY_MAX_CONTENT) : before.content,
         metadata: hasOwn(input, 'metadata') ? normalizeMetadata(input['metadata']) : before.metadata,
-        tags: hasOwn(input, 'tags') ? normalizeTags(input['tags']) : before.tags,
+        tags: hasOwn(input, 'tags') ? normalizeTags(input['tags'], 'project') : before.tags,
       };
       if (sameValue(next, { content: before.content, metadata: before.metadata, tags: before.tags }))
         return { changed: false, row: before };
@@ -491,7 +492,7 @@ export class AdminMemoryLifecycle {
           ? normalizeContent(input['content'], MAX_CONTENT_CHARS)
           : before.content,
         metadata: hasOwn(input, 'metadata') ? normalizeMetadata(input['metadata']) : before.metadata,
-        tags: hasOwn(input, 'tags') ? normalizeTags(input['tags']) : before.tags,
+        tags: hasOwn(input, 'tags') ? normalizeTags(input['tags'], 'shared') : before.tags,
         summary: hasOwn(input, 'summary')
           ? normalizeNullableText(input['summary'], 'summary', 1000)
           : before.summary,
