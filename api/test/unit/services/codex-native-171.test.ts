@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ClientConfigService, renderTomlForHost } from '../../../src/services/client-config.js';
 import { normalizeCodexNativeSettings } from '../../../src/services/codex-native-settings.js';
+import { clientConfigDocuments } from '../../../src/db/schema.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 
 const flags170 = ['multi_environment_mcp'];
@@ -16,9 +17,11 @@ const all170 = () => ({
     guardianv2: { sync_elastic_sections: { 'section.with.dots': section } } },
   otel: { headers_helper: '/never-run/headers-helper', headers_helper_refresh_interval_ms: 60000 },
 });
+// Literal dotted section names roundtrip only while budgeting is off: once enabled,
+// native Codex accepts only its closed section names (see the elastic suite below).
 const all171 = () => ({
   features: { ...Object.fromEntries(flags171.map(key => [key, false])),
-    guardianv2: { async_elastic_budgeting: true, async_elastic_sections: { 'async.with.dots': section } },
+    guardianv2: { async_elastic_budgeting: false, async_elastic_sections: { 'async.with.dots': section } },
     multi_agent_v2: { interrupt_at_item_boundary: true },
     token_budget: { context_window_as_tool_output: true },
     rollout_budget: { limit_budget: 2.5, reminder_at_context_start: false, reminder_at_remaining_tokens: [1] },
@@ -180,22 +183,183 @@ describe('Codex 0.171 rollout_budget semantics', () => {
   });
 });
 
+// Native resolve_elastic_budget (core config, rust-v0.170.0/0.171.0) and guardian-context
+// budget.rs. Omitted sections keep native minimums 5000 + 1000 + 0 + 11 × 900 = 15900.
+const limits = (min: number, entry: number, extra: Record<string, unknown> = {}) =>
+  ({ min_total_section_tokens: min, max_section_entry_tokens: entry, ...extra });
+const validSections = () => ({ transcript_messages: limits(117100, 9000) });
+const selectedSections = (names: unknown[] | undefined) => ({ transcript_messages: limits(116100, 9000),
+  transcript_selected_exec_results: limits(1000, 1000, names === undefined ? {} : { nested_tool_names: names }) });
+const otherSections = ['root_conversation_messages', 'retained_user_instructions', 'trusted_user_answers', 'sender_user_messages',
+  'planned_action', 'previous_reviews', 'trusted_tools', 'trusted_skills', 'transcript_images', 'node_repl_evidence'];
+type ElasticSpec = { budgeting?: boolean; sections?: Record<string, unknown>; guardian?: Record<string, unknown> };
+const elasticGuardian = (side: 'sync' | 'async', spec: ElasticSpec) => ({ ...spec.guardian,
+  ...(spec.budgeting !== undefined && { [`${side}_elastic_budgeting`]: spec.budgeting }),
+  ...(spec.sections !== undefined && { [`${side}_elastic_sections`]: spec.sections }) });
+const ok = null;
+const S = (rest: string) => `features\\.guardianv2\\.SIDE_elastic_sections${rest}`;
+// [name, spec, sync result, async result]: null accepts, otherwise the expected error pattern.
+const elasticCases: Array<[string, ElasticSpec, string | null, string | null]> = [
+  ['default minimums plus one widened section', { budgeting: true, sections: validSections() }, ok, ok],
+  ['a native alias replacing its canonical default', { budgeting: true, sections: { ...validSections(), root_messages: limits(900, 900) } }, ok, ok],
+  ['every canonical section except selected exec results', { budgeting: true, sections: { transcript_messages: limits(5000, 5000),
+    transcript_tools: limits(1000, 1000), ...Object.fromEntries(otherSections.map(name => [name, limits(9000, 900)])),
+    permission_context: limits(32000, 900) } }, ok, ok],
+  ['six aliases', { budgeting: true, sections: { transcript_messages: limits(110800, 9000), retained_instructions: limits(900, 900),
+    user_answers: limits(900, 900), sender_messages: limits(900, 900), images: limits(900, 900), repl_evidence: limits(7200, 900) } }, ok, ok],
+  ['maximums outside the sum', { budgeting: true, sections: { transcript_messages: limits(117100, 9000, { max_total_section_tokens: 500000 }) } }, ok, ok],
+  ['maximum equal to minimum', { budgeting: true, sections: { transcript_messages: limits(117100, 9000, { max_total_section_tokens: 117100 }) } }, ok, ok],
+  ['entry cap equal to minimum', { budgeting: true, sections: { transcript_messages: limits(116100, 9000), transcript_tools: limits(2000, 2000) } }, ok, ok],
+  ['empty nested_tool_names on another section', { budgeting: true, sections: { transcript_messages: limits(117100, 9000, { nested_tool_names: [] }) } }, ok, ok],
+  ['selected exec results with tool names', { budgeting: true, sections: selectedSections(['exec']) }, ok, S('\\.transcript_selected_exec_results: only supported for sync')],
+  ['a BOM tool name, which Rust does not trim', { budgeting: true, sections: selectedSections(['﻿']) }, ok, S('\\.transcript_selected_exec_results: only supported for sync')],
+  ['disabled budgeting with invalid sections', { budgeting: false, sections: { 'section.with.dots': limits(0, 9001, { max_total_section_tokens: 0, nested_tool_names: [''] }) } }, ok, ok],
+  ['omitted budgeting with invalid sections', { sections: { bogus: limits(0, 9001, { nested_tool_names: [' '] }) } }, ok, ok],
+  ['disabled selected exec results without names', { budgeting: false, sections: { transcript_selected_exec_results: limits(1, 1) } }, ok, ok],
+  ['enabled without sections', { budgeting: true }, S(': at least one section is required when SIDE_elastic_budgeting is enabled'), 'same'],
+  ['enabled with an empty section map', { budgeting: true, sections: {} }, S(': at least one section is required'), 'same'],
+  ['an unknown section', { budgeting: true, sections: { bogus: limits(117100, 9000) } }, S('\\.bogus: unknown elastic section'), 'same'],
+  ['a literal dotted name', { budgeting: true, sections: { 'section.with.dots': limits(117100, 9000) } }, S('\\.section\\.with\\.dots: unknown elastic section'), 'same'],
+  ['a wrong-case section', { budgeting: true, sections: { Transcript_Messages: limits(117100, 9000) } }, S('\\.Transcript_Messages: unknown elastic section'), 'same'],
+  ['an inherited property name', { budgeting: true, sections: { ...validSections(), toString: limits(900, 900) } }, S('\\.toString: unknown elastic section'), 'same'],
+  ['an alias next to its canonical name', { budgeting: true, sections: { ...validSections(), root_messages: limits(900, 900),
+    root_conversation_messages: limits(900, 900) } }, S('\\.root_messages: duplicates the root_conversation_messages section'), 'same'],
+  ['two aliases of one section', { budgeting: true, sections: { ...validSections(), tool_descriptions: limits(900, 900),
+    planned_action_tool_descriptions: limits(900, 900) } }, S('\\.tool_descriptions: duplicates the planned_action section'), 'same'],
+  ['minimums one above the budget', { budgeting: true, sections: { transcript_messages: limits(117101, 9000) } }, S(': section minimums .* must sum to exactly 128000.*got 128001'), 'same'],
+  ['minimums one below the budget', { budgeting: true, sections: { transcript_messages: limits(117099, 9000) } }, S(': section minimums .* must sum to exactly 128000.*got 127999'), 'same'],
+  ['a maximum below its minimum', { budgeting: true, sections: { transcript_messages: limits(117100, 9000, { max_total_section_tokens: 117099 }) } },
+    S('\\.transcript_messages\\.max_total_section_tokens: must be at least min_total_section_tokens'), 'same'],
+  ['an entry cap above the delivery limit', { budgeting: true, sections: { transcript_messages: limits(117100, 9001) } },
+    S('\\.transcript_messages\\.max_section_entry_tokens: must not exceed 9000'), 'same'],
+  ['a zero entry cap', { budgeting: true, sections: { transcript_messages: limits(117100, 0) } },
+    S('\\.transcript_messages\\.max_section_entry_tokens: must be greater than zero'), 'same'],
+  ['a zero minimum', { budgeting: true, sections: { ...validSections(), transcript_tools: limits(0, 1) } },
+    S('\\.transcript_tools\\.min_total_section_tokens: must be greater than zero'), 'same'],
+  ['an entry cap above its minimum', { budgeting: true, sections: { transcript_messages: limits(116200, 9000), transcript_tools: limits(1900, 2000) } },
+    S('\\.transcript_tools\\.max_section_entry_tokens: must not exceed min_total_section_tokens'), 'same'],
+  ['nested_tool_names on another section', { budgeting: true, sections: { transcript_messages: limits(117100, 9000, { nested_tool_names: ['shell'] }) } },
+    S('\\.transcript_messages\\.nested_tool_names: only supported for transcript_selected_exec_results'), 'same'],
+  ['selected exec results without tool names', { budgeting: true, sections: selectedSections(undefined) },
+    S('\\.transcript_selected_exec_results\\.nested_tool_names: requires nonblank tool names'), S('\\.transcript_selected_exec_results: only supported for sync')],
+  ['selected exec results with an empty name list', { budgeting: true, sections: selectedSections([]) },
+    S('\\.transcript_selected_exec_results\\.nested_tool_names: requires nonblank tool names'), S('\\.transcript_selected_exec_results: only supported for sync')],
+  ['selected exec results with a blank name', { budgeting: true, sections: selectedSections(['exec', '  ']) },
+    S('\\.transcript_selected_exec_results\\.nested_tool_names: requires nonblank tool names'), S('\\.transcript_selected_exec_results: only supported for sync')],
+  ['selected exec results with a NEL name, which Rust trims', { budgeting: true, sections: selectedSections(['\u0085']) },
+    S('\\.transcript_selected_exec_results\\.nested_tool_names: requires nonblank tool names'), S('\\.transcript_selected_exec_results: only supported for sync')],
+  ['Guardian disabled does not disable the budget check', { guardian: { enabled: false }, budgeting: true, sections: { bogus: limits(117100, 9000) } },
+    S('\\.bogus: unknown elastic section'), 'same'],
+];
+const elasticRows = elasticCases.flatMap(([name, spec, sync, async]) => (['sync', 'async'] as const).map(side => {
+  const source = side === 'sync' ? sync : async === 'same' ? sync : async;
+  return { name, side, spec, error: source === null ? null : new RegExp(source.replaceAll('SIDE', side)) };
+}));
+const elasticNative = (side: 'sync' | 'async', spec: ElasticSpec) => ({ features: { guardianv2: elasticGuardian(side, spec) } });
+
+describe('Codex 0.170/0.171 Guardian elastic budgeting semantics', () => {
+  it.each(elasticRows)('$side: $name', ({ side, spec, error }) => {
+    const check = () => normalizeCodexNativeSettings(elasticNative(side, spec));
+    if (error === null) expect(check).not.toThrow();
+    else expect(check).toThrow(new RegExp(`^native_settings\\.${error.source}`));
+  });
+
+  it('enforces the rules at root and profile store, then stores and removes a valid budget', async () => {
+    const service = new ClientConfigService(createDbFake() as never);
+    const bad = elasticNative('async', { budgeting: true, sections: { bogus: limits(117100, 9000) } });
+    const good = { features: { guardianv2: { sync_elastic_budgeting: true, sync_elastic_sections: selectedSections(['exec']),
+      async_elastic_budgeting: true, async_elastic_sections: validSections() } } };
+    await expect(service.store({ settings: { native_settings: bad } })).rejects.toThrow(/async_elastic_sections\.bogus: unknown elastic section/);
+    await expect(service.store({ settings: { profiles: [{ name: 'audit', native_settings: bad }] } }))
+      .rejects.toThrow(/async_elastic_sections\.bogus: unknown elastic section/);
+    const stored = await service.store({ settings: { native_settings: good, profiles: [{ name: 'audit', native_settings: good }] } });
+    for (const content of [stored.content, service.render((await service.adminFetch()).settings).profiles![0]!.content]) {
+      expect(content).toContain('sync_elastic_budgeting = true');
+      expect(content).toContain('async_elastic_budgeting = true');
+      expect(content).toContain('[features.guardianv2.sync_elastic_sections.transcript_selected_exec_results]');
+      expect(content).toContain('nested_tool_names = ["exec"]');
+    }
+    const removed = await service.store({ settings: { native_settings: {}, profiles: [] }, expected_revision: stored.revision });
+    expect(removed.content).not.toContain('elastic');
+  });
+
+  it('checks the merged document: structured switches over native sections', () => {
+    const service = new ClientConfigService({} as never);
+    const on = { guardianv2: { sync_elastic_budgeting: true } };
+    expect(() => service.render({ native_settings: { features: { guardianv2: { sync_elastic_sections: { bogus: limits(1, 1) } } } }, features: on }))
+      .toThrow(/sync_elastic_sections\.bogus: unknown elastic section/);
+    expect(() => service.render({ native_settings: { features: { guardianv2: { sync_elastic_sections: validSections() } } }, features: on })).not.toThrow();
+    // Like rollout_budget, native_settings must also be a loadable document on its own.
+    expect(() => service.render({ native_settings: { features: { guardianv2: { sync_elastic_budgeting: true, sync_elastic_sections: { bogus: limits(1, 1) } } } },
+      features: { guardianv2: { sync_elastic_budgeting: false } } })).toThrow(/sync_elastic_sections\.bogus: unknown elastic section/);
+  });
+
+  it('keeps selected exec results behind the existing 0.170 floor', () => {
+    const native = elasticNative('sync', { budgeting: true, sections: selectedSections(['exec']) });
+    expect(() => render('0.169.0', { native_settings: native })).toThrow(/0\.170\.0/);
+    expect(() => render('0.170.0', { native_settings: native })).not.toThrow();
+    expect(() => render('0.168.0', { native_settings: elasticNative('sync', { budgeting: true, sections: validSections() }) })).not.toThrow();
+  });
+
+  it('keeps an invalid historical budget editable with a field error, preserving its body', async () => {
+    const db = createDbFake(), service = new ClientConfigService(db as never);
+    const stored = await service.store({ settings: { native_settings: elasticNative('sync', { budgeting: true, sections: validSections() }) } });
+    const row = db.tables.get(clientConfigDocuments)!.at(-1)!;
+    const authored = { native_settings: elasticNative('sync', { budgeting: true, sections: { transcript_messages: limits(117101, 9000) } }) };
+    row.settings = authored;
+    const fetched = await service.adminFetch();
+    expect(fetched.settings).toEqual(authored);
+    expect(fetched.revision).toBe(stored.revision);
+    expect(fetched.content).toBe(stored.content);
+    expect(fetched.validation_error?.param).toBe('native_settings.features.guardianv2.sync_elastic_sections');
+    expect(fetched.validation_error?.message).toMatch(/sum to exactly 128000.*got 128001/);
+    expect(row.settings).toEqual(authored);
+    expect(() => render('0.171.0', authored)).toThrow(/sync_elastic_sections: section minimums/);
+  });
+});
+
+// Raw TOML keeps the native oracle independent of the central renderer.
+function toml(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(toml).join(', ')}]`;
+  if (value && typeof value === 'object') return `{ ${Object.entries(value).map(([key, item]) => `${toml(key)} = ${toml(item)}`).join(', ')} }`;
+  return JSON.stringify(value).replace(/[\u007f-￿]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+describe.skipIf(!process.env.CODEX_NATIVE_TEST_BIN)('Codex actual Guardian elastic budget loader', () => {
+  it('accepts and rejects exactly the central case table', () => {
+    const bin = process.env.CODEX_NATIVE_TEST_BIN!;
+    const home = mkdtempSync(join(tmpdir(), 'codex-elastic-oracle-'));
+    const env = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(home, 'home'), CODEX_HOME: home };
+    mkdirSync(env.HOME);
+    try {
+      const version = spawnSync(bin, ['--version'], { env, encoding: 'utf8', timeout: 15000 }).stdout;
+      // Async elastic budgeting is a 0.171 key; 0.170 still checks the sync side.
+      const sides = /\b0\.170\./.test(version) ? ['sync'] : ['sync', 'async'];
+      for (const { name, side, spec, error } of elasticRows.filter(row => sides.includes(row.side))) {
+        writeFileSync(join(home, 'config.toml'), `[features]\nguardianv2 = ${toml(elasticGuardian(side, spec))}\n`);
+        const probe = spawnSync(bin, ['features', 'list'], { env, encoding: 'utf8', timeout: 15000 });
+        expect(probe.error).toBeUndefined();
+        expect(probe.status, `${side}: ${name}\n${probe.stderr}`).toBe(error === null ? 0 : 1);
+        if (error !== null) expect(probe.stderr).toContain('failed to load configuration');
+        expect(existsSync(join(home, 'auth.json'))).toBe(false);
+      }
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+});
+
 describe('Codex 0.171 actual parser', () => {
   // The native loader requires a default when [permissions] profiles exist.
-  // Enabled elastic budgeting makes the native loader enforce closed section keys and a
-  // cross-section token sum that the schema does not express; the probe keeps it off, like 0.169.
-  const parserNative = () => {
-    const native = all();
-    native.features.guardianv2.async_elastic_budgeting = false;
-    return { ...native, default_permissions: 'audit' };
-  };
+  const parserNative = () => ({ ...all(), default_permissions: 'audit' });
+  const elasticProfile = { features: { guardianv2: { sync_elastic_budgeting: true, sync_elastic_sections: selectedSections(['exec']),
+    async_elastic_budgeting: true, async_elastic_sections: { ...validSections(), root_messages: limits(900, 900, { max_total_section_tokens: 4000 }) } } } };
   it.skipIf(!process.env.CODEX_NATIVE_TEST_BIN)('loads rendered root/profile without auth or running helpers', () => {
     const home = mkdtempSync(join(tmpdir(), 'codex-171-parser-'));
     const env = { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(home, 'home'), CODEX_HOME: home };
     mkdirSync(env.HOME);
     try {
-      const result = new ClientConfigService({} as never).render({ native_settings: parserNative(), profiles: [{ name: 'audit', native_settings: parserNative() }] });
-      for (const content of [result.content, result.profiles![0]!.content]) {
+      const result = new ClientConfigService({} as never).render({ native_settings: parserNative(),
+        profiles: [{ name: 'audit', native_settings: parserNative() }, { name: 'elastic', native_settings: elasticProfile }] });
+      expect(result.profiles).toHaveLength(2);
+      for (const content of [result.content, ...result.profiles!.map(profile => profile.content)]) {
         writeFileSync(join(home, 'config.toml'), content);
         const probe = spawnSync(process.env.CODEX_NATIVE_TEST_BIN!, ['features', 'list'], { env, encoding: 'utf8', timeout: 15000 });
         expect(probe.error).toBeUndefined();

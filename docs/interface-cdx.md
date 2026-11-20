@@ -2292,6 +2292,31 @@ feature is disabled, an enabled budget needs one of them, and
 command that the native host runs; validation and rendering never execute it.
 Parser probes establish syntax/config-load compatibility only.
 
+Guardian elastic budgets follow `resolve_elastic_budget` (core config) and
+`ElasticBudgetConfig` (`codex-rs/guardian-context/src/budget.rs`). Native Codex
+checks a side only while `features.guardianv2.sync_elastic_budgeting` or
+`async_elastic_budgeting` is `true`; Guardian's own `enabled` does not matter,
+and a disabled or omitted switch keeps any section map. An enabled side needs a
+nonempty `<side>_elastic_sections` whose keys are the 14 native sections
+(`transcript_messages`, `transcript_tools`, `transcript_selected_exec_results`,
+`root_conversation_messages`, `retained_user_instructions`, `trusted_user_answers`,
+`sender_user_messages`, `planned_action`, `previous_reviews`, `trusted_tools`,
+`trusted_skills`, `transcript_images`, `node_repl_evidence`, `permission_context`)
+or their eight native aliases, each section at most once. Minimum and entry cap
+must be nonzero, the entry cap at most the minimum and 9000, and an optional
+`max_total_section_tokens` at least the minimum. Only the sync-only
+`transcript_selected_exec_results` may carry `nested_tool_names`, and there they
+must be nonempty and nonblank; on every other section, async included, only `[]`
+passes once budgeting is on. The section minimums must sum to exactly 128000,
+counting native defaults for omitted sections (`transcript_messages` 5000,
+`transcript_tools` 1000, `transcript_selected_exec_results` 0, every other 900).
+The sync rules are identical in 0.170 and 0.171. Root settings, each profile
+sidecar and the merged render document are checked; a saved budget that violates
+them stays readable with an editable `validation_error`, is never rewritten, and
+is not rendered for hosts until corrected. Source:
+[budget rules](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/guardian-context/src/budget.rs),
+confirmed by throwaway-home probes of the 0.170.0 and 0.171.0 binaries.
+
 Source: [versioned schema](https://github.com/openai/codex/blob/rust-v0.171.0/codex-rs/core/config.schema.json),
 audited 2026-11-20. The configuration reference moved to
 `https://learn.chatgpt.com/docs/config-file/config-reference`; it lags the schema
