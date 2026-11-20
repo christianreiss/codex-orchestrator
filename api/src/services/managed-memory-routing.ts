@@ -2,11 +2,11 @@
 export function buildManagedMemoryRouting(enabled: boolean): { enabled: boolean; content: string } {
   return {
     enabled,
-    content: enabled ? `## Erinnerung: Codex Orchestrator memory
+    content: enabled ? `## Reminder: Codex Orchestrator memory
 
 Durable fleet memory lives in the Codex Orchestrator, shared across hosts and engines.
 Look up relevant context through its MCP tools: shared_memory_list or shared_memory_search,
-then shared_memory_read. Use project_bootstrap and project_memory_* for project context.
+then shared_memory_read. Use project_summary, project_files and project_memory_* for project context.
 Save durable fleet knowledge with shared_memory_write or shared_memory_append;
 save project facts with project_memory_upsert. Search before creating a new record.
 memory_* is host-local scratch, not the shared lookup surface.
