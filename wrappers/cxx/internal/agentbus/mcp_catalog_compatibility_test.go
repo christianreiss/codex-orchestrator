@@ -32,7 +32,7 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 84 {
+	if len(catalog) != 83 {
 		t.Fatalf("review new tools: got %d", len(catalog))
 	}
 	// Optional export lets the real Grok MCP doctor load exactly this catalogue

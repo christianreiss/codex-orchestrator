@@ -86,7 +86,7 @@ Existing keys and older API callers that omit `backend_engine` retain endpoint-d
 
 ## Admin HTTP routes
 
-`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install/cli-auth), `projects-mcp` (host-facing projects/memories/skills plus `/mcp`), `wrapper-v2`, `agent-portal`, `agent-messaging`, `v1` (`/v1/*`), `anthropic-v1` (`/anthropic/v1/*`), `admin/keys` (OpenAI and Claude key admin), `grok-v1` (`/grok/v1/*`), `admin/grok` (Grok gateway admin + Grok keys), `admin-auth-users`, `admin/hosts`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects/skill sources), `admin/memories`, `admin/secrets`, `admin/git-director`, `admin/transfers`, `admin/agent-sessions`, `admin/project-board`, and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted, and every one of them additionally names a capability in `api/src/security/route-capabilities.ts` — see [Roles and capabilities](/admin/manual/roles).
+`registerAllRoutes()` in `api/src/routes/index.ts` mounts everything by delegating to per-domain barrel modules — `host-api` (auth/host/install/cli-auth), `projects-mcp` (host-facing skills/agents/config sync plus `/mcp`), `wrapper-v2`, `agent-portal`, `agent-messaging`, `v1` (`/v1/*`), `anthropic-v1` (`/anthropic/v1/*`), `admin/keys` (OpenAI and Claude key admin), `grok-v1` (`/grok/v1/*`), `admin/grok` (Grok gateway admin + Grok keys), `admin-auth-users`, `admin/hosts`, `admin-overview-settings`, `admin-content` (config/agents/skills/projects/skill sources), `admin/memories`, `admin/secrets`, `admin/git-director`, `admin/transfers`, `admin/agent-sessions`, `admin/project-board`, and `admin/manual` — each of which registers the individual route files below. Tables list method + path + the file that actually defines the handler. All `/admin/*` JSON endpoints require an authenticated admin session (`app.requireAdmin`) unless explicitly noted, and every one of them additionally names a capability in `api/src/security/route-capabilities.ts` — see [Roles and capabilities](/admin/manual/roles).
 
 ### Admin auth + passkeys
 
@@ -367,7 +367,7 @@ The host-facing relay and session bus routes (`/host/agent-relays/*`, `/host/age
 
 ### Admin projects
 
-Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mirrors the host-facing `/projects/*` surface in `api/src/routes/projects-client/index.ts` (registered by the `projects-mcp` barrel alongside `api/src/routes/mcp/index.ts`). See [projects](/admin/manual/projects) for the full shape — the host-facing `/projects/*` routes aren't re-listed in the tables above for that reason. The project board (`GET/POST /admin/project-board/state`, `GET /admin/projects/:slug/board`, and the `/admin/projects/:slug/board/cards*` and `/columns/:id` mutations) is registered separately from `api/src/routes/admin/project-board/index.ts`.
+Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and agents reach the same project service through MCP (`project_*` tools in `api/src/routes/mcp/index.ts`); there is no host REST mirror. See [projects](/admin/manual/projects) for the full shape. The project board (`GET/POST /admin/project-board/state`, `GET /admin/projects/:slug/board`, and the `/admin/projects/:slug/board/cards*` and `/columns/:id` mutations) is registered separately from `api/src/routes/admin/project-board/index.ts`.
 
 ### Admin manual
 
@@ -423,20 +423,6 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 | GET | `/skills` | api/src/routes/projects-client/index.ts |
 | POST | `/skills/retrieve` | api/src/routes/projects-client/index.ts |
 | POST | `/skills/store` | api/src/routes/projects-client/index.ts |
-| POST | `/mcp/memories/store` | api/src/routes/projects-client/index.ts |
-| POST | `/mcp/memories/retrieve` | api/src/routes/projects-client/index.ts |
-| POST | `/mcp/memories/search` | api/src/routes/projects-client/index.ts |
-| POST | `/mcp/memories/delete` | api/src/routes/projects-client/index.ts |
-| DELETE | `/mcp/memories/:id` | api/src/routes/projects-client/index.ts |
-| GET | `/shared-memories` | api/src/routes/projects-client/index.ts |
-| GET | `/shared-memories/:slug` | api/src/routes/projects-client/index.ts |
-| DELETE | `/shared-memories/:slug` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/list` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/read` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/search` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/write` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/append` | api/src/routes/projects-client/index.ts |
-| POST | `/shared-memories/delete` | api/src/routes/projects-client/index.ts |
 | GET | `/healthz` | api/src/routes/health.ts |
 | GET | `/readyz` | api/src/routes/health.ts |
 
@@ -468,7 +454,7 @@ Each of the three surfaces is served by a backend engine chosen in **Access → 
 - api/src/routes/grok-v1/index.ts (mounts the `/v1` handlers under `/grok` for the Grok gateway)
 - api/src/routes/admin/grok/index.ts (Grok keys, gateway state, default model, model toggles, client config)
 - api/src/services/grok-models.ts (Grok catalog and per-model gateway switches)
-- api/src/routes/projects-client/index.ts (host-facing `/projects/*`, mirrored by the admin projects routes)
+- api/src/routes/projects-client/index.ts (host-facing `/skills`, `/agents/retrieve`, `/config/retrieve`, `/claude/:kind*`)
 - api/src/routes/mcp/index.ts (MCP JSON-RPC)
 - api/src/routes/health.ts (liveness/readiness probes)
 - api/src/ws/server.ts (admin websocket)

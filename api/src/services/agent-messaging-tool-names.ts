@@ -62,7 +62,6 @@ export const AGENT_MESSAGING_TOOLS = [
   'agent_receiver_status',
   'agent_portal_say',
   'agent_portal_ask',
-  'agent_portal_notify',
   'agent_portal_resolve',
   'agent_attachment_upload',
   'agent_attachment_get',

@@ -146,20 +146,3 @@ func TestPortalSayStaysNormalAndPreservesHeldInstruction(t *testing.T) {
 		t.Fatal("progress finished the held instruction")
 	}
 }
-
-func TestPortalNotifyRetainsExplicitAttention(t *testing.T) {
-	client := &sessionClient{id: "launch", http: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		var body map[string]any
-		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		payload := body["payload"].(map[string]any)
-		if body["type"] != "attention" || payload["severity"] != "blocker" || payload["notice_id"] != "specific-notice" {
-			t.Fatalf("explicit attention lost: %v", body)
-		}
-		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
-	})}}
-	if _, err := callChatTool(context.Background(), client, "agent_portal_notify", map[string]any{"client_event_id": "stable-alert", "summary": "Operator decision required.", "severity": "blocker", "notice_id": "specific-notice"}); err != nil {
-		t.Fatal(err)
-	}
-}

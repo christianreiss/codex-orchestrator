@@ -436,7 +436,7 @@ describe('McpServer integration with project_file_* tools', () => {
     expect(result.contents[0]!.mimeType).toBe('text/markdown');
   });
 
-  it('tools/call project_file_upsert + project_file_list round-trips a new file', async () => {
+  it('tools/call project_file_upsert + project_file_read round-trips a new file', async () => {
     const { service } = makeStubProjects();
     const tools = new McpToolsRegistry({
       memories: stubMemories,
@@ -471,7 +471,7 @@ describe('McpServer integration with project_file_* tools', () => {
         jsonrpc: '2.0',
         id: 2,
         method: 'tools/call',
-        params: { name: 'project_file_list', arguments: { slug: 'demo' } },
+        params: { name: 'project_file_read', arguments: { slug: 'demo', stored_name: 'NEW.md' } },
       },
       ctx,
     );

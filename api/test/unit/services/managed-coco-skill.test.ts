@@ -82,7 +82,7 @@ describe('managed #coco skill names only real MCP surfaces', () => {
     const steps = managedCocoManifest().split('\n').filter((line) => /^\d+\./.test(line)).join('\n');
     expect(steps).toContain('project_summary');
     expect(steps).toContain('project_files');
-    expect(steps).not.toMatch(/project_bootstrap|project_file_list/);
+    expect(steps).not.toMatch(/project_bootstrap/);
   });
 
   for (const { label, text } of cocoTexts) {

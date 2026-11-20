@@ -361,9 +361,9 @@ describe('McpToolsRegistry', () => {
     expect(skillDeleteCalls).toHaveLength(beforeDelete);
   });
 
-  it('registers the project_file_* CRUD tools', () => {
+  it('registers the project_file_* CRUD tools (listing is project_files)', () => {
     const list = registry.list().map((t) => t.name);
-    expect(list).toContain('project_file_list');
+    expect(list).not.toContain('project_file_list'); // retired: project_files lists metadata, project_file_read reads a body
     expect(list).toContain('project_file_read');
     expect(list).toContain('project_file_upsert');
     expect(list).toContain('project_file_delete');
@@ -425,11 +425,6 @@ describe('McpToolsRegistry', () => {
     const res = await registry.dispatch('project_memory_get', 'demo' as unknown as Record<string, unknown>, host);
     expect(res).toMatchObject({ isError: true });
     expect((res as { content: Array<{ text: string }> }).content[0]!.text).toContain('slug');
-  });
-
-  it('resolves dot aliases for the memory tools', async () => {
-    const res = await registry.dispatch('project.memory.upsert', { slug: 'demo', key: 'k', content: 'c' }, host);
-    expect(res).toMatchObject({ isError: false });
   });
 
   it('requires key and content on project_memory_upsert', async () => {
@@ -511,7 +506,7 @@ describe('McpToolsRegistry', () => {
 
   it('reports has() correctly for known + unknown tools', () => {
     expect(registry.has('memory_store')).toBe(true);
-    expect(registry.has('memory.store')).toBe(true); // dotted alias normalizes
+    expect(registry.has('memory.store')).toBe(false); // the dotted alias was removed; only the underscore name resolves
     expect(registry.has('nope_tool')).toBe(false);
   });
 
@@ -756,11 +751,6 @@ describe('shared_memory_* tools', () => {
     expect(sharedCalls.at(-1)).toMatchObject({ method: 'list', args: { prefix: 'ops.' } });
   });
 
-  it('accepts dot aliases like the rest of the surface', async () => {
-    const res = await reg.dispatch('shared.memory.read', { slug: 'a' }, host);
-    expect(res).toMatchObject({ isError: false });
-  });
-
   it('threads the engine into writes as provenance', async () => {
     await reg.dispatch('shared_memory_write', { slug: 'a', content: 'b' }, host, 'host', 'claude');
     expect(sharedCalls.at(-1)).toMatchObject({ method: 'write', engine: 'claude' });
@@ -948,11 +938,6 @@ describe('secret_* tools', () => {
   it('requires a slug and a value on secret_store', async () => {
     expect(await reg.dispatch('secret_store', {}, host)).toMatchObject({ isError: true });
     expect(await reg.dispatch('secret_store', { slug: 'x' }, host)).toMatchObject({ isError: true });
-  });
-
-  it('accepts dot aliases like the rest of the surface', async () => {
-    const res = await reg.dispatch('secret.get', { slug: 'a' }, host);
-    expect(res).toMatchObject({ isError: false });
   });
 });
 

@@ -302,7 +302,7 @@ see [Smart queue](smart-queue.md) for limits, canary setup and rollback.
 ## What it is
 
 
-Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Older wrappers can send `agent_portal_notify` or a reply with severity for the same inline highlight. Use `agent_portal_ask` for a question with answer controls.
+Use `agent_portal_say` for proactive messages and `agent_receiver_reply` for an operator instruction. Both accept `important: true` to highlight the message red in chronological order. Follow preferences, unread counts and delivery behave like any other reply. Use `agent_portal_ask` for a question with answer controls.
 
 Small Node 22 + Fastify + Drizzle + MySQL service that keeps canonical Codex, Claude, and Grok subscription credentials for every host in your fleet. Hosts talk to `/auth` (retrieve/store) with per-host API keys baked into their `cdx`/`clx`/`cgx` wrappers. The same API also ships Skills, shared project coordination, fleet memories and secrets, agent-to-agent messaging, a TTL'd file transfer pool, token-usage telemetry, and ChatGPT/Claude usage snapshots.
 
@@ -791,7 +791,7 @@ visible with a choice to load the latest values or discard the draft.
    - `/host/users` records current username/hostname for the host and returns the known list (used by `cdx --uninstall`).
    - `/host/lane` exposes/stores host lane preference (`normal|null`; a posted `spark` is stored as `null`) so wrappers can persist lane steering without admin login.
    - Host sync uses `/skills` list/retrieve/store. Agents can also create/update/revive shared manifest-only Skills with MCP `skill_store` and write recoverable delete markers with `skill_delete`; the managed `skill-manager` Skill explains and executes that flow. Codex and MCP-enabled Claude guidance require `skill_list` before answering or acting on a fleet Skill request. MCP content reads do not populate Claude's native Skill registry or supply native hooks, slash commands, or filesystem execution semantics. When project coordination is enabled, the same delivery path also ships managed `coco`.
-   - Shared project state itself is served live through `/projects*` and project-aware MCP tools/resources rather than through startup sync payloads.
+   - Shared project state itself is served live through the project-aware MCP tools/resources rather than through startup sync payloads.
 
 6) **Quotas**
    - The API owner refreshes ChatGPT `/wham/usage` from canonical account credentials, using deadline-based obligations and the service's five-minute cooldown. `CHATGPT_USAGE_CRON_INTERVAL` defaults to 900 seconds. Host `/auth` reads the stored snapshot; it does not start a provider fetch. Responses retain normal windows, optional provider Spark compatibility fields and rate flags. The effective host lane is `normal`; legacy Spark preferences normalize to `null`. With no readable snapshot the host receives `{status:"unavailable", active_quota_lane:"normal"}` so the wrapper renders unknown quota health explicitly.

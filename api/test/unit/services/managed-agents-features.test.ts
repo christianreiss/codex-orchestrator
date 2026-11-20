@@ -412,9 +412,10 @@ describe('served document byte invariance', () => {
     // claim guidance remain unchanged; the fixture covers Projects/BrowserOS/Secrets.
     // 2026-11-18: importance is an inline chat flag across engines.
     // 2026-11-20: the Memory section points single-fact corrections at shared_memory_replace.
-    expect(out.features_sha256).toBe('278e5b3161d515484c44c1fa56ce1e251c33df0fbdb5a7ffe559d2506cad5921');
-    expect(out.managed_sha256).toBe('877e8a1e11cc0fb8a6b20a6d7f72260ccaf434366d369c8370f29893efdf1248');
-    expect(sha256(out.body)).toBe('d53bcadddb31c6d69206a188f81c2a50484241690dfc2182c61b2cfa6bb1182a');
+    // 2026-11-20: agent_portal_notify retired; the Operator portal paragraph no longer mentions it.
+    expect(out.features_sha256).toBe('4a5559b97997992e77118a9bf7832e3ab3a2b7c0ecebc33945858646c0ae48e4');
+    expect(out.managed_sha256).toBe('d54055b7a6ca3bac408f7b8741011f35286a0562380cf95e59a9ee24842f8f0c');
+    expect(sha256(out.body)).toBe('54a9cab24a9cd8f8477f51e88b9237a21950d07370d3a71316726027bd50225e');
   });
 });
 

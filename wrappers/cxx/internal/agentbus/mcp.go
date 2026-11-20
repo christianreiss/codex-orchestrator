@@ -1092,7 +1092,7 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	case "agent_reboot_status":
 		err := client.post(ctx, "reboot/status", args, &out)
 		return out, err
-	case "agent_portal_say", "agent_portal_ask", "agent_portal_notify", "agent_portal_resolve", "agent_attachment_upload", "agent_attachment_get":
+	case "agent_portal_say", "agent_portal_ask", "agent_portal_resolve", "agent_attachment_upload", "agent_attachment_get":
 		return callChatTool(ctx, client, name, args)
 	case "agent_git_remote", "agent_chat_list", "agent_chat_read", "agent_chat_send", "agent_context_get", "agent_context_update", "agent_room_list", "agent_room_read", "agent_room_send", "resource_claim_acquire", "resource_claim_status", "resource_claim_release":
 		return callCoordinationTool(ctx, client, name, args)
