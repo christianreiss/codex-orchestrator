@@ -593,6 +593,9 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - `GET /wrapper/v2/download/{artifact}/{platform}/v:version/{binary}` — the same exact-version artifact under a `/download` path; the communicator 307s cxx 0.9.71–0.9.74 self-update frames here so those owners fetch it over direct HTTPS.
 - Platform is taken from `X-Wrapper-Platform: os-arch` when present, else inferred from the user agent (default `linux-amd64`). All wrapper routes require host auth, and every one of them returns `503 wrapper_v2_unavailable` while no active wrapper signing key is configured.
 
+### Rescue media
+- `POST /rescue/v1/session` — rescue-media session control (`engine` `codex|claude`, `action` `start|heartbeat|release|version`) authenticated by the derived `rescue1.<host-id>.<hmac>` media bearer, recognized only on this route. `start` and `heartbeat` require an open rescue host window. Contract: `docs/interface-api.md` (rescue media).
+
 ### CLI device auth
 - `POST /cli/auth/start` — wrapper begins a device-code login. Body: `fqdn`, optional `secure` (default `true`). Returns the request id, user code, and `verify_url`. Exempt from the API kill switch.
 - `POST /cli/auth/poll/{id}` — wrapper polls the 64-hex request id until approved or denied; an approved response also carries `base_url`. Unknown ids return `404`.
