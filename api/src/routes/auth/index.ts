@@ -76,7 +76,6 @@ import {
 import { readFleetEngineState } from '../../services/engine-switch.js';
 import { inspectCredential } from '../../services/auth-generation.js';
 import { resolveAuthRequestEngine } from './engine-resolution.js';
-import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
 import { resolveWrapperPlatform } from '../../util/wrapper-platform.js';
 import { suspendAgentMessagingRuntimeLocked } from '../../services/agent-messaging.js';
 
@@ -118,7 +117,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
     const platform = resolveWrapperPlatform(req.headers);
     const publicBaseUrl = resolvePublicBaseUrl(req, ctx.env.PUBLIC_BASE_URL);
     const summaries = new Map<Engine, Promise<VersionSnapshot>>();
-    const projections = new Map<Engine, Map<unknown, Promise<VersionSnapshot>>>();
+    const projections = new Map<Engine, Promise<VersionSnapshot>>();
     const invalidate = () => {
       summaries.clear();
       projections.clear();
@@ -136,15 +135,14 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
       return pending;
     };
     const project: RequestVersionProjector = Object.assign(
-      (engine: Engine, submittedWrapperVersion: unknown): Promise<VersionSnapshot> => {
-        const cached = projections.get(engine)?.get(submittedWrapperVersion);
+      (engine: Engine): Promise<VersionSnapshot> => {
+        const cached = projections.get(engine);
         if (cached) return cached;
         const pending = (async () =>
           applyHostVersionPolicy(
             await projectWrapperVersionSnapshot({
               snapshot: await summary(engine),
               engine,
-              submittedWrapperVersion,
               platform,
               publicBaseUrl,
               binaries,
@@ -155,11 +153,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
           invalidate();
           throw error;
         });
-        if (reuse) {
-          const byVersion = projections.get(engine) ?? new Map<unknown, Promise<VersionSnapshot>>();
-          byVersion.set(submittedWrapperVersion, pending);
-          projections.set(engine, byVersion);
-        }
+        if (reuse) projections.set(engine, pending);
         return pending;
       },
       { summary, invalidate },
@@ -559,7 +553,7 @@ if (engine === ENGINE_KIMI) {
     const userInput = extractHostUserInput(payload);
     const users = await syncService.recordHostUser(enforced.id, userInput.username, userInput.hostname);
     const out = await syncService.collect({ host: enforced, engine, bootstrap: false, users });
-    out.versions = await projectedVersions(engine, payload.wrapper_version);
+    out.versions = await projectedVersions(engine);
 
     if (includeAuth) {
       const authResult = await handleRetrieve(
@@ -662,7 +656,7 @@ if (engine === ENGINE_KIMI) {
       users,
       versionSnapshot: await projectedVersions.summary(engine),
     });
-    out.versions = await projectedVersions(engine, payload.wrapper_version);
+    out.versions = await projectedVersions(engine);
 
     if (includeAuth) {
       const authResult = await handleBootstrapAuth(
@@ -802,7 +796,7 @@ function readArtifactDigests(payload: Record<string, unknown>): ArtifactDigestMa
 // ───────────────────────────────────────────────────────────────────────────
 
 type RequestVersionProjector = {
-  (engine: Engine, submittedWrapperVersion: unknown): Promise<VersionSnapshot>;
+  (engine: Engine): Promise<VersionSnapshot>;
   summary(engine: Engine): Promise<VersionSnapshot>;
   invalidate(): void;
 };
@@ -957,7 +951,7 @@ if (engine === ENGINE_KIMI) {
   // requests reading the same stale `host.apiCalls` snapshot.
   const apiCalls = await recordAuthCall(ctx.db, host);
 
-  const versions = await projectVersions(engine, payload.wrapper_version);
+  const versions = await projectVersions(engine);
   const quota = await readQuotaControls(
     ctx,
     host.vip === 1,
@@ -984,7 +978,7 @@ if (engine === ENGINE_KIMI) {
     accountId ?? canonicalRow?.accountId ?? undefined,
     quota.quota_unlimited === true,
   );
-  if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
+  if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
   baseResponse.quota_advice = quotaAdviceSnapshot(
     quota.quota_unlimited ? { ...advice, mode: 'off' } : advice,
@@ -1083,7 +1077,7 @@ async function buildRetrieveBaseResponse(
   // reading the same stale `host.apiCalls` snapshot.
   const apiCalls = await recordAuthCall(ctx.db, host);
 
-  const versions = await projectVersions(engine, payload.wrapper_version);
+  const versions = await projectVersions(engine);
   const quota = await readQuotaControls(ctx, host.vip === 1, engine, accountIdFrom(payload.account_id));
   const baseResponse: Record<string, unknown> = {
     host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
@@ -1100,7 +1094,7 @@ async function buildRetrieveBaseResponse(
     accountIdFrom(payload.account_id),
     quota.quota_unlimited === true,
   );
-  if (engine === ENGINE_CODEX) Object.assign(baseResponse, codexUsageFields(chatgpt, payload));
+  if (engine === ENGINE_CODEX) baseResponse.chatgpt = chatgpt;
   else if (engine === ENGINE_CLAUDE) baseResponse.claude_usage = claude;
   else if (engine === ENGINE_GROK)
     baseResponse.grok_usage = await readGrokUsageSnapshot(ctx, accountIdFrom(payload.account_id));
@@ -1438,7 +1432,7 @@ async function handleStore(
   // reading the same stale `host.apiCalls` snapshot.
   const apiCalls = await recordAuthCall(ctx.db, host);
 
-  const summary = await projectVersions(engine, payload.wrapper_version);
+  const summary = await projectVersions(engine);
   const quota = await readQuotaControls(ctx, host.vip === 1, engine, stored.account_id);
 
   const response: Record<string, unknown> = {
@@ -1457,7 +1451,7 @@ async function handleStore(
     stored.account_id,
     quota.quota_unlimited === true,
   );
-  if (engine === ENGINE_CODEX) Object.assign(response, codexUsageFields(chatgpt, payload));
+  if (engine === ENGINE_CODEX) response.chatgpt = chatgpt;
   else if (engine === ENGINE_CLAUDE) response.claude_usage = claude;
   else if (engine === ENGINE_GROK) response.grok_usage = await readGrokUsageSnapshot(ctx, stored.account_id);
 if (engine === ENGINE_KIMI) response.kimi_usage = await readKimiUsageSnapshot(ctx, stored.account_id);
@@ -1685,23 +1679,6 @@ export async function readQuotaControls(
     quota_limit_percent: Math.max(50, Math.min(100, await settings.getInt('quota_limit_percent', 95))),
     quota_week_partition: rawPartition === '5' ? 5 : rawPartition === '7' ? 7 : 0,
   };
-}
-
-/**
- * Codex usage block for an `/auth` response. Date-style shell wrappers read
- * the snapshot under its original `chatgpt_usage` key, and the 2025.11 -
- * 2026.03.05 scripts dereference it unguarded (`chatgpt_usage.get(...)`):
- * without the key their auth pull dies with an AttributeError before any
- * auth, version or wrapper-transition data is applied. Only those callers get
- * the alias; cxx reads `chatgpt`.
- */
-function codexUsageFields(
-  chatgpt: Record<string, unknown>,
-  payload: Record<string, unknown>,
-): Record<string, unknown> {
-  return isLegacyShellWrapperVersion(payload.wrapper_version)
-    ? { chatgpt, chatgpt_usage: chatgpt }
-    : { chatgpt };
 }
 
 /** Alternative-engine advice uses an enabled verified account of that engine.

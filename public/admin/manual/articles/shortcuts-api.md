@@ -401,12 +401,7 @@ Every project endpoint lives in `api/src/routes/admin/projects/index.ts` and mir
 | GET/POST | `/host/lane` | api/src/routes/host/index.ts |
 | POST | `/cron/check` | api/src/routes/host/index.ts |
 | POST | `/cron/report` | api/src/routes/host/index.ts |
-| GET | `/wrapper` (alias of `/wrapper/v2/meta`) | api/src/routes/wrapper-v2/index.ts |
-| GET | `/wrapper/download` (alias of `/wrapper/v2/download`) | api/src/routes/wrapper-v2/index.ts |
-| GET | `/wrapper/v2/meta` | api/src/routes/wrapper-v2/index.ts |
 | GET | `/wrapper/v2/config[?sig=1]` | api/src/routes/wrapper-v2/index.ts |
-| GET | `/wrapper/v2/download` | api/src/routes/wrapper-v2/index.ts |
-| GET | `/wrapper/v2/manifest/:engine` | api/src/routes/wrapper-v2/index.ts |
 | GET | `/wrapper/v2/bin/:engine/:plat/v:version/:binary` | api/src/routes/wrapper-v2/index.ts |
 | GET | `/install/:token` (alias of `/install/v2/:token`) | api/src/routes/install/index.ts |
 | GET | `/install/v2/:token` | api/src/routes/install/index.ts |

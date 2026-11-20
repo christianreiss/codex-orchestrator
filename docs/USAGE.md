@@ -329,10 +329,11 @@ other hosts have no maintenance crontab line
 `~/.cxx/engines/codex` and activated atomically, so a running session keeps its
 files; a later tick sweeps the store back down to the one selected version. The registered versioned route is
 `/wrapper/v2/bin/{artifact}/{platform}/v{version}/{binary}`; new releases use
-`artifact=cxx` and `binary=cxx`. The compatible per-engine URL and
-`/wrapper/v2/download` resolve to the same bytes for a new common release.
-`/wrapper/download` is not part of that path: it serves the legacy transition
-launcher used by date-versioned shell wrappers. You can force an update
+`artifact=cxx` and `binary=cxx`. The compatible per-engine URL resolves to the
+same bytes for a new common release. Date-versioned shell wrappers are no
+longer supported: on their next interactive run they replace themselves with
+the plain `cxx` binary, which then fails without a signed config. Such a host
+needs a fresh install. You can force an update
 check/run:
 
 ```bash

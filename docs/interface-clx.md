@@ -635,13 +635,13 @@ An engine switched off fleet-wide (Admin → Engines → Engine master switches;
 
 ## Distribution surfaces
 
-The canonical binary is engine-neutral; the engine manifest and old URLs remain
-compatibility surfaces:
+The canonical binary is engine-neutral; the old per-engine URL remains a
+compatibility surface:
 
 | Method | Path |
 |---|---|
 | GET | `/wrapper/v2/bin/cxx/<os>-<arch>/v<ver>/cxx` |
-| GET | `/wrapper/v2/manifest/claude` |
+| GET | `/wrapper/v2/bin/claude/<os>-<arch>/v<ver>/clx` |
 
 `/wrapper/v2/bin/clx/.../clx` preserves exact immutable historical split bytes
 when present and otherwise may stream the matching published `cxx` bytes. New

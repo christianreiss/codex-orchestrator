@@ -21,34 +21,18 @@ import {
   canonicalStringify,
   WrapperBinaryUnavailableError,
   WrapperSigningUnavailableError,
-  WRAPPER_CONFIG_SCHEMA_VERSION,
   type ConfigSignerSignature,
 } from '../../services/wrapper-config.js';
-import { createWrapperMetaService } from '../../services/wrapper-meta.js';
-import { readCommunicatorApiLevels } from '../../services/communicator-api-version.js';
-import { SettingsService } from '../../services/settings.js';
 import { createWrapperDownloadService } from '../../services/wrapper-download.js';
-import {
-  buildLegacyWrapperTransitionScript,
-  isCxxBinaryUrl,
-} from '../../services/wrapper-transition.js';
 import { publishHostEvent } from '../../services/ws-bridge.js';
 import { withSpan } from '../../observability/tracing.js';
-import {
-  assertHostEngineAssigned,
-  hostEnginesList,
-} from '../../services/host-engine-policy.js';
+import { assertHostEngineAssigned } from '../../services/host-engine-policy.js';
 import { loadWrapperRollout, readRolloutEnabled } from '../../services/wrapper-rollout.js';
 
 /**
  * Wrapper bakery v2 endpoints.
  *
- *   GET  /wrapper                        → alias for /wrapper/v2/meta
- *   GET  /wrapper/download               → legacy shell transition launcher
- *   GET  /wrapper/v2/meta                → per-engine version + sha256 + signing kid
  *   GET  /wrapper/v2/config              → signed per-host config JSON
- *   GET  /wrapper/v2/download            → binary stream for the calling host's platform
- *   GET  /wrapper/v2/manifest/:engine    → per-platform manifest
  *   GET  /wrapper/v2/bin/:artifact/:plat/v:version/:binary → static binary
  *   GET  /wrapper/v2/download/:artifact/:plat/v:version/:binary → same, legacy-owner alias
  *
@@ -107,7 +91,6 @@ export async function registerWrapperV2Routes(
     // request, so an operator toggle takes effect without a restart.
     wrapperRollout: async () => ((await readRolloutEnabled(ctx.db, ctx.env)).enabled ? loadWrapperRollout(ctx.db) : null),
   });
-  const meta = createWrapperMetaService({ binaries, schemaVersion: WRAPPER_CONFIG_SCHEMA_VERSION });
   const download = createWrapperDownloadService({ binaries });
 
   async function unavailableGuard(): Promise<void> {
@@ -130,38 +113,6 @@ export async function registerWrapperV2Routes(
   function engineFromQuery(req: FastifyRequest): Engine {
     const q = (req.query ?? {}) as { engine?: string };
     return parseEngine(q.engine, 'codex');
-  }
-
-  // GET /wrapper/v2/meta — engine-level manifest.
-  app.get('/wrapper/v2/meta', { preHandler: [app.requireHost] }, (req, reply) =>
-    metaHandler(req, reply),
-  );
-
-  // Alias: GET /wrapper
-  app.get('/wrapper', { preHandler: [app.requireHost] }, (req, reply) => metaHandler(req, reply));
-
-  async function metaHandler(req: FastifyRequest, reply: FastifyReply) {
-    await unavailableGuard();
-    const engine = engineFromQuery(req);
-    const host = req.authHost;
-    if (!host)
-      throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-    assertHostEngineAssigned(host, engine);
-    const baseUrl = resolvePublicBaseUrl(req);
-    const data = await meta.forEngine(engine, baseUrl);
-    const signer = await signing.active();
-    reply.header('cache-control', 'no-store');
-    // `signing_kid` is the primary key's DB row id; the fingerprint is the
-    // sha256 of its raw Ed25519 public key, which is what a client can compare
-    // against the key its binary embeds.
-    // `api_version` / `min_api`: the communicator API level and its effective
-    // floor (communicator-api-version.ts). Unsigned, additive, top level.
-    return {
-      ...data,
-      ...(await readCommunicatorApiLevels(new SettingsService(ctx.db))),
-      signing_kid: signer?.kid ?? null,
-      signing_fingerprint: signer?.fingerprint ?? null,
-    };
   }
 
   // GET /wrapper/v2/config — signed per-host config JSON.
@@ -261,107 +212,6 @@ export async function registerWrapperV2Routes(
         return body;
       },
     ),
-  );
-
-  // GET /wrapper/v2/download — binary for the calling host's platform.
-  app.get('/wrapper/v2/download', { preHandler: [app.requireHost] }, (req, reply) =>
-    downloadHandler(req, reply),
-  );
-  // GET /wrapper/download — date-versioned shell wrappers update through this
-  // URL, so serve a tiny transition script that writes the signed v2 config
-  // before it execs the Go binary.
-  app.get('/wrapper/download', { preHandler: [app.requireHost] }, (req, reply) =>
-    legacyTransitionHandler(req, reply),
-  );
-
-  async function downloadHandler(req: FastifyRequest, reply: FastifyReply) {
-    await unavailableGuard();
-    const engine = engineFromQuery(req);
-    const host = req.authHost;
-    if (!host)
-      throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-    assertHostEngineAssigned(host, engine);
-    const { os, arch } = resolveWrapperPlatform(req.headers);
-    const build = await binaries.resolveCurrentBuild(engine, os, arch);
-    if (!build)
-      throw new NotFoundError(
-        `no published binary for ${engine}/${os}-${arch}`,
-        'binary_not_found',
-      );
-    return streamBinary(req, reply, build.artifact, os, arch, build.version);
-  }
-
-  async function legacyTransitionHandler(req: FastifyRequest, reply: FastifyReply) {
-    await unavailableGuard();
-    const host = req.authHost;
-    if (!host)
-      throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-    const engine = engineFromQuery(req);
-    assertHostEngineAssigned(host, engine);
-    const baseUrl = resolvePublicBaseUrl(req);
-    const platform = resolveWrapperPlatform(req.headers);
-
-    let result;
-    try {
-      result = await configService.bakeForHost(hostWithCallerWrapper(host, engine, req.headers['x-wrapper-version']), engine, baseUrl, platform);
-    } catch (err) {
-      if (err instanceof WrapperSigningUnavailableError) {
-        throw new ServiceUnavailableError(
-          'wrapper v2 signing key not configured',
-          'wrapper_v2_unavailable',
-        );
-      }
-      if (err instanceof WrapperBinaryUnavailableError) {
-        throw new ServiceUnavailableError(err.message, 'wrapper_binary_unavailable');
-      }
-      throw err;
-    }
-
-    if (result.bumped) {
-      publishHostEvent('host.updated', host.id, { config_version: result.configVersion });
-    }
-
-    if (!isCxxBinaryUrl(result.payload.wrapper.binary_url)) {
-      throw new ServiceUnavailableError(
-        'common cxx artifact is not published for this platform',
-        'wrapper_binary_unavailable',
-      );
-    }
-
-    const body = buildLegacyWrapperTransitionScript({
-      fqdn: host.fqdn,
-      apiKey: result.payload.orchestrator.api_key,
-      baseUrl: result.payload.orchestrator.base_url,
-      engine,
-      allowInsecure: host.curlInsecure === 1,
-      peerEngines: hostEnginesList(host.engines),
-    });
-    reply.envelopeRaw = true;
-    reply.header('content-type', 'text/x-shellscript; charset=utf-8');
-    reply.header('content-disposition', `attachment; filename="${ENGINE_COMMANDS[engine]}"`);
-    reply.header('cache-control', 'no-store');
-    reply.header('x-config-version', String(result.configVersion));
-    reply.header('content-length', Buffer.byteLength(body));
-    return body;
-  }
-
-  // GET /wrapper/v2/manifest/:engine
-  app.get<{ Params: { engine: string } }>(
-    '/wrapper/v2/manifest/:engine',
-    { preHandler: [app.requireHost] },
-    async (req, reply) => {
-      await unavailableGuard();
-      const engine = req.params.engine;
-      if (!isEngine(engine)) throw new NotFoundError('unknown engine', 'unknown_engine');
-      const host = req.authHost;
-      if (!host)
-        throw new ServiceUnavailableError('host context missing', 'host_context_missing');
-      assertHostEngineAssigned(host, engine);
-      const baseUrl = resolvePublicBaseUrl(req);
-      const data = await binaries.engineManifest(engine, baseUrl);
-      reply.header('cache-control', 'no-store');
-      return data;
-    },
   );
 
   // GET /wrapper/v2/bin/:artifact/:platform/v:version/:binary

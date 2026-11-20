@@ -2,7 +2,7 @@
 title: The shared cxx wrapper
 section: Fleet operations
 verified: 2026-11-13
-sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-meta.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json, wrappers/cxx/internal/emergency/emergency.go, wrappers/cxx/internal/workload/run_linux.go
+sources: wrappers/cxx, wrappers/cxx/internal/agentportal/command.go, api/src/services/wrapper-config.ts, api/src/services/wrapper-signing-key.ts, api/src/services/wrapper-bin-registry.ts, api/src/services/wrapper-download.ts, api/src/services/wrapper-transition.ts, api/src/services/install-token.ts, api/src/routes/wrapper-v2/index.ts, api/src/routes/install/index.ts, wrappers/schemas/host-config-v1.json, wrappers/cxx/internal/emergency/emergency.go, wrappers/cxx/internal/workload/run_linux.go
 ---
 
 Grok Build is supported as the third engine (`cgx`); see [Grok Build](cgx) for
@@ -17,10 +17,8 @@ fetches every enabled signed per-host JSON config, requires identical common
 version/SHA metadata, downloads one binary, installs the enabled aliases, then
 calls `cxx cron install` and `cxx cron run --minimal` once each for all enabled
 engine CLIs and installs the per-user `cxx-agent` background worker. The
-installer does **not** itself `exec` the wrapper. A separate, shorter
-**legacy transition launcher** (`GET /wrapper/download`) exists only for
-pre-v2 shell-era hosts: it performs the same config-and-binary fetch, then
-`exec`s `cxx <engine>` with the original argv.
+installer does **not** itself `exec` the wrapper. Date-versioned shell-era
+wrappers are no longer supported: such a host needs a fresh install.
 
 ## Repair a stale shell entrypoint
 
@@ -98,31 +96,20 @@ these presentation options changes authentication, quotas or session handling.
   `storage/wrapper/v2/bin/...` relative to the repo when `DATA_ROOT` is unset).
   `wrapper-bin-registry.ts` discovers them via `manifest.json` files or a
   directory scan; SHA256 + size are recorded per build.
-- **Shell scripts** — `wrapper-transition.ts` builds two distinct POSIX `sh`
-  scripts (both shell out to `python3` for the JSON/sha256 work, an undocumented
-  host dependency): `buildWrapperV2InstallerScript` — wrapped by
-  `install-token.ts`'s `buildInstallerScript` and served at `GET /install/{token}`
-  — is the real installer: all enabled configs are fetched and gated first,
-  followed by one binary download + sha-check, atomic relative alias migration,
-  and one host-wide bootstrap. `buildLegacyWrapperTransitionScript` — served at
-  `GET /wrapper/download` — is the actual **transition launcher**: the same
-  config-and-binary fetch, but it explicitly `exec`s `cxx <engine>` with the
-  original argv instead of bootstrapping cron. `isLegacyShellWrapperVersion`
-  detects date-format versions (YYYY.MM.DD) from the v1 shell era;
-  `withLegacyShellWrapperTransition` redirects those legacy hosts to
-  `/wrapper/download?engine=<engine>` for the transition launcher rather than a
-  versioned binary URL. `wrapper-download.ts` is unrelated to either script —
-  it is a thin binary-stream facade backing `GET /wrapper/v2/download` and
-  `GET /wrapper/v2/bin/:engine/:platform/v:version/:binary`.
+- **Shell scripts** — `wrapper-transition.ts` builds the POSIX `sh` installer
+  (it shells out to `python3` for the JSON/sha256 work, an undocumented host
+  dependency): `buildWrapperV2InstallerScript` — wrapped by `install-token.ts`'s
+  `buildInstallerScript` and served at `GET /install/{token}` — fetches and
+  gates all enabled configs first, followed by one binary download + sha-check,
+  atomic relative alias migration, and one host-wide bootstrap.
+  `wrapper-download.ts` is a thin binary-stream facade backing
+  `GET /wrapper/v2/bin/:artifact/:platform/v:version/:binary`.
 
 ## Public endpoints
 
 All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
 `app.requireHost`:
 
-- `GET /wrapper/v2/meta` (alias `GET /wrapper`) — engine-scoped projection of
-  the common platform matrix, with the primary signing key's id and its
-  fingerprint (sha256 of the raw Ed25519 public key).
 - `GET /wrapper/v2/config[?engine=<engine>][&sig=1[&kid=<id>|&fingerprint=<hex>]]`
   — returns the signed per-host config JSON (or its detached `.sig` file when
   `sig=1`). The JSON body carries `signature` (the primary key's, unchanged) plus
@@ -130,13 +117,6 @@ All under `api/src/routes/wrapper-v2/index.ts`, host-authenticated via
   pick which key's detached signature `sig=1` returns. `engine`
   defaults to `codex`; the shared cron coordinator fetches every other
   enabled engine's config through this same endpoint with `?engine=<engine>`.
-- `GET /wrapper/v2/download` — streams the raw wrapper binary for the calling
-  host's detected platform (the same artifact as the versioned `/bin/...`
-  route below).
-- `GET /wrapper/download` — **not an alias of `/wrapper/v2/download`**: this is
-  the legacy transition-launcher shell script for pre-v2 (date-versioned)
-  hosts (see `buildLegacyWrapperTransitionScript` above).
-- `GET /wrapper/v2/manifest/:engine` — full per-platform manifest for an engine.
 - `GET /wrapper/v2/bin/cxx/:platform/v:version/cxx` — canonical common binary;
   compatible old per-engine URLs preserve exact historical files and fall back
   to common bytes for new versions. Responses are cacheable (ETag = SHA256).
@@ -593,8 +573,8 @@ callers.
 - api/src/services/wrapper-config.ts (signed per-host config bakery)
 - api/src/services/wrapper-signing-key.ts (Ed25519 key from wrapper_signing_keys)
 - api/src/services/wrapper-bin-registry.ts (binary inventory, SHA256)
-- api/src/services/wrapper-meta.ts (engine-scoped common-platform projection), api/src/services/wrapper-download.ts (binary-stream facade)
-- api/src/services/wrapper-transition.ts, api/src/services/install-token.ts (installer + legacy transition shell script generation, legacy version detection)
+- api/src/services/wrapper-download.ts (binary-stream facade)
+- api/src/services/wrapper-transition.ts, api/src/services/install-token.ts (installer shell script generation)
 - api/src/routes/wrapper-v2/index.ts (HTTP surface)
 - api/src/routes/install/index.ts (installer + seed-auth tokens)
 - wrappers/schemas/host-config-v1.json (per-host config schema)

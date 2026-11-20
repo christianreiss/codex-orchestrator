@@ -445,7 +445,7 @@ owner: older servers parse `hello` strictly and would refuse the unknown key. A 
 handshake drops the field again, so a rolled-back server reconnects on the next attempt.
 
 The server may declare two top-level integers, `api_version` (its current level, S) and
-`min_api` (the effective minimum, M), in `/wrapper/v2/meta`, `/versions`, the
+`min_api` (the effective minimum, M), in `/versions`, the
 communicator `ready` frame and its `heartbeat`/`pong` acknowledgements. They are
 additive: an absent field means nothing happens (fail open). Values are parsed
 tolerantly; strings, fractions, negatives, `null` and values above 2^20 count as absent,
@@ -1042,7 +1042,7 @@ stop), which stay enforced under `compatible` authorization.
 The communicator has an integer API level of its own, separate from the cxx
 release number. The server states two integers, named exactly `api_version`
 (the level it speaks) and `min_api` (the effective minimum), at the top level of
-`GET /wrapper/v2/meta`, the unauthenticated `GET /versions`, the `ready` frame of
+the unauthenticated `GET /versions`, the `ready` frame of
 the control socket and its `pong` and `heartbeat` replies. Absent fields mean an
 older server and are harmless. Wire shape and operator control are in
 `docs/interface-api.md` (Communicator API level).

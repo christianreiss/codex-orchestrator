@@ -314,7 +314,7 @@ Unified retrieve/store. Auth required; IP binding enforced.
 - `api_calls`, `quota_hard_fail`, `quota_limit_percent`, `quota_week_partition`, `cdx_silent`.
 - `versions`: `client_version` (+ source/checked timestamp), `wrapper_version`, `wrapper_sha256`, `wrapper_url`, `reported_client_version`, quota flags, `auto_update_enabled`, runner flags/timestamps, and `installation_id`.
 - `runner_applied` boolean plus optional `validation` when runner validation executed.
-- `chatgpt_usage`: latest usage window summary when available (`normal_window`, optional `spark_window`, `active_quota_lane`; legacy `primary_window`/`secondary_window` also present).
+- `chatgpt` (Codex): latest usage window summary when available (`normal_window`, optional `spark_window`, `active_quota_lane`; legacy `primary_window`/`secondary_window` also present).
 
 `POST /sync/bootstrap` nests this response under `auth`. When an inline
 `auth_candidate` is deterministically malformed/unusable or receives a
@@ -582,12 +582,7 @@ All `/projects*` routes require normal host API-key auth + IP binding and return
 - Origin checks are a single toggle, not an allowlist: with `MCP_ALLOW_REQUEST_HOST_ORIGIN` off (default `0`), any request carrying an `Origin` header returns 403; turning it on drops the check entirely.
 
 ### Wrapper
-- `GET /wrapper` — compatibility alias for `/wrapper/v2/meta`. It returns the requested engine's projection of the common `cxx` platform matrix (`version`, `sha256`, `size_bytes`, `updated_at`, `url`). Auth required.
-- `GET /wrapper/download` — serves the host-targeted POSIX transition launcher used by date-versioned shell wrappers. It is not a raw binary download. Auth required.
-- `GET /wrapper/v2/meta` — engine-scoped view of the common wrapper version, sha256, and the primary signing key's `signing_kid` (its DB row id) plus `signing_fingerprint` (sha256 of the raw Ed25519 public key, lowercase hex). Engine comes from `?engine=`. The payload also carries the top-level integers `api_version` and `min_api` (communicator API level and its effective minimum; see `docs/interface-api.md`).
 - `GET /wrapper/v2/config` — signed per-host wrapper config JSON (`{payload, signature, signatures}`); `?sig=1` returns the detached signature as `text/plain`. `signature` is always the primary (oldest active) key's and keeps the exact bytes it had before multi-sign, so deployed wrappers are unaffected; `signatures` additionally lists one `{algo, value, kid, fingerprint}` per active key, oldest first. `?sig=1&kid=<id>` or `?sig=1&fingerprint=<hex>` serves a named active key's signature instead of the primary's (`404 signing_key_not_found` if it is not active, `422` if a selector is used without `sig=1`). The `x-signature*` headers always describe the signature actually served.
-- `GET /wrapper/v2/download` — streams the binary built for the calling host's platform; `GET /wrapper/download` instead serves the transition script date-versioned shell wrappers update through.
-- `GET /wrapper/v2/manifest/{engine}` — per-platform manifest for `codex`, `claude`, or `grok`; an unknown engine returns `404 unknown_engine`.
 - `GET /wrapper/v2/bin/{engine}/{platform}/v:version/{binary}` — versioned binary route. The canonical common shape is `cxx/{platform}/v:version/cxx`; `{platform}` is `os-arch` (for example `linux-amd64`) and the version segment is a literal `v` followed by the version. Historical `{engine}/.../{cdx|clx}` shapes remain readable: exact old artifacts are immutable, while a new version without a split artifact transparently streams the matching `cxx` bytes.
 - `GET /wrapper/v2/download/{artifact}/{platform}/v:version/{binary}` — the same exact-version artifact under a `/download` path; the communicator 307s cxx 0.9.71–0.9.74 self-update frames here so those owners fetch it over direct HTTPS.
 - Platform is taken from `X-Wrapper-Platform: os-arch` when present, else inferred from the user agent (default `linux-amd64`). All wrapper routes require host auth, and every one of them returns `503 wrapper_v2_unavailable` while no active wrapper signing key is configured.

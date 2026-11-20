@@ -57,19 +57,18 @@ pipeline with:
    alias persona; legacy versioned `cdx-<major>.<minor>.<patch>` and
    `clx-<major>.<minor>.<patch>` invocation names remain compatible during
    self-update migration. Direct calls use `cxx codex ...`, `cxx claude ...`, or `cxx grok ...`.
-   `/wrapper/v2/download` resolves the calling host's platform and streams the
-   common binary. Historical per-engine artifacts and URLs remain readable so
-   pre-migration wrappers can update into the common artifact.
+   `/wrapper/v2/bin/cxx/<os>-<arch>/v<ver>/cxx` streams the common binary.
+   Historical per-engine artifacts and URLs remain readable so pre-migration
+   wrappers can update into the common artifact.
 2. **A typed, Ed25519-signed JSON config** issued per host by
    `api/src/services/wrapper-config.ts`, signed via
    `api/src/services/wrapper-signing-key.ts` and re-baked on any host mutation.
-3. **A POSIX `sh` bootstrap transition launcher** built by
-   `api/src/services/wrapper-transition.ts` and returned from the legacy
-   `/wrapper/download` — the URL date-versioned shell wrappers already update
-   through. It writes the engine config, verifies SHA256, installs `cxx` plus
-   its relative alias, and execs `cxx <engine>` with the original arguments.
-   A multi-engine installer fetches every enabled config first and refuses to install
-   unless their wrapper version and SHA256 are identical.
+3. **A POSIX `sh` installer** built by `api/src/services/wrapper-transition.ts`
+   and served from `/install/{token}`. It writes the engine config, verifies
+   SHA256 and installs `cxx` plus its relative aliases. A multi-engine installer
+   fetches every enabled config first and refuses to install unless their
+   wrapper version and SHA256 are identical. Date-versioned shell wrappers are
+   no longer supported; they need a fresh install.
 4. **One host-wide update coordinator** (`cxx cron`) validates signed config
    host/engine membership and ticks each enabled persona once. It does not gate
    on per-config wrapper targets, which may differ during rolling refresh. The
@@ -104,14 +103,14 @@ pipeline with:
 ```
 host             orchestrator                          storage
 ----             ------------                          -------
-POSIX transition launcher ─GET /wrapper/v2/config──> /wrapper/v2 route handler
+POSIX installer ─GET /wrapper/v2/config──> /wrapper/v2 route handler
                                      └─ wrapper-config service
                                           (re-bakes if absent)
                                      └─ returns config.json + ETag
                                                                      ┌─ config.json
                                                                      ├─ config.json.sig
                                                                      └─ meta.json
-POSIX transition launcher ─GET /wrapper/v2/bin/...──> serves precomputed static binary
+POSIX installer ─GET /wrapper/v2/bin/...──> serves precomputed static binary
 binary  ─POST /auth, ...──> existing host API surface (untouched)
 ```
 
@@ -149,10 +148,9 @@ api/src/services/
 ├── wrapper-config.ts         # composes + signs the per-host JSON
 ├── wrapper-signing-key.ts    # Ed25519 signing key loader (wrapper_signing_keys table)
 ├── wrapper-bin-registry.ts   # FS view of storage/wrapper/v2/bin/
-├── wrapper-meta.ts           # /wrapper/v2/meta manifest
-├── wrapper-download.ts       # /wrapper/v2/download payload
+├── wrapper-download.ts       # /wrapper/v2/bin binary stream
 ├── wrapper-version-projection.ts # exact per-platform artifact for /versions
-└── wrapper-transition.ts     # legacy POSIX transition launcher
+└── wrapper-transition.ts     # POSIX installer scripts
 
 storage/wrapper/v2/
 ├── bin/cxx/<os>-<arch>/{manifest.json, v<version>/cxx}
@@ -192,22 +190,19 @@ so the TTL constant is part of the fixtures' identity — see
 
 | Method | Path                                              | Notes                                   |
 |--------|---------------------------------------------------|-----------------------------------------|
-| GET    | `/wrapper/v2/meta`                                | manifest + primary `signing_kid` and `signing_fingerprint` |
 | GET    | `/wrapper/v2/config[?sig=1]`                      | signed per-host config or signature     |
-| GET    | `/wrapper/v2/download`                            | Go binary for this host's platform      |
-| GET    | `/wrapper/v2/manifest/{engine}`                   | per-platform inventory                  |
 | GET    | `/wrapper/v2/bin/cxx/{os}-{arch}/v{ver}/cxx`      | common static binary (`ETag=sha256`)   |
 | GET    | `/wrapper/v2/bin/{engine}/{os}-{arch}/v{ver}/{e}` | exact historical split bytes, else matching `cxx` bytes |
-| GET    | `/wrapper/download`                               | bootstrap transition launcher (legacy)  |
+| GET    | `/wrapper/v2/download/{artifact}/{os}-{arch}/v{ver}/{binary}` | same bytes as `/bin/...`; the communicator 307 target for cxx 0.9.71–0.9.74 owners |
 | GET    | `/install/v2/{token}`                             | v2 installer script                     |
 | GET    | `/seed/v2/auth/{token}`                           | v2 seed-auth uploader                   |
 | POST   | `/seed/v2/auth/{token}`                           | accept seeded auth payload              |
 
-The legacy unversioned and per-engine routes stay wired so older hosts keep working: `/wrapper`
-aliases `/wrapper/v2/meta`, `/install/{token}` and `/seed/auth/{token}` alias
-their `/v2/` twins, and `/wrapper/download` is the one that serves the
-`wrapper-transition.ts` launcher — the script that writes the v2 config and
-execs the new binary.
+The unversioned routes stay wired: `/install/{token}` and `/seed/auth/{token}`
+alias their `/v2/` twins. The date-versioned shell-wrapper surfaces (`/wrapper`,
+`/wrapper/download`) and the unused `/wrapper/v2/meta`, `/wrapper/v2/manifest/{engine}`
+and bare `/wrapper/v2/download` were removed on 2026-11-20; every Go `cxx`
+updates through `/cron/check` and the `binary_url` it is handed.
 
 `api/test/unit/routes/wrapper-v2-doc-endpoints.test.ts` holds this table against
 the routes `api/src/routes` registers, so a row that names an endpoint the app
@@ -248,8 +243,8 @@ the api so `versions` picks up the new target. The lower-level `make release` /
 `make publish-release` targets remain available for explicit operator releases
 and recovery.
 
-After that, hitting `/wrapper/v2/meta` with a valid host API key returns the
-binary manifest. The v2 routes gate on the signing key first — none configured
+After that, hitting `/wrapper/v2/config` with a valid host API key returns the
+signed config. The v2 routes gate on the signing key first — none configured
 is a 503 `wrapper_v2_unavailable` — and then on the requested engine being listed
 in `hosts.engines`, a 403 `engine_disabled` otherwise. `wrapper_track` gates
 nothing, so the bakery is live for every host whose engine is enabled.
@@ -384,9 +379,8 @@ The mechanics:
   a client that asked for key X and was handed key Y's signature would write a
   `.sig` its own public key cannot verify. A selector without `sig=1` is a `422`:
   the full response body already carries every signature in `signatures`.
-- `GET /wrapper/v2/meta` reports the primary key's `signing_kid` (its DB row id)
-  and `signing_fingerprint` (sha256 of the raw 32-byte Ed25519 public key,
-  lowercase hex). `GET /wrapper/v2/config` returns the fingerprint of whichever
+- The fingerprint is the sha256 of the raw 32-byte Ed25519 public key,
+  lowercase hex. `GET /wrapper/v2/config` returns the fingerprint of whichever
   signature it served in `x-signature-fingerprint`; the `x-signature*` headers
   always describe the served bytes, so a selected `?sig=1` reply never disagrees
   with its own body. The fingerprint, not the row id, is what identifies key
@@ -408,8 +402,8 @@ the key it embeds — which `signatures` / `?sig=1&kid=` now makes possible and
 which no shipped `cxx` does yet. That is the follow-up, and until it lands the
 honest promise is a *staged*, not a seamless, rotation.
 
-**The installer is not an escape hatch from that window.** The installer and the
-legacy transition launcher (`wrapper-transition.ts`) take the `.sig` sidecar from
+**The installer is not an escape hatch from that window.** The installer
+(`wrapper-transition.ts`) takes the `.sig` sidecar from
 `signature.value` in the response body — the PRIMARY key's — and never pass a
 selector, while the binary they install is whatever is currently published. So
 they pair *the published binary* with *the primary key*, which is a repair only
@@ -614,8 +608,7 @@ GET /wrapper/v2/config          route handler; http.request_id, wrapper.host_id,
                                 active key; wrapper.signer_count
 ```
 
-`bakeForHost` is the root when nothing above it opened a span (the legacy
-`/wrapper/download` transition script bakes this way). Both typed exits set span
+`bakeForHost` is the root when nothing above it opened a span. Both typed exits set span
 status `ERROR` and an `error.type` attribute: `WrapperSigningUnavailableError` on
 the bake span, `WrapperBinaryUnavailableError` on both `wrapper.config.collect`
 (where `wrapperBlock` raises it) and the bake span it propagates through.

@@ -128,9 +128,6 @@ function fakeBinaries(): WrapperBinRegistry {
     async latestVersion() {
       return WRAPPER_VERSION;
     },
-    async engineManifest() {
-      return { engine: 'codex', platforms: {} };
-    },
     async binaryDescriptor() {
       return null;
     },

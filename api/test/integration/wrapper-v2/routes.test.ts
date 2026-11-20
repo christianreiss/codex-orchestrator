@@ -34,7 +34,6 @@ import type {
 } from '../../../src/services/wrapper-signing-key.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { registerWrapperV2Routes } from '../../../src/routes/wrapper-v2/index.js';
-import { hostEnginesList } from '../../../src/services/host-engine-policy.js';
 
 const BIN_ROOT = resolve(import.meta.dirname, '..', '..', 'fixtures', 'wrapper-v2', 'bin');
 
@@ -320,10 +319,8 @@ async function buildProductionApp(
 import {
   createWrapperConfigService,
   WrapperSigningUnavailableError,
-  WRAPPER_CONFIG_SCHEMA_VERSION,
   canonicalStringify,
 } from '../../../src/services/wrapper-config.js';
-import { createWrapperMetaService } from '../../../src/services/wrapper-meta.js';
 import { createWrapperDownloadService } from '../../../src/services/wrapper-download.js';
 import { publishHostEvent } from '../../../src/services/ws-bridge.js';
 import {
@@ -332,10 +329,6 @@ import {
   ValidationError,
 } from '../../../src/http/errors.js';
 import { isEngine, parseEngine } from '../../../src/util/engine.js';
-import {
-  buildLegacyWrapperTransitionScript,
-  isCxxBinaryUrl,
-} from '../../../src/services/wrapper-transition.js';
 
 async function registerRoutesWithSigningOverride(
   app: FastifyInstance,
@@ -352,7 +345,6 @@ async function registerRoutesWithSigningOverride(
     signing,
     installationId,
   });
-  const meta = createWrapperMetaService({ binaries, schemaVersion: WRAPPER_CONFIG_SCHEMA_VERSION });
   const download = createWrapperDownloadService({ binaries });
 
   async function guard() {
@@ -367,20 +359,6 @@ async function registerRoutesWithSigningOverride(
   function baseUrl(req: FastifyRequest): string {
     return ctx.env.PUBLIC_BASE_URL ?? `${req.protocol}://${req.headers.host}`;
   }
-
-  app.get('/wrapper', { preHandler: [app.requireHost] }, async (req, reply) => {
-    await guard();
-    const eng = parseEngine((req.query as { engine?: string }).engine, 'codex');
-    reply.header('cache-control', 'no-store');
-    return await meta.forEngine(eng, baseUrl(req));
-  });
-
-  app.get('/wrapper/v2/meta', { preHandler: [app.requireHost] }, async (req, reply) => {
-    await guard();
-    const eng = parseEngine((req.query as { engine?: string }).engine, 'codex');
-    reply.header('cache-control', 'no-store');
-    return await meta.forEngine(eng, baseUrl(req));
-  });
 
   app.get('/wrapper/v2/config', { preHandler: [app.requireHost] }, async (req, reply) => {
     await guard();
@@ -414,64 +392,6 @@ async function registerRoutesWithSigningOverride(
     reply.header('content-length', Buffer.byteLength(body));
     return body;
   });
-
-  app.get('/wrapper/v2/download', { preHandler: [app.requireHost] }, async (req, reply) => {
-    await guard();
-    const eng = parseEngine((req.query as { engine?: string }).engine, 'codex');
-    const cur = await binaries.currentBuild(eng, 'linux', 'amd64');
-    if (!cur) throw new NotFoundError('no binary', 'binary_not_found');
-    return stream(req, reply, eng, 'linux', 'amd64', cur.version);
-  });
-
-  app.get('/wrapper/download', { preHandler: [app.requireHost] }, async (req, reply) => {
-    await guard();
-    const host = req.authHost!;
-    const eng = parseEngine((req.query as { engine?: string }).engine, 'codex');
-    let r;
-    try {
-      r = await configService.bakeForHost(host, eng, baseUrl(req));
-    } catch (err) {
-      if (err instanceof WrapperSigningUnavailableError) {
-        throw new ServiceUnavailableError(
-          'wrapper v2 signing key not configured',
-          'wrapper_v2_unavailable',
-        );
-      }
-      throw err;
-    }
-    if (r.bumped) {
-      publishHostEvent('host.updated', host.id, { config_version: r.configVersion });
-    }
-    if (!isCxxBinaryUrl(r.payload.wrapper.binary_url)) {
-      throw new ServiceUnavailableError(
-        'common cxx artifact is not published for this platform',
-        'wrapper_binary_unavailable',
-      );
-    }
-    const body = buildLegacyWrapperTransitionScript({
-      fqdn: host.fqdn,
-      apiKey: r.payload.orchestrator.api_key,
-      baseUrl: r.payload.orchestrator.base_url,
-      engine: eng,
-      allowInsecure: host.curlInsecure === 1,
-      peerEngines: hostEnginesList(host.engines),
-    });
-    reply.envelopeRaw = true;
-    reply.header('content-type', 'text/x-shellscript; charset=utf-8');
-    reply.header('cache-control', 'no-store');
-    return body;
-  });
-
-  app.get<{ Params: { engine: string } }>(
-    '/wrapper/v2/manifest/:engine',
-    { preHandler: [app.requireHost] },
-    async (req, reply) => {
-      await guard();
-      if (!isEngine(req.params.engine)) throw new NotFoundError('unknown engine');
-      reply.header('cache-control', 'no-store');
-      return binaries.engineManifest(req.params.engine, baseUrl(req));
-    },
-  );
 
   app.get<{
     Params: { artifact: string; platform: string; version: string; binary: string };
@@ -550,14 +470,9 @@ describe('wrapper-v2 routes', () => {
       host,
     );
     for (const url of [
-      '/wrapper/v2/meta',
       '/wrapper/v2/config',
-      '/wrapper/v2/manifest/codex',
-      '/wrapper/v2/download',
       '/wrapper/v2/bin/codex/linux-amd64/v1.0.1/cdx',
       '/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
-      '/wrapper',
-      '/wrapper/download',
     ]) {
       const r = await app.inject({ method: 'GET', url });
       expect(r.statusCode, `${url} should be 503`).toBe(503);
@@ -566,43 +481,6 @@ describe('wrapper-v2 routes', () => {
       expect(body.code).toBe('wrapper_v2_unavailable');
       expect(body.message).toMatch(/wrapper v2 signing key not configured/);
     }
-    await app.close();
-  });
-
-  it('GET /wrapper/v2/meta returns an engine manifest with no-store', async () => {
-    const host = fakeHost();
-    const app = await buildApp(
-      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
-      makeSigner(kp.privateKey),
-      host,
-    );
-    const r = await app.inject({ method: 'GET', url: '/wrapper/v2/meta' });
-    expect(r.statusCode).toBe(200);
-    expect(r.headers['cache-control']).toBe('no-store');
-    const body = JSON.parse(r.payload) as {
-      status: string;
-      engine: string;
-      platforms: Record<string, { url_path: string }>;
-    };
-    expect(body.status).toBe('ok');
-    expect(body.engine).toBe('codex');
-    expect(body.platforms['linux-amd64']?.url_path).toBe(
-      'https://api.test.example.com/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
-    );
-    await app.close();
-  });
-
-  it('GET /wrapper aliases /wrapper/v2/meta', async () => {
-    const host = fakeHost();
-    const app = await buildApp(
-      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
-      makeSigner(kp.privateKey),
-      host,
-    );
-    const r = await app.inject({ method: 'GET', url: '/wrapper' });
-    expect(r.statusCode).toBe(200);
-    const body = JSON.parse(r.payload) as { engine: string };
-    expect(body.engine).toBe('codex');
     await app.close();
   });
 
@@ -671,31 +549,7 @@ describe('wrapper-v2 routes', () => {
     await app.close();
   });
 
-  it('GET /wrapper/download returns a legacy transition launcher instead of the raw binary', async () => {
-    const host = fakeHost();
-    host.engines = 'codex,claude';
-    host.curlInsecure = 1;
-    const app = await buildApp(
-      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
-      makeSigner(kp.privateKey),
-      host,
-    );
-    const r = await app.inject({ method: 'GET', url: '/wrapper/download?engine=codex' });
-    expect(r.statusCode).toBe(200);
-    expect(String(r.headers['content-type'])).toMatch(/^text\/x-shellscript/);
-    expect(r.payload).toContain('legacy transition launcher');
-    expect(r.payload).toContain('/wrapper/v2/config?engine=codex');
-    expect(r.payload).toContain('/wrapper/v2/config?engine=claude');
-    expect(r.payload).toContain(
-      'CODEX_INSTALL_CURL_INSECURE=${CODEX_INSTALL_CURL_INSECURE:-1}',
-    );
-    expect(r.payload).toContain('TRANSITION_DIR=$(dirname "$TRANSITION_SELF")');
-    expect(r.payload).toContain('exec "$TARGET_BIN" "$ENGINE" "$@"');
-    expect(r.payload).not.toContain('cdx-binary-v1.0.1-payload');
-    await app.close();
-  });
-
-  it('fails config and transition closed when cxx is only partially published', async () => {
+  it('fails config closed when cxx is only partially published', async () => {
     const root = await mkdtemp(join(tmpdir(), 'wrapper-v2-partial-cxx-'));
     const payload = 'partial darwin cxx';
     const sha256 = createHash('sha256').update(payload).digest('hex');
@@ -722,25 +576,23 @@ describe('wrapper-v2 routes', () => {
       root,
     );
     try {
-      for (const url of ['/wrapper/v2/config?engine=codex', '/wrapper/download?engine=codex']) {
-        const response = await app.inject({
-          method: 'GET',
-          url,
-          headers: { 'x-wrapper-platform': 'darwin-arm64' },
-        });
-        expect(response.statusCode, url).toBe(503);
-        expect(JSON.parse(response.payload)).toMatchObject({
-          status: 'error',
-          code: 'wrapper_binary_unavailable',
-        });
-      }
+      const response = await app.inject({
+        method: 'GET',
+        url: '/wrapper/v2/config?engine=codex',
+        headers: { 'x-wrapper-platform': 'darwin-arm64' },
+      });
+      expect(response.statusCode).toBe(503);
+      expect(JSON.parse(response.payload)).toMatchObject({
+        status: 'error',
+        code: 'wrapper_binary_unavailable',
+      });
     } finally {
       await app.close();
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it('keeps split config compatibility but refuses a cxx transition when cxx is absent', async () => {
+  it('keeps split config compatibility when cxx is absent', async () => {
     const root = await mkdtemp(join(tmpdir(), 'wrapper-v2-split-only-'));
     const payload = 'historical split cdx';
     const sha256 = createHash('sha256').update(payload).digest('hex');
@@ -776,17 +628,6 @@ describe('wrapper-v2 routes', () => {
       expect(JSON.parse(configResponse.payload).payload.wrapper.binary_url).toContain(
         '/wrapper/v2/bin/codex/linux-amd64/v1.0.1/cdx',
       );
-
-      const transitionResponse = await app.inject({
-        method: 'GET',
-        url: '/wrapper/download?engine=codex',
-        headers: { 'x-wrapper-platform': 'linux-amd64' },
-      });
-      expect(transitionResponse.statusCode).toBe(503);
-      expect(JSON.parse(transitionResponse.payload)).toMatchObject({
-        status: 'error',
-        code: 'wrapper_binary_unavailable',
-      });
     } finally {
       await app.close();
       await rm(root, { recursive: true, force: true });
@@ -847,15 +688,6 @@ describe('wrapper-v2 routes', () => {
       const fingerprint = createHash('sha256').update(rawPublicKey(kp.publicKey)).digest('hex');
       expect(signer.fingerprint).toBe(fingerprint);
 
-      const metaResponse = await app.inject({ method: 'GET', url: '/wrapper/v2/meta' });
-      expect(metaResponse.statusCode).toBe(200);
-      const meta = JSON.parse(metaResponse.payload) as {
-        signing_kid: string | null;
-        signing_fingerprint: string | null;
-      };
-      expect(meta.signing_kid).toBe('1');
-      expect(meta.signing_fingerprint).toBe(fingerprint);
-
       const configResponse = await app.inject({
         method: 'GET',
         url: '/wrapper/v2/config?engine=codex',
@@ -863,6 +695,7 @@ describe('wrapper-v2 routes', () => {
       });
       expect(configResponse.statusCode).toBe(200);
       expect(configResponse.headers['x-signature-fingerprint']).toBe(fingerprint);
+      expect(configResponse.headers['x-signature-kid']).toBe('1');
       // The served body keeps exactly the three signature keys deployed
       // wrappers parse; the fingerprint rides in a header instead.
       const body = JSON.parse(configResponse.payload) as { signature: Record<string, string> };
@@ -1039,38 +872,6 @@ describe('wrapper-v2 routes', () => {
     });
   });
 
-  it('GET /wrapper/v2/manifest/:engine returns 404 for unknown engines', async () => {
-    const host = fakeHost();
-    const app = await buildApp(
-      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
-      makeSigner(kp.privateKey),
-      host,
-    );
-    const r = await app.inject({ method: 'GET', url: '/wrapper/v2/manifest/whatever' });
-    expect(r.statusCode).toBe(404);
-    await app.close();
-  });
-
-  it('GET /wrapper/v2/manifest/codex returns the engine manifest', async () => {
-    const host = fakeHost();
-    const app = await buildApp(
-      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
-      makeSigner(kp.privateKey),
-      host,
-    );
-    const r = await app.inject({ method: 'GET', url: '/wrapper/v2/manifest/codex' });
-    expect(r.statusCode).toBe(200);
-    const body = JSON.parse(r.payload) as {
-      engine: string;
-      platforms: Record<string, { url_path: string }>;
-    };
-    expect(body.engine).toBe('codex');
-    expect(body.platforms['linux-amd64']?.url_path).toBe(
-      'https://api.test.example.com/wrapper/v2/bin/cxx/linux-amd64/v1.0.1/cxx',
-    );
-    await app.close();
-  });
-
   it('GET /wrapper/v2/bin/codex/linux-amd64/v1.0.0/cdx streams the binary', async () => {
     const host = fakeHost();
     const app = await buildApp(
@@ -1191,31 +992,6 @@ describe('wrapper-v2 routes', () => {
       );
     }
 
-    it.each(['/wrapper/v2/meta', '/wrapper'])(
-      'GET %s carries the communicator api_version and min_api as top-level integers for every engine',
-      async (url) => {
-        const host = fakeHost();
-        const app = await productionApp(host);
-        try {
-          for (const engine of ['codex', 'claude', 'grok', 'kimi']) {
-            const r = await app.inject({ method: 'GET', url: `${url}?engine=${engine}` });
-            // fakeHost only assigns codex; an unassigned engine is refused before the body exists.
-            if (r.statusCode !== 200) continue;
-            const body = JSON.parse(r.payload) as Record<string, unknown>;
-            expect(body.api_version).toBe(1);
-            expect(body.min_api).toBe(1);
-            expect(body.platforms).toBeDefined();
-            expect(body.signing_fingerprint).toBeDefined();
-          }
-          const codex = await app.inject({ method: 'GET', url });
-          expect(codex.statusCode).toBe(200);
-          expect(JSON.parse(codex.payload)).toMatchObject({ engine: 'codex', api_version: 1, min_api: 1 });
-        } finally {
-          await app.close();
-        }
-      },
-    );
-
     it('GET /wrapper/v2/config binds ETag and x-sha256 to the payload digest', async () => {
       const host = fakeHost();
       const app = await productionApp(host);
@@ -1313,39 +1089,32 @@ describe('wrapper-v2 routes', () => {
       }
     });
 
-    it('GET /wrapper/v2/manifest/:engine advertises digests that match the served bytes', async () => {
-      const host = fakeHost();
-      const app = await productionApp(host);
-      try {
-        const r = await app.inject({ method: 'GET', url: '/wrapper/v2/manifest/codex' });
-        expect(r.statusCode).toBe(200);
-        expect(r.headers['cache-control']).toBe('no-store');
-        // Deliberate: the manifest is `no-store`, so it carries no validator.
-        // Only the binary and config routes are contracted to emit one.
-        expect(r.headers.etag).toBeUndefined();
+  });
 
-        const body = JSON.parse(r.payload) as {
-          platforms: Record<string, { sha256: string; size_bytes: number; url_path: string }>;
-        };
-        const entries = Object.entries(body.platforms);
-        expect(entries.length).toBeGreaterThan(0);
-        for (const [platform, entry] of entries) {
-          const bin = await app.inject({
-            method: 'GET',
-            url: new URL(entry.url_path).pathname,
-          });
-          expect(bin.statusCode, platform).toBe(200);
-          expect(createHash('sha256').update(bin.rawPayload).digest('hex'), platform).toBe(
-            entry.sha256,
-          );
-          expect(bin.rawPayload.length, platform).toBe(entry.size_bytes);
-          expect(bin.headers['x-sha256'], platform).toBe(entry.sha256);
-          expect(bin.headers.etag, platform).toBe(`"${entry.sha256}"`);
-        }
-      } finally {
-        await app.close();
+  it('no longer serves the retired shell-wrapper and manifest routes', async () => {
+    const host = fakeHost();
+    const root = await mkdtemp(join(tmpdir(), 'wrapper-v2-retired-'));
+    const app = await buildProductionApp(
+      { db: fakeDb(host), env: fakeEnv(), keyring: makeKeyring() },
+      makeSigner(kp.privateKey),
+      host,
+      root,
+    );
+    try {
+      for (const url of [
+        '/wrapper',
+        '/wrapper/download?engine=codex',
+        '/wrapper/v2/meta',
+        '/wrapper/v2/manifest/codex',
+        '/wrapper/v2/download',
+      ]) {
+        const r = await app.inject({ method: 'GET', url });
+        expect(r.statusCode, url).toBe(404);
       }
-    });
+    } finally {
+      await app.close();
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('rejects /wrapper/v2/bin with a mismatched binary name', async () => {

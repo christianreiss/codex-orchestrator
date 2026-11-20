@@ -43,13 +43,13 @@ Verification no longer happens on the request/boot path. `runner-client.ts` is t
 
 ## The wrappers
 
-`cdx`, `clx`, and `cgx` are relative persona aliases to one static Go `cxx` binary built from `wrappers/cxx/`. During a fresh install, `bin/install.sh` creates an installation-unique Ed25519 key, embeds its public key in all five platform binaries, and imports the private key encrypted into `wrapper_signing_keys`. When you onboard a host, the orchestrator emits a POSIX `sh` transition launcher plus typed signed engine config produced by `wrapper-config.ts`. The launcher fetches enabled configs first, verifies a shared version/SHA target, installs `cxx` plus aliases, and explicitly `exec`s `cxx <engine>`. The binary does three things on every run:
+`cdx`, `clx`, and `cgx` are relative persona aliases to one static Go `cxx` binary built from `wrappers/cxx/`. During a fresh install, `bin/install.sh` creates an installation-unique Ed25519 key, embeds its public key in all five platform binaries, and imports the private key encrypted into `wrapper_signing_keys`. When you onboard a host, the orchestrator emits a POSIX `sh` installer plus typed signed engine config produced by `wrapper-config.ts`. The installer fetches enabled configs first, verifies a shared version/SHA target, and installs `cxx` plus aliases. The binary does three things on every run:
 
 1. Verifies the Ed25519 signature on its config against the public key it embeds at build time.
-2. Hits `/auth`, `/agents/retrieve`, `/config/retrieve` to refresh local state (best-effort, never blocks).
+2. Hits `/sync/bootstrap` to refresh auth, AGENTS/CLAUDE.md and config (best-effort, never blocks).
 3. Execs the upstream `codex` / `claude` / `grok` CLI with the prepared env.
 
-The binary self-updates if `wrapper.auto_update` is true in its config: when the server-side SHA256 differs from the local copy, the bootstrap transition launcher downloads the new binary, verifies its hash, and atomically replaces it.
+The binary self-updates if `wrapper.auto_update` is true in its config: when `POST /cron/check` offers a newer release, the maintenance tick downloads the named binary, verifies its hash, and atomically replaces it.
 
 ## Admin websocket
 

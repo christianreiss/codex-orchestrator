@@ -24,7 +24,6 @@ import {
   applyHostVersionPolicy,
   createVersionSnapshotService,
 } from '../../services/version-snapshot.js';
-import { isLegacyShellWrapperVersion } from '../../services/wrapper-transition.js';
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { loadWrapperRollout, readRolloutEnabled, resolveHostWrapperTarget } from '../../services/wrapper-rollout.js';
@@ -174,7 +173,6 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       await projectWrapperVersionSnapshot({
         snapshot: gatedSnapshot,
         engine,
-        submittedWrapperVersion: submittedWrapper,
         platform: requestedPlatform,
         publicBaseUrl: baseUrl,
         binaries,
@@ -182,7 +180,6 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
       host,
       engine,
     );
-    const usingLegacyTransition = isLegacyShellWrapperVersion(submittedWrapper);
     const targetWrapper = summary.wrapper_version;
 
     if (!probe && ownerRuntimeFor(ctx.db)) {
@@ -212,16 +209,7 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     const wrapperUpdate = {
       action: 'no_update' as 'no_update' | 'update',
       target_version: targetWrapper,
-      // Date-style shell wrappers download the per-host transition launcher,
-      // which has no fleet checksum (the launcher verifies the cxx binary
-      // itself). Their cron reads this field with
-      // `print(d.get('wrapper',{}).get('sha256',''))`, which turns JSON null
-      // into the literal string "None" and then fails every download with
-      // "hash mismatch". An empty string is the "no checksum" those scripts
-      // understand; every other caller keeps the null/sha contract.
-      sha256: usingLegacyTransition && summary.wrapper_sha256 === null && summary.wrapper_url !== null
-        ? ''
-        : summary.wrapper_sha256,
+      sha256: summary.wrapper_sha256,
       url: summary.wrapper_url,
     };
 
@@ -240,17 +228,14 @@ export async function registerHostRoutes(app: FastifyInstance, ctx: RouteContext
     }
 
     let needWrapper = false;
-    if (
-      targetWrapper &&
-      (usingLegacyTransition || (summary.wrapper_sha256 !== null && summary.wrapper_url !== null))
-    ) {
+    if (targetWrapper && summary.wrapper_sha256 !== null && summary.wrapper_url !== null) {
       if (!submittedWrapper) {
         needWrapper = true;
       } else {
         const submittedWrapperComparable = normalizeVersionForCompare(submittedWrapper);
         const targetWrapperComparable = normalizeVersionForCompare(targetWrapper);
         const submittedWrapperIsSemver = /^\d/.test(submittedWrapperComparable);
-        needWrapper = usingLegacyTransition || !submittedWrapperIsSemver || compareSemver(submittedWrapperComparable, targetWrapperComparable) < 0;
+        needWrapper = !submittedWrapperIsSemver || compareSemver(submittedWrapperComparable, targetWrapperComparable) < 0;
       }
       if (needWrapper) wrapperUpdate.action = 'update';
     }

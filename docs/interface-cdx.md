@@ -400,10 +400,7 @@ session delivery lock fails immediately and preserves the pending notice.
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/wrapper/v2/meta` | per-platform manifest + the primary key's `signing_kid` (DB row id) and `signing_fingerprint` (sha256 of the raw Ed25519 public key, lowercase hex) |
 | GET | `/wrapper/v2/config[?sig=1]` | signed per-host config JSON (or detached signature) |
-| GET | `/wrapper/v2/download` | raw Go binary for the calling host's detected platform |
-| GET | `/wrapper/download` | legacy shell-transition launcher that writes v2 config, installs the binary, then execs it |
 | GET | `/wrapper/v2/bin/cxx/<os>-<arch>/v<ver>/cxx` | the common binary; ETag = SHA256 |
 
 Config, download, and cron-check calls send `X-Wrapper-Platform: <os>-<arch>`
@@ -414,7 +411,7 @@ orchestrator can bake the matching `binary_url` / SHA256 for this host.
 
 The orchestrator's `api/src/services/wrapper-config.ts` produces a JSON blob
 matching `wrappers/schemas/host-config-v1.json` and signs it with Ed25519. The
-installer and the legacy transition launcher write the result to
+installer writes the result to
 `~/.config/codex-orchestrator/cdx.json` (and its detached signature next door).
 On startup the Go binary verifies the signature against the public key embedded
 at build time, then loads the config. The binary is single-key: it verifies with
