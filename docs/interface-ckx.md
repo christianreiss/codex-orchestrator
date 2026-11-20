@@ -373,7 +373,7 @@ and the native `kimi` on `PATH`.
 
 ## Parity exemptions
 
-Audit base: `511b4486e`, 2026-11-12. The requested case-insensitive Grok-without-Kimi gate contained **332 files**. Every file was classified: **83 corrected/current files** and **249 exemptions** below (251 after the 2026-11-12 libc selection and the 2026-11-17 Grok 1.0.88 native-settings fixture). Exemptions are scoped to the stated reason, not permission for a new engine enumeration to omit Kimi. New runtime behavior is checked separately from historical/provider-only fixtures.
+Audit base: `511b4486e`, 2026-11-12. The requested case-insensitive Grok-without-Kimi gate contained **332 files**. Every file was classified: **83 corrected/current files** and **249 exemptions** below (251 after the 2026-11-12 libc selection and the 2026-11-17 Grok 1.0.88 native-settings fixture; 253 after the 2026-11-20 Grok 1.0.89 settings and grammar tests). Exemptions are scoped to the stated reason, not permission for a new engine enumeration to omit Kimi. New runtime behavior is checked separately from historical/provider-only fixtures.
 
 Reproduce the gate (excluded build artifacts and changelog stay untouched):
 
@@ -582,6 +582,7 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/nativeargs/maintenance_20261028_test.go` | Grok-only test/fixture for maintenance 20261028 test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/nativeargs/maintenance_20261101_test.go` | Grok-only test/fixture for maintenance 20261101 test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/nativeargs/maintenance_20261106_grok_test.go` | Grok-only test/fixture for maintenance 20261106 grok test; Kimi has its own provider path. |
+| `wrappers/cxx/internal/nativeargs/maintenance_20261120_grok_test.go` | Grok-only native grammar test; Kimi's grammar is covered by maintenance_20261120_kimi_test.go. |
 | `wrappers/cxx/internal/nativeargs/testdata/grok-1.0.70-help.json` | Grok-only test/fixture for grok 1.0.70 help; Kimi has its own provider path. |
 
 ### Historical database migrations and fixtures (16)
