@@ -554,7 +554,7 @@ function mergeContent(
  * `claude` CLI, not a raw model endpoint), so this is a character-based
  * approximation (~4 chars/token, the commonly-cited English average) plus a
  * small per-message and per-tool overhead. It will not match the exact count
- * the real API returns — see docs/API.md.
+ * the real API returns — see docs/interface-api.md (Anthropic-compatible API).
  */
 export function estimateTokenCount(
   messages: ClaudeMessage[],
