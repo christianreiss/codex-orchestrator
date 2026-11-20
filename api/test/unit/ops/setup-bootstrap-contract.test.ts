@@ -106,9 +106,9 @@ describe('fresh-install setup contract', () => {
     expect(install).toContain('[[ -n "$current" && "$current" != *example.com* ]]');
   });
 
-  it('never prompts for the runner URL', () => {
+  it('no longer writes or prompts for the retired runner base URL', () => {
     expect(install).not.toContain('ask runner_url');
-    expect(install).toContain('env_set AUTH_RUNNER_CODEX_BASE_URL');
+    expect(install).not.toContain('AUTH_RUNNER_CODEX_BASE_URL');
   });
 
   it('requires --tls in --non-interactive mode instead of defaulting to none', () => {

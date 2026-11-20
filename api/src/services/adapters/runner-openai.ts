@@ -148,7 +148,7 @@ export interface RunnerOpenAiConfig {
 }
 
 export function makeRunnerConfig(env: Env, engine: Engine = ENGINE_CODEX): RunnerOpenAiConfig | null {
-  const url = env.AUTH_RUNNER_URL ?? (engine === ENGINE_CODEX ? env.AUTH_RUNNER_CODEX_BASE_URL : undefined);
+  const url = env.AUTH_RUNNER_URL;
   if (!url || !env.AUTH_RUNNER_SHARED_SECRET) return null;
   const execUrl = runnerExecUrl(url);
   return {

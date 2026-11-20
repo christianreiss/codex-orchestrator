@@ -450,7 +450,7 @@ Suspending an engine keeps everything; *destroy* removes it from every host.
   receive a generated ID before request logging starts. Incoming/completed
   log entries, `req.id`, and the response header share the same ID.
 - Base URL for baked wrappers/installers honors `PUBLIC_BASE_URL` when set; otherwise it is derived from trusted `X-Forwarded-Host`/`Host` + trusted `X-Forwarded-Proto` (`TRUST_X_FORWARDED=1` and the socket peer address in `TRUSTED_PROXY_CIDRS`, validated against `https?://`). If no valid base can be resolved, installer creation fails and host `/auth` responses omit per-host wrapper baking metadata.
-- Base URL policy guard: when `PUBLIC_BASE_URL_REQUIRED=1` (default in production), requests fail fast if `PUBLIC_BASE_URL` is missing/invalid. Optional host validation (`STRICT_HOST_VALIDATION=1`) rejects requests whose effective host/port do not match `PUBLIC_BASE_URL`.
+- Base URL policy: with `PUBLIC_BASE_URL_REQUIRED=1` (default) installer-command creation fails with `server_misconfigured` while neither `PUBLIC_BASE_URL` nor `CODEX_SYNC_BASE_URL` is set. There is no request-time host/port validation against `PUBLIC_BASE_URL`.
 - MCP origin policy: `/mcp` has no origin allowlist — while `MCP_ALLOW_REQUEST_HOST_ORIGIN` is off (the default) any request that sends an `Origin` header is rejected with 403, and enabling it accepts every origin.
 - Contract schemas for critical host responses live under `docs/contracts/` and are CI-gated: `auth-retrieve.schema.json`, `auth-store.schema.json`, `versions.schema.json`, `sync-status.schema.json`, and `sync-bootstrap.schema.json`.
 - Pruning: hosts inactive for `inactivity_window_days` (default 30; set to `0` to disable; configurable in `/admin/policies`) are deleted by the periodic retention worker (300 seconds by default) and during register/admin host listings. Never-provisioned hosts older than 30 minutes are also pruned. Hosts with `expires_at` in the past are pruned as well (temporary/rescue hosts; expiry is refreshed on successful host contact).
@@ -683,7 +683,7 @@ Host resource sync (`/skills`, `/agents/retrieve`, `/config/retrieve`) and cron 
   - `POST /cli/auth/approve` — owner/admin role required; `{user_code}` approves the request and registers the host. Approval can rotate an existing host credential, so it shares the Agent Messaging generation-fencing gate.
   - `POST /cli/auth/deny` — admin session required; `{user_code}` denies the request.
 
-Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a background verifier on boot and wakes it every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default 300). It re-probes the latest Codex, Claude, Grok, and Kimi canonical payloads (Grok through the metadata-only `/verify-grok` probe, never spending its refresh token) on a dynamic schedule — the re-check interval equals the credential's proven-good age, clamped between `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900) and `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (default 21600); successful gateway execs count as proof and advance the clock without a probe — records `verification_state`, and updates per-engine runner telemetry without making wrapper startup wait on the runner. Runner failures are logged/surfaced and do not block `/auth` retrieve, but every canonical-auth-changing upload, including admin and seed uploads, requires a configured, reachable runner and a positive live verdict.
+Auth verification worker: when `AUTH_RUNNER_URL` is configured, the API starts a deadline-driven background verifier on boot; it wakes when a canonical credential changes or a re-check falls due. It re-probes the latest Codex, Claude, Grok, and Kimi canonical payloads (Grok through the metadata-only `/verify-grok` probe, never spending its refresh token) on a dynamic schedule — the re-check interval equals the credential's proven-good age, clamped between `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default 900) and `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (default 21600); successful gateway execs count as proof and advance the clock without a probe — records `verification_state`, and updates per-engine runner telemetry without making wrapper startup wait on the runner. Runner failures are logged/surfaced and do not block `/auth` retrieve, but every canonical-auth-changing upload, including admin and seed uploads, requires a configured, reachable runner and a positive live verdict.
 
 ## Installer
 
@@ -1298,8 +1298,8 @@ All four engine config GET/store routes share the revision contract: `revision` 
   call of a chunked upload. Bytes live on the `DATA_ROOT` volume (`transfers/<shard>/<id>`)
   rather than in a column, which is why the download below can stream. Expiry
   is swept at the top of every listing and fetch and, because what it reclaims
-  is disk, also by a worker every `TRANSFERS_PURGE_INTERVAL_SECONDS` (default
-  300; every twelfth tick also reaps orphaned files older than an hour). Every
+  is disk, also by a deadline-driven worker (it also reaps orphaned files once at
+  owner startup). Every
   change to the pool publishes `transfers.changed`. Reading the listing takes
   `transfers.read`; the switch, the bounds and deleting take `transfers.manage`;
   the bytes themselves take `transfers.download`, which no role below admin
@@ -3884,7 +3884,7 @@ Host inactivity pruning uses genuine contact, falling back to creation when unkn
 explicit key rotation grants 30 minutes for provisioning; ordinary edits grant no extension.
 
 In owner mode, indexed deadlines schedule bounded retention work. The legacy
-portal retention worker runs every `AGENT_PORTAL_PURGE_INTERVAL_SECONDS` (300 by default),
+portal retention worker is deadline-driven (indexed deadlines and presence changes wake it),
 including when messaging is disabled or the source host never reconnects. It purges expired
 MCP/admin credentials and legacy timed provider-account reservations at their existing expiry and inactive server conversation history after
 24 hours: peer threads/messages/results, ended portal sessions (including rebooted sessions),

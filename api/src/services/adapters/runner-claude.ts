@@ -27,7 +27,7 @@ import { withRunnerCancellation } from './runner-cancellation.js';
  */
 import { ApiError } from '../../http/errors.js';
 import type { Env } from '../../env.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINE_LABELS, type Engine } from '../../util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, ENGINE_LABELS, type Engine } from '../../util/engine.js';
 import {
   assertControlsSupported,
   capabilitiesFor,
@@ -118,7 +118,7 @@ export function createRunnerClaudeAdapter(deps: RunnerClaudeAdapterDeps): Runner
   const engine = deps.engine ?? ENGINE_CLAUDE;
   /** One transport, one engine: the runner's CLI shell-out for the backend. */
   const capabilities = capabilitiesFor('runner-cli', engine);
-  const url = (deps.env.AUTH_RUNNER_URL ?? (engine === ENGINE_CODEX ? deps.env.AUTH_RUNNER_CODEX_BASE_URL : undefined))?.trim();
+  const url = deps.env.AUTH_RUNNER_URL?.trim();
   const secret = deps.env.AUTH_RUNNER_SHARED_SECRET?.trim();
   if (!url) return null;
   // Any AUTH_RUNNER_URL form — the bare base, the `/verify` endpoint it usually

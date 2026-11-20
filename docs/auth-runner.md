@@ -261,8 +261,8 @@ aliases, nested `tokens` API-key aliases, then the derived `auths` entry.
 - **Background launch-gate verification (all four engines; Grok through the
   metadata-only `/verify-grok` probe).** The API starts an
   auth-verification worker when `AUTH_RUNNER_URL` is configured. It wakes on
-  boot and then every `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (default
-  `300`) and re-probes each engine's canonical payload on a **dynamic
+  boot, whenever a canonical credential changes and whenever a re-check falls
+  due (deadline-driven), and re-probes each engine's canonical payload on a **dynamic
   schedule**: the re-check interval equals the time the credential has been
   proven good, clamped between `AUTH_RUNNER_VERIFY_TTL_SECONDS` (default
   `900`, the minimum) and `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (default
@@ -355,11 +355,8 @@ instead.
 - `AUTH_RUNNER_SKILL_SUMMARY_URL`, `AUTH_RUNNER_MEMORY_SUMMARY_URL`, and `AUTH_RUNNER_SKILL_GENERATE_URL` (API): historical overrides. No API code reads them; setting one changes nothing.
 - Skill generate, skill assist, and project assist endpoints are derived from `AUTH_RUNNER_URL` by replacing `/verify` with `/skills/generate`, `/skills/assist`, and `/projects/assist`; the `/exec` endpoint is derived the same way. The summary endpoints are not derived at all, because the API never calls them.
 - `AUTH_RUNNER_TIMEOUT` (API): native provider/CLI probe timeout passed to the verifier payload. The API verifier HTTP request adds a fixed six-second readback/response grace. Default probe timeout: `8` seconds.
-- `AUTH_RUNNER_CODEX_BASE_URL` (API): legacy compatibility setting retained in config/setup flows; runner verification no longer sends a `base_url` field.
 - `AUTH_RUNNER_SHARED_SECRET` (API): when non-empty, API includes `X-Runner-Auth` in runner requests.
-- `AUTH_RUNNER_PREFLIGHT_SECONDS` (API): legacy preflight interval retained for old deployments. Default: `28800` (8h).
 - `AUTH_RUNNER_VERIFY_TTL_SECONDS` (API): minimum probe interval for the background verifier's dynamic schedule. Default: `900` (15m). Within the window a prior `verified` or `failed` verdict is always trusted.
-- `AUTH_RUNNER_VERIFY_WORKER_INTERVAL_SECONDS` (API): background verifier wake-up interval. Default: `300` (5m), minimum effective interval 30s. A wake-up only probes when the dynamic schedule says a re-check is due.
 - `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` (API): ceiling for the dynamic probe schedule. Default: `21600` (6h). The re-check interval grows with how long the credential has been proven good; successful gateway traffic also counts as proof and advances `runner_last_check*` without a probe.
 - `AUTH_RUNNER_IP_BYPASS` / `AUTH_RUNNER_BYPASS_SUBNETS` (API): controls runner CIDR IP-bypass behavior in host authentication.
 - `CODEX_SYNC_BASE_URL` (runner container): used by runner probe process; fallback in runner code is `http://api`.

@@ -46,7 +46,7 @@ Clicking a row opens the **audit sheet** (`GET /admin/transfers/{id}/events`): i
 
 A transfer is `uploading` while a chunked put is open, `live` once sealed, and then `expired` (swept past its deadline) or `deleted` (retired early by an agent or an operator). Only `uploading` and `live` rows count against the quota and the `live_count` shown as **files held** at the top of the page. Bytes live under `<DATA_ROOT>/transfers/<first two characters of the id>/<id>`.
 
-The sweeper (`api/src/ops/agent-transfers-worker.ts`) runs once at boot and then every `TRANSFERS_PURGE_INTERVAL_SECONDS` (default 300); every twelfth tick it also reclaims orphaned files on disk that are older than one hour. The service additionally sweeps on every read — list, info, get, download, and put — so a file that expired between ticks is gone by the time anyone looks. During a sweep the bytes are unlinked **before** the row's status changes: a crash in between leaves a `live` row with missing bytes, which is a harmless retry, rather than an `expired` row silently guarding an undeleted file.
+The sweeper (`api/src/ops/agent-transfers-worker.ts`) is deadline-driven (it expires each transfer at its deadline) and reclaims orphaned files on disk that are older than one hour once at owner startup. The service additionally sweeps on every read — list, info, get, download, and put — so a file that expired between ticks is gone by the time anyone looks. During a sweep the bytes are unlinked **before** the row's status changes: a crash in between leaves a `live` row with missing bytes, which is a harmless retry, rather than an `expired` row silently guarding an undeleted file.
 
 ## How agents use it
 
@@ -90,7 +90,6 @@ For resumable uploads, include the last confirmed byte count as `offset`. Append
 - api/src/db/migrations/0028_add_agent_transfers.sql (`agent_transfers`, `agent_transfer_events`)
 - api/src/services/managed-agents-features.ts (the *File Transfer* section rendered into managed AGENTS.md / CLAUDE.md)
 - api/src/security/capabilities.ts, api/src/security/route-capabilities.ts (`transfers.read` / `transfers.download` / `transfers.manage`)
-- api/src/env.ts (`TRANSFERS_PURGE_INTERVAL_SECONDS`)
 - frontend/src/routes/(coordination)/transfers/+page.svelte (the page: switch, table, row actions)
 - frontend/src/lib/components/transfers/TransferLimitsSection.svelte (limits form and usage meter)
 - frontend/src/lib/components/transfers/TransferAuditSheet.svelte (per-file audit trail)

@@ -111,9 +111,9 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
    - Runner validation runs before every host, admin, seed, or bootstrap candidate can advance canonical auth. Runner `updated_auth` can replace uploads when it is same/newer; runner unreachability or non-OK status blocks acceptance, and non-verified replacements remain quarantined.
    - Host uninstall uses `DELETE /auth` (IP binding enforced unless `?force=1`).
 
-3. **Runner + preflight**
-   - First non-admin request after the preflight interval (`AUTH_RUNNER_PREFLIGHT_SECONDS`, default 8h), excluding `/versions` and `/mcp`, refreshes GitHub client version cache and runs runner preflight.
-   - Failure recovery uses backoffs (60s short backoff, 15m retry window, stale-OK threshold 6h, boot-change retry).
+3. **Runner + auth verification**
+   - There is no request-path preflight. A deadline-driven auth-verification worker (`api/src/ops/auth-verification-worker.ts`, started when `AUTH_RUNNER_URL` is set) wakes when a canonical credential changes or a re-check falls due, probes each engine's canonical payload through the runner and records the verdict (`verification_state`); successful gateway traffic counts as proof. `/auth` retrieve reads the stored verdict and never probes inline.
+   - `AUTH_RUNNER_VERIFY_TTL_SECONDS` / `AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS` bound the dynamic probe schedule; runner telemetry lives in `versions` (`runner_state`, `runner_last_*`).
    - Runner IP bypass requires `AUTH_RUNNER_IP_BYPASS` enabled and matching CIDRs in `AUTH_RUNNER_BYPASS_SUBNETS`.
 
 4. **Telemetry + sync extras**

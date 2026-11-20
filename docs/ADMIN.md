@@ -416,8 +416,7 @@ Admin routes:
   (`transfers.manage`) unlinks the bytes and keeps the row and trail.
 - Storage is `<DATA_ROOT>/transfers/<id[0:2]>/<id>`. The sweeper
   (`api/src/ops/agent-transfers-worker.ts`) runs at boot and every
-  `TRANSFERS_PURGE_INTERVAL_SECONDS` (default 300), reclaims orphans older than
-  an hour every twelfth tick, and the service also sweeps on every read. Bytes
+  deadline-driven, reclaims orphans once at owner startup, and the service also sweeps on every read. Bytes
   are unlinked before the row's status changes, so a crash mid-sweep leaves a
   harmless retry rather than a retired row guarding an undeleted file.
 - WS events: `transfers.changed`, `transfers.module_toggled`,

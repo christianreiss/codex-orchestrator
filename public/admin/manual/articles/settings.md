@@ -380,11 +380,8 @@ The following variables are read from the process environment at startup. They c
 | `MCP_FS_ROOT` | Enables `fs_*` MCP tools, confined to this directory. |
 | `TRUST_X_FORWARDED` | Trust `X-Forwarded-*` headers from a reverse proxy. |
 | `TRUSTED_PROXY_CIDRS` | CIDRs allowed to set forwarded headers. |
-| `STRICT_HOST_VALIDATION` | Enforce strict hostname validation. |
 | `DEFAULT_HOST_ENGINES` | Default engine set for new hosts (default: `'codex'`). |
 | `SMTP_*` | Email delivery configuration. |
-| `GPT51_*_PER_1K`, `CLAUDE_*_PER_1K` | Per-token pricing overrides for usage accounting. |
-| `PRICING_URL`, `PRICING_CURRENCY` | External pricing source and currency. |
 | `ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN` | WebAuthn passkey login configuration. |
 | `PUBLIC_BASE_URL`, `CODEX_SYNC_BASE_URL` | Public-facing URL roots. |
 | `INSTALLATION_ID`, `DATA_ROOT` | Instance identity and data directory. |

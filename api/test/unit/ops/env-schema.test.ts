@@ -164,16 +164,6 @@ describe('env coercions', () => {
     expect(await envError({ AUTH_RUNNER_EXEC_TIMEOUT: '601' })).toContain('AUTH_RUNNER_EXEC_TIMEOUT');
   });
 
-  it('defaults the agent portal purge interval and refuses a non-positive one', async () => {
-    expect((await envWith({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '60' })).AGENT_PORTAL_PURGE_INTERVAL_SECONDS).toBe(60);
-    expect((await envWith({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '' })).AGENT_PORTAL_PURGE_INTERVAL_SECONDS).toBe(300);
-    expect((await envWith({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: undefined })).AGENT_PORTAL_PURGE_INTERVAL_SECONDS).toBe(300);
-    // Zero would busy-loop the retention worker; like its `AGENT_PORTAL_*`
-    // siblings this refuses to boot rather than silently substituting a default.
-    expect(await envError({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '0' })).toContain('AGENT_PORTAL_PURGE_INTERVAL_SECONDS');
-    expect(await envError({ AGENT_PORTAL_PURGE_INTERVAL_SECONDS: '-1' })).toContain('AGENT_PORTAL_PURGE_INTERVAL_SECONDS');
-  });
-
   it('holds CHATGPT_USAGE_TIMEOUT at 10 seconds for any non-positive value', async () => {
     expect((await envWith({ CHATGPT_USAGE_TIMEOUT: '30' })).CHATGPT_USAGE_TIMEOUT).toBe(30);
     // Zero or negative would mean "give up immediately", never what was meant.
