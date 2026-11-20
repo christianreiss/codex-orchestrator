@@ -85,8 +85,8 @@ test("the engine filter is always visible, scopes the list and keeps engine-spec
   await page.goto("/admin/accounts");
   await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
   await expect(rowOf(page, /Grok Primary/)).toBeVisible();
-  await page.getByRole("button", { name: "ChatGPT", exact: true }).click();
-  await expect(page.getByText("No ChatGPT accounts", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Codex", exact: true }).click();
+  await expect(page.getByText("No Codex accounts", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Claude", exact: true }).click();
   await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
   await expect(rowOf(page, /Grok Primary/)).toHaveCount(0);

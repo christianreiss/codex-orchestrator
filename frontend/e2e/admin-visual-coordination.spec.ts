@@ -44,7 +44,6 @@ for (const width of [320, 1440]) {
     const conversation = page.getByRole("button", { name: "Conversation status", exact: true });
     await expect(page.getByText("Conversation status", { exact: true })).toBeVisible();
     await expect(conversation).toHaveText("All conversations");
-    await expect(page.getByText("Result limit", { exact: true })).toBeVisible();
     await conversation.click();
     await page.getByRole("option", { name: "Open", exact: true }).click();
     await expect(conversation).toHaveText("Open");
@@ -55,22 +54,14 @@ for (const width of [320, 1440]) {
     await delivery.click();
     await page.getByRole("option", { name: "queued", exact: true }).click();
     await expect(delivery).toHaveText("Queued");
-    const limit = page.getByRole("button", { name: "Result limit", exact: true });
-    await limit.click();
-    await page.getByRole("option", { name: "250", exact: true }).click();
-    await expect(limit).toHaveText("250");
     await expect(page).toHaveURL(/message_status=queued/);
-    await expect(page).toHaveURL(/limit=250/);
     await page.reload();
     await expect(delivery).toHaveText("Queued");
-    await expect(limit).toHaveText("250");
     await page.getByRole("button", { name: "Conversations", exact: true }).click();
     await expect(conversation).toHaveText("Open");
     await page.getByRole("button", { name: "Addresses", exact: true }).click();
     await expect(conversation).toHaveCount(0);
-    await expect(limit).toHaveText("250");
     await page.getByRole("button", { name: "Groups", exact: true }).click();
-    await expect(limit).toHaveCount(0);
   });
 
   test(`board dates retain their label and reading order at ${width}px`, async ({ page }) => {

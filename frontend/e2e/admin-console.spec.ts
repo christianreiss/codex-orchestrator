@@ -848,7 +848,7 @@ test("hosts list leads with a one-line fleet strip and a compact table", async (
 
   const hostRow = page.getByRole("row").filter({ hasText: "console.example.test" });
   await expect(hostRow).toBeVisible();
-  await expect(hostRow).toContainText("192.0.2.20 · #1");
+  await expect(hostRow).toContainText("192.0.2.20");
   const desktopBox = await hostRow.boundingBox();
   expect(desktopBox).not.toBeNull();
   expect(desktopBox!.height).toBeLessThanOrEqual(64);
@@ -859,7 +859,7 @@ test("hosts list leads with a one-line fleet strip and a compact table", async (
   // Under 640 px each host is a card instead of a table row.
   const hostCard = page.getByRole("listitem").filter({ hasText: "console.example.test" });
   await expect(hostCard).toBeVisible();
-  await expect(hostCard).toContainText("192.0.2.20 · #1");
+  await expect(hostCard).toContainText("192.0.2.20");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -989,13 +989,16 @@ test("host detail orders problems, engines and access before a collapsed Advance
   await expect(page.getByRole("tab")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Get install command" })).toBeVisible();
   const headings = await page.locator("main").getByRole("heading", { level: 2 }).allTextContents();
-  expect(headings.slice(0, 6)).toEqual(["Needs attention", "Engines", "Access", "Agent instructions", "Command output filtering", "Delete host"]);
+  expect(headings.slice(0, 6)).toEqual(["Needs attention", "Engines", "Access", "Agent instructions", "Delete host"]);
   const advanced = page.getByTestId("host-advanced");
   await expect(advanced).not.toHaveAttribute("open", "");
   await advanced.locator(":scope > summary").click();
-  for (const name of ["Network and IP", "Per-host exceptions", "Fleet behaviour and integrations"]) {
+  for (const name of ["Per-host exceptions", "Fleet behaviour and integrations"]) {
     await expect(page.getByRole("heading", { name, level: 3 })).toBeVisible();
   }
+  // Network overrides have their own section after Access; this host is offline, so it is already open.
+  await expect(page.getByTestId("host-network")).toHaveAttribute("open", "");
+  await expect(page.getByRole("heading", { name: "Network and IP", level: 3 })).toBeVisible();
   await expect(page.getByText("Reverse DNS lookup", { exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
 });
@@ -1191,7 +1194,7 @@ test("accounts lists every provider with an always-visible engine filter", async
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/admin/accounts");
     await expect(rows).toHaveCount(6);
-    await expect(page.getByRole("button", { name: "ChatGPT", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Codex", exact: true })).toBeVisible();
     await expect(rows.filter({ hasText: "Subscription 2" })).toContainText("Claude");
     await expect(rows.filter({ hasText: "Subscription 3" })).toContainText("Grok");
     await expect(rows.filter({ hasText: "Subscription 6" })).toContainText("Paused");
@@ -1749,8 +1752,9 @@ test("messaging shows all sixteen engine directions", async ({ page }) => {
   await page.goto("/admin/agent-messaging");
   const matrix = page.locator("details").filter({ has: page.locator("summary", { hasText: "Traffic by engine" }) });
   await matrix.locator("summary").click();
+  const names: Record<string, string> = { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi Code" };
   for (const source of ["codex", "claude", "grok", "kimi"]) for (const target of ["codex", "claude", "grok", "kimi"]) {
-    await expect(matrix.getByText(`${source} → ${target}`, { exact: true })).toBeVisible();
+    await expect(matrix.getByText(`${names[source]} → ${names[target]}`, { exact: true })).toBeVisible();
   }
 });
 
@@ -1970,7 +1974,7 @@ test("new host Kimi key 8 and daemon key 9 stay independent and reset", async ({
     }
   });
   await page.goto("/admin/hosts?dialog=new-host");
-  const daemon = page.getByRole("checkbox", { name: /Persistent daemon/ });
+  const daemon = page.getByRole("checkbox", { name: /Remote sessions/ });
   await expect(daemon).not.toBeChecked();
   await page.getByLabel("Hostname (FQDN)").fill("daemon.example.test");
   await daemon.focus();
@@ -1986,7 +1990,7 @@ test("new host Kimi key 8 and daemon key 9 stay independent and reset", async ({
   await expect(page.getByRole("heading", { name: "Host registered", exact: true })).toBeVisible();
   expect(registrations[0]).toMatchObject({ daemon_enabled: true });
   expect(registrations[0].engines).toContain("kimi");
-  await expect(page.getByText("Persistent daemon", { exact: true })).toBeVisible();
+  await expect(page.getByText("Remote sessions (Linux service)", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Register another", exact: true }).click();
   await expect(daemon).not.toBeChecked();
   await daemon.click();
@@ -1997,7 +2001,7 @@ test("new host Kimi key 8 and daemon key 9 stay independent and reset", async ({
   await page.getByRole("button", { name: "Register host", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Host registered", exact: true })).toBeVisible();
   expect(registrations[1]).toMatchObject({ daemon_enabled: false });
-  await expect(page.getByText("Persistent daemon", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Remote sessions (Linux service)", { exact: true })).toHaveCount(0);
 });
 
 
@@ -2011,7 +2015,7 @@ test("setup host registration offers the same optional persistent daemon", async
     }
   });
   await page.goto("/admin/setup?step=host");
-  const daemon = page.getByRole("checkbox", { name: /Persistent daemon/ });
+  const daemon = page.getByRole("checkbox", { name: /Remote sessions/ });
   await expect(daemon).not.toBeChecked();
   await daemon.click();
   await page.getByLabel("Hostname (FQDN)").fill("setup-daemon.example.test");
