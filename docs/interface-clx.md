@@ -1524,7 +1524,10 @@ From cxx 0.9.20, the same plugin-scoped MCP server adds `agent_group_list`,
 `agent_group_create`, `agent_group_members`, `agent_subscribe`,
 `agent_unsubscribe`, `agent_subscriptions` and `agent_publish` (plus
 `agent_group_delete` from cxx 0.9.91); their native
-permission allowlist is derived from `AGENT_MESSAGING_TOOLS`. Explicit
+permission allowlist is derived from `AGENT_MESSAGING_TOOLS`, which lists every
+tool `cxx agent mcp` serves (including `agent_accept`, `agent_git_remote` and the
+`agent_workflow_*` tools) and is held equal to the wrapper catalogue by
+`api/test/unit/contract/cxx-agent-tool-catalog.test.ts`. Explicit
 subscriptions route publications only; private traffic is never copied.
 Informational deliveries finish without an acknowledgement reply. API and
 retry contracts: [Scoped publications](interface-api.md#scoped-publications-migration-0041-cxx-0920).

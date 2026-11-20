@@ -9,7 +9,7 @@ import {
   type ManagedAgentFeatureContext,
   type ManagedFeatureState,
 } from '../../../src/services/managed-agents-features.js';
-import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
+import { AGENT_MESSAGING_TOOLS, MANAGED_BLOCK_UNNAMED_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
 import { buildManagedMemoryBlock } from '../../../src/services/managed-agents-memory.js';
 import { HISTORIC_MANAGED_MEMORY_BLOCKS } from '../../../src/services/managed-agents-memory-legacy.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES, type Engine } from '../../../src/util/engine.js';
@@ -1036,9 +1036,13 @@ describe('managed Agent Messaging guidance', () => {
   it('names every tool the fleet actually provisions', () => {
     // The permission allowlist and this prose read the same array, so a rename
     // cannot leave an agent approved for a tool the document never mentions.
-    // The advisor_* tools are named by their own opt-in block.
-    const body = renderManagedAgentFeatures('# Base\n', context(ENGINE_CODEX, { agentMessaging: enabled(), advisor: enabled(), roles: enabled() })).body;
+    // The advisor_* tools are named by their own opt-in block, the
+    // agent_workflow_* tools as a family by the Workflows block, and
+    // MANAGED_BLOCK_UNNAMED_TOOLS records the deliberate omissions.
+    const body = renderManagedAgentFeatures('# Base\n', context(ENGINE_CODEX, { agentMessaging: enabled(), advisor: enabled(), roles: enabled(), workflows: enabled() })).body;
     for (const tool of AGENT_MESSAGING_TOOLS) {
+      if (tool in MANAGED_BLOCK_UNNAMED_TOOLS) continue;
+      if (tool.startsWith('agent_workflow_') && body.includes('`agent_workflow_*`')) continue;
       expect(body, tool).toContain(tool);
     }
     expect(body).not.toContain('#call');

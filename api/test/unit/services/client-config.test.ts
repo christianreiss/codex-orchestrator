@@ -876,6 +876,12 @@ describe('client-config: Claude Agent Messaging permissions', () => {
       'mcp__plugin_cxx-receiver_cxx-agent__agent_send',
       'mcp__plugin_cxx-receiver_cxx-agent__agent_reply',
       'mcp__plugin_cxx-receiver_cxx-agent__agent_cancel',
+      // Served by the wrapper but missing from the allowlist until 2026-11-20,
+      // so every call prompted under a non-auto posture.
+      'mcp__plugin_cxx-receiver_cxx-agent__agent_accept',
+      'mcp__plugin_cxx-receiver_cxx-agent__agent_git_remote',
+      'mcp__plugin_cxx-receiver_cxx-agent__agent_workflow_run_current',
+      'mcp__plugin_cxx-receiver_cxx-agent__agent_workflow_task_update',
     ]));
     expect(allow).not.toContain('mcp__plugin_cxx-receiver_cxx-agent__permission');
     // The pre-plugin identifiers must not linger: they would approve a server

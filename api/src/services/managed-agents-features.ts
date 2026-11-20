@@ -415,7 +415,8 @@ function apiKeysInChatSection(context: ManagedAgentFeatureContext): RenderedSect
  * Every word here is paid on every turn of every agent. Wake/Cron, Watchdog and
  * Conference procedure lives in their managed Skills (`managed-*-skill.ts`); this
  * block keeps only the trigger, the invariants and each tool name (the liveness
- * test requires every provisioned tool to be named).
+ * test requires every provisioned tool to be named, verbatim or as its family,
+ * unless `MANAGED_BLOCK_UNNAMED_TOOLS` records why not).
  */
 function modelTiersSection(context: ManagedAgentFeatureContext): RenderedSection | null {
   const state = context.modelTiers;

@@ -8,7 +8,8 @@ import { renderManagedAgentFeatures } from '../../../src/services/managed-agents
 import { buildManagedWatchdogSkill } from '../../../src/services/managed-watchdog-skill.js';
 import { buildManagedWakeCronSkill } from '../../../src/services/managed-wake-cron-skill.js';
 import { managedSkillManagerManifest } from '../../../src/services/managed-skill-manager.js';
-import { AGENT_MESSAGING_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
+import { AGENT_MESSAGING_TOOLS, MANAGED_BLOCK_UNNAMED_TOOLS } from '../../../src/services/agent-messaging-tool-names.js';
+import { CURATION_TOOLS } from '../../../src/services/client-config.js';
 import { MCP_TOOL_NAMES } from '../../../src/services/shared-memory-tool-names.js';
 import { ENGINE_CLAUDE, ENGINE_CODEX } from '../../../src/util/engine.js';
 
@@ -46,6 +47,7 @@ const ALL_DEPS = {
   schedules: {},
   taskMessaging: {},
   roles: {},
+  workflows: {},
 } as unknown as ToolDeps;
 
 // 'operator' sees the host tools too, so this is the whole registry.
@@ -111,6 +113,7 @@ const NON_TOOL_TOKENS: Record<string, string> = {
     'the status agent_listen returns when the native receiver is down, so a model does not yield on a dead line, not a tool',
   schedule_host_not_persistent:
     'the refusal code for a persistent schedule on a non-persistent host, not a tool',
+  report_url: 'the workflow run report link the Workflows section tells agents to return, not a tool',
 };
 
 interface Mention {
@@ -150,6 +153,9 @@ const CONTENT: Array<{ source: string; text: string }> = [
       feedback: enabled,
       advisor: enabled,
       roles: enabled,
+      // The Workflows section names `workflow_*` (clx) and `agent_workflow_*`
+      // (cxx-agent); rendered off, none of those names would be checked.
+      workflows: enabled,
     }).body,
   })),
   {
@@ -235,12 +241,38 @@ describe('mcp tool names in managed agent-facing content', () => {
 
   it('keeps every AGENT_MESSAGING_TOOLS entry mentioned by the managed block', () => {
     const found = new Set(mentions.map((mention) => mention.name));
-    const unmentioned = AGENT_MESSAGING_TOOLS.filter((name) => !found.has(name));
+    // A family spelling covers its members, but only a specific one: `agent_*`
+    // ("beside `agent_*`") would otherwise count every tool as named.
+    const families = (name: string): string[] => {
+      const parts = name.split('_');
+      return parts.slice(2).map((_, i) => `${parts.slice(0, i + 2).join('_')}_*`);
+    };
+    const unmentioned = AGENT_MESSAGING_TOOLS.filter(
+      (name) =>
+        !(name in MANAGED_BLOCK_UNNAMED_TOOLS) && !found.has(name) && !families(name).some((family) => found.has(family)),
+    );
     expect(
       unmentioned,
       'the managed Agent Messaging block no longer names these tools — an agent is ' +
         'holding a tool nothing tells it about',
     ).toEqual([]);
+  });
+
+  it('keeps the unnamed-tool exemptions honest', () => {
+    const found = new Set(mentions.map((mention) => mention.name));
+    for (const [tool, reason] of Object.entries(MANAGED_BLOCK_UNNAMED_TOOLS)) {
+      expect(AGENT_MESSAGING_TOOLS as readonly string[], `${tool} is not served`).toContain(tool);
+      expect(found.has(tool), `${tool} is named by the managed block now — drop the exemption`).toBe(false);
+      expect(String(reason).trim()).not.toBe('');
+    }
+  });
+
+  // The Claude allowlist approves these clx write tools by name. A rename in
+  // mcp-tools.ts that misses client-config.ts silently brings back a prompt
+  // on every call of the renamed tool.
+  it('keeps every CURATION_TOOLS entry pointing at a registered tool', () => {
+    const dead = CURATION_TOOLS.filter((name) => !registered.includes(name));
+    expect(dead, 'client-config.ts CURATION_TOOLS approves tools the registry does not register').toEqual([]);
   });
 
   it('keeps the non-tool allowlist honest', () => {
