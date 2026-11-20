@@ -30,7 +30,6 @@ import {
 
 export type Run = typeof chattyRuns.$inferSelect;
 export type Session = typeof chattySessions.$inferSelect;
-export type Action = typeof chattyActions.$inferSelect;
 export interface RunState {
   messages: Array<{ role: string; content: unknown }>;
   sources: string[];

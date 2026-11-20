@@ -40,7 +40,6 @@ export {
   ALL_ENGINES_ENABLED,
   activeHostEngines,
   disabledEngines,
-  enabledEngines,
   fleetEngineConflictError,
   fleetEngineDisabledError,
   type FleetEngineState,

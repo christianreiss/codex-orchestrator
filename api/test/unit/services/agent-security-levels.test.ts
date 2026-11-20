@@ -9,8 +9,6 @@ import {
   SECURITY_BANDS,
   SECURITY_LEVELS,
   SECURITY_PRESETS,
-  axesModifiedFrom,
-  matchingPreset,
   normalizeSecurityLevels,
   presetLevels,
   renderSecurityPolicyMarkdown,
@@ -133,14 +131,6 @@ describe('presets', () => {
       distinct.size,
       'Standard must reconstruct today’s non-uniform policy, not flatten it to one number',
     ).toBeGreaterThan(1);
-  });
-
-  it('round-trips a preset through matchingPreset and reports nudges', () => {
-    expect(matchingPreset(STANDARD)?.id).toBe('standard');
-    expect(matchingPreset(UNRESTRICTED)?.id).toBe('unrestricted');
-    const nudged = withAxis(STANDARD, 'deploy_release', 4);
-    expect(matchingPreset(nudged)).toBeNull();
-    expect(axesModifiedFrom('standard', nudged)).toEqual(['deploy_release']);
   });
 
   it('orders presets from most to least constrained', () => {
