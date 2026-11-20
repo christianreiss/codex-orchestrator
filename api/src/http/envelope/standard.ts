@@ -23,9 +23,9 @@ export function success<T>(data: T): StandardSuccess<T> {
       if ('status' in obj && obj.status === 'ok') return obj as StandardSuccess<T>;
       return { status: 'ok', ...obj } as StandardSuccess<T>;
     }
-    // Keep object fields at the root for the rewritten clients, but also
-    // preserve the legacy `{status:"ok",data:{...}}` envelope shape consumed
-    // by still-installed bash wrappers.
+    // Keep object fields at the root for current clients, but also preserve
+    // the `{status:"ok",data:{...}}` envelope shape: Go clients from the first
+    // generation on (and today's agentbus/agentportal clients) still decode it.
     return { status: 'ok', data: obj, ...obj } as StandardSuccess<T>;
   }
   return { status: 'ok', data };

@@ -182,7 +182,7 @@ Recognized OTEL input keys are `environment`, `exporter`, `endpoint`, `protocol`
   curl -s "$BASE/sync/bootstrap" \
     -H "Authorization: Bearer $HOST_API_KEY" \
     -H "Content-Type: application/json" \
-    -d '{"engine":"codex","include_auth":false}' | jq .data.config
+    -d '{"engine":"codex","include_auth":false}' | jq .config
   ```
 
 ## Model provider controls
