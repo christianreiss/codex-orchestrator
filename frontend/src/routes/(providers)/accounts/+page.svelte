@@ -4,6 +4,7 @@
   import { PageShell, StatStrip, Toolbar, DataTable } from "$lib/components/page";
   import * as Table from "$lib/components/ui/table";
   import { Button } from "$lib/components/ui/button";
+  import { hostsListQuery } from "$lib/api/hosts";
   import { accountsApi, accountsKeys, accountsQuery, type ProviderAccount } from "$lib/api/accounts";
   import { authStore } from "$lib/stores/auth";
   import { ENGINE_META, isEngine, type Engine } from "$lib/constants/engines";
@@ -19,6 +20,8 @@
   const qc = useQueryClient();
   const fleet = useFleetEngines();
   const canManage = $derived($authStore.can("auth.manage"));
+  const hosts = hostsListQuery();
+  const hostNames = $derived(new Map(($hosts.data?.hosts ?? []).map((host) => [host.id, host.fqdn])));
 
   const filterState = new UrlFilters({ q: "", engine: "all" });
   // A switched-off engine is not part of the fleet: no filter chip, no rows.
@@ -90,8 +93,8 @@
     key={(account) => account.id}
     filtered={search.trim() !== "" && scoped.length > 0}
     onClearFilters={() => { filterState.values.q = ""; }}
-    emptyTitle={scope === "all" ? "No accounts" : `No ${ENGINE_META[scope].account} accounts`}
-    emptyDescription={`Add credentials here, or log in through ${scope === "all" ? "cdx, clx, cgx or ckx" : ENGINE_META[scope].command} on a registered host.`}
+    emptyTitle={scope === "all" ? "No accounts" : `No ${ENGINE_META[scope].label} accounts`}
+    emptyDescription={`Add credentials here, or log in through ${(scope === "all" ? $fleet.enabled : [scope]).map((engine) => ENGINE_META[engine].command).join(", ")} on a registered host.`}
     caption="Provider accounts"
   >
     {#snippet emptyAction()}
@@ -99,7 +102,6 @@
     {/snippet}
     {#snippet head()}
       <Table.Head>Account</Table.Head>
-      <Table.Head>Engine</Table.Head>
       <Table.Head>Usage</Table.Head>
       <Table.Head>Sessions</Table.Head>
       <Table.Head>Verified</Table.Head>
@@ -110,6 +112,7 @@
         {account}
         engineOn={$fleet.isEnabled(account.engine)}
         {canManage}
+        {hostNames}
         busy={$change.isPending}
         onQuota={() => (dialog = { kind: "quota", account })}
         onRename={() => (dialog = { kind: "rename", account })}

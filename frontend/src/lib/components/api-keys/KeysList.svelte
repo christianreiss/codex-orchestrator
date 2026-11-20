@@ -25,6 +25,9 @@
   import { BACKEND_LABEL } from "./connection";
   import EndpointSummary from "./EndpointSummary.svelte";
   import { loadFailure } from "$lib/api/access-denied";
+  import { apiSurfacesQuery } from "$lib/api/settings";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
+  import HiddenEngineNote from "$lib/components/engines/HiddenEngineNote.svelte";
 
   type Vendor = ApiKeyEngine | "all";
   type KeyRow = AdminApiKey & { format: ApiKeyEngine };
@@ -62,7 +65,15 @@
   const loading = $derived(scoped.some((entry) => entry.q.isLoading));
   const failure = $derived(scoped.find((entry) => entry.q.isError));
   const error = $derived(failure ? loadFailure(failure.q.error, `Failed to load ${engineLabel(failure.engine)} keys`) : null);
-  const all = $derived<KeyRow[]>(scoped.flatMap((entry) => (entry.q.data ?? []).map((record) => ({ ...record, format: entry.engine }))));
+  const everyKey = $derived<KeyRow[]>(scoped.flatMap((entry) => (entry.q.data ?? []).map((record) => ({ ...record, format: entry.engine }))));
+  // A key answered by a switched-off engine is kept server-side and listed nowhere but a count: its own
+  // backend if it names one, else the one its API serves with.
+  const fleet = useFleetEngines();
+  const surfaces = apiSurfacesQuery();
+  const SURFACE: Record<ApiKeyEngine, string> = { openai: "openai", claude: "anthropic", grok: "grok", kimi: "kimi" };
+  const keyEngine = (record: KeyRow) => record.backend_engine ?? $surfaces.data?.surfaces.find((row) => row.surface === SURFACE[record.format])?.backend ?? null;
+  const all = $derived(everyKey.filter((record) => { const engine = keyEngine(record); return !engine || $fleet.isEnabled(engine); }));
+  const hiddenKeys = $derived(everyKey.length - all.length);
 
   const q = $derived(search.trim().toLowerCase());
   const rows = $derived.by(() => {
@@ -168,6 +179,8 @@
       <Button onclick={onCreate}><Plus class="h-4 w-4" />New key</Button>
     {/snippet}
   </Toolbar>
+
+  <HiddenEngineNote count={hiddenKeys} />
 
   <DataTable
     items={rows}

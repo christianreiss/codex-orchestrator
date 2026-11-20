@@ -6,6 +6,7 @@
    */
   import Eye from "@lucide/svelte/icons/eye";
   import { formatBytes } from "$lib/utils/format";
+  import { engineLabel } from "$lib/constants/engines";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { CopyButton } from "$lib/components/ui/copy-button";
@@ -17,7 +18,6 @@
 
   let { preview }: { preview: RulesPreviewState } = $props();
 
-  const engineLabel = (engine: string) => (engine === "codex" ? "Codex" : engine === "claude" ? "Claude" : engine === "grok" ? "Grok" : engine === "kimi" ? "Kimi Code" : engine);
   const query = $derived(preview.renderQuery);
   const rendered = $derived(preview.rendered);
 </script>

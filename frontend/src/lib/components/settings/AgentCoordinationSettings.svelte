@@ -15,7 +15,7 @@
   title="Agent coordination"
   description="Fleet-wide project and host rooms, with resource claims before agents change shared files, branches or services."
   toggleLabel="Enable agent coordination"
-  help="Applies to Codex, Claude, Grok and Kimi Code across all managed hosts. Enables automatic room membership and coordination of resource claims."
+  help="Applies to every enabled engine across all managed hosts. Enables automatic room membership and coordination of resource claims."
   subject="agent coordination"
   readPermission="agent_messaging.read"
   managePermission="agent_messaging.manage"

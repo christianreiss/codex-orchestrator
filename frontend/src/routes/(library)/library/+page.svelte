@@ -13,10 +13,16 @@
   import { ApiError } from "$lib/api/client";
   import { rolesApi, rolesKeys } from "$lib/api/roles";
   import { authStore } from "$lib/stores/auth";
+  import { useFleetEngines } from "$lib/engines/fleet-engines";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
 
   const requested = $derived(page.url.searchParams.get("type"));
-  const type = $derived(parseLibraryType(requested));
+  const fleet = useFleetEngines();
+  // Claude-native types are not offered while Claude is off; a stale link falls back to Skills.
+  const type = $derived.by(() => {
+    const parsed = parseLibraryType(requested);
+    return libraryTypeMeta(parsed).claudeOnly && !$fleet.isEnabled("claude") ? "skills" : parsed;
+  });
   const meta = $derived(libraryTypeMeta(type));
 
   // The roles module switch has its one editable home on the roles view.

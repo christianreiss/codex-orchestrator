@@ -1,5 +1,6 @@
 <script lang="ts">
   import Timestamp from "$lib/components/page/Timestamp.svelte";
+  import { engineLabel } from "$lib/constants/engines";
   import { createQuery } from "@tanstack/svelte-query";
   import { writable } from "svelte/store";
   import { page } from "$app/state";
@@ -104,7 +105,7 @@
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div>
       <h2 class="text-h2">Groups &amp; subscriptions</h2>
-      <p class="text-body-sm text-muted-foreground">Persistent audiences across Codex, Claude, Grok, and Kimi Code. Agents choose which groups and individual agents they follow.</p>
+      <p class="text-body-sm text-muted-foreground">Persistent audiences across all agents. Agents choose which groups and individual agents they follow.</p>
     </div>
     {#if canManage}<Button variant="outline" disabled={!enabled} aria-expanded={createOpen} onclick={() => (createOpen = !createOpen)}>{createOpen ? "Close new group" : "New group"}</Button>{/if}
   </div>
@@ -156,7 +157,7 @@
         <ul class="mt-2 divide-y divide-border">
           {#each $detail.data?.members ?? [] as member (member.address_id)}
             <li class="py-2">
-              <p class="flex flex-wrap items-center gap-2"><span class="break-all text-body font-medium">{member.alias ?? member.address}</span><Badge variant="outline" class="uppercase">{member.engine}</Badge></p>
+              <p class="flex flex-wrap items-center gap-2"><span class="break-all text-body font-medium">{member.alias ?? member.address}</span><Badge variant="outline">{engineLabel(member.engine)}</Badge></p>
               <p class="text-caption text-muted-foreground">Subscribed <Timestamp value={member.joined_at} /></p>
             </li>
           {:else}
@@ -234,7 +235,7 @@
         {#each filteredSubscriptions as subscription (`${subscription.subscriber_address_id}:${subscription.topic}`)}
           <li class="min-w-0 py-2">
             <p class="break-all text-body"><span class="font-medium">{addressLabel(subscription.subscriber_address_id)}</span> <span class="text-muted-foreground">follows</span> {topicLabel(subscription.topic)}</p>
-            <p class="break-all font-mono text-caption text-muted-foreground">{subscription.subscriber_engine} · {subscription.topic}</p>
+            <p class="break-all font-mono text-caption text-muted-foreground">{engineLabel(subscription.subscriber_engine)} · {subscription.topic}</p>
           </li>
         {:else}
           <li class="flex flex-wrap items-center gap-2 py-2 text-body-sm text-muted-foreground">

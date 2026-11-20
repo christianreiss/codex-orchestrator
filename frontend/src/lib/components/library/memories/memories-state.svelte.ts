@@ -24,6 +24,7 @@ import {
   type MemoryScope,
 } from "$lib/api/memories";
 import { authStore } from "$lib/stores/auth";
+import { useFleetEngines } from "$lib/engines/fleet-engines";
 import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
 
 export type LayerId = "tags" | "provenance";
@@ -46,6 +47,7 @@ function csv(value: string | null): string[] {
 export class MemoriesState {
   private qc = useQueryClient();
   private auth = fromStore(authStore);
+  private fleet = fromStore(useFleetEngines());
 
   // ---- URL-backed filters ----
   scopes = $derived.by<MemoryScope[]>(() => {
@@ -138,7 +140,8 @@ export class MemoriesState {
   // ---- derived views of the graph response ----
   nodes = $derived(this.query.data?.nodes ?? []);
   edges = $derived(this.query.data?.edges ?? []);
-  memoryNodes = $derived(this.nodes.filter((node) => node.kind === "memory"));
+  // A switched-off engine is not part of the fleet: its memories are kept server-side, listed nowhere here.
+  memoryNodes = $derived(this.nodes.filter((node) => node.kind === "memory" && (!node.engine || this.fleet.current.isEnabled(node.engine))));
   private mapMemoryIds = $derived(new Set(this.memoryNodes.slice(0, GRAPH_RENDER_LIMIT).map((node) => node.id)));
   mapEdges = $derived(this.edges.filter((edge) => this.mapMemoryIds.has(edge.source)));
   private mapRelationIds = $derived(new Set(this.mapEdges.flatMap((edge) => [edge.source, edge.target])));
@@ -146,6 +149,9 @@ export class MemoriesState {
     this.nodes.filter((node) => (node.kind === "memory" ? this.mapMemoryIds.has(node.id) : this.mapRelationIds.has(node.id))),
   );
   facets = $derived(this.query.data?.facets ?? EMPTY_FACETS);
+  /** Memories of switched-off engines, from the engine facet; they return when the engine is switched back on. */
+  hiddenCount = $derived(this.facets.engines.filter((item) => !this.fleet.current.isEnabled(item.value)).reduce((sum, item) => sum + item.count, 0));
+  engineFacets = $derived(this.facets.engines.filter((item) => this.fleet.current.isEnabled(item.value)));
   totals = $derived(this.query.data?.totals ?? { all: 0, shared: 0, project: 0, host: 0 });
   truncatedFacetNames = $derived(
     (["hosts", "projects", "tags"] as const)

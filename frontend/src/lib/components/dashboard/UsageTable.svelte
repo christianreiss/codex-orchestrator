@@ -83,7 +83,7 @@
           <span class="min-w-0 break-words">{account.label}</span>
         </a>
         <p class="mt-0.5 text-body-sm text-muted-foreground" data-testid="provider-plan">
-          {ENGINE_META[account.engine].account} · {account.plan?.name ?? "Plan unavailable"}{account.plan?.name && account.plan.stale ? " (last known)" : ""}
+          {ENGINE_META[account.engine].label} · {account.plan?.name ?? "Plan unavailable"}{account.plan?.name && account.plan.stale ? " (last known)" : ""}
         </p>
       </Table.Cell>
       <Table.Cell>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { api } from "$lib/api/client";
+  import { engineLabel } from "$lib/constants/engines";
   import { rtkReadiness, type RtkEngine, type RtkPolicy } from "$lib/api/rtk";
   import { Button } from "$lib/components/ui/button";
   import { Switch } from "$lib/components/ui/switch";
@@ -40,7 +41,7 @@
   <div class="flex flex-wrap items-center justify-between gap-3">
     <div class="min-w-0">
       <div class="flex flex-wrap items-baseline gap-x-2">
-        <h3 class="text-body font-semibold capitalize">{engine}</h3>
+        <h3 class="text-body font-semibold">{engineLabel(engine)}</h3>
         {#if !hostId}<HostOverrideBadge count={overrideCount} noun="output-filtering rule" />{/if}
       </div>
       <p id={`${uid}-policy`} class="text-body-sm text-muted-foreground">{policy.enabled ? "Enabled" : "Disabled"}{hostId ? ` · ${policy.source === "host" ? "Host override" : "Fleet default"}` : " for new managed sessions"}</p>

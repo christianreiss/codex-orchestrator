@@ -149,7 +149,7 @@
           <Select.Item value="off">Off</Select.Item>
         </Select.Content>
       </Select.Root>
-      <p class="text-body-sm text-muted-foreground">Compares OpenAI, Claude and Kimi Code usage and time until reset; Grok subscription quota is unavailable and is not compared. Automated starts only show a hint. A switch opens a new session.</p>
+      <p class="text-body-sm text-muted-foreground">Compares provider usage and time until reset, for providers that report quota. Automated starts only show a hint. A switch opens a new session.</p>
     </div>
     <div class="grid gap-1.5">
       <Label for="advice-high">High usage (%)</Label>
@@ -172,7 +172,7 @@
       <Switch id="advice-remember" checked={advice.remember_day} onCheckedChange={(v) => (advice.remember_day = v)} />
       <Label for="advice-remember">Allow remembering the provider until local midnight</Label>
     </div>
-    <p class="text-body-sm text-muted-foreground sm:col-span-2">Remembered choices apply to this computer's user across cdx, clx, and cgx. Use --quota-choice-reset to choose again.</p>
+    <p class="text-body-sm text-muted-foreground sm:col-span-2">Remembered choices apply to this computer's user across all engines. Use --quota-choice-reset to choose again.</p>
   </div>
 
   <div class="pt-2">

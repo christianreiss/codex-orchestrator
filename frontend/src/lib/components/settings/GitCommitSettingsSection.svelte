@@ -33,7 +33,7 @@
 <Section
   id="git-commit-messages"
   title="Commit messages"
-  description="How agents write commit messages. Applies to Codex, Claude, Grok and Kimi Code, independent of the Director switch."
+  description="How agents write commit messages. Applies to every enabled engine, independent of the Director switch."
 >
   {#snippet actions()}
     <SaveIndicator {status} savedAt={lastSavedAt} error={$mutation.error?.message ?? $query.error?.message} />

@@ -325,7 +325,7 @@
     <EmptyState icon={PowerOffIcon} title="Agent sessions are off" description="Client registration is paused. Enable agent sessions in Fleet → Policies to record new sessions." />
     {#if canManage}<a class="text-body-sm text-primary underline" href={`${base}/settings#agents`}>Agent session settings</a>{/if}
   {:else if rows.length === 0 && !$authStore.can("agent_messaging.read")}
-    <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when cdx, clx, or cgx registers its session. Clients that cannot reach the server may appear after reconnecting." />
+    <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when an agent registers its session. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
     <!-- One Messages-style card: conversation list on the left, thread on the right. -->
     <div class="grid h-[calc(75dvh-4rem)] min-h-[28rem] grid-cols-1 overflow-hidden rounded-md border bg-card lg:h-[calc(100dvh-14rem)] lg:grid-cols-[20rem_minmax(0,1fr)]">
