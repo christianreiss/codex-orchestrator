@@ -25,7 +25,10 @@ const API_DOC = resolve(HERE, '../../../../docs/API.md');
  * Documented `METHOD /path` entries the app deliberately does not register,
  * and what serves them instead.
  */
-const UNREGISTERED_PATHS: Record<string, string> = {};
+const UNREGISTERED_PATHS: Record<string, string> = {
+  'GET /admin/ws': 'websocket upgrade, registered by api/src/ws/server.ts outside api/src/routes',
+  'GET /admin/*': 'static SPA bundle and manual assets, served by the static mount rather than a route',
+};
 
 /** Registered `METHOD /path` entries the catalogue deliberately leaves out, and why. */
 const ALLOWED_UNDOCUMENTED: Record<string, string> = {};
@@ -164,7 +167,7 @@ describe('docs/API.md route catalogue', () => {
       return `${entry![1]} ${normalizePath(entry![2]!)}`;
     });
     expect(keys.length).toBe(new Set(keys).size);
-    expect(new Set(keys)).toEqual(new Set(registered));
+    expect(new Set(keys)).toEqual(new Set([...registered, ...Object.keys(UNREGISTERED_PATHS)]));
     const noAuth = lines.filter(
       (line) =>
         !/ — (?:public|host key|bridge token|relay token|admin session|public until the first owner exists|device bearer|pairing token|gateway key|external client key|connector token|path token|rescue media bearer)\b/.test(

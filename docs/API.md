@@ -22,8 +22,8 @@ Default spec section: [Host-facing](interface-api.md#host-facing); lines with an
 
 Default spec section: [Host-facing](interface-api.md#host-facing); lines with another section link it.
 
-- `POST /sync/cache` — host key: communicator cache protocol 2 (cxx 0.9.122+) ([spec](interface-api.md#quiet-runtime))
-- `DELETE /auth` — host key: `?engine=codex|claude|grok|kimi` removes only that engine from a multi-engine host
+- `POST /sync/cache` — host key: communicator cache protocol 2 (cxx 0.9.122+) ([spec](interface-api.md#communicator-cache-protocol-2-cxx-09122))
+- `DELETE /auth` — host key: `?engine=codex|claude|grok|kimi` removes only that engine from a multi-engine host ([spec](interface-api.md#auth--ip-rules))
 - `POST /auth` — host key: unified retrieve/store
 - `POST /sync/status` — host key: periodic check-in
 - `POST /claude/usage/report` — host key: host reports what Claude Code's own statusLine payload said for the current `rate_limits` reading
@@ -44,7 +44,7 @@ Default spec section: [Host-facing](interface-api.md#host-facing); lines with an
 
 Default spec section: [Installer](interface-api.md#installer); lines with another section link it.
 
-- `GET /wrapper/v2/config` — host key: signed per-host wrapper config JSON (`{payload, signature, signatures}`) ([spec](interface-api.md#engine-master-switches))
+- `GET /wrapper/v2/config` — host key: signed per-host wrapper config JSON (`{payload, signature, signatures}`) ([spec](interface-api.md#host-facing))
 - `GET /wrapper/v2/bin/{artifact}/{platform}/v{version}/{binary}` — host key: versioned binary route ([spec](interface-api.md#host-facing))
 - `GET /wrapper/v2/download/{artifact}/{platform}/v{version}/{binary}` — host key: same exact-version artifact under a `/download` path ([spec](interface-api.md#host-facing))
 - `POST /rescue/v1/session` — rescue media bearer: rescue-media session control (start, heartbeat, release, version) ([spec](interface-api.md#rescue-media))
@@ -63,7 +63,7 @@ Default spec section: [Installer](interface-api.md#installer); lines with anothe
 Default spec section: [OAuth chat connectors](interface-api.md#oauth-chat-connectors); lines with another section link it.
 
 - `GET /mcp` — public: probe endpoint ([spec](interface-api.md#host-facing))
-- `POST /mcp` — host key: JSON-RPC 2.0 endpoint (single or batch) ([spec](interface-api.md#host-facing))
+- `POST /mcp` — host key or MCP session credential: JSON-RPC 2.0 endpoint (single or batch) ([spec](interface-api.md#host-facing))
 - `GET /.well-known/oauth-protected-resource/connectors/mcp` — public: OAuth protected-resource metadata for the connector MCP endpoint
 - `GET /.well-known/oauth-authorization-server` — public: OAuth authorization-server metadata
 - `POST /oauth/register` — public: dynamic client registration for chat connectors
@@ -91,7 +91,7 @@ Gateway keys belong to the surface (key namespace), not to the engine that answe
 - `POST /anthropic/v1/completions` — gateway key: legacy text completion endpoint ([spec](interface-api.md#post-anthropicv1completions))
 - `POST /anthropic/v1/complete` — gateway key: upstream spelling of the legacy text-completion route; same handler ([spec](interface-api.md#post-anthropicv1completions))
 - `POST /anthropic/v1/responses` — gateway key: responses API compatibility adapter (non-streaming only) ([spec](interface-api.md#post-anthropicv1responses))
-- `GET /anthropic/v1/models` — gateway key: list available Claude models, in the Anthropic Models API shape ([spec](interface-api.md#post-anthropicv1messages))
+- `GET /anthropic/v1/models` — gateway key: list available Claude models, in the Anthropic Models API shape ([spec](interface-api.md#get-anthropicv1models))
 - `GET /anthropic/v1/models/{model_id}` — gateway key: retrieve one model ([spec](interface-api.md#get-anthropicv1modelsmodel_id))
 - `POST /anthropic/v1/embeddings` — gateway key: embeddings (not implemented by the backend) ([spec](interface-api.md#post-anthropicv1embeddings))
 - `OPTIONS /anthropic/v1/*` — public: CORS preflight catch-all for every Anthropic-compatible route ([spec](interface-api.md#cors-preflight))
@@ -104,11 +104,11 @@ Gateway keys belong to the surface (key namespace), not to the engine that answe
 - `GET /kimi/v1/models/{model}` — gateway key: strict single-model lookup ([spec](interface-api.md#kimi-inference-gateway))
 - `OPTIONS /grok/v1/*` — public: CORS preflight, without gateway auth ([spec](interface-api.md#grok-endpoint-inventory))
 - `POST /grok/v1/chat/completions` — gateway key: grok subscription chat completion, scoped bearer required ([spec](interface-api.md#grok-endpoint-inventory))
-- `POST /grok/v1/responses` — gateway key: grok text response, scoped bearer required ([spec](interface-api.md#grok-engine-contract))
-- `POST /grok/v1/completions` — gateway key: grok legacy text completion, scoped bearer required ([spec](interface-api.md#grok-engine-contract))
+- `POST /grok/v1/responses` — gateway key: grok text response, scoped bearer required ([spec](interface-api.md#grok-endpoint-inventory))
+- `POST /grok/v1/completions` — gateway key: grok legacy text completion, scoped bearer required ([spec](interface-api.md#grok-endpoint-inventory))
 - `POST /grok/v1/embeddings` — gateway key: unsupported endpoint, explicit non-retriable400 ([spec](interface-api.md#grok-endpoint-inventory))
-- `GET /grok/v1/models` — gateway key: enabled Grok native model catalog ([spec](interface-api.md#grok-engine-contract))
-- `GET /grok/v1/models/{model}` — gateway key: retrieve an enabled native model ([spec](interface-api.md#grok-engine-contract))
+- `GET /grok/v1/models` — gateway key: enabled Grok native model catalog ([spec](interface-api.md#grok-endpoint-inventory))
+- `GET /grok/v1/models/{model}` — gateway key: retrieve an enabled native model ([spec](interface-api.md#grok-endpoint-inventory))
 
 ## External clients
 
@@ -129,7 +129,7 @@ Default spec section: [Agent Messaging](interface-api.md#agent-messaging); lines
 Bridge-token routes are scoped to one launched session; relay-token routes to one host-user relay. The host key only registers the session or relay.
 
 - `POST /host/agent-sessions/{id}/agent-messaging/digest` — bridge token: bridge-authenticated original retrieval for a negotiated smart-queue digest ([spec](interface-api.md#communicator-cache-protocol-2-cxx-09122))
-- `POST /host/agent-sessions` — host key: host-authenticated registration for an eligible interactive or human-started execute session
+- `POST /host/agent-sessions` — host key: host-authenticated registration for an eligible interactive or human-started execute session ([spec](interface-api.md#host-registration-and-bridge))
 - `POST /host/agent-sessions/{id}/agent-messaging/groups/list` — bridge token: list persistent groups and subscription limits
 - `POST /host/agent-sessions/{id}/agent-messaging/groups/create` — bridge token: create `{slug,title,description?}` without joining automatically
 - `POST /host/agent-sessions/{id}/agent-messaging/groups/detail` — bridge token: inspect one `{slug}` and its members
@@ -165,12 +165,12 @@ Bridge-token routes are scoped to one launched session; relay-token routes to on
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/reply` — relay token: persist a reply for the owned delivery
 - `POST /host/agent-relays/{id}/deliveries/{messageId}/ack` — relay token: acknowledge the relay-owned delivery
 - `GET /host/agent-portal/state` — host key: host-authenticated master-switch probe ([spec](interface-api.md#host-registration-and-bridge))
-- `POST /host/agent-sessions/{id}/activity` — bridge token: bridge-authenticated native activity snapshot with receiver/native/binding generation and sequence ([spec](interface-api.md#audit-corrections-host-lifecycle-and-quota-observations))
-- `POST /host/agent-sessions/{id}/heartbeat` — bridge token: scoped-bearer heartbeat/rolling expiry renewal
+- `POST /host/agent-sessions/{id}/activity` — bridge token: native activity snapshot with receiver/native/binding generation and sequence fencing ([spec](interface-api.md#audit-corrections-host-lifecycle-and-quota-observations))
+- `POST /host/agent-sessions/{id}/heartbeat` — bridge token: scoped-bearer heartbeat/rolling expiry renewal ([spec](interface-api.md#host-registration-and-bridge))
 - `POST /host/agent-sessions/{id}/events` — bridge token: scoped-bearer idempotent safe event publish ([spec](interface-api.md#host-registration-and-bridge))
-- `POST /host/agent-sessions/{id}/finish` — bridge token: idempotent, atomic completed/failed event + terminal transition + pending-work cancellation
+- `POST /host/agent-sessions/{id}/finish` — bridge token: idempotent, atomic completed/failed event + terminal transition + pending-work cancellation ([spec](interface-api.md#host-registration-and-bridge))
 - `POST /host/agent-sessions/{id}/commands/claim` — bridge token: strict FIFO long poll with `{wait_seconds?: 0..25, claim_id: UUID}` and a retryable 30-second ([spec](interface-api.md#host-registration-and-bridge))
-- `POST /host/agent-sessions/{id}/receiver/register` — bridge token: automatic-receiver registration over `X-Agent-Bridge-Token`: strict `{generation: UUID, protocol: "codex-queue-v1"|"claude-channel-v1"|"grok-acp-v1", native_session_id}` ([spec](interface-api.md#automatic-receiver-protocol-0810))
+- `POST /host/agent-sessions/{id}/receiver/register` — bridge token: automatic-receiver registration for a generation and protocol ([spec](interface-api.md#automatic-receiver-protocol-0810))
 - `POST /host/agent-sessions/{id}/receiver/heartbeat` — bridge token: `{generation}` renews native receiver health, which expires after 45 seconds and cannot be revived ([spec](interface-api.md#automatic-receiver-protocol-0810))
 - `POST /host/agent-sessions/{id}/receiver/stop` — bridge token: `{generation, failure?}` stops the receiver ([spec](interface-api.md#automatic-receiver-protocol-0810))
 - `POST /host/agent-sessions/{id}/receiver/ack` — bridge token: deprecated compatibility endpoint for already-delivered legacy probes (`{generation, source, nonce}`) ([spec](interface-api.md#automatic-receiver-protocol-0810))
@@ -204,7 +204,7 @@ Bridge-token routes are scoped to one launched session; relay-token routes to on
 - `POST /host/agent-sessions/{id}/attachments/{attachmentId}/chunks` — bridge token: upload {offset,content_b64} ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
 - `POST /host/agent-sessions/{id}/attachments/{attachmentId}/seal` — bridge token: seal completed bytes after SHA-256 verification ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
 - `POST /host/agent-sessions/{id}/attachments/get` — bridge token: host bridge chunk download: {attachment_id,variant?,offset?} ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
-- `GET /host/communicator/connect` — host key: communicator WebSocket multiplexing host routes, MCP and daemon frames ([spec](interface-api.md#host-facing))
+- `GET /host/communicator/connect` — host key: communicator WebSocket multiplexing host routes, MCP and daemon frames ([spec](interface-api.md#communicator-transport-endpoints))
 - `POST /host/native-control/receipt` — host key: report a native-control result (control_state_v1) ([spec](interface-api.md#live-topology-endpoints))
 - `POST /host/agent-sessions/{id}/native-control` — bridge token: register or poll the native-control capability and report stop receipts ([spec](interface-api.md#live-topology-endpoints))
 - `POST /host/agent-sessions/{id}/agent-messaging/roles/activate` — bridge token: activate an agent role (`agent_role_activate`) ([spec](interface-api.md#agent-role-endpoints))
@@ -242,7 +242,7 @@ Bridge-token routes are scoped to one launched session; relay-token routes to on
 - `POST /host/agent-sessions/{id}/agent-messaging/workflows/run-evaluate` — bridge token: save or finalize evaluation ([spec](interface-api.md#workflows-and-shared-runs))
 - `POST /host/agent-sessions/{id}/agent-messaging/workflows/run-current` — bridge token: recover current membership, invitations and pending evaluations for the authenticated binding ([spec](interface-api.md#workflows-and-shared-runs))
 - `POST /host/agent-sessions/{id}/agent-messaging/quota/get` — bridge token: read quota for the session account ([spec](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112))
-- `POST /host/agent-sessions/{id}/agent-messaging/git/remote` — bridge token: bridge-authenticated `agent_git_remote`: `{target_host_id, claim_id, common_dir, branch, operation, args}` ([spec](interface-api.md#admin-admin-session-cookie))
+- `POST /host/agent-sessions/{id}/agent-messaging/git/remote` — bridge token: run a git operation on a target host under a claim (`agent_git_remote`) ([spec](interface-api.md#admin-admin-session-cookie))
 - `POST /host/agent-sessions/{id}/agent-messaging/work-state` — bridge token: current bridge only: `{}` reads state ([spec](interface-api.md#fleet-task-supervisor))
 
 ## Host runtime services
@@ -253,7 +253,7 @@ Bridge-token routes are scoped to one launched session; relay-token routes to on
 - `POST /host/watchdogs/disable` — host key: disable a host-level watchdog ([spec](interface-api.md#watchdog-wrapper-0936))
 - `POST /host/daemon/migration` — host key: UUID-scoped fence, status and release for resident-runtime migration ([spec](interface-api.md#communicator-sync-ownership))
 - `GET /host/daemon/config` — host key: host-daemon settings ([spec](interface-api.md#daemon-http-surfaces))
-- `GET /host/daemon/connect` — host key: host-daemon WebSocket ([spec](interface-api.md#daemon-http-surfaces))
+- `GET /host/daemon/connect` — host key: host-daemon WebSocket ([spec](interface-api.md#remote-daemon-route-inventory))
 - `POST /host/daemon/peer-finished` — host key: report a finished peer message to the daemon ([spec](interface-api.md#remote-daemon-route-inventory))
 - `POST /host/session-housekeeping/inspect` — host key: read the effective housekeeping policy and protected native IDs ([spec](interface-api.md#local-session-housekeeping))
 - `POST /host/session-housekeeping/reserve` — host key: reserve this host/engine for a housekeeping run ([spec](interface-api.md#local-session-housekeeping))
@@ -301,7 +301,7 @@ The paired user's role gates each route by capability; where a line names capabi
 - `GET /companion/v1/events` — device bearer: legacy resumable foreground SSE using `after` and optional `session_id`
 - `POST /companion/v1/agents/{id}/messages` — device bearer: `{client_message_id,content}`, returns 202 and follows this conversation
 - `POST /companion/v1/agents/{id}/messages/{messageId}/cancel` — device bearer: `{}`; withdraws a still-`queued` operator message (200, repeat returns `already_canceled:true`)
-- `POST /companion/v1/agents/{id}/prompts/{promptId}/answer` — device bearer: `{client_message_id,answer,version?}`, returns 202
+- `POST /companion/v1/agents/{id}/prompts/{promptId}/answer` — device bearer: answer an open prompt (202, first answer wins)
 - `PUT /companion/v1/agents/{id}/follow` — device bearer: `{followed}` changes reply notifications for this device
 - `GET /companion/v1/approvals` — device bearer: current host-access `requests` plus default/max duration, currently 480 minutes
 - `POST /companion/v1/hosts/{hostId}/insecure/disable` — device bearer: close a host insecure window (`hosts.activate_insecure`)
@@ -357,10 +357,10 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/passkeys/{id}/name` — admin session, `account.self_manage`: rename a passkey
 - `DELETE /admin/passkeys/{id}` — admin session, `account.self_manage`: delete a passkey
 - `GET /admin/users` — admin session, `users.read`: list admin users
-- `GET /admin/setup/status` — public until the first owner exists, then admin session, `settings.read`: secret-free infrastructure checks (live `SELECT 1` database probe), `configured_engines` ([spec](interface-api.md#host-facing))
-- `POST /admin/setup/owner` — public until the first owner exists, then admin session, `users.manage`: one-time unauthenticated first-owner claim ([spec](interface-api.md#host-facing))
-- `GET /admin/setup/wizard` — public until the first owner exists, then admin session, `settings.read`: first-run wizard progress: `{completed_at, dismissed_at, last_step, engines}` ([spec](interface-api.md#host-facing))
-- `POST /admin/setup/wizard` — public until the first owner exists, then admin session, `settings.manage`: merge-update of that blob with `{last_step?, engines?, completed?, dismissed?}` ([spec](interface-api.md#host-facing))
+- `GET /admin/setup/status` — public until the first owner exists, then admin session, `settings.read`: setup state and secret-free infrastructure checks
+- `POST /admin/setup/owner` — public until the first owner exists, then admin session, `users.manage`: claim the first owner account (one-time)
+- `GET /admin/setup/wizard` — public until the first owner exists, then admin session, `settings.read`: read first-run wizard progress
+- `POST /admin/setup/wizard` — public until the first owner exists, then admin session, `settings.manage`: update first-run wizard progress
 - `POST /admin/users` — public until the first owner exists, then admin session, `users.manage`: create admin user
 - `POST /admin/users/{id}` — admin session, `users.manage`: update admin user
 - `DELETE /admin/users/{id}` — admin session, `users.manage`: delete admin user (blocked if last active admin)
@@ -369,6 +369,7 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/auth/seed-command` — admin session, `auth.manage`: issue a one-time seed command for an engine
 - `GET /admin/authorization` — admin session, `security.manage_authorization`: read the authorization mode (`{mode: "compatible"|"strict"}`)
 - `POST /admin/authorization` — admin session, `security.manage_authorization`: set the authorization mode (`{mode: "compatible"|"strict"}`)
+- `GET /admin/*` — public: static SPA bundle, HTML fallback and manual assets (static mount, no route handler)
 
 ## Admin: dashboard, settings and fleet policy
 
@@ -379,8 +380,8 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/toasts` — admin session, `settings.manage`: emit admin toast event
 - `GET /admin/model-defaults/{engine}` — admin session, `settings.read`: read the `codex`, `claude`, or `grok` fleet CLI default
 - `POST /admin/model-defaults/{engine}` — admin session, `settings.manage`: strict body `{model, reasoning_effort?: string|null}`
-- `GET /admin/quota-mode` — admin session, `settings.read`: read `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`)
-- `POST /admin/quota-mode` — admin session, `settings.manage`: set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`)
+- `GET /admin/quota-mode` — admin session, `settings.read`: read `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`) ([spec](interface-api.md#provider-quota-recommendation))
+- `POST /admin/quota-mode` — admin session, `settings.manage`: set `quota_hard_fail`, `limit_percent` (`50..100`), `week_partition` (`off|7|5`) ([spec](interface-api.md#provider-quota-recommendation))
 - `GET /admin/cdx-silent` — admin session, `settings.read`: read wrapper silent mode (`silent` boolean)
 - `POST /admin/cdx-silent` — admin session, `settings.manage`: set wrapper silent mode (`silent` boolean)
 - `GET /admin/subagent-model-selection` — admin session, `settings.read`: read the default-off subagent model selection guidance (`enabled` boolean)
@@ -423,14 +424,15 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/rtk/{engine}` — admin session, `settings.manage`: save `{enabled:boolean}` (settings.manage) ([spec](interface-api.md#rtk-policy-and-readiness-api))
 - `GET /admin/speech-input` — admin session, `settings.read`: per-engine speech input policy `{engines:{<engine>:{enabled, override, global, supported, activation, control}}}` ([spec](interface-api.md#native-speech-input-policy))
 - `POST /admin/speech-input/{target}` — admin session, `settings.manage`: `target` is `global` or an engine ([spec](interface-api.md#native-speech-input-policy))
+- `GET /admin/ws` — admin session, `admin.read`: admin WebSocket upgrade for live updates (registered by `api/src/ws/server.ts`)
 
 ## Admin: hosts, versions and rollout
 
 Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admin-session-cookie); lines with another section link it.
 
-- `POST /admin/hosts/{id}/insecure/enable` — admin session, `hosts.activate_insecure`: insecure hosts only
+- `POST /admin/hosts/{id}/insecure/enable` — admin session, `hosts.activate_insecure`: open or extend a host insecure window (insecure hosts only)
 - `PUT /admin/hosts/{id}/agents-extra` — admin session, `hosts.manage`: set the per-host extra AGENTS text
-- `POST /admin/hosts/register` — admin session, `hosts.security_transition`: owner/admin role required
+- `POST /admin/hosts/register` — admin session, `hosts.security_transition`: mint a host and single-use installer (owner/admin; the same FQDN again rotates its key)
 - `POST /admin/hosts/quick-register` — admin session, `hosts.manage`: create an insecure temporary throwaway host with an auto-generated short `tmp-YYYYMMDD-HHMMSS-xxxxxx`
 - `POST /admin/versions/check` — admin session, `settings.manage`: force fresh GitHub release lookup (bypass cache) and return `{available_client, versions}`
 - `POST /admin/codex-version` — admin session, `settings.manage`: set fleet Codex version policy
@@ -452,7 +454,7 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/hosts/{id}/vip` — admin session, `hosts.manage`: toggle VIP (VIP hosts always behave warn-only for quota hard-fail)
 - `POST /admin/hosts/{id}/curl-insecure` — admin session, `hosts.manage`: toggle sync TLS verification bypass (`allow` boolean)
 - `POST /admin/hosts/{id}/reverse-dns` — admin session, `hosts.manage`: set per-host reverse DNS mode (`mode`: `global` | `enabled` | `disabled`)
-- `POST /admin/hosts/{id}/model` — admin session, `hosts.manage`: set per-host Codex `model_override` / `reasoning_effort_override`, Claude `claude_model_override`
+- `POST /admin/hosts/{id}/model` — admin session, `hosts.manage`: set per-host Codex `model_override` / `reasoning_effort_override`, Claude `claude_model_override` ([spec](interface-api.md#native-model-version-metadata))
 - `POST /admin/hosts/{id}/codex-version` — admin session, `hosts.manage`: set per-host Codex version override (`selection: "global"|"fleet"|"default"|"<x.y.z>"`)
 - `POST /admin/hosts/{id}/claude-version` — admin session, `hosts.manage`: set per-host Claude Code version override
 - `GET /admin/hosts/{id}/agents-extra` — admin session, `hosts.read`: read the per-host extra AGENTS text
@@ -470,9 +472,9 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/insecure-approvals/{id}/deny` — admin session, `hosts.activate_insecure`: deny pending request
 - `POST /admin/insecure-domain-allows/{id}/revoke` — admin session, `hosts.activate_insecure`: revoke domain auto-allow
 - `DELETE /admin/hosts/{id}` — admin session, `hosts.security_transition`: delete host + digests
-- `GET /admin/communicator/api-version` — admin session, `settings.read`: communicator API level state: `{api_version, min_api, default_min_api, override_min_api, override_updated_at, clients}` ([spec](interface-api.md#communicator-api-level))
-- `POST /admin/communicator/api-version` — admin session, `settings.manage`: raise or clear the operator minimum
-- `GET /admin/runner` — admin session, `admin.read`: runner config/telemetry ([spec](interface-api.md#host-facing))
+- `GET /admin/communicator/api-version` — admin session, `settings.read`: communicator API level state (current, minimum, override, clients) ([spec](interface-api.md#communicator-api-level))
+- `POST /admin/communicator/api-version` — admin session, `settings.manage`: raise or clear the operator minimum ([spec](interface-api.md#communicator-api-level))
+- `GET /admin/runner` — admin session, `admin.read`: runner config/telemetry
 - `POST /admin/runner/run` — admin session, `auth.manage`: force Codex runner validation
 - `POST /admin/runner/run-claude` — admin session, `auth.manage`: force Claude runner validation
 - `POST /admin/runner/run-grok` — admin session, `auth.manage`: read-only Grok subscription verification ([spec](interface-api.md#grok-endpoint-inventory))
@@ -480,8 +482,8 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/hosts/{id}/kimi-version` — admin session, `hosts.manage`: set/clear a host-specific Kimi CLI pin ([spec](interface-api.md#kimi-code-admin-api))
 - `POST /admin/runner/run-kimi` — admin session, `auth.manage`: read-only Kimi subscription verification ([spec](interface-api.md#kimi-code-admin-api))
 - `GET /admin/host-daemons` — admin session, `admin.read`: list host daemons ([spec](interface-api.md#daemon-http-surfaces))
-- `GET /admin/hosts/{id}/daemon` — admin session, `admin.read`: read one host daemon ([spec](interface-api.md#daemon-http-surfaces))
-- `PUT /admin/hosts/{id}/daemon` — admin session, `agent_messaging.manage`: set one host daemon ([spec](interface-api.md#daemon-http-surfaces))
+- `GET /admin/hosts/{id}/daemon` — admin session, `admin.read`: read one host daemon ([spec](interface-api.md#remote-daemon-route-inventory))
+- `PUT /admin/hosts/{id}/daemon` — admin session, `agent_messaging.manage`: set one host daemon ([spec](interface-api.md#remote-daemon-route-inventory))
 - `GET /admin/hosts/{id}/session-housekeeping` — admin session, `hosts.read`: read effective housekeeping rules for a host ([spec](interface-api.md#local-session-housekeeping))
 - `POST /admin/hosts/{id}/session-housekeeping/{engine}` — admin session, `hosts.manage`: save a host housekeeping rule or reset it to inherit ([spec](interface-api.md#local-session-housekeeping))
 - `GET /admin/host-spawn/state` — admin session, `admin.read`: read the global host-spawn switch ([spec](interface-api.md#system-spawn-new-system-provisioning))
@@ -500,15 +502,15 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/api/state` — admin session, `settings.manage`: set the API kill switch
 - `POST /admin/api/surfaces/{surface}` — admin session, `settings.manage`: set a surface backend and disabled flag ([spec](interface-api.md#exposed-api-routing-any-to-any))
 - `GET /admin/api/state` — admin session, `settings.read`: read the API kill switch
-- `GET /admin/api/surfaces` — admin session, `settings.read`: list exposed API surfaces with backend, kill switch and active key count ([spec](interface-api.md#exposed-api-routing-any-to-any))
+- `GET /admin/api/surfaces` — admin session, `settings.read`: list exposed API surfaces with backend, kill switch and active key count
 - `GET /admin/engines/active` — admin session, `admin.read`: engines currently active fleet-wide (needs `admin.read`) ([spec](interface-api.md#engine-master-switches))
-- `GET /admin/engines/state` — admin session, `settings.read`: fleet-wide engine master switches ([spec](interface-api.md#engine-master-switches))
+- `GET /admin/engines/state` — admin session, `settings.read`: fleet-wide engine master switches
 - `POST /admin/engines/{engine}/state` — admin session, `settings.manage`: switch one engine on or off fleet-wide ([spec](interface-api.md#engine-master-switches))
 - `GET /admin/engines/{engine}/destroy` — admin session, `settings.read`: destroy-engine progress
 - `POST /admin/engines/{engine}/destroy` — admin session, `settings.manage`: open a destroy-engine request (engine must be suspended; confirm by engine name) ([spec](interface-api.md#engine-destroy))
 - `POST /admin/engines/{engine}/destroy/purge` — admin session, `settings.manage`: purge the destroyed engine's stored auth payloads and related records
 - `DELETE /admin/engines/{engine}/destroy` — admin session, `settings.manage`: cancel the open destroy-engine request
-- `GET /admin/openai/keys` — admin session, `auth.read_metadata`: list keys
+- `GET /admin/openai/keys` — admin session, `auth.read_metadata`: list gateway keys (no key material)
 - `POST /admin/openai/keys` — admin session, `keys.manage`: issue a gateway key (full key returned once)
 - `POST /admin/openai/keys/{id}/toggle` — admin session, `keys.manage`: enable/disable a key (`active` boolean)
 - `DELETE /admin/openai/keys/{id}` — admin session, `keys.manage`: delete a gateway key
@@ -684,7 +686,7 @@ Default spec section: [Agent Messaging](interface-api.md#agent-messaging); lines
 - `POST /admin/agent-portal/state` — admin session, `agent_portal.manage`: toggle the global switch ([spec](interface-api.md#host-registration-and-bridge))
 - `POST /admin/agent-messaging/messages/{id}/fresh-start` — admin session, `agent_messaging.manage`: authorize one replacement session after `native_transcript_missing` ([spec](interface-api.md#agent-wake--cron-schedules))
 - `POST /admin/daemon-sessions` — admin session, `agent_messaging.manage`: start a daemon session ([spec](interface-api.md#daemon-http-surfaces))
-- `GET /admin/daemon-sessions/{id}` — admin session, `agent_portal.reveal_transcript`: read a daemon session ([spec](interface-api.md#daemon-http-surfaces))
+- `GET /admin/daemon-sessions/{id}` — admin session, `agent_portal.reveal_transcript`: read a daemon session ([spec](interface-api.md#remote-daemon-route-inventory))
 - `POST /admin/daemon-sessions/{id}/messages` — admin session, `agent_messaging.manage`: send a message to a daemon session ([spec](interface-api.md#remote-daemon-route-inventory))
 - `POST /admin/daemon-sessions/{id}/permission-mode` — admin session, `agent_messaging.manage`: change a daemon session permission mode ([spec](interface-api.md#remote-daemon-route-inventory))
 - `POST /admin/daemon-sessions/{id}/stop` — admin session, `agent_messaging.manage`: stop a daemon session ([spec](interface-api.md#remote-daemon-route-inventory))
@@ -705,8 +707,8 @@ Default spec section: [Agent Messaging](interface-api.md#agent-messaging); lines
 - `POST /admin/agent-sessions/{id}/attachments` — admin session, `agent_portal.manage`: create/resume upload: {id,name,mime_type,size_bytes,sha256?} ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
 - `POST /admin/agent-sessions/{id}/attachments/{attachmentId}/chunks` — admin session, `agent_portal.manage`: upload {offset,content_b64} ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
 - `POST /admin/agent-sessions/{id}/attachments/{attachmentId}/seal` — admin session, `agent_portal.manage`: seal completed bytes after SHA-256 verification ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
-- `GET /admin/agent-sessions/{id}/attachments/{attachmentId}` — admin session, `agent_portal.reveal_transcript`: return name, MIME, size, SHA-256, upload offset and processing status ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
-- `GET /admin/agent-sessions/{id}/attachments/{attachmentId}/content` — admin session, `agent_portal.reveal_transcript`: stream original or ?variant=transcript.json|frame-NN.jpg ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
+- `GET /admin/agent-sessions/{id}/attachments/{attachmentId}` — admin session, `agent_portal.reveal_transcript`: attachment name, MIME, size, SHA-256, upload offset and processing status ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
+- `GET /admin/agent-sessions/{id}/attachments/{attachmentId}/content` — admin session, `agent_portal.reveal_transcript`: stream the original or a `?variant=` derivative ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
 - `DELETE /admin/agent-sessions/{id}/attachments/{attachmentId}` — admin session, `agent_portal.manage`: discard the authenticated author's unlinked upload ([spec](interface-api.md#agent-chat-attachments-and-explicit-attention))
 - `GET /admin/agent-sessions/{id}/stop` — admin session, `agent_portal.read`: durable result of a session stop ([spec](interface-api.md#live-topology-endpoints))
 - `POST /admin/agent-sessions/{id}/stop` — admin session, `agent_portal.manage`: stop an agent session (expected process/binding identity) ([spec](interface-api.md#live-topology-endpoints))
@@ -736,8 +738,8 @@ Default spec section: [Agent Messaging](interface-api.md#agent-messaging); lines
 - `POST /admin/agent-messaging/chats/send` — admin session, `agent_messaging.manage`: post to a chat room ([spec](interface-api.md#shared-conversations))
 - `POST /admin/agent-messaging/chats/create` — admin session, `agent_messaging.manage`: create a chat room ([spec](interface-api.md#shared-conversations))
 - `POST /admin/agent-messaging/chats/manage` — admin session, `agent_messaging.manage`: manage chat-room members and settings ([spec](interface-api.md#shared-conversations))
-- `POST /admin/agent-messaging/chats/{roomId}/events/{eventId}/reactions` — admin session, `agent_messaging.manage`: react to a chat event (`agent_messaging.manage`, `agent_messaging.reveal_content`) ([spec](interface-api.md#shared-conversations))
-- `POST /admin/agent-messaging/chats/{roomId}/events/{eventId}/pin` — admin session, `agent_messaging.manage`: pin or unpin a chat event (same two capabilities) ([spec](interface-api.md#shared-conversations))
+- `POST /admin/agent-messaging/chats/{roomId}/events/{eventId}/reactions` — admin session, `agent_messaging.manage`: react to a chat event (also needs `agent_messaging.reveal_content`) ([spec](interface-api.md#shared-conversations))
+- `POST /admin/agent-messaging/chats/{roomId}/events/{eventId}/pin` — admin session, `agent_messaging.manage`: pin or unpin a chat event (also needs `agent_messaging.reveal_content`) ([spec](interface-api.md#shared-conversations))
 - `GET /admin/agent-messaging/chats/{roomId}/pins` — admin session, `agent_messaging.reveal_content`: pinned events of a chat room ([spec](interface-api.md#shared-conversations))
 - `GET /admin/agent-messaging/search` — admin session, `agent_messaging.reveal_content`: search chat content ([spec](interface-api.md#shared-conversations))
 - `POST /admin/agent-messaging/chats/{roomId}/attachments` — admin session, `agent_messaging.manage`: start an attachment upload ([spec](interface-api.md#shared-conversations))
@@ -749,7 +751,7 @@ Default spec section: [Agent Messaging](interface-api.md#agent-messaging); lines
 - `GET /admin/agent-supervisor` — admin session, `agent_messaging.read`: read configured/effective state, work states, outstanding dependencies and incident budgets ([spec](interface-api.md#fleet-task-supervisor))
 - `POST /admin/agent-supervisor/state` — admin session, `agent_messaging.manage`: flip the task-supervisor switch ([spec](interface-api.md#fleet-task-supervisor))
 - `POST /admin/agent-supervisor/pause` — admin session, `agent_messaging.manage`: pause a work state (optimistic `version`) ([spec](interface-api.md#fleet-task-supervisor))
-- `POST /admin/agent-messaging/messages/{id}/quota-retry` — admin session, `agent_messaging.manage`: explicitly retry work held by an emulated quota, retaining its original account/native identity ([spec](interface-api.md#emulated-short-quotas-cxx-09150))
+- `POST /admin/agent-messaging/messages/{id}/quota-retry` — admin session, `agent_messaging.manage`: retry work held by an emulated quota, keeping its account and native identity ([spec](interface-api.md#emulated-short-quotas-cxx-09150))
 
 ## Admin: workflows, schedules and watchdogs
 
@@ -817,7 +819,7 @@ Default spec section: [Feedback admin endpoints](interface-api.md#feedback-admin
 - `GET /admin/feedback/{id}` — admin session, `feedback.read`: original report, current claim/outcome and history
 - `POST /admin/feedback/{id}` — admin session, `feedback.manage`: version-checked triage/comment/outcome update
 - `POST /admin/feedback/{id}/claim` — admin session, `feedback.manage`: acquire, renew or release a feedback claim
-- `DELETE /admin/feedback/{id}` — admin session, `feedback.manage`: permanently delete one closed (resolved/dismissed/duplicate) report with its history and its
+- `DELETE /admin/feedback/{id}` — admin session, `feedback.manage`: permanently delete one closed report with its history and duplicates
 - `POST /admin/feedback/purge` — admin session, `feedback.manage`: bulk-delete closed reports `{statuses, older_than?}` in one transaction
 - `GET /admin/external-clients` — admin session, `external_clients.read`: list clients: name, description, trust, enabled, key prefix, address, last poll ([spec](interface-api.md#external-clients))
 - `POST /admin/external-clients` — admin session, `external_clients.manage`: create an external client ([spec](interface-api.md#external-clients))
@@ -830,5 +832,5 @@ Default spec section: [Feedback admin endpoints](interface-api.md#feedback-admin
 - `POST /admin/connectors/clients` — admin session, `account.self_manage`: create connector clients ([spec](interface-api.md#oauth-chat-connectors))
 - `GET /admin/connectors/connections` — admin session, `account.self_manage`: list connector connections ([spec](interface-api.md#oauth-chat-connectors))
 - `DELETE /admin/connectors/connections/{id}` — admin session, `account.self_manage`: revoke a connector connection ([spec](interface-api.md#oauth-chat-connectors))
-- `GET /admin/connectors/consent/{id}` — admin session, `account.self_manage`: show or decide a pending OAuth consent ([spec](interface-api.md#oauth-chat-connectors))
-- `POST /admin/connectors/consent/{id}` — admin session, `account.self_manage`: show or decide a pending OAuth consent ([spec](interface-api.md#oauth-chat-connectors))
+- `GET /admin/connectors/consent/{id}` — admin session, `account.self_manage`: show a pending OAuth consent ([spec](interface-api.md#oauth-chat-connectors))
+- `POST /admin/connectors/consent/{id}` — admin session, `account.self_manage`: decide a pending OAuth consent ([spec](interface-api.md#oauth-chat-connectors))
