@@ -46,7 +46,7 @@ func TestWatchdogStopsOnlyExplicitlyAuthorizedOwnedChild(t *testing.T) {
 	}
 	stop := Start(ctx, cmd)
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait(); stop() }()
+	go func() { err := cmd.Wait(); stop(); done <- err }()
 	select {
 	case <-done:
 		t.Fatal("stopped before timeout")
@@ -87,7 +87,7 @@ func TestRevokedPolicyAndQuietChildToolsPreventTermination(t *testing.T) {
 			}
 			stop := Start(ctx, cmd)
 			done := make(chan error, 1)
-			go func() { done <- cmd.Wait(); stop() }()
+			go func() { err := cmd.Wait(); stop(); done <- err }()
 			select {
 			case <-done:
 				t.Fatal("protected child terminated")
@@ -152,7 +152,7 @@ func TestFreshRevocationPreventsForcedTermination(t *testing.T) {
 	}
 	stop := Start(ctx, cmd)
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait(); stop() }()
+	go func() { err := cmd.Wait(); stop(); done <- err }()
 	select {
 	case <-done:
 		t.Fatal("fresh revoke ignored")
