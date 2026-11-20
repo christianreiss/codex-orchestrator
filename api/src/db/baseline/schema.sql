@@ -1055,6 +1055,7 @@ CREATE TABLE `hosts` (
 	`reasoning_effort_override` varchar(32),
 	`auto_update_override` tinyint,
 	`last_cron_check` varchar(100),
+	`scaling_exempt` tinyint NOT NULL DEFAULT 0,
 	`engines` varchar(32) NOT NULL DEFAULT 'codex',
 	`claude_client_version` varchar(64),
 	`claude_client_version_override` varchar(64),
