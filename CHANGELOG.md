@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Signing-key rotation now tells operators when to stop the owner, verify both keys during overlap, and check the HTTP fingerprint after retiring the old signer.
+
 - A native agent can register its communicator and receive work when Messaging is enabled on its host and the Portal is disabled. Portal-only stop controls retain their own permission check.
 
 - The admin console isolates cached data and drafts when a user or role changes. Sign-out reports uncertain responses and can be retried. Login, passkey and password recovery move focus to the next field. Logs and external-client bookmarks open their pages correctly.

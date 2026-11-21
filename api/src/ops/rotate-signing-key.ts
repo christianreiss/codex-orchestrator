@@ -22,26 +22,14 @@ import { nowIso } from '../util/timestamp.js';
  * stays primary — the one whose signature fills `signature`/`.sig` and which
  * the public key embedded in deployed binaries verifies.
  *
- * So a rotation is additive first and destructive last:
+ * Drain and stop the API owner before each mutation. Add the new signer
+ * first, start the owner and verify that it serves both signatures with the
+ * original primary. Stage binaries embedding the new public key. During a
+ * second maintenance window, retire the old signer and coordinate the host
+ * binary and sidecar switch. See `docs/wrapper-v2-architecture.md`.
  *
- *   1. `add NEW_PRIVATE NEW_PUBLIC` — the new key starts co-signing
- *      immediately; nothing on any host changes yet. This is the only step
- *      that is reversible and zero-impact.
- *   2. build binaries embedding the new public key.
- *   3. `retire OLD_KEY_ID` — the old key stops signing and the newer key
- *      becomes primary — and roll the fleet onto those binaries, in ONE
- *      window.
- *
- * Steps 2 and 3 are coupled, not independently safe: a binary embeds one public
- * key and no shipped `cxx` reads the extra `signatures`, so while the old key is
- * primary a new-key binary rejects every config, and once it is retired an
- * old-key binary does. Reversing 1 and 3 is the worse outage: retiring first
- * leaves the WHOLE fleet verifying against a key the server no longer signs
- * with. The full runbook is in `docs/wrapper-v2-architecture.md`.
- *
- * `list` reads the database through its own service instance and therefore
- * cannot see the running API's cached signer set — confirm a rotation against
- * `GET /wrapper/v2/config`, never against this output alone.
+ * `list` is read-only. Verify the ready API through `GET /wrapper/v2/config`
+ * to check the fingerprint actually served.
  */
 
 const USAGE = [
@@ -54,10 +42,10 @@ const USAGE = [
  * Printed to stderr (stdout stays machine-readable) after any command that
  * could otherwise be mistaken for proof that the running API picked a change up.
  */
-const STALE_CACHE_NOTE = [
-  'note: this reads the database directly and cannot see the running API\'s cached signer set.',
-  '      confirm against the API itself:',
-  '      curl -sH "X-API-Key: $HOST_KEY" "$BASE_URL/wrapper/v2/config?engine=codex" | jq -r ".signatures[].fingerprint"',
+const API_VERIFICATION_NOTE = [
+  'note: add and retire require the API owner to be drained and stopped. list is read-only.',
+  '      after starting the API owner and confirming readiness, verify its served fingerprints:',
+  '      curl --fail -sS -H "X-API-Key: $HOST_KEY" "$BASE_URL/wrapper/v2/config?engine=codex" | jq -r ".signatures[].fingerprint"',
   '',
 ].join('\n');
 
@@ -88,7 +76,7 @@ async function main(): Promise<void> {
           keys: signers.map(describe),
         }) + '\n',
       );
-      process.stderr.write(STALE_CACHE_NOTE);
+      process.stderr.write(API_VERIFICATION_NOTE);
       return;
     }
 
@@ -149,7 +137,7 @@ async function main(): Promise<void> {
           keys: signers.map(describe),
         }) + '\n',
       );
-      process.stderr.write(STALE_CACHE_NOTE);
+      process.stderr.write(API_VERIFICATION_NOTE);
       return;
     }
 
@@ -204,7 +192,7 @@ async function main(): Promise<void> {
         keys: signers.map(describe),
       }) + '\n',
     );
-    process.stderr.write(STALE_CACHE_NOTE);
+    process.stderr.write(API_VERIFICATION_NOTE);
   } finally {
     await offline?.close();
     await pool.end();

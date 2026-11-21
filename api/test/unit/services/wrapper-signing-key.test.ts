@@ -370,9 +370,7 @@ describe('wrapper-signing-key', () => {
     expect(await withBrokenPrimary.available()).toBe(false);
   });
 
-  it('re-reads the table after the cache TTL so a rotation converges without a restart', async () => {
-    // `rotate-signing-key add` runs in its own process, so the API's cache is
-    // the only thing standing between an added key and the configs it signs.
+  it('reuses the loaded signers until the TTL and then reads the table again', async () => {
     const keyring = makeKeyring();
     const first = generateKeyPairSync('ed25519');
     const second = generateKeyPairSync('ed25519');
@@ -405,7 +403,7 @@ describe('wrapper-signing-key', () => {
     expect((await svc.allActive()).map((s) => s.kid)).toEqual(['3', '9']);
   });
 
-  it('caps the default cache lifetime so a rotation cannot need a restart', () => {
+  it('bounds the default signer cache lifetime', () => {
     expect(SIGNER_CACHE_TTL_MS).toBeGreaterThan(0);
     expect(SIGNER_CACHE_TTL_MS).toBeLessThanOrEqual(60_000);
   });

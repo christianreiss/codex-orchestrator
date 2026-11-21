@@ -22,8 +22,8 @@ const ownedSigners = new WeakMap<OwnerRuntime, { view: object; loading: Promise<
  * PEM-encoded PKCS#8 private key or the raw 32-byte seed (legacy operator
  * tooling sometimes wrote the bare seed). Both are accepted.
  *
- * More than one row may be active at a time so a key can be rotated without a
- * fleet-wide binary rebuild: every active key signs the baked config, and the
+ * Several keys may be active during a staged fleet binary rebuild.
+ * Every active key signs the baked config, and the
  * PRIMARY key — the oldest active row — is the one whose signature keeps the
  * `signature` field and the `.sig` file. Ordering is explicit (`created_at`,
  * then `id`) because promoting a newer key would hand hosts a signature the
@@ -32,22 +32,12 @@ const ownedSigners = new WeakMap<OwnerRuntime, { view: object; loading: Promise<
  * Returns `null`/`[]` when no active key loads — the routes turn that into a
  * 503 response so operators can see the kill switch from the outside.
  *
- * The loaded set is cached for `SIGNER_CACHE_TTL_MS` rather than for the
- * lifetime of the process. `registerWrapperV2Routes` builds one service at boot
- * and `rotate-signing-key` runs in a SEPARATE process, so a cache that never
- * expired meant the running API kept signing with the pre-rotation key set until
- * someone restarted it — and the rotation runbook's verification step, which
- * reads through the ops script's own instance, reported a false green.
+ * Each process caches active signers for a bounded time. Add and retire acquire
+ * the exclusive database owner lock while the API is stopped. Check the served
+ * signatures after the API regains readiness.
  */
 
-/**
- * How long a loaded signer set is reused before the table is re-read.
- *
- * Short enough that a rotation converges without a restart, long enough that
- * the config bakery does not turn every request into a query. Rotation is rare
- * and operator-driven, so waiting out one TTL is an acceptable price for not
- * hitting the DB on the hot path.
- */
+/** Maximum age of a cached signer set on the config request path. */
 export const SIGNER_CACHE_TTL_MS = 30_000;
 
 export interface WrapperSigner {

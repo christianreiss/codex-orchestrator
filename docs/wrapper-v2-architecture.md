@@ -386,9 +386,9 @@ The mechanics:
   always describe the served bytes, so a selected `?sig=1` reply never disagrees
   with its own body. The fingerprint, not the row id, is what identifies key
   material across installations.
-- The API re-reads the active key set every `SIGNER_CACHE_TTL_MS` (30 s). The
-  ops script runs in its own process, so without that bound a key it added would
-  not reach the running API until someone restarted it.
+- The API caches the active signer set for at most `SIGNER_CACHE_TTL_MS`
+  (30 seconds). The rotation CLI takes the database owner lock for every
+  change. A newly started API reads the signers committed by offline maintenance.
 
 **The constraint the runbook cannot design away.** With single-key binaries and
 one served `signature`, exactly one population can verify at any instant: while
@@ -418,45 +418,40 @@ knows its target fingerprint can ask for the matching signature with
 The rotation entry point is `api/src/ops/rotate-signing-key.ts`, built into the
 image as `dist/rotate-signing-key.js` beside `dist/setup-signing-key.js`.
 
-1. **Add the new key while the old one keeps signing.** Generate an Ed25519
-   pair, then `node rotate-signing-key.js add NEW_PRIVATE.pem NEW_PUBLIC.pem`.
-   Both keys now sign; the old key is still primary, so nothing on any host
-   changes. This step is genuinely reversible and genuinely zero-impact — it is
-   the only one that is. Delete the plaintext private key afterwards.
-2. **Verify against the RUNNING API, not the database.** `rotate-signing-key
-   list` reads through its own service instance and will print the new key even
-   if the API is still serving the old set, so it cannot detect a stale cache.
-   Ask the API itself, with a host API key:
+1. **Schedule the first maintenance window.** Generate a new Ed25519 pair,
+   then drain and stop the API owner following [Owner cutover](owner-cutover.md).
+   With the owner stopped, run
+   `node rotate-signing-key.js add NEW_PRIVATE.pem NEW_PUBLIC.pem`.
+   The command requires the database owner lock. Confirm its encrypted
+   read-back, remove the plaintext private key, and start the single API owner.
+2. **Verify the signatures the ready API serves.** Use an authorised host key
+   and check both fingerprints, including the original primary:
 
    ```sh
-   curl -sH "X-API-Key: $HOST_KEY" "$BASE_URL/wrapper/v2/config?engine=codex" \
-     | jq -r '.signatures[].fingerprint'
+   curl --fail -sS -H "X-API-Key: $HOST_KEY" "$BASE_URL/wrapper/v2/config?engine=codex" \
+     | jq '{primary: .signatures[0].fingerprint, active: [.signatures[].fingerprint]}'
    ```
 
-   The new fingerprint must appear. If it does not within `SIGNER_CACHE_TTL_MS`,
-   the API is not serving the key you added — stop and find out why instead of
-   continuing on the ops script's green.
-3. **Build binaries embedding the new public key.** Build and publish with
-   `PUBLIC_KEY_FILE=NEW_PUBLIC.pem` exactly as `bin/install.sh` does. Do **not**
-   let hosts pick them up yet: until the old key is retired those binaries reject
-   every config the API serves.
-4. **Flip: retire the old key and roll the fleet in one window.**
-   `node rotate-signing-key.js retire OLD_KEY_ID` stamps `rotated_at`, clears
-   `active`, and the newer key becomes primary — its signature now fills
-   `signature`/`.sig`. Retiring the only active key is refused, because that
-   leaves the bakery returning `503`. Every host still on an old-key binary now
-   fails config verification until it is on the new binary with a freshly fetched
-   config. Once the new key is primary, the published binaries and the primary
-   key agree again, so re-running the host installer from Admin → Host Detail is
-   a valid repair for anything that does not converge on its own — it writes a
-   fresh config and a `.sig` from the (now new) primary key alongside a binary
-   that embeds it. Before this step it is not: see the note above.
+   Existing binaries continue to verify the primary signature. The read-only
+   `rotate-signing-key.js list` command can inspect the inventory while the API
+   runs. Only the HTTP response shows the signature delivered to a host.
+3. **Prepare binaries embedding the new public key.** Build with
+   `PUBLIC_KEY_FILE=NEW_PUBLIC.pem` as in `bin/install.sh`. Keep the builds
+   outside the published catalog until the coordinated rollout.
+4. **Retire the old key and switch hosts in one maintenance window.** Drain
+   and stop the API owner, then run `node rotate-signing-key.js retire OLD_KEY_ID`.
+   Retiring the last active key is refused. Publish the matching builds in the
+   same controlled window and start the single API owner. Verify readiness,
+   the new primary fingerprint, and the installed binary together with its
+   freshly fetched config and signature before releasing normal host updates.
+   A host with a mismatched binary and sidecar can be reinstalled from
+   Admin → Host Detail after the published artifacts and primary agree.
 
-Rollback before step 4 is free: retire the new key instead and the primary never
-moved. After step 4 it costs a round trip — `add` re-inserts the old key with a
-fresh `created_at`, so it comes back as a secondary signer; retiring the newer
-key afterwards is what makes it primary again, and the fleet has to move back
-onto old-key binaries with it.
+To abandon the rotation before the final switch, drain and stop the owner,
+retire the added key, restart the owner and verify the original fingerprint.
+After the switch, returning to a former key requires access to its key material
+and another coordinated binary-and-signature rollout. Follow the installation's
+key custody and recovery rules.
 
 ## cxx rollout and rollback
 
