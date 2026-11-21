@@ -1343,7 +1343,7 @@ test("Grok account usage shows real periods and follows live updates without inv
   await expect(group.getByRole("meter", { name: "Monthly usage" })).toBeVisible();
   stale = true;
   update();
-  await expect(page.getByRole("row", { name: /Personal/ }).getByTitle("Last known reading; the latest update did not succeed")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Personal/ }).getByTitle("Last reported usage. Refresh to check for a newer reading.")).toBeVisible();
   await expect(group).toContainText("Update unavailable; showing the last reading.");
   available = false;
   update();
