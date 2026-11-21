@@ -357,19 +357,36 @@ describe.skipIf(!handle)('git director against a real database', () => {
     expect((await svc.join({ worktree_path: MAIN_WT }, host)).declared_paths).toEqual(scoped.declared_paths);
   });
 
-  it('re-evaluates a legacy 500-entry receipt checkout-wide without inventing its original count', async () => {
+  it.each([
+    ['capped list', Array.from({ length: 500 }, (_, n) => `src/p-${n}`)],
+    ['historical parent segment', ['src/../docs/manual']],
+    ['historical external absolute path', ['/outside-the-checkout/file']],
+  ] as const)('re-evaluates a legacy %s checkout-wide without inventing its original count', async (_label, original) => {
     await register(MAIN_WT);
     await register(LINKED_WT);
     await requestMerge(MAIN_WT, ['docs/manual']);
     const id = randomUUID();
     const waiting = await requestMerge(LINKED_WT, ['docs/manual'], id);
-    const prefix = Array.from({ length: 500 }, (_, n) => `src/p-${n}`);
-    await handle!.pool.query('UPDATE git_merge_requests SET changed_paths=? WHERE id=?', [JSON.stringify(prefix), waiting.request_id]);
-    await expect(requestMerge(LINKED_WT, prefix, id)).rejects.toMatchObject({ code: 'git_director_request_conflict' });
+    await handle!.pool.query('UPDATE git_merge_requests SET changed_paths=? WHERE id=?', [JSON.stringify(original), waiting.request_id]);
+    await expect(requestMerge(LINKED_WT, ['docs/manual'], id)).rejects.toMatchObject({ code: 'git_director_request_conflict' });
     const status = () => svc.mergeStatus({ request_id: waiting.request_id }, host);
     expect(await status()).toMatchObject({ verdict: 'wait', changed_path_scope: 'worktree', reported_changed_path_count: null, overlap: ['.'] });
     await svc.release({ worktree_path: MAIN_WT }, host);
     expect(await status()).toMatchObject({ verdict: 'allow', changed_path_scope: 'worktree', reported_changed_path_count: null });
+    expect(await status()).toMatchObject({ request_id: waiting.request_id, verdict: 'allow', changed_path_scope: 'worktree', reported_changed_path_count: null });
+  });
+
+  it('preserves the verified scope of a historical absolute path inside the registered checkout', async () => {
+    await register(MAIN_WT);
+    const id = randomUUID();
+    const granted = await requestMerge(MAIN_WT, ['docs/manual'], id);
+    await handle!.pool.query('UPDATE git_merge_requests SET changed_paths=? WHERE id=?', [
+      JSON.stringify([MAIN_WT + '/docs/manual']), granted.request_id,
+    ]);
+    const status = await svc.mergeStatus({ request_id: granted.request_id }, host);
+    expect(status).toMatchObject({ request_id: granted.request_id, verdict: 'allow' });
+    expect(status).not.toHaveProperty('changed_path_scope');
+    expect(await requestMerge(MAIN_WT, ['docs/manual'], id)).toMatchObject({ request_id: granted.request_id, replayed: true });
   });
 
   it('frees the branch when the holder releases, on the next poll', async () => {

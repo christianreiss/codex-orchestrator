@@ -1164,7 +1164,8 @@ All four engine config GET/store routes share the revision contract: `revision` 
   Their bounded scope and canonical SHA-256 let a retry use the same changed
   paths in any order. A different path set, target or commit range with the same
   request ID returns `409 git_director_request_conflict`.
-  Older 500-entry records may be truncated. They use the same checkout-wide
+  Older 500-entry records may be truncated. Historical lists with unresolvable
+  paths also have an unverifiable original scope. Both use the same checkout-wide
   scope with a null reported count. Use `git_merge_status` with the original
   request ID to recheck those records. The original exact input cannot be
   verified by resubmitting a path list. Reading a live owner-backed `allow`

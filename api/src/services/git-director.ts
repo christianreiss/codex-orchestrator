@@ -336,23 +336,23 @@ function storedJson(raw: unknown): unknown {
   return typeof raw === 'string' ? JSON.parse(raw) : raw;
 }
 
-/** Previous versions silently truncated at precisely MAX_PATHS. The tail is unknowable. */
+/** Older releases capped the array and accepted paths outside the current grammar.
+ * Their original scope cannot be reconstructed. Keep the stored receipt and
+ * require checkout-wide coverage for every subsequent decision on its ID. */
 function storedScope(raw: unknown, worktree: string): PathScope {
-  const paths = storedJson(raw);
-  if (paths != null && !Array.isArray(paths)) throw new ValidationError('Invalid stored Git path scope');
-  const scope = pathScope(paths, worktree);
-  return Array.isArray(paths) && paths.length >= MAX_PATHS ? { paths: ['.'], count: null } : scope;
-}
-
-/** A historical unsupported declaration still counts against this checkout.
- * Its author can replace or clear it with a new git_join. */
-function declaredPaths(raw: unknown, worktree: string): string[] {
+  const unknownScope: PathScope = { paths: ['.'], count: null };
   try {
-    return storedScope(raw, worktree).paths;
+    const paths = storedJson(raw);
+    if (paths != null && (!Array.isArray(paths) || paths.length >= MAX_PATHS)) return unknownScope;
+    return pathScope(paths, worktree);
   } catch (error) {
-    if (error instanceof ValidationError || error instanceof SyntaxError) return ['.'];
+    if (error instanceof ValidationError || error instanceof SyntaxError) return unknownScope;
     throw error;
   }
+}
+
+function declaredPaths(raw: unknown, worktree: string): string[] {
+  return storedScope(raw, worktree).paths;
 }
 
 function holderPaths(request: GitMergeRequest | null, worktree: GitWorktree | null): string[] {
@@ -2788,7 +2788,15 @@ export class GitDirectorService {
     };
     const receipt = overlapReceipt(request);
     const storedPaths = storedJson(request.changedPaths);
-    if (receipt || (Array.isArray(storedPaths) && storedPaths.length >= MAX_PATHS)) {
+    // New rows contain relative paths. Only historical absolute entries need
+    // the original registration to distinguish an in-checkout path from one outside.
+    let root: string | undefined = '/';
+    if (!receipt && Array.isArray(storedPaths) && storedPaths.some(path => typeof path === 'string' && posix.isAbsolute(path))) {
+      const [worktree] = this.rows(revisionDb, 'gitWorktrees')?.filter(row => row.id === request.worktreeId)
+        ?? await revisionDb.select({ worktreePath: gitWorktrees.worktreePath }).from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId));
+      root = worktree?.worktreePath;
+    }
+    if (receipt || !root || storedScope(storedPaths, root).count === null) {
       out.changed_path_scope = 'worktree';
       out.reported_changed_path_count = receipt?.reported_count ?? null;
     }
