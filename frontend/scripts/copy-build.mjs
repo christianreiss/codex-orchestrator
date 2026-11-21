@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Post-build: copy the SvelteKit static output (`build/`) into
- * `../public/admin/` while preserving the PHP gateway (`index.php`),
- * the manual content (`manual/`), and the error-page assets
+ * `../public/admin/` while preserving the manual content (`manual/`)
+ * and the error-page assets
  * (`error.css`, `error-logo.svg`).
  *
  * adapter-static's `pages` option writes directly to a destination but
@@ -21,7 +21,6 @@ const SOURCE = path.join(ROOT, "build");
 const DEST = path.resolve(ROOT, "..", "public", "admin");
 
 const PRESERVED = new Set([
-  "index.php",
   "manual",
   "error.css",
   "error-logo.svg",

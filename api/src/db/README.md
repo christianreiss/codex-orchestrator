@@ -123,7 +123,12 @@ DDL acknowledgement it verifies the candidate table against a temporary
 definition, or verifies the added index or foreign-key clause against the
 preceding schema fingerprint. Seed DML commits with its checkpoint in one
 transaction. Session-variable and prepared-statement sequences share a retry
-boundary. If the result of a sequence cannot be established, the schema differs
+boundary. After an interrupted collation alignment, the runner verifies the
+two affected tables against empty temporary definitions generated from the
+shipped baseline, both before and after conversion to the bus table collation.
+It also checks the complete pre-operation fingerprint. Any extra column or
+unrelated schema change prevents replay. If the result of another sequence
+cannot be established, the schema differs
 or the artifact changed, initialization stops before numbered migrations.
 Inspect the recorded offset and affected table with `SHOW CREATE TABLE`.
 Continue using the original artifact once the exact checkpoint or recognized

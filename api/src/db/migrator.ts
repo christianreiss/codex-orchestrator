@@ -535,6 +535,45 @@ async function verifiesCommittedDdl(
   return !!support && matchesPrior(remaining.filter(line => normalize(line) !== support));
 }
 
+// The distributed baseline aligns two newly created tables to the bus table's
+// collation. MySQL commits each conversion independently of the session-local
+// PREPARE handles. Verify the exact before/after definitions on empty private
+// tables before replaying this idempotent block. Any unrelated drift fences it.
+async function canReplayCollationAlignment(
+  conn: PoolConnection, statements: string[], offset: number,
+  current: Map<string, string>, expectedBefore: string,
+): Promise<boolean> {
+  const tables = ['agent_task_results', 'agent_fresh_start_grants'];
+  const block = ["SET @bus_collation := (SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_bus_addresses')"];
+  for (const table of tables) block.push(
+    `SET @ddl := CONCAT('ALTER TABLE ${table} CONVERT TO CHARACTER SET utf8mb4 COLLATE ', @bus_collation)`,
+    'PREPARE align_contract FROM @ddl', 'EXECUTE align_contract', 'DEALLOCATE PREPARE align_contract',
+  );
+  if (!block.every((sql, index) => statements[offset + index] === sql)) return false;
+  const [rows] = await conn.query<RowDataPacket[]>(
+    "SELECT TABLE_COLLATION AS collation_name FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='agent_bus_addresses'",
+  );
+  const collation = rows[0]?.collation_name;
+  if (typeof collation !== 'string' || !/^utf8mb4_[a-z0-9_]+$/.test(collation)) return false;
+  const previous = new Map(current);
+  for (const table of tables) {
+    const create = statements.slice(0, offset).find(sql => createTablePattern.exec(sql)?.[1] === table);
+    if (!create || !current.has(table)) return false;
+    const probe = '__cxx_baseline_alignment_probe';
+    await conn.query(create.replace(createTablePattern, `CREATE TEMPORARY TABLE \`${probe}\` (`));
+    try {
+      const before = definitionDigest(await tableDefinition(conn, probe));
+      previous.set(table, before);
+      if (current.get(table) === before) continue;
+      await conn.query(`ALTER TABLE \`${probe}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE ${collation}`);
+      if (current.get(table) !== definitionDigest(await tableDefinition(conn, probe))) return false;
+    } finally {
+      await conn.query(`DROP TEMPORARY TABLE \`${probe}\``);
+    }
+  }
+  return schemaDigest(previous) === expectedBefore;
+}
+
 async function applyBaseline(
   conn: PoolConnection,
   statements: string[],
@@ -567,12 +606,12 @@ async function applyBaseline(
   let digests = await schemaDigests(conn, existing);
   if (progress && schemaDigest(digests) !== progress.name) {
     const statement = statements[offset] ?? '';
-    const verified = !ctx.dryRun && await verifiesCommittedDdl(conn, statement, digests, progress.name);
-    if (!verified) {
+    if (!ctx.dryRun && await verifiesCommittedDdl(conn, statement, digests, progress.name)) {
+      offset++;
+      await checkpointBaseline(conn, checksum, schemaDigest(digests), offset);
+    } else if (ctx.dryRun || !await canReplayCollationAlignment(conn, statements, offset, digests, progress.name)) {
       throw new Error(`baseline schema differs at statement ${offset + 1}; effect uncertain, inspect the schema and checkpoint before continuing`);
     }
-    offset++;
-    await checkpointBaseline(conn, checksum, schemaDigest(digests), offset);
   }
   if (ctx.dryRun) {
     return { applied: false, reason: 'dry run: baseline would be applied or resumed',

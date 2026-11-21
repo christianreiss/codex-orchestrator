@@ -117,6 +117,26 @@ describe.skipIf(!config)('baseline recovery on disposable MySQL', () => {
     expect(rows).toMatchObject([{ id: 42 }]);
   });
 
+  it('resumes a committed collation conversion only when every affected definition matches', async () => {
+    // This supported database default differs from MySQL 8.4's utf8mb4
+    // default. The first EXECUTE therefore really changes the first table.
+    await admin.query(`ALTER DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    await expect(runMigrations(lostConnection(pool, /^EXECUTE align_contract$/, 'after'), { initSchema: true }))
+      .rejects.toThrow('fixture lost');
+    const collations = async () => {
+      const [rows] = await pool.query<RowDataPacket[]>("SELECT TABLE_NAME, TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('agent_task_results','agent_fresh_start_grants') ORDER BY TABLE_NAME");
+      return rows.map(row => row.TABLE_COLLATION);
+    };
+    expect(await collations()).toEqual(['utf8mb4_0900_ai_ci', 'utf8mb4_unicode_ci']);
+    await pool.query('ALTER TABLE agent_task_results ADD COLUMN user_note VARCHAR(30)');
+    await expect(runMigrations(pool, { initSchema: true })).rejects.toThrow('effect uncertain');
+    await pool.query('ALTER TABLE agent_task_results DROP COLUMN user_note');
+    const resumed = await runMigrations(pool, { initSchema: true });
+    expect(resumed.baseline?.applied).toBe(true);
+    expect(await collations()).toEqual(['utf8mb4_unicode_ci', 'utf8mb4_unicode_ci']);
+    expect((await runMigrations(pool, { initSchema: true })).outcomes).toHaveLength(0);
+  });
+
   it('recovers the distributed baseline then applies every shipped migration', async () => {
     await expect(runMigrations(lostConnection(pool, /^CREATE TABLE `admin_passkeys`/, 'after'), { initSchema: true }))
       .rejects.toThrow('fixture lost');
