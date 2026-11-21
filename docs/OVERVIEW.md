@@ -212,8 +212,7 @@ Routine HTTP access logging is disabled. Audit history retains authentication,
 administrative changes and failed/ambiguous work; successful version reports and
 delivery copies are omitted because their current facts live in host/message
 records. API/MySQL container logs rotate at three 10 MB files. The single-server
-Compose MySQL disables binary logging; deployments omit DB/storage archives
-unless `--backup` is explicitly supplied. External backups own recovery history.
+Compose MySQL disables binary logging; Bareos owns database and storage recovery.
 
 cxx 0.9.127 explicitly negotiates provider connection ownership for signed
 configurations requiring a live attachment. Legacy configurations retain timed
@@ -455,7 +454,7 @@ Transfer retries repair only uncommitted tail bytes; a shared-memory expected
 SHA is checked under the same lock as its replacement. Git Director and project
 card availability use fresh session heartbeats rather than stale session IDs;
 quiet live bound registrations keep their claims. Gateway disconnect and
-shutdown cancel all three CLI backends, and synthesized streams retain unknown
+shutdown cancel all four CLI backends, and synthesized streams retain unknown
 stop reasons as `null`.
 
 Managed Grok leader diagnostics are kept in private per-run logs rather than written over the interactive terminal; `cgx doctor` locates them. Actual tool errors remain visible in the native UI and transcript. See [Grok diagnostics](interface-cgx.md#private-leader-diagnostics-cxx-0931).
@@ -865,7 +864,7 @@ housekeeping remains independent.
 `start`, `stop`, `status` (including `--json`) and `update`. Setup and deployment
 share env-file interpolation and configured profiles; setup persists its Caddy
 choice. Stop retains containers and data. Update fetches GitHub `main`, requires
-a clean fast-forwardable checkout, saves private database/env backups, then
+a clean fast-forwardable checkout, then
 rebuilds, migrates, restarts and verifies readiness. It starts stopped instances
 and supports retries after deployment failure. Mutations share a checkout lock;
 status stays available. See [installation](INSTALL.md#instance-management).
@@ -1805,7 +1804,7 @@ and deployment. See `docs/interface-api.md` for the event and delivery contract.
 
 ### Feedback and SQL telemetry cleanup (2026-10-24)
 
-Activity now shows meaningful changes; generic MCP history and ineffective log-retention controls are retired. Secret reads retain fail-closed audits, protocol events retain their state/cursor roles, and migration 0092 requires a pre-deploy SQL backup for historical telemetry rollback. Remote Git provenance, unmanaged-target claims, structured MCP conflicts and bounded interactive suspend recovery are documented in the interface and coordination contracts.
+Activity now shows meaningful changes; generic MCP history and ineffective log-retention controls are retired. Secret reads retain fail-closed audits, protocol events retain their state/cursor roles, and recovering telemetry removed by migration 0092 requires existing external recovery data. Remote Git provenance, unmanaged-target claims, structured MCP conflicts and bounded interactive suspend recovery are documented in the interface and coordination contracts.
 
 For a self-hosted control-plane rollout run `python3 scripts/deploy-detached.py -- --no-backup --no-cleanup --service api`. The systemd unit survives SSH/native/API interruption; inspect the printed result.json and deploy.log paths. An accepted launcher is not deployment success. The result distinguishes the initial and final checkout revisions and includes the deploy exit code; HOME/PATH are retained explicitly. Rolling back past the removed MCP schema needs the old commit plus a Bareos database restore; an old image alone cannot audit secret reads and therefore fails closed.
 

@@ -55,6 +55,40 @@ describe('exclusive owner lifetime', () => {
     expect(f.connection.destroy).toHaveBeenCalledOnce();
     f.connection.emit('end');
     expect(closeStreams).toHaveBeenCalledOnce();
+    await f.owner.close();
+    expect(closeStreams).toHaveBeenCalledOnce();
+  });
+  it('reports a loss during server setup to the process listener attached before listen', async () => {
+    const f = fixture();
+    await f.owner.acquire();
+    await f.owner.hydrate(async () => ({}));
+    f.owner.ready();
+    const loss = new Error('connection lost during route registration');
+    f.connection.emit('error', loss);
+    const restart = vi.fn();
+    f.owner.onLost(restart);
+    expect(restart).toHaveBeenCalledOnce();
+    expect(restart).toHaveBeenCalledWith(loss);
+  });
+  it('withdraws readiness during a slow planned unlock without requesting a restart', async () => {
+    const f = fixture();
+    await f.owner.acquire();
+    await f.owner.hydrate(async () => ({}));
+    f.owner.ready();
+    const restart = vi.fn();
+    f.owner.onLost(restart);
+    let acknowledge!: () => void;
+    f.connection.query.mockImplementationOnce(() => new Promise(resolve => {
+      acknowledge = () => resolve([[{ acquired: 1 }], []]);
+    }));
+    const closing = f.owner.close();
+    expect(() => f.owner.assertReady()).toThrow('closed');
+    expect(f.connection.destroy).not.toHaveBeenCalled();
+    expect(restart).not.toHaveBeenCalled();
+    acknowledge();
+    await closing;
+    expect(f.connection.destroy).toHaveBeenCalledOnce();
+    expect(restart).not.toHaveBeenCalled();
   });
   it('cannot become ready after failed hydration or unknown bootstrap commit', async () => {
     const f = fixture();

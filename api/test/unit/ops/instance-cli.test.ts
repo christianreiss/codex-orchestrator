@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -66,9 +66,7 @@ elif 'exec' in a and 'mysql' in a:
             elif 'DATE_FORMAT' in line: print('2026-10-24T00:00:00.000Z', flush=True)
         sys.exit(0)
     if 'information_schema.tables' in a[-1]: print('4096'); sys.exit(0)
-    if os.environ.get('DUMP_EXIT'): sys.exit(int(os.environ['DUMP_EXIT']))
-    print('-- fixture SQL')
-    if not os.environ.get('INCOMPLETE_DUMP'): print('-- Dump completed on 2026-10-12')
+    if 'mysqldump' in a[-1]: sys.exit(81)
 elif 'exec' in a and 'api' in a:
     if os.environ.get('READY_EXIT'): sys.exit(int(os.environ['READY_EXIT']))
     print(json.dumps({'ok': not bool(os.environ.get('NOT_READY')),
@@ -302,7 +300,7 @@ describe('local instance CLI', () => {
     expect(build.build_dirty).toBe('false');
   });
 
-  it('updates from pinned main, backs up privately, re-execs and retries the same revision', () => {
+  it('updates from pinned main, re-execs and retries without copying instance data', () => {
     const f = fixture();
     const u = upstream(f);
     // The github remote is independent of origin/upstream.
@@ -312,15 +310,10 @@ describe('local instance CLI', () => {
     expect(f.git('rev-parse', 'HEAD')).toBe(u.target);
     expect(r.stderr).toContain('Updated CLI ran:');
     expect(readFileSync(u.deployLog, 'utf8')).toContain('--skip-git --no-cleanup --profile caddy');
-    const backups = join(f.data, 'backups');
-    const backup = join(backups, readdirSync(backups)[0]!);
-    expect(readFileSync(join(backup, 'database.sql'), 'utf8')).toContain('Dump completed');
-    expect(readFileSync(join(backup, 'env'), 'utf8')).toContain('fixture-secret');
-    expect(statSync(backup).mode & 0o777).toBe(0o700);
-    expect(statSync(join(backup, 'env')).mode & 0o777).toBe(0o600);
-    expect(statSync(join(backup, 'database.sql')).mode & 0o777).toBe(0o600);
+    expect(existsSync(join(f.data, 'backups'))).toBe(false);
     expect(f.run(['update', '--repo-url', u.remote], { MOCK_DEPLOY_LOG: u.deployLog }).status).toBe(0);
-    expect(readdirSync(backups)).toHaveLength(2);
+    expect(f.calls().some(call => call.args.some(arg => arg.includes('mysqldump')))).toBe(false);
+    expect(existsSync(join(f.data, 'backups'))).toBe(false);
   });
 
   it.each(['dirty', 'untracked', 'ahead', 'diverged', 'branch'] as const)(
@@ -343,17 +336,7 @@ describe('local instance CLI', () => {
       expect(existsSync(u.deployLog)).toBe(false);
     });
 
-  it.each([{ DUMP_EXIT: '5' }, { INCOMPLETE_DUMP: '1' }])('does not advance after backup failure: %s', (env) => {
-    const f = fixture();
-    const u = upstream(f);
-    const r = f.run(['update', '--repo-url', u.remote], { MOCK_DEPLOY_LOG: u.deployLog, ...env });
-    expect(r.status).not.toBe(0);
-    expect(f.git('rev-parse', 'HEAD')).toBe(u.previous);
-    expect(r.stderr).toContain('stage: backup');
-    expect(existsSync(u.deployLog)).toBe(false);
-  });
-
-  it('reports fetch and deploy failures, preserving the backup and actual checkout revision', () => {
+  it('reports fetch and deploy failures, with the actual checkout revision', () => {
     const f = fixture();
     const u = upstream(f, 9);
     const fetch = f.run(['update', '--repo-url', join(f.dir, 'missing.git')]);
@@ -366,15 +349,15 @@ describe('local instance CLI', () => {
     expect(deploy.stderr).toContain('stage: deploy');
     expect(deploy.stderr).toContain(u.target);
     expect(f.git('rev-parse', 'HEAD')).toBe(u.target);
-    expect(readdirSync(join(f.data, 'backups'))).toHaveLength(1);
+    expect(existsSync(join(f.data, 'backups'))).toBe(false);
     expect(deploy.stderr).not.toContain('Update complete');
   });
 });
 
-// Opt-in real Docker control/backup smoke. It uses a small readiness server and
+// Opt-in real Docker control/update smoke. It uses a small readiness server and
 // real MySQL, not provider credentials or the full fleet/wrapper installation.
 // Only the fixture's Compose project name changes, to isolate the host's stack.
-it.skipIf(process.env.TEST_INSTANCE_DOCKER !== '1')('controls isolated Docker containers and backs up real MySQL during update', () => {
+it.skipIf(process.env.TEST_INSTANCE_DOCKER !== '1')('controls isolated Docker containers and preserves MySQL data through update', () => {
   const f = fixture();
   const project = `instance-cli-${process.pid}-${Date.now()}`;
   const helper = join(f.repo, 'bin/lib/instance-compose.sh');
@@ -461,8 +444,7 @@ instance_compose up -d --wait --wait-timeout 90
     expect(update.status, update.stderr).toBe(0);
     expect(f.git('rev-parse', 'HEAD')).toBe(target);
     expect(JSON.parse(run(['status', '--json']).stdout).state).toBe('ready');
-    const backupDir = join(f.data, 'backups', readdirSync(join(f.data, 'backups'))[0]!);
-    expect(readFileSync(join(backupDir, 'database.sql'), 'utf8')).toContain('(42)');
+    expect(existsSync(join(f.data, 'backups'))).toBe(false);
     const checked = docker(['exec', '-T', 'mysql', 'sh', '-lc',
       'mysql -N -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -e "SELECT value FROM smoke_data; SELECT COUNT(*) FROM smoke_migration;"']);
     expect(checked.status, checked.stderr).toBe(0);

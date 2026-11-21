@@ -949,7 +949,7 @@ step_wrappers() {
   fi
 
   if [[ -n "$previous_api" ]]; then
-    fatal "an API already exists and the wrapper matrix needs rebuilding; use scripts/deploy.sh so publication follows the quiescent backup"
+    fatal "an API already exists and the wrapper matrix needs rebuilding; use scripts/deploy.sh so publication follows writer quiescence"
   fi
 
   # Establish that a rebuild is actually possible BEFORE touching anything.
@@ -1067,7 +1067,7 @@ step_datatier() {
 step_schema() {
   (( DRY_RUN )) && { step_skipped "would run migrate.js --init-schema"; return 0; }
   instance_compose_init
-  owner_cutover_prepare || fatal "quiescent backup failed; inspect previous-container recovery status"
+  owner_cutover_prepare || fatal "writer quiescence failed; inspect previous-container recovery status"
   owner_cutover_phase changing
   info "provisioning the schema"
   # Creates the baseline only when the database has no application tables, then
@@ -1085,7 +1085,7 @@ step_apptier() {
   (( DRY_RUN )) && { step_skipped "would start api, media-worker, slop-worker and configured caddy"; return 0; }
   if [[ -z "$OWNER_CUTOVER_DIR" ]]; then
     instance_compose_init
-    owner_cutover_prepare || fatal "quiescent backup failed"
+    owner_cutover_prepare || fatal "writer quiescence failed"
   fi
   local services=(api media-worker slop-worker) up=(up -d)
   (( USE_CADDY )) && services+=(caddy)
@@ -1104,7 +1104,7 @@ step_signer() {
   if [[ -f "$WRAPPER_PRIVATE_KEY" ]]; then
     if [[ -z "$OWNER_CUTOVER_DIR" ]]; then
       instance_compose_init
-      owner_cutover_prepare || fatal "quiescent backup failed"
+      owner_cutover_prepare || fatal "writer quiescence failed"
     fi
     owner_cutover_phase changing
     info "importing the signing key into encrypted database storage"

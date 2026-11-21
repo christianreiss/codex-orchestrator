@@ -25,7 +25,7 @@ describe('deploy.sh wrapper publishing contract', () => {
     expect(deploy).toContain('skipping wrappers (api not in --service list)');
   });
 
-  it('builds wrappers before downtime and publishes only after the quiescent backup', () => {
+  it('builds wrappers before downtime and publishes only after writer quiescence', () => {
     expect(indexOf('publish_wrappers "${wrapper_version}" "${wrapper_root}"')).toBeLessThan(indexOf('build_args=(build)'));
     expect(indexOf('owner_cutover_prepare ||')).toBeLessThan(deploy.lastIndexOf('  activate_wrappers'));
     expect(deploy.lastIndexOf('  activate_wrappers')).toBeLessThan(indexOf('run --rm -T api node migrate.js'));

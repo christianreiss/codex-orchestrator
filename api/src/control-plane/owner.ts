@@ -12,6 +12,7 @@ export class ControlPlaneOwnership {
   readonly epoch = randomUUID();
   private connection: PoolConnection | undefined;
   private phase: OwnerPhase = 'new';
+  private lossReason: unknown;
   private listeners = new Set<(reason: unknown) => void>();
   private readonly lockName: string;
   constructor(
@@ -35,7 +36,10 @@ export class ControlPlaneOwnership {
     return this.connection!;
   }
   onLost(listener: (reason: unknown) => void): () => void {
-    this.listeners.add(listener);
+    // Server setup can span asynchronous work after hydration. A real loss
+    // during that window must also reach the later process-restart listener.
+    if (this.phase === 'lost') listener(this.lossReason);
+    else if (this.phase !== 'closed') this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
   async acquire(): Promise<PoolConnection> {
@@ -89,6 +93,7 @@ export class ControlPlaneOwnership {
   lose(reason: unknown): void {
     if (this.phase === 'lost' || this.phase === 'closed') return;
     this.phase = 'lost';
+    this.lossReason = reason;
     // Destroy, never release to a pool that could reconnect and retain old RAM.
     this.connection?.destroy();
     for (const listener of this.listeners) {
@@ -98,18 +103,12 @@ export class ControlPlaneOwnership {
         /* loss remains final */
       }
     }
+    this.listeners.clear();
   }
   async close(): Promise<void> {
     if (this.phase === 'closed') return;
     const previous = this.phase;
     this.phase = 'closed';
-    for (const listener of this.listeners) {
-      try {
-        listener(new OwnerUnavailableError('Owner stopped'));
-      } catch {
-        /* readiness already withdrawn */
-      }
-    }
     this.listeners.clear();
     if (this.connection && previous !== 'lost') {
       try {

@@ -271,7 +271,7 @@ bin/orchestrator start                       # start existing images; await read
 bin/orchestrator stop                        # retain containers, networks and data
 bin/orchestrator status                      # revision, services, health, readiness
 bin/orchestrator status --json               # one JSON object on stdout
-bin/orchestrator update                      # GitHub main, backup, rebuild and restart
+bin/orchestrator update                      # GitHub main, rebuild and restart
 bin/orchestrator status --env-file .env.local
 bin/orchestrator start --profile caddy
 ```
@@ -306,25 +306,16 @@ changed. It requires a clean `main` branch and refuses local commits absent
 from the fetched branch, divergence and untracked files. It never stashes,
 resets or rebases local work.
 
-The command pins the fetched revision, starts MySQL if necessary, and creates
-a private directory under `DATA_ROOT/backups` with a completed transactional
-database dump, the env file (including the encryption key), and previous/target
-Git revisions. A failed dump stops the update before the checkout advances.
-It then fast-forwards, re-executes the updated CLI with the same lock, and runs
-the deploy helper with Git fetching and global Docker pruning disabled. The
-helper publishes new wrapper versions, builds the stack, runs migrations,
-restarts configured services, and checks health/logs; the CLI additionally
-checks critical readiness. Updating a stopped instance starts it. These backups
-cover the database and env file, not the entire storage tree.
+The command pins the fetched revision, starts MySQL if necessary, fast-forwards
+and re-executes the updated CLI under the same lock. The deploy helper builds
+images, quiesces writers, publishes wrappers, migrates and starts the replacement.
+The CLI then checks critical readiness. Updating a stopped instance starts it.
 
-Failures name the stage, actual previous/target revisions and backup directory.
-After a failed deployment, fix the cause and rerun `update`: it redeploys even
-when the checkout already matches GitHub. Migrations are not reversed
-automatically. For a rollback, stop the instance, restore the matching database
-dump and env file, use a clean checkout of the recorded previous revision, and
-rebuild/start that revision. Preserve the storage tree; if wrapper publication
-already advanced, follow the manifest rollback procedure in
-[wrapper architecture](wrapper-v2-architecture.md).
+Failures name the stage and the previous and target Git revisions. After a failed
+deployment, fix the cause and rerun `update` on the same revision. Bareos owns
+data recovery. Before choosing an earlier commit, check the cutover phase and
+schema compatibility. After replacement startup, preserve accepted work and
+repair forward. See [owner cutover and recovery](owner-cutover.md).
 
 ## Build and Run
 

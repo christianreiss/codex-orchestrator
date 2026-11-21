@@ -47,6 +47,7 @@ export async function createOwnedControlPlane(options: {
 }) {
   const ownership = new ControlPlaneOwnership(options.pool, options.env.DB_DATABASE);
   const deadlines = new DeadlineQueue(options.error);
+  let stopState = () => deadlines.close();
   try {
     const connection = await ownership.acquire();
     const legacyCutover = await readLegacyCutoverManifest(
@@ -158,7 +159,7 @@ export async function createOwnedControlPlane(options: {
     bindOwnerRuntime(options.handle, runtime);
     let stopBoard = () => {},
       stopStateEvents = () => {};
-    ownership.onLost(() => {
+    stopState = () => {
       stopBoard();
       stopStateEvents();
       stopHostActivity(runtime);
@@ -167,7 +168,8 @@ export async function createOwnedControlPlane(options: {
       credentials.close();
       deadlines.close();
       presence.close();
-    });
+    };
+    ownership.onLost(stopState);
     ownership.ready();
     trackHostActivity(runtime);
     // Before any attachment: the reconnect and boot graces are measured from here.
@@ -193,17 +195,12 @@ export async function createOwnedControlPlane(options: {
         stopBoard();
         stopStateEvents();
         await commands.drain();
-        stopHostActivity(runtime);
-        stopSessionActivity(runtime);
-        legacyDrain.close();
-        credentials.close();
-        deadlines.close();
-        presence.close();
+        stopState();
         await ownership.close();
       },
     };
   } catch (error) {
-    deadlines.close();
+    stopState();
     await ownership.close();
     throw error;
   }

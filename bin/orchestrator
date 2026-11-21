@@ -16,7 +16,7 @@ Manage this local Docker Compose instance from any directory.
   start                      Start configured services and verify readiness.
   stop                       Stop all services, preserving containers and data.
   status [--json]             Read-only service, health and readiness report.
-  update [--repo-url URL]     Back up, fetch GitHub main, rebuild and restart.
+  update [--repo-url URL]     Fetch GitHub main, rebuild and restart.
 
 Options for start/stop/status/update:
   --profile NAME             Enable an additional Compose profile (repeatable).
@@ -26,8 +26,7 @@ Options for start/stop/status/update:
 ENV_FILE also selects an env file (default: .env). Setup accepts the installer's
 flags unchanged. COMPOSE_PROFILES records enabled profiles; an existing Caddy
 container is also detected. Update requires a clean main checkout and accepts
-only fast-forwards. It starts stopped instances and retains backups under
-DATA_ROOT/backups. Exit codes: 0 success/ready, 1 failure/not ready, 2 usage.
+only fast-forwards. It starts stopped instances. Exit codes: 0 success/ready, 1 failure/not ready, 2 usage.
 EOF
 }
 
@@ -67,41 +66,13 @@ lock_instance() {
   flock -n 9 || fail "another instance command holds $lock_file"
 }
 
-backup_instance() {
-  local data_root
-  data_root="$(instance_env_get DATA_ROOT || true)"
-  [[ -n "$data_root" ]] || fail "DATA_ROOT is unset; run bin/orchestrator setup"
-  [[ "$data_root" == /* ]] || data_root="$INSTANCE_ROOT/$data_root"
-  mkdir -p "$data_root/backups"
-  BACKUP_DIR="$(mktemp -d "$data_root/backups/update-$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")"
-  chmod 700 "$BACKUP_DIR"
-  cp "$ENV_PATH" "$BACKUP_DIR/env"
-  chmod 600 "$BACKUP_DIR/env"
-  printf '%s\n' "$PREVIOUS_REV" > "$BACKUP_DIR/previous-revision"
-  printf '%s\n' "$TARGET_REV" > "$BACKUP_DIR/target-revision"
-  log "Writing backup to $BACKUP_DIR"
-  # Credentials expand inside the container, never in command output.
-  # shellcheck disable=SC2016
-  instance_compose exec -T mysql sh -lc \
-    'mysqldump --single-transaction --no-tablespaces -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
-    > "$BACKUP_DIR/database.sql.partial"
-  if [[ ! -s "$BACKUP_DIR/database.sql.partial" ]] ||
-    ! tail -n 5 "$BACKUP_DIR/database.sql.partial" | grep -q '^-- Dump completed on '; then
-    fail "database dump is incomplete; checkout was not advanced"
-  fi
-  mv "$BACKUP_DIR/database.sql.partial" "$BACKUP_DIR/database.sql"
-}
-
 cmd_update() {
   require_cmd git
-  require_cmd curl
   local source fetch_ref
   if [[ "${ORCHESTRATOR_UPDATE_PHASE:-}" == deploy ]]; then
     PREVIOUS_REV="$ORCHESTRATOR_PREVIOUS_REV"
     TARGET_REV="$ORCHESTRATOR_TARGET_REV"
-    BACKUP_DIR="$ORCHESTRATOR_BACKUP_DIR"
     [[ "$(git -C "$INSTANCE_ROOT" rev-parse HEAD)" == "$TARGET_REV" ]] || fail "checkout changed during update"
-    [[ -s "$BACKUP_DIR/database.sql" ]] || fail "update backup is missing"
     STAGE=deploy
     # Preserve detected/explicit profiles across re-exec and the deploy helper.
     local -a deploy_args=(--skip-git --no-cleanup)
@@ -110,7 +81,7 @@ cmd_update() {
     ENV_FILE="$ENV_PATH" bash "$INSTANCE_ROOT/scripts/deploy.sh" "${deploy_args[@]}"
     STAGE=readiness
     cmd_status
-    log "Update complete: $PREVIOUS_REV -> $TARGET_REV; backup: $BACKUP_DIR"
+    log "Update complete: $PREVIOUS_REV -> $TARGET_REV"
     return
   fi
   STAGE=preflight
@@ -136,19 +107,18 @@ cmd_update() {
   [[ -f "$INSTANCE_ROOT/bin/orchestrator" ]] || fail "instance CLI missing from checkout"
   git -C "$INSTANCE_ROOT" cat-file -e "$TARGET_REV:bin/orchestrator" ||
     fail "target revision does not contain the instance CLI"
+  [[ -n "$(instance_env_get DATA_ROOT || true)" ]] || fail "DATA_ROOT is unset; run bin/orchestrator setup"
   STAGE=database
   instance_compose up -d --no-build --wait --wait-timeout 180 mysql
-  STAGE=backup
-  backup_instance
   STAGE=fast-forward
   [[ "$(git -C "$INSTANCE_ROOT" rev-parse HEAD)" == "$PREVIOUS_REV" &&
      -z "$(git -C "$INSTANCE_ROOT" status --porcelain --untracked-files=all)" ]] ||
-    fail "checkout changed during backup; fast-forward refused"
+    fail "checkout changed after fetch; fast-forward refused"
   # This function has already been parsed in full, so replacing the running
   # script cannot make Bash consume a mixture of the old and new files.
   git -C "$INSTANCE_ROOT" merge --ff-only "$TARGET_REV"
   export ORCHESTRATOR_UPDATE_PHASE=deploy ORCHESTRATOR_PREVIOUS_REV="$PREVIOUS_REV"
-  export ORCHESTRATOR_TARGET_REV="$TARGET_REV" ORCHESTRATOR_BACKUP_DIR="$BACKUP_DIR"
+  export ORCHESTRATOR_TARGET_REV="$TARGET_REV"
   local -a continuation=(update --env-file "$ENV_PATH")
   local profile
   for profile in "${INSTANCE_PROFILES[@]}"; do continuation+=(--profile "$profile"); done
@@ -163,7 +133,6 @@ main() {
   OUTPUT_MODE=human REPO_URL="" STAGE="$command"
   PREVIOUS_REV="${ORCHESTRATOR_PREVIOUS_REV:-unknown}"
   TARGET_REV="${ORCHESTRATOR_TARGET_REV:-unknown}"
-  BACKUP_DIR="${ORCHESTRATOR_BACKUP_DIR:-none}"
   if [[ "$command" == setup ]]; then
     for arg in "$@"; do
       case "$arg" in -h|--help) exec bash "$INSTANCE_ROOT/bin/install.sh" "$@" ;; esac
@@ -210,7 +179,7 @@ umask 077
 on_exit() {
   local rc=$?
   if (( rc != 0 )); then
-    log "Command failed (exit $rc), stage: ${STAGE:-startup}; revisions: ${PREVIOUS_REV:-unknown} -> ${TARGET_REV:-unknown}; backup: ${BACKUP_DIR:-none}"
+    log "Command failed (exit $rc), stage: ${STAGE:-startup}; revisions: ${PREVIOUS_REV:-unknown} -> ${TARGET_REV:-unknown}"
     if [[ "${ORCHESTRATOR_USAGE_FAILED:-0}" == 1 ]]; then exit 2; else exit 1; fi
   fi
 }

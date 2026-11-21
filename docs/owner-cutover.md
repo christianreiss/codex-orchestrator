@@ -57,8 +57,7 @@ admitted work yet. Their images stay present as long as those containers exist.
 
 `replacement-started` is written **before** Compose starts anything. From that
 point assume new work may already have been accepted, even if startup or health
-checks fail. `verified` keeps the same restriction. Do not restore the old dump
-or simply start the old binary against the new schema. Stop admission, retain
+checks fail. `verified` keeps the same restriction. Stop admission, retain
 current receipts/outbox/results and storage, diagnose the failure, and deploy a
 compatible repair under the same exclusive-owner protocol. To return to an
 earlier release, deploy its commit; restoring data is a Bareos operation.
@@ -113,9 +112,9 @@ TEST_USE_DB=1 TEST_DATABASE_URL="$LAB_DATABASE_URL" \
 Run test containers with `--ulimit core=0`. Keep the container lifetime separate
 from any one test command so a failed coverage run cannot terminate a timed
 observation. Run all nine combinations of 1/20/200 communicators and 0/1/5 tabs
-sequentially when they share a database. One communicator carries all three
-engine identities; larger cohorts distribute identities across the three
-engines. The clients are simulated TCP protocol clients, not installed Go
+sequentially when they share a database. One communicator carries all supported
+engine identities. Larger cohorts distribute one identity per communicator
+across those engines. The report counts the sessions registered for each engine. The clients are simulated TCP protocol clients, not installed Go
 communicators or running native engine processes. Installed-client compatibility
 needs the separate wrapper/protocol checks.
 

@@ -198,6 +198,7 @@ if (isMain) {
     setTimeout(() => process.exit(1), 250).unref();
   });
   try {
+    app.controlPlane.runtime.assertOwner();
     await app.listen({ host: env.LISTEN_HOST, port: env.LISTEN_PORT });
   } catch (err) {
     app.log.error({ err }, 'failed to start');

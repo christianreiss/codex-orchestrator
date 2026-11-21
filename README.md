@@ -386,7 +386,7 @@ bin/orchestrator update
 ```
 
 `stop` preserves containers and data. `update` fetches GitHub's latest `main`,
-backs up the database and env file, then builds, migrates, restarts and checks
+fast-forwards the checkout, then builds, migrates, restarts and checks
 readiness. It requires a clean `main` checkout with no local commits absent from
 GitHub. Custom env files and Caddy profiles are shared with setup and deployment;
 see [instance management](docs/INSTALL.md#instance-management).

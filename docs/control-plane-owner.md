@@ -2,8 +2,8 @@
 
 The API owns current orchestration state for one MySQL database. MySQL stores
 committed changes and cold history; it is not polled to discover changes the API
-itself made. This refactor is under integration validation; the production
-cutover and full fleet idle acceptance matrix have not yet been completed.
+itself made. Production cutover and idle acceptance require dated evidence for the deployed
+revision. The cutover runbook lists the acceptance measurements.
 
 ## Ownership and commands
 
@@ -11,6 +11,9 @@ A dedicated connection holds a database-specific MySQL named lock. The API
 migrates and hydrates a bounded, typed metadata snapshot before accepting
 requests. Every durable command uses that same connection. Losing it fences the
 owner: reconnecting a pool connection cannot give old RAM authority again.
+An unexpected loss during startup or serving makes the standalone API exit with
+failure so the replacement can hydrate a fresh owner. During an orderly stop,
+the owner withdraws readiness and waits for the database to acknowledge its unlock.
 
 Normal API startup also acquires a kernel lock in the shared storage directory.
 The API retains that file descriptor after the lock helper exits, including after
@@ -118,13 +121,13 @@ connection. Read-only key listing and migration checks may coexist.
 
 Deployment builds first, stops the old API and retired quota writer, migrates,
 and starts the replacement. Installation imports the signing key before the
-API starts. A production rollout must retain its previous image and a
-quiescent database backup. Before new work is admitted, rollback can restore
-that pair. After admission, preserve new durable receipts and work; use forward
-repair rather than restoring a stale backup over live execution history.
+API starts. The cutover records the previously running writers and their image
+IDs. Bareos owns data recovery. Retain the current receipts, outbox, results
+and storage after replacement startup. Any earlier release must be compatible
+with the current schema and accepted work.
 
-See [Owner cutover and recovery](owner-cutover.md) for the private backup bundle,
-pre-start restore commands and the mandatory forward-repair boundary.
+See [Owner cutover and recovery](owner-cutover.md) for the phase file, writer
+restart conditions and forward-repair procedure.
 
 ## Protected response completion
 

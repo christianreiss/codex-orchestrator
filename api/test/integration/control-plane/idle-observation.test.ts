@@ -19,6 +19,7 @@ import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer
 import { requestHost } from '../../../src/control-plane/state/admission.js';
 import { SettingsService } from '../../../src/services/settings.js';
 import { registerOwnedMessagingSession } from '../../../src/control-plane/state/session-registration.js';
+import { ENGINES, type Engine } from '../../../src/util/engine.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
 import { installSqlBudget } from '../../helpers/sql-budget.js';
 
@@ -152,13 +153,13 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
           await settings.set('agent_messaging_enabled', '1');
           const runtime = app.controlPlane.runtime;
           const WebSocket = createRequire(import.meta.url)('ws');
+          const sessionsPerEngine = new Map<Engine, number>();
           for (let n = 0; n < count; n++) {
             if (n % 20 === 0) progress(`attaching communicator ${n + 1}/${count}`);
-            const engine = (['codex', 'claude', 'grok', 'kimi'] as const)[n % 3]!;
             const registered = await hosts.register({
               fqdn: `idle-${n}.fixture.test`,
               secure: true,
-              engines: ['codex', 'claude', 'grok', 'kimi'],
+              engines: [...ENGINES],
               reverse_dns_mode: 'disabled',
             });
             const host = requestHost(
@@ -167,8 +168,8 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
             );
             const attachments: Array<{ sessionId: string; bridgeToken: string; streamId: string }> = [];
             // A single communicator still exercises all engines. Larger cohorts
-            // distribute one native identity per host across the three engines.
-            for (const sessionEngine of count === 1 ? (['codex', 'claude', 'grok', 'kimi'] as const) : [engine]) {
+            // distribute one native identity per host across the supported engines.
+            for (const sessionEngine of count === 1 ? ENGINES : [ENGINES[n % ENGINES.length]!]) {
               const sessionId = randomUUID(),
                 bridgeToken = randomUUID() + randomUUID();
               await registerOwnedMessagingSession(
@@ -191,6 +192,7 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
                 },
                 app.env,
               );
+              sessionsPerEngine.set(sessionEngine, (sessionsPerEngine.get(sessionEngine) ?? 0) + 1);
               attachments.push({ sessionId, bridgeToken, streamId: randomUUID() });
             }
             const socket = new WebSocket(`ws://127.0.0.1:${address.port}/host/communicator/connect`, {
@@ -437,7 +439,7 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
             await hosts.register({
               fqdn: 'after-reconnect.fixture.test',
               secure: true,
-              engines: ['codex', 'claude', 'grok', 'kimi'],
+              engines: [...ENGINES],
               reverse_dns_mode: 'disabled',
             });
             await browserContext.setOffline(false);
@@ -452,11 +454,13 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
               requests: reconnectRequests,
             };
           }
+          expect([...sessionsPerEngine.keys()]).toEqual(ENGINES);
           const result = {
             seconds: elapsedMs / 1000,
             communicators: count,
-            nativeSessions: count === 1 ? 3 : count,
-            engines: ['codex', 'claude', 'grok', 'kimi'],
+            nativeSessions: [...sessionsPerEngine.values()].reduce((sum, sessions) => sum + sessions, 0),
+            engines: [...sessionsPerEngine.keys()],
+            sessionsPerEngine: Object.fromEntries(sessionsPerEngine),
             browserTabs: tabs,
             delegateLiveness,
             bridgeTtlSeconds: app.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS,
