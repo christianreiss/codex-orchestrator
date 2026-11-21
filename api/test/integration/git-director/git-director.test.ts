@@ -320,6 +320,58 @@ describe.skipIf(!handle)('git director against a real database', () => {
     expect(queued).toHaveLength(1);
   });
 
+  it('keeps a complete bounded scope through a wait, durable retry, grant and renewal', async () => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    const paths = Array.from({ length: 673 }, (_, n) => `docs/part-${n}.md`);
+    const joined = await svc.join({ worktree_path: LINKED_WT, paths }, host);
+    expect(joined.declared_paths).toEqual(['.']);
+    await requestMerge(MAIN_WT, [paths.at(-1)!]);
+    const id = randomUUID();
+    const waiting = await requestMerge(LINKED_WT, paths, id);
+    expect(waiting).toMatchObject({ verdict: 'wait', changed_path_scope: 'worktree', reported_changed_path_count: 673, overlap: ['.'] });
+    const stored = await handle!.pool.query('SELECT changed_paths, overlap FROM git_merge_requests WHERE id=?', [waiting.request_id]);
+    const row = (stored[0] as unknown as { changed_paths: string[]; overlap: unknown }[])[0]!;
+    expect(row.changed_paths).toEqual(['.']);
+    expect(JSON.stringify(row.overlap).length).toBeLessThan(200);
+    const retry = await requestMerge(LINKED_WT, [...paths].reverse(), id);
+    expect(retry).toMatchObject({ request_id: waiting.request_id, replayed: true, reported_changed_path_count: 673 });
+    await expect(requestMerge(LINKED_WT, [...paths.slice(0, -1), 'new.md'], id))
+      .rejects.toMatchObject({ code: 'git_director_request_conflict' });
+    await svc.release({ worktree_path: MAIN_WT }, host);
+    expect(await svc.mergeStatus({ request_id: waiting.request_id }, host)).toMatchObject({
+      verdict: 'allow', changed_path_scope: 'worktree', reported_changed_path_count: 673,
+    });
+    expect(await svc.mergeStatus({ request_id: waiting.request_id }, host)).toMatchObject({ renewed: true, reported_changed_path_count: 673 });
+  });
+
+  it('validates every path and canonicalizes absolute paths within this checkout', async () => {
+    await register(MAIN_WT);
+    const paths = Array.from({ length: 510 }, (_, n) => `group-${n}`);
+    const scoped = await svc.join({ worktree_path: MAIN_WT, paths: [MAIN_WT + '/docs/', './docs', '*', 'name '] }, host);
+    expect(scoped.declared_paths).toEqual(['docs', '*', 'name ']);
+    for (const invalid of ['', '../other', '/other/repo', 'x'.repeat(1025), 'a\0b', 7]) {
+      await expect(svc.join({ worktree_path: MAIN_WT, paths: [...paths, invalid] }, host)).rejects.toThrow();
+      await expect(svc.requestMerge({ worktree_path: MAIN_WT, target_branch: 'main', client_request_id: randomUUID(), changed_paths: [...paths, invalid] }, host)).rejects.toThrow();
+    }
+    expect((await svc.join({ worktree_path: MAIN_WT }, host)).declared_paths).toEqual(scoped.declared_paths);
+  });
+
+  it('re-evaluates a legacy 500-entry receipt checkout-wide without inventing its original count', async () => {
+    await register(MAIN_WT);
+    await register(LINKED_WT);
+    await requestMerge(MAIN_WT, ['docs/manual']);
+    const id = randomUUID();
+    const waiting = await requestMerge(LINKED_WT, ['docs/manual'], id);
+    const prefix = Array.from({ length: 500 }, (_, n) => `src/p-${n}`);
+    await handle!.pool.query('UPDATE git_merge_requests SET changed_paths=? WHERE id=?', [JSON.stringify(prefix), waiting.request_id]);
+    await expect(requestMerge(LINKED_WT, prefix, id)).rejects.toMatchObject({ code: 'git_director_request_conflict' });
+    const status = () => svc.mergeStatus({ request_id: waiting.request_id }, host);
+    expect(await status()).toMatchObject({ verdict: 'wait', changed_path_scope: 'worktree', reported_changed_path_count: null, overlap: ['.'] });
+    await svc.release({ worktree_path: MAIN_WT }, host);
+    expect(await status()).toMatchObject({ verdict: 'allow', changed_path_scope: 'worktree', reported_changed_path_count: null });
+  });
+
   it('frees the branch when the holder releases, on the next poll', async () => {
     await register(MAIN_WT);
     await register(LINKED_WT);

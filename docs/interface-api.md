@@ -1151,6 +1151,24 @@ All four engine config GET/store routes share the revision contract: `revision` 
   that check.
   `git_join` preserves declared paths when `paths` is omitted; an explicit
   `paths: []` clears previous write scope for read-only work.
+  Pass Git paths relative to the registered worktree. Absolute paths within that
+  worktree are accepted and made relative. `.` covers the whole checkout.
+  Names containing `*` are literal. Empty entries, parent traversal, paths outside
+  the worktree, NUL, and entries longer than 1024 characters reject the whole
+  request, including when they occur near the end of a large diff.
+  At 500 distinct paths, declarations and merge scopes cover the entire checkout.
+  That scope requires a covering checkout path claim and the target branch claim
+  wherever claim enforcement applies. It counts peer declarations anywhere in
+  the checkout according to the usual holder/advisory rules. Large receipts
+  expose `changed_path_scope: "worktree"` and `reported_changed_path_count`.
+  Their bounded scope and canonical SHA-256 let a retry use the same changed
+  paths in any order. A different path set, target or commit range with the same
+  request ID returns `409 git_director_request_conflict`.
+  Older 500-entry records may be truncated. They use the same checkout-wide
+  scope with a null reported count. Use `git_merge_status` with the original
+  request ID to recheck those records. The original exact input cannot be
+  verified by resubmitting a path list. Reading a live owner-backed `allow`
+  checks the registration and its current claims and preserves the lease expiry.
   A merge decision compares the request's `changed_paths` with two sets, using
   segment-aware directory prefixes (a declared `docs` covers `docs/x.md`; a
   declared `doc` does not): the live lease holder's changed plus `git_join`

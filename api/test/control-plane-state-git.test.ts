@@ -459,6 +459,20 @@ describe('Git Director feedback sweep (registration state, remotes, nesting, lis
       ],
     });
   const base = { worktree_path: '/repo', clone_dir: '/repo/.git', repo_root: '/repo', engine: 'codex', username: 'root', branch: 'work' };
+  it('returns a large native-owner lease only while its checkout and branch remain covered', async () => {
+    const h = setup();
+    const claim = await claimRepo(h);
+    await as(h, () => h.git.register(base, h.host));
+    const args = { worktree_path: '/repo', target_branch: 'main', client_request_id: randomUUID(),
+      changed_paths: Array.from({ length: 673 }, (_, n) => `docs/${n}.md`) };
+    const lease = await as(h, () => h.git.requestMerge(args, h.host));
+    const status = () => as(h, () => h.git.mergeStatus({ request_id: lease.request_id }, h.host));
+    expect(lease).toMatchObject({ verdict: 'allow', changed_path_scope: 'worktree', reported_changed_path_count: 673 });
+    expect(await status()).toMatchObject({ request_id: lease.request_id, verdict: 'allow', lease_expires_at: lease.lease_expires_at });
+    await h.service.claims.release(h.sessionId, h.token, { claim_id: claim.id, outcome: 'completed', reason: 'test complete' });
+    await expect(status()).rejects.toMatchObject({ code: 'resource_claim_required' });
+    await expect(as(h, () => h.git.requestMerge(args, h.host))).rejects.toMatchObject({ code: 'resource_claim_required' });
+  });
   const withWorkspace = (h: ReturnType<typeof setup>) =>
     mutateOwnerState(h.owner, { kind: 'test.workspace', payload: {}, prepare(ctx) {
       ctx.draft.upsert('agentSessions', { ...ctx.snapshot.sessions.get(h.sessionId)!, workspace: {

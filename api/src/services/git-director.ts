@@ -50,6 +50,7 @@ import { lockClaimGate, guardGitMutation } from './agent-coordination/git-guard.
  * Messaging off.
  */
 import { createHash, randomUUID } from 'node:crypto';
+import { posix } from 'node:path';
 import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
@@ -157,7 +158,7 @@ export interface MergeBrief {
   holder: MergeBriefContender | null;
   /** Paths the requester and the holder both touch. Computed, never agent prose. */
   overlap: string[];
-  requester_path_count: number;
+  requester_path_count: number | null;
   queue_depth: number;
 }
 
@@ -218,7 +219,7 @@ export function overlappingPaths(left: readonly string[], right: readonly string
   const hits = new Set<string>();
   for (const a of left) {
     for (const b of right) {
-      if (a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)) hits.add(a);
+      if (a === '.' || b === '.' || a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)) hits.add(a);
     }
   }
   return [...hits].sort();
@@ -309,17 +310,83 @@ function splitPeerDeclarationOverlap(
   };
 }
 
-function cleanPaths(raw: unknown): string[] {
-  if (raw == null) return [];
-  const list = Array.isArray(raw) ? raw : [raw];
-  const out: string[] = [];
-  for (const entry of list) {
-    const value = normalizePath(String(entry ?? ''));
-    if (!value || value.length > MAX_PATH_LENGTH) continue;
-    if (!out.includes(value)) out.push(value);
-    if (out.length >= MAX_PATHS) break;
+interface PathScope {
+  paths: string[];
+  count: number | null;
+  digest?: string;
+}
+
+/** Scope entries name real Git paths, including spaces and literal '*' characters. */
+function pathScope(raw: unknown, worktree: string): PathScope {
+  const entries = raw == null ? [] : Array.isArray(raw) ? raw : [raw];
+  const unique = new Set<string>();
+  for (const entry of entries) {
+    if (typeof entry !== 'string' || !entry.length || entry.length > MAX_PATH_LENGTH || entry.includes('\0') || entry.split('/').includes('..'))
+      throw new ValidationError('Each Git path must be a nonempty checkout path of at most 1024 characters, without NUL or parent traversal');
+    const path = posix.relative(worktree, posix.resolve(worktree, entry)) || '.';
+    if (path === '..' || path.startsWith('../')) throw new ValidationError('Git path is outside the registered worktree');
+    unique.add(path);
   }
-  return out;
+  const paths = [...unique];
+  if (paths.length < MAX_PATHS) return { paths, count: paths.length };
+  return { paths: ['.'], count: paths.length, digest: sha256(JSON.stringify(paths.sort())) };
+}
+
+function storedJson(raw: unknown): unknown {
+  return typeof raw === 'string' ? JSON.parse(raw) : raw;
+}
+
+/** Previous versions silently truncated at precisely MAX_PATHS. The tail is unknowable. */
+function storedScope(raw: unknown, worktree: string): PathScope {
+  const paths = storedJson(raw);
+  if (paths != null && !Array.isArray(paths)) throw new ValidationError('Invalid stored Git path scope');
+  const scope = pathScope(paths, worktree);
+  return Array.isArray(paths) && paths.length >= MAX_PATHS ? { paths: ['.'], count: null } : scope;
+}
+
+/** A historical unsupported declaration still counts against this checkout.
+ * Its author can replace or clear it with a new git_join. */
+function declaredPaths(raw: unknown, worktree: string): string[] {
+  try {
+    return storedScope(raw, worktree).paths;
+  } catch (error) {
+    if (error instanceof ValidationError || error instanceof SyntaxError) return ['.'];
+    throw error;
+  }
+}
+
+function holderPaths(request: GitMergeRequest | null, worktree: GitWorktree | null): string[] {
+  if (!request) return [];
+  if (!worktree) return ['.'];
+  return [...declaredPaths(request.changedPaths, worktree.worktreePath), ...declaredPaths(worktree.declaredPaths, worktree.worktreePath)];
+}
+
+interface OverlapReceipt { paths: string[]; reported_count: number; reported_sha256: string }
+
+function overlapReceipt(request: GitMergeRequest): OverlapReceipt | null {
+  const raw = storedJson(request.overlap);
+  if (raw == null || Array.isArray(raw)) return null;
+  const receipt = raw as Partial<OverlapReceipt>;
+  if (!Array.isArray(receipt.paths) || !Number.isSafeInteger(receipt.reported_count) || Number(receipt.reported_count) < MAX_PATHS ||
+      typeof receipt.reported_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.reported_sha256))
+    throw new ValidationError('Invalid stored Git overlap receipt');
+  return receipt as OverlapReceipt;
+}
+
+function mergeScope(request: GitMergeRequest, worktree: string): PathScope {
+  const scope = storedScope(request.changedPaths, worktree);
+  const receipt = overlapReceipt(request);
+  return receipt ? { paths: scope.paths, count: receipt.reported_count, digest: receipt.reported_sha256 } : scope;
+}
+
+function assertSameMerge(request: GitMergeRequest, worktree: string, input: {
+  targetBranch: string; baseSha: string | null; headSha: string | null; scope: PathScope;
+}) {
+  const stored = mergeScope(request, worktree);
+  if (stored.count === null || stored.count !== input.scope.count || stored.digest !== input.scope.digest ||
+      request.targetBranch !== input.targetBranch || request.baseSha !== input.baseSha || request.headSha !== input.headSha ||
+      JSON.stringify([...stored.paths].sort()) !== JSON.stringify([...input.scope.paths].sort()))
+    throw new ConflictError('Merge request ID already exists with different or unverifiable inputs. Use git_merge_status for the original request.', 'git_director_request_conflict');
 }
 
 /**
@@ -338,16 +405,10 @@ function bindingWire(address: { id: string } | null): Record<string, unknown> {
   };
 }
 
-function readPaths(raw: unknown): string[] {
-  // JSON columns come back parsed on MySQL and as text on some drivers.
-  if (typeof raw === 'string') {
-    try {
-      return cleanPaths(JSON.parse(raw));
-    } catch {
-      return [];
-    }
-  }
-  return cleanPaths(raw);
+function readOverlap(raw: unknown): string[] {
+  const parsed = storedJson(raw);
+  const paths = Array.isArray(parsed) ? parsed : (parsed as Partial<OverlapReceipt> | null)?.paths;
+  return Array.isArray(paths) ? paths.slice(0, MAX_PATHS) : [];
 }
 
 function requiredString(args: Record<string, unknown>, key: string, max = 1024): string {
@@ -1249,7 +1310,7 @@ export class GitDirectorService {
     const worktreePath = normalizePath(requiredString(args, 'worktree_path'));
     const task = optionalString(args, 'task', MAX_TASK_LENGTH);
     const targetBranch = optionalString(args, 'target_branch', 255);
-    const paths = args.paths === undefined ? undefined : cleanPaths(args.paths);
+    const paths = args.paths === undefined ? undefined : pathScope(args.paths, worktreePath).paths;
 
     return await this.transaction(async (tx) => {
       await lockClaimGate(tx);
@@ -1271,7 +1332,7 @@ export class GitDirectorService {
           updatedAt: now,
         });
       this.publish(tx, 'worktree', clone.id);
-      const previousPaths = readPaths(worktree.declaredPaths).sort();
+      const previousPaths = declaredPaths(worktree.declaredPaths, worktree.worktreePath).sort();
       const nextPaths = [...(paths ?? previousPaths)].sort();
       const nextTarget = targetBranch ?? worktree.targetBranch;
       const { peerOverlap, stalePeerOverlap } = splitPeerDeclarationOverlap(nextPaths, await this.livePeerDeclarations(tx, clone.id, [worktree.id], nextTarget ?? '', now));
@@ -1288,7 +1349,7 @@ export class GitDirectorService {
         worktree_id: worktree.id,
         task: task ?? worktree.task,
         target_branch: targetBranch ?? worktree.targetBranch,
-        declared_paths: paths ?? readPaths(worktree.declaredPaths),
+        declared_paths: paths ?? declaredPaths(worktree.declaredPaths, worktree.worktreePath),
         expires_at: this.snapshot(tx) ? this.registrationExpiresAt(worktree) : expiresAt,
         peers: await this.peerWire(tx, clone.id, worktree.id, now),
       };
@@ -1469,7 +1530,7 @@ export class GitDirectorService {
     const clientRequestId = requiredString(args, 'client_request_id', 191);
     const baseSha = optionalString(args, 'base_sha', 64);
     const headSha = optionalString(args, 'head_sha', 64);
-    const changedPaths = cleanPaths(args.changed_paths);
+    const scope = pathScope(args.changed_paths, worktreePath);
 
     return await this.decideAndRecord({
       host,
@@ -1479,7 +1540,7 @@ export class GitDirectorService {
       clientRequestId,
       baseSha,
       headSha,
-      changedPaths,
+      scope,
     });
   }
 
@@ -1501,10 +1562,11 @@ export class GitDirectorService {
     clientRequestId: string;
     baseSha: string | null;
     headSha: string | null;
-    changedPaths: string[];
+    scope: PathScope;
     updateRequestId?: string;
   }): Promise<Record<string, unknown>> {
-    const { host, worktreePath, targetBranch, clientRequestId, baseSha, headSha, changedPaths } = input;
+    const { host, worktreePath, targetBranch, clientRequestId, baseSha, headSha, scope } = input;
+    const changedPaths = scope.paths;
     const now = input.now;
     const updateRequestId = input.updateRequestId ?? null;
 
@@ -1541,6 +1603,7 @@ export class GitDirectorService {
       );
       if (!replay && updateRequestId === null && this.snapshot(tx)) replay = (await this.deps.db.select().from(gitMergeRequests).where(and(eq(gitMergeRequests.worktreeId,worktree.id),eq(gitMergeRequests.clientRequestId,clientRequestId))).limit(1))[0];
       if (replay) {
+        assertSameMerge(replay, worktreePath, input);
         return { clone, worktree, request: replay, replayed: true as const, brief: null as MergeBrief | null };
       }
 
@@ -1557,10 +1620,7 @@ export class GitDirectorService {
           ) ?? null
         : null;
 
-      const holderPaths = holderRow
-        ? [...readPaths(holderRow.changedPaths), ...readPaths(holderWorktree?.declaredPaths)]
-        : [];
-      const overlap = overlappingPaths(changedPaths, holderPaths);
+      const overlap = overlappingPaths(changedPaths, holderPaths(holderRow, holderWorktree));
       const contended = Boolean(holderRow) || overlap.length > 0;
 
       const brief: MergeBrief | null = contended
@@ -1583,7 +1643,7 @@ export class GitDirectorService {
                 }
               : null,
             overlap,
-            requester_path_count: changedPaths.length,
+            requester_path_count: scope.count,
             queue_depth: queued.length,
           }
         : null;
@@ -1627,8 +1687,9 @@ export class GitDirectorService {
         : await this.requireRequest(tx, updateRequestId, host);
       // The arbiter ran without locks. Never overwrite a newer decision (even
       // a nonterminal operator allow/wait), or renew a retried grant by accident.
-      if (existing && (updateRequestId === null || JSON.stringify(existing) !== JSON.stringify(decision.observedRequest)))
+      if (existing && updateRequestId !== null && JSON.stringify(existing) !== JSON.stringify(decision.observedRequest)) {
         return this.requestWire(existing, { replayed: true }, tx);
+      }
       const [worktree] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === decision.worktree.id) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, decision.worktree.id)));
       // Name what moved: callers otherwise guess (often "stale HEAD", which is
       // not compared here at all) and retry blind.
@@ -1654,6 +1715,11 @@ export class GitDirectorService {
       await guardGitMutation(tx, clone, worktree, targetBranch, changedPaths, this.snapshot(tx));
       if (this.snapshot(tx)) this.requireRegistrationProof(worktree);
 
+      if (existing && updateRequestId === null) {
+        assertSameMerge(existing, worktreePath, input);
+        return this.requestWire(existing, { replayed: true }, tx);
+      }
+
       // Re-read under the lock: the holder may have released while the judge ran.
       const holderRow = await this.liveLeaseForClone(tx, clone.id, targetBranch, now2);
       const queued = await this.queuedForClone(tx, clone.id, targetBranch, now2, updateRequestId);
@@ -1662,10 +1728,7 @@ export class GitDirectorService {
             (row) => row.id === holderRow.worktreeId,
           ) ?? null
         : null;
-      const holderPaths = holderRow
-        ? [...readPaths(holderRow.changedPaths), ...readPaths(holderWorktree?.declaredPaths)]
-        : [];
-      const holderOverlap = overlappingPaths(changedPaths, holderPaths);
+      const holderOverlap = overlappingPaths(changedPaths, holderPaths(holderRow, holderWorktree));
       // Live peers' git_join declarations are reported, not arbitrated (see
       // resolveVerdict). Before this, a peer without the lease never counted and
       // the reason claimed "no declared paths overlap" over its declarations.
@@ -1677,6 +1740,11 @@ export class GitDirectorService {
         await this.livePeerDeclarations(tx, clone.id, [worktree.id, holderRow?.worktreeId ?? null], targetBranch, now2),
       );
       const overlap = [...new Set([...holderOverlap, ...peerOverlap.flatMap((peer) => peer.paths)])].sort();
+
+      // The authorization column stays an ordinary bounded array, also for older readers.
+      const storedOverlap = scope.digest
+        ? { paths: overlap, reported_count: scope.count, reported_sha256: scope.digest }
+        : overlap.length ? overlap : null;
 
       const resolved = resolveVerdict({
         holderPresent: Boolean(holderRow),
@@ -1697,11 +1765,11 @@ export class GitDirectorService {
         targetBranch,
         baseSha,
         headSha,
-        changedPaths: changedPaths.length > 0 ? changedPaths : null,
+        changedPaths: existing?.changedPaths ?? (changedPaths.length > 0 ? changedPaths : null),
         verdict: resolved.verdict,
         decidedBy: resolved.decidedBy,
         reason: resolved.reason,
-        overlap: overlap.length > 0 ? overlap : null,
+        overlap: storedOverlap,
         holderWorktreeId: holderRow?.worktreeId ?? null,
         model: resolved.decidedBy === 'llm' ? model : null,
         leaseExpiresAt,
@@ -1722,7 +1790,7 @@ export class GitDirectorService {
             verdict: resolved.verdict,
             decidedBy: resolved.decidedBy,
             reason: resolved.reason,
-            overlap: overlap.length > 0 ? overlap : null,
+            overlap: storedOverlap,
             holderWorktreeId: holderRow?.worktreeId ?? null,
             model: resolved.decidedBy === 'llm' ? model : null,
             leaseExpiresAt,
@@ -1733,7 +1801,7 @@ export class GitDirectorService {
           });
         await this.updateRows(tx, 'gitWorktrees', [worktree.id], { heartbeatAt: now2, updatedAt: now2 });
         this.publish(tx, 'merge_request', clone.id);
-        if (existing?.verdict !== resolved.verdict || existing?.holderWorktreeId !== (holderRow?.worktreeId ?? null) || JSON.stringify(readPaths(existing?.overlap)) !== JSON.stringify(overlap)) await this.notify(tx, { kind: 'merge_decision_changed', clone, worktree, targetBranch, requestId: id, audience: 'branch', ownerWorktrees: holderWorktree ? [holderWorktree] : [], detail: { verdict: resolved.verdict, peer_overlap: peerOverlap } });
+        if (existing?.verdict !== resolved.verdict || existing?.holderWorktreeId !== (holderRow?.worktreeId ?? null) || JSON.stringify(readOverlap(existing?.overlap)) !== JSON.stringify(overlap)) await this.notify(tx, { kind: 'merge_decision_changed', clone, worktree, targetBranch, requestId: id, audience: 'branch', ownerWorktrees: holderWorktree ? [holderWorktree] : [], detail: { verdict: resolved.verdict, peer_overlap: peerOverlap } });
         return this.requestWire(row as unknown as GitMergeRequest, {
           replayed: false,
           holder: holderWorktree,
@@ -1758,7 +1826,10 @@ export class GitDirectorService {
             )
             .limit(1)
         ).find((r) => r.worktreeId === worktree.id && r.clientRequestId === clientRequestId);
-        if (winner) return this.requestWire(winner, { replayed: true }, tx);
+        if (winner) {
+          assertSameMerge(winner, worktreePath, input);
+          return this.requestWire(winner, { replayed: true }, tx);
+        }
         throw new ConflictError('Merge request could not be recorded', 'git_director_conflict');
       }
 
@@ -1792,12 +1863,21 @@ export class GitDirectorService {
     if (this.snapshot()) {
       await this.sweepForRead(now);
       const request=await this.requireRequest(this.deps.db,requestId,host);
+      if (request.verdict === 'allow' && !request.completedAt) {
+        const snapshot = this.snapshot()!;
+        const worktree = snapshot.table('gitWorktrees').get(request.worktreeId);
+        const clone = snapshot.table('gitClones').get(request.cloneId);
+        if (!worktree || !clone) throw new ConflictError('Registration missing', 'git_director_owner_uncertain');
+        if (worktree.status !== 'active') throw registrationNotActive(worktree);
+        this.requireRegistrationProof(worktree);
+        await guardGitMutation(this.deps.db, clone, worktree, request.targetBranch, storedScope(request.changedPaths, worktree.worktreePath).paths, snapshot);
+      }
       if(request.verdict!=='wait'||request.completedAt)return this.requestWire(request,{renewed:false});
       const inputs=this.waitInputs(request);
       if(this.evaluatedWaits.get(request.id)===inputs)return this.requestWire(request,{renewed:false});
       const worktree=this.snapshot()!.table('gitWorktrees').get(request.worktreeId);
       if(!worktree||!this.registrationProof(worktree))return this.requestWire(request,{renewed:false});
-      const result=await this.decideAndRecord({host,now,worktreePath:worktree.worktreePath,targetBranch:request.targetBranch,clientRequestId:request.clientRequestId,baseSha:request.baseSha,headSha:request.headSha,changedPaths:readPaths(request.changedPaths),updateRequestId:request.id});
+      const result=await this.decideAndRecord({host,now,worktreePath:worktree.worktreePath,targetBranch:request.targetBranch,clientRequestId:request.clientRequestId,baseSha:request.baseSha,headSha:request.headSha,scope:mergeScope(request,worktree.worktreePath),updateRequestId:request.id});
       this.evaluatedWaits.set(request.id,this.waitInputs(request));return result;
     }
 
@@ -1826,7 +1906,7 @@ export class GitDirectorService {
       if (request.verdict === 'allow' && !request.completedAt) {
         const [wt] = (this.rows(tx, 'gitWorktrees')?.filter(row => row.id === request.worktreeId) ?? await tx.select().from(gitWorktrees).where(eq(gitWorktrees.id, request.worktreeId)));
         const [clone] = (this.rows(tx, 'gitClones')?.filter(row => row.id === request.cloneId) ?? await tx.select().from(gitClones).where(eq(gitClones.id, request.cloneId)));
-        if (wt && clone) await guardGitMutation(tx, clone, wt, request.targetBranch, readPaths(request.changedPaths));
+        if (wt && clone) await guardGitMutation(tx, clone, wt, request.targetBranch, storedScope(request.changedPaths, wt.worktreePath).paths);
         const leaseExpiresAt = isoOffsetSeconds(LEASE_TTL_SECONDS, new Date(now));
         await this.updateRows(tx, 'gitMergeRequests', [request.id], { leaseExpiresAt, renewedAt: now, updatedAt: now });
         return { ...request, leaseExpiresAt, renewedAt: now, renewed: true };
@@ -1856,7 +1936,7 @@ export class GitDirectorService {
       clientRequestId: current.clientRequestId,
       baseSha: current.baseSha,
       headSha: current.headSha,
-      changedPaths: readPaths(current.changedPaths),
+      scope: mergeScope(current, worktree.worktreePath),
       updateRequestId: current.id,
     });
   }
@@ -2038,7 +2118,7 @@ export class GitDirectorService {
       if (verdict === 'allow') {
         if (!clone || clone.archivedAt || !worktree || worktree.status !== 'active' || worktree.cloneId !== clone.id)
           throw new ConflictError('An active worktree is required for a merge lease', 'git_director_worktree_inactive');
-        await guardGitMutation(tx, clone, worktree, request.targetBranch, readPaths(request.changedPaths), this.snapshot(tx));
+        await guardGitMutation(tx, clone, worktree, request.targetBranch, storedScope(request.changedPaths, worktree.worktreePath).paths, this.snapshot(tx));
         if(this.snapshot(tx))this.requireRegistrationProof(worktree);
         if (await this.liveLeaseForClone(tx, clone.id, request.targetBranch, now, request.id))
           throw new ConflictError('Another request holds the lease on this branch', 'git_director_lease_held');
@@ -2468,7 +2548,7 @@ export class GitDirectorService {
         worktree_path: row.worktreePath,
         username: row.username,
         branch: row.branch,
-        declared_paths: readPaths(row.declaredPaths),
+        declared_paths: declaredPaths(row.declaredPaths, row.worktreePath),
         status: row.status,
         uncertainty_reason: row.uncertaintyReason ?? null,
         possibly_stale: possiblyStale(row),
@@ -2583,7 +2663,7 @@ export class GitDirectorService {
       head_sha: row.headSha,
       head_observed_at: row.headObservedAt ?? null,
       task: row.task,
-      declared_paths: readPaths(row.declaredPaths),
+      declared_paths: declaredPaths(row.declaredPaths, row.worktreePath),
       target_branch: row.targetBranch,
       agent_address_bound: Boolean(row.agentBusAddressId),
       heartbeat_at: row.heartbeatAt,
@@ -2649,7 +2729,7 @@ export class GitDirectorService {
       verdict: row.verdict,
       decided_by: row.decidedBy,
       reason: row.reason,
-      overlap: readPaths(row.overlap),
+      overlap: readOverlap(row.overlap),
       lease_expires_at: row.leaseExpiresAt,
       requested_at: row.requestedAt,
     }));
@@ -2671,7 +2751,7 @@ export class GitDirectorService {
       decided_by: row.decidedBy,
       reason: row.reason,
       model: row.model,
-      overlap: readPaths(row.overlap),
+      overlap: readOverlap(row.overlap),
       requested_at: row.requestedAt,
       completed_at: row.completedAt,
     }));
@@ -2696,7 +2776,7 @@ export class GitDirectorService {
       decided_by: request.decidedBy,
       reason: request.reason,
       target_branch: request.targetBranch,
-      overlap: readPaths(request.overlap),
+      overlap: readOverlap(request.overlap),
       lease_expires_at: request.leaseExpiresAt,
       model: request.model,
       requested_at: request.requestedAt,
@@ -2706,6 +2786,12 @@ export class GitDirectorService {
       outcome_reported_at: request.outcomeReportedAt,
       completed_at: request.completedAt,
     };
+    const receipt = overlapReceipt(request);
+    const storedPaths = storedJson(request.changedPaths);
+    if (receipt || (Array.isArray(storedPaths) && storedPaths.length >= MAX_PATHS)) {
+      out.changed_path_scope = 'worktree';
+      out.reported_changed_path_count = receipt?.reported_count ?? null;
+    }
     if (extra.replayed) out.replayed = true;
     if (extra.renewed) out.renewed = true;
     if (extra.holder) {

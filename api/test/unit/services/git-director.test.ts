@@ -64,6 +64,12 @@ describe('normalizePath', () => {
 });
 
 describe('overlappingPaths', () => {
+  it('compares the checkout root in both directions and keeps literal filename characters', () => {
+    expect(overlappingPaths(['.'], ['docs/manual'])).toEqual(['.']);
+    expect(overlappingPaths(['docs/manual'], ['.'])).toEqual(['docs/manual']);
+    expect(overlappingPaths(['*'], ['docs/manual'])).toEqual([]);
+  });
+
   it('counts a directory prefix as an overlap in both directions', () => {
     // Two agents are in each other's way when one rewrites a directory the other
     // edits a file inside, even though no exact path repeats.

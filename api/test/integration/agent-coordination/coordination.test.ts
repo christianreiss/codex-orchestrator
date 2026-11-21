@@ -519,7 +519,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
       client_request_id: randomUUID(),
       base_sha: 'a'.repeat(40),
       head_sha: 'b'.repeat(40),
-      changed_paths: ['a.ts'],
+      changed_paths: Array.from({ length: 673 }, (_, n) => `src/part-${n}.ts`),
     };
     await expect(director.requestMerge(args, host)).rejects.toThrow('Acquire live path');
     // The refusal names what is missing and which clone_dir the claim must use.
@@ -540,6 +540,7 @@ describe.skipIf(!handle)('scope coordination with real MySQL transactions', { ti
     expect(claim.state).toBe('active');
     const result = await director.requestMerge(args, host);
     expect(result.verdict).toBe('allow');
+    expect(result).toMatchObject({ changed_path_scope: 'worktree', reported_changed_path_count: 673 });
     await director.release({ worktree_path: target }, host);
     await service.claims.release(a.id, a.token, {
       claim_id: claim.id,
