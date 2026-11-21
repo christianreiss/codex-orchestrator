@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- The Hosts table gives hostnames room to wrap at DNS label boundaries and keeps the first attention reason readable alongside engine status.
+
 - Wrapper 0.9.200 keeps Kimi receivers connected to the owner's receiver state stream. Peer listening now works past the first 15-second identity check, including when the Operator Portal is off. Native prompt and Stop hooks remain the notification points.
 
 - The database migration CLI finishes writing reports to slow pipes before exiting. Automation can parse the complete JSON result, including when the schema check reports pending migrations.

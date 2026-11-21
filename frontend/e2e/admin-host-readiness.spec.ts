@@ -38,6 +38,23 @@ async function fixture(page: Page, shared: ReturnType<typeof state>) {
   });
   return async (type: string) => { await expect.poll(() => Boolean(emit)).toBe(true); emit!(JSON.stringify({ type, payload: {}, ts: new Date().toISOString() })); };
 }
+test('a four-engine desktop row keeps its host name readable next to engine warnings', async ({ page }) => {
+  const shared = state();
+  const host = shared.rows[0];
+  host.fqdn = 'lifecycle-198.fixture.invalid';
+  for (const engine of Object.keys(host.engine_readiness) as (keyof typeof host.engine_readiness)[]) {
+    host.engine_readiness[engine] = readiness('attention', ['auth_missing', 'wrapper_outdated']);
+  }
+  await page.setViewportSize({ width: 1180, height: 850 });
+  await fixture(page, shared);
+  await page.goto('/admin/hosts');
+  const link = page.getByRole('link', { name: host.fqdn, exact: true });
+  await expect(link).toBeVisible();
+  const lines = await link.evaluate(el => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)));
+  expect(lines).toBeLessThanOrEqual(3);
+  await expect(page.getByRole('button', { name: 'Copy FQDN ' + host.fqdn })).toBeVisible();
+});
+
 // Under 640 px the hosts list renders one card per host instead of table rows.
 function row(page: Page, fqdn: string) { return page.getByRole((page.viewportSize()?.width ?? 1280) < 640 ? 'listitem' : 'row').filter({ has: page.getByText(fqdn, { exact: true }) }); }
 for (const width of [390, 1440]) test(`engine chips carry readiness (${width}px)`, async ({ page }) => {

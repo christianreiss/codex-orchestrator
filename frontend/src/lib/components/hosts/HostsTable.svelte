@@ -78,9 +78,9 @@
     {@const kind = hostStatusKind(host, list.now)}
     {@const warnings = items.filter((item) => item.tone === "warning")}
     <Table.Row class="cursor-pointer" onclick={(event: MouseEvent) => open(event, host.id)} data-host-id={host.id}>
-      <Table.Cell class="max-w-[18rem]">
+      <Table.Cell class="w-1/4 max-w-[18rem] lg:min-w-48">
         <span class="flex items-start gap-1">
-          <a href={`${base}/hosts/${host.id}`} class="block min-w-0 whitespace-normal font-mono font-medium [overflow-wrap:anywhere] hover:underline">{host.fqdn}</a>
+          <a href={`${base}/hosts/${host.id}`} aria-label={host.fqdn} class="block min-w-0 whitespace-normal font-mono font-medium [overflow-wrap:anywhere] hover:underline">{#each host.fqdn.split(".") as label, i}{#if i > 0}.<wbr />{/if}{label}{/each}</a>
           <CopyButton value={host.fqdn} variant="ghost" size="icon" class="h-7 w-7 shrink-0" aria-label={`Copy FQDN ${host.fqdn}`} toastMessage="FQDN copied" />
         </span>
         <span class="block truncate font-mono text-caption text-muted-foreground">{host.ip4 ?? host.ip6 ?? "no address"}</span>
@@ -96,7 +96,7 @@
           <span class="sr-only">No problems</span>
         {:else}
           <span class="flex items-center gap-2">
-            <span class="truncate">{warnings[0].text}</span>
+            <span class="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{warnings[0].text}</span>
             {#if warnings.length > 1}
               <!-- The full list is a click/tap/keyboard away, not hover-only. -->
               <Popover.Root>

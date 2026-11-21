@@ -257,7 +257,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 
 | Surface | Reject | Required alternative | Rules |
 | --- | --- | --- | --- |
-| Hosts | Three decorative fleet cards, repeated “Manage”, status only as colored dots | Comparable host rows, labeled state, one “Add host”, inline problem and repair path on detail | NAV-3, VIS-5, INT-1 |
+| Hosts | Three decorative fleet cards, repeated “Manage”, status only as colored dots | Comparable host rows, readable hostnames with line breaks at DNS label boundaries, labeled state, one “Add host”, inline problem and repair path on detail | NAV-3, VIS-5, INT-1 |
 | Providers | Missing quota shown as 0% and green; “Optimize” without a defined effect | “Usage unavailable” with observation/error context; account-specific “Refresh usage” where supported | VIS-4, INT-6/7 |
 | Library | Separate styling for every content type; save failure only in a disappearing toast | Shared type filter/editor grammar, visible unsaved/failed state, retained draft and retry | VIS-1, INT-3/5 |
 | Agent rules | A wall of settings above the actual document | Module selection linked to effective preview; history and infrequent metadata separate | NAV-3, editor pattern |
