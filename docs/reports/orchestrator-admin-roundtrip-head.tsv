@@ -1,0 +1,53 @@
+Workflow	Identity	Method	Registered pattern	HTTP status	Verified protocol outcome
+Named messaging group	owner	HEAD	/admin/agent-messaging/groups	200	same status as the verified GET and zero response body bytes
+Named messaging group	owner	HEAD	/admin/agent-messaging/groups/:slug	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/agent-messaging/scopes/state	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/agent-messaging/state	200	same status as the verified GET and zero response body bytes
+Versioned agent instructions	owner	HEAD	/admin/agents	200	same status as the verified GET and zero response body bytes
+Versioned agent instructions	owner	HEAD	/admin/agents/versions/:id	200	same status as the verified GET and zero response body bytes
+Operator authorization and dashboard preferences	viewer	HEAD	/admin/auth/status	200	same status as the verified GET and zero response body bytes
+Native companion pairing and revocation	owner	HEAD	/admin/companion/devices	200	same status as the verified GET and zero response body bytes
+Authentication and devices	owner	HEAD	/admin/connectors/connections	200	same status as the verified GET and zero response body bytes
+Host enrollment and fleet configuration	owner	HEAD	/admin/hosts	200	same status as the verified GET and zero response body bytes
+Host rules and session health	owner	HEAD	/admin/hosts/:id/session-housekeeping	200	same status as the verified GET and zero response body bytes
+Host enrollment and fleet configuration	owner	HEAD	/admin/model-defaults/:engine	200	same status as the verified GET and zero response body bytes
+Project board	owner	HEAD	/admin/project-board/state	200	same status as the verified GET and zero response body bytes
+Project identity and change history	owner	HEAD	/admin/projects/:slug	200	same status as the verified GET and zero response body bytes
+Project identity and change history	owner	HEAD	/admin/projects/:slug/changes	200	same status as the verified GET and zero response body bytes
+Project files, notes and feedback	owner	HEAD	/admin/projects/:slug/feedback	200	same status as the verified GET and zero response body bytes
+Project files, notes and feedback	owner	HEAD	/admin/projects/:slug/files	200	same status as the verified GET and zero response body bytes
+Project files, notes and feedback	owner	HEAD	/admin/projects/:slug/files/:id	200	same status as the verified GET and zero response body bytes
+Project files, notes and feedback	owner	HEAD	/admin/projects/:slug/notes	200	same status as the verified GET and zero response body bytes
+Fleet dashboard and project diagnostics	owner	HEAD	/admin/projects/:slug/slop-jobs	200	same status as the verified GET and zero response body bytes
+Project identity and change history	owner	HEAD	/admin/projects/:slug/summary	200	same status as the verified GET and zero response body bytes
+Project files, notes and feedback	owner	HEAD	/admin/projects/feedback	200	same status as the verified GET and zero response body bytes
+Fleet preferences roundtrip	owner	HEAD	/admin/prune-policy	200	same status as the verified GET and zero response body bytes
+Fleet preferences roundtrip	owner	HEAD	/admin/response-verbosity	200	same status as the verified GET and zero response body bytes
+Host policy	owner	HEAD	/admin/reverse-dns	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/roles	200	same status as the verified GET and zero response body bytes
+Role publication history	owner	HEAD	/admin/roles/:slug	200	same status as the verified GET and zero response body bytes
+Role publication history	owner	HEAD	/admin/roles/:slug/timeline	200	same status as the verified GET and zero response body bytes
+Role publication history	owner	HEAD	/admin/roles/:slug/versions/:version	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/roles/state	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/schedules	200	same status as the verified GET and zero response body bytes
+Retention	owner	HEAD	/admin/server-retention	200	same status as the verified GET and zero response body bytes
+Host policy	owner	HEAD	/admin/settings/host-overrides	200	same status as the verified GET and zero response body bytes
+Skills and Claude-native library	owner	HEAD	/admin/skills	200	same status as the verified GET and zero response body bytes
+Skills and Claude-native library	owner	HEAD	/admin/skills/:slug	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/slop-jobs/state	200	same status as the verified GET and zero response body bytes
+Settings	owner	HEAD	/admin/speech-input	200	same status as the verified GET and zero response body bytes
+Operator authorization and dashboard preferences	viewer	HEAD	/admin/theme	200	same status as the verified GET and zero response body bytes
+Operator authorization and dashboard preferences	owner	HEAD	/admin/users	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/watchdogs	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/workflow-definitions	200	same status as the verified GET and zero response body bytes
+Workflow definition, revision and prepared run	owner	HEAD	/admin/workflow-definitions/:id	200	same status as the verified GET and zero response body bytes
+Workflow definition, revision and prepared run	owner	HEAD	/admin/workflow-definitions/:id/versions	200	same status as the verified GET and zero response body bytes
+Workflow definition, revision and prepared run	owner	HEAD	/admin/workflow-definitions/:id/versions/:version	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/workflow-definitions/state	200	same status as the verified GET and zero response body bytes
+Operations	owner	HEAD	/admin/workflow-runs	200	same status as the verified GET and zero response body bytes
+Workflow definition, revision and prepared run	owner	HEAD	/admin/workflow-runs/:id	200	same status as the verified GET and zero response body bytes
+Workflow definition, revision and prepared run	owner	HEAD	/admin/workflow-runs/:id/events	200	same status as the verified GET and zero response body bytes
+Workflow definition, revision and prepared run	owner	HEAD	/admin/workflow-runs/:id/report	200	same status as the verified GET and zero response body bytes
+Workflow definition, revision and prepared run	owner	HEAD	/admin/workflow-runs/:id/tasks/:taskId	200	same status as the verified GET and zero response body bytes
+Host policy	owner	HEAD	/admin/wrapper/rollout	200	same status as the verified GET and zero response body bytes
+Host policy	owner	HEAD	/admin/wrapper/rollout/enabled	200	same status as the verified GET and zero response body bytes

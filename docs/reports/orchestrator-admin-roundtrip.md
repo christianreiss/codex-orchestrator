@@ -1,0 +1,39 @@
+# Operator HTTP and project file editor acceptance, 2026-11-21
+
+On biest.eulie.de the operator completed 210 checked interactions in an isolated MySQL 8.4.13 lab. The 204 successful responses covered 156 distinct methods and route patterns. Six expected rejections verified viewer write restrictions (403), a revoked companion bearer (401), editor recovery from invalid Base64 (422), and the required content rules for an absent binary body, non-string binary body and empty UTF-8 body (three more 422s).
+
+The [business assertion matrix](orchestrator-admin-roundtrip.tsv) records each task, identity, method, registered pattern, actual HTTP status and field-level outcome. The [separate protocol matrix](orchestrator-admin-roundtrip-head.tsv) records 52 successful HEAD requests, each paired with an already verified, authenticated GET on a curated read-only route. In every pair the status matched and the HEAD client received zero body bytes. One-time installer tokens, exports, streams, downloads and callback/provider probes were outside this repeat set. Against the 331 patterns with handler-entry 2xx in the pre-integration suite, these runs add 120 positive business patterns and 52 protocol patterns. Browser background requests appear only in transport counts unless the [executable](orchestrator-admin-roundtrip.mjs) checks a business predicate or the paired HEAD rule.
+
+
+## Product findings
+
+| ID | Observed impact | Decision and checks |
+| --- | --- | --- |
+| ADM-001 | Opening Documents retrieved every body, even though the editor then fetched the chosen file again. | Commit `a33ab8501` adds `?projection=metadata` to the existing list and uses it in the web client. The old default and single-file read retain all contents, ordering and access requirements. The owner projection uses indexed in-memory metadata. The detached MySQL projection retrieves the stored byte count and two padding characters and computes decoded size. The existing host/MCP recent-first sort stays intact. |
+| ADM-002 | Saving a description on an existing binary file submitted its Base64 text with the default UTF-8 encoding and changed the original bytes and digest. | In the same commit the editor reads the body's encoding, labels Base64, and includes the encoding in every save. It surfaces load status and errors. The browser opened and edited a text file and a binary file with repeating `00 ff 80 81` bytes. Both subsequently matched their original decoded bytes, byte count and SHA-256 in the application and MySQL. A second binary edit with malformed Base64 produced visible validation feedback and retained both edited fields. The database still contained the previous bytes and metadata; correcting the draft saved normally. |
+| ADM-003 | Older files stored from whitespace-only Base64 reopen with the canonical empty body. Resaving previously failed both in the UI and in the host MCP tool. | Existing zero-byte binaries can be saved and reopened through the actual editor, admin API and enrolled host MCP. The latter accepts the already supported case-insensitive spelling `BASE64`; uppercase failed the new test before the correction. All three entry points preserve the SHA-256 of zero decoded bytes. Missing/non-string file content and empty UTF-8 retain their original validation errors. The separate roles blob contract remains unchanged. |
+
+For ADM-001 the two projections were requested in succession from the same listener with the same owner session over the same three file IDs, totaling 114,688 decoded bytes. They represent text (16,384 and 65,536 bytes) and binary (32,768 bytes). The legacy and metadata responses, including the complete uncompressed JSON envelope, measured **253,084 and 1,782 bytes** respectively. The operator received identical metadata in the same order, and individual reads returned the original payloads. No query-latency or storage-I/O measurement was taken. The MySQL integration tests separately exercise the detached query, Unicode byte size and Base64 padding. Browser assertions use the normal owner path.
+
+## Coverage and boundaries
+
+The 26 task groups include first owner registration, fleet defaults and host enrollment, owner/viewer login and logout, companion QR pairing and revocation, independent engine switches, project aliases and change history, files, notes, feedback, board edits, role publication/history, shared memory with optimistic updates and audit, versioned agent instructions, policy profiles, Claude artifacts, messaging groups, workflow revision/prepare/cancel, and dashboard, operations and settings views. IDs originate from each fixture's successful create operation. The empty read models are checked against their concrete initial state. The normal dashboard version-discovery code runs with outgoing provider and public registry fetches disabled in the acceptance listener.
+
+This annex proves local user actions, the concrete stored effects, and the browser editor behavior described above. A prepared workflow is cancelled before dispatch; the companion client redeems its token over HTTPS without an Android handset or push provider. Account and gateway reads see the lab's initial catalog and credentials state. The run does not establish native provider inference, production retention behavior, or browser coverage for each HTTP row. The [overall functional matrix](orchestrator-functional-matrix.md) and [canonical HTTP trace](orchestrator-http-trace.tsv) carry those boundaries and the other system evidence.
+
+## Reproduction and cleanup
+
+Use a local disposable MySQL 8.4 server that allows creation and deletion of test schemas. Install the locked API and frontend dependencies, build the API so `api/dist/migrate.js` is available, build the deployed SPA, and provide Playwright Chromium, Node 22 and OpenSSL. From the worktree root with the private loopback database port, user and password supplied in the environment, run:
+
+```sh
+REVIEW_FILE_TEST=1 REVIEW_BROWSER=1 \
+  node docs/reports/orchestrator-admin-roundtrip.mjs .review/new-operator-run
+node docs/reports/orchestrator-http-trace.cjs reduce \
+  .review/new-operator-run/trace .review/new-operator-run/trace.tsv
+```
+
+Required variables are `REVIEW_MYSQL_PORT` and `REVIEW_MYSQL_PASSWORD`. `REVIEW_MYSQL_USER` defaults to root. The destination must be new. Each invocation creates a random schema, applies the baseline and migrations, and starts a source-mapped Fastify listener with isolated disk storage. A local TLS relay presents an ephemeral certificate to the JSON client and Chromium; only that certificate's public key is allowed by Chromium. The browser only visits the bound test origin. The protocol matrix is written to `head.tsv`. The loading-state screenshot briefly holds the real detail request in the browser and then releases it to the real API. Validation, saves and reads use real responses. Cleanup stops both listeners, drops the random schema, verifies its absence and deletes the private directory including synthetic TLS material. Local evidence includes the assertion TSV, trace shards, payload measurements, browser version, two screenshots, targeted MySQL test log and environment metadata.
+
+The final primary run took place from 19:56:22 to 19:56:48 UTC. Chromium captured the settled 320 × 720 editor with the description focused and the real file read pending, after the earlier save notification disappeared.
+
+Final product commit `d926b3bdabb99fac4318640e95471286641d66ef`, UI version `111b4312b7c31b7631e0f42825424914e880ae72101baf33c105ca3dc2ae28d8`. The isolated MCP registry and file encoding unit suites passed all 97 tests. The focused real-MySQL run passed all ten tests across `projects-client/admin-file-metadata.test.ts` and `projects-client/lean-reads.test.ts`. The final browser was Chromium 151.0.7922.34 on Node 22.22.2.

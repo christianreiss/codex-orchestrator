@@ -52,3 +52,29 @@ check 'Claude statusline without sample' cxx claude-quota-statusline
 check 'project upload without config' cxx project file put fixture /work/absent --engine kimi --mime-type text/plain
 check 'transfer missing settings' cxx transfer get 1 --engine codex --overwrite --output /work/download
 check 'project help via named persona' ckx project --help
+
+# A local agent socket belongs to one managed native launch. An ordinary
+# shell should identify that boundary before attempting delivery or waiting.
+unbound() {
+    label=$1; shift
+    if timeout 8 "$@" </dev/null >/work/command-output 2>&1; then result=0; else result=$?; fi
+    printf '%s\t%s\n' "$label" "$result"
+    test "$result" -eq 1
+    grep -Fq 'only inside a managed cdx/clx/cgx/ckx lifecycle' /work/command-output
+}
+conversation=00000000-0000-4000-a000-000000000123
+unbound 'local MCP outside a session' cxx agent mcp
+unbound 'automatic MCP outside a session' cxx agent mcp --auto
+unbound 'read a message outside a session' cxx agent message "$conversation"
+unbound 'wait outside a session' cxx agent wait --conversation "$conversation" --seconds 0
+unbound 'cancel outside a session' cxx agent cancel --conversation "$conversation"
+unbound 'listen outside a session' cxx agent listen
+
+# Podman gives the offline client its own /tmp and cgroup. The admission
+# check reads real kernel counters and releases the reservation after exit.
+check 'cooperative memory admission' cxx workload run --memory 1MiB --reserve 1MiB --wait 0s -- /bin/sh -c 'printf "admitted\n"'
+grep -Fq 'admitted' /work/command-output
+check 'cooperative workload status' cxx workload status
+grep -Fq 'jobs=0 reserved_bytes=0' /work/command-output
+check 'hold cooperative admission' cxx workload hold
+check 'resume cooperative admission' cxx workload resume

@@ -1,0 +1,211 @@
+Workflow	Identity	Method	Registered pattern	HTTP status	Verified business outcome
+Engine switches and account preservation	owner	GET	/admin/accounts	200	empty account list preserved across suspension
+Engine switches and account preservation	owner	GET	/admin/accounts	200	new fleet has no configured provider accounts
+Fleet preferences roundtrip	owner	GET	/admin/address-form	200	address form belongs to server-supplied choices
+Fleet preferences roundtrip	owner	GET	/admin/address-form	200	address form change persisted
+Settings	owner	GET	/admin/address-form	200	configured address form exists in offered forms
+Fleet preferences roundtrip	owner	POST	/admin/address-form	200	selected alternate supported address form
+Settings	owner	GET	/admin/agent-chat/limits	200	chat upload limit is positive
+Fleet dashboard and project diagnostics	owner	GET	/admin/agent-messaging	200	messaging directory has no active agents in this isolated fleet
+Operations	owner	GET	/admin/agent-messaging/addresses	200	no fixture registered a bus address
+Operations	owner	GET	/admin/agent-messaging/conversations	200	no conversations exist
+Named messaging group	owner	GET	/admin/agent-messaging/groups	200	named group appears in the group browser
+Named messaging group	owner	GET	/admin/agent-messaging/groups	200	removed group no longer appears
+Named messaging group	owner	POST	/admin/agent-messaging/groups	200	created a uniquely named empty group
+Named messaging group	owner	DELETE	/admin/agent-messaging/groups/:slug	200	group deletion confirms the same slug
+Named messaging group	owner	GET	/admin/agent-messaging/groups/:slug	200	selected group has the expected ID and no subscribers
+Operations	owner	GET	/admin/agent-messaging/messages	200	no delivery or execution messages exist
+Operations	owner	GET	/admin/agent-messaging/scopes	200	scope inventory contains rooms and claims
+Operations	owner	GET	/admin/agent-messaging/scopes/state	200	scope coordination setting is boolean
+Operations	owner	GET	/admin/agent-messaging/state	200	message bus exposes enabled state
+Named messaging group	owner	POST	/admin/agent-messaging/state	200	messaging is enabled for this synthetic fleet
+Fleet policy profiles and host override	owner	GET	/admin/agent-policy-profiles	200	fleet security profile catalog includes presets
+Fleet policy profiles and host override	owner	POST	/admin/agent-policy-profiles	200	custom editable policy created
+Fleet policy profiles and host override	owner	DELETE	/admin/agent-policy-profiles/:id	200	removed unassigned local profile
+Fleet policy profiles and host override	owner	POST	/admin/agent-policy-profiles/:id	200	custom profile name updated
+Fleet policy profiles and host override	owner	POST	/admin/agent-policy-profiles/assign	200	assigned profile to synthetic host
+Fleet policy profiles and host override	owner	POST	/admin/agent-policy-profiles/assign	200	cleared host-specific assignment
+Fleet policy profiles and host override	owner	GET	/admin/agent-policy-profiles/enforcement	200	host effective levels match selected profile
+Operations	owner	GET	/admin/agent-supervisor	200	supervisor mode and its policies are represented
+Versioned agent instructions	owner	GET	/admin/agents	200	currently served version remains locked
+Host rules and session health	owner	GET	/admin/agents/render	200	rendered policy includes the host rule
+Versioned agent instructions	owner	POST	/admin/agents/serve	200	locked serving to selected revision
+Versioned agent instructions	owner	POST	/admin/agents/serve	200	returned fleet serving to latest
+Versioned agent instructions	owner	POST	/admin/agents/store	200	stored versioned fleet instructions
+Versioned agent instructions	owner	GET	/admin/agents/versions/:id	200	selected historical instruction matches stored content
+Settings	owner	GET	/admin/api/state	200	API serving requests is enabled
+Operator authorization and dashboard preferences	owner	POST	/admin/auth/login	200	private viewer session cookie issued
+Operator authorization and dashboard preferences	viewer	POST	/admin/auth/logout	200	viewer logged out with expired cookie
+Operator authorization and dashboard preferences	viewer	GET	/admin/auth/status	200	current principal is the synthetic viewer
+Operator authorization and dashboard preferences	viewer	GET	/admin/auth/status	200	logged-out viewer identity is no longer authenticated
+Authentication and devices	owner	GET	/admin/authorization	200	effective authorization mode
+Settings	owner	GET	/admin/cdx-silent	200	Codex silent-mode setting has a boolean value
+Fleet preferences roundtrip	owner	GET	/admin/cdx-silent	200	silent setting persisted
+Fleet preferences roundtrip	owner	POST	/admin/cdx-silent	200	owner enabled Codex silent mode
+Chat workspace	owner	GET	/admin/chatty/session	200	no previous assistant messages for test owner
+Chat workspace	owner	GET	/admin/chatty/settings	200	operator Chatty configuration exposes its switch
+Chat workspace	owner	GET	/admin/chatty/status	200	provider-neutral Chatty readiness is explicit
+Skills and Claude-native library	owner	GET	/admin/claude/:kind	200	native command inventory includes created slug
+Skills and Claude-native library	owner	DELETE	/admin/claude/:kind/:slug	200	native command deleted
+Skills and Claude-native library	owner	GET	/admin/claude/:kind/:slug	200	native command editor reads stored body
+Skills and Claude-native library	owner	POST	/admin/claude/:kind/store	200	Claude slash-command stored under its own kind
+Host policy	owner	GET	/admin/communicators	200	no synthetic host communicator was connected
+Native companion pairing and revocation	owner	GET	/admin/companion/devices	200	operator can see its paired handset
+Authentication and devices	owner	GET	/admin/companion/devices	200	revoked local handset remains visible in device history
+Native companion pairing and revocation	owner	DELETE	/admin/companion/devices/:id	200	operator revoked selected device
+Native companion pairing and revocation	owner	POST	/admin/companion/pairings	200	owner issued a one-time QR pairing for this instance
+Authentication and devices	owner	GET	/admin/connectors/connections	200	no OAuth consent grants created
+Engine switches and account preservation	owner	GET	/admin/engines/:engine/destroy	200	new Grok engine has no pending destruction
+Engine switches and account preservation	owner	POST	/admin/engines/:engine/state	200	Grok master switch resumed
+Engine switches and account preservation	owner	POST	/admin/engines/:engine/state	200	Grok master switch suspended
+Engine switches and account preservation	owner	GET	/admin/engines/active	200	fleet returns active engine list
+Engine switches and account preservation	owner	GET	/admin/engines/active	200	Grok marked inactive while Codex remains active
+Engine switches and account preservation	owner	GET	/admin/engines/active	200	resumed Grok present alongside Codex
+Authentication and devices	owner	GET	/admin/external-clients	200	no external client added
+Operations	owner	GET	/admin/feedback	200	project feedback is isolated from fleet feedback
+Operations	owner	GET	/admin/feedback/configuration	200	fresh feedback configuration has no runner or token
+Operations	owner	GET	/admin/feedback/summary	200	fleet feedback summary has numeric counters
+Operations	owner	GET	/admin/git-director	200	no clones registered
+Operations	owner	GET	/admin/git-director/state	200	Git Director switch is boolean
+Host policy	owner	GET	/admin/host-spawn/state	200	host-spawn setting exposes its VIP requirement
+Host enrollment and fleet configuration	owner	GET	/admin/hosts	200	new enrollment visible in inventory
+Host rules and session health	owner	GET	/admin/hosts/:id/agents-extra	200	saved rules read back for same host
+Host rules and session health	owner	PUT	/admin/hosts/:id/agents-extra	200	host-specific agent override removed
+Host rules and session health	owner	PUT	/admin/hosts/:id/agents-extra	200	host-specific agent rules saved
+Host rules and session health	owner	GET	/admin/hosts/:id/session-housekeeping	200	selected idle host reports all four housekeeping policies and no run
+Host policy	owner	GET	/admin/hosts/insecure	200	insecure-host operations include fleet window and approval status
+Host enrollment and fleet configuration	owner	POST	/admin/hosts/register	200	registered named secure host with installer credential
+Host policy	owner	GET	/admin/insecure-approval	200	operator approval policy is a boolean
+Shared memory record, audit and optimistic updates	owner	POST	/admin/memories/:scope	201	created named shared memory
+Shared memory record, audit and optimistic updates	owner	DELETE	/admin/memories/:scope/:recordId	200	deleted selected memory with current etag
+Shared memory record, audit and optimistic updates	owner	GET	/admin/memories/:scope/:recordId	200	selected memory detail contains revised body
+Shared memory record, audit and optimistic updates	owner	PATCH	/admin/memories/:scope/:recordId	200	committed replacement with original etag
+Shared memory record, audit and optimistic updates	owner	GET	/admin/memories/audit	200	write audit belongs to this node and contains multiple changes
+Operations	owner	GET	/admin/memories/graph	200	graph drops the removed shared memory
+Shared memory record, audit and optimistic updates	owner	GET	/admin/memories/graph	200	memory graph includes the selected record
+Shared memory record, audit and optimistic updates	owner	POST	/admin/memories/shared/:recordId/append	200	append preserves previous body and adds the supplied text
+Host enrollment and fleet configuration	owner	GET	/admin/model-defaults/:engine	200	model catalog contains selectable defaults
+Host enrollment and fleet configuration	owner	POST	/admin/model-defaults/:engine	200	persisted selected fleet model
+Fleet dashboard and project diagnostics	owner	GET	/admin/overview	200	dashboard counts the enrolled synthetic host
+Operator authorization and dashboard preferences	viewer	GET	/admin/passkeys	200	new viewer has no passkeys
+Project board	owner	GET	/admin/project-board/state	200	board remains enabled
+Project board	owner	POST	/admin/project-board/state	200	board feature enabled
+Project identity and change history	owner	POST	/admin/projects	200	new project carries its summary
+Project fixture cleanup	owner	DELETE	/admin/projects/:slug	200	only the named synthetic project removed
+Project identity and change history	owner	GET	/admin/projects/:slug	200	detail includes revised mission and roster
+Project identity and change history	owner	POST	/admin/projects/:slug/about	200	project mission updated
+Project board	owner	GET	/admin/projects/:slug/board	200	board contains the moved card
+Project board	owner	GET	/admin/projects/:slug/board	200	board no longer contains the card
+Project board	owner	POST	/admin/projects/:slug/board/cards	200	board card created
+Project board	owner	DELETE	/admin/projects/:slug/board/cards/:id	200	board card removed
+Project board	owner	POST	/admin/projects/:slug/board/cards/:id	200	board card description updated
+Project board	owner	POST	/admin/projects/:slug/board/cards/:id/move	200	board card moved into planning
+Project identity and change history	owner	GET	/admin/projects/:slug/changes	200	creation and edits produced change history
+Project files, notes and feedback	owner	GET	/admin/projects/:slug/feedback	200	project report present under its project
+Project files, notes and feedback	owner	POST	/admin/projects/:slug/feedback	200	project feedback created
+Project files, notes and feedback	owner	POST	/admin/projects/:slug/feedback/:id	200	project feedback edited
+Project files, notes and feedback	owner	GET	/admin/projects/:slug/files	200	admin listing returns the created file and its body
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files	200	deleted documents disappear from the metadata projection
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files	200	document list preserves ordered metadata and omits each file body
+Project files, notes and feedback	owner	GET	/admin/projects/:slug/files	200	file disappeared after deletion
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files	200	legacy response still returns the exact three payloads in filename order
+Project document list and single-file preview	owner via Chromium	POST	/admin/projects/:slug/files	200	description-only save preserves 0 decoded bytes for base64 in MySQL and the returned SHA-256
+Project document list and single-file preview	owner via Chromium	POST	/admin/projects/:slug/files	200	description-only save preserves 16384 decoded bytes for utf8 in MySQL and the returned SHA-256
+Project document list and single-file preview	owner via Chromium	POST	/admin/projects/:slug/files	200	description-only save preserves 32768 decoded bytes for base64 in MySQL and the returned SHA-256
+Project document list and single-file preview	owner	POST	/admin/projects/:slug/files	422	empty UTF-8 body is rejected while the stored file remains unchanged
+Project files, notes and feedback	owner	POST	/admin/projects/:slug/files	200	file created with a persistent ID
+Project document list and single-file preview	owner via Chromium	POST	/admin/projects/:slug/files	422	invalid Base64 save exposes validation feedback and keeps both edited fields in the open draft
+Project document list and single-file preview	owner	POST	/admin/projects/:slug/files	200	legacy whitespace-only binary is stored with canonical empty content
+Project document list and single-file preview	owner	POST	/admin/projects/:slug/files	422	missing binary body is rejected while the stored file remains unchanged
+Project document list and single-file preview	owner	POST	/admin/projects/:slug/files	422	non-string binary body is rejected while the stored file remains unchanged
+Project document list and single-file preview	owner	POST	/admin/projects/:slug/files	200	stored 16384 decoded bytes under z.txt
+Project document list and single-file preview	owner	POST	/admin/projects/:slug/files	200	stored 32768 decoded bytes under a.bin
+Project document list and single-file preview	owner	POST	/admin/projects/:slug/files	200	stored 65536 decoded bytes under n.txt
+Project files, notes and feedback	owner	DELETE	/admin/projects/:slug/files/:id	200	removed only the synthetic file
+Project document list and single-file preview	owner	DELETE	/admin/projects/:slug/files/:id	200	removed the measured a.bin fixture
+Project document list and single-file preview	owner	DELETE	/admin/projects/:slug/files/:id	200	removed the measured empty.bin fixture
+Project document list and single-file preview	owner	DELETE	/admin/projects/:slug/files/:id	200	removed the measured n.txt fixture
+Project document list and single-file preview	owner	DELETE	/admin/projects/:slug/files/:id	200	removed the measured z.txt fixture
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	browser edited 0-byte base64 description while preserving original contents, digest and size
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	browser edited 16384-byte utf8 description while preserving original contents, digest and size
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	browser edited 32768-byte base64 description while preserving original contents, digest and size
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	editor fetched the selected a.bin body and original SHA-256
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	editor fetched the selected empty.bin body and original SHA-256
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	editor fetched the selected n.txt body and original SHA-256
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	editor fetched the selected z.txt body and original SHA-256
+Project files, notes and feedback	owner	GET	/admin/projects/:slug/files/:id	200	editor reads exact file body
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	invalid Base64 save preserves previously committed bytes and metadata
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	legacy zero-byte binary reopens with explicit Base64 encoding and empty digest
+Project document list and single-file preview	owner	GET	/admin/projects/:slug/files/:id	200	rejected edits preserve the previous empty binary metadata
+Project files, notes and feedback	owner	GET	/admin/projects/:slug/notes	200	note disappeared after deletion
+Project files, notes and feedback	owner	GET	/admin/projects/:slug/notes	200	updated note is visible to project members
+Project files, notes and feedback	owner	POST	/admin/projects/:slug/notes	200	note created with a persistent ID
+Project files, notes and feedback	owner	DELETE	/admin/projects/:slug/notes/:id	200	removed only the synthetic note
+Project files, notes and feedback	owner	POST	/admin/projects/:slug/notes/:id	200	existing note body updated
+Project identity and change history	owner	POST	/admin/projects/:slug/roster	200	roster persisted
+Fleet dashboard and project diagnostics	owner	GET	/admin/projects/:slug/slop-jobs	200	newly created project lists no static or advisor jobs
+Project identity and change history	owner	GET	/admin/projects/:slug/summary	200	summary includes selected project and revision
+Project files, notes and feedback	owner	GET	/admin/projects/feedback	200	fleet project-feedback view includes the same report
+Project document list and single-file preview	owner	POST	/admin/projects/state	200	enabled the project MCP capability for enrolled hosts
+Project identity and change history	owner	POST	/admin/projects/state	200	project module enabled
+Host policy	owner	GET	/admin/prune-policy	200	host inactivity retention is within the supported range
+Fleet preferences roundtrip	owner	GET	/admin/prune-policy	200	read back host inactivity window in days
+Fleet preferences roundtrip	owner	POST	/admin/prune-policy	200	saved supported 41-day host inactivity window
+Settings	owner	GET	/admin/response-verbosity	200	response verbosity choices include the current setting
+Fleet preferences roundtrip	owner	GET	/admin/response-verbosity	200	saved response verbosity is effective
+Fleet preferences roundtrip	owner	POST	/admin/response-verbosity	200	owner selected response verbosity three
+Host policy	owner	GET	/admin/reverse-dns	200	reverse DNS validation preference is boolean
+Operations	owner	GET	/admin/roles	200	roles view exposes named role entries
+Role publication history	owner	POST	/admin/roles	200	created custom role
+Role publication history	owner	GET	/admin/roles/:slug	200	role detail reflects revised name and version
+Role publication history	owner	PATCH	/admin/roles/:slug	200	role label changed with matching version
+Role publication history	owner	PUT	/admin/roles/:slug/draft	200	saved operator draft for this role
+Role publication history	owner	POST	/admin/roles/:slug/publish	200	published draft obtained a release identity
+Role publication history	owner	GET	/admin/roles/:slug/timeline	200	role timeline contains its published version
+Role publication history	owner	GET	/admin/roles/:slug/versions/:version	200	specific released role version has original manifest
+Operations	owner	GET	/admin/roles/state	200	roles feature switch is boolean
+Role publication history	owner	POST	/admin/roles/state	200	role management enabled
+Operations	owner	GET	/admin/schedules	200	no wake schedules were configured
+Retention	owner	GET	/admin/server-retention	200	retention dashboard exposes configured retention policies
+Host policy	owner	GET	/admin/settings/host-overrides	200	host override inventory reports counts
+Owner bootstrap and session	anonymous	POST	/admin/setup/owner	200	first owner established with a dashboard session
+Operations	owner	GET	/admin/setup/wizard	200	creating an owner left wizard completion and dismissal unset
+Skills and Claude-native library	owner	GET	/admin/skills	200	admin library retains the tombstone for a deleted skill
+Skills and Claude-native library	owner	GET	/admin/skills	200	skill library contains new skill
+Skills and Claude-native library	owner	DELETE	/admin/skills/:slug	200	synthetic skill removed
+Skills and Claude-native library	owner	GET	/admin/skills/:slug	200	skill editor reads its exact manifest
+Skills and Claude-native library	owner	POST	/admin/skills/store	200	persisted named skill manifest
+Operations	owner	GET	/admin/slop-jobs/state	200	diagnostic job feature switch is boolean
+Settings	owner	GET	/admin/speech-input	200	speech-input settings cover all supported engines
+Operator authorization and dashboard preferences	owner	GET	/admin/theme	200	fleet theme persisted
+Operator authorization and dashboard preferences	viewer	GET	/admin/theme	200	viewer observes unchanged default theme
+Operator authorization and dashboard preferences	owner	POST	/admin/theme	200	owner saved the fleet theme
+Operator authorization and dashboard preferences	viewer	POST	/admin/theme	403	viewer cannot change the fleet theme
+Operator authorization and dashboard preferences	owner	GET	/admin/users	200	removed viewer absent from inventory
+Operator authorization and dashboard preferences	owner	GET	/admin/users	200	renamed viewer is listed
+Operator authorization and dashboard preferences	owner	POST	/admin/users	200	created viewer identity
+Operator authorization and dashboard preferences	owner	DELETE	/admin/users/:id	200	viewer removed
+Operator authorization and dashboard preferences	owner	POST	/admin/users/:id	200	updated viewer display name
+Operations	owner	GET	/admin/watchdogs	200	no watchdogs were configured
+Operations	owner	GET	/admin/workflow-definitions	200	no workflow definitions created
+Workflow definition, revision and prepared run	owner	POST	/admin/workflow-definitions	200	definition stores the selected task and a SHA
+Workflow definition, revision and prepared run	owner	GET	/admin/workflow-definitions/:id	200	selected definition contains the created workflow
+Workflow definition, revision and prepared run	owner	POST	/admin/workflow-definitions/:id/revise	200	revision creates version two with changed summary
+Workflow definition, revision and prepared run	owner	GET	/admin/workflow-definitions/:id/versions	200	version history contains original and revised SHA
+Workflow definition, revision and prepared run	owner	GET	/admin/workflow-definitions/:id/versions/:version	200	historical version retains its original summary
+Operations	owner	GET	/admin/workflow-definitions/state	200	workflow feature switch is boolean
+Workflow definition, revision and prepared run	owner	POST	/admin/workflow-definitions/state	200	workflow module enabled
+Operations	owner	GET	/admin/workflow-runs	200	no workflow dispatched
+Workflow definition, revision and prepared run	owner	POST	/admin/workflow-runs	200	prepared run is pinned to workflow revision two
+Workflow definition, revision and prepared run	owner	GET	/admin/workflow-runs/:id	200	prepared run can be reopened by ID
+Workflow definition, revision and prepared run	owner	GET	/admin/workflow-runs/:id/events	200	prepared run has its own event history
+Workflow definition, revision and prepared run	owner	POST	/admin/workflow-runs/:id/prepare-cancel	200	prepared run lifecycle ends explicitly
+Workflow definition, revision and prepared run	owner	GET	/admin/workflow-runs/:id/report	200	run report points to the same workflow version
+Workflow definition, revision and prepared run	owner	GET	/admin/workflow-runs/:id/tasks/:taskId	200	prepared task holds the original instructions
+Host policy	owner	GET	/admin/wrapper/rollout	200	rollout dashboard exposes its enabled state
+Host policy	owner	GET	/admin/wrapper/rollout/enabled	200	wrapper rollout switch and its source
+Native companion pairing and revocation	paired device	GET	/companion/v1/me	200	companion reports bound device and its read-sync protocol
+Native companion pairing and revocation	revoked device	GET	/companion/v1/me	401	revoked bearer no longer authenticates
+Native companion pairing and revocation	unpaired device	POST	/companion/v1/pair	200	synthetic handset exchanged pairing for its bearer identity
+Project document list and single-file preview	synthetic host	POST	/mcp	200	host MCP read returned the empty Base64 body and zero bytes
+Project document list and single-file preview	synthetic host	POST	/mcp	200	host MCP retained the canonical zero-byte binary SHA on a metadata update
