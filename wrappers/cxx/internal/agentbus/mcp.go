@@ -1492,16 +1492,10 @@ func copyQueuePolicy(args, body map[string]any, state *channelTracker) {
 // agentListen waits for the next message addressed to this agent, in any
 // conversation, without needing a conversation id.
 //
-// It deliberately does NOT acknowledge the delivery. Leaving it `leased` is what
-// makes a mid-turn crash recoverable: the server requeues an expired `leased`
-// lease, and the relay then delivers it to a fresh peer engine. Acknowledging
-// `accepted` would instead turn that same crash into an `ambiguous` row, which
-// is terminal and never redelivered -- the peer's message would be silently
-// lost. `accepted` buys protection from TTL expiry, but the default TTL is 24h
-// and a call is minutes, so there is nothing here for it to buy.
-//
-// The visible semantic is therefore at-least-once; `attempts` rides along on the
-// delivery so a redelivery is detectable.
+// Informational deliveries stay leased until the agent finishes them. Their
+// attempts counter identifies redelivery after a lease expires. For work, the
+// receiver persists acceptance under the claim before returning the content.
+// A lost result ACK uses the same claim and result, without executing again.
 func agentListen(ctx context.Context, client *sessionClient, state *channelTracker, args map[string]any) (map[string]any, error) {
 	if state != nil && state.receiver != nil && os.Getenv("CXX_AGENT_PORTAL_ENGINE") != "kimi" {
 		// Still never claims -- the receiver owns claiming. But listening means "done

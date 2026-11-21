@@ -22,7 +22,7 @@ func TestSmartListenAllowsCoordinationWithoutCompletingWork(t *testing.T) {
 			var bodies []map[string]any
 			c := heldWorkClient(t, &posted, &bodies)
 			tracker := newChannelTracker(c)
-			tracker.receiver = &autoReceiver{client: c, tracker: tracker, connected: true, sources: []string{"peer"}, lastBeatOK: time.Now(), queueDeliveryV1: true}
+			tracker.receiver = &autoReceiver{client: c, tracker: tracker, generation: "registered-native", connected: true, sources: []string{"peer"}, lastBeatOK: time.Now(), queueDeliveryV1: true}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			work := tracker.track(ctx, "work", "work-claim", map[string]any{"work_kind": "request"})
@@ -39,7 +39,11 @@ func TestSmartListenAllowsCoordinationWithoutCompletingWork(t *testing.T) {
 				t.Fatal("listen changed accepted work or retained digest")
 			}
 			if engine == "kimi" {
-				if strings.Join(posted, ",") != "deliveries/digest/ack,bind,mailbox,deliveries/claim" || bodies[len(bodies)-1]["informational_only"] != true {
+				if strings.Join(posted, ",") != "deliveries/digest/ack,mailbox,deliveries/claim" {
+					t.Fatalf("unexpected Kimi receiver operations: %v", posted)
+				}
+				claim := bodies[len(bodies)-1]
+				if claim["informational_only"] != true || claim["receiver_generation"] != "registered-native" {
 					t.Fatalf("Kimi coordination claim lost work guard: %v %v", posted, bodies)
 				}
 			} else if len(posted) != 1 || posted[0] != "deliveries/digest/ack" {
