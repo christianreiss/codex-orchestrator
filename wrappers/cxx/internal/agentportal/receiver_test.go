@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -225,6 +226,7 @@ func TestClaudeAgentArgsAttachPluginWithoutReceiver(t *testing.T) {
 }
 
 func TestNativeIdentityIsLocalAndRequiresReceiverGrant(t *testing.T) {
+	testhome.Isolate(t)
 	session := &Session{ID: "session", Engine: "claude", receiverAllowed: true}
 	broker := &Broker{session: session}
 	post := func(body string) *httptest.ResponseRecorder {

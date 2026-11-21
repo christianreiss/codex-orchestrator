@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,7 @@ import (
 )
 
 func TestInstallVerifiedBinaryIsConcurrentSafe(t *testing.T) {
+	testhome.Isolate(t)
 	dir := t.TempDir()
 	source := filepath.Join(dir, "source")
 	dest := filepath.Join(dir, "cxx")

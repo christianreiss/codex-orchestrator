@@ -17,6 +17,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 	"github.com/pelletier/go-toml"
 )
 
@@ -67,6 +68,7 @@ func TestProjectionRejectsRefreshSecretsAndRewritesAccessFile(t *testing.T) {
 	}
 }
 func TestRefreshAppliesCanonicalSuccessor(t *testing.T) {
+	testhome.Isolate(t)
 	home := t.TempDir()
 	r := &Runtime{Home: home, Dir: t.TempDir(), AuthPath: filepath.Join(home, "credentials", "kimi-code.json"), Pool: &accountpool.Context{AccountID: 7}}
 	token := "first"
@@ -240,6 +242,7 @@ func checkNativeConfig(t *testing.T, r *Runtime) {
 }
 
 func TestServerRendererMCPAndHooksGolden(t *testing.T) {
+	testhome.Isolate(t)
 	home := t.TempDir()
 	body, err := os.ReadFile("testdata/server-sync.toml")
 	if err != nil {

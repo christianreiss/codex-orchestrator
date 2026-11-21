@@ -9,6 +9,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	comm "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 	"golang.org/x/net/websocket"
 )
 
@@ -22,6 +23,7 @@ func (p *ownershipProbe) JSON(_ context.Context, _ string, path string, in any, 
 }
 
 func TestProviderOwnershipNegotiatedFromSignedCapability(t *testing.T) {
+	testhome.Isolate(t)
 	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, required := range []bool{false, true} {
 			t.Run(engine+map[bool]string{false: "/legacy", true: "/connection"}[required], func(t *testing.T) {

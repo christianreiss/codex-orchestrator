@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 const testBridgeToken = "bridge-123456789012345678901234567890123456"
@@ -212,6 +213,7 @@ func TestBindingStaleDoesNotRecoverWithoutSignedMessagingPolicy(t *testing.T) {
 }
 
 func TestStartRetriesRegistrationAndExposesNoPortalBridgeCredential(t *testing.T) {
+	testhome.Isolate(t)
 	const hostSecret = "host-api-key-that-must-not-reach-the-child"
 	var attempts int
 	var sessionID string
@@ -299,6 +301,7 @@ func TestStartRetriesRegistrationAndExposesNoPortalBridgeCredential(t *testing.T
 }
 
 func TestNotifyUsesPrivateBrokerAndServerDerivedSource(t *testing.T) {
+	testhome.Isolate(t)
 	var calls []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.URL.Path)
@@ -392,6 +395,7 @@ func TestScrubEnvironmentRemovesAndRestoresInheritedPortalCapability(t *testing.
 }
 
 func TestWaitRequiresExplicitModelAcceptance(t *testing.T) {
+	testhome.Isolate(t)
 	claimCalls := 0
 	ackCalls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -454,6 +458,7 @@ func TestWaitRequiresExplicitModelAcceptance(t *testing.T) {
 }
 
 func TestBrokerRejectsPrivilegedPathsAndCleansUp(t *testing.T) {
+	testhome.Isolate(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("forbidden request reached upstream: %s", r.URL.Path)
 	}))
@@ -816,6 +821,7 @@ func TestClaimRetriesAmbiguousResponseWithStableClaimID(t *testing.T) {
 }
 
 func TestBrokerCloseCancelsTheLocalSideOfAnActiveLongPoll(t *testing.T) {
+	testhome.Isolate(t)
 	started := make(chan struct{})
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

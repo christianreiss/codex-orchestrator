@@ -148,7 +148,8 @@ Build:
 
 ```
 make all          # local wrappers/bin/cxx
-make test         # go test ./... for the unified module
+make test         # unified module tests and release-metadata tests
+make test-race    # complete Go race-detector suite
 make release      # stage one cxx build per platform under wrappers/bin/release
 make publish-release # explicitly publish the staged VERSION to the served store
 
@@ -156,6 +157,12 @@ make cxx-traced   # opt-in OpenTelemetry build -> wrappers/bin/cxx-traced
 make test-traced  # vet + test under -tags cxx_otel
 make test-terminal # production renderers in real PTYs and redirected output
 ```
+
+The Go gates start each package test binary with a temporary user home and
+runtime directory. They clear inherited engine and signed-config locations.
+The Go build and module caches remain reusable. Tests calling a native
+writer should also isolate the user's wrapper state in their own fixture,
+so a direct package test uses disposable data.
 
 Grok's optional native checks are explicit: run
 `CGX_NATIVE_REGISTRY_CANARY=1 go test -run TestGrokRegistryPackagesCanary -v ./internal/grok`

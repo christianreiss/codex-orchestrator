@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 // RunCapture must refuse to launch Claude when the runtime hostname does not
@@ -17,6 +18,7 @@ import (
 // PreExec error was swallowed and Claude launched against the wrong host
 // identity. PreExec fails before claude is ever spawned, so this never execs.
 func TestRunCaptureRefusesFQDNMismatch(t *testing.T) {
+	testhome.Isolate(t)
 	t.Setenv("CLAUDE_ALLOW_FQDN_MISMATCH", "")
 	// Make FindCLI succeed with a dummy so the test reaches PreExec regardless of
 	// whether a real claude is installed; PreExec fails first so it is never run.

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 func TestMessagingSendRetryAdvice(t *testing.T) {
@@ -114,6 +116,7 @@ func TestMessagingUUIDRequirementVisibleWithoutFormat(t *testing.T) {
 }
 
 func TestManagedGrokLegacyMCPDefinitionUsesAutomaticReceiver(t *testing.T) {
+	testhome.Isolate(t)
 	for _, tc := range []struct {
 		engine, socket string
 		automatic      bool

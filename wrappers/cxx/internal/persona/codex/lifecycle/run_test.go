@@ -21,6 +21,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 func TestPresentedErrorAndPortableLifecycleText(t *testing.T) {
@@ -297,6 +298,7 @@ func TestShouldWriteServerAuth(t *testing.T) {
 // `codex login` → relaunch → clobbered failure), while a genuinely newer
 // canonical still lands on disk.
 func TestApplyServerAuth(t *testing.T) {
+	testhome.Isolate(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	freshStamp := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
 	staleStamp := time.Now().UTC().Add(-30 * 24 * time.Hour).Format(time.RFC3339)

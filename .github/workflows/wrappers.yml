@@ -50,8 +50,8 @@ jobs:
       # The wrapper spawns peers, watches auth files, and runs a cron loop, so
       # its concurrency is not incidental. `make test` runs without -race.
       - name: race detector
-        working-directory: wrappers/cxx
-        run: go test -race ./...
+        working-directory: wrappers
+        run: make test-race
       # Waivers live in wrappers/cxx/staticcheck.conf with their reasons.
       - name: staticcheck
         working-directory: wrappers/cxx

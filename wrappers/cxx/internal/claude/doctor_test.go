@@ -12,6 +12,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 func TestCheckCLIUsesRunningWrapperVersion(t *testing.T) {
@@ -41,6 +42,7 @@ func TestCheckPathsFailsWhenUpstreamCLIIsMissing(t *testing.T) {
 }
 
 func TestCheckCLIWarnsWhenVersionProbeFails(t *testing.T) {
+	testhome.Isolate(t)
 	bin := filepath.Join(t.TempDir(), "claude")
 	if err := os.WriteFile(bin, []byte("not executable"), 0o600); err != nil {
 		t.Fatal(err)

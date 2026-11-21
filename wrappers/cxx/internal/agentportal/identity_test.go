@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 func TestIdentityConfirmationOverlapsPeerDiscovery(t *testing.T) {
@@ -131,6 +132,7 @@ func TestIdentityGateNamesKnownRegistrationRefusal(t *testing.T) {
 }
 
 func TestIdentityGateAndProviderContextAcrossEngines(t *testing.T) {
+	testhome.Isolate(t)
 	const uuid = "12345678-1234-4123-8123-123456789abc"
 	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		for _, resumed := range []bool{false, true} {

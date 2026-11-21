@@ -13,6 +13,7 @@ PUBLISH_ROOT ?= ../storage/wrapper/v2/bin
 
 GO ?= go
 PYTHON ?= python3
+GO_TEST_EXEC := -exec='sh "$(CURDIR)/scripts/go-test-home.sh"'
 LDFLAGS := -s -w \
 	-X 'main.Version=$(VERSION)' \
 	-X 'main.Commit=$(COMMIT)' \
@@ -29,7 +30,7 @@ endif
 # Platform matrix kept in sync with .github/workflows/wrappers.yml.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 freebsd/amd64
 
-.PHONY: all build cxx cxx-traced cdx clx cgx ckx terminal-preview test-terminal test test-traced vet lint clean release publish-release pubkey
+.PHONY: all build cxx cxx-traced cdx clx cgx ckx terminal-preview test-terminal test test-race test-traced vet lint clean release publish-release pubkey
 
 all: cxx
 
@@ -57,15 +58,18 @@ test-terminal: terminal-preview
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) scripts/check-terminal-ui.py --binary bin/terminal-preview
 
 test:
-	cd cxx && $(GO) test ./...
+	cd cxx && $(GO) test $(GO_TEST_EXEC) ./...
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) scripts/test-merge-manifest.py
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) scripts/test-publish-release.py
+
+test-race:
+	cd cxx && $(GO) test $(GO_TEST_EXEC) -race ./...
 
 # The tracing egress guard and the span-hygiene tests only build under the tag,
 # so `test` alone never executes them. CI runs both targets.
 test-traced:
 	cd cxx && $(GO) vet -tags cxx_otel ./...
-	cd cxx && $(GO) test -tags cxx_otel ./...
+	cd cxx && $(GO) test $(GO_TEST_EXEC) -tags cxx_otel ./...
 
 vet:
 	cd cxx && $(GO) vet ./...

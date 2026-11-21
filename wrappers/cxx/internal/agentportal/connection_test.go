@@ -11,9 +11,11 @@ import (
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 func TestConnectionRuntimeOwnsCapabilityAndFinishesOnce(t *testing.T) {
+	testhome.Isolate(t)
 	t.Setenv(envSocket, "outer-socket")
 	t.Setenv(envBridgeToken, "outer-token")
 	var finishes atomic.Int32
@@ -97,6 +99,7 @@ func TestFailedConnectionKeepsInheritedCapabilityScrubbed(t *testing.T) {
 }
 
 func TestPendingConnectionRecoversWithoutChangingCapability(t *testing.T) {
+	testhome.Isolate(t)
 	t.Setenv(envSocket, "outer")
 	var available atomic.Bool
 	var identity atomic.Value

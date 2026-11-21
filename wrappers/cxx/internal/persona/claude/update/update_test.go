@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 func TestVerifyChecksum(t *testing.T) {
@@ -74,6 +76,7 @@ func TestReExecAfterUpdateRejectsEmptyExe(t *testing.T) {
 }
 
 func TestInstallVerifiedBinaryCopiesExecutable(t *testing.T) {
+	testhome.Isolate(t)
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
 	dest := filepath.Join(dir, "clx")
@@ -104,6 +107,7 @@ func TestInstallVerifiedBinaryCopiesExecutable(t *testing.T) {
 }
 
 func TestInstallVerifiedBinaryReportsSwapFailureWithoutSudo(t *testing.T) {
+	testhome.Isolate(t)
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src")
 	if err := os.WriteFile(src, []byte("new-binary"), 0o644); err != nil {

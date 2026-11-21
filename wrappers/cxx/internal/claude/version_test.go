@@ -6,9 +6,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 func TestVersionExtractsSemverToken(t *testing.T) {
+	testhome.Isolate(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is POSIX-only")
 	}

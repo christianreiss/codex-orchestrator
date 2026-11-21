@@ -11,11 +11,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 )
 
 // Keep both native pipes and the same launch identity across local broker
 // replacement. A failed tool reports an error; it must not close MCP stdin.
 func TestMCPStdioSurvivesSameBindingBrokerReplacement(t *testing.T) {
+	testhome.Isolate(t)
 	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("CXX_AGENT_PORTAL_ENGINE", engine)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -79,6 +80,7 @@ func TestConnectionStateSuppressesSessionAndClaimRenewals(t *testing.T) {
 }
 
 func TestPendingAdmissionRecoversBeforeRequiredStateAndKeepsIdentity(t *testing.T) {
+	testhome.Isolate(t)
 	socket := filepath.Join(t.TempDir(), "state.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
