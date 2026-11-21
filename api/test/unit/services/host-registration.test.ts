@@ -1,306 +1,112 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  adminEvents,
-  hosts as hostsTable,
-  logs as logsTable,
-  versions,
-} from '../../../src/db/schema.js';
-import {
-  createHostRegistrationService,
-  type HostRegistrationService,
-} from '../../../src/services/host-registration.js';
-import type { InsecureWindowService } from '../../../src/services/insecure-window.js';
-import { Keyring } from '../../../src/security/keyring.js';
-import { decrypt } from '../../../src/security/secret-box.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Database } from '../../../src/db/client.js';
+import { adminEvents, hosts, logs, versions } from '../../../src/db/schema.js';
 import { sha256 } from '../../../src/security/hash.js';
+import { decrypt } from '../../../src/security/secret-box.js';
+import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
+import { HostManagementService } from '../../../src/services/host-management.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
-import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
+import { createDbFake } from '../../helpers/db-fake.js';
+import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
-/**
- * The CLI approve path mints hosts here, so the column contract is the point:
- * `api_key` holds the *hash* for the legacy unique index, `api_key_hash` the
- * same digest, and only `api_key_enc` can be decrypted back to the key handed
- * to the caller.
- */
+const fqdn = 'registered.example.test';
+const oldKey = 'fixture-old-key';
+const oldHash = sha256(oldKey);
+const createdAt = '2020-01-01T00:00:00Z';
 
-const KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
-const STALE_KEY = 'sk-codex-stale';
-const ROTATE_FQDN = 'rotate.example.com';
-const OLD_ISO = '2020-01-01T00:00:00Z';
-const WINDOW_OPENED_AT = new Date('2026-07-29T12:00:00Z');
-
-type Row = Record<string, unknown>;
-
-interface Harness {
-  db: DbFake;
-  keyring: Keyring;
-  service: HostRegistrationService;
-  openCalls: Array<{ hostId: number; windowMinutes: number | undefined }>;
+function existingHost(engines = 'codex,claude') {
+  return { id: 7, fqdn, apiKey: oldHash, apiKeyHash: oldHash, apiKeyEnc: null,
+    status: 'active', secure: 1, engines, createdAt, updatedAt: createdAt, lastContactAt: new Date().toISOString() };
 }
 
-function setup(rows: Row[] = [], defaultHostEngines?: string): Harness {
-  const db = createDbFake();
-  db.tables.set(hostsTable, rows);
-  db.tables.set(adminEvents, []);
-  db.tables.set(logsTable, []);
-  const keyring = Keyring.fromEnv({ ENCRYPTION_ACTIVE_KEY: KEY } as unknown as Parameters<
-    typeof Keyring.fromEnv
-  >[0]);
-
-  const openCalls: Harness['openCalls'] = [];
-  const insecure: InsecureWindowService = {
-    async enforce(host) {
-      return host;
-    },
-    async openInitial(hostId, windowMinutes) {
-      openCalls.push({ hostId, windowMinutes });
-      // Replaces the row rather than mutating it in place, so the opened
-      // window is only visible to a caller that actually re-reads.
-      const stored = db.tables.get(hostsTable) ?? [];
-      const idx = stored.findIndex((r) => r.id === hostId);
-      if (idx >= 0) stored[idx] = { ...stored[idx], insecureEnabledUntil: WINDOW_OPENED_AT };
-    },
-  };
-
-  const service = createHostRegistrationService({ db: db as never, keyring, insecure, defaultHostEngines });
-  return { db, keyring, service, openCalls };
+function harness(rows: Record<string, unknown>[] = [], defaultEngines = 'codex') {
+  const fake = createDbFake();
+  fake.tables.set(hosts, rows);
+  const db = fake as unknown as Database;
+  const keyring = testKeyring();
+  const service = new HostManagementService({
+    db, keyring, env: { ...loadTestEnv(), DEFAULT_HOST_ENGINES: defaultEngines },
+    events: makeAdminEventsWriter(db),
+  });
+  return { fake, service, keyring };
 }
 
-function existingRow(over: Row = {}): Row {
-  return {
-    id: 7,
-    fqdn: ROTATE_FQDN,
-    apiKey: sha256(STALE_KEY),
-    apiKeyHash: sha256(STALE_KEY),
-    apiKeyEnc: 'sbox:v1:kid=legacy:stale',
-    status: 'active',
-    secure: 1,
-    engines: 'codex',
-    insecureEnabledUntil: null,
-    createdAt: OLD_ISO,
-    updatedAt: OLD_ISO,
-    ...over,
-  };
-}
+afterEach(() => vi.restoreAllMocks());
 
-let events: Array<{ type: string; payload: unknown }> = [];
-let unsubscribe: () => void = () => {};
+describe('registration through the admin host service', () => {
+  it.each([false, true])('stores key hashes and a decryptable envelope, then audits and publishes (rotation: %s)', async rotation => {
+    const { fake, service, keyring } = harness(rotation ? [existingHost()] : []);
+    const publish = vi.spyOn(wsPublisher, 'publish');
+    const { host, apiKeyPlain } = await service.register({ fqdn: '  ' + fqdn + '\n', engines: ['codex', 'claude'] });
+    const hash = sha256(apiKeyPlain);
+    expect(apiKeyPlain).not.toBe(oldKey);
+    expect(hash).not.toBe(oldHash);
+    const stored = fake.tables.get(hosts)!;
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ id: host.id, fqdn, apiKey: hash, apiKeyHash: hash, engines: 'codex,claude', status: 'active' });
+    expect(decrypt(String(stored[0]!.apiKeyEnc), keyring)).toBe(apiKeyPlain);
+    if (rotation) {
+      expect(host.id).toBe(7);
+      expect(stored[0]!.createdAt).toBe(createdAt);
+      expect(stored[0]!.updatedAt).not.toBe(createdAt);
+      expect(fake.inserts.filter(row => row.table === hosts)).toHaveLength(0);
+    }
+    const event = rotation ? 'host.updated' : 'host.created';
+    expect(fake.tables.get(adminEvents)).toContainEqual(expect.objectContaining({
+      type: event, hostId: host.id,
+      payload: expect.objectContaining({ fqdn, secure: true, engines: 'codex,claude' }),
+    }));
+    expect(fake.tables.get(logs)).toContainEqual(expect.objectContaining({ hostId: host.id, action: 'register',
+      details: JSON.stringify({ result: rotation ? 'rotated' : 'created', engines: 'codex,claude' }),
+    }));
+    expect(publish).toHaveBeenCalledWith(event, { id: host.id, fqdn });
+  });
 
-beforeEach(() => {
-  events = [];
-  unsubscribe = wsPublisher.subscribe((e) => events.push({ type: e.type, payload: e.payload }));
-});
-
-afterEach(() => {
-  unsubscribe();
-});
-
-describe('registerOrRotate: new host', () => {
-  it('revalidates suspended assignment against the host locked after concurrent removal', async () => {
-    const h = setup([existingRow({ engines: 'codex,claude' })]);
-    h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
-    const transaction = h.db.transaction.bind(h.db);
-    vi.spyOn(h.db, 'transaction').mockImplementationOnce(async callback => {
-      h.db.tables.set(hostsTable, [existingRow({ engines: 'claude' })]);
+  it('rejects a newly disabled assignment against the row locked during rotation', async () => {
+    const { fake, service } = harness([existingHost()]);
+    fake.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
+    const transaction = fake.transaction.bind(fake);
+    vi.spyOn(fake, 'transaction').mockImplementationOnce(async callback => {
+      fake.tables.set(hosts, [existingHost('claude')]);
       return transaction(callback);
     });
-    await expect(h.service.registerOrRotate({ fqdn: ROTATE_FQDN, engines: 'codex,claude' })).rejects.toMatchObject({ code: 'engine_disabled' });
-    expect(h.db.tables.get(hostsTable)?.[0]?.engines).toBe('claude');
-    expect(h.db.tables.get(hostsTable)?.[0]?.apiKeyHash).toBe(sha256(STALE_KEY));
+    await expect(service.register({ fqdn, engines: ['codex', 'claude'] })).rejects.toMatchObject({ code: 'engine_disabled' });
+    expect(fake.tables.get(hosts)?.[0]).toMatchObject({ engines: 'claude', apiKeyHash: oldHash });
   });
 
-  it('refuses an implicit Codex assignment while Codex is suspended before storing credentials', async () => {
-    const h = setup();
-    h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
-    await expect(h.service.registerOrRotate({ fqdn: 'new.example.com' })).rejects.toMatchObject({ code: 'engine_disabled', status: 409 });
-    expect(h.db.tables.get(hostsTable)).toEqual([]);
-    expect(events).toEqual([]);
+  it('rejects an unavailable default before writing credentials and removes disabled engines from mixed defaults', async () => {
+    const blocked = harness();
+    blocked.fake.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
+    await expect(blocked.service.register({ fqdn })).rejects.toMatchObject({ code: 'engine_disabled', status: 409 });
+    expect(blocked.fake.tables.get(hosts)).toEqual([]);
+    const mixed = harness([], 'codex,claude');
+    mixed.fake.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
+    expect((await mixed.service.register({ fqdn })).host.engines).toBe('claude');
   });
 
-  it('drops suspended engines from configured defaults on a new host', async () => {
-    const h = setup([], 'codex,claude,grok,kimi');
-    h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }, { name: 'grok_engine_disabled', version: '1' }]);
-    const out = await h.service.registerOrRotate({ fqdn: 'new.example.com' });
-    expect(out.host.engines).toBe('claude,kimi');
+  it('preserves a suspended assignment when omitted and replaces it on an explicit engine change', async () => {
+    const { service, fake } = harness([existingHost()]);
+    fake.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
+    expect((await service.register({ fqdn })).host.engines).toBe('codex,claude');
+    expect((await service.register({ fqdn, engines: ['claude'] })).host.engines).toBe('claude');
+    expect(fake.tables.get(hosts)?.[0]?.engines).toBe('claude');
   });
 
-  it.each(['codex', 'claude', 'grok', 'kimi'])('refuses an explicitly suspended %s assignment', async (engine) => {
-    const h = setup();
-    h.db.tables.set(versions, [{ name: `${engine}_engine_disabled`, version: '1' }]);
-    await expect(h.service.registerOrRotate({ fqdn: 'new.example.com', engines: engine })).rejects.toMatchObject({ code: 'engine_disabled' });
-    expect(h.db.tables.get(hostsTable)).toEqual([]);
+  it.each([false, true])('opens the requested initial or rotated insecure window (rotation: %s)', async rotation => {
+    const { service } = harness(rotation ? [existingHost()] : []);
+    const before = Date.now();
+    const { host } = await service.register({ fqdn, secure: false, duration_minutes: 45 });
+    const deadline = new Date(host.insecureEnabledUntil!).getTime();
+    expect(host.secure).toBe(0);
+    expect(deadline).toBeGreaterThanOrEqual(before + 45 * 60_000);
+    expect(deadline).toBeLessThanOrEqual(Date.now() + 45 * 60_000);
+    expect((await service.findById(host.id))!.insecureEnabledUntil).toEqual(host.insecureEnabledUntil);
   });
 
-  it('inserts one active row carrying the hash in both key columns and the encrypted key', async () => {
-    const h = setup();
-
-    const { host, apiKey } = await h.service.registerOrRotate({ fqdn: 'new.example.com' });
-
-    expect(h.db.tables.get(hostsTable)).toHaveLength(1);
-    expect(host.status).toBe('active');
-    expect(host.engines).toBe('codex');
+  it('keeps the default secure host outside the insecure window', async () => {
+    const { service } = harness();
+    const { host } = await service.register({ fqdn });
     expect(host.secure).toBe(1);
-    expect(apiKey.startsWith('sk-codex-')).toBe(true);
-    expect(host.apiKeyHash).toBe(sha256(apiKey));
-    expect(host.apiKey).toBe(host.apiKeyHash);
-    expect(decrypt(host.apiKeyEnc!, h.keyring)).toBe(apiKey);
-  });
-
-  it('trims the fqdn before inserting', async () => {
-    const h = setup();
-
-    const { host } = await h.service.registerOrRotate({ fqdn: '  fresh.example.com \n' });
-
-    expect(host.fqdn).toBe('fresh.example.com');
-  });
-
-  it('writes a host.created admin event and log row', async () => {
-    const h = setup();
-
-    const { host } = await h.service.registerOrRotate({
-      fqdn: 'audit.example.com',
-      createdBy: 'admin@example.com',
-      engines: 'codex,claude',
-    });
-
-    const payload = { fqdn: 'audit.example.com', createdBy: 'admin@example.com', engines: 'codex,claude' };
-    const auditRows = h.db.tables.get(adminEvents)!;
-    expect(auditRows).toHaveLength(1);
-    expect(auditRows[0]).toMatchObject({ type: 'host.created', hostId: host.id, payload });
-    const logRows = h.db.tables.get(logsTable)!;
-    expect(logRows).toHaveLength(1);
-    expect(logRows[0]).toMatchObject({ hostId: host.id, action: 'host.created' });
-    expect(JSON.parse(logRows[0]!.details as string)).toEqual(payload);
-  });
-
-  it('publishes host.created', async () => {
-    const h = setup();
-
-    const { host } = await h.service.registerOrRotate({ fqdn: 'ws.example.com' });
-
-    expect(events).toEqual([{ type: 'host.created', payload: { id: host.id, fqdn: 'ws.example.com' } }]);
-  });
-});
-
-describe('registerOrRotate: existing host', () => {
-  it('keeps an existing suspended engine assignment during key rotation', async () => {
-    const h = setup([existingRow({ engines: 'codex,claude' })]);
-    h.db.tables.set(versions, [{ name: 'codex_engine_disabled', version: '1' }]);
-    const out = await h.service.registerOrRotate({ fqdn: ROTATE_FQDN });
-    expect(out.host.engines).toBe('codex,claude');
-  });
-
-  it('rotates the row in place with a fresh key and a refreshed updatedAt', async () => {
-    const h = setup([existingRow()]);
-
-    const { host, apiKey } = await h.service.registerOrRotate({
-      fqdn: ROTATE_FQDN,
-      engines: 'codex,claude',
-    });
-
-    expect(h.db.tables.get(hostsTable)).toHaveLength(1);
-    expect(h.db.inserts.filter((i) => i.table === hostsTable)).toHaveLength(0);
-    expect(host.id).toBe(7);
-    expect(apiKey).not.toBe(STALE_KEY);
-    expect(host.apiKeyHash).toBe(sha256(apiKey));
-    expect(host.apiKeyHash).not.toBe(sha256(STALE_KEY));
-    expect(host.apiKey).toBe(host.apiKeyHash);
-    expect(decrypt(host.apiKeyEnc!, h.keyring)).toBe(apiKey);
-    expect(host.engines).toBe('codex,claude');
-    expect(host.createdAt).toBe(OLD_ISO);
-    expect(host.updatedAt).not.toBe(OLD_ISO);
-  });
-
-  it('trims the fqdn before the lookup', async () => {
-    const h = setup([existingRow()]);
-
-    const { host } = await h.service.registerOrRotate({ fqdn: `  ${ROTATE_FQDN} \n` });
-
-    expect(host.id).toBe(7);
-    expect(h.db.tables.get(hostsTable)).toHaveLength(1);
-  });
-
-  it('keeps the stored engines when the caller omits the field', async () => {
-    const h = setup([existingRow({ engines: 'codex,claude' })]);
-
-    const { host } = await h.service.registerOrRotate({ fqdn: ROTATE_FQDN });
-
-    expect(host.engines).toBe('codex,claude');
-    expect(h.db.tables.get(hostsTable)![0]!.engines).toBe('codex,claude');
-    expect(h.db.tables.get(adminEvents)![0]).toMatchObject({
-      type: 'host.rotated',
-      payload: { fqdn: ROTATE_FQDN, createdBy: null, engines: 'codex,claude' },
-    });
-  });
-
-  it('overwrites the stored engines when the caller passes the field', async () => {
-    const h = setup([existingRow({ engines: 'codex,claude' })]);
-
-    const { host } = await h.service.registerOrRotate({ fqdn: ROTATE_FQDN, engines: 'codex' });
-
-    expect(host.engines).toBe('codex');
-    expect(h.db.tables.get(hostsTable)![0]!.engines).toBe('codex');
-    expect(h.db.tables.get(adminEvents)![0]).toMatchObject({
-      type: 'host.rotated',
-      payload: { fqdn: ROTATE_FQDN, createdBy: null, engines: 'codex' },
-    });
-  });
-
-  it('writes a host.rotated admin event and log row with a null createdBy when omitted', async () => {
-    const h = setup([existingRow()]);
-
-    await h.service.registerOrRotate({ fqdn: ROTATE_FQDN });
-
-    const payload = { fqdn: ROTATE_FQDN, createdBy: null, engines: 'codex' };
-    const auditRows = h.db.tables.get(adminEvents)!;
-    expect(auditRows).toHaveLength(1);
-    expect(auditRows[0]).toMatchObject({ type: 'host.rotated', hostId: 7, payload });
-    const logRows = h.db.tables.get(logsTable)!;
-    expect(logRows).toHaveLength(1);
-    expect(logRows[0]).toMatchObject({ hostId: 7, action: 'host.rotated' });
-    expect(JSON.parse(logRows[0]!.details as string)).toEqual(payload);
-  });
-
-  it('publishes host.updated', async () => {
-    const h = setup([existingRow()]);
-
-    await h.service.registerOrRotate({ fqdn: ROTATE_FQDN });
-
-    expect(events).toEqual([{ type: 'host.updated', payload: { id: 7, fqdn: ROTATE_FQDN } }]);
-  });
-});
-
-describe('registerOrRotate: insecure window', () => {
-  it('opens the initial window and re-reads the inserted row when secure is false', async () => {
-    const h = setup();
-
-    const { host } = await h.service.registerOrRotate({
-      fqdn: 'insecure.example.com',
-      secure: false,
-      insecureWindowMinutes: 45,
-    });
-
-    expect(h.openCalls).toEqual([{ hostId: host.id, windowMinutes: 45 }]);
-    expect(host.secure).toBe(0);
-    expect(host.insecureEnabledUntil).toEqual(WINDOW_OPENED_AT);
-  });
-
-  it('opens the initial window and re-reads the rotated row when secure is false', async () => {
-    const h = setup([existingRow()]);
-
-    const { host } = await h.service.registerOrRotate({ fqdn: ROTATE_FQDN, secure: false });
-
-    expect(h.openCalls).toEqual([{ hostId: 7, windowMinutes: undefined }]);
-    expect(host.secure).toBe(0);
-    expect(host.insecureEnabledUntil).toEqual(WINDOW_OPENED_AT);
-  });
-
-  it('leaves the window closed when secure defaults to true', async () => {
-    const h = setup();
-
-    const { host } = await h.service.registerOrRotate({ fqdn: 'secure.example.com' });
-
-    expect(h.openCalls).toEqual([]);
-    expect(host.insecureEnabledUntil).toBeUndefined();
+    expect(host.insecureEnabledUntil ?? null).toBeNull();
   });
 });

@@ -7,8 +7,6 @@ import { ClientConfigService } from '../../../src/services/client-config.js';
 import { ModelDefaultsService } from '../../../src/services/model-defaults.js';
 import { HostManagementService } from '../../../src/services/host-management.js';
 import { HostAgentsService } from '../../../src/services/host-agents.js';
-import { createHostRegistrationService } from '../../../src/services/host-registration.js';
-import { createInsecureWindowService } from '../../../src/services/insecure-window.js';
 import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
 import { ENGINE_GROK } from '../../../src/util/engine.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
@@ -63,7 +61,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
     expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
   });
 
-  it.each(['register', 'quick-register', 'engine-switch', 'installer-add', 'cli-register', 'cli-engine-add'] as const)('initializes Grok defaults and managed MCP through %s', async operation => {
+  it.each(['register', 'quick-register', 'engine-switch', 'installer-add', 'rotate-engine-add'] as const)('initializes Grok defaults and managed MCP through %s', async operation => {
       let host: ManagedHost;
       const fqdn = `${randomUUID()}.grok-provision.test`;
       if (operation === 'register') {
@@ -77,15 +75,9 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
           ? await management.setEngines(current.id, ['codex', 'grok'])
           : (await management.mintInstaller(current.id, ['grok'])).host;
       } else {
-        const env = loadTestEnv();
-        const registration = createHostRegistrationService({
-          db, keyring: testKeyring(), insecure: createInsecureWindowService({ db, env }),
-        });
-        if (operation === 'cli-engine-add') {
-          tracked((await registration.registerOrRotate({ fqdn, engines: 'codex' })).host);
-          expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
-        }
-        host = tracked((await registration.registerOrRotate({ fqdn, engines: 'codex,grok' })).host);
+        tracked((await management.register({ fqdn, engines: ['codex'] })).host);
+        expect(await configs.adminFetch(ENGINE_GROK)).toEqual({ status: 'missing', revision: null });
+        host = tracked((await management.register({ fqdn, engines: ['codex', 'grok'] })).host);
       }
       expect(await defaults.get(ENGINE_GROK)).toMatchObject({ model: 'grok-4.7', reasoning_effort: 'high' });
       const rendered = await new HostAgentsService(db, { publicBaseUrl: 'https://grok-defaults.test', keyring: testKeyring() })
@@ -107,9 +99,7 @@ describe.skipIf(!handle)('Grok fleet defaults during explicit provisioning again
     await management.setEngines(host.id, ['codex', 'grok']);
     await management.mintInstaller(host.id, ['grok']);
     tracked((await management.quickRegister({ engines: ['grok'] })).host);
-    const env = loadTestEnv();
-    await createHostRegistrationService({ db, keyring: testKeyring(), insecure: createInsecureWindowService({ db, env }) })
-      .registerOrRotate({ fqdn, engines: 'grok' });
+    await management.register({ fqdn, engines: ['grok'] });
     expect(await defaults.ensureGrokDefaults()).toBe(false);
     expect(await configs.adminFetch(ENGINE_GROK)).toMatchObject({ sha256: authored.sha256, settings: {
       model: 'grok-4.5', reasoning_effort: 'low', orchestrator_mcp_enabled: false,

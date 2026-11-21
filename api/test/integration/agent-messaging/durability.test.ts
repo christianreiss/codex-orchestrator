@@ -19,7 +19,6 @@ import {
 import { AgentReceiverService } from '../../../src/services/agent-receiver.js';
 import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
 import { HostManagementService } from '../../../src/services/host-management.js';
-import { createHostRegistrationService } from '../../../src/services/host-registration.js';
 import { ENGINES, type Engine } from '../../../src/util/engine.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
@@ -1034,33 +1033,6 @@ describe.skipIf(!handle)('agent messaging durability against a real database', {
     ))[0]).toMatchObject({ status: 'canceled' });
     expect((await db.select().from(agentBusConversations))[0]).toMatchObject({ status: 'canceled' });
     expect((await db.select().from(agentBusRelays))[0]).toMatchObject({ status: 'revoked', tokenHash: null });
-    expect((await db.select().from(agentBusAddresses))[0]).toMatchObject({ readiness: 'disabled', currentSessionId: null });
-  });
-
-  it('atomically fences messaging when CLI auth approval rotates a host key', async () => {
-    const source = await register('claude', 'cli-rotate-source');
-    const target = await register('codex', 'cli-rotate-target');
-    const sent = await service.sendMessage(source.sessionId, source.bridgeToken, {
-      to: target.address, content: 'do not survive CLI reapproval', clientMessageId: randomUUID(),
-    });
-    const registration = createHostRegistrationService({
-      db,
-      keyring: testKeyring(),
-      insecure: { openInitial: async () => undefined } as never,
-    });
-
-    const rotated = await registration.registerOrRotate({
-      fqdn: HOST_FQDN,
-      secure: true,
-      engines: 'codex,claude',
-      createdBy: 'durability-test',
-    });
-    host = (await db.select().from(hosts).where(eq(hosts.id, rotated.host.id)))[0]!;
-
-    expect((await db.select().from(agentBusMessages).where(
-      eq(agentBusMessages.id, String((sent.message as Record<string, unknown>).id)),
-    ))[0]).toMatchObject({ status: 'canceled' });
-    expect((await db.select().from(agentBusConversations))[0]).toMatchObject({ status: 'canceled' });
     expect((await db.select().from(agentBusAddresses))[0]).toMatchObject({ readiness: 'disabled', currentSessionId: null });
   });
 

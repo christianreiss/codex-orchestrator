@@ -90,7 +90,7 @@ Conversely, some features are **Claude-only** (`clx`) because Codex has no on-di
 ## Repo Snapshot
 
 - `api/src/server.ts` is the entrypoint: boots env, registers plugins (auth, CORS, envelope), wires services, and mounts route groups under `api/src/routes/`.
-- `api/src/services/host-auth.ts` + `host-registration.ts` + `host-management.ts` own host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), and pruning.
+- `api/src/services/host-auth.ts` + `host-management.ts` + `api/src/control-plane/state/host-registration.ts` own host registration, IP binding + roaming, insecure host windows (0–480 min, default stored window 10 min; initial provisioning window 30 min), and pruning.
 - `api/src/services/runner-validation.ts` + `runner-client.ts` probe `AUTH_RUNNER_URL`, validate uploaded canonical auth before `/auth` store persists it, and can return `updated_auth`. Runner failures set `runner_state=fail`; `/auth` retrieve still serves, but `/auth` store is blocked when runner is unreachable or returns non-OK.
 - The wrapper bakery v2 services (`api/src/services/wrapper-config.ts`, `wrapper-bin-registry.ts`, `wrapper-download.ts`, `wrapper-signing-key.ts`, `wrapper-transition.ts`) compose typed per-engine host JSON configs signed with Ed25519 and serve one Go `cxx` artifact through the compatible Codex/Claude download surfaces.
 - `api/src/services/skills.ts`, `agents.ts`, `client-config.ts`, and `mcp-memories.ts` back skill, AGENTS, config, and MCP-memory sync APIs/tables.

@@ -1,5 +1,3 @@
-import { createHostRegistrationService } from '../../../src/services/host-registration.js';
-import { createInsecureWindowService } from '../../../src/services/insecure-window.js';
 import { HostSpawnService } from '../../../src/services/host-spawn.js';
 import { HostManagementService } from '../../../src/services/host-management.js';
 import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
@@ -121,18 +119,17 @@ describe.skipIf(!handle)('complete owner server composition', () => {
         await keys.setActive(key.record.id, false, key.engine);
         expect(await keys.findActiveByBearer(key.key, key.engine)).toBeNull();
       }
-      const registration = createHostRegistrationService({
-        db: app.db,
-        keyring: app.keyring,
-        insecure: createInsecureWindowService({ db: app.db, env: app.env }),
-        defaultHostEngines: 'codex,claude,grok,kimi',
+      const registration = new HostManagementService({
+        db: app.db, keyring: app.keyring,
+        env: { ...app.env, DEFAULT_HOST_ENGINES: 'codex,claude,grok,kimi' },
+        events: makeAdminEventsWriter(app.db),
       });
       const principal = { principal: 'system:test', revalidate() {} };
       // A prepared action permits exactly one domain command, including Grok
       // first-use defaults, credentials and the insecure window.
       const registered = await withOwnerActionIdentity(
         { id: randomUUID(), principal, revalidateTarget() {} },
-        () => registration.registerOrRotate({ fqdn: 'cli-owner.fixture.test', secure: false, createdBy: 'test' }),
+        () => registration.register({ fqdn: 'registered-owner.fixture.test', secure: false }),
       );
       expect(runtime.state.snapshot().hosts.get(registered.host.id)?.engines).toBe('codex,claude,grok,kimi');
       expect(

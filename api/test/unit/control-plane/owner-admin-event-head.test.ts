@@ -28,7 +28,6 @@ const PLAIN_PATH_INSERTS: Record<string, number> = {
   'src/services/git-director.ts': 1,
   'src/services/git-director/notifications.ts': 3,
   'src/services/host-daemon/service.ts': 4,
-  'src/services/host-registration.ts': 1,
   'src/services/host-spawn.ts': 2,
   'src/services/secrets.ts': 1,
 };

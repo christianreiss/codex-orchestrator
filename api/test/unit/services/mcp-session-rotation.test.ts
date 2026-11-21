@@ -10,8 +10,9 @@ import type { Database } from '../../../src/db/client.js';
 import { Keyring } from '../../../src/security/keyring.js';
 import { sha256 } from '../../../src/security/hash.js';
 import { McpSessionService } from '../../../src/services/mcp-session.js';
-import { createHostRegistrationService } from '../../../src/services/host-registration.js';
-import type { InsecureWindowService } from '../../../src/services/insecure-window.js';
+import { HostManagementService } from '../../../src/services/host-management.js';
+import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
+import { loadTestEnv } from '../../helpers/test-keyring.js';
 import { createDbFake } from '../../helpers/db-fake.js';
 
 /**
@@ -27,7 +28,9 @@ const KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
 const FQDN = 'rotate.example.com';
 const OLD_KEY_HASH = sha256('sk-codex-old');
 const keyring = Keyring.fromEnv({ ENCRYPTION_ACTIVE_KEY: KEY } as unknown as Parameters<typeof Keyring.fromEnv>[0]);
-const insecure = {} as InsecureWindowService; // secure host: never consulted
+function registration(db: Database): HostManagementService {
+  return new HostManagementService({ db, env: loadTestEnv(), keyring, events: makeAdminEventsWriter(db) });
+}
 
 function hostRow(): Record<string, unknown> {
   return {
@@ -101,7 +104,7 @@ describe('MCP session tokens across a host key rotation', () => {
     const { token } = await sessions.issue(7);
     expect((await sessions.verify(token))?.id).toBe(7);
 
-    const rotated = await createHostRegistrationService({ db, keyring, insecure }).registerOrRotate({ fqdn: FQDN });
+    const rotated = await registration(db).register({ fqdn: FQDN });
     expect(rotated.host.id).toBe(7);
     expect(state.snapshot().hosts.get(7)?.authFingerprint).not.toBe(sha256(OLD_KEY_HASH));
 
@@ -128,7 +131,7 @@ describe('MCP session tokens across a host key rotation', () => {
     const db = fake as unknown as Database;
     const sessions = new McpSessionService(db);
     expect((await sessions.verify('legacy-token'))?.id).toBe(7);
-    await createHostRegistrationService({ db, keyring, insecure }).registerOrRotate({ fqdn: FQDN });
+    await registration(db).register({ fqdn: FQDN });
     expect(await sessions.verify('legacy-token')).toBeNull();
   });
 });

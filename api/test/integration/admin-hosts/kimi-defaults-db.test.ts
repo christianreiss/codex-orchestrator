@@ -7,8 +7,6 @@ import { ClientConfigService } from '../../../src/services/client-config.js';
 import { ModelDefaultsService } from '../../../src/services/model-defaults.js';
 import { HostManagementService } from '../../../src/services/host-management.js';
 import { HostAgentsService } from '../../../src/services/host-agents.js';
-import { createHostRegistrationService } from '../../../src/services/host-registration.js';
-import { createInsecureWindowService } from '../../../src/services/insecure-window.js';
 import { makeAdminEventsWriter } from '../../../src/services/admin-events-writer.js';
 import { ENGINE_KIMI } from '../../../src/util/engine.js';
 import { getTestDb, type TestDb } from '../../helpers/test-db.js';
@@ -96,8 +94,7 @@ describe.skipIf(!handle)(
       'quick-register',
       'engine-switch',
       'installer-add',
-      'cli-register',
-      'cli-engine-add',
+      'rotate-engine-add',
     ] as const)('initializes Kimi defaults and managed MCP through %s', async (operation) => {
       let host: ManagedHost;
       const fqdn = `${randomUUID()}.kimi-provision.test`;
@@ -115,17 +112,9 @@ describe.skipIf(!handle)(
             ? await management.setEngines(current.id, ['codex', 'kimi'])
             : (await management.mintInstaller(current.id, ['kimi'])).host;
       } else {
-        const env = loadTestEnv();
-        const registration = createHostRegistrationService({
-          db,
-          keyring: testKeyring(),
-          insecure: createInsecureWindowService({ db, env }),
-        });
-        if (operation === 'cli-engine-add') {
-          tracked((await registration.registerOrRotate({ fqdn, engines: 'codex' })).host);
-          expect(await configs.adminFetch(ENGINE_KIMI)).toEqual({ status: 'missing', revision: null });
-        }
-        host = tracked((await registration.registerOrRotate({ fqdn, engines: 'codex,kimi' })).host);
+        tracked((await management.register({ fqdn, engines: ['codex'] })).host);
+        expect(await configs.adminFetch(ENGINE_KIMI)).toEqual({ status: 'missing', revision: null });
+        host = tracked((await management.register({ fqdn, engines: ['codex', 'kimi'] })).host);
       }
       expect(await defaults.get(ENGINE_KIMI)).toMatchObject({ model: 'k3.1-pro', reasoning_effort: 'max' });
       const rendered = await new HostAgentsService(db, {
@@ -159,12 +148,7 @@ describe.skipIf(!handle)(
       await management.setEngines(host.id, ['codex', 'kimi']);
       await management.mintInstaller(host.id, ['kimi']);
       tracked((await management.quickRegister({ engines: ['kimi'] })).host);
-      const env = loadTestEnv();
-      await createHostRegistrationService({
-        db,
-        keyring: testKeyring(),
-        insecure: createInsecureWindowService({ db, env }),
-      }).registerOrRotate({ fqdn, engines: 'kimi' });
+      await management.register({ fqdn, engines: ['kimi'] });
       expect(await defaults.ensureKimiDefaults()).toBe(false);
       expect(await configs.adminFetch(ENGINE_KIMI)).toMatchObject({
         sha256: authored.sha256,
