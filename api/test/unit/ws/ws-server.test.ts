@@ -43,7 +43,7 @@ async function register(enabled = true) {
   const routes: Route[] = [];
   const resolveAdmin = vi.fn(async () => admin());
   const app = {
-    register: vi.fn(), resolveAdmin,
+    register: vi.fn(), addHook: vi.fn(), resolveAdmin,
     get(path: string, opts: Route['opts'], handler: Route['handler']) { routes.push({ path, opts, handler }); },
   };
   await registerWsServer(app as unknown as FastifyInstance, {
