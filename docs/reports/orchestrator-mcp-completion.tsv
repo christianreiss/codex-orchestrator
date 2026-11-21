@@ -1,0 +1,20 @@
+Tool	Identity	Verified scenario outcome	Source
+resource_list	synthetic VIP host	Listed the newly created shared resource at its exact URI	docs/reports/orchestrator-mcp-completion.mjs:93
+project_card_claim	synthetic native session a	Acquired and replayed the same card claim under the attached native identity	docs/reports/orchestrator-mcp-completion.mjs:102
+project_card_release	synthetic native session a	Released the recorded claim and advanced the card to a different column	docs/reports/orchestrator-mcp-completion.mjs:112
+host_spawn_prepare	synthetic VIP host	Same request returned the same operation and host with one-time installer material	docs/reports/orchestrator-mcp-completion.mjs:130
+host_spawn_status	synthetic VIP host	SQL confirmed the new target, registered status, unused installer and no daemon connection	docs/reports/orchestrator-mcp-completion.mjs:144
+feedback_recheck	synthetic VIP host	Queued this report for a local recheck with a durable deadline and pending review; external runner and publishing disabled	docs/reports/orchestrator-mcp-completion.mjs:180
+agent_fresh_start_approve	synthetic operator + enrolled host	Host denial left message and grants unchanged; replayed operator approval persisted one grant, its operator audit actor, target and next execution version	docs/reports/orchestrator-mcp-completion.mjs:279
+slop_job_create	synthetic VIP host	Created an open review job with the requested project and title	docs/reports/orchestrator-mcp-completion.mjs:319
+slop_job_list	synthetic VIP host	Project listing returned the new open job ID	docs/reports/orchestrator-mcp-completion.mjs:322
+slop_job_describe	synthetic VIP host	A new description revision was recorded and read back verbatim	docs/reports/orchestrator-mcp-completion.mjs:326
+slop_job_put	synthetic VIP host	Two source revisions retained their expected bytes and independent SHA-256 digests	docs/reports/orchestrator-mcp-completion.mjs:337
+slop_job_import	synthetic VIP host	Imported the transferred source bundle with the expected CSS SHA-256	docs/reports/orchestrator-mcp-completion.mjs:354
+slop_job_get	synthetic VIP host	The job contained the exact description and both current source paths including revision two	docs/reports/orchestrator-mcp-completion.mjs:359
+slop_job_diff	synthetic VIP host	The unified revision diff showed the expected removed and added Save labels	docs/reports/orchestrator-mcp-completion.mjs:368
+slop_job_run	synthetic VIP host	Replaying the same quick scan returned its original run ID	docs/reports/orchestrator-mcp-completion.mjs:373
+slop_job_result	synthetic VIP host	The shipped scanner completed locally and returned a structured report covering two source files	docs/reports/orchestrator-mcp-completion.mjs:382
+slop_job_close	synthetic VIP host	The closed job disappeared from the project listing and its MySQL row was removed	docs/reports/orchestrator-mcp-completion.mjs:392
+workflow_get	synthetic workflow bridges	Pinned revision one matched the submitted workflow document across three engines	api/test/integration/workflow-http-e2e.test.ts:279
+workflow_run_get	synthetic workflow bridge c	After API restart the original run ID and report URL matched and both stored tasks succeeded	api/test/integration/workflow-http-e2e.test.ts:414

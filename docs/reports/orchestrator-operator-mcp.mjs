@@ -154,7 +154,7 @@ async function start(fsEnabled = true) {
   try {
     server = spawn(process.execPath, [...runtime, 'src/server.ts'], {
       cwd: api,
-      env: { ...env, MCP_FS_ROOT: fsEnabled ? fsRoot : '' },
+      env: { ...env, MCP_FS_ROOT: fsEnabled ? fsRoot : '', ...(await traceEnvironment()) },
       stdio: ['ignore', log.fd, log.fd],
     });
   } finally {
@@ -689,6 +689,11 @@ try {
   done(
     'scope protocol v1 refuses unclaimed merge; matching path and branch claims are idempotently acquired and explicitly released',
   );
+  if (process.env.REVIEW_MCP_COMPLETION === '1') {
+    const { verifyAdditionalTools, writeLiveCatalog } = await import('./orchestrator-mcp-completion.mjs');
+    await verifyAdditionalTools({ api, root, lab, store, env, runtime, db, ok, call, admin, h, other, op, a, attach });
+    await writeLiveCatalog({ lab, ok, call, admin, h, op });
+  }
   for (const p of [a, b, c])
     await ok(
       'POST',
@@ -757,4 +762,12 @@ try {
       await fs.rm(store, { recursive: true, force: true });
     }
   }
+}
+
+async function traceEnvironment() {
+  if (process.env.REVIEW_MCP_TRACE !== '1') return {};
+  const traceDir = path.join(lab, 'http-trace');
+  await fs.mkdir(traceDir, { recursive: true, mode: 0o700 });
+  const preload = path.join(root, 'docs/reports/orchestrator-http-trace.cjs');
+  return { NODE_ENV: 'test', ORCH_HTTP_TRACE_DIR: traceDir, NODE_OPTIONS: '--require=' + JSON.stringify(preload) };
 }
