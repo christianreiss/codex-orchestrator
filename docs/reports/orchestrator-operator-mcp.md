@@ -1,6 +1,6 @@
 # Operator MCP, resource, Git Director and schedule acceptance
 
-The integrated API at `ee85552733a1edd7d388e3d44bb70bf4c4fbc10e` passed the fourteen checks below on 2026-11-21. The process used Node 22.22.2 on Linux, its normal built entrypoint and MySQL 8.4.13. The operator client used HTTP JSON-RPC at `POST /mcp`. Three synthetic sessions used the normal host and bridge routes and the communicator WebSocket. Neither the MCP dispatcher nor the store, owner, workers, clock or filesystem was mocked.
+The integrated API at product revision `d926b3bdabb99fac4318640e95471286641d66ef` passed all fourteen scenarios on 2026-11-21 from 20:07:27 to 20:07:44 UTC. Checkout `c7384f5b7ae13890a974c0938f3da16170cf389b` contained the identical API tree `fb2b2a50cadd2f935730986108006388867d9432`. The process ran the normal server entrypoint directly from its TypeScript source under Node 22.22.2 on Linux, against MySQL 8.4.13. The operator client used HTTP JSON-RPC at `POST /mcp`. Three synthetic sessions used the normal host and bridge routes and the communicator WebSocket. Neither the MCP dispatcher nor the store, owner, workers, clock or filesystem was mocked.
 
 | Surface | Test and observed effect |
 | --- | --- |
@@ -21,9 +21,9 @@ The integrated API at `ee85552733a1edd7d388e3d44bb70bf4c4fbc10e` passed the four
 
 ## Evidence and boundaries
 
-The run initialized a fresh database with `node dist/migrate.js --init-schema`, bound `node dist/server.js` to loopback, then created an owner, persisted the Codex fleet default and registered two hosts through the HTTP API. The synthetic checkouts were absolute path declarations in the private lab. No repository or remote existed at those paths. The lease check exercised coordination through the server; it performed no Git or provider operation. The schedule test stopped at durable cancellation of an unaccepted item. Execution of a provider turn, persistent recovery, native CLI behavior and an actual merge require separate evidence.
+The driver initialized its fresh schema with `api/src/db/migrate-cli.ts --init-schema`, started `api/src/server.ts` on an OS-assigned loopback port, then created an owner, persisted the Codex fleet default and registered two hosts through the HTTP API. The synthetic checkouts were absolute path declarations in the private lab. No repository or remote existed at those paths. The lease check exercised coordination through the server; it performed no Git or provider operation. The schedule test stopped at durable cancellation of an unaccepted item. Execution of a provider turn, persistent recovery, native CLI behavior and an actual merge require separate evidence.
 
-The tested server artifact had SHA-256 `ac5a0cb397d6cab2f2198783b672c761e6d707de3ac2fb79300f54cd5d22c691`. The worker issued and resumed the scheduled run on wall-clock time. The complementary Vitest run passed all 131 tests in the following five files, including the existing filesystem-boundary checks, Git owner model and MCP route fixtures.
+The worker issued and resumed the scheduled run on wall-clock time. The complementary Vitest run passed all 131 tests in the following five files, including the existing filesystem-boundary checks, Git owner model and MCP route fixtures.
 
 ```sh
 cd api
@@ -32,4 +32,12 @@ npx vitest run --no-file-parallelism test/unit/services/mcp-fs.test.ts \
   test/control-plane-state-git.test.ts test/unit/services/schedules.test.ts
 ```
 
-The private harness was invoked as `node .review/operator-mcp/lab.mjs` with the disposable database credential supplied in the process environment. Every invocation dropped its uniquely named schema and removed its private storage and filesystem root in a cleanup handler. The successful run also closed the synthetic sessions and stopped its two API process lifetimes. The port, schema prefix and temporary directories were checked separately after exit.
+## Reproduce the loopback run
+
+Install the locked API dependencies with Node 22. Supply `REVIEW_MYSQL_PORT` and `REVIEW_MYSQL_PASSWORD` in the process environment for a disposable MySQL 8.4 instance on 127.0.0.1. The database user defaults to `root`; `REVIEW_MYSQL_USER` can select a different test user with permission to create, migrate and drop the private schema. From the repository root, supply a new output directory whose parent already exists.
+
+```sh
+node docs/reports/orchestrator-operator-mcp.mjs ./operator-mcp-evidence
+```
+
+The driver creates a uniquely named schema and private filesystem root. It generates test credentials for the run. Both API process lifetimes bind to ephemeral ports and share the test schema. Cleanup closes the clients, stops its API, drops the schema, verifies its absence and removes the temporary files. The output directory retains `environment.json` and `tools.tsv`. Each table row names a successful MCP call, the synthetic identity context, the independently asserted scenario outcome and the driver's call site. The normal resource-protocol methods and expected refusals are evidenced in the scenario descriptions above. The final run produced 45 successful invocations of 23 distinct named tools across six identity contexts. [Scenario driver](orchestrator-operator-mcp.mjs) · [Verified tool calls](orchestrator-operator-mcp.tsv)

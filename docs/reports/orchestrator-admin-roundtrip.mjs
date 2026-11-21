@@ -895,7 +895,7 @@ async function run() {
       await set(extra, { content: '' }, 'host-specific agent override removed', (v) => !v.content, 'PUT');
       await get(
         '/admin/hosts/' + host.id + '/session-housekeeping',
-        'selected idle host reports all four housekeeping policies and no run',
+        'selected idle host reports Codex, Claude, Grok and Kimi housekeeping policies and no run',
         (v) => engines.every((e) => e in v.policies) && v.last_run === null,
       );
     });

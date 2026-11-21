@@ -72,7 +72,7 @@ Host enrollment and fleet configuration	owner	GET	/admin/hosts	200	new enrollmen
 Host rules and session health	owner	GET	/admin/hosts/:id/agents-extra	200	saved rules read back for same host
 Host rules and session health	owner	PUT	/admin/hosts/:id/agents-extra	200	host-specific agent override removed
 Host rules and session health	owner	PUT	/admin/hosts/:id/agents-extra	200	host-specific agent rules saved
-Host rules and session health	owner	GET	/admin/hosts/:id/session-housekeeping	200	selected idle host reports all four housekeeping policies and no run
+Host rules and session health	owner	GET	/admin/hosts/:id/session-housekeeping	200	selected idle host reports Codex, Claude, Grok and Kimi housekeeping policies and no run
 Host policy	owner	GET	/admin/hosts/insecure	200	insecure-host operations include fleet window and approval status
 Host enrollment and fleet configuration	owner	POST	/admin/hosts/register	200	registered named secure host with installer credential
 Host policy	owner	GET	/admin/insecure-approval	200	operator approval policy is a boolean

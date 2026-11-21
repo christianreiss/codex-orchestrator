@@ -1,0 +1,46 @@
+Tool	Identity	Verified scenario outcome	Source
+fs_file_exists	operator + enrolled host	all six fs tools exercised, replace/write verified on disk	docs/reports/orchestrator-operator-mcp.mjs:300
+fs_write_file	operator + enrolled host	all six fs tools exercised, replace/write verified on disk	docs/reports/orchestrator-operator-mcp.mjs:301
+fs_read_file	operator + enrolled host	all six fs tools exercised, replace/write verified on disk	docs/reports/orchestrator-operator-mcp.mjs:303
+fs_file_exists	operator + enrolled host	all six fs tools exercised, replace/write verified on disk	docs/reports/orchestrator-operator-mcp.mjs:304
+fs_stat	operator + enrolled host	all six fs tools exercised, replace/write verified on disk	docs/reports/orchestrator-operator-mcp.mjs:305
+fs_list_dir	operator + enrolled host	all six fs tools exercised, replace/write verified on disk	docs/reports/orchestrator-operator-mcp.mjs:307
+fs_search_in_files	operator + enrolled host	all six fs tools exercised, replace/write verified on disk	docs/reports/orchestrator-operator-mcp.mjs:308
+fs_write_file	operator + enrolled host	all six fs tools exercised, replace/write verified on disk	docs/reports/orchestrator-operator-mcp.mjs:315
+resource_create	host alpha	resource create/read/list/conditional update/delete through both MCP tool and resource methods	docs/reports/orchestrator-operator-mcp.mjs:321
+resource_update	host alpha	resource create/read/list/conditional update/delete through both MCP tool and resource methods	docs/reports/orchestrator-operator-mcp.mjs:332
+resource_read	host beta	resource create/read/list/conditional update/delete through both MCP tool and resource methods	docs/reports/orchestrator-operator-mcp.mjs:337
+resource_delete	host alpha	resource create/read/list/conditional update/delete through both MCP tool and resource methods	docs/reports/orchestrator-operator-mcp.mjs:338
+project_create	host alpha	project memory resource CRUD and archive of its synthetic project	docs/reports/orchestrator-operator-mcp.mjs:342
+resource_read	host alpha	project memory resource CRUD and archive of its synthetic project	docs/reports/orchestrator-operator-mcp.mjs:348
+resource_read	host alpha	project memory resource CRUD and archive of its synthetic project	docs/reports/orchestrator-operator-mcp.mjs:348
+resource_read	host alpha	project memory resource CRUD and archive of its synthetic project	docs/reports/orchestrator-operator-mcp.mjs:348
+project_archive	host alpha	project memory resource CRUD and archive of its synthetic project	docs/reports/orchestrator-operator-mcp.mjs:355
+schedule_create	host alpha	schedule create/detail/list, cross-host update, stale-version rejection, SQL soft deletion and no firing	docs/reports/orchestrator-operator-mcp.mjs:432
+schedule_list	host beta	schedule create/detail/list, cross-host update, stale-version rejection, SQL soft deletion and no firing	docs/reports/orchestrator-operator-mcp.mjs:443
+schedule_update	host beta	schedule create/detail/list, cross-host update, stale-version rejection, SQL soft deletion and no firing	docs/reports/orchestrator-operator-mcp.mjs:444
+schedule_get	host alpha	schedule create/detail/list, cross-host update, stale-version rejection, SQL soft deletion and no firing	docs/reports/orchestrator-operator-mcp.mjs:453
+schedule_delete	host alpha	schedule create/detail/list, cross-host update, stale-version rejection, SQL soft deletion and no firing	docs/reports/orchestrator-operator-mcp.mjs:455
+schedule_create	host alpha	one-time due tick with a disconnected receiver: one durable waiting run, no message	docs/reports/orchestrator-operator-mcp.mjs:472
+schedule_get	host alpha	receiver registration and WebSocket reconnect delivers the same run once; removal cancels unaccepted message	docs/reports/orchestrator-operator-mcp.mjs:545
+schedule_delete	host alpha	receiver registration and WebSocket reconnect delivers the same run once; removal cancels unaccepted message	docs/reports/orchestrator-operator-mcp.mjs:546
+git_register	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:554
+git_register	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:556
+git_join	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:558
+git_list	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:564
+git_merge_request	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:578
+git_merge_request	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:580
+git_merge_status	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:582
+git_register	native session b	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:588
+git_join	native session b	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:595
+git_merge_request	native session b	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:607
+git_merge_request	native session b	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:609
+git_release	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:610
+git_release	native session a	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:614
+git_merge_status	native session b	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:618
+git_release	native session b	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:622
+git_release	native session b	two distinct sessions on same synthetic clone: lease wait/replay, then promotion after release; SQL contains exactly two merge requests	docs/reports/orchestrator-operator-mcp.mjs:626
+git_register	native session c	scope protocol v1 refuses unclaimed merge; matching path and branch claims are idempotently acquired and explicitly released	docs/reports/orchestrator-operator-mcp.mjs:643
+git_merge_request	native session c	scope protocol v1 refuses unclaimed merge; matching path and branch claims are idempotently acquired and explicitly released	docs/reports/orchestrator-operator-mcp.mjs:668
+git_release	native session c	scope protocol v1 refuses unclaimed merge; matching path and branch claims are idempotently acquired and explicitly released	docs/reports/orchestrator-operator-mcp.mjs:670
+git_release	native session c	scope protocol v1 refuses unclaimed merge; matching path and branch claims are idempotently acquired and explicitly released	docs/reports/orchestrator-operator-mcp.mjs:674
