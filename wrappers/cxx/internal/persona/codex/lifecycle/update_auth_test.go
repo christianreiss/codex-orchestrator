@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 )
@@ -81,17 +80,23 @@ func TestUpdateAuthGuardRetriesAndBindsAcceptedNativeOnly(t *testing.T) {
 }
 
 func TestUpdateAuthGuardPreservesNativeWhenArbitrationFails(t *testing.T) {
-	for _, state := range []string{"pending", "wrong engine", "unusable winner", "new native", "logout"} {
-		t.Run(state, func(t *testing.T) {
+	for _, tc := range []struct {
+		state     string
+		wantError string
+		wantCalls int32
+	}{
+		{"pending", "candidate arbitration is not verified for Codex", 3},
+		{"wrong engine", "auth store response belongs to another engine", 3},
+		{"unusable winner", "candidate arbitration did not converge", 3},
+		{"new native", "native credentials changed during update arbitration", 1},
+		{"logout", "native credentials changed during update arbitration", 1},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
 			var path string
+			var calls atomic.Int32
 			client, localPath := sessionAuthClient(t, false, func(w http.ResponseWriter, r *http.Request) {
-				if state == "new native" {
-					_ = os.WriteFile(path, []byte(sessionAuthNative), 0o600)
-				}
-				if state == "logout" {
-					_ = os.Remove(path)
-				}
-				switch state {
+				calls.Add(1)
+				switch tc.state {
 				case "pending":
 					sessionAuthReply(w, "updated", "pending", "")
 				case "wrong engine":
@@ -99,18 +104,35 @@ func TestUpdateAuthGuardPreservesNativeWhenArbitrationFails(t *testing.T) {
 					_, _ = w.Write([]byte(`{"status":"updated","verification_state":"verified","engine":"claude"}`))
 				case "unusable winner":
 					sessionAuthReply(w, "outdated", "verified", `{"last_refresh":"2026-08-08T11:00:00Z"}`)
-				default:
+				case "new native":
+					if err := os.WriteFile(path, []byte(sessionAuthNative), 0o600); err != nil {
+						t.Error(err)
+					}
+					sessionAuthReply(w, "updated", "verified", sessionAuthNew)
+				case "logout":
+					if err := os.Remove(path); err != nil {
+						t.Error(err)
+					}
 					sessionAuthReply(w, "updated", "verified", sessionAuthNew)
 				}
 			})
 			path = localPath
-			ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
-			defer cancel()
-			if err := UploadPendingAuthBeforeUpdate(ctx, client, slog.Default()); err == nil {
-				t.Fatal("unsafe update arbitration succeeded")
+			var err error
+			if tc.wantCalls == 1 {
+				// A retry would inspect the replacement or missing file as a new
+				// decision. Check the response to the in-flight upload itself.
+				err = uploadPendingAuthBeforeUpdateAttempt(t.Context(), client)
+			} else {
+				err = UploadPendingAuthBeforeUpdate(t.Context(), client, slog.Default())
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("arbitration error = %v, want %q", err, tc.wantError)
+			}
+			if n := calls.Load(); n != tc.wantCalls {
+				t.Fatalf("HTTP store calls = %d, want %d", n, tc.wantCalls)
 			}
 			raw, err := os.ReadFile(path)
-			switch state {
+			switch tc.state {
 			case "logout":
 				if !os.IsNotExist(err) {
 					t.Fatal("deleted native credential restored")
