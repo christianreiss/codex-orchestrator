@@ -81,7 +81,7 @@ The inventory generator accepts a runtime Fastify `--routes` capture and a two-i
 
 ## Inventory counts
 
-2,934 operation and registration references across 36 indexed families. 3,974 paths in the source inventory. A publisher site, method or conditional widget is a reference and may share a single product workflow.
+2,934 operation and registration references across 36 indexed families. 3,979 paths in the source inventory. A publisher site, method or conditional widget is a reference and may share a single product workflow.
 
 | Entry classification | References |
 |---|---:|
@@ -116,7 +116,7 @@ The inventory generator accepts a runtime Fastify `--routes` capture and a two-i
 | asset / configuration / operator entry | 106 |
 | built SPA artifact | 204 |
 | dependency lock | 3 |
-| documentation / repository metadata | 153 |
+| documentation / repository metadata | 158 |
 | initial schema | 2 |
 | released migration | 134 |
 | shipped help content | 30 |

@@ -1,0 +1,964 @@
+Family	HTTP operation	Registration	Callback kind	Reference or factory call	Handler start	Fastify role	Operations sharing body	Function counter	Calls	First direct body line=DA (diagnostic)	Evidence
+ACCESS	DELETE /admin/passkeys/:id	api/src/routes/admin/auth/index.ts:273	inline		api/src/routes/admin/auth/index.ts:276		1			277=0	no-function-counter
+ACCESS	DELETE /admin/users/:id	api/src/routes/admin/users/index.ts:147	inline		api/src/routes/admin/users/index.ts:150		1			151=1	no-function-counter
+ACCESS	GET /admin/auth/status	api/src/routes/admin/auth/index.ts:43	inline		api/src/routes/admin/auth/index.ts:43		2			44=1	no-function-counter
+ACCESS	GET /admin/authorization	api/src/routes/admin/settings/index.ts:728	inline		api/src/routes/admin/settings/index.ts:728		2			729=0	no-function-counter
+ACCESS	GET /admin/passkeys	api/src/routes/admin/auth/index.ts:239	inline		api/src/routes/admin/auth/index.ts:242		2			243=0	no-function-counter
+ACCESS	GET /admin/users	api/src/routes/admin/users/index.ts:53	inline		api/src/routes/admin/users/index.ts:53		2			54=1	no-function-counter
+ACCESS	HEAD /admin/auth/status	api/src/routes/admin/auth/index.ts:43	inline		api/src/routes/admin/auth/index.ts:43	generated-HEAD	2			44=1	no-function-counter
+ACCESS	HEAD /admin/authorization	api/src/routes/admin/settings/index.ts:728	inline		api/src/routes/admin/settings/index.ts:728	generated-HEAD	2			729=0	no-function-counter
+ACCESS	HEAD /admin/passkeys	api/src/routes/admin/auth/index.ts:239	inline		api/src/routes/admin/auth/index.ts:242	generated-HEAD	2			243=0	no-function-counter
+ACCESS	HEAD /admin/users	api/src/routes/admin/users/index.ts:53	inline		api/src/routes/admin/users/index.ts:53	generated-HEAD	2			54=1	no-function-counter
+ACCESS	POST /admin/auth/login	api/src/routes/admin/auth/index.ts:88	inline		api/src/routes/admin/auth/index.ts:88		1			89=4	no-function-counter
+ACCESS	POST /admin/auth/login/method	api/src/routes/admin/auth/index.ts:98	inline		api/src/routes/admin/auth/index.ts:98		1			99=2	no-function-counter
+ACCESS	POST /admin/auth/logout	api/src/routes/admin/auth/index.ts:106	inline		api/src/routes/admin/auth/index.ts:109		1			110=2	no-function-counter
+ACCESS	POST /admin/auth/passkey/login	api/src/routes/admin/auth/index.ts:185	inline		api/src/routes/admin/auth/index.ts:185		1			186=0	no-function-counter
+ACCESS	POST /admin/auth/passkey/login/options	api/src/routes/admin/auth/index.ts:176	inline		api/src/routes/admin/auth/index.ts:176		1			177=2	no-function-counter
+ACCESS	POST /admin/auth/passkey/register	api/src/routes/admin/auth/index.ts:220	inline		api/src/routes/admin/auth/index.ts:223		1			224=0	no-function-counter
+ACCESS	POST /admin/auth/passkey/register/options	api/src/routes/admin/auth/index.ts:199	inline		api/src/routes/admin/auth/index.ts:202		1			203=0	no-function-counter
+ACCESS	POST /admin/auth/password/change	api/src/routes/admin/auth/index.ts:125	inline		api/src/routes/admin/auth/index.ts:128		1			129=2	no-function-counter
+ACCESS	POST /admin/auth/password/request	api/src/routes/admin/auth/index.ts:147	inline		api/src/routes/admin/auth/index.ts:147		1			148=1	no-function-counter
+ACCESS	POST /admin/auth/password/reset	api/src/routes/admin/auth/index.ts:167	inline		api/src/routes/admin/auth/index.ts:167		1			168=1	no-function-counter
+ACCESS	POST /admin/auth/seed-command	api/src/routes/admin/overview/index.ts:896	inline		api/src/routes/admin/overview/index.ts:896		1			897=0	no-function-counter
+ACCESS	POST /admin/auth/upload	api/src/routes/admin/overview/index.ts:918	inline		api/src/routes/admin/overview/index.ts:918		1			919=0	no-function-counter
+ACCESS	POST /admin/authorization	api/src/routes/admin/settings/index.ts:734	inline		api/src/routes/admin/settings/index.ts:734		1			735=0	no-function-counter
+ACCESS	POST /admin/passkeys/:id/name	api/src/routes/admin/auth/index.ts:253	inline		api/src/routes/admin/auth/index.ts:256		1			257=0	no-function-counter
+ACCESS	POST /admin/users	api/src/routes/admin/users/index.ts:68	inline		api/src/routes/admin/users/index.ts:71		1			72=4	no-function-counter
+ACCESS	POST /admin/users/:id	api/src/routes/admin/users/index.ts:120	inline		api/src/routes/admin/users/index.ts:123		1			124=0	no-function-counter
+ACCESS	POST /admin/users/wipe	api/src/routes/admin/users/index.ts:92	inline		api/src/routes/admin/users/index.ts:95		1			96=2	no-function-counter
+ACCOUNT	DELETE /admin/accounts/:id	api/src/routes/admin/accounts/index.ts:68	inline		api/src/routes/admin/accounts/index.ts:68		1			69=0	no-function-counter
+ACCOUNT	DELETE /auth	api/src/routes/auth/index.ts:430	inline		api/src/routes/auth/index.ts:430		1			431=7	no-function-counter
+ACCOUNT	GET /admin/accounts	api/src/routes/admin/accounts/index.ts:46	inline		api/src/routes/admin/accounts/index.ts:46		2				no-function-counter
+ACCOUNT	GET /admin/runner	api/src/routes/admin/overview/index.ts:874	inline		api/src/routes/admin/overview/index.ts:874		2			875=1	no-function-counter
+ACCOUNT	HEAD /admin/accounts	api/src/routes/admin/accounts/index.ts:46	inline		api/src/routes/admin/accounts/index.ts:46	generated-HEAD	2				no-function-counter
+ACCOUNT	HEAD /admin/runner	api/src/routes/admin/overview/index.ts:874	inline		api/src/routes/admin/overview/index.ts:874	generated-HEAD	2			875=1	no-function-counter
+ACCOUNT	PATCH /admin/accounts/:id	api/src/routes/admin/accounts/index.ts:64	inline		api/src/routes/admin/accounts/index.ts:64		1			65=1	no-function-counter
+ACCOUNT	POST /admin/accounts	api/src/routes/admin/accounts/index.ts:49	inline		api/src/routes/admin/accounts/index.ts:49		1			50=2	no-function-counter
+ACCOUNT	POST /admin/accounts/:id/credentials	api/src/routes/admin/accounts/index.ts:72	inline		api/src/routes/admin/accounts/index.ts:72		1			73=1	no-function-counter
+ACCOUNT	POST /admin/accounts/:id/verify	api/src/routes/admin/accounts/index.ts:88	inline		api/src/routes/admin/accounts/index.ts:88		1			89=0	no-function-counter
+ACCOUNT	POST /admin/runner/run	api/src/routes/admin/overview/index.ts:877	inline		api/src/routes/admin/overview/index.ts:877		1			878=2	no-function-counter
+ACCOUNT	POST /admin/runner/run-claude	api/src/routes/admin/overview/index.ts:881	inline		api/src/routes/admin/overview/index.ts:881		1			882=0	no-function-counter
+ACCOUNT	POST /admin/runner/run-grok	api/src/routes/admin/overview/index.ts:886	inline		api/src/routes/admin/overview/index.ts:886		1			887=0	no-function-counter
+ACCOUNT	POST /admin/runner/run-kimi	api/src/routes/admin/overview/index.ts:890	inline		api/src/routes/admin/overview/index.ts:890		1			891=0	no-function-counter
+ACCOUNT	POST /auth	api/src/routes/auth/index.ts:394	inline		api/src/routes/auth/index.ts:394		1			395=37	no-function-counter
+ACCOUNT	POST /auth/sessions	api/src/routes/auth/index.ts:247	inline		api/src/routes/auth/index.ts:247		1			248=1	no-function-counter
+ACCOUNT	POST /auth/sessions/heartbeat	api/src/routes/auth/index.ts:356	inline		api/src/routes/auth/index.ts:356		1			357=1	no-function-counter
+ACCOUNT	POST /auth/sessions/release	api/src/routes/auth/index.ts:384	inline		api/src/routes/auth/index.ts:384		1			385=1	no-function-counter
+ADVISOR	DELETE /admin/chatty/session	api/src/routes/admin/chatty/index.ts:104	inline		api/src/routes/admin/chatty/index.ts:104		1			105=1	no-function-counter
+ADVISOR	GET /admin/chatty/events	api/src/routes/admin/chatty/index.ts:133	inline		api/src/routes/admin/chatty/index.ts:133		2			134=0	no-function-counter
+ADVISOR	GET /admin/chatty/session	api/src/routes/admin/chatty/index.ts:47	inline		api/src/routes/admin/chatty/index.ts:47		2			48=0	no-function-counter
+ADVISOR	GET /admin/chatty/settings	api/src/routes/admin/chatty/index.ts:117	inline		api/src/routes/admin/chatty/index.ts:117		2				no-function-counter
+ADVISOR	GET /admin/chatty/sources/:id	api/src/routes/admin/chatty/index.ts:111	inline		api/src/routes/admin/chatty/index.ts:111		2			112=0	no-function-counter
+ADVISOR	GET /admin/chatty/status	api/src/routes/admin/chatty/index.ts:44	inline		api/src/routes/admin/chatty/index.ts:44		2				no-function-counter
+ADVISOR	HEAD /admin/chatty/events	api/src/routes/admin/chatty/index.ts:133	inline		api/src/routes/admin/chatty/index.ts:133	generated-HEAD	2			134=0	no-function-counter
+ADVISOR	HEAD /admin/chatty/session	api/src/routes/admin/chatty/index.ts:47	inline		api/src/routes/admin/chatty/index.ts:47	generated-HEAD	2			48=0	no-function-counter
+ADVISOR	HEAD /admin/chatty/settings	api/src/routes/admin/chatty/index.ts:117	inline		api/src/routes/admin/chatty/index.ts:117	generated-HEAD	2				no-function-counter
+ADVISOR	HEAD /admin/chatty/sources/:id	api/src/routes/admin/chatty/index.ts:111	inline		api/src/routes/admin/chatty/index.ts:111	generated-HEAD	2			112=0	no-function-counter
+ADVISOR	HEAD /admin/chatty/status	api/src/routes/admin/chatty/index.ts:44	inline		api/src/routes/admin/chatty/index.ts:44	generated-HEAD	2				no-function-counter
+ADVISOR	POST /admin/chatty/actions/:id/decision	api/src/routes/admin/chatty/index.ts:77	inline		api/src/routes/admin/chatty/index.ts:77		1			78=0	no-function-counter
+ADVISOR	POST /admin/chatty/messages	api/src/routes/admin/chatty/index.ts:55	inline		api/src/routes/admin/chatty/index.ts:55		1			56=0	no-function-counter
+ADVISOR	POST /admin/chatty/proposals/verify	api/src/routes/admin/chatty/index.ts:88	inline		api/src/routes/admin/chatty/index.ts:88		1			89=5	no-function-counter
+ADVISOR	POST /admin/chatty/runs/:id/answer	api/src/routes/admin/chatty/index.ts:64	inline		api/src/routes/admin/chatty/index.ts:64		1			65=0	no-function-counter
+ADVISOR	POST /admin/chatty/runs/:id/cancel	api/src/routes/admin/chatty/index.ts:72	inline		api/src/routes/admin/chatty/index.ts:72		1			73=0	no-function-counter
+ADVISOR	PUT /admin/chatty/selection	api/src/routes/admin/chatty/index.ts:51	inline		api/src/routes/admin/chatty/index.ts:51		1			52=0	no-function-counter
+ADVISOR	PUT /admin/chatty/settings	api/src/routes/admin/chatty/index.ts:120	inline		api/src/routes/admin/chatty/index.ts:120		1			121=0	no-function-counter
+COMPANION	DELETE /admin/companion/devices/:id	api/src/routes/companion/index.ts:175	inline		api/src/routes/companion/index.ts:175		1			176=0	no-function-counter
+COMPANION	DELETE /companion/v1/device	api/src/routes/companion/index.ts:277	inline		api/src/routes/companion/index.ts:277		1			278=0	no-function-counter
+COMPANION	GET /admin/companion/devices	api/src/routes/companion/index.ts:168	inline		api/src/routes/companion/index.ts:168		2				no-function-counter
+COMPANION	GET /companion/v1/agents	api/src/routes/companion/index.ts:316	inline		api/src/routes/companion/index.ts:316		2			317=26	no-function-counter
+COMPANION	GET /companion/v1/agents/:id/events	api/src/routes/companion/index.ts:347	inline		api/src/routes/companion/index.ts:347		2			348=3	no-function-counter
+COMPANION	GET /companion/v1/approvals	api/src/routes/companion/index.ts:500	inline		api/src/routes/companion/index.ts:500		2			501=3	no-function-counter
+COMPANION	GET /companion/v1/events	api/src/routes/companion/index.ts:550	inline		api/src/routes/companion/index.ts:550		2			551=0	no-function-counter
+COMPANION	GET /companion/v1/git-director/merges	api/src/routes/companion/tools.ts:282	inline		api/src/routes/companion/tools.ts:282		2			283=3	no-function-counter
+COMPANION	GET /companion/v1/hosts	api/src/routes/companion/index.ts:472	inline		api/src/routes/companion/index.ts:472		2			473=1	no-function-counter
+COMPANION	GET /companion/v1/me	api/src/routes/companion/index.ts:223	inline		api/src/routes/companion/index.ts:223		2			224=2	no-function-counter
+COMPANION	GET /companion/v1/projects	api/src/routes/companion/tools.ts:290	inline		api/src/routes/companion/tools.ts:290		2			291=3	no-function-counter
+COMPANION	GET /companion/v1/projects/:slug/board	api/src/routes/companion/tools.ts:300	inline		api/src/routes/companion/tools.ts:300		2			301=4	no-function-counter
+COMPANION	GET /companion/v1/quotas	api/src/routes/companion/quotas.ts:10	inline		api/src/routes/companion/quotas.ts:10		2			11=3	no-function-counter
+COMPANION	GET /companion/v1/rooms	api/src/routes/companion/rooms.ts:33	inline		api/src/routes/companion/rooms.ts:33		2			34=2	no-function-counter
+COMPANION	GET /companion/v1/rooms/:roomId/notifications	api/src/routes/companion/rooms.ts:76	inline		api/src/routes/companion/rooms.ts:76		2			77=1	no-function-counter
+COMPANION	GET /companion/v1/rooms/:roomId/pins	api/src/routes/companion/rooms.ts:139	inline		api/src/routes/companion/rooms.ts:139		2			140=2	no-function-counter
+COMPANION	GET /companion/v1/rooms/candidates	api/src/routes/companion/rooms.ts:38	inline		api/src/routes/companion/rooms.ts:38		2			39=0	no-function-counter
+COMPANION	GET /companion/v1/rooms/changes	api/src/routes/companion/rooms.ts:43	inline		api/src/routes/companion/rooms.ts:43		2			44=1	no-function-counter
+COMPANION	GET /companion/v1/schedules	api/src/routes/companion/tools.ts:257	inline		api/src/routes/companion/tools.ts:257		2			258=3	no-function-counter
+COMPANION	GET /companion/v1/search	api/src/routes/companion/search.ts:32	inline		api/src/routes/companion/search.ts:32		2			33=28	no-function-counter
+COMPANION	GET /companion/v1/workflow-runs	api/src/routes/companion/tools.ts:222	inline		api/src/routes/companion/tools.ts:222		2			223=4	no-function-counter
+COMPANION	GET /companion/v1/ws	api/src/routes/companion/index.ts:203	inline		api/src/routes/companion/index.ts:211	websocket	1			212=3	no-function-counter
+COMPANION	HEAD /admin/companion/devices	api/src/routes/companion/index.ts:168	inline		api/src/routes/companion/index.ts:168	generated-HEAD	2				no-function-counter
+COMPANION	HEAD /companion/v1/agents	api/src/routes/companion/index.ts:316	inline		api/src/routes/companion/index.ts:316	generated-HEAD	2			317=26	no-function-counter
+COMPANION	HEAD /companion/v1/agents/:id/events	api/src/routes/companion/index.ts:347	inline		api/src/routes/companion/index.ts:347	generated-HEAD	2			348=3	no-function-counter
+COMPANION	HEAD /companion/v1/approvals	api/src/routes/companion/index.ts:500	inline		api/src/routes/companion/index.ts:500	generated-HEAD	2			501=3	no-function-counter
+COMPANION	HEAD /companion/v1/events	api/src/routes/companion/index.ts:550	inline		api/src/routes/companion/index.ts:550	generated-HEAD	2			551=0	no-function-counter
+COMPANION	HEAD /companion/v1/git-director/merges	api/src/routes/companion/tools.ts:282	inline		api/src/routes/companion/tools.ts:282	generated-HEAD	2			283=3	no-function-counter
+COMPANION	HEAD /companion/v1/hosts	api/src/routes/companion/index.ts:472	inline		api/src/routes/companion/index.ts:472	generated-HEAD	2			473=1	no-function-counter
+COMPANION	HEAD /companion/v1/me	api/src/routes/companion/index.ts:223	inline		api/src/routes/companion/index.ts:223	generated-HEAD	2			224=2	no-function-counter
+COMPANION	HEAD /companion/v1/projects	api/src/routes/companion/tools.ts:290	inline		api/src/routes/companion/tools.ts:290	generated-HEAD	2			291=3	no-function-counter
+COMPANION	HEAD /companion/v1/projects/:slug/board	api/src/routes/companion/tools.ts:300	inline		api/src/routes/companion/tools.ts:300	generated-HEAD	2			301=4	no-function-counter
+COMPANION	HEAD /companion/v1/quotas	api/src/routes/companion/quotas.ts:10	inline		api/src/routes/companion/quotas.ts:10	generated-HEAD	2			11=3	no-function-counter
+COMPANION	HEAD /companion/v1/rooms	api/src/routes/companion/rooms.ts:33	inline		api/src/routes/companion/rooms.ts:33	generated-HEAD	2			34=2	no-function-counter
+COMPANION	HEAD /companion/v1/rooms/:roomId/notifications	api/src/routes/companion/rooms.ts:76	inline		api/src/routes/companion/rooms.ts:76	generated-HEAD	2			77=1	no-function-counter
+COMPANION	HEAD /companion/v1/rooms/:roomId/pins	api/src/routes/companion/rooms.ts:139	inline		api/src/routes/companion/rooms.ts:139	generated-HEAD	2			140=2	no-function-counter
+COMPANION	HEAD /companion/v1/rooms/candidates	api/src/routes/companion/rooms.ts:38	inline		api/src/routes/companion/rooms.ts:38	generated-HEAD	2			39=0	no-function-counter
+COMPANION	HEAD /companion/v1/rooms/changes	api/src/routes/companion/rooms.ts:43	inline		api/src/routes/companion/rooms.ts:43	generated-HEAD	2			44=1	no-function-counter
+COMPANION	HEAD /companion/v1/schedules	api/src/routes/companion/tools.ts:257	inline		api/src/routes/companion/tools.ts:257	generated-HEAD	2			258=3	no-function-counter
+COMPANION	HEAD /companion/v1/search	api/src/routes/companion/search.ts:32	inline		api/src/routes/companion/search.ts:32	generated-HEAD	2			33=28	no-function-counter
+COMPANION	HEAD /companion/v1/workflow-runs	api/src/routes/companion/tools.ts:222	inline		api/src/routes/companion/tools.ts:222	generated-HEAD	2			223=4	no-function-counter
+COMPANION	HEAD /companion/v1/ws	api/src/routes/companion/index.ts:203	transport-override		api/src/ws/transport.ts:12	generated-HEAD+websocket	4	route.handler	1		shared-body-entered
+COMPANION	PATCH /companion/v1/device	api/src/routes/companion/index.ts:264	inline		api/src/routes/companion/index.ts:264		1			265=0	no-function-counter
+COMPANION	POST /admin/companion/pairings	api/src/routes/companion/index.ts:172	inline		api/src/routes/companion/index.ts:172		1				no-function-counter
+COMPANION	POST /companion/v1/agents	api/src/routes/companion/index.ts:326	inline		api/src/routes/companion/index.ts:326		1			327=23	no-function-counter
+COMPANION	POST /companion/v1/agents/:id/messages	api/src/routes/companion/index.ts:361	inline		api/src/routes/companion/index.ts:361		1			362=7	no-function-counter
+COMPANION	POST /companion/v1/agents/:id/messages/:messageId/cancel	api/src/routes/companion/index.ts:397	inline		api/src/routes/companion/index.ts:397		1			398=3	no-function-counter
+COMPANION	POST /companion/v1/agents/:id/prompts/:promptId/answer	api/src/routes/companion/index.ts:405	inline		api/src/routes/companion/index.ts:405		1			406=2	no-function-counter
+COMPANION	POST /companion/v1/approvals/:requestId/approve	api/src/routes/companion/index.ts:524	factory-return	decide('approve')	api/src/routes/companion/index.ts:509		2			510=0	ambiguous-function-line
+COMPANION	POST /companion/v1/approvals/:requestId/deny	api/src/routes/companion/index.ts:525	factory-return	decide('deny')	api/src/routes/companion/index.ts:509		2			510=0	ambiguous-function-line
+COMPANION	POST /companion/v1/daemon-sessions	api/src/routes/companion/index.ts:476	inline		api/src/routes/companion/index.ts:476		1			477=7	no-function-counter
+COMPANION	POST /companion/v1/daemon-sessions/:id/permission-mode	api/src/routes/companion/tools.ts:174	inline		api/src/routes/companion/tools.ts:174		1			175=10	no-function-counter
+COMPANION	POST /companion/v1/daemon-sessions/:id/stop	api/src/routes/companion/tools.ts:161	inline		api/src/routes/companion/tools.ts:161		1			162=6	no-function-counter
+COMPANION	POST /companion/v1/feedback	api/src/routes/companion/tools.ts:311	inline		api/src/routes/companion/tools.ts:311		1			312=8	no-function-counter
+COMPANION	POST /companion/v1/hosts/:hostId/insecure/disable	api/src/routes/companion/index.ts:526	inline		api/src/routes/companion/index.ts:526		1			527=7	no-function-counter
+COMPANION	POST /companion/v1/hosts/:hostId/insecure/enable	api/src/routes/companion/index.ts:534	inline		api/src/routes/companion/index.ts:534		1			535=6	no-function-counter
+COMPANION	POST /companion/v1/insecure/window/close	api/src/routes/companion/index.ts:546	inline		api/src/routes/companion/index.ts:546		1			547=4	no-function-counter
+COMPANION	POST /companion/v1/pair	api/src/routes/companion/index.ts:217	inline		api/src/routes/companion/index.ts:217		1			218=0	no-function-counter
+COMPANION	POST /companion/v1/rooms/:roomId/events/:eventId/pin	api/src/routes/companion/rooms.ts:125	inline		api/src/routes/companion/rooms.ts:125		1			126=2	no-function-counter
+COMPANION	POST /companion/v1/rooms/:roomId/events/:eventId/reactions	api/src/routes/companion/rooms.ts:111	inline		api/src/routes/companion/rooms.ts:111		1			112=69	no-function-counter
+COMPANION	POST /companion/v1/rooms/create	api/src/routes/companion/rooms.ts:145	factory-return	mutate('create')	api/src/routes/companion/rooms.ts:89		3			90=3	ambiguous-function-line
+COMPANION	POST /companion/v1/rooms/manage	api/src/routes/companion/rooms.ts:146	factory-return	mutate('manage')	api/src/routes/companion/rooms.ts:89		3			90=3	ambiguous-function-line
+COMPANION	POST /companion/v1/rooms/read	api/src/routes/companion/rooms.ts:48	inline		api/src/routes/companion/rooms.ts:48		1			49=3	no-function-counter
+COMPANION	POST /companion/v1/rooms/seen	api/src/routes/companion/rooms.ts:66	inline		api/src/routes/companion/rooms.ts:66		1			67=1	no-function-counter
+COMPANION	POST /companion/v1/rooms/send	api/src/routes/companion/rooms.ts:144	factory-return	mutate('send')	api/src/routes/companion/rooms.ts:89		3			90=3	ambiguous-function-line
+COMPANION	POST /companion/v1/schedules/:id/pause	api/src/routes/companion/tools.ts:278	factory-return	toggle(false)	api/src/routes/companion/tools.ts:263		2			264=6	ambiguous-function-line
+COMPANION	POST /companion/v1/schedules/:id/resume	api/src/routes/companion/tools.ts:279	factory-return	toggle(true)	api/src/routes/companion/tools.ts:263		2			264=6	ambiguous-function-line
+COMPANION	PUT /companion/v1/agents/:id/follow	api/src/routes/companion/index.ts:456	inline		api/src/routes/companion/index.ts:456		1			457=0	no-function-counter
+COMPANION	PUT /companion/v1/rooms/:roomId/notifications	api/src/routes/companion/rooms.ts:82	inline		api/src/routes/companion/rooms.ts:82		1			83=3	no-function-counter
+CONFIG	GET /admin/cdx-silent	api/src/routes/admin/settings/index.ts:170	inline		api/src/routes/admin/settings/index.ts:170		2			171=0	no-function-counter
+CONFIG	GET /admin/claude/config	api/src/routes/admin/config/index.ts:390	inline		api/src/routes/admin/config/index.ts:390		2			391=1	no-function-counter
+CONFIG	GET /admin/claude/settings	api/src/routes/admin/settings/index.ts:679	inline		api/src/routes/admin/settings/index.ts:679		2			680=1	no-function-counter
+CONFIG	GET /admin/config	api/src/routes/admin/config/index.ts:129	inline		api/src/routes/admin/config/index.ts:129		2			130=2	no-function-counter
+CONFIG	GET /admin/grok/config	api/src/routes/admin/grok/index.ts:58	inline		api/src/routes/admin/grok/index.ts:58		2				no-function-counter
+CONFIG	GET /admin/grok/settings	api/src/routes/admin/grok/index.ts:30	reference	proxySettings	api/src/routes/admin/grok/index.ts:27		2	proxySettings	2	28=2	shared-body-entered
+CONFIG	GET /admin/kimi/config	api/src/routes/admin/kimi/index.ts:78	inline		api/src/routes/admin/kimi/index.ts:78		2				no-function-counter
+CONFIG	GET /admin/kimi/settings	api/src/routes/admin/kimi/index.ts:43	reference	proxySettings	api/src/routes/admin/kimi/index.ts:37		2	proxySettings	2	38=2	shared-body-entered
+CONFIG	GET /admin/model-defaults/:engine	api/src/routes/admin/settings/index.ts:344	inline		api/src/routes/admin/settings/index.ts:347		2				no-function-counter
+CONFIG	GET /admin/model-policy/:engine	api/src/routes/admin/settings/index.ts:331	inline		api/src/routes/admin/settings/index.ts:331		2				no-function-counter
+CONFIG	GET /host/model-defaults/:engine	api/src/routes/host/model-defaults.ts:36	inline		api/src/routes/host/model-defaults.ts:36		2			37=14	no-function-counter
+CONFIG	HEAD /admin/cdx-silent	api/src/routes/admin/settings/index.ts:170	inline		api/src/routes/admin/settings/index.ts:170	generated-HEAD	2			171=0	no-function-counter
+CONFIG	HEAD /admin/claude/config	api/src/routes/admin/config/index.ts:390	inline		api/src/routes/admin/config/index.ts:390	generated-HEAD	2			391=1	no-function-counter
+CONFIG	HEAD /admin/claude/settings	api/src/routes/admin/settings/index.ts:679	inline		api/src/routes/admin/settings/index.ts:679	generated-HEAD	2			680=1	no-function-counter
+CONFIG	HEAD /admin/config	api/src/routes/admin/config/index.ts:129	inline		api/src/routes/admin/config/index.ts:129	generated-HEAD	2			130=2	no-function-counter
+CONFIG	HEAD /admin/grok/config	api/src/routes/admin/grok/index.ts:58	inline		api/src/routes/admin/grok/index.ts:58	generated-HEAD	2				no-function-counter
+CONFIG	HEAD /admin/grok/settings	api/src/routes/admin/grok/index.ts:30	reference	proxySettings	api/src/routes/admin/grok/index.ts:27	generated-HEAD	2	proxySettings	2	28=2	shared-body-entered
+CONFIG	HEAD /admin/kimi/config	api/src/routes/admin/kimi/index.ts:78	inline		api/src/routes/admin/kimi/index.ts:78	generated-HEAD	2				no-function-counter
+CONFIG	HEAD /admin/kimi/settings	api/src/routes/admin/kimi/index.ts:43	reference	proxySettings	api/src/routes/admin/kimi/index.ts:37	generated-HEAD	2	proxySettings	2	38=2	shared-body-entered
+CONFIG	HEAD /admin/model-defaults/:engine	api/src/routes/admin/settings/index.ts:344	inline		api/src/routes/admin/settings/index.ts:347	generated-HEAD	2				no-function-counter
+CONFIG	HEAD /admin/model-policy/:engine	api/src/routes/admin/settings/index.ts:331	inline		api/src/routes/admin/settings/index.ts:331	generated-HEAD	2				no-function-counter
+CONFIG	HEAD /host/model-defaults/:engine	api/src/routes/host/model-defaults.ts:36	inline		api/src/routes/host/model-defaults.ts:36	generated-HEAD	2			37=14	no-function-counter
+CONFIG	POST /admin/cdx-silent	api/src/routes/admin/settings/index.ts:173	inline		api/src/routes/admin/settings/index.ts:173		1			174=0	no-function-counter
+CONFIG	POST /admin/claude/config/render	api/src/routes/admin/config/index.ts:394	inline		api/src/routes/admin/config/index.ts:397		1			398=0	no-function-counter
+CONFIG	POST /admin/claude/config/store	api/src/routes/admin/config/index.ts:403	inline		api/src/routes/admin/config/index.ts:406		1			407=3	no-function-counter
+CONFIG	POST /admin/claude/settings	api/src/routes/admin/settings/index.ts:687	inline		api/src/routes/admin/settings/index.ts:687		1			688=1	no-function-counter
+CONFIG	POST /admin/config/render	api/src/routes/admin/config/index.ts:133	inline		api/src/routes/admin/config/index.ts:136		1			137=1	no-function-counter
+CONFIG	POST /admin/config/store	api/src/routes/admin/config/index.ts:142	inline		api/src/routes/admin/config/index.ts:145		1			146=3	no-function-counter
+CONFIG	POST /admin/grok/config/render	api/src/routes/admin/grok/index.ts:59	inline		api/src/routes/admin/grok/index.ts:59		1				no-function-counter
+CONFIG	POST /admin/grok/config/store	api/src/routes/admin/grok/index.ts:60	inline		api/src/routes/admin/grok/index.ts:60		1				no-function-counter
+CONFIG	POST /admin/grok/settings	api/src/routes/admin/grok/index.ts:31	inline		api/src/routes/admin/grok/index.ts:31		1			32=4	no-function-counter
+CONFIG	POST /admin/hosts/:id/browseros-mcp	api/src/routes/admin/hosts/index.ts:645	inline		api/src/routes/admin/hosts/index.ts:649		1	handler	1	650=1	body-entered
+CONFIG	POST /admin/hosts/:id/model	api/src/routes/admin/hosts/index.ts:677	inline		api/src/routes/admin/hosts/index.ts:681		1	handler	1	682=1	body-entered
+CONFIG	POST /admin/kimi/config/render	api/src/routes/admin/kimi/index.ts:79	inline		api/src/routes/admin/kimi/index.ts:79		1				no-function-counter
+CONFIG	POST /admin/kimi/config/store	api/src/routes/admin/kimi/index.ts:82	inline		api/src/routes/admin/kimi/index.ts:82		1				no-function-counter
+CONFIG	POST /admin/kimi/settings	api/src/routes/admin/kimi/index.ts:44	inline		api/src/routes/admin/kimi/index.ts:44		1			45=4	no-function-counter
+CONFIG	POST /admin/model-defaults/:engine	api/src/routes/admin/settings/index.ts:349	inline		api/src/routes/admin/settings/index.ts:352		1			353=5	no-function-counter
+CONFIG	POST /host/model-defaults/:engine	api/src/routes/host/model-defaults.ts:40	inline		api/src/routes/host/model-defaults.ts:40		1			41=28	no-function-counter
+CONFIG	POST /sync/bootstrap	api/src/routes/auth/index.ts:624	inline		api/src/routes/auth/index.ts:624		1			625=114	no-function-counter
+CONFIG	POST /sync/cache	api/src/routes/sync-cache.ts:76	inline		api/src/routes/sync-cache.ts:76		1				no-function-counter
+CONFIG	POST /sync/status	api/src/routes/auth/index.ts:537	inline		api/src/routes/auth/index.ts:537		1			538=9	no-function-counter
+CONFIG	PUT /admin/model-policy/:engine	api/src/routes/admin/settings/index.ts:333	inline		api/src/routes/admin/settings/index.ts:333		1			334=6	no-function-counter
+CONNECTOR	DELETE /admin/connectors/connections/:id	api/src/routes/connectors/index.ts:129	inline		api/src/routes/connectors/index.ts:129		1			130=0	no-function-counter
+CONNECTOR	GET /.well-known/oauth-authorization-server	api/src/routes/connectors/index.ts:154	inline		api/src/routes/connectors/index.ts:154		2			155=3	no-function-counter
+CONNECTOR	GET /.well-known/oauth-protected-resource/connectors/mcp	api/src/routes/connectors/index.ts:144	inline		api/src/routes/connectors/index.ts:144		2			145=0	no-function-counter
+CONNECTOR	GET /admin/connectors/config	api/src/routes/connectors/index.ts:52	inline		api/src/routes/connectors/index.ts:52		2				no-function-counter
+CONNECTOR	GET /admin/connectors/connections	api/src/routes/connectors/index.ts:115	inline		api/src/routes/connectors/index.ts:115		2				no-function-counter
+CONNECTOR	GET /admin/connectors/consent/:id	api/src/routes/connectors/index.ts:207	inline		api/src/routes/connectors/index.ts:207		2			208=2	no-function-counter
+CONNECTOR	GET /connectors/mcp	api/src/routes/connectors/index.ts:290	inline		api/src/routes/connectors/index.ts:290		2			291=0	no-function-counter
+CONNECTOR	GET /oauth/authorize	api/src/routes/connectors/index.ts:195	inline		api/src/routes/connectors/index.ts:195		2			196=2	no-function-counter
+CONNECTOR	HEAD /.well-known/oauth-authorization-server	api/src/routes/connectors/index.ts:154	inline		api/src/routes/connectors/index.ts:154	generated-HEAD	2			155=3	no-function-counter
+CONNECTOR	HEAD /.well-known/oauth-protected-resource/connectors/mcp	api/src/routes/connectors/index.ts:144	inline		api/src/routes/connectors/index.ts:144	generated-HEAD	2			145=0	no-function-counter
+CONNECTOR	HEAD /admin/connectors/config	api/src/routes/connectors/index.ts:52	inline		api/src/routes/connectors/index.ts:52	generated-HEAD	2				no-function-counter
+CONNECTOR	HEAD /admin/connectors/connections	api/src/routes/connectors/index.ts:115	inline		api/src/routes/connectors/index.ts:115	generated-HEAD	2				no-function-counter
+CONNECTOR	HEAD /admin/connectors/consent/:id	api/src/routes/connectors/index.ts:207	inline		api/src/routes/connectors/index.ts:207	generated-HEAD	2			208=2	no-function-counter
+CONNECTOR	HEAD /connectors/mcp	api/src/routes/connectors/index.ts:290	inline		api/src/routes/connectors/index.ts:290	generated-HEAD	2			291=0	no-function-counter
+CONNECTOR	HEAD /oauth/authorize	api/src/routes/connectors/index.ts:195	inline		api/src/routes/connectors/index.ts:195	generated-HEAD	2			196=2	no-function-counter
+CONNECTOR	POST /admin/connectors/clients	api/src/routes/connectors/index.ts:108	inline		api/src/routes/connectors/index.ts:108		1			109=0	no-function-counter
+CONNECTOR	POST /admin/connectors/consent/:id	api/src/routes/connectors/index.ts:213	inline		api/src/routes/connectors/index.ts:213		1			214=2	no-function-counter
+CONNECTOR	POST /admin/connectors/preview	api/src/routes/connectors/index.ts:87	inline		api/src/routes/connectors/index.ts:87		1			88=6	no-function-counter
+CONNECTOR	POST /connectors/mcp	api/src/routes/connectors/index.ts:294	inline		api/src/routes/connectors/index.ts:294		1			295=10	no-function-counter
+CONNECTOR	POST /oauth/register	api/src/routes/connectors/index.ts:172	inline		api/src/routes/connectors/index.ts:172		1			173=2	no-function-counter
+CONNECTOR	POST /oauth/revoke	api/src/routes/connectors/index.ts:271	inline		api/src/routes/connectors/index.ts:271		1			272=1	no-function-counter
+CONNECTOR	POST /oauth/token	api/src/routes/connectors/index.ts:262	inline		api/src/routes/connectors/index.ts:262		1			263=3	no-function-counter
+CONNECTOR	PUT /admin/connectors/config	api/src/routes/connectors/index.ts:79	inline		api/src/routes/connectors/index.ts:79		1			80=2	no-function-counter
+CONTENT	DELETE /admin/agent-policy-profiles/:id	api/src/routes/admin/config/index.ts:489	inline		api/src/routes/admin/config/index.ts:492		1			493=0	no-function-counter
+CONTENT	DELETE /admin/agents/versions/:id	api/src/routes/admin/config/index.ts:319	inline		api/src/routes/admin/config/index.ts:322		1			323=0	no-function-counter
+CONTENT	DELETE /admin/skills/:slug	api/src/routes/admin/config/index.ts:375	inline		api/src/routes/admin/config/index.ts:378		1			379=3	no-function-counter
+CONTENT	GET /admin/agent-policy-profiles	api/src/routes/admin/config/index.ts:462	inline		api/src/routes/admin/config/index.ts:462		2			463=0	no-function-counter
+CONTENT	GET /admin/agent-policy-profiles/enforcement	api/src/routes/admin/config/index.ts:530	inline		api/src/routes/admin/config/index.ts:533		2			534=0	no-function-counter
+CONTENT	GET /admin/agents	api/src/routes/admin/config/index.ts:153	inline		api/src/routes/admin/config/index.ts:153		2			157=1	no-function-counter
+CONTENT	GET /admin/agents-generation-mode	api/src/routes/admin/settings/index.ts:226	inline		api/src/routes/admin/settings/index.ts:226		2			227=3	no-function-counter
+CONTENT	GET /admin/agents/render	api/src/routes/admin/config/index.ts:163	inline		api/src/routes/admin/config/index.ts:166		2			167=0	no-function-counter
+CONTENT	GET /admin/agents/versions/:id	api/src/routes/admin/config/index.ts:253	inline		api/src/routes/admin/config/index.ts:256		2			257=0	no-function-counter
+CONTENT	GET /admin/hosts/:id/agents-extra	api/src/routes/admin/hosts/index.ts:780	inline		api/src/routes/admin/hosts/index.ts:780		2			781=2	no-function-counter
+CONTENT	GET /admin/skill-sources/mattpocock	api/src/routes/admin/skill-sources/index.ts:54	inline		api/src/routes/admin/skill-sources/index.ts:54		2			55=1	no-function-counter
+CONTENT	GET /admin/skills	api/src/routes/admin/config/index.ts:333	inline		api/src/routes/admin/config/index.ts:333		2			334=1	no-function-counter
+CONTENT	GET /admin/skills/:slug	api/src/routes/admin/config/index.ts:338	inline		api/src/routes/admin/config/index.ts:341		2			342=0	no-function-counter
+CONTENT	HEAD /admin/agent-policy-profiles	api/src/routes/admin/config/index.ts:462	inline		api/src/routes/admin/config/index.ts:462	generated-HEAD	2			463=0	no-function-counter
+CONTENT	HEAD /admin/agent-policy-profiles/enforcement	api/src/routes/admin/config/index.ts:530	inline		api/src/routes/admin/config/index.ts:533	generated-HEAD	2			534=0	no-function-counter
+CONTENT	HEAD /admin/agents	api/src/routes/admin/config/index.ts:153	inline		api/src/routes/admin/config/index.ts:153	generated-HEAD	2			157=1	no-function-counter
+CONTENT	HEAD /admin/agents-generation-mode	api/src/routes/admin/settings/index.ts:226	inline		api/src/routes/admin/settings/index.ts:226	generated-HEAD	2			227=3	no-function-counter
+CONTENT	HEAD /admin/agents/render	api/src/routes/admin/config/index.ts:163	inline		api/src/routes/admin/config/index.ts:166	generated-HEAD	2			167=0	no-function-counter
+CONTENT	HEAD /admin/agents/versions/:id	api/src/routes/admin/config/index.ts:253	inline		api/src/routes/admin/config/index.ts:256	generated-HEAD	2			257=0	no-function-counter
+CONTENT	HEAD /admin/hosts/:id/agents-extra	api/src/routes/admin/hosts/index.ts:780	inline		api/src/routes/admin/hosts/index.ts:780	generated-HEAD	2			781=2	no-function-counter
+CONTENT	HEAD /admin/skill-sources/mattpocock	api/src/routes/admin/skill-sources/index.ts:54	inline		api/src/routes/admin/skill-sources/index.ts:54	generated-HEAD	2			55=1	no-function-counter
+CONTENT	HEAD /admin/skills	api/src/routes/admin/config/index.ts:333	inline		api/src/routes/admin/config/index.ts:333	generated-HEAD	2			334=1	no-function-counter
+CONTENT	HEAD /admin/skills/:slug	api/src/routes/admin/config/index.ts:338	inline		api/src/routes/admin/config/index.ts:341	generated-HEAD	2			342=0	no-function-counter
+CONTENT	POST /admin/agent-policy-profiles	api/src/routes/admin/config/index.ts:473	inline		api/src/routes/admin/config/index.ts:476		1				no-function-counter
+CONTENT	POST /admin/agent-policy-profiles/:id	api/src/routes/admin/config/index.ts:479	inline		api/src/routes/admin/config/index.ts:482		1			483=0	no-function-counter
+CONTENT	POST /admin/agent-policy-profiles/:id/default	api/src/routes/admin/config/index.ts:499	inline		api/src/routes/admin/config/index.ts:502		1			503=0	no-function-counter
+CONTENT	POST /admin/agent-policy-profiles/assign	api/src/routes/admin/config/index.ts:510	inline		api/src/routes/admin/config/index.ts:513		1			514=0	no-function-counter
+CONTENT	POST /admin/agents-generation-mode	api/src/routes/admin/settings/index.ts:232	inline		api/src/routes/admin/settings/index.ts:232		1			233=4	no-function-counter
+CONTENT	POST /admin/agents/compose	api/src/routes/admin/config/index.ts:190	inline		api/src/routes/admin/config/index.ts:193		1			194=0	no-function-counter
+CONTENT	POST /admin/agents/render	api/src/routes/admin/config/index.ts:199	inline		api/src/routes/admin/config/index.ts:211		1			212=0	no-function-counter
+CONTENT	POST /admin/agents/retention	api/src/routes/admin/config/index.ts:298	inline		api/src/routes/admin/config/index.ts:301		1			302=0	no-function-counter
+CONTENT	POST /admin/agents/revert	api/src/routes/admin/config/index.ts:288	inline		api/src/routes/admin/config/index.ts:291		1			292=0	no-function-counter
+CONTENT	POST /admin/agents/serve	api/src/routes/admin/config/index.ts:278	inline		api/src/routes/admin/config/index.ts:281		1			282=0	no-function-counter
+CONTENT	POST /admin/agents/store	api/src/routes/admin/config/index.ts:265	inline		api/src/routes/admin/config/index.ts:268		1			269=1	no-function-counter
+CONTENT	POST /admin/hosts/:id/agents-version	api/src/routes/admin/hosts/index.ts:755	inline		api/src/routes/admin/hosts/index.ts:759		1	handler	2	760=2	body-entered
+CONTENT	POST /admin/skill-sources/mattpocock	api/src/routes/admin/skill-sources/index.ts:58	inline		api/src/routes/admin/skill-sources/index.ts:61		1				no-function-counter
+CONTENT	POST /admin/skill-sources/mattpocock/refresh	api/src/routes/admin/skill-sources/index.ts:64	inline		api/src/routes/admin/skill-sources/index.ts:67		1			68=2	no-function-counter
+CONTENT	POST /admin/skills/assist	api/src/routes/admin/config/index.ts:358	inline		api/src/routes/admin/config/index.ts:361		1			362=1	no-function-counter
+CONTENT	POST /admin/skills/generate	api/src/routes/admin/config/index.ts:350	inline		api/src/routes/admin/config/index.ts:353		1			354=0	no-function-counter
+CONTENT	POST /admin/skills/store	api/src/routes/admin/config/index.ts:366	inline		api/src/routes/admin/config/index.ts:369		1			370=2	no-function-counter
+CONTENT	PUT /admin/hosts/:id/agents-extra	api/src/routes/admin/hosts/index.ts:785	inline		api/src/routes/admin/hosts/index.ts:785		1			786=6	no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/claims/acquire	api/src/routes/agent-messaging/coordination.ts:97	inline		api/src/routes/agent-messaging/coordination.ts:97		1				no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/claims/release	api/src/routes/agent-messaging/coordination.ts:99	inline		api/src/routes/agent-messaging/coordination.ts:99		1				no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/claims/status	api/src/routes/agent-messaging/coordination.ts:98	inline		api/src/routes/agent-messaging/coordination.ts:98		1				no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/context/get	api/src/routes/agent-messaging/coordination.ts:55	inline		api/src/routes/agent-messaging/coordination.ts:55		1				no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/context/update	api/src/routes/agent-messaging/coordination.ts:56	inline		api/src/routes/agent-messaging/coordination.ts:56		1				no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/git/remote	api/src/routes/agent-messaging/coordination.ts:60	inline		api/src/routes/agent-messaging/coordination.ts:60		1			61=12	no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/rooms/list	api/src/routes/agent-messaging/coordination.ts:57	inline		api/src/routes/agent-messaging/coordination.ts:57		1				no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/rooms/read	api/src/routes/agent-messaging/coordination.ts:58	inline		api/src/routes/agent-messaging/coordination.ts:58		1				no-function-counter
+COORD	POST /host/agent-sessions/:id/agent-messaging/rooms/send	api/src/routes/agent-messaging/coordination.ts:59	inline		api/src/routes/agent-messaging/coordination.ts:59		1				no-function-counter
+DAEMON	GET /admin/daemon-sessions/:id	api/src/routes/host-daemon.ts:103	inline		api/src/routes/host-daemon.ts:103		2				no-function-counter
+DAEMON	GET /admin/host-daemons	api/src/routes/host-daemon.ts:52	inline		api/src/routes/host-daemon.ts:52		2			53=1	no-function-counter
+DAEMON	GET /admin/host-spawn/state	api/src/routes/host-spawn.ts:14	inline		api/src/routes/host-spawn.ts:14		2				no-function-counter
+DAEMON	GET /admin/hosts/:id/daemon	api/src/routes/host-daemon.ts:64	inline		api/src/routes/host-daemon.ts:64		2				no-function-counter
+DAEMON	GET /host/daemon/config	api/src/routes/host-daemon.ts:205	inline		api/src/routes/host-daemon.ts:205		2			206=0	no-function-counter
+DAEMON	GET /host/daemon/connect	api/src/routes/host-daemon.ts:222	inline		api/src/routes/host-daemon.ts:230	websocket	1				no-function-counter
+DAEMON	HEAD /admin/daemon-sessions/:id	api/src/routes/host-daemon.ts:103	inline		api/src/routes/host-daemon.ts:103	generated-HEAD	2				no-function-counter
+DAEMON	HEAD /admin/host-daemons	api/src/routes/host-daemon.ts:52	inline		api/src/routes/host-daemon.ts:52	generated-HEAD	2			53=1	no-function-counter
+DAEMON	HEAD /admin/host-spawn/state	api/src/routes/host-spawn.ts:14	inline		api/src/routes/host-spawn.ts:14	generated-HEAD	2				no-function-counter
+DAEMON	HEAD /admin/hosts/:id/daemon	api/src/routes/host-daemon.ts:64	inline		api/src/routes/host-daemon.ts:64	generated-HEAD	2				no-function-counter
+DAEMON	HEAD /host/daemon/config	api/src/routes/host-daemon.ts:205	inline		api/src/routes/host-daemon.ts:205	generated-HEAD	2			206=0	no-function-counter
+DAEMON	HEAD /host/daemon/connect	api/src/routes/host-daemon.ts:222	transport-override		api/src/ws/transport.ts:12	generated-HEAD+websocket	4	route.handler	1		shared-body-entered
+DAEMON	POST /admin/daemon-sessions	api/src/routes/host-daemon.ts:75	inline		api/src/routes/host-daemon.ts:75		1			76=1	no-function-counter
+DAEMON	POST /admin/daemon-sessions/:id/messages	api/src/routes/host-daemon.ts:110	inline		api/src/routes/host-daemon.ts:110		1			111=1	no-function-counter
+DAEMON	POST /admin/daemon-sessions/:id/permission-mode	api/src/routes/host-daemon.ts:85	inline		api/src/routes/host-daemon.ts:85		1			86=0	no-function-counter
+DAEMON	POST /admin/daemon-sessions/:id/stop	api/src/routes/host-daemon.ts:106	inline		api/src/routes/host-daemon.ts:106		1			107=1	no-function-counter
+DAEMON	POST /admin/host-spawn/state	api/src/routes/host-spawn.ts:17	inline		api/src/routes/host-spawn.ts:17		1			18=0	no-function-counter
+DAEMON	POST /host/agent-sessions/:sessionId/agent-messaging/advisor/ask	api/src/routes/host-daemon.ts:186	inline		api/src/routes/host-daemon.ts:186		1			187=0	no-function-counter
+DAEMON	POST /host/agent-sessions/:sessionId/agent-messaging/advisor/close	api/src/routes/host-daemon.ts:191	inline		api/src/routes/host-daemon.ts:191		1				no-function-counter
+DAEMON	POST /host/agent-sessions/:sessionId/agent-messaging/advisor/status	api/src/routes/host-daemon.ts:194	inline		api/src/routes/host-daemon.ts:194		1				no-function-counter
+DAEMON	POST /host/agent-sessions/:sessionId/agent-messaging/insecure-enable	api/src/routes/host-daemon.ts:117	inline		api/src/routes/host-daemon.ts:117		1			118=4	no-function-counter
+DAEMON	POST /host/agent-sessions/:sessionId/agent-messaging/spawn	api/src/routes/host-daemon.ts:153	inline		api/src/routes/host-daemon.ts:153		1			154=1	no-function-counter
+DAEMON	POST /host/agent-sessions/:sessionId/agent-messaging/spawn-status	api/src/routes/host-daemon.ts:157	inline		api/src/routes/host-daemon.ts:157		1			158=0	no-function-counter
+DAEMON	POST /host/agent-sessions/:sessionId/agent-messaging/stop	api/src/routes/host-daemon.ts:175	inline		api/src/routes/host-daemon.ts:175		1			176=0	no-function-counter
+DAEMON	POST /host/daemon/migration	api/src/routes/host-daemon.ts:214	inline		api/src/routes/host-daemon.ts:214		1			215=0	no-function-counter
+DAEMON	POST /host/daemon/peer-finished	api/src/routes/host-daemon.ts:197	inline		api/src/routes/host-daemon.ts:197		1			198=0	no-function-counter
+DAEMON	POST /host/spawn/setup-complete	api/src/routes/host-spawn.ts:25	inline		api/src/routes/host-spawn.ts:25		1			26=0	no-function-counter
+DAEMON	PUT /admin/hosts/:id/daemon	api/src/routes/host-daemon.ts:65	inline		api/src/routes/host-daemon.ts:65		1			66=1	no-function-counter
+ENGINE	DELETE /admin/claude/:kind/:slug	api/src/routes/admin/config/index.ts:445	inline		api/src/routes/admin/config/index.ts:448		1			449=0	no-function-counter
+ENGINE	DELETE /admin/engines/:engine/destroy	api/src/routes/admin/engines/index.ts:88	inline		api/src/routes/admin/engines/index.ts:88		1			89=0	no-function-counter
+ENGINE	GET /admin/auto-update	api/src/routes/admin/settings/index.ts:306	inline		api/src/routes/admin/settings/index.ts:306		2			307=2	no-function-counter
+ENGINE	GET /admin/claude/:kind	api/src/routes/admin/config/index.ts:414	inline		api/src/routes/admin/config/index.ts:417		2			418=0	no-function-counter
+ENGINE	GET /admin/claude/:kind/:slug	api/src/routes/admin/config/index.ts:424	inline		api/src/routes/admin/config/index.ts:427		2			428=0	no-function-counter
+ENGINE	GET /admin/engines/:engine/destroy	api/src/routes/admin/engines/index.ts:68	inline		api/src/routes/admin/engines/index.ts:68		2			69=0	no-function-counter
+ENGINE	GET /admin/engines/active	api/src/routes/admin/engines/index.ts:33	inline		api/src/routes/admin/engines/index.ts:33		2			34=1	no-function-counter
+ENGINE	GET /admin/engines/state	api/src/routes/admin/engines/index.ts:38	inline		api/src/routes/admin/engines/index.ts:38		2			39=1	no-function-counter
+ENGINE	GET /admin/grok/models	api/src/routes/admin/grok/index.ts:48	inline		api/src/routes/admin/grok/index.ts:48		2				no-function-counter
+ENGINE	GET /admin/kimi/models	api/src/routes/admin/kimi/index.ts:66	inline		api/src/routes/admin/kimi/index.ts:66		2				no-function-counter
+ENGINE	GET /admin/model-tier-check	api/src/routes/admin/settings/index.ts:197	inline		api/src/routes/admin/settings/index.ts:197		2			198=2	no-function-counter
+ENGINE	GET /admin/subagent-model-selection	api/src/routes/admin/settings/index.ts:209	inline		api/src/routes/admin/settings/index.ts:209		2			210=2	no-function-counter
+ENGINE	GET /versions	api/src/routes/host/index.ts:61	inline		api/src/routes/host/index.ts:61		2			62=18	no-function-counter
+ENGINE	HEAD /admin/auto-update	api/src/routes/admin/settings/index.ts:306	inline		api/src/routes/admin/settings/index.ts:306	generated-HEAD	2			307=2	no-function-counter
+ENGINE	HEAD /admin/claude/:kind	api/src/routes/admin/config/index.ts:414	inline		api/src/routes/admin/config/index.ts:417	generated-HEAD	2			418=0	no-function-counter
+ENGINE	HEAD /admin/claude/:kind/:slug	api/src/routes/admin/config/index.ts:424	inline		api/src/routes/admin/config/index.ts:427	generated-HEAD	2			428=0	no-function-counter
+ENGINE	HEAD /admin/engines/:engine/destroy	api/src/routes/admin/engines/index.ts:68	inline		api/src/routes/admin/engines/index.ts:68	generated-HEAD	2			69=0	no-function-counter
+ENGINE	HEAD /admin/engines/active	api/src/routes/admin/engines/index.ts:33	inline		api/src/routes/admin/engines/index.ts:33	generated-HEAD	2			34=1	no-function-counter
+ENGINE	HEAD /admin/engines/state	api/src/routes/admin/engines/index.ts:38	inline		api/src/routes/admin/engines/index.ts:38	generated-HEAD	2			39=1	no-function-counter
+ENGINE	HEAD /admin/grok/models	api/src/routes/admin/grok/index.ts:48	inline		api/src/routes/admin/grok/index.ts:48	generated-HEAD	2				no-function-counter
+ENGINE	HEAD /admin/kimi/models	api/src/routes/admin/kimi/index.ts:66	inline		api/src/routes/admin/kimi/index.ts:66	generated-HEAD	2				no-function-counter
+ENGINE	HEAD /admin/model-tier-check	api/src/routes/admin/settings/index.ts:197	inline		api/src/routes/admin/settings/index.ts:197	generated-HEAD	2			198=2	no-function-counter
+ENGINE	HEAD /admin/subagent-model-selection	api/src/routes/admin/settings/index.ts:209	inline		api/src/routes/admin/settings/index.ts:209	generated-HEAD	2			210=2	no-function-counter
+ENGINE	HEAD /versions	api/src/routes/host/index.ts:61	inline		api/src/routes/host/index.ts:61	generated-HEAD	2			62=18	no-function-counter
+ENGINE	POST /admin/auto-update	api/src/routes/admin/settings/index.ts:309	inline		api/src/routes/admin/settings/index.ts:309		1			310=1	no-function-counter
+ENGINE	POST /admin/claude/:kind/store	api/src/routes/admin/config/index.ts:435	inline		api/src/routes/admin/config/index.ts:438		1			439=0	no-function-counter
+ENGINE	POST /admin/claude/version	api/src/routes/admin/settings/index.ts:558	inline		api/src/routes/admin/settings/index.ts:558		1			559=0	no-function-counter
+ENGINE	POST /admin/codex-version	api/src/routes/admin/settings/index.ts:366	inline		api/src/routes/admin/settings/index.ts:366		1			367=2	no-function-counter
+ENGINE	POST /admin/engines/:engine/destroy	api/src/routes/admin/engines/index.ts:72	inline		api/src/routes/admin/engines/index.ts:72		1			73=0	no-function-counter
+ENGINE	POST /admin/engines/:engine/destroy/purge	api/src/routes/admin/engines/index.ts:78	inline		api/src/routes/admin/engines/index.ts:78		1			79=0	no-function-counter
+ENGINE	POST /admin/engines/:engine/state	api/src/routes/admin/engines/index.ts:42	inline		api/src/routes/admin/engines/index.ts:42		1			43=6	no-function-counter
+ENGINE	POST /admin/grok/models/:model/toggle	api/src/routes/admin/grok/index.ts:49	inline		api/src/routes/admin/grok/index.ts:49		1			50=3	no-function-counter
+ENGINE	POST /admin/grok/version	api/src/routes/admin/settings/index.ts:591	inline		api/src/routes/admin/settings/index.ts:591		1			592=2	no-function-counter
+ENGINE	POST /admin/hosts/:id/auto-update	api/src/routes/admin/hosts/index.ts:463	inline		api/src/routes/admin/hosts/index.ts:467		1	handler	4	468=4	body-entered
+ENGINE	POST /admin/hosts/:id/claude-version	api/src/routes/admin/hosts/index.ts:722	inline		api/src/routes/admin/hosts/index.ts:726		1	handler	1	727=1	body-entered
+ENGINE	POST /admin/hosts/:id/codex-version	api/src/routes/admin/hosts/index.ts:705	inline		api/src/routes/admin/hosts/index.ts:709		1	handler	2	710=2	body-entered
+ENGINE	POST /admin/hosts/:id/engines	api/src/routes/admin/hosts/index.ts:381	inline		api/src/routes/admin/hosts/index.ts:385		1	handler	2	386=2	body-entered
+ENGINE	POST /admin/hosts/:id/grok-version	api/src/routes/admin/hosts/index.ts:739	inline		api/src/routes/admin/hosts/index.ts:739		1			740=0	no-function-counter
+ENGINE	POST /admin/hosts/:id/kimi-version	api/src/routes/admin/hosts/index.ts:747	inline		api/src/routes/admin/hosts/index.ts:747		1			748=0	no-function-counter
+ENGINE	POST /admin/kimi/models/:model/toggle	api/src/routes/admin/kimi/index.ts:69	inline		api/src/routes/admin/kimi/index.ts:69		1			70=3	no-function-counter
+ENGINE	POST /admin/kimi/version	api/src/routes/admin/settings/index.ts:615	inline		api/src/routes/admin/settings/index.ts:615		1			616=2	no-function-counter
+ENGINE	POST /admin/model-tier-check	api/src/routes/admin/settings/index.ts:200	inline		api/src/routes/admin/settings/index.ts:200		1			201=3	no-function-counter
+ENGINE	POST /admin/subagent-model-selection	api/src/routes/admin/settings/index.ts:212	inline		api/src/routes/admin/settings/index.ts:212		1			213=2	no-function-counter
+ENGINE	POST /admin/versions/check	api/src/routes/admin/settings/index.ts:534	inline		api/src/routes/admin/settings/index.ts:534		1			535=2	no-function-counter
+EXTERNAL	DELETE /admin/external-clients/:id	api/src/routes/external/index.ts:270	inline		api/src/routes/external/index.ts:270		1			271=0	no-function-counter
+EXTERNAL	GET /admin/external-clients	api/src/routes/external/index.ts:229	inline		api/src/routes/external/index.ts:229		2				no-function-counter
+EXTERNAL	GET /external/v1/agents	api/src/routes/external/index.ts:212	inline		api/src/routes/external/index.ts:212		2				no-function-counter
+EXTERNAL	GET /external/v1/inbox	api/src/routes/external/index.ts:138	inline		api/src/routes/external/index.ts:138		2				no-function-counter
+EXTERNAL	HEAD /admin/external-clients	api/src/routes/external/index.ts:229	inline		api/src/routes/external/index.ts:229	generated-HEAD	2				no-function-counter
+EXTERNAL	HEAD /external/v1/agents	api/src/routes/external/index.ts:212	inline		api/src/routes/external/index.ts:212	generated-HEAD	2				no-function-counter
+EXTERNAL	HEAD /external/v1/inbox	api/src/routes/external/index.ts:138	inline		api/src/routes/external/index.ts:138	generated-HEAD	2				no-function-counter
+EXTERNAL	PATCH /admin/external-clients/:id	api/src/routes/external/index.ts:243	inline		api/src/routes/external/index.ts:243		1			244=0	no-function-counter
+EXTERNAL	POST /admin/external-clients	api/src/routes/external/index.ts:233	inline		api/src/routes/external/index.ts:233		1			234=0	no-function-counter
+EXTERNAL	POST /admin/external-clients/:id/rotate-key	api/src/routes/external/index.ts:261	inline		api/src/routes/external/index.ts:261		1			262=0	no-function-counter
+EXTERNAL	POST /external/v1/heartbeat	api/src/routes/external/index.ts:204	inline		api/src/routes/external/index.ts:204		1				no-function-counter
+EXTERNAL	POST /external/v1/inbox/ack	api/src/routes/external/index.ts:156	inline		api/src/routes/external/index.ts:156		1				no-function-counter
+EXTERNAL	POST /external/v1/reply	api/src/routes/external/index.ts:179	inline		api/src/routes/external/index.ts:179		1				no-function-counter
+EXTERNAL	POST /external/v1/result	api/src/routes/external/index.ts:192	inline		api/src/routes/external/index.ts:192		1				no-function-counter
+EXTERNAL	POST /external/v1/send	api/src/routes/external/index.ts:163	inline		api/src/routes/external/index.ts:163		1				no-function-counter
+GATEWAY	DELETE /admin/claude/keys/:id	api/src/routes/admin/keys/claude.ts:15	reference	keys.remove	api/src/routes/admin/keys/gateway-keys.ts:155		4	remove	26	156=26	shared-body-entered
+GATEWAY	DELETE /admin/grok/keys/:id	api/src/routes/admin/grok/index.ts:25	reference	keyRoutes.remove	api/src/routes/admin/keys/gateway-keys.ts:155		4	remove	26	156=26	shared-body-entered
+GATEWAY	DELETE /admin/kimi/keys/:id	api/src/routes/admin/kimi/index.ts:35	reference	keyRoutes.remove	api/src/routes/admin/keys/gateway-keys.ts:155		4	remove	26	156=26	shared-body-entered
+GATEWAY	DELETE /admin/openai/keys/:id	api/src/routes/admin/keys/openai.ts:15	reference	keys.remove	api/src/routes/admin/keys/gateway-keys.ts:155		4	remove	26	156=26	shared-body-entered
+GATEWAY	GET /admin/api-keys-in-chat	api/src/routes/admin/settings/index.ts:183	inline		api/src/routes/admin/settings/index.ts:183		2			184=2	no-function-counter
+GATEWAY	GET /admin/api/state	api/src/routes/admin/settings/index.ts:157	inline		api/src/routes/admin/settings/index.ts:157		2			158=0	no-function-counter
+GATEWAY	GET /admin/api/surfaces	api/src/routes/admin/settings/index.ts:643	inline		api/src/routes/admin/settings/index.ts:643		2			644=1	no-function-counter
+GATEWAY	GET /admin/claude/keys	api/src/routes/admin/keys/claude.ts:12	reference	keys.list	api/src/routes/admin/keys/gateway-keys.ts:129		8	list	41	130=41	shared-body-entered
+GATEWAY	GET /admin/grok/keys	api/src/routes/admin/grok/index.ts:22	reference	keyRoutes.list	api/src/routes/admin/keys/gateway-keys.ts:129		8	list	41	130=41	shared-body-entered
+GATEWAY	GET /admin/kimi/keys	api/src/routes/admin/kimi/index.ts:32	reference	keyRoutes.list	api/src/routes/admin/keys/gateway-keys.ts:129		8	list	41	130=41	shared-body-entered
+GATEWAY	GET /admin/openai/keys	api/src/routes/admin/keys/openai.ts:12	reference	keys.list	api/src/routes/admin/keys/gateway-keys.ts:129		8	list	41	130=41	shared-body-entered
+GATEWAY	GET /anthropic/v1/models	api/src/routes/anthropic-v1/index.ts:346	inline		api/src/routes/anthropic-v1/index.ts:356		2	handler	16	357=16	shared-body-entered
+GATEWAY	GET /anthropic/v1/models/:model_id	api/src/routes/anthropic-v1/index.ts:363	inline		api/src/routes/anthropic-v1/index.ts:373		2	handler	3	374=3	shared-body-entered
+GATEWAY	GET /grok/v1/models	api/src/routes/v1/index.ts:235	inline		api/src/routes/v1/index.ts:237		6	handler	32	238=32	shared-body-entered
+GATEWAY	GET /grok/v1/models/:model	api/src/routes/v1/index.ts:248	inline		api/src/routes/v1/index.ts:250		6	handler	3	251=3	shared-body-entered
+GATEWAY	GET /kimi/v1/models	api/src/routes/v1/index.ts:235	inline		api/src/routes/v1/index.ts:237		6	handler	32	238=32	shared-body-entered
+GATEWAY	GET /kimi/v1/models/:model	api/src/routes/v1/index.ts:248	inline		api/src/routes/v1/index.ts:250		6	handler	3	251=3	shared-body-entered
+GATEWAY	GET /v1/models	api/src/routes/v1/index.ts:235	inline		api/src/routes/v1/index.ts:237		6	handler	32	238=32	shared-body-entered
+GATEWAY	GET /v1/models/:model	api/src/routes/v1/index.ts:248	inline		api/src/routes/v1/index.ts:250		6	handler	3	251=3	shared-body-entered
+GATEWAY	HEAD /admin/api-keys-in-chat	api/src/routes/admin/settings/index.ts:183	inline		api/src/routes/admin/settings/index.ts:183	generated-HEAD	2			184=2	no-function-counter
+GATEWAY	HEAD /admin/api/state	api/src/routes/admin/settings/index.ts:157	inline		api/src/routes/admin/settings/index.ts:157	generated-HEAD	2			158=0	no-function-counter
+GATEWAY	HEAD /admin/api/surfaces	api/src/routes/admin/settings/index.ts:643	inline		api/src/routes/admin/settings/index.ts:643	generated-HEAD	2			644=1	no-function-counter
+GATEWAY	HEAD /admin/claude/keys	api/src/routes/admin/keys/claude.ts:12	reference	keys.list	api/src/routes/admin/keys/gateway-keys.ts:129	generated-HEAD	8	list	41	130=41	shared-body-entered
+GATEWAY	HEAD /admin/grok/keys	api/src/routes/admin/grok/index.ts:22	reference	keyRoutes.list	api/src/routes/admin/keys/gateway-keys.ts:129	generated-HEAD	8	list	41	130=41	shared-body-entered
+GATEWAY	HEAD /admin/kimi/keys	api/src/routes/admin/kimi/index.ts:32	reference	keyRoutes.list	api/src/routes/admin/keys/gateway-keys.ts:129	generated-HEAD	8	list	41	130=41	shared-body-entered
+GATEWAY	HEAD /admin/openai/keys	api/src/routes/admin/keys/openai.ts:12	reference	keys.list	api/src/routes/admin/keys/gateway-keys.ts:129	generated-HEAD	8	list	41	130=41	shared-body-entered
+GATEWAY	HEAD /anthropic/v1/models	api/src/routes/anthropic-v1/index.ts:346	inline		api/src/routes/anthropic-v1/index.ts:356	generated-HEAD	2	handler	16	357=16	shared-body-entered
+GATEWAY	HEAD /anthropic/v1/models/:model_id	api/src/routes/anthropic-v1/index.ts:363	inline		api/src/routes/anthropic-v1/index.ts:373	generated-HEAD	2	handler	3	374=3	shared-body-entered
+GATEWAY	HEAD /grok/v1/models	api/src/routes/v1/index.ts:235	inline		api/src/routes/v1/index.ts:237	generated-HEAD	6	handler	32	238=32	shared-body-entered
+GATEWAY	HEAD /grok/v1/models/:model	api/src/routes/v1/index.ts:248	inline		api/src/routes/v1/index.ts:250	generated-HEAD	6	handler	3	251=3	shared-body-entered
+GATEWAY	HEAD /kimi/v1/models	api/src/routes/v1/index.ts:235	inline		api/src/routes/v1/index.ts:237	generated-HEAD	6	handler	32	238=32	shared-body-entered
+GATEWAY	HEAD /kimi/v1/models/:model	api/src/routes/v1/index.ts:248	inline		api/src/routes/v1/index.ts:250	generated-HEAD	6	handler	3	251=3	shared-body-entered
+GATEWAY	HEAD /v1/models	api/src/routes/v1/index.ts:235	inline		api/src/routes/v1/index.ts:237	generated-HEAD	6	handler	32	238=32	shared-body-entered
+GATEWAY	HEAD /v1/models/:model	api/src/routes/v1/index.ts:248	inline		api/src/routes/v1/index.ts:250	generated-HEAD	6	handler	3	251=3	shared-body-entered
+GATEWAY	OPTIONS /anthropic/v1/*	api/src/routes/anthropic-v1/index.ts:170	inline		api/src/routes/anthropic-v1/index.ts:173		1	handler	1	174=1	body-entered
+GATEWAY	OPTIONS /grok/v1/*	api/src/routes/v1/index.ts:105	inline		api/src/routes/v1/index.ts:105		3			106=1	no-function-counter
+GATEWAY	OPTIONS /kimi/v1/*	api/src/routes/v1/index.ts:105	inline		api/src/routes/v1/index.ts:105		3			106=1	no-function-counter
+GATEWAY	OPTIONS /v1/*	api/src/routes/v1/index.ts:105	inline		api/src/routes/v1/index.ts:105		3			106=1	no-function-counter
+GATEWAY	POST /admin/api-keys-in-chat	api/src/routes/admin/settings/index.ts:186	inline		api/src/routes/admin/settings/index.ts:186		1			187=3	no-function-counter
+GATEWAY	POST /admin/api/state	api/src/routes/admin/settings/index.ts:160	inline		api/src/routes/admin/settings/index.ts:160		1			161=0	no-function-counter
+GATEWAY	POST /admin/api/surfaces/:surface	api/src/routes/admin/settings/index.ts:649	inline		api/src/routes/admin/settings/index.ts:649		1			650=8	no-function-counter
+GATEWAY	POST /admin/claude/keys	api/src/routes/admin/keys/claude.ts:13	reference	keys.create	api/src/routes/admin/keys/gateway-keys.ts:133		4	create	97	134=97	shared-body-entered
+GATEWAY	POST /admin/claude/keys/:id/toggle	api/src/routes/admin/keys/claude.ts:14	reference	keys.toggle	api/src/routes/admin/keys/gateway-keys.ts:145		4	toggle	34	146=34	shared-body-entered
+GATEWAY	POST /admin/grok/keys	api/src/routes/admin/grok/index.ts:23	reference	keyRoutes.create	api/src/routes/admin/keys/gateway-keys.ts:133		4	create	97	134=97	shared-body-entered
+GATEWAY	POST /admin/grok/keys/:id/toggle	api/src/routes/admin/grok/index.ts:24	reference	keyRoutes.toggle	api/src/routes/admin/keys/gateway-keys.ts:145		4	toggle	34	146=34	shared-body-entered
+GATEWAY	POST /admin/kimi/keys	api/src/routes/admin/kimi/index.ts:33	reference	keyRoutes.create	api/src/routes/admin/keys/gateway-keys.ts:133		4	create	97	134=97	shared-body-entered
+GATEWAY	POST /admin/kimi/keys/:id/toggle	api/src/routes/admin/kimi/index.ts:34	reference	keyRoutes.toggle	api/src/routes/admin/keys/gateway-keys.ts:145		4	toggle	34	146=34	shared-body-entered
+GATEWAY	POST /admin/openai/keys	api/src/routes/admin/keys/openai.ts:13	reference	keys.create	api/src/routes/admin/keys/gateway-keys.ts:133		4	create	97	134=97	shared-body-entered
+GATEWAY	POST /admin/openai/keys/:id/toggle	api/src/routes/admin/keys/openai.ts:14	reference	keys.toggle	api/src/routes/admin/keys/gateway-keys.ts:145		4	toggle	34	146=34	shared-body-entered
+GATEWAY	POST /anthropic/v1/complete	api/src/routes/anthropic-v1/index.ts:332	reference	completionsHandler	api/src/routes/anthropic-v1/index.ts:279		2				ambiguous-function-line
+GATEWAY	POST /anthropic/v1/completions	api/src/routes/anthropic-v1/index.ts:338	reference	completionsHandler	api/src/routes/anthropic-v1/index.ts:279		2				ambiguous-function-line
+GATEWAY	POST /anthropic/v1/embeddings	api/src/routes/anthropic-v1/index.ts:424	inline		api/src/routes/anthropic-v1/index.ts:434		1	handler	1	435=1	body-entered
+GATEWAY	POST /anthropic/v1/messages	api/src/routes/anthropic-v1/index.ts:180	inline		api/src/routes/anthropic-v1/index.ts:191		1				ambiguous-function-line
+GATEWAY	POST /anthropic/v1/messages/count_tokens	api/src/routes/anthropic-v1/index.ts:240	inline		api/src/routes/anthropic-v1/index.ts:251		1	handler	8	252=8	body-entered
+GATEWAY	POST /anthropic/v1/responses	api/src/routes/anthropic-v1/index.ts:382	inline		api/src/routes/anthropic-v1/index.ts:392		1				ambiguous-function-line
+GATEWAY	POST /grok/v1/chat/completions	api/src/routes/v1/index.ts:110	inline		api/src/routes/v1/index.ts:112		3				ambiguous-function-line
+GATEWAY	POST /grok/v1/completions	api/src/routes/v1/index.ts:191	inline		api/src/routes/v1/index.ts:193		3				ambiguous-function-line
+GATEWAY	POST /grok/v1/embeddings	api/src/routes/v1/index.ts:220	inline		api/src/routes/v1/index.ts:222		3	handler	1	227=1	shared-body-entered
+GATEWAY	POST /grok/v1/responses	api/src/routes/v1/index.ts:158	inline		api/src/routes/v1/index.ts:160		3				ambiguous-function-line
+GATEWAY	POST /kimi/v1/chat/completions	api/src/routes/v1/index.ts:110	inline		api/src/routes/v1/index.ts:112		3				ambiguous-function-line
+GATEWAY	POST /kimi/v1/completions	api/src/routes/v1/index.ts:191	inline		api/src/routes/v1/index.ts:193		3				ambiguous-function-line
+GATEWAY	POST /kimi/v1/embeddings	api/src/routes/v1/index.ts:220	inline		api/src/routes/v1/index.ts:222		3	handler	1	227=1	shared-body-entered
+GATEWAY	POST /kimi/v1/responses	api/src/routes/v1/index.ts:158	inline		api/src/routes/v1/index.ts:160		3				ambiguous-function-line
+GATEWAY	POST /v1/chat/completions	api/src/routes/v1/index.ts:110	inline		api/src/routes/v1/index.ts:112		3				ambiguous-function-line
+GATEWAY	POST /v1/completions	api/src/routes/v1/index.ts:191	inline		api/src/routes/v1/index.ts:193		3				ambiguous-function-line
+GATEWAY	POST /v1/embeddings	api/src/routes/v1/index.ts:220	inline		api/src/routes/v1/index.ts:222		3	handler	1	227=1	shared-body-entered
+GATEWAY	POST /v1/responses	api/src/routes/v1/index.ts:158	inline		api/src/routes/v1/index.ts:160		3				ambiguous-function-line
+GIT	GET /admin/git-director	api/src/routes/admin/git-director/index.ts:102	inline		api/src/routes/admin/git-director/index.ts:102		2			103=0	no-function-counter
+GIT	GET /admin/git-director/commit-settings	api/src/routes/admin/git-director/index.ts:69	inline		api/src/routes/admin/git-director/index.ts:69		2			70=5	no-function-counter
+GIT	GET /admin/git-director/state	api/src/routes/admin/git-director/index.ts:83	inline		api/src/routes/admin/git-director/index.ts:83		2			84=0	no-function-counter
+GIT	HEAD /admin/git-director	api/src/routes/admin/git-director/index.ts:102	inline		api/src/routes/admin/git-director/index.ts:102	generated-HEAD	2			103=0	no-function-counter
+GIT	HEAD /admin/git-director/commit-settings	api/src/routes/admin/git-director/index.ts:69	inline		api/src/routes/admin/git-director/index.ts:69	generated-HEAD	2			70=5	no-function-counter
+GIT	HEAD /admin/git-director/state	api/src/routes/admin/git-director/index.ts:83	inline		api/src/routes/admin/git-director/index.ts:83	generated-HEAD	2			84=0	no-function-counter
+GIT	POST /admin/git-director/commit-settings	api/src/routes/admin/git-director/index.ts:72	inline		api/src/routes/admin/git-director/index.ts:72		1			73=6	no-function-counter
+GIT	POST /admin/git-director/requests/:id/decide	api/src/routes/admin/git-director/index.ts:116	inline		api/src/routes/admin/git-director/index.ts:116		1			117=0	no-function-counter
+GIT	POST /admin/git-director/state	api/src/routes/admin/git-director/index.ts:87	inline		api/src/routes/admin/git-director/index.ts:87		1			88=0	no-function-counter
+GIT	POST /admin/git-director/worktrees/:id/release	api/src/routes/admin/git-director/index.ts:106	inline		api/src/routes/admin/git-director/index.ts:106		1			107=0	no-function-counter
+HOST	DELETE /admin/hosts/:id	api/src/routes/admin/hosts/index.ts:369	inline		api/src/routes/admin/hosts/index.ts:373		1	handler	1	374=1	body-entered
+HOST	GET /admin/hosts	api/src/routes/admin/overview/index.ts:410	inline		api/src/routes/admin/overview/index.ts:410		2			411=3	no-function-counter
+HOST	GET /admin/hosts/:id/detail	api/src/routes/admin/overview/index.ts:518	inline		api/src/routes/admin/overview/index.ts:518		2			519=1	no-function-counter
+HOST	GET /admin/hosts/insecure	api/src/routes/admin/overview/index.ts:662	inline		api/src/routes/admin/overview/index.ts:662		2			665=0	no-function-counter
+HOST	GET /admin/insecure-approval	api/src/routes/admin/settings/index.ts:319	inline		api/src/routes/admin/settings/index.ts:319		2			320=0	no-function-counter
+HOST	GET /admin/insecure-approvals/pending	api/src/routes/admin/hosts/index.ts:545	inline		api/src/routes/admin/hosts/index.ts:549		2	handler	1	550=1	shared-body-entered
+HOST	GET /admin/prune-policy	api/src/routes/admin/settings/index.ts:460	inline		api/src/routes/admin/settings/index.ts:460		2			461=0	no-function-counter
+HOST	GET /admin/reverse-dns	api/src/routes/admin/settings/index.ts:293	inline		api/src/routes/admin/settings/index.ts:293		2			294=0	no-function-counter
+HOST	HEAD /admin/hosts	api/src/routes/admin/overview/index.ts:410	inline		api/src/routes/admin/overview/index.ts:410	generated-HEAD	2			411=3	no-function-counter
+HOST	HEAD /admin/hosts/:id/detail	api/src/routes/admin/overview/index.ts:518	inline		api/src/routes/admin/overview/index.ts:518	generated-HEAD	2			519=1	no-function-counter
+HOST	HEAD /admin/hosts/insecure	api/src/routes/admin/overview/index.ts:662	inline		api/src/routes/admin/overview/index.ts:662	generated-HEAD	2			665=0	no-function-counter
+HOST	HEAD /admin/insecure-approval	api/src/routes/admin/settings/index.ts:319	inline		api/src/routes/admin/settings/index.ts:319	generated-HEAD	2			320=0	no-function-counter
+HOST	HEAD /admin/insecure-approvals/pending	api/src/routes/admin/hosts/index.ts:545	inline		api/src/routes/admin/hosts/index.ts:549	generated-HEAD	2	handler	1	550=1	shared-body-entered
+HOST	HEAD /admin/prune-policy	api/src/routes/admin/settings/index.ts:460	inline		api/src/routes/admin/settings/index.ts:460	generated-HEAD	2			461=0	no-function-counter
+HOST	HEAD /admin/reverse-dns	api/src/routes/admin/settings/index.ts:293	inline		api/src/routes/admin/settings/index.ts:293	generated-HEAD	2			294=0	no-function-counter
+HOST	POST /admin/hosts/:id/curl-insecure	api/src/routes/admin/hosts/index.ts:632	inline		api/src/routes/admin/hosts/index.ts:636		1	handler	0	637=0	body-zero
+HOST	POST /admin/hosts/:id/insecure/disable	api/src/routes/admin/hosts/index.ts:490	inline		api/src/routes/admin/hosts/index.ts:494		1	handler	1	495=1	body-entered
+HOST	POST /admin/hosts/:id/insecure/enable	api/src/routes/admin/hosts/index.ts:477	inline		api/src/routes/admin/hosts/index.ts:481		1	handler	2	482=2	body-entered
+HOST	POST /admin/hosts/:id/release-ip-binding	api/src/routes/admin/hosts/index.ts:399	inline		api/src/routes/admin/hosts/index.ts:403		1	handler	2	404=2	body-entered
+HOST	POST /admin/hosts/:id/reverse-dns	api/src/routes/admin/hosts/index.ts:658	inline		api/src/routes/admin/hosts/index.ts:662		1	handler	4	663=4	body-entered
+HOST	POST /admin/hosts/:id/roaming	api/src/routes/admin/hosts/index.ts:411	inline		api/src/routes/admin/hosts/index.ts:415		1	handler	0	416=0	body-zero
+HOST	POST /admin/hosts/:id/secure	api/src/routes/admin/hosts/index.ts:424	inline		api/src/routes/admin/hosts/index.ts:428		1	handler	2	429=2	body-entered
+HOST	POST /admin/hosts/:id/vip	api/src/routes/admin/hosts/index.ts:450	inline		api/src/routes/admin/hosts/index.ts:454		1	handler	0	455=0	body-zero
+HOST	POST /admin/hosts/insecure/disable-all	api/src/routes/admin/overview/index.ts:796	inline		api/src/routes/admin/overview/index.ts:796		1			797=0	no-function-counter
+HOST	POST /admin/hosts/insecure/extend	api/src/routes/admin/overview/index.ts:738	inline		api/src/routes/admin/overview/index.ts:738		1			739=0	no-function-counter
+HOST	POST /admin/hosts/insecure/window	api/src/routes/admin/hosts/index.ts:505	inline		api/src/routes/admin/hosts/index.ts:509		1	handler	3	510=3	body-entered
+HOST	POST /admin/hosts/insecure/window/close	api/src/routes/admin/hosts/index.ts:527	inline		api/src/routes/admin/hosts/index.ts:531		1	handler	1	532=1	body-entered
+HOST	POST /admin/hosts/quick-register	api/src/routes/admin/hosts/index.ts:329	inline		api/src/routes/admin/hosts/index.ts:333		1	handler	1	334=1	body-entered
+HOST	POST /admin/hosts/register	api/src/routes/admin/hosts/index.ts:275	inline		api/src/routes/admin/hosts/index.ts:280		1	handler	12	281=12	body-entered
+HOST	POST /admin/insecure-approval	api/src/routes/admin/settings/index.ts:322	inline		api/src/routes/admin/settings/index.ts:322		1			323=0	no-function-counter
+HOST	POST /admin/insecure-approvals/:id/allow-domain	api/src/routes/admin/hosts/index.ts:556	inline		api/src/routes/admin/hosts/index.ts:560		1	handler	2	561=2	body-entered
+HOST	POST /admin/insecure-approvals/:id/approve	api/src/routes/admin/hosts/index.ts:584	inline		api/src/routes/admin/hosts/index.ts:588		1	handler	1	589=1	body-entered
+HOST	POST /admin/insecure-approvals/:id/deny	api/src/routes/admin/hosts/index.ts:600	inline		api/src/routes/admin/hosts/index.ts:604		1	handler	1	605=1	body-entered
+HOST	POST /admin/insecure-domain-allows/:id/revoke	api/src/routes/admin/hosts/index.ts:614	inline		api/src/routes/admin/hosts/index.ts:618		1	handler	1	619=1	body-entered
+HOST	POST /admin/prune-policy	api/src/routes/admin/settings/index.ts:468	inline		api/src/routes/admin/settings/index.ts:468		1			469=0	no-function-counter
+HOST	POST /admin/reverse-dns	api/src/routes/admin/settings/index.ts:296	inline		api/src/routes/admin/settings/index.ts:296		1			297=0	no-function-counter
+HOST	POST /host/engine-destroy/report	api/src/routes/engine-destroy.ts:18	inline		api/src/routes/engine-destroy.ts:18		1			19=0	no-function-counter
+HOST	POST /host/users	api/src/routes/host/index.ts:69	inline		api/src/routes/host/index.ts:69		1			70=0	no-function-counter
+INSTALL	GET /admin/wrapper/rollout	api/src/routes/admin/wrapper-rollout/index.ts:43	inline		api/src/routes/admin/wrapper-rollout/index.ts:43		2			44=0	no-function-counter
+INSTALL	GET /admin/wrapper/rollout/enabled	api/src/routes/admin/wrapper-rollout/index.ts:48	inline		api/src/routes/admin/wrapper-rollout/index.ts:48		2			49=0	no-function-counter
+INSTALL	GET /install/:token	api/src/routes/install/index.ts:193	factory-return	answered((token, reply) => installLauncherHandler(token, '/install/', reply))	api/src/routes/install/index.ts:188		10			189=46	no-function-counter
+INSTALL	GET /install/v2/:token	api/src/routes/install/index.ts:194	factory-return	answered((token, reply) => installLauncherHandler(token, '/install/v2/', reply))	api/src/routes/install/index.ts:188		10			189=46	no-function-counter
+INSTALL	GET /seed/auth/:token	api/src/routes/install/index.ts:226	factory-return	answered(seedScriptHandler)	api/src/routes/install/index.ts:188		10			189=46	no-function-counter
+INSTALL	GET /seed/v2/auth/:token	api/src/routes/install/index.ts:227	factory-return	answered(seedScriptHandler)	api/src/routes/install/index.ts:188		10			189=46	no-function-counter
+INSTALL	GET /wrapper/v2/bin/:artifact/:platform/v:version/:binary	api/src/routes/wrapper-v2/index.ts:245	reference	binHandler	api/src/routes/wrapper-v2/index.ts:223		4	binHandler	10	224=10	shared-body-entered
+INSTALL	GET /wrapper/v2/config	api/src/routes/wrapper-v2/index.ts:124	inline		api/src/routes/wrapper-v2/index.ts:124		2				no-function-counter
+INSTALL	GET /wrapper/v2/download/:artifact/:platform/v:version/:binary	api/src/routes/wrapper-v2/index.ts:252	reference	binHandler	api/src/routes/wrapper-v2/index.ts:223		4	binHandler	10	224=10	shared-body-entered
+INSTALL	HEAD /admin/wrapper/rollout	api/src/routes/admin/wrapper-rollout/index.ts:43	inline		api/src/routes/admin/wrapper-rollout/index.ts:43	generated-HEAD	2			44=0	no-function-counter
+INSTALL	HEAD /admin/wrapper/rollout/enabled	api/src/routes/admin/wrapper-rollout/index.ts:48	inline		api/src/routes/admin/wrapper-rollout/index.ts:48	generated-HEAD	2			49=0	no-function-counter
+INSTALL	HEAD /install/:token	api/src/routes/install/index.ts:193	factory-return	answered((token, reply) => installLauncherHandler(token, '/install/', reply))	api/src/routes/install/index.ts:188	generated-HEAD	10			189=46	no-function-counter
+INSTALL	HEAD /install/v2/:token	api/src/routes/install/index.ts:194	factory-return	answered((token, reply) => installLauncherHandler(token, '/install/v2/', reply))	api/src/routes/install/index.ts:188	generated-HEAD	10			189=46	no-function-counter
+INSTALL	HEAD /seed/auth/:token	api/src/routes/install/index.ts:226	factory-return	answered(seedScriptHandler)	api/src/routes/install/index.ts:188	generated-HEAD	10			189=46	no-function-counter
+INSTALL	HEAD /seed/v2/auth/:token	api/src/routes/install/index.ts:227	factory-return	answered(seedScriptHandler)	api/src/routes/install/index.ts:188	generated-HEAD	10			189=46	no-function-counter
+INSTALL	HEAD /wrapper/v2/bin/:artifact/:platform/v:version/:binary	api/src/routes/wrapper-v2/index.ts:245	reference	binHandler	api/src/routes/wrapper-v2/index.ts:223	generated-HEAD	4	binHandler	10	224=10	shared-body-entered
+INSTALL	HEAD /wrapper/v2/config	api/src/routes/wrapper-v2/index.ts:124	inline		api/src/routes/wrapper-v2/index.ts:124	generated-HEAD	2				no-function-counter
+INSTALL	HEAD /wrapper/v2/download/:artifact/:platform/v:version/:binary	api/src/routes/wrapper-v2/index.ts:252	reference	binHandler	api/src/routes/wrapper-v2/index.ts:223	generated-HEAD	4	binHandler	10	224=10	shared-body-entered
+INSTALL	POST /admin/hosts/:id/installer	api/src/routes/admin/hosts/index.ts:350	inline		api/src/routes/admin/hosts/index.ts:354		1	handler	6	355=6	body-entered
+INSTALL	POST /admin/hosts/:id/wrapper-canary	api/src/routes/admin/wrapper-rollout/index.ts:83	inline		api/src/routes/admin/wrapper-rollout/index.ts:83		1			84=0	no-function-counter
+INSTALL	POST /admin/wrapper/rollout/:action	api/src/routes/admin/wrapper-rollout/index.ts:66	inline		api/src/routes/admin/wrapper-rollout/index.ts:66		1			67=0	no-function-counter
+INSTALL	POST /admin/wrapper/rollout/enabled	api/src/routes/admin/wrapper-rollout/index.ts:53	inline		api/src/routes/admin/wrapper-rollout/index.ts:53		1			54=0	no-function-counter
+INSTALL	POST /install/:token	api/src/routes/install/index.ts:195	factory-return	answered(installClaimHandler)	api/src/routes/install/index.ts:188		10			189=46	no-function-counter
+INSTALL	POST /install/v2/:token	api/src/routes/install/index.ts:196	factory-return	answered(installClaimHandler)	api/src/routes/install/index.ts:188		10			189=46	no-function-counter
+INSTALL	POST /rescue/v1/session	api/src/routes/auth/index.ts:182	inline		api/src/routes/auth/index.ts:182		1			183=6	no-function-counter
+INSTALL	POST /seed/auth/:token	api/src/routes/install/index.ts:286	inline		api/src/routes/install/index.ts:286		1				no-function-counter
+INSTALL	POST /seed/v2/auth/:token	api/src/routes/install/index.ts:289	inline		api/src/routes/install/index.ts:289		1				no-function-counter
+LIVE	GET /admin/communicator/api-version	api/src/routes/admin/settings/index.ts:504	inline		api/src/routes/admin/settings/index.ts:504		2			505=4	no-function-counter
+LIVE	GET /admin/communicators	api/src/routes/communicator.ts:206	inline		api/src/routes/communicator.ts:206		2				no-function-counter
+LIVE	GET /admin/overview	api/src/routes/admin/overview/index.ts:231	inline		api/src/routes/admin/overview/index.ts:231		2			232=0	no-function-counter
+LIVE	GET /admin/topology	api/src/routes/admin/topology/index.ts:88	inline		api/src/routes/admin/topology/index.ts:88		2			89=23	no-function-counter
+LIVE	GET /admin/ws	api/src/ws/server.ts:26	inline		api/src/ws/server.ts:45	websocket	1			46=11	no-function-counter
+LIVE	GET /admin/ws/info	api/src/routes/admin/overview/index.ts:391	inline		api/src/routes/admin/overview/index.ts:391		2			392=2	no-function-counter
+LIVE	GET /host/communicator/connect	api/src/routes/communicator.ts:211	inline		api/src/routes/communicator.ts:219	websocket	1			220=87	no-function-counter
+LIVE	HEAD /admin/communicator/api-version	api/src/routes/admin/settings/index.ts:504	inline		api/src/routes/admin/settings/index.ts:504	generated-HEAD	2			505=4	no-function-counter
+LIVE	HEAD /admin/communicators	api/src/routes/communicator.ts:206	inline		api/src/routes/communicator.ts:206	generated-HEAD	2				no-function-counter
+LIVE	HEAD /admin/overview	api/src/routes/admin/overview/index.ts:231	inline		api/src/routes/admin/overview/index.ts:231	generated-HEAD	2			232=0	no-function-counter
+LIVE	HEAD /admin/topology	api/src/routes/admin/topology/index.ts:88	inline		api/src/routes/admin/topology/index.ts:88	generated-HEAD	2			89=23	no-function-counter
+LIVE	HEAD /admin/ws	api/src/ws/server.ts:26	transport-override		api/src/ws/transport.ts:12	generated-HEAD+websocket	4	route.handler	1		shared-body-entered
+LIVE	HEAD /admin/ws/info	api/src/routes/admin/overview/index.ts:391	inline		api/src/routes/admin/overview/index.ts:391	generated-HEAD	2			392=2	no-function-counter
+LIVE	HEAD /host/communicator/connect	api/src/routes/communicator.ts:211	transport-override		api/src/ws/transport.ts:12	generated-HEAD+websocket	4	route.handler	1		shared-body-entered
+LIVE	POST /admin/communicator/api-version	api/src/routes/admin/settings/index.ts:507	inline		api/src/routes/admin/settings/index.ts:507		1			508=10	no-function-counter
+LIVE	POST /admin/communicators/:id/disconnect	api/src/routes/admin/topology/index.ts:121	inline		api/src/routes/admin/topology/index.ts:121		1			122=284	no-function-counter
+LIVE	POST /admin/communicators/:id/terminate	api/src/routes/admin/topology/index.ts:177	inline		api/src/routes/admin/topology/index.ts:177		1			178=25	no-function-counter
+LIVE	POST /host/native-control/receipt	api/src/routes/communicator.ts:187	inline		api/src/routes/communicator.ts:187		1			188=0	no-function-counter
+MCP	GET /mcp	api/src/routes/mcp/index.ts:200	inline		api/src/routes/mcp/index.ts:200		2			201=5	no-function-counter
+MCP	HEAD /mcp	api/src/routes/mcp/index.ts:200	inline		api/src/routes/mcp/index.ts:200	generated-HEAD	2			201=5	no-function-counter
+MCP	POST /mcp	api/src/routes/mcp/index.ts:210	inline		api/src/routes/mcp/index.ts:210		1			211=92	no-function-counter
+MEMORY	DELETE /admin/memories/:scope/:recordId	api/src/routes/admin/memories/index.ts:146	inline		api/src/routes/admin/memories/index.ts:149		1			150=0	no-function-counter
+MEMORY	GET /admin/memories/:scope/:recordId	api/src/routes/admin/memories/index.ts:45	inline		api/src/routes/admin/memories/index.ts:45		2			46=2	no-function-counter
+MEMORY	GET /admin/memories/audit	api/src/routes/admin/memories/index.ts:41	inline		api/src/routes/admin/memories/index.ts:41		2			42=0	no-function-counter
+MEMORY	GET /admin/memories/graph	api/src/routes/admin/memories/index.ts:37	inline		api/src/routes/admin/memories/index.ts:37		2			38=6	no-function-counter
+MEMORY	HEAD /admin/memories/:scope/:recordId	api/src/routes/admin/memories/index.ts:45	inline		api/src/routes/admin/memories/index.ts:45	generated-HEAD	2			46=2	no-function-counter
+MEMORY	HEAD /admin/memories/audit	api/src/routes/admin/memories/index.ts:41	inline		api/src/routes/admin/memories/index.ts:41	generated-HEAD	2			42=0	no-function-counter
+MEMORY	HEAD /admin/memories/graph	api/src/routes/admin/memories/index.ts:37	inline		api/src/routes/admin/memories/index.ts:37	generated-HEAD	2			38=6	no-function-counter
+MEMORY	PATCH /admin/memories/:scope/:recordId	api/src/routes/admin/memories/index.ts:118	inline		api/src/routes/admin/memories/index.ts:121		1			122=0	no-function-counter
+MEMORY	POST /admin/memories/:scope	api/src/routes/admin/memories/index.ts:100	inline		api/src/routes/admin/memories/index.ts:103		1			104=2	no-function-counter
+MEMORY	POST /admin/memories/shared/:recordId/append	api/src/routes/admin/memories/index.ts:56	inline		api/src/routes/admin/memories/index.ts:59		1			60=1	no-function-counter
+MEMORY	POST /admin/memories/shared/:recordId/restore	api/src/routes/admin/memories/index.ts:77	inline		api/src/routes/admin/memories/index.ts:80		1			81=1	no-function-counter
+MESSAGING	DELETE /admin/agent-messaging/chats/:roomId/attachments/:attachmentId	api/src/routes/agent-chat.ts:163	factory-return	handler('delete')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+MESSAGING	DELETE /admin/agent-messaging/groups/:slug	api/src/routes/agent-messaging/groups.ts:60	inline		api/src/routes/agent-messaging/groups.ts:60		1			61=1	no-function-counter
+MESSAGING	GET /admin/address-form	api/src/routes/admin/settings/index.ts:262	inline		api/src/routes/admin/settings/index.ts:262		2			263=0	no-function-counter
+MESSAGING	GET /admin/agent-chat/limits	api/src/routes/agent-chat.ts:168	inline		api/src/routes/agent-chat.ts:168		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging	api/src/routes/agent-messaging/index.ts:96	inline		api/src/routes/agent-messaging/index.ts:96		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging/addresses	api/src/routes/agent-messaging/index.ts:99	inline		api/src/routes/agent-messaging/index.ts:99		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging/chats	api/src/routes/agent-room-chat.ts:30	inline		api/src/routes/agent-room-chat.ts:30		2			31=1	no-function-counter
+MESSAGING	GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId	api/src/routes/agent-chat.ts:161	factory-return	handler('info')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+MESSAGING	GET /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/content	api/src/routes/agent-chat.ts:162	factory-return	handler('download')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+MESSAGING	GET /admin/agent-messaging/chats/:roomId/pins	api/src/routes/agent-room-chat.ts:97	inline		api/src/routes/agent-room-chat.ts:97		2			98=1	no-function-counter
+MESSAGING	GET /admin/agent-messaging/conversations	api/src/routes/agent-messaging/index.ts:136	inline		api/src/routes/agent-messaging/index.ts:136		2			137=0	no-function-counter
+MESSAGING	GET /admin/agent-messaging/groups	api/src/routes/agent-messaging/groups.ts:45	inline		api/src/routes/agent-messaging/groups.ts:45		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging/groups/:slug	api/src/routes/agent-messaging/groups.ts:48	inline		api/src/routes/agent-messaging/groups.ts:48		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging/messages	api/src/routes/agent-messaging/index.ts:160	inline		api/src/routes/agent-messaging/index.ts:160		2			161=0	no-function-counter
+MESSAGING	GET /admin/agent-messaging/scopes	api/src/routes/agent-messaging/coordination.ts:105	inline		api/src/routes/agent-messaging/coordination.ts:105		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging/scopes/:scopeId/members	api/src/routes/agent-messaging/coordination.ts:110	inline		api/src/routes/agent-messaging/coordination.ts:110		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging/scopes/state	api/src/routes/agent-messaging/coordination.ts:100	inline		api/src/routes/agent-messaging/coordination.ts:100		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging/search	api/src/routes/agent-room-chat.ts:105	inline		api/src/routes/agent-room-chat.ts:105		2			106=3	no-function-counter
+MESSAGING	GET /admin/agent-messaging/state	api/src/routes/agent-messaging/index.ts:77	inline		api/src/routes/agent-messaging/index.ts:77		2				no-function-counter
+MESSAGING	GET /admin/agent-messaging/subscriptions	api/src/routes/agent-messaging/groups.ts:67	inline		api/src/routes/agent-messaging/groups.ts:67		2				no-function-counter
+MESSAGING	HEAD /admin/address-form	api/src/routes/admin/settings/index.ts:262	inline		api/src/routes/admin/settings/index.ts:262	generated-HEAD	2			263=0	no-function-counter
+MESSAGING	HEAD /admin/agent-chat/limits	api/src/routes/agent-chat.ts:168	inline		api/src/routes/agent-chat.ts:168	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging	api/src/routes/agent-messaging/index.ts:96	inline		api/src/routes/agent-messaging/index.ts:96	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/addresses	api/src/routes/agent-messaging/index.ts:99	inline		api/src/routes/agent-messaging/index.ts:99	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/chats	api/src/routes/agent-room-chat.ts:30	inline		api/src/routes/agent-room-chat.ts:30	generated-HEAD	2			31=1	no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/chats/:roomId/attachments/:attachmentId	api/src/routes/agent-chat.ts:161	factory-return	handler('info')	api/src/routes/agent-chat.ts:68	generated-HEAD	41			69=9	ambiguous-function-line
+MESSAGING	HEAD /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/content	api/src/routes/agent-chat.ts:162	factory-return	handler('download')	api/src/routes/agent-chat.ts:68	generated-HEAD	41			69=9	ambiguous-function-line
+MESSAGING	HEAD /admin/agent-messaging/chats/:roomId/pins	api/src/routes/agent-room-chat.ts:97	inline		api/src/routes/agent-room-chat.ts:97	generated-HEAD	2			98=1	no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/conversations	api/src/routes/agent-messaging/index.ts:136	inline		api/src/routes/agent-messaging/index.ts:136	generated-HEAD	2			137=0	no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/groups	api/src/routes/agent-messaging/groups.ts:45	inline		api/src/routes/agent-messaging/groups.ts:45	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/groups/:slug	api/src/routes/agent-messaging/groups.ts:48	inline		api/src/routes/agent-messaging/groups.ts:48	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/messages	api/src/routes/agent-messaging/index.ts:160	inline		api/src/routes/agent-messaging/index.ts:160	generated-HEAD	2			161=0	no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/scopes	api/src/routes/agent-messaging/coordination.ts:105	inline		api/src/routes/agent-messaging/coordination.ts:105	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/scopes/:scopeId/members	api/src/routes/agent-messaging/coordination.ts:110	inline		api/src/routes/agent-messaging/coordination.ts:110	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/scopes/state	api/src/routes/agent-messaging/coordination.ts:100	inline		api/src/routes/agent-messaging/coordination.ts:100	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/search	api/src/routes/agent-room-chat.ts:105	inline		api/src/routes/agent-room-chat.ts:105	generated-HEAD	2			106=3	no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/state	api/src/routes/agent-messaging/index.ts:77	inline		api/src/routes/agent-messaging/index.ts:77	generated-HEAD	2				no-function-counter
+MESSAGING	HEAD /admin/agent-messaging/subscriptions	api/src/routes/agent-messaging/groups.ts:67	inline		api/src/routes/agent-messaging/groups.ts:67	generated-HEAD	2				no-function-counter
+MESSAGING	PATCH /admin/agent-messaging/addresses/:id	api/src/routes/agent-messaging/index.ts:102	inline		api/src/routes/agent-messaging/index.ts:105		1			106=1	no-function-counter
+MESSAGING	POST /admin/address-form	api/src/routes/admin/settings/index.ts:266	inline		api/src/routes/admin/settings/index.ts:266		1			267=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/addresses/:id/enabled	api/src/routes/agent-messaging/index.ts:119	inline		api/src/routes/agent-messaging/index.ts:122		1			123=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/chats/:roomId/attachments	api/src/routes/agent-chat.ts:158	factory-return	handler('create')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+MESSAGING	POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks	api/src/routes/agent-chat.ts:159	factory-return	handler('put')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+MESSAGING	POST /admin/agent-messaging/chats/:roomId/attachments/:attachmentId/seal	api/src/routes/agent-chat.ts:160	factory-return	handler('seal')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+MESSAGING	POST /admin/agent-messaging/chats/:roomId/events/:eventId/pin	api/src/routes/agent-room-chat.ts:96	factory-return	annotate('pin')	api/src/routes/agent-room-chat.ts:79		2			80=3	ambiguous-function-line
+MESSAGING	POST /admin/agent-messaging/chats/:roomId/events/:eventId/reactions	api/src/routes/agent-room-chat.ts:95	factory-return	annotate('reaction')	api/src/routes/agent-room-chat.ts:79		2			80=3	ambiguous-function-line
+MESSAGING	POST /admin/agent-messaging/chats/create	api/src/routes/agent-room-chat.ts:132	factory-return	operation('create')	api/src/routes/agent-room-chat.ts:61		3			62=0	ambiguous-function-line
+MESSAGING	POST /admin/agent-messaging/chats/manage	api/src/routes/agent-room-chat.ts:133	factory-return	operation('manage')	api/src/routes/agent-room-chat.ts:61		3			62=0	ambiguous-function-line
+MESSAGING	POST /admin/agent-messaging/chats/read	api/src/routes/agent-room-chat.ts:34	inline		api/src/routes/agent-room-chat.ts:37		1			38=1	no-function-counter
+MESSAGING	POST /admin/agent-messaging/chats/seen	api/src/routes/agent-room-chat.ts:50	inline		api/src/routes/agent-room-chat.ts:53		1			54=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/chats/send	api/src/routes/agent-room-chat.ts:131	factory-return	operation('send')	api/src/routes/agent-room-chat.ts:61		3			62=0	ambiguous-function-line
+MESSAGING	POST /admin/agent-messaging/conversations/:id/cancel	api/src/routes/agent-messaging/index.ts:143	inline		api/src/routes/agent-messaging/index.ts:146		1			147=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/groups	api/src/routes/agent-messaging/groups.ts:51	inline		api/src/routes/agent-messaging/groups.ts:51		1			52=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/messages/:id/fresh-start	api/src/routes/agent-messaging/index.ts:193	inline		api/src/routes/agent-messaging/index.ts:193		1			194=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/messages/:id/quota-retry	api/src/routes/agent-messaging/index.ts:187	inline		api/src/routes/agent-messaging/index.ts:187		1			188=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/messages/:id/redrive	api/src/routes/agent-messaging/index.ts:197	inline		api/src/routes/agent-messaging/index.ts:200		1			201=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/messages/:id/reveal	api/src/routes/agent-messaging/index.ts:169	inline		api/src/routes/agent-messaging/index.ts:172		1			173=1	no-function-counter
+MESSAGING	POST /admin/agent-messaging/publish	api/src/routes/agent-messaging/groups.ts:88	inline		api/src/routes/agent-messaging/groups.ts:88		1				no-function-counter
+MESSAGING	POST /admin/agent-messaging/scopes/resolve	api/src/routes/agent-messaging/coordination.ts:124	inline		api/src/routes/agent-messaging/coordination.ts:124		1			125=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/scopes/state	api/src/routes/agent-messaging/coordination.ts:101	inline		api/src/routes/agent-messaging/coordination.ts:101		1			102=0	no-function-counter
+MESSAGING	POST /admin/agent-messaging/state	api/src/routes/agent-messaging/index.ts:80	inline		api/src/routes/agent-messaging/index.ts:83		1			84=2	no-function-counter
+MESSAGING	POST /host/agent-messaging/list	api/src/routes/agent-messaging/index.ts:512	inline		api/src/routes/agent-messaging/index.ts:512		1			513=5	no-function-counter
+MESSAGING	POST /host/agent-messaging/translate	api/src/routes/agent-messaging/index.ts:505	inline		api/src/routes/agent-messaging/index.ts:505		1			506=1	no-function-counter
+MESSAGING	POST /host/agent-relays/:id/deliveries/:messageId/ack	api/src/routes/agent-messaging/index.ts:590	inline		api/src/routes/agent-messaging/index.ts:590		1			591=0	no-function-counter
+MESSAGING	POST /host/agent-relays/:id/deliveries/:messageId/renew	api/src/routes/agent-messaging/index.ts:559	inline		api/src/routes/agent-messaging/index.ts:559		1			560=0	no-function-counter
+MESSAGING	POST /host/agent-relays/:id/deliveries/:messageId/reply	api/src/routes/agent-messaging/index.ts:566	inline		api/src/routes/agent-messaging/index.ts:566		1			567=0	no-function-counter
+MESSAGING	POST /host/agent-relays/:id/deliveries/claim	api/src/routes/agent-messaging/index.ts:544	inline		api/src/routes/agent-messaging/index.ts:544		1			545=0	no-function-counter
+MESSAGING	POST /host/agent-relays/:id/heartbeat	api/src/routes/agent-messaging/index.ts:536	inline		api/src/routes/agent-messaging/index.ts:536		1			537=0	no-function-counter
+MESSAGING	POST /host/agent-relays/:id/stop	api/src/routes/agent-messaging/index.ts:540	inline		api/src/routes/agent-messaging/index.ts:540		1			541=0	no-function-counter
+MESSAGING	POST /host/agent-relays/register	api/src/routes/agent-messaging/index.ts:523	inline		api/src/routes/agent-messaging/index.ts:523		1			524=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/bind	api/src/routes/agent-messaging/index.ts:452	inline		api/src/routes/agent-messaging/index.ts:452		1			453=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/cancel	api/src/routes/agent-messaging/index.ts:322	inline		api/src/routes/agent-messaging/index.ts:322		1			323=2	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/chats/list	api/src/routes/agent-room-chat.ts:150	factory-return	bridge('list')	api/src/routes/agent-room-chat.ts:134		3			135=5	ambiguous-function-line
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/chats/read	api/src/routes/agent-room-chat.ts:151	factory-return	bridge('read')	api/src/routes/agent-room-chat.ts:134		3			135=5	ambiguous-function-line
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/chats/send	api/src/routes/agent-room-chat.ts:152	factory-return	bridge('send')	api/src/routes/agent-room-chat.ts:134		3			135=5	ambiguous-function-line
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/conf/adjourn	api/src/routes/agent-messaging/index.ts:439	inline		api/src/routes/agent-messaging/index.ts:439		1			440=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/conf/dispatch	api/src/routes/agent-messaging/index.ts:420	inline		api/src/routes/agent-messaging/index.ts:420		1			421=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/conf/invite	api/src/routes/agent-messaging/index.ts:358	inline		api/src/routes/agent-messaging/index.ts:358		1			359=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/conf/join	api/src/routes/agent-messaging/index.ts:375	inline		api/src/routes/agent-messaging/index.ts:375		1			376=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/conf/list	api/src/routes/agent-messaging/index.ts:395	inline		api/src/routes/agent-messaging/index.ts:395		1			396=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/conf/open	api/src/routes/agent-messaging/index.ts:337	inline		api/src/routes/agent-messaging/index.ts:337		1			338=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/conf/roster	api/src/routes/agent-messaging/index.ts:401	inline		api/src/routes/agent-messaging/index.ts:401		1			402=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/conf/say	api/src/routes/agent-messaging/index.ts:407	inline		api/src/routes/agent-messaging/index.ts:407		1			408=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/deliveries/:messageId/ack	api/src/routes/agent-messaging/index.ts:493	inline		api/src/routes/agent-messaging/index.ts:493		1			494=4	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/deliveries/:messageId/renew	api/src/routes/agent-messaging/index.ts:486	inline		api/src/routes/agent-messaging/index.ts:486		1			487=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/deliveries/claim	api/src/routes/agent-messaging/index.ts:475	inline		api/src/routes/agent-messaging/index.ts:475		1			476=3	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/digest	api/src/routes/agent-messaging/index.ts:310	inline		api/src/routes/agent-messaging/index.ts:310		1			311=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/groups/create	api/src/routes/agent-messaging/groups.ts:97	inline		api/src/routes/agent-messaging/groups.ts:97		1			98=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/groups/delete	api/src/routes/agent-messaging/groups.ts:106	inline		api/src/routes/agent-messaging/groups.ts:106		1			107=3	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/groups/detail	api/src/routes/agent-messaging/groups.ts:101	inline		api/src/routes/agent-messaging/groups.ts:101		1			102=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/groups/list	api/src/routes/agent-messaging/groups.ts:90	inline		api/src/routes/agent-messaging/groups.ts:90		1			91=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/list	api/src/routes/agent-messaging/index.ts:231	inline		api/src/routes/agent-messaging/index.ts:231		1			232=5	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/mailbox	api/src/routes/agent-messaging/index.ts:331	inline		api/src/routes/agent-messaging/index.ts:331		1			332=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/message	api/src/routes/agent-messaging/index.ts:316	inline		api/src/routes/agent-messaging/index.ts:316		1			317=2	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/publish	api/src/routes/agent-messaging/groups.ts:128	inline		api/src/routes/agent-messaging/groups.ts:128		1			129=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/reboot/arm	api/src/routes/agent-messaging/index.ts:66	factory-return	rebootHandler('arm')	api/src/routes/agent-messaging/index.ts:48		5			49=0	ambiguous-function-line
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/reboot/disarm	api/src/routes/agent-messaging/index.ts:69	factory-return	rebootHandler('disarm')	api/src/routes/agent-messaging/index.ts:48		5			49=0	ambiguous-function-line
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/reboot/prepare	api/src/routes/agent-messaging/index.ts:65	factory-return	rebootHandler('prepare')	api/src/routes/agent-messaging/index.ts:48		5			49=0	ambiguous-function-line
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/reboot/restore	api/src/routes/agent-messaging/index.ts:68	factory-return	rebootHandler('restore')	api/src/routes/agent-messaging/index.ts:48		5			49=0	ambiguous-function-line
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/reboot/status	api/src/routes/agent-messaging/index.ts:67	factory-return	rebootHandler('status')	api/src/routes/agent-messaging/index.ts:48		5			49=0	ambiguous-function-line
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/reply	api/src/routes/agent-messaging/index.ts:283	inline		api/src/routes/agent-messaging/index.ts:283		1			284=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/self	api/src/routes/agent-messaging/index.ts:219	inline		api/src/routes/agent-messaging/index.ts:219		1			220=3	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/send	api/src/routes/agent-messaging/index.ts:258	inline		api/src/routes/agent-messaging/index.ts:258		1			259=3	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/subscribe	api/src/routes/agent-messaging/groups.ts:111	inline		api/src/routes/agent-messaging/groups.ts:111		1			112=3	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/subscriptions	api/src/routes/agent-messaging/groups.ts:121	inline		api/src/routes/agent-messaging/groups.ts:121		1			122=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/translate	api/src/routes/agent-messaging/index.ts:225	inline		api/src/routes/agent-messaging/index.ts:225		1			226=2	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/unsubscribe	api/src/routes/agent-messaging/groups.ts:116	inline		api/src/routes/agent-messaging/groups.ts:116		1			117=0	no-function-counter
+MESSAGING	POST /host/agent-sessions/:id/agent-messaging/wait	api/src/routes/agent-messaging/index.ts:299	inline		api/src/routes/agent-messaging/index.ts:299		1			300=1	no-function-counter
+OPS	GET /admin/hosts/:id/rtk	api/src/routes/rtk.ts:60	inline		api/src/routes/rtk.ts:63		2			64=2	no-function-counter
+OPS	GET /admin/hosts/:id/session-housekeeping	api/src/routes/session-housekeeping.ts:37	inline		api/src/routes/session-housekeeping.ts:37		2			38=1	no-function-counter
+OPS	GET /admin/logs	api/src/routes/admin/overview/index.ts:802	inline		api/src/routes/admin/overview/index.ts:802		2			803=1	no-function-counter
+OPS	GET /admin/response-verbosity	api/src/routes/admin/settings/index.ts:247	inline		api/src/routes/admin/settings/index.ts:247		2			248=0	no-function-counter
+OPS	GET /admin/rtk	api/src/routes/rtk.ts:50	inline		api/src/routes/rtk.ts:50		2				no-function-counter
+OPS	GET /admin/server-retention	api/src/routes/server-retention.ts:6	inline		api/src/routes/server-retention.ts:6		2				no-function-counter
+OPS	GET /admin/server-retention/runs/:id	api/src/routes/server-retention.ts:10	inline		api/src/routes/server-retention.ts:10		2				no-function-counter
+OPS	GET /admin/session-housekeeping	api/src/routes/session-housekeeping.ts:32	inline		api/src/routes/session-housekeeping.ts:32		2				no-function-counter
+OPS	GET /admin/settings/host-overrides	api/src/routes/admin/settings/index.ts:465	inline		api/src/routes/admin/settings/index.ts:465		2			466=0	no-function-counter
+OPS	GET /admin/speech-input	api/src/routes/speech-input.ts:8	inline		api/src/routes/speech-input.ts:8		2				no-function-counter
+OPS	GET /admin/theme	api/src/routes/admin/settings/index.ts:277	inline		api/src/routes/admin/settings/index.ts:277		2			278=0	no-function-counter
+OPS	GET /wrapper/v2/rtk/v:version/:platform	api/src/routes/rtk.ts:104	inline		api/src/routes/rtk.ts:107		2			108=1	no-function-counter
+OPS	HEAD /admin/hosts/:id/rtk	api/src/routes/rtk.ts:60	inline		api/src/routes/rtk.ts:63	generated-HEAD	2			64=2	no-function-counter
+OPS	HEAD /admin/hosts/:id/session-housekeeping	api/src/routes/session-housekeeping.ts:37	inline		api/src/routes/session-housekeeping.ts:37	generated-HEAD	2			38=1	no-function-counter
+OPS	HEAD /admin/logs	api/src/routes/admin/overview/index.ts:802	inline		api/src/routes/admin/overview/index.ts:802	generated-HEAD	2			803=1	no-function-counter
+OPS	HEAD /admin/response-verbosity	api/src/routes/admin/settings/index.ts:247	inline		api/src/routes/admin/settings/index.ts:247	generated-HEAD	2			248=0	no-function-counter
+OPS	HEAD /admin/rtk	api/src/routes/rtk.ts:50	inline		api/src/routes/rtk.ts:50	generated-HEAD	2				no-function-counter
+OPS	HEAD /admin/server-retention	api/src/routes/server-retention.ts:6	inline		api/src/routes/server-retention.ts:6	generated-HEAD	2				no-function-counter
+OPS	HEAD /admin/server-retention/runs/:id	api/src/routes/server-retention.ts:10	inline		api/src/routes/server-retention.ts:10	generated-HEAD	2				no-function-counter
+OPS	HEAD /admin/session-housekeeping	api/src/routes/session-housekeeping.ts:32	inline		api/src/routes/session-housekeeping.ts:32	generated-HEAD	2				no-function-counter
+OPS	HEAD /admin/settings/host-overrides	api/src/routes/admin/settings/index.ts:465	inline		api/src/routes/admin/settings/index.ts:465	generated-HEAD	2			466=0	no-function-counter
+OPS	HEAD /admin/speech-input	api/src/routes/speech-input.ts:8	inline		api/src/routes/speech-input.ts:8	generated-HEAD	2				no-function-counter
+OPS	HEAD /admin/theme	api/src/routes/admin/settings/index.ts:277	inline		api/src/routes/admin/settings/index.ts:277	generated-HEAD	2			278=0	no-function-counter
+OPS	HEAD /wrapper/v2/rtk/v:version/:platform	api/src/routes/rtk.ts:104	inline		api/src/routes/rtk.ts:107	generated-HEAD	2			108=1	no-function-counter
+OPS	POST /admin/hosts/:id/rtk/:engine	api/src/routes/rtk.ts:85	inline		api/src/routes/rtk.ts:88		1			89=3	no-function-counter
+OPS	POST /admin/hosts/:id/session-housekeeping/:engine	api/src/routes/session-housekeeping.ts:41	inline		api/src/routes/session-housekeeping.ts:41		1			42=2	no-function-counter
+OPS	POST /admin/response-verbosity	api/src/routes/admin/settings/index.ts:251	inline		api/src/routes/admin/settings/index.ts:251		1			252=0	no-function-counter
+OPS	POST /admin/rtk/:engine	api/src/routes/rtk.ts:55	inline		api/src/routes/rtk.ts:58		1				no-function-counter
+OPS	POST /admin/server-retention	api/src/routes/server-retention.ts:7	inline		api/src/routes/server-retention.ts:7		1				no-function-counter
+OPS	POST /admin/server-retention/preview	api/src/routes/server-retention.ts:8	inline		api/src/routes/server-retention.ts:8		1				no-function-counter
+OPS	POST /admin/server-retention/run	api/src/routes/server-retention.ts:9	inline		api/src/routes/server-retention.ts:9		1				no-function-counter
+OPS	POST /admin/session-housekeeping/:engine	api/src/routes/session-housekeeping.ts:33	inline		api/src/routes/session-housekeeping.ts:33		1			34=6	no-function-counter
+OPS	POST /admin/speech-input/:target	api/src/routes/speech-input.ts:9	inline		api/src/routes/speech-input.ts:9		1			10=0	no-function-counter
+OPS	POST /admin/theme	api/src/routes/admin/settings/index.ts:281	inline		api/src/routes/admin/settings/index.ts:281		1			282=0	no-function-counter
+OPS	POST /admin/toasts	api/src/routes/admin/overview/index.ts:822	inline		api/src/routes/admin/overview/index.ts:822		1			823=0	no-function-counter
+OPS	POST /cron/check	api/src/routes/host/index.ts:144	inline		api/src/routes/host/index.ts:144		1			145=48	no-function-counter
+OPS	POST /cron/report	api/src/routes/host/index.ts:256	inline		api/src/routes/host/index.ts:256		1			257=26	no-function-counter
+OPS	POST /host/rtk/report	api/src/routes/rtk.ts:95	inline		api/src/routes/rtk.ts:95		1			96=4	no-function-counter
+OPS	POST /host/session-housekeeping/inspect	api/src/routes/session-housekeeping.ts:69	factory-return	handler('inspect')	api/src/routes/session-housekeeping.ts:48		4			49=0	ambiguous-function-line
+OPS	POST /host/session-housekeeping/release	api/src/routes/session-housekeeping.ts:71	factory-return	handler('release')	api/src/routes/session-housekeeping.ts:48		4			49=0	ambiguous-function-line
+OPS	POST /host/session-housekeeping/report	api/src/routes/session-housekeeping.ts:72	factory-return	handler('report')	api/src/routes/session-housekeeping.ts:48		4			49=0	ambiguous-function-line
+OPS	POST /host/session-housekeeping/reserve	api/src/routes/session-housekeeping.ts:70	factory-return	handler('reserve')	api/src/routes/session-housekeeping.ts:48		4			49=0	ambiguous-function-line
+OWNER	GET /healthz	api/src/routes/health.ts:18	inline		api/src/routes/health.ts:18		2				no-function-counter
+OWNER	GET /readyz	api/src/routes/health.ts:19	inline		api/src/routes/health.ts:19		2			20=9	no-function-counter
+OWNER	HEAD /healthz	api/src/routes/health.ts:18	inline		api/src/routes/health.ts:18	generated-HEAD	2				no-function-counter
+OWNER	HEAD /readyz	api/src/routes/health.ts:19	inline		api/src/routes/health.ts:19	generated-HEAD	2			20=9	no-function-counter
+PROJECT	DELETE /admin/projects/:slug	api/src/routes/admin/projects/index.ts:136	inline		api/src/routes/admin/projects/index.ts:139		1			140=0	no-function-counter
+PROJECT	DELETE /admin/projects/:slug/board/cards/:id	api/src/routes/admin/project-board/index.ts:158	inline		api/src/routes/admin/project-board/index.ts:158		1			159=0	no-function-counter
+PROJECT	DELETE /admin/projects/:slug/files/:id	api/src/routes/admin/projects/index.ts:285	inline		api/src/routes/admin/projects/index.ts:288		1			289=1	no-function-counter
+PROJECT	DELETE /admin/projects/:slug/notes/:id	api/src/routes/admin/projects/index.ts:249	inline		api/src/routes/admin/projects/index.ts:252		1			253=0	no-function-counter
+PROJECT	GET /admin/project-board/state	api/src/routes/admin/project-board/index.ts:99	inline		api/src/routes/admin/project-board/index.ts:99		2			100=0	no-function-counter
+PROJECT	GET /admin/projects	api/src/routes/admin/projects/index.ts:114	inline		api/src/routes/admin/projects/index.ts:114		2			115=1	no-function-counter
+PROJECT	GET /admin/projects/:slug	api/src/routes/admin/projects/index.ts:128	inline		api/src/routes/admin/projects/index.ts:131		2			132=0	no-function-counter
+PROJECT	GET /admin/projects/:slug/board	api/src/routes/admin/project-board/index.ts:118	inline		api/src/routes/admin/project-board/index.ts:118		2			119=1	no-function-counter
+PROJECT	GET /admin/projects/:slug/changes	api/src/routes/admin/projects/index.ts:186	inline		api/src/routes/admin/projects/index.ts:189		2			190=0	no-function-counter
+PROJECT	GET /admin/projects/:slug/files	api/src/routes/admin/projects/index.ts:263	inline		api/src/routes/admin/projects/index.ts:266		2			267=0	no-function-counter
+PROJECT	GET /admin/projects/:slug/files/:id	api/src/routes/admin/projects/index.ts:278	inline		api/src/routes/admin/projects/index.ts:281		2				no-function-counter
+PROJECT	GET /admin/projects/:slug/notes	api/src/routes/admin/projects/index.ts:225	inline		api/src/routes/admin/projects/index.ts:228		2				no-function-counter
+PROJECT	GET /admin/projects/:slug/summary	api/src/routes/admin/projects/index.ts:152	inline		api/src/routes/admin/projects/index.ts:155		2				no-function-counter
+PROJECT	GET /admin/projects/feedback	api/src/routes/admin/projects/index.ts:108	inline		api/src/routes/admin/projects/index.ts:108		2			109=0	no-function-counter
+PROJECT	GET /admin/projects/state	api/src/routes/admin/projects/index.ts:85	inline		api/src/routes/admin/projects/index.ts:85		2			86=1	no-function-counter
+PROJECT	GET /skills	api/src/routes/projects-client/index.ts:55	inline		api/src/routes/projects-client/index.ts:55		2			56=7	no-function-counter
+PROJECT	HEAD /admin/project-board/state	api/src/routes/admin/project-board/index.ts:99	inline		api/src/routes/admin/project-board/index.ts:99	generated-HEAD	2			100=0	no-function-counter
+PROJECT	HEAD /admin/projects	api/src/routes/admin/projects/index.ts:114	inline		api/src/routes/admin/projects/index.ts:114	generated-HEAD	2			115=1	no-function-counter
+PROJECT	HEAD /admin/projects/:slug	api/src/routes/admin/projects/index.ts:128	inline		api/src/routes/admin/projects/index.ts:131	generated-HEAD	2			132=0	no-function-counter
+PROJECT	HEAD /admin/projects/:slug/board	api/src/routes/admin/project-board/index.ts:118	inline		api/src/routes/admin/project-board/index.ts:118	generated-HEAD	2			119=1	no-function-counter
+PROJECT	HEAD /admin/projects/:slug/changes	api/src/routes/admin/projects/index.ts:186	inline		api/src/routes/admin/projects/index.ts:189	generated-HEAD	2			190=0	no-function-counter
+PROJECT	HEAD /admin/projects/:slug/files	api/src/routes/admin/projects/index.ts:263	inline		api/src/routes/admin/projects/index.ts:266	generated-HEAD	2			267=0	no-function-counter
+PROJECT	HEAD /admin/projects/:slug/files/:id	api/src/routes/admin/projects/index.ts:278	inline		api/src/routes/admin/projects/index.ts:281	generated-HEAD	2				no-function-counter
+PROJECT	HEAD /admin/projects/:slug/notes	api/src/routes/admin/projects/index.ts:225	inline		api/src/routes/admin/projects/index.ts:228	generated-HEAD	2				no-function-counter
+PROJECT	HEAD /admin/projects/:slug/summary	api/src/routes/admin/projects/index.ts:152	inline		api/src/routes/admin/projects/index.ts:155	generated-HEAD	2				no-function-counter
+PROJECT	HEAD /admin/projects/feedback	api/src/routes/admin/projects/index.ts:108	inline		api/src/routes/admin/projects/index.ts:108	generated-HEAD	2			109=0	no-function-counter
+PROJECT	HEAD /admin/projects/state	api/src/routes/admin/projects/index.ts:85	inline		api/src/routes/admin/projects/index.ts:85	generated-HEAD	2			86=1	no-function-counter
+PROJECT	HEAD /skills	api/src/routes/projects-client/index.ts:55	inline		api/src/routes/projects-client/index.ts:55	generated-HEAD	2			56=7	no-function-counter
+PROJECT	POST /admin/project-board/state	api/src/routes/admin/project-board/index.ts:103	inline		api/src/routes/admin/project-board/index.ts:103		1			104=1	no-function-counter
+PROJECT	POST /admin/projects	api/src/routes/admin/projects/index.ts:118	inline		api/src/routes/admin/projects/index.ts:121		1			122=1	no-function-counter
+PROJECT	POST /admin/projects/:slug/about	api/src/routes/admin/projects/index.ts:170	inline		api/src/routes/admin/projects/index.ts:173		1			174=0	no-function-counter
+PROJECT	POST /admin/projects/:slug/archive	api/src/routes/admin/projects/index.ts:158	inline		api/src/routes/admin/projects/index.ts:161		1				no-function-counter
+PROJECT	POST /admin/projects/:slug/assist	api/src/routes/admin/projects/index.ts:144	inline		api/src/routes/admin/projects/index.ts:147		1			148=1	no-function-counter
+PROJECT	POST /admin/projects/:slug/board/cards	api/src/routes/admin/project-board/index.ts:122	inline		api/src/routes/admin/project-board/index.ts:122		1			123=1	no-function-counter
+PROJECT	POST /admin/projects/:slug/board/cards/:id	api/src/routes/admin/project-board/index.ts:130	inline		api/src/routes/admin/project-board/index.ts:130		1			131=0	no-function-counter
+PROJECT	POST /admin/projects/:slug/board/cards/:id/move	api/src/routes/admin/project-board/index.ts:136	inline		api/src/routes/admin/project-board/index.ts:136		1			137=0	no-function-counter
+PROJECT	POST /admin/projects/:slug/board/cards/:id/release	api/src/routes/admin/project-board/index.ts:147	inline		api/src/routes/admin/project-board/index.ts:147		1			148=0	no-function-counter
+PROJECT	POST /admin/projects/:slug/files	api/src/routes/admin/projects/index.ts:272	inline		api/src/routes/admin/projects/index.ts:275		1				no-function-counter
+PROJECT	POST /admin/projects/:slug/notes	api/src/routes/admin/projects/index.ts:231	inline		api/src/routes/admin/projects/index.ts:234		1				no-function-counter
+PROJECT	POST /admin/projects/:slug/notes/:id	api/src/routes/admin/projects/index.ts:237	inline		api/src/routes/admin/projects/index.ts:240		1			241=0	no-function-counter
+PROJECT	POST /admin/projects/:slug/roster	api/src/routes/admin/projects/index.ts:178	inline		api/src/routes/admin/projects/index.ts:181		1			182=0	no-function-counter
+PROJECT	POST /admin/projects/:slug/unarchive	api/src/routes/admin/projects/index.ts:164	inline		api/src/routes/admin/projects/index.ts:167		1				no-function-counter
+PROJECT	POST /admin/projects/state	api/src/routes/admin/projects/index.ts:89	inline		api/src/routes/admin/projects/index.ts:92		1			93=2	no-function-counter
+QUOTA	GET /admin/accounts/:id/quota-policy	api/src/routes/quota.ts:82	reference	getPolicy	api/src/routes/quota.ts:33		4	getPolicy	5	34=5	shared-body-entered
+QUOTA	GET /admin/quota-mode	api/src/routes/admin/settings/index.ts:401	inline		api/src/routes/admin/settings/index.ts:401		2			402=2	no-function-counter
+QUOTA	GET /admin/quota-policy/:engine	api/src/routes/quota.ts:80	reference	getPolicy	api/src/routes/quota.ts:33		4	getPolicy	5	34=5	shared-body-entered
+QUOTA	GET /host/lane	api/src/routes/host/index.ts:79	inline		api/src/routes/host/index.ts:79		2			80=3	no-function-counter
+QUOTA	HEAD /admin/accounts/:id/quota-policy	api/src/routes/quota.ts:82	reference	getPolicy	api/src/routes/quota.ts:33	generated-HEAD	4	getPolicy	5	34=5	shared-body-entered
+QUOTA	HEAD /admin/quota-mode	api/src/routes/admin/settings/index.ts:401	inline		api/src/routes/admin/settings/index.ts:401	generated-HEAD	2			402=2	no-function-counter
+QUOTA	HEAD /admin/quota-policy/:engine	api/src/routes/quota.ts:80	reference	getPolicy	api/src/routes/quota.ts:33	generated-HEAD	4	getPolicy	5	34=5	shared-body-entered
+QUOTA	HEAD /host/lane	api/src/routes/host/index.ts:79	inline		api/src/routes/host/index.ts:79	generated-HEAD	2			80=3	no-function-counter
+QUOTA	POST /admin/quota-mode	api/src/routes/admin/settings/index.ts:409	inline		api/src/routes/admin/settings/index.ts:409		1			410=3	no-function-counter
+QUOTA	POST /claude/usage/report	api/src/routes/auth/index.ts:585	inline		api/src/routes/auth/index.ts:585		1			586=1	no-function-counter
+QUOTA	POST /host/agent-sessions/:id/agent-messaging/quota/get	api/src/routes/quota.ts:84	inline		api/src/routes/quota.ts:84		1			85=1	no-function-counter
+QUOTA	POST /host/lane	api/src/routes/host/index.ts:93	inline		api/src/routes/host/index.ts:93		1			94=5	no-function-counter
+QUOTA	PUT /admin/accounts/:id/quota-policy	api/src/routes/quota.ts:83	reference	putPolicy	api/src/routes/quota.ts:37		2	putPolicy	8	38=8	shared-body-entered
+QUOTA	PUT /admin/quota-policy/:engine	api/src/routes/quota.ts:81	reference	putPolicy	api/src/routes/quota.ts:37		2	putPolicy	8	38=8	shared-body-entered
+REVIEW	DELETE /admin/feedback/:id	api/src/routes/admin/feedback/index.ts:32	inline		api/src/routes/admin/feedback/index.ts:32		1				no-function-counter
+REVIEW	GET /admin/feedback	api/src/routes/admin/feedback/index.ts:26	inline		api/src/routes/admin/feedback/index.ts:26		2				no-function-counter
+REVIEW	GET /admin/feedback/:id	api/src/routes/admin/feedback/index.ts:28	inline		api/src/routes/admin/feedback/index.ts:28		2				no-function-counter
+REVIEW	GET /admin/feedback/configuration	api/src/routes/admin/feedback/index.ts:15	inline		api/src/routes/admin/feedback/index.ts:15		2				no-function-counter
+REVIEW	GET /admin/feedback/state	api/src/routes/admin/feedback/index.ts:14	inline		api/src/routes/admin/feedback/index.ts:14		2				no-function-counter
+REVIEW	GET /admin/feedback/summary	api/src/routes/admin/feedback/index.ts:25	inline		api/src/routes/admin/feedback/index.ts:25		2				no-function-counter
+REVIEW	GET /admin/projects/:slug/feedback	api/src/routes/admin/projects/index.ts:299	inline		api/src/routes/admin/projects/index.ts:302		2				no-function-counter
+REVIEW	GET /admin/projects/:slug/slop-jobs	api/src/routes/admin/projects/index.ts:198	inline		api/src/routes/admin/projects/index.ts:201		2				no-function-counter
+REVIEW	GET /admin/projects/:slug/slop-jobs/:id	api/src/routes/admin/projects/index.ts:203	inline		api/src/routes/admin/projects/index.ts:206		2				no-function-counter
+REVIEW	GET /admin/slop-jobs/state	api/src/routes/admin/projects/index.ts:209	inline		api/src/routes/admin/projects/index.ts:209		2				no-function-counter
+REVIEW	HEAD /admin/feedback	api/src/routes/admin/feedback/index.ts:26	inline		api/src/routes/admin/feedback/index.ts:26	generated-HEAD	2				no-function-counter
+REVIEW	HEAD /admin/feedback/:id	api/src/routes/admin/feedback/index.ts:28	inline		api/src/routes/admin/feedback/index.ts:28	generated-HEAD	2				no-function-counter
+REVIEW	HEAD /admin/feedback/configuration	api/src/routes/admin/feedback/index.ts:15	inline		api/src/routes/admin/feedback/index.ts:15	generated-HEAD	2				no-function-counter
+REVIEW	HEAD /admin/feedback/state	api/src/routes/admin/feedback/index.ts:14	inline		api/src/routes/admin/feedback/index.ts:14	generated-HEAD	2				no-function-counter
+REVIEW	HEAD /admin/feedback/summary	api/src/routes/admin/feedback/index.ts:25	inline		api/src/routes/admin/feedback/index.ts:25	generated-HEAD	2				no-function-counter
+REVIEW	HEAD /admin/projects/:slug/feedback	api/src/routes/admin/projects/index.ts:299	inline		api/src/routes/admin/projects/index.ts:302	generated-HEAD	2				no-function-counter
+REVIEW	HEAD /admin/projects/:slug/slop-jobs	api/src/routes/admin/projects/index.ts:198	inline		api/src/routes/admin/projects/index.ts:201	generated-HEAD	2				no-function-counter
+REVIEW	HEAD /admin/projects/:slug/slop-jobs/:id	api/src/routes/admin/projects/index.ts:203	inline		api/src/routes/admin/projects/index.ts:206	generated-HEAD	2				no-function-counter
+REVIEW	HEAD /admin/slop-jobs/state	api/src/routes/admin/projects/index.ts:209	inline		api/src/routes/admin/projects/index.ts:209	generated-HEAD	2				no-function-counter
+REVIEW	POST /admin/feedback	api/src/routes/admin/feedback/index.ts:27	inline		api/src/routes/admin/feedback/index.ts:27		1				no-function-counter
+REVIEW	POST /admin/feedback/:id	api/src/routes/admin/feedback/index.ts:29	inline		api/src/routes/admin/feedback/index.ts:29		1				no-function-counter
+REVIEW	POST /admin/feedback/:id/claim	api/src/routes/admin/feedback/index.ts:33	inline		api/src/routes/admin/feedback/index.ts:33		1				no-function-counter
+REVIEW	POST /admin/feedback/:id/recheck	api/src/routes/admin/feedback/index.ts:18	inline		api/src/routes/admin/feedback/index.ts:18		1				no-function-counter
+REVIEW	POST /admin/feedback/configuration	api/src/routes/admin/feedback/index.ts:16	inline		api/src/routes/admin/feedback/index.ts:16		1				no-function-counter
+REVIEW	POST /admin/feedback/preflight	api/src/routes/admin/feedback/index.ts:17	inline		api/src/routes/admin/feedback/index.ts:17		1				no-function-counter
+REVIEW	POST /admin/feedback/purge	api/src/routes/admin/feedback/index.ts:31	inline		api/src/routes/admin/feedback/index.ts:31		1				no-function-counter
+REVIEW	POST /admin/feedback/state	api/src/routes/admin/feedback/index.ts:19	inline		api/src/routes/admin/feedback/index.ts:19		1			20=0	no-function-counter
+REVIEW	POST /admin/projects/:slug/feedback	api/src/routes/admin/projects/index.ts:305	inline		api/src/routes/admin/projects/index.ts:308		1				no-function-counter
+REVIEW	POST /admin/projects/:slug/feedback/:id	api/src/routes/admin/projects/index.ts:311	inline		api/src/routes/admin/projects/index.ts:314		1				no-function-counter
+REVIEW	POST /admin/slop-jobs/state	api/src/routes/admin/projects/index.ts:210	inline		api/src/routes/admin/projects/index.ts:210		1			211=0	no-function-counter
+ROLE	DELETE /admin/roles/:slug/draft	api/src/routes/admin/roles/index.ts:59	inline		api/src/routes/admin/roles/index.ts:59		1			60=0	no-function-counter
+ROLE	GET /admin/roles	api/src/routes/admin/roles/index.ts:29	inline		api/src/routes/admin/roles/index.ts:29		2				no-function-counter
+ROLE	GET /admin/roles/:slug	api/src/routes/admin/roles/index.ts:44	inline		api/src/routes/admin/roles/index.ts:44		2				no-function-counter
+ROLE	GET /admin/roles/:slug/timeline	api/src/routes/admin/roles/index.ts:50	inline		api/src/routes/admin/roles/index.ts:50		2				no-function-counter
+ROLE	GET /admin/roles/:slug/versions/:version	api/src/routes/admin/roles/index.ts:51	inline		api/src/routes/admin/roles/index.ts:51		2				no-function-counter
+ROLE	GET /admin/roles/proposals/:id	api/src/routes/admin/roles/index.ts:35	inline		api/src/routes/admin/roles/index.ts:35		2				no-function-counter
+ROLE	GET /admin/roles/state	api/src/routes/admin/roles/index.ts:22	inline		api/src/routes/admin/roles/index.ts:22		2				no-function-counter
+ROLE	HEAD /admin/roles	api/src/routes/admin/roles/index.ts:29	inline		api/src/routes/admin/roles/index.ts:29	generated-HEAD	2				no-function-counter
+ROLE	HEAD /admin/roles/:slug	api/src/routes/admin/roles/index.ts:44	inline		api/src/routes/admin/roles/index.ts:44	generated-HEAD	2				no-function-counter
+ROLE	HEAD /admin/roles/:slug/timeline	api/src/routes/admin/roles/index.ts:50	inline		api/src/routes/admin/roles/index.ts:50	generated-HEAD	2				no-function-counter
+ROLE	HEAD /admin/roles/:slug/versions/:version	api/src/routes/admin/roles/index.ts:51	inline		api/src/routes/admin/roles/index.ts:51	generated-HEAD	2				no-function-counter
+ROLE	HEAD /admin/roles/proposals/:id	api/src/routes/admin/roles/index.ts:35	inline		api/src/routes/admin/roles/index.ts:35	generated-HEAD	2				no-function-counter
+ROLE	HEAD /admin/roles/state	api/src/routes/admin/roles/index.ts:22	inline		api/src/routes/admin/roles/index.ts:22	generated-HEAD	2				no-function-counter
+ROLE	PATCH /admin/roles/:slug	api/src/routes/admin/roles/index.ts:45	inline		api/src/routes/admin/roles/index.ts:45		1			46=0	no-function-counter
+ROLE	POST /admin/roles	api/src/routes/admin/roles/index.ts:30	inline		api/src/routes/admin/roles/index.ts:30		1			31=0	no-function-counter
+ROLE	POST /admin/roles/:slug/publish	api/src/routes/admin/roles/index.ts:64	inline		api/src/routes/admin/roles/index.ts:64		1			65=0	no-function-counter
+ROLE	POST /admin/roles/:slug/revert	api/src/routes/admin/roles/index.ts:69	inline		api/src/routes/admin/roles/index.ts:69		1			70=0	no-function-counter
+ROLE	POST /admin/roles/:slug/versions/:version/withdraw	api/src/routes/admin/roles/index.ts:74	inline		api/src/routes/admin/roles/index.ts:74		1			75=0	no-function-counter
+ROLE	POST /admin/roles/proposals/:id/decide	api/src/routes/admin/roles/index.ts:38	inline		api/src/routes/admin/roles/index.ts:38		1			39=0	no-function-counter
+ROLE	POST /admin/roles/state	api/src/routes/admin/roles/index.ts:23	inline		api/src/routes/admin/roles/index.ts:23		1			24=0	no-function-counter
+ROLE	POST /host/agent-sessions/:id/agent-messaging/roles/activate	api/src/routes/agent-messaging/roles.ts:56	inline		api/src/routes/agent-messaging/roles.ts:56		1				no-function-counter
+ROLE	POST /host/agent-sessions/:id/agent-messaging/roles/current	api/src/routes/agent-messaging/roles.ts:57	inline		api/src/routes/agent-messaging/roles.ts:57		1				no-function-counter
+ROLE	POST /host/agent-sessions/:id/agent-messaging/roles/proposals	api/src/routes/agent-messaging/roles.ts:60	inline		api/src/routes/agent-messaging/roles.ts:60		1				no-function-counter
+ROLE	POST /host/agent-sessions/:id/agent-messaging/roles/propose	api/src/routes/agent-messaging/roles.ts:59	inline		api/src/routes/agent-messaging/roles.ts:59		1				no-function-counter
+ROLE	POST /host/agent-sessions/:id/agent-messaging/roles/release	api/src/routes/agent-messaging/roles.ts:58	inline		api/src/routes/agent-messaging/roles.ts:58		1				no-function-counter
+ROLE	POST /host/agent-sessions/:id/agent-messaging/roles/review	api/src/routes/agent-messaging/roles.ts:61	inline		api/src/routes/agent-messaging/roles.ts:61		1				no-function-counter
+ROLE	PUT /admin/roles/:slug/draft	api/src/routes/admin/roles/index.ts:54	inline		api/src/routes/admin/roles/index.ts:54		1			55=0	no-function-counter
+SCHEDULE	DELETE /admin/schedules/:id	api/src/routes/schedules/index.ts:24	inline		api/src/routes/schedules/index.ts:24		1			25=0	no-function-counter
+SCHEDULE	GET /admin/schedules	api/src/routes/schedules/index.ts:9	inline		api/src/routes/schedules/index.ts:9		2				no-function-counter
+SCHEDULE	GET /admin/schedules/:id	api/src/routes/schedules/index.ts:12	inline		api/src/routes/schedules/index.ts:12		2				no-function-counter
+SCHEDULE	GET /admin/watchdogs	api/src/routes/watchdogs.ts:55	inline		api/src/routes/watchdogs.ts:55		2				no-function-counter
+SCHEDULE	GET /admin/watchdogs/:id	api/src/routes/watchdogs.ts:58	inline		api/src/routes/watchdogs.ts:58		2				no-function-counter
+SCHEDULE	GET /host/agent-sessions/:id/watchdog/stream	api/src/routes/watchdogs.ts:114	inline		api/src/routes/watchdogs.ts:114		2			115=4	no-function-counter
+SCHEDULE	HEAD /admin/schedules	api/src/routes/schedules/index.ts:9	inline		api/src/routes/schedules/index.ts:9	generated-HEAD	2				no-function-counter
+SCHEDULE	HEAD /admin/schedules/:id	api/src/routes/schedules/index.ts:12	inline		api/src/routes/schedules/index.ts:12	generated-HEAD	2				no-function-counter
+SCHEDULE	HEAD /admin/watchdogs	api/src/routes/watchdogs.ts:55	inline		api/src/routes/watchdogs.ts:55	generated-HEAD	2				no-function-counter
+SCHEDULE	HEAD /admin/watchdogs/:id	api/src/routes/watchdogs.ts:58	inline		api/src/routes/watchdogs.ts:58	generated-HEAD	2				no-function-counter
+SCHEDULE	HEAD /host/agent-sessions/:id/watchdog/stream	api/src/routes/watchdogs.ts:114	inline		api/src/routes/watchdogs.ts:114	generated-HEAD	2			115=4	no-function-counter
+SCHEDULE	PATCH /admin/schedules/:id	api/src/routes/schedules/index.ts:18	inline		api/src/routes/schedules/index.ts:18		1				no-function-counter
+SCHEDULE	POST /admin/schedules	api/src/routes/schedules/index.ts:15	inline		api/src/routes/schedules/index.ts:15		1				no-function-counter
+SCHEDULE	POST /admin/watchdogs	api/src/routes/watchdogs.ts:61	inline		api/src/routes/watchdogs.ts:61		1				no-function-counter
+SCHEDULE	POST /admin/watchdogs/:id/disable	api/src/routes/watchdogs.ts:64	inline		api/src/routes/watchdogs.ts:64		1				no-function-counter
+SCHEDULE	POST /host/agent-sessions/:id/agent-messaging/watchdog/disable	api/src/routes/watchdogs.ts:104	inline		api/src/routes/watchdogs.ts:104		1			105=0	no-function-counter
+SCHEDULE	POST /host/agent-sessions/:id/agent-messaging/watchdog/enable	api/src/routes/watchdogs.ts:89	inline		api/src/routes/watchdogs.ts:89		1			90=0	no-function-counter
+SCHEDULE	POST /host/agent-sessions/:id/agent-messaging/watchdog/finish	api/src/routes/watchdogs.ts:109	inline		api/src/routes/watchdogs.ts:109		1			110=0	no-function-counter
+SCHEDULE	POST /host/agent-sessions/:id/agent-messaging/watchdog/get	api/src/routes/watchdogs.ts:79	inline		api/src/routes/watchdogs.ts:79		1			80=0	no-function-counter
+SCHEDULE	POST /host/agent-sessions/:id/agent-messaging/work-state	api/src/routes/watchdogs.ts:24	inline		api/src/routes/watchdogs.ts:24		1			25=0	no-function-counter
+SCHEDULE	POST /host/agent-sessions/:id/schedule-policy	api/src/routes/schedules/index.ts:28	inline		api/src/routes/schedules/index.ts:28		1			29=0	no-function-counter
+SCHEDULE	POST /host/agent-sessions/:id/watchdog/activity	api/src/routes/watchdogs.ts:75	inline		api/src/routes/watchdogs.ts:75		1			76=0	no-function-counter
+SCHEDULE	POST /host/watchdogs/disable	api/src/routes/watchdogs.ts:51	inline		api/src/routes/watchdogs.ts:51		1			52=0	no-function-counter
+SCHEDULE	POST /host/watchdogs/enable	api/src/routes/watchdogs.ts:47	inline		api/src/routes/watchdogs.ts:47		1			48=0	no-function-counter
+SCHEDULE	POST /host/watchdogs/get	api/src/routes/watchdogs.ts:39	inline		api/src/routes/watchdogs.ts:39		1			40=0	no-function-counter
+SECRET	DELETE /admin/secrets/:id	api/src/routes/admin/secrets/index.ts:184	inline		api/src/routes/admin/secrets/index.ts:187		1			188=5	no-function-counter
+SECRET	GET /admin/secrets	api/src/routes/admin/secrets/index.ts:125	inline		api/src/routes/admin/secrets/index.ts:125		2			126=16	no-function-counter
+SECRET	GET /admin/secrets/:id	api/src/routes/admin/secrets/index.ts:132	inline		api/src/routes/admin/secrets/index.ts:132		2			133=3	no-function-counter
+SECRET	GET /admin/secrets/state	api/src/routes/admin/secrets/index.ts:102	inline		api/src/routes/admin/secrets/index.ts:102		2			103=2	no-function-counter
+SECRET	HEAD /admin/secrets	api/src/routes/admin/secrets/index.ts:125	inline		api/src/routes/admin/secrets/index.ts:125	generated-HEAD	2			126=16	no-function-counter
+SECRET	HEAD /admin/secrets/:id	api/src/routes/admin/secrets/index.ts:132	inline		api/src/routes/admin/secrets/index.ts:132	generated-HEAD	2			133=3	no-function-counter
+SECRET	HEAD /admin/secrets/state	api/src/routes/admin/secrets/index.ts:102	inline		api/src/routes/admin/secrets/index.ts:102	generated-HEAD	2			103=2	no-function-counter
+SECRET	PATCH /admin/secrets/:id	api/src/routes/admin/secrets/index.ts:162	inline		api/src/routes/admin/secrets/index.ts:165		1			166=6	no-function-counter
+SECRET	POST /admin/secrets	api/src/routes/admin/secrets/index.ts:139	inline		api/src/routes/admin/secrets/index.ts:142		1			143=5	no-function-counter
+SECRET	POST /admin/secrets/:id/reveal	api/src/routes/admin/secrets/index.ts:199	inline		api/src/routes/admin/secrets/index.ts:202		1			203=5	no-function-counter
+SECRET	POST /admin/secrets/state	api/src/routes/admin/secrets/index.ts:106	inline		api/src/routes/admin/secrets/index.ts:109		1			110=3	no-function-counter
+SESSION	DELETE /admin/agent-sessions/:id/attachments/:attachmentId	api/src/routes/agent-chat.ts:194	factory-return	handler('delete')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	DELETE /companion/v1/agents/:id/attachments/:attachmentId	api/src/routes/agent-chat.ts:210	factory-return	handler('delete')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	DELETE /companion/v1/rooms/:roomId/attachments/:attachmentId	api/src/routes/agent-chat.ts:205	factory-return	handler('delete')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	GET /admin/agent-portal/state	api/src/routes/agent-portal/admin-host.ts:46	inline		api/src/routes/agent-portal/admin-host.ts:46		2				no-function-counter
+SESSION	GET /admin/agent-sessions	api/src/routes/admin/agent-sessions/index.ts:106	inline		api/src/routes/admin/agent-sessions/index.ts:106		2			111=3	no-function-counter
+SESSION	GET /admin/agent-sessions/:id/attachments/:attachmentId	api/src/routes/agent-chat.ts:184	factory-return	handler('info')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	GET /admin/agent-sessions/:id/attachments/:attachmentId/content	api/src/routes/agent-chat.ts:189	factory-return	handler('download')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	GET /admin/agent-sessions/:id/events	api/src/routes/admin/agent-sessions/index.ts:205	inline		api/src/routes/admin/agent-sessions/index.ts:205		2			206=4	no-function-counter
+SESSION	GET /admin/agent-sessions/:id/stop	api/src/routes/admin/agent-sessions/index.ts:96	inline		api/src/routes/admin/agent-sessions/index.ts:96		2				no-function-counter
+SESSION	GET /admin/agent-sessions/events	api/src/routes/admin/agent-sessions/index.ts:132	inline		api/src/routes/admin/agent-sessions/index.ts:135		2			136=9	no-function-counter
+SESSION	GET /admin/agent-supervisor	api/src/routes/watchdogs.ts:18	inline		api/src/routes/watchdogs.ts:18		2				no-function-counter
+SESSION	GET /companion/v1/agent-chat/limits	api/src/routes/agent-chat.ts:169	inline		api/src/routes/agent-chat.ts:169		2			170=0	no-function-counter
+SESSION	GET /companion/v1/agents/:id/attachments/:attachmentId	api/src/routes/agent-chat.ts:208	factory-return	handler('info')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	GET /companion/v1/agents/:id/attachments/:attachmentId/content	api/src/routes/agent-chat.ts:209	factory-return	handler('download')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	GET /companion/v1/rooms/:roomId/attachments/:attachmentId	api/src/routes/agent-chat.ts:203	factory-return	handler('info')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	GET /companion/v1/rooms/:roomId/attachments/:attachmentId/content	api/src/routes/agent-chat.ts:204	factory-return	handler('download')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	GET /host/agent-portal/state	api/src/routes/agent-portal/admin-host.ts:90	inline		api/src/routes/agent-portal/admin-host.ts:90		2			91=0	no-function-counter
+SESSION	HEAD /admin/agent-portal/state	api/src/routes/agent-portal/admin-host.ts:46	inline		api/src/routes/agent-portal/admin-host.ts:46	generated-HEAD	2				no-function-counter
+SESSION	HEAD /admin/agent-sessions	api/src/routes/admin/agent-sessions/index.ts:106	inline		api/src/routes/admin/agent-sessions/index.ts:106	generated-HEAD	2			111=3	no-function-counter
+SESSION	HEAD /admin/agent-sessions/:id/attachments/:attachmentId	api/src/routes/agent-chat.ts:184	factory-return	handler('info')	api/src/routes/agent-chat.ts:68	generated-HEAD	41			69=9	ambiguous-function-line
+SESSION	HEAD /admin/agent-sessions/:id/attachments/:attachmentId/content	api/src/routes/agent-chat.ts:189	factory-return	handler('download')	api/src/routes/agent-chat.ts:68	generated-HEAD	41			69=9	ambiguous-function-line
+SESSION	HEAD /admin/agent-sessions/:id/events	api/src/routes/admin/agent-sessions/index.ts:205	inline		api/src/routes/admin/agent-sessions/index.ts:205	generated-HEAD	2			206=4	no-function-counter
+SESSION	HEAD /admin/agent-sessions/:id/stop	api/src/routes/admin/agent-sessions/index.ts:96	inline		api/src/routes/admin/agent-sessions/index.ts:96	generated-HEAD	2				no-function-counter
+SESSION	HEAD /admin/agent-sessions/events	api/src/routes/admin/agent-sessions/index.ts:132	inline		api/src/routes/admin/agent-sessions/index.ts:135	generated-HEAD	2			136=9	no-function-counter
+SESSION	HEAD /admin/agent-supervisor	api/src/routes/watchdogs.ts:18	inline		api/src/routes/watchdogs.ts:18	generated-HEAD	2				no-function-counter
+SESSION	HEAD /companion/v1/agent-chat/limits	api/src/routes/agent-chat.ts:169	inline		api/src/routes/agent-chat.ts:169	generated-HEAD	2			170=0	no-function-counter
+SESSION	HEAD /companion/v1/agents/:id/attachments/:attachmentId	api/src/routes/agent-chat.ts:208	factory-return	handler('info')	api/src/routes/agent-chat.ts:68	generated-HEAD	41			69=9	ambiguous-function-line
+SESSION	HEAD /companion/v1/agents/:id/attachments/:attachmentId/content	api/src/routes/agent-chat.ts:209	factory-return	handler('download')	api/src/routes/agent-chat.ts:68	generated-HEAD	41			69=9	ambiguous-function-line
+SESSION	HEAD /companion/v1/rooms/:roomId/attachments/:attachmentId	api/src/routes/agent-chat.ts:203	factory-return	handler('info')	api/src/routes/agent-chat.ts:68	generated-HEAD	41			69=9	ambiguous-function-line
+SESSION	HEAD /companion/v1/rooms/:roomId/attachments/:attachmentId/content	api/src/routes/agent-chat.ts:204	factory-return	handler('download')	api/src/routes/agent-chat.ts:68	generated-HEAD	41			69=9	ambiguous-function-line
+SESSION	HEAD /host/agent-portal/state	api/src/routes/agent-portal/admin-host.ts:90	inline		api/src/routes/agent-portal/admin-host.ts:90	generated-HEAD	2			91=0	no-function-counter
+SESSION	POST /admin/agent-portal/state	api/src/routes/agent-portal/admin-host.ts:50	inline		api/src/routes/agent-portal/admin-host.ts:50		1			51=2	no-function-counter
+SESSION	POST /admin/agent-sessions/:id/attachments	api/src/routes/agent-chat.ts:173	factory-return	handler('create')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /admin/agent-sessions/:id/attachments/:attachmentId/chunks	api/src/routes/agent-chat.ts:174	factory-return	handler('put')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /admin/agent-sessions/:id/attachments/:attachmentId/seal	api/src/routes/agent-chat.ts:179	factory-return	handler('seal')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /admin/agent-sessions/:id/close	api/src/routes/admin/agent-sessions/index.ts:259	inline		api/src/routes/admin/agent-sessions/index.ts:259		1			260=0	no-function-counter
+SESSION	POST /admin/agent-sessions/:id/close/force	api/src/routes/admin/agent-sessions/index.ts:270	inline		api/src/routes/admin/agent-sessions/index.ts:270		1			271=0	no-function-counter
+SESSION	POST /admin/agent-sessions/:id/messages	api/src/routes/admin/agent-sessions/index.ts:226	inline		api/src/routes/admin/agent-sessions/index.ts:226		1			227=0	no-function-counter
+SESSION	POST /admin/agent-sessions/:id/prompts/:promptId/answer	api/src/routes/admin/agent-sessions/index.ts:238	inline		api/src/routes/admin/agent-sessions/index.ts:241		1			242=0	no-function-counter
+SESSION	POST /admin/agent-sessions/:id/receiver/verify	api/src/routes/agent-receiver.ts:99	inline		api/src/routes/agent-receiver.ts:99		1			100=0	no-function-counter
+SESSION	POST /admin/agent-sessions/:id/stop	api/src/routes/admin/agent-sessions/index.ts:98	inline		api/src/routes/admin/agent-sessions/index.ts:98		1			99=2	no-function-counter
+SESSION	POST /admin/agent-supervisor/pause	api/src/routes/watchdogs.ts:20	inline		api/src/routes/watchdogs.ts:20		1			21=0	no-function-counter
+SESSION	POST /admin/agent-supervisor/state	api/src/routes/watchdogs.ts:19	inline		api/src/routes/watchdogs.ts:19		1				no-function-counter
+SESSION	POST /companion/v1/agents/:id/attachments	api/src/routes/agent-chat.ts:199	factory-return	handler('create')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /companion/v1/agents/:id/attachments/:attachmentId/chunks	api/src/routes/agent-chat.ts:206	factory-return	handler('put')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /companion/v1/agents/:id/attachments/:attachmentId/seal	api/src/routes/agent-chat.ts:207	factory-return	handler('seal')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /companion/v1/agents/:id/notices/resolve	api/src/routes/agent-chat.ts:211	factory-return	handler('resolve')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /companion/v1/rooms/:roomId/attachments	api/src/routes/agent-chat.ts:200	factory-return	handler('create')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /companion/v1/rooms/:roomId/attachments/:attachmentId/chunks	api/src/routes/agent-chat.ts:201	factory-return	handler('put')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /companion/v1/rooms/:roomId/attachments/:attachmentId/seal	api/src/routes/agent-chat.ts:202	factory-return	handler('seal')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-commands/:messageId/ack	api/src/routes/agent-portal/admin-host.ts:398	inline		api/src/routes/agent-portal/admin-host.ts:398		1			399=0	no-function-counter
+SESSION	POST /host/agent-sessions	api/src/routes/agent-portal/admin-host.ts:95	inline		api/src/routes/agent-portal/admin-host.ts:95		1			96=19	no-function-counter
+SESSION	POST /host/agent-sessions/:id/activity	api/src/routes/agent-portal/admin-host.ts:273	inline		api/src/routes/agent-portal/admin-host.ts:273		1				no-function-counter
+SESSION	POST /host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments	api/src/routes/agent-chat.ts:164	factory-return	handler('create')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/:attachmentId/chunks	api/src/routes/agent-chat.ts:165	factory-return	handler('put')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/:attachmentId/seal	api/src/routes/agent-chat.ts:166	factory-return	handler('seal')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/agent-messaging/chats/:roomId/attachments/get	api/src/routes/agent-chat.ts:167	factory-return	handler('get')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/attachments	api/src/routes/agent-chat.ts:212	factory-return	handler('create')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/attachments/:attachmentId/chunks	api/src/routes/agent-chat.ts:213	factory-return	handler('put')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/attachments/:attachmentId/seal	api/src/routes/agent-chat.ts:214	factory-return	handler('seal')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/attachments/get	api/src/routes/agent-chat.ts:215	factory-return	handler('get')	api/src/routes/agent-chat.ts:68		41			69=9	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/commands/claim	api/src/routes/agent-portal/admin-host.ts:377	inline		api/src/routes/agent-portal/admin-host.ts:377		1			378=0	no-function-counter
+SESSION	POST /host/agent-sessions/:id/events	api/src/routes/agent-portal/admin-host.ts:324	inline		api/src/routes/agent-portal/admin-host.ts:324		1			325=4	no-function-counter
+SESSION	POST /host/agent-sessions/:id/finish	api/src/routes/agent-portal/admin-host.ts:348	inline		api/src/routes/agent-portal/admin-host.ts:348		1			349=3	no-function-counter
+SESSION	POST /host/agent-sessions/:id/heartbeat	api/src/routes/agent-portal/admin-host.ts:277	inline		api/src/routes/agent-portal/admin-host.ts:277		1			278=0	no-function-counter
+SESSION	POST /host/agent-sessions/:id/native-control	api/src/routes/agent-portal/admin-host.ts:256	inline		api/src/routes/agent-portal/admin-host.ts:256		1			257=3	no-function-counter
+SESSION	POST /host/agent-sessions/:id/receiver/ack	api/src/routes/agent-receiver.ts:96	factory-return	handler('ack')	api/src/routes/agent-receiver.ts:44		6			45=15	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/receiver/claim	api/src/routes/agent-receiver.ts:98	factory-return	handler('claim')	api/src/routes/agent-receiver.ts:44		6			45=15	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/receiver/heartbeat	api/src/routes/agent-receiver.ts:94	factory-return	handler('heartbeat')	api/src/routes/agent-receiver.ts:44		6			45=15	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/receiver/register	api/src/routes/agent-receiver.ts:93	factory-return	handler('register')	api/src/routes/agent-receiver.ts:44		6			45=15	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/receiver/status	api/src/routes/agent-receiver.ts:97	factory-return	handler('status')	api/src/routes/agent-receiver.ts:44		6			45=15	ambiguous-function-line
+SESSION	POST /host/agent-sessions/:id/receiver/stop	api/src/routes/agent-receiver.ts:95	factory-return	handler('stop')	api/src/routes/agent-receiver.ts:44		6			45=15	ambiguous-function-line
+SESSION	POST /host/reboot-handoffs/disarm	api/src/routes/agent-portal/admin-host.ts:87	factory-return	rebootHandler('disarm')	api/src/routes/agent-portal/admin-host.ts:73		4			74=0	ambiguous-function-line
+SESSION	POST /host/reboot-handoffs/finish	api/src/routes/agent-portal/admin-host.ts:88	factory-return	rebootHandler('finish')	api/src/routes/agent-portal/admin-host.ts:73		4			74=0	ambiguous-function-line
+SESSION	POST /host/reboot-handoffs/observe	api/src/routes/agent-portal/admin-host.ts:86	factory-return	rebootHandler('observe')	api/src/routes/agent-portal/admin-host.ts:73		4			74=0	ambiguous-function-line
+SESSION	POST /host/reboot-handoffs/ready	api/src/routes/agent-portal/admin-host.ts:85	factory-return	rebootHandler('ready')	api/src/routes/agent-portal/admin-host.ts:73		4			74=0	ambiguous-function-line
+SETUP	GET /admin/setup/status	api/src/routes/admin/setup/index.ts:30	inline		api/src/routes/admin/setup/index.ts:30		2			31=2	no-function-counter
+SETUP	GET /admin/setup/wizard	api/src/routes/admin/setup/index.ts:74	inline		api/src/routes/admin/setup/index.ts:74		2			75=0	no-function-counter
+SETUP	HEAD /admin/setup/status	api/src/routes/admin/setup/index.ts:30	inline		api/src/routes/admin/setup/index.ts:30	generated-HEAD	2			31=2	no-function-counter
+SETUP	HEAD /admin/setup/wizard	api/src/routes/admin/setup/index.ts:74	inline		api/src/routes/admin/setup/index.ts:74	generated-HEAD	2			75=0	no-function-counter
+SETUP	POST /admin/setup/owner	api/src/routes/admin/setup/index.ts:42	inline		api/src/routes/admin/setup/index.ts:42		1			43=3	no-function-counter
+SETUP	POST /admin/setup/wizard	api/src/routes/admin/setup/index.ts:78	inline		api/src/routes/admin/setup/index.ts:78		1			79=0	no-function-counter
+STATIC	GET /admin/*	api/src/routes/admin/pages/static.ts									plugin-no-registration-line
+STATIC	GET /admin/manual/article/:slug	api/src/routes/admin/manual/index.ts:37	inline		api/src/routes/admin/manual/index.ts:40		2			41=3	no-function-counter
+STATIC	GET /admin/manual/manifest	api/src/routes/admin/manual/index.ts:16	inline		api/src/routes/admin/manual/index.ts:19		2			20=1	no-function-counter
+STATIC	GET /admin/manual/search	api/src/routes/admin/manual/index.ts:25	inline		api/src/routes/admin/manual/index.ts:28		2			29=3	no-function-counter
+STATIC	HEAD /admin/*	api/src/routes/admin/pages/static.ts									plugin-no-registration-line
+STATIC	HEAD /admin/manual/article/:slug	api/src/routes/admin/manual/index.ts:37	inline		api/src/routes/admin/manual/index.ts:40	generated-HEAD	2			41=3	no-function-counter
+STATIC	HEAD /admin/manual/manifest	api/src/routes/admin/manual/index.ts:16	inline		api/src/routes/admin/manual/index.ts:19	generated-HEAD	2			20=1	no-function-counter
+STATIC	HEAD /admin/manual/search	api/src/routes/admin/manual/index.ts:25	inline		api/src/routes/admin/manual/index.ts:28	generated-HEAD	2			29=3	no-function-counter
+TOOLS	OPTIONS *	api/src/server.ts									plugin-no-registration-line
+TRANSFER	DELETE /admin/transfers/:id	api/src/routes/admin/transfers/index.ts:157	inline		api/src/routes/admin/transfers/index.ts:157		1			158=1	no-function-counter
+TRANSFER	GET /admin/transfers	api/src/routes/admin/transfers/index.ts:109	inline		api/src/routes/admin/transfers/index.ts:109		2			110=2	no-function-counter
+TRANSFER	GET /admin/transfers/:id/content	api/src/routes/admin/transfers/index.ts:118	inline		api/src/routes/admin/transfers/index.ts:121		2			122=4	no-function-counter
+TRANSFER	GET /admin/transfers/:id/events	api/src/routes/admin/transfers/index.ts:114	inline		api/src/routes/admin/transfers/index.ts:114		2			115=0	no-function-counter
+TRANSFER	GET /admin/transfers/state	api/src/routes/admin/transfers/index.ts:79	inline		api/src/routes/admin/transfers/index.ts:79		2			80=1	no-function-counter
+TRANSFER	GET /host/transfers/:id	api/src/routes/transfers/index.ts:80	inline		api/src/routes/transfers/index.ts:80		2				no-function-counter
+TRANSFER	GET /host/transfers/:id/content	api/src/routes/transfers/index.ts:105	inline		api/src/routes/transfers/index.ts:105		2			106=8	no-function-counter
+TRANSFER	HEAD /admin/transfers	api/src/routes/admin/transfers/index.ts:109	inline		api/src/routes/admin/transfers/index.ts:109	generated-HEAD	2			110=2	no-function-counter
+TRANSFER	HEAD /admin/transfers/:id/content	api/src/routes/admin/transfers/index.ts:118	inline		api/src/routes/admin/transfers/index.ts:121	generated-HEAD	2			122=4	no-function-counter
+TRANSFER	HEAD /admin/transfers/:id/events	api/src/routes/admin/transfers/index.ts:114	inline		api/src/routes/admin/transfers/index.ts:114	generated-HEAD	2			115=0	no-function-counter
+TRANSFER	HEAD /admin/transfers/state	api/src/routes/admin/transfers/index.ts:79	inline		api/src/routes/admin/transfers/index.ts:79	generated-HEAD	2			80=1	no-function-counter
+TRANSFER	HEAD /host/transfers/:id	api/src/routes/transfers/index.ts:80	inline		api/src/routes/transfers/index.ts:80	generated-HEAD	2				no-function-counter
+TRANSFER	HEAD /host/transfers/:id/content	api/src/routes/transfers/index.ts:105	inline		api/src/routes/transfers/index.ts:105	generated-HEAD	2			106=8	no-function-counter
+TRANSFER	POST /admin/transfers/limits	api/src/routes/admin/transfers/index.ts:96	inline		api/src/routes/admin/transfers/index.ts:96		1			97=2	no-function-counter
+TRANSFER	POST /admin/transfers/state	api/src/routes/admin/transfers/index.ts:83	inline		api/src/routes/admin/transfers/index.ts:83		1			84=11	no-function-counter
+TRANSFER	POST /host/transfers	api/src/routes/transfers/index.ts:73	inline		api/src/routes/transfers/index.ts:73		1			74=5	no-function-counter
+TRANSFER	POST /host/transfers/:id/complete	api/src/routes/transfers/index.ts:102	inline		api/src/routes/transfers/index.ts:102		1				no-function-counter
+TRANSFER	PUT /host/transfers/:id/content	api/src/routes/transfers/index.ts:84	inline		api/src/routes/transfers/index.ts:86		1			87=5	no-function-counter
+WORKFLOW	GET /admin/workflow-definitions	api/src/routes/admin/workflows.ts:40	inline		api/src/routes/admin/workflows.ts:40		2				no-function-counter
+WORKFLOW	GET /admin/workflow-definitions/:id	api/src/routes/admin/workflows.ts:42	inline		api/src/routes/admin/workflows.ts:42		2				no-function-counter
+WORKFLOW	GET /admin/workflow-definitions/:id/versions	api/src/routes/admin/workflows.ts:43	inline		api/src/routes/admin/workflows.ts:43		2				no-function-counter
+WORKFLOW	GET /admin/workflow-definitions/:id/versions/:version	api/src/routes/admin/workflows.ts:46	inline		api/src/routes/admin/workflows.ts:46		2				no-function-counter
+WORKFLOW	GET /admin/workflow-definitions/state	api/src/routes/admin/workflows.ts:36	inline		api/src/routes/admin/workflows.ts:36		2				no-function-counter
+WORKFLOW	GET /admin/workflow-runs	api/src/routes/admin/workflows.ts:68	inline		api/src/routes/admin/workflows.ts:68		2				no-function-counter
+WORKFLOW	GET /admin/workflow-runs/:id	api/src/routes/admin/workflows.ts:70	inline		api/src/routes/admin/workflows.ts:70		2				no-function-counter
+WORKFLOW	GET /admin/workflow-runs/:id/events	api/src/routes/admin/workflows.ts:73	inline		api/src/routes/admin/workflows.ts:73		2				no-function-counter
+WORKFLOW	GET /admin/workflow-runs/:id/report	api/src/routes/admin/workflows.ts:76	inline		api/src/routes/admin/workflows.ts:76		2				no-function-counter
+WORKFLOW	GET /admin/workflow-runs/:id/tasks/:taskId	api/src/routes/admin/workflows.ts:79	inline		api/src/routes/admin/workflows.ts:79		2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-definitions	api/src/routes/admin/workflows.ts:40	inline		api/src/routes/admin/workflows.ts:40	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-definitions/:id	api/src/routes/admin/workflows.ts:42	inline		api/src/routes/admin/workflows.ts:42	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-definitions/:id/versions	api/src/routes/admin/workflows.ts:43	inline		api/src/routes/admin/workflows.ts:43	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-definitions/:id/versions/:version	api/src/routes/admin/workflows.ts:46	inline		api/src/routes/admin/workflows.ts:46	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-definitions/state	api/src/routes/admin/workflows.ts:36	inline		api/src/routes/admin/workflows.ts:36	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-runs	api/src/routes/admin/workflows.ts:68	inline		api/src/routes/admin/workflows.ts:68	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-runs/:id	api/src/routes/admin/workflows.ts:70	inline		api/src/routes/admin/workflows.ts:70	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-runs/:id/events	api/src/routes/admin/workflows.ts:73	inline		api/src/routes/admin/workflows.ts:73	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-runs/:id/report	api/src/routes/admin/workflows.ts:76	inline		api/src/routes/admin/workflows.ts:76	generated-HEAD	2				no-function-counter
+WORKFLOW	HEAD /admin/workflow-runs/:id/tasks/:taskId	api/src/routes/admin/workflows.ts:79	inline		api/src/routes/admin/workflows.ts:79	generated-HEAD	2				no-function-counter
+WORKFLOW	POST /admin/workflow-definitions	api/src/routes/admin/workflows.ts:41	inline		api/src/routes/admin/workflows.ts:41		1				no-function-counter
+WORKFLOW	POST /admin/workflow-definitions/:id/archive	api/src/routes/admin/workflows.ts:59	inline		api/src/routes/admin/workflows.ts:59		1				no-function-counter
+WORKFLOW	POST /admin/workflow-definitions/:id/restore	api/src/routes/admin/workflows.ts:62	inline		api/src/routes/admin/workflows.ts:62		1				no-function-counter
+WORKFLOW	POST /admin/workflow-definitions/:id/revert	api/src/routes/admin/workflows.ts:65	inline		api/src/routes/admin/workflows.ts:65		1				no-function-counter
+WORKFLOW	POST /admin/workflow-definitions/:id/revise	api/src/routes/admin/workflows.ts:56	inline		api/src/routes/admin/workflows.ts:56		1				no-function-counter
+WORKFLOW	POST /admin/workflow-definitions/state	api/src/routes/admin/workflows.ts:37	inline		api/src/routes/admin/workflows.ts:37		1				no-function-counter
+WORKFLOW	POST /admin/workflow-runs	api/src/routes/admin/workflows.ts:69	inline		api/src/routes/admin/workflows.ts:69		1				no-function-counter
+WORKFLOW	POST /admin/workflow-runs/:id/control	api/src/routes/admin/workflows.ts:82	inline		api/src/routes/admin/workflows.ts:82		1				no-function-counter
+WORKFLOW	POST /admin/workflow-runs/:id/prepare-cancel	api/src/routes/admin/workflows.ts:85	inline		api/src/routes/admin/workflows.ts:85		1				no-function-counter
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/archive	api/src/routes/agent-messaging/workflows.ts:35	factory-return	mutate('archive')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/create	api/src/routes/agent-messaging/workflows.ts:33	factory-return	mutate('create')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/invite	api/src/routes/agent-messaging/workflows.ts:38	factory-return	mutate('invite')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/membership	api/src/routes/agent-messaging/workflows.ts:39	factory-return	mutate('membership')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/revise	api/src/routes/agent-messaging/workflows.ts:34	factory-return	mutate('revise')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/run-control	api/src/routes/agent-messaging/workflows.ts:37	factory-return	mutate('run_control')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/run-create	api/src/routes/agent-messaging/workflows.ts:36	factory-return	mutate('run_create')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/run-current	api/src/routes/agent-messaging/workflows.ts:45	inline		api/src/routes/agent-messaging/workflows.ts:45		1			46=9	no-function-counter
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/run-evaluate	api/src/routes/agent-messaging/workflows.ts:44	factory-return	mutate('run_evaluate')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/run-finish	api/src/routes/agent-messaging/workflows.ts:43	factory-return	mutate('run_finish')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/run-note	api/src/routes/agent-messaging/workflows.ts:42	factory-return	mutate('run_note')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/task-claim	api/src/routes/agent-messaging/workflows.ts:40	factory-return	mutate('task_claim')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
+WORKFLOW	POST /host/agent-sessions/:id/agent-messaging/workflows/task-update	api/src/routes/agent-messaging/workflows.ts:41	factory-return	mutate('task_update')	api/src/routes/agent-messaging/workflows.ts:29		12			30=37	ambiguous-function-line
