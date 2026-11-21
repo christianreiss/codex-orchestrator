@@ -187,21 +187,23 @@ describe('responseFromMessage', () => {
       role: 'assistant',
       content: [{ type: 'text', text: 'Hi there' }],
       model: 'claude-sonnet-4-6',
-      stop_reason: 'end_turn',
+      stop_reason: 'max_tokens',
       stop_sequence: null,
       usage: {
         input_tokens: 5,
         output_tokens: 10,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 2,
+        cache_read_input_tokens: 3,
       },
     });
     expect(out.object).toBe('response');
-    expect(out.status).toBe('completed');
+    expect(out.status).toBe('incomplete');
+    expect(out.incomplete_details).toEqual({ reason: 'max_output_tokens' });
     expect(out.model).toBe('claude-sonnet-4-6');
     expect((out.id as string).startsWith('resp_')).toBe(true);
     const output = out.output as Array<{ content: Array<{ text: string }> }>;
     expect(output[0]?.content[0]?.text).toBe('Hi there');
-    expect((out.usage as Record<string, number>).total_tokens).toBe(15);
+    expect(out.usage).toMatchObject({ input_tokens: 10, output_tokens: 10, total_tokens: 20,
+      input_tokens_details: { cached_tokens: 3 }, output_tokens_details: null });
   });
 });

@@ -33,7 +33,7 @@ import {
   capabilitiesFor,
   stopReasonFor,
 } from '../transport-capabilities.js';
-import { runnerExecUrl } from './runner-openai.js';
+import { nativeTokenCount, runnerExecUrl } from './runner-openai.js';
 
 export interface ClaudeMessage {
   role: 'user' | 'assistant' | 'system';
@@ -59,10 +59,12 @@ export interface ClaudeRequestParams {
 }
 
 export interface ClaudeUsage {
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_input_tokens: number;
-  cache_read_input_tokens: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_creation_input_tokens: number | null;
+  cache_read_input_tokens: number | null;
+  reasoning_tokens?: number | null;
+  usage_known?: boolean;
 }
 
 export interface ClaudeMessageResponse {
@@ -72,10 +74,7 @@ export interface ClaudeMessageResponse {
   content: Array<{ type: 'text'; text: string }>;
   model: string;
   /**
-   * `null` when the backend reported no reason. The CLI transport never does,
-   * and `'end_turn'` asserted a clean completion for output that may have been
-   * cut short by a timeout — including on the `max_tokens` this transport
-   * cannot enforce.
+   * Null when the CLI reported no stop reason.
    */
   stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | string | null;
   stop_sequence: string | null;
@@ -271,6 +270,16 @@ function stringOrUndefined(v: unknown): string | undefined {
 }
 
 function extractUsage(obj: Record<string, unknown>, engine: Engine): ClaudeUsage {
+  if (engine === ENGINE_CLAUDE) {
+    return {
+      input_tokens: nativeTokenCount(obj.input_tokens),
+      output_tokens: nativeTokenCount(obj.output_tokens),
+      cache_creation_input_tokens: nativeTokenCount(obj.cache_creation_input_tokens),
+      cache_read_input_tokens: nativeTokenCount(obj.cache_read_input_tokens),
+      reasoning_tokens: nativeTokenCount(obj.reasoning_tokens),
+      ...(obj.usage_known === false ? { usage_known: false } : {}),
+    };
+  }
   // Anthropic requires integer usage; zero denotes unavailable for Kimi.
   if (engine === ENGINE_KIMI) return { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
   const num = (k: string): number => {

@@ -18,6 +18,7 @@ import {ownerRuntimeFor,ownerReadResponseGuard} from '../../control-plane/state/
  * Callers set `reply.envelopeRaw = true` and the correct content-type before
  * invoking this module; we only touch `reply.raw` (the Node `ServerResponse`).
  */
+import { anthropicWireUsage } from '../../services/anthropic-compat.js';
 import type { FastifyReply } from 'fastify';
 import type { ClaudeMessageResponse } from '../../services/adapters/runner-claude.js';
 import { CLAUDE_DEFAULT_MODEL } from '../../services/claude-models.js';
@@ -33,13 +34,7 @@ export interface AnthropicSseEvent {
 export function messageStreamEvents(message: ClaudeMessageResponse): AnthropicSseEvent[] {
   const id = message.id || `msg_${randomHex(12)}`;
   const model = message.model || CLAUDE_DEFAULT_MODEL;
-  const usage =
-    message.usage ?? {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    };
+  const usage = anthropicWireUsage(message.usage);
   let text = '';
   for (const block of message.content ?? []) {
     if (block.type === 'text') {
@@ -61,7 +56,12 @@ export function messageStreamEvents(message: ClaudeMessageResponse): AnthropicSs
           model,
           stop_reason: null,
           stop_sequence: null,
-          usage: { input_tokens: usage.input_tokens, output_tokens: 0 },
+          usage: {
+            input_tokens: usage.input_tokens,
+            cache_creation_input_tokens: usage.cache_creation_input_tokens,
+            cache_read_input_tokens: usage.cache_read_input_tokens,
+            output_tokens: 0,
+          },
         },
       },
     },
@@ -93,7 +93,10 @@ export function messageStreamEvents(message: ClaudeMessageResponse): AnthropicSs
           stop_reason: message.stop_reason ?? null,
           stop_sequence: message.stop_sequence ?? null,
         },
-        usage: { output_tokens: usage.output_tokens },
+        usage: {
+          output_tokens: usage.output_tokens,
+          ...(usage.output_tokens_details ? { output_tokens_details: usage.output_tokens_details } : {}),
+        },
       },
     },
     { event: 'message_stop', data: { type: 'message_stop' } },

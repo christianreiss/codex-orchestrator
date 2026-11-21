@@ -13,8 +13,9 @@ describe('messageStreamEvents', () => {
     usage: {
       input_tokens: 7,
       output_tokens: 3,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 4,
+      cache_read_input_tokens: 12,
+      reasoning_tokens: 1,
     },
   };
 
@@ -38,7 +39,7 @@ describe('messageStreamEvents', () => {
       message: {
         id: 'msg_abc123',
         model: 'claude-sonnet-4-6',
-        usage: { input_tokens: 7, output_tokens: 0 },
+        usage: { input_tokens: 7, output_tokens: 0, cache_read_input_tokens: 12, cache_creation_input_tokens: 4 },
       },
     });
   });
@@ -57,7 +58,7 @@ describe('messageStreamEvents', () => {
     expect(events[4]!.data).toMatchObject({
       type: 'message_delta',
       delta: { stop_reason: 'end_turn', stop_sequence: null },
-      usage: { output_tokens: 3 },
+      usage: { output_tokens: 3, output_tokens_details: { thinking_tokens: 1 } },
     });
   });
 

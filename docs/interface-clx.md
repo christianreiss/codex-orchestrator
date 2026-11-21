@@ -1249,8 +1249,21 @@ verified against 2.1.322 on 2026-11-10.
 Desktop 3.6556.0 or newer reads it; accepting it in a CLI settings parser would
 not make it functional in managed CLI sessions.
 
+Claude Code 2.1.330 exposes an SDK result with nullable `stop_reason` and
+per-bucket usage. The runner returns these on successful print calls. A failed
+process or an SDK `is_error` result remains a gateway error, including a native
+refusal flagged as a failure. Anthropic Messages and its buffered SSE preserve
+native stop reasons. Required integer usage fields on this wire use zero for
+unavailable counters. OpenAI chat and completions map `end_turn` and
+`stop_sequence` to `stop`, length limits to `length` and a successful
+`refusal` to `content_filter`. Other or missing native reasons are unknown.
+Both Responses routes mark length-limited or filtered output incomplete.
+OpenAI totals include both cache buckets and remain null when counts are
+missing. Thinking tokens are reported only when the native result supplies them.
+
 The registry follows the [official settings reference](https://code.claude.com/docs/en/settings-reference),
-checked against Claude Code 2.1.329 on 2026-11-20. Validation rejects unknown
+checked against Claude Code 2.1.330 on 2026-11-21. `enforceAnthropicSignIn`
+requires native managed settings. Fleet user settings reject it with a scope-specific diagnostic. Validation rejects unknown
 root keys and fields in fixed nested objects, invalid types/enums, malformed
 hook events and handlers, and unsafe JSON keys with HTTP 422. Diagnostics name
 the full `native_settings` path, including array indices; literal dotted keys

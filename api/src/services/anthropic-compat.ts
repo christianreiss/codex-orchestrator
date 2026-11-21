@@ -9,7 +9,22 @@ import type {
   ClaudeMessage,
   ClaudeContentBlock,
   ClaudeMessageResponse,
+  ClaudeUsage,
 } from './adapters/runner-claude.js';
+
+import { claudeOpenAiUsage } from './adapters/runner-openai.js';
+import { ENGINE_CLAUDE, type Engine } from '../util/engine.js';
+
+/** The Messages wire format requires integers even when a CLI omitted a count. */
+export function anthropicWireUsage(usage: ClaudeUsage) {
+  return {
+    input_tokens: usage.input_tokens ?? 0,
+    output_tokens: usage.output_tokens ?? 0,
+    cache_creation_input_tokens: usage.cache_creation_input_tokens ?? 0,
+    cache_read_input_tokens: usage.cache_read_input_tokens ?? 0,
+    ...(usage.reasoning_tokens == null ? {} : { output_tokens_details: { thinking_tokens: usage.reasoning_tokens } }),
+  };
+}
 
 type Role = 'user' | 'assistant' | 'system';
 
@@ -234,18 +249,17 @@ export function normalizeResponsesInput(
 }
 
 /** Build an OpenAI /v1/responses-shaped body from an Anthropic message reply. */
-export function responseFromMessage(message: ClaudeMessageResponse): Record<string, unknown> {
+export function responseFromMessage(message: ClaudeMessageResponse, engine: Engine = ENGINE_CLAUDE): Record<string, unknown> {
   const sourceId = message.id || '';
   const responseId = deriveId(sourceId, 'resp_');
   const messageId = deriveId(sourceId, 'msg_');
   const model = message.model || '';
-  const usage =
-    message.usage ?? {
-      input_tokens: 0,
-      output_tokens: 0,
-      cache_creation_input_tokens: 0,
-      cache_read_input_tokens: 0,
-    };
+  const usage = anthropicWireUsage(message.usage);
+  const native = engine === ENGINE_CLAUDE ? claudeOpenAiUsage(message.usage) : null;
+  const reason = message.stop_reason;
+  const incompleteReason = reason === 'max_tokens' || reason === 'model_context_window_exceeded'
+    ? 'max_output_tokens' : reason === 'refusal' ? 'content_filter' : null;
+  const status = incompleteReason ? 'incomplete' : 'completed';
   let text = '';
   for (const block of message.content ?? []) {
     if (block.type === 'text' && typeof block.text === 'string') text += block.text;
@@ -254,19 +268,26 @@ export function responseFromMessage(message: ClaudeMessageResponse): Record<stri
     id: responseId,
     object: 'response',
     created_at: Math.floor(Date.now() / 1000),
-    status: 'completed',
+    status,
+    incomplete_details: incompleteReason ? { reason: incompleteReason } : null,
     model,
     output: [
       {
         id: messageId,
         type: 'message',
-        status: 'completed',
+        status,
         role: 'assistant',
         content: [{ type: 'output_text', text, annotations: [], logprobs: [] }],
       },
     ],
     parallel_tool_calls: false,
-    usage: {
+    usage: engine === ENGINE_CLAUDE ? (native && {
+      input_tokens: native.prompt_tokens,
+      input_tokens_details: native.prompt_tokens_details,
+      output_tokens: native.completion_tokens,
+      output_tokens_details: native.completion_tokens_details ?? null,
+      total_tokens: native.total_tokens,
+    }) : {
       input_tokens: usage.input_tokens,
       output_tokens: usage.output_tokens,
       output_tokens_details: { reasoning_tokens: 0 },

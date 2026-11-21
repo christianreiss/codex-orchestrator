@@ -11,7 +11,7 @@ profile sidecars, Claude `settings.json`, Grok `config.toml` and Kimi Code `conf
 editors complement the existing model, effort, posture, MCP and authentication
 controls. This is not a claim that every native file or enterprise policy plane
 can be authored centrally. Coverage was reviewed against Codex 0.171.0
-(2026-11-20), Claude Code 2.1.329 (2026-11-20), Grok Build 1.0.89 (2026-11-20) and Kimi Code 2.7.2 (2026-11-20).
+(2026-11-20), Claude Code 2.1.329 (2026-11-20), Grok Build 1.0.92 (2026-11-21) and Kimi Code 2.7.2 (2026-11-20).
 
 | Engine | Centrally authored | Remains native-owned | Decision and reason |
 | --- | --- | --- | --- |
@@ -166,8 +166,11 @@ experiments and per-machine picker hints remain separately owned. See
 Four further Boolean fields from Grok 1.0.89 (`features.auto_title_border`,
 `features.dashboard_workspace_mode`, `features.slow_link_paint_floor`,
 `ui.contextual_hints.thinking_collapse`) follow the same rules with a reported
-1.0.89 floor; alpha-only 1.0.90+ fields are deferred. See
-[the 1.0.89 block](interface-cgx.md#grok-1089-user-settings-2026-11-20).
+1.0.89 floor. The 1.0.90 classifier and per-model reasoning replay settings
+and 1.0.92 image relay and headless deadline each require their observed version.
+Older dashboard settings can be retained in a conditional layer through 1.0.89.
+Native shared-daemon lifetime remains controlled by the managed session.
+See the [1.0.92 fields and compatibility rules](interface-cgx.md#grok-1092-stable-2026-11-21).
 
 ## Native version compatibility
 

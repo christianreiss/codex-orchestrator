@@ -21,6 +21,7 @@ step.
 
 import os
 import re
+import subprocess
 import unittest
 
 RUNNER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -296,8 +297,18 @@ class RunnerDockerfileFailsClosedTest(unittest.TestCase):
     def test_both_cli_installs_assert_their_version(self):
         for engine, arg in (("codex", "CODEX_VERSION"), ("claude", "CLAUDE_CODE_VERSION")):
             with self.subTest(engine=engine):
-                self.assertIn(arg, ARGS)
-                self.assertIn(f'"${arg}"', self.text)
+                version = ARGS[arg]
+                check = re.search(rf'installed="\$\({engine} --version\)";.*?\besac\b', self.text, re.DOTALL)
+                self.assertIsNotNone(check)
+                script = f'{engine}() {{ echo "$CLI_VERSION_OUTPUT"; }}\n' + check.group()
+                expected = f"{version} (Claude Code)" if engine == "claude" else f"codex-cli {version}"
+                cases = [(expected, 0), ("wrong-version", 1)]
+                if engine == "claude":
+                    cases.append((f"{version}1 (Claude Code)", 1))
+                for output, expected_exit in cases:
+                    proc = subprocess.run(["bash", "-eu", "-c", script], capture_output=True, text=True,
+                                          env={arg: version, "CLI_VERSION_OUTPUT": output})
+                    self.assertEqual(expected_exit, proc.returncode, (output, proc.stderr))
 
     def test_base_image_is_digest_pinned(self):
         froms = re.findall(r"^FROM\s+(\S+)", self.text, re.MULTILINE)

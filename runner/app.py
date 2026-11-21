@@ -686,36 +686,39 @@ def _parse_claude_json_result(stdout: str) -> Optional[dict]:
         parsed = json.loads(stdout)
     except (json.JSONDecodeError, ValueError):
         return None
-    if not isinstance(parsed, dict) or "result" not in parsed:
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("result"), str):
         return None
     usage = parsed.get("usage") if isinstance(parsed.get("usage"), dict) else {}
 
-    def _num(key: str) -> int:
-        v = usage.get(key)
-        if isinstance(v, (int, float)):
-            return int(v)
-        return 0
+    def count(value: object) -> Optional[int]:
+        return value if type(value) is int and 0 <= value <= 2**53 - 1 else None
 
+    counts = {key: count(usage.get(key)) for key in (
+        "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+    )}
+    details = usage.get("output_tokens_details")
+    native_reason = parsed.get("stop_reason")
+    if not isinstance(native_reason, str) or not native_reason.strip():
+        native_reason = None
+    finish_reason = {
+        "end_turn": "stop", "stop_sequence": "stop", "max_tokens": "length",
+        "model_context_window_exceeded": "length", "refusal": "content_filter",
+    }.get(native_reason)
     return {
-        "output": parsed.get("result") or "",
+        "output": parsed["result"],
         "is_error": bool(parsed.get("is_error")),
-        "input_tokens": _num("input_tokens"),
-        "output_tokens": _num("output_tokens"),
-        "cache_creation_input_tokens": _num("cache_creation_input_tokens"),
-        "cache_read_input_tokens": _num("cache_read_input_tokens"),
+        "native_stop_reason": native_reason,
+        "finish_reason": finish_reason,
+        "usage_known": all(value is not None for value in counts.values()),
+        "reasoning_tokens": count(details.get("thinking_tokens")) if isinstance(details, dict) else None,
+        **counts,
     }
 
 
 def _run_claude_exec(prompt: str, env: dict, timeout: float) -> tuple[subprocess.CompletedProcess[str], int]:
     cmd = _build_claude_exec_cmd(prompt)
     start = time.perf_counter()
-    proc = subprocess.run(
-        cmd,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    proc = run_prompt_process(cmd, env=env, timeout=timeout)
     latency_ms = int((time.perf_counter() - start) * 1000)
     return proc, latency_ms
 
@@ -769,13 +772,7 @@ def _engine_version(env: dict, engine: str) -> str:
 def _run_codex_exec(prompt: str, env: dict, timeout: float, model: Optional[str] = None) -> tuple[subprocess.CompletedProcess[str], int]:
     cmd = _build_codex_exec_cmd(prompt, model)
     start = time.perf_counter()
-    proc = subprocess.run(
-        cmd,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    proc = run_prompt_process(cmd, env=env, timeout=timeout)
     latency_ms = int((time.perf_counter() - start) * 1000)
     return proc, latency_ms
 
@@ -1407,17 +1404,12 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
             # Claude Code CLI can report an application-level failure
             # (is_error) inside a 0-exit JSON result, distinct from a
             # nonzero process exit.
-            if parsed["is_error"]:
+            if parsed.pop("is_error"):
                 result["status"] = "fail"
                 result["output"] = ""
                 result["error"] = (parsed["output"] or "claude exec failed")[:500]
                 return result
-            result["status"] = "ok"
-            result["output"] = parsed["output"]
-            result["input_tokens"] = parsed["input_tokens"]
-            result["output_tokens"] = parsed["output_tokens"]
-            result["cache_creation_input_tokens"] = parsed["cache_creation_input_tokens"]
-            result["cache_read_input_tokens"] = parsed["cache_read_input_tokens"]
+            result.update(parsed, status="ok")
             return result
 
         result["status"] = "ok"

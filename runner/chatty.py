@@ -12,6 +12,8 @@ from typing import Literal
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, Field, ConfigDict
 
+from exec_process import signal_group, TERMINATE_GRACE_SECONDS
+
 PROTOCOL = 1
 MAX_OUTPUT = 262144
 
@@ -75,19 +77,31 @@ async def bounded_read(stream):
 
 
 async def stop_process(proc):
-    if proc.returncode is not None:
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-        await asyncio.wait_for(proc.wait(), 2)
-    except asyncio.TimeoutError:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
+    # asyncio can defer wait() while a paused pipe still has unread output.
+    # Resume draining discarded bytes without collecting them in memory.
+    async def discard(stream):
+        while await stream.read(65536):
             pass
-        await proc.wait()
-    except ProcessLookupError:
-        pass
+
+    drains = [asyncio.create_task(discard(stream)) for stream in (proc.stdout, proc.stderr) if stream]
+    try:
+        # The leader can finish while helpers still own its process group.
+        signal_group(proc, signal.SIGTERM)
+        try:
+            await asyncio.wait_for(proc.wait(), TERMINATE_GRACE_SECONDS)
+        except asyncio.TimeoutError:
+            pass
+        finally:
+            signal_group(proc, signal.SIGKILL)
+        # A process outside the owned group can still hold a pipe open.
+        try:
+            await asyncio.wait_for(asyncio.gather(proc.wait(), *drains), TERMINATE_GRACE_SECONDS)
+        except asyncio.TimeoutError:
+            pass
+    finally:
+        for task in drains:
+            task.cancel()
+        await asyncio.gather(*drains, return_exceptions=True)
 
 
 def register_chatty(app, require_auth, prepare_env, claude_path, grok_module, runtime, kimi_module=None):
@@ -115,6 +129,7 @@ def register_chatty(app, require_auth, prepare_env, claude_path, grok_module, ru
             env = {k: v for k, v in env.items() if k in allowed}
             proc = None
             tasks = []
+            readers = []
             try:
                 cmd, stdin, output_file = commands(payload, home, claude_path, grok_module, kimi_module)
                 proc = await asyncio.create_subprocess_exec(*cmd, cwd=home, env=env,
@@ -124,7 +139,8 @@ def register_chatty(app, require_auth, prepare_env, claude_path, grok_module, ru
                     proc.stdin.write(stdin or b"")
                     await proc.stdin.drain()
                     proc.stdin.close()
-                    stdout, _ = await asyncio.gather(bounded_read(proc.stdout), bounded_read(proc.stderr))
+                    readers.extend(asyncio.create_task(bounded_read(stream)) for stream in (proc.stdout, proc.stderr))
+                    stdout, _ = await asyncio.gather(*readers)
                     await proc.wait()
                     if proc.returncode:
                         # Native stderr can contain prompts or credential material.
@@ -160,10 +176,9 @@ def register_chatty(app, require_auth, prepare_env, claude_path, grok_module, ru
             except (ValueError, KeyError, TypeError):
                 raise HTTPException(502, "chatty_invalid_output") from None
             finally:
-                for task in tasks:
+                for task in (*tasks, *readers):
                     task.cancel()
+                await asyncio.gather(*tasks, *readers, return_exceptions=True)
                 if proc:
                     await stop_process(proc)
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
                 shutil.rmtree(home, ignore_errors=True)

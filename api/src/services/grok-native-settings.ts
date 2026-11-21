@@ -165,6 +165,7 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   }
   if ('artifact_base' in cli) fail(['cli', 'artifact_base'], 'native managed_config.toml/requirements.toml only; fleet installation and updates own artifact selection');
   const isolatedFeatures: Record<string, string> = {
+    shared_daemon_keep_alive: 'native daemon persistence is outside the managed private leader and receiver lifecycle',
     shared_daemon: 'sharing daemons and storage across windows is outside the managed private leader and receiver lifecycle',
     cloud_agents: 'cloud agents and workspaces are outside managed auth, session and receiver ownership',
     cursor_relay_login: 'Cursor relay login is outside the server-owned Grok subscription identity',
@@ -180,6 +181,10 @@ export function normalizeGrokNativeSettings(raw: unknown, nestedOverride = false
   if (Object.hasOwn(grokRecord(value.hints), 'api_key_models_note_seen')) fail(['hints', 'api_key_models_note_seen'], 'native per-machine model-picker state is outside fleet user defaults');
   if (cli.use_leader === false) fail(['cli', 'use_leader'], 'the managed receiver requires its private leader');
   for (const [key, item] of Object.entries(value)) validate(item, [key]);
+  for (const [section, key] of [['models', 'headless_retry_deadline_secs'], ['auto_mode', 'classify_timeout_ms']] as const) {
+    const timer = grokRecord(value[section])[key];
+    if (typeof timer === 'number' && timer < 0) fail([section, key], 'expected a nonnegative integer');
+  }
   validatePermissionRules(value);
   validateGrokNativeStructures(value, fail);
   for (const [key, control] of [['default', 'model'], ['default_reasoning_effort', 'reasoning_effort']]) {

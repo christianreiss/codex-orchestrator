@@ -25,7 +25,7 @@ func TestCommandBoundaries(t *testing.T) {
 		{"codex", []string{"--", "login"}, ""},
 		{"grok", []string{"--debug", "login"}, "login"},
 		{"grok", []string{"--debug-file", "login"}, ""},
-		{"grok", []string{"hello", "login"}, "login"},
+		{"grok", []string{"hello", "login"}, ""},
 		{"grok", []string{"--worktree", "login"}, ""},
 		{"grok", []string{"-wlogin", "logout"}, "logout"},
 		{"grok", []string{"--resume", "login"}, ""},
@@ -102,7 +102,7 @@ func TestNativeHelpOracle(t *testing.T) {
 					{[]string{"worker", "--name", "login", "--help"}, "Run this machine as a Cursor private worker"},
 					{[]string{"--print=--rules", "--help"}, "Grok Build TUI"},
 					{[]string{"--allowed-tools", "update", "--help"}, "Grok Build TUI"},
-					{[]string{"hello", "login", "--help"}, "Sign in to Grok"},
+					{[]string{"hello", "login", "--help"}, "Grok Build TUI"},
 				}
 			}
 			for _, tc := range cases {

@@ -2,6 +2,10 @@
 
 - Instance updates preserve current storage and perform the exclusive-owner cutover without creating SQL dumps or disposable copies of operator configuration. Orderly owner shutdown drains pending commands. Losing the ownership connection still fences the process during bootstrap and after readiness.
 
+- The runner pins Claude Code 2.1.330 and Grok Build 1.0.92. Claude gateway responses preserve available native stop reasons and token counts. Grok model settings follow the installed native version. Claude's managed-only sign-in policy reports its required scope.
+- Temporary runner processes release child process groups after cancellation, timeout and wrapper exit. Kimi verification uses an access-only projection with its real expiry. The on-disk Kimi host projection retains its zero-expiry sentinel.
+- Wrapper 0.9.192 recognizes the Grok 1.0.92 prompt grammar and uses Brotli 1.2.7.
+
 # 2026-11-20
 
 - **Cleanup release: read before upgrading.** This release removes long-superseded surface; the bullets below list it. Hosts still running the date-versioned shell wrapper must be reinstalled. Every Go `cxx` keeps updating itself as before: `/cron/check`, `/wrapper/v2/config`, `/wrapper/v2/bin` and `/cron/report` are unchanged. An install without a stored auto-update setting now treats auto-update as on everywhere. Before, the signed config already baked it on while `/cron/check` answered `disable`, so after the upgrade such hosts start updating cxx and the native CLIs nightly. To keep updates off, switch auto-update off in Settings; a stored off now also removes the nightly maintenance line on hosts without an override.

@@ -107,28 +107,8 @@ class RunnerAppTest(unittest.TestCase):
         )
 
     def test_run_codex_exec_uses_probe_model(self):
-        captured = {}
-
-        def fake_run(cmd, env, capture_output, text, timeout):
-            captured["cmd"] = cmd
-            captured["env"] = env
-            captured["capture_output"] = capture_output
-            captured["text"] = text
-            captured["timeout"] = timeout
-
-            class Result:
-                stdout = "Banana"
-                stderr = ""
-                returncode = 0
-
-            return Result()
-
-        original_run = runner_app.subprocess.run
-        runner_app.subprocess.run = fake_run
-        try:
+        with patch.object(runner_app, "run_prompt_process") as run:
             runner_app._run_codex_exec("Reply Banana if this works.", {"HOME": "/tmp/home"}, 2.0, "gpt-6-astra")
-        finally:
-            runner_app.subprocess.run = original_run
 
         self.assertEqual(
             [
@@ -142,7 +122,7 @@ class RunnerAppTest(unittest.TestCase):
                 "--",
                 "Reply Banana if this works.",
             ],
-            captured["cmd"],
+            run.call_args.args[0],
         )
 
     def test_build_claude_exec_cmd_uses_supported_print_flag(self):
@@ -1828,6 +1808,7 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
         "type": "result",
         "subtype": "success",
         "is_error": False,
+        "stop_reason": "end_turn",
         "duration_ms": 2431,
         "result": "Banana",
         "total_cost_usd": 0.0123,
@@ -1845,12 +1826,9 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
         "result": "Credit balance is too low",
     }
 
-    ZERO_USAGE = {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "cache_creation_input_tokens": 0,
-        "cache_read_input_tokens": 0,
-    }
+    UNKNOWN_USAGE = dict.fromkeys((
+        "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+    ))
 
     def setUp(self):
         self.client = TestClient(runner_app.app)
@@ -1903,6 +1881,7 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
             ("empty object", {}),
             ("error envelope", {"type": "result", "is_error": True, "error": "boom"}),
             ("usage only", {"usage": {"input_tokens": 11}}),
+            ("non-text result", {"result": {"nested": "content"}}),
         ):
             with self.subTest(payload=label):
                 self.assertIsNone(runner_app._parse_claude_json_result(json.dumps(payload)))
@@ -1918,7 +1897,7 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
             with self.subTest(payload=label):
                 self.assertIsNone(runner_app._parse_claude_json_result(stdout))
 
-    def test_parse_claude_json_result_counts_missing_or_non_numeric_usage_as_zero(self):
+    def test_parse_claude_json_result_preserves_unknown_usage(self):
         for label, payload in (
             ("no usage key", {"result": "Banana"}),
             ("usage is null", {"result": "Banana", "usage": None}),
@@ -1941,7 +1920,8 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
                 parsed = runner_app._parse_claude_json_result(json.dumps(payload))
 
                 self.assertEqual("Banana", parsed["output"])
-                self.assertEqual(self.ZERO_USAGE, {key: parsed[key] for key in self.ZERO_USAGE})
+                self.assertFalse(parsed["usage_known"])
+                self.assertEqual(self.UNKNOWN_USAGE, {key: parsed[key] for key in self.UNKNOWN_USAGE})
 
     def test_parse_claude_json_result_reads_the_reply_and_every_usage_total(self):
         parsed = runner_app._parse_claude_json_result(json.dumps(self.CLAUDE_RESULT))
@@ -1950,6 +1930,10 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
             {
                 "output": "Banana",
                 "is_error": False,
+                "usage_known": True,
+                "native_stop_reason": "end_turn",
+                "finish_reason": "stop",
+                "reasoning_tokens": None,
                 "input_tokens": 11,
                 "output_tokens": 3,
                 "cache_creation_input_tokens": 5,
@@ -1957,6 +1941,35 @@ class RunnerClaudeExecResultTest(unittest.TestCase):
             },
             parsed,
         )
+
+    def test_exec_passes_native_usage_and_maps_only_recognized_stop_reasons(self):
+        for native, mapped in (("end_turn", "stop"), ("stop_sequence", "stop"), ("max_tokens", "length"),
+                               ("model_context_window_exceeded", "length"), ("refusal", "content_filter"),
+                               ("future_reason", None), (None, None)):
+            with self.subTest(native=native):
+                usage = {**self.CLAUDE_RESULT["usage"], "output_tokens_details": {"thinking_tokens": 2}}
+                self.stub_exec(0, stdout=json.dumps({**self.CLAUDE_RESULT, "usage": usage, "stop_reason": native}))
+                result = self.exec_claude()
+                self.assertEqual("ok", result["status"])
+                self.assertEqual(native, result["native_stop_reason"])
+                self.assertEqual(mapped, result["finish_reason"])
+                self.assertTrue(result["usage_known"])
+                self.assertEqual(2, result["reasoning_tokens"])
+
+    def test_exec_treats_a_native_refusal_flagged_as_failure_as_an_error(self):
+        for code in (0, 1):
+            self.stub_exec(code, stdout=json.dumps({**self.ERRORED_RESULT, "stop_reason": "refusal"}))
+            result = self.exec_claude()
+            self.assertEqual("fail", result["status"])
+            self.assertEqual(self.ERRORED_RESULT["result"], result["error"])
+
+    def test_exec_keeps_invalid_counts_unknown_and_real_zero_measured(self):
+        for value in (True, -1, 3.5, 2**60):
+            self.stub_exec(0, stdout=json.dumps({"result": "", "usage": {"input_tokens": value, "output_tokens": 0}}))
+            result = self.exec_claude()
+            self.assertFalse(result["usage_known"])
+            self.assertIsNone(result["input_tokens"])
+            self.assertEqual(0, result["output_tokens"])
 
     def test_parse_claude_json_result_lifts_is_error_out_of_a_result(self):
         parsed = runner_app._parse_claude_json_result(json.dumps(self.ERRORED_RESULT))

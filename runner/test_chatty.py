@@ -80,6 +80,18 @@ class ChattyTest(unittest.TestCase):
         self.assertEqual(504, response.status_code)
         self.assertFalse(os.path.exists(homes[0]))
 
+    def test_excess_native_output_releases_pipes_and_removes_home(self):
+        homes = []
+        client = self.app(homes)
+        script = "import sys; sys.stdout.buffer.write(b'x' * (512 * 1024))"
+        with patch.object(chatty, "commands", return_value=([sys.executable, "-c", script], None, None)):
+            response = client.post("/chatty/turn", headers={"x-runner-auth": "test"}, json={
+                "protocol": 1, "engine": "codex", "model": "test", "auth_json": {}, "prompt": "test",
+            })
+        self.assertEqual(502, response.status_code)
+        self.assertEqual("chatty_output_too_large", response.json()["detail"])
+        self.assertFalse(os.path.exists(homes[0]))
+
     def test_capabilities_are_authenticated_and_omit_missing_engines(self):
         client = self.app([])
         self.assertEqual(401, client.get("/chatty/capabilities").status_code)

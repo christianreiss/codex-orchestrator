@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -183,5 +184,44 @@ func TestNativeLaunchVersionProbeAcceptsCurrentAndRejectsPrereleaseOrUnknown(t *
 				t.Fatalf("version %s: %v", fixture.version, err)
 			}
 		})
+	}
+}
+
+func TestInstalledGrammarPreservesPromptAndOlderCommandDispatch(t *testing.T) {
+	cli, _ := launchVersionFixture(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CGX_GROK_BIN", cli)
+	for _, tc := range []struct {
+		version string
+		args    []string
+		command string
+		invalid bool
+	}{
+		{"1.0.89", []string{"explain", "logout"}, "logout", false},
+		{"1.0.92", []string{"explain", "logout"}, "run", false},
+		{"1.0.92", []string{"explain", "one", "--debug", "logout"}, "logout", false},
+		{"1.0.89", []string{"explain", "one", "--debug", "logout"}, "", true},
+		{"1.0.89", []string{"-p", "--debug", "login"}, "", true},
+		{"1.0.92", []string{"-p", "--debug", "login"}, "login", false},
+		{"1.0.89", []string{"-phelp", "login"}, "login", false},
+	} {
+		t.Setenv("CXX_TEST_GROK_VERSION", tc.version)
+		parsed, err := installedGrammarArgs(tc.args)
+		if tc.invalid {
+			if err == nil {
+				t.Errorf("%s %q: expected syntax error", tc.version, tc.args)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.version == "1.0.92" && !slices.Equal(tc.args, parsed) {
+			t.Fatalf("modified modern argv: %q", parsed)
+		}
+		o, err := nativeOptions(parsed)
+		if err != nil || o.command != tc.command {
+			t.Errorf("%s %q: %s, %v", tc.version, tc.args, o.command, err)
+		}
 	}
 }

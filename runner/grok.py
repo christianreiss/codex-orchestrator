@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import HTTPException
 
+from exec_process import run_prompt_process
+
 ISSUER = "https://auth.x.ai"
 DEFAULT_SCOPE = f"{ISSUER}::b1a00492-073a-47ea-816f-4c329264a828"
 USER_URL = "https://cli-chat-proxy.grok.com/v1/user?include=subscription"
@@ -189,5 +191,5 @@ def run(prompt: str, env: dict, timeout: float, model: str | None = None,
         system: str | None = None) -> tuple[subprocess.CompletedProcess[str], int]:
     cmd = build_command(prompt, env["HOME"], model, system)
     started = time.perf_counter()
-    proc = subprocess.run(cmd, env=env, cwd=env["HOME"], capture_output=True, text=True, timeout=timeout)
+    proc = run_prompt_process(cmd, env=env, cwd=env["HOME"], timeout=timeout)
     return proc, int((time.perf_counter() - started) * 1000)

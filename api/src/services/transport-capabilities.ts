@@ -61,9 +61,8 @@ export interface TransportCapabilities {
  * `max_tokens` is `accepted-unenforceable` rather than `unsupported` because
  * Anthropic's Messages API requires it on every request: rejecting it would
  * make the compat surface unusable with the official SDK, which is a worse
- * outcome than an honestly-labelled limitation. Nothing downstream may report a
- * `max_tokens` stop reason on this transport as a result — see
- * `stopReasonFor()`.
+ * outcome than an honestly-labelled limitation. A native length stop can still
+ * occur at the provider's limit; only report it when the CLI did.
  *
  * `system` is enforced only for Claude: the runner writes it into the Claude
  * invocation, and `codex exec` has nowhere to put it.
@@ -112,9 +111,9 @@ export function capabilitiesFor(
     engine,
     controls: RUNNER_CLI_CONTROLS[engine],
     // Kimi stream-json reports neither usage nor a stop reason.
-    // Claude and Grok provide counts; only Grok reports a stop reason.
+    // Claude and Grok can supply native token counts and a stop reason.
     reportsExactUsage: engine === ENGINE_CLAUDE || engine === ENGINE_GROK,
-    reportsStopReason: engine === ENGINE_GROK,
+    reportsStopReason: engine === ENGINE_CLAUDE || engine === ENGINE_GROK,
   };
 }
 

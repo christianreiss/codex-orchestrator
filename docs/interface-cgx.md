@@ -290,14 +290,15 @@ An explicit resume UUID may follow global options; a title, picker or fork does
 not prove continuity with an existing native session. Native help and version
 requests bypass signed config, account leasing, sync and private-runtime starts.
 
-Deferred until a >= 1.0.91 stable promotion (alpha 1.0.91/1.0.92 verified
-2026-11-20): the variadic `[PROMPT]...` positional words and the matching
-command-word semantics (`grok fix doctor` is prompt text on 1.0.91+, while 1.0.89
-runs `doctor` or errors). `Command` still allows only one initial prompt word
-before a command, so on a host pinned to 1.0.91+ a prompt word such as `logout`,
-`login` or `worker` can be classified as a command; that is conservative except
-for the deferred-logout path. Implementing it needs version-aware parsing or an explicit conservative
-refusal, and the fleet default (`latest` = 1.0.89) is unaffected.
+From Grok 1.0.91, consecutive positional words following an initial prompt
+word remain prompt text. For example `grok explain logout` stays interactive.
+An intervening option opens a new command boundary, so
+`grok explain --debug logout` selects the managed logout command. When launch
+arguments would dispatch differently, cxx checks the selected executable's
+version before auth dispatch. A 1.0.89 host retains its one-prompt grammar.
+Quote multiword prompts when using both generations. If the executable cannot
+report its version for an ambiguous invocation, the wrapper requests an
+unambiguous prompt or command.
 
 cxx 0.9.151 completes the 1.0.70 utility/service value grammar, including
 agent-leader Cursor-worker settings, worker PID/controller fields, clone redirect
@@ -495,13 +496,11 @@ subagents, plugins, goals, memory, native command/HTTP hooks, notification hooks
 and built-in or command status lines. Features are configured only when an
 operator supplies them; support does not turn experimental features on.
 
-The field/type registry is audited against published Grok Build **1.0.89**
-(2026-11-20), which is both the official npm `latest` tag and the native `stable`
-channel. The public changelog still ends at 1.0.77; distribution tags and native
-channel labels are separate evidence. The verified artifact prints
-`grok 1.0.89 (28be5bb1bf65)` in a clean home. Its bundled complete reference is
-SHA-256 `18eb6e45fd09f381052a257415cc45244d18a0ba2540791221cf8af50733b23e`
-(1.0.88: `a74c01b5c3e99834d0005d4a3985f3d4867f209ee8dfadd71e51e24e72c79466`).
+The field/type registry was checked on 2026-11-21 against the published Grok
+Build **1.0.92**. The verified Linux x64 artifact prints
+`grok 1.0.92 (b06756fd6256)` in an isolated home. Version-specific additions,
+the reference digest and compatibility decisions are recorded in the
+[stable 1.0.92 section](#grok-1092-stable-2026-11-21).
 The older [public source reference](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md)
 is supplemented by the matching bundled configuration, hooks and status-line guides and
 [current settings reference](https://docs.x.ai/build/settings/reference).
@@ -1848,21 +1847,37 @@ their earlier floor. Version 1.0.88 and unreported hosts are refused with a
 "require CLI 1.0.89" message and told to run `cgx update`. The 1.0.88 to 1.0.89
 help tree is byte-identical, so argv and `nativeargs` are unchanged.
 
-Deliberately deferred until the alpha channel is promoted to stable (not
-registered, so the API still rejects them as unknown Grok settings):
+## Grok 1.0.92 stable (2026-11-21)
 
-- 1.0.90: `auto_mode.classifier_model`, `auto_mode.classify_timeout_ms`
-  (native clamp 1000-120000), `auto_mode.prompt_type`
-  (`full|bare_instructions|just_command`), `auto_mode.reasoning_effort`
-  (`none` through `max`) and `model.<id>.supports_reasoning_text_replay`.
-- 1.0.91: `features.shared_daemon_keep_alive`, which only matters with the
-  already refused `shared_daemon` or leader mode and would share that refusal.
-- 1.0.92: `features.wrap_image_relay` and `models.headless_retry_deadline_secs`
-  (0 disables, default 300).
-- Planned 1.0.90 removal of `dashboard.grouping` and `features.workspace_dashboard`
-  (absent from the 1.0.90 reference and the 1.0.92 binary). They stay valid and
-  registered on 1.0.89; a "removed in 1.0.90" rejection and version-layer note
-  belong to the promotion change. This is a documented deferral, not implemented.
+The runner uses 1.0.92, published by [xAI's stable channel](https://x.ai/cli/stable)
+and the [official npm package](https://registry.npmjs.org/@xai-official%2fgrok).
+The bundled config reference has SHA-256
+`ff38e8d0ba54e357f58e211a873e57235a8c170829465ccbf872db43eb854387`.
+Host capabilities depend on the observed CLI version; the installation minimum
+remains 1.0.50. The [public field reference](https://docs.x.ai/build/settings/reference)
+and bundled `26-config-reference.md` describe the following controls.
+
+- From 1.0.90, the native editor accepts `auto_mode.classifier_model`,
+  `classify_timeout_ms` (unsigned milliseconds, native clamp 1000–120000),
+  `prompt_type` (`full|bare_instructions|just_command`), `reasoning_effort`
+  (`none|minimal|low|medium|high|xhigh|max`) and
+  `model.<id>.supports_reasoning_text_replay`. These describe local native
+  settings. Model availability still depends on the account and endpoint.
+- From 1.0.92, `features.wrap_image_relay` is a Boolean.
+  `models.headless_retry_deadline_secs` takes a nonnegative whole number,
+  defaults natively to 300, and accepts zero to disable that timer.
+- A private managed native leader ends with its session. The API refuses
+  `features.shared_daemon_keep_alive`, including in conditional layers.
+- Hosts on 1.0.90 or newer refuse an active `dashboard.grouping` or
+  `features.workspace_dashboard` setting during render. To preserve an
+  older host's settings, move the affected table into a `[[version_overrides]]`
+  layer with `maximum_version = "1.0.89"`. The new
+  `features.dashboard_workspace_mode` can change the saved grouping once per
+  machine and needs an explicit operator choice. The API preserves existing
+  documents and omits any automatic substitution. Native `inspect --json`
+  on both 1.0.89 and 1.0.92 reports the entire `dashboard` table as unknown,
+  including the documented `enabled` field. The 1.0.89 dashboard guide
+  documents `grouping`; its interactive visual effect remains unverified.
 
 ## Configuration scope and client compatibility
 

@@ -37,6 +37,7 @@ import {
 } from '../../services/adapters/runner-claude.js';
 import {
   ANTHROPIC_API_VERSIONS,
+  anthropicWireUsage,
   assertMessagesRequestForApiVersion,
   isAnthropicApiVersion,
   estimateTokenCount,
@@ -229,7 +230,7 @@ export async function registerAnthropicCompatRoutes(
         await writeSseResponse(reply, messageStreamEvents(result));
         return reply;
       }
-      return result;
+      return { ...result, usage: anthropicWireUsage(result.usage) };
     }),
   });
 
@@ -325,7 +326,7 @@ export async function registerAnthropicCompatRoutes(
       completion: text,
       model: result.model || model,
       stop_reason: stopReason,
-      usage: result.usage ?? { input_tokens: 0, output_tokens: 0 },
+      usage: anthropicWireUsage(result.usage),
     };
   });
   app.route({
@@ -415,7 +416,7 @@ export async function registerAnthropicCompatRoutes(
       const params = extractParams(payload);
       ensureAdapter(adapter);
       const result = await adapter.messages(messages, model, params, signal);
-      return responseFromMessage(result);
+      return responseFromMessage(result, backend.engine);
     }),
   });
 

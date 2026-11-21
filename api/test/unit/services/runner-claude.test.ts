@@ -1,3 +1,4 @@
+import { anthropicWireUsage, responseFromMessage } from "../../../src/services/anthropic-compat.js";
 import { describe, it, expect } from 'vitest';
 import {
   buildPromptPayload,
@@ -219,5 +220,28 @@ describe('Kimi backend on Anthropic wire', () => {
     expect(sent).toEqual([{ url: 'http://runner/exec', body: expect.objectContaining({ engine: 'kimi', prompt: 'user: hi', system: 'Be brief', model: 'k3' }) }]);
     expect(sent[0]!.body.max_tokens).toBeUndefined();
     expect(result).toMatchObject({ stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 } });
+  });
+});
+
+describe('Claude native telemetry on Anthropic endpoints', () => {
+  const request = [{ role: 'user' as const, content: 'test' }];
+  const adapterFor = (result: Record<string, unknown>) => createRunnerClaudeAdapter({
+    env: { ...baseEnv, AUTH_RUNNER_URL: 'http://runner/verify-claude' }, engine: 'claude',
+    getAuthSnapshot: async () => ({ token: 'fixture' }),
+    fetcher: async () => Response.json(result),
+  })!;
+
+  it('preserves native reasons and partial counts, with zero only for required wire integers', async () => {
+    const result = await adapterFor({ status: 'ok', output: 'partial', native_stop_reason: 'pause_turn',
+      input_tokens: 4, output_tokens: 0 }).messages(request, 'claude', {});
+    expect(result.stop_reason).toBe('pause_turn');
+    expect(anthropicWireUsage(result.usage)).toEqual({ input_tokens: 4, output_tokens: 0,
+      cache_creation_input_tokens: 0, cache_read_input_tokens: 0 });
+    expect(responseFromMessage(result).usage).toBeNull();
+  });
+
+  it('keeps an SDK refusal flagged as failure on the external error path', async () => {
+    await expect(adapterFor({ status: 'fail', error: 'declined', native_stop_reason: 'refusal' })
+      .messages(request, 'claude', {})).rejects.toMatchObject({ status: 502, code: 'runner_failed' });
   });
 });

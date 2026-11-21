@@ -50,11 +50,7 @@ export interface ChatCompletionResult {
   choices: Array<{
     index: number;
     message: { role: 'assistant'; content: string };
-    /**
-     * `null` when the backend reported no reason. The CLI transport never
-     * does, and asserting `'stop'` claimed the model finished its turn for
-     * output that may have been cut short by a timeout or a crash.
-     */
+    /** Null when the CLI reported no stop reason. */
     finish_reason: string | null;
   }>;
   usage: {
@@ -75,11 +71,7 @@ export interface CompletionResult {
     text: string;
     index: number;
     logprobs: null;
-    /**
-     * `null` when the backend reported no reason. The CLI transport never
-     * does, and asserting `'stop'` claimed the model finished its turn for
-     * output that may have been cut short by a timeout or a crash.
-     */
+    /** Null when the CLI reported no stop reason. */
     finish_reason: string | null;
   }>;
   usage: {
@@ -213,7 +205,7 @@ export class RunnerOpenAiAdapter {
     signal?: AbortSignal,
   ): Promise<ResponsesResult> {
     const completion = await this.chatCompletions(messages, model, params, signal);
-    return responseFromChatCompletion(completion, this.config.engine === ENGINE_GROK);
+    return responseFromChatCompletion(completion, this.capabilities.reportsStopReason);
   }
 
   async completions(
@@ -364,11 +356,6 @@ interface RunnerResponse {
   cache_read_input_tokens?: unknown;
   cache_creation_input_tokens?: unknown;
   reasoning_tokens?: unknown;
-  /**
-   * The runner's `/exec` does not report one today, so this is always absent
-   * and `stopReasonFor` answers `null`. It is declared so a transport that
-   * *does* report one needs no change here.
-   */
   finish_reason?: string | null;
 }
 
@@ -382,19 +369,7 @@ function extractUsage(result: RunnerResponse, engine: Engine): {
   if (engine === ENGINE_KIMI) return null;
   const requireExact = engine === ENGINE_GROK;
   if (requireExact && (result.usage_known !== true || ![result.input_tokens, result.output_tokens].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0))) return null;
-  if (engine === ENGINE_CLAUDE) {
-    // Claude counts cache reads/writes outside `input_tokens`; OpenAI's
-    // `prompt_tokens` includes them and reports the cached share separately.
-    const cacheRead = numberOrZero(result.cache_read_input_tokens);
-    const prompt = numberOrZero(result.input_tokens) + cacheRead + numberOrZero(result.cache_creation_input_tokens);
-    const completion = numberOrZero(result.output_tokens);
-    return {
-      prompt_tokens: prompt,
-      completion_tokens: completion,
-      total_tokens: prompt + completion,
-      prompt_tokens_details: { cached_tokens: cacheRead },
-    };
-  }
+  if (engine === ENGINE_CLAUDE) return claudeOpenAiUsage(result);
   const prompt = numberOrZero(result.input_tokens);
   const completion = numberOrZero(result.output_tokens);
   return {
@@ -405,6 +380,29 @@ function extractUsage(result: RunnerResponse, engine: Engine): {
       ...(typeof result.cache_read_input_tokens === 'number' ? { prompt_tokens_details: { cached_tokens: result.cache_read_input_tokens } } : {}),
       ...(typeof result.reasoning_tokens === 'number' ? { completion_tokens_details: { reasoning_tokens: result.reasoning_tokens } } : {}),
     } : {}),
+  };
+}
+
+export function nativeTokenCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** Anthropic excludes cache reads/writes from the base input count. */
+export function claudeOpenAiUsage(result: RunnerResponse): ChatCompletionResult['usage'] {
+  const input = nativeTokenCount(result.input_tokens);
+  const output = nativeTokenCount(result.output_tokens);
+  const cacheRead = nativeTokenCount(result.cache_read_input_tokens);
+  const cacheWrite = nativeTokenCount(result.cache_creation_input_tokens);
+  if (result.usage_known === false || input === null || output === null || cacheRead === null || cacheWrite === null) return null;
+  const prompt = input + cacheRead + cacheWrite;
+  if (!Number.isSafeInteger(prompt + output)) return null;
+  const reasoning = nativeTokenCount(result.reasoning_tokens);
+  return {
+    prompt_tokens: prompt,
+    completion_tokens: output,
+    total_tokens: prompt + output,
+    prompt_tokens_details: { cached_tokens: cacheRead },
+    ...(reasoning === null ? {} : { completion_tokens_details: { reasoning_tokens: reasoning } }),
   };
 }
 
@@ -481,14 +479,14 @@ function renderMessageContent(
 
 export function responseFromChatCompletion(
   completion: ChatCompletionResult,
-  nativeGrok = false,
+  nativeTelemetry = false,
 ): ResponsesResult {
   const responseId = deriveId(completion.id, 'resp_');
   const messageId = deriveId(completion.id, 'msg_');
   const content = completion.choices[0]?.message.content ?? '';
   const usage = completion.usage;
   const reason = completion.choices[0]?.finish_reason;
-  const incomplete = nativeGrok && (reason === 'length' || reason === 'content_filter');
+  const incomplete = nativeTelemetry && (reason === 'length' || reason === 'content_filter');
   return {
     id: responseId,
     object: 'response',
@@ -521,9 +519,9 @@ export function responseFromChatCompletion(
     parallel_tool_calls: false,
     usage: usage ? {
       input_tokens: usage.prompt_tokens,
-      input_tokens_details: usage.prompt_tokens_details ?? (nativeGrok ? null : { cached_tokens: 0 }),
+      input_tokens_details: usage.prompt_tokens_details ?? (nativeTelemetry ? null : { cached_tokens: 0 }),
       output_tokens: usage.completion_tokens,
-      output_tokens_details: nativeGrok ? usage.completion_tokens_details ?? null : { reasoning_tokens: 0 },
+      output_tokens_details: nativeTelemetry ? usage.completion_tokens_details ?? null : { reasoning_tokens: 0 },
       total_tokens: usage.total_tokens,
     } : null,
   };

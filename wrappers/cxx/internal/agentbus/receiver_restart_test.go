@@ -186,7 +186,7 @@ func TestClaudeReceivesPeerInvitationAfterAPIOutage(t *testing.T) {
 			out["sources"] = []string{"peer", "portal"}
 		case "heartbeat":
 			if outage.Load() {
-				http.Error(w, "API restarting", 502)
+				http.Error(w, "API restarting", http.StatusBadGateway)
 				return
 			}
 		case "claim":

@@ -1,4 +1,4 @@
-"""Bounded, cancellable process groups for gateway /exec calls."""
+"""Owned process groups for native runner calls."""
 
 import os
 import signal
@@ -15,7 +15,7 @@ class ExecCancelled(Exception):
     pass
 
 
-def _signal_group(proc, sig):
+def signal_group(proc, sig):
     try:
         os.killpg(proc.pid, sig)
     except ProcessLookupError:
@@ -25,11 +25,11 @@ def _signal_group(proc, sig):
 def _stop(proc):
     # Signal the group even when its leader has exited: descendants may still
     # hold the output pipes or the private credential home open.
-    _signal_group(proc, signal.SIGTERM)
+    signal_group(proc, signal.SIGTERM)
     try:
         proc.communicate(timeout=TERMINATE_GRACE_SECONDS)
     except subprocess.TimeoutExpired:
-        _signal_group(proc, signal.SIGKILL)
+        signal_group(proc, signal.SIGKILL)
         try:
             proc.communicate(timeout=TERMINATE_GRACE_SECONDS)
         except subprocess.TimeoutExpired:
@@ -41,15 +41,15 @@ def _stop(proc):
             proc.wait(timeout=TERMINATE_GRACE_SECONDS)
     finally:
         # A descendant can close its pipes but keep running after its leader.
-        _signal_group(proc, signal.SIGKILL)
+        signal_group(proc, signal.SIGKILL)
 
 
-def run_prompt_process(cmd, *, env, timeout, cancelled=None):
+def run_prompt_process(cmd, *, env, timeout, cancelled=None, cwd=None):
     cancelled = cancelled if cancelled is not None else threading.Event()
     if cancelled.is_set():
         raise ExecCancelled("exec cancelled")
     proc = subprocess.Popen(
-        cmd, env=env, stdin=subprocess.DEVNULL,
+        cmd, env=env, cwd=cwd, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         start_new_session=True,
     )

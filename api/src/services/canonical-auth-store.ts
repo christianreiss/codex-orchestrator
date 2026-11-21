@@ -38,7 +38,7 @@ import type {
 } from './runner-validation.js';
 import { ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI, ENGINE_HOST_FIELDS } from '../util/engine.js';
 import { normalizeGrokAuth, projectGrokAuth, selectGrokCredential } from './grok-auth.js';
-import { normalizeKimiAuth, projectKimiAuth, selectKimiCredential } from './kimi-auth.js';
+import { normalizeKimiAuth, projectKimiAuth, projectKimiRunnerAuth, selectKimiCredential } from './kimi-auth.js';
 import { withGrokAccountLock } from './grok-auth-lock.js';
 import { withKimiAccountLock } from './kimi-auth-lock.js';
 import { ProviderAccountsService } from './provider-accounts.js';
@@ -501,7 +501,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
         engine === ENGINE_CLAUDE
           ? await runner.verifyClaude({ authJson: canonical })
           : engine === ENGINE_GROK ? await (runner.verifyGrok?.({ authJson: projectGrokAuth(canonical) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
-          : engine === ENGINE_KIMI ? await (runner.verifyKimi?.({ authJson: canonical }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
+          : engine === ENGINE_KIMI ? await (runner.verifyKimi?.({ authJson: projectKimiRunnerAuth(canonical) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
           : await runner.verify({ authJson: canonical });
       const readbackFailure = runnerReadbackFailure(verdict);
       const applied = prepareRunnerUpdatedAuth(
@@ -1046,7 +1046,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
         engine === ENGINE_CLAUDE
           ? await runner.verifyClaude({ authJson: auth })
           : engine === ENGINE_GROK ? await (runner.verifyGrok?.({ authJson: projectGrokAuth(auth) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
-          : engine === ENGINE_KIMI ? await (runner.verifyKimi?.({ authJson: auth }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
+          : engine === ENGINE_KIMI ? await (runner.verifyKimi?.({ authJson: projectKimiRunnerAuth(auth) }) ?? Promise.resolve<RunnerVerifyResult>({ ok: false, status: 'unconfigured', reachable: false }))
           : await runner.verify({ authJson: auth });
 
       probeInfo = {

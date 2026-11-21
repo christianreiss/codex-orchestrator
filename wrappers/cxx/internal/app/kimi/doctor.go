@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
-	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
+	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launcherdoctor"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"

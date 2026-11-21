@@ -18,6 +18,10 @@ const forHost = (version: string | null, native: Record<string, unknown>) =>
     settings: normalize(native), baseUrl: null, apiKey: null,
   });
 
+it('explains why the Claude 2.1.330 enterprise sign-in rule cannot be written in user settings', () => {
+  expect(() => normalizeClaudeNativeSettings({ enforceAnthropicSignIn: true })).toThrow(/enforceAnthropicSignIn.*requires native managed settings/);
+});
+
 describe('Claude 2.1.328 mcp_tool hook onFailure', () => {
   it.each(['continue', 'block'])('accepts onFailure=%s and keeps it through normalization', onFailure => {
     const native = mcpHook({ onFailure, input: { path: '${file}' } });

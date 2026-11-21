@@ -14,6 +14,8 @@ import time
 import httpx
 from fastapi import HTTPException
 
+from exec_process import run_prompt_process
+
 CLI_PATH = shutil.which("kimi") or "/usr/local/bin/kimi"
 VERSION: str | None = None
 REFRESH_BUFFER_SECONDS = 300
@@ -200,5 +202,5 @@ def run(prompt: str, env: dict, timeout: float, model: str | None = None,
         system: str | None = None) -> tuple[subprocess.CompletedProcess[str], int]:
     cmd = build_command(prompt, env["HOME"], model, system)
     started = time.perf_counter()
-    proc = subprocess.run(cmd, env=env, cwd=env["HOME"], capture_output=True, text=True, timeout=timeout)
+    proc = run_prompt_process(cmd, env=env, cwd=env["HOME"], timeout=timeout)
     return proc, int((time.perf_counter() - started) * 1000)

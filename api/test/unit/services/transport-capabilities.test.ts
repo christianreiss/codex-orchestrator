@@ -48,7 +48,7 @@ describe('the CLI transport declares what it can actually honor', () => {
 
   it('does not claim a stop reason or exact Codex usage it cannot produce', () => {
     expect(CODEX.reportsStopReason).toBe(false);
-    expect(CLAUDE.reportsStopReason).toBe(false);
+    expect(CLAUDE.reportsStopReason).toBe(true);
     expect(CODEX.reportsExactUsage).toBe(false);
     // The Claude CLI's JSON result carries real token counts.
     expect(CLAUDE.reportsExactUsage).toBe(true);

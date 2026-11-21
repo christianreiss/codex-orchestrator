@@ -25,6 +25,7 @@ import {
   kimiProjectionMetadata,
   normalizeKimiAuth,
   projectKimiAuth,
+  projectKimiRunnerAuth,
   selectKimiCredential,
 } from './kimi-auth.js';
 import { withKimiAccountLock } from './kimi-auth-lock.js';
@@ -229,7 +230,7 @@ export function createKimiAuthOwner(deps: KimiAuthOwnerDeps) {
           if (remaining <= 50 || !deps.runner.verifyKimi || !deps.runner.isConfigured())
             throw unavailable('kimi_refresh_pending');
           const verdict = await deps.runner.verifyKimi({
-            authJson: projectKimiAuth(candidate.auth),
+            authJson: projectKimiRunnerAuth(candidate.auth),
             timeoutSeconds: remaining / 1000,
           });
           if (!verdict.ok || !verdict.reachable || !verdict.definitive) {

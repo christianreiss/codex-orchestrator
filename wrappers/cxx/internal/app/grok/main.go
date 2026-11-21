@@ -157,6 +157,9 @@ func RunWithChoice(args []string, stdout, stderr io.Writer, _ *quotaadvice.Sessi
 }
 func Run(args []string, stdout, stderr io.Writer) int {
 	o, err := parse(args)
+	if err == nil && o.command == "run" {
+		o.args, err = installedGrammarArgs(o.args)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "cgx:", err)
 		return 2
@@ -167,6 +170,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 // RunNative preserves the native CLI grammar while retaining fleet account
 // ownership and the same session/receiver lifecycle as cgx.
 func RunNative(args []string, stdout, stderr io.Writer) int {
+	args, err := installedGrammarArgs(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "grok:", err)
+		return 1
+	}
 	o, err := nativeOptions(args)
 	if err != nil {
 		fmt.Fprintln(stderr, "grok:", err)
@@ -871,6 +879,14 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	version, err = versionProbe.supported(ctx, path)
 	if err != nil {
 		return 1, err
+	}
+	// An install during sync may select an older binary after auth dispatch.
+	// Legacy commands were normalized before dispatch; only modern raw argv
+	// that would change meaning if launched with that older CLI is refused.
+	if o.command == "run" && !config.NativeVersionAtLeast(version, "1.0.91") {
+		if _, _, differs := nativeargs.GrokLegacyArgs(o.args); differs {
+			return 1, errors.New("the selected Grok version changed during launch; retry to select the installed prompt grammar")
+		}
 	}
 	env := rt.Environment(os.Environ())
 	rtkSession, rtkErr := rtk.Prepare(ctx, cfg, args, env, rt.Home, stderr, version)

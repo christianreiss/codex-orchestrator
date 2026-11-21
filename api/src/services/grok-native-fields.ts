@@ -1,7 +1,7 @@
-/** Grok Build native field registry, audited 2026-11-20.
- * Published npm latest and native stable: 1.0.89. Bundled 26-config-reference.md
- * SHA-256: 18eb6e45fd09f381052a257415cc45244d18a0ba2540791221cf8af50733b23e
- * (1.0.88 reference a74c01b5c3e99834d0005d4a3985f3d4867f209ee8dfadd71e51e24e72c79466).
+/** Grok Build native field registry, audited 2026-11-21.
+ * Published npm latest and native stable: 1.0.92. Bundled 26-config-reference.md
+ * SHA-256: ff38e8d0ba54e357f58e211a873e57235a8c170829465ccbf872db43eb854387
+ * (1.0.89 reference 18eb6e45fd09f381052a257415cc45244d18a0ba2540791221cf8af50733b23e).
  * Public source (Apache-2.0; supplemented by the newer bundled reference):
  * https://raw.githubusercontent.com/xai-org/grok-build/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-pager/docs/user-guide/26-config-reference.md
  * Supplemented by the bundled 05-configuration.md, 10-hooks.md (1.0.77 handler
@@ -98,6 +98,13 @@ export const GROK_NATIVE_FIELDS: Record<string, readonly string[]> = {
   "auth.preferred_method": ["=api_key", "=oidc"],
   "auth.token_header": ["string"],
   "auth_provider.*": ["table"],
+  "auto_mode.classifier_model": ["string"],
+  "auto_mode.classify_timeout_ms": ["integer"],
+  "auto_mode.prompt_type": ["=full", "=bare_instructions", "=just_command"],
+  "auto_mode.reasoning_effort": ["=none", "=minimal", "=low", "=medium", "=high", "=xhigh", "=max"],
+  "features.wrap_image_relay": ["boolean"],
+  "model.*.supports_reasoning_text_replay": ["boolean"],
+  "models.headless_retry_deadline_secs": ["integer"],
   "auto_mode.enabled": ["boolean"],
   "campaigns": ["table[]"],
   "cli.auto_update": ["boolean"],

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 )
 
 // Reject old installed binaries before syncing settings they cannot consume.
@@ -75,4 +77,25 @@ func (p *launchVersionProbe) supported(ctx context.Context, path string) (string
 		*p = launchVersionProbe{path: path, info: after, version: version}
 	}
 	return version, nil
+}
+
+// Resolve grammar before auth routing. Most invocations have identical boundaries
+// on all supported versions and need no additional version probe.
+func installedGrammarArgs(args []string) ([]string, error) {
+	legacy, legacyErr, differs := nativeargs.GrokLegacyArgs(args)
+	if !differs {
+		return args, nil
+	}
+	path, err := native.FindCLI()
+	if err != nil {
+		return nil, fmt.Errorf("ambiguous prompt and command; quote the prompt or put the command first: %w", err)
+	}
+	version, err := native.ProbeVersion(context.Background(), path)
+	if err != nil {
+		return nil, fmt.Errorf("ambiguous prompt and command; quote the prompt or put the command first: %w", err)
+	}
+	if config.NativeVersionAtLeast(version, "1.0.91") {
+		return args, nil
+	}
+	return legacy, legacyErr
 }

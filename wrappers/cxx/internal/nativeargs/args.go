@@ -284,8 +284,8 @@ var codexCommands = strings.Fields("exec e review login logout mcp app-server co
 
 var grokCommands = strings.Fields("agent clone completions cursor-worker worker dashboard doctor du disk-usage export help inspect leader login logout mcp memory models plugin sessions setup trace update usage version v worktree wrap install upgrade")
 
-// Command returns an unconsumed native command. Both providers accept one
-// initial prompt before a subcommand. Unknown Codex positionals retain their
+// Command returns an unconsumed native command. Grok uses the current variadic
+// prompt grammar; the dispatch boundary adapts earlier installed versions. Unknown Codex positionals retain their
 // old fallback so wrapper profile/command classification remains separate.
 func Command(engine string, args []string) (string, int) {
 	commands := codexCommands
@@ -293,7 +293,8 @@ func Command(engine string, args []string) (string, int) {
 		commands = kimiCommands
 	}
 	if engine == "grok" {
-		commands = grokCommands
+		root := grokRoot(args, true)
+		return root.command, root.at
 	}
 	first := -1
 	for i := 0; i < len(args) && args[i] != "--"; i++ {

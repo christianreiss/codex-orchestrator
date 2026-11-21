@@ -68,17 +68,17 @@ RUN set -euo pipefail; \
     npm --version
 
 # --- Claude Code CLI (exact latest-normal release, verified) ---
-# Latest normal release as of 2026-11-20; vendor conservative stable is 2.1.311.
+# Latest normal release as of 2026-11-21; vendor conservative stable is 2.1.323.
 # No `|| true`. The previous form installed whatever npm served that minute and
 # swallowed the failure, so a registry hiccup produced an image that claimed
 # dual-engine readiness with no `claude` on PATH at all.
-ARG CLAUDE_CODE_VERSION=2.1.329
+ARG CLAUDE_CODE_VERSION=2.1.330
 RUN set -euo pipefail; \
     npm install -g --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"; \
     command -v claude >/dev/null || { echo "claude not on PATH after install" >&2; exit 1; }; \
     installed="$(claude --version)"; \
     case "$installed" in \
-      *"$CLAUDE_CODE_VERSION"*) ;; \
+      "$CLAUDE_CODE_VERSION (Claude Code)") ;; \
       *) echo "claude reports '$installed', expected ${CLAUDE_CODE_VERSION}" >&2; exit 1 ;; \
     esac; \
     npm cache clean --force
@@ -88,7 +88,7 @@ WORKDIR /app
 # Official Grok native npm artifact, pinned by version AND sha512 integrity.
 # Extract only package/bin/grok.br; Node's built-in Brotli avoids installers.
 COPY install-grok.mjs /tmp/install-grok.mjs
-ARG GROK_VERSION=1.0.89
+ARG GROK_VERSION=1.0.92
 RUN set -eu; GROK_VERSION="${GROK_VERSION}" node /tmp/install-grok.mjs "${TARGETARCH:-amd64}"; \
     grok --version | grep -F "grok ${GROK_VERSION} "; \
     rm /tmp/install-grok.mjs

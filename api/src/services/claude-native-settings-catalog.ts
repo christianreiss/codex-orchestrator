@@ -1,4 +1,4 @@
-/** Public user-scope settings, verified against Claude Code 2.1.329 on 2026-11-20.
+/** Public user-scope settings, verified against Claude Code 2.1.330 on 2026-11-21.
  * Sources: https://code.claude.com/docs/en/settings-reference
  * https://github.com/anthropics/claude-code/releases/tag/v2.1.314 (write boundary).
  * Only key names, JSON types and fixed enum values are recorded here. Native
@@ -152,6 +152,7 @@ export const CLAUDE_NATIVE_SETTING_RULES: Readonly<Record<string, ClaudeNativeSe
 };
 
 export const CLAUDE_MANAGED_ONLY_SETTINGS: readonly string[] = [
+  "enforceAnthropicSignIn",
   "availableModelsMatch",
   "deniedModels",
   "modelPricing",

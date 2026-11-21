@@ -42,7 +42,8 @@ describe.skipIf(!handle)('Kimi fenced OAuth owner on MySQL', () => {
     verifyKimi: async ({ authJson }) => {
       verificationCount++;
       expect(selectKimiCredential(authJson, true)?.refresh).toBeNull();
-      expect(selectKimiCredential(authJson, true)?.native.expires_at).toBe(0);
+      expect(selectKimiCredential(authJson, true)?.native.expires_at).toEqual(expect.any(Number));
+      expect(Number(selectKimiCredential(authJson, true)?.native.expires_at)).toBeGreaterThan(0);
       return verdict;
     },
   };

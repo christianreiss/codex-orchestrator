@@ -23,15 +23,15 @@ docker build -t codex-auth-runner -f runner/Dockerfile runner
 The image bundles:
 
 - Kimi Code 2.7.2 from the official versioned binary manifest, with SHA-256 verification and a version assertion (`install-kimi.sh`, amd64/arm64).
-- Grok Build 1.0.89 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
+- Grok Build 1.0.92 from the official `@xai-official/grok-linux-{x64,arm64}` native package, installed by `install-grok.mjs` using Node's built-in Brotli decoder.
 
 - The Codex CLI (default `rust-v0.171.0`, musl builds; see `CODEX_TAG` in `runner/Dockerfile`). The pin has to stay in step with the fleet's codex target so probes and gateway requests run the same model catalog as real hosts. Confirmed on 2026-10-15: 0.154.0 rejects `gpt-6.1-sol` with ChatGPT credentials; 0.162.1 completes the same prompt with the same refresh-stripped credentials. Override via build args `CODEX_TAG`, `CODEX_VERSION`, `CODEX_ASSET_AMD64`, `CODEX_ASSET_ARM64`, `CODEX_SHA256_AMD64`, `CODEX_SHA256_ARM64`. Supported `TARGETARCH` values are `amd64` and `arm64`.
-- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.329` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
+- Node.js 22.14.0 plus `@anthropic-ai/claude-code@2.1.330` (installed globally), so `/verify-claude` and the Claude `exec` path work without extra setup.
 
-Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.89 with separate Linux amd64/arm64 sha512 integrity digests, verified against the exact
-platform dependencies of `@xai-official/grok@1.0.89` on 2026-11-20, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All four CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
+Codex and Node archives are checked against pinned SHA256 digests. The official Grok native package is pinned to 1.0.92 with separate Linux amd64/arm64 sha512 integrity digests, verified against the exact
+platform dependencies of `@xai-official/grok@1.0.92` on 2026-11-20, and only `package/bin/grok.br` is decoded; npm lifecycle scripts are never run. All four CLIs must report the expected version after installation; a missing, unreadable, or mismatched binary fails the build. There is no `|| true`. The base image is pinned by multi-arch index digest — `scripts/update-base-images.sh` refreshes that pin and the Node/Codex checksums together.
 
-These are runner execution pins, separate from host minimum-version and private-install fallback policies. Verified 2026-11-20: Codex 0.171.0 (latest GitHub release and npm `latest`, tag commit `ccf9be8cc458bd6b8336fe84d68d8893f2691a5e`; the two musl release asset digests in `runner/Dockerfile` were verified by hashing the real downloads); Claude 2.1.329 tracks npm `latest`/`next` (the conservative `stable` tag remains 2.1.311); Grok 1.0.89 is npm `latest` and the `x.ai/cli/stable` pointer (verified against `@xai-official/grok@1.0.89`). Local channel labels do not change the distributed version.
+These are runner execution pins, separate from host minimum-version and private-install fallback policies. Verified 2026-11-20: Codex 0.171.0 (latest GitHub release and npm `latest`, tag commit `ccf9be8cc458bd6b8336fe84d68d8893f2691a5e`; the two musl release asset digests in `runner/Dockerfile` were verified by hashing the real downloads); on 2026-11-21 Claude 2.1.330 tracks npm `latest`/`next` (the conservative `stable` tag is 2.1.323); on 2026-11-21 Grok 1.0.92 is npm `latest` and the `x.ai/cli/stable` pointer (verified against `@xai-official/grok@1.0.92`). Local channel labels do not change the distributed version.
 
 Kimi 2.7.2 uses the verified versioned manifest and Linux binaries. Verified 2026-11-20: `code.kimi.com/kimi-code/latest` reports 2.7.2, whose CDN manifest (SHA-256 `a685369a0d4ce1f57c4fc7d4392d9bc6780a7f132cd41ddc24cd7cd8ef14aa76`) lists the linux-x64 binary SHA-256 `7f82148d26467874400d19ee8d23ead13cece9cd0c17648a5622cae480a5a596`. The 2.7.2 stream-json shape was compared with 2.6.2 against a mock provider using the runner's own argv shape; it was not proven against a real account. Neither the vendor discovery endpoint nor global recovery minimums are changed by this image pin.
 
@@ -103,16 +103,16 @@ Returns what the image actually carries, probed once at import:
     "claude": {
       "available": true,
       "binary": "/usr/local/bin/claude",
-      "version": "2.1.329",
-      "expected_version": "2.1.329",
+      "version": "2.1.330",
+      "expected_version": "2.1.330",
       "version_matches": true,
       "detail": "ready"
     },
     "grok": {
       "available": true,
       "binary": "/usr/local/bin/grok",
-      "version": "1.0.89",
-      "expected_version": "1.0.89",
+      "version": "1.0.92",
+      "expected_version": "1.0.92",
       "version_matches": true,
       "detail": "ready"
     },
@@ -515,7 +515,13 @@ Readiness probe for the one-shot prompt path:
 
 Run a single prompt through the engine CLI. This is the route the API uses to serve OpenAI/Anthropic-style completions from a host's stored credentials.
 
-Each call owns a process group. Timeout, client disconnect and cancellation send SIGTERM, allow two seconds of cleanup, then SIGKILL remaining group members. The private home is removed after process cleanup. A disconnect/cancellation reports HTTP 499 when a response can still be delivered; an execution deadline remains HTTP 504.
+On successful Claude calls the runner forwards native token buckets, optional thinking tokens and the native stop reason. Missing counters stay null and incomplete usage sets `usage_known: false`. An SDK error or nonzero process exit returns `status: fail`, including a refusal the native CLI classifies as a failure.
+
+Native credential probes and native skill and project draft calls also own their
+process groups. A finished CLI or an expired deadline triggers cleanup of any
+remaining group members before removal of the private home.
+
+Each gateway call owns a process group. Timeout, client disconnect and cancellation send SIGTERM, allow two seconds of cleanup, then SIGKILL remaining group members. The private home is removed after process cleanup. A disconnect/cancellation reports HTTP 499 when a response can still be delivered; an execution deadline remains HTTP 504.
 
 Request body:
 
@@ -582,8 +588,9 @@ Returns `{protocol:1,response:{kind:"answer"|"question"|"tool_call",...}}`.
 Only the API executes product tools. Native CLI tools, MCP and subagents are
 disabled; every call uses a clean temporary home and an allowlisted environment.
 The existing auth preparers strip refresh credentials from runtime projections.
-Two dedicated slots return 429 when busy. Timeout, disconnect and cancellation
-terminate the process group and remove its home. Output is bounded to 256 KiB.
+Two dedicated slots return 429 when busy. On success, timeout, disconnect or
+cancellation, the runner terminates any remaining group members before removing
+the private home. Output is bounded to 256 KiB.
 Malformed JSON is 502 `chatty_invalid_output`; native errors do not expose stderr.
 This is completed-step transport, not provider token streaming.
 

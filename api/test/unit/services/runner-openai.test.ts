@@ -141,3 +141,39 @@ describe('generation controls codex exec cannot honor', () => {
     expect(completion.choices[0]?.finish_reason).toBeNull();
   });
 });
+
+describe('Claude telemetry on OpenAI endpoints', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function adapterFor(result: Record<string, unknown>) {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(result)));
+    return new RunnerOpenAiAdapter({
+      engine: 'claude', execUrl: 'http://runner/exec', sharedSecret: 'fixture', timeoutSeconds: 1,
+      authSnapshot: async () => ({ token: 'test' }),
+    });
+  }
+
+  it('keeps a length-limited completion and includes cache reads, writes and reported reasoning', async () => {
+    const adapter = adapterFor({ status: 'ok', output: 'partial', finish_reason: 'length', input_tokens: 4,
+      output_tokens: 6, cache_creation_input_tokens: 3, cache_read_input_tokens: 8, reasoning_tokens: 2 });
+    const messages = [{ role: 'user', content: 'hello' }];
+    const completion = await adapter.completions('hello', 'claude', {});
+    expect(completion.choices[0]?.finish_reason).toBe('length');
+    expect(completion.usage).toMatchObject({ prompt_tokens: 15, completion_tokens: 6, total_tokens: 21 });
+    const response = await adapter.responses(messages, 'claude');
+    expect(response).toMatchObject({ status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' },
+      output: [{ status: 'incomplete' }], usage: { input_tokens: 15, output_tokens: 6, total_tokens: 21,
+        input_tokens_details: { cached_tokens: 8 }, output_tokens_details: { reasoning_tokens: 2 } } });
+  });
+
+  it('leaves partial token totals, missing detail and absent stop reasons unknown', async () => {
+    const request = [{ role: 'user', content: 'hello' }];
+    const partial = await adapterFor({ status: 'ok', output: 'hello', input_tokens: 4, output_tokens: 3 })
+      .chatCompletions(request, 'claude', {});
+    expect(partial.choices[0]?.finish_reason).toBeNull();
+    expect(partial.usage).toBeNull();
+    const zero = await adapterFor({ status: 'ok', output: '', input_tokens: 0, output_tokens: 0,
+      cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }).responses(request, 'claude');
+    expect(zero.usage).toMatchObject({ total_tokens: 0, output_tokens_details: null });
+  });
+});

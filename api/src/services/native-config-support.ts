@@ -61,6 +61,7 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
   for (const model of Object.values(record(native.model))) {
     const fields = record(model);
     if (has(fields, 'vision') || has(fields, 'compactions_remaining') || has(fields, 'send_compactions_remaining') || typeof fields.compaction_at_tokens === 'boolean') require('1.0.70');
+    if (has(fields, 'supports_reasoning_text_replay')) require('1.0.90');
     if (has(fields, 'interjection_reply_nudge')) require('1.0.74');
   }
   for (const tool of ['image_gen', 'video_gen']) {
@@ -83,30 +84,27 @@ function grokNativeMinimum(native: Record<string, unknown>, observed?: string, i
   // 1.0.89 additions: 1.0.88 reports all four as unrecognized config keys.
   if (GROK_189_FEATURES.some(key => has(features, key))
     || GROK_189_CONTEXTUAL_HINTS.some(key => has(record(ui.contextual_hints), key))) require('1.0.89');
+  if (['classifier_model', 'classify_timeout_ms', 'prompt_type', 'reasoning_effort'].some(key => has(record(native.auto_mode), key))) require('1.0.90');
+  if (has(features, 'wrap_image_relay') || has(record(native.models), 'headless_retry_deadline_secs')) require('1.0.92');
   if (includeOverrides && Array.isArray(native.version_overrides)) for (const layer of native.version_overrides) {
     const patch = record(layer);
-    if (observed && ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)
-      || (typeof patch.maximum_version === 'string' && versionCompare(observed, patch.maximum_version) > 0))) continue;
+    if (observed && !grokLayerApplies(patch, observed)) continue;
     const required = grokNativeMinimum(patch, observed, false);
     if (required) require(required);
   }
   return minimum;
 }
 
-/**
- * `features.zdr_access_enabled` is consumed through 1.0.63 and absent from the
- * 1.0.64+ binaries (npm archive bisect, 2026-10-28). It still works on the
- * 1.0.50 fleet baseline, so it is gated per observed host instead of rejected.
- */
-const GROK_ZDR_REMOVED_IN = '1.0.64';
-function grokZdrApplies(native: Record<string, unknown>, observed: string): boolean {
-  if (Object.hasOwn(record(native.features), 'zdr_access_enabled')) return true;
-  return Array.isArray(native.version_overrides) && native.version_overrides.some(layer => {
-    const patch = record(layer);
-    if ((typeof patch.minimum_version === 'string' && versionCompare(observed, patch.minimum_version) < 0)
-      || (typeof patch.maximum_version === 'string' && versionCompare(observed, patch.maximum_version) > 0)) return false;
-    return Object.hasOwn(record(patch.features), 'zdr_access_enabled');
-  });
+// Preserve valid settings on older clients and skip inactive conditional layers.
+const removedGrokFields = [
+  ['features', 'zdr_access_enabled', '1.0.64', '1.0.63'],
+  ['features', 'workspace_dashboard', '1.0.90', '1.0.89'],
+  ['dashboard', 'grouping', '1.0.90', '1.0.89'],
+] as const;
+
+function grokLayerApplies(layer: Record<string, unknown>, observed: string): boolean {
+  return !(typeof layer.minimum_version === 'string' && versionCompare(observed, layer.minimum_version) < 0)
+    && !(typeof layer.maximum_version === 'string' && versionCompare(observed, layer.maximum_version) > 0);
 }
 
 /** `onFailure` on an `mcp_tool` hook needs Claude Code 2.1.328; older CLIs ignore it and fail open. */
@@ -134,8 +132,14 @@ export function assertNativeConfigSupport(settings: unknown, host: Host | null, 
     const native = record(record(settings).native_settings);
     const raw = host.grokClientVersion;
     const observed = typeof raw === 'string' ? raw.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] : undefined;
-    if (observed && versionCompare(observed, GROK_ZDR_REMOVED_IN) >= 0 && grokZdrApplies(native, observed)) {
-      throw new ValidationError(`grok native setting features.zdr_access_enabled was removed in Grok Build ${GROK_ZDR_REMOVED_IN}; observed ${observed}. Remove it, or keep it for older hosts in a version_overrides layer with maximum_version = "1.0.63", then retry sync.`, { param: 'settings.native_settings.features.zdr_access_enabled' });
+    if (observed) {
+      const layers = [native, ...(Array.isArray(native.version_overrides)
+        ? native.version_overrides.map(record).filter(layer => grokLayerApplies(layer, observed)) : [])];
+      for (const [section, key, removed, previous] of removedGrokFields) {
+        if (versionCompare(observed, removed) >= 0 && layers.some(layer => Object.hasOwn(record(layer[section]), key))) {
+          throw new ValidationError(`grok native setting ${section}.${key} was removed in Grok Build ${removed}; observed ${observed}. Remove it, or keep it for older hosts in a version_overrides layer with maximum_version = "${previous}", then retry sync.`, { param: `settings.native_settings.${section}.${key}` });
+        }
+      }
     }
     const minimum = grokNativeMinimum(native, observed);
     if (minimum && (!observed || versionCompare(observed, minimum) < 0)) {

@@ -1,12 +1,12 @@
 # Auth Runner (Sidecar) Behavior
 
-The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, revises skill and project drafts from a conversation, and executes one-shot prompts by running `/usr/local/bin/codex` (or the Claude or Grok CLI) in an isolated temp `$HOME`.
+The auth runner is a FastAPI sidecar (`auth-runner` in `docker-compose.yml`) that sanity-checks auth payloads, generates short skill/memory summaries, drafts new skill manifests, revises skill and project drafts from a conversation, and executes one-shot prompts by running `/usr/local/bin/codex` (or the selected Claude, Grok or Kimi CLI) in an isolated temp `$HOME`.
 
-The runner also pins Claude Code 2.1.329 (latest normal release verified on
-2026-11-20; vendor conservative stable channel: 2.1.311) and Grok Build
-1.0.89 (npm `latest` and the `x.ai/cli/stable` pointer, verified on 2026-11-20). These image pins do not change host minimum-version policy.
+The runner also pins Claude Code 2.1.330 (latest normal release verified on
+2026-11-21; vendor conservative stable channel: 2.1.323) and Grok Build
+1.0.92 (npm `latest` and the `x.ai/cli/stable` pointer, verified on 2026-11-21) and Kimi Code 2.7.2. These image pins do not change host minimum-version policy.
 
-The bundled Codex CLI is pinned to 0.171.0 (verified 2026-11-20), matching the fleet catalog. Older
+The bundled Codex CLI is pinned to 0.171.0 (verified 2026-11-21), matching the fleet catalog. Older
 0.154.0 runners reject `gpt-6.1-sol` with ChatGPT credentials even while
 `/health` and the gateway's `/v1/models` return success. A runner update requires
 rebuilding and recreating the `auth-runner` service; restarting the API alone
@@ -25,7 +25,7 @@ new route has to be documented here before it can ship.
 
 - `GET /health` returns `status` (`ok` / `degraded`), `required_engines`, a `problems` list, and per-engine `available`, `binary`, `version`, `expected_version`, and `version_matches`. `available` means the binary resolved *and* answered `--version`; it is not a `which` lookup. Used by Docker health checks and by the API boot check, which reads each engine's entry on its own rather than the top-level `status` — one drifted CLI must not mark another engine dead.
 - `POST /verify` validates Codex credentials. Body: `auth_json` (required object) and `timeout_seconds` (optional float).
-- `POST /verify-kimi` validates canonical Kimi subscription credentials with access-only `GET {base_url}/usages`, without redirects or OAuth refresh; same request as `/verify-grok`, returning `kimi_version` and `auth_readback: "unchanged"`. Never returns `updated_auth`.
+- `POST /verify-kimi` validates canonical Kimi subscription credentials with access-only `GET {base_url}/usages`, without redirects or OAuth refresh; the access-only projection includes the canonical numeric expiry for the runner lifetime check. The refresh grant stays on the API. This route returns `kimi_version` and `auth_readback: "unchanged"`. Never returns `updated_auth`.
 - `POST /verify-grok` validates modern Grok subscription OIDC through the fixed read-only user metadata endpoint, without native execution or OAuth refresh. Same request body as `/verify`; returns `grok_version` and allowlisted provider metadata. Legacy web-login and metered API-key auth are rejected.
 - `POST /verify-claude` validates Claude credentials. Same body as `/verify`. Native Claude Code OAuth/account-login payloads use the Claude CLI; genuine Anthropic API keys use the Messages API.
 - `POST /skills/generate` generates a structured skill draft. Body: `auth_json` (required object), `prompt` (required string), optional `slug_hint`, optional `engine`, and optional `timeout_seconds`.

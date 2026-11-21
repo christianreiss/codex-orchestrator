@@ -536,16 +536,22 @@ nested `LlmModelSpec` shape; the semantics for rendered metadata (always-thinkin
 K3.1 Pro, image-but-not-video `k3-256k`, Highspeed without adjustable efforts)
 are unchanged.
 
-Stop-hook probe, 2026-11-20 (throwaway home, mock provider, exit 2 plus stderr
-reason): on 2.6.2 `-p` never invoked the `Stop` hook. On 2.7.2 `-p` invokes it and
-the block is registered, but the process exits right after the first model
-request and the continuation turn never runs (the hook queue is aborted on
-dispose). In headless runs, blocking `Stop` to hand over pending peer mail is
-therefore best-effort at most, which is no regression against 2.6.2. The
-interactive TUI was not probed: upstream source runs `Stop` after the turn ends
-and a block starts a `system_trigger/stop_hook` continuation turn, but the turn
-that continuation ends is not followed by a second `Stop`. This was recorded
-only; no code was changed.
+### Native hook acceptance (2026-11-21)
+
+The opt-in `TestKimiNativeHooksCanary` ran the official Linux x64 Kimi 2.7.2
+binary with `-p probe --output-format stream-json`, an isolated home and a
+loopback provider. The provider received the `UserPromptSubmit` marker and a
+subsequent request carrying the blocking `Stop` hook's stderr marker. All three
+hook events (`SessionStart`, `UserPromptSubmit`, `Stop`) carried the stream's
+session ID, working directory and client type. The CLI wrote its transcript.
+Use a canonical absolute temporary directory for this check.
+
+A previous 2.7.2 headless probe observed a first request followed by process
+exit. The native canary establishes that a continuation can run before exit.
+Delivery still requires its normal acknowledgement. On 2.6.2 the earlier probe
+observed no `Stop` invocation in print mode. These checks used synthetic
+inference; interactive TUI timing and provider account entitlement require
+separate evidence.
 
 ## Explicit task-title and result reconciliation
 

@@ -15,6 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 import app
+import chatty
 import exec_process
 
 
@@ -91,6 +92,61 @@ def test_exec_stops_complete_group_with_grace(tmp_path, reason, ignore_term):
                     os.kill(pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux runner process-group contract")
+@pytest.mark.parametrize("engine", ["chatty", "codex", "claude", "grok", "kimi"])
+def test_provider_calls_clean_children_after_leader_exit(tmp_path, engine):
+    """Native CLIs may leave a helper alive that already closed its pipes."""
+    marker = tmp_path / "child.pid"
+    child_script = """
+import os, signal, sys, time
+from pathlib import Path
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+Path(sys.argv[1]).write_text(str(os.getpid()))
+time.sleep(10)
+"""
+    leader_script = """
+import subprocess, sys, time
+from pathlib import Path
+subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[2]],
+                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+while not Path(sys.argv[2]).exists():
+    time.sleep(0.005)
+"""
+    cmd = [sys.executable, "-c", leader_script, child_script, str(marker)]
+    env = {"HOME": str(tmp_path), "PATH": os.defpath}
+    try:
+        if engine == "chatty":
+            async def exercise():
+                proc = await asyncio.create_subprocess_exec(*cmd, env=env, start_new_session=True)
+                assert await asyncio.wait_for(proc.wait(), timeout=4) == 0
+                await chatty.stop_process(proc)
+
+            asyncio.run(exercise())
+        else:
+            owner, attr = {
+                "codex": (app, "_build_codex_exec_cmd"),
+                "claude": (app, "_build_claude_exec_cmd"),
+                "grok": (app.grok, "build_command"),
+                "kimi": (app.kimi, "build_command"),
+            }[engine]
+            with patch.object(owner, attr, return_value=cmd):
+                if engine in ("codex", "claude"):
+                    app._run_engine_exec("test", env, 4, engine)
+                else:
+                    owner.run("test", env, 4)
+        pid = int(marker.read_text())
+        deadline = time.monotonic() + 0.5
+        while running(pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not running(pid), f"{engine} left its helper running"
+    finally:
+        if marker.exists():
+            try:
+                os.kill(int(marker.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def test_already_cancelled_exec_never_spawns():
