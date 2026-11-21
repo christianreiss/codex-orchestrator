@@ -99,8 +99,8 @@ async function main(): Promise<number> {
 }
 
 try {
-  process.exit(await main());
+  process.exitCode = await main();
 } catch (err) {
   process.stderr.write(`${err instanceof Error ? err.stack || err.message : String(err)}\n`);
-  process.exit(1);
+  process.exitCode = 1;
 }

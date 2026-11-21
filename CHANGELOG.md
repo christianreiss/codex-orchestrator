@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- The database migration CLI finishes writing reports to slow pipes before exiting. Automation can parse the complete JSON result, including when the schema check reports pending migrations.
+
 - Wrapper 0.9.199 keeps Kimi peer messaging available when the Operator Portal is off. The receiver now reports activity only when the server grants that capability, so a disabled activity endpoint can no longer close the local messaging bridge.
 
 - Wrapper 0.9.198 fixes a false failure after `ckx uninstall` or `cgx uninstall` removed an installed engine. Both commands accept an already absent private installation and report a busy store or filesystem error.

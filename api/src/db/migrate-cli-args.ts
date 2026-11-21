@@ -1,7 +1,6 @@
 /**
  * Argument parsing and report formatting for the migration CLI, kept apart from
- * `migrate-cli.ts` because that file ends in a top-level `process.exit` and so
- * cannot be imported by a test. The flag surface here is what `scripts/deploy.sh`,
+ * `migrate-cli.ts`, which runs the command when loaded. The flag surface here is what `scripts/deploy.sh`,
  * `.github/workflows/api.yml` and `src/db/README.md` all spell out.
  */
 
