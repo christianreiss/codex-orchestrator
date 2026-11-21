@@ -549,9 +549,15 @@ Use a canonical absolute temporary directory for this check.
 A previous 2.7.2 headless probe observed a first request followed by process
 exit. The native canary establishes that a continuation can run before exit.
 Delivery still requires its normal acknowledgement. On 2.6.2 the earlier probe
-observed no `Stop` invocation in print mode. These checks used synthetic
-inference; interactive TUI timing and provider account entitlement require
-separate evidence.
+observed no `Stop` invocation in print mode.
+
+A separate 2.7.2 check launched the native interactive CLI on a Linux PTY
+with a disposable home and a loopback streaming provider. After a typed prompt,
+the first request contained the `UserPromptSubmit` hook output. The next request
+contained the blocking `Stop` hook's stderr. All three hooks reported one native
+session with client type `kimi_code_cli`. Both checks use synthetic inference.
+Live subscription entitlement and end-to-end fleet delivery still require
+provider and receiver acceptance.
 
 ## Explicit task-title and result reconciliation
 

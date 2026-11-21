@@ -103,6 +103,8 @@ python3 scripts/check-engine-parity.py
 
 | Path | Reason |
 |---|---|
+| `api/src/services/anthropic-compat.ts` | The Anthropic surface maps measured Claude and Grok accounting through the shared cache-token converter. Other backends use runnerOpenAiUsage, which preserves unknown Kimi metrics. The HTTP 4×4 surface/backend tests exercise this dispatch. |
+| `api/test/unit/services/grok-192-settings.test.ts` | Native Grok TOML round trips and removal rules depend on the 1.0.90–1.0.92 settings contract. Kimi uses a separate native configuration schema. |
 | `frontend/scripts/readme-shots/cgx.ansi` | Captured Grok terminal illustration, not an engine enumeration. |
 
 ### Grok provider implementations, installers and tests (104)
@@ -149,6 +151,7 @@ python3 scripts/check-engine-parity.py
 | `wrappers/cxx/internal/agentbus/grok_queue.go` | Grok-only implementation of grok queue; Kimi has its own provider path. |
 | `wrappers/cxx/internal/agentbus/grok_queue_test.go` | Grok-only test/fixture for grok queue test; Kimi has its own provider path. |
 | `wrappers/cxx/internal/agentbus/grok_reaper_main_test.go` | Grok-only test/fixture for grok reaper main test; Kimi has its own provider path. |
+| `wrappers/cxx/internal/agentportal/state_test.go` | The transport test sends a mismatched Grok receiver scope to a Codex-bound broker, which must replace it with the authenticated scope. The authorization renewal protocol is independent of engine. |
 | `wrappers/cxx/internal/app/grok/commands.go` | Grok-only implementation of commands; Kimi has its own provider path. |
 | `wrappers/cxx/internal/app/grok/communicator.go` | Grok-only implementation of communicator; Kimi has its own provider path. |
 | `wrappers/cxx/internal/app/grok/doctor.go` | Grok-only implementation of doctor; Kimi has its own provider path. |

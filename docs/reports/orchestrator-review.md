@@ -36,7 +36,7 @@ provider or network transport establishes only the internal boundary it runs.
 
 | ID / severity | Evidence, consequence and decision | Owner, changes and verification |
 | --- | --- | --- |
-| AC-001 / high | `bin/orchestrator update` backed up the entire env file and SQL independently of the deploy helper. This retained credentials and violated the operator recovery policy. The owner and overview documents prescribed a conflicting rollback. | Wanda. Remove automatic copy/dump; retain lock, clean-tree check, pinned Git ref, re-exec, deploy and readiness. Test rejects a dump command, checks both initial and repeat updates. Failed before fix; 22 instance CLI tests passed after, one Docker opt-in skipped. |
+| AC-001 / high | `bin/orchestrator update` backed up the entire env file and SQL independently of the deploy helper. This retained credentials and violated the operator recovery policy. The owner and overview documents prescribed a conflicting rollback. | Wanda. Remove automatic copy/dump; retain lock, clean-tree check, pinned Git ref, re-exec, deploy and readiness. Test rejects a dump command, checks both initial and repeat updates. The CLI check failed before the fix. The isolated Compose opt-in subsequently passed, including real MySQL data across update, stop and start. |
 | AC-002 / high | `ControlPlaneOwnership.close` notified the same listener used for fatal loss. A slow regular shutdown could be killed after 250 ms. A listener registered after actual loss missed the signal. | architecture_control. Distinguish orderly teardown, delivered loss and late subscription. Three regression assertions failed before fix; 35 targeted tests passed including storage/command/outbox. |
 | AC-003 / high, acceptance | Idle cohort used modulo three for a four-engine list and reported three native sessions for the single-communicator case. Results overstated engine coverage. | Wanda. Use production engine registry, record individual registrations and assert complete coverage. Wall-clock verification in progress. |
 | AC-004 / high | An interrupted pristine-schema initialization can leave application tables without the remaining baseline. The next run classifies the database as populated. Numbered migrations require existing application tables. | Open. Must distinguish an interrupted pristine install from a supported existing deployment before allowing any replay. |
@@ -46,20 +46,11 @@ provider or network transport establishes only the internal boundary it runs.
 | WR-001 / high | Both normal and traced govulncheck runs found reachable GO-2026-6888 in Brotli 1.2.6. | Wanda. Update to fixed 1.2.7 and bump the wrapper bakery version. Recheck both build modes. |
 | AR-001 / low | Knip missed the signing and retention executable entry points and reported maintained native verification scripts as unused. Workflow document diff had two identical implementations. | Wanda. Add executable entries, reuse contract implementation. Keep signing and verification scripts with their real callers. |
 | AR-002 / low | The only importer of `RepeatableRows.svelte` was `ScalingSection.svelte` removed in `6ecd3cdc7`. No runtime glob or exported component registry loads it. | Wanda. Remove orphaned internal component. No public URL, stored data, or external interface to migrate. |
-| CL-001/002/003, GX-001, KI-001 | Engine research and implementation in progress. | See engine decisions and final gate record below as completed. |
+| CL-001/002/003, GX-001, KI-001 | Separate native audits, code changes and validation complete for all four engines. | See engine decisions, versions, source links and proof boundaries below. |
 
-## Checkpoint for continuation
+## Baseline and regression comparison
 
-Real MySQL 8.4, rootless Podman on loopback, disposable `codex_test` database.
-The initial baseline fixture applied 357 statements and 133 numbered migrations.
-A second dedicated MySQL instance is reserved for idle observations. The API
-fast tier reported 8,946 passes and 1,326 skips in an early integration run.
-Android lint, JVM tests, app and instrumentation APK builds passed. Terminal
-matrix baseline passed 595 real PTY cases. Runtime, database coverage, final
-asset comparison, browser checks and independent integration review must be
-recorded against the delivered state. No production operation is part of these
-measurements. Never replay a migration, work item or provider canary on a real
-account to fill an evidence gap.
+The starting tree was clean and its 357-statement baseline plus 133 migrations installed on a fresh MySQL 8.4 instance. The early non-DB Vitest tier passed 8,946 cases and skipped 1,326. Android assembled its APKs and the four-engine terminal matrix passed 595 PTY cases. Those runs established the initial environment. A later mixed-source coverage run found 19 failures, including a real lost attachment-generation persistence listener introduced during integration. Four isolated MySQL failures reproduced the listener defect. Restoring both lifecycle listeners made all seven recovery cases pass twice. The final-stand runs and separately enabled opt-ins are recorded below.
 
 ## Native evidence, 21 November 2026
 
@@ -76,7 +67,7 @@ KI-002 (high). A rotated Kimi token was projected with the host's zero expiry be
 
 ## Integrated findings and verification
 
-[Function matrix](orchestrator-functional-matrix.md) · [Per-operation inventory](orchestrator-entrypoints.tsv) · [Security, dependencies and worker measurements](orchestrator-review-security.md)
+[Function matrix](orchestrator-functional-matrix.md) · [Operation register](orchestrator-entrypoints.tsv) · [Module and build reachability](orchestrator-modules.tsv) · [Work, workflows, transfers and content](orchestrator-work-acceptance.md) · [Browser evidence and captures](orchestrator-browser.md) · [Android](orchestrator-android.md) · [Security and worker measurements](orchestrator-review-security.md) · [Independent review](orchestrator-independent.md)
 
 | Finding / class | Evidence and impact | Decision, owner and verification |
 | --- | --- | --- |
@@ -94,9 +85,23 @@ KI-002 (high). A rotated Kimi token was projected with the host's zero expiry be
 | SEC-002/003/004 / confirmed | Worker mounts covered sibling state, terminal run directories were repeatedly enumerated, and Advisor bootstrap forwarded the original credential beyond its intended origin. | security_ops. Reduced mounts and UID scope, event/deadline-driven handling, and constrained authenticated downloads. The linked security annex records the measured before/after, protocol limits, dependency changes and tests. |
 | CLN-002 / confirmed, obsolete build rule | The postbuild whitelist preserved a retired PHP gateway after the gateway removal in `d06f88b3f`. | Remove its preserved name. An independent run discarded a synthetic index.php, preserved manual and error assets and matched all 208 compiled files by SHA-256. |
 | CLN-003 / confirmed, duplicate assurance | Two DB catalog suites separately parsed source strings to check the same documented columns, missing the distinction between declared SQL columns and incidental source text. | Consolidate against the actual exported Drizzle table definitions, fail on unparseable catalog bullets and retain both negative and positive regression cases. Five targeted catalog and documentation tests passed. |
+| WA-002 / confirmed, high | A messaging-only native process could register but its first authenticated control poll returned 503. It could never establish the stream required to claim work. | architecture_control, `ce3466b37`. The real client obtained its generation and stream using messaging authority; stop remained portal-scoped. A deliberately lost result response yielded an idempotent replay, one local effect and one result row. |
+| CLN-004 / confirmed, dead code | Removal of the product /cli/auth route in `38b5098a1` left host-registration.ts reachable only from tests. Two standalone separator modules had no Svelte/build consumer. | frontend_integration, `d4c31ed90`. Remove all three; move the registration and key rotation checks to HostManagementService. 11 units and 96 MySQL tests passed. No published URL or stored data changes. |
+| SIGN-01 / confirmed, operator contract | Rotation instructions implied that an active owner could remain online while the offline signing tool acquired its exclusive database lock. The WebSocket API contract also misidentified when admin scope is checked. | independent_acceptance corrected the CLI hint and contracts. The checks exercise the owner lock, expiry, role changes, signing and the Go verifier. |
+| TE-003 / confirmed, test isolation | Instance CLI tests followed temporary fixture symlinks to two deployment scripts and could overwrite the task checkout. | security_ops, `46019943d`. Dereference only source files when building the isolated test repo. Forty-four fixture cases passed and script digests stayed stable. |
+| PAR-001 / scope classification | The Kimi parity gate reported three untriaged files after the implementation. | Wanda reviewed the 4×4 gateway conversion, Grok native TOML contract and deliberate wrong-engine broker fixture. Record each scope in the reviewed parity exceptions with its reason. |
 
 ### Real client round trip
 
 A Chromium operator opened the registered host, changed its model in the existing Overrides section, saved, then cleared the override. Both UI requests committed to MySQL. The installed, signed cxx 0.9.192 fetched the host configuration using its own identity and wrote the real user's test TOML. The native model changed to `gpt-6.2-sol` and returned to the fleet value `gpt-6.1-sol` on clear. This used the real Fastify entrypoint and the release-built Linux wrapper. The Codex binary reported `codex-cli 0.171.0`. All keys, storage and credentials belonged to this lab.
 
 A second real browser lab registered a Chromium virtual CTAP2 authenticator, signed out, completed a passkey assertion against MySQL and removed the credential. The password-recovery flow sent mail only to a local SMTP receiver. One token changed the password, a second use returned HTTP 409, the old password returned 401 and the replacement returned 200. These tests used separate identities. Official provider canaries require designated subscription accounts; the fleet store search found no appropriate test account.
+
+
+### Lab deployment and cutover
+
+The production Dockerfile entrypoint ran as UID 10001 under rootless Podman on biest.eulie.de, with a private storage lock, MySQL 8.4, the normal runner image and the task's synthetic Ed25519 fixture. A concurrent candidate exited with “Another API process still owns application storage”. The serving owner's six readiness checks stayed green. Stopping it before the second start allowed the migrator to report all 134 versions applied. The candidate hydrated, exposed six green checks, recognized the existing owner and retained the completed wizard, host and defaults. The separate, opt-in `TEST_INSTANCE_DOCKER=1` check exercised real Compose control and a MySQL row across an update and restart (94.68 s). Its small readiness service is a fixture.
+
+The repository Caddyfile ran in Caddy 2, with a fixture-local signing authority. HTTPS verified both hostname and certificate. Four deep links returned HTML, the referenced JavaScript had the correct MIME type, unauthenticated JSON was denied, and an authenticated WSS connection received its hello. The endpoint and test credentials were local to this work.
+
+For an authorized production release, use the tested revision and the existing installation encryption/signing keys. Review installed wrapper generations, outstanding accepted work and the drain manifest first. Run `bin/install.sh doctor` and inspect `bin/orchestrator status`. Follow the normal `scripts/deploy.sh` path with its production variables and working-tree checks. It stages binaries, stops every writer, migrates under exclusive ownership and resumes the replacement. Confirm the six readiness checks, current owner, served wrapper version and signed configuration, receiver reconnections, preserved task/result identifiers and the web deep links. A refused ownership lock or ambiguous task result stops the cutover for operator reconciliation. Retain existing credentials and receipts throughout. The [cutover contract](../owner-cutover.md) defines recovery by the phase already reached.

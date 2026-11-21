@@ -324,8 +324,14 @@ The installer does this. To do it yourself:
 ```bash
 docker compose up -d --wait mysql auth-runner
 docker compose run --rm -T api node migrate.js --init-schema
-docker compose up -d --wait api media-worker
+docker compose up -d --wait api media-worker slop-worker
 ```
+
+The media worker mounts only `store/agent-chat` and the Slop worker only
+`store/slop/runs` read-write. Both existing subdirectories must be writable
+by container UID/GID 10001. The installer and deploy helper prepare the same
+paths on a fresh installation and on upgrade. The API keeps the full store;
+the Advisor reads only its bootstrap directory from that store.
 
 For normal instance updates use `bin/orchestrator update` above. The lower-level
 deploy helper remains available for service-specific or upstream-based delivery:
