@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rebuild the review indexes from versioned files and the captured HTTP/MCP catalog.
 
-Run at the repository root. Only reads Git paths and local Go build metadata.
+Run at the repository root. Reads Git-visible source and local compiler metadata.
 Seed HTTP and tool registrations from orchestrator-entrypoints.tsv; see the matrix
 for capture provenance. Other entries are regenerated from the worktree.
 """
@@ -72,9 +72,9 @@ def link(src, target):
         GRAPH[src].add(target)
 
 
-def tsv(path, header, rows):
+def tsv(path, header, rows, quoting=csv.QUOTE_MINIMAL):
     with path.open("w", newline="") as out:
-        writer = csv.writer(out, delimiter="\t", lineterminator="\n")
+        writer = csv.writer(out, delimiter="\t", lineterminator="\n", quoting=quoting)
         writer.writerow(header)
         writer.writerows(rows)
 
@@ -590,7 +590,7 @@ def at(path, key, matcher=None):
 def route_calls(locations):
     """Read actual call sites inside the registered route callback using the project's TS parser."""
     program = r"""
-const fs = require('node:fs'), ts = require('./api/node_modules/typescript');
+const fs = require('node:fs'), path = require('node:path'), ts = require('./api/node_modules/typescript');
 const refs = JSON.parse(fs.readFileSync(0,'utf8')), byFile = new Map(), out = {};
 for (const ref of refs) {
   const match = ref.match(/^(.*):([0-9]+)$/);
@@ -598,8 +598,23 @@ for (const ref of refs) {
   if (!byFile.has(match[1])) byFile.set(match[1], []);
   byFile.get(match[1]).push([ref,Number(match[2])]);
 }
+const program = ts.createProgram([...byFile.keys()], {
+  target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
+});
+const checker = program.getTypeChecker();
+const schemaFile = path.resolve('api/src/db/schema.ts');
+function sqlTableName(operand) {
+  if (!operand || !(ts.isIdentifier(operand) || ts.isPropertyAccessExpression(operand))) return;
+  let symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(operand) ? operand.name : operand);
+  if (symbol?.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+  const decl = symbol?.valueDeclaration;
+  if (!decl || !ts.isVariableDeclaration(decl) || path.resolve(decl.getSourceFile().fileName) !== schemaFile) return;
+  const init = decl.initializer;
+  if (init && ts.isCallExpression(init) && ts.isIdentifier(init.expression) && init.expression.text === 'mysqlTable' &&
+      init.arguments[0] && ts.isStringLiteral(init.arguments[0])) return init.arguments[0].text;
+}
 for (const [file,items] of byFile) {
-  const src = ts.createSourceFile(file,fs.readFileSync(file,'utf8'),ts.ScriptTarget.Latest,true);
+  const src = program.getSourceFile(file);
   const line = at => src.getLineAndCharacterOfPosition(at).line+1;
   const routes=[];
   function find(node) {
@@ -618,9 +633,10 @@ for (const [file,items] of byFile) {
       if (ts.isCallExpression(node)) {
         const e=node.expression, text=e.getText(src);
         if (ts.isPropertyAccessExpression(e)) {
-          if (/^(from|insert|update|delete)$/.test(e.name.text) && node.arguments[0] &&
-              /^[a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)?$/.test(node.arguments[0].getText(src)))
-            db.add(node.arguments[0].getText(src));
+          if (/^(from|insert|update|delete)$/.test(e.name.text)) {
+            const table = sqlTableName(node.arguments[0]);
+            if (table) db.add(table);
+          }
           if (/^(?:ctx\.\w+|\w+)\.\w+$/.test(text) &&
               !/^(?:app|scope|reply|req|request|Date|Object|Array|String|Number|Math|Promise|Buffer|JSON|res|query|headers|url|z|params|schema|process|logger|data|payload|console|result|body|rows|raw|map|response)\./.test(text) &&
               !/\.(?:map|filter|includes|toString|trim|find|join|push|has|some|every|send|code|header|parse|safeParse|catch|then)$/.test(text)) calls.add(text);
@@ -632,7 +648,7 @@ for (const [file,items] of byFile) {
       if (ts.isArrowFunction(arg)||ts.isFunctionExpression(arg)) body(arg.body);
       else if (ts.isIdentifier(arg)) calls.add(arg.text);
     }
-    const parts=[];if(calls.size)parts.push('calls: '+Array.from(calls).join(', '));if(db.size)parts.push('SQL operands: '+Array.from(db).join(', '));
+    const parts=[];if(calls.size)parts.push('calls: '+Array.from(calls).join(', '));if(db.size)parts.push('Drizzle tables: '+Array.from(db).join(', '));
     if(parts.length)out[ref]=parts.join(' / ');
   }
 }
@@ -641,9 +657,31 @@ process.stdout.write(JSON.stringify(out));
     return json.loads(subprocess.check_output(["node", "-e", program], input=json.dumps(sorted(locations)), text=True))
 
 
-def entries(route_capture=None):
+def entries(route_capture=None, fleet_capture=None):
     with ENTRY.open() as source:
         old = list(csv.DictReader(source, delimiter="\t"))
+    if fleet_capture:
+        catalog = json.loads(Path(fleet_capture).read_text())
+        names = set()
+        groups = {row["Entry or action"]: row["Family"] for row in old if row["Entry kind"] == "Fleet MCP"}
+        old = [row for row in old if row["Entry kind"] != "Fleet MCP"]
+        for tool in catalog:
+            name = tool["name"]
+            capability = tool["capability"]
+            if name in names or capability not in {"host", "operator"}:
+                raise ValueError(f"Invalid fleet MCP catalog entry: {name}, {capability}")
+            names.add(name)
+            old.append({
+                "Entry kind": "Fleet MCP",
+                "Entry or action": name,
+                "Registration / source": "api/src/services/mcp-tools.ts",
+                "Guard / scope": capability,
+                "Effect or dispatch": tool["description"],
+                "Evidence": "authenticated tools/list with host and operator credentials",
+                "Family": groups.get(name, "TOOLS"),
+            })
+        if not names:
+            raise ValueError("Empty fleet MCP catalog")
     if route_capture:
         known = {r["Entry or action"]: r["Family"] for r in old if r["Entry kind"] == "HTTP"}
         old = [r for r in old if r["Entry kind"] != "HTTP"]
@@ -667,11 +705,13 @@ def entries(route_capture=None):
                                 [
                                     guard.get("capability") or guard.get("kind") or "handler contract",
                                     *route.get("handlers", []),
+                                    "ADMIN_WS_ENABLED" if route["url"] == "/admin/ws" else None,
                                 ],
                             )
                         ),
                         "Effect or dispatch": route.get("owner") or "",
-                        "Evidence": "Fastify onRoute at boot",
+                        "Evidence": ("Fastify onRoute at boot; HTTP HEAD for WebSocket-only GET"
+                                     if method == "HEAD" and route.get("websocket") else "Fastify onRoute at boot"),
                     }
                 )
     calls = route_calls({r["Registration / source"] for r in old if r["Entry kind"] == "HTTP"})
@@ -737,7 +777,10 @@ def entries(route_capture=None):
             gate = gate.split(";")[0] + "; browser HTML negotiation, JSON session/capability"
         detail = r["Effect or dispatch"]
         if kind == "HTTP":
-            detail = calls.get(source) or "inline handler/plugin; inspect cited registration"
+            if "HTTP HEAD for WebSocket-only GET" in r["Evidence"]:
+                detail = "api/src/ws/transport.ts: ordinary HEAD runs admission, then returns empty 404"
+            else:
+                detail = calls.get(source) or "inline handler/plugin; inspect cited registration"
         add(kind, key, source, gate, detail, r["Evidence"], r["Family"])
 
     def code(
@@ -1068,10 +1111,11 @@ if __name__ == "__main__":
         "--routes",
         help="fresh capture from an isolated Fastify onRoute hook (see matrix)",
     )
+    parser.add_argument("--fleet-tools", help="combined tools/list catalog from the two authenticated MCP identities")
     args = parser.parse_args()
     rows = module_rows()
     EVENT_NAMES = set(re.findall(r"^\s*'([\w.:-]+)'", read("api/src/ws/events.ts"), re.M))
-    entry_rows = entries(args.routes)
+    entry_rows = entries(args.routes, args.fleet_tools)
     missing = sorted({r[3].split(":")[0] for r in entry_rows if r[3].split(":")[0] not in FILES})
     if missing:
         raise SystemExit("Unresolved entrypoint locations: " + str(missing))
@@ -1109,6 +1153,7 @@ if __name__ == "__main__":
             "Build targets",
         ],
         rows,
+        quoting=csv.QUOTE_ALL,
     )
     # Keep the narrative and counts in sync as declarations/registrations change.
     matrix = OUT / "orchestrator-functional-matrix.md"

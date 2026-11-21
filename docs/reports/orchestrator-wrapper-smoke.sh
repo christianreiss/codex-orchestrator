@@ -78,3 +78,30 @@ check 'cooperative workload status' cxx workload status
 grep -Fq 'jobs=0 reserved_bytes=0' /work/command-output
 check 'hold cooperative admission' cxx workload hold
 check 'resume cooperative admission' cxx workload resume
+
+# Exercise the actual hook, broker and admission boundaries with an empty
+# synthetic home. Native hooks receive JSON over stdin, just as on a host.
+observe() {
+    label="$1"; expected="$2"; message="$3"; input="$4"; shift 4
+    result=0
+    printf '%s\n' "$input" | timeout 8 "$@" >/work/command-output 2>&1 || result=$?
+    printf '%s\t%s\n' "$label" "$result"
+    test "$result" -eq "$expected"
+    if test -n "$message"; then grep -Fq -- "$message" /work/command-output; fi
+}
+observe 'Grok explicit config and wrapper version' 0 'cgx ' '' cgx --config /work/missing --wrapper-version
+observe 'Kimi requires a prompt to execute' 2 '--execute requires a prompt' '' ckx --execute
+observe 'Kimi launch requires assignment' 1 'read config' '' ckx run
+observe 'Kimi uninstall requires assignment' 1 'read config' '' ckx --uninstall
+observe 'Grok accessor requires its private broker' 1 'Grok auth broker missing' '' cxx grok-auth
+observe 'Claude channel requires a managed Claude lifecycle' 1 'only inside a managed Claude lifecycle' '' cxx agent mcp --channel
+observe 'ordinary activity hint outside managed session' 0 '' '{"session_id":"synthetic","hook_event_name":"SessionStart"}' cxx agent activity-event
+observe 'completed end event leaves watchdog quiet' 0 '' '{"hook_event_name":"SessionEnd","reason":"completed"}' cxx agent watchdog-event
+observe 'native session hook requires an ID' 1 'native session identity missing' '{}' cxx agent native-session
+observe 'relay worker requires explicit foreground mode' 1 '--foreground is required' '' cxx agent worker
+
+# This container has neither a system daemon nor a login-manager socket.
+# The system-wide management requests must surface their privilege requirement.
+for action in start stop install uninstall apply-update; do
+    observe "unprivileged daemon $action" 1 'requires root' '' cxx daemon "$action"
+done
