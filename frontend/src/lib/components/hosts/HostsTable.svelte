@@ -147,7 +147,7 @@
         {@const active = list.sortField === option.field}
         <button
           type="button"
-          class={cn("inline-flex h-8 items-center gap-1 rounded-md border px-2.5", active ? "border-primary/40 bg-primary/10 font-medium text-foreground" : "border-input text-muted-foreground")}
+          class={cn("inline-flex min-h-8 items-center gap-1 rounded-md border px-2.5 py-1", active ? "border-primary/40 bg-primary/10 font-medium text-foreground" : "border-input text-muted-foreground")}
           aria-pressed={active}
           onclick={() => list.setSort(option.field)}
         >

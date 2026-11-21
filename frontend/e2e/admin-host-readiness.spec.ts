@@ -55,6 +55,50 @@ test('a four-engine desktop row keeps its host name readable next to engine warn
   await expect(page.getByRole('button', { name: 'Copy FQDN ' + host.fqdn })).toBeVisible();
 });
 
+test('mobile sort labels stay inside their keyboard-operable buttons at 320px', async ({ page }) => {
+  const shared = state();
+  await page.setViewportSize({ width: 320, height: 850 });
+  await fixture(page, shared);
+  await page.goto('/admin/hosts');
+  const sort = page.getByRole('group', { name: 'Sort hosts' });
+  const name = sort.getByRole('button', { name: 'Name', exact: true });
+  const attention = sort.getByRole('button', { name: 'Needs attention' });
+  const lastContact = sort.getByRole('button', { name: 'Last contact' });
+  await expect(name).toHaveAttribute('aria-pressed', 'true');
+
+  const buttons = sort.getByRole('button');
+  async function expectLabelsInsideButtons() {
+    const overflowing = await buttons.evaluateAll(elements => elements.filter(button => {
+      const box = button.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(button);
+      return [...range.getClientRects()].some(text =>
+        text.top < box.top || text.bottom > box.bottom || text.left < box.left || text.right > box.right);
+    }).map(button => button.textContent?.trim()));
+    expect(overflowing).toEqual([]);
+  }
+  await expectLabelsInsideButtons();
+  await name.focus();
+  await page.keyboard.press('Tab');
+  await expect(attention).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(attention).toHaveAttribute('aria-pressed', 'true');
+  await expectLabelsInsideButtons();
+  await page.keyboard.press('Tab');
+  await expect(lastContact).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(lastContact).toHaveAttribute('aria-pressed', 'true');
+  await expectLabelsInsideButtons();
+  await name.focus();
+  await page.keyboard.press('Enter');
+  // Sorting by name twice reverses the actual card order.
+  const expected = shared.rows.map(host => host.fqdn).sort();
+  const hostLinks = page.getByRole('list', { name: 'Hosts' }).getByRole('link');
+  await expect(hostLinks).toHaveText(expected);
+  await page.keyboard.press('Enter');
+  await expect(hostLinks).toHaveText(expected.reverse());
+});
+
 // Under 640 px the hosts list renders one card per host instead of table rows.
 function row(page: Page, fqdn: string) { return page.getByRole((page.viewportSize()?.width ?? 1280) < 640 ? 'listitem' : 'row').filter({ has: page.getByText(fqdn, { exact: true }) }); }
 for (const width of [390, 1440]) test(`engine chips carry readiness (${width}px)`, async ({ page }) => {
