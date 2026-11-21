@@ -109,6 +109,7 @@ function post(app: FastifyInstance, headers: Record<string, string>) {
 const fallthroughBearers: Array<[string, string]> = [
   ['a bearer that is not the operator token', 'op-' + 'y'.repeat(48)],
   ['an operator token of the wrong length', OPERATOR_TOKEN.slice(0, -1)],
+  ['a UTF-8 credential with a different byte length', 'é' + OPERATOR_TOKEN.slice(1)],
 ];
 
 const engineHeaders: Array<[string | undefined, string]> = [
@@ -176,6 +177,16 @@ describe('POST /mcp credential resolution', () => {
     });
     expect(r.statusCode).toBe(401);
     expect(h.contexts).toEqual([]);
+    await h.app.close();
+  });
+
+  it('reserves a bare Authorization value for legacy host credential resolution', async () => {
+    const h = await buildHarness({ operatorToken: OPERATOR_TOKEN, sessions: { [OPERATOR_TOKEN]: makeHost('legacy-host.example') } });
+    const r = await post(h.app, { authorization: OPERATOR_TOKEN, 'x-api-key': HOST_KEY });
+    expect(r.statusCode).toBe(200);
+    expect(h.verified).toEqual([OPERATOR_TOKEN]);
+    expect(h.contexts[0]?.host.fqdn).toBe('legacy-host.example');
+    expect(h.contexts[0]?.capability).toBe('host');
     await h.app.close();
   });
 

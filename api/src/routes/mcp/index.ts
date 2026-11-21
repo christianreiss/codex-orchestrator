@@ -26,7 +26,7 @@ import { resolve as resolvePath } from 'node:path';
 import type { RouteContext } from '../index.js';
 import { raw } from '../../http/reply.js';
 import { ForbiddenError, UnauthorizedError } from '../../http/errors.js';
-import { extractApiKey, parseBearer } from '../../util/api-key-helpers.js';
+import { extractApiKey } from '../../util/api-key-helpers.js';
 import { resolveRequestEngine } from '../../util/engine-resolution.js';
 import { ENGINE_CODEX } from '../../util/engine.js';
 
@@ -155,23 +155,20 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   });
   const server = new McpServer(tools, resources);
 
-  const operatorToken = ((ctx.env as { MCP_OPERATOR_TOKEN?: string }).MCP_OPERATOR_TOKEN ?? '').trim();
+  const operatorToken = Buffer.from((ctx.env.MCP_OPERATOR_TOKEN ?? '').trim());
 
-  async function resolveHost(req: FastifyRequest): Promise<Host | null> {
+  function detectCapability(req: FastifyRequest): Capability {
+    const token = /^Bearer[ \t]+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
+    if (!token || operatorToken.length === 0) return 'host';
+    const candidate = Buffer.from(token);
+    return candidate.length === operatorToken.length && timingSafeEqual(candidate, operatorToken) ? 'operator' : 'host';
+  }
+
+  async function resolveHost(req: FastifyRequest, capability: Capability): Promise<Host | null> {
     const headers = req.headers as Record<string, string | string[] | undefined>;
-    // When the Authorization bearer is the operator token, it identifies the
-    // caller as an operator, not a host — host identity must then come from
-    // X-Api-Key alone, since extractApiKey() would otherwise return the
-    // operator token itself (Authorization always wins over X-Api-Key there).
-    const bearer = parseBearer(headers['authorization']);
-    const isOperatorBearer =
-      operatorToken.length > 0 &&
-      bearer !== null &&
-      bearer.length === operatorToken.length &&
-      timingSafeEqual(Buffer.from(bearer), Buffer.from(operatorToken));
     let key: string | null;
     let hostLookupReq = req;
-    if (isOperatorBearer) {
+    if (capability === 'operator') {
       const xk = headers['x-api-key'];
       key = typeof xk === 'string' && xk.trim() ? xk.trim() : Array.isArray(xk) && xk[0] ? xk[0].trim() : null;
       // app.resolveHostFromKey() re-derives the key from req.headers via
@@ -185,19 +182,6 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     const fromSession = await sessions.verify(key);
     if (fromSession) return fromSession;
     return app.resolveHostFromKey(hostLookupReq);
-  }
-
-  function detectCapability(req: FastifyRequest): Capability {
-    if (!operatorToken) return 'host';
-    // Operator privilege is granted only via Authorization: Bearer <token>.
-    // The X-Api-Key fallback is host-only by design.
-    const bearer = parseBearer(req.headers['authorization']);
-    if (!bearer) return 'host';
-    if (bearer.length !== operatorToken.length) return 'host';
-    const a = Buffer.from(bearer);
-    const b = Buffer.from(operatorToken);
-    if (a.length !== b.length) return 'host';
-    return timingSafeEqual(a, b) ? 'operator' : 'host';
   }
 
   function clientIp(req: FastifyRequest): string | null {
@@ -233,7 +217,8 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
       }));
     }
 
-    let host = await resolveHost(req);
+    const capability = detectCapability(req);
+    let host = await resolveHost(req, capability);
     if (!host) {
       throw new UnauthorizedError('Invalid MCP credential', 'invalid_mcp_credential');
     }
@@ -244,7 +229,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
       const transportHost = await app.resolveHostFromKey({
         headers: { ...req.headers, authorization: undefined },
       } as FastifyRequest);
-      if (!transportHost || transportHost.id !== host.id || detectCapability(req) !== 'host') {
+      if (!transportHost || transportHost.id !== host.id || capability !== 'host') {
         throw new UnauthorizedError(
           'MCP credential does not belong to this communicator host',
           'communicator_mcp_host_mismatch',
@@ -283,7 +268,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
       host,
       clientIp: clientIp(req),
       serverVersion: '2.0.0',
-      capability: detectCapability(req),
+      capability,
       engine,
     });
     const result=await (nativePrincipal?withNativePrincipal(nativePrincipal,dispatch):dispatch());

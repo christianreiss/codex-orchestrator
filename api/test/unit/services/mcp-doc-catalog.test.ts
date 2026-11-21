@@ -31,7 +31,7 @@ const GROUPS = [
   'Git Director',
   'File transfer',
   'Slop jobs',
-  'Work grants',
+  'Operator work grants',
   'Wake / Cron',
   'Operator/internal filesystem helpers',
 ];
@@ -75,6 +75,7 @@ describe('docs/MCP.md tool catalog', () => {
   it('extracts the catalog it is meant to check', () => {
     // A scan that silently matched nothing would pass the assertions below.
     expect([...docGroups.keys()]).toEqual(GROUPS);
+    expect(docGroups.get('Operator work grants')).toEqual(['agent_fresh_start_approve']);
     expect(documented.length).toBeGreaterThan(40);
     expect(registered.length).toBeGreaterThan(40);
     expect(registered).toContain('memory_store');

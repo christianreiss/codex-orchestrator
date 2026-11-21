@@ -44,9 +44,20 @@ addFormats(ajv);
 describe.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s MCP full server catalogue', (engine) => {
   const context = { host: { id: 7 } as Host, engine,
     capability: 'operator' as const, clientIp: null, serverVersion: 'test' };
-  it('includes all host tools and the optional operator filesystem tools', () => {
-    expect(harness().registry.list('host')).toHaveLength(91);
+  it('exposes the fresh-start grant and filesystem helpers only to the operator', async () => {
+    const { registry, server, calls } = harness();
+    const hostTools = new Set(registry.list('host').map(tool => tool.name));
+    expect(hostTools.size).toBe(90);
     expect(all).toHaveLength(97);
+    expect(all.map(tool => tool.name).filter(name => !hostTools.has(name)).sort()).toEqual([
+      'agent_fresh_start_approve', 'fs_file_exists', 'fs_list_dir', 'fs_read_file',
+      'fs_search_in_files', 'fs_stat', 'fs_write_file',
+    ]);
+    const grant = 'agent_fresh_start_approve';
+    const request = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: grant, arguments: {} } };
+    const denied = await server.handlePayload(JSON.stringify(request), { ...context, capability: 'host' });
+    expect(denied).toMatchObject({ error: { code: -32601 } });
+    expect(calls).toHaveLength(0);
   });
 
   for (const tool of all) {

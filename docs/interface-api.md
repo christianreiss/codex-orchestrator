@@ -2695,6 +2695,8 @@ delivery-attempt budget, even if the original message expired while awaiting the
 operator. Repeating the same approval preserves that deadline and budget; it
 does not extend them. Prior terminal timestamps are cleared for the new execution.
 
+MCP operator authentication requires the HTTP Bearer scheme. A raw Authorization value uses the existing host credential path. The same validated capability applies to host resolution, communicator admission and tool dispatch.
+
 **Ambiguous results.** A lost legacy timed lease or a native-turn interruption can
 leave accepted work `ambiguous`. The [reconciliation procedure](#reconciling-ambiguous-work) applies even when
 the original transcript continues and its resource claims are valid. Ambiguity is
