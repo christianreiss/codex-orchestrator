@@ -9,8 +9,8 @@ import { isRfc3339 } from '../util/timestamp.js';
  * Read-only view over the canonical
  * `storage/wrapper/v2/bin/cxx/<os>-<arch>/manifest.json` artifact and the
  * historical per-engine trees beneath the same root. Manifests are cached in
- * memory keyed by absolute path; cache entries are invalidated when the file's
- * mtime changes.
+ * memory by absolute path and stat identity, including atomic replacements that
+ * preserve the release timestamp.
  *
  * Manifest shape (matches `storage/wrapper/v2/bin/<engine>/<os>-<arch>/manifest.json`):
  *
@@ -61,14 +61,17 @@ export interface ResolvedWrapperBuild extends BinaryBuild {
 }
 
 interface CacheEntry {
-  mtimeMs: number;
+  revision: string;
   data: PlatformManifest | null;
 }
 
 interface DigestCacheEntry {
-  mtimeMs: number;
-  size: number;
+  revision: string;
   sha256: string;
+}
+
+function fileRevision(st: Awaited<ReturnType<typeof stat>>): string {
+  return [st.dev, st.ino, st.size, st.mtimeMs, st.ctimeMs].join(':');
 }
 
 export interface WrapperBinRegistry {
@@ -243,17 +246,17 @@ export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): Wrapp
   ): Promise<PlatformManifest | null> {
     const st = await safeStat(path);
     if (!st || !st.isFile()) return null;
-    const mtimeMs = Number(st.mtimeMs);
+    const revision = fileRevision(st);
     const cached = cache.get(path);
-    if (cached && cached.mtimeMs === mtimeMs) return cached.data;
+    if (cached && cached.revision === revision) return cached.data;
     try {
       const raw = await readFile(path, 'utf8');
       const parsed: unknown = JSON.parse(raw);
       const validated = validatePlatformManifest(parsed, artifact, platform);
-      cache.set(path, { mtimeMs, data: validated });
+      cache.set(path, { revision, data: validated });
       return validated;
     } catch {
-      cache.set(path, { mtimeMs, data: null });
+      cache.set(path, { revision, data: null });
       return null;
     }
   }
@@ -285,10 +288,9 @@ export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): Wrapp
   ): Promise<string | null> {
     try {
       const st = knownStat ?? (await stat(path));
-      const mtimeMs = Number(st.mtimeMs);
-      const size = Number(st.size);
+      const revision = fileRevision(st);
       const cached = digestCache.get(path);
-      if (cached && cached.mtimeMs === mtimeMs && cached.size === size) {
+      if (cached && cached.revision === revision) {
         return cached.sha256;
       }
       return await new Promise<string>((resolve, reject) => {
@@ -298,7 +300,7 @@ export function createWrapperBinRegistry(opts: WrapperBinRegistryOptions): Wrapp
         stream.on('data', (chunk) => hash.update(chunk));
         stream.on('end', () => {
           const sha256 = hash.digest('hex');
-          digestCache.set(path, { mtimeMs, size, sha256 });
+          digestCache.set(path, { revision, sha256 });
           resolve(sha256);
         });
       });

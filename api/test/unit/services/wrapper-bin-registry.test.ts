@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -328,6 +328,28 @@ describe('wrapper-bin-registry', () => {
     expect(versionCompare('1.0.10', '1.0.2')).toBeGreaterThan(0);
     expect(versionCompare('1.0.0', '1.0.0')).toBe(0);
     expect(versionCompare('1.0.0-rc1', '1.0.0')).toBeLessThan(0);
+  });
+
+  it('reloads an atomically replaced manifest with the original build time and length', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wrapper-manifest-'));
+    try {
+      const path = join(dir, 'codex', 'linux-amd64', 'manifest.json');
+      const manifest = JSON.parse(await readFile(join(BIN_ROOT, 'codex', 'linux-amd64', 'manifest.json'), 'utf8'));
+      const source = JSON.stringify(manifest);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, source);
+      await utimes(path, 1_800_000_000, 1_800_000_000);
+      const reg = createWrapperBinRegistry({ binRoot: dir });
+      expect((await reg.manifestForPlatform('codex', 'linux-amd64'))?.current).toBe('1.0.1');
+      const updated = JSON.stringify({ ...manifest, current: '1.0.0' });
+      expect(updated).toHaveLength(source.length);
+      await writeFile(path + '.new', updated);
+      await utimes(path + '.new', 1_800_000_000, 1_800_000_000);
+      await rename(path + '.new', path);
+      expect((await reg.manifestForPlatform('codex', 'linux-amd64'))?.current).toBe('1.0.0');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('invalidate() drops cached manifest reads', async () => {

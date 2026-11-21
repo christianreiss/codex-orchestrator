@@ -5,7 +5,7 @@ committed changes and cold history; it is not polled to discover changes the API
 itself made. Production cutover and idle acceptance require dated evidence for the deployed
 revision. The cutover runbook lists the acceptance measurements.
 
-Public readiness evaluates the six infrastructure checks. The owner reads its hydrated migration and runner state and verifies the published wrapper binaries against their manifests. A server process retains verified wrapper digests across readiness requests. A changed file timestamp or size triggers verification again. The setup endpoint additionally loads host, account and wizard progress. Its optional work does not run on monitoring requests.
+Public readiness evaluates the six infrastructure checks. The owner reads its hydrated migration and runner state and verifies the published wrapper binaries against their manifests. A server process retains verified wrapper digests across readiness requests. A changed file identity, size, change time or modification time triggers verification again, including an atomic replacement made with a preserved build timestamp. The setup endpoint additionally loads host, account and wizard progress. Its optional work does not run on monitoring requests.
 
 ## Ownership and commands
 

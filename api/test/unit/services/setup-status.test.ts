@@ -1,4 +1,4 @@
-import { createReadStream, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { createReadStream, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import Fastify from 'fastify';
 import { registerHealthRoutes } from '../../../src/routes/health.js';
@@ -110,6 +110,13 @@ describe('SetupStatusService', () => {
     utimesSync(path, 1_800_000_001, 1_800_000_001);
     expect(await wrappers()).toMatchObject({ ok: true });
     expect(createReadStream).toHaveBeenCalledTimes(SUPPORTED_WRAPPER_PLATFORMS.length + 2);
+    // Release tools may atomically replace an artifact while preserving its build timestamp.
+    const replacement = path + '.new';
+    writeFileSync(replacement, 'corrupt!-wrapper');
+    utimesSync(replacement, 1_800_000_001, 1_800_000_001);
+    renameSync(replacement, path);
+    expect(await wrappers()).toMatchObject({ ok: false, detail: expect.stringContaining('checksum mismatch') });
+    expect(createReadStream).toHaveBeenCalledTimes(SUPPORTED_WRAPPER_PLATFORMS.length + 3);
   });
 
   it('builds auth next actions from configured engines and adds fleet defaults before the first host', async () => {
