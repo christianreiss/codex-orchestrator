@@ -12,8 +12,8 @@ WORKDIR /opt/slop
 COPY --from=build /opt/slop/node_modules ./node_modules
 COPY --from=build /opt/slop/dist ./dist
 COPY --chmod=0644 vendor/slop-detector/package.json vendor/slop-detector/0*.md ./
-COPY --chmod=0644 worker.mjs /worker/worker.mjs
+COPY --chmod=0644 worker.mjs ./
 ENV DATA_ROOT=/app/storage SLOP_HOME=/opt/slop PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 HOME=/tmp
 USER 10001:10001
-RUN node --check /worker/worker.mjs && node dist/cli.js rubric >/dev/null && cat package.json 0*.md >/dev/null
-CMD ["node", "/worker/worker.mjs"]
+RUN node --check worker.mjs && node dist/cli.js rubric >/dev/null && cat package.json 0*.md >/dev/null
+CMD ["node", "/opt/slop/worker.mjs"]
