@@ -46,6 +46,7 @@ import { checkMemoryContent, checkMemoryKey, checkMemoryMetadata, checkMemoryTag
 import {
   STORED_NAME_TOO_LONG_MESSAGE,
   acceptFileBody,
+  hasProjectFileBody,
   decodedByteLength,
   inferMimeType,
   storedNameTooLong,
@@ -2306,8 +2307,8 @@ export class HostProjectsService {
   } {
     const rawName = payload['stored_name'] ?? payload['name'] ?? '';
     const storedName = this.normalizeStoredName(rawName);
-    const content = String(payload['content'] ?? payload['text'] ?? '');
-    if (!content)
+    const content = payload['content'] ?? payload['text'];
+    if (!hasProjectFileBody(content, payload['encoding']))
       throw new ValidationError('Validation failed', {
         extra: { errors: { content: ['content is required'] } },
       });

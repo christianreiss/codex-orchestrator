@@ -174,4 +174,39 @@ describe.skipIf(!handle)('lean project reads against a real database', () => {
     expect(countsAfter['files']).toBe(countsBefore['files']! + 1);
     expect(countsAfter['files_bytes']).toBe(countsBefore['files_bytes']! + 500_000);
   });
+
+  it('stores the canonical empty Base64 body and keeps the host validation envelope', async () => {
+    const name = 'empty-binary.bin';
+    const put = (await svc.upsertFile(SLUG, { name, text: '    ', encoding: 'b64' }, host)) as {
+      file: { id: number };
+    };
+    try {
+      const detail = (await svc.readFile(SLUG, { id: put.file.id }, host)).file;
+      expect(detail).toMatchObject({ content: '', content_encoding: 'base64', size_bytes: 0 });
+      await svc.upsertFile(
+        SLUG,
+        {
+          name,
+          text: detail.content,
+          encoding: detail.content_encoding,
+          description: 'Reopened canonical binary',
+        },
+        host,
+      );
+      expect((await svc.readFile(SLUG, { id: put.file.id }, host)).file).toMatchObject({
+        description: 'Reopened canonical binary',
+        size_bytes: 0,
+        content_sha256: createHash('sha256').update(Buffer.alloc(0)).digest('hex'),
+      });
+      for (const bad of [
+        { encoding: 'b64' },
+        { text: false, encoding: 'b64' },
+        { text: '', encoding: 'utf-8' },
+      ]) {
+        await expect(svc.upsertFile(SLUG, { name, ...bad }, host)).rejects.toThrow('Validation failed');
+      }
+    } finally {
+      await svc.deleteFile(SLUG, put.file.id, host);
+    }
+  });
 });

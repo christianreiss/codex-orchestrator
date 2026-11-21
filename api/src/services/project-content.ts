@@ -38,6 +38,7 @@ import {
 import {
   STORED_NAME_TOO_LONG_MESSAGE,
   acceptFileBody,
+  hasProjectFileBody,
   decodedByteLength,
   decodedLengthFromStored,
   inferMimeType,
@@ -118,9 +119,9 @@ function normalizeFile(payload: Record<string, unknown>): {
       ? payload.content
       : typeof payload.text === 'string'
         ? payload.text
-        : '';
+        : undefined;
   const mimeType = normalizeOptionalString(payload.mime_type);
-  if (content === '') {
+  if (!hasProjectFileBody(content, payload.encoding)) {
     throw new ValidationError('content is required', { param: 'content' });
   }
   // Same gate the host/MCP writer uses. A size limit only one of the two

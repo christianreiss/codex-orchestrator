@@ -498,6 +498,16 @@ describe('McpToolsRegistry', () => {
     expect(text).toContain('new body');
   });
 
+  it('only accepts an explicit empty file body with base64 encoding', async () => {
+    const fields = { slug: 'demo', stored_name: 'empty.bin' };
+    const allowed = await registry.dispatch('project_file_upsert', { ...fields, encoding: 'base64', content: '' }, host);
+    expect(allowed.isError).toBe(false);
+    for (const payload of [{ encoding: 'base64' }, { content: '' }, { content: '', encoding: 'utf8' }]) {
+      const denied = await registry.dispatch('project_file_upsert', { ...fields, ...payload }, host);
+      expect(denied).toMatchObject({ isError: true, content: [{ text: "Invalid params: 'content' is required" }] });
+    }
+  });
+
   it('dispatch project_file_delete returns the deleted id', async () => {
     const r = await registry.dispatch('project_file_delete', { slug: 'demo', id: 42 }, host);
     expect(r).toMatchObject({ isError: false });

@@ -1,0 +1,1 @@
+import{ut as e}from"./CwTSXlvZ.js";import{t}from"./BViqTR4D.js";var n={all:()=>[`accounts`]},r={list:()=>e.get(`/admin/accounts`),update:(t,n)=>e.patch(`/admin/accounts/${t}`,n),remove:t=>e.delete(`/admin/accounts/${t}`),verify:t=>e.post(`/admin/accounts/${t}/verify`,{})};function i(){return t({queryKey:n.all(),queryFn:r.list})}export{n,i as r,r as t};

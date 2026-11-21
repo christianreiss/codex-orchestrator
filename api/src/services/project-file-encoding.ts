@@ -58,6 +58,14 @@ export function normalizeFileEncoding(value: unknown): ProjectFileEncoding | nul
   return null;
 }
 
+/** The canonical Base64 representation of an empty file is the empty string. */
+export function hasProjectFileBody(content: unknown, encoding: unknown): content is string {
+  return (
+    typeof content === 'string' &&
+    (content.length > 0 || normalizeFileEncoding(encoding) === FILE_ENCODING_BASE64)
+  );
+}
+
 /**
  * The single gate every project-file body passes through, whichever service is
  * writing it: decide the encoding, reject a malformed or oversized body, and

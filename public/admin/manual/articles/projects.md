@@ -98,11 +98,11 @@ The **Board** tab renders one column per lane with an **Add card** form, a relea
 
 ## Files
 
-Small blob artifacts stored entirely in the database (`coord_project_files` table — no disk). Each file record stores: `stored_name` (unique per project), `description`, `mime_type`, `content` (longtext), and `content_sha256` (SHA-256 hash of the content, computed at upsert). `size_bytes` is not a stored column — it is derived on every read as `Buffer.byteLength(content, 'utf8')` (see `formatFile()` in `projects.ts`).
+The **Documents** tab lists files alongside notes. Select **Files** to filter the list, or open the tab with `?kind=files`. The list shows metadata. Opening a file retrieves its contents and displays its stored name, MIME type and description.
 
-Upsert-style: `POST /admin/projects/{slug}/files` overwrites an existing `stored_name` or creates a new one.
+Edit text directly. For binary files, the editor labels the content **Base64**. Changing the description preserves the original bytes. A blank Base64 field represents a zero-byte file. If the server rejects an edit, the form keeps the draft so you can correct it and save again.
 
-Files are listed in the **Documents** tab, together with notes (filter by kind; `?kind=files`). A file carries Stored name, MIME type, Description, and Content, and existing files can be edited and deleted from there.
+The database stores project files in `coord_project_files`. The stored name is unique within a project. `POST /admin/projects/{slug}/files` creates or replaces that name. The reported size and SHA-256 describe the original file bytes, including for Base64-encoded files.
 
 ## Feedback
 

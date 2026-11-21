@@ -175,7 +175,11 @@ export class McpToolsRegistry {
       return wrapContent('Method not found: ' + name, true);
     }
     const argsObj = normalizeArgs(normalized, args);
-    const validationError = validateAgainstSchema(entry.definition.inputSchema, argsObj);
+    const validationError = validateAgainstSchema(
+      entry.definition.inputSchema,
+      argsObj,
+      normalized === 'project_file_upsert' && argsObj['encoding'] === 'base64' ? 'content' : undefined,
+    );
     if (validationError) {
       return wrapContent('Invalid params: ' + validationError, true);
     }
@@ -403,7 +407,11 @@ function narrowSkillListing<T extends { skills: Record<string, unknown>[] }>(
   return { ...listing, skills };
 }
 
-function validateAgainstSchema(schema: Record<string, unknown>, args: Record<string, unknown>): string | null {
+function validateAgainstSchema(
+  schema: Record<string, unknown>,
+  args: Record<string, unknown>,
+  emptyStringField?: string,
+): string | null {
   const required = Array.isArray(schema['required']) ? (schema['required'] as unknown[]) : [];
   const properties =
     schema['properties'] && typeof schema['properties'] === 'object'
@@ -419,7 +427,7 @@ function validateAgainstSchema(schema: Record<string, unknown>, args: Record<str
     const value = args[key];
     // An explicit `minLength: 0` marks a required string that may be empty
     // (shared_memory_replace.new_text deletes text by replacing it with '').
-    const mayBeEmpty = value === '' && properties[key]?.minLength === 0;
+    const mayBeEmpty = value === '' && (properties[key]?.minLength === 0 || key === emptyStringField);
     if (value === undefined || value === null || (value === '' && !mayBeEmpty)) {
       return "'" + key + "' is required";
     }
@@ -1292,7 +1300,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'project_file_upsert',
       description:
-        'Create or replace a project file by stored_name. Content is required; description and mime_type are optional. ' +
+        'Create or replace a project file by stored_name. Content is required; an empty string represents zero bytes when encoding is base64. Description and mime_type are optional. ' +
         'For a binary artifact — a PDF, an archive, a screenshot — base64-encode it and pass encoding:"base64"; ' +
         'size_bytes and content_sha256 are then computed over the decoded bytes. Files cap at 4 MiB decoded.',
       inputSchema: {

@@ -75,7 +75,7 @@
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not save file"),
   });
-  const canSubmit = $derived(encoding !== null && !loadingBody && !loadError && storedName.trim().length > 0 && content.length > 0);
+  const canSubmit = $derived(encoding !== null && !loadingBody && !loadError && storedName.trim().length > 0 && (encoding === "base64" || content.length > 0));
 </script>
 
 <DraftGuard {dirty} preserveOnSamePath />
