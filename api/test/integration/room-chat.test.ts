@@ -441,12 +441,14 @@ describe.skipIf(!handle)('shared room chats with MySQL', { timeout: 120000 }, ()
     }
     await bus.conferenceSay(chair.sessionId, chair.token, {
       conferenceId: id,
-      content: 'One contribution, two deliveries',
+      content: 'One shared contribution',
     });
     const page = await service.read(admin, { room_id: id });
-    const contributions = page.events.filter((event) => event.content === 'One contribution, two deliveries');
+    const contributions = page.events.filter((event) => event.content === 'One shared contribution');
     expect(contributions).toHaveLength(1);
-    expect(contributions[0]!.deliveries).toHaveLength(2);
+    expect(contributions[0]!.deliveries?.map((delivery) => delivery.address_id).sort()).toEqual(
+      members.slice(1).map((member) => member.addressId).sort(),
+    );
     const request = await service.send(admin, {
       room_id: id,
       client_request_id: randomUUID(),

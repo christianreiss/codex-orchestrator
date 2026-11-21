@@ -34,7 +34,7 @@ describe('feedback regressions', () => {
     expect(() => resourceSchema.parse({ kind: 'remote', fqdn: 'https://mx1.example.org', service: 'mail' })).toThrow();
   });
   it('blocks direct bridge, relay, MCP, unknown and health requests before their handlers', async () => {
-    const app = Fastify({ ignoreTrailingSlash: true });
+    const app = Fastify({ routerOptions: { ignoreTrailingSlash: true } });
     await app.register(envelopePlugin);
     let disabled = true;
     await app.register(apiKillSwitch(async () => disabled));

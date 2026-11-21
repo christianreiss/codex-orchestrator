@@ -1,3 +1,4 @@
+import { wireUtcDateTime } from '../util/wire-datetime.js';
 import { recordOwnedNativeReceipt } from '../control-plane/streams/native-control.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import {
@@ -91,13 +92,13 @@ export function legacyBinaryRedirect(frame: { method?: unknown; path?: unknown }
 
 const requestSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.guid(),
     type: z.literal('request'),
     // cxx 0.9.125 embeds an empty state-stream identifier in ordinary requests.
     stream_id: z.literal('').optional(),
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']),
     path: z.string().max(8192).refine(communicatorPathAllowed),
-    headers: z.record(z.string().max(16384)).default({}),
+    headers: z.record(z.string(), z.string().max(16384)).default({}),
     body: z.string().max(900_000).default(''),
   })
   .strict();
@@ -189,10 +190,10 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
     if (!runtime) throw new ForbiddenError('Connection owner unavailable', 'owner_unavailable');
     const input = z
       .object({
-        session_id: z.string().uuid(),
+        session_id: z.guid(),
         binding_generation: z.number().int().nonnegative(),
-        native_instance_id: z.string().uuid(),
-        request_id: z.string().uuid(),
+        native_instance_id: z.guid(),
+        request_id: z.guid(),
         result: z.enum(['accepted', 'exited', 'refused']),
       })
       .strict()
@@ -580,7 +581,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
               .object({
                 type: z.literal('resident_status'),
                 sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-                owner_instance_id: z.string().uuid(),
+                owner_instance_id: z.guid(),
                 runtime_protocol: z.literal(1),
                 mode: z.enum(['on_demand', 'resident']),
                 managed: z.boolean(),
@@ -625,7 +626,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             const ack = z
               .object({
                 type: z.literal('terminate_ack'),
-                request_id: z.string().uuid(),
+                request_id: z.guid(),
                 accepted: z.boolean(),
                 pid: z
                   .number()
@@ -673,7 +674,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                 transport_leases: z.number().int().min(0).max(10000).optional(),
                 managed_sessions: z.number().int().min(0).max(10000).nullable().optional(),
                 anonymous_transport_leases: z.number().int().min(0).max(10000).optional(),
-                synced_at: z.string().datetime().nullable().default(null),
+                synced_at: wireUtcDateTime.nullable().default(null),
                 api_version: z.unknown().optional(),
                 sync_scopes: z
                   .array(
@@ -729,7 +730,7 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
             send({ type: 'heartbeat', ...(await readCommunicatorApiLevels(apiSettings)) });
             return;
           }
-          if (parsed.type === 'request' && z.string().uuid().safeParse(parsed.id).success)
+          if (parsed.type === 'request' && z.guid().safeParse(parsed.id).success)
             rejectable = parsed.id;
           const legacyBin = rejectable ? legacyBinaryRedirect(parsed) : null;
           if (legacyBin) {

@@ -12,8 +12,8 @@ import type {
   ClaudeUsage,
 } from './adapters/runner-claude.js';
 
-import { claudeOpenAiUsage } from './adapters/runner-openai.js';
-import { ENGINE_CLAUDE, type Engine } from '../util/engine.js';
+import { claudeOpenAiUsage, runnerOpenAiUsage, responseUsage } from './adapters/runner-openai.js';
+import { ENGINE_CLAUDE, ENGINE_GROK, type Engine } from '../util/engine.js';
 
 /** The Messages wire format requires integers even when a CLI omitted a count. */
 export function anthropicWireUsage(usage: ClaudeUsage) {
@@ -254,8 +254,9 @@ export function responseFromMessage(message: ClaudeMessageResponse, engine: Engi
   const responseId = deriveId(sourceId, 'resp_');
   const messageId = deriveId(sourceId, 'msg_');
   const model = message.model || '';
-  const usage = anthropicWireUsage(message.usage);
-  const native = engine === ENGINE_CLAUDE ? claudeOpenAiUsage(message.usage) : null;
+  // Both adapters expose Grok/Claude input in Anthropic's separate cache buckets.
+  const usage = engine === ENGINE_CLAUDE || engine === ENGINE_GROK
+    ? claudeOpenAiUsage(message.usage) : runnerOpenAiUsage(message.usage, engine);
   const reason = message.stop_reason;
   const incompleteReason = reason === 'max_tokens' || reason === 'model_context_window_exceeded'
     ? 'max_output_tokens' : reason === 'refusal' ? 'content_filter' : null;
@@ -281,18 +282,7 @@ export function responseFromMessage(message: ClaudeMessageResponse, engine: Engi
       },
     ],
     parallel_tool_calls: false,
-    usage: engine === ENGINE_CLAUDE ? (native && {
-      input_tokens: native.prompt_tokens,
-      input_tokens_details: native.prompt_tokens_details,
-      output_tokens: native.completion_tokens,
-      output_tokens_details: native.completion_tokens_details ?? null,
-      total_tokens: native.total_tokens,
-    }) : {
-      input_tokens: usage.input_tokens,
-      output_tokens: usage.output_tokens,
-      output_tokens_details: { reasoning_tokens: 0 },
-      total_tokens: usage.input_tokens + usage.output_tokens,
-    },
+    usage: responseUsage(usage),
   };
 }
 

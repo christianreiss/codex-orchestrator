@@ -56,9 +56,10 @@ func TestManagedMCPWriterInheritedSocketChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	fmt.Fprintln(os.Stderr, "prepared")
-	// Parent deliberately leaves stdout unread until the bounded write ends.
+	// The parent leaves stdout unread. This frame exceeds the 4 KiB send buffer
+	// while leaving the deadline available for the actual socket write under -race.
 	start := time.Now()
-	attempted, err := output.sendGuarded(context.Background(), start.Add(250*time.Millisecond), map[string]string{"content": strings.Repeat("x", 8<<20)})
+	attempted, err := output.sendGuarded(context.Background(), start.Add(250*time.Millisecond), map[string]string{"content": strings.Repeat("x", 256<<10)})
 	if !attempted || err == nil || time.Since(start) > time.Second {
 		t.Fatalf("attempted=%v err=%v elapsed=%v", attempted, err, time.Since(start))
 	}

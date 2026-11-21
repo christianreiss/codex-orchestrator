@@ -16,7 +16,7 @@ import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 
 const inputSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.guid(),
     name: z.string(),
     size_bytes: z.number().int().nonnegative().safe(),
     content_sha256: z.string().regex(/^[0-9a-f]{64}$/),

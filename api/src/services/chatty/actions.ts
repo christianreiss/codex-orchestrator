@@ -90,7 +90,7 @@ export const ACTION_SPECS: Record<ActionId, { risk: ActionRisk; capability: Capa
 
 /** Model-facing request shape. Any extra field (url, label, body, risk) invalidates it. */
 export const actionRequestSchema = z
-  .object({ action: z.enum(ACTION_IDS), params: z.record(z.unknown()).default({}) })
+  .object({ action: z.enum(ACTION_IDS), params: z.record(z.string(), z.unknown()).default({}) })
   .strict();
 
 export interface ActionHost {
@@ -533,7 +533,7 @@ export function actionsCheckTool(
     'ui_actions_check',
     `Check proposed console action buttons before attaching them to an answer. Read-only: nothing is executed; the operator must click and confirm each mutation in the console. Actions: ${PARAM_HELP}. Returns availability, risk and the server label, or why it is unavailable.`,
     'chatty.use',
-    { actions: z.array(z.object({ action: z.enum(ACTION_IDS), params: z.record(z.unknown()).optional() }).strict()).min(1).max(MAX_ACTIONS) },
+    { actions: z.array(z.object({ action: z.enum(ACTION_IDS), params: z.record(z.string(), z.unknown()).optional() }).strict()).min(1).max(MAX_ACTIONS) },
     async (c, a) => {
       const can = await access(c);
       const source = lookups(c);

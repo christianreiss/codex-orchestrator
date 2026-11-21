@@ -27,7 +27,7 @@ export const searchQuerySchema = z
       .transform((v) => v.replace(/\s+/gu, ' ').trim())
       .pipe(z.string().min(2, 'Search for at least two characters').max(200)),
     scope: z.enum(['rooms', 'direct', 'all']).default('all'),
-    room_id: z.string().uuid().optional(),
+    room_id: z.guid().optional(),
     cursor: z.string().max(600).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   })
@@ -176,7 +176,7 @@ function decodeCursor(raw: string | undefined, query: SearchQuery): Cursor {
   }
   const position = z.union([z.object({ t: z.string().max(100), id: z.string().max(64) }).strict(), z.null()]).optional();
   const cursor = z
-    .object({ s: z.enum(['rooms', 'direct', 'all']), room: z.string().uuid().optional(), r: position, d: position })
+    .object({ s: z.enum(['rooms', 'direct', 'all']), room: z.guid().optional(), r: position, d: position })
     .strict()
     .safeParse(parsed);
   if (!cursor.success || cursor.data.s !== query.scope || cursor.data.room !== query.room_id)

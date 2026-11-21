@@ -9,8 +9,8 @@ export type Handoff = typeof agentRebootHandoffs.$inferSelect;
 export const active = ['prepared', 'armed'];
 export const prepareSchema = z
   .object({
-    request_id: z.string().uuid(),
-    boot_id: z.string().uuid(),
+    request_id: z.guid(),
+    boot_id: z.guid(),
     reason: z.string().trim().min(1).max(1000),
     continuation: z.string().trim().min(1).max(32768),
   })

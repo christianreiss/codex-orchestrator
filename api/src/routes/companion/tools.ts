@@ -63,7 +63,7 @@ export interface CompanionToolsDeps {
   changed(): void;
 }
 
-const uuidParam = (req: FastifyRequest) => z.object({ id: z.string().uuid() }).parse(req.params).id;
+const uuidParam = (req: FastifyRequest) => z.object({ id: z.guid() }).parse(req.params).id;
 
 /** Strip a schedule view to what a phone shows; the prompt body never leaves. */
 export function scheduleCard(schedule: Record<string, unknown>, last?: Record<string, unknown>) {
@@ -178,8 +178,8 @@ export function registerCompanionTools(app: FastifyInstance, deps: CompanionTool
     const body = z
       .object({
         mode: z.enum(DAEMON_PERMISSION_MODES),
-        client_message_id: z.string().uuid().optional(),
-        prompt_id: z.string().uuid().optional(),
+        client_message_id: z.guid().optional(),
+        prompt_id: z.guid().optional(),
         version: z.number().int().positive().optional(),
       })
       .strict()

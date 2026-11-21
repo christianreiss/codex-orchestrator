@@ -441,6 +441,8 @@ describe('migrations against the test baseline', () => {
       'hosts.kimi_model_override',
       'hosts.kimi_reasoning_effort_override',
       'hosts.kimi_last_refresh',
+      'agent_sessions.suspend_attachment_generation',
+      'agent_sessions.suspend_recovery_until',
     ]);
   });
 

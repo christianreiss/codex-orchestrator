@@ -488,7 +488,7 @@ export class WorkflowsService {
         workflow_id: z.string().optional(),
         status: z.enum(['pending', 'running', 'paused', 'blocked', 'evaluating', 'completed']).optional(),
         outcome: z.enum(['succeeded', 'partial', 'failed', 'canceled', 'unknown']).optional(),
-        agent_address_id: z.string().uuid().optional(),
+        agent_address_id: z.guid().optional(),
         evaluation: z.enum(['pending', 'final']).optional(),
         search: z.string().max(255).optional(),
       })

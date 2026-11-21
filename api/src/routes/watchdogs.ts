@@ -22,7 +22,7 @@ export async function registerWatchdogRoutes(app: FastifyInstance, ctx: RouteCon
     return supervisor.pause(v.target, v.version);
   });
   app.post('/host/agent-sessions/:id/agent-messaging/work-state', async req => {
-    const { id } = z.object({id:z.string().uuid()}).parse(req.params);
+    const { id } = z.object({id:z.guid()}).parse(req.params);
     const token = z.string().min(1).parse(req.headers['x-agent-bridge-token']);
     if (Object.keys((req.body ?? {}) as object).length === 0) {
       const session = await service.bridge(id, token);
@@ -39,7 +39,7 @@ export async function registerWatchdogRoutes(app: FastifyInstance, ctx: RouteCon
   app.post('/host/watchdogs/get', async (req) => {
     await hostAuth.authenticate(req);
     const v = z
-      .object({ id: z.string().uuid().optional(), target: z.string().optional() })
+      .object({ id: z.guid().optional(), target: z.string().optional() })
       .strict()
       .parse(req.body);
     return v.id ? service.get(v.id) : service.list(v.target);
@@ -69,7 +69,7 @@ export async function registerWatchdogRoutes(app: FastifyInstance, ctx: RouteCon
     ),
   );
   const bridge = (req: { params: unknown; headers: Record<string, unknown> }) => ({
-    id: z.object({ id: z.string().uuid() }).parse(req.params).id,
+    id: z.object({ id: z.guid() }).parse(req.params).id,
     token: z.string().min(1).parse(req.headers['x-agent-bridge-token']),
   });
   app.post('/host/agent-sessions/:id/watchdog/activity', async (req) => {
@@ -79,7 +79,7 @@ export async function registerWatchdogRoutes(app: FastifyInstance, ctx: RouteCon
   app.post('/host/agent-sessions/:id/agent-messaging/watchdog/get', async (req) => {
     const { id, token } = bridge(req),
       session = await service.bridge(id, token);
-    const input = z.object({ id: z.string().uuid().optional() }).strict().parse(req.body);
+    const input = z.object({ id: z.guid().optional() }).strict().parse(req.body);
     if (!input.id) return service.snapshot(id, token);
     const watchdog = await service.get(input.id);
     if (watchdog.target !== `agent:${session.agentBusAddressId}`)

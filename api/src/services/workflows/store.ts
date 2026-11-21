@@ -16,6 +16,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '.
 import {
   WORKFLOW_LEASE_MS,
   canonical,
+  documentDiff,
   digest,
   type WorkflowActor,
   type WorkflowDocument,
@@ -339,9 +340,7 @@ export async function publish(
     document: { ...document },
     sha256: digest(document),
     reason,
-    diff: (Object.keys(document) as (keyof WorkflowDocument)[])
-      .filter((k) => canonical(before[k]) !== canonical(document[k]))
-      .map((field) => ({ field, before: before[field], after: document[field] })),
+    diff: documentDiff(before, document),
     sourceRunId,
     actor: agentRecord(ctx.actor),
     createdAt: ctx.now,

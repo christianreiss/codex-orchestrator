@@ -241,7 +241,7 @@ export class AgentReceiverService {
   async claim(id: string, token: string, generation: string, source: ReceiverSource, claimId: string, informationalOnly = false, immediateOnly = false) {
     if(immediateOnly && source !== 'peer') throw new ConflictError('Immediate delivery is only available for peer information', 'delivery_timing_unsupported');
     const owner=ownerRuntimeFor(this.db);if(owner){assertOwnedReceiverClaim(owner,id,token,generation,source);if(source==='peer'){await this.messaging.notifyPresenceReturn(id);return{delivery:await this.messaging.claimForSession(id,token,claimId,generation,informationalOnly || immediateOnly,immediateOnly)};}return{message:await this.portal.claimMessage(id,token,claimId,undefined,generation)};}
-    if (z.string().uuid().safeParse(id).success && z.string().uuid().safeParse(claimId).success &&
+    if (z.guid().safeParse(id).success && z.guid().safeParse(claimId).success &&
       await idleSessionPoll(this.db, id, this.env, { bridgeToken: token, receiverGeneration: generation, requireReceiver: true, source })) {
       return source === 'peer' ? { delivery: null } : { message: null };
     }

@@ -93,6 +93,8 @@ database is not a good surprise. `crane` had 0001–0006 applied by hand as of
 
 ## The baseline
 
+Fresh installations seed Codex and Claude native CLI targets with `latest`. Grok and Kimi select their native release channels through the version resolver. Existing tenants keep their recorded host and fleet policies during numbered migrations. The baseline generator includes the seed SQL from `baseline/fresh-defaults.sql`.
+
 `baseline/schema.sql` is how an empty MySQL becomes something the runner can
 migrate. It is **not a migration**: it carries no ledger version, it is never
 listed by `--list`, and it must never be moved into `migrations/`. Keeping it out

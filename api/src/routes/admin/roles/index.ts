@@ -33,10 +33,10 @@ export async function registerAdminRoleRoutes(app: FastifyInstance, ctx: RouteCo
     return result;
   });
   app.get('/admin/roles/proposals/:id', { preHandler: app.requireAdmin }, (req) =>
-    roles.proposalDetail(z.string().uuid().parse((req.params as { id: string }).id)),
+    roles.proposalDetail(z.guid().parse((req.params as { id: string }).id)),
   );
   app.post('/admin/roles/proposals/:id/decide', { preHandler: app.requireAdmin }, async (req) => {
-    const id = z.string().uuid().parse((req.params as { id: string }).id);
+    const id = z.guid().parse((req.params as { id: string }).id);
     const result = await roles.decide(id, req.body, actor(req));
     await audit(req, 'agent_roles.proposal_decided', { proposal_id: id, verdict: (req.body as { verdict?: string })?.verdict ?? null });
     return result;

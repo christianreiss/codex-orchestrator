@@ -28,7 +28,7 @@ export async function registerScheduleRoutes(app: FastifyInstance, ctx: RouteCon
   app.post('/host/agent-sessions/:id/schedule-policy', async (req) => {
     const id = z
       .string()
-      .uuid()
+      .guid()
       .parse((req.params as { id: string }).id);
     const token = z.string().min(1).parse(req.headers['x-agent-bridge-token']);
     return service.sessionPolicy(id, token);

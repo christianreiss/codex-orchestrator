@@ -19,7 +19,7 @@ export function notifyActivityObservation(database: object): void {
 export const ACTIVITY_FRESH_MS = 45_000;
 export const activityInputSchema = z
   .object({
-    generation: z.string().uuid(),
+    generation: z.guid(),
     binding_generation: z.number().int().nonnegative(),
     native_session_id: z.string().min(1).max(255),
     sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),

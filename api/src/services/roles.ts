@@ -85,14 +85,14 @@ const createSchema = z
     slug: z.string().min(1).max(64),
     display_name: z.string().trim().min(1).max(255),
     summary: z.string().trim().min(1).max(ROLE_SUMMARY_MAX),
-    policy: z.record(z.unknown()).optional(),
+    policy: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
 const draftSchema = z
   .object({
     manifest: z.string().min(1),
-    files: z.array(z.record(z.unknown())).optional(),
+    files: z.array(z.record(z.string(), z.unknown())).optional(),
     changelog: z.string().max(4000).nullable().optional(),
   })
   .strict();
@@ -537,7 +537,7 @@ export class RolesService {
         display_name: z.string().trim().min(1).max(255).optional(),
         summary: z.string().trim().min(1).max(ROLE_SUMMARY_MAX).optional(),
         status: z.enum(['active', 'retired']).optional(),
-        policy: z.record(z.unknown()).optional(),
+        policy: z.record(z.string(), z.unknown()).optional(),
         expected_version: z.number().int().positive(),
       })
       .strict()

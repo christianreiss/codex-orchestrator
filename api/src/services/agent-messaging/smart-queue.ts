@@ -20,7 +20,7 @@ export const queuePolicySchema = z.object({
   delivery_timing: z.enum(['immediate', 'after_turn']).optional(),
   delivery_class: z.enum(['information', 'progress', 'notice', 'coordination']).optional(),
   coalesce_key: z.string().trim().min(1).max(128).optional(),
-  related_work_id: z.string().uuid().optional(),
+  related_work_id: z.guid().optional(),
 });
 export type QueuePolicy = z.infer<typeof queuePolicySchema>;
 export const DIGEST_MAX_BYTES = 8192;

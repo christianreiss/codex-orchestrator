@@ -42,7 +42,7 @@ const RUNNER_RESULTS: Record<Engine, Record<string, unknown>> = {
   claude: { status: 'ok', output: 'from claude', input_tokens: 10, output_tokens: 4, cache_read_input_tokens: 6, cache_creation_input_tokens: 0 },
   grok: {
     status: 'ok', output: 'from grok', finish_reason: 'stop', native_stop_reason: 'end_turn', usage_known: true,
-    input_tokens: 16, output_tokens: 4, cache_read_input_tokens: 6, cache_creation_input_tokens: 0,
+    input_tokens: 19, output_tokens: 4, cache_read_input_tokens: 6, cache_creation_input_tokens: 3, reasoning_tokens: 2,
   },
 };
 const CATALOGS: Record<'claude' | 'grok' | 'kimi', string[]> = {
@@ -210,6 +210,25 @@ describe('any-to-any gateway routing', () => {
         expect(routingCalls).toHaveBeenCalledTimes(1);
       } finally { await close(app); }
     });
+  }
+
+  for (const surface of ALL_SURFACES) {
+    for (const backend of BACKENDS) {
+      it(`${surface.base}/responses preserves ${backend} native usage`, async () => {
+        const { app } = await harness(backend);
+        try {
+          const response = await app.inject({ method: 'POST', url: `${surface.base}/responses`,
+            headers: surface.headers, payload: { input: 'hi' } });
+          expect(response.statusCode, response.body).toBe(200);
+          const expected = backend === 'claude' || backend === 'grok' ? {
+            input_tokens: backend === 'grok' ? 19 : 16, input_tokens_details: { cached_tokens: 6 },
+            output_tokens: 4, output_tokens_details: backend === 'grok' ? { reasoning_tokens: 2 } : null,
+            total_tokens: backend === 'grok' ? 23 : 20,
+          } : null;
+          expect(response.json().usage).toEqual(expected);
+        } finally { await close(app); }
+      });
+    }
   }
 
   for (const s of OPENAI_SURFACES) {

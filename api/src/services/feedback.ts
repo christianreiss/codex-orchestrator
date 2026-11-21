@@ -107,7 +107,7 @@ export class FeedbackService {
   async saveConfiguration(input: unknown, adminUserId: number) { return new FeedbackConfiguration(this.db, this.keyring).save(input, adminUserId); }
   async recheck(input: unknown, actor: FeedbackActor) {
     await this.available(actor);
-    const { id, expected_version } = parseFeedback(z.object({ id: z.string().uuid(), expected_version: z.number().int().positive() }).strict(), input);
+    const { id, expected_version } = parseFeedback(z.object({ id: z.guid(), expected_version: z.number().int().positive() }).strict(), input);
     if ((await this.configuration()).mode !== 'user') throw new ValidationError('Select User feedback mode before requesting a GitHub check');
     return new FeedbackPipelineStore(this.db).recheck(id, expected_version, actor);
   }

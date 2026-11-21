@@ -1,10 +1,16 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": [
-    "src/routes/index.ts",
+    "src/server.ts",
+    "src/ops/{retention-maintenance,rotate-signing-key,setup-signing-key}.ts",
     "test/**/*.test.ts",
     "scripts/boot-listen.ts",
-    "scripts/smoke.ts"
+    "scripts/smoke.ts",
+    "scripts/check-*-mcp.ts",
+    "scripts/generate-schema-baseline.ts",
+    "scripts/generate-workflow-tools.ts",
+    "scripts/verify-companion-fcm.ts",
+    "scripts/verify-gateway-matrix.ts"
   ],
   "project": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
   "ignoreDependencies": ["pino-pretty", "libsodium", "@types/libsodium-wrappers"],

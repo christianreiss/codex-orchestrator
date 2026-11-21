@@ -28,13 +28,13 @@ export const hostSpawnSchema = z.object({
     .refine(v => v.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)), 'Use a valid hostname or FQDN'),
   engines: z.array(engine).min(1).max(engine.options.length).transform(v => [...new Set(v)].sort()),
   secure: z.boolean().default(true),
-  client_message_id: z.string().uuid(),
+  client_message_id: z.guid(),
   daemon: daemon.default({ mode: 'none' }),
 }).strict();
 export const hostSpawnStatusSchema = z.object({
-  operation_id: z.string().uuid(),
+  operation_id: z.guid(),
   renew_installer: z.boolean().default(false),
-  client_message_id: z.string().uuid().optional(),
+  client_message_id: z.guid().optional(),
 }).strict().refine(v => !v.renew_installer || !!v.client_message_id, {
   message: 'Installer renewal requires a stable client_message_id',
 });

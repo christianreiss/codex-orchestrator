@@ -62,7 +62,7 @@ export async function pipeOpenAiStream(
  *
  * When `includeUsage` is set (the caller passed `stream_options.include_usage`),
  * every content chunk carries `usage: null` and a final chunk with an empty
- * `choices` array and the populated `usage` object is appended before `[DONE]`,
+ * `choices` array and the materialized `usage` (nullable) is appended before `[DONE]`,
  * exactly as upstream OpenAI streams it. When unset, no usage is emitted (also
  * matching upstream).
  */
@@ -138,21 +138,14 @@ export function chatCompletionStreamEvents(
   return events;
 }
 
-/** Pull the usage object off a materialized completion, defaulting to zeros. */
-function extractUsage(completion: Record<string, unknown>): {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-} {
-  const u = completion.usage;
-  if (u && typeof u === 'object') {
-    const r = u as Record<string, unknown>;
-    const prompt = typeof r.prompt_tokens === 'number' ? r.prompt_tokens : 0;
-    const completion_ = typeof r.completion_tokens === 'number' ? r.completion_tokens : 0;
-    const total = typeof r.total_tokens === 'number' ? r.total_tokens : prompt + completion_;
-    return { prompt_tokens: prompt, completion_tokens: completion_, total_tokens: total };
-  }
-  return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+/** Preserve the materialized result's counters and optional native detail buckets. */
+function extractUsage(completion: Record<string, unknown>): Record<string, unknown> | null {
+  const value = completion.usage;
+  if (!value || typeof value !== 'object') return null;
+  const usage = value as Record<string, unknown>;
+  if (![usage.prompt_tokens, usage.completion_tokens, usage.total_tokens]
+    .every(n => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0)) return null;
+  return usage;
 }
 
 function extractChatCompletionFinishReason(completion: Record<string, unknown>): string | null {

@@ -68,16 +68,16 @@ class RunnerAppTest(unittest.TestCase):
     def test_codex_version_probe_is_bounded(self):
         captured = {}
 
-        def timeout_version(cmd, env, capture_output, text, timeout):
+        def timeout_version(cmd, *, env, timeout):
             captured["timeout"] = timeout
             raise subprocess.TimeoutExpired(cmd, timeout)
 
-        original_run = runner_app.subprocess.run
-        runner_app.subprocess.run = timeout_version
+        original_run = runner_app.run_prompt_process
+        runner_app.run_prompt_process = timeout_version
         try:
             version = runner_app._codex_version({"HOME": "/tmp/runner-version-test"})
         finally:
-            runner_app.subprocess.run = original_run
+            runner_app.run_prompt_process = original_run
 
         self.assertEqual("unavailable", version)
         self.assertEqual(5, captured["timeout"])

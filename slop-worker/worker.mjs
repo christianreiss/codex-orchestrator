@@ -181,23 +181,52 @@ function pump() {
   }
 }
 
+// Requests written during a scan or while a native watch drops events must still
+// be discovered. Completed quick runs and completed reports are immutable.
+let knownRuns = new Set();
+const unfinished = new Set();
+let directoryStamp;
+
 async function rescan() {
-  let entries = [];
-  try {
-    entries = await readdir(ROOT);
-  } catch {
-    return;
+  const stamp = (await stat(ROOT, { bigint: true })).mtimeNs;
+  if (stamp !== directoryStamp) {
+    const entries = new Set((await readdir(ROOT)).filter((name) => RUN_ID.test(name)));
+    for (const id of entries) if (!knownRuns.has(id)) unfinished.add(id);
+    for (const id of unfinished) if (!entries.has(id)) unfinished.delete(id);
+    knownRuns = entries;
+    directoryStamp = stamp;
   }
-  for (const id of entries) if ((await pending(join(ROOT, id)).catch(() => [])).length) schedule(id);
+  for (const id of unfinished) {
+    if (running.has(id)) continue;
+    const dir = join(ROOT, id);
+    if ((await pending(dir)).length) {
+      schedule(id);
+      continue;
+    }
+    if (await stat(join(dir, 'report.result.json')).catch(() => null)) {
+      unfinished.delete(id);
+    } else if (await stat(join(dir, 'scan.result.json')).catch(() => null)) {
+      const request = await readJson(join(dir, 'scan.request.json'));
+      if (request && !request.full) unfinished.delete(id);
+    }
+  }
 }
 
 await mkdir(ROOT, { recursive: true });
 watch(ROOT, { recursive: true, persistent: true }, (_event, name) => {
   if (!name) return;
-  const [id, file] = String(name).split('/');
-  if (file && file.endsWith('.request.json')) schedule(id);
-}).on('error', () => {});
-// The watch is the fast path; a periodic rescan covers missed events and restarts.
-setInterval(rescan, 5_000);
+  const [id, file, nested] = String(name).split('/');
+  if (!nested && (file === 'scan.request.json' || file === 'report.request.json')) schedule(id);
+}).on('error', (error) => console.error('slop-worker file watch failed:', error.code));
 await rescan();
+async function reconcile() {
+  try {
+    await rescan();
+  } catch (error) {
+    console.error('slop-worker queue check failed:', error.code);
+  } finally {
+    setTimeout(reconcile, 5_000);
+  }
+}
+setTimeout(reconcile, 5_000);
 console.log(`slop-worker ready: slop ${await slopVersion()} watching ${ROOT}`);

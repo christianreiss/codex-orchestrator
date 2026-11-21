@@ -59,7 +59,7 @@ const releaseCardSchema = z.object({
   reason: z.string().trim().max(255).optional().nullable(),
 });
 
-function badRequest(issue: { message?: string; path?: (string | number)[] } | undefined): ApiError {
+function badRequest(issue: { message?: string; path?: PropertyKey[] } | undefined): ApiError {
   const param = issue?.path?.length ? issue.path.join('.') : undefined;
   const message = issue?.message ?? 'Invalid request body';
   return new ApiError(param ? `${param}: ${message}` : message, {

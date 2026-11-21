@@ -25,13 +25,13 @@ const remoteTarget = z.string().trim().toLowerCase().transform(v => v.replace(/\
 // fields, so an unrecognized key names what this kind accepts and which
 // selector to use instead. fqdn is deliberately not resolved to a managed host:
 // claims are exclusion locks and keep one canonical identity (host_id).
-const resourceKeys = (kind: string, accepted: string): { errorMap: z.ZodErrorMap } => ({
-  errorMap: (issue, ctx) => {
-    if (issue.code !== z.ZodIssueCode.unrecognized_keys) return { message: ctx.defaultError };
+const resourceKeys = (kind: string, accepted: string): { error: z.ZodErrorMap } => ({
+  error: (issue) => {
+    if (issue.code !== z.ZodIssueCode.unrecognized_keys) return undefined;
     const hint = kind === 'remote'
       ? issue.keys.includes('host_id') ? ' host_id selects a managed fleet host with kind path, git or service.' : ''
       : issue.keys.includes('fqdn') ? " Select the managed fleet host with host_id (omit it for this session's host); fqdn belongs only to kind remote, for an unmanaged SSH target." : '';
-    return { message: `${ctx.defaultError}. kind ${kind} accepts ${accepted}.${hint}` };
+    return { message: `Unrecognized key(s) in object: ${issue.keys.map((key) => `'${key}'`).join(', ')}. kind ${kind} accepts ${accepted}.${hint}` };
   },
 });
 export const resourceSchema = z.discriminatedUnion('kind', [
@@ -154,7 +154,7 @@ export function compactContextAck<T extends { rooms: ContextRoom[]; claims: Cont
 }
 export const acquireSchema = z
   .object({
-    client_request_id: z.string().uuid(),
+    client_request_id: z.guid(),
     purpose: z.string().trim().min(1).max(1000),
     resources: z.array(resourceSchema).min(1).max(64),
   })
@@ -178,14 +178,14 @@ export function parseAcquireForHost(input: unknown, hostId: number) {
 }
 export const claimStatusSchema = z
   .object({
-    claim_id: z.string().uuid(),
+    claim_id: z.guid(),
     renew: z.boolean().optional(),
     response: z.enum(['wait', 'isolate']).optional(),
   })
   .strict();
 export const roomReadSchema = z
   .object({
-    scope_id: z.string().uuid(),
+    scope_id: z.guid(),
     after: z.number().int().nonnegative().optional(),
     before: z.number().int().positive().optional(),
     limit: z.number().int().min(1).max(100).default(50),
@@ -195,9 +195,9 @@ export const roomReadSchema = z
   .refine((v) => v.after === undefined || v.before === undefined, 'Use before or after');
 export const roomSendSchema = z
   .object({
-    scope_id: z.string().uuid(),
+    scope_id: z.guid(),
     content: z.string().trim().min(1).max(30000),
-    client_request_id: z.string().uuid(),
+    client_request_id: z.guid(),
   })
   .strict();
 export const CLAIM_SECONDS = 60;

@@ -22,7 +22,7 @@ import { OperationLedger } from './operation-ledger.js';
 
 const disconnectSchema = z
   .object({
-    client_message_id: z.string().uuid(),
+    client_message_id: z.guid(),
     // What the operator was looking at. The connection id already names one
     // socket exactly; this makes a mismatched label an error rather than a surprise.
     expect: z
@@ -119,7 +119,7 @@ export async function registerAdminTopologyRoutes(app: FastifyInstance, ctx: Rou
   };
 
   app.post('/admin/communicators/:id/disconnect', { preHandler: app.requireAdmin }, async (req) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { id } = z.object({ id: z.guid() }).parse(req.params);
     const body = disconnectSchema.parse(req.body ?? {});
     const admin = req.admin!.user;
     const actor = actorOf(req);
@@ -175,7 +175,7 @@ export async function registerAdminTopologyRoutes(app: FastifyInstance, ctx: Rou
   });
 
   app.post('/admin/communicators/:id/terminate', { preHandler: app.requireAdmin }, async (req) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { id } = z.object({ id: z.guid() }).parse(req.params);
     const body = disconnectSchema.parse(req.body ?? {});
     const admin = req.admin!.user;
     const actor = actorOf(req);

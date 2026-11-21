@@ -1,21 +1,21 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const sourceRoot = resolve(import.meta.dirname, '../../../..');
 const fixtures: string[] = [];
 
-function fixture() {
+function fixture(source = sourceRoot) {
   const dir = mkdtempSync(join(tmpdir(), 'instance-cli-'));
   fixtures.push(dir);
   const repo = join(dir, 'checkout');
-  cpSync(join(sourceRoot, 'bin'), join(repo, 'bin'), { recursive: true });
-  cpSync(join(sourceRoot, 'docker-compose.yml'), join(repo, 'docker-compose.yml'));
-  cpSync(join(sourceRoot, 'scripts'), join(repo, 'scripts'), { recursive: true });
-  mkdirSync(join(repo, 'wrappers'));
-  cpSync(join(sourceRoot, 'wrappers/Makefile'), join(repo, 'wrappers/Makefile'));
+  // Tests replace scripts inside the fixture. Materialize sources even when
+  // this suite is loaded from a dependency-testing checkout with symlinked paths.
+  for (const path of ['bin', 'scripts', 'docker-compose.yml', 'wrappers/Makefile']) {
+    cpSync(join(source, path), join(repo, path), { recursive: true, dereference: true });
+  }
   writeFileSync(join(repo, '.gitignore'), '.env\n.env.local\n.orchestrator.lock\n');
   const data = join(dir, 'data');
   const envFile = `DATA_ROOT=${data}\nAUTH_ENCRYPTION_KEY=fixture-secret\nCOMPOSE_PROFILES=\n`;
@@ -130,6 +130,25 @@ exit ${deployExit}
 afterEach(() => { for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 
 describe('local instance CLI', () => {
+  it('keeps writable fixtures private when their source paths are symlinks', () => {
+    const mirror = mkdtempSync(join(tmpdir(), 'instance-cli-linked-source-'));
+    fixtures.push(mirror);
+    for (const path of ['bin', 'scripts', 'docker-compose.yml', 'wrappers']) {
+      symlinkSync(join(sourceRoot, path), join(mirror, path));
+    }
+    const f = fixture(mirror);
+    const paths = ['bin/install.sh', 'bin/orchestrator', 'bin/setup.sh', 'bin/lib/instance-compose.sh',
+      'scripts/deploy.sh', 'docker-compose.yml', 'wrappers/Makefile'];
+    for (const path of paths) {
+      expect(realpathSync(join(f.repo, path))).toBe(join(realpathSync(f.repo), path));
+    }
+    for (const path of paths) {
+      const original = readFileSync(join(mirror, path));
+      writeFileSync(join(f.repo, path), 'fixture-only');
+      expect(readFileSync(join(mirror, path))).toEqual(original);
+    }
+  });
+
   it('shows help without Docker and rejects unknown commands/options', () => {
     const f = fixture();
     expect(f.run(['--help'], { DAEMON_EXIT: '1' }).status).toBe(0);

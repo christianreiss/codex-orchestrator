@@ -323,7 +323,7 @@ export function administrationTools(): ChattyTool[] {
       'project_create',
       'Create a shared project.',
       'projects.manage',
-      { slug, about: z.record(z.unknown()) },
+      { slug, about: z.record(z.string(), z.unknown()) },
       async (c, a) => project(c).create(a),
       { snapshot: projectSnapshot, href: (a) => `/admin/projects/${encodeURIComponent(a.slug)}` },
     ),
@@ -331,7 +331,7 @@ export function administrationTools(): ChattyTool[] {
       'project_about',
       'Replace project metadata; first read and preserve unrelated keys.',
       'projects.manage',
-      { slug, about: z.record(z.unknown()) },
+      { slug, about: z.record(z.string(), z.unknown()) },
       async (c, a) => project(c).updateAbout(a.slug, { about: a.about }),
       { snapshot: projectSnapshot, href: (a) => `/admin/projects/${encodeURIComponent(a.slug)}` },
     ),
@@ -441,14 +441,14 @@ export function administrationTools(): ChattyTool[] {
       'schedule_read',
       'Read a schedule and its execution history.',
       'agent_messaging.read',
-      { id: z.string().uuid() },
+      { id: z.guid() },
       async (c, a) => new SchedulesService(c.db, c.keyring).get(a.id),
     ),
     define(
       'schedule_pause',
       'Pause an existing schedule at the supplied version.',
       'agent_messaging.manage',
-      { id: z.string().uuid(), version: id },
+      { id: z.guid(), version: id },
       async (c, a) =>
         new SchedulesService(c.db, c.keyring).update({ ...a, enabled: false }, `admin:${c.actor.userId}`),
       { snapshot: async (c, a) => new SchedulesService(c.db, c.keyring).get(a.id) },
@@ -457,7 +457,7 @@ export function administrationTools(): ChattyTool[] {
       'schedule_delete',
       'Delete an existing schedule at the supplied version.',
       'agent_messaging.manage',
-      { id: z.string().uuid(), version: id },
+      { id: z.guid(), version: id },
       async (c, a) => new SchedulesService(c.db, c.keyring).remove(a, `admin:${c.actor.userId}`),
       { confirm: true, snapshot: async (c, a) => new SchedulesService(c.db, c.keyring).get(a.id) },
     ),
@@ -542,7 +542,7 @@ export function administrationTools(): ChattyTool[] {
       'content.manage',
       {
         engine: engineSchema,
-        settings: z.record(z.unknown()),
+        settings: z.record(z.string(), z.unknown()),
         expected_sha256: z.string().length(64).nullable(),
       },
       async (c, a) => {
@@ -795,7 +795,7 @@ export function administrationTools(): ChattyTool[] {
       'watchdog_disable',
       'Disable existing recovery; cannot enable or extend it.',
       'agent_messaging.manage',
-      { id: z.string().uuid(), version: id },
+      { id: z.guid(), version: id },
       async (c, a) => {
         await new WatchdogsService(c.db, c.keyring).finish(a, `admin:${c.actor.userId}`, true);
         return { disabled: true, id: a.id };

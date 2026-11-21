@@ -8,7 +8,7 @@ import { define } from './tool-definition.js';
 import type { ChattyTool, ToolContext } from './tools.js';
 
 const identifier = z.string().min(1).max(64);
-const runId = z.string().uuid();
+const runId = z.guid();
 const taskId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
 const page = pageSchema.shape;
 const service = (c: ToolContext) =>

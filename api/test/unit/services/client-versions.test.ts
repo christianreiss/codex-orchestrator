@@ -225,6 +225,15 @@ describe('ClientVersionsService.versionSummary', () => {
     expect(summary.wrapper_version).toBeNull();
   });
 
+  it('shows the effective historical Codex target until its engine-scoped setting supersedes it', async () => {
+    const legacy = makeSettings({ client_version: '0.170.0' });
+    const versions = new ClientVersionsService(legacy as never);
+    expect((await versions.versionSummary('codex')).client_version).toBe('0.170.0');
+    expect((await versions.versionSummary('claude')).client_version).toBeNull();
+    const scoped = makeSettings({ client_version: '0.170.0', client_version_codex: 'latest' });
+    expect((await new ClientVersionsService(scoped as never).versionSummary()).client_version).toBe('latest');
+  });
+
   it('reports enforce_exact from the flag when no lock is set', async () => {
     const settings = makeSettings({ client_version_enforce_exact_codex: '1' });
 

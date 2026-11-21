@@ -1,3 +1,4 @@
+import { wireOffsetDateTime } from '../util/wire-datetime.js';
 import { z } from 'zod';
 import { probeSchema, versionStates, reviewStates, deliveryStates } from './feedback/contract.js';
 import { ValidationError } from '../http/errors.js';
@@ -12,7 +13,7 @@ export const FEEDBACK_DEPLOYMENTS = ['unknown', 'not_deployed', 'deployed'] as c
 export const FEEDBACK_CLAIM_SECONDS = 1800;
 const short = z.string().trim().min(1).max(1000);
 const body = z.string().trim().min(1).max(32000);
-const uuid = z.string().uuid().transform((value) => value.toLowerCase());
+const uuid = z.guid().transform((value) => value.toLowerCase());
 
 export const feedbackSubmitSchema = z.object({
   client_request_id: uuid,
@@ -73,10 +74,10 @@ export const feedbackUpdateSchema = z.object({
 export const feedbackPurgeSchema = z.object({
   statuses: z.array(z.enum(FEEDBACK_CLOSED_STATUSES)).min(1).max(FEEDBACK_CLOSED_STATUSES.length),
   // Compared against updated_at, i.e. when the item was last changed (normally its closure).
-  older_than: z.string().datetime({ offset: true }).transform((value) => new Date(value).toISOString()).optional(),
+  older_than: wireOffsetDateTime.transform((value) => new Date(value).toISOString()).optional(),
 }).strict();
 
-export function parseFeedback<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, input: unknown): T {
+export function parseFeedback<T>(schema: z.ZodType<T, unknown>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) throw new ValidationError(result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
   return result.data;

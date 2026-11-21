@@ -91,7 +91,7 @@ export const elementRequestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('suggestion'), text: z.string().trim().min(1).max(160) }).strict(),
   // Only the shape is checked here; actions.ts validates the ID and parameters against its registry.
   z
-    .object({ type: z.literal('action'), action: z.string().min(1).max(64), params: z.record(z.unknown()).optional() })
+    .object({ type: z.literal('action'), action: z.string().min(1).max(64), params: z.record(z.string(), z.unknown()).optional() })
     .strict(),
 ]);
 export type ElementRequest = z.infer<typeof elementRequestSchema>;

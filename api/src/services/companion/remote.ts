@@ -28,7 +28,7 @@ export const companionStartSchema = z
     cwd: z.string().max(1024).optional(),
     title: z.string().trim().max(160).default(''),
     task: z.string().trim().max(32768).default(''),
-    client_message_id: z.string().uuid(),
+    client_message_id: z.guid(),
     // C7: `plan` runs every turn in native plan mode until the plan is approved.
     permission_mode: z.enum(DAEMON_PERMISSION_MODES).optional(),
   })

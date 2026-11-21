@@ -56,10 +56,10 @@ export const advisorAskSchema = z
     question: z.string().trim().min(1).max(90_000),
     kind: z.enum(ADVISOR_KINDS).default('general'),
     transfer_ids: z.array(z.string().trim().min(1).max(64)).max(10).optional(),
-    advisor_session_id: z.string().uuid().optional(),
+    advisor_session_id: z.guid().optional(),
     engine: z.enum(ENGINES as unknown as [Engine, ...Engine[]]).optional(),
     model: z.string().trim().min(1).max(128).optional(),
-    client_message_id: z.string().uuid(),
+    client_message_id: z.guid(),
   })
   .strict();
 export type AdvisorAsk = z.infer<typeof advisorAskSchema>;
@@ -602,7 +602,7 @@ export class AdvisorService {
   }
 
   async close(caller: AdvisorCaller, body: unknown) {
-    const input = z.object({ advisor_session_id: z.string().uuid() }).strict().parse(body);
+    const input = z.object({ advisor_session_id: z.guid() }).strict().parse(body);
     return this.closeFor(this.callerAddress(caller), input.advisor_session_id);
   }
 
@@ -661,7 +661,7 @@ export class AdvisorService {
 
   async status(caller: AdvisorCaller, body: unknown) {
     const input = z
-      .object({ advisor_session_id: z.string().uuid().optional() })
+      .object({ advisor_session_id: z.guid().optional() })
       .strict()
       .parse(body ?? {});
     const callerId = this.callerAddress(caller);

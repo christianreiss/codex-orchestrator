@@ -6,12 +6,12 @@ export const roomListSchema = z.object({
 export type RoomListView = z.infer<typeof roomListSchema>['view'];
 export const roomSendSchema = z
   .object({
-    room_id: z.string().uuid(),
-    client_request_id: z.string().uuid(),
+    room_id: z.guid(),
+    client_request_id: z.guid(),
     content: z.string().trim().max(30000).default(''),
-    attachments: z.array(z.string().uuid()).max(10).default([]),
-    reply_to: z.string().uuid().optional(),
-    recipients: z.array(z.string().uuid()).max(100).default([]),
+    attachments: z.array(z.guid()).max(10).default([]),
+    reply_to: z.guid().optional(),
+    recipients: z.array(z.guid()).max(100).default([]),
     ask_all: z.boolean().default(false),
   })
   .strict()
@@ -19,26 +19,26 @@ export const roomSendSchema = z
   .refine((b) => !(b.ask_all && b.recipients.length), 'Choose individual recipients or the whole round');
 export const roomCreateSchema = z
   .object({
-    client_request_id: z.string().uuid(),
+    client_request_id: z.guid(),
     kind: z.enum(['group', 'conference']),
     title: z.string().trim().min(1).max(120),
     description: z.string().trim().max(1024).default(''),
-    members: z.array(z.string().uuid()).max(100).default([]),
+    members: z.array(z.guid()).max(100).default([]),
     duration_minutes: z.number().int().min(5).max(360).default(60),
   })
   .strict();
 export const roomManageSchema = z
   .object({
-    client_request_id: z.string().uuid(),
-    room_id: z.string().uuid(),
+    client_request_id: z.guid(),
+    room_id: z.guid(),
     action: z.enum(['invite', 'remove', 'close']),
-    address_id: z.string().uuid().optional(),
+    address_id: z.guid().optional(),
   })
   .strict()
   .refine((b) => b.action === 'close' || !!b.address_id, 'Choose a member');
 export const roomReadSchema = z
   .object({
-    room_id: z.string().uuid(),
+    room_id: z.guid(),
     before: z.string().max(250).optional(),
     /** Delta cursor: agent_room_changes.seq from a previous read's `next_after`. */
     after: z

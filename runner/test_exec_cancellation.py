@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 import app
 import chatty
@@ -248,3 +249,70 @@ def test_route_waits_for_cancelled_exec_and_home_cleanup(tmp_path, engine, cance
 
     with patch.object(app, "RUNNER_SHARED_SECRET", "runner-secret"), patch.object(app, "_exec_prompt", execute):
         asyncio.run(scenario())
+
+@pytest.mark.parametrize("fd", [1, 2])
+def test_bounded_output_counts_both_pipes_and_reaps_descendants(tmp_path, monkeypatch, fd):
+    monkeypatch.setattr(exec_process, "MAX_OUTPUT_BYTES", 32)
+    pid_file = tmp_path / "owned-child"
+    script = """
+import os, subprocess, sys
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+with open(sys.argv[1], 'w') as f:
+    print(child.pid, file=f)
+os.write(1, b'x' * 16)
+os.write(2, b'y' * 16)
+os.write(int(sys.argv[2]), b'z')
+"""
+    try:
+        with pytest.raises(exec_process.NativeOutputError, match="^native_output_limit_exceeded$"):
+            exec_process.run_prompt_process([sys.executable, "-c", script, str(pid_file), str(fd)], env={}, timeout=3)
+        pid = int(pid_file.read_text())
+        deadline = time.monotonic() + 1
+        while running(pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not running(pid)
+    finally:
+        if pid_file.exists():
+            try:
+                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_utf8_across_reads_and_exact_limit(monkeypatch):
+    text = "ä🐈\r\n"
+    monkeypatch.setattr(exec_process, "MAX_OUTPUT_BYTES", len(text.encode()) + 1)
+    monkeypatch.setattr(exec_process, "READ_BYTES", 1)
+    result = exec_process.run_prompt_process(
+        [sys.executable, "-c", "import os,sys; os.write(1, sys.argv[1].encode()); os.write(2,b'!')", text],
+        env={}, timeout=2)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "ä🐈\n", "!")
+
+
+def test_invalid_output_reports_only_fixed_reason():
+    with pytest.raises(exec_process.NativeOutputError, match="^native_output_invalid_utf8$"):
+        exec_process.run_prompt_process(
+            [sys.executable, "-c", "import os; os.write(2, b'private-part' + bytes([255]))"], env={}, timeout=2)
+
+@pytest.mark.parametrize("path", ["/exec", "/verify", "/skills/generate"])
+def test_output_limit_http_response_and_single_native_execution(tmp_path, monkeypatch, path):
+    monkeypatch.setattr(exec_process, "MAX_OUTPUT_BYTES", 32)
+    monkeypatch.setattr(app, "RUNNER_SHARED_SECRET", "fixture-runner")
+    monkeypatch.setattr(app, "RUNNER_HOME_PARENT", str(tmp_path))
+    runs = tmp_path / "runs"
+    code = """
+import os, sys
+with open(sys.argv[1], 'a') as count:
+    print('started', file=count)
+os.write(2, b'synthetic-private-text' * 3)
+"""
+    cmd = [sys.executable, "-c", code, str(runs)]
+    monkeypatch.setattr(app, "_build_codex_exec_cmd", lambda *args: cmd)
+    payload = {"auth_json": {"tokens": {"access_token": "fixture-token"}}, "timeout_seconds": 3}
+    if path != "/verify":
+        payload["prompt"] = "fixture"
+    response = TestClient(app.app).post(path, headers={"x-runner-auth": "fixture-runner"}, json=payload)
+    assert response.status_code == 502, response.text
+    assert response.json() == {"detail": "native_output_limit_exceeded"}
+    assert runs.read_text() == "started\n"
+    assert list(tmp_path.iterdir()) == [runs]

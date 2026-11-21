@@ -386,6 +386,8 @@ CREATE TABLE `agent_sessions` (
 	`receive_heartbeat_at` varchar(100),
 	`receiver` json,
 	`binding_generation` int unsigned NOT NULL DEFAULT 0,
+	`suspend_attachment_generation` int unsigned,
+	`suspend_recovery_until` varchar(100),
 	`host_auth_fingerprint` char(64) NOT NULL,
 	`bridge_token_hash` char(64) NOT NULL,
 	`bridge_expires_at` varchar(100) NOT NULL,
@@ -2636,3 +2638,7 @@ CREATE TABLE `kimi_usage_snapshots` (
   `checked_at` VARCHAR(100) NOT NULL,
   `error_code` VARCHAR(48) NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- A newly provisioned host needs a release target before its first native install.
+-- Grok and Kimi already follow their native release channels by default.
+INSERT INTO versions (name, version, updated_at) VALUES ('client_version_codex', 'latest', '2026-11-21T00:00:00.000Z'), ('client_version_claude', 'latest', '2026-11-21T00:00:00.000Z') ON DUPLICATE KEY UPDATE name = VALUES(name);

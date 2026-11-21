@@ -33,7 +33,7 @@ export function registerCoordinationRoutes(
     return {
       id: z
         .string()
-        .uuid()
+        .guid()
         .parse((req.params as { id: string }).id),
       token,
     };
@@ -63,7 +63,7 @@ export function registerCoordinationRoutes(
     const { session } = await messaging.authenticateBridge(id, token);
     const canonicalPath = z.string().startsWith('/').refine((v) => !v.includes('\0') && !v.split('/').includes('..'), 'Canonical absolute path required').transform(normalizePath);
     const input = z.object({
-      target_host_id: z.number().int().positive(), claim_id: z.string().uuid(),
+      target_host_id: z.number().int().positive(), claim_id: z.guid(),
       common_dir: canonicalPath, branch: z.string().min(1).max(255),
       operation: z.enum(['register', 'join', 'list', 'merge_request', 'merge_status', 'release']),
       args: z.object({ worktree_path: canonicalPath }).catchall(z.unknown()),
@@ -111,7 +111,7 @@ export function registerCoordinationRoutes(
     service.memberPage(
       z
         .string()
-        .uuid()
+        .guid()
         .parse((req.params as { scopeId: string }).scopeId),
       z.coerce
         .number()

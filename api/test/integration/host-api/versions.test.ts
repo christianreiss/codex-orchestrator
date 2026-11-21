@@ -1,3 +1,4 @@
+import { registerAdminSettingsRoutes } from '../../../src/routes/admin/settings/index.js';
 import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
@@ -89,6 +90,29 @@ describe('GET /versions', () => {
 });
 
 describe('POST /cron/check', () => {
+  it.each([undefined, '0.130.0'])('provisions a missing native CLI after choosing Latest over %s', async (legacy) => {
+    const db = createDbFake();
+    const apiKey = 'codex-version-selection-fixture';
+    db.tables.set(hostsTable, [hostRow(apiKey)]);
+    db.tables.set(versionsTable, legacy ? [{ name: 'client_version', version: legacy }] : []);
+    const upstream = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ tag_name: 'rust-v0.171.0' }), { status: 200 }),
+    );
+    const ctx = { db: db as never, env, keyring: makeKeyring() };
+    const app = await buildHostApiTestApp(ctx);
+    try {
+      await registerAdminSettingsRoutes(app, ctx);
+      const select = await app.inject({ method: 'POST', url: '/admin/codex-version', headers: { 'x-test-admin-id': '1' }, payload: { selection: 'latest' } });
+      expect(select.statusCode).toBe(200);
+      const check = await app.inject({ method: 'POST', url: '/cron/check', headers: { authorization: `Bearer ${apiKey}` }, payload: { engine: 'codex' } });
+      expect(check.statusCode).toBe(200);
+      expect(check.json()).toMatchObject({ action: 'update', target_version: '0.171.0' });
+    } finally {
+      upstream.mockRestore();
+      await app.close();
+    }
+  });
+
   it.each([[null, '0.167.0'], ['0.165.0', '0.165.0']] as const)('serves the FreeBSD port target with host pin %s', async (pin, target) => {
     const db = createDbFake();
     const apiKey = 'freebsd-platform-fixture';

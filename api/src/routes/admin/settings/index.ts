@@ -375,6 +375,7 @@ export async function registerAdminSettingsRoutes(
     let logSelection: string = 'latest';
     let lock: { locked_version: string | null; locked_at: string | null };
     if (lower === 'latest' || lower === 'auto') {
+      await settings.set('client_version_codex', 'latest');
       lock = await clientVersions.setCodexVersionLock(null);
       void clientVersions.availableClientVersion(true);
     } else {

@@ -81,7 +81,7 @@ function jsonCopy(value: unknown, path: string, depth = 0): unknown {
 const text = z.string();
 const flag = z.boolean();
 const textList = z.array(text);
-const textMap = z.record(text);
+const textMap = z.record(z.string(), text);
 const commandLine = z.object({ type: z.literal('command'), command: text }).strict();
 const modelEntry = z.object({
   effortLevel: z.enum(['low', 'medium', 'high', 'xhigh']).optional(),
@@ -98,7 +98,7 @@ const hook = z.discriminatedUnion('type', [
   z.object({ type: z.literal('command'), ...commonHook, command: text, args: textList.optional(),
     async: flag.optional(), asyncRewake: flag.optional(), shell: z.enum(['bash', 'powershell']).optional(), onFailure }).strict(),
   z.object({ type: z.literal('http'), ...commonHook, url: text, headers: textMap.optional(), allowedEnvVars: textList.optional(), onFailure }).strict(),
-  z.object({ type: z.literal('mcp_tool'), ...commonHook, server: text, tool: text, input: z.record(z.unknown()).optional(), onFailure }).strict(),
+  z.object({ type: z.literal('mcp_tool'), ...commonHook, server: text, tool: text, input: z.record(z.string(), z.unknown()).optional(), onFailure }).strict(),
   z.object({ type: z.literal('prompt'), ...commonHook, prompt: text, model: text.optional(), continueOnBlock: flag.optional() }).strict(),
   z.object({ type: z.literal('agent'), ...commonHook, prompt: text, model: text.optional() }).strict(),
 ]);
@@ -123,7 +123,7 @@ const inlinePlugin = z.object({
   name: text, source: pluginSource, description: text.optional(), version: text.optional(),
   strict: flag.optional(), headers: textMap.optional(), headersHelper: text.optional(),
 }).strict();
-const removedSkipLfs = z.never({ invalid_type_error: 'Removed: marketplace downloads always skip Git LFS; skipLfs has no effect.' }).optional();
+const removedSkipLfs = z.never({ error: 'Removed: marketplace downloads always skip Git LFS; skipLfs has no effect.' }).optional();
 const marketplaceSource = z.discriminatedUnion('source', [
   z.object({ source: z.literal('github'), repo: text, ref: text.optional(), path: text.optional(), sparsePaths: textList.optional(), skipLfs: removedSkipLfs }).strict(),
   z.object({ source: z.literal('git'), url: text, ref: text.optional(), path: text.optional(), sparsePaths: textList.optional(), skipLfs: removedSkipLfs }).strict(),
@@ -145,16 +145,16 @@ const mcpMatcher = z.object({ serverName: text.optional(), serverCommand: textLi
 const nestedSchemas: Record<string, z.ZodTypeAny> = {
   env: textMap,
   modelOverrides: textMap,
-  vimInsertModeRemaps: z.record(z.literal('<Esc>')).superRefine((value, ctx) => {
+  vimInsertModeRemaps: z.record(z.string(), z.literal('<Esc>')).superRefine((value, ctx) => {
     for (const name of Object.keys(value)) if (name.length !== 2 || name.split('').some(character => character.charCodeAt(0) < 0x20 || character.charCodeAt(0) === 0x7f))
       ctx.addIssue({ code: 'custom', path: [name], message: 'expected a two-character printable key mapped to <Esc>' });
   }),
-  enabledPlugins: z.record(flag),
-  skillOverrides: z.record(z.enum(['on', 'name-only', 'user-invocable-only', 'off'])),
-  modelSettings: z.record(modelEntry),
+  enabledPlugins: z.record(z.string(), flag),
+  skillOverrides: z.record(z.string(), z.enum(['on', 'name-only', 'user-invocable-only', 'off'])),
+  modelSettings: z.record(z.string(), modelEntry),
   modelPicker: z.object({ options: z.array(z.object({ model: text, label: text.optional(), description: text.optional(), behavesAs: text.optional() }).strict()), replaceBuiltInOptions: flag.optional() }).strict(),
-  pluginConfigs: z.record(z.object({ options: z.record(pluginOption).optional(), mcpServers: z.record(z.record(pluginOption)).optional() }).strict()),
-  extraKnownMarketplaces: z.record(z.object({ source: marketplaceSource, autoUpdate: flag.optional() }).strict()).superRefine((value, ctx) => {
+  pluginConfigs: z.record(z.string(), z.object({ options: z.record(z.string(), pluginOption).optional(), mcpServers: z.record(z.string(), z.record(z.string(), pluginOption)).optional() }).strict()),
+  extraKnownMarketplaces: z.record(z.string(), z.object({ source: marketplaceSource, autoUpdate: flag.optional() }).strict()).superRefine((value, ctx) => {
     for (const [name, entry] of Object.entries(value)) if (entry.source.source === 'settings' && entry.source.name !== name)
       ctx.addIssue({ code: 'custom', path: [name, 'source', 'name'], message: 'must match the marketplace map key' });
   }),
@@ -171,7 +171,7 @@ const nestedSchemas: Record<string, z.ZodTypeAny> = {
   footerLinksRegexes: z.array(z.object({ type: z.literal('regex'), pattern: text, url: text, label: text.optional() }).strict()),
   allowedMcpServers: z.array(mcpMatcher), deniedMcpServers: z.array(mcpMatcher),
   sshConfigs: z.array(z.object({ id: text, name: text, sshHost: text, sshPort: z.number().int().optional(), sshIdentityFile: text.optional(), startDirectory: text.optional() }).strict()),
-  'sandbox.ignoreViolations': z.record(textList),
+  'sandbox.ignoreViolations': z.record(z.string(), textList),
   'sandbox.ripgrep': z.object({ command: text, args: textList.optional() }).strict(),
   'sandbox.credentials.files': z.array(credentialFile),
   'sandbox.credentials.envVars': z.array(credentialEnv),
@@ -206,11 +206,11 @@ function validateNested(key: string, value: unknown): void {
   if (!result.success) {
     // Union branches can otherwise hide the actual bad field at their parent.
     const expand = (issue: z.ZodIssue): z.ZodIssue[] => issue.code === 'invalid_union'
-      ? issue.unionErrors.flatMap(error => error.issues.flatMap(expand)) : [issue];
+      ? issue.errors.flatMap(branch => branch.flatMap((child) => expand({ ...child, path: [...issue.path, ...child.path] }))) : [issue];
     const issue = result.error.issues.flatMap(expand).sort((a, b) =>
       b.path.length - a.path.length || Number(b.code === 'unrecognized_keys') - Number(a.code === 'unrecognized_keys'))[0]!;
     const parts = [key, ...issue.path, ...(issue.code === 'unrecognized_keys' ? [issue.keys[0]!] : [])];
-    const path = parts.map((part, index) => typeof part === 'string' && part.includes('.') ? `[${JSON.stringify(part)}]` : `${index ? '.' : ''}${part}`).join('');
+    const path = parts.map((part, index) => typeof part === 'string' && part.includes('.') ? `[${JSON.stringify(part)}]` : `${index ? '.' : ''}${String(part)}`).join('');
     fail(path, issue.code === 'unrecognized_keys' ? 'unknown Claude Code setting' : issue.message);
   }
   if (key === 'hooks' && record(value)) {

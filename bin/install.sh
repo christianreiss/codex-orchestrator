@@ -698,7 +698,7 @@ step_dataroot() {
       -type d -not -path "*/wrapper/v2/keys*" -not -path "*/agent-chat*" -not -path "*/advisor*" -not -path "*/slop*" -exec chmod 775 {} + 2>/dev/null || true
     # Private runtime files are written by the API and media worker (uid 10001).
     # Keep the rest of the store root-owned and preserve existing media modes.
-    for runtime_directory in "$chosen/store/transfers" "$chosen/store/agent-chat" "$chosen/store/advisor" "$chosen/store/slop"; do
+    for runtime_directory in "$chosen/store/transfers" "$chosen/store/agent-chat" "$chosen/store/advisor" "$chosen/store/slop" "$chosen/store/slop/runs"; do
       mkdir -p "$runtime_directory"
       chown 10001:10001 "$runtime_directory" 2>/dev/null ||
         warn "could not chown $runtime_directory to 10001:10001; runtime uploads will fail until it is owned by the container user"

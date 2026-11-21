@@ -83,7 +83,7 @@ export async function registerQuotaRoutes(app: FastifyInstance, ctx: RouteContex
   app.put('/admin/accounts/:id/quota-policy', { preHandler: app.requireAdmin }, putPolicy);
   app.post('/host/agent-sessions/:id/agent-messaging/quota/get', async req => {
     z.object({}).strict().parse(req.body);
-    const id = z.object({ id: z.string().uuid() }).parse(req.params).id;
+    const id = z.object({ id: z.guid() }).parse(req.params).id;
     const token = z.string().min(1).parse(req.headers['x-agent-bridge-token']);
     const session = await new WatchdogsService(ctx.db, ctx.keyring).bridge(id, token);
     if (!session.providerAccountId) return { status: 'unavailable', reason: 'account_binding_unknown', short: null, long: null };

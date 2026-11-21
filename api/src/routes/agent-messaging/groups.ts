@@ -13,7 +13,7 @@ const publishSchema = z
     topic: z.string(),
     delivery_timing: z.enum(['immediate', 'after_turn']).optional(),
     content: z.string(),
-    client_message_id: z.string().uuid(),
+    client_message_id: z.guid(),
     ttl_seconds: z.number().int().nullable().optional(),
   })
   .strict();
@@ -31,7 +31,7 @@ export function registerAgentGroupRoutes(
     return {
       id: z
         .string()
-        .uuid()
+        .guid()
         .parse((req.params as { id?: string }).id),
       token,
     };

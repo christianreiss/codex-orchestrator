@@ -121,13 +121,13 @@ const proposeSchema = z
       .optional(),
     ops: z.array(opSchema).max(50).optional(),
     revert_to_version: z.number().int().positive().optional(),
-    client_request_id: z.string().uuid(),
+    client_request_id: z.guid(),
   })
   .strict();
 
 const reviewSchema = z
   .object({
-    proposal_id: z.string().uuid(),
+    proposal_id: z.guid(),
     verdict: z.enum(['accept', 'reject', 'revise']),
     reason: z.string().trim().min(1).max(4000),
     expected_version: z.number().int().positive(),
@@ -1343,7 +1343,7 @@ export class RoleProposals {
 
   async listForAgent(sessionId: string, token: string, body: unknown) {
     const input = z
-      .object({ proposal_id: z.string().uuid().optional(), status: z.string().max(16).optional() })
+      .object({ proposal_id: z.guid().optional(), status: z.string().max(16).optional() })
       .strict()
       .parse(body ?? {});
     const identityState = roleState(this.core.db);

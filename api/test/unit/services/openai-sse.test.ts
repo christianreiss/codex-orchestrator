@@ -97,18 +97,14 @@ describe('chatCompletionStreamEvents field fallbacks', () => {
 });
 
 describe('chatCompletionStreamEvents usage extraction', () => {
-  it('defaults to zeros when usage is missing or not an object', () => {
-    const zeros = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
-    expect(trailingUsage(sampleCompletion({ usage: undefined }))).toEqual(zeros);
-    expect(trailingUsage(sampleCompletion({ usage: 'none' }))).toEqual(zeros);
+  it.each([null, undefined, 'none', { prompt_tokens: 9 }])('keeps unknown or incomplete usage null (%j)', usage => {
+    expect(trailingUsage(sampleCompletion({ usage }))).toBeNull();
   });
 
-  it('derives total_tokens from prompt + completion when it is absent', () => {
-    expect(trailingUsage(sampleCompletion({ usage: { prompt_tokens: 9 } }))).toEqual({
-      prompt_tokens: 9,
-      completion_tokens: 0,
-      total_tokens: 9,
-    });
+  it('keeps known zero and measured cache and reasoning details', () => {
+    const usage = { prompt_tokens: 6, completion_tokens: 0, total_tokens: 6,
+      prompt_tokens_details: { cached_tokens: 4 }, completion_tokens_details: { reasoning_tokens: 0 } };
+    expect(trailingUsage(sampleCompletion({ usage }))).toEqual(usage);
   });
 
   it('passes a fully populated usage object through unchanged', () => {

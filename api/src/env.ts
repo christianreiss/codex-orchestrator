@@ -49,7 +49,7 @@ const intish = (def?: number) =>
       const n = typeof v === 'number' ? v : Number(v);
       return Number.isFinite(n) ? n : def;
     })
-    .pipe(z.number().int().or(z.undefined()));
+    .pipe(z.number().int().or(z.undefined())).prefault('');
 
 const optionalTrimmed = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess(
@@ -234,7 +234,7 @@ const schema = z
         if (v === undefined || v === '') return 10;
         const n = typeof v === 'number' ? v : Number(v);
         return Number.isFinite(n) && n > 0 ? n : 10;
-      }),
+      }).prefault(''),
 
     INSTALLATION_ID: z.string().optional(),
     DATA_ROOT: z.string().optional(),

@@ -46,7 +46,7 @@ export const workStateInput = z
     state: z.enum(['working', 'waiting_agent', 'waiting_user', 'completed', 'canceled']),
     reason: z.string().trim().max(1000).nullable().optional(),
     waiting_for: address.nullable().optional(),
-    message_id: z.string().uuid().nullable().optional(),
+    message_id: z.guid().nullable().optional(),
     coordinator: address.nullable().optional(),
     version: z.number().int().positive().optional(),
   })

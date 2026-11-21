@@ -19,7 +19,7 @@ export function registerWorkflowBridgeRoutes(app: FastifyInstance, workflows: Wo
   const actor = async (req: FastifyRequest): Promise<WorkflowActor> => {
     const token = req.headers['x-agent-bridge-token'];
     if (typeof token !== 'string' || !token) throw new UnauthorizedError('Bridge credential required', 'agent_bridge_token_required');
-    const id = z.string().uuid().parse((req.params as { id: string }).id);
+    const id = z.guid().parse((req.params as { id: string }).id);
     const { session } = await messaging.authenticateBridge(id, token);
     if (!session.agentBusAddressId) throw new UnauthorizedError('Bound workflow actor required');
     return { kind: 'agent', id: session.agentBusAddressId, address_id: session.agentBusAddressId,

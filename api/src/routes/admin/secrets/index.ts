@@ -47,7 +47,7 @@ const stateSchema = z.object({
   enabled: z.union([z.boolean(), z.literal(0), z.literal(1), z.enum(['0', '1', 'true', 'false'])]),
 });
 
-function badRequest(issue: { message?: string; path?: (string | number)[] } | undefined): ApiError {
+function badRequest(issue: { message?: string; path?: PropertyKey[] } | undefined): ApiError {
   const param = issue?.path?.length ? issue.path.join('.') : undefined;
   const message = issue?.message ?? 'Invalid request body';
   return new ApiError(param ? `${param}: ${message}` : message, {

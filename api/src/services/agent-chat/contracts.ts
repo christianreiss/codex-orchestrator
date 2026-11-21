@@ -7,7 +7,7 @@ export const choiceSchema = z
   .strict();
 export const chatMetadataSchema = z
   .object({
-    attachments: z.array(z.string().uuid()).max(10).refine(ids => new Set(ids).size === ids.length, 'Attachment IDs must be unique').optional(),
+    attachments: z.array(z.guid()).max(10).refine(ids => new Set(ids).size === ids.length, 'Attachment IDs must be unique').optional(),
     reply_to: z.number().int().positive().optional(),
     choice_value: z.string().max(500).optional(),
   })
@@ -38,7 +38,7 @@ export function validAnswer(
 }
 export const attachmentCreateSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.guid(),
     name: z.string().trim().min(1).max(255),
     mime_type: z
       .string()

@@ -168,7 +168,7 @@ export function roleRetentionTools(): ChattyTool[] {
       'role_proposal_read',
       'Read proposal before/proposed file bodies and events.',
       'content.read',
-      { id: z.string().uuid() },
+      { id: z.guid() },
       (c, a) => roles(c).proposalDetail(a.id),
     ),
     define(
@@ -176,7 +176,7 @@ export function roleRetentionTools(): ChattyTool[] {
       'Accept or reject a held proposal, or veto an applied proposal.',
       'content.manage',
       {
-        id: z.string().uuid(),
+        id: z.guid(),
         verdict: z.enum(['accept', 'reject']),
         reason: z.string().trim().min(1).max(4000),
         expected_version: version,
@@ -236,7 +236,7 @@ export function roleRetentionTools(): ChattyTool[] {
       'server_retention_run',
       'Request an asynchronous guarded cleanup pass. Acceptance does not prove deletion completed; read run status.',
       'settings.manage',
-      { client_request_id: z.string().uuid(), expected_revision: z.string().regex(/^[0-9a-f]{64}$/) },
+      { client_request_id: z.guid(), expected_revision: z.string().regex(/^[0-9a-f]{64}$/) },
       (c, a) => requestRetentionRun(c.db, a),
       { confirm: true, snapshot: retentionSnapshot, href: () => '/admin/settings#retention' },
     ),
@@ -244,7 +244,7 @@ export function roleRetentionTools(): ChattyTool[] {
       'server_retention_run_read',
       'Read a retained run status; a newer run may replace its bounded slot.',
       'settings.read',
-      { id: z.string().uuid() },
+      { id: z.guid() },
       async (c, a) => retentionRun(c.db, a.id),
     ),
   ];

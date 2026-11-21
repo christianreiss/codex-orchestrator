@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import HTTPException
 
-from exec_process import run_prompt_process
+from exec_process import NativeOutputError, run_prompt_process
 
 ISSUER = "https://auth.x.ai"
 DEFAULT_SCOPE = f"{ISSUER}::b1a00492-073a-47ea-816f-4c329264a828"
@@ -95,10 +95,9 @@ def version(env: dict | None = None) -> str:
     if env is None and VERSION is not None:
         return VERSION
     try:
-        proc = subprocess.run([CLI_PATH, "--version"], env=env, capture_output=True,
-                              text=True, timeout=5)
+        proc = run_prompt_process([CLI_PATH, "--version"], env=env, timeout=5)
         return proc.stdout.strip() if proc.returncode == 0 else "unavailable"
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired, NativeOutputError):
         return "unavailable"
 
 

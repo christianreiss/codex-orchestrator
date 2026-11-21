@@ -1,3 +1,4 @@
+import { wireUtcDateTime } from '../../util/wire-datetime.js';
 import { z } from 'zod';
 
 export const daemonSettingsSchema = z
@@ -6,7 +7,7 @@ export const daemonSettingsSchema = z
     // Optional on input: legacy PUT clients must not clear stored residence.
     resident_enabled: z.boolean().optional(),
     lifetime_minutes: z.number().int().min(1).max(10080).nullable().optional(),
-    expires_at: z.string().datetime().nullable().optional(),
+    expires_at: wireUtcDateTime.nullable().optional(),
     username: z
       .string()
       .regex(/^[a-z_][a-z0-9_-]*[$]?$/i)
@@ -91,7 +92,7 @@ export const daemonStartSchema = z
     cwd: z.string().max(1024).optional(),
     title: z.string().trim().min(1).max(160),
     prompt: z.string().trim().min(1).max(100_000),
-    client_message_id: z.string().uuid(),
+    client_message_id: z.guid(),
   })
   .strict();
 

@@ -81,10 +81,11 @@ export class ClientVersionsService {
       this.settings.getWithMeta(lockKey),
       this.settings.getFlag(`client_version_enforce_exact${suffix}`, false),
     ]);
+    const target = client ?? (engine === 'codex' ? await this.settings.getString('client_version') : null);
     return {
       client_version: engine === 'kimi' ? coerceKimiVersionToMinimum(lock.value ?? client ?? 'latest') : engine === 'grok'
         ? coerceGrokVersionToMinimum(lock.value ?? client ?? 'latest')
-        : client,
+        : target,
       wrapper_version: wrapper,
       client_version_checked_at: checkedAt,
       client_version_lock: lock.value,

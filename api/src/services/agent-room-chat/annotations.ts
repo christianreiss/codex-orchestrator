@@ -31,19 +31,19 @@ const emoji = z
   .refine(isReactionEmoji, 'Choose a single emoji (at most 16 bytes)');
 export const roomReactionSchema = z
   .object({
-    room_id: z.string().uuid(),
-    event_id: z.string().uuid(),
+    room_id: z.guid(),
+    event_id: z.guid(),
     emoji,
     on: z.boolean(),
-    client_request_id: z.string().uuid(),
+    client_request_id: z.guid(),
   })
   .strict();
 export const roomPinSchema = z
   .object({
-    room_id: z.string().uuid(),
-    event_id: z.string().uuid(),
+    room_id: z.guid(),
+    event_id: z.guid(),
     on: z.boolean(),
-    client_request_id: z.string().uuid(),
+    client_request_id: z.guid(),
   })
   .strict();
 export type RoomReactionInput = z.infer<typeof roomReactionSchema>;

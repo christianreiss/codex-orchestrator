@@ -14,7 +14,7 @@ import type {
   AuthenticatorTransportFuture,
   RegistrationResponseJSON,
   WebAuthnCredential,
-} from '@simplewebauthn/types';
+} from '@simplewebauthn/server';
 import type { Database } from '../db/client.js';
 import {
   adminPasskeys,
@@ -599,7 +599,7 @@ export class AdminPasskeyService {
     return -7;
   }
 
-  private decodePublicKey(stored: string): Uint8Array {
+  private decodePublicKey(stored: string): Uint8Array<ArrayBuffer> {
     if (stored.startsWith(PUBLIC_KEY_PREFIX)) {
       return new Uint8Array(Buffer.from(stored.slice(PUBLIC_KEY_PREFIX.length), 'base64'));
     }

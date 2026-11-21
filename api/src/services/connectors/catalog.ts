@@ -76,7 +76,7 @@ export class ConnectorCatalog {
         capability: 'projects.manage',
         write: true,
         description: 'Update an authorized project description.',
-        schema: z.object({ ...project, about: z.record(z.unknown()) }),
+        schema: z.object({ ...project, about: z.record(z.string(), z.unknown()) }),
         run: async (a) => projects.updateAbout(String(a.project), { about: a.about }),
       },
       project_delete: {
@@ -149,7 +149,7 @@ export class ConnectorCatalog {
         global: true,
         description: 'Submit an attributed orchestrator feedback report.',
         schema: z.object({
-          client_request_id: z.string().uuid(),
+          client_request_id: z.guid(),
           title: z.string().max(255),
           component: z.string().max(100),
           description: z.string().max(16000),
@@ -255,7 +255,7 @@ export class ConnectorCatalog {
         capability: 'agent_messaging.reveal_content',
         description:
           'Read explicit durable results for work delegated by this connection. Transport acceptance alone is unknown.',
-        schema: z.object({ message_id: z.string().uuid() }),
+        schema: z.object({ message_id: z.guid() }),
         run: async (a, auth) => {
           const state = oauth.store.snapshot(),
             work = oauth.store.get<{ grantId: string; hostId: number }>(`work:${String(a.message_id)}`);
@@ -290,8 +290,8 @@ export class ConnectorCatalog {
           'Delegate potentially arbitrary host work to a managed agent. Agent authority applies; this is command execution, not an ordinary write.',
         schema: z.object({
           ...host,
-          session_id: z.string().uuid(),
-          client_message_id: z.string().uuid(),
+          session_id: z.guid(),
+          client_message_id: z.guid(),
           content: z.string().min(1).max(16000),
         }),
         run: async (a, auth) => {
@@ -393,12 +393,12 @@ function jsonSchema(schema: z.ZodObject<z.ZodRawShape>) {
     required: string[] = [];
   for (const [key, value] of Object.entries(schema.shape)) {
     let v = value;
-    if (!v.isOptional()) required.push(key);
+    if (!(v instanceof z.ZodOptional)) required.push(key);
     if (v instanceof z.ZodOptional) v = v.unwrap();
     properties[key] =
       v instanceof z.ZodNumber
         ? { type: 'integer' }
-        : v instanceof z.ZodString
+        : v instanceof z.ZodString || v instanceof z.ZodStringFormat
           ? { type: 'string' }
           : v instanceof z.ZodEnum
             ? { type: 'string', enum: v.options }

@@ -13,7 +13,7 @@ export const categories = [
 ] as const;
 export const grantSchema = z
   .object({
-    categories: z.record(z.enum(categories), z.enum(['ro', 'rw'])).default({}),
+    categories: z.partialRecord(z.enum(categories), z.enum(['ro', 'rw'])).default({}),
     tools: z.array(z.string()).max(200).default([]),
     hosts: z.array(z.number().int().positive()).max(500).default([]),
     projects: z.array(z.string().min(1).max(255)).max(500).default([]),
@@ -28,7 +28,7 @@ export const policySchema = z
     providers: z
       .object({ chatgpt: z.boolean(), claude: z.boolean(), grok: z.boolean(), kimi: z.boolean().default(false) })
       .default({ chatgpt: false, claude: false, grok: false, kimi: false }),
-    ceiling: grantSchema.default({}),
+    ceiling: grantSchema.prefault({}),
   })
   .strict();
 export type ConnectorPolicy = z.infer<typeof policySchema>;

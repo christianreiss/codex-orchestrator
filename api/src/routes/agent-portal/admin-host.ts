@@ -72,7 +72,7 @@ export async function registerAgentPortalAdminHostRoutes(
   const reboot = new RebootHandoffs(ctx.db, ctx.keyring);
   const rebootHandler = (operation: 'ready' | 'observe' | 'disarm' | 'finish') => async (req: FastifyRequest) => {
       const host = await authenticateHost(req, 'reboot_handoff');
-      const body = z.object({ request_id: z.string().uuid(), boot_id: z.string().uuid().optional(), failed: z.boolean().optional(), task_result: taskResultSchema.optional() }).strict().parse(req.body);
+      const body = z.object({ request_id: z.guid(), boot_id: z.guid().optional(), failed: z.boolean().optional(), task_result: taskResultSchema.optional() }).strict().parse(req.body);
       if (operation === 'disarm') return reboot.disarm(host.id, body.request_id);
       if (operation === 'finish') return reboot.finish(host.id, body.request_id, body.failed ?? true, body.task_result);
       if (operation === 'observe') return reboot.observe(host.id, body.request_id);
@@ -96,8 +96,8 @@ export async function registerAgentPortalAdminHostRoutes(
     const host = await authenticateHost(req, 'agent_session_register');
     const body = z
       .object({
-        reboot_request_id: z.string().uuid().optional(),
-        reboot_boot_id: z.string().uuid().optional(),
+        reboot_request_id: z.guid().optional(),
+        reboot_boot_id: z.guid().optional(),
         engine: z.string(),
         username: z.string(),
         cwd: z.string(),
@@ -106,12 +106,12 @@ export async function registerAgentPortalAdminHostRoutes(
         provider_session_id: z.string().max(64).optional(),
         invocation_kind: z.enum(['interactive', 'execute', 'peer_delivery']),
         resumed: z.boolean().optional(),
-        session_id: z.string().uuid().optional(),
+        session_id: z.guid().optional(),
         bridge_token: z.string().min(43).max(128).regex(/^[A-Za-z0-9_-]+$/).optional(),
-        delivery_message_id: z.string().uuid().optional(),
-        delivery_claim_id: z.string().uuid().optional(),
-        daemon_operation_id: z.string().uuid().optional(),
-        daemon_claim_id: z.string().uuid().optional(),
+        delivery_message_id: z.guid().optional(),
+        delivery_claim_id: z.guid().optional(),
+        daemon_operation_id: z.guid().optional(),
+        daemon_claim_id: z.guid().optional(),
         agent_address: z.string().nullable().optional(),
         binding_generation: z.number().int().nonnegative().nullable().optional(),
         continuity: z.enum(['native', 'reset']).optional(),
@@ -255,7 +255,7 @@ export async function registerAgentPortalAdminHostRoutes(
 
   app.post('/host/agent-sessions/:id/native-control', async req => {
     const id = stringParam(req.params, 'id');
-    const body = z.object({ protocol: z.literal(1), instance_id: z.string().uuid(), report: z.object({ request_id: z.string().uuid(), status: z.enum(['accepted', 'exited', 'refused']) }).strict().optional() }).strict().parse(req.body);
+    const body = z.object({ protocol: z.literal(1), instance_id: z.guid(), report: z.object({ request_id: z.guid(), status: z.enum(['accepted', 'exited', 'refused']) }).strict().optional() }).strict().parse(req.body);
     const owner = ownerRuntimeFor(ctx.db);
     if (owner && !body.report) legacyDrainFor(owner)?.renew('session', id, requireBridgeToken(req), {instanceId: body.instance_id});
     await portal.authenticateBridge(id, requireBridgeToken(req), undefined, Boolean(body.report));
@@ -372,7 +372,7 @@ export async function registerAgentPortalAdminHostRoutes(
     const body = z
       .object({
         wait_seconds: z.number().int().min(0).max(25).optional(),
-        claim_id: z.string().uuid(),
+        claim_id: z.guid(),
       })
       .parse(req.body ?? {});
     const deadline = Date.now() + (body.wait_seconds ?? 20) * 1000;

@@ -39,7 +39,7 @@ export function registerRoleRoutes(app: FastifyInstance, ctx: RouteContext, mess
   const bridge = (req: FastifyRequest) => {
     const token = req.headers['x-agent-bridge-token'];
     if (typeof token !== 'string' || !token) throw new UnauthorizedError('Bridge credential required', 'agent_bridge_token_required');
-    return { id: z.string().uuid().parse((req.params as { id: string }).id), token };
+    return { id: z.guid().parse((req.params as { id: string }).id), token };
   };
   const operations: Record<string, (id: string, token: string, body: unknown) => Promise<unknown>> = {
     'roles/activate': (id, token, body) => roles.activate(id, token, body),

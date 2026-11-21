@@ -181,7 +181,7 @@ export class RunnerOpenAiAdapter {
     images.push(...systemImages);
     if (system) params = { ...params, system: [params.system, system].filter(Boolean).join('\n') };
     const result = await this.runPrompt(prompt, model, images, params, signal);
-    const usage = extractUsage(result, this.config.engine ?? ENGINE_CODEX);
+    const usage = runnerOpenAiUsage(result, this.config.engine ?? ENGINE_CODEX);
     return {
       id: `chatcmpl-${randomBytes(12).toString('hex')}`,
       object: 'chat.completion',
@@ -215,7 +215,7 @@ export class RunnerOpenAiAdapter {
     signal?: AbortSignal,
   ): Promise<CompletionResult> {
     const result = await this.runPrompt(prompt, model, [], params, signal);
-    const usage = extractUsage(result, this.config.engine ?? ENGINE_CODEX);
+    const usage = runnerOpenAiUsage(result, this.config.engine ?? ENGINE_CODEX);
     return {
       id: `cmpl-${randomBytes(12).toString('hex')}`,
       object: 'text_completion',
@@ -359,27 +359,28 @@ interface RunnerResponse {
   finish_reason?: string | null;
 }
 
-function extractUsage(result: RunnerResponse, engine: Engine): {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  prompt_tokens_details?: { cached_tokens: number };
-  completion_tokens_details?: { reasoning_tokens: number };
-} | null {
-  if (engine === ENGINE_KIMI) return null;
-  const requireExact = engine === ENGINE_GROK;
-  if (requireExact && (result.usage_known !== true || ![result.input_tokens, result.output_tokens].every(value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0))) return null;
+/** Grok and Codex runner input counts include cached input; Claude reports its buckets separately. */
+export function runnerOpenAiUsage(result: RunnerResponse, engine: Engine): ChatCompletionResult['usage'] {
+  if (engine === ENGINE_KIMI || result.usage_known === false) return null;
   if (engine === ENGINE_CLAUDE) return claudeOpenAiUsage(result);
-  const prompt = numberOrZero(result.input_tokens);
-  const completion = numberOrZero(result.output_tokens);
+  const prompt = nativeTokenCount(result.input_tokens);
+  const completion = nativeTokenCount(result.output_tokens);
+  const cacheRead = nativeTokenCount(result.cache_read_input_tokens);
+  const cacheWrite = nativeTokenCount(result.cache_creation_input_tokens);
+  const reasoning = nativeTokenCount(result.reasoning_tokens);
+  if (prompt === null || completion === null || !Number.isSafeInteger(prompt + completion)) return null;
+  if (engine === ENGINE_GROK) {
+    // Older runners can attest the aggregate totals without supplying both
+    // optional cache breakdowns. Only emit a breakdown actually present.
+    if (result.usage_known !== true ||
+        (result.cache_read_input_tokens != null && cacheRead === null) ||
+        (result.cache_creation_input_tokens != null && cacheWrite === null) ||
+        (cacheRead ?? 0) + (cacheWrite ?? 0) > prompt) return null;
+  }
   return {
-    prompt_tokens: prompt,
-    completion_tokens: completion,
-    total_tokens: prompt + completion,
-    ...(requireExact ? {
-      ...(typeof result.cache_read_input_tokens === 'number' ? { prompt_tokens_details: { cached_tokens: result.cache_read_input_tokens } } : {}),
-      ...(typeof result.reasoning_tokens === 'number' ? { completion_tokens_details: { reasoning_tokens: result.reasoning_tokens } } : {}),
-    } : {}),
+    prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion,
+    ...(cacheRead === null ? {} : { prompt_tokens_details: { cached_tokens: cacheRead } }),
+    ...(reasoning === null ? {} : { completion_tokens_details: { reasoning_tokens: reasoning } }),
   };
 }
 
@@ -404,11 +405,6 @@ export function claudeOpenAiUsage(result: RunnerResponse): ChatCompletionResult[
     prompt_tokens_details: { cached_tokens: cacheRead },
     ...(reasoning === null ? {} : { completion_tokens_details: { reasoning_tokens: reasoning } }),
   };
-}
-
-function numberOrZero(v: unknown): number {
-  const n = typeof v === 'number' ? v : Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
 function stringOrEmpty(v: unknown): string {
@@ -517,13 +513,17 @@ export function responseFromChatCompletion(
       },
     ],
     parallel_tool_calls: false,
-    usage: usage ? {
-      input_tokens: usage.prompt_tokens,
-      input_tokens_details: usage.prompt_tokens_details ?? (nativeTelemetry ? null : { cached_tokens: 0 }),
-      output_tokens: usage.completion_tokens,
-      output_tokens_details: nativeTelemetry ? usage.completion_tokens_details ?? null : { reasoning_tokens: 0 },
-      total_tokens: usage.total_tokens,
-    } : null,
+    usage: responseUsage(usage),
+  };
+}
+
+export function responseUsage(usage: ChatCompletionResult['usage']): ResponsesResult['usage'] {
+  return usage && {
+    input_tokens: usage.prompt_tokens,
+    input_tokens_details: usage.prompt_tokens_details ?? null,
+    output_tokens: usage.completion_tokens,
+    output_tokens_details: usage.completion_tokens_details ?? null,
+    total_tokens: usage.total_tokens,
   };
 }
 

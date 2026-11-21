@@ -52,10 +52,10 @@ const activateSchema = z
     version: z.union([z.literal('latest'), z.number().int().positive()]).optional(),
     reason: z.string().trim().min(1).max(ROLE_REASON_MAX),
     replace: z.boolean().optional(),
-    client_request_id: z.string().uuid(),
+    client_request_id: z.guid(),
     activated_by: z.enum(ROLE_ACTIVATION_KINDS).optional(),
     peer_address: z.string().max(96).optional(),
-    message_id: z.string().uuid().optional(),
+    message_id: z.guid().optional(),
   })
   .strict();
 

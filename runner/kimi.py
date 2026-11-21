@@ -14,7 +14,7 @@ import time
 import httpx
 from fastapi import HTTPException
 
-from exec_process import run_prompt_process
+from exec_process import NativeOutputError, run_prompt_process
 
 CLI_PATH = shutil.which("kimi") or "/usr/local/bin/kimi"
 VERSION: str | None = None
@@ -115,9 +115,9 @@ def version(env: dict | None = None) -> str:
     if env is None and VERSION is not None:
         return VERSION
     try:
-        proc = subprocess.run([CLI_PATH, "--version"], env=env, capture_output=True, text=True, timeout=5)
+        proc = run_prompt_process([CLI_PATH, "--version"], env=env, timeout=5)
         return proc.stdout.strip() if proc.returncode == 0 else "unavailable"
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired, NativeOutputError):
         return "unavailable"
 
 

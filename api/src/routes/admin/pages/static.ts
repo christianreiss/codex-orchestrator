@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
+import Negotiator from 'negotiator';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { RouteContext } from '../../index.js';
@@ -15,14 +16,17 @@ function adminIndexHtml(root: string): string | null {
   return indexHtml;
 }
 
+function varyOnAccept(reply: FastifyReply) {
+  const current = String(reply.getHeader('vary') ?? '');
+  const names = current.toLowerCase().split(',').map((name) => name.trim());
+  if (!names.includes('*') && !names.includes('accept')) reply.header('vary', current ? current + ', Accept' : 'Accept');
+}
+
 function acceptsHtmlNavigation(req: FastifyRequest): boolean {
-  const raw = req.headers.accept;
-  const accept = Array.isArray(raw) ? raw.join(',') : raw;
-  if (typeof accept !== 'string') return false;
-  const textHtml = accept.indexOf('text/html');
-  if (textHtml === -1) return false;
-  const json = accept.indexOf('application/json');
-  return json === -1 || textHtml < json;
+  const preferences = new Negotiator(req);
+  // Generic HTTP clients send */*. Only an explicit HTML preference is a navigation.
+  return preferences.mediaTypes().some((type) => type.toLowerCase() === 'text/html') &&
+    preferences.mediaType(['application/json', 'text/html']) === 'text/html';
 }
 
 /**
@@ -34,7 +38,9 @@ export function adminSpaHtmlPreHandler(ctx: RouteContext) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<unknown> => {
     const root = ctx.env.STATIC_ROOT;
     const indexHtml = root ? adminIndexHtml(root) : null;
-    if (!indexHtml || !['GET', 'HEAD'].includes(req.method) || !acceptsHtmlNavigation(req)) return;
+    if (!indexHtml || !['GET', 'HEAD'].includes(req.method)) return;
+    varyOnAccept(reply);
+    if (!acceptsHtmlNavigation(req)) return;
     reply.envelopeRaw = true;
     reply.header('content-type', 'text/html; charset=utf-8');
     reply.header('cache-control', 'no-cache');
@@ -66,11 +72,11 @@ export async function registerStaticAdminRoutes(
     wildcard: true,
     index: ['index.html'],
     serve: true,
-    setHeaders: (res, path) => {
+    setHeaders: (reply, path) => {
       if (path.includes('/_app/immutable/')) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        reply.header('Cache-Control', 'public, max-age=31536000, immutable');
       } else if (path.endsWith('.html')) {
-        res.setHeader('Cache-Control', 'no-cache');
+        reply.header('Cache-Control', 'no-cache');
       }
     },
   });
@@ -83,14 +89,10 @@ export async function registerStaticAdminRoutes(
   // SPA index for HTML GETs under /admin and falls through to the standard
   // envelope's not-found JSON otherwise.
   app.setNotFoundHandler((req, reply) => {
-    const wantsHtml =
-      typeof req.headers.accept === 'string' && req.headers.accept.includes('text/html');
-    if (
-      indexHtml &&
-      req.method === 'GET' &&
-      req.url.startsWith('/admin') &&
-      (req.url === '/admin' || req.url === '/admin/' || wantsHtml)
-    ) {
+    const [path = ''] = req.url.split('?', 1);
+    if (indexHtml && (req.method === 'GET' || req.method === 'HEAD') && (path === '/admin' || path.startsWith('/admin/'))) {
+      varyOnAccept(reply);
+      if (path !== '/admin' && path !== '/admin/' && !acceptsHtmlNavigation(req)) return notFoundHandler(req, reply);
       reply.envelopeRaw = true;
       reply.header('content-type', 'text/html; charset=utf-8');
       reply.header('cache-control', 'no-cache');

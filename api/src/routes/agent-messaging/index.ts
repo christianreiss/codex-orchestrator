@@ -50,13 +50,13 @@ export async function registerAgentMessagingRoutes(
       const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
       await messaging.self(id, token);
       if (operation === 'disarm') {
-        const body = z.object({ request_id: z.string().uuid() }).strict().parse(req.body);
+        const body = z.object({ request_id: z.guid() }).strict().parse(req.body);
         const { session } = await messaging.authenticateBridge(id, token);
         return reboot.disarm(session.hostId, body.request_id);
       }
       if (operation === 'prepare') return reboot.prepare(id, token, req.body);
       if (operation === 'arm') {
-        const body = z.object({ request_id: z.string().uuid() }).strict().parse(req.body);
+        const body = z.object({ request_id: z.guid() }).strict().parse(req.body);
         return reboot.arm(id, body.request_id);
       }
       z.object({}).strict().parse(req.body ?? {});
@@ -186,7 +186,7 @@ export async function registerAgentMessagingRoutes(
   );
   app.post('/admin/agent-messaging/messages/:id/quota-retry', { preHandler: app.requireAdmin }, async req => {
     z.object({}).strict().parse(req.body);
-    const result = await retryEmulatedWork(ctx.db, z.string().uuid().parse(stringParam(req.params, 'id')), `admin:${actor(req)}`);
+    const result = await retryEmulatedWork(ctx.db, z.guid().parse(stringParam(req.params, 'id')), `admin:${actor(req)}`);
     await events.record({ type: 'agent_messaging.message.changed', payload: result }, { broadcast: false });
     return result;
   });
@@ -262,8 +262,8 @@ export async function registerAgentMessagingRoutes(
       .object({
         to: z.string(),
         content: z.string(),
-        client_message_id: z.string().uuid(),
-        conversation_id: z.string().uuid().nullable().optional(),
+        client_message_id: z.guid(),
+        conversation_id: z.guid().nullable().optional(),
         ttl_seconds: z.number().int().nullable().optional(),
         kind: z.enum(['message', 'request']).optional(),
         ...queuePolicySchema.shape,
@@ -284,7 +284,7 @@ export async function registerAgentMessagingRoutes(
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
-      .object({ message_id: z.string().uuid(), content: z.string(), client_message_id: z.string().uuid(), ttl_seconds: z.number().int().nullable().optional(), claim_id: z.string().uuid().optional(), task_result: taskResultSchema.optional(), ...queuePolicySchema.shape })
+      .object({ message_id: z.guid(), content: z.string(), client_message_id: z.guid(), ttl_seconds: z.number().int().nullable().optional(), claim_id: z.guid().optional(), task_result: taskResultSchema.optional(), ...queuePolicySchema.shape })
       .strict()
       .parse(req.body ?? {});
     return await messaging.replyMessage(id, token, body.message_id, {
@@ -299,7 +299,7 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-sessions/:id/agent-messaging/wait', async (req, reply) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ conversation_id: z.string().uuid(), after: z.number().int().nonnegative().optional(), seconds: z.number().int().min(0).max(25).optional() }).strict().parse(req.body ?? {});
+    const body = z.object({ conversation_id: z.guid(), after: z.number().int().nonnegative().optional(), seconds: z.number().int().min(0).max(25).optional() }).strict().parse(req.body ?? {});
     const deadline = Date.now() + (body.seconds ?? 20) * 1000;
     while (true) {
       const result = await messaging.waitForMessages(id, token, body.conversation_id, body.after ?? 0);
@@ -310,19 +310,19 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-sessions/:id/agent-messaging/digest', async req => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ digest_id: z.string().uuid(), after: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0), limit: z.number().int().min(1).max(20).default(20) }).strict().parse(req.body ?? {});
+    const body = z.object({ digest_id: z.guid(), after: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0), limit: z.number().int().min(1).max(20).default(20) }).strict().parse(req.body ?? {});
     return messaging.getDigest(id, token, body.digest_id, body.after, body.limit);
   });
   app.post('/host/agent-sessions/:id/agent-messaging/message', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ message_id: z.string().uuid() }).strict().parse(req.body ?? {});
+    const body = z.object({ message_id: z.guid() }).strict().parse(req.body ?? {});
     return await messaging.getMessage(id, token, body.message_id);
   });
   app.post('/host/agent-sessions/:id/agent-messaging/cancel', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ conversation_id: z.string().uuid(), reason: z.string().nullable().optional() }).strict().parse(req.body ?? {});
+    const body = z.object({ conversation_id: z.guid(), reason: z.string().nullable().optional() }).strict().parse(req.body ?? {});
     return await messaging.cancelConversation(id, token, body.conversation_id, body.reason);
   });
   // The ring. Read-only and, unlike `deliveries/claim`, usable before the
@@ -360,7 +360,7 @@ export async function registerAgentMessagingRoutes(
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
       .object({
-        conference_id: z.string().uuid(),
+        conference_id: z.guid(),
         to: z.array(z.string()).min(1).max(8),
         note: z.string().nullable().optional(),
       })
@@ -379,7 +379,7 @@ export async function registerAgentMessagingRoutes(
       .object({
         // A string, never a number: `0042` must keep its leading zeros.
         pin: z.string().regex(/^[0-9]{4}$/).nullable().optional(),
-        conference_id: z.string().uuid().nullable().optional(),
+        conference_id: z.guid().nullable().optional(),
         purpose: z.string().nullable().optional(),
         content: z.string().nullable().optional(),
       })
@@ -401,14 +401,14 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-sessions/:id/agent-messaging/conf/roster', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ conference_id: z.string().uuid() }).strict().parse(req.body ?? {});
+    const body = z.object({ conference_id: z.guid() }).strict().parse(req.body ?? {});
     return await messaging.conferenceRoster(id, token, body.conference_id);
   });
   app.post('/host/agent-sessions/:id/agent-messaging/conf/say', async (req) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
-      .object({ conference_id: z.string().uuid(), content: z.string(), to: z.string().nullable().optional() })
+      .object({ conference_id: z.guid(), content: z.string(), to: z.string().nullable().optional() })
       .strict()
       .parse(req.body ?? {});
     return await messaging.conferenceSay(id, token, {
@@ -422,7 +422,7 @@ export async function registerAgentMessagingRoutes(
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
       .object({
-        conference_id: z.string().uuid(),
+        conference_id: z.guid(),
         to: z.string(),
         task: z.string(),
         eta_seconds: z.number().int().min(0).max(14400).nullable().optional(),
@@ -440,7 +440,7 @@ export async function registerAgentMessagingRoutes(
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
     const body = z
-      .object({ conference_id: z.string().uuid(), reason: z.string().nullable().optional(), force: z.boolean().optional() })
+      .object({ conference_id: z.guid(), reason: z.string().nullable().optional(), force: z.boolean().optional() })
       .strict()
       .parse(req.body ?? {});
     return await messaging.adjournConference(id, token, {
@@ -475,7 +475,7 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-sessions/:id/agent-messaging/deliveries/claim', async (req, reply) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ claim_id: z.string().uuid(), wait_seconds: z.number().int().min(0).max(25).optional(), informational_only: z.boolean().optional(), immediate_only: z.boolean().optional(), message_id: z.string().uuid().optional(), receiver_generation: z.string().uuid().optional() }).strict().parse(req.body ?? {});
+    const body = z.object({ claim_id: z.guid(), wait_seconds: z.number().int().min(0).max(25).optional(), informational_only: z.boolean().optional(), immediate_only: z.boolean().optional(), message_id: z.guid().optional(), receiver_generation: z.guid().optional() }).strict().parse(req.body ?? {});
     const deadline = Date.now() + (body.wait_seconds ?? 20) * 1000;
     while (true) {
       const delivery = await messaging.claimForSession(id, token, body.claim_id, body.receiver_generation, body.informational_only || body.immediate_only, body.immediate_only, body.message_id);
@@ -487,7 +487,7 @@ export async function registerAgentMessagingRoutes(
     const id = stringParam(req.params, 'id');
     const messageId = stringParam(req.params, 'messageId');
     const token = requireToken(req, BRIDGE_TOKEN_HEADER, 'agent_bridge_token_required');
-    const body = z.object({ claim_id: z.string().uuid() }).strict().parse(req.body ?? {});
+    const body = z.object({ claim_id: z.guid() }).strict().parse(req.body ?? {});
     return await messaging.renewSessionDelivery(id, token, messageId, body.claim_id);
   });
   app.post('/host/agent-sessions/:id/agent-messaging/deliveries/:messageId/ack', async (req) => {
@@ -523,7 +523,7 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-relays/register', async (req) => {
     const host = await hostAuth.authenticate(req);
     const body = z
-      .object({ username: z.string(), instance_id: z.string().uuid(), wrapper_version: z.string(), capabilities: JSON_OBJECT_SCHEMA.nullable().optional() })
+      .object({ username: z.string(), instance_id: z.guid(), wrapper_version: z.string(), capabilities: JSON_OBJECT_SCHEMA.nullable().optional() })
       .strict()
       .parse(req.body ?? {});
     return await messaging.registerRelay(host, {
@@ -544,7 +544,7 @@ export async function registerAgentMessagingRoutes(
   app.post('/host/agent-relays/:id/deliveries/claim', async (req, reply) => {
     const id = stringParam(req.params, 'id');
     const token = requireToken(req, RELAY_TOKEN_HEADER, 'agent_relay_token_required');
-    const body = z.object({ claim_id: z.string().uuid(), wait_seconds: z.number().int().min(0).max(25).optional() }).strict().parse(req.body ?? {});
+    const body = z.object({ claim_id: z.guid(), wait_seconds: z.number().int().min(0).max(25).optional() }).strict().parse(req.body ?? {});
     const deadline = Date.now() + (body.wait_seconds ?? 20) * 1000;
     const delivery = await relayLongPoll(
       () => messaging.claimForRelay(id, token, body.claim_id),
@@ -560,7 +560,7 @@ export async function registerAgentMessagingRoutes(
     const id = stringParam(req.params, 'id');
     const messageId = stringParam(req.params, 'messageId');
     const token = requireToken(req, RELAY_TOKEN_HEADER, 'agent_relay_token_required');
-    const body = z.object({ claim_id: z.string().uuid() }).strict().parse(req.body ?? {});
+    const body = z.object({ claim_id: z.guid() }).strict().parse(req.body ?? {});
     return await messaging.renewRelayDelivery(id, token, messageId, body.claim_id);
   });
   app.post('/host/agent-relays/:id/deliveries/:messageId/reply', async (req) => {
@@ -569,11 +569,11 @@ export async function registerAgentMessagingRoutes(
     const token = requireToken(req, RELAY_TOKEN_HEADER, 'agent_relay_token_required');
     const body = z
       .object({
-        claim_id: z.string().uuid(),
+        claim_id: z.guid(),
         content: z.string(),
         task_result: taskResultSchema.optional(),
-        client_message_id: z.string().uuid(),
-        delivery_session_id: z.string().uuid().nullable().optional(),
+        client_message_id: z.guid(),
+        delivery_session_id: z.guid().nullable().optional(),
         upstream_session_id: z.string().nullable().optional(),
       })
       .strict()
@@ -591,7 +591,7 @@ export async function registerAgentMessagingRoutes(
     const id = stringParam(req.params, 'id');
     const messageId = stringParam(req.params, 'messageId');
     const token = requireToken(req, RELAY_TOKEN_HEADER, 'agent_relay_token_required');
-    const body = deliveryAckSchema.extend({ delivery_session_id: z.string().uuid().nullable().optional() }).parse(req.body ?? {});
+    const body = deliveryAckSchema.extend({ delivery_session_id: z.guid().nullable().optional() }).parse(req.body ?? {});
     return await messaging.acknowledgeRelayDelivery(id, token, messageId, {
       ...ackInput(body),
       deliverySessionId: body.delivery_session_id,
@@ -601,7 +601,7 @@ export async function registerAgentMessagingRoutes(
 
 const deliveryAckSchema = z
   .object({
-    claim_id: z.string().uuid(),
+    claim_id: z.guid(),
     outcome: z.enum(['accepted', 'completed', 'retry', 'dead', 'ambiguous']),
     task_result: taskResultSchema.optional(),
     upstream_session_id: z.string().nullable().optional(),

@@ -571,6 +571,7 @@ Response (failure):
 
 Behavior details:
 - Uses an isolated temporary `$HOME` per execution, writing an access-only native credential file for the selected engine. Execution never returns rewritten auth as a canonical candidate.
+- Finite CLI calls accept at most 8 MiB across stdout and stderr combined. An overflow or invalid UTF-8 ends the process group, frees the private home and returns a fixed HTTP 502 diagnostic without partial text or a retry. Byte limits apply before UTF-8 decoding.
 - The `claude` path runs with `--output-format json`; a 0-exit response that is not that JSON shape is reported as `status:"fail"` rather than being passed through as reply text, and an `is_error` result inside a 0-exit response is a failure too.
 - The `claude` path also returns `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`.
 - HTTP 504 on exec timeout (`"exec timeout"`); HTTP 500 on runner exceptions.

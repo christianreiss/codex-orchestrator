@@ -10,11 +10,11 @@ import { renderGrokNativeToml } from './grok-native-settings.js';
 const str = z.string();
 const bool = z.boolean();
 const strings = z.array(str);
-const stringMap = z.record(str);
+const stringMap = z.record(z.string(), str);
 type TomlValue = string | number | boolean | TomlValue[] | { [key: string]: TomlValue };
 const tomlValue: z.ZodType<TomlValue> = z.lazy(() => z.union([
   str, bool, z.number().finite().refine(value => Number.isSafeInteger(value) || !Number.isInteger(value) || /e/i.test(String(value)), 'Integer cannot be represented losslessly in native TOML'),
-  z.array(tomlValue), z.record(tomlValue),
+  z.array(tomlValue), z.record(z.string(), tomlValue),
 ]));
 const int = (minimum = 0) => z.number().int().safe().min(minimum);
 const object = <T extends z.ZodRawShape>(fields: T) => z.object(fields).strict();
@@ -24,7 +24,7 @@ const provider = object({
   base_url: str.optional(), search_url: str.optional(), feedback_url: str.optional(),
   custom_headers: stringMap.optional(), default_model: str.optional(), type: str.optional(),
   api_key: str.optional(), api_key_env: str.optional(), oauth: oauth.optional(),
-  env: stringMap.optional(), source: z.record(tomlValue).optional(),
+  env: stringMap.optional(), source: z.record(z.string(), tomlValue).optional(),
 });
 const tuning = {
   max_context_size: int(1).optional(), max_input_size: int(1).optional(), max_output_size: int(1).optional(),
@@ -61,7 +61,7 @@ const remote = z.union([
   object({ type: z.literal('docker'), container: str.min(1), context: str.min(1).optional(), ...remotePaths }),
   object({ command: str.min(1), args: strings.optional(), env: stringMap.optional(), ...remotePaths }),
 ]);
-const environments = z.record(z.union([str, remote])).superRefine((entries, ctx) => {
+const environments = z.record(z.string(), z.union([str, remote])).superRefine((entries, ctx) => {
   for (const [name, entry] of Object.entries(entries)) {
     if (name === 'default') {
       if (typeof entry !== 'string') ctx.addIssue({ code: 'custom', path: [name], message: 'Expected a configured environment id' });
@@ -80,7 +80,7 @@ const schema = object({
   default_permission_mode: z.enum(['manual', 'yolo', 'auto']).optional(), default_plan_mode: bool.optional(),
   merge_all_available_skills: bool.optional(), extra_skill_dirs: strings.optional(), extra_agent_dirs: strings.optional(),
   builtin_product_skills: bool.optional(), telemetry: bool.optional(), auto_session_title: bool.optional(), disable_feedback_survey: bool.optional(),
-  providers: z.record(provider).optional(), models: z.record(model).optional(),
+  providers: z.record(z.string(), provider).optional(), models: z.record(z.string(), model).optional(),
   model_catalog: object({ refresh_interval_ms: int().optional(), refresh_on_start: bool.optional() }).optional(),
   secondary_model: object({ default_model: str.min(1).optional(), models: stringMap.optional(), model: str.min(1).optional(), default_effort: str.optional() }).superRefine((pool, ctx) => {
     if (pool.models !== undefined && (!pool.default_model || !Object.hasOwn(pool.models, pool.default_model)))
@@ -104,7 +104,7 @@ const schema = object({
   image: object({ max_edge_px: int(1).optional(), read_byte_budget: int(1).optional() }).optional(),
   database: object({ base: bool.optional(), global_search: bool.optional(), search: bool.optional(), search_sync_session_cap: int(1).optional(), search_sync_debounce_ms: int().optional() }).optional(),
   watch: object({ enabled: bool.optional() }).optional(), workspace: object({ require_trust: bool.optional() }).optional(),
-  experimental: z.record(bool).optional(),
+  experimental: z.record(z.string(), bool).optional(),
   services: object({ moonshot_search: service.optional(), moonshot_fetch: service.optional() }).optional(),
   permission: object({
     dangerous_command_guard: bool.optional(),

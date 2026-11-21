@@ -1,3 +1,4 @@
+import { wireUtcDateTime } from '../util/wire-datetime.js';
 import { stageSupervisorArm } from './agent-supervisor/arm.js';
 import { watchdogPolicy } from '../control-plane/streams/policies.js';
 import {addOwnerResponseProof} from '../control-plane/state/runtime.js';
@@ -113,11 +114,11 @@ export class WatchdogsService {
   }
   private async load(db: Pick<Database, 'select'>, id: string, lock = false) {
     const owner = ownerRuntimeFor(db);
-    if (owner) { owner.assertOwner(); const row = owner.state.snapshot().table('agentWatchdogs').get(z.string().uuid().parse(id)); if (row) return row; const archived = (await db.select().from(agentWatchdogs).where(eq(agentWatchdogs.id, id)))[0]; if (!archived) throw new NotFoundError('Watchdog not found', 'watchdog_not_found'); return archived; }
+    if (owner) { owner.assertOwner(); const row = owner.state.snapshot().table('agentWatchdogs').get(z.guid().parse(id)); if (row) return row; const archived = (await db.select().from(agentWatchdogs).where(eq(agentWatchdogs.id, id)))[0]; if (!archived) throw new NotFoundError('Watchdog not found', 'watchdog_not_found'); return archived; }
     const q = db
       .select()
       .from(agentWatchdogs)
-      .where(eq(agentWatchdogs.id, z.string().uuid().parse(id)));
+      .where(eq(agentWatchdogs.id, z.guid().parse(id)));
     const [row] = lock ? await q.for('update') : await q;
     if (!row) throw new NotFoundError('Watchdog not found', 'watchdog_not_found');
     return row;
@@ -402,7 +403,7 @@ export class WatchdogsService {
   async finish(raw: unknown, actor: string, disabled = false, ownSessionId?: string) {
     const v = z
       .object({
-        id: z.string().uuid(),
+        id: z.guid(),
         version: z.number().int().positive(),
         status: z.enum(['succeeded', 'failed', 'blocked', 'unknown']).optional(),
       })
@@ -490,10 +491,10 @@ export class WatchdogsService {
   async activity(sessionId: string, token: string, raw: unknown) {
     const v = z
       .object({
-        last_progress_at: z.string().datetime(),
+        last_progress_at: wireUtcDateTime,
         failure: z.enum(['capacity', 'crash', 'hang', 'user_stop', 'blocked']).optional(),
         native_session_id: z.string().optional(),
-        retry_not_before: z.string().datetime().optional(),
+        retry_not_before: wireUtcDateTime.optional(),
         quota_limit: z.boolean().optional(),
         termination_unconfirmed: z.boolean().optional(),
       })

@@ -42,7 +42,7 @@ export function supervisorTools(): ChattyTool[] {
       'watchdog_read',
       'Read one bounded recovery watchdog and its existing status. Does not activate recovery.',
       'agent_messaging.read',
-      { id: z.string().uuid() },
+      { id: z.guid() },
       (c, a) => new WatchdogsService(c.db, c.keyring).get(a.id),
     ),
   ];

@@ -1,3 +1,4 @@
+import { wireUtcDateTime } from '../../util/wire-datetime.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
@@ -11,7 +12,7 @@ import { ROOM_PUSH_MODES } from '../../services/companion/room-push.js';
 import { roomPinSchema, roomReactionSchema, SlidingWindowLimiter } from '../../services/agent-room-chat/annotations.js';
 
 
-const roomParams = z.object({ roomId: z.string().uuid() }).strict();
+const roomParams = z.object({ roomId: z.guid() }).strict();
 const cursor = z.union([
   z.coerce.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   z.string().regex(/^\d{1,16}$/u).transform(Number),
@@ -67,7 +68,7 @@ export function registerCompanionRooms(app: FastifyInstance, ctx: RouteContext) 
     // `through` is the newest seen event's exact created_at (millisecond precision); the
     // stored position only moves forward and never past the server clock.
     const body = z
-      .object({ room_id: z.string().uuid(), through: z.string().datetime() })
+      .object({ room_id: z.guid(), through: wireUtcDateTime })
       .strict()
       .parse(req.body);
     return rooms.markRead(author, body.room_id, body.through);
@@ -104,7 +105,7 @@ export function registerCompanionRooms(app: FastifyInstance, ctx: RouteContext) 
     return result;
   };
   // Reactions and pins (R5): same permissions as sending; set semantics, see docs.
-  const eventParams = z.object({ roomId: z.string().uuid(), eventId: z.string().uuid() }).strict();
+  const eventParams = z.object({ roomId: z.guid(), eventId: z.guid() }).strict();
   const reactionBody = roomReactionSchema.omit({ room_id: true, event_id: true });
   const pinBody = roomPinSchema.omit({ room_id: true, event_id: true });
   app.post('/companion/v1/rooms/:roomId/events/:eventId/reactions', async (req) => {

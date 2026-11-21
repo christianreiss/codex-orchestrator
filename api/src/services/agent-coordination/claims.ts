@@ -417,7 +417,7 @@ export class ResourceClaims {
   async release(id: string | null, token: string | null, input: unknown, operatorId?: number) {
     const body = z
       .object({
-        claim_id: z.string().uuid(),
+        claim_id: z.guid(),
         outcome: z.enum(['completed', 'canceled', 'unknown']),
         reason: z.string().trim().min(1).max(1000),
       })

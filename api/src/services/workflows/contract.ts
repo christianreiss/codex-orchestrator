@@ -1,3 +1,4 @@
+import { wireUtcDateTime } from '../../util/wire-datetime.js';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import type { Database } from '../../db/client.js';
@@ -72,9 +73,9 @@ const text = z
   .refine((v) => Buffer.byteLength(v) <= WORKFLOW_LIMITS.textBytes, 'Text exceeds 64 KiB');
 const nonempty = text.refine((v) => v.trim().length > 0, 'Must not be blank');
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/);
-const uuid = z.string().uuid();
+const uuid = z.guid();
 const revision = z.number().int().positive();
-const data = z.record(z.unknown()).superRefine((v, ctx) => {
+const data = z.record(z.string(), z.unknown()).superRefine((v, ctx) => {
   if (Buffer.byteLength(JSON.stringify(v)) > WORKFLOW_LIMITS.textBytes)
     ctx.addIssue({ code: 'custom', message: 'Data exceeds 64 KiB' });
 });
@@ -271,11 +272,11 @@ export const evidenceSchema = z
     id,
     description: nonempty,
     type: z.string().min(1).max(64),
-    time: z.string().datetime(),
+    time: wireUtcDateTime,
     uri: referenceUri.optional(),
     hash: z.string().max(128).optional(),
     execution_host: z.string().max(255).optional(),
-    expires_at: z.string().datetime().optional(),
+    expires_at: wireUtcDateTime.optional(),
   })
   .strict();
 export type WorkflowEvidence = z.infer<typeof evidenceSchema>;
@@ -449,7 +450,7 @@ export const workflowMutationSchemas = {
         .object({
           uri: z.union([referenceUri, z.string().regex(/^workflow:\/\/[a-f0-9]{64}\/knowledge\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/)]),
           title: z.string().min(1).max(255),
-          read_at: z.string().datetime(),
+          read_at: wireUtcDateTime,
           digest: z.string().max(128).optional(),
           revision: z.string().max(128).optional(),
           summary: nonempty,

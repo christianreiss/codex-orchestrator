@@ -8,10 +8,10 @@ import { ConflictError } from '../../http/errors.js';
 
 export const receiverTurnProofSchema = z
   .object({
-    epoch: z.string().uuid(),
+    epoch: z.guid(),
     sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     state: z.enum(['idle', 'active', 'unknown']),
-    native_instance_id: z.string().uuid(),
+    native_instance_id: z.guid(),
     binding_generation: z.number().int().positive(),
   })
   .strict();

@@ -270,38 +270,22 @@ function stringOrUndefined(v: unknown): string | undefined {
 }
 
 function extractUsage(obj: Record<string, unknown>, engine: Engine): ClaudeUsage {
-  if (engine === ENGINE_CLAUDE) {
-    return {
-      input_tokens: nativeTokenCount(obj.input_tokens),
-      output_tokens: nativeTokenCount(obj.output_tokens),
-      cache_creation_input_tokens: nativeTokenCount(obj.cache_creation_input_tokens),
-      cache_read_input_tokens: nativeTokenCount(obj.cache_read_input_tokens),
-      reasoning_tokens: nativeTokenCount(obj.reasoning_tokens),
-      ...(obj.usage_known === false ? { usage_known: false } : {}),
-    };
-  }
-  // Anthropic requires integer usage; zero denotes unavailable for Kimi.
-  if (engine === ENGINE_KIMI) return { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
-  const num = (k: string): number => {
-    const v = obj[k];
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
-    return 0;
-  };
   const usage = {
-    input_tokens: num('input_tokens'),
-    output_tokens: num('output_tokens'),
-    cache_creation_input_tokens: num('cache_creation_input_tokens'),
-    cache_read_input_tokens: num('cache_read_input_tokens'),
+    input_tokens: nativeTokenCount(obj.input_tokens),
+    output_tokens: nativeTokenCount(obj.output_tokens),
+    cache_creation_input_tokens: nativeTokenCount(obj.cache_creation_input_tokens),
+    cache_read_input_tokens: nativeTokenCount(obj.cache_read_input_tokens),
+    reasoning_tokens: nativeTokenCount(obj.reasoning_tokens),
+    ...(obj.usage_known === false ? { usage_known: false } : {}),
   };
-  if (engine === ENGINE_GROK) {
-    // Unknown Grok usage is reported as zeros — this wire has no null usage.
-    if (obj.usage_known !== true) {
-      return { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+  if (engine === ENGINE_GROK && obj.usage_known === true) {
+    const { input_tokens: input, cache_read_input_tokens: read, cache_creation_input_tokens: write } = usage;
+    if (input !== null && read !== null && write !== null && read + write <= input && usage.output_tokens !== null) {
+      return { ...usage, input_tokens: input - read - write };
     }
-    // The runner folds both cache buckets into `input_tokens` (OpenAI's
-    // convention); Anthropic counts them separately.
-    usage.input_tokens = Math.max(0, usage.input_tokens - usage.cache_read_input_tokens - usage.cache_creation_input_tokens);
+  }
+  if (engine === ENGINE_GROK || engine === ENGINE_KIMI) {
+    return { input_tokens: null, output_tokens: null, cache_creation_input_tokens: null, cache_read_input_tokens: null, usage_known: false };
   }
   return usage;
 }

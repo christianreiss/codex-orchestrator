@@ -7,7 +7,7 @@ import { armWake } from '../http/idle-hold.js';
 import { clientGone } from '../http/long-poll.js';
 import { RECEIVER_CLAIM_GATES, RECEIVER_CLAIM_GATE_MAX_SECONDS } from '../services/agent-receiver-state.js';
 
-const generation = z.string().uuid();
+const generation = z.guid();
 const source = z.enum(['peer', 'portal']);
 const claimGate = z.object({
   state: z.enum(RECEIVER_CLAIM_GATES),
@@ -42,7 +42,7 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
   // One handler per op, registered under literal paths so the source-indexed
   // route checks (registered-routes.ts) can see every receiver route.
   const handler = (op: Op) => async (req: FastifyRequest, reply: FastifyReply) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { id } = z.object({ id: z.guid() }).parse(req.params);
     const token = req.headers['x-agent-bridge-token'];
     if (typeof token !== 'string')
       throw new UnauthorizedError('Bridge token required', 'agent_bridge_token_required');
@@ -62,7 +62,7 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
           .parse(req.body),
       );
     if (op === 'claim') {
-      const body = z.object({ generation, source, claim_id: z.string().uuid(), informational_only: z.boolean().optional(), immediate_only: z.boolean().optional() }).strict().parse(req.body);
+      const body = z.object({ generation, source, claim_id: z.guid(), informational_only: z.boolean().optional(), immediate_only: z.boolean().optional() }).strict().parse(req.body);
       const claim = () => service.claim(id, token, body.generation, body.source, body.claim_id, body.informational_only, body.immediate_only);
       const wake = armWake(wakesReceiver(id));
       let result: Awaited<ReturnType<typeof claim>>;
@@ -83,7 +83,7 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
       .object({
         generation,
         source: source.optional(),
-        nonce: z.string().uuid().optional(),
+        nonce: z.guid().optional(),
         failure: z.string().max(255).optional(),
       })
       .strict();
@@ -97,7 +97,7 @@ export async function registerAgentReceiverRoutes(app: FastifyInstance, ctx: Rou
   app.post('/host/agent-sessions/:id/receiver/status', handler('status'));
   app.post('/host/agent-sessions/:id/receiver/claim', handler('claim'));
   app.post('/admin/agent-sessions/:id/receiver/verify', { preHandler: app.requireAdmin }, async (req) => {
-    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { id } = z.object({ id: z.guid() }).parse(req.params);
     return service.retry(id);
   });
 }

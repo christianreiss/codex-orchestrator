@@ -23,12 +23,12 @@ import { ConflictError, ForbiddenError, ValidationError } from '../http/errors.j
 const schema = z
   .object({
     protocol: z.union([z.literal(COMMUNICATOR_CACHE_PROTOCOL), z.literal(LOCAL_CONTENT_CACHE_PROTOCOL)]),
-    request_id: z.string().uuid(),
+    request_id: z.guid(),
     method: z.enum(['GET', 'POST']),
     path: z.string().max(1024),
-    body: z.record(z.unknown()).default({}),
-    headers: z.record(z.string().max(16384)).default({}),
-    known: z.record(z.string().regex(/^[a-f0-9]{64}$/)).default({}),
+    body: z.record(z.string(), z.unknown()).default({}),
+    headers: z.record(z.string(), z.string().max(16384)).default({}),
+    known: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)).default({}),
   })
   .strict();
 

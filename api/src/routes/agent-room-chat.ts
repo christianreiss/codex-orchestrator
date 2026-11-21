@@ -1,3 +1,4 @@
+import { wireUtcDateTime } from '../util/wire-datetime.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from './index.js';
@@ -51,7 +52,7 @@ export function registerAgentRoomChatRoutes(app: FastifyInstance, ctx: RouteCont
     { preHandler: [app.requireAdmin, app.requireCapability('agent_messaging.reveal_content')] },
     async (req) => {
       const b = z
-        .object({ room_id: z.string().uuid(), through: z.string().datetime() })
+        .object({ room_id: z.guid(), through: wireUtcDateTime })
         .strict()
         .parse(req.body);
       return service.markRead(actor(req), b.room_id, b.through);
@@ -73,7 +74,7 @@ export function registerAgentRoomChatRoutes(app: FastifyInstance, ctx: RouteCont
     return result;
   };
   // Reactions and pins (0119): operators only, open rooms, canonical room events.
-  const eventParams = z.object({ roomId: z.string().uuid(), eventId: z.string().uuid() }).strict();
+  const eventParams = z.object({ roomId: z.guid(), eventId: z.guid() }).strict();
   const annotationLimit = new SlidingWindowLimiter(60, 60_000, 'Too many reactions or pins. Try again in a minute.');
   const annotate = (kind: 'reaction' | 'pin') => async (req: FastifyRequest) => {
     const { roomId, eventId } = eventParams.parse(req.params);
@@ -95,7 +96,7 @@ export function registerAgentRoomChatRoutes(app: FastifyInstance, ctx: RouteCont
   app.post('/admin/agent-messaging/chats/:roomId/events/:eventId/pin', { preHandler: [app.requireAdmin, app.requireCapability('agent_messaging.reveal_content')] }, annotate('pin'));
   app.get('/admin/agent-messaging/chats/:roomId/pins', { preHandler: [app.requireAdmin, app.requireCapability('agent_messaging.reveal_content')] }, async (req, reply) => {
     reply.header('cache-control', 'no-store');
-    const { roomId } = z.object({ roomId: z.string().uuid() }).strict().parse(req.params);
+    const { roomId } = z.object({ roomId: z.guid() }).strict().parse(req.params);
     return service.pins(actor(req), roomId);
   });
   const search = new ConversationSearch(ctx.db, ctx.keyring);
@@ -136,7 +137,7 @@ export function registerAgentRoomChatRoutes(app: FastifyInstance, ctx: RouteCont
     const a = {
       sessionId: z
         .string()
-        .uuid()
+        .guid()
         .parse((req.params as { id: string }).id),
       token,
     };

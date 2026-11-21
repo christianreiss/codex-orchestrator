@@ -1,3 +1,4 @@
+import { enumList } from '../../util/enum-list.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { ConnectorStore } from './store.js';
@@ -85,8 +86,8 @@ export class ConnectorOAuth {
         client_name: z.string().min(1).max(100).default(provider),
         redirect_uris: z.array(z.string().url().max(2048)).min(1).max(8),
         token_endpoint_auth_method: z.literal('none').default('none'),
-        grant_types: z.array(z.enum(['authorization_code', 'refresh_token'])).optional(),
-        response_types: z.array(z.literal('code')).optional(),
+        grant_types: enumList(['authorization_code', 'refresh_token']).optional(),
+        response_types: enumList(['code']).optional(),
       })
       .parse(input);
     for (const uri of body.redirect_uris) {

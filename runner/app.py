@@ -18,7 +18,7 @@ import grok
 import kimi
 import runner_engines
 from chatty import register_chatty
-from exec_process import ExecCancelled, run_prompt_process
+from exec_process import ExecCancelled, NativeOutputError, run_prompt_process
 from images import ImageLimits, ImagePolicyError, materialize_images
 
 app = FastAPI()
@@ -144,11 +144,9 @@ def _extract_openai_token(auth_json: dict) -> Optional[str]:
 
 def _codex_version(env: dict) -> str:
     try:
-        proc = subprocess.run(
+        proc = run_prompt_process(
             ["/usr/local/bin/codex", "--version"],
             env=env,
-            capture_output=True,
-            text=True,
             timeout=5,
         )
     except Exception:
@@ -385,11 +383,9 @@ def _anthropic_auth_headers(token: str) -> dict:
 
 def _claude_version(env: Optional[dict] = None) -> str:
     try:
-        proc = subprocess.run(
+        proc = run_prompt_process(
             [CLAUDE_CLI_PATH, "--version"],
             env=env,
-            capture_output=True,
-            text=True,
             timeout=5,
         )
         if proc.returncode != 0:
@@ -1136,6 +1132,8 @@ def verify(payload: VerifyRequest, request: Request):
         return _run_probe(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="probe timeout")
+    except NativeOutputError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -1160,6 +1158,8 @@ def verify_claude(payload: VerifyRequest, request: Request):
 
     try:
         return _run_claude_probe(payload)
+    except NativeOutputError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -1189,6 +1189,8 @@ def generate_skill(payload: SkillGenerateRequest, request: Request):
         return _generate_skill(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="skill generation timeout")
+    except NativeOutputError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -1203,6 +1205,8 @@ def assist_skill(payload: SkillAssistRequest, request: Request):
         return _assist_skill(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="skill assist timeout")
+    except NativeOutputError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -1217,6 +1221,8 @@ def assist_project(payload: ProjectAssistRequest, request: Request):
         return _assist_project(payload)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="project assist timeout")
+    except NativeOutputError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -1440,6 +1446,8 @@ async def exec_prompt(payload: ExecRequest, request: Request):
         raise HTTPException(status_code=499, detail="exec cancelled") from None
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="exec timeout")
+    except NativeOutputError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001

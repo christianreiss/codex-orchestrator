@@ -39,7 +39,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   const sessionId = (req: FastifyRequest) =>
     z
       .string()
-      .uuid()
+      .guid()
       .parse((req.params as { id: string }).id);
   const owner = async (req: FastifyRequest) => {
     const { session } = await messaging.authenticateBridge(
@@ -84,7 +84,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   // (mode default) it also resumes the session with the execution instruction.
   app.post('/admin/daemon-sessions/:id/permission-mode', { preHandler: app.requireAdmin }, async (req, reply) => {
     const body = z
-      .object({ mode: z.enum(DAEMON_PERMISSION_MODES), client_message_id: z.string().uuid().optional() })
+      .object({ mode: z.enum(DAEMON_PERMISSION_MODES), client_message_id: z.guid().optional() })
       .strict()
       .refine((value) => value.mode === 'default' || !value.client_message_id, {
         path: ['client_message_id'],
@@ -109,7 +109,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   });
   app.post('/admin/daemon-sessions/:id/messages', { preHandler: app.requireAdmin }, (req) => {
     const body = z
-      .object({ prompt: z.string().trim().min(1).max(100_000), client_message_id: z.string().uuid() })
+      .object({ prompt: z.string().trim().min(1).max(100_000), client_message_id: z.guid() })
       .strict()
       .parse(req.body);
     return service.turn(sessionId(req), body.prompt, body.client_message_id);
@@ -156,7 +156,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   });
   app.post('/host/agent-sessions/:sessionId/agent-messaging/spawn-status', async (req) => {
     const actor = await owner(req);
-    const body = z.object({ session_id: z.string().uuid().optional() }).strict().parse(req.body);
+    const body = z.object({ session_id: z.guid().optional() }).strict().parse(req.body);
     if (body.session_id) return service.session(body.session_id, actor);
     const hidden = await internalHostIds(ctx.db);
     const runtime=ownerRuntimeFor(ctx.db);runtime?.assertOwner();
@@ -174,7 +174,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   });
   app.post('/host/agent-sessions/:sessionId/agent-messaging/stop', async (req) => {
     const actor = await owner(req);
-    const body = z.object({ session_id: z.string().uuid() }).strict().parse(req.body);
+    const body = z.object({ session_id: z.guid() }).strict().parse(req.body);
     return service.stop(body.session_id, actor);
   });
   // Fleet Advisor: the caller is the authenticated agent session, never a host.
@@ -197,7 +197,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   app.post('/host/daemon/peer-finished', async (req) => {
     const host = await auth.authenticate(req);
     const body = z
-      .object({ session_id: z.string().uuid(), message_id: z.string().uuid() })
+      .object({ session_id: z.guid(), message_id: z.guid() })
       .strict()
       .parse(req.body);
     return service.peerFinished(host.id, body.session_id, body.message_id);
@@ -214,7 +214,7 @@ export async function registerHostDaemonRoutes(app: FastifyInstance, ctx: RouteC
   app.post('/host/daemon/migration', async (req) => {
     const host = await auth.authenticate(req);
     const body = z
-      .object({ request_id: z.string().uuid(), command: z.enum(['fence', 'status', 'release']) })
+      .object({ request_id: z.guid(), command: z.enum(['fence', 'status', 'release']) })
       .strict()
       .parse(req.body);
     return service.migration(host.id, body.request_id, body.command);
@@ -332,7 +332,7 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
           .then(() => withOwnerRequestScope(async () => {
             const msg = z
               .object({
-                id: z.string().uuid(),
+                id: z.guid(),
                 type: z.string(),
                 payload: z.object({}).catchall(z.unknown()).default({}),
               })
@@ -349,7 +349,7 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
               if (msg.type === 'hello') {
                 const body = z
                   .object({
-                    instance_id: z.string().uuid(),
+                    instance_id: z.guid(),
                     username: z.string(),
                     version: z.string().max(64),
                     engines: z.array(z.enum(['codex', 'claude', 'grok', 'kimi'])),
@@ -372,21 +372,21 @@ export function attachHostDaemonSocket(socket: DaemonSocket, req: FastifyRequest
                     .object({
                       engines: z.array(z.enum(['codex', 'claude', 'grok', 'kimi'])),
                       error: z.string().max(200).nullable().default(null),
-                      active_sessions: z.array(z.string().uuid()).max(64).default([]),
+                      active_sessions: z.array(z.guid()).max(64).default([]),
                     })
                     .parse(msg.payload);
                   result = await service.heartbeat(host.id, generation, body.engines, body.error, body.active_sessions);
                 } else if (msg.type === 'accept') {
                   result = await service.accept(
                     host.id,
-                    z.string().uuid().parse(msg.payload.operation_id),
-                    z.string().uuid().parse(msg.payload.claim_id),
+                    z.guid().parse(msg.payload.operation_id),
+                    z.guid().parse(msg.payload.claim_id),
                   );
                 } else if (msg.type === 'complete') {
                   const body = z
                     .object({
-                      operation_id: z.string().uuid(),
-                      claim_id: z.string().uuid(),
+                      operation_id: z.guid(),
+                      claim_id: z.guid(),
                       result: z.object({
                         status: z.enum(['completed', 'failed', 'unknown', 'stopped']),
                         reply: z.string().max(100_000),

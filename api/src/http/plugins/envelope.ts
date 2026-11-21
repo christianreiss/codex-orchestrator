@@ -82,7 +82,7 @@ function toApiError(err: unknown): ApiError {
   if (err instanceof ApiError) return err;
   if (err instanceof ZodError) {
     // Do not include input values: validation may concern credentials or text.
-    return new ValidationError(err.issues.map(issue => `${issue.path.join('.') || 'request'}: ${issue.code === 'invalid_enum_value' ? 'Invalid option' : issue.message}`).join('; '));
+    return new ValidationError(err.issues.map(issue => `${issue.path.join('.') || 'request'}: ${issue.code === 'invalid_value' ? 'Invalid option' : issue.message}`).join('; '));
   }
   if (
     err &&

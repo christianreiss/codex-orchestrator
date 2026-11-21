@@ -37,11 +37,11 @@ import { makeAdminEventsWriter } from '../../services/admin-events-writer.js';
 import { ApiError, ForbiddenError, ServiceUnavailableError } from '../../http/errors.js';
 import { createSseLifecycle } from '../../http/sse-lifecycle.js';
 
-const id = (req: FastifyRequest) => z.object({ id: z.string().uuid() }).parse(req.params).id;
-const message = z.object({ client_message_id: z.string().uuid(), metadata: chatMetadataSchema.optional(),
+const id = (req: FastifyRequest) => z.object({ id: z.guid() }).parse(req.params).id;
+const message = z.object({ client_message_id: z.guid(), metadata: chatMetadataSchema.optional(),
   content: z.string().max(32768) });
 const safeReadCursor = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
-const sessionUuid = z.string().uuid();
+const sessionUuid = z.guid();
 const readSnapshot = z
   .object({
     sync_reads: z.boolean().optional(),
@@ -268,7 +268,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
           read_sync_protocol: z.literal(1).optional(),
           fcm_token: z.string().min(1).max(4096).nullable().optional(),
           notifications: z.boolean().optional(),
-          visible_session_id: z.string().uuid().nullable().optional(),
+          visible_session_id: z.guid().nullable().optional(),
         })
         .parse(req.body);
       await devices.patch(device.id, body);
@@ -397,7 +397,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
     app.post('/companion/v1/agents/:id/messages/:messageId/cancel', async (req) => {
       const { user } = await auth(req, 'agent_portal.manage');
       z.object({}).passthrough().parse(req.body ?? {});
-      const params = z.object({ id: z.string().uuid(), messageId: z.string().uuid() }).parse(req.params);
+      const params = z.object({ id: z.guid(), messageId: z.guid() }).parse(req.params);
       await requirePortal();
       const linked = await remote.find(params.id, user.id);
       return portal.cancelMessage(actor(user), { sessionId: linked?.sessionId ?? params.id, messageId: params.messageId });
@@ -406,13 +406,13 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       const { device, user } = await auth(req, 'agent_portal.manage');
       const body = z
         .object({
-          client_message_id: z.string().uuid(),
+          client_message_id: z.guid(),
           answer: z.string().max(32768),
           metadata: chatMetadataSchema.optional(),
           version: z.number().int().positive().optional(),
         })
         .parse(req.body);
-      const params = z.object({ id: z.string().uuid(), promptId: z.string().uuid() }).parse(req.params);
+      const params = z.object({ id: z.guid(), promptId: z.guid() }).parse(req.params);
       await requirePortal();
       const linked = await remote.find(params.id, user.id);
       let result;
@@ -553,7 +553,7 @@ export async function registerCompanionRoutes(app: FastifyInstance, ctx: RouteCo
       const query = z
         .object({
           after: z.coerce.number().int().nonnegative().optional(),
-          session_id: z.string().uuid().optional(),
+          session_id: z.guid().optional(),
         })
         .parse(req.query);
       let cursor = query.after ?? (await portal.latestEventCursor());

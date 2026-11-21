@@ -9,9 +9,12 @@ import hashlib
 import json
 import os
 import platform
+import re
+import tempfile
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 HOME = os.environ["HOME"]
 CFG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.join(HOME, ".config")), "codex-orchestrator")
@@ -28,18 +31,44 @@ def sort_value(value):
     return value
 
 
-def fetch(url, key, platform_name):
+def origin(url):
+    parsed = urlsplit(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username is not None or parsed.password is not None:
+        raise ValueError("advisor: invalid HTTP origin")
+    return parsed.scheme, parsed.hostname, parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
+
+
+class RedirectPolicy(urllib.request.HTTPRedirectHandler):
+    def __init__(self, artifact):
+        self.artifact = artifact
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        source, target = origin(req.full_url), origin(newurl)
+        if source != target and (not self.artifact or target[0] != "https"):
+            raise ValueError("advisor: refused download redirect outside the trusted origin")
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected and source != target:
+            redirected.remove_header("X-api-key")
+            redirected.remove_header("X-wrapper-platform")
+        return redirected
+
+
+def fetch(base, url, key, platform_name, artifact=False):
+    if origin(url) != origin(base):
+        raise ValueError("advisor: unexpected initial download origin")
     req = urllib.request.Request(url, headers={"X-API-Key": key, "X-Wrapper-Platform": platform_name})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return resp.read()
+    return urllib.request.build_opener(RedirectPolicy(artifact)).open(req, timeout=60)
 
 
 def write_private(path, data):
-    tmp = f"{path}.tmp.{os.getpid()}"
-    with open(tmp, "wb") as fh:
-        fh.write(data)
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    with tempfile.NamedTemporaryFile(dir=os.path.dirname(path), delete=False) as fh:
+        try:
+            fh.write(data)
+            fh.close()
+            os.replace(fh.name, path)
+        finally:
+            if os.path.exists(fh.name):
+                os.unlink(fh.name)
 
 
 def main(bootstrap_path):
@@ -53,7 +82,11 @@ def main(bootstrap_path):
     wrapper = None
     for engine, persona in ENGINES:
         try:
-            bundle = json.loads(fetch(f"{base}/wrapper/v2/config?engine={engine}", key, platform_name))
+            with fetch(base, f"{base}/wrapper/v2/config?engine={engine}", key, platform_name) as response:
+                data = response.read((64 << 20) + 1)
+            if len(data) > 64 << 20:
+                raise ValueError("advisor: wrapper config exceeds 64 MiB")
+            bundle = json.loads(data)
         except urllib.error.HTTPError as err:
             print(f"advisor: {engine} config unavailable (HTTP {err.code}); skipping", file=sys.stderr)
             continue
@@ -73,16 +106,29 @@ def main(bootstrap_path):
         raise SystemExit("advisor: no engine config could be fetched")
     target = os.path.join(BIN_DIR, "cxx")
     want = str(wrapper.get("binary_sha256", "")).lower()
-    have = hashlib.sha256(open(target, "rb").read()).hexdigest() if os.path.exists(target) else ""
-    if have != want:
-        binary = fetch(wrapper["binary_url"], key, platform_name)
-        if hashlib.sha256(binary).hexdigest() != want:
-            raise SystemExit("advisor: downloaded cxx checksum mismatch")
-        tmp = f"{target}.tmp.{os.getpid()}"
-        with open(tmp, "wb") as fh:
-            fh.write(binary)
-        os.chmod(tmp, 0o755)
-        os.replace(tmp, target)
+    if not re.fullmatch(r"[0-9a-f]{64}", want):
+        raise ValueError("advisor: missing or invalid advertised cxx checksum")
+    if os.path.exists(target):
+        with open(target, "rb") as installed:
+            if hashlib.file_digest(installed, "sha256").hexdigest() == want:
+                return
+    with fetch(base, wrapper["binary_url"], key, platform_name, artifact=True) as response:
+        with tempfile.NamedTemporaryFile(dir=BIN_DIR, delete=False) as binary:
+            try:
+                digest = hashlib.sha256()
+                while chunk := response.read(1 << 20):
+                    if binary.tell() + len(chunk) > 256 << 20:
+                        raise ValueError("advisor: cxx binary exceeds 256 MiB")
+                    digest.update(chunk)
+                    binary.write(chunk)
+                if digest.hexdigest() != want:
+                    raise ValueError("advisor: downloaded cxx checksum mismatch")
+                os.fchmod(binary.fileno(), 0o755)
+                binary.close()
+                os.replace(binary.name, target)
+            finally:
+                if os.path.exists(binary.name):
+                    os.unlink(binary.name)
         print(f"advisor: installed cxx {wrapper.get('version')}", file=sys.stderr)
 
 

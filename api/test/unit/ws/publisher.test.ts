@@ -140,13 +140,17 @@ it('publishes changed owner tables once and ignores unchanged revisions', async 
   expect(wsPublisher.recent()).toHaveLength(1);
   expect(wsPublisher.recent()[0]).toMatchObject({
     type: 'control_state.changed',
-    payload: { tables: ['versions'] },
+    payload: { tables: ['versions'], authorization_mode_changed: false },
   });
+  const modeChange = state.begin();
+  modeChange.upsert('versions', { name: 'authorization_mode', version: 'strict', updatedAt: NOW });
+  state.publish(modeChange.seal({ ...state.revision(), sequence: 3n }));
+  expect(wsPublisher.recent().at(-1)?.payload).toEqual({ tables: ['versions'], authorization_mode_changed: true });
   stop();
   const later = state.begin();
   later.remove('versions', 'test');
-  state.publish(later.seal({ ...state.revision(), sequence: 3n }));
-  expect(wsPublisher.recent()).toHaveLength(1);
+  state.publish(later.seal({ ...state.revision(), sequence: 4n }));
+  expect(wsPublisher.recent()).toHaveLength(2);
 });
 
 it('keeps volatile observations and owner bookkeeping off the dashboard stream', async () => {

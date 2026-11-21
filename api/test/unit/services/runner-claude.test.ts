@@ -219,7 +219,8 @@ describe('Kimi backend on Anthropic wire', () => {
     const result = await adapter.messages([{ role: 'user', content: 'hi' }], 'k3', { max_tokens: 64, system: 'Be brief' });
     expect(sent).toEqual([{ url: 'http://runner/exec', body: expect.objectContaining({ engine: 'kimi', prompt: 'user: hi', system: 'Be brief', model: 'k3' }) }]);
     expect(sent[0]!.body.max_tokens).toBeUndefined();
-    expect(result).toMatchObject({ stop_reason: null, usage: { input_tokens: 0, output_tokens: 0 } });
+    expect(result).toMatchObject({ stop_reason: null, usage: { usage_known: false, input_tokens: null, output_tokens: null } });
+    expect(anthropicWireUsage(result.usage)).toMatchObject({ input_tokens: 0, output_tokens: 0 });
   });
 });
 

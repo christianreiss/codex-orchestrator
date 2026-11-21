@@ -33,7 +33,7 @@ import { roleHasCapability } from '../../../security/capabilities.js';
 /** Portal retention keeps ended sessions readable, so the feed is never empty by design. */
 const EVENT_PAGE_MAX = 500;
 
-function badRequest(issue: { message?: string; path?: (string | number)[] } | undefined): ApiError {
+function badRequest(issue: { message?: string; path?: PropertyKey[] } | undefined): ApiError {
   const param = issue?.path?.length ? issue.path.join('.') : undefined;
   const message = issue?.message ?? 'Invalid request body';
   return new ApiError(param ? `${param}: ${message}` : message, {
@@ -97,7 +97,7 @@ export async function registerAdminAgentSessionsRoutes(
 
   app.post('/admin/agent-sessions/:id/stop', { preHandler: app.requireAdmin }, async req => {
     if (!(await portal.isEnabled())) throw new ServiceUnavailableError('Agent sessions are disabled', 'agent_portal_disabled');
-    const body = z.object({ client_message_id: z.string().uuid(), expect: z.object({ instance_id: z.string().uuid(), binding_generation: z.number().int().nonnegative() }).strict() }).strict().parse(req.body);
+    const body = z.object({ client_message_id: z.guid(), expect: z.object({ instance_id: z.guid(), binding_generation: z.number().int().nonnegative() }).strict() }).strict().parse(req.body);
     const result = await new NativeStopService(ctx.db).request(stringParam(req.params, 'id'), body.client_message_id, body.expect, req.admin!.user.id);
     if (!result.replayed) await events.record({ type: 'agent_session.native_stop', payload: { session_id: stringParam(req.params, 'id'), request_id: result?.request_id, admin_user_id: req.admin!.user.id } });
     return result;
@@ -135,7 +135,7 @@ export async function registerAdminAgentSessionsRoutes(
     async (req, reply) => {
       const query = z.object({
         after: z.coerce.number().int().min(0).optional(),
-        session_id: z.string().uuid().optional(),
+        session_id: z.guid().optional(),
       }).parse(req.query ?? {});
       const rawHeaderCursor = req.headers['last-event-id'];
       const headerCursor = Number(Array.isArray(rawHeaderCursor) ? rawHeaderCursor[0] : rawHeaderCursor);

@@ -18,7 +18,7 @@ export const contextSchema = z
   .strict();
 export const messageSchema = z
   .object({
-    client_message_id: z.string().uuid(),
+    client_message_id: z.guid(),
     generation: z.number().int().positive(),
     text: z.string().trim().min(1).max(16000),
     context: contextSchema.nullable().optional(),
@@ -53,7 +53,7 @@ export const modelResponseSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('tool_call'),
       name: z.string().regex(/^[a-z][a-z0-9_]{0,80}$/),
-      arguments: z.record(z.unknown()),
+      arguments: z.record(z.string(), z.unknown()),
     })
     .strict(),
   z

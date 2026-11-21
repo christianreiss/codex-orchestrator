@@ -130,7 +130,7 @@ export async function registerConnectorRoutes(app: FastifyInstance, ctx: RouteCo
     sameOrigin(req);
     const id = z
         .string()
-        .uuid()
+        .guid()
         .parse((req.params as { id: string }).id),
       grant = oauth.store.get<Grant>(`grant:${id}`);
     if (grant && grant.userId !== req.admin!.user.id) administrator(req);
@@ -308,7 +308,7 @@ export async function registerConnectorRoutes(app: FastifyInstance, ctx: RouteCo
         jsonrpc: z.literal('2.0'),
         id: z.union([z.string(), z.number(), z.null()]).optional(),
         method: z.string(),
-        params: z.record(z.unknown()).optional(),
+        params: z.record(z.string(), z.unknown()).optional(),
       })
       .parse(req.body);
     if (b.id === undefined) return raw(reply).code(202).send();
@@ -326,7 +326,7 @@ export async function registerConnectorRoutes(app: FastifyInstance, ctx: RouteCo
       else if (b.method === 'tools/list') result = { tools: catalog.list(auth) };
       else if (b.method === 'tools/call') {
         const p = z
-          .object({ name: z.string(), arguments: z.record(z.unknown()).default({}) })
+          .object({ name: z.string(), arguments: z.record(z.string(), z.unknown()).default({}) })
           .parse(b.params);
         const output = await catalog.call(p.name, p.arguments, auth);
         await oauth.store.change('activity', (c) => {

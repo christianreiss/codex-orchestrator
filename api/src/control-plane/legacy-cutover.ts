@@ -1,3 +1,4 @@
+import { wireOffsetDateTime } from '../util/wire-datetime.js';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { z } from 'zod';
@@ -12,7 +13,7 @@ const MAX_ENTRIES = 100000;
 const entrySchema = z
   .object({
     kind: z.enum(['resource', 'git']),
-    id: z.string().uuid(),
+    id: z.guid(),
     identity: z.array(z.unknown()).min(7).max(11),
     session: z.array(z.unknown()).length(16),
     securityDeadline: z.number().finite().nonnegative().nullable(),
@@ -22,7 +23,7 @@ const manifestSchema = z
   .object({
     version: z.literal(1),
     database: z.string().min(1).max(255),
-    capturedAt: z.string().datetime({ offset: true }),
+    capturedAt: wireOffsetDateTime,
     entries: z.array(entrySchema).max(MAX_ENTRIES),
   })
   .strict();

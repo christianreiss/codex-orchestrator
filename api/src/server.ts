@@ -1,6 +1,6 @@
 import { startQuotaWorker } from './ops/quota-worker.js';
 import { startFeedbackWorker } from './ops/feedback-worker.js';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
 import { loadEnv } from './env.js';
@@ -109,10 +109,9 @@ export async function buildServer() {
   const app: FastifyInstance = Fastify({
     logger: loggerOptions(env),
     trustProxy: env.TRUST_X_FORWARDED,
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 32 * 1024 * 1024,
-    ignoreTrailingSlash: true,
-    caseSensitive: true,
+    routerOptions: { ignoreTrailingSlash: true, caseSensitive: true },
     genReqId: generateRequestId,
   });
 

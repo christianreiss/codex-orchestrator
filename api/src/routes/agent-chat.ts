@@ -18,7 +18,7 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
   const devices = new CompanionDevices(ctx);
   const remote = new CompanionRemote(ctx);
   const rooms = new AgentRoomChat(ctx.db, ctx.env, ctx.keyring, createAgentMessagingService(ctx.db, ctx.env, ctx.keyring));
-  const params = z.object({ id: z.string().uuid().optional(), roomId: z.string().uuid().optional(), attachmentId: z.string().uuid().optional() });
+  const params = z.object({ id: z.guid().optional(), roomId: z.guid().optional(), attachmentId: z.guid().optional() });
   async function identity(req: FastifyRequest, write: boolean) {
     const roomId = params.parse(req.params).roomId;
     if (roomId) {
@@ -38,7 +38,7 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
     }
     if (!(await portal.isEnabled()))
       throw new ServiceUnavailableError('Agent chat is disabled', 'agent_portal_disabled');
-    const id = z.string().uuid().parse(params.parse(req.params).id);
+    const id = z.guid().parse(params.parse(req.params).id);
     if (req.url.startsWith('/host/')) {
       const token = req.headers['x-agent-bridge-token'];
       if (typeof token !== 'string') throw new ForbiddenError('Bridge token required');
@@ -71,7 +71,7 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
     const attachmentId = p.attachmentId;
     if (op === 'resolve') {
       const body = z
-        .object({ notice_id: z.string().uuid(), client_event_id: z.string().uuid() })
+        .object({ notice_id: z.guid(), client_event_id: z.guid() })
         .strict()
         .parse(req.body);
       return portal.resolveNotice(auth.actor!, auth.sessionId, body.notice_id, body.client_event_id);
@@ -80,7 +80,7 @@ export async function registerAgentChatRoutes(app: FastifyInstance, ctx: RouteCo
     if (op === 'get') {
       const body = z
         .object({
-          attachment_id: z.string().uuid(),
+          attachment_id: z.guid(),
           variant: z.string().optional(),
           offset: z.number().int().nonnegative().default(0),
         })

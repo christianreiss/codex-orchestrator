@@ -1,3 +1,4 @@
+import { wireOffsetDateTime } from '../../util/wire-datetime.js';
 import { CronExpressionParser } from 'cron-parser';
 import { z } from 'zod';
 
@@ -12,7 +13,7 @@ export const scheduleInput = z
       .max(30_000)
       .refine((v) => Buffer.byteLength(v, 'utf8') <= 30_000, 'Prompt exceeds 30000 UTF-8 bytes'),
     kind: z.enum(['once', 'cron', 'interval']),
-    at: z.string().datetime({ offset: true }).nullable().optional(),
+    at: wireOffsetDateTime.nullable().optional(),
     cron: z.string().trim().max(120).nullable().optional(),
     interval_minutes: z.number().int().min(1).max(525_600).nullable().optional(),
     timezone: z.string().max(100).default('Europe/Berlin'),

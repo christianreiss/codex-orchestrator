@@ -2,6 +2,7 @@ import { OWNED_TABLE_NAMES } from '../control-plane/state/catalog.js';
 import type { OwnerRuntime } from '../control-plane/state/runtime.js';
 import { randomUUID } from 'node:crypto';
 import type { WsEvent, WsEventType } from './events.js';
+import { AUTHORIZATION_MODE_FLAG } from '../security/authorization-mode.js';
 import { nowIso } from '../util/timestamp.js';
 
 type Listener = (e: WsEvent) => void;
@@ -73,6 +74,9 @@ export function publishOwnerStateChanges(runtime: OwnerRuntime): () => void {
         (key) => !key.startsWith('owner_') && old.get(key) !== current.get(key),
       );
     });
-    if (tables.length) wsPublisher.publish('control_state.changed', { tables });
+    if (tables.length) {
+      const authorizationChanged = before.setting(AUTHORIZATION_MODE_FLAG) !== snapshot.setting(AUTHORIZATION_MODE_FLAG);
+      wsPublisher.publish('control_state.changed', { tables, authorization_mode_changed: authorizationChanged });
+    }
   });
 }

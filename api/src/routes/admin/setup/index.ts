@@ -1,3 +1,4 @@
+import { enumList } from '../../../util/enum-list.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../../index.js';
@@ -64,7 +65,7 @@ export async function registerAdminSetupRoutes(app: FastifyInstance, ctx: RouteC
   const wizardSchema = z
     .object({
       last_step: z.enum(SETUP_WIZARD_STEPS).optional(),
-      engines: z.array(z.enum([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI])).optional(),
+      engines: enumList([ENGINE_CODEX, ENGINE_CLAUDE, ENGINE_GROK, ENGINE_KIMI]).optional(),
       completed: z.boolean().optional(),
       dismissed: z.boolean().optional(),
     })
@@ -75,7 +76,7 @@ export async function registerAdminSetupRoutes(app: FastifyInstance, ctx: RouteC
   });
 
   app.post('/admin/setup/wizard', { preHandler: [requireAdminAfterSetup] }, async (req) => {
-    const body = wizardSchema.parse((req.body ?? {}) as Record<string, unknown>);
+    const body = wizardSchema.parse(req.body ?? {});
     return ok(await wizard.update(body));
   });
 }

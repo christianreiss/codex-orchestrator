@@ -91,7 +91,7 @@ export class SchedulesService {
     const { limit, after } = z
       .object({
         limit: z.coerce.number().int().min(1).max(200).default(100),
-        after: z.string().uuid().optional(),
+        after: z.guid().optional(),
       })
       .strict()
       .parse(args);
@@ -131,7 +131,7 @@ export class SchedulesService {
     return rows[0];
   }
   async get(raw: unknown) {
-    const id = z.string().uuid().parse(raw),
+    const id = z.guid().parse(raw),
       row = await this.load(this.db, id);
     const runs = await this.db
       .select()
@@ -238,7 +238,7 @@ export class SchedulesService {
     return this.get(id);
   }
   async update(raw: Record<string, unknown>, actor: string) {
-    const id = z.string().uuid().parse(raw.id),
+    const id = z.guid().parse(raw.id),
       version = z.number().int().positive().parse(raw.version),
       now = new Date();
     const patch = { ...raw };
@@ -274,7 +274,7 @@ export class SchedulesService {
   }
   async remove(raw: Record<string, unknown>, actor: string) {
     const { id, version } = z
-        .object({ id: z.string().uuid(), version: z.number().int().positive() })
+        .object({ id: z.guid(), version: z.number().int().positive() })
         .strict()
         .parse(raw),
       now = new Date().toISOString();

@@ -21,7 +21,7 @@ function parse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
   return result.data;
 }
 const actor = (req: FastifyRequest) => ({ userId: req.admin!.user.id, sessionId: req.admin!.session.id });
-const runId = (req: FastifyRequest) => parse(z.object({ id: z.string().uuid() }), req.params).id;
+const runId = (req: FastifyRequest) => parse(z.object({ id: z.guid() }), req.params).id;
 
 export async function registerAdminChattyRoutes(app: FastifyInstance, ctx: RouteContext) {
   const chatty = new ChattyCoordinator(ctx);

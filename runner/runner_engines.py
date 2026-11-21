@@ -21,6 +21,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Optional
 
+from exec_process import NativeOutputError, run_prompt_process
+
 ENGINE_CODEX = "codex"
 ENGINE_CLAUDE = "claude"
 ENGINE_GROK = "grok"
@@ -130,16 +132,17 @@ def probe_engine(
     if binary is None:
         return EngineRuntime(engine, None, None, expected, "not installed")
 
-    runner = run or subprocess.run
+    runner = run or run_prompt_process
     try:
         proc = runner(
             [binary, "--version"],
-            capture_output=True,
-            text=True,
+            env=None,
             timeout=_VERSION_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
         return EngineRuntime(engine, binary, None, expected, "version check timed out")
+    except NativeOutputError as exc:
+        return EngineRuntime(engine, binary, None, expected, str(exc))
     except OSError as exc:
         return EngineRuntime(engine, binary, None, expected, f"not executable: {exc.strerror}")
 

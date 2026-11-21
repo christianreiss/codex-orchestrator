@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'runner/**'
+      - 'advisor/**'
       # The runner suite is not confined to runner/: both doc-surface tests
       # open docs/auth-runner.md and assert it names exactly the routes the
       # router registers. Without this, a commit editing only that document
@@ -16,6 +17,7 @@ on:
   pull_request:
     paths:
       - 'runner/**'
+      - 'advisor/**'
       # Same paths as `push`; GitHub Actions has no YAML anchors, so the list
       # is spelled twice and the test above requires both copies to carry it.
       - 'docs/auth-runner.md'

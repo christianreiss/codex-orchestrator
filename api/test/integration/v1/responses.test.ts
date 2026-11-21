@@ -125,7 +125,7 @@ describe('/v1/responses', () => {
     expect(body.tools).toEqual([]);
     expect(body.tool_choice).toBe('auto');
     expect(body.text).toEqual({ format: { type: 'text' } });
-    expect(body.usage.input_tokens_details).toEqual({ cached_tokens: 0 });
+    expect(body.usage.input_tokens_details).toBeNull();
     // Nullable-default fields.
     expect(body.error).toBeNull();
     expect(body.incomplete_details).toBeNull();

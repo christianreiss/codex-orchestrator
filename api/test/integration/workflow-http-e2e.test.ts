@@ -113,7 +113,10 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
       headers: { 'content-type': 'application/json', 'x-api-key': client.apiKey, 'x-engine': client.engine },
       body: JSON.stringify({ jsonrpc: '2.0', id: randomUUID(), method, params }),
     });
-    const payload = await response.json();
+    const payload = await response.json() as {
+      error?: unknown;
+      result: { isError?: boolean; content: { text: string }[]; contents: { text: string }[] };
+    };
     expect(response.status, JSON.stringify(payload)).toBe(200);
     expect(payload.error).toBeUndefined();
     expect(payload.result.isError).not.toBe(true);
@@ -276,10 +279,10 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
         name: 'workflow_get',
         arguments: { workflow_id: definition.workflow_id, version: 1 },
       });
-      expect(JSON.parse(result.content[0].text).document).toMatchObject(document);
+      expect(JSON.parse(result.content[0]!.text).document).toMatchObject(document);
     }
     const resource = await mcp(a, 'resources/read', { uri: `workflow://${prefix}@1` });
-    expect(resource.contents[0].text).toContain('Two artifacts have verified hashes');
+    expect(resource.contents[0]!.text).toContain('Two artifacts have verified hashes');
     let run = await call<Run>(a, 'run-create', {
       workflow_id: definition.workflow_id,
       title: 'HTTP acceptance',
@@ -411,7 +414,7 @@ describe.skipIf(!handle)('workflow across three host/engine bridges over HTTP', 
       name: 'workflow_run_get',
       arguments: { run_id: run.run_id },
     });
-    expect(JSON.parse(mcpReport.content[0].text)).toMatchObject({ run_id: run.run_id, report_url: url });
+    expect(JSON.parse(mcpReport.content[0]!.text)).toMatchObject({ run_id: run.run_id, report_url: url });
     expect(run.communication!.room_id).toBe(room);
     expect(run.tasks.filter((t) => t.status === 'succeeded')).toHaveLength(2);
     for (const taskId of ['alpha', 'beta']) {

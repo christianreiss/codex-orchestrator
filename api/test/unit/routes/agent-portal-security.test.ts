@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 describe('agent session bridge boundary', () => {
   it('removes the browser and magic-link APIs while retaining host/admin session routes', async () => {
-    const app = Fastify({ ignoreTrailingSlash: true });
+    const app = Fastify({ routerOptions: { ignoreTrailingSlash: true } });
     app.decorate('requireAdmin', async () => {});
     await registerAgentPortalRoutes(app, { db: {} as RouteContext['db'], env: loadTestEnv(), keyring: testKeyring() });
     const probe = vi.spyOn(AgentPortalService.prototype, 'state').mockResolvedValue({ enabled: true });

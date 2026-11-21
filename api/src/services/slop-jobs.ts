@@ -20,13 +20,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { and, asc, desc, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, lt, notExists, sql } from 'drizzle-orm';
 import type { RouteContext } from '../routes/index.js';
 import { coordProjects, slopJobFiles, slopJobs, slopRuns, type Host, type SlopJob, type SlopRun } from '../db/schema.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
 import { decrypt } from '../security/secret-box.js';
 import { wsPublisher } from '../ws/publisher.js';
-import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
+import { mutateOwnerState, ownerRuntimeFor, withOwnerBackgroundScope } from '../control-plane/state/runtime.js';
 import type { PersistenceTransaction } from '../control-plane/persistence.js';
 import { currentNativePrincipal } from '../control-plane/state/native-principal.js';
 import { AgentTransfersService } from './agent-transfers.js';
@@ -150,22 +150,23 @@ export class SlopJobsService {
    * writes: every write runs inside an owner command's transaction (same rule
    * as external-clients/write.ts). Without an owner, use an explicit SQL transaction.
    */
-  private async write(operation: (tx: PersistenceTransaction) => Promise<unknown>): Promise<void> {
+  private async write<T>(operation: (tx: PersistenceTransaction) => Promise<T>): Promise<T> {
     const runtime = ownerRuntimeFor(this.ctx.db);
     if (!runtime) {
-      await this.ctx.db.transaction((tx) => operation(tx as unknown as PersistenceTransaction));
-      return;
+      return this.ctx.db.transaction((tx) => operation(tx as unknown as PersistenceTransaction));
     }
+    let committed!: T;
     await mutateOwnerState(runtime, {
       kind: 'slop_jobs.write',
       payload: {},
       prepare(c) {
         c.write(async (tx) => {
-          await operation(tx);
+          committed = await operation(tx);
         });
         return null;
       },
     });
+    return committed;
   }
 
   // ----------------------------------------------------------- identities
@@ -526,6 +527,7 @@ export class SlopJobsService {
     const id = randomUUID(),
       at = now();
     let seq = 0;
+    const slug = await this.projectSlug(job.projectId);
     await this.write(async (tx) => {
       const [locked] = await tx.select().from(slopJobs).where(eq(slopJobs.id, job.id)).limit(1).for('update');
       if (!locked || locked.status !== 'open') throw new NotFoundError('Slop job not found or closed', 'slop_job_not_found');
@@ -544,7 +546,6 @@ export class SlopJobsService {
         advisorModel: typeof args['model'] === 'string' ? args['model'] : null,
       });
     });
-    const slug = await this.projectSlug(job.projectId);
     this.publish(slug, job.id, 'run_started');
 
     const dir = this.runDir(id);
@@ -969,18 +970,24 @@ export class SlopJobsService {
   // ----------------------------------------------------------- lifecycle
 
   /** Hard delete a job: rows, run directories and blobs no other job references. */
-  async purge(jobId: string) {
-    const files = await this.ctx.db.select({ sha256: slopJobFiles.sha256 }).from(slopJobFiles).where(eq(slopJobFiles.jobId, jobId));
-    const runs = await this.ctx.db
-      .select({ id: slopRuns.id, advisorSessionId: slopRuns.advisorSessionId, advisorCallerId: slopRuns.advisorCallerId, status: slopRuns.status })
-      .from(slopRuns)
-      .where(eq(slopRuns.jobId, jobId));
-    await this.write(async (tx) => {
-      await tx.select({ id: slopJobs.id }).from(slopJobs).where(eq(slopJobs.id, jobId)).limit(1).for('update');
+  async purge(jobId: string, expiresBefore?: string) {
+    const removed = await this.write(async (tx) => {
+      const [job] = await tx.select({ lastActivityAt: slopJobs.lastActivityAt }).from(slopJobs)
+        .where(eq(slopJobs.id, jobId)).limit(1).for('update');
+      if (!job || (expiresBefore && job.lastActivityAt >= expiresBefore)) return null;
+      const runs = await tx.select({
+        id: slopRuns.id, advisorSessionId: slopRuns.advisorSessionId,
+        advisorCallerId: slopRuns.advisorCallerId, status: slopRuns.status,
+      }).from(slopRuns).where(eq(slopRuns.jobId, jobId));
+      if (expiresBefore && runs.some((run) => !TERMINAL.includes(run.status as (typeof TERMINAL)[number]))) return null;
+      const files = await tx.select({ sha256: slopJobFiles.sha256 }).from(slopJobFiles).where(eq(slopJobFiles.jobId, jobId));
       await tx.delete(slopRuns).where(eq(slopRuns.jobId, jobId));
       await tx.delete(slopJobFiles).where(eq(slopJobFiles.jobId, jobId));
       await tx.delete(slopJobs).where(eq(slopJobs.id, jobId));
+      return { files, runs };
     });
+    if (!removed) return false;
+    const { runs, files } = removed;
     for (const run of runs) {
       await this.dropRunDir(run.id);
       if (run.advisorSessionId && run.advisorCallerId && !TERMINAL.includes(run.status as (typeof TERMINAL)[number]))
@@ -995,9 +1002,10 @@ export class SlopJobsService {
       const kept = new Set(still.map((row) => row.sha256));
       for (const digest of digests) if (!kept.has(digest)) await rm(this.blobPath(digest), { force: true }).catch(() => {});
     }
+    return true;
   }
 
-  /** Periodic: advance open runs, expire idle jobs, drop jobs of deleted projects, clear stray run dirs. */
+  /** Reconcile durable work, then return its next deadline (null when the queue is empty). */
   async sweep() {
     const open = await this.ctx.db
       .select({ id: slopRuns.id })
@@ -1005,19 +1013,27 @@ export class SlopJobsService {
       .where(inArray(slopRuns.status, ['scanning', 'reviewing', 'validating']));
     for (const run of open) await this.advance(run.id).catch(() => {});
     const cutoff = new Date(Date.now() - SLOP_LIMITS.idleHours * 3600_000).toISOString();
-    const idle = await this.ctx.db.select().from(slopJobs).where(lt(slopJobs.lastActivityAt, cutoff)).limit(200);
+    const activeRun = this.ctx.db.select({ id: slopRuns.id }).from(slopRuns).where(and(
+      eq(slopRuns.jobId, slopJobs.id), inArray(slopRuns.status, ['scanning', 'reviewing', 'validating']),
+    ));
+    const idle = await this.ctx.db.select().from(slopJobs)
+      .where(and(lt(slopJobs.lastActivityAt, cutoff), notExists(activeRun))).limit(200);
     for (const job of idle) {
-      const [active] = await this.ctx.db
-        .select({ id: slopRuns.id })
-        .from(slopRuns)
-        .where(and(eq(slopRuns.jobId, job.id), inArray(slopRuns.status, ['scanning', 'reviewing', 'validating'])))
-        .limit(1);
-      if (active) continue;
-      await this.purge(job.id);
-      this.publish(await this.projectSlug(job.projectId), job.id, 'expired');
+      if (await this.purge(job.id, cutoff)) this.publish(await this.projectSlug(job.projectId), job.id, 'expired');
     }
-    const all = await this.ctx.db.select({ id: slopJobs.id, projectId: slopJobs.projectId }).from(slopJobs).limit(2000);
-    for (const job of all) if ((await this.projectSlug(job.projectId)) === null) await this.purge(job.id);
+    const owner = ownerRuntimeFor(this.ctx.db);
+    let orphans: { id: string }[] = [];
+    if (owner) {
+      const jobProjects = await this.ctx.db.selectDistinct({ id: slopJobs.projectId }).from(slopJobs);
+      const projects = owner.state.snapshot().table('coordProjects');
+      const missing = jobProjects.filter((row) => !projects.get(row.id)).slice(0, 200);
+      if (missing.length) orphans = await this.ctx.db.select({ id: slopJobs.id }).from(slopJobs)
+        .where(inArray(slopJobs.projectId, missing.map((row) => row.id))).limit(200);
+    } else {
+      orphans = await this.ctx.db.select({ id: slopJobs.id }).from(slopJobs)
+        .leftJoin(coordProjects, eq(slopJobs.projectId, coordProjects.id)).where(isNull(coordProjects.id)).limit(200);
+    }
+    for (const job of orphans) await this.purge(job.id);
     // Run directories without a live run (crash between purge steps).
     try {
       const live = new Set(open.map((run) => run.id));
@@ -1030,6 +1046,11 @@ export class SlopJobsService {
     } catch {
       /* no runs directory yet */
     }
+    if (idle.length === 200 || orphans.length === 200) return Date.now();
+    if (open.length) return Date.now() + 15_000;
+    const [oldest] = await this.ctx.db.select({ at: slopJobs.lastActivityAt }).from(slopJobs)
+      .orderBy(asc(slopJobs.lastActivityAt)).limit(1);
+    return oldest ? Date.parse(oldest.at) + SLOP_LIMITS.idleHours * 3600_000 + 1 : null;
   }
 
   // ---------------------------------------------------------------- admin
@@ -1121,22 +1142,55 @@ export function startSlopJobsWorker(
   ctx: RouteContext,
 ): void {
   const service = slopJobsService(ctx);
-  const onReply = (runId: string) => void service.advance(runId).catch((err) => app.log.error({ err }, 'slop advisor reply failed'));
-  slopAdvisorEvents.on('reply', onReply);
-  const tick = async () => {
-    const owner = ownerRuntimeFor(ctx.db);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let active: Promise<void> | undefined;
+  let changed = false;
+  let closed = false;
+
+  function arm(at: number) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(tick, Math.min(2_147_483_647, Math.max(0, at - Date.now())));
+    timer.unref();
+  }
+  function wake() {
+    if (closed) return;
+    if (active) changed = true;
+    else arm(Date.now());
+  }
+  function tick() {
+    timer = undefined;
     try {
-      owner?.assertOwner();
+      ownerRuntimeFor(ctx.db)?.assertOwner();
     } catch {
       return;
     }
-    await service.sweep().catch((err) => app.log.error({ err }, 'slop job sweep failed'));
+    active = withOwnerBackgroundScope(() => service.sweep()).catch((err) => {
+      app.log.error({ err }, 'slop job sweep failed');
+      return Date.now() + 15_000;
+    }).then((next) => {
+      active = undefined;
+      if (closed) return;
+      if (changed) arm(Date.now());
+      else if (next !== null) arm(next);
+      changed = false;
+    });
+  }
+  const onReply = (runId: string) => {
+    void withOwnerBackgroundScope(() => service.advance(runId)).catch((err) => app.log.error({ err }, 'slop advisor reply failed'));
   };
-  const timer = setInterval(() => void tick(), 15_000);
-  timer.unref();
-  void tick();
+  slopAdvisorEvents.on('reply', onReply);
+  const unsubscribe = wsPublisher.subscribe((event) => {
+    if (event.type === 'project.deleted' && (active || timer)) wake();
+    if (event.type !== 'project.slop.changed') return;
+    const action = (event.payload as { action?: string }).action;
+    if (action === 'created' || action === 'run_started' || action === 'closed') wake();
+  });
+  tick(); // Discover outstanding work after owner startup.
   app.addHook('onClose', async () => {
-    clearInterval(timer);
+    closed = true;
+    if (timer) clearTimeout(timer);
+    unsubscribe();
     slopAdvisorEvents.off('reply', onReply);
+    await active;
   });
 }
