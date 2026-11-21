@@ -66,7 +66,11 @@ func cmdWrapperUpdate(ctx context.Context, cfg *config.Config, f flags, logger *
 		return 1
 	}
 	if cmp, _ := compareSemver(artifact.Version, Version); cmp == 0 {
-		ui.Say(stderr, "clx", ui.ToneOK, "wrapper", Version+" up to date")
+		if artifact.liveTarget {
+			ui.Say(stderr, "clx", ui.ToneOK, "wrapper", Version+" up to date")
+		} else {
+			ui.Say(stderr, "clx", ui.ToneWarn, "wrapper", Version+" installed (signed configuration, live target unconfirmed)")
+		}
 		if err := commandSession.Close(); err != nil {
 			ui.Say(stderr, "clx", ui.ToneFail, "update", "close maintenance session: "+err.Error())
 			return 1

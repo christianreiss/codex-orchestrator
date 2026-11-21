@@ -721,7 +721,11 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			return 1
 		}
 		if cmp, _ := compareSemver(artifact.Version, Version); cmp == 0 {
-			ui.Say(stderr, "cdx", ui.ToneOK, "wrapper", Version+" up to date")
+			if artifact.liveTarget {
+				ui.Say(stderr, "cdx", ui.ToneOK, "wrapper", Version+" up to date")
+			} else {
+				ui.Say(stderr, "cdx", ui.ToneWarn, "wrapper", Version+" installed (signed configuration, live target unconfirmed)")
+			}
 			return cmdSync(ctx, cfg, f, logger, stderr)
 		}
 		fmt.Fprintln(stderr, ui.UpdateProgress(errCaps, "cdx", "wrapper", Version, artifact.Version))
@@ -1125,9 +1129,10 @@ func boundedPlain(value string, width int) string {
 }
 
 type wrapperUpdateArtifact struct {
-	Version string
-	URL     string
-	SHA256  string
+	liveTarget bool
+	Version    string
+	URL        string
+	SHA256     string
 }
 
 func resolveWrapperUpdateArtifact(ctx context.Context, cfg *config.Config, current string) (wrapperUpdateArtifact, error) {
@@ -1168,9 +1173,10 @@ func artifactFromVersionSummary(v *orchestrator.VersionSummary) (wrapperUpdateAr
 		return wrapperUpdateArtifact{}, false
 	}
 	artifact := wrapperUpdateArtifact{
-		Version: strings.TrimSpace(*v.WrapperVersion),
-		URL:     strings.TrimSpace(*v.WrapperURL),
-		SHA256:  strings.TrimSpace(*v.WrapperSHA256),
+		liveTarget: true,
+		Version:    strings.TrimSpace(*v.WrapperVersion),
+		URL:        strings.TrimSpace(*v.WrapperURL),
+		SHA256:     strings.TrimSpace(*v.WrapperSHA256),
 	}
 	if artifact.Version == "" || artifact.URL == "" || artifact.SHA256 == "" {
 		return wrapperUpdateArtifact{}, false

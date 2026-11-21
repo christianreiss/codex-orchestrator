@@ -1133,6 +1133,7 @@ func boundedPlain(value string, width int) string {
 }
 
 type wrapperUpdateArtifact struct {
+	liveTarget bool
 	Version    string
 	URL        string
 	SHA256     string
@@ -1185,9 +1186,10 @@ func artifactFromVersionSummary(v *orchestrator.VersionSummary) (wrapperUpdateAr
 		return wrapperUpdateArtifact{}, false
 	}
 	artifact := wrapperUpdateArtifact{
-		Version: strings.TrimSpace(*v.WrapperVersion),
-		URL:     strings.TrimSpace(*v.WrapperURL),
-		SHA256:  strings.TrimSpace(*v.WrapperSHA256),
+		liveTarget: true,
+		Version:    strings.TrimSpace(*v.WrapperVersion),
+		URL:        strings.TrimSpace(*v.WrapperURL),
+		SHA256:     strings.TrimSpace(*v.WrapperSHA256),
 	}
 	if artifact.Version == "" || artifact.URL == "" || artifact.SHA256 == "" {
 		return wrapperUpdateArtifact{}, false

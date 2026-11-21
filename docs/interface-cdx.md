@@ -1920,7 +1920,11 @@ does not prevent later engines from running. Credential-preservation failure
 skips that engine's sync; wrapper installation or restart failure stops remaining
 work and reports skipped engines. Version-report failures also return nonzero.
 Direct `cdx update` and `clx update` skip equal-version wrapper installation and
-continue their own sync; `cgx update` already skips equal wrapper versions.
+continue their own sync. They report “up to date” when an authenticated `/auth`
+response supplied the matching target. When live metadata is unavailable, the
+signed configuration remains an eligible update source. A matching cached target
+shows the installed version with “live target unconfirmed”.
+`cgx update` already skips equal wrapper versions.
 
 ### Peer discovery and send diagnostics
 

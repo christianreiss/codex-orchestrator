@@ -309,7 +309,10 @@ func TestRuntimeNativeInspectSeesManagedReceiverHooksInUntrustedFolder(t *testin
 	if binary == "" {
 		t.Skip("set CXX_TEST_GROK_BIN to a native Grok binary to run")
 	}
-	repo := t.TempDir()
+	repo, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
