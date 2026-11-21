@@ -4,6 +4,7 @@
  * stored_name traversal guard, the alias/fallback fields and the error codes
  * clients branch on are all contract surface.
  */
+import { failure as standardFailure } from '../../../src/http/envelope/standard.js';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
@@ -89,6 +90,16 @@ async function caught(promise: Promise<unknown>): Promise<ApiError> {
 const foreignProjectId = 99;
 
 describe('ProjectContentService.upsertFile stored_name', () => {
+  it.each([
+    [{ stored_name: '', content: 'body' }, 'stored_name'],
+    [{ stored_name: 'a.bin', content: 'invalid base64!', encoding: 'base64' }, 'content'],
+    [{ stored_name: 'a.bin', content: 'x', encoding: 'unknown' }, 'encoding'],
+  ] as const)('identifies a rejected file field in the standard response', async (payload, field) => {
+    const err = await caught(makeService(makeDb()).upsertFile('demo', payload));
+    expect(err.status).toBe(422);
+    expect(standardFailure(err)).toEqual({ status: 'error', message: err.message, code: err.code, param: field });
+  });
+
   it.each([
     ['blank', '   '],
     ['NUL-bearing', 'a\0b'],

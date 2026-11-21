@@ -43,6 +43,7 @@ import {
   decodedLengthFromStored,
   inferMimeType,
   storedNameTooLong,
+  type FileBodyRejection,
   type ProjectFileEncoding,
 } from './project-file-encoding.js';
 import { ProjectBoardService } from './project-board.js';
@@ -54,28 +55,32 @@ function trimStr(value: unknown): string {
 
 const STORED_NAME_RE = /^[^\0]+$/;
 
+function fileValidationError(field: FileBodyRejection['field'], message: string): ValidationError {
+  return new ValidationError(message, { param: field, extra: { param: field } });
+}
+
 function normalizeStoredName(value: unknown): string {
   let name = trimStr(value);
   if (name === '') {
-    throw new ValidationError('stored_name is required', { param: 'stored_name' });
+    throw fileValidationError('stored_name', 'stored_name is required');
   }
   if (!STORED_NAME_RE.test(name)) {
-    throw new ValidationError('stored_name is invalid', { param: 'stored_name' });
+    throw fileValidationError('stored_name', 'stored_name is invalid');
   }
   name = name.replace(/\\/g, '/');
   name = name.replace(/\/+/g, '/');
   const segments = name.split('/').filter((s) => s !== '');
   if (segments.length === 0) {
-    throw new ValidationError('stored_name is invalid', { param: 'stored_name' });
+    throw fileValidationError('stored_name', 'stored_name is invalid');
   }
   for (const seg of segments) {
     if (seg === '.' || seg === '..') {
-      throw new ValidationError('stored_name cannot contain dot segments', { param: 'stored_name' });
+      throw fileValidationError('stored_name', 'stored_name cannot contain dot segments');
     }
   }
   const joined = segments.join('/');
   if (storedNameTooLong(joined)) {
-    throw new ValidationError(STORED_NAME_TOO_LONG_MESSAGE, { param: 'stored_name' });
+    throw fileValidationError('stored_name', STORED_NAME_TOO_LONG_MESSAGE);
   }
   return joined;
 }
@@ -122,13 +127,13 @@ function normalizeFile(payload: Record<string, unknown>): {
         : undefined;
   const mimeType = normalizeOptionalString(payload.mime_type);
   if (!hasProjectFileBody(content, payload.encoding)) {
-    throw new ValidationError('content is required', { param: 'content' });
+    throw fileValidationError('content', 'content is required');
   }
   // Same gate the host/MCP writer uses. A size limit only one of the two
   // enforces is not a size limit.
   const accepted = acceptFileBody(content, payload.encoding);
   if (!accepted.ok) {
-    throw new ValidationError(accepted.error.message, { param: accepted.error.field });
+    throw fileValidationError(accepted.error.field, accepted.error.message);
   }
   return {
     storedName,

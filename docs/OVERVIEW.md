@@ -1845,6 +1845,8 @@ See [Fleet task supervisor](agent-supervisor.md) for the disabled-by-default fle
 switch, `agent_work_state`, durable dependencies and bounded same-session recovery.
 Applies equally to Codex, Claude and Grok; native resume stays engine-specific.
 
+The project file editor identifies the rejected field when the admin service returns a field-specific validation error. Failed submissions retain the editable draft and keep the correction visible beside the save action.
+
 Local durable project artifacts can be uploaded with `cxx project file put SLUG FILE`
 (or `cdx`/`clx`/`cgx`) without passing the bytes through model context. The wrapper
 uses existing project-file authorization and limits and verifies the server's
