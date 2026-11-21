@@ -220,7 +220,7 @@ func Prune() error { return prune(false) }
 
 func prune(pressure bool) error { return nativeStore.Prune(pressure) }
 
-func RemoveInstalledCopies() error { return nativeStore.RemoveInstalledCopies() }
+func RemoveInstalledCopies(ctx context.Context) error { return nativeStore.RemoveInstalledCopies(ctx) }
 
 func AtomicWrite(path string, raw []byte, mode os.FileMode) error {
 	return nativeStore.AtomicWrite(path, raw, mode)

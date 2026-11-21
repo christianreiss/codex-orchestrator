@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Wrapper 0.9.198 fixes a false failure after `ckx uninstall` or `cgx uninstall` removed an installed engine. Both commands accept an already absent private installation and report a busy store or filesystem error.
+
 - Approving a replacement for work whose original transcript is missing now requires the MCP operator bearer and a host credential, or the signed-in admin action. The grant records which privileged channel authorized it.
 
 - Wrapper 0.9.197 removes unreachable Kimi checks for bare `setup` and `install`. Kimi Code 2.5.3 and 2.7.2 report both as unknown commands. Managed native updates still use `ckx update`.

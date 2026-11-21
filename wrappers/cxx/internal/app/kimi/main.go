@@ -1316,10 +1316,7 @@ func uninstall(ctx context.Context, cfg *config.Config, client *orchestrator.Cli
 		}
 	}
 	step("removed signed ckx config", fleetconfig.Remove(ctx, "kimi"))
-	if storeDir, err := native.StoreDir(); err == nil {
-		// The maintenance guard above proves no ckx process still runs a copy.
-		step("removed private Kimi installs", errors.Join(native.RemoveInstalledCopies(), os.RemoveAll(storeDir)))
-	}
+	step("removed private Kimi installs", native.RemoveInstalledCopies(ctx))
 	exe, err := os.Executable()
 	if err != nil {
 		return errors.Join(errs, err)

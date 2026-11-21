@@ -205,6 +205,13 @@ func TestMaintenanceReportsVersionsEvenWhenContentSyncFails(t *testing.T) {
 
 func TestUninstallCleansLocalStateWhenServerDeleteFails(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	private, err := native.StoreDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(private, "1.2.3"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	home := filepath.Join(t.TempDir(), "native")
 	t.Setenv("GROK_HOME", home)
 	store, err := native.Skills()
@@ -229,6 +236,9 @@ func TestUninstallCleansLocalStateWhenServerDeleteFails(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "skills", "afk")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("fleet skill survived uninstall")
+	}
+	if _, err := os.Lstat(private); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private store survived uninstall: %v", err)
 	}
 	if !strings.Contains(errout.String(), "server-side delete failed") || !strings.Contains(errout.String(), "shared cxx aliases and cron preserved") {
 		t.Fatalf("uninstall did not report the preserved shared state: %s", errout.String())

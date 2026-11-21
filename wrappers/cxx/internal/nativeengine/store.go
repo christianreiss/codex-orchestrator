@@ -210,15 +210,12 @@ func (s *Store) Prune(pressure bool) error {
 	return err
 }
 
-func (s *Store) RemoveInstalledCopies() error {
+func (s *Store) RemoveInstalledCopies(ctx context.Context) error {
 	root, err := s.Dir()
 	if err != nil {
 		return err
 	}
-	// The server has confirmed this engine's removal. Busy prefixes remain
-	// protected by the same process checks as normal version retention.
-	_, err = enginestore.Prune(root, ".uninstalled", "install.lock", nil)
-	return err
+	return enginestore.Uninstall(ctx, root, "install.lock")
 }
 
 func (s *Store) AtomicWrite(path string, raw []byte, mode os.FileMode) error {

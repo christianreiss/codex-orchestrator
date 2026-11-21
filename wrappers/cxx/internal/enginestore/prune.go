@@ -5,6 +5,7 @@
 package enginestore
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,8 +15,67 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 )
+
+// Uninstall removes one private engine store after the caller has fenced
+// native sessions. Unlike retention, there is no published version to keep.
+func Uninstall(ctx context.Context, root, lockName string) error {
+	// The install-space lock lives outside the tree being unlinked and is
+	// held by both installers, including Grok's libc selection transaction.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	base := filepath.Join(home, ".cxx")
+	engines := filepath.Join(base, "engines")
+	if filepath.Clean(root) != root || filepath.Dir(root) != engines {
+		return fmt.Errorf("unexpected private engine store: %s", root)
+	}
+	if present, err := privateDirectoryPresent(base); !present {
+		return err
+	}
+	_, release, err := installspace.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	for _, path := range []string{engines, root} {
+		if present, err := privateDirectoryPresent(path); !present {
+			return err
+		}
+	}
+	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(root, lockName))
+	if err != nil {
+		return fmt.Errorf("private engine store lock: %w", err)
+	}
+	defer lock.Release()
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	if inUse(resolved) {
+		return fmt.Errorf("private engine store is still in use: %s", root)
+	}
+	return os.RemoveAll(root)
+}
+
+// A missing store is already uninstalled. A symlink or unrelated file at
+// any component of the managed path must not redirect or authorize removal.
+func privateDirectoryPresent(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("private engine store path is not a directory: %s", path)
+	}
+	return true, nil
+}
 
 // KeepFor reduces a published CLI path to the version directory directly below
 // root, which is the one entry a sweep must preserve. It returns "" when the

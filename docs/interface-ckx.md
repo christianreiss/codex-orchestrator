@@ -376,7 +376,7 @@ and reject controls requiring exact telemetry instead of inventing values.
 | `doctor` | Diagnose config, binary, runtime and auth readiness. |
 | `update` | Update shared cxx and the pinned verified Kimi binary, then sync. |
 | `cron` | Shared host maintenance schedule. |
-| `uninstall` | Remove managed Kimi content and installation with session fencing. |
+| `uninstall` | Remove managed Kimi content and installation with session fencing. A missing private installation counts as removed. An active private executable, held installer lock, redirected store path or filesystem error is reported. |
 | `login` | Dedicated throwaway device login and canonical server seed. |
 | `logout` | End the managed auth binding. |
 | `auth-upload-auto` | Accepted no-op; hosts own no canonical refresh token. |
