@@ -184,6 +184,7 @@ func (c *connection) receive() {
 		}
 		switch f.Type {
 		case "state_snapshot", "state_delta", "state_ping", "state_close":
+			// Revision and payload distinguish an authority refresh from a liveness ping.
 			f.StateFrame.Type = f.Type
 			f.StateFrame.Protocol = f.Protocol
 			f.StateFrame.Revision = f.Revision

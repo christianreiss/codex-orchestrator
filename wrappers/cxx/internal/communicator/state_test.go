@@ -202,7 +202,7 @@ func TestStateFrameEnvelopeSurvivesCommunicatorDispatch(t *testing.T) {
 	}
 }
 func TestConnectionOwnedRejectsExpiredAuthorization(t *testing.T) {
-	if connectionOwned(json.RawMessage(`{"ownership_mode":"connection","authorization_deadline":"2000-01-01T00:00:00Z"}`)) {
+	if new(StateClient).setTiming(json.RawMessage(`{"ownership_mode":"connection","authorization_deadline":"2000-01-01T00:00:00Z"}`), time.Now(), false) {
 		t.Fatal("expired authority accepted")
 	}
 }
@@ -210,7 +210,9 @@ func TestConnectionOwnedRejectsExpiredAuthorization(t *testing.T) {
 func TestStateDeadlineUsesServerClockAndDoesNotRenewOnRead(t *testing.T) {
 	received := time.Now()
 	raw := json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:00Z","authorization_deadline":"2000-01-01T00:00:30Z"}`)
-	deadline, ok := stateDeadline(raw, received)
+	var client StateClient
+	ok := client.setTiming(raw, received, false)
+	deadline := client.deadline
 	if !ok || deadline.Sub(received) != 30*time.Second {
 		t.Fatalf("deadline=%v valid=%v", deadline, ok)
 	}
@@ -372,4 +374,218 @@ func TestStateLivenessNegotiationAwaitsServerAck(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("server acceptance did not enable local liveness")
+}
+
+func TestAuthorizationRefreshValidation(t *testing.T) {
+	const initial = `{"ownership_mode":"connection","server_time":"2000-01-01T00:00:00Z","authorization_deadline":"2000-01-01T00:00:10Z"}`
+	const refresh = `{"ownership_mode":"connection","server_time":"2000-01-01T00:00:01Z","authorization_deadline":"2000-01-01T00:00:10Z"}`
+	received := time.Now()
+	for _, tc := range []struct {
+		name, payload string
+		after         time.Duration
+	}{
+		{"same_timestamp", initial, time.Second},
+		{"expired_current", refresh, 10 * time.Second},
+		{"expired_new", `{"ownership_mode":"connection","server_time":"2000-01-01T00:00:02Z","authorization_deadline":"2000-01-01T00:00:01Z"}`, time.Second},
+		{"missing_deadline", `{"ownership_mode":"connection","server_time":"2000-01-01T00:00:01Z"}`, time.Second},
+		{"unlimited", `{"ownership_mode":"connection","server_time":"2000-01-01T00:00:01Z","authorization_deadline":null}`, time.Second},
+		{"missing_clock", `{"ownership_mode":"connection","authorization_deadline":null}`, time.Second},
+		{"ownership", `{"ownership_mode":"lease","server_time":"2000-01-01T00:00:01Z","authorization_deadline":"2000-01-01T00:00:10Z"}`, time.Second},
+		{"business_field", `{"ownership_mode":"connection","server_time":"2000-01-01T00:00:01Z","authorization_deadline":"2000-01-01T00:00:10Z","jobs":[]}`, time.Second},
+		{"duplicate_field", `{"ownership_mode":"connection","server_time":"2000-01-01T00:00:01Z","authorization_deadline":"2000-01-01T00:00:10Z","authorization_deadline":"2000-01-01T00:00:10Z"}`, time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var client StateClient
+			if !client.setTiming(json.RawMessage(initial), received, false) {
+				t.Fatal("invalid fixture")
+			}
+			if client.setTiming(json.RawMessage(tc.payload), received.Add(tc.after), true) {
+				t.Fatal("refresh accepted")
+			}
+		})
+	}
+	var client StateClient
+	if !client.setTiming(json.RawMessage(initial), received, false) {
+		t.Fatal("initial timing")
+	}
+	deadline := client.deadline
+	if !client.setTiming(json.RawMessage(refresh), received.Add(4*time.Second), true) || !client.deadline.Equal(deadline) {
+		t.Fatal("delayed refresh extended the same deadline")
+	}
+	if client.setTiming(json.RawMessage(refresh), received.Add(5*time.Second), true) {
+		t.Fatal("accepted replay")
+	}
+	clearDeadline := json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:05Z","authorization_deadline":null}`)
+	if !client.setTiming(clearDeadline, received.Add(5*time.Second), false) || !client.deadline.IsZero() {
+		t.Fatal("secure authorization without deadline rejected")
+	}
+}
+
+func TestAuthorizationRefreshThroughCommunicatorTransport(t *testing.T) {
+	initial := make(chan StateFrame, 1)
+	ownerWS := make(chan *websocket.Conn, 1)
+	fromClient := make(chan string, 12)
+	s, c := ownerWithConnection(t, func(ws *websocket.Conn, f frame) {
+		fromClient <- f.Type
+		if f.Type != "state_open" {
+			return
+		}
+		if string(f.Payload) != string(refreshOption) {
+			t.Error("IPC did not forward opt-in")
+		}
+		first := stateTestSnapshot(f.StateFrame)
+		first.Payload = json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:00Z","authorization_deadline":"2000-01-01T00:00:01Z","work_revision":"job-1"}`)
+		if websocket.JSON.Send(ws, first) != nil {
+			return
+		}
+		initial <- first
+		ownerWS <- ws
+	})
+	c.mu.Lock()
+	c.stateEnabled = true
+	c.mu.Unlock()
+	socket := filepath.Join(t.TempDir(), "broker.sock")
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := &http.Server{Handler: s}
+	go local.Serve(ln)
+	defer local.Close()
+	client, err := DialStateSocket(context.Background(), socket, "/_comm/state", StateScope{Topic: "session"}, StateAuth{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	first, ws := <-initial, <-ownerWS
+	business, wake, live := client.Snapshot(nil)
+	if !live {
+		t.Fatal("missing initial authority")
+	}
+	original := client.AuthorizationDeadline()
+	for _, want := range []string{"state_open", "state_ack"} {
+		select {
+		case got := <-fromClient:
+			if got != want {
+				t.Fatalf("got %s, want %s", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("initial acknowledgements missing")
+		}
+	}
+	send := func(f StateFrame) {
+		t.Helper()
+		if err := websocket.JSON.Send(ws, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refresh := first
+	refresh.Type = "state_ping"
+	refresh.Payload = json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:00.001Z","authorization_deadline":"2000-01-01T00:00:10Z"}`)
+	send(refresh)
+	// This liveness pong orders the preceding refresh through both transports.
+	ping := refresh
+	ping.Revision = ""
+	ping.Payload = nil
+	send(ping)
+	select {
+	case got := <-fromClient:
+		if got != "state_pong" {
+			t.Fatalf("unexpected refresh response %s", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("liveness pong missing")
+	}
+	if !client.AuthorizationDeadline().After(original) {
+		t.Fatal("renewal missing")
+	}
+	select {
+	case <-wake:
+		t.Fatal("refresh woke business subscriber")
+	case <-time.After(time.Until(original) + 20*time.Millisecond):
+	}
+	got, wake, live := client.Snapshot(nil)
+	if !live || got.Revision != business.Revision || string(got.Payload) != string(business.Payload) {
+		t.Fatal("renewal replaced business data or revoked authority at old deadline")
+	}
+	delta := first
+	delta.Type = "state_delta"
+	delta.Revision = "2"
+	delta.Payload = json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:01.2Z","authorization_deadline":"2000-01-01T00:00:10Z","work_revision":"job-2"}`)
+	send(delta)
+	select {
+	case <-wake:
+	case <-time.After(time.Second):
+		t.Fatal("business delta did not wake")
+	}
+	if got, _, live := client.Snapshot(nil); !live || got.Revision != "2" {
+		t.Fatal("business delta missing")
+	}
+	refresh.Revision = delta.Revision
+	refresh.Payload = json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:01.201Z","authorization_deadline":"2000-01-01T00:00:01.300Z"}`)
+	send(refresh)
+	select {
+	case <-client.Done():
+	case <-time.After(time.Second):
+		t.Fatal("shortened deadline failed to close idle stream")
+	}
+	if _, _, live := client.Snapshot(nil); live {
+		t.Fatal("revoked stream retained authority")
+	}
+}
+
+func TestInvalidAuthorizationFrameDisconnects(t *testing.T) {
+	for _, name := range []string{"stream", "epoch", "revision", "protocol", "missing_payload", "extra_scope", "replay", "expired"} {
+		t.Run(name, func(t *testing.T) {
+			allow := make(chan struct{})
+			defer close(allow)
+			trigger := make(chan struct{})
+			socket := stateTestSocket(t, func(ws *websocket.Conn, open StateFrame) {
+				f := stateTestSnapshot(open)
+				f.Payload = json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:00Z","authorization_deadline":null}`)
+				if websocket.JSON.Send(ws, f) != nil {
+					return
+				}
+				<-trigger
+				f.Type = "state_ping"
+				f.Payload = json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:01Z","authorization_deadline":"2000-01-01T00:01:00Z"}`)
+				switch name {
+				case "stream":
+					f.StreamID = uuid.NewString()
+				case "epoch":
+					f.OwnerEpoch = uuid.NewString()
+				case "revision":
+					f.Revision = "2"
+				case "protocol":
+					f.Protocol = 2
+				case "missing_payload":
+					f.Payload = nil
+				case "extra_scope":
+					f.Scope = &StateScope{Topic: "receiver"}
+				case "replay":
+					if websocket.JSON.Send(ws, f) != nil {
+						return
+					}
+				case "expired":
+					f.Payload = json.RawMessage(`{"ownership_mode":"connection","server_time":"2000-01-01T00:00:02Z","authorization_deadline":"2000-01-01T00:00:01Z"}`)
+				}
+				websocket.JSON.Send(ws, f)
+				<-allow
+			})
+			c, err := DialStateSocket(context.Background(), socket, "/state", StateScope{Topic: "session"}, StateAuth{})
+			close(trigger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			select {
+			case <-c.Done():
+			case <-time.After(time.Second):
+				t.Fatal("invalid authorization retained connection")
+			}
+			if _, _, live := c.Snapshot(nil); live {
+				t.Fatal("retained authority")
+			}
+		})
+	}
 }

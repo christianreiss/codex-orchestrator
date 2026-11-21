@@ -326,13 +326,19 @@ export class OwnerStateProvider implements StateProvider {
       snapshot,
       subscribe: (changed) => {
         let previous = '';
+        let previousDeadline: number | null;
         let previousInputs = inputs(this.runtime.state.snapshot());
         const check = () => {
           if (stopped) return;
           try {
-            const next = canonicalCommand(json([snapshot(), authorize().deadline]));
-            if (next === previous) return;
+            const deadline = authorize().deadline;
+            const next = canonicalCommand(json(snapshot()));
+            const sameState = next === previous;
+            if (sameState && deadline === previousDeadline) return;
             previous = next;
+            previousDeadline = deadline;
+            changed(sameState ? 'authorization' : undefined);
+            return;
           } catch {
             /* Delegate revocation to transport so it closes this stream. */
           }
@@ -355,7 +361,8 @@ export class OwnerStateProvider implements StateProvider {
             ? credentials.subscribe('relay', scope.relay_id, check)
             : () => {};
         // Capture only after subscription: no commit can fall between baseline and watch.
-        previous = canonicalCommand(json([snapshot(), authorize().deadline]));
+        previousDeadline = authorize().deadline;
+        previous = canonicalCommand(json(snapshot()));
         return () => {
           unsubscribe();
           unsubscribeCredentials();
@@ -372,7 +379,7 @@ export class OwnerStateProvider implements StateProvider {
           presence.update(handle.attachment.id, json({ ...update, observed_at: new Date().toISOString() }));
         } else if (scope.topic === 'session' && scope.native_instance_id) {
           const report = z
-            .object({ active_claim_ids: z.array(z.string().uuid()).max(1024) })
+            .object({ active_claim_ids: z.array(z.guid()).max(1024) })
             .strict()
             .parse(payload);
           presence.update(

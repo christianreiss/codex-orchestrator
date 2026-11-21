@@ -11,7 +11,7 @@ afterEach(() => vi.useRealTimers());
 function fixture() {
   const epoch = randomUUID(),
     frames: StateFrame[] = [],
-    listeners = new Set<() => void>();
+    listeners = new Set<(change?: 'authorization') => void>();
   let allowed = true,
     deadline: number | null = null,
     value = 0,
@@ -44,7 +44,7 @@ function fixture() {
     bufferedBytes: () => buffer,
     error: errors,
   });
-  const open = (id = randomUUID()) =>
+  const open = (id = randomUUID(), refresh = false) =>
     streams
       .receive({
         type: 'state_open',
@@ -52,6 +52,7 @@ function fixture() {
         stream_id: id,
         scope: { topic: 'session', session_id: randomUUID() },
         auth: { bridge_token: 'private' },
+        ...(refresh ? { payload: { authorization_refresh: 1 } } : {}),
       })
       .then(() => id);
   return {
@@ -80,6 +81,35 @@ function fixture() {
   };
 }
 describe('communicator authoritative state subscriptions', () => {
+  it.each([true, false])('negotiates authority renewal and preserves business changes, opted in %s', async (refresh) => {
+    vi.useFakeTimers();
+    const f = fixture();
+    f.deadline(Date.now() + 10_000);
+    const id = await f.open(randomUUID(), refresh);
+    f.deadline(Date.now() + 60_000);
+    for (const listener of f.listeners) listener('authorization');
+    await Promise.resolve();
+    if (refresh) {
+      expect(f.frames).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+    }
+    const renewal = f.frames.at(-1)!;
+    expect(renewal).toMatchObject({ type: refresh ? 'state_ping' : 'state_delta',
+      protocol: 1, stream_id: id, owner_epoch: f.epoch, revision: refresh ? '1' : '2' });
+    if (refresh) {
+      expect(Object.keys(renewal.payload as object).sort()).toEqual(['authorization_deadline', 'ownership_mode', 'server_time']);
+      expect(f.projection.snapshot).toHaveBeenCalledTimes(1);
+    }
+    for (const listener of f.listeners) listener('authorization');
+    f.change();
+    await Promise.resolve();
+    expect(f.frames.at(-1)).toMatchObject({ type: 'state_delta', payload: { value: 1 } });
+    f.revoke();
+    await Promise.resolve();
+    expect(f.frames.at(-1)?.type).toBe('state_close');
+    f.streams.close();
+  });
+
   it('installs subscription before snapshot and orders changes after it', async () => {
     const f = fixture();
     vi.mocked(f.projection.snapshot).mockImplementationOnce(() => {

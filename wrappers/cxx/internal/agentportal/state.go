@@ -13,15 +13,15 @@ import (
 )
 
 var dialPortalState = communicator.DialState
+var dialReceiverState = (communicator.StateSubscription).Dial
 var portalStateAvailable = communicator.StateAvailable
 
 type sessionState struct {
-	observedServerTime    time.Time
-	OwnershipMode         string          `json:"ownership_mode"`
-	AuthorizationDeadline *time.Time      `json:"authorization_deadline"`
-	Session               json.RawMessage `json:"session"`
-	Receiver              json.RawMessage `json:"receiver"`
-	NativeControl         *struct {
+	observedServerTime time.Time
+	OwnershipMode      string          `json:"ownership_mode"`
+	Session            json.RawMessage `json:"session"`
+	Receiver           json.RawMessage `json:"receiver"`
+	NativeControl      *struct {
 		RequestID  string `json:"request_id"`
 		InstanceID string `json:"instance_id"`
 	} `json:"native_control"`
@@ -90,29 +90,13 @@ func (s *Session) consumeState(ctx context.Context) error {
 			}
 			s.watchdog.mu.Unlock()
 		}
-		var deadline <-chan time.Time
-		var timer *time.Timer
-		if expires := c.AuthorizationDeadline(); !expires.IsZero() {
-			timer = time.NewTimer(time.Until(expires))
-			deadline = timer.C
-		}
+		// The stream enforces its current authority deadline on each read.
 		select {
 		case <-ctx.Done():
-			if timer != nil {
-				timer.Stop()
-			}
 			return ctx.Err()
 		case <-c.Done():
-			if timer != nil {
-				timer.Stop()
-			}
 			return errors.New("state disconnected")
-		case <-deadline:
-			return errors.New("state authorization expired")
 		case <-changed:
-			if timer != nil {
-				timer.Stop()
-			}
 		}
 	}
 }
@@ -129,7 +113,7 @@ func (b *Broker) stateStream(w http.ResponseWriter, r *http.Request) {
 		ws.MaxPayloadBytes = brokerBodyLimit
 		ws.SetReadDeadline(time.Now().Add(15 * time.Second))
 		var open communicator.StateFrame
-		if websocket.JSON.Receive(ws, &open) != nil || open.Type != "state_open" || open.Scope == nil || open.Scope.Topic != "receiver" || open.Auth != nil && (open.Auth.BridgeToken != "" || open.Auth.RelayToken != "") {
+		if websocket.JSON.Receive(ws, &open) != nil || open.Type != "state_open" || open.Protocol != 1 || open.Scope == nil || open.Scope.Topic != "receiver" || open.Auth != nil && (open.Auth.BridgeToken != "" || open.Auth.RelayToken != "") {
 			return
 		}
 		scope := *open.Scope
@@ -138,7 +122,14 @@ func (b *Broker) stateStream(w http.ResponseWriter, r *http.Request) {
 		scope.RelayID = ""
 		ctx, cancel := context.WithCancel(r.Context())
 		defer cancel()
-		upstream, err := dialPortalState(ctx, b.session.BaseURL, scope, communicator.StateAuth{BridgeToken: b.session.BridgeToken})
+		send := func(frame communicator.StateFrame) error {
+			frame.StreamID = open.StreamID
+			frame.Auth, frame.Scope = nil, nil
+			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			return websocket.JSON.Send(ws, frame)
+		}
+		sub := communicator.StateSubscription{AuthorizationRefresh: open.RequestsAuthorizationRefresh(), Forward: send}
+		upstream, err := dialReceiverState(sub, ctx, b.session.BaseURL, scope, communicator.StateAuth{BridgeToken: b.session.BridgeToken})
 		if err != nil {
 			return
 		}
@@ -171,37 +162,15 @@ func (b *Broker) stateStream(w http.ResponseWriter, r *http.Request) {
 		go func() { <-ctx.Done(); ws.SetDeadline(time.Now()) }()
 		ping := time.NewTicker(15 * time.Second)
 		defer ping.Stop()
-		first := true
 		for {
-			frame, changed, live := upstream.Snapshot(nil)
-			if !live {
+			select {
+			case <-ctx.Done():
 				return
-			}
-			frame.StreamID = open.StreamID
-			if first {
-				frame.Type = "state_snapshot"
-				first = false
-			} else {
-				frame.Type = "state_delta"
-			}
-			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if websocket.JSON.Send(ws, frame) != nil {
+			case <-upstream.Done():
 				return
-			}
-		waiting:
-			for {
-				select {
-				case <-ctx.Done():
+			case <-ping.C:
+				if send(communicator.StateFrame{Type: "state_ping", Protocol: 1, OwnerEpoch: initial.OwnerEpoch}) != nil {
 					return
-				case <-upstream.Done():
-					return
-				case <-changed:
-					break waiting
-				case <-ping.C:
-					ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-					if websocket.JSON.Send(ws, communicator.StateFrame{Type: "state_ping", Protocol: 1, StreamID: open.StreamID, OwnerEpoch: frame.OwnerEpoch}) != nil {
-						return
-					}
 				}
 			}
 		}

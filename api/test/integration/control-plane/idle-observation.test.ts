@@ -73,6 +73,8 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
             profiler!.post(method, params, (error, result) => (error ? reject(error) : resolve(result))),
           );
         const communicatorFrames: Record<string, number> = {};
+        const renewedStreams = new Set<string>();
+        let authorizationRefreshes = 0;
         const browserFrames: Record<string, number> = {};
         const business = (counts: Record<string, number>) =>
           Object.fromEntries(
@@ -201,6 +203,7 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
             });
             sockets.push(socket);
             const pending = new Set(attachments.map((item) => item.streamId));
+            const latest = new Map<string, { epoch: string; revision: string }>();
             await new Promise<void>((resolve, reject) => {
               const timeout = setTimeout(() => reject(new Error('State attachment timed out')), 15000);
               socket.on('error', (error: Error) => {
@@ -248,9 +251,11 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
                         stream_id: item.streamId,
                         scope: { topic: 'session', session_id: item.sessionId, binding_generation: 1 },
                         auth: { bridge_token: item.bridgeToken },
+                        payload: { authorization_refresh: 1 },
                       }),
                     );
                 if (frame.type === 'state_snapshot' || frame.type === 'state_delta') {
+                  latest.set(frame.stream_id, { epoch: frame.owner_epoch, revision: frame.revision });
                   socket.send(
                     JSON.stringify({
                       type: 'state_ack',
@@ -266,8 +271,23 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
                     resolve();
                   }
                 }
-                if (frame.type === 'state_ping')
-                  socket.send(JSON.stringify({ ...frame, type: 'state_pong' }));
+                if (frame.type === 'state_ping') {
+                  if (frame.payload !== undefined) {
+                    const known = latest.get(frame.stream_id);
+                    const payload = frame.payload;
+                    if (frame.protocol !== 1 || !known || frame.owner_epoch !== known.epoch ||
+                        frame.revision !== known.revision || !payload || payload.ownership_mode !== 'connection' ||
+                        !(Date.parse(payload.authorization_deadline) > Date.parse(payload.server_time)) ||
+                        Object.keys(payload).sort().join(',') !== 'authorization_deadline,ownership_mode,server_time')
+                      failures.push('invalid_authorization_refresh');
+                    if (measuring) {
+                      authorizationRefreshes++;
+                      renewedStreams.add(frame.stream_id);
+                    }
+                  }
+                  socket.send(JSON.stringify({ type: 'state_pong', protocol: 1,
+                    stream_id: frame.stream_id, owner_epoch: frame.owner_epoch }));
+                }
                 if (frame.type === 'state_close') {
                   failures.push(frame.code ?? 'state_closed');
                   clearTimeout(timeout);
@@ -468,6 +488,8 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
             browserRequests,
             browserErrors,
             communicatorFrames,
+            authorizationRefreshes,
+            renewedStreams: renewedStreams.size,
             browserFrames,
             businessFrames: { communicator: business(communicatorFrames), browser: business(browserFrames) },
             memoryBytes: process.memoryUsage(),
@@ -499,6 +521,8 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
             await writeFile(process.env.OWNER_IDLE_RESULT, JSON.stringify(result, null, 2));
           expect(failures).toEqual([]);
           expect(business(communicatorFrames)).toEqual({});
+          if (seconds > app.env.AGENT_PORTAL_BRIDGE_TTL_SECONDS / 2 + 5)
+            expect(renewedStreams.size).toBe(result.nativeSessions);
           expect(business(browserFrames)).toEqual({});
           expect(browserErrors).toEqual([]);
           expect(browserRequests).toEqual([]);

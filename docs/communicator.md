@@ -1279,6 +1279,25 @@ authority. The parent connection keeps its existing 45/50-second failure bounds;
 security deadlines and revocation notifications remain independent.
 
 Older communicators and standalone state streams retain server ping/pong.
+
+A new client requests `authorization_refresh: 1` in the `state_open` payload.
+A server that supports it sends authorization-only changes as `state_ping` with
+the current stream ID, owner epoch and business revision. Its payload contains
+exactly `ownership_mode: "connection"`, `server_time` and
+a finite `authorization_deadline`. Removing the deadline requires a full revision.
+A compact refresh requires no
+acknowledgement. It updates the local expiry without waking watchers or
+reapplying watchdog, receiver or session state. A bare liveness ping still
+requires a pong and cannot renew authorization. A business change sends a new
+revision and wakes consumers.
+
+Clients enforce expiry on the socket read and on access to the snapshot. They
+close on expired authority, malformed or replayed refreshes, or a changed
+stream, epoch or revision on a refresh. The server time on each refresh must
+advance. The client uses monotonic elapsed time locally, so delayed frames
+cannot stretch the same deadline. The per-session receiver broker passes its
+client's opt-in upstream and forwards accepted frames in order. Older brokers,
+clients and servers keep their existing full-delta renewal path.
 The shared protocol applies equally to Codex, Claude, Grok, and Kimi; transport
 liveness does not prove task progress or successful execution.
 

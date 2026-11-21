@@ -6,11 +6,11 @@ export const COMMUNICATOR_STATE_LIVENESS_CAPABILITY = 'communicator_state_livene
 export const stateScopeSchema = z
   .object({
     topic: z.enum(['session', 'receiver', 'relay', 'daemon', 'sync', 'provider']),
-    session_id: z.string().uuid().optional(),
+    session_id: z.guid().optional(),
     binding_generation: z.number().int().positive().optional(),
     receiver_generation: z.string().min(1).max(100).optional(),
-    native_instance_id: z.string().uuid().optional(),
-    relay_id: z.string().uuid().optional(),
+    native_instance_id: z.guid().optional(),
+    relay_id: z.guid().optional(),
     provider_session_id: z
       .string()
       .regex(/^[a-f0-9]{32}$/)
@@ -33,8 +33,8 @@ export const stateFrameSchema = z
       'state_pong',
     ]),
     protocol: z.literal(1),
-    stream_id: z.string().uuid(),
-    owner_epoch: z.string().uuid().optional(),
+    stream_id: z.guid(),
+    owner_epoch: z.guid().optional(),
     revision: z
       .string()
       .regex(/^(0|[1-9][0-9]*)$/)
@@ -48,7 +48,7 @@ export const stateFrameSchema = z
       })
       .strict()
       .optional(),
-    command_id: z.string().uuid().optional(),
+    command_id: z.guid().optional(),
     payload: z.unknown().optional(),
     code: z.string().max(100).optional(),
   })
@@ -60,7 +60,7 @@ export interface StateProjection {
   /** All methods read the current owner's RAM. No SQL, even after reconnect. */
   snapshot(): Json;
   authorize(): { deadline: number | null };
-  subscribe(changed: () => void): () => void;
+  subscribe(changed: (change?: 'authorization') => void): () => void;
   update(payload: unknown): void | Promise<void>;
   detach(): void | Promise<void>;
 }
@@ -77,7 +77,10 @@ interface Stream {
   applied: bigint;
   lastPong: number;
   deadline?: ReturnType<typeof setTimeout>;
-  dirty: boolean;
+  authorizationRefresh: boolean;
+  lastServerTime?: number;
+  refreshRetry?: ReturnType<typeof setTimeout>;
+  pending?: 'state_delta' | 'state_ping';
   initialized: boolean;
 }
 
@@ -167,7 +170,8 @@ export class ControlStateStreams {
       revision: 0n,
       applied: 0n,
       lastPong: Date.now(),
-      dirty: false,
+      authorizationRefresh: typeof frame.payload === 'object' && frame.payload !== null &&
+        'authorization_refresh' in frame.payload && frame.payload.authorization_refresh === 1,
       initialized: false,
     };
     this.streams.set(stream.id, stream);
@@ -180,7 +184,7 @@ export class ControlStateStreams {
       this.provider.assertOwner();
       stream.projection = projection;
       // Install first, then capture synchronously. Changes coalesce into a later delta.
-      stream.unsubscribe = projection.subscribe(() => this.changed(stream));
+      stream.unsubscribe = projection.subscribe((change) => this.changed(stream, change));
       this.sendState(stream, 'state_snapshot');
       stream.initialized = true;
       if (!this.delegatedLiveness && !this.timer && this.streams.size) {
@@ -192,31 +196,57 @@ export class ControlStateStreams {
       this.remove(stream, 'state_unavailable');
     }
   }
-  private changed(stream: Stream): void {
-    if (stream.dirty || this.streams.get(stream.id) !== stream) return;
-    stream.dirty = true;
+  private changed(stream: Stream, change?: 'authorization'): void {
+    if (this.streams.get(stream.id) !== stream) return;
+    const type = change === 'authorization' && stream.authorizationRefresh ? 'state_ping' : 'state_delta';
+    if (stream.pending) {
+      if (type === 'state_delta') stream.pending = type;
+      return;
+    }
+    stream.pending = type;
     queueMicrotask(() => {
-      stream.dirty = false;
+      const pending = stream.pending!;
+      stream.pending = undefined;
       if (!stream.initialized || this.streams.get(stream.id) !== stream) return;
       try {
-        this.sendState(stream, 'state_delta');
+        this.sendState(stream, pending);
       } catch (error) {
         this.transport.error(error);
         this.remove(stream, 'state_unavailable');
       }
     });
   }
-  private sendState(stream: Stream, type: 'state_snapshot' | 'state_delta'): void {
+  private sendState(stream: Stream, type: 'state_snapshot' | 'state_delta' | 'state_ping'): void {
     this.provider.assertOwner();
     const projection = stream.projection!;
     const { deadline } = projection.authorize();
+    const now = Date.now();
+    if (deadline !== null && deadline <= now) throw new Error('State authorization expired');
+    // Only a full revision can switch to unrestricted lifetime. For compact
+    // refreshes server_time is the replay fence within the same business revision.
+    if (type === 'state_ping' && deadline === null) type = 'state_delta';
+    if (type === 'state_ping' && stream.lastServerTime !== undefined) {
+      if (now < stream.lastServerTime) throw new Error('State authorization clock moved backwards');
+      if (now === stream.lastServerTime) {
+        if (!stream.refreshRetry) {
+          stream.refreshRetry = setTimeout(() => {
+            stream.refreshRetry = undefined;
+            this.changed(stream, 'authorization');
+          }, 1);
+          stream.refreshRetry.unref();
+        }
+        return;
+      }
+    }
+    clearTimeout(stream.refreshRetry);
+    stream.refreshRetry = undefined;
+    stream.lastServerTime = now;
     clearTimeout(stream.deadline);
     if (deadline !== null) {
-      if (deadline <= Date.now()) throw new Error('State authorization expired');
       stream.deadline = setTimeout(
         () => {
           try {
-            this.sendState(stream, 'state_delta');
+            this.sendState(stream, stream.authorizationRefresh ? 'state_ping' : 'state_delta');
           } catch (error) {
             this.transport.error(error);
             this.remove(stream, 'authorization_expired');
@@ -226,16 +256,16 @@ export class ControlStateStreams {
       );
       stream.deadline.unref();
     }
-    const snapshot = projection.snapshot();
+    const snapshot = type === 'state_ping' ? {} : projection.snapshot();
     if (snapshot === null || typeof snapshot !== 'object' || Array.isArray(snapshot))
       throw new Error('State snapshot must be an object');
     const payload = {
       ...snapshot,
       ownership_mode: 'connection',
-      server_time: new Date().toISOString(),
+      server_time: new Date(now).toISOString(),
       authorization_deadline: deadline === null ? null : new Date(deadline).toISOString(),
     };
-    stream.revision++;
+    if (type !== 'state_ping') stream.revision++;
     this.send(stream, {
       type,
       protocol: 1,
@@ -282,6 +312,7 @@ export class ControlStateStreams {
     if (this.streams.get(stream.id) !== stream) return;
     this.streams.delete(stream.id);
     clearTimeout(stream.deadline);
+    clearTimeout(stream.refreshRetry);
     stream.unsubscribe?.();
     if (notify) {
       try {

@@ -1,5 +1,12 @@
 # 2026-11-21
 
+- The admin console isolates cached data and drafts when a user or role changes. Sign-out reports uncertain responses and can be retried. Login, passkey and password recovery move focus to the next field. Logs and external-client bookmarks open their pages correctly.
+- Native-version settings show the effective Codex floor, exact lock or Latest channel. Explicitly saving Latest now persists the choice. Empty installations select a native update target for Codex and Claude. The dashboard links to installed host versions and identifies estimated Kimi usage.
+- Android Companion 0.10.1 keeps the start button accessible with the keyboard open and supports reading and selecting chat identities with large system text.
+- Native clients can renew a connection-bound session without waking business subscribers. New clients negotiate this with the owner, older clients retain full state updates.
+- Separate filesystem mounts confine the media and review workers. Idle review jobs wake on changes or their next deadline. Advisor downloads bind credentials to the original secure origin and verify package integrity. The admin API honors HTTP Accept priorities and retains the existing validation contract after dependency updates.
+- The runner caps combined native stdout and stderr, terminates complete process groups on overflow and reports a bounded error. The compatible gateway surfaces preserve reported cache and reasoning counters and leave unknown native usage absent.
+
 - A suspend-capable session that loses an attached owner can reconnect for 24 hours from the first recovery. Later restarts keep the same deadline. Quiet connected sessions generate no database heartbeats. Fresh MySQL installations can resume interrupted baseline initialization.
 
 - Instance updates preserve current storage and perform the exclusive-owner cutover without creating SQL dumps or disposable copies of operator configuration. Orderly owner shutdown drains pending commands. Losing the ownership connection still fences the process during bootstrap and after readiness.
