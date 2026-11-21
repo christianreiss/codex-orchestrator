@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -158,6 +159,65 @@ func TestKimiReceiverRegistersButNeverClaimsOrPushesIdle(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("receiver did not stop")
+	}
+}
+
+func TestKimiReceiverHonorsActivityCapability(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		activity bool
+	}{{"peer messaging only", false}, {"portal activity", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CXX_AGENT_PORTAL_ENGINE", "kimi")
+			synctest.Test(t, func(t *testing.T) {
+				activityReports := 0
+				api := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					res := httptest.NewRecorder()
+					switch filepath.Base(req.URL.Path) {
+					case "native":
+						_ = json.NewEncoder(res).Encode(map[string]string{"native_session_id": testKimiID})
+					case "register":
+						_ = json.NewEncoder(res).Encode(map[string]any{"sources": []string{"peer"}, "capabilities": map[string]bool{"activity_v1": tc.activity}})
+					case "activity-hook", "stop":
+						_, _ = io.WriteString(res, "{}")
+					case "activity":
+						activityReports++
+						if !tc.activity {
+							res.WriteHeader(http.StatusServiceUnavailable)
+							_, _ = io.WriteString(res, `{"code":"agent_portal_disabled"}`)
+						} else {
+							_, _ = io.WriteString(res, "{}")
+						}
+					case "mailbox":
+						_, _ = io.WriteString(res, `{"pending":[{"message_id":"peer-work","kind":"request"}]}`)
+					default:
+						t.Errorf("unexpected idle receiver operation %s", req.URL.Path)
+					}
+					return res.Result(), nil
+				})
+				c := &sessionClient{id: "launch", http: &http.Client{Transport: api}}
+				r := &autoReceiver{client: c, tracker: newChannelTracker(c)}
+				ctx, cancel := context.WithCancel(context.Background())
+				done := make(chan error, 1)
+				go func() { done <- r.connection(ctx) }()
+				synctest.Wait()
+				if ready := r.health()["state"]; ready != "ready" {
+					t.Errorf("peer receiver state %v", ready)
+				}
+				if (activityReports > 0) != tc.activity {
+					t.Errorf("activity_v1=%v, observed %d portal activity reports", tc.activity, activityReports)
+				}
+				var box mailbox
+				if err := c.post(ctx, "mailbox", map[string]any{}, &box); err != nil || len(box.Pending) != 1 || box.Pending[0].MessageID != "peer-work" {
+					t.Errorf("peek after registration: %#v, %v", box.Pending, err)
+				}
+				cancel()
+				if err := <-done; !errors.Is(err, context.Canceled) {
+					t.Error(err)
+				}
+			})
+		})
 	}
 }
 

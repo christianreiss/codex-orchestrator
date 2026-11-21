@@ -332,6 +332,13 @@ original through `agent_receiver_*` and acknowledges presentation; a ring is
 not an acceptance or completion receipt. Poll hooks fail open on errors, and
 an already announced portal delivery does not repeatedly block Stop.
 
+From cxx 0.9.199 the Kimi receiver sends activity reports only when its
+registration grants `capabilities.activity_v1`. With peer messaging enabled and
+the Operator Portal disabled, the peer mailbox and orderly session finish remain
+available. A prompt or Stop ring reads pending message IDs. The message stays
+queued until a receiver claims it. Durable acceptance and an explicit task result
+have separate protocol steps.
+
 ### Gateway (`/kimi/v1`)
 
 The OpenAI-shaped surface (`/models`, `/chat/completions`, `/responses`) uses

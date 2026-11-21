@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Wrapper 0.9.199 keeps Kimi peer messaging available when the Operator Portal is off. The receiver now reports activity only when the server grants that capability, so a disabled activity endpoint can no longer close the local messaging bridge.
+
 - Wrapper 0.9.198 fixes a false failure after `ckx uninstall` or `cgx uninstall` removed an installed engine. Both commands accept an already absent private installation and report a busy store or filesystem error.
 
 - Approving a replacement for work whose original transcript is missing now requires the MCP operator bearer and a host credential, or the signed-in admin action. The privileged credential must use the Bearer authorization scheme. Legacy raw host credentials keep their host scope. The grant records which privileged channel authorized it.

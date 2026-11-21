@@ -237,7 +237,8 @@ func (r *autoReceiver) kimiConnection(parent context.Context) error {
 		Sources      []string `json:"sources"`
 		Binding      int      `json:"binding_generation"`
 		Capabilities struct {
-			Queue bool `json:"queue_delivery_v1"`
+			Queue    bool `json:"queue_delivery_v1"`
+			Activity bool `json:"activity_v1"`
 		} `json:"capabilities"`
 	}
 	body := map[string]any{"generation": generation, "protocol": "kimi-hooks-v1", "native_session_id": nativeID,
@@ -255,7 +256,9 @@ func (r *autoReceiver) kimiConnection(parent context.Context) error {
 	r.setSources(registered.Sources)
 	r.setConnected(true)
 	r.setGate("thread_waiting")
-	go r.observeActivity(ctx, "kimi", nativeID, generation, registered.Binding)
+	if registered.Capabilities.Activity {
+		go r.observeActivity(ctx, "kimi", nativeID, generation, registered.Binding)
+	}
 	defer r.setConnected(false)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
