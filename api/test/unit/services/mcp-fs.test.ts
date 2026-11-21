@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   mkdtempSync,
+  realpathSync,
   rmSync,
   writeFileSync,
   mkdirSync,
@@ -9,7 +10,7 @@ import {
   existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { McpFsTools } from '../../../src/services/mcp-fs.js';
 
 /**
@@ -250,12 +251,12 @@ describe('McpFsTools.searchInFiles', () => {
 describe('McpFsTools.resolveSafe', () => {
   it('treats empty / dot paths as root itself', async () => {
     const safe = await fs.resolveSafe('.', true);
-    expect(safe).toBe(resolve(root));
+    expect(safe).toBe(realpathSync(root));
   });
 
   it('strips leading slashes to keep paths root-relative', async () => {
     const safe = await fs.resolveSafe('/hello.txt', true);
-    expect(safe).toBe(resolve(root, 'hello.txt'));
+    expect(safe).toBe(realpathSync(join(root, 'hello.txt')));
   });
 
   it('rejects backslash + dotdot traversal attempts', async () => {
