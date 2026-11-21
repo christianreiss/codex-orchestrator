@@ -22,6 +22,40 @@ ColumnLayout {
         return Qt.formatTime(new Date(iso), "hh:mm")
     }
 
+    property var drafts: ({})
+    property bool sending: false
+    property string sendError: ""
+    Connections {
+        target: app
+        function onSessionGenerationChanged() {
+            view.drafts = {}; view.sending = false; view.sendError = ""; chatInput.text = ""
+        }
+        function onRoomIdChanged() {
+            chatInput.text = view.drafts[app.roomId]?.text || ""
+            view.sendError = view.drafts[app.roomId]?.error || ""
+        }
+    }
+
+    Repeater {
+        model: Plasmoid.configuration.pendingRevocations.slice(-1)
+        delegate: ColumnLayout {
+            required property string modelData
+            Layout.fillWidth: true
+            PlasmaComponents.Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: app.disconnecting === modelData
+                    ? i18n("Disconnected locally. Checking revocation at %1…", modelData)
+                    : i18n("Server revocation could not be confirmed. Check the KDE Plasma device in Account at %1 and revoke it if still active.", modelData)
+            }
+            PlasmaComponents.Button {
+                visible: app.disconnecting !== modelData
+                text: i18n("I checked this device in my account")
+                onClicked: app.clearRevocationNotice(modelData)
+            }
+        }
+    }
+
     // ── pairing ─────────────────────────────────────────────────────────────
     ColumnLayout {
         visible: !app.paired
@@ -33,13 +67,16 @@ ColumnLayout {
             wrapMode: Text.Wrap
             text: i18n("Pair this widget: in the dashboard open Account → Android devices, create a pairing code and paste its JSON here.")
         }
-        PlasmaComponents.TextField { id: pairInput; Layout.fillWidth: true; placeholderText: i18n("Pairing JSON or token") }
+        PlasmaComponents.TextField { id: pairInput; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: i18n("Pairing JSON or token") }
         PlasmaComponents.TextField { id: serverInput; Layout.fillWidth: true; placeholderText: i18n("Server URL (only if you paste a bare token)"); text: Plasmoid.configuration.serverUrl }
         PlasmaComponents.Button {
-            text: i18n("Pair")
+            text: app.pairing ? i18n("Pairing…") : i18n("Pair")
+            enabled: app.secretLoaded && !app.pairing && !app.disconnecting
             onClicked: {
-                if (serverInput.text) Plasmoid.configuration.serverUrl = serverInput.text
-                app.pair(pairInput.text, "KDE Plasma", (ok, msg) => { pairMsg.text = ok ? "" : msg; if (ok) pairInput.text = "" })
+                app.pair(pairInput.text, serverInput.text, "KDE Plasma", (ok, msg, spent) => {
+                    pairMsg.text = ok ? "" : msg
+                    if (ok || spent) pairInput.text = ""
+                })
             }
         }
         PlasmaComponents.Label { id: pairMsg; Layout.fillWidth: true; color: Kirigami.Theme.negativeTextColor; wrapMode: Text.Wrap }
@@ -169,7 +206,8 @@ ColumnLayout {
                                 PlasmaComponents.ProgressBar {
                                     Layout.fillWidth: true
                                     from: 0; to: 100
-                                    value: modelData.used_percent === null ? 0 : modelData.used_percent
+                                    visible: modelData.used_percent !== null
+                                    value: modelData.used_percent ?? 0
                                 }
                                 PlasmaComponents.Label {
                                     text: modelData.used_percent === null ? i18n("n/a") : Math.round(modelData.used_percent) + " %"
@@ -187,13 +225,14 @@ ColumnLayout {
         ColumnLayout {
             PlasmaComponents.ComboBox {
                 id: roomBox
+                enabled: !view.sending
                 Layout.fillWidth: true
                 model: app.rooms
                 textRole: "title"
-                displayText: currentIndex >= 0 && app.rooms[currentIndex]
+                currentIndex: app.rooms.findIndex(room => room.id === app.roomId)
+                displayText: app.roomId && currentIndex >= 0 && app.rooms[currentIndex]
                     ? app.rooms[currentIndex].title + (app.rooms[currentIndex].unread ? " (" + app.rooms[currentIndex].unread + ")" : "")
                     : i18n("Select a room")
-                currentIndex: -1
                 onActivated: (i) => app.loadRoom(app.rooms[i].id)
             }
             ListView {
@@ -210,19 +249,45 @@ ColumnLayout {
                     PlasmaComponents.Label { text: modelData.content; wrapMode: Text.Wrap; Layout.fillWidth: true }
                 }
             }
+            PlasmaComponents.Label {
+                visible: view.sendError !== ""
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                color: Kirigami.Theme.negativeTextColor
+                text: view.sendError
+            }
             RowLayout {
                 Layout.fillWidth: true
-                enabled: app.roomId !== ""
+                enabled: app.roomId !== "" && !view.sending
                 PlasmaComponents.TextField {
                     id: chatInput
                     Layout.fillWidth: true
                     placeholderText: i18n("Message")
+                    onTextEdited: {
+                        view.sendError = ""
+                        if (app.roomId) view.drafts[app.roomId] = { text: text, id: app.uuid(), error: "" }
+                    }
                     onAccepted: send.clicked()
                 }
                 PlasmaComponents.Button {
                     id: send
                     icon.name: "mail-send"
-                    onClicked: { if (chatInput.text.trim() !== "") { app.sendMessage(chatInput.text); chatInput.text = "" } }
+                    Accessible.name: i18n("Send message")
+                    enabled: chatInput.text.trim() !== ""
+                    onClicked: {
+                        const room = app.roomId, draft = view.drafts[room]
+                        if (!draft || !draft.text.trim() || view.sending) return
+                        view.sending = true
+                        app.sendMessage(room, draft.id, draft.text, (ok, message) => {
+                            view.sending = false
+                            draft.error = message
+                            if (app.roomId === room) view.sendError = message
+                            if (ok && view.drafts[room] === draft) {
+                                delete view.drafts[room]
+                                if (app.roomId === room) chatInput.text = ""
+                            }
+                        })
+                    }
                 }
             }
         }
@@ -232,7 +297,7 @@ ColumnLayout {
         visible: app.paired
         Layout.fillWidth: true
         PlasmaComponents.Label { Layout.fillWidth: true; text: app.online ? i18n("Connected") : i18n("Offline"); opacity: 0.6 }
-        PlasmaComponents.ToolButton { icon.name: "view-refresh"; onClicked: app.poll() }
-        PlasmaComponents.ToolButton { icon.name: "network-disconnect"; onClicked: app.unpair() }
+        PlasmaComponents.ToolButton { icon.name: "view-refresh"; Accessible.name: i18n("Refresh"); onClicked: app.poll() }
+        PlasmaComponents.ToolButton { icon.name: "network-disconnect"; Accessible.name: i18n("Unpair widget"); onClicked: app.unpair() }
     }
 }

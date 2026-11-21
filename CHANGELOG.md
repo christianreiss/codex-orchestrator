@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- KDE Plasma widget 0.2.0 binds credentials to the HTTPS server and widget instance. After upgrading from 0.1, revoke the previous device in the original account and pair again. An unconfirmed disconnect keeps the server and device reference for manual revocation. Room messages keep their draft and request ID until confirmed.
+
 - The existing `/admin/hosts/new` bookmark opens the host registration sheet, including after Reload or Back/Forward. Numeric host detail links keep their own route.
 
 - JSON downloads preserve the bytes and byte ranges of stored content, including agent-chat transcripts and the admin SPA version file. Unknown admin links can load their 404 page without repeated navigation.

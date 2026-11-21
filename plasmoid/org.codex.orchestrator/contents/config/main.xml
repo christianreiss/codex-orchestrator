@@ -4,6 +4,9 @@
       xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
   <group name="General">
     <entry name="serverUrl" type="String"><default></default></entry>
+    <entry name="credentialActive" type="Bool"><default>false</default></entry>
+    <entry name="deviceId" type="String"><default></default></entry>
+    <entry name="pendingRevocations" type="StringList"></entry>
     <entry name="pollSeconds" type="Int"><default>10</default></entry>
     <entry name="approveMinutes" type="Int"><default>60</default></entry>
   </group>
