@@ -210,3 +210,51 @@ The public `/readyz` comparison used the same warm fixture, signed binaries, run
 | Final release source | 6 | 8.27 | 6.24–43.48 | 253 | 253–261 |
 
 The original validation constructed a registry per request, causing all five published files to be read repeatedly. The new handler keeps one registry and revalidates its entries when file identity or metadata changes. A separate test atomically replaced a file with the same size and modification time. The readiness response rejected the changed digest. On the old production installation the eight-second Doctor probe sometimes timed out while six checks answered on a separate request. The laboratory comparison isolates the code change. Other production contributors to latency were not measured.
+
+## Delivered SPA and the pre-owner recheck
+
+The production image at `b6e5d152690fc636b0b30350c0e78ad71cacb78f` included the manual pre-owner status action and the shipped usage table (OCI `sha256:bd64c324bfb5122d63e22f265f667467d2bec14ce06cc406f60a99e4bf4f148a`). The API runtime tree was identical to the preceding measurement. Each cohort observed zero application SQL, business frames, browser HTTP requests and browser errors. The separate setup exercise verified that an operator action initiated exactly one status request.
+
+| Clients | Tabs | Real seconds | API CPU % | MySQL CPU % | MySQL alone % | Difference in points | Pongs | Renewals |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0 | 600.003 | 0.0544 | 0.2650 | 0.1243 | +0.1407 | 40 | 4 |
+| 1 | 1 | 600.001 | 0.0629 | 0.2586 | 0.1286 | +0.1300 | 40 | 4 |
+| 1 | 5 | 600.001 | 0.0630 | 0.2586 | 0.1259 | +0.1327 | 40 | 4 |
+| 20 | 0 | 600.002 | 0.1235 | 0.2599 | 0.1247 | +0.1352 | 800 | 20 |
+| 20 | 1 | 600.001 | 0.1386 | 0.2662 | 0.1307 | +0.1354 | 800 | 20 |
+| 20 | 5 | 600.001 | 0.1464 | 0.2585 | 0.1247 | +0.1339 | 800 | 20 |
+| 200 | 0 | 600.002 | 0.6674 | 0.2576 | 0.1250 | +0.1326 | 8,000 | 200 |
+| 200 | 1 | 600.002 | 0.6870 | 0.2490 | 0.1228 | +0.1262 | 8,000 | 200 |
+| 200 | 5 | 600.002 | 0.7022 | 0.3774 | 0.1931 | +0.1843 | 8,000 | 200 |
+
+## Delivered operator filesystem and checkout lock changes
+
+The production image at `8bea80f6c7508fe114d24213807a7beb619a6a59` included the manual pre-owner status action and the shipped usage table (OCI `sha256:4177b6bfaa3142ea9e6f7874ff0e4366733b6a335c0955a71f5a35a7266806c3`). The image contains the canonical operator filesystem root and the release tree contains the inherited instance lock correction. Each cohort observed zero application SQL, business frames, browser HTTP requests and browser errors. The separate setup exercise verified that an operator action initiated exactly one status request.
+
+| Clients | Tabs | Real seconds | API CPU % | MySQL CPU % | MySQL alone % | Difference in points | Pongs | Renewals |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0 | 600.001 | 0.0303 | 0.1862 | 0.1243 | +0.0619 | 40 | 4 |
+| 1 | 1 | 600.001 | 0.0128 | 0.2138 | 0.1286 | +0.0853 | 40 | 4 |
+| 1 | 5 | 600.001 | 0.0760 | 0.2085 | 0.1259 | +0.0826 | 40 | 4 |
+| 20 | 0 | 600.001 | 0.1260 | 0.2183 | 0.1247 | +0.0937 | 800 | 20 |
+| 20 | 1 | 600.001 | 0.1312 | 0.2434 | 0.1307 | +0.1127 | 800 | 20 |
+| 20 | 5 | 600.001 | 0.1366 | 0.2200 | 0.1247 | +0.0954 | 800 | 20 |
+| 200 | 0 | 600.002 | 0.5587 | 0.3729 | 0.1250 | +0.2479 | 8,000 | 200 |
+| 200 | 1 | 600.000 | 0.5398 | 0.3610 | 0.1228 | +0.2382 | 8,000 | 200 |
+| 200 | 5 | 600.001 | 0.5454 | 0.2830 | 0.1931 | +0.0899 | 8,000 | 200 |
+
+## Final file editor and validation response
+
+The production image at `92361d76041262d79726af9282cf036391aab51a` included the manual pre-owner status action and the shipped usage table (OCI `sha256:d2d14fe89be675cb5ff9b35d24ce51da15bd5b33d756e676a1d6be6b768b7dca`). The image includes field-specific file validation and the mobile file save feedback. Each cohort observed zero application SQL, business frames, browser HTTP requests and browser errors. The separate setup exercise verified that an operator action initiated exactly one status request.
+
+| Clients | Tabs | Real seconds | API CPU % | MySQL CPU % | MySQL alone % | Difference in points | Pongs | Renewals |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 0 | 600.002 | 0.0518 | 0.1509 | 0.1243 | +0.0266 | 40 | 4 |
+| 1 | 1 | 600.000 | 0.0493 | 0.1803 | 0.1286 | +0.0518 | 40 | 4 |
+| 1 | 5 | 600.002 | 0.0613 | 0.1713 | 0.1259 | +0.0454 | 40 | 4 |
+| 20 | 0 | 600.001 | 0.0972 | 0.1645 | 0.1247 | +0.0398 | 800 | 20 |
+| 20 | 1 | 600.001 | 0.0930 | 0.1961 | 0.1307 | +0.0654 | 800 | 20 |
+| 20 | 5 | 600.001 | 0.1218 | 0.1718 | 0.1247 | +0.0471 | 800 | 20 |
+| 200 | 0 | 600.003 | 0.5273 | 0.1601 | 0.1250 | +0.0351 | 8,000 | 200 |
+| 200 | 1 | 600.001 | 0.5512 | 0.1489 | 0.1228 | +0.0260 | 8,000 | 200 |
+| 200 | 5 | 600.001 | 0.5210 | 0.2537 | 0.1931 | +0.0607 | 8,000 | 200 |
