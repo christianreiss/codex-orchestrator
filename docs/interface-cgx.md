@@ -961,17 +961,21 @@ records trust in the original store without starting a session.
 
 The fleet receiver and watchdog hooks (`SessionStart` → `cxx agent
 native-session`; `StopFailure`, `StopCancelled`, `SessionEnd` → `cxx agent
-watchdog-event`) are merged into the private `managed_config.toml`. Grok 1.0.64+
-holds back user hooks in untrusted folders. It loads `managed_config.toml` hooks
-before trust, so receiver binding does not depend on folder trust. Grok 1.0.50
+watchdog-event`) are merged into the private `managed_config.toml`. The 1.0.92 native inspector loads personal hooks from
+`$GROK_HOME/hooks` and the managed layer before folder trust. Project hooks in
+`<project>/.grok/hooks` require trust for that project. The wrapper preserves
+the existing trust store. Isolated native inspection found the same personal/project
+distinction at the supported floor 1.0.50. In 1.0.64, 1.0.89, 1.0.90 and 1.0.91
+the personal hook was also hidden until the project was trusted. Grok 1.0.50
 reads the same layer. Organization content in the snapshot is merged, not
 replaced; the native order stays `managed_config.toml` < `config.toml` <
 `requirements.toml`. A user-level managed file is distribution, not
 enforcement: the operator can still disable these hooks, and an
 organization's `allow_managed_hooks_only` pin skips them. If the copied
 `managed_config.toml` cannot be parsed, it stays byte-for-byte. The hooks then
-fall back to `hooks/cxx-receiver.json` and the launch prints that they wait for
-folder trust. Earlier runtimes copied a hyphenated
+fall back to `hooks/cxx-receiver.json` and the launch identifies this personal hook location.
+Native organization policy and the installed version determine availability.
+[Upstream hook locations](https://raw.githubusercontent.com/xai-org/grok-build/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md). Earlier runtimes copied a hyphenated
 `managed-config.toml` that no native release reads, dropped `trusted_folders.toml`,
 `sandbox.toml` and `pager.toml`, and linked `bundled`.
 

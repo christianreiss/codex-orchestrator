@@ -200,7 +200,11 @@ func TestOfficialCodexPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 	target, _ := archTriple(runtime.GOOS, runtime.GOARCH)
-	if err := validateCodexPackage(context.Background(), dir, "0.169.0", target, true); err != nil {
+	expectedVersion := os.Getenv("CXX_TEST_CODEX_PACKAGE_VERSION")
+	if expectedVersion == "" {
+		expectedVersion = "0.169.0" // Existing callers use this original acceptance fixture.
+	}
+	if err := validateCodexPackage(context.Background(), dir, expectedVersion, target, true); err != nil {
 		t.Fatal(err)
 	}
 	var m voiceManifest

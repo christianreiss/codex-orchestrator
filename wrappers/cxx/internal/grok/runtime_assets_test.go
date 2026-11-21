@@ -213,9 +213,8 @@ func receiverCommands(t *testing.T, tree *toml.Tree, event string) []string {
 	return commands
 }
 
-// Grok 1.0.64+ holds back user hooks in untrusted folders. The fleet lifecycle
-// hooks therefore use the private managed layer, which native loads before
-// folder trust; organization content in the copied file is preserved.
+// The private managed layer carries fleet lifecycle hooks alongside the
+// existing organization declarations.
 func TestRuntimeDeliversReceiverHooksThroughPrivateManagedLayer(t *testing.T) {
 	org := "[models]\ndefault = \"org-default\"\n\n[[hooks.SessionStart]]\nhooks = [ { type = \"command\", command = \"/opt/org/start\" } ]\n"
 	r := runtimeWithBase(t, func(base string) {
@@ -249,7 +248,7 @@ func TestRuntimeDeliversReceiverHooksThroughPrivateManagedLayer(t *testing.T) {
 		}
 	}
 	if _, err := os.Lstat(filepath.Join(r.Home, "hooks", "cxx-receiver.json")); !os.IsNotExist(err) {
-		t.Fatal("receiver hooks duplicated into the trust-gated user layer")
+		t.Fatal("receiver hooks duplicated into the user layer")
 	}
 	if _, err := os.Stat(filepath.Join(r.Home, "hooks", "user.json")); err != nil {
 		t.Fatal("user hook definitions not carried")
@@ -284,7 +283,7 @@ func TestRuntimeLeavesManagedLayerUntouchedWithoutReceiver(t *testing.T) {
 }
 
 // An unreadable organization file is never rewritten: the hooks fall back to
-// the user layer and the launch says that they wait for folder trust.
+// the personal hooks directory and the launch identifies the fallback.
 func TestRuntimeFallsBackToUserHooksWhenManagedLayerCannotBeParsed(t *testing.T) {
 	broken := "[models\ndefault = \n"
 	r := runtimeWithBase(t, func(base string) { writeBaseAsset(t, base, "managed_config.toml", broken, 0o600) })
@@ -298,7 +297,7 @@ func TestRuntimeFallsBackToUserHooksWhenManagedLayerCannotBeParsed(t *testing.T)
 	if err != nil || !bytes.Contains(raw, []byte("agent native-session")) {
 		t.Fatalf("fallback receiver hooks missing: %v", err)
 	}
-	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "folder trust") {
+	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "personal hooks directory") {
 		t.Fatalf("fallback not reported: %v", r.Warnings)
 	}
 }
@@ -315,6 +314,7 @@ func TestRuntimeNativeInspectSeesManagedReceiverHooksInUntrustedFolder(t *testin
 		t.Fatalf("git init: %v %s", err, out)
 	}
 	userHook := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/bin/true user-own"}]}]}}`
+	writeBaseAsset(t, repo, ".grok/hooks/repository.json", strings.Replace(userHook, "user-own", "project-own", 1), 0o600)
 	inspect := func(r *Runtime) map[string]any {
 		cmd := exec.Command(binary, "inspect", "--json")
 		cmd.Dir = repo
@@ -360,16 +360,31 @@ func TestRuntimeNativeInspectSeesManagedReceiverHooksInUntrustedFolder(t *testin
 		if found["'/fixture/cxx' agent native-session"] != "managed" {
 			t.Fatalf("trusted=%v: receiver hook not delivered by the managed layer: %v", trusted, found)
 		}
-		// The operator's own trust decision, carried read-only, still governs
-		// their own hooks; the fleet grants no folder trust. Natives before
-		// 1.0.64 report every folder trusted and load user hooks anyway.
-		projectTrusted, _ := doc["projectTrusted"].(bool)
-		_, userHook := found["/bin/true user-own"]
-		if trusted && (!projectTrusted || !userHook) {
-			t.Fatalf("carried trust store ignored: trusted=%v hooks=%v", projectTrusted, found)
+		projectTrusted, ok := doc["projectTrusted"].(bool)
+		if !ok || projectTrusted != trusted {
+			t.Fatalf("expected project trust %v, native inspect reported %v", trusted, doc["projectTrusted"])
 		}
-		if !projectTrusted && userHook {
-			t.Fatalf("user hook loaded in an untrusted folder: %v", found)
+		personalSource := found["/bin/true user-own"]
+		if trusted && personalSource != "user" {
+			t.Fatalf("trusted personal hook has source %q", personalSource)
+		}
+		if !trusted {
+			// Native releases changed the personal layer independently of
+			// repository trust. Pin only behavior observed in a release.
+			switch doc["grokVersion"] {
+			case "1.0.50", "1.0.92":
+				if personalSource != "user" {
+					t.Fatalf("expected the personal hook in %v", doc["grokVersion"])
+				}
+			case "1.0.64", "1.0.89", "1.0.90", "1.0.91":
+				if personalSource != "" {
+					t.Fatalf("unexpected personal hook in %v", doc["grokVersion"])
+				}
+			}
+		}
+		projectSource := found["/bin/true project-own"]
+		if (trusted && projectSource != "project") || (!trusted && projectSource != "") {
+			t.Fatalf("project hook source %q for folder trust %v", projectSource, trusted)
 		}
 		if os.Getenv("CXX_TEST_GROK_SANDBOX") == "1" {
 			// Custom profile and bundle cache resolution happen before auth; the

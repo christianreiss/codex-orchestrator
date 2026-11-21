@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Wrapper 0.9.193 identifies the personal Grok hook fallback when the organization configuration cannot be parsed. Grok 1.0.92 applies folder trust to repository hooks.
+
 - Ordinary HEAD requests to a WebSocket endpoint now follow its existing access checks and receive the same empty 404 as GET without an upgrade. Monitoring these URLs no longer calls the native socket handler.
 
 - Account → Companion devices now identifies both Android phones and KDE Plasma widgets. Scan a pairing code on Android or copy its contents into the widget. Firebase delivery settings apply to Android.

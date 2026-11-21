@@ -685,13 +685,8 @@ func receiverHooks(executable string) map[string]any {
 		"StopFailure": watchdog(), "StopCancelled": watchdog(), "SessionEnd": watchdog()}
 }
 
-// installLifecycleHooks renders the fleet receiver and watchdog hooks into the
-// private managed_config.toml. Grok 1.0.64+ holds back user hooks (hooks/,
-// config.toml) until a folder is trusted, but loads managed_config.toml hooks
-// before trust; 1.0.50 reads the same layer. Folder trust itself is unchanged,
-// and organization content in the copied snapshot is merged, never replaced.
-// An unreadable organization file stays byte-for-byte; the hooks then fall
-// back to the trust-gated user layer and the launch says so.
+// installLifecycleHooks merges fleet hooks into the private organization snapshot.
+// Keep its contents on a parse error and use the native user hook location.
 func (r *Runtime) installLifecycleHooks(executable string) error {
 	hooks := receiverHooks(executable)
 	path := filepath.Join(r.Home, "managed_config.toml")
@@ -699,7 +694,7 @@ func (r *Runtime) installLifecycleHooks(executable string) error {
 	if err == nil {
 		return AtomicWrite(path, merged, 0o600)
 	}
-	r.Warnings = append(r.Warnings, "Grok managed_config.toml is unreadable ("+err.Error()+"); fleet session hooks load as user hooks and wait for folder trust")
+	r.Warnings = append(r.Warnings, "Grok managed_config.toml is unreadable ("+err.Error()+"); using the personal hooks directory for fleet session hooks; native hook policy applies")
 	body, _ := json.Marshal(map[string]any{"hooks": hooks})
 	return AtomicWrite(filepath.Join(r.Home, "hooks", "cxx-receiver.json"), body, 0o600)
 }
