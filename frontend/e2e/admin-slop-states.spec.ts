@@ -35,10 +35,12 @@ test("reset without a token explains recovery before password entry", async ({ p
   await expect(page.getByRole("link", { name: "Return to sign in" })).toBeVisible();
 });
 
-test("a failed background setup check preserves a project draft", async ({ page }) => {
+test("retrying a failed background setup check preserves a project draft", async ({ page }) => {
   let release: () => void = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
+  let recovered = false;
   await page.route("**/admin/setup/status", async route => {
+    if (recovered) return route.fallback();
     await gate;
     await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Probe failed" }) });
   });
@@ -47,6 +49,13 @@ test("a failed background setup check preserves a project draft", async ({ page 
   await title.fill("Retained while setup is unreachable");
   release();
   await expect(page.getByText("Setup status unavailable:", { exact: false })).toBeVisible();
+  await expect(title).toHaveValue("Retained while setup is unreachable");
+  recovered = true;
+  const checked = page.waitForResponse(response =>
+    new URL(response.url()).pathname === "/admin/setup/status" && response.status() === 200);
+  await page.getByRole("button", { name: "Retry setup check" }).click();
+  await checked;
+  await expect(page.getByRole("button", { name: "Retry setup check" })).toHaveCount(0);
   await expect(title).toHaveValue("Retained while setup is unreachable");
 });
 

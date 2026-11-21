@@ -207,7 +207,7 @@
       </div>
     {:else}
       <AppShell>
-        {#if setupError}<div role="alert" class="m-4 text-body-sm text-destructive">Setup status unavailable: {setupError}. Your current page and drafts are retained. <Button size="sm" variant="outline" onclick={() => { setupError = null; void authActions.refresh(); }}>Retry setup check</Button></div>{/if}
+        {#if setupError}<div role="alert" class="m-4 text-body-sm text-destructive">Setup status unavailable: {setupError}. Your current page and drafts are retained. <Button size="sm" variant="outline" onclick={() => void authActions.recheck()}>Retry setup check</Button></div>{/if}
         {@render children?.()}
       </AppShell>
       {#if auth.authenticated && wsHandle}

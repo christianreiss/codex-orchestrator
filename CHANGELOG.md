@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Retrying a background setup check keeps an authenticated operator’s open editor and unsaved draft through the retry.
+
 - OAuth connectors can delegate work to an authorized managed agent again. Retrying the same request keeps the original message, and the connector can read its recorded outcome.
 
 - Wrapper 0.9.194 makes `cdx --update` and `clx --update` identify a matching signed configuration when the live wrapper target could not be confirmed.
