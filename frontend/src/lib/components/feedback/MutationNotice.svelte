@@ -10,6 +10,7 @@
   onMount(() => client.getMutationCache().subscribe(async (event) => {
     if (event.type !== "updated") return;
     const { mutation } = event;
+    if (mutation.meta?.inlineError === true) return;
     if (event.action.type === "success" || event.action.type === "pending") {
       failures = failures.filter((failure) => failure.id !== mutation.mutationId);
     } else if (event.action.type === "error") {

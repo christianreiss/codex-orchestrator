@@ -1198,6 +1198,100 @@ test("host detail orders problems, engines and access before a collapsed Advance
   await expectNoSeriousAxeFindings(page);
 });
 
+test("mobile project file errors stay beside Save and preserve the keyboard draft", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  const files = "/admin/projects/fleet-console/files";
+  const file = { id: 4, stored_name: "docs/rollout.md", description: "Draft", mime_type: "application/octet-stream", content: "YQ==", content_encoding: "base64" };
+  await page.route(`**${files}/4`, (route) => route.fulfill({ json: { project: "fleet-console", file } }));
+  const submitted: string[] = [];
+  let finishValidation!: () => void;
+  const validating = new Promise<void>((resolve) => { finishValidation = resolve; });
+  await page.route(`**${files}`, async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const { content } = route.request().postDataJSON();
+    submitted.push(content);
+    if (content === "invalid!") {
+      await validating;
+      return route.fulfill({ status: 422, json: { status: "error", code: "validation_failed", message: "content is not valid base64", param: "content" } });
+    }
+    if (submitted.length === 2) return route.fulfill({ status: 503, json: { status: "error", message: "Storage temporarily unavailable" } });
+    return route.fulfill({ json: { project: "fleet-console", file: { ...file, content } } });
+  });
+  await page.goto("/admin/projects/fleet-console/documents?kind=files");
+  await page.getByRole("button", { name: file.stored_name, exact: true }).press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Edit file" });
+  const content = dialog.getByLabel("Content (Base64)");
+  await expect(content).toHaveValue(file.content);
+  await content.fill("invalid!");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  const save = dialog.getByRole("button", { name: "Save file" });
+  await expect(save).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  const pending = dialog.getByRole("button", { name: "Saving…" });
+  await expect(pending).toBeFocused();
+  await expect(pending).toBeDisabled();
+  await page.keyboard.press("Enter");
+  finishValidation();
+
+  const alert = dialog.getByRole("alert");
+  await expect(alert).toHaveText(/content is not valid base64.*correct it before saving again/);
+  await expect(content).toHaveAttribute("aria-invalid", "true");
+  await expect(content).toHaveAccessibleDescription(/content is not valid base64/);
+  expect(await page.locator("[data-sonner-toast]").count()).toBe(0);
+  await expect(alert).toBeInViewport({ ratio: 1 });
+  await expect(save).toBeInViewport({ ratio: 1 });
+  await expect(save).toBeFocused();
+  await expect(content).toHaveValue("invalid!");
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(content).toBeFocused();
+  await content.fill("Yg==");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(alert).toHaveText(/Storage temporarily unavailable.*Save not confirmed/);
+  await expect(content).not.toHaveAttribute("aria-invalid", "true");
+  await expect(content).not.toHaveAttribute("aria-describedby", /.+/);
+  await expect(content).toHaveValue("Yg==");
+  await expect(save).toBeFocused();
+  await save.press("Enter");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("File saved", { exact: true })).toBeVisible();
+  expect(submitted).toEqual(["invalid!", "Yg==", "Yg=="]);
+});
+
+test("a new project file labels only an identified editable validation field", async ({ page }) => {
+  let param: string | undefined = "stored_name";
+  await page.route("**/admin/projects/fleet-console/files", (route) => route.request().method() !== "POST"
+    ? route.fallback()
+    : route.fulfill({ status: 422, json: { status: "error", code: "validation_failed", message: "Validation failed", param } }));
+  await page.goto("/admin/projects/fleet-console/documents?kind=files");
+  await page.getByRole("button", { name: "New", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New file" }).click();
+  const dialog = page.getByRole("dialog", { name: "New file" });
+  const name = dialog.getByLabel("Stored name");
+  const content = dialog.getByLabel("Content", { exact: true });
+  const save = dialog.getByRole("button", { name: "Save file" });
+  await name.fill("../invalid");
+  await content.fill("Local draft");
+  await save.click();
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await expect(name).toHaveAccessibleDescription(/Validation failed/);
+  await expect(content).not.toHaveAttribute("aria-invalid", "true");
+  await name.fill("notes.txt");
+  await expect(name).not.toHaveAttribute("aria-invalid", "true");
+  for (const field of [undefined, "encoding"]) {
+    param = field;
+    const response = page.waitForResponse((res) => res.request().method() === "POST" && res.url().endsWith("/files"));
+    await save.click();
+    await response;
+    await expect(dialog.getByRole("alert")).toContainText("Validation failed");
+    await expect(dialog.locator("[aria-invalid=true]")).toHaveCount(0);
+  }
+});
+
 test("project peer views keep records dense, readable, and inspectable", async ({ page }) => {
   // Todos became the board in migration 0026. The old URL is kept as a redirect
   // rather than a 404: it is in browser history and in muscle memory, and a
