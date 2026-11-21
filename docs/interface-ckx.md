@@ -555,9 +555,14 @@ hook events (`SessionStart`, `UserPromptSubmit`, `Stop`) carried the stream's
 session ID, working directory and client type. The CLI wrote its transcript.
 Use a canonical absolute temporary directory for this check.
 
-A previous 2.7.2 headless probe observed a first request followed by process
-exit. The native canary establishes that a continuation can run before exit.
-Delivery still requires its normal acknowledgement. On 2.6.2 the earlier probe
+Repeated headless runs showed that the process can exit before consuming a
+blocking Stop notification. Nine of twelve serial runs with Kimi 2.7.2 and the
+same loopback provider sent the second request. In a separate twelve-run set
+with hook event recording, three sent a second request, seven exited after the
+Stop hook wrote its marker, and two exited before a Stop invocation was
+recorded. A callback marker and process exit provide no delivery acknowledgement.
+A new unit of work still needs its ordinary durable claim and explicit result.
+On 2.6.2 the earlier probe
 observed no `Stop` invocation in print mode.
 
 A separate 2.7.2 check launched the native interactive CLI on a Linux PTY

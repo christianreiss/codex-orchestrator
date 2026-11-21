@@ -163,5 +163,8 @@ in the verification report, separately from this intended contract.
 Kimi (`kimi-hooks-v1`) has no idle injection or immediate interjection channel.
 Peer and portal mailbox entries (`source: "portal"`) ring on UserPromptSubmit
 and Stop with `--dialect kimi`; Stop blocks with exit 2 only for pending work.
-An idle interactive session waits for a new prompt. This is an intentional
+An idle interactive session waits for a new prompt. In headless print mode a
+native Kimi 2.7.2 process can exit after the first provider response before
+consuming a Stop notification. Keep the normal delivery acknowledgement and
+explicit-result rules for this boundary. This is an intentional
 transport delta, not fallback to another engine. See [ckx](interface-ckx.md).
