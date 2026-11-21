@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -292,5 +294,51 @@ func (f *versionGateMaintenanceFixture) assert(t *testing.T, wantEvents []string
 	raw, err := os.ReadFile(f.cli)
 	if err != nil || !strings.Contains(string(raw), "1.0.70") {
 		t.Fatalf("native override changed despite update policy: %q, %v", raw, err)
+	}
+}
+
+func TestManualMaintenanceRespectsNativeUpdateDecision(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("CXX_CRON_COORDINATED", "1")
+	t.Setenv("CGX_GROK_BIN", "")
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	cli := filepath.Join(home, "bin", "grok")
+	if err := os.MkdirAll(filepath.Dir(cli), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\necho 'grok 1.0.92'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cron/check":
+			var check orchestrator.CronCheckRequest
+			if err := json.NewDecoder(r.Body).Decode(&check); err != nil || check.ClientVersion != "1.0.92" {
+				t.Errorf("check sent version %q: %v", check.ClientVersion, err)
+			}
+			_, _ = io.WriteString(w, `{"action":"update","target_version":null}`)
+		default:
+			t.Errorf("malformed update should finish before %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	// An unexpected vendor request fails locally before a network connection.
+	original := http.DefaultTransport
+	http.DefaultTransport = &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("unexpected registry access")
+	}}
+	t.Cleanup(func() { http.DefaultTransport = original })
+	cfg := &config.Config{Engine: "grok"}
+	cfg.Orchestrator.BaseURL = server.URL
+	cfg.Host.EnginesList = []string{"grok"}
+	client := &orchestrator.Client{BaseURL: server.URL, HTTP: server.Client()}
+	var out bytes.Buffer
+	err := maintenance(context.Background(), cfg, client, true, &out, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "without target version") {
+		t.Fatalf("malformed update should fail before registry access: %v", err)
 	}
 }

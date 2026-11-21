@@ -199,6 +199,13 @@ install version and the wrapper/API floor, not the version fleet hosts run; the
 API constant also doubles as the `X-Msh-Version` header, so it deliberately
 stays. No Node runtime is required.
 
+During `ckx update` and scheduled maintenance, `/cron/check` can omit
+the native target when it returns `no_update`. The wrapper retains a supported
+installed version and uses its minimum only to repair a missing or unsupported
+CLI. An explicit `update` needs a concrete target. A lower supported version
+can be selected by an exact pin. A disabled update or an operator-supplied
+binary path skips native installation.
+
 ### Usage and quota
 
 Server-side, per account: `GET {base_url}/usages` with

@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Wrapper 0.9.195 keeps an already supported Kimi or Grok CLI on a no-update response. A manual update can still apply an explicit fleet pin or repair a missing or unsupported installation.
+
 - An open admin tab recognizes a newly deployed interface when a previously unloaded page changes. Navigation then loads the current release automatically.
 
 - Retrying a background setup check keeps an authenticated operator’s open editor and unsaved draft through the retry.

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -402,5 +403,87 @@ func TestKimiReenabledEngineRequestsImmediateMaintenance(t *testing.T) {
 	// server refuses while Kimi is switched off: the signed config is stale.
 	if !reconcileEngineDrift(cfg, startupAuth{Host: &startupHost{EnginesList: []string{"kimi"}}}, nil) || len(requested) != 1 {
 		t.Fatalf("re-enabled Kimi did not refresh its config now: %v", requested)
+	}
+}
+
+func TestManualMaintenanceRespectsNativeUpdateDecision(t *testing.T) {
+	// An installer attempt exposes its target URL but never contacts a provider.
+	original := http.DefaultTransport
+	http.DefaultTransport = &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("fixture registry offline")
+	}}
+	t.Cleanup(func() { http.DefaultTransport = original })
+	for _, tc := range []struct {
+		name, installed, action, offered string
+		exact, override                  bool
+		failure                          string
+	}{
+		{"already current", "2.7.2", "no_update", "", false, false, ""},
+		{"missing CLI", "", "no_update", "", false, false, "/binaries/2.5.3/manifest.json"},
+		{"below minimum", "2.4.9", "no_update", "", false, false, "/binaries/2.5.3/manifest.json"},
+		{"exact pin", "2.7.2", "update", "2.6.0", true, false, "/binaries/2.6.0/manifest.json"},
+		{"nonexact older target", "2.7.2", "update", "2.6.0", false, false, ""},
+		{"operator binary", "2.7.2", "update", "2.6.0", true, true, ""},
+		{"missing operator binary", "", "update", "2.6.0", true, true, "no installation authorized"},
+		{"disabled", "2.4.9", "disable", "", false, false, ""},
+		{"disabled missing CLI", "", "disable", "", false, false, "no installation authorized"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+			t.Setenv("PATH", t.TempDir())
+			t.Setenv("CXX_CRON_COORDINATED", "1")
+			home := t.TempDir()
+			t.Setenv("KIMI_CODE_HOME", home)
+			cli := filepath.Join(home, "bin", "kimi")
+			t.Setenv("CKX_KIMI_BIN", "")
+			if tc.override {
+				t.Setenv("CKX_KIMI_BIN", cli)
+			}
+			if tc.installed != "" {
+				if err := os.MkdirAll(filepath.Dir(cli), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(cli, []byte("#!/bin/sh\necho 'kimi "+tc.installed+"'\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var reports atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/cron/check":
+					var check orchestrator.CronCheckRequest
+					if err := json.NewDecoder(r.Body).Decode(&check); err != nil || check.ClientVersion != tc.installed {
+						t.Errorf("check version %q, expected %q: %v", check.ClientVersion, tc.installed, err)
+					}
+					_ = json.NewEncoder(w).Encode(orchestrator.CronCheckResponse{Action: tc.action, TargetVersion: tc.offered, EnforceExact: tc.exact})
+				case "/cron/report":
+					var report orchestrator.CronReportRequest
+					if err := json.NewDecoder(r.Body).Decode(&report); err != nil || report.ClientVersion != tc.installed {
+						t.Errorf("report version %q, expected %q: %v", report.ClientVersion, tc.installed, err)
+					}
+					reports.Add(1)
+					_, _ = io.WriteString(w, `{"status":"ok"}`)
+				default:
+					_, _ = io.WriteString(w, `{"status":"ok"}`)
+				}
+			}))
+			defer server.Close()
+			cfg := &config.Config{Engine: "kimi"}
+			cfg.Orchestrator.BaseURL = server.URL
+			cfg.Host.EnginesList = []string{"kimi"}
+			client := &orchestrator.Client{BaseURL: server.URL, HTTP: server.Client()}
+			var out bytes.Buffer
+			err := maintenance(context.Background(), cfg, client, true, &out, io.Discard)
+			if tc.failure != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.failure) || reports.Load() != 0 {
+					t.Fatalf("wanted failure %q before reporting, got %v, reports %d", tc.failure, err, reports.Load())
+				}
+				return
+			}
+			if err != nil || reports.Load() != 1 || !strings.Contains(out.String(), "version unchanged") {
+				t.Fatalf("expected retained CLI and report, got %v, reports %d, %s", err, reports.Load(), &out)
+			}
+		})
 	}
 }

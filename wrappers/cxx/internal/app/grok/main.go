@@ -41,6 +41,7 @@ import (
 	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeengine"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
@@ -1237,17 +1238,20 @@ func maintenance(ctx context.Context, cfg *config.Config, client *orchestrator.C
 			return syscall.Exec(installed, layout.ReexecArgv(installed, engine, args), append(os.Environ(), wrapperRestartedEnv+"=1"))
 		}
 	}
-	target := native.CoerceVersionToMinimum(check.TargetVersion)
-	if check.Action == "no_update" && before != "" {
-		target = before
-	}
 	version := before
 	cliUpdated := false
 	override := strings.TrimSpace(os.Getenv("CGX_GROK_BIN")) != ""
 	if path == "" && (check.Action == "disable" || override) {
 		return errors.New("Grok native CLI missing; no installation authorized")
 	}
-	if !override && check.Action != "disable" && (path == "" || !native.SupportedVersion(before) || check.Action == "update" || (force && before != target) || (libcselect.EngineEnabled("grok") && before != "")) {
+	var target string
+	if !override {
+		target, err = nativeengine.MaintenanceTarget(check, before, native.CoerceVersionToMinimum)
+		if err != nil {
+			return err
+		}
+	}
+	if target != "" && (before != target || libcselect.EngineEnabled("grok")) {
 		installCtx := ctx
 		if force {
 			installCtx = libcselect.Force(ctx)

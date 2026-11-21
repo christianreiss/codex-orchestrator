@@ -452,6 +452,14 @@ branch. When Codex or Claude is also installed, use `cxx update` to recover to
 installer for their existing host. Recovery preserves the host's API key,
 enabled engines, and native auth.
 
+During `cgx update` and scheduled maintenance, `/cron/check` can omit
+the native target when it returns `no_update`. The wrapper retains a supported
+installed version and uses its minimum only to repair a missing or unsupported
+CLI. An explicit `update` needs a concrete target. A lower supported version
+can be selected by an exact pin. A disabled update or an operator-supplied
+binary path skips native installation. Linux may reconcile the libc variant of
+the retained release.
+
 `CGX_CONFIG_PATH` selects the signed wrapper JSON config. Native CLI configuration
 uses `~/.grok/config.toml`: `[models].default` and
 `[models].default_reasoning_effort`, `[model."<id>"].context_window`,
