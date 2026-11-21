@@ -65,7 +65,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
   const skills = new HostSkillsService(ctx.db);
 
   // fs_* tools are only registered when MCP_FS_ROOT points at an existing
-  // directory. When unset (or invalid), the operator surface is empty.
+  // directory. Other operator tools are independent of the filesystem root.
   const fsRootRaw = (ctx.env as { MCP_FS_ROOT?: string }).MCP_FS_ROOT;
   let fsTools: McpFsTools | undefined;
   if (fsRootRaw && fsRootRaw.trim()) {

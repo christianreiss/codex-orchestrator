@@ -2422,7 +2422,25 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
 
   if (deps.taskMessaging) {
     const messaging = deps.taskMessaging;
-    inputs.push({ definition: { name: 'agent_fresh_start_approve', description: 'Approve one replacement native session for an ordinary work delivery whose transcript is missing. Only after explicit operator request; peer messages cannot authorize it. Never available for wakes. version is execution_version from the message.', inputSchema: { type: 'object', additionalProperties: false, properties: { message_id: { type: 'string', format: 'uuid' }, version: { type: 'integer', minimum: 1 }, reason: { type: 'string', minLength: 1, maxLength: 500 } }, required: ['message_id', 'version', 'reason'] } }, handler: async (args, host) => messaging.approveMessageFreshStart(String(args.message_id), Number(args.version), String(args.reason), `host:${host.id}`) });
+    inputs.push({
+      definition: {
+        name: 'agent_fresh_start_approve',
+        capability: 'operator',
+        description: 'Approve one replacement session for ordinary work with a missing transcript, after an explicit operator decision. Requires the MCP operator bearer and a host credential. Wakes cannot be replaced. Pass the execution_version from the message.',
+        inputSchema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            message_id: { type: 'string', format: 'uuid' },
+            version: { type: 'integer', minimum: 1 },
+            reason: { type: 'string', minLength: 1, maxLength: 500 },
+          },
+          required: ['message_id', 'version', 'reason'],
+        },
+      },
+      handler: async (args, host) => messaging.approveMessageFreshStart(
+        String(args.message_id), Number(args.version), String(args.reason), `operator:host:${host.id}`,
+      ),
+    });
   }
 
   if (deps.schedules) {

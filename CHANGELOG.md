@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Approving a replacement for work whose original transcript is missing now requires the MCP operator bearer and a host credential, or the signed-in admin action. The grant records which privileged channel authorized it.
+
 - Wrapper 0.9.197 removes unreachable Kimi checks for bare `setup` and `install`. Kimi Code 2.5.3 and 2.7.2 report both as unknown commands. Managed native updates still use `ckx update`.
 
 - Wrapper 0.9.196 routes watchdog and reboot commands through the same handlers for `cxx` and its four engine aliases. Their command-line help remains available before managed initialization.

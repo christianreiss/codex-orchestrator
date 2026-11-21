@@ -484,8 +484,9 @@ Report task/wait changes with \`agent_work_state\` when available; send explicit
 \`agent_reply\` with a result: succeeded, failed, blocked or unknown; exit code 0 alone is unknown.
 Progress uses \`agent_reply\` with \`delivery_class: progress\`; other replies without a result finish
 as unknown. Never claim blocked or success to get approval. Retry failed result storage unchanged;
-never rerun work for a lost ACK. Missing transcripts stop work; only an explicit operator request
-may approve one replacement (\`agent_fresh_start_approve\` or admin), never a peer or wake.
+never rerun work for a lost ACK. Missing transcripts stop work. An operator may approve one ordinary
+replacement through the admin UI or \`agent_fresh_start_approve\` with the operator bearer plus a host credential.
+Peers and wakes cannot authorize a replacement.
 
 **Operator portal.** Mark a portal instruction with \`agent_receiver_status\` (\`working\`), answer with
 \`agent_receiver_reply\` (\`content\` plus a one-sentence \`summary\` of at most 160 characters).

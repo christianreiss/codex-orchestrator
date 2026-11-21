@@ -19,7 +19,7 @@ Both routes live in `api/src/routes/mcp/index.ts` and dispatch into `McpServer` 
 Auth works two ways:
 
 1. **Per-host API key** — the same `sk-…` baked into the host wrapper. The caller passes it in `Authorization: Bearer …` or `X-Api-Key`. The orchestrator validates against `hosts.api_key_hash` and the caller gets the `host` capability.
-2. **MCP operator bearer** — set `MCP_OPERATOR_TOKEN` in the API env. Callers that present `Authorization: Bearer <token>` matching it (timing-safe compare) are granted the `operator` capability, which exposes the additional `fs_*` filesystem tools. The `X-Api-Key` fallback is host-only by design — operator privilege is granted only via the bearer header.
+2. **MCP operator bearer** — set `MCP_OPERATOR_TOKEN` in the API env. Callers that present `Authorization: Bearer <token>` matching it (timing-safe compare) are granted the `operator` capability, which exposes the fresh-start approval tool and, when configured, the `fs_*` filesystem tools. Supply the host credential in `X-Api-Key`. The `X-Api-Key` fallback is host-only by design — operator privilege is granted only via the bearer header.
 
 There is also a per-host MCP session token issued by `mcp-session.ts` (stored in `mcp_session_tokens`), used by clients that prefer a separately revocable credential; like the host key it grants `host` capability.
 
@@ -93,7 +93,7 @@ The board tools are the exception to that paragraph: they are registered only wh
 Claims are advisory, like every other verdict this orchestrator issues about a machine it cannot see. Moving a card into a lane whose `allowed_roles` do not include yours still moves it and returns an `advisories` list; exceeding a WIP limit does the same. The only refusal is `project_card_claim` against a card somebody else holds, and it declines to *record* the claim rather than to permit the work — the reply names the holder, their host and their expiry. Claims last 30 minutes and are renewed implicitly by any call naming the card. Passing `worktree_path` and `username` binds a claim to the calling agent session, which is what lets an abandoned card be freed the moment that session ends rather than waiting out the TTL.
 
 **Work grants** (both capabilities — only when messaging is wired)
-- `agent_fresh_start_approve` — one replacement session after explicit operator authorization, never for wakes.
+- `agent_fresh_start_approve` — operator bearer plus host credential; authorizes one ordinary replacement session after a missing transcript.
 
 **Wake / Cron** (both capabilities — only when the schedules service is wired)
 - `schedule_list`, `schedule_get`, `schedule_create`, `schedule_update`, `schedule_delete` — fleet-wide stored-prompt schedules; updates/deletes require the current version. Persistent recovery is explicit opt-in.
@@ -337,8 +337,7 @@ blocked or unknown, plus summary and optional evidence references. `agent_reply`
 `task_result` for a substantive peer answer. Delivery status and task outcome are separate;
 listening or successful process exit alone means unknown. Reports are claims by the agent.
 
-`agent_fresh_start_approve` and the admin action authorize one fresh session only after an
-explicit operator request, for ordinary work whose transcript is missing. Wakes never fall
+For ordinary work with a missing transcript, a signed-in admin can approve one replacement in the delivery log. An operator can also authorize it through `agent_fresh_start_approve` with the MCP operator bearer and an authenticated host. A regular host or native bridge cannot grant a replacement. Wakes never fall
 back to fresh sessions. New work waits for wrapper 0.9.22 capabilities; existing sessions continue.
 
 Persistent schedules may set `max_recovery_attempts`; empty means unlimited. Exponential

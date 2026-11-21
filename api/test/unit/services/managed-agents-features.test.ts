@@ -415,9 +415,10 @@ describe('served document byte invariance', () => {
     // 2026-11-20: agent_portal_notify retired; the Operator portal paragraph no longer mentions it.
     // 2026-11-20: scope rooms use the shared room-chat store; agent_room_send leaves the served guidance and
     //             agent_room_read no longer carries the shared-chat workaround.
-    expect(out.features_sha256).toBe('9188455d515dc79f4348ba2542334fbe8f51e67c12cc3846a81e2ef39d878f5e');
-    expect(out.managed_sha256).toBe('870db960e445523d3ad85d785518e388335eb7381cc5cced0a5e5209309e528f');
-    expect(sha256(out.body)).toBe('3fb73751d5e4a0f216d93617c612578d0de13424885c7ca74134ee048fab6598');
+    // 2026-11-21: fresh-start requires an authenticated operator or admin action.
+    expect(out.features_sha256).toBe('6d924de2c52b245b6f7ed1384e9e50dd49ade44ca59069275c97868891b286e6');
+    expect(out.managed_sha256).toBe('4626aa05839395d4bcaedd1ccd3f1911c68abb8e6582b50120199c48d91c0f50');
+    expect(sha256(out.body)).toBe('39f98b92c4decd33c1f281416c3cf1f840ea58a22e326452975f6648b977de2d');
   });
 });
 

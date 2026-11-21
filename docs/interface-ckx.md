@@ -586,6 +586,8 @@ message/claim reconciliation identity. This does not recover the random reply
 identity from a different, lost local tracker; reconcile that stored work result
 with `agent_task_result`. Lost responses never trigger work replay.
 
+Replacement of an ordinary delivery with a missing transcript requires the signed-in admin action or `agent_fresh_start_approve` with the MCP operator bearer plus a host credential. A peer or wake cannot grant a replacement.
+
 Receiver health distinguishes transport `ready` from `immediate_admission`:
 `available` means budget remains (other native and receipt gates still apply),
 `budget_exhausted` means the conservative busy-spell slot is spent or awaits a

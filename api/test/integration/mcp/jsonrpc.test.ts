@@ -181,6 +181,7 @@ describe('MCP capability split', () => {
     );
     expect(names).not.toContain('fs_read_file');
     expect(names).not.toContain('fs_write_file');
+    expect(names).not.toContain('agent_fresh_start_approve');
     await app.close();
   });
 
@@ -200,10 +201,14 @@ describe('MCP capability split', () => {
     expect(names).toContain('memory_store');
     expect(names).toContain('fs_read_file');
     expect(names).toContain('fs_search_in_files');
+    expect(names).toContain('agent_fresh_start_approve');
     await app.close();
   });
 
-  it('tools/call on an operator tool from a host caller returns -32601 (not-found)', async () => {
+  it.each([
+    { name: 'fs_read_file', arguments: { path: 'hello.txt' } },
+    { name: 'agent_fresh_start_approve', arguments: { message_id: 'd90d37a9-442c-4a98-bd55-c85274e18bcc', version: 1, reason: 'Fixture' } },
+  ])('tools/call on operator tool $name from a host caller returns -32601', async (params) => {
     const app = await buildApp({ mcpAllow: true, operatorToken: OPERATOR_TOKEN, fsRoot });
     const r = await app.inject({
       method: 'POST',
@@ -213,7 +218,7 @@ describe('MCP capability split', () => {
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: 'fs_read_file', arguments: { path: 'hello.txt' } },
+        params,
       },
     });
     expect(r.statusCode).toBe(200);

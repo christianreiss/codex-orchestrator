@@ -655,8 +655,7 @@ blocked or unknown, plus summary and optional evidence references. `agent_reply`
 `task_result` for a substantive peer answer. Delivery status and task outcome are separate;
 listening or successful process exit alone means unknown. Reports are claims by the agent.
 
-`agent_fresh_start_approve` and the admin action authorize one fresh session only after an
-explicit operator request, for ordinary work whose transcript is missing. Wakes never fall
+For ordinary work with a missing transcript, a signed-in admin can approve one replacement in the delivery log. An operator can also authorize it through `agent_fresh_start_approve` with the MCP operator bearer and an authenticated host. A regular host or native bridge cannot grant a replacement. Wakes never fall
 back to fresh sessions. New work waits for wrapper 0.9.22 capabilities; existing sessions continue.
 Approval gives the replacement a fresh 24-hour queue window and attempt budget,
 so an expired original message can recover. Retrying the same approval does not

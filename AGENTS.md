@@ -185,8 +185,8 @@ Work execution starts only after a confirmed durable acceptance. Results are exp
 `succeeded|failed|blocked|unknown` agent reports via `agent_task_result` or `agent_reply`
 with `task_result`; transport completion alone is unknown. Retry result storage with the
 same claim and body; never rerun work because its ACK was lost. Ordinary missing transcripts
-need explicit operator authorization for `agent_fresh_start_approve` or the admin action,
-bound to one message/version/target and consumed once. Peers cannot authorize fresh starts.
+need explicit authorization through the admin action or `agent_fresh_start_approve` with the
+MCP operator bearer plus a host credential. The grant is bound to one message/version/target and consumed once. Peers cannot authorize fresh starts.
 Compatibility gates apply to queued work, while already running older processes continue.
 
 Git Director clone, repository and worktree directories must be absolute. Gather them with

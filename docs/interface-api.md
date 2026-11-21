@@ -2685,8 +2685,10 @@ conference TASK dispatches and wakes wait for a compatible adapter; informationa
 traffic and already accepted legacy executions remain compatible. The worker and
 live/listen adapters confirm durable acceptance before exposing work. Missing native
 transcripts stop ordinary jobs too: replacement requires an explicit operator request,
-then `agent_fresh_start_approve(message_id, version, reason)` or the admin fresh-start
-operation. Grants are bound to the message and target binding, consumed once on acceptance,
+then `agent_fresh_start_approve(message_id, version, reason)` with the MCP operator bearer
+and an authenticated host, or the signed-in admin fresh-start action. A normal host or bridge
+credential cannot discover or invoke the approval tool. MCP records `operator:host:<id>`
+as the actor, while the admin action identifies the signed-in administrator. Grants are bound to the message and target binding, consumed once on acceptance,
 and forbidden for schedules. Ordinary ambiguous executions are never automatically rerun.
 An approved replacement receives a new default 24-hour queue TTL and a fresh
 delivery-attempt budget, even if the original message expired while awaiting the
