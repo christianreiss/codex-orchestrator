@@ -1,9 +1,12 @@
 import { createReadStream, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import Fastify from 'fastify';
+import { registerHealthRoutes } from '../../../src/routes/health.js';
+import type { RouteContext } from '../../../src/routes/index.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { clientConfigDocuments, versions } from '../../../src/db/schema.js';
+import { adminUsers, clientConfigDocuments, hosts, providerAccounts, versions } from '../../../src/db/schema.js';
 import type { Database } from '../../../src/db/client.js';
 import type { Env } from '../../../src/env.js';
 import type { Keyring } from '../../../src/security/keyring.js';
@@ -44,20 +47,53 @@ function wizardRow(engines: string[] | null) {
   };
 }
 
+function installWrapperFixture() {
+  const binary = 'verified-wrapper';
+  const sha256 = createHash('sha256').update(binary).digest('hex');
+  for (const platform of SUPPORTED_WRAPPER_PLATFORMS) {
+    const root = join(dir, 'wrapper', 'v2', 'bin', 'cxx', platform);
+    mkdirSync(join(root, 'v1.0.0'), { recursive: true });
+    writeFileSync(join(root, 'v1.0.0', 'cxx'), binary);
+    const [os, arch] = platform.split('-');
+    writeFileSync(join(root, 'manifest.json'), JSON.stringify({
+      engine: 'cxx', os, arch, current: '1.0.0',
+      builds: [{ version: '1.0.0', sha256, size_bytes: Buffer.byteLength(binary) }],
+    }));
+  }
+  return binary;
+}
+
 describe('SetupStatusService', () => {
-  it('reuses verified wrapper digests between polls and rechecks changed binaries', async () => {
-    const binary = 'verified-wrapper';
-    const sha256 = createHash('sha256').update(binary).digest('hex');
-    for (const platform of SUPPORTED_WRAPPER_PLATFORMS) {
-      const root = join(dir, 'wrapper', 'v2', 'bin', 'cxx', platform);
-      mkdirSync(join(root, 'v1.0.0'), { recursive: true });
-      writeFileSync(join(root, 'v1.0.0', 'cxx'), binary);
-      const [os, arch] = platform.split('-');
-      writeFileSync(join(root, 'manifest.json'), JSON.stringify({
-        engine: 'cxx', os, arch, current: '1.0.0',
-        builds: [{ version: '1.0.0', sha256, size_bytes: Buffer.byteLength(binary) }],
-      }));
+  it('uses only critical checks and retains verified digests across public readiness requests', async () => {
+    installWrapperFixture();
+    const db = createDbFake();
+    const reads = vi.spyOn(db.tables, 'get');
+    const app = Fastify();
+    try {
+      await registerHealthRoutes(app, {
+        db: db as unknown as Database,
+        env: { MIGRATIONS_DIR: dir, DATA_ROOT: dir, PUBLIC_BASE_URL: 'https://o.example' } as Env,
+        keyring: {} as Keyring,
+      } as RouteContext);
+      for (let i = 0; i < 2; i++) {
+        const response = await app.inject({ method: 'GET', url: '/readyz' });
+        const checks = response.json().checks;
+        expect(checks.map((check: { id: string }) => check.id)).toEqual([
+          'database', 'migrations', 'runner', 'signer', 'wrappers', 'public_base_url',
+        ]);
+        expect(checks).toContainEqual(expect.objectContaining({ id: 'wrappers', ok: true }));
+      }
+      expect(createReadStream).toHaveBeenCalledTimes(SUPPORTED_WRAPPER_PLATFORMS.length);
+      for (const table of [adminUsers, clientConfigDocuments, hosts, providerAccounts]) {
+        expect(reads).not.toHaveBeenCalledWith(table);
+      }
+    } finally {
+      await app.close();
     }
+  });
+
+  it('reuses verified wrapper digests between polls and rechecks changed binaries', async () => {
+    const binary = installWrapperFixture();
     const checker = service(createDbFake());
     const wrappers = async () => (await checker.status()).checks.find(check => check.id === 'wrappers');
     expect(await wrappers()).toMatchObject({ ok: true });

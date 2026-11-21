@@ -5,10 +5,15 @@ import type { SetupCheck } from '../services/setup-status.js';
 
 type ReadinessProvider = () => Promise<{ critical_complete: boolean; checks: SetupCheck[] }>;
 
+function defaultReadiness(ctx: RouteContext): ReadinessProvider {
+  const setup = createSetupStatusService(ctx.db, ctx.env, ctx.keyring);
+  return () => setup.readiness();
+}
+
 export async function registerHealthRoutes(
   app: FastifyInstance,
   ctx: RouteContext,
-  readiness: ReadinessProvider = () => createSetupStatusService(ctx.db, ctx.env, ctx.keyring).status(),
+  readiness: ReadinessProvider = defaultReadiness(ctx),
 ): Promise<void> {
   app.get('/healthz', async () => ({ ok: true, ts: new Date().toISOString() }));
   app.get('/readyz', async (_req, reply) => {

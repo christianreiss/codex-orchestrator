@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Repeated readiness probes reuse verified wrapper digests and check only the six infrastructure requirements. The setup wizard still reports fleet defaults, accounts, hosts and owner progress. A changed release binary is verified again.
+
 - The Hosts table gives hostnames room to wrap at DNS label boundaries and keeps the first attention reason readable alongside engine status. On narrow screens, each sort button grows with its label so the complete text stays inside the visible button outline.
 
 - Wrapper 0.9.200 keeps Kimi receivers connected to the owner's receiver state stream. Peer listening now works past the first 15-second identity check, including when the Operator Portal is off. Native prompt and Stop hooks remain the notification points.

@@ -87,6 +87,39 @@ export class SetupStatusService {
     this.binaries = createWrapperBinRegistry({ binRoot });
   }
 
+  async readiness(): Promise<Pick<SetupStatus, 'critical_complete' | 'checks'>> {
+    ownerRuntimeFor(this.db)?.assertOwner();
+    return this.criticalChecks(await this.databaseCheck());
+  }
+
+  private async criticalChecks(database: SetupCheck): Promise<Pick<SetupStatus, 'critical_complete' | 'checks' | 'public_base_url'>> {
+    const skipped = (id: string, label: string): SetupCheck =>
+      ({ id, label, ok: false, critical: true, detail: 'skipped: database unreachable' });
+    const [migrations, runner, signer, wrappers] = await Promise.all([
+      database.ok ? this.migrationCheck() : skipped('migrations', 'Migrations'),
+      this.runnerCheck(),
+      database.ok ? this.signerCheck() : skipped('signer', 'Wrapper signer'),
+      this.wrapperCheck(),
+    ]);
+    const publicBaseUrl = normalizePublicUrl(this.env.PUBLIC_BASE_URL);
+    const checks: SetupCheck[] = [
+      database,
+      migrations,
+      runner,
+      signer,
+      wrappers,
+      {
+        id: 'public_base_url',
+        label: 'Public Base URL',
+        ok: publicBaseUrl !== null,
+        critical: true,
+        detail: publicBaseUrl ? 'configured' : 'missing or invalid HTTP(S) URL',
+      },
+    ];
+    const criticalComplete = checks.filter((check) => check.critical).every((check) => check.ok);
+    return { checks, critical_complete: criticalComplete, public_base_url: publicBaseUrl };
+  }
+
   async status(requestOrigin?: string | null): Promise<SetupStatus> {
     const owner = ownerRuntimeFor(this.db);
     owner?.assertOwner();
@@ -95,14 +128,9 @@ export class SetupStatusService {
     const database = await this.databaseCheck();
     const whenDb = <T>(read: () => Promise<T>, fallback: T): Promise<T> =>
       database.ok ? read() : Promise.resolve(fallback);
-    const skipped = (id: string, label: string): SetupCheck =>
-      ({ id, label, ok: false, critical: true, detail: 'skipped: database unreachable' });
-    const [migrations, runner, signer, wrappers, users, codexAuth, claudeAuth, grokAuth, kimiAuth, hostRows, wizard, fleetDefaults] =
+    const [readiness, users, codexAuth, claudeAuth, grokAuth, kimiAuth, hostRows, wizard, fleetDefaults] =
       await Promise.all([
-        whenDb(() => this.migrationCheck(), skipped('migrations', 'Migrations')),
-        this.runnerCheck(),
-        whenDb(() => this.signerCheck(), skipped('signer', 'Wrapper signer')),
-        this.wrapperCheck(),
+        this.criticalChecks(database),
         whenDb(() => owner ? Promise.resolve(owner.state.snapshot().table('adminUsers').all().map(row=>({id:row.id}))) : this.db.select({ id: adminUsers.id }).from(adminUsers), []),
         whenDb(() => this.hasCanonicalAuth('codex'), false),
         whenDb(() => this.hasCanonicalAuth('claude'), false),
@@ -123,22 +151,7 @@ export class SetupStatusService {
         whenDb(() => this.hasFleetDefaults(), false),
       ]);
 
-    const publicBaseUrl = normalizePublicUrl(this.env.PUBLIC_BASE_URL);
-    const checks: SetupCheck[] = [
-      database,
-      migrations,
-      runner,
-      signer,
-      wrappers,
-      {
-        id: 'public_base_url',
-        label: 'Public Base URL',
-        ok: publicBaseUrl !== null,
-        critical: true,
-        detail: publicBaseUrl ? 'configured' : 'missing or invalid HTTP(S) URL',
-      },
-    ];
-    const criticalComplete = checks.filter((check) => check.critical).every((check) => check.ok);
+    const { checks, critical_complete: criticalComplete, public_base_url: publicBaseUrl } = readiness;
     const ownerCreated = users.length > 0;
     const syncedHosts = hostRows.filter((row) => Boolean(row.codex || row.claude || row.grok || row.kimi)).length;
     const configuredEngines = parseEnginesInput(this.env.DEFAULT_HOST_ENGINES, [ENGINE_CODEX]);
