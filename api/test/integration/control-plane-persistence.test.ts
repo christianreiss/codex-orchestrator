@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +16,7 @@ import { CommandExecutor, type Revision } from '../../src/control-plane/commands
 import { OwnerStateStore, OwnerStateSnapshot } from '../../src/control-plane/state/store.js';
 import { hydrateOwnerState } from '../../src/control-plane/state/hydrate.js';
 
+const testOwnerDatabase = 'owner_refactor_test';
 const handle = await getTestDb();
 describe.skipIf(!handle)('owner persistence against real MySQL', () => {
   beforeAll(async () => {
@@ -25,8 +26,8 @@ describe.skipIf(!handle)('owner persistence against real MySQL', () => {
     await handle?.pool.end();
   });
   it('retains one exclusive owner while hydrating an authoritative snapshot', async () => {
-    const owner = new ControlPlaneOwnership(handle!.pool, 'owner_refactor_test');
-    const competitor = new ControlPlaneOwnership(handle!.pool, 'owner_refactor_test');
+    const owner = new ControlPlaneOwnership(handle!.pool, testOwnerDatabase);
+    const competitor = new ControlPlaneOwnership(handle!.pool, testOwnerDatabase);
     try {
       await owner.acquire();
       const hydrated = await owner.hydrate((connection, epoch) =>
@@ -46,7 +47,7 @@ describe.skipIf(!handle)('owner persistence against real MySQL', () => {
       id = randomUUID(),
       effect = randomUUID();
     const keyring = testKeyring();
-    const owner = new ControlPlaneOwnership(handle!.pool, 'owner_refactor_test');
+    const owner = new ControlPlaneOwnership(handle!.pool, testOwnerDatabase);
     await owner.acquire();
     await owner.hydrate(async () => undefined);
     owner.ready();
@@ -125,7 +126,7 @@ describe.skipIf(!handle)('owner persistence against real MySQL', () => {
       await commands.drain();
       await owner.close();
     }
-    const replacement = new ControlPlaneOwnership(handle!.pool, 'owner_refactor_test');
+    const replacement = new ControlPlaneOwnership(handle!.pool, testOwnerDatabase);
     try {
       await replacement.acquire();
       await replacement.hydrate(async () => undefined);
@@ -140,7 +141,7 @@ describe.skipIf(!handle)('owner persistence against real MySQL', () => {
     }
   });
   async function freshOwner(keyring = testKeyring()) {
-    const owner = new ControlPlaneOwnership(handle!.pool, 'owner_refactor_test');
+    const owner = new ControlPlaneOwnership(handle!.pool, testOwnerDatabase);
     await owner.acquire();
     const { store } = await owner.hydrate((connection, epoch) =>
       hydrateOwnerState(drizzle(connection, { schema, mode: 'default' }), { epoch, sequence: 0n }),
@@ -257,9 +258,14 @@ describe.skipIf(!handle)('owner persistence against real MySQL', () => {
         first = await freshOwner(keyring);
       let replacement: Awaited<ReturnType<typeof freshOwner>> | undefined;
       try {
+        const connection = first.owner.heldConnection();
+        const ownerLock = 'orchestrator.owner.' + createHash('sha256').update(testOwnerDatabase).digest('hex').slice(0, 40);
+        const [[held]] = await connection.query<RowDataPacket[]>(
+          'SELECT IS_USED_LOCK(?) = CONNECTION_ID() AS held', [ownerLock],
+        );
+        expect(held?.held).toBe(1);
         if (fault === 'commit_ack') {
-          const connection = first.owner.heldConnection(),
-            commit = connection.commit.bind(connection);
+          const commit = connection.commit.bind(connection);
           vi.spyOn(connection, 'commit').mockImplementationOnce(async () => {
             await commit();
             throw new Error('synthetic lost COMMIT acknowledgement');
@@ -288,6 +294,14 @@ describe.skipIf(!handle)('owner persistence against real MySQL', () => {
         expect(committed.map((row) => row.version)).toEqual(['committed']);
         await first.commands.drain();
         await first.owner.close();
+        // A lost connection closes locally before MySQL acknowledges its named lock's release.
+        await vi.waitFor(
+          async () => {
+            const [[lock]] = await handle!.pool.query<RowDataPacket[]>('SELECT IS_FREE_LOCK(?) AS released', [ownerLock]);
+            expect(lock?.released).toBe(1);
+          },
+          { interval: 10, timeout: 5_000 },
+        );
         replacement = await freshOwner(keyring);
         expect(replacement.store.snapshot().setting(name)).toBe('committed');
         const replayPrepare = vi.fn(() => {
