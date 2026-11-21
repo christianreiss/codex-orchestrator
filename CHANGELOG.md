@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Git updates on installations upgraded from the PHP service continue to accept the existing root Composer vendor directory and PHPUnit cache. Other untracked files still block the update.
+
 - Project file edits keep a failed save and its correction visible beside the editable content and actions on small screens. A field rejected by the server is identified on the form.
 
 - Operator filesystem tools now accept a directory symlink as their configured root. Local instance updates keep their exclusive lock across the deployment handoff when the checkout is reached through a directory symlink.

@@ -5,6 +5,10 @@ __pycache__/
 /.home/
 /.docker-config/
 /.ssh/
+
+# Legacy PHP installations retain these root directories across Git updates.
+/vendor/
+/.phpunit.cache/
 /.claude/
 
 # Wrapper bakery v2: local dev build output goes into wrappers/bin/ via `make all`;
