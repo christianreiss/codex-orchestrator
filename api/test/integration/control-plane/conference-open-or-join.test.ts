@@ -55,7 +55,9 @@ describe.skipIf(!handle)('conference open-or-join on the owner runtime', () => {
     });
     const hostId = Number(inserted.insertId);
     const [host] = await handle!.db.select().from(schema.hosts).where(eq(schema.hosts.id, hostId));
-    const names = Array.from({ length: 12 }, (_, n) => ({
+    // Two racing participants per engine plus the five distinct follow-up
+    // launches below. The shared test database can legitimately be in cooldown.
+    const names = Array.from({ length: 2 * ENGINES.length + 5 }, (_, n) => ({
       nameKey: `rdv-${suffix}-${n}`,
       name: `Rdv ${suffix} ${n}`,
       currentSessionId: null,

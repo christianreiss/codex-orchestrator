@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- A suspend-capable session that loses an attached owner can reconnect for 24 hours from the first recovery. Later restarts keep the same deadline. Quiet connected sessions generate no database heartbeats. Fresh MySQL installations can resume interrupted baseline initialization.
+
 - Instance updates preserve current storage and perform the exclusive-owner cutover without creating SQL dumps or disposable copies of operator configuration. Orderly owner shutdown drains pending commands. Losing the ownership connection still fences the process during bootstrap and after readiness.
 
 - The runner pins Claude Code 2.1.330 and Grok Build 1.0.92. Claude gateway responses preserve available native stop reasons and token counts. Grok model settings follow the installed native version. Claude's managed-only sign-in policy reports its required scope.

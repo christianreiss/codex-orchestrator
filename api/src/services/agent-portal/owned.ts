@@ -379,6 +379,8 @@ export class OwnedPortal {
             receiveHeartbeatAt: null,
             receiver: null,
             bindingGeneration: 0,
+            suspendAttachmentGeneration: null,
+            suspendRecoveryUntil: null,
             hostAuthFingerprint: fingerprint,
             bridgeTokenHash: sha256(token),
             bridgeExpiresAt: expiresAt,

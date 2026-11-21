@@ -188,6 +188,7 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
                     launch_identity_version: 1,
                     control_state_protocol: 1,
                     execution_contract_version: 2,
+                    suspend_recovery_version: 1,
                   },
                 },
                 app.env,
@@ -303,8 +304,8 @@ describe.skipIf(!seconds || process.env.TEST_USE_DB !== '1' || !process.env.TEST
               state.__ownerTestSockets = [];
               const Original = globalThis.WebSocket;
               globalThis.WebSocket = class extends Original {
-                constructor(url: string | URL, protocols?: string | string[]) {
-                  super(url, protocols);
+                constructor(...args: ConstructorParameters<typeof Original>) {
+                  super(...args);
                   state.__ownerTestSockets.push(this);
                 }
               };

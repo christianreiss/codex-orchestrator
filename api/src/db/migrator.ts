@@ -14,7 +14,7 @@
  *    variables (`SET @needs_ft := …` then `IF(@needs_ft, …)`) and `PREPARE` /
  *    `EXECUTE` handles. Spreading their statements across a pool would silently
  *    evaluate the guards against NULL and skip the DDL they protect.
- *  - **No transaction.** MySQL DDL commits implicitly, so a `BEGIN`/`ROLLBACK`
+ *  - **No DDL transaction.** MySQL DDL commits implicitly, so a `BEGIN`/`ROLLBACK`
  *    wrapper would be theatre: a half-applied migration cannot be rolled back.
  *    Statements run in order, the first failure aborts the run, and the ledger
  *    row is written only after the whole file succeeds. Do not add one.
@@ -28,8 +28,8 @@
  * 0006 carry foreign keys to `coord_projects`/`hosts`, so the migrations evolve
  * an existing schema rather than creating one from nothing. The starting schema
  * comes from `baseline/schema.sql` instead, applied once by `--init-schema`
- * against a database with no application tables and never entered in the
- * ledger. Keeping it out of the sequence is what stops an existing deployment
+ * against an empty database. Its temporary recovery checkpoint uses a
+ * reserved, non-numeric ledger key. Keeping it out of the sequence is what stops an existing deployment
  * seeing a new pending migration. See `db/README.md`.
  */
 
@@ -41,6 +41,7 @@ import { nowIso } from '../util/timestamp.js';
 import { splitSqlStatements } from './migration-sql.js';
 
 export const LEDGER_TABLE = 'schema_migrations';
+const BASELINE_PROGRESS = '@init-schema';
 
 /**
  * Session-scoped MySQL advisory lock; names are capped at 64 characters.
@@ -76,6 +77,7 @@ export interface LedgerRow {
   checksum: string;
   appliedAt: string;
   appliedBy: string | null;
+  statements: number;
 }
 
 /**
@@ -151,7 +153,7 @@ export interface RunMigrationsOptions {
   /**
    * Create the starting schema from `baseline/schema.sql` when the database
    * holds no application tables, then migrate on top as usual. A no-op against
-   * any database that already has them, so a fresh-install script can re-run.
+   * a provisioned database. A marked interrupted initialization resumes under the lock.
    * Mutually exclusive with `baselineThrough`, which records without executing
    * and would leave an empty database claiming to be migrated.
    */
@@ -300,6 +302,9 @@ export async function migrationStatus(pool: MigrationPool, dir?: string): Promis
   const conn = await pool.getConnection();
   try {
     const ledger = (await ledgerExists(conn)) ? await readLedger(conn) : new Map<string, LedgerRow>();
+    if (ledger.has(BASELINE_PROGRESS)) {
+      throw new Error('baseline initialization is unfinished; run migrate --init-schema with the original baseline');
+    }
     return buildStates(files, ledger);
   } finally {
     conn.release();
@@ -342,13 +347,17 @@ export async function runMigrations(
     const lockName = await resolveLockName(conn);
     await acquireLock(conn, lockName, lockTimeout);
     try {
-      const baseline = baselineStatements
-        ? await applyBaseline(conn, baselineStatements, { dryRun, logger })
-        : null;
-
       const ledgerCreated = !(await ledgerExists(conn));
-      if (ledgerCreated && !dryRun) await createLedger(conn);
       const ledger = ledgerCreated ? new Map<string, LedgerRow>() : await readLedger(conn);
+      const progress = ledger.get(BASELINE_PROGRESS);
+      if (progress && !baselineStatements) {
+        throw new Error('baseline initialization is unfinished; run migrate --init-schema with the original baseline');
+      }
+      const baseline = baselineStatements
+        ? await applyBaseline(conn, baselineStatements, progress, ledger.size > 0, { dryRun, logger, ledgerMissing: ledgerCreated })
+        : null;
+      if (ledgerCreated && !dryRun && !baseline?.applied) await createLedger(conn);
+      ledger.delete(BASELINE_PROGRESS);
 
       const report: MigrationReport = {
         ledgerCreated,
@@ -442,56 +451,174 @@ export async function runMigrations(
   }
 }
 
-/**
- * Create the starting schema, but only into a database that has no application
- * tables. The check and the write happen under the migration lock the caller
- * already holds, so two installers racing the same empty database cannot both
- * decide it is empty.
- *
- * A populated database is reported, not rejected: `bin/install.sh` re-runs its
- * steps, and an installer that fails the second time it is invoked is not one
- * anybody can recover a half-finished install with.
- */
+// A successful acknowledgement advances the marker. A missing acknowledgement
+// leaves it at the preceding boundary, including the exact schema observed there.
+const createTablePattern = /^CREATE TABLE `?(\w+)`?\s*\(/i;
+const changedTablePattern = /^(?:ALTER TABLE|CREATE (?:UNIQUE )?INDEX `?\w+`? ON) `?(\w+)`?\s/i;
+
+async function tableDefinition(conn: PoolConnection, table: string): Promise<string> {
+  const quoted = '`' + table.replaceAll('`', '``') + '`';
+  const [rows] = await conn.query<RowDataPacket[]>(`SHOW CREATE TABLE ${quoted}`);
+  const ddl = rows[0]?.['Create Table'];
+  if (typeof ddl !== 'string') throw new Error(`cannot verify baseline table ${table}`);
+  return ddl;
+}
+
+function definitionDigest(ddl: string): string {
+  // Exclude the table name so a connection-private CREATE can verify the same
+  // definition. A row insert changes AUTO_INCREMENT without changing the DDL.
+  return sha256(ddl.replace(/^CREATE (?:TEMPORARY )?TABLE `(?:``|[^`])+`/, 'CREATE TABLE')
+    .replace(/^(\) ENGINE=.*?) AUTO_INCREMENT=\d+(?= |$)/m, '$1'));
+}
+
+async function schemaDigests(conn: PoolConnection, tables: string[]): Promise<Map<string, string>> {
+  const digests = new Map<string, string>();
+  for (const table of tables) digests.set(table, definitionDigest(await tableDefinition(conn, table)));
+  return digests;
+}
+
+function schemaDigest(digests: Map<string, string>): string {
+  return sha256(JSON.stringify([...digests].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)));
+}
+
+async function checkpointBaseline(conn: PoolConnection, checksum: string, schema: string, offset: number): Promise<void> {
+  await conn.query(
+    `INSERT INTO ${LEDGER_TABLE} (version, name, checksum, statements, duration_ms, applied_at, applied_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE name=VALUES(name), statements=VALUES(statements),
+       applied_at=VALUES(applied_at)`,
+    [BASELINE_PROGRESS, schema, checksum, offset, 0, nowIso(), 'init-schema'],
+  );
+}
+
+// Compare the definition of an already-committed CREATE TABLE with a
+// connection-private probe. Index/constraint additions can instead be removed
+// from the server's canonical SHOW CREATE text in memory. The entire preceding
+// schema must match, including the rest of the affected table.
+async function verifiesCommittedDdl(
+  conn: PoolConnection, statement: string, current: Map<string, string>, expectedBefore: string,
+): Promise<boolean> {
+  const previous = new Map(current);
+  const create = createTablePattern.exec(statement);
+  if (create) {
+    const table = create[1]!;
+    if (!previous.delete(table) || schemaDigest(previous) !== expectedBefore) return false;
+    const probe = '__cxx_baseline_definition_probe';
+    await conn.query(statement.replace(create[0], `CREATE TEMPORARY TABLE \`${probe}\` (`));
+    try {
+      return definitionDigest(await tableDefinition(conn, probe)) === current.get(table);
+    } finally {
+      await conn.query(`DROP TEMPORARY TABLE \`${probe}\``);
+    }
+  }
+  const index = /^CREATE (UNIQUE )?INDEX (`\w+`) ON `(\w+)` (\([`\w, ]+\))$/i.exec(statement);
+  const fk = /^ALTER TABLE `(\w+)` ADD (CONSTRAINT (`\w+`) FOREIGN KEY (\([`\w, ]+\)) REFERENCES .+)$/i.exec(statement);
+  const table = index?.[3] ?? fk?.[1];
+  if (!table || !current.has(table)) return false;
+  const clause = index ? `${index[1] ?? ''}KEY ${index[2]} ${index[4]}` : fk![2]!;
+  const normalize = (line: string) => line.trim().replace(/\s*\(\s*/g, '(')
+    .replace(/,\s*/g, ',').replace(/ ON (UPDATE|DELETE) NO ACTION/gi, '')
+    .replace(/\b(cascade|restrict|set null)\b/gi, word => word.toUpperCase());
+  const lines = (await tableDefinition(conn, table)).split('\n');
+  const end = lines.findIndex(line => line.startsWith(')'));
+  if (end < 2) return false;
+  const elements = lines.slice(1, end).map(line => line.replace(/,$/, ''));
+  const remaining = elements.filter(line => normalize(line) !== normalize(clause));
+  if (remaining.length !== elements.length - 1) return false;
+  const matchesPrior = (body: string[]) => {
+    const ddl = [lines[0]!, body.join(',\n'), ...lines.slice(end)].join('\n');
+    previous.set(table, definitionDigest(ddl));
+    return schemaDigest(previous) === expectedBefore;
+  };
+  if (matchesPrior(remaining)) return true;
+  // InnoDB can install a same-named supporting index with the foreign key.
+  const support = fk && normalize(`KEY ${fk[3]} ${fk[4]}`);
+  return !!support && matchesPrior(remaining.filter(line => normalize(line) !== support));
+}
+
 async function applyBaseline(
   conn: PoolConnection,
   statements: string[],
-  ctx: { dryRun: boolean; logger: MigrationLogger },
+  progress: LedgerRow | undefined,
+  hasLedgerHistory: boolean,
+  ctx: { dryRun: boolean; logger: MigrationLogger; ledgerMissing: boolean },
 ): Promise<BaselineOutcome> {
+  const started = Date.now();
   const existing = await applicationTables(conn);
-  if (existing.length > 0) {
+  const checksum = sha256(JSON.stringify(statements));
+  const declared = statements.flatMap(statement => createTablePattern.exec(statement)?.[1] ?? []);
+  if (!progress && !existing.length && hasLedgerHistory) {
+    throw new Error('migration history exists but the application schema is empty; inspect the ledger before initialization');
+  }
+  if (!progress && existing.length > 0) {
+    // A pre-ledger installation may predate tables introduced in the current
+    // baseline. Its operator can explicitly adopt it with the ordinary migrator.
+    if (!hasLedgerHistory && declared.some(table => table !== LEDGER_TABLE && !existing.includes(table))) {
+      throw new Error('unmarked partial schema: --init-schema cannot distinguish an interrupted install from an older database; inspect the schema before explicit migration/adoption');
+    }
     const reason = `schema already present (${existing.length} table(s))`;
     ctx.logger.info({ tables: existing.length }, `baseline skipped: ${reason}`);
     return { applied: false, reason, statements: 0, durationMs: 0 };
   }
-
-  if (ctx.dryRun) {
-    return {
-      applied: false,
-      reason: 'dry run: database is empty, baseline would be applied',
-      statements: statements.length,
-      durationMs: 0,
-    };
+  if (progress && (progress.checksum !== checksum || !Number.isInteger(progress.statements)
+    || progress.statements < 0 || progress.statements > statements.length)) {
+    throw new Error('unfinished baseline does not match its checkpoint; use the original baseline artifact');
   }
-
-  const started = Date.now();
-  for (const [offset, statement] of statements.entries()) {
-    try {
-      await conn.query(statement);
-    } catch (cause) {
-      // Same shape as a migration failure so log-scrapers and operators read one
-      // format. The baseline has no version, so its filename stands in.
-      throw new MigrationFailure(
-        'baseline/schema.sql',
-        offset + 1,
-        statements.length,
-        statement,
-        cause,
-      );
+  let offset = progress?.statements ?? 0;
+  let digests = await schemaDigests(conn, existing);
+  if (progress && schemaDigest(digests) !== progress.name) {
+    const statement = statements[offset] ?? '';
+    const verified = !ctx.dryRun && await verifiesCommittedDdl(conn, statement, digests, progress.name);
+    if (!verified) {
+      throw new Error(`baseline schema differs at statement ${offset + 1}; effect uncertain, inspect the schema and checkpoint before continuing`);
     }
+    offset++;
+    await checkpointBaseline(conn, checksum, schemaDigest(digests), offset);
   }
-  const durationMs = Date.now() - started;
-  ctx.logger.info({ statements: statements.length, durationMs }, 'baseline schema created');
-  return { applied: true, reason: 'created from baseline/schema.sql', statements: statements.length, durationMs };
+  if (ctx.dryRun) {
+    return { applied: false, reason: 'dry run: baseline would be applied or resumed',
+      statements: statements.length - offset, durationMs: 0 };
+  }
+  if (ctx.ledgerMissing) await createLedger(conn);
+  if (!progress) await checkpointBaseline(conn, checksum, schemaDigest(digests), 0);
+  const startOffset = offset;
+  while (offset < statements.length) {
+    const statement = statements[offset]!;
+    const created = createTablePattern.exec(statement)?.[1];
+    const target = created ?? changedTablePattern.exec(statement)?.[1];
+    if (/^(INSERT|UPDATE|DELETE) /i.test(statement)) {
+      // Row changes and their acknowledgement can commit atomically. If COMMIT
+      // loses its reply, the next connection reads either both or neither.
+      await conn.beginTransaction();
+      try {
+        await conn.query(statement);
+        await checkpointBaseline(conn, checksum, schemaDigest(digests), offset + 1);
+        await conn.commit();
+      } catch (cause) {
+        try { await conn.rollback(); } catch { conn.destroy(); }
+        throw new MigrationFailure('baseline/schema.sql', offset + 1, statements.length, statement, cause);
+      }
+      offset++;
+      continue;
+    }
+    // A SET/PREPARE/EXECUTE/DEALLOCATE sequence uses connection-local state.
+    // Its guarded schema conversions form a single retry boundary.
+    const sessionBlock = /^(SET |PREPARE |EXECUTE |DEALLOCATE )/i.test(statement);
+    try {
+      do {
+        const sql = statements[offset]!;
+        if (created !== LEDGER_TABLE) await conn.query(sql);
+        offset++;
+      } while (sessionBlock && offset < statements.length && /^(SET |PREPARE |EXECUTE |DEALLOCATE )/i.test(statements[offset]!));
+    } catch (cause) {
+      throw new MigrationFailure('baseline/schema.sql', offset + 1, statements.length, statements[offset]!, cause);
+    }
+    if (target && target !== LEDGER_TABLE) digests.set(target, definitionDigest(await tableDefinition(conn, target)));
+    else if (!target) digests = await schemaDigests(conn, await applicationTables(conn));
+    await checkpointBaseline(conn, checksum, schemaDigest(digests), offset);
+  }
+  await conn.query(`DELETE FROM ${LEDGER_TABLE} WHERE version = ?`, [BASELINE_PROGRESS]);
+  return { applied: true, reason: progress ? 'resumed baseline/schema.sql' : 'created from baseline/schema.sql',
+    statements: statements.length - startOffset, durationMs: Date.now() - started };
 }
 
 async function applyStatements(conn: PoolConnection, file: MigrationFile): Promise<number> {
@@ -567,12 +694,13 @@ async function createLedger(conn: PoolConnection): Promise<void> {
 
 async function readLedger(conn: PoolConnection): Promise<Map<string, LedgerRow>> {
   const [rows] = await conn.query<RowDataPacket[]>(
-    `SELECT version, name, checksum, applied_at, applied_by FROM ${LEDGER_TABLE}`,
+    `SELECT version, name, checksum, applied_at, applied_by, statements FROM ${LEDGER_TABLE}`,
   );
   const ledger = new Map<string, LedgerRow>();
   for (const row of rows) {
     ledger.set(String(row.version), {
       version: String(row.version),
+      statements: Number(row.statements),
       name: String(row.name),
       checksum: String(row.checksum),
       appliedAt: String(row.applied_at),
@@ -604,7 +732,7 @@ function buildStates(files: MigrationFile[], ledger: Map<string, LedgerRow>): Mi
   const states = files.map((file) => stateFor(file, ledger.get(file.version)));
   const known = new Set(files.map((file) => file.version));
   for (const row of ledger.values()) {
-    if (known.has(row.version)) continue;
+    if (row.version === BASELINE_PROGRESS || known.has(row.version)) continue;
     states.push({
       version: row.version,
       name: row.name,

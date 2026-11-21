@@ -144,6 +144,8 @@ export function stagePortalSessionFinish(
     relayEnabled: 0,
     relayHeartbeatAt: null,
     endedAt: now,
+    suspendAttachmentGeneration: null,
+    suspendRecoveryUntil: null,
     expiresAt,
     activeTurnId: null,
     updatedAt: now,

@@ -79,6 +79,15 @@ account load and permits pending account removal. Remote native leases and
 legacy timed leases keep their existing recovery rules; no work is re-executed
 by this cleanup.
 
+Interactive sessions that advertise suspend recovery persist the generation of
+their first authenticated attachment. Additional streams and uninterrupted
+connections need no periodic durable heartbeat. An orderly last detach records
+its time. After an interrupted attachment, hydration commits one 24-hour
+recovery deadline for that generation with the owner epoch. Another restart
+preserves the deadline, including an expired one. This window affects session
+abandonment only. Presence, token validation, resource claims and reboot
+handoffs remain independently fenced.
+
 Old running processes have an explicitly captured drain manifest. Its exact
 credential, instance, generation and native identity may be renewed in volatile
 memory. Legacy observations have their existing freshness deadlines and notify

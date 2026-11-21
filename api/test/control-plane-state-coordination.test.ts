@@ -821,7 +821,7 @@ describe('offline owners', () => {
     await h.service.reconcileOwned(reconcileAt + 120_000);
     expect(execute).not.toHaveBeenCalled();
   });
-  it('restamps a connected session last-seen so it survives an API restart, and leaves a fresh one alone', async () => {
+  it('keeps an uninterrupted session quiet across repeated former heartbeat periods', async () => {
     const h = setup();
     await h.service.reconcileOwned();
     const before = h.state.snapshot().sessions.get(h.sessionId)!.heartbeatAt;
@@ -831,7 +831,8 @@ describe('offline owners', () => {
     const later = Date.now() + 11 * 60_000;
     await h.service.reconcileOwned(later);
     const after = h.state.snapshot().sessions.get(h.sessionId)!.heartbeatAt;
-    expect(Date.parse(after)).toBeGreaterThan(Date.parse(before));
-    expect(Date.parse(after)).toBe(later);
+    expect(after).toBe(before);
+    await h.service.reconcileOwned(later + 24 * 3600_000);
+    expect(command).not.toHaveBeenCalled();
   });
 });

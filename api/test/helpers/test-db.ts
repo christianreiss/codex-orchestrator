@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import mysql from 'mysql2/promise';
+import { runMigrations } from '../../src/db/migrator.js';
 import { drizzle } from 'drizzle-orm/mysql2';
 import * as schema from '../../src/db/schema.js';
 import { loadTestEnv } from './test-keyring.js';
@@ -93,3 +95,33 @@ export async function getTestDb(): Promise<TestDbHandle | null> {
   return cached;
 }
 
+
+
+/** For suites that sweep all sessions or exhaust a finite, database-wide pool. */
+export async function createIsolatedTestDb(purpose: 'names' | 'recovery' | 'slop') {
+  const config = readDbConfig();
+  if (!config) throw new Error('isolated MySQL tests require TEST_USE_DB=1 and a test database');
+  loadTestEnv();
+  const prefix = String(config.database).replace(/[^a-z0-9_]/gi, '_').slice(0, 20);
+  const database = `${prefix}_${purpose}_${randomUUID().replaceAll('-', '')}`;
+  const admin = await mysql.createConnection({ ...config, database: undefined });
+  try {
+    await admin.query('CREATE DATABASE ??', [database]);
+  } catch (cause) {
+    await admin.end();
+    throw cause;
+  }
+  const pool = mysql.createPool({ ...config, database });
+  const close = async () => {
+    try { await pool.end(); } finally {
+      try { await admin.query('DROP DATABASE ??', [database]); } finally { await admin.end(); }
+    }
+  };
+  try {
+    await runMigrations(pool, { initSchema: true, appliedBy: purpose + '-fixture' });
+    return { db: drizzle(pool, { schema, mode: 'default' }), pool, close };
+  } catch (cause) {
+    await close();
+    throw cause;
+  }
+}

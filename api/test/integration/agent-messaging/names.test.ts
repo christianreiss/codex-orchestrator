@@ -1,6 +1,3 @@
-import mysql from 'mysql2/promise';
-import { drizzle } from 'drizzle-orm/mysql2';
-import * as schema from '../../../src/db/schema.js';
 import Fastify from 'fastify';
 import { envelopePlugin } from '../../../src/http/plugins/envelope.js';
 import { registerAgentMessagingRoutes } from '../../../src/routes/agent-messaging/index.js';
@@ -20,22 +17,19 @@ import {
   agentSessions,
   hosts,
 } from '../../../src/db/schema.js';
-import { runMigrations, loadMigrations } from '../../../src/db/migrator.js';
+import { loadMigrations } from '../../../src/db/migrator.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
 import { bindNativeMessagingIdentityLocked } from '../../../src/services/agent-messaging/native-identity.js';
 import { releaseAgentMessagingBindingsLocked } from '../../../src/services/agent-messaging/bindings.js';
 import { agentNameKey, namedSessionTitle } from '../../../src/services/agent-messaging/names.js';
 import { isoOffsetSeconds, nowIso } from '../../../src/util/timestamp.js';
 import type { Engine } from '../../../src/util/engine.js';
-import { getTestDb, readDbConfig } from '../../helpers/test-db.js';
+import { createIsolatedTestDb, readDbConfig, type TestDb } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
-const handle = await getTestDb();
-const baseHandle = handle;
-let scoped = handle;
-const database = 'name_pool_' + randomUUID().replaceAll('-', '');
-describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_000 }, () => {
-  let db = scoped?.db;
+describe.skipIf(!readDbConfig())('German launch name leases on MySQL', { timeout: 120_000 }, () => {
+  let scoped: Awaited<ReturnType<typeof createIsolatedTestDb>>;
+  let db: TestDb;
   let host: typeof hosts.$inferSelect;
   let service: AgentMessagingService;
   const sentinel = randomUUID();
@@ -75,11 +69,8 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
   beforeAll(async () => {
     // This suite deliberately exhausts the entire global name pool. Four-engine
     // lifecycle suites can already consume every slot in the shared test DB.
-    await baseHandle!.pool.query(`CREATE DATABASE \`${database}\``);
-    const pool = mysql.createPool({ ...readDbConfig()!, database });
-    db = drizzle(pool, { schema, mode: 'default' }) as NonNullable<typeof baseHandle>['db'];
-    scoped = { pool, db };
-    await runMigrations(pool, { initSchema: true, appliedBy: 'names-fixture' });
+    scoped = await createIsolatedTestDb('names');
+    db = scoped.db;
     await db!.insert(hosts).values({
       fqdn: `ztest-names-${randomUUID()}.example`,
       apiKey: 'a'.repeat(64),
@@ -102,15 +93,7 @@ describe.skipIf(!handle)('German launch name leases on MySQL', { timeout: 120_00
   });
   beforeEach(cleanup);
   afterEach(cleanup);
-  afterAll(async () => {
-    await cleanup();
-    await db!.delete(hosts).where(eq(hosts.id, host.id));
-    await scoped?.pool.end();
-    if (baseHandle) {
-      await baseHandle.pool.query(`DROP DATABASE IF EXISTS \`${database}\``);
-      await baseHandle.pool.end();
-    }
-  });
+  afterAll(async () => { await scoped?.close(); });
 
   async function launch(
     engine: Engine = 'codex',

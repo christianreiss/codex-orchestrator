@@ -184,6 +184,8 @@ export async function registerOwnedMessagingSession(
           receiveHeartbeatAt: null,
           receiver: null,
           bindingGeneration: 0,
+          suspendAttachmentGeneration: null,
+          suspendRecoveryUntil: null,
           hostAuthFingerprint: fingerprint,
           bridgeTokenHash: sha256(bridgeToken),
           bridgeExpiresAt,

@@ -10,18 +10,20 @@ import { agentBusAddresses, agentFreshStartGrants, agentSessions, hosts } from '
 import type { Env } from '../../../src/env.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
 import { AgentPortalService } from '../../../src/services/agent-portal.js';
-import { getTestDb } from '../../helpers/test-db.js';
+import { createIsolatedTestDb, readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
-const handle = await getTestDb();
+let handle: Awaited<ReturnType<typeof createIsolatedTestDb>>;
 
-describe.skipIf(!handle)('abandoned bridge recovery', { timeout: 120_000 }, () => {
+describe.skipIf(!readDbConfig())('abandoned bridge recovery', { timeout: 120_000 }, () => {
   let host: typeof hosts.$inferSelect;
   let messaging: AgentMessagingService;
   let portal: AgentPortalService;
   const username = `abandoned-${randomUUID()}`;
 
   beforeAll(async () => {
+    // purgeExpired() sweeps the entire database, including other hosts.
+    handle = await createIsolatedTestDb('recovery');
     const db = handle!.db, now = new Date().toISOString();
     const fqdn = `abandoned-${randomUUID()}.test`;
     await db.insert(hosts).values({ fqdn, apiKey: 'f'.repeat(64), engines: 'codex', status: 'active', secure: 1, createdAt: now, updatedAt: now });
@@ -34,15 +36,12 @@ describe.skipIf(!handle)('abandoned bridge recovery', { timeout: 120_000 }, () =
   afterEach(async () => {
     const db = handle!.db;
     await db.execute(sql`DELETE FROM agent_events WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id=${host.id})`);
+    await db.execute(sql`UPDATE agent_name_pool SET current_session_id=NULL WHERE current_session_id IN (SELECT id FROM agent_sessions WHERE host_id=${host.id})`);
     await db.execute(sql`DELETE FROM agent_name_leases WHERE address_id IN (SELECT id FROM agent_bus_addresses WHERE host_id=${host.id})`);
     await db.execute(sql`DELETE FROM agent_sessions WHERE host_id=${host.id}`);
     await db.execute(sql`DELETE FROM agent_bus_addresses WHERE host_id=${host.id}`);
   });
-  afterAll(async () => {
-    await handle!.db.delete(hosts).where(eq(hosts.id, host.id));
-    await handle!.db.execute(sql`UPDATE versions SET version='0' WHERE name='agent_messaging_enabled'`);
-    await handle!.pool.end();
-  });
+  afterAll(async () => { await handle?.close(); });
 
   async function register(native: string, sessionId = randomUUID(), token = randomBytes(32).toString('base64url'), resumed = false) {
     const out = await messaging.registerSession(host, {

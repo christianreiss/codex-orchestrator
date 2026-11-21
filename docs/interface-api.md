@@ -708,6 +708,8 @@ The Model defaults tab of the Engines page (`/admin/engines#defaults`, formerly 
 - Admin URLs that are both Svelte routes and JSON endpoints return the SPA shell when a browser navigation sends `Accept: text/html`; API clients must continue to send `Accept: application/json` to receive JSON from colliding paths such as `/admin/hosts`, `/admin/projects`, project detail slugs and their `notes` / `todos` / `files` / `feedback` tabs, and `/admin/users`.
 - `GET /admin/overview` — hosts count, avg refresh age, latest log timestamp, versions (runner/quota flags included), ChatGPT usage snapshot (cached ≤5m) plus `chatgpt_usage_summary` (lane-oriented normal/spark windows), `chatgpt_cached`/`chatgpt_next_eligible_at`, quota controls (`quota_limit_percent`, `quota_week_partition`), `cdx_silent`, `admin_theme`, `reverse_dns_enabled`, `insecure_approval_enabled`, `inactivity_window_days`, optional Codex version pin metadata (`client_version_lock`, `client_version_lock_updated_at`).
 - `GET /admin/ws/info` — websocket bootstrap for admin live updates. Returns `enabled`, `url`, `last_event_id`, `heartbeat_seconds`, and `backlog_limit`. When enabled, clients connect to the provided `ws/wss` URL (`/admin/ws`, admin session required) and receive one frame per published event, exactly as `api/src/ws/publisher.ts` writes it: `{ type, payload, ts }`. The server also sends `{ type: "hello", ts }` on connect and, every `heartbeat_seconds`, re-resolves the session and sends `{ type: "ping", ts }` — or closes the socket when the session is gone. The socket is push-only: it reads nothing from the client, so there is no request/response envelope.
+- A committed `control_state.changed` event carries the changed owner tables and `authorization_mode_changed`. A change in authorization mode requires refreshing the session capabilities and invalidating protected data. Volatile presence updates emit no such event.
+
   - The event-type catalog is the exported list in `api/src/ws/events.ts`, kept in lock-step with the frontend's `lib/ws/events.ts` by `api/test/unit/ws/event-invalidation-coverage.test.ts`. Families: logs (`log.*`), hosts (`host.*`), users, projects (`project.*` including the board's `project.card.*`), authoring (`agents.stored`, `skill.*`, `memory.*`, `shared_memory.*`, `claude_artifact.*`), provider keys, fleet secrets (`secret.*`), `settings.changed`, agent portal (`agent_portal.*`), agent messaging (`agent_messaging.*`), Git Director (`git_director.*`), file transfer (`transfers.changed` plus the operator actions `transfers.module_toggled` / `transfers.limits_changed` / `transfers.deleted`), usage, passkeys, the insecure window (`insecure.*`) and `toast`. Audit-only facts such as a secret reveal or a transfer download are recorded with `broadcast:false` and never appear on the socket.
   - Admin clients route published event types into targeted query domains
     (logs, hosts, projects, knowledge, access, fleet settings, messaging, and
@@ -1099,8 +1101,13 @@ All four engine config GET/store routes share the revision contract: `revision` 
   says abandoned) once it has been offline for `AGENT_PORTAL_BRIDGE_TTL_SECONDS`,
   or for 24 hours when it is interactive and advertises
   `suspend_recovery_version: 1`; armed reboot handoffs and `reboot_wait` are
-  exempt. While attached, a session's `heartbeat_at` is restamped every
-  10 minutes so last-seen survives an API restart.
+  exempt. The first authenticated session or receiver stream of a suspend-capable
+  binding commits a generation marker before its first snapshot. Continuous
+  attachment requires no SQL heartbeat. Closing the final stream records the
+  observed disconnect time and clears the marker. If the owner disappears first,
+  the next owner consumes the interrupted attachment once at hydration and gives
+  that binding 24 hours from recovery. Later restarts preserve that deadline.
+  Authorization, credentials, claim grace and live presence have their own checks.
   The durable `server:abandoned` marker is inserted once per lifecycle, including
   when its own process re-registers and it later disconnects again. Reusing the
   marker never rewinds newer portal event cursors or aborts reconciliation.
@@ -1500,7 +1507,7 @@ OpenAI-format image parts (`image_url`, `input_image`) are automatically convert
 | `content_block_start` | Signals start of content block (index 0, type `text`). |
 | `content_block_delta` | Text delta: `{type: "text_delta", text: "..."}`. |
 | `content_block_stop` | Signals end of content block. |
-| `message_delta` | Final `stop_reason` (`end_turn`) and output token count. |
+| `message_delta` | Final native `stop_reason` when reported, otherwise `null`, and the available output token count. |
 | `message_stop` | Terminal event. |
 
 Currently the full response is emitted in a single `content_block_delta` (not incremental from the runner).

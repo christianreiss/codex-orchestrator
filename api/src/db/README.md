@@ -109,13 +109,30 @@ provisions itself:
 docker compose run --rm -T api node migrate.js --init-schema
 ```
 
-`--init-schema` takes the migration lock, checks `information_schema` for
-application tables, and only when there are none applies the baseline and then
-runs the full migration set on top. Against a database that already has tables it
-reports `skipped` and migrates as usual, so `bin/install.sh` can re-run any of its
-steps without special-casing the first one. It refuses to combine with
-`--baseline`, which records without executing and would otherwise mark every
-migration applied over a schema that was never created.
+`--init-schema` holds the database migration lock. Before its first application
+DDL it records `@init-schema` in the existing `schema_migrations` ledger.
+The row stores the SHA-256 of the executable baseline statements, the number
+confirmed and a digest of the application table definitions. It disappears on
+successful initialization. Normal API migration stops while this marker exists.
+
+Rerun the original install command against the same database to resume.
+The runner compares the current definitions with the checkpoint. For a lost
+DDL acknowledgement it verifies the candidate table against a temporary
+definition, or verifies the added index or foreign-key clause against the
+preceding schema fingerprint. Seed DML commits with its checkpoint in one
+transaction. Session-variable and prepared-statement sequences share a retry
+boundary. If the result of a sequence cannot be established, the schema differs
+or the artifact changed, initialization stops before numbered migrations.
+Inspect the recorded offset and affected table with `SHOW CREATE TABLE`.
+Continue using the original artifact once the exact checkpoint or recognized
+next DDL can be established. The runner preserves unresolved markers.
+
+An existing numbered ledger retains its ordinary upgrade path. An unmarked
+database with all declared baseline tables can migrate directly. An unmarked
+partial schema requires inspection. For a deliberately older pre-ledger
+installation, establish the previously applied versions and use the documented
+migration/adoption command. `--baseline` and `--init-schema` are mutually
+exclusive.
 
 The same artifact and the same statement splitting provision the DB-backed suites
 — `test/fixtures/apply-schema-baseline.ts` calls `loadBaseline()` rather than

@@ -16,7 +16,7 @@ import { hydrateOwnerState } from './state/hydrate.js';
 import { bindOwnerRuntime, type OwnerRuntime } from './state/runtime.js';
 import { ConnectionPresence, bindOwnerPresence } from './presence.js';
 import { trackHostActivity, stopHostActivity } from './state/host-activity.js';
-import { trackSessionActivity, stopSessionActivity } from './state/owner-liveness.js';
+import { trackSessionActivity, stopSessionActivity, supportsSuspend, SUSPEND_RECOVERY_GRACE_MS } from './state/owner-liveness.js';
 import { ConnectionCredentials } from './credentials.js';
 import { LegacyDrainRegistry, captureLegacyDrainManifest } from './legacy-drain.js';
 import { readLegacyCutoverManifest, filterLegacyCutoverManifest } from './legacy-cutover.js';
@@ -33,6 +33,34 @@ function migrationConnection(connection: PoolConnection): PoolConnection {
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
+}
+
+/** Consume interrupted attachments inside the same transaction as epoch hydration. */
+async function recoverInterruptedSessions(db: PersistenceTransaction, startedAt: number): Promise<void> {
+  const sessions = schema.agentSessions;
+  const interrupted = await db.select({
+    id: sessions.id,
+    generation: sessions.suspendAttachmentGeneration,
+    current: sessions.bindingGeneration,
+    endedAt: sessions.endedAt,
+    status: sessions.status,
+    closeRequestedAt: sessions.closeRequestedAt,
+    invocationKind: sessions.invocationKind,
+    adapterCapabilities: sessions.adapterCapabilities,
+  }).from(sessions).where(and(isNotNull(sessions.suspendAttachmentGeneration), isNull(sessions.suspendRecoveryUntil)));
+  const recover: string[] = [], discard: string[] = [];
+  for (const row of interrupted) {
+    const eligible = row.generation === row.current && !row.endedAt && !row.closeRequestedAt &&
+      row.status !== 'reboot_wait' && supportsSuspend(row);
+    (eligible ? recover : discard).push(row.id);
+  }
+  for (const [ids, patch] of [
+    [recover, { suspendRecoveryUntil: new Date(startedAt + SUSPEND_RECOVERY_GRACE_MS).toISOString() }],
+    [discard, { suspendAttachmentGeneration: null }],
+  ] as const) {
+    for (let start = 0; start < ids.length; start += 500)
+      await db.update(sessions).set(patch).where(inArray(sessions.id, ids.slice(start, start + 500)));
+  }
 }
 
 export async function createOwnedControlPlane(options: {
@@ -110,6 +138,7 @@ export async function createOwnedControlPlane(options: {
             isNull(schema.coordProjectCards.claimReleasedAt),
           ),
         );
+      await recoverInterruptedSessions(db, Date.now());
       await reconcileWorkflowOwnership(db);
       const retention = await hydrateRetentionIndex(db, options.env);
       const state = await hydrateOwnerState(db, { epoch, sequence: 0n }, { keyring: options.keyring });
@@ -173,7 +202,7 @@ export async function createOwnedControlPlane(options: {
     ownership.ready();
     trackHostActivity(runtime);
     // Before any attachment: the reconnect and boot graces are measured from here.
-    trackSessionActivity(runtime);
+    trackSessionActivity(runtime, (error) => ownership.lose(error));
     stopBoard = trackBoardOwnership(runtime);
     stopStateEvents = publishOwnerStateChanges(runtime);
     return {
@@ -194,6 +223,8 @@ export async function createOwnedControlPlane(options: {
       async close() {
         stopBoard();
         stopStateEvents();
+        // An orderly disconnect has an observed time. A lost owner leaves its markers for hydration.
+        if (ownership.status() === 'ready') presence.close();
         await commands.drain();
         stopState();
         await ownership.close();

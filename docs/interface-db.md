@@ -102,6 +102,14 @@ Schema DDL is defined in the Drizzle schema at `api/src/db/schema.ts` (MySQL onl
 
 Operationally, schema changes live as reviewable hand-written SQL in `api/src/db/migrations/` and are applied by the migration runner in `api/src/db/migrator.ts`. It runs automatically at API boot (`RUN_MIGRATIONS_ON_BOOT`, default **on**) and explicitly from `scripts/deploy.sh` between `compose build` and `compose up`; `node dist/migrate.js` (`npm run migrate` in a checkout) drives it by hand, with `--check`, `--list`, `--dry-run`, `--baseline`, and `--reapply`. Applied versions are recorded in `schema_migrations` with the file's sha256, and a `GET_LOCK` advisory lock serialises concurrent runners. Boot fails closed when a migration is pending and `RUN_MIGRATIONS_ON_BOOT` is off. Migrations must be idempotent — `test/integration/db-migrations/migrator.test.ts` re-applies every file against a migrated schema to prove it. See `api/src/db/README.md` for the full contract. **Do not use `drizzle-kit push`**: it ignores the migrations folder and reconciles the *entire* hand-maintained `schema.ts` mirror against the live DB, so any pre-existing drift is applied alongside the intended change. It also cannot express FULLTEXT indexes or foreign keys, so it would propose dropping `idx_memories_search`, `idx_coord_project_memories_search`, `idx_shared_memories_search`, and `idx_shared_memory_chunks_search`, and would create the `shared_memory_*` children without their `ON DELETE CASCADE` constraints. `0006_add_shared_memories.sql` back-fills both the indexes and the FKs for exactly that case, but the general warning stands.
 
+Fresh initialization reserves the ledger version `@init-schema` while it is
+in progress. `checksum` identifies the executable baseline, `statements`
+counts confirmed statements and `name` fingerprints the application schema.
+The numbered migrator refuses to run until `--init-schema` has reconciled an
+interrupted install under the same database lock. The marker is cleared on
+completion. Recovery details are in [the database runbook](../api/src/db/README.md).
+
+
 - **grok_auth_refresh_state** — per-account durable refresh fence: `account_id` BIGINT UNSIGNED PRIMARY KEY, `state` VARCHAR(24) NOT NULL DEFAULT `idle`, `attempt_id` VARCHAR(64) NULL, `base_payload_id` BIGINT UNSIGNED NULL, `base_generation` BIGINT UNSIGNED NULL, `pending_payload_id` BIGINT UNSIGNED NULL, `response_enc` LONGTEXT NULL (encrypted provider response), `next_attempt_at` VARCHAR(100) NULL, `error_code` VARCHAR(100) NULL (sanitized), `started_at` VARCHAR(100) NULL, `updated_at` VARCHAR(100) NOT NULL. States are idle, refreshing, pending_verification, uncertain, and login_required. A connection-backed advisory lock serializes current owners; this persisted row prevents replay after an ambiguous spend. Pending candidates use the existing auth payload ledger. Migration0037 is idempotent and the baseline/schema mirror include this table.
 - **kimi_auth_refresh_state** — per-account durable refresh fence: `account_id` BIGINT UNSIGNED PRIMARY KEY, `state` VARCHAR(24) NOT NULL DEFAULT `idle`, `attempt_id` VARCHAR(64) NULL, `base_payload_id` BIGINT UNSIGNED NULL, `base_generation` BIGINT UNSIGNED NULL, `pending_payload_id` BIGINT UNSIGNED NULL, `response_enc` LONGTEXT NULL (encrypted provider response), `next_attempt_at` VARCHAR(100) NULL, `error_code` VARCHAR(100) NULL (sanitized), `started_at` VARCHAR(100) NULL, `updated_at` VARCHAR(100) NOT NULL. States are idle, refreshing, pending_verification, uncertain, and login_required. A connection-backed advisory lock serializes current owners; this persisted row prevents replay after an ambiguous spend. Pending candidates use the existing auth payload ledger. Migration0130 is idempotent and the baseline/schema mirror include this table.
 
@@ -411,6 +419,17 @@ native conversation activity contract in `interface-api.md`.
 
 - **agent_native_controls** — one row per portal session: `session_id` CHAR(36) NOT NULL PRIMARY KEY FK → agent_sessions.id (CASCADE), `instance_id` CHAR(36) NOT NULL, `binding_generation` INT UNSIGNED NOT NULL, `request_id` CHAR(36) NULL, `client_message_id` CHAR(36) NULL, `actor_id` BIGINT UNSIGNED NULL, `status` VARCHAR(24) NOT NULL, `updated_at` VARCHAR(100) NOT NULL. Migration `0067_agent_native_controls.sql` makes the session ID inherit the parent column charset/collation so both legacy and fresh installations support the FK. Requests serialize under the session row lock. `unknown` is derived from a missing recent receipt, never persisted over an observed exit. No credentials or transcript content are stored here.
 
+
+## Session attachment recovery (migration 0148)
+
+Migration `0148_agent_session_attachment_generation.sql` adds two nullable
+fields to `agent_sessions`. A matching `suspend_attachment_generation` with
+NULL `suspend_recovery_until` records the first proven stream of a suspendable
+binding. The final detach clears both fields and records its observed time in
+`heartbeat_at`. Owner hydration atomically sets one fixed 24-hour recovery
+deadline after an interrupted attachment. Once set it survives a second owner
+restart. Unmarked older rows retain their existing expiry. Neither field provides
+authentication, current presence, claim ownership or evidence of completed work.
 
 ## Session scope coordination (protocol 1)
 

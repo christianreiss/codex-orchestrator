@@ -41,7 +41,7 @@ const IS_RELEASE_LOCK = /^SELECT RELEASE_LOCK/;
 const IS_TABLE_LIST = /^SELECT TABLE_NAME AS name/;
 const IS_LEDGER_PROBE = /information_schema\.TABLES/;
 const IS_CREATE_LEDGER = new RegExp(`^CREATE TABLE IF NOT EXISTS ${LEDGER_TABLE}\\b`);
-const IS_READ_LEDGER = new RegExp(`^SELECT version, name, checksum, applied_at, applied_by FROM ${LEDGER_TABLE}`);
+const IS_READ_LEDGER = new RegExp(`^SELECT version, name, checksum, applied_at, applied_by, statements FROM ${LEDGER_TABLE}`);
 const IS_INSERT_LEDGER = new RegExp(`^INSERT INTO ${LEDGER_TABLE}\\b`);
 
 interface Query {
@@ -56,6 +56,7 @@ interface LedgerRowShape {
   checksum: string;
   applied_at: string;
   applied_by: string | null;
+  statements?: number;
 }
 
 interface FakePoolOptions {
@@ -131,17 +132,23 @@ class FakePool {
     }
     if (IS_READ_LEDGER.test(sql)) return [[...(this.ledger?.values() ?? [])], []];
     if (IS_INSERT_LEDGER.test(sql)) {
-      const [version, name, checksum, , , appliedAt, appliedBy] = params;
+      const [version, name, checksum, statements, , appliedAt, appliedBy] = params;
       (this.ledger ??= new Map()).set(String(version), {
         version: String(version),
         name: String(name),
         checksum: String(checksum),
         applied_at: String(appliedAt),
+        statements: Number(statements),
         applied_by: appliedBy === null ? null : String(appliedBy),
       });
       return [{ affectedRows: 1 }, []];
     }
 
+    if (sql.startsWith('SHOW CREATE TABLE ')) return [[{ 'Create Table': sql }], []];
+    if (sql.startsWith(`DELETE FROM ${LEDGER_TABLE} WHERE version = ?`)) {
+      this.ledger?.delete(String(params[0]));
+      return [{ affectedRows: 1 }, []];
+    }
     if (this.failStatement?.match.test(sql)) throw this.failStatement.error;
     this.executed.push(sql);
     return [{ affectedRows: 0 }, []];

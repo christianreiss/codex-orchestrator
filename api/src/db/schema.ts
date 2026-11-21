@@ -1500,6 +1500,8 @@ export const agentSessions = mysqlTable(
     receiveHeartbeatAt: varchar('receive_heartbeat_at', { length: 100 }),
     receiver: json('receiver'),
     bindingGeneration: int('binding_generation', { unsigned: true }).notNull().default(0),
+    suspendAttachmentGeneration: int('suspend_attachment_generation', { unsigned: true }),
+    suspendRecoveryUntil: varchar('suspend_recovery_until', { length: 100 }),
     hostAuthFingerprint: char('host_auth_fingerprint', { length: 64 }).notNull(),
     bridgeTokenHash: char('bridge_token_hash', { length: 64 }).notNull(),
     bridgeExpiresAt: varchar('bridge_expires_at', { length: 100 }).notNull(),

@@ -40,7 +40,7 @@ export class ConnectionPresence {
     this.attachments.set(attachment.id, attachment);
     this.add(this.connections, attachment.connectionId, attachment.id);
     this.add(this.roles, this.role(attachment.scope), attachment.id);
-    if (attachment.scope.session_id) this.add(this.sessions, attachment.scope.session_id, attachment.id);
+    if (this.sessionTopic(attachment) && attachment.scope.session_id) this.add(this.sessions, attachment.scope.session_id, attachment.id);
     this.emit({ attachment, connected: true });
     return { attachment, detach: () => this.detach(attachment) };
   }
@@ -122,7 +122,7 @@ export class ConnectionPresence {
     this.metadata.delete(attachment.id);
     this.remove(this.connections, attachment.connectionId, attachment.id);
     this.remove(this.roles, this.role(attachment.scope), attachment.id);
-    if (attachment.scope.session_id) this.remove(this.sessions, attachment.scope.session_id, attachment.id);
+    if (this.sessionTopic(attachment) && attachment.scope.session_id) this.remove(this.sessions, attachment.scope.session_id, attachment.id);
     this.emit({ attachment, connected: false });
   }
   private emit(change: PresenceChange): void {
@@ -133,6 +133,9 @@ export class ConnectionPresence {
         this.error(error);
       }
     }
+  }
+  private sessionTopic(attachment: LiveAttachment): boolean {
+    return attachment.scope.topic === 'session' || attachment.scope.topic === 'receiver';
   }
   private role(scope: StateScope): string {
     return scope.topic + ':' + (scope.session_id ?? scope.relay_id ?? scope.provider_session_id ?? '');

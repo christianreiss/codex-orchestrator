@@ -1,7 +1,9 @@
 import { ownerPresence } from '../presence.js';
 import { ownedCredentialDeadline } from '../credentials.js';
 import { legacyDrainFor } from '../legacy-drain.js';
-import type { OwnerRuntime } from './runtime.js';
+import { mutateOwnerState, withOwnerBackgroundScope, type OwnerRuntime } from './runtime.js';
+import { stageUpdate } from './rows.js';
+import type { AgentSession } from '../../db/schema.js';
 import type { OwnerStateSnapshot } from './store.js';
 import { ConflictError } from '../../http/errors.js';
 
@@ -19,47 +21,73 @@ export const OWNER_RECONNECT_GRACE_MS = 5 * 60_000;
  * reconnect grace; only the session itself is finalized after this long.
  */
 export const SUSPEND_RECOVERY_GRACE_MS = 24 * 3600_000;
-/**
- * A connected session's persisted `heartbeatAt` is restamped once it is this
- * old, so last-seen survives an API restart. In-memory attachment times die
- * with the owner epoch; without the stamp a laptop that slept across a deploy
- * would look like it vanished at its launch time.
- */
-export const LAST_SEEN_STAMP_MS = 10 * 60_000;
+type SuspendFacts = Pick<AgentSession, 'invocationKind' | 'adapterCapabilities'>;
+export function supportsSuspend(session: SuspendFacts): boolean {
+  return session.invocationKind === 'interactive' &&
+    (session.adapterCapabilities as Record<string, unknown> | null)?.suspend_recovery_version === 1;
+}
 
 interface Tracker {
   readonly bootAt: number;
-  readonly lastAttached: Map<string, number>;
+  readonly lastAttached: Map<string, { generation: number; at: number; connected: boolean }>;
+  readonly transitions: Map<string, Promise<unknown>>;
   /** Relay id -> last moment any of its attachments connected or detached. */
   readonly lastRelayAttached: Map<string, number>;
   readonly stop: () => void;
 }
 const trackers = new WeakMap<OwnerRuntime, Tracker>();
 
-/**
- * Records when each session and relay was last attached. Timestamps only: a
- * presence listener must never stage a mutation (presence.close() detaches
- * everything during teardown). Started at boot next to trackHostActivity; the
- * lazy start in tracker() only serves owners built without bootstrap (tests).
- */
-export function trackSessionActivity(owner: OwnerRuntime): void {
+/** Only an admitted suspend-capable session opens a marker. A final disconnect records its observed time. */
+function persistAttachment(owner: OwnerRuntime, id: string, gen: number, connected: boolean, at: number) {
+  return withOwnerBackgroundScope(() => mutateOwnerState(owner, {
+    kind: connected ? 'session.attachment.open' : 'session.attachment.close',
+    payload: { id, generation: gen },
+    prepare(ctx) {
+      const row = ctx.snapshot.sessions.get(id);
+      if (!row || row.endedAt || row.bindingGeneration !== gen) return null;
+      if (connected) {
+        if (row.status !== 'reboot_wait' && !row.closeRequestedAt && supportsSuspend(row))
+          stageUpdate(ctx, 'agentSessions', id, { suspendAttachmentGeneration: gen, suspendRecoveryUntil: null });
+      } else if (at > time(row.heartbeatAt) || row.suspendAttachmentGeneration !== null || row.suspendRecoveryUntil !== null) {
+        stageUpdate(ctx, 'agentSessions', id, {
+          heartbeatAt: new Date(Math.max(at, time(row.heartbeatAt))).toISOString(),
+          suspendAttachmentGeneration: null,
+          suspendRecoveryUntil: null,
+        });
+      }
+      return null;
+    },
+  }));
+}
+
+/** Queue observed edges in transport order. The system callback is enabled only on a bootstrapped owner. */
+export function trackSessionActivity(owner: OwnerRuntime, onPersistenceFailure?: (error: unknown) => void): void {
   if (trackers.has(owner)) return;
-  const lastAttached = new Map<string, number>(),
+  const lastAttached: Tracker['lastAttached'] = new Map(),
+    transitions: Tracker['transitions'] = new Map(),
     lastRelayAttached = new Map<string, number>();
   const presence = ownerPresence(owner);
-  const relayOf = (scope: { topic: string; relay_id?: string | null }) =>
-    scope.topic === 'relay' && scope.relay_id ? scope.relay_id : undefined;
-  for (const attachment of presence.all()) {
-    if (attachment.scope.session_id) lastAttached.set(attachment.scope.session_id, Date.now());
-    const relay = relayOf(attachment.scope);
-    if (relay) lastRelayAttached.set(relay, Date.now());
-  }
-  const stopPresence = presence.subscribe((change) => {
-    const id = change.attachment.scope.session_id;
-    if (id) lastAttached.set(id, Date.now());
-    const relay = relayOf(change.attachment.scope);
-    if (relay) lastRelayAttached.set(relay, Date.now());
-  });
+  const observe = (scope: { topic: string; session_id?: string; binding_generation?: number; relay_id?: string }) => {
+    if (scope.topic === 'relay' && scope.relay_id) lastRelayAttached.set(scope.relay_id, Date.now());
+    if (scope.topic !== 'session' && scope.topic !== 'receiver') return;
+    const id = scope.session_id, gen = scope.binding_generation;
+    if (!id || gen === undefined) return;
+    const session = owner.state.snapshot().sessions.get(id);
+    if (!session || session.bindingGeneration !== gen || session.endedAt) return;
+    const connected = presence.session(id, gen).length > 0;
+    const prior = lastAttached.get(id);
+    if (prior?.generation === gen && prior.connected === connected) return;
+    const at = Date.now();
+    lastAttached.set(id, { generation: gen, at, connected });
+    if (!onPersistenceFailure || (connected && !supportsSuspend(session))) return;
+    const task = persistAttachment(owner, id, gen, connected, at);
+    transitions.set(id, task);
+    void task.catch(onPersistenceFailure).finally(() => {
+      if (transitions.get(id) === task) transitions.delete(id);
+    });
+  };
+  for (const attachment of presence.all()) observe(attachment.scope);
+  const stopPresence = presence.subscribe(({ attachment }) => observe(attachment.scope));
   const stopState = owner.state.subscribe((snapshot) => {
     for (const id of lastAttached.keys()) if (!snapshot.sessions.has(id)) lastAttached.delete(id);
     const relays = snapshot.table('agentBusRelays');
@@ -68,6 +96,7 @@ export function trackSessionActivity(owner: OwnerRuntime): void {
   trackers.set(owner, {
     bootAt: Date.now(),
     lastAttached,
+    transitions,
     lastRelayAttached,
     stop: () => {
       stopPresence();
@@ -77,6 +106,10 @@ export function trackSessionActivity(owner: OwnerRuntime): void {
       trackers.delete(owner);
     },
   });
+}
+/** The first snapshot waits for the first proven attachment to commit. */
+export function sessionAttachmentTransition(owner: OwnerRuntime, id: string): Promise<unknown> | undefined {
+  return trackers.get(owner)?.transitions.get(id);
 }
 export function stopSessionActivity(owner: OwnerRuntime): void {
   trackers.get(owner)?.stop();
@@ -183,7 +216,8 @@ export function sessionLastSeen(owner: OwnerRuntime, snapshot: OwnerStateSnapsho
   const session = snapshot.sessions.get(sessionId);
   if (!session) return -Infinity;
   if (!session.endedAt && sessionAttached(owner, snapshot, sessionId)) return null;
-  return Math.max(tracker(owner).lastAttached.get(sessionId) ?? -Infinity, time(session.heartbeatAt));
+  const last = tracker(owner).lastAttached.get(sessionId);
+  return Math.max(last?.generation === session.bindingGeneration ? last.at : -Infinity, time(session.heartbeatAt));
 }
 
 /**
@@ -309,38 +343,20 @@ export function sessionAbandonDueAt(
     return null;
   const seen = sessionLastSeen(owner, snapshot, sessionId);
   if (seen === null) return null;
-  const capabilities = session.adapterCapabilities as Record<string, unknown> | null;
-  const grace =
-    capabilities?.suspend_recovery_version === 1 && session.invocationKind === 'interactive'
-      ? SUSPEND_RECOVERY_GRACE_MS
-      : bridgeTtlMs;
+  const suspend = supportsSuspend(session);
+  const recovery = suspend && !session.closeRequestedAt && session.suspendAttachmentGeneration === session.bindingGeneration
+    ? time(session.suspendRecoveryUntil) : -Infinity;
   return Math.max(
-    seen + grace,
-    tracker(owner).bootAt + bridgeTtlMs,
+    seen + (suspend ? SUSPEND_RECOVERY_GRACE_MS : bridgeTtlMs),
+    Number.isFinite(recovery) ? recovery : tracker(owner).bootAt + bridgeTtlMs,
     ownedCredentialDeadline(snapshot, 'session', sessionId),
   );
-}
-
-/** Attached sessions whose persisted last-seen is due for a restamp, and detached ones not yet stamped. */
-export function lastSeenStamps(owner: OwnerRuntime, snapshot: OwnerStateSnapshot, now: number): Array<[string, number]> {
-  const out: Array<[string, number]> = [];
-  for (const session of snapshot.sessions.all()) {
-    if (session.endedAt) continue;
-    const stored = time(session.heartbeatAt);
-    if (sessionAttached(owner, snapshot, session.id)) {
-      if (now - stored >= LAST_SEEN_STAMP_MS) out.push([session.id, now]);
-      continue;
-    }
-    const tracked = tracker(owner).lastAttached.get(session.id);
-    if (tracked !== undefined && tracked > stored + 1000) out.push([session.id, tracked]);
-  }
-  return out;
 }
 
 const RELEASE_STATES = ['disconnected', 'owner_restart'];
 /**
  * Earliest moment the liveness reconciliation has work: a claim or Git
- * registration to release, a session to finalize, or a last-seen to stamp.
+ * registration to release, or a session to finalize.
  * Presence and state changes already wake the tick; this covers time alone.
  */
 export function livenessDueAt(owner: OwnerRuntime, snapshot: OwnerStateSnapshot, bridgeTtlMs: number): number | null {
@@ -358,7 +374,6 @@ export function livenessDueAt(owner: OwnerRuntime, snapshot: OwnerStateSnapshot,
     if (session.endedAt) continue;
     const abandon = sessionAbandonDueAt(owner, snapshot, session.id, bridgeTtlMs);
     if (abandon !== null) due = Math.min(due, abandon);
-    if (sessionAttached(owner, snapshot, session.id)) due = Math.min(due, time(session.heartbeatAt) + LAST_SEEN_STAMP_MS);
   }
   return Number.isFinite(due) ? due : null;
 }

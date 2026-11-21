@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { OwnerRuntime } from '../state/runtime.js';
 import type { StateFrame, StateProjection, StateProvider, StateScope } from '../protocol.js';
 import { canonicalCommand, type Json } from '../commands.js';
+import { sessionAttachmentTransition } from '../state/owner-liveness.js';
 import { ownerPresence } from '../presence.js';
 import { StreamAuthorization } from './authorization.js';
 import { schedulePolicy, watchdogPolicy } from './policies.js';
@@ -98,6 +99,15 @@ export class OwnerStateProvider implements StateProvider {
       username: 'relay' in admitted ? admitted.relay.username : this.username,
       scope,
     });
+    if ('session' in admitted) {
+      try {
+        await sessionAttachmentTransition(this.runtime, admitted.session.id);
+        authorize();
+      } catch (error) {
+        handle.detach();
+        throw error;
+      }
+    }
     let lastWork = '',
       workRevision = 0n,
       stopped = false;
@@ -377,6 +387,7 @@ export class OwnerStateProvider implements StateProvider {
         stopped = true;
         this.runtime.deadlines.cancel(key);
         handle.detach();
+        if ('session' in admitted) return sessionAttachmentTransition(this.runtime, admitted.session.id)?.then(() => {});
       },
     };
   }

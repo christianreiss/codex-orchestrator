@@ -3,10 +3,9 @@ import type { Keyring } from '../../security/keyring.js';
 import { encrypt } from '../../security/secret-box.js';
 import { ABANDONED_SESSION_EVENT_ID } from '../../services/agent-session-finished.js';
 import { historyRetentionHours } from '../../services/server-retention/policy.js';
-import { lastSeenStamps, sessionAbandonDueAt, sessionLastSeen } from './owner-liveness.js';
+import { sessionAbandonDueAt, sessionLastSeen } from './owner-liveness.js';
 import { stagePortalEvent } from './portal-events.js';
 import { stagePortalSessionFinish } from './portal-lifecycle.js';
-import { stageUpdate } from './rows.js';
 import type { OwnerMutationContext, OwnerRuntime } from './runtime.js';
 import type { OwnerStateSnapshot } from './store.js';
 
@@ -22,7 +21,6 @@ export function livenessReconciliationNeeded(
   env: Pick<Env, 'AGENT_PORTAL_BRIDGE_TTL_SECONDS'>,
   now: number,
 ): boolean {
-  if (lastSeenStamps(owner, snapshot, now).length) return true;
   const ttl = env.AGENT_PORTAL_BRIDGE_TTL_SECONDS * 1000;
   return snapshot.sessions.all().some((session) => {
     const due = sessionAbandonDueAt(owner, snapshot, session.id, ttl);
@@ -38,10 +36,6 @@ export function stageOwnerLiveness(
   now: number,
 ): boolean {
   let changed = false;
-  for (const [sessionId, seenAt] of lastSeenStamps(owner, ctx.draft.view(), now)) {
-    stageUpdate(ctx, 'agentSessions', sessionId, { heartbeatAt: new Date(seenAt).toISOString() });
-    changed = true;
-  }
   const ttl = env.AGENT_PORTAL_BRIDGE_TTL_SECONDS * 1000;
   for (const session of ctx.draft.table('agentSessions').all()) {
     const view = ctx.draft.view();
