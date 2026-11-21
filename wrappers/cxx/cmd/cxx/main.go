@@ -65,12 +65,8 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 	// Discovery of wrapper-owned global commands must not start services.
 	if len(args) > 1 && clihelp.Requested(args[1:]) {
 		switch args[0] {
-		case "housekeeping", "native-entry", "cron", "update", "sync", "daemon", "agent", "portal":
+		case "housekeeping", "native-entry", "cron", "update", "sync", "daemon", "agent", "portal", "watchdog", "reboot":
 			return runExplicit(args, stdout, stderr)
-		case "reboot":
-			return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)
-		case "watchdog":
-			return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
 		}
 	}
 	// Local cooperative admission must not depend on auth, fleet availability,
@@ -120,11 +116,8 @@ func run(invokedAs string, args []string, stdout, stderr io.Writer) (code int) {
 		}
 	}()
 
-	if len(args) > 0 && args[0] == "reboot" {
-		return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)
-	}
-	if len(args) > 0 && args[0] == "watchdog" {
-		return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
+	if len(args) > 0 && (args[0] == "reboot" || args[0] == "watchdog") {
+		return runExplicit(args, stdout, stderr)
 	}
 	switch personaForProgramName(invokedAs) {
 	case "codex":
@@ -183,6 +176,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 		return runHostCron(args[1:], stdout, stderr)
 	case "portal":
 		return agentportal.RunCommand(args[1:], stdout, stderr)
+	case "reboot":
+		return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)
 	case "watchdog":
 		return agentbus.RunWatchdogCommand(args[1:], os.Stdin, stdout, stderr)
 	case "daemon":
@@ -495,7 +490,7 @@ func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
 	}
 	communicator.RegisterSync(engine)
 	if len(args) > 0 && args[0] == "reboot" {
-		return agentbus.RunRebootCommand(args[1:], os.Stdin, stdout, stderr)
+		return runExplicit(args, stdout, stderr)
 	}
 	if len(args) > 0 && args[0] == "housekeeping" {
 		return housekeeping.Command(args[1:], engine, stdout, stderr)
