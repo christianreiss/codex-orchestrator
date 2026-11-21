@@ -180,7 +180,6 @@ published wrapper. Exercise a harmless shared run with two hosts, task evidence,
 an invitation/group, evaluation and a report. Keep unknown external results
 visible instead of retrying them.
 
-Rollback begins by stopping new runs and pausing or draining active work.
-Restore a known API/UI/wrapper release and retain the additive workflow tables.
-Do not drop historical reports or restore a database backup over newer work
-unless a demonstrated database problem requires it.
+Before returning to an earlier release, stop new runs and pause or drain active
+work. Deploy the compatible Git revision through the standard deployment script.
+Preserve the additive workflow tables, reports and current operator data.

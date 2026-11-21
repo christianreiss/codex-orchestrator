@@ -256,10 +256,18 @@ export async function registerAgentPortalAdminHostRoutes(
   app.post('/host/agent-sessions/:id/native-control', async req => {
     const id = stringParam(req.params, 'id');
     const body = z.object({ protocol: z.literal(1), instance_id: z.guid(), report: z.object({ request_id: z.guid(), status: z.enum(['accepted', 'exited', 'refused']) }).strict().optional() }).strict().parse(req.body);
+    const token = requireBridgeToken(req);
     const owner = ownerRuntimeFor(ctx.db);
-    if (owner && !body.report) legacyDrainFor(owner)?.renew('session', id, requireBridgeToken(req), {instanceId: body.instance_id});
-    await portal.authenticateBridge(id, requireBridgeToken(req), undefined, Boolean(body.report));
-    return new NativeStopService(ctx.db).poll(id, body.instance_id, body.report);
+    if (owner && !body.report) legacyDrainFor(owner)?.renew('session', id, token, {instanceId: body.instance_id});
+    const controls = new NativeStopService(ctx.db);
+    if (!body.report && !(await portal.isEnabled()) && await messaging.isEnabled()) {
+      // Messaging delivery also needs the native instance. Stop orders belong to the portal.
+      await messaging.authenticateBridge(id, token);
+      const binding = await controls.poll(id, body.instance_id);
+      return { ...binding, request_id: null };
+    }
+    await portal.authenticateBridge(id, token, undefined, Boolean(body.report));
+    return controls.poll(id, body.instance_id, body.report);
   });
 
   app.post('/host/agent-sessions/:id/activity', async (req) =>

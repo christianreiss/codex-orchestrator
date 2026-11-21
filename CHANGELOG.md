@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- A native agent can register its communicator and receive work when Messaging is enabled on its host and the Portal is disabled. Portal-only stop controls retain their own permission check.
+
 - The admin console isolates cached data and drafts when a user or role changes. Sign-out reports uncertain responses and can be retried. Login, passkey and password recovery move focus to the next field. Logs and external-client bookmarks open their pages correctly.
 - Native-version settings show the effective Codex floor, exact lock or Latest channel. Explicitly saving Latest now persists the choice. Empty installations select a native update target for Codex and Claude. The dashboard links to installed host versions and identifies estimated Kimi usage.
 - Android Companion 0.10.1 keeps the start button accessible with the keyboard open and supports reading and selecting chat identities with large system text.
