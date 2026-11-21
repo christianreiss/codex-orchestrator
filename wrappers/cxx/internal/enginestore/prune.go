@@ -23,7 +23,7 @@ import (
 // native sessions. Unlike retention, there is no published version to keep.
 func Uninstall(ctx context.Context, root, lockName string) error {
 	// The install-space lock lives outside the tree being unlinked and is
-	// held by both installers, including Grok's libc selection transaction.
+	// held by the Grok installer during libc selection and by the Kimi installer.
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
