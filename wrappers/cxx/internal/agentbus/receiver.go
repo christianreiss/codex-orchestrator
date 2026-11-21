@@ -269,6 +269,23 @@ func (r *autoReceiver) run(ctx context.Context, stderr io.Writer) {
 	}
 }
 
+// Keep a negotiated receiver connection authoritative across reconnects.
+// Older owners can still renew presence with their authenticated heartbeat.
+func (r *autoReceiver) openReceiverState(ctx context.Context, engine, generation string, binding int, required bool) (*communicator.StateClient, error) {
+	scope := communicator.StateScope{Topic: "receiver", SessionID: r.client.id, Engine: engine, BindingGeneration: binding, ReceiverGeneration: generation}
+	state, err := communicator.DialStateSocket(ctx, r.client.socket, "/_state", scope, communicator.StateAuth{})
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err != nil {
+		if required || r.connectionOwned {
+			return nil, err
+		}
+		return nil, nil
+	}
+	r.connectionOwned = true
+	return state, nil
+}
+
 func (r *autoReceiver) connection(parent context.Context) error {
 	if os.Getenv("CXX_AGENT_PORTAL_ENGINE") == "kimi" {
 		return r.kimiConnection(parent)
@@ -434,10 +451,6 @@ func (r *autoReceiver) connection(parent context.Context) error {
 	r.queuePolicyV1 = registered.Capabilities.QueuePolicy || registered.Capabilities.QueueDelivery
 	r.sources = slices.Clone(registered.Sources)
 	r.mu.Unlock()
-	r.setConnected(true)
-	if registered.Capabilities.Activity {
-		go r.observeActivity(ctx, engine, nativeID, generation, registered.BindingGeneration)
-	}
 	defer func() {
 		r.setConnected(false)
 		stopCtx, stop := context.WithTimeout(context.Background(), 3*time.Second)
@@ -447,18 +460,16 @@ func (r *autoReceiver) connection(parent context.Context) error {
 		// server revokes the claim. Never replay it into the new connection.
 		_ = r.client.receiver(stopCtx, "stop", map[string]any{"generation": generation, "failure": "adapter_disconnected"}, nil)
 	}()
-	state, stateErr := communicator.DialStateSocket(ctx, r.client.socket, "/_state", communicator.StateScope{Topic: "receiver", SessionID: r.client.id, Engine: engine, BindingGeneration: registered.BindingGeneration, ReceiverGeneration: generation}, communicator.StateAuth{})
-	r.mu.Lock()
-	wasConnectionOwned := r.connectionOwned
-	r.mu.Unlock()
-	if stateErr != nil && (wasConnectionOwned || registered.Capabilities.ControlStateProtocol == 1) {
-		return stateErr
+	state, err := r.openReceiverState(ctx, engine, generation, registered.BindingGeneration, registered.Capabilities.ControlStateProtocol == 1)
+	if err != nil {
+		return err
 	}
 	if state != nil {
 		defer state.Close()
-		r.mu.Lock()
-		r.connectionOwned = true
-		r.mu.Unlock()
+	}
+	r.setConnected(true)
+	if registered.Capabilities.Activity {
+		go r.observeActivity(ctx, engine, nativeID, generation, registered.BindingGeneration)
 	}
 	var stateRevision, lastGate string
 	stateClaims := 0

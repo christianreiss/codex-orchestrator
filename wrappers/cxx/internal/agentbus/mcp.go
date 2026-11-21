@@ -1577,8 +1577,12 @@ func agentListen(ctx context.Context, client *sessionClient, state *channelTrack
 	if held := state.heldWork(); len(held) > 0 && (os.Getenv("CXX_AGENT_PORTAL_ENGINE") != "kimi" || state.receiver == nil || !state.receiver.coordinationEnabled()) {
 		return workHeldResult(held, nil), nil
 	}
-	if err := state.ensureListenBind(ctx); err != nil {
-		return nil, err
+	// The registered Kimi receiver already owns the receive binding. The
+	// claim below carries its generation. Only standalone listeners bind here.
+	if state.receiver == nil {
+		if err := state.ensureListenBind(ctx); err != nil {
+			return nil, err
+		}
 	}
 	claimID := newUUID()
 	var claimed struct {

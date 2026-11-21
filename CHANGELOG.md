@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Wrapper 0.9.200 keeps Kimi receivers connected to the owner's receiver state stream. Peer listening now works past the first 15-second identity check, including when the Operator Portal is off. Native prompt and Stop hooks remain the notification points.
+
 - The database migration CLI finishes writing reports to slow pipes before exiting. Automation can parse the complete JSON result, including when the schema check reports pending migrations.
 
 - Wrapper 0.9.199 keeps Kimi peer messaging available when the Operator Portal is off. The receiver now reports activity only when the server grants that capability, so a disabled activity endpoint can no longer close the local messaging bridge.

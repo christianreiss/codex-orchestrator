@@ -237,8 +237,9 @@ func (r *autoReceiver) kimiConnection(parent context.Context) error {
 		Sources      []string `json:"sources"`
 		Binding      int      `json:"binding_generation"`
 		Capabilities struct {
-			Queue    bool `json:"queue_delivery_v1"`
-			Activity bool `json:"activity_v1"`
+			Queue                bool `json:"queue_delivery_v1"`
+			Activity             bool `json:"activity_v1"`
+			ControlStateProtocol int  `json:"control_state_protocol"`
 		} `json:"capabilities"`
 	}
 	body := map[string]any{"generation": generation, "protocol": "kimi-hooks-v1", "native_session_id": nativeID,
@@ -254,21 +255,48 @@ func (r *autoReceiver) kimiConnection(parent context.Context) error {
 	r.queueDeliveryV1 = registered.Capabilities.Queue
 	r.mu.Unlock()
 	r.setSources(registered.Sources)
-	r.setConnected(true)
+	defer func() {
+		r.setConnected(false)
+		stop, done := context.WithTimeout(context.Background(), 3*time.Second)
+		defer done()
+		_ = r.client.receiver(stop, "stop", map[string]any{"generation": generation}, nil)
+	}()
+	state, err := r.openReceiverState(ctx, "kimi", generation, registered.Binding, registered.Capabilities.ControlStateProtocol == 1)
+	if err != nil {
+		return err
+	}
 	r.setGate("thread_waiting")
+	if state != nil {
+		defer state.Close()
+		if err := state.Update(map[string]any{"generation": generation, "gate": r.heartbeatRequest(generation, true)["claim_gate"], "capacity": false}); err != nil {
+			return err
+		}
+	}
+	r.setConnected(true)
 	if registered.Capabilities.Activity {
 		go r.observeActivity(ctx, "kimi", nativeID, generation, registered.Binding)
 	}
-	defer r.setConnected(false)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
+		var changed <-chan struct{}
+		if state != nil {
+			var view struct {
+				Sources []string `json:"sources"`
+			}
+			_, updates, live := state.Snapshot(&view)
+			if !live {
+				return errors.New("receiver state disconnected")
+			}
+			if view.Sources != nil {
+				r.setSources(view.Sources)
+			}
+			changed = updates
+		}
 		select {
 		case <-ctx.Done():
-			stop, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			_ = r.client.receiver(stop, "stop", map[string]any{"generation": generation}, nil)
 			return ctx.Err()
+		case <-changed:
 		case <-ticker.C:
 			current, err := r.claudeIdentity(ctx)
 			if err != nil {
@@ -277,8 +305,10 @@ func (r *autoReceiver) kimiConnection(parent context.Context) error {
 			if current != nativeID {
 				return errors.New("Kimi native session changed")
 			}
-			if err := r.client.receiver(ctx, "heartbeat", r.heartbeatRequest(generation, true), nil); err != nil {
-				return err
+			if state == nil {
+				if err := r.client.receiver(ctx, "heartbeat", r.heartbeatRequest(generation, true), nil); err != nil {
+					return err
+				}
 			}
 			r.setConnected(true)
 			r.sessionName.report(ctx, r.client, "kimi", nativeID)

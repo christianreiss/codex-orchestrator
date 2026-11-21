@@ -339,6 +339,14 @@ available. A prompt or Stop ring reads pending message IDs. The message stays
 queued until a receiver claims it. Durable acceptance and an explicit task result
 have separate protocol steps.
 
+From cxx 0.9.200 a connection-owned receiver attaches its own `receiver` state
+stream for the registered generation before reporting ready. The separate
+session stream authenticates the launch. Losing the receiver stream ends its
+readiness and triggers registration for a new generation. Older servers that
+only support heartbeat leases retain the 15-second renewal path. Kimi advertises
+a waiting native turn with no idle delivery capacity. Queued messages stay in
+the mailbox until the model listens, even across receiver state updates.
+
 ### Gateway (`/kimi/v1`)
 
 The OpenAI-shaped surface (`/models`, `/chat/completions`, `/responses`) uses
