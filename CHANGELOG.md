@@ -1,3 +1,7 @@
+# 2026-11-22
+
+- Auth Runner, Media Worker and design review images now install their runtime code with explicit permissions so a private source checkout can build working non-root services.
+
 # 2026-11-21
 
 - Git updates on installations upgraded from the PHP service continue to accept the existing root Composer vendor directory and PHPUnit cache. Other untracked files still block the update.

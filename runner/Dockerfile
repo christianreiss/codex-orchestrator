@@ -102,10 +102,9 @@ RUN KIMI_VERSION="${KIMI_VERSION}" sh /tmp/install-kimi.sh "${TARGETARCH:-amd64}
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py entrypoint.sh /app/
-COPY runner_engines.py grok.py kimi.py images.py network_policy.py chatty.py exec_process.py /app/
-
-RUN chmod +x /app/entrypoint.sh
+# Runtime code belongs to root and must remain readable in a private checkout.
+COPY --chmod=0644 app.py runner_engines.py grok.py kimi.py images.py network_policy.py chatty.py exec_process.py /app/
+COPY --chmod=0755 entrypoint.sh /app/
 
 # The versions the image was built with, so /health can report what it actually
 # ships instead of re-shelling out to four CLIs on every probe.
@@ -119,6 +118,7 @@ ENV RUNNER_REQUIRED_ENGINES=codex,claude,grok,kimi
 ENV PYTHONUNBUFFERED=1
 ENV RUNNER_HOME_PARENT=/dev/shm
 USER nobody
+RUN test -r /app/entrypoint.sh && test -x /app/entrypoint.sh && python -c "import app"
 EXPOSE 8080
 
 ENTRYPOINT ["/app/entrypoint.sh"]
