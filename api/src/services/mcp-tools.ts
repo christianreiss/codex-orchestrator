@@ -1,3 +1,4 @@
+import { normalizeFileEncoding } from './project-file-encoding.js';
 import type { SlopJobsService } from './slop-jobs.js';
 import { ApiError, ValidationError } from '../http/errors.js';
 import type { HostSpawnService } from './host-spawn.js';
@@ -178,7 +179,7 @@ export class McpToolsRegistry {
     const validationError = validateAgainstSchema(
       entry.definition.inputSchema,
       argsObj,
-      normalized === 'project_file_upsert' && argsObj['encoding'] === 'base64' ? 'content' : undefined,
+      normalized === 'project_file_upsert' && normalizeFileEncoding(argsObj['encoding']) === 'base64' ? 'content' : undefined,
     );
     if (validationError) {
       return wrapContent('Invalid params: ' + validationError, true);
