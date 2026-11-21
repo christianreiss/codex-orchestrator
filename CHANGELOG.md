@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Wrapper 0.9.197 removes unreachable Kimi checks for bare `setup` and `install`. Kimi Code 2.5.3 and 2.7.2 report both as unknown commands. Managed native updates still use `ckx update`.
+
 - Wrapper 0.9.196 routes watchdog and reboot commands through the same handlers for `cxx` and its four engine aliases. Their command-line help remains available before managed initialization.
 
 - The project Documents tab loads file metadata first and fetches only the file opened in the editor. Editing a binary file’s description preserves its original bytes and digest, including existing zero-byte files. Existing API clients can still request listings with all file bodies.

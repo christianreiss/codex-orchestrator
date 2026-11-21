@@ -241,7 +241,9 @@ with `--environment`/`--environment-cwd`, and the native-only
 configuration or account admission. These independent processes do not inherit
 the proven managed auth, receiver and teardown lifecycle. Native `--help`
 remains available; recognized helpers are never started as managed sessions.
-Ordinary native `upgrade`/`update` remains owned by `ckx update`.
+Ordinary native `upgrade`/`update` remains owned by `ckx update`. Kimi Code 2.5.3
+and 2.7.2 report bare `setup` and `install` as unknown commands. The wrapper
+passes those words through, including when they are values for `--prompt`.
 
 The checked-in help snapshot records actual 2.7.2 output (binary SHA-256
 `7f82148d26467874400d19ee8d23ead13cece9cd0c17648a5622cae480a5a596`, verified

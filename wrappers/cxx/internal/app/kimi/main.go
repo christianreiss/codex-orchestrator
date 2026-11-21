@@ -209,16 +209,11 @@ func nativeOptions(args []string) (options, error) {
 
 const (
 	installRefusal = "Kimi installation is fleet-managed; use ckx update"
-	setupRefusal   = "kimi setup fetches and installs organization managed configuration into the native home; that configuration is host-owned and a managed session's private home is discarded at exit, so it is not supported here; native --help remains available"
 	authRefusal    = "%s requests a native Kimi sign-in, but managed sessions use the fleet-owned subscription login; use ckx login; native --help remains available"
 )
 
-// managedNativeRefusal names native argv a managed run must not execute:
-// install/update/upgrade (whatever their options, e.g. `update --version V`),
-// `setup` (its output would land in the discarded private home) and native
-// sign-in requests. Help and a root version request (--version before any
-// subcommand, which native answers before parsing the rest, or `version`)
-// still pass through; option values spelled like these stay values.
+// Managed updates and sign-in stay with the wrapper. Help, version probes and
+// option values pass through to Kimi.
 func managedNativeRefusal(args []string) string {
 	if isHelpPassthrough(args) || nativeVersionCommand(args) {
 		return ""
@@ -231,11 +226,8 @@ func managedNativeRefusal(args []string) string {
 	if nativeAnyFlag(root, "--version") {
 		return ""
 	}
-	switch command {
-	case "update", "upgrade", "install":
+	if command == "update" || command == "upgrade" {
 		return installRefusal
-	case "setup":
-		return setupRefusal
 	}
 	for _, flag := range []string{"--force-login", "--oauth", "--reauth"} {
 		if nativeFlag(args, flag) {
