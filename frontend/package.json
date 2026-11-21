@@ -7,7 +7,7 @@
     "dev": "vite dev",
     "build": "vite build && node scripts/copy-build.mjs",
     "preview": "vite preview",
-    "test": "node --test 'src/**/*.test.ts'",
+    "test": "node --test 'src/**/*.test.ts' scripts/build-version.test.mjs",
     "test:e2e": "playwright test",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run test && npm run slop",
     "slop": "bash ../scripts/slop-grep.sh src",

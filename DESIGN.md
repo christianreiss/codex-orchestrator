@@ -225,6 +225,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 | --- | --- | --- |
 | Initial loading | Stable skeleton or progress label for the requested region; no fake counts or empty-state flash | A/V |
 | Background refresh | Keep useful prior content and focus; mark refresh/staleness where relevant | A/M |
+| New admin release | Keep the open page mounted. On navigation to a retired asset, load the chosen route from the current release. Preserve the existing unsaved-changes decision. | A/M |
 | Empty collection | Explain the actual absence (“No hosts registered”) and offer the permitted first action | A/M |
 | No matches | Explain filter scope and provide clear/reset; do not suggest creating duplicate data | A/M |
 | Permission denied | Explain the restriction and available route forward without exposing restricted content | A/M |

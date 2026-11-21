@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- An open admin tab recognizes a newly deployed interface when a previously unloaded page changes. Navigation then loads the current release automatically.
+
 - Retrying a background setup check keeps an authenticated operator’s open editor and unsaved draft through the retry.
 
 - OAuth connectors can delegate work to an authorized managed agent again. Retrying the same request keeps the original message, and the connector can read its recorded outcome.
