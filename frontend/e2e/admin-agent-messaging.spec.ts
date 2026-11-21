@@ -14,7 +14,7 @@ async function fixtures(page: Page, manage = true) {
   const now = new Date().toISOString();
   const peers = [peer(CODEX, "codex"), peer(CLAUDE, "claude"), peer(GROK, "grok"), peer(KIMI, "kimi")];
   const groups = [{ id: "release", slug: "release", title: "Release review", description: "A scoped release audience", topic: "group:release", member_count: 2, created_at: now, updated_at: now }, { id: "security", slug: "security", title: "Security", description: "Only security subscribers", topic: "group:security", member_count: 1, created_at: now, updated_at: now }];
-  const state = { messages: [] as Array<Record<string, unknown>>, enabled: true, dropPublish: 0, failGroups: false, bodies: [] as Array<{path: string; body: Record<string, unknown>}>, calls: [] as string[], errors: [] as string[], groups, watchdogs: [] as Array<Record<string,unknown>> };
+  const state = { peers, messages: [] as Array<Record<string, unknown>>, enabled: true, dropPublish: 0, failGroups: false, bodies: [] as Array<{path: string; body: Record<string, unknown>}>, calls: [] as string[], errors: [] as string[], groups, watchdogs: [] as Array<Record<string,unknown>> };
   page.on("pageerror", (error) => state.errors.push(error.message));
   await page.route("**/admin/**", async (route) => {
     const request = route.request();
@@ -239,10 +239,10 @@ test('ordinary missing transcripts require one explicit approval, while wakes an
 });
 
 
-test("watchdog operator controls protect all three engines and show authoritative metadata", async ({page})=>{
+test("watchdog operator controls protect all four engines and show authoritative metadata", async ({page})=>{
   const state=await fixtures(page);await page.goto("/admin/agent-messaging?view=addresses");
-  const panels=page.getByTestId("watchdog-panel");await expect(panels).toHaveCount(3);
-  for(let i=0;i<3;i++){
+  const panels=page.getByTestId("watchdog-panel");await expect(panels).toHaveCount(state.peers.length);
+  for(let i=0;i<state.peers.length;i++){
     const panel=panels.nth(i);await panel.getByRole("button",{name:"Enable watchdog"}).click();
     await panel.getByLabel("Task key",{exact:true}).fill(`task-${i}`);
     await panel.getByLabel("Continue this authorized task").fill("Finish the current task and verify it");

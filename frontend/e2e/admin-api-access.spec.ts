@@ -69,7 +69,7 @@ for (const format of ['openai', 'claude', 'grok', 'kimi']) {
     await assertNoOverflow(page);
     expect(await dialog.evaluate(el => [...el.querySelectorAll('*')].every(child => child.scrollHeight <= child.clientHeight + 1 || getComputedStyle(child).overflowY !== 'auto'))).toBe(true);
     await page.screenshot({ path: `test-results/api-access-${format}-created-desktop.png` });
-    const baseUrl = `http://127.0.0.1:4173${format === 'openai' ? '/v1' : format === 'claude' ? '/anthropic/v1' : format === 'grok' ? '/grok/v1' : '/kimi/v1'}`;
+    const baseUrl = `${new URL(page.url()).origin}${format === 'openai' ? '/v1' : format === 'claude' ? '/anthropic/v1' : format === 'grok' ? '/grok/v1' : '/kimi/v1'}`;
     const urls = {
       'Base URL': baseUrl, 'Models URL': `${baseUrl}/models`, 'Responses URL': `${baseUrl}/responses`,
       ...(format === 'claude' ? { 'Messages URL': `${baseUrl}/messages`, 'Completions URL': `${baseUrl}/complete` }

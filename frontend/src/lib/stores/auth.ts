@@ -2,7 +2,7 @@
  * Auth store. Hydrates from `GET /admin/auth/status`. Exposes a readable
  * `authStore` and an `authActions` API.
  */
-import { writable, type Readable } from "svelte/store";
+import { get, writable, type Readable } from "svelte/store";
 import { browser } from "$app/environment";
 import { api, ApiError } from "../api/client";
 import type { AuthStatus, User } from "../api/types";
@@ -57,10 +57,14 @@ function extractRoles(user: User | null | undefined): string[] {
   return [];
 }
 
-async function refresh(): Promise<AuthState> {
-  store.update((s) => ({ ...s, loading: true }));
+let generation = 0;
+
+async function refresh(background = false): Promise<AuthState> {
+  const request = ++generation;
+  if (!background) store.update((s) => ({ ...s, loading: true }));
   try {
     const status = await api.get<AuthStatus>("/admin/auth/status");
+    if (request !== generation) return get(store);
     const capabilities = Array.isArray(status.capabilities) ? status.capabilities : [];
     const next: AuthState = {
       authenticated: Boolean(status.authenticated),
@@ -77,6 +81,7 @@ async function refresh(): Promise<AuthState> {
     store.set(next);
     return next;
   } catch (err) {
+    if (request !== generation) return get(store);
     // If the endpoint is 401/403, treat as unauthenticated.
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
       const next: AuthState = {
@@ -93,6 +98,8 @@ async function refresh(): Promise<AuthState> {
       store.set(next);
       return next;
     }
+    // A transient recheck failure keeps the active editor and its unsaved input.
+    if (background && get(store).authenticated) return get(store);
     store.update((s) => ({
       ...s,
       loading: false,
@@ -102,10 +109,22 @@ async function refresh(): Promise<AuthState> {
   }
 }
 
-if (browser) {
-  void refresh().catch(() => {
-    store.update((s) => ({ ...s, loading: false }));
-  });
+if (browser) void refresh().catch(() => { /* refresh recorded the failure. */ });
+
+/** Events arriving during a status read still need one trailing read. */
+let checking = false;
+let changed = false;
+async function recheck(): Promise<void> {
+  if (checking) { changed = true; return; }
+  checking = true;
+  try {
+    do {
+      changed = false;
+      await refresh(true).catch(() => { /* refresh recorded the failure. */ });
+    } while (changed);
+  } finally {
+    checking = false;
+  }
 }
 
 export const authStore: Readable<AuthState> = { subscribe: store.subscribe };
@@ -123,11 +142,20 @@ export const authActions = {
   async logout(): Promise<AuthState> {
     try {
       await api.post("/admin/auth/logout");
-    } catch {
-      /* ignore — we still want to reset local state */
+    } catch (error) {
+      // A lost acknowledgement can follow a committed server-side logout.
+      const session = await refresh(true);
+      if (session.authenticated) throw error;
+      return session;
     }
-    return refresh();
+    // The server confirmed its commit and cleared the cookie. Drop private
+    // data immediately, even when the next status read cannot reach the API.
+    generation++;
+    const session = { ...initial, enforced: get(store).enforced, loading: false };
+    store.set(session);
+    return session;
   },
 
   refresh,
+  recheck,
 };

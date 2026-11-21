@@ -58,6 +58,18 @@ const authModule: string = "./auth.ts";
 const { authActions, authStore } = (await import(authModule)) as typeof import("./auth");
 
 describe("refresh", () => {
+  it("keeps the newest status when an earlier read finishes last", async () => {
+    let finish!: (value: unknown) => void;
+    stub.get = () => new Promise(resolve => { finish = resolve; });
+    const old = authActions.refresh();
+    stub.get = async () => ({ authenticated: false, enforced: true, user: null });
+    await authActions.refresh();
+    finish({ authenticated: true, enforced: true, user: { id: 1 }, capabilities: ["users.manage"] });
+    await old;
+    assert.equal(get(authStore).authenticated, false);
+    assert.equal(get(authStore).can("users.manage"), false);
+  });
+
   it("maps a 401 to an enforced, unauthenticated state", async () => {
     stub.get = async () => {
       throw new ApiError({ status: 401, message: "unauthorized" });
@@ -161,6 +173,14 @@ describe("refresh", () => {
     const state = await authActions.refresh();
     assert.deepEqual(state.capabilities, []);
     assert.equal(state.can("secrets.reveal"), false);
+  });
+
+  it("preserves the active editor session when a background status read is offline", async () => {
+    stub.get = async () => ({ authenticated: true, user: { id: 7, username: "editor" }, capabilities: ["admin.read"] });
+    const active = await authActions.refresh();
+    stub.get = async () => { throw new Error("offline"); };
+    await authActions.recheck();
+    assert.deepEqual(get(authStore), active);
   });
 
   it("drops every capability on sign-out", async () => {

@@ -22,7 +22,7 @@ const baseShape = {
     .max(64, "Too long")
     .regex(USERNAME_PATTERN, "Lowercase letters, digits, . _ - only"),
   access_level: z.enum(USER_ROLES, {
-    errorMap: () => ({ message: "Pick a role" }),
+    error: "Pick a role",
   }),
   active: z.boolean(),
 };

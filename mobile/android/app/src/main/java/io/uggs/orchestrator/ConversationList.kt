@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -154,7 +155,9 @@ private sealed interface InboxItem {
 }
 
 @Composable private fun InboxSection(title: String, count: Int?, role: StatusRole?) {
-    Row(Modifier.fillMaxWidth().padding(start = Space.l, end = Space.l, top = Space.l, bottom = Space.xs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+    val compact = LocalConfiguration.current.screenHeightDp <= 680
+    Row(Modifier.fillMaxWidth().padding(start = Space.l, end = Space.l, top = if (compact) Space.xs else Space.l,
+        bottom = if (compact) 0.dp else Space.xs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
         Text(title.uppercase(), style = MaterialTheme.typography.labelSmall, color = role?.color() ?: MaterialTheme.colorScheme.onSurfaceVariant)
         if (count != null && count > 1) Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -174,22 +177,35 @@ private sealed interface InboxItem {
 
 internal fun shortHostName(host: String): String = if (host.contains(':') || host.all { it.isDigit() || it == '.' }) host else host.substringBefore('.')
 
+/** Leave the identity a full line when large text consumes the available phone width. */
+@Composable private fun stackInboxMetadata(): Boolean =
+    LocalConfiguration.current.screenWidthDp / LocalDensity.current.fontScale < 260
+
 /** Shared two-line row anatomy for agents, rooms and approvals (docs/android-design.md). */
 @Composable internal fun InboxRowFrame(modifier: Modifier, divider: Boolean, onClick: () -> Unit, avatar: @Composable () -> Unit,
     title: @Composable RowScope.() -> Unit, trailing: @Composable () -> Unit, subtitle: @Composable RowScope.() -> Unit, enabled: Boolean = true) {
-    Surface(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth().heightIn(min = 72.dp), shape = RectangleShape, color = MaterialTheme.colorScheme.background) {
+    val compact = LocalConfiguration.current.screenHeightDp <= 680
+    val stack = stackInboxMetadata()
+    val inset = if (compact) Space.s else Space.l
+    val gap = if (compact) Space.s else Space.m
+    Surface(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth().heightIn(min = if (compact) 56.dp else 72.dp), shape = RectangleShape, color = MaterialTheme.colorScheme.background) {
         Column {
-            Row(Modifier.fillMaxWidth().padding(horizontal = Space.l, vertical = Space.m), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.m)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = inset, vertical = if (compact) Space.xs else Space.m), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap)) {
                 avatar()
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) { title() }
-                        trailing()
+                    if (stack) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, content = title)
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, content = title)
+                            trailing()
+                        }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s)) { subtitle() }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s), content = subtitle)
+                    if (stack) trailing()
                 }
             }
-            if (divider) HorizontalDivider(Modifier.padding(start = 76.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            if (divider) HorizontalDivider(Modifier.padding(start = inset + 48.dp + gap), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
         }
     }
 }
@@ -218,10 +234,19 @@ internal fun roomCategory(room: JSONObject): String = when (room.optString("kind
     InboxRowFrame(Modifier.testTag("agent:" + agent.optString("id")).semantics { stateDescription = unreadState }, divider, onClick,
         avatar = { AgentAvatar(agent, role) },
         title = {
-            Text(agentTitle(t, agent), Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium,
-                maxLines = if (LocalDensity.current.fontScale > 1.1f) 2 else 1, overflow = TextOverflow.Ellipsis)
-            if (host != null) Text(" · " + shortHostName(host), Modifier.clearAndSetSemantics { contentDescription = hostDescription },
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            val name = agentTitle(t, agent)
+            if (stackInboxMetadata()) {
+                Column {
+                    Text(name, style = MaterialTheme.typography.titleMedium)
+                    if (host != null) Text(shortHostName(host), Modifier.clearAndSetSemantics { contentDescription = hostDescription },
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                Text(name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium,
+                    maxLines = if (LocalDensity.current.fontScale > 1.1f) 2 else 1, overflow = TextOverflow.Ellipsis)
+                if (host != null) Text(" · " + shortHostName(host), Modifier.clearAndSetSemantics { contentDescription = hostDescription },
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
         },
         trailing = {
             timestamp?.let { Text(timeLabel(t, it, DateFormat.is24HourFormat(LocalContext.current)), style = MaterialTheme.typography.labelMedium,

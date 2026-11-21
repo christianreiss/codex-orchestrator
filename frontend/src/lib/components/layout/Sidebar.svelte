@@ -6,7 +6,8 @@
   import { NAV_FOOTER, NAV_SECTIONS, isActive } from "$lib/nav";
   import { ACCOUNT_LINKS } from "./account-links";
   import { cn } from "$lib/utils/cn";
-  import { authActions, authStore } from "$lib/stores/auth";
+  import { authStore } from "$lib/stores/auth";
+  import { signOut } from "$lib/auth/sign-out";
   import BrandMark from "$lib/components/brand/BrandMark.svelte";
   import InsecureApprovalsNavAlert from "./InsecureApprovalsNavAlert.svelte";
   import { fleetDisabledTitle, useFleetEngines } from "$lib/engines/fleet-engines";
@@ -34,10 +35,6 @@
     window.dispatchEvent(new CustomEvent("codex:open-shortcuts"));
   }
 
-  async function signOut() {
-    await authActions.logout();
-    void goto(`${base}/login`);
-  }
 </script>
 
 <Tooltip.Provider>

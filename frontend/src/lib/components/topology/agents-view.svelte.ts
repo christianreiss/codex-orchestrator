@@ -5,7 +5,8 @@
  * and effects).
  */
 import { onMount, untrack } from "svelte";
-import { fromStore } from "svelte/store";
+import { fromStore, get } from "svelte/store";
+import { authStore } from "$lib/stores/auth";
 import { page } from "$app/state";
 import { goto, replaceState } from "$app/navigation";
 import { topologyQuery, type Topology } from "$lib/api/topology";
@@ -18,6 +19,8 @@ type Engine = "all" | "codex" | "claude" | "grok" | "kimi";
 const PREFS_KEY = "topology-view-v1";
 
 class AgentsView {
+  readonly #actorId = get(authStore).user?.id;
+  readonly #prefsKey = this.#actorId == null ? null : `${PREFS_KEY}:${this.#actorId}`;
   readonly topology = fromStore(topologyQuery());
 
   // One shared filter row.
@@ -87,11 +90,13 @@ class AgentsView {
     });
     onMount(() => {
       try {
-        const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "null");
+        const scoped = this.#prefsKey ? localStorage.getItem(this.#prefsKey) : null;
+        // Historic preferences have no owner. Only their presentation settings are shared.
+        const saved = JSON.parse(scoped ?? localStorage.getItem(PREFS_KEY) ?? "null");
         if (saved?.view === "list" || saved?.view === "radial") this.layout = saved.view;
         if (saved?.grouping === 'connection') this.grouping = 'connection';
         else if (['project', 'host', 'scopes'].includes(saved?.grouping)) this.grouping = 'project';
-        const f = saved?.filters;
+        const f = scoped ? saved?.filters : null;
         if (f) {
           if (typeof f.engine === "string") this.engine = f.engine;
           if (typeof f.status === "string") this.status = f.status;
@@ -102,9 +107,9 @@ class AgentsView {
       this.#prefsLoaded = true;
     });
     $effect(() => {
-      if (!this.#prefsLoaded) return;
+      if (!this.#prefsLoaded || !this.#prefsKey) return;
       const payload = JSON.stringify({ view: this.layout, grouping: this.grouping, filters: { engine: this.engine, status: this.status, host: this.host, mode: this.mode } });
-      try { localStorage.setItem(PREFS_KEY, payload); } catch { /* Storage is optional. */ }
+      try { localStorage.setItem(this.#prefsKey, payload); } catch { /* Storage is optional. */ }
     });
   }
 

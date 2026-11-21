@@ -1,5 +1,7 @@
 <script module lang="ts">
-  const drafts = new Map<string, { content: string; pending: { content: string; id: string } | null }>();
+  import type { QueryClient } from '@tanstack/svelte-query';
+  type ScopeDraft = { content: string; pending: { content: string; id: string } | null };
+  const sessionDrafts = new WeakMap<QueryClient, Map<string, ScopeDraft>>();
 </script>
 <script lang="ts">
   import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
@@ -14,6 +16,8 @@
   import { Button } from '$lib/components/ui/button';
   let { room, claims, onclose }: { room: ScopeRoom; claims: ResourceClaim[]; onclose: () => void } = $props();
   const client = useQueryClient();
+  const drafts = sessionDrafts.get(client) ?? new Map<string, ScopeDraft>();
+  sessionDrafts.set(client, drafts);
   const canRead = $derived($authStore.can('agent_messaging.reveal_content'));
   const canWrite = $derived($authStore.can('agent_messaging.manage'));
   // Parent keys by room ID; drafts and retry IDs survive room switches in memory.

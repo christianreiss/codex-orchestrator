@@ -1,6 +1,6 @@
 # Android companion
 
-## Redesign and message queue (Android 0.10.0)
+## Redesign and message queue (Android 0.10.x)
 
 Visual and UX rework against the new native standard [`android-design.md`](android-design.md).
 
@@ -10,9 +10,12 @@ Visual and UX rework against the new native standard [`android-design.md`](andro
 - **Shell:** tabs Chats · Hosts · Quotas. Approvals moved under Hosts ("Access approvals",
   route `authorizations` unchanged, notifications still open it) and appear at the top of the
   inbox. The "Review next" button is gone. ⋮ opens Settings. A "+" button starts an agent:
-  host picker, then the existing start sheet.
+  host picker, then the existing start sheet. The sheet scrolls its fields and keeps the start action
+  above the on-screen keyboard.
 - **Inbox:** the filter chips are gone. Sections are "Needs you" (approvals, questions, urgent
-  notices) and "Active" (agents and rooms, newest first). Rows have at most two lines.
+  notices) and "Active" (agents and rooms, newest first). Short phone windows reduce row and
+  section spacing while preserving touch targets. At large text sizes, agent names, host labels
+  and times have separate lines and the list scrolls.
   **Offline and ended agents are no longer listed**; the "Recent" section was removed. Their
   data stays in the agent snapshot, so message search, pushes and deep links still open them
   read-only.
@@ -1104,6 +1107,18 @@ The host reads a short-lived token fixture through `adb run-as`; the test remove
 it on completion. No service-account credential or OAuth bearer is copied to the
 emulator or logged. The sender's FCM acceptance and the Android test must both
 pass. The ordinary CI run skips these Firebase-dependent tests.
+
+### Isolated pairing and revocation
+
+The instrumentation case `RemoteLiveTest.loopbackPairingShowsRegisteredHostAndRevokesDevice`
+takes `-e loopbackPairingFile <name>.json` on an unpaired test device. Put the fixture in
+the app's private `files/` directory using `adb shell run-as`. It contains the single-use
+`pairing` object returned by an isolated API, the PEM `certificate` for that API's
+localhost TLS listener, and the `host` name of a registered host with its daemon enabled.
+Forward the localhost port to the test API with `adb reverse`. The test uses the pairing
+screen, opens Hosts, verifies the persisted host, retries the spent pairing code and
+verifies that a revoked device receives HTTP 401. It deletes the fixture on read and limits
+the test certificate to its in-process network client. Production TLS policy is unchanged.
 
 ### Final acceptance
 

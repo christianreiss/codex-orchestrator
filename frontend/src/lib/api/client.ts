@@ -107,6 +107,11 @@ export async function apiFetch<T = unknown>(path: string, init: ApiFetchOptions 
     credentials: init.credentials ?? "same-origin",
   });
 
+  // A protected request may be the first indication that a browser session expired.
+  if (response.status === 401 && url.startsWith("/admin/") && !url.startsWith("/admin/auth/") && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("codex:session-recheck"));
+  }
+
   // No content / 204
   if (response.status === 204) return undefined as T;
 

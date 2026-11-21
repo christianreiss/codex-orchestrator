@@ -33,7 +33,7 @@ test("sign-in walks username, then password, with the reset path one click away"
   await expect(page.getByRole("heading", { name: "Sign in", level: 1 })).toBeVisible();
   await page.getByLabel("Username").fill("operator");
   await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeFocused();
   await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
   await expectNoSeriousAxeFindings(page);
   await page.getByRole("button", { name: "Forgot password?" }).click();

@@ -29,7 +29,7 @@ registerHooks({
   },
 });
 
-const STORAGE_KEY = "codex:recent-commands";
+const STORAGE_KEY = "codex:recent-commands:1";
 
 /** Stand-in for `localStorage` whose access can fail the way a blocked origin does. */
 class FakeStorage {
@@ -81,38 +81,46 @@ beforeEach(() => {
 
 describe("recordRecentCommand", () => {
   it("prepends a newly invoked id", () => {
-    recordRecentCommand("hosts");
-    recordRecentCommand("agents");
+    recordRecentCommand(1, "hosts");
+    recordRecentCommand(1, "agents");
     assert.deepEqual(persisted(), ["agents", "hosts"]);
   });
 
   it("moves an already-recorded id to the front instead of duplicating it", () => {
     storage.values.set(STORAGE_KEY, JSON.stringify(["hosts", "agents", "tasks"]));
-    recordRecentCommand("agents");
+    recordRecentCommand(1, "agents");
     assert.deepEqual(persisted(), ["agents", "hosts", "tasks"]);
   });
 
   it("caps the list at five entries, dropping the oldest", () => {
     for (const id of ["one", "two", "three", "four", "five", "six"]) {
-      recordRecentCommand(id);
+      recordRecentCommand(1, id);
     }
     assert.deepEqual(persisted(), ["six", "five", "four", "three", "two"]);
   });
 });
 
 describe("getRecentCommandIds", () => {
+  it("separates users and ignores historic entries without an owner", () => {
+    storage.values.set("codex:recent-commands", JSON.stringify(["previous"]));
+    recordRecentCommand(1, "agents");
+    assert.deepEqual(getRecentCommandIds(2), []);
+    assert.deepEqual(getRecentCommandIds(undefined), []);
+    assert.deepEqual(getRecentCommandIds(1), ["agents"]);
+  });
+
   it("is empty when nothing was ever stored", () => {
-    assert.deepEqual(getRecentCommandIds(), []);
+    assert.deepEqual(getRecentCommandIds(1), []);
   });
 
   it("is empty when the stored payload is not JSON", () => {
     storage.values.set(STORAGE_KEY, "{not json");
-    assert.deepEqual(getRecentCommandIds(), []);
+    assert.deepEqual(getRecentCommandIds(1), []);
   });
 
   it("is empty when the stored payload is not an array", () => {
     storage.values.set(STORAGE_KEY, JSON.stringify({ hosts: 1 }));
-    assert.deepEqual(getRecentCommandIds(), []);
+    assert.deepEqual(getRecentCommandIds(1), []);
   });
 
   it("drops non-string members of a hand-edited array", () => {
@@ -120,7 +128,7 @@ describe("getRecentCommandIds", () => {
       STORAGE_KEY,
       JSON.stringify(["hosts", 2, null, "agents", { id: "tasks" }, true, "runs"]),
     );
-    assert.deepEqual(getRecentCommandIds(), ["hosts", "agents", "runs"]);
+    assert.deepEqual(getRecentCommandIds(1), ["hosts", "agents", "runs"]);
   });
 });
 
@@ -128,13 +136,13 @@ describe("storage that throws", () => {
   it("reads as empty rather than crashing the palette", () => {
     storage.values.set(STORAGE_KEY, JSON.stringify(["hosts"]));
     storage.failReads = true;
-    assert.deepEqual(getRecentCommandIds(), []);
+    assert.deepEqual(getRecentCommandIds(1), []);
   });
 
   it("records nothing and stays silent", () => {
     storage.failReads = true;
     storage.failWrites = true;
-    assert.doesNotThrow(() => recordRecentCommand("hosts"));
+    assert.doesNotThrow(() => recordRecentCommand(1, "hosts"));
     assert.equal(storage.values.size, 0);
   });
 });
@@ -145,11 +153,11 @@ describe("on the server", () => {
 
   it("reads as empty without touching storage", () => {
     storage.values.set(STORAGE_KEY, JSON.stringify(["hosts"]));
-    assert.deepEqual(getRecentCommandIds(), []);
+    assert.deepEqual(getRecentCommandIds(1), []);
   });
 
   it("records nothing", () => {
-    recordRecentCommand("hosts");
+    recordRecentCommand(1, "hosts");
     assert.equal(storage.values.size, 0);
   });
 });

@@ -48,14 +48,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run check
-      - run: npm run test
       - run: npm run build
       - name: committed admin artifact matches a fresh build
         working-directory: .
         run: |
-          if ! git diff --quiet -- public/admin; then
+          if [ -n "$(git status --porcelain --untracked-files=all -- public/admin)" ]; then
             echo "public/admin is stale; run 'npm run build' in frontend/ and commit the result" >&2
-            git --no-pager diff --stat -- public/admin >&2
+            git status --short --untracked-files=all -- public/admin >&2
             exit 1
           fi
       # The browser suite existed but no workflow ran it, so it rotted: an

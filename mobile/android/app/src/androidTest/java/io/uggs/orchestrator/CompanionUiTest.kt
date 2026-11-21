@@ -359,7 +359,8 @@ class CompanionUiTest {
         compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
         compose.onNodeWithTag("close-window:7").performClick()
         compose.waitUntil(10000) { compose.onAllNodesWithText("Fleet insecure window is open; close it first").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("window:7").assertExists()
+        compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("window:7"))
+        compose.onNodeWithTag("window:7").assertIsDisplayed()
         failWindowClose.set(false)
         compose.onNodeWithTag("authorizations-list").performScrollToNode(hasTestTag("close-window:7"))
         compose.waitUntil(10000) { compose.onAllNodes(hasTestTag("close-window:7") and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
@@ -401,6 +402,8 @@ class CompanionUiTest {
         compose.onNodeWithTag("spawn:7").performClick()
         compose.onNodeWithTag("spawn-task").performTextInput("Inspect the daemon logs")
         compose.onNodeWithText("Claude", useUnmergedTree = true).performClick()
+        compose.onNodeWithTag("confirm-spawn").assertIsDisplayed().assertIsEnabled()
+        screenshot("host-start-keyboard")
         compose.onNodeWithTag("confirm-spawn").performClick()
         compose.waitUntil(10_000) { spawned.get() != null }
         Assert.assertEquals("Inspect the daemon logs", spawned.get()!!.getString("task"))
@@ -927,9 +930,12 @@ class CompanionUiTest {
                 compose.onNodeWithContentDescription("Host: worker-${index + 1}.production.uggs.io", useUnmergedTree = true).assertIsDisplayed()
             }
             compose.onNode(hasContentDescription("Engine: Kimi Code") and hasAnyAncestor(hasTestTag("agent:dense-3")), useUnmergedTree = true).assertExists()
+            val fifthRow = compose.onNodeWithTag("agent:dense-3").fetchSemanticsNode()
+            val listBottom = compose.onNodeWithTag("chat-list").fetchSemanticsNode().boundsInRoot.bottom
+            Assert.assertTrue("The fifth row fits fully in the inbox", fifthRow.positionInRoot.y + fifthRow.size.height <= listBottom + 1f)
         }
         screenshot("chat-home-dense")
-        compose.onNodeWithTag("chat-list").performScrollToIndex(projects.size)
+        compose.onNodeWithTag("chat-list").performScrollToKey("agent:dense-5")
         compose.onNodeWithTag("agent:dense-5").assertIsDisplayed().assertHasClickAction()
         val lastRow = compose.onNodeWithTag("agent:dense-5").fetchSemanticsNode().boundsInRoot
         compose.onAllNodesWithTag("start-agent").fetchSemanticsNodes().firstOrNull()?.let { fab ->

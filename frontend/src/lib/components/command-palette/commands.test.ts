@@ -17,7 +17,7 @@ const LUCIDE_STUB = "stub:lucide";
 const NAVIGATION_STUB = "stub:app-navigation";
 const PATHS_STUB = "stub:app-paths";
 const THEME_STUB = "stub:theme-store";
-const AUTH_STUB = "stub:auth-store";
+const SIGN_OUT_STUB = "stub:sign-out";
 const PALETTE_STUB = "stub:palette-store";
 
 /** Every icon `commands.ts` and `nav.ts` import; the values are never rendered. */
@@ -76,7 +76,7 @@ const STUB_SOURCES: Record<string, string> = {
   [NAVIGATION_STUB]: `export function goto() {}`,
   [PATHS_STUB]: `export const base = "";`,
   [THEME_STUB]: `export function setTheme() {}`,
-  [AUTH_STUB]: `export const authActions = { logout: async () => {} };`,
+  [SIGN_OUT_STUB]: `export async function signOut() {}`,
   [PALETTE_STUB]: `export const commandPalette = { close() {} };`,
 };
 
@@ -85,7 +85,7 @@ const STUBBED_SPECIFIERS: Record<string, string> = {
   "$app/navigation": NAVIGATION_STUB,
   "$app/paths": PATHS_STUB,
   "$lib/stores/theme": THEME_STUB,
-  "$lib/stores/auth": AUTH_STUB,
+  "$lib/auth/sign-out": SIGN_OUT_STUB,
   "$lib/stores/command-palette": PALETTE_STUB,
 };
 

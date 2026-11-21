@@ -1164,8 +1164,6 @@ export interface CodexVersionsSummary {
   client_version_source?: string | null;
   client_version_enforce_exact?: boolean;
   wrapper_version?: string | null;
-  reported_client_version?: string | null;
-  reported_wrapper_version?: string | null;
   [key: string]: unknown;
 }
 

@@ -15,6 +15,7 @@ import { registerAdminOverviewSettingsRoutes } from '../../src/routes/admin-over
 import { registerAdminContentRoutes } from '../../src/routes/admin-content/index.js';
 import { registerAdminMemoriesRoutes } from '../../src/routes/admin/memories/index.js';
 import { registerAdminManualRoutes } from '../../src/routes/admin/manual/index.js';
+import { registerExternalClientRoutes } from '../../src/routes/external/index.js';
 import { registerAdminTopologyRoutes } from '../../src/routes/admin/topology/index.js';
 import { loadTestEnv, testKeyring } from '../helpers/test-keyring.js';
 
@@ -65,7 +66,7 @@ function spaPageUrls(dir: string, segments: string[] = []): string[] {
  * an unauthenticated browser navigation looks like.
  */
 async function buildAdminSpaApp(root: string): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false, ignoreTrailingSlash: true, caseSensitive: true });
+  const app = Fastify({ logger: false, routerOptions: { ignoreTrailingSlash: true, caseSensitive: true } });
   const ctx: RouteContext = {
     db: {} as RouteContext['db'],
     env: { ...loadTestEnv(), STATIC_ROOT: root },
@@ -87,6 +88,7 @@ async function buildAdminSpaApp(root: string): Promise<FastifyInstance> {
   await registerAdminMemoriesRoutes(app, ctx);
   await registerAdminManualRoutes(app, ctx);
   await registerAdminTopologyRoutes(app, ctx);
+  await registerExternalClientRoutes(app, ctx);
   await registerStaticAdminRoutes(app, ctx);
 
   await app.ready();
@@ -108,7 +110,8 @@ describe('admin SPA navigation collisions', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  const urls = spaPageUrls(FRONTEND_ROUTES);
+  // The catch-all source cannot express the concrete bookmarked audit-log URL.
+  const urls = [...spaPageUrls(FRONTEND_ROUTES), '/admin/logs'];
 
   it('derives the page list from the frontend routes', () => {
     // Guard against a silently empty walk (moved directory, renamed page file)
@@ -133,6 +136,7 @@ describe('admin SPA navigation collisions', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
     expect(res.payload).toBe('');
+    expect(String(res.headers.vary).toLowerCase().split(/, */)).toContain('accept');
   });
 
   it('keeps JSON authentication when JSON precedes HTML in Accept', async () => {
@@ -141,13 +145,34 @@ describe('admin SPA navigation collisions', () => {
     expect(res.headers['content-type']).toContain('application/json');
   });
 
+  it.each([
+    ['text/html;q=0, */*', 401],
+    ['text/html;q=0.2, application/json;q=0.9', 401],
+    ['application/json;q=0.2, text/html;q=0.9', 200],
+    ['TEXT/HTML', 200],
+    ['text/html-extra', 401],
+    ['*/*', 401],
+  ] as const)('negotiates an explicit navigation preference for %s', async (accept, status) => {
+    const response = await app.inject({ method: 'GET', url: '/admin/agents', headers: { accept } });
+    expect(response.statusCode).toBe(status);
+    expect(response.headers['content-type']).toContain(status === 200 ? 'text/html' : 'application/json');
+  });
+
+  it('keeps the HTML fallback within the admin mount and honours a rejected HTML type', async () => {
+    for (const [url, accept] of [['/administrator', 'text/html'], ['/admin/missing-page', 'text/html;q=0']]) {
+      const response = await app.inject({ method: 'GET', url, headers: { accept } });
+      expect(response.statusCode).toBe(404);
+      expect(response.payload).not.toContain('Codex Admin');
+    }
+  });
+
   it.each(['GET', 'HEAD'] as const)('serves the graph deep link on %s navigation', async method => {
     const res = await app.inject({ method, url: '/admin/agents?view=graph', headers: { accept: HTML_NAVIGATION } });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toContain('text/html');
   });
 
-  it.each(['/admin/hosts', '/admin/agents', '/admin/agents?view=graph'])('keeps JSON authentication for %s', async (url) => {
+  it.each(['/admin/hosts', '/admin/hosts/', '/admin/agents', '/admin/agents?view=graph', '/admin/logs', '/admin/external-clients'])('keeps JSON authentication for %s', async (url) => {
     const res = await app.inject({
       method: 'GET',
       url,
@@ -155,6 +180,7 @@ describe('admin SPA navigation collisions', () => {
     });
 
     expect(res.statusCode).toBe(401);
+    expect(String(res.headers.vary).toLowerCase().split(/, */)).toContain('accept');
     expect(JSON.parse(res.payload)).toMatchObject({
       status: 'error',
       code: 'admin_required',

@@ -597,11 +597,11 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
     case "/admin/versions/check":
       return {
         available_client: { version: CODEX, updated_at: ago(720), source: "github" },
-        versions: { client_version: CODEX, client_version_enforce_exact: false, reported_client_version: CODEX },
+        versions: { client_version: CODEX, client_version_enforce_exact: false },
         kimi_available_client: { version: KIMI },
-        kimi_versions: { client_version: KIMI, client_version_enforce_exact: false, reported_client_version: KIMI },
+        kimi_versions: { client_version: KIMI, client_version_enforce_exact: false },
         claude_available_client: { version: CLAUDE },
-        claude_versions: { client_version: CLAUDE, client_version_enforce_exact: false, reported_client_version: CLAUDE },
+        claude_versions: { client_version: CLAUDE, client_version_enforce_exact: false },
       };
     case "/admin/users":
       return { users: [] };

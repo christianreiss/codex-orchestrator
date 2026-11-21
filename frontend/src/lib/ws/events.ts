@@ -16,6 +16,16 @@ import type { WsEvent } from "./client";
 
 export type WsInvalidationMap = Record<string, QueryKey[]>;
 
+/** Refresh effective session rights at stream boundaries and after authorization changes. */
+export function sessionMayHaveChanged(event: WsEvent): boolean {
+  if (["transport.connected", "transport.resync", "user.updated", "user.deleted", "admin.user.wipe"].includes(event.type)) return true;
+  if (event.type !== "control_state.changed") return false;
+  const change = event.payload as { tables?: unknown; authorization_mode_changed?: boolean } | null;
+  if (!Array.isArray(change?.tables)) return true;
+  return change.tables.includes("adminUsers") || change.tables.includes("adminSessions")
+    || (change.tables.includes("versions") && change.authorization_mode_changed !== false);
+}
+
 /** Unknown owned domains conservatively refresh active snapshots instead of going stale. */
 export function ownerStateInvalidations(payload: unknown): QueryKey[] {
   const tables = (payload as { tables?: unknown } | null)?.tables;

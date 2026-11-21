@@ -298,7 +298,7 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | `/admin/reports` (Feedback) | Triage feedback reports about the orchestrator; list/detail | `PageShell`, `Toolbar`, `ReportInbox`, `ListDetail` | Create/detail, long evidence, status transitions; feedback destination/configuration, opt-in, old-version/retest and uncertain publication evidence |
 | `/admin/accounts` | Manage provider accounts and quota overrides (PayG, warnings, reset recovery); list | `PageShell`, `Toolbar`, `DataTable`, account dialogs | Codex/Claude/Grok, missing quota, expired auth, switched-off engines hidden with a muted count |
 | `/admin/engines` | Configure providers; settings, one engine per tab (`?engine=`) | `PageShell`, `Tabs`, `Section`, engine master switches, `EngineSection`, `EngineDangerZone` | Per-engine deltas, tab and hash deep links, save failure, invalid saved native settings with an outside-disclosure correction action and retained editor draft, suspended/destroy states |
-| `/admin/limits` | Configure usage limits; settings | `PageShell`, `Section`, quota and scaling components, per-engine quota policy tabs | Hard/soft enforcement, per-engine warning policy, scaling tiers, save failure |
+| `/admin/limits` | Configure usage limits; settings | `PageShell`, `Section`, per-engine quota policy tabs | Hard/soft enforcement, per-engine warning policy, save failure |
 | `/admin/library` | Find shared knowledge; list | `PageShell`, type switch, `LibraryList`, `MemoriesPanel`, `RolesPanel` (roles module switch in the `PageShell` toggle) | All types, memory alternate views, search and permissions; roles off versus empty |
 | `/admin/library/[type]/[name]` | Edit shared artifact; editor | Skill/artifact editors, `RoleEditor` (draft, publish, policy, `history` slot with versions/proposals/holders); invalid-type `PageShell`/`StateBlock` | Valid types, unknown type/name, unsaved changes; role draft versus published, proposal sheet focus |
 | `/admin/library/agent-rules` | Edit effective instructions; editor | `PageShell`, module picker, live preview, advanced/history/manual modes | Preview failure and stored versus effective content |
@@ -357,6 +357,10 @@ Legacy pink theme preferences continue to normalize to the neutral light/dark/sy
 ### Live state transport
 
 Owner-managed live views update on state transitions. A quiet view MUST NOT poll for unchanged server state. Reconnection or an owner epoch/sequence gap MUST resnapshot active queries; changes arriving during an in-flight snapshot require a trailing refresh. Connection-owned presence MUST NOT expire merely because a persisted heartbeat timestamp has aged; actual activity deadlines remain distinct. When the live transport is disconnected or disabled, the console MUST indicate that displayed information may be stale (INT-6/INT-7). Transport connectivity alone MUST NOT establish native work progress or a completed mutation (INT-3/INT-8).
+
+### Console session changes
+
+The signed-in operator and the server-reported authorization mode, roles and capabilities scope cached snapshots, search and room drafts. A changed scope retires the old cache and closes its dialogs. Late results belong to the retired scope. Reconnecting with the same scope keeps the current page and its drafts. The console rechecks session status on stream recovery, relevant authorization events, tab return and a protected HTTP 401. Search and the command palette are available while signed in (INT-6, INT-7).
 
 ## 9. Acceptance and step-2 checklist
 

@@ -248,6 +248,6 @@
   {/if}
 
   <p class="text-body-sm text-muted-foreground">
-    Per-host overrides and version pinning live on the Engines page afterwards.
+    New installations follow each engine’s release channel. Choose a fixed native CLI version on the Engines page.
   </p>
 </div>

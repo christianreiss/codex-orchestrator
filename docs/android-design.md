@@ -57,7 +57,12 @@ Introduced with Android 0.10.0 (2026-11-18).
 
 ## Row anatomy (`InboxRowFrame`)
 
-Every list row has at most two lines of text:
+At the default text size, rows use a title line and a preview line. Short phone
+windows reduce the spaces between rows and section headings. Each row keeps
+a minimum touch height of 56 dp and a 48 dp avatar. When scaled text leaves
+too little width for the inline metadata, place the time on a separate line.
+Stack the agent name and host and let the name wrap. The inbox scrolls at
+every text size.
 
 ```
 [avatar 48dp + status dot]  Title · host            time

@@ -1755,12 +1755,12 @@ test("Access shows the Grok text gateway and issues a scoped client key", async 
   });
   await page.goto("/admin/api-keys");
   await page.getByRole("button", { name: "API endpoints", exact: true }).click();
-  await expect(page.locator('[data-endpoint="grok"]').getByText(/127\.0\.0\.1:4173\/grok\/v1/)).toBeVisible();
+  await expect(page.locator('[data-endpoint="grok"]').getByText(new URL("/grok/v1", page.url()).href, { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Configure", exact: true }).click();
   await page.getByRole("switch", { name: "Enable /grok/v1", exact: true }).click();
   await page.locator("#grok-proxy > summary").click();
-  await expect(page.getByText("Streaming, tools, images, sampling controls, and token limits are unavailable.", { exact: false })).toBeVisible();
+  await expect(page.locator("#grok-engine").getByText("Streaming, tools, images, sampling controls, and token limits are unavailable.", { exact: false })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Grok 4.7", exact: true })).toBeChecked();
   await page.getByRole("switch", { name: "Grok 4.5", exact: true }).click();
   await expect.poll(() => writes.some(w => w.path === "/admin/grok/models/grok-4.5/toggle")).toBe(true);
@@ -1945,7 +1945,7 @@ test("Access keeps keys visible, copies endpoints and preserves the vendor filte
   await expect(page.getByRole("button", { name: "Backend for /v1", exact: true })).not.toBeVisible();
   await page.getByRole("button", { name: "API endpoints", exact: true }).click();
   await page.getByRole("button", { name: "Copy /anthropic/v1 URL", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("http://127.0.0.1:4173/anthropic/v1");
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(new URL("/anthropic/v1", page.url()).href);
   await page.getByRole("button", { name: "Show Anthropic keys" }).click();
   await expect(keyFilter(page).getByRole("button", { name: "Anthropic", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Configure", exact: true }).click();

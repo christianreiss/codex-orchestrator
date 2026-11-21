@@ -1,13 +1,13 @@
 <script lang="ts">
   import { page } from "$app/state";
   import { base } from "$app/paths";
-  import { goto } from "$app/navigation";
   import { ACCOUNT_LINKS } from "./account-links";
   import { MOBILE_NAV_OVERFLOW, MOBILE_NAV_PRIMARY, NAV_FOOTER, NAV_SECTIONS, isActive } from "$lib/nav";
   import { useFleetEngines, fleetDisabledTitle } from "$lib/engines/fleet-engines";
   import { engineLabel } from "$lib/constants/engines";
   import { cn } from "$lib/utils/cn";
-  import { authActions, authStore } from "$lib/stores/auth";
+  import { authStore } from "$lib/stores/auth";
+  import { signOut } from "$lib/auth/sign-out";
   import * as Sheet from "$lib/components/ui/sheet";
   import InsecureApprovalsNavAlert from "./InsecureApprovalsNavAlert.svelte";
   import { insecureApprovalsPendingQuery } from "$lib/api/overview";
@@ -34,10 +34,9 @@
     { id: "utilities", label: "Utilities" as const, hubs: [{ id: "utilities", label: "", menuItems: NAV_FOOTER }] },
   ];
 
-  async function signOut() {
+  async function signOutFromMenu() {
     menuOpen = false;
-    await authActions.logout();
-    void goto(`${base}/login`);
+    await signOut();
   }
 </script>
 
@@ -94,7 +93,7 @@
             {#each ACCOUNT_LINKS as link (link.hash)}
               <a href={`${base}/account${link.hash}`} class="flex h-9 items-center justify-center rounded-md border bg-card px-2 text-body-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring" onclick={() => (menuOpen = false)}>{link.label}</a>
             {/each}
-            <button type="button" class="flex h-9 items-center justify-center gap-2 rounded-md border bg-card px-2 text-body-sm text-destructive outline-none hover:bg-destructive-muted focus-visible:ring-2 focus-visible:ring-ring" onclick={signOut}><LogOut class="h-3.5 w-3.5" />Sign out</button>
+            <button type="button" class="flex h-9 items-center justify-center gap-2 rounded-md border bg-card px-2 text-body-sm text-destructive outline-none hover:bg-destructive-muted focus-visible:ring-2 focus-visible:ring-ring" onclick={signOutFromMenu}><LogOut class="h-3.5 w-3.5" />Sign out</button>
           </div>
         </section>
       {/if}

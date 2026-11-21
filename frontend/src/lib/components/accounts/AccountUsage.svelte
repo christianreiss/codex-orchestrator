@@ -11,7 +11,7 @@
   const usage = $derived(account.usage);
   const emulated = $derived(account.quota_snapshot?.short?.source === 'emulated' ? account.quota_snapshot.short : null);
   const meters = $derived.by<Meter[]>(() => {
-    if (account.engine === "kimi") return accountQuotaRows(account).map(row => ({ label: row.label, used: row.value, reset: row.reset }));
+    if (account.engine === "kimi") return accountQuotaRows(account).map(row => ({ label: emulated && row.key === "five_hour" ? `Emulated ${Math.round((emulated.limit_seconds ?? 18000) / 3600)}h` : row.label, used: row.value, reset: row.reset }));
     if (account.engine === "grok") {
       const window = usage.current_window;
       return [...(emulated ? [{ label: `Emulated ${Math.round((emulated.limit_seconds ?? 18000) / 3600)}h`, used: Math.round(emulated.used_percent), reset: emulated.resets_at }] : []), ...(window ? [{ label: window.period === "monthly" ? "Monthly" : window.period === "weekly" ? "Weekly" : "Current period", used: window.used_percent, reset: window.resets_at }] : [])];

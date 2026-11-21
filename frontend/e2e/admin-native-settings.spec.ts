@@ -1,4 +1,5 @@
 import { ownerStream } from "./owner-stream";
+import { fixture as adminFixture, installFixtures } from "./admin-fixtures";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
@@ -277,7 +278,7 @@ test("Claude nested namespaces stay opt-in and can be previewed, changed and rem
   await expect(card).toContainText("It defaults to false");
   await expect(card).toContainText("escape the sandbox");
   await expect(card).toContainText("Desktop-only sshHostCommands");
-  await expect(card.getByRole("link", { name: "Claude 2.1.329 settings" })).toBeVisible();
+  await expect(card.getByRole("link", { name: /^Claude \d+\.\d+\.\d+ settings$/ })).toHaveAttribute("href", "https://code.claude.com/docs/en/settings-reference");
   expect(shared.configs.claude.settings.native_settings).not.toHaveProperty("sandbox");
   for (const allowNestedUserNamespaces of [false, true]) {
     const native = { sandbox: { enabled: true, allowNestedUserNamespaces }, env: { LOCAL_SIBLING: "kept" } };
@@ -408,11 +409,11 @@ test("Codex profiles create, preview and remove sidecars separately from root se
   await expect.poll(() => shared.configs.codex.settings.profiles).toEqual([]);
 });
 
-test("Grok 1.0.70 native defaults preserve false values, argument arrays and removal", async ({ page }) => {
+test("Grok native defaults preserve false values, argument arrays and removal", async ({ page }) => {
   const shared = state(); shared.configs.grok.settings.native_settings = {};
   await fixture(page, shared); await page.goto("/admin/engines"); await openAdvanced(page, ["grok"]);
   const card = page.locator("#grok-native-settings"), editor = card.getByRole("textbox");
-  await expect(card.getByRole("link", { name: "Grok 1.0.89 settings" })).toBeVisible();
+  await expect(card.getByRole("link", { name: /^Grok \d+\.\d+\.\d+ settings$/ })).toHaveAttribute("href", "https://docs.x.ai/build/settings/reference");
   const value = { keys: { vim: "off" }, features: { worktree_inherits_main_approvals: false }, hooks: { Stop: [{ hooks: [{ type: "command", command: "echo", args: ["login", "--background"] }] }] }, ui: { notifications: { program_status: { children: false } } } };
   await editor.fill(JSON.stringify(value));
   await card.getByRole("button", { name: "Validate and preview" }).click();
@@ -463,3 +464,36 @@ test("malformed saved native JSON remains visible without becoming an edited dra
   await expect(card.getByRole("button", { name: "Save native settings" })).toBeDisabled();
   await expect(editor).toHaveValue("{}");
 });
+
+const codexVersionCases = [
+  { name: "no target", stored: null, lock: null, exact: false, resolved: "—", mode: "No native version selected" },
+  { name: "legacy exact lock", stored: null, lock: "0.151.0", exact: true, resolved: "0.151.0", mode: "Pinned (exact)" },
+  { name: "latest channel", stored: "latest", lock: null, exact: false, resolved: "latest", mode: "Latest (auto)" },
+] as const;
+
+for (const entry of codexVersionCases) {
+  test(`Codex version reads ${entry.name} independently from host reports and releases`, async ({ page }, info) => {
+    await installFixtures(page, path => path === "/admin/versions/check" ? {
+      ...adminFixture(path),
+      available_client: { version: "0.155.0" },
+      versions: {
+        client_version: entry.stored,
+        client_version_lock: entry.lock,
+        client_version_enforce_exact: entry.exact,
+      },
+    } : undefined);
+    await page.goto("/admin/engines?engine=codex");
+    const section = page.locator("#codex-version");
+    const fact = (label: string) => section.locator("dl > div").filter({ has: page.getByText(label, { exact: true }) }).locator("dd");
+    await expect(fact("Fleet target")).toHaveText(entry.resolved);
+    await expect(fact("Latest available")).toHaveText("0.155.0");
+    const reports = section.getByRole("link", { name: "View installed versions" });
+    await expect(reports).toHaveAttribute("href", "/admin/dashboard?tab=engines#engines");
+    await expect(fact("Mode")).toHaveText(entry.mode);
+    if (entry.exact) await expect(section.getByLabel("Version", { exact: true })).toHaveValue(entry.resolved);
+    await section.screenshot({ path: info.outputPath("codex-version-state.png") });
+    await reports.click();
+    await expect(page.getByRole("tab", { name: "Engines" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("table", { name: "Engine installs and latest versions" })).toBeVisible();
+  });
+}

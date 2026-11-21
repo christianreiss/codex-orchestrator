@@ -176,36 +176,38 @@ internal fun hostReason(t: Texts, host: JSONObject): String {
     val planProblem = planStartProblem(plan, task)
     val ready = model.canSpawn() && host.optBoolean("startable") && engine in engines && (cwd.isBlank() || cwd.startsWith('/')) && planProblem == null
     ModalBottomSheet(onDismissRequest = onDismiss, shape = SheetShape, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(stringResource(R.string.start_title), style = MaterialTheme.typography.titleLarge)
-            Text(host.optString("fqdn"), style = MaterialTheme.typography.bodyMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("codex", "claude", "grok", "kimi").filter { it in engines }.forEach { value -> FilterChip(selected = engine == value, onClick = { engine = value }, label = { Text(engineLabel(value)) }, enabled = !model.busy && model.pendingStart == null) }
-            }
-            OutlinedTextField(task, { task = it.take(32768) }, label = { Text(stringResource(R.string.start_task)) }, placeholder = { Text(stringResource(R.string.start_task_hint)) }, modifier = Modifier.fillMaxWidth().testTag("spawn-task"), minLines = 2, maxLines = 5, enabled = !model.busy && model.pendingStart == null)
-            Text(stringResource(if (task.isBlank()) R.string.start_greet_only else R.string.start_greet_task), style = MaterialTheme.typography.bodySmall)
-            if (model.planModeOffered()) {
-                val planLabel = stringResource(R.string.start_plan_first)
-                val planEnabled = planAvailability == PlanAvailability.OFFERED && !model.busy && model.pendingStart == null
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(Modifier.weight(1f)) {
-                        Text(planLabel, style = MaterialTheme.typography.bodyLarge)
-                        Text(stringResource(when (planAvailability) {
-                            PlanAvailability.OFFERED -> R.string.start_plan_hint
-                            PlanAvailability.ENGINE_UNSUPPORTED -> R.string.start_plan_codex
-                            PlanAvailability.HOST_UNSUPPORTED -> R.string.start_plan_host
-                        }), Modifier.testTag("plan-first-note"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(checked = plan, onCheckedChange = { planFirst = it }, enabled = planEnabled, modifier = Modifier.testTag("plan-first").semantics { contentDescription = planLabel })
+        Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 16.dp).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(stringResource(R.string.start_title), style = MaterialTheme.typography.titleLarge)
+                Text(host.optString("fqdn"), style = MaterialTheme.typography.bodyMedium)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("codex", "claude", "grok", "kimi").filter { it in engines }.forEach { value -> FilterChip(selected = engine == value, onClick = { engine = value }, label = { Text(engineLabel(value)) }, enabled = !model.busy && model.pendingStart == null) }
                 }
-                if (planProblem != null) Text(stringResource(planProblem), Modifier.testTag("plan-needs-task"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                OutlinedTextField(task, { task = it.take(32768) }, label = { Text(stringResource(R.string.start_task)) }, placeholder = { Text(stringResource(R.string.start_task_hint)) }, modifier = Modifier.fillMaxWidth().testTag("spawn-task"), minLines = 2, maxLines = 5, enabled = !model.busy && model.pendingStart == null)
+                Text(stringResource(if (task.isBlank()) R.string.start_greet_only else R.string.start_greet_task), style = MaterialTheme.typography.bodySmall)
+                if (model.planModeOffered()) {
+                    val planLabel = stringResource(R.string.start_plan_first)
+                    val planEnabled = planAvailability == PlanAvailability.OFFERED && !model.busy && model.pendingStart == null
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(planLabel, style = MaterialTheme.typography.bodyLarge)
+                            Text(stringResource(when (planAvailability) {
+                                PlanAvailability.OFFERED -> R.string.start_plan_hint
+                                PlanAvailability.ENGINE_UNSUPPORTED -> R.string.start_plan_codex
+                                PlanAvailability.HOST_UNSUPPORTED -> R.string.start_plan_host
+                            }), Modifier.testTag("plan-first-note"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = plan, onCheckedChange = { planFirst = it }, enabled = planEnabled, modifier = Modifier.testTag("plan-first").semantics { contentDescription = planLabel })
+                    }
+                    if (planProblem != null) Text(stringResource(planProblem), Modifier.testTag("plan-needs-task"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                TextButton(onClick = { advanced = !advanced }) { Text(stringResource(if (advanced) R.string.start_fewer_options else R.string.start_more_options)) }
+                if (advanced) {
+                    OutlinedTextField(title, { title = it.take(160) }, label = { Text(stringResource(R.string.start_title_optional)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !model.busy && model.pendingStart == null)
+                    OutlinedTextField(cwd, { cwd = it.take(1024) }, label = { Text(stringResource(R.string.start_cwd)) }, supportingText = { Text(stringResource(R.string.start_cwd_hint)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !model.busy && model.pendingStart == null)
+                }
+                if (!host.optBoolean("startable")) Text(hostReason(rememberTexts(), host), color = MaterialTheme.colorScheme.error)
             }
-            TextButton(onClick = { advanced = !advanced }) { Text(stringResource(if (advanced) R.string.start_fewer_options else R.string.start_more_options)) }
-            if (advanced) {
-                OutlinedTextField(title, { title = it.take(160) }, label = { Text(stringResource(R.string.start_title_optional)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !model.busy && model.pendingStart == null)
-                OutlinedTextField(cwd, { cwd = it.take(1024) }, label = { Text(stringResource(R.string.start_cwd)) }, supportingText = { Text(stringResource(R.string.start_cwd_hint)) }, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !model.busy && model.pendingStart == null)
-            }
-            if (!host.optBoolean("startable")) Text(hostReason(rememberTexts(), host), color = MaterialTheme.colorScheme.error)
             if (model.pendingStart != null) TextButton(onClick = { model.retryStart(onDismiss) }, enabled = ready && !model.busy) { Text(stringResource(R.string.start_retry_same)) }
             else Button(onClick = { model.startHost(host.optLong("host_id"), engine, task, title, cwd, onDismiss, plan) }, enabled = ready && !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("confirm-spawn")) { Text(stringResource(if (task.isBlank()) R.string.start_establish_contact else R.string.start_with_task)) }
         }

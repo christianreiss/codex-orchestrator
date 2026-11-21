@@ -799,7 +799,7 @@ kimi_version_stale: isClientVersionStale(kimiAvailable?.fetched_at),
   });
 
   // ── /admin/logs ───────────────────────────────────────────────────────────
-  app.get('/admin/logs', { preHandler: app.requireAdmin }, async (req) => {
+  app.get('/admin/logs', { preHandler: [adminSpa, app.requireAdmin] }, async (req) => {
     const q = req.query as Record<string, unknown>;
     const limit = Math.max(1, Math.min(500, intQuery(q.limit, 50)));
     const rows = await dashboard.recentLogs(limit);

@@ -11,6 +11,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { RouteContext } from '../index.js';
+import { adminSpaHtmlPreHandler } from '../admin/pages/static.js';
 import { ApiError } from '../../http/errors.js';
 import { raw } from '../../http/reply.js';
 import { parseBearer } from '../../util/api-key-helpers.js';
@@ -26,7 +27,7 @@ const CODE_MAP: Record<string, string> = {
   validation_failed: 'validation_failed',
 };
 
-const uuid = z.string().uuid();
+const uuid = z.guid();
 const sendSchema = z.object({
   client_message_id: uuid,
   to: z.string().min(1).max(200),
@@ -225,7 +226,7 @@ export async function registerExternalClientRoutes(app: FastifyInstance, ctx: Ro
   const actor = (req: FastifyRequest): number | null => req.admin?.user?.id ?? null;
   const idOf = (req: FastifyRequest): string => String((req.params as { id?: unknown }).id ?? '');
 
-  app.get('/admin/external-clients', { preHandler: app.requireAdmin }, async () => ({
+  app.get('/admin/external-clients', { preHandler: [adminSpaHtmlPreHandler(ctx), app.requireAdmin] }, async () => ({
     clients: await service.list(),
   }));
 

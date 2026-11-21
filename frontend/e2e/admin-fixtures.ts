@@ -399,15 +399,13 @@ export function fixture(pathname: string): Record<string, unknown> {
         versions: {
           client_version: "0.125.0",
           client_version_enforce_exact: false,
-          reported_client_version: "0.125.0",
         },
         grok_available_client: { version: "1.0.46" },
-        grok_versions: { client_version: "1.0.46", client_version_enforce_exact: true, reported_client_version: "1.0.46" },
+        grok_versions: { client_version: "1.0.46", client_version_enforce_exact: true },
         claude_available_client: { version: "2.1.170" },
         claude_versions: {
           client_version: "2.1.170",
           client_version_enforce_exact: false,
-          reported_client_version: "2.1.170",
         },
       };
     case "/admin/quota-mode":

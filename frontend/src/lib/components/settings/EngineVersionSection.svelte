@@ -1,5 +1,6 @@
 <script lang="ts">
   import { toast } from "svelte-sonner";
+  import { base } from "$app/paths";
   import DraftGuard from "$lib/components/page/DraftGuard.svelte";
   import * as Select from "$lib/components/ui/select";
   import { Label } from "$lib/components/ui/label";
@@ -23,7 +24,6 @@
   const cfg = ENGINE_VERSION_CONFIG[engine];
   // svelte-ignore state_referenced_locally
   const idPrefix = `${engine}-version`;
-  const floored = cfg.minVersion !== undefined;
 
   const query = versionsQuery();
   let lastSavedAt = $state<Date | null>(null);
@@ -52,14 +52,7 @@
   const dirty = $derived(saved !== null && draft !== saved);
 
   const summary = $derived($query.data ? (cfg.summary($query.data) ?? null) : null);
-  const reportedClient = $derived(summary?.reported_client_version ?? null);
-  // Floored engines resolve their target through the lock; the others report it directly.
-  const currentClient = $derived(
-    floored ? (summary?.client_version ?? summary?.client_version_lock ?? null) : (summary?.client_version ?? null),
-  );
-  const pinnedClient = $derived(
-    floored ? (summary?.client_version_lock ?? summary?.client_version) : summary?.client_version,
-  );
+  const currentClient = $derived(summary?.client_version_lock ?? summary?.client_version ?? null);
   const enforceExact = $derived(Boolean(summary?.client_version_enforce_exact));
   const availableLatest = $derived(
     ($query.data ? (cfg.available($query.data)?.version as string | null | undefined) : null) ?? null,
@@ -67,9 +60,9 @@
 
   $effect(() => {
     if (!summary || initialized) return;
-    if (summary.client_version_enforce_exact && pinnedClient) {
+    if (summary.client_version_enforce_exact && currentClient) {
       selection = "exact";
-      exactVersion = String(pinnedClient);
+      exactVersion = String(currentClient);
     } else {
       selection = "latest";
       exactVersion = "";
@@ -103,8 +96,8 @@
 
   const modeLabel = $derived.by(() => {
     if (!summary) return "Unavailable";
+    if (!currentClient) return "No native version selected";
     if (enforceExact) return "Pinned (exact)";
-    if (!floored) return "Latest (auto)";
     return ["latest", "auto"].includes(summary.client_version ?? "") ? "Latest (auto)" : "Minimum target";
   });
 </script>
@@ -171,7 +164,7 @@
 
   <dl class="grid gap-2 border-y py-2 text-caption sm:grid-cols-3">
     <div>
-      <dt class="text-muted-foreground">{floored ? "Fleet target" : "Resolved client"}</dt>
+      <dt class="text-muted-foreground">Fleet target</dt>
       <dd class="font-mono">{currentClient ?? "—"}</dd>
     </div>
     <div>
@@ -179,8 +172,8 @@
       <dd class="font-mono">{availableLatest ?? "—"}</dd>
     </div>
     <div>
-      <dt class="text-muted-foreground">Reported by hosts</dt>
-      <dd class="font-mono">{reportedClient ?? "—"}</dd>
+      <dt class="text-muted-foreground">Host reports</dt>
+      <dd><a class="text-primary underline underline-offset-4" href={`${base}/dashboard?tab=engines#engines`}>View installed versions</a></dd>
     </div>
     <div class="sm:col-span-3">
       <dt class="text-muted-foreground">Mode</dt>

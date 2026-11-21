@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { goto } from "$app/navigation";
   import { base } from "$app/paths";
   import { page } from "$app/state";
@@ -17,6 +17,7 @@
   let username = $state("");
   let password = $state("");
   let phase = $state<"username" | "password" | "passkey" | "reset">("username");
+  let form: HTMLFormElement;
   let probing = $state(false);
   let submitting = $state(false);
   let error = $state<string | null>(null);
@@ -61,6 +62,14 @@
     return unsub;
   });
 
+  function selectPhase(next: typeof phase) {
+    phase = next;
+    const selector = next === "password" ? "#password" : next === "passkey" ? "button[type=submit]" : "#username";
+    void tick().then(() => {
+      if (phase === next) form?.querySelector<HTMLElement>(selector)?.focus();
+    });
+  }
+
   async function probeMethod() {
     if (!username.trim()) {
       error = "Enter your username.";
@@ -74,13 +83,13 @@
       });
       const methods = res.methods ?? (res.method ? [res.method] : []);
       if (methods.includes("passkey")) {
-        phase = "passkey";
+        selectPhase("passkey");
       } else {
-        phase = "password";
+        selectPhase("password");
       }
     } catch (err) {
       // Even if probe fails, allow password attempt.
-      phase = "password";
+      selectPhase("password");
       if (err instanceof ApiError) error = err.message;
     } finally {
       probing = false;
@@ -104,7 +113,7 @@
     error = null;
     if (auto) {
       autoPasskeyActive = true;
-      phase = "passkey";
+      selectPhase("passkey");
     }
     submitting = true;
     try {
@@ -152,7 +161,7 @@
 
 
   function back(to: "username" | "reset") {
-    phase = to;
+    selectPhase(to);
     password = "";
     error = null;
     resetRequested = false;
@@ -171,6 +180,7 @@
     {/if}
 
     <form
+      bind:this={form}
       aria-busy={submitting || probing}
       class="space-y-4"
       onsubmit={(e) => {
@@ -219,7 +229,7 @@
       {/if}
 
       {#if phase === "password" && passkeySupported}
-        <Button type="button" variant="outline" class="w-full" onclick={() => (phase = "passkey")}>
+        <Button type="button" variant="outline" class="w-full" onclick={() => selectPhase("passkey")}>
           <Fingerprint class="h-4 w-4" /> Use a passkey instead
         </Button>
       {/if}

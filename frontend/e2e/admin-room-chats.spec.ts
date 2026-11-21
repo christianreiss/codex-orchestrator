@@ -436,11 +436,11 @@ test("an empty explicit selection cannot send and unavailable agents stay select
 });
 
 for (const width of [320, 390, 1440]) for (const theme of ["light", "dark"]) {
-  test(`long chat ${width}px ${theme}: readable previews, full copy, preserved expansion`, async ({ page, context }, info) => {
+  test(`long chat ${width}px ${theme}: readable previews, full copy, preserved expansion`, async ({ page, browserName, context }, info) => {
+    if (browserName === "chromium") await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ colorScheme: theme });
     await page.addInitScript(theme => localStorage.setItem("codex.theme", theme), theme);
-    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     const state = await fixture(page);
     const text = "## Review outcome\n\n" + Array.from({ length: 25 }, (_, i) => `Paragraph ${i + 1}: Authentication and delivery evidence remain independently verifiable.\n\n`).join("") + "```sh\n" + "example-".repeat(80) + "\n```\n\n| Check | Outcome |\n| --- | --- |\n| Auth | Passed |\n\nFinal evidence marker.";
     state.events[0].content = text;
@@ -452,8 +452,13 @@ for (const width of [320, 390, 1440]) for (const theme of ["light", "dark"]) {
     await expect(message.getByRole("button", { name: "Copy code" })).toHaveCount(0);
     await message.getByRole("button", { name: "Message actions" }).click();
     await page.getByRole("button", { name: "Copy full message", exact: true }).click();
-    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(text);
+    await expect(page.getByRole("status").filter({ hasText: "Copied full message" })).toBeVisible();
     await page.keyboard.press("Escape");
+    const composer = page.getByRole("textbox", { name: "Message this conversation" });
+    await composer.focus();
+    await page.keyboard.press("Control+v");
+    await expect(composer).toHaveValue(text);
+    await composer.fill("");
     await expand.click();
     await expect(message.getByText("Final evidence marker.", { exact: true })).toBeVisible();
     await expect(message.getByRole("button", { name: "Copy code" })).toBeVisible();

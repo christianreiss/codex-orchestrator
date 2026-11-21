@@ -24,8 +24,8 @@
   const parse = (text: string) => profiles ? parseNativeProfiles(text) : parseNativeSettings(text);
   const references = {
     codex: { version: "0.171.0", url: "https://learn.chatgpt.com/docs/config-file/config-reference" },
-    claude: { version: "2.1.329", url: "https://code.claude.com/docs/en/settings-reference" },
-    grok: { version: "1.0.89", url: "https://docs.x.ai/build/settings/reference" },
+    claude: { version: "2.1.330", url: "https://code.claude.com/docs/en/settings-reference" },
+    grok: { version: "1.0.92", url: "https://docs.x.ai/build/settings/reference" },
     kimi: { version: "2.7.2", url: "https://moonshotai.github.io/kimi-code/en/configuration/config-files.html" },
   };
   const qc = useQueryClient();

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { useQueryClient } from "@tanstack/svelte-query";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Command from "$lib/components/ui/command";
@@ -28,7 +29,7 @@
 
   let inflightToken = 0;
 
-  searchModal.subscribe((s) => {
+  const unsubscribe = searchModal.subscribe((s) => {
     open = s.open;
     if (s.open) {
       query = "";
@@ -85,6 +86,12 @@
       return;
     }
     refreshResults(query);
+  });
+
+  onDestroy(() => {
+    unsubscribe();
+    if (debounceTimer) clearTimeout(debounceTimer);
+    inflightToken++;
   });
 
   function handleOpenChange(next: boolean): void {

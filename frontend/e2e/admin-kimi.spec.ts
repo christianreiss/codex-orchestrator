@@ -9,7 +9,7 @@ test('Kimi Code tab owns its native reference, version and effort', async ({ pag
   await page.goto('/admin/engines?engine=kimi#kimi-native-settings');
   await expect(page.getByRole('tab', { name: 'Kimi Code', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#kimi-defaults')).toContainText('Kimi Code');
-  await expect(page.locator('#kimi-native-settings').getByRole('link', { name: /Kimi Code 2.5.3 settings/i })).toHaveAttribute('href', 'https://moonshotai.github.io/kimi-code/en/configuration/config-files.html');
+  await expect(page.locator('#kimi-native-settings').getByRole('link', { name: /^Kimi Code \d+\.\d+\.\d+ settings$/ })).toHaveAttribute('href', 'https://moonshotai.github.io/kimi-code/en/configuration/config-files.html');
   await expect(page.locator('#kimi-version-exact')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Kimi Code', exact: true }).getByText('Max', { exact: true })).toBeVisible();
 });
@@ -41,10 +41,10 @@ test('Kimi usage retains zero and all four independent windows', async ({ page }
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ colorScheme: scheme });
     await page.goto('/admin/dashboard');
-    const usage = page.getByRole('group', { name: 'Kimi subscription Kimi Code usage' });
+    const usage = page.getByRole('row').filter({ has: page.getByRole('link', { name: 'Kimi subscription' }) });
     await expect(usage.getByRole('meter')).toHaveCount(4);
     await expect(usage.getByRole('meter', { name: '5-hour window' })).toHaveAttribute('aria-valuenow', '0');
-    await expect(usage).toContainText('Reset time unavailable');
+    await expect(usage.getByTestId('reset-in').locator('p').filter({ hasText: 'Monthly code:' })).toContainText('Unknown');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.locator('#usage').screenshot({ path: info.outputPath(`kimi-${width}-${scheme}.png`) });
   }
@@ -61,9 +61,11 @@ test('Chatty reorders four engines with labeled controls', async ({ page }) => {
     return undefined;
   });
   await page.goto('/admin/settings#chatty');
-  await page.getByRole('button', { name: 'Move Kimi Code up', exact: true }).click();
+  const priority = page.getByLabel('Automatic priority');
+  await priority.click();
+  await page.getByRole('option', { name: 'Codex → Claude → Kimi Code → Grok', exact: true }).click();
   await expect.poll(() => writes).toEqual([['codex', 'claude', 'kimi', 'grok']]);
-  await expect(page.getByRole('group', { name: 'Automatic priority' }).getByRole('listitem').nth(2)).toContainText('Kimi Code');
+  await expect(priority).toContainText('Codex → Claude → Kimi Code → Grok');
 });
 
 

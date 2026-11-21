@@ -44,7 +44,7 @@ import { NAV } from "$lib/nav";
 import type { Engine } from "$lib/constants/engines";
 import { POLICY_PALETTE_ENTRIES } from "$lib/components/policies/policy-terms";
 import { setTheme } from "$lib/stores/theme";
-import { authActions } from "$lib/stores/auth";
+import { signOut } from "$lib/auth/sign-out";
 import { commandPalette } from "$lib/stores/command-palette";
 import { goto } from "$app/navigation";
 import { base } from "$app/paths";
@@ -266,8 +266,7 @@ function buildActionCommands(): PaletteCommand[] {
       keywords: ["logout", "sign out", "exit"],
       async run() {
         commandPalette.close();
-        await authActions.logout();
-        void goto(`${base}/login`);
+        await signOut();
       },
     },
   ];
