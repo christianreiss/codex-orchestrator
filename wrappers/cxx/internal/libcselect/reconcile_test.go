@@ -13,6 +13,7 @@ import (
 )
 
 type fixture struct {
+	mu                  sync.Mutex // protects the in-memory installation record shared by concurrent callers
 	root, path, version string
 	ctx                 context.Context
 	calls               []string
@@ -35,6 +36,8 @@ func setup(t *testing.T) *fixture {
 	return f
 }
 func (f *fixture) current() (string, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.path == "" {
 		return "", ""
 	}
@@ -42,7 +45,9 @@ func (f *fixture) current() (string, string) {
 }
 func (f *fixture) install(ctx context.Context) error {
 	variant := Requested(ctx)
+	f.mu.Lock()
 	f.calls = append(f.calls, variant)
+	f.mu.Unlock()
 	if variant == GNU && f.unavailable {
 		return ErrUnavailable
 	}
@@ -60,7 +65,9 @@ func (f *fixture) install(ctx context.Context) error {
 	if e = Publication(ctx, path, "provider-"+variant+"-digest"); e != nil {
 		return e
 	}
+	f.mu.Lock()
 	f.path = path
+	f.mu.Unlock()
 	if f.publishLost {
 		return errors.New("publication completion lost")
 	}
