@@ -260,10 +260,13 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
 
   // ── files ────────────────────────────────────────────────────────────────
 
-  app.get<{ Params: { slug: string } }>(
+  app.get<{ Params: { slug: string }; Querystring: { projection?: string } }>(
     '/admin/projects/:slug/files',
     { preHandler: [adminSpa, app.requireAdmin] },
-    async (req) => content.listFiles(decodeURIComponent(req.params.slug)),
+    async (req) => {
+      const slug = decodeURIComponent(req.params.slug);
+      return req.query.projection === 'metadata' ? content.listFileMetadata(slug) : content.listFiles(slug);
+    },
   );
 
   app.post<{ Params: { slug: string }; Body: Record<string, unknown> }>(

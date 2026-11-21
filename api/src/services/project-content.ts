@@ -1,3 +1,4 @@
+import { projectFileSummaries } from './project-file-summaries.js';
 import { persistAuditLog } from './audit-log.js';
 import {
   ownerRuntimeFor,
@@ -436,6 +437,15 @@ export class ProjectContentService {
   }
 
   // ── files ────────────────────────────────────────────────────────────────
+
+  async listFileMetadata(slug: string) {
+    const project = await this.projects._resolveProject(slug);
+    const files = await projectFileSummaries(this.db, project.id, 'name');
+    return {
+      project: project.slug,
+      files: files.map(({ project_id: _projectId, source_host_id: _sourceHostId, ...metadata }) => metadata),
+    };
+  }
 
   async listFiles(slug: string): Promise<{ project: string; files: ProjectFileView[] }> {
     const project = await this.projects._resolveProject(slug);

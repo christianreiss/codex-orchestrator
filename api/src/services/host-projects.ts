@@ -1,3 +1,4 @@
+import { projectFileSummaries } from './project-file-summaries.js';
 import { searchOwnedMemories } from './runtime-knowledge.js';
 import { persistAuditLog } from './audit-log.js';
 import { executeColdRead } from '../db/fresh-read.js';
@@ -46,7 +47,6 @@ import {
   STORED_NAME_TOO_LONG_MESSAGE,
   acceptFileBody,
   decodedByteLength,
-  decodedLengthFromStored,
   inferMimeType,
   storedNameTooLong,
   type ProjectFileEncoding,
@@ -153,27 +153,6 @@ interface FileRow {
   stored_name: string;
   description: string | null;
   content: string;
-  content_encoding: string;
-  content_sha256: string;
-  mime_type: string | null;
-  size_bytes: number;
-  source_host_id: number | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-/**
- * A file row without its body. Every listing path uses this: `content` is a
- * LONGTEXT column that routinely runs to hundreds of kilobytes, and inlining it
- * into a listing made the former `project_file_list` tool and `project_detail` cost more context
- * than the work they were meant to set up. The body is one `project_file_read`
- * away, and that call windows.
- */
-interface FileSummaryRow {
-  id: number;
-  project_id: number;
-  stored_name: string;
-  description: string | null;
   content_encoding: string;
   content_sha256: string;
   mime_type: string | null;
@@ -544,7 +523,7 @@ export class HostProjectsService {
     const [notes, todos, files, feedback, memories, recent] = await Promise.all([
       this.fetchNotes(project.id, true),
       this.fetchTodos(project.id),
-      this.fetchFileSummaries(project.id),
+      projectFileSummaries(this.db, project.id, 'recent'),
       this.fetchFeedback(project.id, true),
       this.fetchMemories(project.id, true),
       this.fetchRecentEvents(project.id, 10, true),
@@ -964,11 +943,11 @@ export class HostProjectsService {
   /**
    * Lean file listing: metadata only. This is what an agent should call to find
    * out what a project holds; `listFiles` returns every body and is kept only
-   * because the admin console and existing callers read `content` out of it.
+   * because existing callers read `content` out of it.
    */
   async listFileSummaries(slug: string, host: Host): Promise<unknown> {
     const project = await this.requireProject(slug);
-    const files = await this.fetchFileSummaries(project.id);
+    const files = await projectFileSummaries(this.db, project.id, 'recent');
     return { project: project.slug, files };
   }
 
@@ -1855,70 +1834,7 @@ export class HostProjectsService {
     return rows.map((r) => this.hydrateFile(r));
   }
 
-  /**
-   * The listing counterpart of `fetchFiles`. `content` is never selected: the
-   * point is not only to keep it out of the response but to keep MySQL from
-   * shipping the LONGTEXT at all, so `size_bytes` comes from `octet_length()`
-   * server-side rather than from `Buffer.byteLength` over a body we then throw
-   * away. Same number that `hydrateFile` derives, one round trip cheaper.
-   */
-  private async fetchFileSummaries(projectId: number): Promise<FileSummaryRow[]> {
-    const state = this.snapshot();
-    if (state)
-      return [...state.table('coordProjectFiles').all()]
-        .filter((row) => row.projectId === projectId)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id - a.id)
-        .map((r) => ({
-          id: r.id,
-          project_id: r.projectId,
-          stored_name: r.storedName,
-          description: r.description,
-          content_sha256: r.contentSha256,
-          mime_type: r.mimeType,
-          content_encoding: r.contentEncoding ?? 'utf8',
-          size_bytes: decodedLengthFromStored(r.sizeBytes, r.contentTail, r.contentEncoding),
-          source_host_id: r.sourceHostId,
-          created_at: r.createdAt,
-          updated_at: r.updatedAt,
-        }));
-    const rows = await this.db
-      .select({
-        id: coordProjectFiles.id,
-        projectId: coordProjectFiles.projectId,
-        storedName: coordProjectFiles.storedName,
-        description: coordProjectFiles.description,
-        contentSha256: coordProjectFiles.contentSha256,
-        mimeType: coordProjectFiles.mimeType,
-        contentEncoding: coordProjectFiles.contentEncoding,
-        sizeBytes: sql<number>`octet_length(${coordProjectFiles.content})`,
-        // The last two characters are all that is needed to count base64
-        // padding, and two characters is not a body.
-        contentTail: sql<string>`right(${coordProjectFiles.content}, 2)`,
-        sourceHostId: coordProjectFiles.sourceHostId,
-        createdAt: coordProjectFiles.createdAt,
-        updatedAt: coordProjectFiles.updatedAt,
-      })
-      .from(coordProjectFiles)
-      .where(eq(coordProjectFiles.projectId, projectId))
-      .orderBy(desc(coordProjectFiles.updatedAt), desc(coordProjectFiles.id));
-    return rows.map((r) => ({
-      id: Number(r.id),
-      project_id: Number(r.projectId),
-      stored_name: r.storedName,
-      description: r.description ?? null,
-      content_sha256: r.contentSha256,
-      mime_type: r.mimeType ?? null,
-      content_encoding: r.contentEncoding ?? 'utf8',
-      size_bytes: decodedLengthFromStored(
-        Number(r.sizeBytes ?? 0),
-        String(r.contentTail ?? ''),
-        r.contentEncoding,
-      ),
-      source_host_id: r.sourceHostId ?? null,
-      created_at: r.createdAt,
-      updated_at: r.updatedAt,
-    }));
-  }
+
 
   private async fetchFileById(projectId: number, id: number): Promise<FileRow | null> {
     const state = this.snapshot();

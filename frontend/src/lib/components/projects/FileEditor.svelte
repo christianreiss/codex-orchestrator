@@ -15,9 +15,9 @@
   import { Textarea } from "$lib/components/ui/textarea";
   import { ApiError } from "$lib/api/client";
   import { fetchFile, projectKeys, upsertFile } from "$lib/api/projects";
-  import type { ProjectFile } from "$lib/api/types";
+  import type { ProjectFileMetadata } from "$lib/api/types";
 
-  type Props = { slug: string; file: ProjectFile | null; onDone: () => void; dirty?: boolean };
+  type Props = { slug: string; file: ProjectFileMetadata | null; onDone: () => void; dirty?: boolean };
   let { slug, file, onDone, dirty = $bindable(false) }: Props = $props();
 
   const qc = useQueryClient();
@@ -29,6 +29,8 @@
   let description = $state(file?.description ?? "");
   let content = $state("");
   // svelte-ignore state_referenced_locally
+  let encoding = $state<"utf8" | "base64" | null>(file ? null : "utf8");
+  // svelte-ignore state_referenced_locally
   let loadingBody = $state(file !== null);
   const isEditing = $derived(file !== null);
 
@@ -38,7 +40,16 @@
     const id = file.id;
     let live = true;
     fetchFile(slug, id)
-      .then(({ file: full }) => { if (live) { content = full.content ?? ""; baseline = JSON.stringify([file?.stored_name ?? "", file?.mime_type ?? "", file?.description ?? "", content]); } })
+      .then(({ file: full }) => {
+        if (!live) return;
+        if (typeof full.content !== "string" || (full.content_encoding !== "utf8" && full.content_encoding !== "base64")) {
+          loadError = "The server returned an unknown file encoding or missing contents";
+          return;
+        }
+        encoding = full.content_encoding;
+        content = full.content;
+        baseline = JSON.stringify([file?.stored_name ?? "", file?.mime_type ?? "", file?.description ?? "", content]);
+      })
       .catch((err) => { if (live) loadError = err instanceof ApiError ? err.message : "Could not load file contents"; })
       .finally(() => { if (live) loadingBody = false; });
     return () => { live = false; };
@@ -51,7 +62,10 @@
   function cancel() { if (!dirty || window.confirm("Discard unsaved changes?")) onDone(); }
 
   const mutation = createMutation({
-    mutationFn: () => upsertFile(slug, { stored_name: storedName.trim(), mime_type: mimeType.trim() || null, description: description.trim() || null, content }),
+    mutationFn: () => {
+      if (!encoding) throw new Error("File encoding is unavailable");
+      return upsertFile(slug, { stored_name: storedName.trim(), mime_type: mimeType.trim() || null, description: description.trim() || null, content, encoding });
+    },
     onSuccess: () => {
       baseline = JSON.stringify([storedName, mimeType, description, content]); dirty = false;
       toast.success("File saved");
@@ -61,12 +75,13 @@
     },
     onError: (err) => toast.error(err instanceof ApiError ? err.message : "Could not save file"),
   });
-  const canSubmit = $derived(!loadError && storedName.trim().length > 0 && content.length > 0);
+  const canSubmit = $derived(encoding !== null && !loadingBody && !loadError && storedName.trim().length > 0 && content.length > 0);
 </script>
 
 <DraftGuard {dirty} preserveOnSamePath />
-<form class="flex flex-col gap-3" onsubmit={(e) => { e.preventDefault(); $mutation.mutate(); }}>
+<form class="flex flex-col gap-3" onsubmit={(e) => { e.preventDefault(); if (canSubmit && !$mutation.isPending) $mutation.mutate(); }}>
   {#if loadError}<p role="alert" class="text-destructive">{loadError}. Close and reopen this file to retry; saving is disabled to protect its contents.</p>{/if}
+  <p role="status" class={loadingBody ? "text-body-sm text-muted-foreground" : "sr-only"}>{loadingBody ? "Loading file contents…" : ""}</p>
   <SaveState pending={$mutation.isPending} error={$mutation.error} {dirty} />
   <fieldset disabled={$mutation.isPending} class="contents">
   <div class="grid gap-3 sm:grid-cols-2">
@@ -78,8 +93,8 @@
   </div>
   <div class="grid gap-1.5"><Label for="file-desc">Description</Label><Input id="file-desc" bind:value={description} placeholder="Optional description" /></div>
   <div class="grid gap-1.5">
-    <Label for="file-content">Content</Label>
-    <Textarea id="file-content" bind:value={content} rows={14} class="font-mono" disabled={loadingBody} placeholder={loadingBody ? "Loading contents…" : "File contents…"} />
+    <Label for="file-content">{encoding === "base64" ? "Content (Base64)" : "Content"}</Label>
+    <Textarea id="file-content" bind:value={content} rows={14} class="font-mono" disabled={loadingBody || !!loadError} placeholder={loadingBody ? "" : "File contents…"} />
   </div>
   <div class="flex justify-end gap-2 pt-2">
     <Button variant="ghost" type="button" onclick={cancel}>Cancel</Button>

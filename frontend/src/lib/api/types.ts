@@ -187,7 +187,7 @@ export interface ProjectTodo {
   updated_at?: string | null;
 }
 
-export interface ProjectFile {
+export interface ProjectFileMetadata {
   id: number;
   stored_name: string;
   description?: string | null;
@@ -196,10 +196,12 @@ export interface ProjectFile {
   /** 'utf8' or 'base64'; size_bytes and the sha describe the decoded bytes. */
   content_encoding?: string | null;
   size_bytes: number;
-  /** Absent on the lean single-file read used by the editor's list view. */
-  content: string;
   created_at?: string | null;
   updated_at?: string | null;
+}
+
+export interface ProjectFile extends ProjectFileMetadata {
+  content: string;
 }
 
 export type ProjectFeedbackType = "bug" | "feature" | "note" | "issue" | "test";

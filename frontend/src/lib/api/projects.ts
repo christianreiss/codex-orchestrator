@@ -14,6 +14,7 @@ import type {
   ProjectFeedbackStatus,
   ProjectFeedbackType,
   ProjectFile,
+  ProjectFileMetadata,
   ProjectListResponse,
   ProjectModuleState,
   ProjectNote,
@@ -182,10 +183,11 @@ export const deleteCard = (slug: string, id: string) =>
 
 // ─────────────────────────── Files ──────────────────────────────────────
 
-export const fetchFiles = (slug: string): Promise<{ project: string; files: ProjectFile[] }> =>
-  api.get(`${BASE}/${encodeSlug(slug)}/files`);
+export const fetchFiles = (slug: string): Promise<{ project: string; files: ProjectFileMetadata[] }> =>
+  api.get(`${BASE}/${encodeSlug(slug)}/files?projection=metadata`);
 
 export interface FilePayload {
+  encoding?: "utf8" | "base64";
   stored_name: string;
   mime_type?: string | null;
   description?: string | null;

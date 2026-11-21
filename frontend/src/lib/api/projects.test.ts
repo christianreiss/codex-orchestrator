@@ -328,7 +328,7 @@ const BUILDER_CASES: BuilderCase[] = [
     name: "fetchFiles",
     call: () => projects.fetchFiles(SLUG),
     method: "GET",
-    path: `/admin/projects/${ENCODED}/files`,
+    path: `/admin/projects/${ENCODED}/files?projection=metadata`,
     body: undefined,
     slugged: true,
   },

@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- The project Documents tab loads file metadata first and fetches only the file opened in the editor. Editing a binary file’s description preserves its original bytes and digest. Existing API clients can still request listings with all file bodies.
+
 - Wrapper 0.9.195 keeps an already supported Kimi or Grok CLI on a no-update response. A manual update can still apply an explicit fleet pin or repair a missing or unsupported installation.
 
 - An open admin tab recognizes a newly deployed interface when a previously unloaded page changes. Navigation then loads the current release automatically.

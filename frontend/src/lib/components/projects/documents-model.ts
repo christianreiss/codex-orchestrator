@@ -1,5 +1,5 @@
 /** One list for a project's notes and files, with a kind filter and search. */
-import type { ProjectFile, ProjectNote } from "$lib/api/types";
+import type { ProjectFileMetadata, ProjectNote } from "$lib/api/types";
 
 export type KindFilter = "all" | "notes" | "files";
 
@@ -11,7 +11,7 @@ export const KIND_OPTIONS: Array<{ value: KindFilter; label: string }> = [
 
 export type DocRow =
   | { key: string; kind: "note"; id: number; name: string; summary: string; updatedAt: string | null; note: ProjectNote }
-  | { key: string; kind: "file"; id: number; name: string; summary: string; updatedAt: string | null; file: ProjectFile };
+  | { key: string; kind: "file"; id: number; name: string; summary: string; updatedAt: string | null; file: ProjectFileMetadata };
 
 export const parseKind = (value: string | null): KindFilter => (value === "notes" || value === "files" ? value : "all");
 
@@ -20,7 +20,7 @@ const oneLine = (text: string, max = 100): string => {
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 };
 
-export function documentRows(notes: ProjectNote[], files: ProjectFile[], kind: KindFilter, query: string): DocRow[] {
+export function documentRows(notes: ProjectNote[], files: ProjectFileMetadata[], kind: KindFilter, query: string): DocRow[] {
   const rows: DocRow[] = [];
   if (kind !== "files") {
     for (const note of notes) {
