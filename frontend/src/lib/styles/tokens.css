@@ -1,19 +1,4 @@
-/**
- * Shared design tokens for both browser surfaces: the admin console under
- * /admin and the agent portal under /go.
- *
- * These live outside `@layer base` on purpose. Tailwind's `@layer` is a build
- * directive, not native CSS, so a file with `@layer base` but no matching
- * `@tailwind base` fails to compile -- and this file is imported by two apps
- * with separate Tailwind entrypoints.
- *
- * The admin toggles dark by putting `.dark` on <html>. The portal cannot: its
- * CSP is `script-src 'self'`, which blocks the inline bootstrap script that
- * would otherwise set the class before first paint. `:root[data-auto-scheme]`
- * solves that with no JS and no flash -- the portal sets the attribute
- * statically in its HTML shell, and the admin never sets it, so the block is
- * inert there.
- */
+/* The admin console resolves system and explicit theme preferences through ModeWatcher. */
 
 :root {
   --background: 210 25% 98%;
@@ -48,9 +33,7 @@
   --info-foreground: 0 0% 100%;
   --info-muted: 214 75% 94%;
   --info-muted-foreground: 217 74% 30%;
-  /* Both carry white text on the portal's engine avatar at 10-11px, so both
-     must clear 4.5:1 against white. Codex was 42% and measured 3.89:1 -- Axe
-     caught it against the live /go page. Claude at 46% is already 7.0:1. */
+  /* Small white labels on engine avatars require a contrast ratio of at least 4.5:1. */
   --persona-codex: 201 90% 38%;
   --persona-claude: 272 55% 46%;
   --persona-grok: 160 55% 28%;
@@ -113,50 +96,6 @@
   --sidebar-bg: 222 47% 6%;
   --sidebar-fg: 215 20% 78%;
   --sidebar-active: 213 94% 68%;
-}
-
-/* Kept byte-identical to `.dark` above; a test asserts the two never drift. */
-@media (prefers-color-scheme: dark) {
-  :root[data-auto-scheme] {
-    --background: 222 47% 8%;
-    --foreground: 210 40% 96%;
-    --card: 222 35% 12%;
-    --card-foreground: 210 40% 96%;
-    --card-strong: 222 34% 15%;
-    --popover: 222 35% 12%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 213 94% 68%;
-    --primary-foreground: 222 47% 9%;
-    --primary-hover: 213 94% 74%;
-    --secondary: 222 26% 18%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 222 25% 17%;
-    --muted-foreground: 215 20% 70%;
-    --accent: 217 45% 19%;
-    --accent-foreground: 213 94% 78%;
-    --destructive: 0 76% 70%;
-    --destructive-foreground: 222 47% 9%;
-    --destructive-muted: 0 34% 17%;
-    --destructive-muted-foreground: 0 86% 78%;
-    --success: 142 62% 48%;
-    --success-foreground: 222 47% 9%;
-    --success-muted: 142 28% 16%;
-    --success-muted-foreground: 142 69% 73%;
-    --warning: 40 95% 62%;
-    --warning-foreground: 222 47% 9%;
-    --warning-muted: 36 37% 16%;
-    --warning-muted-foreground: 40 95% 72%;
-    --info: 213 94% 68%;
-    --info-foreground: 222 47% 9%;
-    --info-muted: 217 40% 18%;
-    --info-muted-foreground: 213 94% 78%;
-    --border: 222 22% 24%;
-    --input: 215 20% 58%;
-    --ring: 213 94% 68%;
-    --sidebar-bg: 222 47% 6%;
-    --sidebar-fg: 215 20% 78%;
-    --sidebar-active: 213 94% 68%;
-  }
 }
 
 @media (prefers-contrast: more) {

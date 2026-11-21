@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- The existing `/admin/hosts/new` bookmark opens the host registration sheet, including after Reload or Back/Forward. Numeric host detail links keep their own route.
+
 - JSON downloads preserve the bytes and byte ranges of stored content, including agent-chat transcripts and the admin SPA version file. Unknown admin links can load their 404 page without repeated navigation.
 
 - Signing-key rotation now tells operators when to stop the owner, verify both keys during overlap, and check the HTTP fingerprint after retiring the old signer.

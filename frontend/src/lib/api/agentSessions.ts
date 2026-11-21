@@ -1,11 +1,6 @@
 /**
  * Live agent sessions for the console.
  *
- * This is the console half of a surface the phone portal at `/go` already had.
- * The wire types come from `$lib/portal/types` rather than being restated here:
- * one contract serves both apps, and the presence ladder both render is the
- * tested one in `$lib/portal/presence`.
- *
  * Owner events refresh presence and metadata; scoped SSE refreshes the selected
  * timeline. Reconnection resnapshots active queries. Browser transport state
  * never proves native client liveness.
@@ -134,9 +129,8 @@ function sessionWriter() {
 /**
  * Send an instruction, or answer the agent's open question.
  *
- * The branch mirrors the portal's: with a prompt open, what the operator types
- * IS the answer, because a plain message would leave the agent still blocked on
- * a question it had already been given the reply to.
+ * An open prompt expects an answer carrying its ID and version. A plain message
+ * would leave the agent waiting on that prompt.
  */
 export function sendMutation(
   opts: MutationOpts<unknown, { id: string; content: string; prompt?: { id: string; version: number } | null; metadata?: {attachments?:string[];reply_to?:number;choice_value?:string} }> = {},

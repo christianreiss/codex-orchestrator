@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,8 +101,17 @@ describe('admin SPA navigation collisions', () => {
 
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), 'codex-admin-spa-'));
+    mkdirSync(join(root, '_app'));
+    writeFileSync(join(root, '_app/version.json'), '{ "version": "fixture" }\n');
     writeFileSync(join(root, 'index.html'), '<!doctype html><title>Codex Admin</title>');
     app = await buildAdminSpaApp(root);
+  });
+
+  it('serves the exact SvelteKit version manifest used for error recovery', async () => {
+    const response = await app.inject('/admin/_app/version.json');
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toMatch(/application\/json/);
+    expect(response.body).toBe('{ "version": "fixture" }\n');
   });
 
   afterAll(async () => {

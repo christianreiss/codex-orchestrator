@@ -5,8 +5,6 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 /**
  * CORS policy:
  *   - /v1/*, /anthropic/v1/*, /grok/v1/* and /kimi/v1/* are open (browsers + SDKs).
- *   - /go/* is always same-origin only and never inherits the configured
- *     cross-origin allowlist because it carries browser-session cookies.
  *   - Everything else (admin, host APIs, MCP) is same-origin only by default;
  *     reverse proxy / SPA serve everything from the same domain anyway.
  *     Cross-site credentialed access to those routes is only granted to

@@ -341,7 +341,7 @@ API endpoints, downloaded user-authored files, generated provider payloads and t
 | Baseline finding | Required disposition |
 | --- | --- |
 | Old spec listed direct Monitor/Fleet/Knowledge routes and called Settings retired; current registry has hubs, Library, Access and live Settings | Old spec replaced by a pointer. Follow current registry; do not recreate old navigation. |
-| Portal comments in `tokens.css` still describe two browser apps; portal route registration and its security test show the separate `/go` endpoints retired | Keep shared tokens; clean obsolete explanatory comments when touching implementation. Do not infer a live portal from component names. |
+| The separate `/go` webchat retired in `2c3b3d4e1`. The admin console still renders agent sessions and shares their wire types with its chat views. | Keep the active chat components and light/dark contrast checks. The admin shell uses ModeWatcher for the system preference and explicit appearance choices. |
 | `PageShell`/`AuthShell` use 20 px titles while `h1`/`h2` tokens describe larger headings | Resolved 2026-11-05: `text-h1` 20 px, `text-h2` 16 px, `text-h3` folded into `text-h2`. |
 | `PageShell` truncates its title; default descriptions use 13 px | Verify long identities and essential instructions; implement accessible full text/wrapping as required. |
 | `StateBlock` exposes loading/error/empty only; `DataTable` substitutes no-match copy but no clear-filter action | Extend shared state composition for the applicable section-5 states. Preserve stale content deliberately. |

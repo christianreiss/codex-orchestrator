@@ -5,9 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
-// Tokens live in their own file because the portal under /go imports them
-// without the admin's Tailwind entrypoint; app.css still owns the surfaces that
-// re-declare tokens locally, so both are scanned.
+// Include surface-specific overrides from app.css alongside the shared palette.
 const tokensCss = readFileSync(resolve(ROOT, "frontend/src/lib/styles/tokens.css"), "utf8");
 const css = `${tokensCss}\n${readFileSync(resolve(ROOT, "frontend/src/app.css"), "utf8")}`;
 type Tokens = Record<string, string>;
@@ -18,10 +16,8 @@ function block(anchor: string): Tokens {
 }
 const light = block(":root {");
 const darkBlock = block(".dark {");
-const autoDarkBlock = block(":root[data-auto-scheme] {");
 const dark = { ...light, ...darkBlock };
 const sidebar = { ...dark, ...block(".sidebar-surface {") };
-const portalAutoDark = { ...light, ...autoDarkBlock };
 function rgb(value: string): [number, number, number] {
   const match = /^(\d+)\s+(\d+)%\s+(\d+)%$/.exec(value); assert.ok(match, `invalid HSL token ${value}`);
   const [h, s, l] = [Number(match[1]), Number(match[2]) / 100, Number(match[3]) / 100];
@@ -47,7 +43,7 @@ function contrast(a: string, b: string, opacity = 1, backdrop = b) {
   const [x, y] = [luminance(rgb(a)), luminance(background)]; return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
 }
 describe("neutral theme contrast", () => {
-  for (const [name, tokens] of Object.entries({ light, dark, "portal auto dark": portalAutoDark })) {
+  for (const [name, tokens] of Object.entries({ light, dark })) {
     it(`${name} retains readable text and visible controls`, () => {
       for (const [fg, bg, min] of [["foreground", "background", 7], ["muted-foreground", "card", 4.5], ["primary-foreground", "primary", 4.5], ["destructive-foreground", "destructive", 4.5], ["input", "background", 3], ["ring", "background", 3]] as const) {
         assert.ok(contrast(tokens[fg]!, tokens[bg]!) >= min, `${name}: ${fg} on ${bg}`);
@@ -71,18 +67,6 @@ describe("neutral theme contrast", () => {
   it("does not ship branded palette selectors or decorative serif faces", () => {
     assert.doesNotMatch(css, /pink|Source Serif|data-theme/);
   });
-  // The portal cannot run the admin's inline theme bootstrap (script-src 'self'),
-  // so it gets dark through a media query instead of the .dark class. The two
-  // blocks are duplicated by necessity; this is what stops them drifting.
-  it("keeps the portal's media-query dark block identical to .dark", () => {
-    assert.deepEqual(autoDarkBlock, darkBlock);
-  });
-  /**
-   * The portal's engine avatar puts white on these at 10-11px, and neither was
-   * covered here -- so `--persona-codex` shipped at 3.89:1 until Axe caught it
-   * against the live /go page. Small white-on-brand text is exactly the case
-   * that needs a floor.
-   */
   it("keeps white legible on all persona colours", () => {
     assert.equal(light["persona-foreground"], "0 0% 100%", "--persona-foreground is the white the avatars use");
     assert.equal(darkBlock["persona-foreground"], undefined, "persona fills do not change with the theme, so neither does their text");
@@ -91,7 +75,7 @@ describe("neutral theme contrast", () => {
       assert.ok(value, `missing --${persona}`);
       assert.ok(
         contrast(value, light["persona-foreground"]!) >= 4.5,
-        `${persona} carries white text on the portal avatar and must clear 4.5:1`,
+        `${persona} carries white text on the engine avatar and must clear 4.5:1`,
       );
     }
   });

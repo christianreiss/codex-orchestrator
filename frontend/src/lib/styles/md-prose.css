@@ -1,9 +1,5 @@
 /**
- * Markdown typography, shared by the admin manual/knowledge views and by agent
- * messages in the portal thread.
- *
- * Plain CSS with no `@layer` wrapper for the same reason as tokens.css: two
- * apps with separate Tailwind entrypoints import this file directly.
+ * Markdown typography for the admin manual, knowledge views and agent messages.
  *
  * `.md-prose pre { position: relative }` plus the top padding exists so a copy
  * button can be overlaid in the corner without reflowing the code.

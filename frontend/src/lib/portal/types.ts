@@ -1,11 +1,4 @@
-/**
- * Wire types for Active Clients and shared agent sessions.
- *
- * Shared with the portal app under frontend/portal via the $lib alias so the
- * pure helpers here can be unit-tested by the existing `npm test`, which only
- * globs src/**\/*.test.ts.
- */
-
+/** Wire types for the admin console’s active clients and shared agent sessions. */
 export type Engine = "codex" | "claude" | "grok" | "kimi";
 
 /**
@@ -123,16 +116,7 @@ export interface EventRow {
   created_at: string;
 }
 
-/**
- * What `Timeline` needs from whatever is driving it.
- *
- * The portal hands it the whole `Portal` state object, which satisfies this
- * structurally. The admin console drives the same component from entirely
- * different plumbing -- svelte-query against `/admin/agent-sessions` rather than
- * the portal's own poller and SSE loop -- so naming the six members the
- * component actually reads is what lets one timeline serve both surfaces
- * without either app having to import the other's state machine.
- */
+/** State and scroll controls consumed by the shared session timeline. */
 export interface TimelineSource {
   /** Events for the selected session, oldest first. */
   timeline: EventRow[];
