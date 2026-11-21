@@ -1,11 +1,11 @@
 Surface	Option or tool	Inventory registration	Dispatch case	Case labels	Go suite evidence	CLI run evidence
 CLI switch / option	--all	wrappers/cxx/internal/claude/runtime_auth.go:254	wrappers/cxx/internal/claude/runtime_auth.go:254	--all	case entered	case unentered
-CLI switch / option	--allow-concurrent-sync	wrappers/cxx/cmd/cxx/main.go:301	wrappers/cxx/cmd/cxx/main.go:301	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
+CLI switch / option	--allow-concurrent-sync	wrappers/cxx/cmd/cxx/main.go:296	wrappers/cxx/cmd/cxx/main.go:296	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
 CLI switch / option	--allow-concurrent-sync	wrappers/cxx/internal/app/grok/main.go:90	wrappers/cxx/internal/app/grok/main.go:90	--allow-concurrent-sync	case unentered	case entered
 CLI switch / option	--allow-concurrent-sync	wrappers/cxx/internal/app/kimi/main.go:88	wrappers/cxx/internal/app/kimi/main.go:88	--allow-concurrent-sync	case unentered	case entered
 CLI switch / option	--auto	wrappers/cxx/internal/agentbus/mcp.go:747	wrappers/cxx/internal/agentbus/mcp.go:747	--auto	case unentered	case entered
-CLI switch / option	--channel	wrappers/cxx/internal/agentbus/mcp.go:750	wrappers/cxx/internal/agentbus/mcp.go:750	--channel	case unentered	case unentered
-CLI switch / option	--config	wrappers/cxx/internal/app/grok/main.go:80	wrappers/cxx/internal/app/grok/main.go:80	--config	case unentered	case unentered
+CLI switch / option	--channel	wrappers/cxx/internal/agentbus/mcp.go:750	wrappers/cxx/internal/agentbus/mcp.go:750	--channel	case unentered	case entered
+CLI switch / option	--config	wrappers/cxx/internal/app/grok/main.go:80	wrappers/cxx/internal/app/grok/main.go:80	--config	case unentered	case entered
 CLI switch / option	--config	wrappers/cxx/internal/app/kimi/main.go:78	wrappers/cxx/internal/app/kimi/main.go:78	--config	case entered	case unentered
 CLI switch / option	--cron	wrappers/cxx/internal/app/grok/main.go:112	wrappers/cxx/internal/app/grok/main.go:112	--cron	case entered	case entered
 CLI switch / option	--cron	wrappers/cxx/internal/app/kimi/main.go:110	wrappers/cxx/internal/app/kimi/main.go:110	--cron	case unentered	case entered
@@ -18,7 +18,7 @@ CLI switch / option	--doctor	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/
 CLI switch / option	--doctor	wrappers/cxx/internal/app/grok/main.go:110	wrappers/cxx/internal/app/grok/main.go:110	--doctor	case entered	case entered
 CLI switch / option	--doctor	wrappers/cxx/internal/app/kimi/main.go:108	wrappers/cxx/internal/app/kimi/main.go:108	--doctor	case entered	case entered
 CLI switch / option	--dry-run	wrappers/cxx/internal/housekeeping/command.go:171	wrappers/cxx/internal/housekeeping/command.go:171	--dry-run	case entered	case unentered
-CLI switch / option	--due	wrappers/cxx/cmd/cxx/main.go:273	wrappers/cxx/cmd/cxx/main.go:273	--due	case entered	case unentered
+CLI switch / option	--due	wrappers/cxx/cmd/cxx/main.go:268	wrappers/cxx/cmd/cxx/main.go:268	--due	case entered	case unentered
 CLI switch / option	--engine	wrappers/cxx/internal/housekeeping/command.go:162	wrappers/cxx/internal/housekeeping/command.go:162	--engine	case entered	case unentered
 CLI switch / option	--engine	wrappers/cxx/internal/projectfiles/command.go:49	wrappers/cxx/internal/projectfiles/command.go:49	--stored-name, --description, --mime-type, --engine	shared case entered	shared case entered
 CLI switch / option	--engine	wrappers/cxx/internal/projectfiles/command.go:64	wrappers/cxx/internal/projectfiles/command.go:64	--engine	case unentered	case entered
@@ -26,9 +26,9 @@ CLI switch / option	--engine	wrappers/cxx/internal/rtk/command.go:25	wrappers/cx
 CLI switch / option	--engine	wrappers/cxx/internal/transfers/command.go:44	wrappers/cxx/internal/transfers/command.go:44	--output, --engine, --ttl-seconds	shared case entered	shared case entered
 CLI switch / option	--engine	wrappers/cxx/internal/transfers/command.go:53	wrappers/cxx/internal/transfers/command.go:53	--engine	case entered	case entered
 CLI switch / option	--execute	wrappers/cxx/internal/app/grok/main.go:114	wrappers/cxx/internal/app/grok/main.go:114	--execute	case entered	case unentered
-CLI switch / option	--execute	wrappers/cxx/internal/app/kimi/main.go:112	wrappers/cxx/internal/app/kimi/main.go:112	--execute	case unentered	case unentered
+CLI switch / option	--execute	wrappers/cxx/internal/app/kimi/main.go:112	wrappers/cxx/internal/app/kimi/main.go:112	--execute	case unentered	case entered
 CLI switch / option	--fix	wrappers/cxx/cmd/cxx/doctor.go:27	wrappers/cxx/cmd/cxx/doctor.go:27	--fix	case entered	case unentered
-CLI switch / option	--help	wrappers/cxx/cmd/cxx/main.go:208	wrappers/cxx/cmd/cxx/main.go:208	--help, -h, help	case unentered	shared case entered
+CLI switch / option	--help	wrappers/cxx/cmd/cxx/main.go:203	wrappers/cxx/cmd/cxx/main.go:203	--help, -h, help	case unentered	shared case entered
 CLI switch / option	--help	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	--help	wrappers/cxx/internal/agentbus/command.go:69	wrappers/cxx/internal/agentbus/command.go:69	--help, -h, help	case unentered	shared case entered
 CLI switch / option	--help	wrappers/cxx/internal/emergency/emergency.go:80	wrappers/cxx/internal/emergency/emergency.go:80	-h, --help, help	shared case entered	case unentered
@@ -39,16 +39,16 @@ CLI switch / option	--json	wrappers/cxx/internal/transfers/command.go:42	wrapper
 CLI switch / option	--mime-type	wrappers/cxx/internal/projectfiles/command.go:49	wrappers/cxx/internal/projectfiles/command.go:49	--stored-name, --description, --mime-type, --engine	shared case entered	shared case entered
 CLI switch / option	--mime-type	wrappers/cxx/internal/projectfiles/command.go:62	wrappers/cxx/internal/projectfiles/command.go:62	--mime-type	case unentered	case entered
 CLI switch / option	--minimal	wrappers/cxx/cmd/cxx/doctor.go:29	wrappers/cxx/cmd/cxx/doctor.go:29	--minimal, --minimal-output	shared case entered	case unentered
-CLI switch / option	--minimal	wrappers/cxx/cmd/cxx/main.go:271	wrappers/cxx/cmd/cxx/main.go:271	--minimal, --minimal-output	shared case entered	shared case entered
-CLI switch / option	--minimal	wrappers/cxx/cmd/cxx/main.go:301	wrappers/cxx/cmd/cxx/main.go:301	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
+CLI switch / option	--minimal	wrappers/cxx/cmd/cxx/main.go:266	wrappers/cxx/cmd/cxx/main.go:266	--minimal, --minimal-output	shared case entered	shared case entered
+CLI switch / option	--minimal	wrappers/cxx/cmd/cxx/main.go:296	wrappers/cxx/cmd/cxx/main.go:296	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
 CLI switch / option	--minimal	wrappers/cxx/cmd/cxx/update.go:78	wrappers/cxx/cmd/cxx/update.go:78	--minimal, --minimal-output, --silent, --skip-boot, --no-banner	case unentered	shared case entered
 CLI switch / option	--minimal-output	wrappers/cxx/cmd/cxx/doctor.go:29	wrappers/cxx/cmd/cxx/doctor.go:29	--minimal, --minimal-output	shared case entered	case unentered
-CLI switch / option	--minimal-output	wrappers/cxx/cmd/cxx/main.go:271	wrappers/cxx/cmd/cxx/main.go:271	--minimal, --minimal-output	shared case entered	shared case entered
-CLI switch / option	--minimal-output	wrappers/cxx/cmd/cxx/main.go:301	wrappers/cxx/cmd/cxx/main.go:301	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
+CLI switch / option	--minimal-output	wrappers/cxx/cmd/cxx/main.go:266	wrappers/cxx/cmd/cxx/main.go:266	--minimal, --minimal-output	shared case entered	shared case entered
+CLI switch / option	--minimal-output	wrappers/cxx/cmd/cxx/main.go:296	wrappers/cxx/cmd/cxx/main.go:296	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
 CLI switch / option	--minimal-output	wrappers/cxx/cmd/cxx/update.go:78	wrappers/cxx/cmd/cxx/update.go:78	--minimal, --minimal-output, --silent, --skip-boot, --no-banner	case unentered	shared case entered
 CLI switch / option	--minimal-output	wrappers/cxx/internal/app/grok/main.go:85	wrappers/cxx/internal/app/grok/main.go:85	--skip-boot, --minimal-output, --silent, --no-banner	shared case entered	case unentered
 CLI switch / option	--minimal-output	wrappers/cxx/internal/app/kimi/main.go:83	wrappers/cxx/internal/app/kimi/main.go:83	--skip-boot, --minimal-output, --silent, --no-banner	shared case entered	case unentered
-CLI switch / option	--no-banner	wrappers/cxx/cmd/cxx/main.go:301	wrappers/cxx/cmd/cxx/main.go:301	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
+CLI switch / option	--no-banner	wrappers/cxx/cmd/cxx/main.go:296	wrappers/cxx/cmd/cxx/main.go:296	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
 CLI switch / option	--no-banner	wrappers/cxx/cmd/cxx/update.go:78	wrappers/cxx/cmd/cxx/update.go:78	--minimal, --minimal-output, --silent, --skip-boot, --no-banner	case unentered	shared case entered
 CLI switch / option	--no-banner	wrappers/cxx/internal/app/grok/main.go:85	wrappers/cxx/internal/app/grok/main.go:85	--skip-boot, --minimal-output, --silent, --no-banner	shared case entered	case unentered
 CLI switch / option	--no-banner	wrappers/cxx/internal/app/kimi/main.go:83	wrappers/cxx/internal/app/kimi/main.go:83	--skip-boot, --minimal-output, --silent, --no-banner	shared case entered	case unentered
@@ -56,11 +56,11 @@ CLI switch / option	--output	wrappers/cxx/internal/transfers/command.go:44	wrapp
 CLI switch / option	--output	wrappers/cxx/internal/transfers/command.go:51	wrappers/cxx/internal/transfers/command.go:51	--output	case entered	case entered
 CLI switch / option	--overwrite	wrappers/cxx/internal/transfers/command.go:40	wrappers/cxx/internal/transfers/command.go:40	--overwrite	case unentered	case entered
 CLI switch / option	--resume	wrappers/cxx/internal/transfers/command.go:38	wrappers/cxx/internal/transfers/command.go:38	--resume	case entered	case unentered
-CLI switch / option	--silent	wrappers/cxx/cmd/cxx/main.go:301	wrappers/cxx/cmd/cxx/main.go:301	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
+CLI switch / option	--silent	wrappers/cxx/cmd/cxx/main.go:296	wrappers/cxx/cmd/cxx/main.go:296	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
 CLI switch / option	--silent	wrappers/cxx/cmd/cxx/update.go:78	wrappers/cxx/cmd/cxx/update.go:78	--minimal, --minimal-output, --silent, --skip-boot, --no-banner	case unentered	shared case entered
 CLI switch / option	--silent	wrappers/cxx/internal/app/grok/main.go:85	wrappers/cxx/internal/app/grok/main.go:85	--skip-boot, --minimal-output, --silent, --no-banner	shared case entered	case unentered
 CLI switch / option	--silent	wrappers/cxx/internal/app/kimi/main.go:83	wrappers/cxx/internal/app/kimi/main.go:83	--skip-boot, --minimal-output, --silent, --no-banner	shared case entered	case unentered
-CLI switch / option	--skip-boot	wrappers/cxx/cmd/cxx/main.go:301	wrappers/cxx/cmd/cxx/main.go:301	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
+CLI switch / option	--skip-boot	wrappers/cxx/cmd/cxx/main.go:296	wrappers/cxx/cmd/cxx/main.go:296	--minimal, --minimal-output, --silent, --skip-boot, --no-banner, --allow-concurrent-sync	shared case entered	case unentered
 CLI switch / option	--skip-boot	wrappers/cxx/cmd/cxx/update.go:78	wrappers/cxx/cmd/cxx/update.go:78	--minimal, --minimal-output, --silent, --skip-boot, --no-banner	case unentered	shared case entered
 CLI switch / option	--skip-boot	wrappers/cxx/internal/app/grok/main.go:85	wrappers/cxx/internal/app/grok/main.go:85	--skip-boot, --minimal-output, --silent, --no-banner	shared case entered	case unentered
 CLI switch / option	--skip-boot	wrappers/cxx/internal/app/kimi/main.go:83	wrappers/cxx/internal/app/kimi/main.go:83	--skip-boot, --minimal-output, --silent, --no-banner	shared case entered	case unentered
@@ -73,16 +73,16 @@ CLI switch / option	--ttl-seconds	wrappers/cxx/internal/transfers/command.go:44	
 CLI switch / option	--ttl-seconds	wrappers/cxx/internal/transfers/command.go:55	wrappers/cxx/internal/transfers/command.go:55	--ttl-seconds	case entered	case unentered
 CLI switch / option	--uninstall	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	--uninstall	wrappers/cxx/internal/app/grok/main.go:104	wrappers/cxx/internal/app/grok/main.go:104	--uninstall	case entered	case unentered
-CLI switch / option	--uninstall	wrappers/cxx/internal/app/kimi/main.go:102	wrappers/cxx/internal/app/kimi/main.go:102	--uninstall	case unentered	case unentered
+CLI switch / option	--uninstall	wrappers/cxx/internal/app/kimi/main.go:102	wrappers/cxx/internal/app/kimi/main.go:102	--uninstall	case unentered	case entered
 CLI switch / option	--update	wrappers/cxx/internal/app/grok/main.go:102	wrappers/cxx/internal/app/grok/main.go:102	--update, -U	shared case entered	shared case entered
 CLI switch / option	--update	wrappers/cxx/internal/app/kimi/main.go:100	wrappers/cxx/internal/app/kimi/main.go:100	--update, -U	case unentered	shared case entered
 CLI switch / option	--verbose	wrappers/cxx/internal/app/grok/main.go:94	wrappers/cxx/internal/app/grok/main.go:94	--verbose, --debug	case unentered	shared case entered
 CLI switch / option	--verbose	wrappers/cxx/internal/app/kimi/main.go:92	wrappers/cxx/internal/app/kimi/main.go:92	--verbose, --debug	case unentered	shared case entered
-CLI switch / option	--version	wrappers/cxx/cmd/cxx/main.go:201	wrappers/cxx/cmd/cxx/main.go:201	--version, --wrapper-version, -W	shared case entered	case unentered
+CLI switch / option	--version	wrappers/cxx/cmd/cxx/main.go:196	wrappers/cxx/cmd/cxx/main.go:196	--version, --wrapper-version, -W	shared case entered	case unentered
 CLI switch / option	--version	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	--wrapper-help	wrappers/cxx/internal/app/grok/main.go:99	wrappers/cxx/internal/app/grok/main.go:99	--wrapper-help	case unentered	case entered
 CLI switch / option	--wrapper-help	wrappers/cxx/internal/app/kimi/main.go:97	wrappers/cxx/internal/app/kimi/main.go:97	--wrapper-help	case unentered	case entered
-CLI switch / option	--wrapper-version	wrappers/cxx/cmd/cxx/main.go:201	wrappers/cxx/cmd/cxx/main.go:201	--version, --wrapper-version, -W	shared case entered	case unentered
+CLI switch / option	--wrapper-version	wrappers/cxx/cmd/cxx/main.go:196	wrappers/cxx/cmd/cxx/main.go:196	--version, --wrapper-version, -W	shared case entered	case unentered
 CLI switch / option	--wrapper-version	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	--wrapper-version	wrappers/cxx/internal/app/grok/main.go:96	wrappers/cxx/internal/app/grok/main.go:96	--wrapper-version, -W	shared case entered	shared case entered
 CLI switch / option	--wrapper-version	wrappers/cxx/internal/app/kimi/main.go:94	wrappers/cxx/internal/app/kimi/main.go:94	--wrapper-version, -W	shared case entered	shared case entered
@@ -91,11 +91,11 @@ CLI switch / option	-4	wrappers/cxx/internal/app/kimi/main.go:90	wrappers/cxx/in
 CLI switch / option	-U	wrappers/cxx/internal/app/grok/main.go:102	wrappers/cxx/internal/app/grok/main.go:102	--update, -U	shared case entered	shared case entered
 CLI switch / option	-U	wrappers/cxx/internal/app/kimi/main.go:100	wrappers/cxx/internal/app/kimi/main.go:100	--update, -U	case unentered	shared case entered
 CLI switch / option	-V	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
-CLI switch / option	-W	wrappers/cxx/cmd/cxx/main.go:201	wrappers/cxx/cmd/cxx/main.go:201	--version, --wrapper-version, -W	shared case entered	case unentered
+CLI switch / option	-W	wrappers/cxx/cmd/cxx/main.go:196	wrappers/cxx/cmd/cxx/main.go:196	--version, --wrapper-version, -W	shared case entered	case unentered
 CLI switch / option	-W	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	-W	wrappers/cxx/internal/app/grok/main.go:96	wrappers/cxx/internal/app/grok/main.go:96	--wrapper-version, -W	shared case entered	shared case entered
 CLI switch / option	-W	wrappers/cxx/internal/app/kimi/main.go:94	wrappers/cxx/internal/app/kimi/main.go:94	--wrapper-version, -W	shared case entered	shared case entered
-CLI switch / option	-h	wrappers/cxx/cmd/cxx/main.go:208	wrappers/cxx/cmd/cxx/main.go:208	--help, -h, help	case unentered	shared case entered
+CLI switch / option	-h	wrappers/cxx/cmd/cxx/main.go:203	wrappers/cxx/cmd/cxx/main.go:203	--help, -h, help	case unentered	shared case entered
 CLI switch / option	-h	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	-h	wrappers/cxx/internal/agentbus/command.go:69	wrappers/cxx/internal/agentbus/command.go:69	--help, -h, help	case unentered	shared case entered
 CLI switch / option	-h	wrappers/cxx/internal/emergency/emergency.go:80	wrappers/cxx/internal/emergency/emergency.go:80	-h, --help, help	shared case entered	case unentered
@@ -110,9 +110,9 @@ CLI switch / option	_status	wrappers/cxx/internal/agentbus/reboot.go:250	wrapper
 CLI switch / option	accept	wrappers/cxx/internal/agentportal/command.go:39	wrappers/cxx/internal/agentportal/command.go:39	accept	case entered	case unentered
 CLI switch / option	acp	wrappers/cxx/internal/nativeargs/args.go:329	wrappers/cxx/internal/nativeargs/args.go:329	web, server, rc, remote, app, vis, acp, exec-server, __plugin_run_node, __update_download	shared case entered	case unentered
 CLI switch / option	activity-event	wrappers/cxx/internal/agentbus/command.go:24	wrappers/cxx/internal/agentbus/command.go:24	translate, mcp, poll, message, status, doctor, activity-event, watchdog-event, native-session, service	shared case entered	shared case entered
-CLI switch / option	activity-event	wrappers/cxx/internal/agentbus/command.go:52	wrappers/cxx/internal/agentbus/command.go:52	activity-event	case unentered	case unentered
-CLI switch / option	agent	wrappers/cxx/cmd/cxx/main.go:193	wrappers/cxx/cmd/cxx/main.go:193	agent	case entered	case entered
-CLI switch / option	agent	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal	shared case entered	shared case entered
+CLI switch / option	activity-event	wrappers/cxx/internal/agentbus/command.go:52	wrappers/cxx/internal/agentbus/command.go:52	activity-event	case unentered	case entered
+CLI switch / option	agent	wrappers/cxx/cmd/cxx/main.go:188	wrappers/cxx/cmd/cxx/main.go:188	agent	case entered	case entered
+CLI switch / option	agent	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	agent	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	agents	wrappers/cxx/internal/claude/runtime_auth.go:233	wrappers/cxx/internal/claude/runtime_auth.go:233	agents	case entered	case unentered
 CLI switch / option	agents	wrappers/cxx/internal/nativeargs/args.go:340	wrappers/cxx/internal/nativeargs/args.go:340	app-server, exec-server, remote-control, agents, migrate-nfs-db, queue, archive, unarchive, delete	shared case entered	case unentered
@@ -130,50 +130,50 @@ CLI switch / option	auth-reconcile	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cx
 CLI switch / option	auth-reconcile	wrappers/cxx/internal/app/grok/main.go:127	wrappers/cxx/internal/app/grok/main.go:127	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
 CLI switch / option	auth-reconcile	wrappers/cxx/internal/app/grok/main.go:261	wrappers/cxx/internal/app/grok/main.go:261	login, cron, auth-reconcile	shared case entered	shared case entered
 CLI switch / option	auth-reconcile	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	auth-reconcile	wrappers/cxx/internal/app/kimi/main.go:251	wrappers/cxx/internal/app/kimi/main.go:251	login, cron, auth-reconcile	case unentered	shared case entered
+CLI switch / option	auth-reconcile	wrappers/cxx/internal/app/kimi/main.go:243	wrappers/cxx/internal/app/kimi/main.go:243	login, cron, auth-reconcile	case unentered	shared case entered
 CLI switch / option	auth-sync	wrappers/cxx/internal/app/grok/main.go:127	wrappers/cxx/internal/app/grok/main.go:127	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
 CLI switch / option	auth-sync	wrappers/cxx/internal/app/grok/main.go:268	wrappers/cxx/internal/app/grok/main.go:268	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
 CLI switch / option	auth-sync	wrappers/cxx/internal/app/grok/main.go:341	wrappers/cxx/internal/app/grok/main.go:341	run, execute, sync, auth-sync, login	case unentered	shared case entered
 CLI switch / option	auth-sync	wrappers/cxx/internal/app/grok/main.go:362	wrappers/cxx/internal/app/grok/main.go:362	sync, auth-sync	case unentered	shared case entered
 CLI switch / option	auth-sync	wrappers/cxx/internal/app/grok/main.go:382	wrappers/cxx/internal/app/grok/main.go:382	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:258	wrappers/cxx/internal/app/kimi/main.go:258	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
-CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:331	wrappers/cxx/internal/app/kimi/main.go:331	run, execute, sync, auth-sync, login	case unentered	shared case entered
-CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:352	wrappers/cxx/internal/app/kimi/main.go:352	sync, auth-sync	case unentered	shared case entered
-CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:372	wrappers/cxx/internal/app/kimi/main.go:372	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
+CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:250	wrappers/cxx/internal/app/kimi/main.go:250	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
+CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:323	wrappers/cxx/internal/app/kimi/main.go:323	run, execute, sync, auth-sync, login	case unentered	shared case entered
+CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:344	wrappers/cxx/internal/app/kimi/main.go:344	sync, auth-sync	case unentered	shared case entered
+CLI switch / option	auth-sync	wrappers/cxx/internal/app/kimi/main.go:364	wrappers/cxx/internal/app/kimi/main.go:364	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	auth-upload	wrappers/cxx/internal/app/claude/main.go:570	wrappers/cxx/internal/app/claude/main.go:570	auth-upload	case unentered	case unentered
 CLI switch / option	auth-upload	wrappers/cxx/internal/app/claude/main.go:618	wrappers/cxx/internal/app/claude/main.go:618	run, resume, sync, execute, status, auth-upload, uninstall, update	shared case entered	shared case entered
 CLI switch / option	auth-upload-auto	wrappers/cxx/internal/app/grok/main.go:127	wrappers/cxx/internal/app/grok/main.go:127	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
 CLI switch / option	auth-upload-auto	wrappers/cxx/internal/app/grok/main.go:268	wrappers/cxx/internal/app/grok/main.go:268	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
 CLI switch / option	auth-upload-auto	wrappers/cxx/internal/app/grok/main.go:350	wrappers/cxx/internal/app/grok/main.go:350	auth-upload-auto	case unentered	case unentered
 CLI switch / option	auth-upload-auto	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	auth-upload-auto	wrappers/cxx/internal/app/kimi/main.go:258	wrappers/cxx/internal/app/kimi/main.go:258	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
-CLI switch / option	auth-upload-auto	wrappers/cxx/internal/app/kimi/main.go:340	wrappers/cxx/internal/app/kimi/main.go:340	auth-upload-auto	case unentered	case unentered
+CLI switch / option	auth-upload-auto	wrappers/cxx/internal/app/kimi/main.go:250	wrappers/cxx/internal/app/kimi/main.go:250	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
+CLI switch / option	auth-upload-auto	wrappers/cxx/internal/app/kimi/main.go:332	wrappers/cxx/internal/app/kimi/main.go:332	auth-upload-auto	case unentered	case unentered
 CLI switch / option	bridge	wrappers/cxx/internal/claude/runtime_auth.go:231	wrappers/cxx/internal/claude/runtime_auth.go:231	daemon, remote-control, rc, remote, bridge, sync, self-hosted-runner, gateway, respawn, attach	shared case entered	shared case entered
 CLI switch / option	cancel	wrappers/cxx/internal/agentbus/command.go:46	wrappers/cxx/internal/agentbus/command.go:46	cancel	case unentered	case entered
 CLI switch / option	cdx	wrappers/cxx/internal/agentbus/foreign_workers.go:165	wrappers/cxx/internal/agentbus/foreign_workers.go:165	cxx, cdx, clx, cgx, ckx	shared case entered	case unentered
 CLI switch / option	cgx	wrappers/cxx/internal/agentbus/foreign_workers.go:165	wrappers/cxx/internal/agentbus/foreign_workers.go:165	cxx, cdx, clx, cgx, ckx	shared case entered	case unentered
 CLI switch / option	ckx	wrappers/cxx/internal/agentbus/foreign_workers.go:165	wrappers/cxx/internal/agentbus/foreign_workers.go:165	cxx, cdx, clx, cgx, ckx	shared case entered	case unentered
-CLI switch / option	claude	wrappers/cxx/cmd/cxx/main.go:174	wrappers/cxx/cmd/cxx/main.go:174	claude	case entered	case entered
+CLI switch / option	claude	wrappers/cxx/cmd/cxx/main.go:167	wrappers/cxx/cmd/cxx/main.go:167	claude	case entered	case entered
 CLI switch / option	claude	wrappers/cxx/cmd/cxx/native.go:30	wrappers/cxx/cmd/cxx/native.go:30	claude	case entered	case entered
-CLI switch / option	claude-quota-statusline	wrappers/cxx/cmd/cxx/main.go:195	wrappers/cxx/cmd/cxx/main.go:195	claude-quota-statusline	case unentered	case entered
+CLI switch / option	claude-quota-statusline	wrappers/cxx/cmd/cxx/main.go:190	wrappers/cxx/cmd/cxx/main.go:190	claude-quota-statusline	case unentered	case entered
 CLI switch / option	claude-quota-statusline	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	clx	wrappers/cxx/internal/agentbus/foreign_workers.go:165	wrappers/cxx/internal/agentbus/foreign_workers.go:165	cxx, cdx, clx, cgx, ckx	shared case entered	case unentered
-CLI switch / option	codex	wrappers/cxx/cmd/cxx/main.go:172	wrappers/cxx/cmd/cxx/main.go:172	codex	case entered	case entered
+CLI switch / option	codex	wrappers/cxx/cmd/cxx/main.go:165	wrappers/cxx/cmd/cxx/main.go:165	codex	case entered	case entered
 CLI switch / option	codex	wrappers/cxx/cmd/cxx/native.go:28	wrappers/cxx/cmd/cxx/native.go:28	codex	case entered	case entered
 CLI switch / option	completion	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
-CLI switch / option	cron	wrappers/cxx/cmd/cxx/main.go:182	wrappers/cxx/cmd/cxx/main.go:182	cron	case entered	case entered
-CLI switch / option	cron	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal	shared case entered	shared case entered
+CLI switch / option	cron	wrappers/cxx/cmd/cxx/main.go:175	wrappers/cxx/cmd/cxx/main.go:175	cron	case entered	case entered
+CLI switch / option	cron	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	cron	wrappers/cxx/internal/app/claude/main.go:580	wrappers/cxx/internal/app/claude/main.go:580	cron	case unentered	case entered
 CLI switch / option	cron	wrappers/cxx/internal/app/grok/main.go:127	wrappers/cxx/internal/app/grok/main.go:127	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
 CLI switch / option	cron	wrappers/cxx/internal/app/grok/main.go:261	wrappers/cxx/internal/app/grok/main.go:261	login, cron, auth-reconcile	shared case entered	shared case entered
 CLI switch / option	cron	wrappers/cxx/internal/app/grok/main.go:358	wrappers/cxx/internal/app/grok/main.go:358	cron	case unentered	case entered
 CLI switch / option	cron	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	cron	wrappers/cxx/internal/app/kimi/main.go:251	wrappers/cxx/internal/app/kimi/main.go:251	login, cron, auth-reconcile	case unentered	shared case entered
-CLI switch / option	cron	wrappers/cxx/internal/app/kimi/main.go:348	wrappers/cxx/internal/app/kimi/main.go:348	cron	case unentered	case entered
+CLI switch / option	cron	wrappers/cxx/internal/app/kimi/main.go:243	wrappers/cxx/internal/app/kimi/main.go:243	login, cron, auth-reconcile	case unentered	shared case entered
+CLI switch / option	cron	wrappers/cxx/internal/app/kimi/main.go:340	wrappers/cxx/internal/app/kimi/main.go:340	cron	case unentered	case entered
 CLI switch / option	cxx	wrappers/cxx/internal/agentbus/foreign_workers.go:165	wrappers/cxx/internal/agentbus/foreign_workers.go:165	cxx, cdx, clx, cgx, ckx	shared case entered	case unentered
-CLI switch / option	daemon	wrappers/cxx/cmd/cxx/main.go:188	wrappers/cxx/cmd/cxx/main.go:188	daemon	case entered	case entered
-CLI switch / option	daemon	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal	shared case entered	shared case entered
+CLI switch / option	daemon	wrappers/cxx/cmd/cxx/main.go:183	wrappers/cxx/cmd/cxx/main.go:183	daemon	case entered	case entered
+CLI switch / option	daemon	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	daemon	wrappers/cxx/internal/claude/runtime_auth.go:231	wrappers/cxx/internal/claude/runtime_auth.go:231	daemon, remote-control, rc, remote, bridge, sync, self-hosted-runner, gateway, respawn, attach	shared case entered	shared case entered
 CLI switch / option	debug	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	delete	wrappers/cxx/internal/nativeargs/args.go:340	wrappers/cxx/internal/nativeargs/args.go:340	app-server, exec-server, remote-control, agents, migrate-nfs-db, queue, archive, unarchive, delete	shared case entered	case unentered
@@ -186,9 +186,9 @@ CLI switch / option	doctor	wrappers/cxx/internal/app/grok/main.go:268	wrappers/c
 CLI switch / option	doctor	wrappers/cxx/internal/app/grok/main.go:364	wrappers/cxx/internal/app/grok/main.go:364	status, doctor	case unentered	shared case entered
 CLI switch / option	doctor	wrappers/cxx/internal/app/grok/main.go:382	wrappers/cxx/internal/app/grok/main.go:382	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	doctor	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	doctor	wrappers/cxx/internal/app/kimi/main.go:258	wrappers/cxx/internal/app/kimi/main.go:258	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
-CLI switch / option	doctor	wrappers/cxx/internal/app/kimi/main.go:354	wrappers/cxx/internal/app/kimi/main.go:354	status, doctor	case unentered	shared case entered
-CLI switch / option	doctor	wrappers/cxx/internal/app/kimi/main.go:372	wrappers/cxx/internal/app/kimi/main.go:372	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
+CLI switch / option	doctor	wrappers/cxx/internal/app/kimi/main.go:250	wrappers/cxx/internal/app/kimi/main.go:250	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
+CLI switch / option	doctor	wrappers/cxx/internal/app/kimi/main.go:346	wrappers/cxx/internal/app/kimi/main.go:346	status, doctor	case unentered	shared case entered
+CLI switch / option	doctor	wrappers/cxx/internal/app/kimi/main.go:364	wrappers/cxx/internal/app/kimi/main.go:364	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	doctor	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	e	wrappers/cxx/internal/app/codex/main.go:146	wrappers/cxx/internal/app/codex/main.go:146	e, review, fork	shared case entered	case unentered
 CLI switch / option	e	wrappers/cxx/internal/app/codex/main.go:457	wrappers/cxx/internal/app/codex/main.go:457	run, exec, e, review, fork	shared case entered	shared case entered
@@ -202,27 +202,27 @@ CLI switch / option	execute	wrappers/cxx/internal/app/claude/main.go:551	wrapper
 CLI switch / option	execute	wrappers/cxx/internal/app/claude/main.go:618	wrappers/cxx/internal/app/claude/main.go:618	run, resume, sync, execute, status, auth-upload, uninstall, update	shared case entered	shared case entered
 CLI switch / option	execute	wrappers/cxx/internal/app/grok/main.go:341	wrappers/cxx/internal/app/grok/main.go:341	run, execute, sync, auth-sync, login	case unentered	shared case entered
 CLI switch / option	execute	wrappers/cxx/internal/app/grok/main.go:382	wrappers/cxx/internal/app/grok/main.go:382	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
-CLI switch / option	execute	wrappers/cxx/internal/app/kimi/main.go:331	wrappers/cxx/internal/app/kimi/main.go:331	run, execute, sync, auth-sync, login	case unentered	shared case entered
-CLI switch / option	execute	wrappers/cxx/internal/app/kimi/main.go:372	wrappers/cxx/internal/app/kimi/main.go:372	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
+CLI switch / option	execute	wrappers/cxx/internal/app/kimi/main.go:323	wrappers/cxx/internal/app/kimi/main.go:323	run, execute, sync, auth-sync, login	case unentered	shared case entered
+CLI switch / option	execute	wrappers/cxx/internal/app/kimi/main.go:364	wrappers/cxx/internal/app/kimi/main.go:364	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	features	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	fork	wrappers/cxx/internal/app/codex/main.go:146	wrappers/cxx/internal/app/codex/main.go:146	e, review, fork	shared case entered	case unentered
 CLI switch / option	fork	wrappers/cxx/internal/app/codex/main.go:457	wrappers/cxx/internal/app/codex/main.go:457	run, exec, e, review, fork	shared case entered	shared case entered
 CLI switch / option	gateway	wrappers/cxx/internal/claude/runtime_auth.go:231	wrappers/cxx/internal/claude/runtime_auth.go:231	daemon, remote-control, rc, remote, bridge, sync, self-hosted-runner, gateway, respawn, attach	shared case entered	shared case entered
-CLI switch / option	grok	wrappers/cxx/cmd/cxx/main.go:176	wrappers/cxx/cmd/cxx/main.go:176	grok	case unentered	case entered
+CLI switch / option	grok	wrappers/cxx/cmd/cxx/main.go:169	wrappers/cxx/cmd/cxx/main.go:169	grok	case unentered	case entered
 CLI switch / option	grok	wrappers/cxx/cmd/cxx/native.go:32	wrappers/cxx/cmd/cxx/native.go:32	grok	case entered	case entered
-CLI switch / option	grok-auth	wrappers/cxx/cmd/cxx/main.go:180	wrappers/cxx/cmd/cxx/main.go:180	grok-auth	case unentered	case unentered
+CLI switch / option	grok-auth	wrappers/cxx/cmd/cxx/main.go:173	wrappers/cxx/cmd/cxx/main.go:173	grok-auth	case unentered	case entered
 CLI switch / option	grok-auth	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
-CLI switch / option	help	wrappers/cxx/cmd/cxx/main.go:208	wrappers/cxx/cmd/cxx/main.go:208	--help, -h, help	case unentered	shared case entered
+CLI switch / option	help	wrappers/cxx/cmd/cxx/main.go:203	wrappers/cxx/cmd/cxx/main.go:203	--help, -h, help	case unentered	shared case entered
 CLI switch / option	help	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	help	wrappers/cxx/internal/agentbus/command.go:69	wrappers/cxx/internal/agentbus/command.go:69	--help, -h, help	case unentered	shared case entered
 CLI switch / option	help	wrappers/cxx/internal/app/grok/main.go:127	wrappers/cxx/internal/app/grok/main.go:127	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
 CLI switch / option	help	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
 CLI switch / option	help	wrappers/cxx/internal/emergency/emergency.go:80	wrappers/cxx/internal/emergency/emergency.go:80	-h, --help, help	shared case entered	case unentered
 CLI switch / option	hold	wrappers/cxx/internal/workload/run_linux.go:297	wrappers/cxx/internal/workload/run_linux.go:297	hold	case entered	case entered
-CLI switch / option	housekeeping	wrappers/cxx/cmd/cxx/main.go:166	wrappers/cxx/cmd/cxx/main.go:166	housekeeping	case entered	case unentered
-CLI switch / option	housekeeping	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal	shared case entered	shared case entered
-CLI switch / option	install	wrappers/cxx/cmd/cxx/main.go:105	wrappers/cxx/cmd/cxx/main.go:105	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
-CLI switch / option	install	wrappers/cxx/cmd/cxx/main.go:238	wrappers/cxx/cmd/cxx/main.go:238	install	case unentered	case entered
+CLI switch / option	housekeeping	wrappers/cxx/cmd/cxx/main.go:159	wrappers/cxx/cmd/cxx/main.go:159	housekeeping	case entered	case unentered
+CLI switch / option	housekeeping	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
+CLI switch / option	install	wrappers/cxx/cmd/cxx/main.go:101	wrappers/cxx/cmd/cxx/main.go:101	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
+CLI switch / option	install	wrappers/cxx/cmd/cxx/main.go:233	wrappers/cxx/cmd/cxx/main.go:233	install	case unentered	case entered
 CLI switch / option	install	wrappers/cxx/cmd/cxx/native.go:140	wrappers/cxx/cmd/cxx/native.go:140	install	case unentered	case entered
 CLI switch / option	install	wrappers/cxx/internal/agentbus/daemon.go:303	wrappers/cxx/internal/agentbus/daemon.go:303	install	case unentered	case unentered
 CLI switch / option	install	wrappers/cxx/internal/agentbus/service.go:268	wrappers/cxx/internal/agentbus/service.go:268	install	case entered	case unentered
@@ -232,8 +232,7 @@ CLI switch / option	install	wrappers/cxx/internal/app/codex/main.go:1854	wrapper
 CLI switch / option	install	wrappers/cxx/internal/app/grok/commands.go:31	wrappers/cxx/internal/app/grok/commands.go:31	install	case unentered	case entered
 CLI switch / option	install	wrappers/cxx/internal/app/grok/main.go:245	wrappers/cxx/internal/app/grok/main.go:245	update, upgrade, install	shared case entered	case unentered
 CLI switch / option	install	wrappers/cxx/internal/app/kimi/commands.go:31	wrappers/cxx/internal/app/kimi/commands.go:31	install	case unentered	case entered
-CLI switch / option	install	wrappers/cxx/internal/app/kimi/main.go:235	wrappers/cxx/internal/app/kimi/main.go:235	update, upgrade, install	case unentered	shared case entered
-CLI switch / option	kimi	wrappers/cxx/cmd/cxx/main.go:178	wrappers/cxx/cmd/cxx/main.go:178	kimi	case unentered	case entered
+CLI switch / option	kimi	wrappers/cxx/cmd/cxx/main.go:171	wrappers/cxx/cmd/cxx/main.go:171	kimi	case unentered	case entered
 CLI switch / option	kimi	wrappers/cxx/cmd/cxx/native.go:34	wrappers/cxx/cmd/cxx/native.go:34	kimi	case entered	case entered
 CLI switch / option	leave	wrappers/cxx/internal/agentportal/command.go:41	wrappers/cxx/internal/agentportal/command.go:41	leave	case entered	case unentered
 CLI switch / option	list	wrappers/cxx/internal/agentbus/command.go:34	wrappers/cxx/internal/agentbus/command.go:34	list, peers	shared case entered	case unentered
@@ -244,9 +243,9 @@ CLI switch / option	login	wrappers/cxx/internal/app/grok/main.go:261	wrappers/cx
 CLI switch / option	login	wrappers/cxx/internal/app/grok/main.go:341	wrappers/cxx/internal/app/grok/main.go:341	run, execute, sync, auth-sync, login	case unentered	shared case entered
 CLI switch / option	login	wrappers/cxx/internal/app/grok/main.go:352	wrappers/cxx/internal/app/grok/main.go:352	login	case unentered	case unentered
 CLI switch / option	login	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	login	wrappers/cxx/internal/app/kimi/main.go:251	wrappers/cxx/internal/app/kimi/main.go:251	login, cron, auth-reconcile	case unentered	shared case entered
-CLI switch / option	login	wrappers/cxx/internal/app/kimi/main.go:331	wrappers/cxx/internal/app/kimi/main.go:331	run, execute, sync, auth-sync, login	case unentered	shared case entered
-CLI switch / option	login	wrappers/cxx/internal/app/kimi/main.go:342	wrappers/cxx/internal/app/kimi/main.go:342	login	case unentered	case unentered
+CLI switch / option	login	wrappers/cxx/internal/app/kimi/main.go:243	wrappers/cxx/internal/app/kimi/main.go:243	login, cron, auth-reconcile	case unentered	shared case entered
+CLI switch / option	login	wrappers/cxx/internal/app/kimi/main.go:323	wrappers/cxx/internal/app/kimi/main.go:323	run, execute, sync, auth-sync, login	case unentered	shared case entered
+CLI switch / option	login	wrappers/cxx/internal/app/kimi/main.go:334	wrappers/cxx/internal/app/kimi/main.go:334	login	case unentered	case unentered
 CLI switch / option	login	wrappers/cxx/internal/claude/runtime_auth.go:417	wrappers/cxx/internal/claude/runtime_auth.go:417	login	case entered	case unentered
 CLI switch / option	login	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	logout	wrappers/cxx/internal/app/claude/native.go:24	wrappers/cxx/internal/app/claude/native.go:24	auth, login, logout	shared case entered	case unentered
@@ -254,8 +253,8 @@ CLI switch / option	logout	wrappers/cxx/internal/app/grok/main.go:127	wrappers/c
 CLI switch / option	logout	wrappers/cxx/internal/app/grok/main.go:268	wrappers/cxx/internal/app/grok/main.go:268	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
 CLI switch / option	logout	wrappers/cxx/internal/app/grok/main.go:354	wrappers/cxx/internal/app/grok/main.go:354	logout	case unentered	case unentered
 CLI switch / option	logout	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	logout	wrappers/cxx/internal/app/kimi/main.go:258	wrappers/cxx/internal/app/kimi/main.go:258	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
-CLI switch / option	logout	wrappers/cxx/internal/app/kimi/main.go:344	wrappers/cxx/internal/app/kimi/main.go:344	logout	case unentered	case unentered
+CLI switch / option	logout	wrappers/cxx/internal/app/kimi/main.go:250	wrappers/cxx/internal/app/kimi/main.go:250	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
+CLI switch / option	logout	wrappers/cxx/internal/app/kimi/main.go:336	wrappers/cxx/internal/app/kimi/main.go:336	logout	case unentered	case unentered
 CLI switch / option	logout	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	mcp	wrappers/cxx/internal/agentbus/command.go:24	wrappers/cxx/internal/agentbus/command.go:24	translate, mcp, poll, message, status, doctor, activity-event, watchdog-event, native-session, service	shared case entered	shared case entered
 CLI switch / option	mcp	wrappers/cxx/internal/agentbus/command.go:67	wrappers/cxx/internal/agentbus/command.go:67	mcp	case unentered	case entered
@@ -263,31 +262,32 @@ CLI switch / option	mcp	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/int
 CLI switch / option	message	wrappers/cxx/internal/agentbus/command.go:24	wrappers/cxx/internal/agentbus/command.go:24	translate, mcp, poll, message, status, doctor, activity-event, watchdog-event, native-session, service	shared case entered	shared case entered
 CLI switch / option	message	wrappers/cxx/internal/agentbus/command.go:44	wrappers/cxx/internal/agentbus/command.go:44	message	case unentered	case entered
 CLI switch / option	migrate-nfs-db	wrappers/cxx/internal/nativeargs/args.go:340	wrappers/cxx/internal/nativeargs/args.go:340	app-server, exec-server, remote-control, agents, migrate-nfs-db, queue, archive, unarchive, delete	shared case entered	case unentered
-CLI switch / option	native	wrappers/cxx/cmd/cxx/main.go:168	wrappers/cxx/cmd/cxx/main.go:168	native	case unentered	case entered
-CLI switch / option	native-entry	wrappers/cxx/cmd/cxx/main.go:170	wrappers/cxx/cmd/cxx/main.go:170	native-entry	case entered	case entered
-CLI switch / option	native-entry	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal	shared case entered	shared case entered
+CLI switch / option	native	wrappers/cxx/cmd/cxx/main.go:161	wrappers/cxx/cmd/cxx/main.go:161	native	case unentered	case entered
+CLI switch / option	native-entry	wrappers/cxx/cmd/cxx/main.go:163	wrappers/cxx/cmd/cxx/main.go:163	native-entry	case entered	case entered
+CLI switch / option	native-entry	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	native-session	wrappers/cxx/internal/agentbus/command.go:24	wrappers/cxx/internal/agentbus/command.go:24	translate, mcp, poll, message, status, doctor, activity-event, watchdog-event, native-session, service	shared case entered	shared case entered
-CLI switch / option	native-session	wrappers/cxx/internal/agentbus/command.go:57	wrappers/cxx/internal/agentbus/command.go:57	native-session	case unentered	case unentered
+CLI switch / option	native-session	wrappers/cxx/internal/agentbus/command.go:57	wrappers/cxx/internal/agentbus/command.go:57	native-session	case unentered	case entered
 CLI switch / option	notify	wrappers/cxx/internal/agentportal/command.go:29	wrappers/cxx/internal/agentportal/command.go:29	notify	case entered	case unentered
 CLI switch / option	peers	wrappers/cxx/internal/agentbus/command.go:34	wrappers/cxx/internal/agentbus/command.go:34	list, peers	shared case entered	case unentered
 CLI switch / option	plugin	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	poll	wrappers/cxx/internal/agentbus/command.go:24	wrappers/cxx/internal/agentbus/command.go:24	translate, mcp, poll, message, status, doctor, activity-event, watchdog-event, native-session, service	shared case entered	shared case entered
 CLI switch / option	poll	wrappers/cxx/internal/agentbus/command.go:50	wrappers/cxx/internal/agentbus/command.go:50	poll	case entered	case unentered
-CLI switch / option	portal	wrappers/cxx/cmd/cxx/main.go:184	wrappers/cxx/cmd/cxx/main.go:184	portal	case entered	case unentered
-CLI switch / option	portal	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal	shared case entered	shared case entered
+CLI switch / option	portal	wrappers/cxx/cmd/cxx/main.go:177	wrappers/cxx/cmd/cxx/main.go:177	portal	case entered	case unentered
+CLI switch / option	portal	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	portal	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	profile	wrappers/cxx/internal/app/codex/main.go:461	wrappers/cxx/internal/app/codex/main.go:461	profile	case unentered	case unentered
-CLI switch / option	project	wrappers/cxx/cmd/cxx/main.go:162	wrappers/cxx/cmd/cxx/main.go:162	project	case entered	case entered
+CLI switch / option	project	wrappers/cxx/cmd/cxx/main.go:155	wrappers/cxx/cmd/cxx/main.go:155	project	case entered	case entered
 CLI switch / option	queue	wrappers/cxx/internal/nativeargs/args.go:340	wrappers/cxx/internal/nativeargs/args.go:340	app-server, exec-server, remote-control, agents, migrate-nfs-db, queue, archive, unarchive, delete	shared case entered	case unentered
 CLI switch / option	rc	wrappers/cxx/internal/claude/runtime_auth.go:231	wrappers/cxx/internal/claude/runtime_auth.go:231	daemon, remote-control, rc, remote, bridge, sync, self-hosted-runner, gateway, respawn, attach	shared case entered	shared case entered
 CLI switch / option	rc	wrappers/cxx/internal/nativeargs/args.go:329	wrappers/cxx/internal/nativeargs/args.go:329	web, server, rc, remote, app, vis, acp, exec-server, __plugin_run_node, __update_download	shared case entered	case unentered
-CLI switch / option	reboot	wrappers/cxx/cmd/cxx/main.go:70	wrappers/cxx/cmd/cxx/main.go:70	reboot	case entered	case unentered
+CLI switch / option	reboot	wrappers/cxx/cmd/cxx/main.go:179	wrappers/cxx/cmd/cxx/main.go:179	reboot	case entered	case entered
+CLI switch / option	reboot	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	remote	wrappers/cxx/internal/claude/runtime_auth.go:231	wrappers/cxx/internal/claude/runtime_auth.go:231	daemon, remote-control, rc, remote, bridge, sync, self-hosted-runner, gateway, respawn, attach	shared case entered	shared case entered
 CLI switch / option	remote	wrappers/cxx/internal/nativeargs/args.go:329	wrappers/cxx/internal/nativeargs/args.go:329	web, server, rc, remote, app, vis, acp, exec-server, __plugin_run_node, __update_download	shared case entered	case unentered
 CLI switch / option	remote-control	wrappers/cxx/internal/claude/runtime_auth.go:231	wrappers/cxx/internal/claude/runtime_auth.go:231	daemon, remote-control, rc, remote, bridge, sync, self-hosted-runner, gateway, respawn, attach	shared case entered	shared case entered
 CLI switch / option	remote-control	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	remote-control	wrappers/cxx/internal/nativeargs/args.go:340	wrappers/cxx/internal/nativeargs/args.go:340	app-server, exec-server, remote-control, agents, migrate-nfs-db, queue, archive, unarchive, delete	shared case entered	case unentered
-CLI switch / option	remove	wrappers/cxx/cmd/cxx/main.go:240	wrappers/cxx/cmd/cxx/main.go:240	remove	case unentered	case entered
+CLI switch / option	remove	wrappers/cxx/cmd/cxx/main.go:235	wrappers/cxx/cmd/cxx/main.go:235	remove	case unentered	case entered
 CLI switch / option	remove	wrappers/cxx/cmd/cxx/native.go:142	wrappers/cxx/cmd/cxx/native.go:142	remove	case unentered	case entered
 CLI switch / option	remove	wrappers/cxx/internal/agentbus/service.go:310	wrappers/cxx/internal/agentbus/service.go:310	remove	case entered	case unentered
 CLI switch / option	remove	wrappers/cxx/internal/agentbus/service.go:421	wrappers/cxx/internal/agentbus/service.go:421	remove	case unentered	case unentered
@@ -308,9 +308,9 @@ CLI switch / option	resume	wrappers/cxx/internal/app/kimi/main.go:122	wrappers/c
 CLI switch / option	resume	wrappers/cxx/internal/workload/run_linux.go:310	wrappers/cxx/internal/workload/run_linux.go:310	resume	case entered	case entered
 CLI switch / option	review	wrappers/cxx/internal/app/codex/main.go:146	wrappers/cxx/internal/app/codex/main.go:146	e, review, fork	shared case entered	case unentered
 CLI switch / option	review	wrappers/cxx/internal/app/codex/main.go:457	wrappers/cxx/internal/app/codex/main.go:457	run, exec, e, review, fork	shared case entered	shared case entered
-CLI switch / option	rollback	wrappers/cxx/cmd/cxx/main.go:105	wrappers/cxx/cmd/cxx/main.go:105	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
-CLI switch / option	run	wrappers/cxx/cmd/cxx/main.go:105	wrappers/cxx/cmd/cxx/main.go:105	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
-CLI switch / option	run	wrappers/cxx/cmd/cxx/main.go:242	wrappers/cxx/cmd/cxx/main.go:242	run	case unentered	case entered
+CLI switch / option	rollback	wrappers/cxx/cmd/cxx/main.go:101	wrappers/cxx/cmd/cxx/main.go:101	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
+CLI switch / option	run	wrappers/cxx/cmd/cxx/main.go:101	wrappers/cxx/cmd/cxx/main.go:101	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
+CLI switch / option	run	wrappers/cxx/cmd/cxx/main.go:237	wrappers/cxx/cmd/cxx/main.go:237	run	case unentered	case entered
 CLI switch / option	run	wrappers/cxx/internal/app/claude/main.go:1672	wrappers/cxx/internal/app/claude/main.go:1672	run	case unentered	case entered
 CLI switch / option	run	wrappers/cxx/internal/app/claude/main.go:510	wrappers/cxx/internal/app/claude/main.go:510	run	case unentered	case unentered
 CLI switch / option	run	wrappers/cxx/internal/app/claude/main.go:618	wrappers/cxx/internal/app/claude/main.go:618	run, resume, sync, execute, status, auth-upload, uninstall, update	shared case entered	shared case entered
@@ -322,9 +322,9 @@ CLI switch / option	run	wrappers/cxx/internal/app/grok/main.go:121	wrappers/cxx/
 CLI switch / option	run	wrappers/cxx/internal/app/grok/main.go:341	wrappers/cxx/internal/app/grok/main.go:341	run, execute, sync, auth-sync, login	case unentered	shared case entered
 CLI switch / option	run	wrappers/cxx/internal/app/grok/main.go:382	wrappers/cxx/internal/app/grok/main.go:382	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	run	wrappers/cxx/internal/app/kimi/commands.go:45	wrappers/cxx/internal/app/kimi/commands.go:45	run	case unentered	case entered
-CLI switch / option	run	wrappers/cxx/internal/app/kimi/main.go:119	wrappers/cxx/internal/app/kimi/main.go:119	run	case unentered	case unentered
-CLI switch / option	run	wrappers/cxx/internal/app/kimi/main.go:331	wrappers/cxx/internal/app/kimi/main.go:331	run, execute, sync, auth-sync, login	case unentered	shared case entered
-CLI switch / option	run	wrappers/cxx/internal/app/kimi/main.go:372	wrappers/cxx/internal/app/kimi/main.go:372	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
+CLI switch / option	run	wrappers/cxx/internal/app/kimi/main.go:119	wrappers/cxx/internal/app/kimi/main.go:119	run	case unentered	case entered
+CLI switch / option	run	wrappers/cxx/internal/app/kimi/main.go:323	wrappers/cxx/internal/app/kimi/main.go:323	run, execute, sync, auth-sync, login	case unentered	shared case entered
+CLI switch / option	run	wrappers/cxx/internal/app/kimi/main.go:364	wrappers/cxx/internal/app/kimi/main.go:364	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	sandbox	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	say	wrappers/cxx/internal/agentportal/command.go:33	wrappers/cxx/internal/agentportal/command.go:33	say	case entered	case unentered
 CLI switch / option	self-hosted-runner	wrappers/cxx/internal/claude/runtime_auth.go:231	wrappers/cxx/internal/claude/runtime_auth.go:231	daemon, remote-control, rc, remote, bridge, sync, self-hosted-runner, gateway, respawn, attach	shared case entered	shared case entered
@@ -333,8 +333,7 @@ CLI switch / option	server	wrappers/cxx/internal/nativeargs/args.go:329	wrappers
 CLI switch / option	service	wrappers/cxx/internal/agentbus/command.go:24	wrappers/cxx/internal/agentbus/command.go:24	translate, mcp, poll, message, status, doctor, activity-event, watchdog-event, native-session, service	shared case entered	shared case entered
 CLI switch / option	service	wrappers/cxx/internal/agentbus/command.go:63	wrappers/cxx/internal/agentbus/command.go:63	service	case unentered	case entered
 CLI switch / option	setup	wrappers/cxx/internal/app/grok/main.go:247	wrappers/cxx/internal/app/grok/main.go:247	setup	case entered	case unentered
-CLI switch / option	setup	wrappers/cxx/internal/app/kimi/main.go:237	wrappers/cxx/internal/app/kimi/main.go:237	setup	case unentered	case unentered
-CLI switch / option	start	wrappers/cxx/cmd/cxx/main.go:105	wrappers/cxx/cmd/cxx/main.go:105	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
+CLI switch / option	start	wrappers/cxx/cmd/cxx/main.go:101	wrappers/cxx/cmd/cxx/main.go:101	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
 CLI switch / option	start	wrappers/cxx/internal/agentbus/daemon.go:291	wrappers/cxx/internal/agentbus/daemon.go:291	start, stop	case unentered	case unentered
 CLI switch / option	start	wrappers/cxx/internal/agentbus/service.go:432	wrappers/cxx/internal/agentbus/service.go:432	start	case unentered	case unentered
 CLI switch / option	status	wrappers/cxx/cmd/cxx/native.go:138	wrappers/cxx/cmd/cxx/native.go:138	status	case unentered	case entered
@@ -349,16 +348,16 @@ CLI switch / option	status	wrappers/cxx/internal/app/grok/main.go:268	wrappers/c
 CLI switch / option	status	wrappers/cxx/internal/app/grok/main.go:364	wrappers/cxx/internal/app/grok/main.go:364	status, doctor	case unentered	shared case entered
 CLI switch / option	status	wrappers/cxx/internal/app/grok/main.go:382	wrappers/cxx/internal/app/grok/main.go:382	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	status	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	status	wrappers/cxx/internal/app/kimi/main.go:258	wrappers/cxx/internal/app/kimi/main.go:258	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
-CLI switch / option	status	wrappers/cxx/internal/app/kimi/main.go:354	wrappers/cxx/internal/app/kimi/main.go:354	status, doctor	case unentered	shared case entered
-CLI switch / option	status	wrappers/cxx/internal/app/kimi/main.go:372	wrappers/cxx/internal/app/kimi/main.go:372	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
+CLI switch / option	status	wrappers/cxx/internal/app/kimi/main.go:250	wrappers/cxx/internal/app/kimi/main.go:250	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
+CLI switch / option	status	wrappers/cxx/internal/app/kimi/main.go:346	wrappers/cxx/internal/app/kimi/main.go:346	status, doctor	case unentered	shared case entered
+CLI switch / option	status	wrappers/cxx/internal/app/kimi/main.go:364	wrappers/cxx/internal/app/kimi/main.go:364	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	status	wrappers/cxx/internal/rtk/command.go:22	wrappers/cxx/internal/rtk/command.go:22	status	case unentered	case entered
 CLI switch / option	status	wrappers/cxx/internal/workload/run_linux.go:315	wrappers/cxx/internal/workload/run_linux.go:315	status	case unentered	case entered
-CLI switch / option	stop	wrappers/cxx/cmd/cxx/main.go:105	wrappers/cxx/cmd/cxx/main.go:105	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
+CLI switch / option	stop	wrappers/cxx/cmd/cxx/main.go:101	wrappers/cxx/cmd/cxx/main.go:101	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
 CLI switch / option	stop	wrappers/cxx/internal/agentbus/daemon.go:291	wrappers/cxx/internal/agentbus/daemon.go:291	start, stop	case unentered	case unentered
 CLI switch / option	stop	wrappers/cxx/internal/agentbus/service.go:434	wrappers/cxx/internal/agentbus/service.go:434	stop	case unentered	case unentered
-CLI switch / option	sync	wrappers/cxx/cmd/cxx/main.go:199	wrappers/cxx/cmd/cxx/main.go:199	sync	case entered	case unentered
-CLI switch / option	sync	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal	shared case entered	shared case entered
+CLI switch / option	sync	wrappers/cxx/cmd/cxx/main.go:194	wrappers/cxx/cmd/cxx/main.go:194	sync	case entered	case unentered
+CLI switch / option	sync	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	sync	wrappers/cxx/internal/app/claude/main.go:561	wrappers/cxx/internal/app/claude/main.go:561	sync	case unentered	case entered
 CLI switch / option	sync	wrappers/cxx/internal/app/claude/main.go:618	wrappers/cxx/internal/app/claude/main.go:618	run, resume, sync, execute, status, auth-upload, uninstall, update	shared case entered	shared case entered
 CLI switch / option	sync	wrappers/cxx/internal/app/grok/main.go:127	wrappers/cxx/internal/app/grok/main.go:127	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
@@ -367,16 +366,16 @@ CLI switch / option	sync	wrappers/cxx/internal/app/grok/main.go:341	wrappers/cxx
 CLI switch / option	sync	wrappers/cxx/internal/app/grok/main.go:362	wrappers/cxx/internal/app/grok/main.go:362	sync, auth-sync	case unentered	shared case entered
 CLI switch / option	sync	wrappers/cxx/internal/app/grok/main.go:382	wrappers/cxx/internal/app/grok/main.go:382	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:258	wrappers/cxx/internal/app/kimi/main.go:258	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
-CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:331	wrappers/cxx/internal/app/kimi/main.go:331	run, execute, sync, auth-sync, login	case unentered	shared case entered
-CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:352	wrappers/cxx/internal/app/kimi/main.go:352	sync, auth-sync	case unentered	shared case entered
-CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:372	wrappers/cxx/internal/app/kimi/main.go:372	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
+CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:250	wrappers/cxx/internal/app/kimi/main.go:250	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
+CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:323	wrappers/cxx/internal/app/kimi/main.go:323	run, execute, sync, auth-sync, login	case unentered	shared case entered
+CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:344	wrappers/cxx/internal/app/kimi/main.go:344	sync, auth-sync	case unentered	shared case entered
+CLI switch / option	sync	wrappers/cxx/internal/app/kimi/main.go:364	wrappers/cxx/internal/app/kimi/main.go:364	run, execute, sync, auth-sync, status, doctor	shared case entered	shared case entered
 CLI switch / option	sync	wrappers/cxx/internal/claude/runtime_auth.go:231	wrappers/cxx/internal/claude/runtime_auth.go:231	daemon, remote-control, rc, remote, bridge, sync, self-hosted-runner, gateway, respawn, attach	shared case entered	shared case entered
-CLI switch / option	transfer	wrappers/cxx/cmd/cxx/main.go:164	wrappers/cxx/cmd/cxx/main.go:164	transfer	case entered	case entered
+CLI switch / option	transfer	wrappers/cxx/cmd/cxx/main.go:157	wrappers/cxx/cmd/cxx/main.go:157	transfer	case entered	case entered
 CLI switch / option	translate	wrappers/cxx/internal/agentbus/command.go:24	wrappers/cxx/internal/agentbus/command.go:24	translate, mcp, poll, message, status, doctor, activity-event, watchdog-event, native-session, service	shared case entered	shared case entered
 CLI switch / option	translate	wrappers/cxx/internal/agentbus/command.go:32	wrappers/cxx/internal/agentbus/command.go:32	translate	case entered	case unentered
 CLI switch / option	unarchive	wrappers/cxx/internal/nativeargs/args.go:340	wrappers/cxx/internal/nativeargs/args.go:340	app-server, exec-server, remote-control, agents, migrate-nfs-db, queue, archive, unarchive, delete	shared case entered	case unentered
-CLI switch / option	uninstall	wrappers/cxx/cmd/cxx/main.go:105	wrappers/cxx/cmd/cxx/main.go:105	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
+CLI switch / option	uninstall	wrappers/cxx/cmd/cxx/main.go:101	wrappers/cxx/cmd/cxx/main.go:101	run, install, start, stop, uninstall, rollback	shared case entered	case unentered
 CLI switch / option	uninstall	wrappers/cxx/cmd/cxx/native.go:52	wrappers/cxx/cmd/cxx/native.go:52	--help, -h, help, --version, -v, -V, --wrapper-version, -W, status, doctor, --status, --doctor, agent, portal, grok-auth, auth-reconcile, claude-quota-statusline, uninstall, --uninstall	shared case entered	shared case entered
 CLI switch / option	uninstall	wrappers/cxx/internal/agentbus/daemon.go:295	wrappers/cxx/internal/agentbus/daemon.go:295	uninstall	case unentered	case unentered
 CLI switch / option	uninstall	wrappers/cxx/internal/app/claude/main.go:574	wrappers/cxx/internal/app/claude/main.go:574	uninstall	case unentered	case unentered
@@ -385,10 +384,10 @@ CLI switch / option	uninstall	wrappers/cxx/internal/app/grok/main.go:127	wrapper
 CLI switch / option	uninstall	wrappers/cxx/internal/app/grok/main.go:268	wrappers/cxx/internal/app/grok/main.go:268	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
 CLI switch / option	uninstall	wrappers/cxx/internal/app/grok/main.go:360	wrappers/cxx/internal/app/grok/main.go:360	uninstall	case unentered	case unentered
 CLI switch / option	uninstall	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	uninstall	wrappers/cxx/internal/app/kimi/main.go:258	wrappers/cxx/internal/app/kimi/main.go:258	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
-CLI switch / option	uninstall	wrappers/cxx/internal/app/kimi/main.go:350	wrappers/cxx/internal/app/kimi/main.go:350	uninstall	case unentered	case unentered
-CLI switch / option	update	wrappers/cxx/cmd/cxx/main.go:197	wrappers/cxx/cmd/cxx/main.go:197	update	case entered	case entered
-CLI switch / option	update	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal	shared case entered	shared case entered
+CLI switch / option	uninstall	wrappers/cxx/internal/app/kimi/main.go:250	wrappers/cxx/internal/app/kimi/main.go:250	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
+CLI switch / option	uninstall	wrappers/cxx/internal/app/kimi/main.go:342	wrappers/cxx/internal/app/kimi/main.go:342	uninstall	case unentered	case unentered
+CLI switch / option	update	wrappers/cxx/cmd/cxx/main.go:192	wrappers/cxx/cmd/cxx/main.go:192	update	case entered	case entered
+CLI switch / option	update	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	update	wrappers/cxx/internal/app/claude/main.go:572	wrappers/cxx/internal/app/claude/main.go:572	update	case unentered	case entered
 CLI switch / option	update	wrappers/cxx/internal/app/claude/main.go:618	wrappers/cxx/internal/app/claude/main.go:618	run, resume, sync, execute, status, auth-upload, uninstall, update	shared case entered	shared case entered
 CLI switch / option	update	wrappers/cxx/internal/app/grok/main.go:127	wrappers/cxx/internal/app/grok/main.go:127	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
@@ -396,21 +395,19 @@ CLI switch / option	update	wrappers/cxx/internal/app/grok/main.go:245	wrappers/c
 CLI switch / option	update	wrappers/cxx/internal/app/grok/main.go:268	wrappers/cxx/internal/app/grok/main.go:268	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
 CLI switch / option	update	wrappers/cxx/internal/app/grok/main.go:356	wrappers/cxx/internal/app/grok/main.go:356	update	case unentered	case entered
 CLI switch / option	update	wrappers/cxx/internal/app/kimi/main.go:125	wrappers/cxx/internal/app/kimi/main.go:125	sync, status, doctor, update, uninstall, cron, login, logout, auth-sync, auth-upload-auto, auth-reconcile, help	shared case entered	shared case entered
-CLI switch / option	update	wrappers/cxx/internal/app/kimi/main.go:235	wrappers/cxx/internal/app/kimi/main.go:235	update, upgrade, install	case unentered	shared case entered
-CLI switch / option	update	wrappers/cxx/internal/app/kimi/main.go:258	wrappers/cxx/internal/app/kimi/main.go:258	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
-CLI switch / option	update	wrappers/cxx/internal/app/kimi/main.go:346	wrappers/cxx/internal/app/kimi/main.go:346	update	case unentered	case entered
+CLI switch / option	update	wrappers/cxx/internal/app/kimi/main.go:250	wrappers/cxx/internal/app/kimi/main.go:250	uninstall, logout, sync, auth-sync, update, auth-upload-auto, status, doctor	shared case entered	shared case entered
+CLI switch / option	update	wrappers/cxx/internal/app/kimi/main.go:338	wrappers/cxx/internal/app/kimi/main.go:338	update	case unentered	case entered
 CLI switch / option	update	wrappers/cxx/internal/codex/exec.go:285	wrappers/cxx/internal/codex/exec.go:285	login, logout, mcp, plugin, features, completion, doctor, sandbox, debug, apply, update, app-server, exec-server, remote-control	shared case entered	case unentered
 CLI switch / option	upgrade	wrappers/cxx/internal/app/grok/main.go:245	wrappers/cxx/internal/app/grok/main.go:245	update, upgrade, install	shared case entered	case unentered
-CLI switch / option	upgrade	wrappers/cxx/internal/app/kimi/main.go:235	wrappers/cxx/internal/app/kimi/main.go:235	update, upgrade, install	case unentered	shared case entered
 CLI switch / option	vis	wrappers/cxx/internal/nativeargs/args.go:329	wrappers/cxx/internal/nativeargs/args.go:329	web, server, rc, remote, app, vis, acp, exec-server, __plugin_run_node, __update_download	shared case entered	case unentered
 CLI switch / option	wait	wrappers/cxx/internal/agentbus/command.go:40	wrappers/cxx/internal/agentbus/command.go:40	wait	case unentered	case entered
 CLI switch / option	wait	wrappers/cxx/internal/agentportal/command.go:37	wrappers/cxx/internal/agentportal/command.go:37	wait	case entered	case unentered
-CLI switch / option	watchdog	wrappers/cxx/cmd/cxx/main.go:186	wrappers/cxx/cmd/cxx/main.go:186	watchdog	case unentered	case unentered
-CLI switch / option	watchdog	wrappers/cxx/cmd/cxx/main.go:72	wrappers/cxx/cmd/cxx/main.go:72	watchdog	case entered	case unentered
+CLI switch / option	watchdog	wrappers/cxx/cmd/cxx/main.go:181	wrappers/cxx/cmd/cxx/main.go:181	watchdog	case entered	case entered
+CLI switch / option	watchdog	wrappers/cxx/cmd/cxx/main.go:68	wrappers/cxx/cmd/cxx/main.go:68	housekeeping, native-entry, cron, update, sync, daemon, agent, portal, watchdog, reboot	shared case entered	shared case entered
 CLI switch / option	watchdog-event	wrappers/cxx/internal/agentbus/command.go:24	wrappers/cxx/internal/agentbus/command.go:24	translate, mcp, poll, message, status, doctor, activity-event, watchdog-event, native-session, service	shared case entered	shared case entered
-CLI switch / option	watchdog-event	wrappers/cxx/internal/agentbus/command.go:55	wrappers/cxx/internal/agentbus/command.go:55	watchdog-event	case unentered	case unentered
+CLI switch / option	watchdog-event	wrappers/cxx/internal/agentbus/command.go:55	wrappers/cxx/internal/agentbus/command.go:55	watchdog-event	case unentered	case entered
 CLI switch / option	web	wrappers/cxx/internal/nativeargs/args.go:329	wrappers/cxx/internal/nativeargs/args.go:329	web, server, rc, remote, app, vis, acp, exec-server, __plugin_run_node, __update_download	shared case entered	case unentered
-CLI switch / option	worker	wrappers/cxx/internal/agentbus/command.go:65	wrappers/cxx/internal/agentbus/command.go:65	worker	case unentered	case unentered
+CLI switch / option	worker	wrappers/cxx/internal/agentbus/command.go:65	wrappers/cxx/internal/agentbus/command.go:65	worker	case unentered	case entered
 Local MCP	advisor_ask	wrappers/cxx/internal/agentbus/mcp.go:580	wrappers/cxx/internal/agentbus/mcp.go:1083	advisor_ask, advisor_close, advisor_status	shared case entered	case unentered
 Local MCP	advisor_close	wrappers/cxx/internal/agentbus/mcp.go:581	wrappers/cxx/internal/agentbus/mcp.go:1083	advisor_ask, advisor_close, advisor_status	shared case entered	case unentered
 Local MCP	advisor_status	wrappers/cxx/internal/agentbus/mcp.go:582	wrappers/cxx/internal/agentbus/mcp.go:1083	advisor_ask, advisor_close, advisor_status	shared case entered	case unentered
