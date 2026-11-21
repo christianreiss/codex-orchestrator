@@ -54,6 +54,15 @@ describe('McpFsTools.readFile', () => {
     expect(r['path']).toBe('hello.txt');
   });
 
+  it('uses the physical directory selected by an operator root alias', async () => {
+    const alias = join(root, 'selected-root');
+    symlinkSync(join(root, 'sub'), alias, 'dir');
+    const tools = new McpFsTools({ root: alias, maxReadBytes: 1024, maxListEntries: 100, maxSearchHits: 50 });
+    expect(await tools.readFile({ path: 'world.txt' })).toMatchObject({ path: 'world.txt', content: 'inside sub\n' });
+    await tools.writeFile({ path: 'new.txt', content: 'new' });
+    expect(await tools.readFile({ path: 'new.txt' })).toMatchObject({ path: 'new.txt', content: 'new' });
+  });
+
   it('rejects paths that escape the root via ..', async () => {
     await expect(fs.readFile({ path: '../escape.txt' })).rejects.toThrow(/escapes/);
   });

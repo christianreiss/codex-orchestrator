@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Operator filesystem tools now accept a directory symlink as their configured root. Local instance updates keep their exclusive lock across the deployment handoff when the checkout is reached through a directory symlink.
+
 - First-run setup now lets you check the installation again after a host repair and keeps Continue gated through a failed retry. The Dashboard describes older usage readings without inferring a provider failure from their age.
 
 - Git Director now evaluates large merges across the whole checkout. A release touching 500 or more unique paths uses the checkout-root claim and a digest of the complete submitted path set. A competing declaration, a changed retry or a lost claim remains visible during later lease decisions.

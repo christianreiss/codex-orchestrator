@@ -12,7 +12,7 @@
  * an existing directory (see `api/src/routes/mcp/index.ts`); when unset
  * the registry omits both their definitions and handlers.
  */
-import { promises as fsp, type Dirent, type Stats } from 'node:fs';
+import { promises as fsp, realpathSync, type Dirent, type Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve as resolvePath, relative as relativePath, join as joinPath, sep, basename } from 'node:path';
 import { NotFoundError, ValidationError } from '../http/errors.js';
@@ -47,7 +47,7 @@ export class McpFsTools {
     if (!config.root || !config.root.trim()) {
       throw new Error('McpFsTools requires a non-empty root');
     }
-    this.root = resolvePath(config.root);
+    this.root = realpathSync(config.root);
     this.maxReadBytes = Math.max(1, Math.floor(config.maxReadBytes));
     this.maxListEntries = Math.max(1, Math.floor(config.maxListEntries));
     this.maxSearchHits = Math.max(1, Math.floor(config.maxSearchHits));

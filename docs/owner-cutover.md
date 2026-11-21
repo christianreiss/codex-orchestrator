@@ -1,5 +1,7 @@
 # Owner cutover and recovery
 
+Instance update and cutover identify the inherited checkout lock by device and inode. Invoking the CLI through a directory symlink preserves the lock across the update and deploy handoff.
+
 The cutover host requires Docker Compose, Bash, Python 3, flock and GNU
 coreutils. The preflight verifies these tools before stopping writers.
 Both API runtime images also include `flock`. The API holds a separate kernel lock

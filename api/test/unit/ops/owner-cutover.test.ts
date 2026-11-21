@@ -18,7 +18,7 @@ const fixtures: string[] = [];
 afterEach(() => {
   for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
-function fixture(failure = '') {
+function fixture(failure = '', inheritedCheckoutLock = false) {
   const dir = mkdtempSync(join(tmpdir(), 'cutover-'));
   fixtures.push(dir);
   mkdirSync(join(dir, 'bin'));
@@ -52,16 +52,18 @@ elif a[0]=='exec':
 `,
     { mode: 0o700 },
   );
+  const cutover = 'source "$HELPER"; INSTANCE_ROOT="$CHECKOUT"; ENV_PATH="$FIXTURE/runtime.env"; INSTANCE_COMPOSE=(docker); owner_cutover_prepare || exit $?; owner_cutover_phase changing; [[ "$FAILURE" != after ]]';
+  const shellArgs = inheritedCheckoutLock
+    ? ['-c', 'ln -s "$FIXTURE" "$CHECKOUT" && exec 9>"$FIXTURE/.orchestrator.lock" && flock -n 9 && bash -c "$1"', 'fixture', cutover]
+    : ['-c', cutover];
   const result = spawnSync(
     'bash',
-    [
-      '-c',
-      `source "$HELPER"; INSTANCE_ROOT="$FIXTURE"; ENV_PATH="$FIXTURE/runtime.env"; INSTANCE_COMPOSE=(docker); owner_cutover_prepare || exit $?; owner_cutover_phase changing; [[ "$FAILURE" != after ]]`,
-    ],
+    shellArgs,
     {
       env: {
         ...process.env,
         FIXTURE: dir,
+        CHECKOUT: inheritedCheckoutLock ? join(dir, 'current') : dir,
         FAILURE: failure,
         HELPER: join(root, 'bin/lib/owner-cutover.sh'),
         PATH: `${dir}/bin:${process.env.PATH}`,
@@ -114,6 +116,10 @@ assert lock.read_bytes()==b'preserve existing inode'
         encoding: 'utf8',
       },
     );
+    expect(result.status, result.stderr).toBe(0);
+  });
+  it('reuses the parent checkout lock when the deploy process receives a directory alias', () => {
+    const { result } = fixture('', true);
     expect(result.status, result.stderr).toBe(0);
   });
   it('quiesces with private metadata only: no dumps, archives, credential copies or rollback tags', () => {

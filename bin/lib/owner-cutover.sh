@@ -42,7 +42,7 @@ owner_cutover_prepare() {
   done
   # Reuse the CLI's inherited descriptor, or hold the same instance lock when
   # deploy/install is invoked directly. Retain it through replacement startup.
-  if [[ "$(readlink /proc/self/fd/9 2>/dev/null || true)" != "$INSTANCE_ROOT/.orchestrator.lock" ]]; then
+  if [[ ! /proc/self/fd/9 -ef "$INSTANCE_ROOT/.orchestrator.lock" ]]; then
     exec 9>"$INSTANCE_ROOT/.orchestrator.lock" || return 1
   fi
   flock -n 9 || { printf '[cutover] another instance operation owns the deployment lock\n' >&2; return 1; }

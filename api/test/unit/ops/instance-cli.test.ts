@@ -335,6 +335,19 @@ describe('local instance CLI', () => {
     expect(existsSync(join(f.data, 'backups'))).toBe(false);
   });
 
+  it('keeps the same update lock across a release checkout alias', () => {
+    const f = fixture();
+    const u = upstream(f);
+    const alias = join(f.dir, 'current');
+    symlinkSync(f.repo, alias, 'dir');
+    const r = spawnSync(join(alias, 'bin/orchestrator'), ['update', '--repo-url', u.remote], {
+      cwd: f.dir, env: { ...f.env, MOCK_DEPLOY_LOG: u.deployLog }, encoding: 'utf8', timeout: 15000,
+    });
+    expect(r.status, r.stderr).toBe(0);
+    expect(f.git('rev-parse', 'HEAD')).toBe(u.target);
+    expect(existsSync(u.deployLog)).toBe(true);
+  });
+
   it.each(['dirty', 'untracked', 'ahead', 'diverged', 'branch'] as const)(
     'refuses %s checkouts before runtime changes', (kind) => {
       const f = fixture();

@@ -59,7 +59,7 @@ lock_instance() {
   require_cmd flock
   local lock_file="$INSTANCE_ROOT/.orchestrator.lock"
   if [[ "${ORCHESTRATOR_UPDATE_PHASE:-}" == deploy ]]; then
-    [[ "$(readlink /proc/self/fd/9 2>/dev/null)" == "$lock_file" ]] || fail "update continuation lost its lock"
+    [[ /proc/self/fd/9 -ef "$lock_file" ]] || fail "update continuation lost its lock"
   else
     exec 9>"$lock_file"
   fi
