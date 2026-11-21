@@ -587,6 +587,160 @@ def at(path, key, matcher=None):
     return path
 
 
+WS_TABLE = "frontend/src/lib/ws/events.ts"
+MANIFEST = "mobile/android/app/src/main/AndroidManifest.xml"
+
+
+def ws_dispatch():
+    """Read the default key table only. Runtime-selected keys have separate dispatch."""
+    source = read(WS_TABLE)
+    start = source.index("{", source.index("export const DEFAULT_INVALIDATIONS"))
+    end = source.index("\n};", start)
+    body = source[start + 1:end]
+    fields = list(re.finditer(r"""^[ \t]*(["'])([\w.:-]+)\1\s*:\s*""", body, re.M))
+    scoped = re.search(r"const PROJECT_SCOPED_EVENTS = new Set<string>\(\[(.*?)\]\)", source, re.S)
+    project_events = set(re.findall(r"""^\s*["']([\w.:-]+)["'],""", scoped[1], re.M)) if scoped else set()
+    payload_selector = re.search(r"""event\.type === ["']([\w.:-]+)["'] \? (\w+\(event\.payload\)) : invalidations\[event\.type\]""", source)
+    result = {}
+    for i, field in enumerate(fields):
+        name = field[2]
+        value = body[field.end():fields[i + 1].start() if i + 1 < len(fields) else len(body)]
+        value = re.sub(r"^\s*//[^\n]*", "", value, flags=re.M).strip().removesuffix(",")
+        try:
+            keys = ast.literal_eval(value)
+            static = isinstance(keys, list) and all(isinstance(k, list) and all(isinstance(s, str) for s in k) for k in keys)
+        except (ValueError, SyntaxError):
+            static = False
+        if payload_selector and name == payload_selector[1]:
+            detail = payload_selector[2] + " selects query keys at runtime"
+        elif static:
+            detail = "default query prefixes " + json.dumps(keys, ensure_ascii=False, separators=(",", ":"))
+        else:
+            detail = "query keys from runtime expression in DEFAULT_INVALIDATIONS"
+        if name in project_events:
+            detail += ", also project detail via payload slug and projectDetailSubKey"
+        result[name] = (loc(WS_TABLE, start + 1 + field.start(2)), detail)
+    toast = re.search(r"""if\s*\(event\.type === "toast"\)\s*\{\s*showServerToast\(event\.payload\)""", source)
+    if toast:
+        result["toast"] = (loc(WS_TABLE, toast.start()), "showServerToast(event.payload) dispatches the validated notification")
+    return result
+
+
+def runner_routes(path):
+    """Use Python decorator/handler ownership, including routes inside register_chatty."""
+    def walk(node, parents):
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                symbol = ".".join([*parents, child.name])
+                for decorator in child.decorator_list:
+                    if not (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)
+                            and isinstance(decorator.func.value, ast.Name) and decorator.func.value.id in ("app", "router")
+                            and decorator.func.attr in {"get", "post", "put", "delete", "patch"}
+                            and decorator.args and isinstance(decorator.args[0], ast.Constant)
+                            and isinstance(decorator.args[0].value, str)):
+                        continue
+                    yield decorator.func.attr.upper(), decorator.args[0].value, decorator.lineno, f"{symbol} ({path}:{child.lineno})"
+                yield from walk(child, [*parents, child.name])
+            else:
+                yield from walk(child, parents)
+    return walk(ast.parse(read(path)), [])
+
+
+def startup_target(path, name):
+    for item in re.finditer(r"""import\s*\{([^{}]+)\}\s*from\s*['"]([^'"]+)['"]""", read(path)):
+        if name not in (part.strip() for part in item[1].split(",")):
+            continue
+        target = resolve_js(path, item[2])
+        if target:
+            declaration = re.search(r"\b(?:function|const)\s+" + re.escape(name) + r"\b", read(target))
+            return name + " in " + (loc(target, declaration.start()) if declaration else target)
+    return name + " called at startup; implementation not statically resolved"
+
+
+def android_dispatch(symbol, path, pos, files, manifest):
+    manifest_ref = manifest.get(symbol)
+    if manifest_ref:
+        tag, source = manifest_ref
+        return f"Android manifest {tag} {symbol} ({source})"
+    line = read(path)[read(path).rfind("\n", 0, pos) + 1:read(path).find("\n", pos)]
+    frame = re.search(r"\)\s*:\s*(\w+)\s*$", line)
+    # Two Kotlin types named RoomActivity exist: one is a qualified LiveFrame case.
+    prefix = re.escape(frame[1]) + r"\." if frame else r"(?<![\w.])"
+    call = re.compile(prefix + re.escape(symbol) + r"\s*\(")
+    references = []
+    for other in files:
+        for match in call.finditer(read(other)):
+            before = read(other)[read(other).rfind("\n", 0, match.start()) + 1:match.start()]
+            if not re.search(r"\b(?:fun|class)\s+$", before):
+                references.append(loc(other, match.start()))
+    role = "data class" if "data class" in line else "Compose screen" if "@Composable" in read(path)[max(0, pos - 150):pos] else "Kotlin declaration"
+    return role + " " + symbol + (" referenced at " + ", ".join(references[:2]) if references else " (caller not statically resolved)")
+
+
+def yaml_members(path, section):
+    """Direct child identifiers of a conventional GitHub jobs / Compose services map."""
+    block = re.search(r"^" + section + r":\s*\n((?:[ \t].*\n|\n|#.*\n)*)", read(path), re.M)
+    return re.findall(r"^  ([\w.-]+):\s*(?:#.*)?$", block[1], re.M) if block else []
+
+
+def instance_dispatch(path, package_scripts):
+    body = read(path)
+    if path.startswith(".github/workflows/"):
+        return "GitHub Actions jobs: " + ", ".join(yaml_members(path, "jobs"))
+    if path == "docker-compose.yml":
+        return "Compose services: " + ", ".join(yaml_members(path, "services"))
+    if path == "Dockerfile":
+        return "runtime " + " ".join(re.findall(r"^(?:ENTRYPOINT|CMD)\s+[^\n]+", body, re.M))
+    if path == "wrappers/Makefile":
+        targets = re.findall(r"^([\w-]+):(?!=)", body, re.M)
+        return "make -C wrappers targets: " + ", ".join(targets)
+    if path in package_scripts:
+        return "npm scripts: " + ", ".join(package_scripts[path])
+    if path.endswith(".ansi"):
+        reader = "frontend/scripts/readme-shots/capture.ts"
+        return "terminal transcript read by persona at " + at(reader, "${persona}.ansi")
+    if path.endswith(".md"):
+        consumer = "scripts/check-engine-parity.py"
+        if Path(path).name in read(consumer):
+            return "parity-check input referenced at " + at(consumer, Path(path).name)
+        return "operator documentation " + path
+    if path.endswith(".py"):
+        tree = ast.parse(body)
+        for node in tree.body:
+            if isinstance(node, ast.If) and "__name__" in ast.unparse(node.test):
+                functions = {f.name for f in tree.body if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))}
+                calls = [call.func.id for call in ast.walk(node) if isinstance(call, ast.Call)
+                         and isinstance(call.func, ast.Name) and call.func.id in functions]
+                return f"Python __main__ at {path}:{node.lineno}" + (", local calls " + ", ".join(dict.fromkeys(calls)) if calls else "")
+        return "Python module entry " + path
+    if body.startswith("#!") and ("sh" in body.splitlines()[0] or path.startswith("bin/")):
+        main = re.search(r'^main "\$@"', body, re.M)
+        if main:
+            return "shell main() at " + loc(path, main.start())
+        case = re.search(r'^case "\$\{?1[^\n]*\n((?:[^\n]*\n)*?)esac\b', body, re.M)
+        if case:
+            arms = re.findall(r"^\s*([\w|-]+)\)", case[1], re.M)
+            return "shell argument dispatch " + ", ".join(arms) + " at " + loc(path, case.start())
+        if path.startswith("bin/lib/"):
+            sources = []
+            for caller in ("bin/orchestrator", "bin/install.sh", "scripts/deploy.sh"):
+                match = re.search(r"^(?:source|\.)\s+[^\n]*?/" + re.escape(Path(path).name), read(caller), re.M)
+                if match:
+                    sources.append(loc(caller, match.start()))
+            functions = re.findall(r"^([\w-]+)\(\)\s*\{", body, re.M)
+            options = re.findall(r'\[\[ [^\n]*?== (--[\w-]+) \]\]', body)
+            return (f"shell library {path}" + (", sourced at " + ", ".join(sources) if sources else "")
+                    + (", functions " + ", ".join(functions[:4]) if functions else "")
+                    + (", direct argument " + ", ".join(options) if options else ""))
+        entry = re.search(r'^exec[ \t]+(?![0-9]*[<>])[^\n]+', body, re.M)
+        return body.splitlines()[0][2:] + " " + path + (", " + entry[0].strip() if entry else " (top-level shell entry)")
+    exports = re.findall(r"^export\s+(?:async\s+)?(?:function|const|class)\s+(\w+)", body, re.M)
+    if exports:
+        return "exports " + ", ".join(exports) + " from " + path
+    main = re.search(r"^main\(\)", body, re.M)
+    return "main() at " + loc(path, main.start()) if main else "top-level module entry " + path
+
+
 def route_calls(locations):
     """Read actual call sites inside the registered route callback using the project's TS parser."""
     program = r"""
@@ -716,6 +870,18 @@ def entries(route_capture=None, fleet_capture=None):
                 )
     calls = route_calls({r["Registration / source"] for r in old if r["Entry kind"] == "HTTP"})
     result = set()
+    ws_targets = ws_dispatch()
+    kotlin = sorted(p for p in FILES if p.startswith("mobile/android/app/src/main/java/") and p.endswith(".kt"))
+    manifest = {}
+    for element in ET.fromstring(read(MANIFEST)).iter():
+        name = element.get("{http://schemas.android.com/apk/res/android}name", "")
+        if name.startswith("."):
+            manifest[name[1:]] = (element.tag, at(MANIFEST, 'android:name="' + name + '"'))
+    package_scripts = defaultdict(list)
+    for package in ("api", "frontend"):
+        for command, script in json.loads(read(package + "/package.json"))["scripts"].items():
+            for script_path in re.findall(r"(?<![\w/])(?:\./)?(scripts/[\w./-]+\.(?:ts|mjs|py|sh))\b", script):
+                package_scripts[f"{package}/{script_path}"].append(f"{package}/package.json → npm run {command}")
 
     def add(kind, key, path, guard, detail, evidence, group="TOOLS"):
         result.add((family(kind, key, path, group), kind, key, path, guard, detail, evidence))
@@ -869,33 +1035,28 @@ def entries(route_capture=None, fleet_capture=None):
                 "wrappers/scripts/",
             )
         ) or path in ("docker-compose.yml", "Dockerfile", "wrappers/Makefile"):
-            code("Instance / build / CI", Path(path).name, path, guard="operator or CI")
+            code("Instance / build / CI", Path(path).name, path, guard="operator or CI", detail=instance_dispatch(path, package_scripts))
         if path.startswith("runner/") and path.endswith(".py") and kind == "source":
-            for m in re.finditer(
-                r"""^\s*@(?:app|router)\.(get|post|put|delete)\(["']([^"']+)""",
-                read(path),
-                re.M,
-            ):
+            for method, url, line, handler in runner_routes(path):
                 group = (
                     "ACCOUNT"
-                    if "verify" in m[2]
+                    if "verify" in url
                     else "ADVISOR"
                     if "chatty" in path
                     else "GATEWAY"
-                    if "exec" in m[2]
+                    if "exec" in url
                     else "CONTENT"
                 )
-                code(
+                add(
                     "Runner HTTP",
-                    m[1].upper() + " " + m[2],
-                    path,
-                    m.start(),
-                    group=group,
-                    guard="internal runner route; method-specific gate in handler",
+                    method + " " + url, f"{path}:{line}",
+                    "internal runner route; method-specific gate in handler",
+                    handler, "static Python route decorator and function", group,
                 )
         if path.startswith("api/src/") and path.endswith(".ts"):
             for m in re.finditer(r"""(?:\bwsPublisher|\bws)\.publish\(\s*['"]([^'"]+)['"]""", read(path)):
                 if m[1] in EVENT_NAMES:
+                    target = ws_targets.get(m[1])
                     code(
                         "WS publish",
                         m[1],
@@ -903,6 +1064,10 @@ def entries(route_capture=None, fleet_capture=None):
                         m.start(),
                         group="LIVE",
                         guard="publisher; subscriber scope checked at transport",
+                        detail=m[0].split("(", 1)[0] + " → " + (
+                            target[1] + " (" + target[0] + ")" if target else
+                            "event " + m[1] + ", no static default SPA query mapping"
+                        ),
                     )
             for m in re.finditer(r"""(?:['"])text/event-stream(?:;[^'"]*)?['"]""", read(path)):
                 code(
@@ -925,6 +1090,7 @@ def entries(route_capture=None, fleet_capture=None):
                     m.start(),
                     group="COMPANION",
                     guard="manifest or Compose caller",
+                    detail=android_dispatch(m[1], path, m.start(), kotlin, manifest),
                 )
     resource = "api/src/services/mcp-resources.ts"
     for m in re.finditer(r"\x60([a-z]+://<[^\x60]+)\x60", read(resource).split("*/", 1)[0]):
@@ -970,6 +1136,7 @@ def entries(route_capture=None, fleet_capture=None):
                 m.start(),
                 group=group,
                 guard="ready owner / feature-specific boot condition",
+                detail=startup_target(path, name),
             )
     for path in sorted(p for p in FILES if p.startswith("frontend/src/") and p.endswith(".svelte")):
         for m in re.finditer(r"<ConfirmDialog\b([^>]*?)>", read(path), re.S):
@@ -995,26 +1162,21 @@ def entries(route_capture=None, fleet_capture=None):
             detail="operation schema, mode and execution in source",
         )
     event_path = "api/src/ws/events.ts"
-    table = "frontend/src/lib/ws/events.ts"
     for name in EVENT_NAMES:
+        target = ws_targets.get(name)
         add(
             "Admin event",
             name,
             at(event_path, "'" + name + "'"),
             "admin WebSocket scope",
-            "Consumer table " + at(table, '"' + name + '"'),
+            target[1] + " (" + target[0] + ")" if target else "event catalog; no static default SPA query mapping",
             "registered event; explicit publishers indexed separately",
             "LIVE",
         )
-    for m in re.finditer(r'^\s*"([\w.:-]+)"\s*:\s*\[([^\n]*)', read(table), re.M):
-        code(
-            "WS consumer",
-            m[1],
-            table,
-            m.start(),
-            m[2][:185],
-            group="LIVE",
-            guard="authenticated WebSocket; client cache generation",
+    for name, (source, effect) in ws_targets.items():
+        add(
+            "WS consumer", name, source, "authenticated WebSocket; client cache generation",
+            effect, "static SPA event dispatch", "LIVE",
         )
     # These are data-driven surfaces. The owning declaration is the entrypoint rather
     # than the generic <Tabs.Trigger value={...}> component repeated for each option.
@@ -1112,7 +1274,9 @@ if __name__ == "__main__":
         help="fresh capture from an isolated Fastify onRoute hook (see matrix)",
     )
     parser.add_argument("--fleet-tools", help="combined tools/list catalog from the two authenticated MCP identities")
+    parser.add_argument("--output-dir", type=Path, default=OUT, help="write indexes and matrix to a separate directory, using the repository captures as inputs")
     args = parser.parse_args()
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     rows = module_rows()
     EVENT_NAMES = set(re.findall(r"^\s*'([\w.:-]+)'", read("api/src/ws/events.ts"), re.M))
     entry_rows = entries(args.routes, args.fleet_tools)
@@ -1130,7 +1294,7 @@ if __name__ == "__main__":
             raise SystemExit("Family missing from matrix: " + row[0])
     output_rows = [(*row, decisions[row[0]]) for row in entry_rows]
     tsv(
-        ENTRY,
+        args.output_dir / ENTRY.name,
         [
             "Family",
             "Entry kind",
@@ -1144,7 +1308,7 @@ if __name__ == "__main__":
         output_rows,
     )
     tsv(
-        MODULE,
+        args.output_dir / MODULE.name,
         [
             "Tracked path",
             "Classification",
@@ -1156,9 +1320,9 @@ if __name__ == "__main__":
         quoting=csv.QUOTE_ALL,
     )
     # Keep the narrative and counts in sync as declarations/registrations change.
-    matrix = OUT / "orchestrator-functional-matrix.md"
+    matrix = args.output_dir / "orchestrator-functional-matrix.md"
     marker = "## Inventory counts"
-    narrative = matrix.read_text().split(marker)[0].rstrip()
+    narrative = narrative.split(marker)[0].rstrip()
     kinds = Counter(r[1] for r in entry_rows)
     classes = Counter(r[1] for r in rows)
     table = "\n\n" + marker + "\n\n"
