@@ -34,6 +34,11 @@ export const envelopePlugin = fp(
           return payload; // not JSON, leave alone
         }
       } else if (payload && typeof payload === 'object' && !(payload instanceof Buffer)) {
+        // Fastify sends these bodies directly. Even a JSON asset or partial download
+        // must keep its original bytes (including its range and content length).
+        if (('pipe' in payload && typeof payload.pipe === 'function') ||
+            ('getReader' in payload && typeof payload.getReader === 'function') ||
+            payload instanceof Response) return payload;
         data = payload;
       } else {
         return payload;

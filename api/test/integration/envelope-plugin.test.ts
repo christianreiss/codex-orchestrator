@@ -1,8 +1,37 @@
+import { Readable } from 'node:stream';
 import { describe, it, expect } from 'vitest';
 import { buildTestApp } from '../helpers/build-app.js';
 import { ApiError } from '../../src/http/errors.js';
 
 describe('envelope plugin integration', () => {
+  it('preserves JSON response streams and byte ranges', async () => {
+    const app = await buildTestApp();
+    const body = '{ "version": "test" }\n';
+    app.get('/asset.json', (_req, reply) =>
+      reply.type('application/json').send(Readable.from([body.slice(0, 8), body.slice(8)])));
+    app.get('/artifact.json', (_req, reply) =>
+      reply.code(206).type('application/json').header('Content-Range', 'bytes 0-3/12')
+        .send(Readable.from(['{"an'])));
+    app.get('/web-stream.json', (_req, reply) =>
+      reply.type('application/json').send(new Response(body).body));
+    app.get('/web-response.json', () =>
+      new Response(body, { headers: { 'content-type': 'application/json' } }));
+    try {
+      for (const url of ['/asset.json', '/web-stream.json', '/web-response.json']) {
+        const response = await app.inject(url);
+        expect(response.statusCode, url).toBe(200);
+        expect(response.headers['content-type'], url).toMatch(/application\/json/);
+        expect(response.payload, url).toBe(body);
+      }
+      const partial = await app.inject('/artifact.json');
+      expect(partial.statusCode).toBe(206);
+      expect(partial.headers['content-range']).toBe('bytes 0-3/12');
+      expect(partial.payload).toBe('{"an');
+    } finally {
+      await app.close();
+    }
+  });
+
   it('wraps standard handler payload with root fields and legacy data copy', async () => {
     const app = await buildTestApp();
     app.get('/echo', async () => ({ hello: 'world' }));

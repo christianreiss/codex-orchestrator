@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- JSON downloads preserve the bytes and byte ranges of stored content, including agent-chat transcripts and the admin SPA version file. Unknown admin links can load their 404 page without repeated navigation.
+
 - Signing-key rotation now tells operators when to stop the owner, verify both keys during overlap, and check the HTTP fingerprint after retiring the old signer.
 
 - A native agent can register its communicator and receive work when Messaging is enabled on its host and the Portal is disabled. Portal-only stop controls retain their own permission check.

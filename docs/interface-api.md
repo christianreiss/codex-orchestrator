@@ -3536,13 +3536,13 @@ Attachment uploads use a caller-generated UUID, declared filename/MIME/size and 
 - `POST /admin/agent-sessions/:id/attachments/:attachmentId/chunks` — Upload {offset,content_b64}; returns persisted uploaded_bytes.
 - `POST /admin/agent-sessions/:id/attachments/:attachmentId/seal` — Seal completed bytes after SHA-256 verification.
 - `GET /admin/agent-sessions/:id/attachments/:attachmentId` — Return name, MIME, size, SHA-256, upload offset and processing status.
-- `GET /admin/agent-sessions/:id/attachments/:attachmentId/content` — Stream original or ?variant=transcript.json|frame-NN.jpg; optional inline=1 for safe media.
+- `GET /admin/agent-sessions/:id/attachments/:attachmentId/content` — Stream original or ?variant=transcript.json|frame-NN.jpg; optional inline=1 for safe media. File variants return their stored bytes directly, including JSON transcripts. A valid byte range returns HTTP 206 with the corresponding Content-Range.
 - `DELETE /admin/agent-sessions/:id/attachments/:attachmentId` — Discard the authenticated author's unlinked upload.
 - `POST /companion/v1/agents/:id/attachments` — Create/resume upload: {id,name,mime_type,size_bytes,sha256?}.
 - `POST /companion/v1/agents/:id/attachments/:attachmentId/chunks` — Upload {offset,content_b64}; returns persisted uploaded_bytes.
 - `POST /companion/v1/agents/:id/attachments/:attachmentId/seal` — Seal completed bytes after SHA-256 verification.
 - `GET /companion/v1/agents/:id/attachments/:attachmentId` — Return name, MIME, size, SHA-256, upload offset and processing status.
-- `GET /companion/v1/agents/:id/attachments/:attachmentId/content` — Stream original or ?variant=transcript.json|frame-NN.jpg; optional inline=1 for safe media.
+- `GET /companion/v1/agents/:id/attachments/:attachmentId/content` — Stream original or ?variant=transcript.json|frame-NN.jpg; optional inline=1 for safe media. File variants return their stored bytes directly, including JSON transcripts. A valid byte range returns HTTP 206 with the corresponding Content-Range.
 - `DELETE /companion/v1/agents/:id/attachments/:attachmentId` — Discard the authenticated author's unlinked upload.
 - `POST /companion/v1/agents/:id/notices/resolve` — Resolve {notice_id,client_event_id} explicitly; admin/device authorization.
 - `POST /host/agent-sessions/:id/attachments` — Create/resume upload: {id,name,mime_type,size_bytes,sha256?}.
