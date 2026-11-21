@@ -580,6 +580,60 @@ test("Overview names a signal it could not read instead of calling the fleet cal
   await expect(page.getByText("Nothing needs you right now.", { exact: true })).toBeVisible();
 });
 
+test("first-run infrastructure can be rechecked after a host repair without leaving setup", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await installFixtures(page, path => path === "/admin/auth/status"
+    ? { authenticated: false, enforced: true, user: null, capabilities: [] }
+    : undefined);
+  let phase: "failing" | "healthy" | "unavailable" = "failing";
+  let finishRequest: (() => void) | undefined;
+  let delay: Promise<void> | undefined;
+  await page.route("**/admin/setup/status", async route => {
+    await delay;
+    if (phase === "unavailable") {
+      return route.fulfill({ status: 503, json: { status: "error", message: "Readiness temporarily unavailable" } });
+    }
+    const ok = phase === "healthy";
+    return route.fulfill({ json: { status: "ok", data: {
+      ...fixture("/admin/setup/status"), owner_created: false, setup_complete: false, critical_complete: ok,
+      checks: [{ id: "wrappers", label: "Wrapper artifacts", critical: true, ok, detail: ok ? "Five verified platforms" : "Missing Linux wrapper" }],
+      warnings: [], wizard: { last_step: null, completed_at: null, dismissed_at: null, engines: null },
+    } } });
+  });
+
+  await page.goto("/admin/setup");
+  const next = page.getByRole("button", { name: "Continue", exact: true });
+  const recheck = page.getByRole("button", { name: "Check again", exact: true });
+  await expect(page.getByText("Missing Linux wrapper")).toBeVisible();
+  await expect(next).toBeDisabled();
+  await expect(recheck).toBeVisible();
+  await recheck.focus();
+  phase = "healthy";
+  delay = new Promise<void>(resolve => { finishRequest = resolve; });
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status").filter({ hasText: "Checking infrastructure" })).toBeVisible();
+  await expect(recheck).toBeFocused();
+  await expect(next).toBeDisabled();
+  finishRequest!();
+  await expect(page.getByText("Five verified platforms")).toBeVisible();
+  await expect(next).toBeEnabled();
+
+  phase = "unavailable";
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert").filter({ hasText: "Could not refresh infrastructure checks" })).toBeVisible();
+  await expect(page.getByText("Five verified platforms")).toBeVisible();
+  await expect(next).toBeDisabled();
+  await expect(recheck).toBeFocused();
+  phase = "healthy";
+  await page.keyboard.press("Space");
+  await expect(next).toBeEnabled();
+  await expect(page.getByText("Readiness temporarily unavailable")).toHaveCount(0);
+  await page.keyboard.press("Tab");
+  await expect(next).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Create the first owner" })).toBeVisible();
+});
+
 test("a first-run fleet still enters setup after the background check", async ({ page }) => {
   await installFixtures(page, path => path === "/admin/setup/status" ? {
     ...fixture(path), owner_created: true, hosts: { total: 0, synced: 0 },

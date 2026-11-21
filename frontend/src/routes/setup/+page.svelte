@@ -7,7 +7,7 @@
    *
    * Position is client state mirrored to `?step=` for deep links and reloads,
    * and persisted server-side so the dashboard can offer Resume. Server truth
-   * comes from the polling setup-status query, which every step shares.
+   * comes from the setup-status query shared by all steps.
    *
    * Only the first two steps block: infrastructure is not fixable from a
    * browser, and nothing else can be written without the session the owner
@@ -76,6 +76,12 @@
   const unauthorized = $derived($status.error instanceof ApiError && $status.error.status === 401);
   const criticalFailing = $derived(
     (data?.checks ?? []).some((check) => check.critical && !check.ok),
+  );
+  const infrastructureBlock = $derived(
+    $status.isPaused ? "Reconnect to check the infrastructure." :
+    $status.isFetching ? "Wait for the current check to finish." :
+    $status.isError ? "Check again to verify the current infrastructure." :
+    criticalFailing ? "Fix the failing checks on the host first." : undefined,
   );
   const runnerHealthy = $derived(
     (data?.checks ?? []).find((check) => check.id === "runner")?.ok ?? true,
@@ -304,16 +310,19 @@
     description={meta.description}
     skippable={meta.skippable}
     nextLabel={meta.nextLabel}
-    blocked={current === "infrastructure" && criticalFailing}
-    blockedReason={current === "infrastructure" && criticalFailing
-      ? "Fix the failing checks on the host first."
-      : undefined}
+    blocked={current === "infrastructure" && Boolean(infrastructureBlock)}
+    blockedReason={current === "infrastructure" ? infrastructureBlock : undefined}
     onNavigate={navigate}
     onNext={next}
     onSkip={skip}
   >
     {#if current === "infrastructure"}
-      <InfrastructureStep checks={data.checks} warnings={data.warnings} />
+      <InfrastructureStep
+        checks={data.checks} warnings={data.warnings}
+        checking={$status.isFetching} paused={$status.isPaused}
+        refreshError={$status.error?.message ?? null}
+        onRecheck={() => void $status.refetch({ cancelRefetch: false })}
+      />
     {:else if current === "owner"}
       <OwnerStep
         bind:this={ownerStep}

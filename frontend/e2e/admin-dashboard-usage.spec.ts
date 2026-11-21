@@ -83,6 +83,8 @@ test("four providers share one usage table in light/dark desktop, tablet and mob
     await expect(rows.nth(0)).not.toContainText("Short window");
     await expect(rows.nth(1).getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "0");
     await expect(rows.nth(1)).not.toContainText("Last known reading");
+    await expect(rows.nth(1).getByTitle("Last reported usage. Refresh to check for a newer reading.")).toHaveCount(1);
+    await expect(rows.nth(0).getByTitle("Last reported usage. Refresh to check for a newer reading.")).toHaveCount(0);
     await expect(rows.nth(2).getByRole("meter", { name: "Weekly usage" })).toHaveAttribute("aria-valuenow", "87");
     await expect(rows.nth(2).getByTestId("reset-in")).toContainText("in 1 day");
     await expect(table.getByRole("columnheader", { name: "Reset in" })).toBeVisible();

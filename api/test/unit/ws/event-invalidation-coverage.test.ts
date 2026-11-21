@@ -34,13 +34,13 @@ const UNMAPPED_EVENT_TYPES: Record<string, string> = {
   'host.daemon.operation.queued': 'Internal post-commit transport wake; host.daemon.changed already invalidates the operator views.',
   toast: 'not an invalidation — wireWsToQueryClient hands the payload to the sonner toaster',
   'chatgpt.usage.updated':
-    'no console query reads usage events; the Provider usage table refreshes through accounts.updated',
+    'durable snapshot changes invalidate accounts/overview through control_state.changed; the dashboard can reread a quiet observation on Refresh',
   'claude.usage.updated':
-    'no console query reads usage events; the Provider usage table refreshes through accounts.updated',
+    'durable snapshot changes invalidate accounts/overview through control_state.changed; the dashboard can reread a quiet observation on Refresh',
   'version.wrapper_published':
-    'communicator update trigger only — no console query reads the published release from this event',
+    'communicator update hint; the public setup check can re-read the current manifest directly, including before any admin socket exists',
   'host.force_delete_ip_mismatch':
-    'audit alarm only — the same request also publishes host.deleted, which refreshes the host queries',
+    'audit notice during authentication; successful partial and full uninstalls invalidate host views through host.updated or host.deleted',
 };
 
 /** Files that publish a type computed at runtime, and what feeds that type. */

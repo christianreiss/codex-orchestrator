@@ -65,7 +65,7 @@ Diagnosis: `bin/install.sh doctor` maps each failing check to the command that f
 
 | Step | What it asks | Blocking |
 |---|---|---|
-| Infrastructure | Nothing — it reports the six critical checks (`database`, `migrations`, `runner`, `signer`, `wrappers`, `public_base_url`) and the command that fixes each. | **yes** |
+| Infrastructure | Nothing — it reports the six critical checks (`database`, `migrations`, `runner`, `signer`, `wrappers`, `public_base_url`) and the command that fixes each. After a host repair, choose **Check again**. Continue unlocks when all six pass. | **yes** |
 | Owner | The one-time first-owner claim, which issues the session inline. | **yes** |
 | Engines | Codex, Claude, both, or neither. Drives the next step. | no |
 | Credentials | One canonical credential per selected engine. Disappears from the rail entirely when the answer was "neither". | no |

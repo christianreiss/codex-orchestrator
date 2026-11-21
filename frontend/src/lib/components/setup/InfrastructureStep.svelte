@@ -1,16 +1,22 @@
 <script lang="ts">
   /**
-   * The six critical readiness checks, read-only. Nothing here is fixable from
-   * the browser — every one of them is owned by `bin/install.sh` or the
-   * environment — so this step reports and points at the command that fixes it
-   * rather than pretending to offer a control.
+   * The installer and host environment own the readiness prerequisites.
+   * An operator can repeat the shared status check after repairing the host.
    */
   import CircleCheck from "@lucide/svelte/icons/circle-check";
   import CircleX from "@lucide/svelte/icons/circle-x";
   import { Alert, AlertDescription, AlertTitle } from "$lib/components/ui/alert";
+  import { Button } from "$lib/components/ui/button";
   import type { SetupCheck } from "$lib/api/setup";
 
-  let { checks, warnings }: { checks: SetupCheck[]; warnings: string[] } = $props();
+  let { checks, warnings, checking, paused, refreshError, onRecheck }: {
+    checks: SetupCheck[];
+    warnings: string[];
+    checking: boolean;
+    paused: boolean;
+    refreshError: string | null;
+    onRecheck: () => void;
+  } = $props();
 
   const failing = $derived(checks.filter((check) => check.critical && !check.ok));
 
@@ -43,7 +49,7 @@
     </Alert>
   {/each}
 
-  <ul class="divide-y rounded-md border">
+  <ul aria-label="Last reported infrastructure checks" class="divide-y rounded-md border">
     {#each checks as check (check.id)}
       <li class="flex items-start justify-between gap-4 p-3 text-body">
         <span class="flex flex-wrap items-center gap-2">
@@ -64,8 +70,7 @@
       </AlertTitle>
       <AlertDescription>
         <p class="mb-2">
-          These are host-level, not console-level — fix them on the machine running the
-          stack, then this page updates on its own.
+          Repair the failing checks on the machine running the stack, then choose Check again.
         </p>
         <ul class="space-y-1">
           {#each failing as check (check.id)}
@@ -75,4 +80,19 @@
       </AlertDescription>
     </Alert>
   {/if}
+
+  {#if refreshError && !checking && !paused}
+    <Alert variant="destructive">
+      <AlertTitle>Could not refresh infrastructure checks</AlertTitle>
+      <AlertDescription>{refreshError} The list shows the last reported results. Choose Check again to retry.</AlertDescription>
+    </Alert>
+  {/if}
+  <div class="flex flex-wrap items-center gap-2">
+    <Button variant="outline" aria-disabled={checking || paused} onclick={() => { if (!checking && !paused) onRecheck(); }}>
+      Check again
+    </Button>
+    <p role="status" class="text-body-sm text-muted-foreground">
+      {#if checking}Checking infrastructure…{:else if paused}Waiting for a network connection…{:else if !refreshError && failing.length === 0}All required checks passed.{/if}
+    </p>
+  </div>
 </div>
