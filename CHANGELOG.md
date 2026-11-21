@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- Account → Companion devices now identifies both Android phones and KDE Plasma widgets. Scan a pairing code on Android or copy its contents into the widget. Firebase delivery settings apply to Android.
+
 - KDE Plasma widget 0.2.0 binds credentials to the HTTPS server and widget instance. After upgrading from 0.1, revoke the previous device in the original account and pair again. An unconfirmed disconnect keeps the server and device reference for manual revocation. Room messages keep their draft and request ID until confirmed.
 
 - The existing `/admin/hosts/new` bookmark opens the host registration sheet, including after Reload or Back/Forward. Numeric host detail links keep their own route.

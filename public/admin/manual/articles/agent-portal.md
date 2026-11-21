@@ -75,7 +75,7 @@ invalidations keep sessions current. Session settings invalidate on
 ## Android companion
 
 Install the Orchestrator APK (`io.uggs.orchestrator`, Android 8+). In the console,
-open **Account → Android devices** (`/account#devices`) and choose **Pair Android device**, then scan the QR in the
+open **Account → Companion devices** (`/account#devices`) and choose **Pair companion device**, then scan the QR in the
 app. Check the server address and connect; the code expires after five minutes
 and works once. The phone receives its own revocable credential for your account.
 
@@ -92,7 +92,7 @@ This grants host access, not tool/command approval inside an agent. A request
 resolved on another device cannot be approved again. Your current console role
 controls which operations are available.
 
-Revoke a lost phone under **Account → Android devices** (`/account#devices`). Signing out on the phone
+Revoke a lost phone under **Account → Companion devices** (`/account#devices`). Signing out on the phone
 revokes that device too. If Firebase is not configured, the app still supports
 chat and approval review while open. See the repository's
 `docs/android-companion.md` for Firebase setup and signed APK builds.

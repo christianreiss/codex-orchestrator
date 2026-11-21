@@ -1090,10 +1090,10 @@ test("account tabs preserve drafts, deep links and browser history", async ({ pa
 test("the user menu reaches each account section", async ({ page }) => {
   await page.goto("/admin/dashboard");
   await page.getByRole("button", { name: /Account menu for/ }).click();
-  for (const name of ["Password & passkeys", "Appearance", "Android devices"]) {
+  for (const name of ["Password & passkeys", "Appearance", "Companion devices"]) {
     await expect(page.getByRole("menuitem", { name })).toBeVisible();
   }
-  await page.getByRole("menuitem", { name: "Android devices" }).click();
+  await page.getByRole("menuitem", { name: "Companion devices" }).click();
   await expect(page).toHaveURL(/\/admin\/account#devices$/);
 });
 
@@ -1505,7 +1505,7 @@ test("control navigation highlights mobile account destinations", async ({ page 
   await menu.click();
   await expect(page.getByRole("dialog").getByRole("link", { name: "Password & passkeys", exact: true })).toBeVisible();
   await expect(page.getByRole("dialog").getByRole("link", { name: "Appearance", exact: true })).toBeVisible();
-  await expect(page.getByRole("dialog").getByRole("link", { name: "Android devices", exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Companion devices", exact: true })).toBeVisible();
 });
 
 test("Agent Messaging uses peer URL-backed operational views", async ({ page }) => {

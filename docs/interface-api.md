@@ -2584,7 +2584,7 @@ permission deny rules alone are insufficient. See [runner isolation](auth-runner
 
 The native Kotlin app uses `/companion/v1` with a separate Bearer device credential;
 admin cookies and browser Origins are not accepted there. It is paired from the
-signed-in Account → Android devices screen. Each credential belongs to that admin
+signed-in Account → Companion devices screen. Each credential belongs to that admin
 and receives only their current capabilities, enforced strictly on every request.
 Device credentials expire after one year; pairing again creates a new device.
 

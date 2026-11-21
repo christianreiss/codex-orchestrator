@@ -65,7 +65,7 @@ ColumnLayout {
         PlasmaComponents.Label {
             Layout.fillWidth: true
             wrapMode: Text.Wrap
-            text: i18n("Pair this widget: in the dashboard open Account → Android devices, create a pairing code and paste its JSON here.")
+            text: i18n("Pair this widget: in the dashboard open Account → Companion devices, create a pairing code and paste its JSON here.")
         }
         PlasmaComponents.TextField { id: pairInput; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: i18n("Pairing JSON or token") }
         PlasmaComponents.TextField { id: serverInput; Layout.fillWidth: true; placeholderText: i18n("Server URL (only if you paste a bare token)"); text: Plasmoid.configuration.serverUrl }

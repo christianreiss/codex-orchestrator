@@ -144,7 +144,7 @@ and play media, approve host access and receive push notifications. A message
 to a busy agent waits in the queue ("Waiting for the agent") and can be
 withdrawn. A "+" button starts a conversation or task on a daemon-ready host
 and continues the same native session. Pair each phone from
-**Account → Android devices** and revoke it independently when needed.
+**Account → Companion devices** and revoke it independently when needed.
 
 Chat and approvals work without push; notifications require configured
 Firebase Cloud Messaging and Google Play services.

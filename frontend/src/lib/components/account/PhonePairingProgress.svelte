@@ -14,12 +14,12 @@
   } = $props();
   const stages = $derived([
     { id: "code", label: "Pairing code ready", at: generatedAt, hint: failed ? "Could not create a code. Try again below." : "Creating your one-time pairing code…" },
-    { id: "paired", label: "Phone paired", at: pairedDevice?.created_at ?? null, hint: expired ? "The code expired. Generate a new one below." : "Waiting for your phone. Open Orchestrator Companion and scan the code." },
+    { id: "paired", label: "Device paired", at: pairedDevice?.created_at ?? null, hint: expired ? "The code expired. Generate a new one below." : "Waiting for your device. Complete pairing on Android or in the KDE Plasma widget." },
   ]);
   const waitingIndex = $derived(stages.findIndex((stage) => !stage.at));
 </script>
 
-<ol class="space-y-0 rounded-md border p-3" aria-label="Phone pairing progress" aria-live="polite">
+<ol class="space-y-0 rounded-md border p-3" aria-label="Device pairing progress" aria-live="polite">
   {#each stages as stage, i (stage.id)}
     {@const done = Boolean(stage.at)}
     {@const waiting = i === waitingIndex}

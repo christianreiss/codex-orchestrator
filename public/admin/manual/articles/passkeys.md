@@ -14,7 +14,7 @@ Signed-in admins manage their credentials on one **Account** page (`/account`, i
 - **Profile**
 - **Security** (`/account#security`) — **Password** (change password and request a password reset email) and **Passkeys** (register and manage WebAuthn credentials)
 - **Appearance** (`/account#appearance`) — theme settings
-- **Android devices** (`/account#devices`)
+- **Companion devices** (`/account#devices`)
 
 The user menu links straight to `#security`, `#appearance`, and `#devices`. The page is served by the SvelteKit SPA; the back end is the `/admin/auth/*` and `/admin/passkeys/*` routes registered in `api/src/routes/admin/auth/index.ts`.
 

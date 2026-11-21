@@ -135,7 +135,7 @@ test("coarse pointer controls stay usable on phones and hybrid desktops", async 
     if (width < 768) {
       await page.getByRole("button", { name: /Open navigation menu/ }).click();
       const menu = page.getByRole("dialog");
-      for (const name of ["Password & passkeys", "Appearance", "Android devices"]) {
+      for (const name of ["Password & passkeys", "Appearance", "Companion devices"]) {
         const link = menu.getByRole("link", { name, exact: true });
         await link.scrollIntoViewIfNeeded();
         const target = await link.boundingBox();

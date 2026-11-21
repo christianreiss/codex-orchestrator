@@ -154,7 +154,7 @@
     <string name="sign_out_title">Disconnect this phone?</string>
     <string name="sign_out_body">You’ll need a new pairing code to reconnect.</string>
     <string name="pair_title">Pair this phone</string>
-    <string name="pair_instructions">In the dashboard, open Account → Android devices → Pair Android device.</string>
+    <string name="pair_instructions">In the dashboard, open Account → Companion devices → Pair companion device.</string>
     <string name="pair_scan_prompt">Scan the pairing code from your dashboard</string>
     <string name="pair_scan">Scan QR code</string>
     <string name="pair_paste">Paste pairing code</string>

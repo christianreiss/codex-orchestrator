@@ -848,7 +848,7 @@ this endpoint before installing 0.3.0; roll out wrapper 0.9.17 for authored summ
 5. Deploy the API/frontend using the repository's regular deployment workflow.
    Migration `0039` is applied by the normal migration runner, never manually
    piped into MySQL. Enable **Agent sessions** in Active Clients for chat.
-6. Open **Account → Android devices → Pair Android device** in the dashboard;
+6. Open **Account → Companion devices → Pair companion device** in the dashboard;
    scan the five-minute QR in the app (or use **Paste pairing code** with its JSON
    payload), check the displayed server, and connect.
    Allow Android notifications. On **Now**, review and approve a live

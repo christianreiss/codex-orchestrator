@@ -159,7 +159,7 @@ export const DEEP_NAV: DeepNavEntry[] = [
   { href: "/settings?group=retention#retention", label: "Settings / Data retention", icon: Activity, description: "Server history, audit retention and local session cleanup", keywords: ["prune", "logs", "retention", "cleanup"] },
   { href: "/account#security", label: "Account / Password & passkeys", icon: Lock, description: "Change your password or manage passkeys", keywords: ["password", "passkeys", "webauthn", "security"] },
   { href: "/account#appearance", label: "Account / Appearance", icon: Palette, description: "Light, dark or system theme", keywords: ["theme", "dark", "light"] },
-  { href: "/account#devices", label: "Account / Android devices", icon: Smartphone, description: "Pair or revoke the Android companion app", keywords: ["phone", "companion", "pair"] },
+  { href: "/account#devices", label: "Account / Companion devices", icon: Smartphone, description: "Pair or revoke an Android phone or KDE Plasma widget", keywords: ["android", "phone", "kde", "plasma", "widget", "companion", "pair"] },
   // Every Settings row, so a row's old or technical name (auto-update, reverse DNS) still finds it.
   ...POLICY_PALETTE_ENTRIES.map((entry) => ({ ...entry, icon: Wrench })),
 ];

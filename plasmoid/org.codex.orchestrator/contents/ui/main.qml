@@ -208,7 +208,7 @@ PlasmoidItem {
             if (!ok || !data || !data.token) {
                 pairing = false
                 if (status === 0 || status >= 500 || ok) {
-                    cb(false, i18n("Pairing could not be confirmed. Check KDE Plasma devices in Account at %1, revoke the new device if present, then create a new pairing code.", server), true)
+                    cb(false, i18n("Pairing could not be confirmed. Open Account → Companion devices at %1, revoke the new KDE Plasma device if present, then create a new pairing code.", server), true)
                 } else {
                     cb(false, msg || i18n("Pairing failed"))
                 }

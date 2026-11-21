@@ -306,7 +306,7 @@ Admin routes:
 
 - Agents (`/admin/agents`) combines Live conversations and a Graph view. Agent-session controls live under Settings → Agents (`/admin/settings?group=agents#agents`); Remote sessions are available from Agents.
 - The legacy `/go` webchat, magic links and portal-user APIs are removed.
-- Account → Android devices pairs the native companion for FCM, chat and host approvals.
+- Account → Companion devices pairs Android phones and KDE Plasma widgets for chat and host approvals. Firebase push delivery is available on Android.
 - Disabling shared sessions cancels queued/leased operator input without replay.
 - Writability requires an available receiver with a ready portal source (or the legacy `relay_ready` signal). Native receiver state is distinct from activity; browser connectivity alone does not establish readiness. Connection-owned presence uses its live connection rather than expiring solely on heartbeat age.
 - **Agents → Live** (`/admin/agents`) uses the authenticated admin

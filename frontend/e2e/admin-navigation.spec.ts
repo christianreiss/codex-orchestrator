@@ -30,8 +30,24 @@ for (const path of ["/admin/agent-portal", "/admin/cli-auth/verify", "/admin/unk
 
     await page.goto(path, { waitUntil: "commit" });
     await expect(page.getByRole("heading", { name: "Page not found", exact: true })).toBeVisible();
+    await expect(page.getByText("Page not found", { exact: true })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
     await page.getByRole("link", { name: "Return to Overview" }).click();
     await expect(page).toHaveURL(/\/admin\/dashboard$/);
     expect(documents).toBe(1);
   });
 }
+
+
+test("a temporary page load failure can be retried at the same address", async ({ page }) => {
+  await installFixtures(page);
+  // Fail the page module while leaving the SvelteKit root layout and error boundary available.
+  const pageChunk = /\/_app\/immutable\/nodes\/(?![01]\.)\d+\.[^/]+\.js$/;
+  await page.route(pageChunk, route => route.fulfill({ status: 503, headers: { "Cache-Control": "no-store" }, body: "Temporarily unavailable" }));
+  await page.goto("/admin/hosts/1");
+  await expect(page.getByRole("heading", { name: "Page unavailable" })).toBeVisible();
+  await page.unroute(pageChunk);
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expect(page.getByRole("heading", { name: "console.example.test" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/hosts\/1$/);
+});

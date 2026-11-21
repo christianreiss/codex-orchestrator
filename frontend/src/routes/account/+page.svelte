@@ -73,7 +73,7 @@
       <Section id="appearance" title="Appearance" description="Choose how the console looks on your devices."><ThemePicker /></Section>
     </Tabs.Content>
     <Tabs.Content value="devices" class={current !== "devices" ? "hidden" : ""} inert={current !== "devices"}>
-      <Section id="devices" title="Android devices"><DeviceList /></Section>
+      <Section id="devices" title="Companion devices"><DeviceList /></Section>
     </Tabs.Content>
   </Tabs.Root>
 </PageShell>

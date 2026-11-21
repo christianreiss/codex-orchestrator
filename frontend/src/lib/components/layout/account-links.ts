@@ -2,5 +2,5 @@
 export const ACCOUNT_LINKS = [
   { hash: "#security", label: "Password & passkeys" },
   { hash: "#appearance", label: "Appearance" },
-  { hash: "#devices", label: "Android devices" },
+  { hash: "#devices", label: "Companion devices" },
 ] as const;

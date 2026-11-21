@@ -37,7 +37,7 @@ test('devices distinguish empty, failed loading and failed actions', async ({ pa
   await page.goto('/admin/account#devices');
   await expect(page.getByText('No paired devices', { exact: true })).toBeVisible();
   await page.route('**/admin/companion/pairings', route => route.fulfill({ status: 503, json: { status: 'error', message: 'Pairing unavailable' } }));
-  await page.getByRole('button', { name: 'Pair Android device', exact: true }).click();
+  await page.getByRole('button', { name: 'Pair companion device', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Pairing unavailable' })).toBeVisible();
   await page.route('**/admin/companion/devices', route => route.fulfill({ status: 503, json: { status: 'error', message: 'Device list unavailable' } }));
   await page.reload();
@@ -49,8 +49,8 @@ test('expired pairing codes disappear and cannot be copied', async ({ page }) =>
   await installFixtures(page);
   await page.route('**/admin/companion/pairings', route => route.fulfill({ json: { qr: 'test-only-expired-pairing', expires_at: new Date(Date.now() - 1000).toISOString() } }));
   await page.goto('/admin/account#devices');
-  await page.getByRole('button', { name: 'Pair Android device', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Pair your phone' });
+  await page.getByRole('button', { name: 'Pair companion device', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pair a companion device' });
   await expect(dialog.getByText('Code expired', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('img')).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Copy pairing code' })).toBeDisabled();

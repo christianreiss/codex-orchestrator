@@ -2,7 +2,7 @@
   import PhonePairingProgress from "./PhonePairingProgress.svelte";
   import { wsStatus } from "$lib/stores/ws-status";
   import Timestamp from "$lib/components/page/Timestamp.svelte";
-  /** Paired Android companion devices: pair with a one-time QR code, revoke when lost. */
+  /** Pair and revoke Android and KDE Plasma companions for the signed-in user. */
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import ConfirmDialog from "$lib/components/ui/confirm-dialog.svelte";
   import { Badge } from "$lib/components/ui/badge";
@@ -111,13 +111,13 @@
 
 <div class="space-y-3">
   <div class="flex flex-wrap items-start justify-between gap-2">
-    <p class="max-w-xl text-body-sm text-muted-foreground">Chats, reachable hosts, remote agent starts and host access review from your phone.</p>
-    <Button size="sm" onclick={pair} disabled={busy}>Pair Android device</Button>
+    <p class="max-w-xl text-body-sm text-muted-foreground">Pair an Android phone or KDE Plasma widget with your account. Revoke a device here to end its access.</p>
+    <Button size="sm" onclick={pair} disabled={busy}>Pair companion device</Button>
   </div>
   {#if error && !open}<p role="alert" class="text-body-sm text-destructive">{error}</p>{/if}
   {#if resultMessage}<p role="status" class="text-body-sm text-success">{resultMessage}</p>{/if}
   {#if $devices.data && !$devices.data.push_configured}
-    <p class="text-body-sm text-muted-foreground">Push delivery is not configured. Pairing and chat are available; configure Firebase on the server to enable notifications.</p>
+    <p class="text-body-sm text-muted-foreground">Android push notifications are not configured. Pairing still works. Configure Firebase on the server to enable Android notifications.</p>
   {/if}
   {#if $devices.isPending}
     <StateBlock state="loading" rows={2} />
@@ -126,7 +126,7 @@
   {:else if list.length === 0}
     <StateBlock state="empty" message="No paired devices" />
   {:else}
-    <ul aria-label="Paired Android devices" class="divide-y border-y">
+    <ul aria-label="Paired companion devices" class="divide-y border-y">
       {#each list as device (device.id)}
         <li class="flex flex-wrap items-center justify-between gap-3 py-4">
           <div class="min-w-0">
@@ -145,8 +145,8 @@
 <Dialog.Root bind:open>
   <Dialog.Content size="sm">
     <Dialog.Header>
-      <Dialog.Title>Pair your phone</Dialog.Title>
-      <Dialog.Description>{pairedDevice ? "Pairing is complete. You can close this dialog." : "Open Orchestrator Companion and scan this code. It signs the phone in as your account and can be used once."}</Dialog.Description>
+      <Dialog.Title>Pair a companion device</Dialog.Title>
+      <Dialog.Description>{pairedDevice ? "Pairing is complete. You can close this dialog." : "On Android, scan the QR code in Orchestrator Companion. For KDE Plasma, copy the pairing code and paste it in the widget settings. The code signs in one device as you."}</Dialog.Description>
     </Dialog.Header>
     {#if error}<p role="alert" class="text-body-sm text-destructive">{error}</p>{/if}
     <PhonePairingProgress {generatedAt} pairedDevice={pairedDevice ?? null} expired={Boolean(generatedAt) && remaining === 0} {busy} failed={Boolean(error) && !generatedAt} />
@@ -154,7 +154,7 @@
       <p role="status" class="text-body text-success">{pairedDevice.name} is paired and can access your account.</p>
       <Button onclick={() => (open = false)}>Done</Button>
     {:else}
-      {#if image}<img src={image} alt="One-time Android pairing QR code" class="mx-auto w-full max-w-80 rounded-md" />{/if}
+      {#if image}<img src={image} alt="One-time pairing QR code for Android" class="mx-auto w-full max-w-80 rounded-md" />{/if}
       {#if generatedAt}
         <p class="text-center text-body-sm">{remaining > 0 ? `Expires in ${remaining} seconds` : "Code expired"}</p>
         {#if !expectedDeviceId}<p class="text-body-sm text-muted-foreground">This server does not support pairing confirmation. Check your devices after pairing.</p>
