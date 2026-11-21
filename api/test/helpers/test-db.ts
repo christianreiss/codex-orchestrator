@@ -97,8 +97,14 @@ export async function getTestDb(): Promise<TestDbHandle | null> {
 
 
 
-/** For suites that sweep all sessions or exhaust a finite, database-wide pool. */
-export async function createIsolatedTestDb(purpose: 'names' | 'recovery' | 'slop' | 'connector') {
+// A fresh schema (baseline plus all real migrations) took 352 s to create and
+// 84 s to drop on a durable MySQL 8.4 Btrfs volume. Only fixture hooks use
+// these budgets; application operations keep their own, shorter deadlines.
+export const isolatedDbSetupTimeoutMs = 600_000;
+export const isolatedDbTeardownTimeoutMs = 180_000;
+
+/** For suites that need private database-wide state or a separately booted owner. */
+export async function createIsolatedTestDb(purpose: 'names' | 'recovery' | 'slop' | 'connector' | 'work') {
   const config = readDbConfig();
   if (!config) throw new Error('isolated MySQL tests require TEST_USE_DB=1 and a test database');
   loadTestEnv();

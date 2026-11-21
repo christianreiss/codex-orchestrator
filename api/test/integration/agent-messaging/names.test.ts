@@ -24,7 +24,13 @@ import { releaseAgentMessagingBindingsLocked } from '../../../src/services/agent
 import { agentNameKey, namedSessionTitle } from '../../../src/services/agent-messaging/names.js';
 import { isoOffsetSeconds, nowIso } from '../../../src/util/timestamp.js';
 import type { Engine } from '../../../src/util/engine.js';
-import { createIsolatedTestDb, readDbConfig, type TestDb } from '../../helpers/test-db.js';
+import {
+  createIsolatedTestDb,
+  isolatedDbSetupTimeoutMs,
+  isolatedDbTeardownTimeoutMs,
+  readDbConfig,
+  type TestDb,
+} from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 describe.skipIf(!readDbConfig())('German launch name leases on MySQL', { timeout: 120_000 }, () => {
@@ -90,10 +96,10 @@ describe.skipIf(!readDbConfig())('German launch name leases on MySQL', { timeout
     await exec(
       "INSERT INTO versions (name,version,updated_at) VALUES ('agent_messaging_enabled','1','2026-10-08T00:00:00Z') ON DUPLICATE KEY UPDATE version='1'",
     );
-  });
+  }, isolatedDbSetupTimeoutMs);
   beforeEach(cleanup);
   afterEach(cleanup);
-  afterAll(async () => { await scoped?.close(); });
+  afterAll(async () => { await scoped?.close(); }, isolatedDbTeardownTimeoutMs);
 
   async function launch(
     engine: Engine = 'codex',

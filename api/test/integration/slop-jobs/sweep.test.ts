@@ -3,19 +3,27 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { coordProjects, slopJobs, slopRuns } from '../../../src/db/schema.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { SlopJobsService } from '../../../src/services/slop-jobs.js';
-import { createIsolatedTestDb, readDbConfig } from '../../helpers/test-db.js';
+import {
+  createIsolatedTestDb,
+  isolatedDbSetupTimeoutMs,
+  isolatedDbTeardownTimeoutMs,
+  readDbConfig,
+} from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
-const handle = readDbConfig() ? await createIsolatedTestDb('slop') : null;
-afterAll(async () => { await handle?.close(); });
+describe.skipIf(!readDbConfig())('Slop worker recovery on MySQL', () => {
+  let handle: Awaited<ReturnType<typeof createIsolatedTestDb>>;
+  beforeAll(async () => {
+    handle = await createIsolatedTestDb('slop');
+  }, isolatedDbSetupTimeoutMs);
+  afterAll(async () => { await handle?.close(); }, isolatedDbTeardownTimeoutMs);
 
-describe.skipIf(!handle)('Slop worker recovery on MySQL', () => {
   it('retains an active expired job and removes expired idle and orphaned jobs', async () => {
-    const db = handle!.db;
+    const db = handle.db;
     const root = await mkdtemp(join(tmpdir(), 'slop-sweep-'));
     const now = new Date().toISOString();
     const expired = new Date(Date.now() - 25 * 3600_000).toISOString();

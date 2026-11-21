@@ -10,7 +10,12 @@ import { agentBusAddresses, agentFreshStartGrants, agentSessions, hosts } from '
 import type { Env } from '../../../src/env.js';
 import { AgentMessagingService } from '../../../src/services/agent-messaging.js';
 import { AgentPortalService } from '../../../src/services/agent-portal.js';
-import { createIsolatedTestDb, readDbConfig } from '../../helpers/test-db.js';
+import {
+  createIsolatedTestDb,
+  isolatedDbSetupTimeoutMs,
+  isolatedDbTeardownTimeoutMs,
+  readDbConfig,
+} from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 let handle: Awaited<ReturnType<typeof createIsolatedTestDb>>;
@@ -32,7 +37,7 @@ describe.skipIf(!readDbConfig())('abandoned bridge recovery', { timeout: 120_000
     const env = { ...loadTestEnv(), AGENT_PORTAL_BRIDGE_TTL_SECONDS: 900, AGENT_PORTAL_RETENTION_HOURS: 24 } as Env;
     messaging = new AgentMessagingService(db, env, testKeyring());
     portal = new AgentPortalService(db, env, testKeyring());
-  });
+  }, isolatedDbSetupTimeoutMs);
   afterEach(async () => {
     const db = handle!.db;
     await db.execute(sql`DELETE FROM agent_events WHERE session_id IN (SELECT id FROM agent_sessions WHERE host_id=${host.id})`);
@@ -41,7 +46,7 @@ describe.skipIf(!readDbConfig())('abandoned bridge recovery', { timeout: 120_000
     await db.execute(sql`DELETE FROM agent_sessions WHERE host_id=${host.id}`);
     await db.execute(sql`DELETE FROM agent_bus_addresses WHERE host_id=${host.id}`);
   });
-  afterAll(async () => { await handle?.close(); });
+  afterAll(async () => { await handle?.close(); }, isolatedDbTeardownTimeoutMs);
 
   async function register(native: string, sessionId = randomUUID(), token = randomBytes(32).toString('base64url'), resumed = false) {
     const out = await messaging.registerSession(host, {

@@ -7,7 +7,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { agentBusMessages } from '../../../src/db/schema.js';
 import { resetEnvCache } from '../../../src/env.js';
 import { buildServer } from '../../../src/server.js';
-import { createIsolatedTestDb, readDbConfig } from '../../helpers/test-db.js';
+import {
+  createIsolatedTestDb,
+  isolatedDbSetupTimeoutMs,
+  isolatedDbTeardownTimeoutMs,
+  readDbConfig,
+} from '../../helpers/test-db.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
 
 const config = readDbConfig();
@@ -16,10 +21,10 @@ describe.skipIf(!config)('OAuth connector delegation on MySQL', () => {
   let isolated: Awaited<ReturnType<typeof createIsolatedTestDb>>;
   beforeAll(async () => {
     isolated = await createIsolatedTestDb('connector');
-  }, 300000);
+  }, isolatedDbSetupTimeoutMs);
   afterAll(async () => {
     await isolated?.close();
-  }, 60000);
+  }, isolatedDbTeardownTimeoutMs);
   it('queues OAuth delegation as one durable work request and returns only recorded results', async () => {
     const root = await mkdtemp(join(tmpdir(), 'connector-delegate-'));
     const issuer = 'https://connector.fixture.test';

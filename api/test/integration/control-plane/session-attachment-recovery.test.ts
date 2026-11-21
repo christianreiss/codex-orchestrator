@@ -19,7 +19,12 @@ import { stageUpdate } from '../../../src/control-plane/state/rows.js';
 import { runMigrations } from '../../../src/db/migrator.js';
 import { agentSessions, hosts, versions } from '../../../src/db/schema.js';
 import { sha256 } from '../../../src/security/hash.js';
-import { createIsolatedTestDb, readDbConfig } from '../../helpers/test-db.js';
+import {
+  createIsolatedTestDb,
+  isolatedDbSetupTimeoutMs,
+  isolatedDbTeardownTimeoutMs,
+  readDbConfig,
+} from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
 
 describe.skipIf(!readDbConfig())('owner attachment recovery on MySQL', () => {
@@ -28,10 +33,11 @@ describe.skipIf(!readDbConfig())('owner attachment recovery on MySQL', () => {
   let hostId: number, database: string, directory: string;
   const hostKey = randomUUID(), token = randomUUID(), receiver = randomUUID();
   const seen = new Date(Date.now() - 3 * 86_400_000).toISOString();
-  const expires = new Date(Date.now() + 10 * 60_000).toISOString();
+  let expires: string;
   const ttl = 15 * 60_000;
   beforeAll(async () => {
     fixture = await createIsolatedTestDb('recovery');
+    expires = new Date(Date.now() + 10 * 60_000).toISOString();
     const [[row]] = await fixture.pool.query<RowDataPacket[]>('SELECT DATABASE() AS db');
     database = row!.db;
     directory = await mkdtemp(join(tmpdir(), 'attachment-owner-'));
@@ -42,7 +48,7 @@ describe.skipIf(!readDbConfig())('owner attachment recovery on MySQL', () => {
     hostId = insert.insertId;
     await fixture.db.insert(versions).values({ name: 'agent_messaging_enabled', version: '1', updatedAt: seen })
       .onDuplicateKeyUpdate({ set: { version: '1' } });
-  }, 90_000);
+  }, isolatedDbSetupTimeoutMs);
   afterEach(async () => {
     await owner?.close();
     owner = undefined;
@@ -51,7 +57,7 @@ describe.skipIf(!readDbConfig())('owner attachment recovery on MySQL', () => {
   afterAll(async () => {
     await fixture?.close();
     if (directory) await rm(directory, { recursive: true, force: true });
-  });
+  }, isolatedDbTeardownTimeoutMs);
   const start = async () => {
     owner = await createOwnedControlPlane({
       pool: fixture.pool, handle: {}, keyring: testKeyring(),

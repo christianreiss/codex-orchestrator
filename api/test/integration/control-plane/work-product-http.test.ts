@@ -4,14 +4,18 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import mysql from 'mysql2/promise';
+import type { RowDataPacket } from 'mysql2';
 import { createRequire } from 'node:module';
 import type { FastifyInstance } from 'fastify';
-import { describe, expect, it, vi } from 'vitest';
-import { runMigrations } from '../../../src/db/migrator.js';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { resetEnvCache } from '../../../src/env.js';
 import { buildServer } from '../../../src/server.js';
-import { readDbConfig } from '../../helpers/test-db.js';
+import {
+  createIsolatedTestDb,
+  isolatedDbSetupTimeoutMs,
+  isolatedDbTeardownTimeoutMs,
+  readDbConfig,
+} from '../../helpers/test-db.js';
 
 type ClientSocket = Awaited<ReturnType<FastifyInstance['injectWS']>>;
 const WebSocket = createRequire(import.meta.url)('ws') as new (
@@ -22,13 +26,17 @@ const config = readDbConfig();
 
 // This gate creates and owns a new schema. The supplied test database is never modified.
 describe.skipIf(!config)('admin content reaches a host over production HTTP, MCP and admin WS', () => {
+  let fixture: Awaited<ReturnType<typeof createIsolatedTestDb>>;
+  beforeAll(async () => {
+    fixture = await createIsolatedTestDb('work');
+  }, isolatedDbSetupTimeoutMs);
+  afterAll(async () => { await fixture?.close(); }, isolatedDbTeardownTimeoutMs);
+
   it('publishes committed changes, survives owner restart, and fences deleted content and revoked sessions', async () => {
     // Only synthetic credentials and a newly-created schema enter the owner.
-    const schema = 'review_migrator_work_wire_' + randomUUID().replaceAll('-', '');
+    const { database: schema, pool: sql } = fixture;
     const issuer = 'https://wire.fixture.invalid';
     const root = await mkdtemp(join(tmpdir(), 'orchestrator-work-wire-'));
-    const sql = await mysql.createConnection({ ...config!, database: undefined });
-    let created = false;
     let owner: Awaited<ReturnType<typeof buildServer>> | undefined;
     let ws: ClientSocket | undefined;
     let communicator: ClientSocket | undefined;
@@ -82,8 +90,6 @@ describe.skipIf(!config)('admin content reaches a host over production HTTP, MCP
       return reply.result!.content.map((entry) => entry.text).join('\n');
     }
     try {
-      await sql.query('CREATE DATABASE ??', [schema]);
-      created = true;
       for (const [key, value] of Object.entries({
         DB_HOST: String(config!.host),
         DB_PORT: String(config!.port || 3306),
@@ -104,12 +110,6 @@ describe.skipIf(!config)('admin content reaches a host over production HTTP, MCP
       }))
         vi.stubEnv(key, value);
       resetEnvCache();
-      const pool = mysql.createPool({ ...config!, database: schema });
-      try {
-        await runMigrations(pool, { initSchema: true });
-      } finally {
-        await pool.end();
-      }
       await start();
       await request('/admin/setup/owner', 'POST', {
         username: 'fixture',
@@ -406,7 +406,7 @@ describe.skipIf(!config)('admin content reaches a host over production HTTP, MCP
       expect(delivery.delivery).toMatchObject({ message_id: sent.message.id, work_kind: 'request' });
       const ack = recipientApi + '/deliveries/' + sent.message.id + '/ack';
       await request(ack, 'POST', { claim_id: claim, outcome: 'accepted' }, recipientAuth);
-      const [accepted] = await sql.query<mysql.RowDataPacket[]>(
+      const [accepted] = await sql.query<RowDataPacket[]>(
         'SELECT status, completed_at, task_result_status FROM ??.agent_bus_messages WHERE id=?',
         [schema, sent.message.id],
       );
@@ -448,7 +448,7 @@ describe.skipIf(!config)('admin content reaches a host over production HTTP, MCP
         await new Promise<void>((done) => lostReply.close(() => done()));
       }
       await request(ack, 'POST', complete, recipientAuth);
-      const [results] = await sql.query<mysql.RowDataPacket[]>(
+      const [results] = await sql.query<RowDataPacket[]>(
         'SELECT status FROM ??.agent_task_results WHERE message_id=?',
         [schema, sent.message.id],
       );
@@ -515,14 +515,9 @@ describe.skipIf(!config)('admin content reaches a host over production HTTP, MCP
       try {
         await owner?.close();
       } finally {
-        try {
-          if (created) await sql.query('DROP DATABASE ??', [schema]);
-        } finally {
-          await sql.end();
-          await rm(root, { recursive: true, force: true });
-          vi.unstubAllEnvs();
-          resetEnvCache();
-        }
+        await rm(root, { recursive: true, force: true });
+        vi.unstubAllEnvs();
+        resetEnvCache();
       }
     }
   }, 120_000);
