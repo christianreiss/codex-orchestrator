@@ -98,7 +98,7 @@ export async function getTestDb(): Promise<TestDbHandle | null> {
 
 
 /** For suites that sweep all sessions or exhaust a finite, database-wide pool. */
-export async function createIsolatedTestDb(purpose: 'names' | 'recovery' | 'slop') {
+export async function createIsolatedTestDb(purpose: 'names' | 'recovery' | 'slop' | 'connector') {
   const config = readDbConfig();
   if (!config) throw new Error('isolated MySQL tests require TEST_USE_DB=1 and a test database');
   loadTestEnv();
@@ -119,7 +119,7 @@ export async function createIsolatedTestDb(purpose: 'names' | 'recovery' | 'slop
   };
   try {
     await runMigrations(pool, { initSchema: true, appliedBy: purpose + '-fixture' });
-    return { db: drizzle(pool, { schema, mode: 'default' }), pool, close };
+    return { database, db: drizzle(pool, { schema, mode: 'default' }), pool, close };
   } catch (cause) {
     await close();
     throw cause;

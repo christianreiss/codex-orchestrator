@@ -1,5 +1,7 @@
 # 2026-11-21
 
+- OAuth connectors can delegate work to an authorized managed agent again. Retrying the same request keeps the original message, and the connector can read its recorded outcome.
+
 - Wrapper 0.9.194 makes `cdx --update` and `clx --update` identify a matching signed configuration when the live wrapper target could not be confirmed.
 
 - Wrapper 0.9.193 identifies the personal Grok hook fallback when the organization configuration cannot be parsed. Grok 1.0.92 applies folder trust to repository hooks.

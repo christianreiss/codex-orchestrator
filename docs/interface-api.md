@@ -4546,6 +4546,8 @@ Generated seed-auth uploaders and host-spawn setup scripts also handle `--help`/
 
 See [connectors.md](connectors.md) for the default-off OAuth/MCP surface, consent, scope enforcement, token lifecycle and setup. This surface is separate from host `/mcp` and never accepts host keys. Default off; admin routes require a dashboard session and policy writes require strict authorization administration. OAuth routes use the separate connector flow (see the [connector contract](connectors.md)).
 
+An authorized `agent_delegate` call enqueues an ordered work request under the existing grant and target restrictions. A retry uses the same client message ID. `work_result` reads the delivery state and separately recorded agent results for that grant.
+
 - `GET /admin/connectors/config`
 - `PUT /admin/connectors/config`
 - `POST /admin/connectors/preview`

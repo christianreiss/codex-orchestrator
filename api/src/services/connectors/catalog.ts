@@ -329,7 +329,6 @@ export class ConnectorCatalog {
             to: `agent:${session.agentBusAddressId}`,
             clientMessageId: String(a.client_message_id),
             content: `[OAuth connector ${auth.grant.provider}; user ${auth.user.id}; grant ${auth.grant.id}]\n${String(a.content)}`,
-            deliveryClass: 'coordination',
           });
         },
       },
