@@ -292,7 +292,7 @@ func TestFailRecordsTypeNameNeverMessage(t *testing.T) {
 		t.Fatalf("error.type = %q", attrString(got, "error.type"))
 	}
 	for _, kv := range got.Attributes {
-		if strings.Contains(kv.Value.Emit(), "sk-live-do-not-log") {
+		if strings.Contains(kv.Value.String(), "sk-live-do-not-log") {
 			t.Fatalf("attribute %s leaked the error message", kv.Key)
 		}
 	}
@@ -362,7 +362,7 @@ func TestBrokenEndpointDoesNotEnableOrPanic(t *testing.T) {
 func attrString(s tracetest.SpanStub, key string) string {
 	for _, kv := range s.Attributes {
 		if string(kv.Key) == key {
-			return kv.Value.Emit()
+			return kv.Value.String()
 		}
 	}
 	return ""
@@ -374,7 +374,7 @@ func resourceString(s tracetest.SpanStub, key string) string {
 	}
 	for _, kv := range s.Resource.Attributes() {
 		if string(kv.Key) == key {
-			return kv.Value.Emit()
+			return kv.Value.String()
 		}
 	}
 	return ""
