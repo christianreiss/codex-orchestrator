@@ -1,5 +1,7 @@
 # 2026-11-22
 
+- Added the public Codex Orchestrator product website with an engine comparison and self-hosted installation guide.
+
 - Auth Runner, Media Worker and design review images now install their runtime code with explicit permissions so a private source checkout can build working non-root services.
 
 # 2026-11-21

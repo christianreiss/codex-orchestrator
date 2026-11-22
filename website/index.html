@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codex Orchestrator · Deine Coding-Agenten in einer Flotte</title>
+<meta name="description" content="Betreibe Codex, Claude Code, Grok Build und Kimi Code mit gemeinsamen Skills, Projektwissen und Host-Verwaltung auf deinem eigenen Server.">
+<link rel="canonical" href="https://cxx.uggs.io/"><meta name="theme-color" content="#0b1626">
+<link rel="stylesheet" href="site.css"><link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+</head>
+<body><a class="skip" href="#inhalt">Zum Inhalt</a>
+<header><div class="wrap bar"><a class="brand" href="./"><img src="assets/mark.svg" width="36" height="36" alt="">Codex Orchestrator</a>
+<nav aria-label="Hauptnavigation"><a href="#vergleich">Vergleich</a><a href="#installation">Installation</a><a href="https://github.com/christianreiss/codex-orchestrator">GitHub ↗</a></nav></div></header>
+<main id="inhalt">
+<section class="hero"><div class="wrap hero-grid"><div>
+<p class="eyebrow"><span class="rule"></span> Self-hosted Fleet Management</p>
+<h1>Dein Terminal.<br>Deine Agenten.<br><em>Eine Flotte.</em></h1>
+<p class="intro">Codex auf dem Laptop, Claude auf dem Build-Server. Mit Codex Orchestrator teilen deine Agenten Projektwissen, stimmen ihre Arbeit ab und starten mit den Regeln, die du vorgibst.</p>
+<div class="actions"><a class="button" href="#installation">Orchestrator installieren <span>↓</span></a><a class="textlink" href="#vergleich">Vorteile ansehen</a></div></div>
+<figure class="diagram"><figcaption><b>Systemplan</b><span>Engine-Anbindung</span></figcaption>
+<svg viewBox="0 0 480 330" role="img" aria-labelledby="plan-title" xmlns="http://www.w3.org/2000/svg"><title id="plan-title">Die Wrapper cdx, clx, cgx und ckx verbinden die vier nativen Engines mit der gemeinsamen cxx-Verwaltung.</title>
+<defs><pattern id="dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#34516c"/></pattern></defs>
+<rect width="480" height="330" fill="url(#dots)"/>
+<g fill="none" stroke="#539cbf" stroke-width="2"><path d="M106 68h40l40 55h56v26M106 258h40l40-55h56v-26M374 68h-40l-40 55h-32v26M374 258h-40l-40-55h-32v-26"/></g>
+<g fill="#14283b" stroke="#57819f"><rect x="166" y="120" width="148" height="90" rx="9"/><rect x="176" y="130" width="128" height="70" rx="5"/></g>
+<g font-family="monospace" text-anchor="middle" fill="#a8e9fc"><text x="240" y="177" font-size="42" font-weight="bold">cxx</text></g>
+<g class="nodes">
+<g transform="translate(22 45)"><rect width="106" height="64" rx="5"/><text x="53" y="27">Codex</text><text class="alias" x="53" y="48">cdx</text></g>
+<g transform="translate(352 45)"><rect width="106" height="64" rx="5"/><text x="53" y="27">Claude Code</text><text class="alias" x="53" y="48">clx</text></g>
+<g transform="translate(22 221)"><rect width="106" height="64" rx="5"/><text x="53" y="27">Grok Build</text><text class="alias" x="53" y="48">cgx</text></g>
+<g transform="translate(352 221)"><rect width="106" height="64" rx="5"/><text x="53" y="27">Kimi Code</text><text class="alias" x="53" y="48">ckx</text></g></g></svg>
+<div class="legend"><i></i> Gemeinsame Verwaltung auf deinem Server</div></figure></div></section>
+<section class="wrap section" id="vergleich"><p class="eyebrow">Im täglichen Betrieb</p><h2>Was gewinnst du gegenüber<br>der nativen CLI?</h2>
+<table><thead><tr><th scope="col">Aufgabe</th><th scope="col">Native CLIs einzeln</th><th scope="col">Mit Orchestrator</th></tr></thead><tbody>
+<tr><th scope="row">Host einrichten</th><td>Konten, Versionen und Einstellungen auf jeder Maschine pflegen.</td><td>Host registrieren, Engines zuweisen und signierte Konfiguration beim Start beziehen.</td></tr>
+<tr><th scope="row">Wissen übergeben</th><td>Entscheidungen aus der letzten Sitzung zusammensuchen und weitergeben.</td><td>Agenten lesen dieselben Projektentscheidungen und können einander direkt fragen.</td></tr>
+<tr><th scope="row">Parallel entwickeln</th><td>Selbst abstimmen, wer welche Dateien bearbeitet und zuerst integriert.</td><td>Ressourcen reservieren und gemeinsame Branches über den Git Director zusammenführen.</td></tr>
+<tr><th scope="row">Arbeit verfolgen</th><td>Terminals auf mehreren Hosts öffnen und nach dem Stand schauen.</td><td>Laufende Sitzungen, Aufgaben und Rückfragen in einer Konsole sehen und beantworten.</td></tr>
+</tbody></table></section>
+<section class="tour"><div class="wrap spread"><div><p class="eyebrow">Die Flottenkonsole</p><h2>Wer arbeitet<br>woran?</h2><p>Öffne eine Sitzung direkt aus der Host-Übersicht der aktiven Clients. Du siehst ihren Auftrag und kannst im Gespräch eine Entscheidung treffen, während der Agent auf seinem Host weiterarbeitet.</p><a class="textlink" href="https://github.com/christianreiss/codex-orchestrator#the-tour">Zur Produkttour ↗</a></div>
+<figure class="shot"><a href="assets/sessions.webp" aria-label="Beispielansicht der aktiven Sitzungen in voller Größe öffnen"><img src="assets/sessions.webp" alt="Konsole mit Agentenliste links und Gesprächsverlauf der ausgewählten Sitzung rechts" loading="lazy"></a><figcaption>Active Clients · Beispielansicht öffnen ↗</figcaption></figure></div></section>
+<section class="wrap section spread" id="installation"><div><p class="eyebrow">Installation</p><h2>Starte deine<br>eigene Flotte.</h2><p>Du brauchst einen Server mit Git, Docker Compose v2, curl und OpenSSL. Der Assistent richtet die Dienste ein und gibt dir nach erfolgreicher Prüfung die URL deiner Konsole.</p><a class="textlink" href="https://github.com/christianreiss/codex-orchestrator/blob/main/docs/INSTALL.md">Installationsanleitung ↗</a></div>
+<div class="terminal"><div class="term-head">Terminal <span>bash</span></div><pre><code>git clone https://github.com/christianreiss/codex-orchestrator.git
+cd codex-orchestrator
+bin/orchestrator setup</code></pre><p>Danach registrierst du den ersten Host und weist ihm eine Engine zu.</p></div></section></main>
+<footer><div class="wrap bar"><b>Codex Orchestrator</b><a href="https://github.com/christianreiss/codex-orchestrator">Quellcode auf GitHub ↗</a></div></footer></body></html>
