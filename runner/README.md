@@ -40,16 +40,20 @@ The image records what it installed in `RUNNER_CODEX_VERSION`, `RUNNER_CLAUDE_VE
 ## Run (standalone)
 
 ```bash
-docker run --rm --name codex-auth-runner --network codex_auth codex-auth-runner
+# RUNNER_SHARED_SECRET must already be exported for authenticated requests.
+docker run --rm --name codex-auth-runner --env RUNNER_SHARED_SECRET \
+  --publish 127.0.0.1:18080:8080 codex-auth-runner
 ```
 
-The container serves FastAPI via uvicorn on `0.0.0.0:8080`.
+The container serves FastAPI via uvicorn on `0.0.0.0:8080`. This standalone
+example exposes `GET /health` at `http://127.0.0.1:18080/health`. In Compose,
+the API reaches the runner on the project network at `auth-runner:8080`.
 
 ## Environment variables
 
 - `CODEX_SYNC_BASE_URL` (optional) — passed to the probe process; defaults to `http://api` when unset.
 - `ANTHROPIC_API_BASE` (optional) — Anthropic API base URL used by `POST /verify-claude`; defaults to `https://api.anthropic.com`.
-- `RUNNER_SHARED_SECRET` (required) — every POST (`/verify`, `/verify-claude`, `/verify-grok`, `/verify-kimi`, `/skills/generate`, `/skills/assist`, `/projects/assist`, and `/exec`) requires header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
+- `RUNNER_SHARED_SECRET` (required) — every POST and `GET /chatty/capabilities` require header `X-Runner-Auth` with an exact secret match. The guard fails closed: a wrong or missing header returns HTTP 401, and an unset `RUNNER_SHARED_SECRET` returns HTTP 500 rather than skipping auth. `GET /health` and the readiness GETs answer without the secret.
 - `RUNNER_HOME_PARENT` (optional) — parent directory for the isolated temporary runner `$HOME`; the bundled image sets it to `/dev/shm`, which is writable in the hardened container while still avoiding CLI homes under `/tmp`.
 - `RUNNER_REQUIRED_ENGINES` (optional) — comma-separated engines that must be installed and answering `--version` before the process serves traffic; the bundled image sets it to `codex,claude,grok,kimi`. Unset means "whatever is installed is fine", which suits a source checkout but never an image. An unknown name here is a startup error, not a warning.
 - `RUNNER_MAX_IMAGES` (optional, default `8`) — how many images one `/exec` request may attach.
@@ -578,8 +582,9 @@ Behavior details:
 
 ### `GET /chatty/capabilities`
 
-Requires `X-Runner-Auth`. Returns `{protocol:1, engines:["codex","claude","grok"]}`
-with only installed, available engines. An old runner does not enable Chatty.
+Requires `X-Runner-Auth`. The engine list contains the available binaries. A healthy standard image returns
+`{"protocol":1,"engines":["codex","claude","grok","kimi"]}`. An old runner
+without this endpoint cannot enable Chatty.
 
 ### `POST /chatty/turn`
 

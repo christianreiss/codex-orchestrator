@@ -17,7 +17,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/img/overview.png">
     <source media="(prefers-color-scheme: light)" srcset="docs/img/overview-light.png">
-    <img src="docs/img/overview.png" alt="Overview: fleet health, Codex, Claude and Grok versions, engine coverage and usage">
+    <img src="docs/img/overview.png" alt="Overview showing an agent awaiting an answer, an open host access window and usage for accounts on all four engines">
   </picture>
 </p>
 
@@ -71,17 +71,19 @@ if you set it up anyway.
 </p>
 
 <details>
-<summary><b>Grok Build launch screen</b></summary>
+<summary><b>Grok Build and Kimi Code launch screens</b></summary>
 
-![cgx boot screen from the current terminal renderer, with Grok model, system checks and activity](docs/img/cgx-launch.png)
+<p align="center">
+  <img src="docs/img/cgx-launch.png" width="49%" alt="Grok Build startup card with the account, model, checks and subscription window">
+  <img src="docs/img/ckx-launch.png" width="49%" alt="Kimi Code startup card with the account, model and four subscription windows">
+</p>
 
 </details>
 
 Type `cdx`, `clx`, `cgx`, or `ckx` and the wrapper converges the host before the engine
-starts. A bootstrap request bundles auth, config, skills and instructions;
-account selection, registration and other lifecycle checks run alongside it.
+starts. The wrapper selects an account for the launch and retrieves its credentials.
+The bootstrap sync supplies the content each engine needs.
 
-- **Auth, config, skills, and agent instructions** land on every host each time you launch.
 - **Engine-native config**: `config.toml` for Codex (written wholesale), `settings.json` for Claude (deep-merged, so your own keys survive), and fleet-owned keys of `~/.grok/config.toml` for Grok and `~/.kimi-code/config.toml` for Kimi.
 - **Signed per-host config**: each host gets its own Ed25519-signed config and API key.
 - **Emergency launch**: `cdx emergency`, `clx emergency`, `cgx emergency` or `ckx emergency` start the native CLI directly from a secure host while the orchestrator is down.
@@ -89,8 +91,7 @@ account selection, registration and other lifecycle checks run alongside it.
 - **Background upgrades**: scheduled checks install pinned engine releases into private prefixes; explicit `cxx update` reports wrapper, engine and content results in one run.
 - **Session housekeeping**: configurable retention and disk budgets clean up old local sessions while preserving active, pinned and fleet-resumable work. Preview cleanup and pin sessions from the CLI.
 
-*All three launch screens use the current wrapper renderer with illustrative
-hosts, versions and usage values.*
+*The four cards use the wrapper’s terminal renderer. Account names and usage are examples.*
 
 ### Your whole fleet, one table
 
@@ -109,35 +110,39 @@ lifecycle.
 
 ### Provider accounts without the token shuffle
 
-![Accounts page showing separate Codex, Claude and Grok provider accounts, authentication health and usage](docs/img/accounts.png)
+![Accounts showing five example subscriptions across four engines, usage, active sessions and last verification](docs/img/accounts.png)
 
 Keep multiple accounts per engine, each with its own canonical credentials,
 validation state and usage snapshots. Launch leases assign accounts to new
 sessions while preserving active sessions' account bindings. Inspect account
 health, refresh credentials and control eligibility from **Accounts**.
 
-ChatGPT quotas, host-reported Claude usage and server-polled Grok subscription
-usage stay separate. Grok's dashboard usage is informational: its wrapper does
-not enforce quotas or switch accounts based on remaining usage.
+Accounts shows the windows each provider reports. Grok’s subscription meter is
+informational. Kimi displays short, weekly and available monthly windows.
+Its short and weekly readings also feed launch quota checks.
 
 ### See what every agent is doing
 
-![Active Clients with named Codex, Claude and Grok sessions and a selected agent conversation](docs/img/active-clients.png)
+![Agents chat with Greta’s staging report and three possible replies to her release question](docs/img/active-clients.png)
 
-**Active Clients** brings together managed sessions, their launch names, task
+**Agents → Chats** brings together managed sessions, their launch names, task
 titles, working directories, engine, latest summary and receiver status. Open
 a conversation to inspect its timeline, answer a question, reconnect the
 receiver or request closure. Force-close controls are available to operators
-with the required capability.
+with the required capability. Switch to **Graph** to see which communicator
+carries each agent’s connection. An unknown parent is shown explicitly.
+
+![Agents graph showing the server, host connections and their attached sessions](docs/img/agent-graph.png)
 
 - **Delivery receipts** distinguish queued, accepted, explicitly read and working messages; a stored message is not evidence that the AI saw it.
+- **Task results** are explicit. If a result acknowledgement is lost, the agent resends the same result under its existing identity.
 - **Questions** support stable reply buttons, text answers or both. Explicit important, critical and blocker notices appear under **Needs you** and remain until resolved.
 - **Rich chat** supports files, images, audio and video, reply references, drafts and resumable uploads. A local media worker prepares audio transcripts and video frames; originals remain available when preparation fails.
 - **Stable identities** use UUIDs behind readable launch names. Names can be translated to addresses and are reserved until 24 hours after a launch ends.
 
 ### Answer your agents from your phone
 
-The paired **Android companion** (0.10) opens on **Needs you**: questions,
+The paired **Android companion** opens on **Needs you**: questions,
 notices and host approvals sit above your active agents and rooms. Tabs are
 Chats · Hosts · Quotas. Reply directly, answer with question buttons, capture
 and play media, approve host access and receive push notifications. A message
@@ -152,10 +157,10 @@ Firebase Cloud Messaging and Google Play services.
 
 ### Start work on an available host
 
-![Remote sessions in Active Clients, with daemon-ready hosts and controls for starting and continuing work](docs/img/remote-sessions.png)
+![Agents → Remote sessions with a refund review on harbor.example.net and a field for the next instruction](docs/img/remote-sessions.png)
 
 Enable the optional **Linux host daemon** on selected hosts, then start,
-continue or stop remote sessions from Active Clients, Android or MCP. Each
+continue or stop remote sessions from **Agents → Remote sessions**, Android or MCP. Each
 host exposes its supported engines, readiness, free slots, service user and
 idle timeout. On Android, leave the task blank to establish contact first.
 Subsequent instructions resume the same native transcript.
@@ -168,9 +173,9 @@ session have separate receipts.
 
 ### Schedule work and bound recovery
 
-![Wake / Cron listing one-time, cron and interval tasks, named target agents and recovery settings](docs/img/wake-cron.png)
+![Wake-ups listing one-time, cron and interval tasks, named target agents and recovery settings](docs/img/wake-cron.png)
 
-- **Wake / Cron** schedules one-time, cron or interval work for a specific agent, engine and directory. The console provides a searchable agent picker, execution history and explicit results.
+- **Wake-ups** schedules one-time, cron or interval work for a specific agent, engine and directory. The console provides a searchable agent picker, execution history and explicit results.
 - **Persistent recovery** is an independent opt-in with a progress timeout and optional recovery limit. It resumes the same native transcript after capacity problems, crashes or hangs; missing transcripts block continuation. It is available only for agents on persistent hosts (a host daemon with residence or remote starts enabled); on every other host nothing runs without a live agent, and mail, wakes and recoveries for an ended agent expire after 24 hours. See the [host runtime policy](docs/host-runtime-policy.md).
 - **Watchdog** protects a current task for a bounded lifetime. Active tools and open questions prevent silence from being mistaken for a hang; completion, STOP, disable or the deadline ends future recovery.
 - **Planned reboot/resume** checkpoints authorized Linux reboots and resumes the exact native session once after boot. It requires root or passwordless sudo and active cron, and cannot overlap an active Watchdog or persistent recovery.
@@ -202,7 +207,7 @@ Enabled hosts reach the orchestrator's MCP server through the same tool families
 
 ### Merges without the mid-air collisions
 
-![Git Director activity with registered worktrees, agent tasks, branches and declared paths](docs/img/git-director.png)
+![Git merges showing registered worktrees, declared tasks, branches, repositories and last activity](docs/img/git-director.png)
 
 **Git Director** is the fleet's merge air-traffic control. Agents register the
 clone they're working in and the paths they expect to touch, then ask before
@@ -231,12 +236,12 @@ engine. [More on memory below.](#memory-three-scopes-one-atlas)
 
 ### Write the rules once
 
-![Fleet Instructions: the policy builder with required and optional modules on the left and the effective AGENTS.md preview on the right](docs/img/fleet-instructions.png)
+![Library → Agent rules with the editable module selection and the effective AGENTS.md preview](docs/img/fleet-instructions.png)
 
 Author shared skills and fleet instructions centrally. Claude subagents,
 commands and output styles have their own Claude-native collections.
 The policy builder composes the canonical
-`AGENTS.md` / `CLAUDE.md` / Grok `AGENTS.md` from modules, and the preview
+engine-specific `AGENTS.md` or `CLAUDE.md` from modules, and the preview
 shows the exact document any host will receive — including one concise guidance block per
 enabled feature, so agents learn the house rules without you writing them
 twice. [How the document is assembled.](#dynamic-agent-instructions)
@@ -257,10 +262,10 @@ AI account; host work is dispatched through remote sessions and agent tools.
 
 ### Connect existing API clients
 
-![API Access with separate OpenAI, Anthropic and Grok endpoint URLs and the OpenAI gateway key list](docs/img/api-access.png)
+![API keys table showing the surface, assigned backend, active state, last use and expiry](docs/img/api-access.png)
 
-- `/v1/` and `/grok/v1/` speak the **OpenAI** protocol; `/anthropic/v1/` speaks the **Anthropic** protocol.
-- Choose **Codex, Claude, Grok, or Kimi** as the backend for each API in the console. URLs, key namespaces, and wire formats stay with the API when you switch engines.
+- `/v1`, `/grok/v1` and `/kimi/v1` accept OpenAI-shaped requests. `/anthropic/v1` accepts Anthropic-shaped requests. The Kimi endpoint starts disabled.
+- Each endpoint has a default backend. A key with an explicit backend keeps its selection when that default changes. The URL, key namespace and response format belong to the endpoint.
 - The selected backend determines supported models, inputs and streaming. These gateways implement a documented subset of the provider protocols.
 - Separate revocable, expiring keys: `sk-cdx-` for the OpenAI surface, `sk-ant-` for Anthropic, `sk-cgx-` for Grok and `sk-ckx-` for Kimi. Each surface has its own switch and key namespace.
 - [Code samples below.](#compatible-apis)
@@ -271,7 +276,7 @@ AI account; host work is dispatched through remote sessions and agent tools.
 - 🧷 Host API keys are **hashed and IP-bound** on first use. A sidecar runner **verifies credentials** before they're accepted.
 - 🚪 **Insecure hosts** need an approval — per host, per domain, or fleet-wide while you're at your desk.
 - 👥 **Six console roles** behind a default-deny capability matrix, **passkey (WebAuthn)** login, and a **global kill switch** that cuts host access fleet-wide in seconds.
-- 📈 **Codex and Claude quota controls** warn or block launches; VIP hosts use warn-only behavior. Audit events and MCP request logs support operational diagnosis with configurable retention.
+- 📈 **Codex, Claude and Kimi quota controls** warn or block launches; VIP hosts use warn-only behavior. Audit events and MCP request logs support operational diagnosis with configurable retention.
 
 ---
 
@@ -290,13 +295,13 @@ an assigned, enabled engine and the relevant fleet modules. ✅ supported ·
 | Provider accounts and launch leases | ChatGPT accounts | Claude accounts | Grok subscription accounts | Kimi Code subscription accounts |
 | Managed authentication | `auth.json` | Native `claudeAiOauth` | Server-owned refresh; access-only runtime tokens | Server-owned refresh; access-only runtime tokens |
 | Config delivery | `config.toml` | Deep-merged `settings.json` | Fleet-owned `config.toml` keys | Fleet-owned `config.toml` keys + `mcp.json` |
-| Model / effort defaults and host overrides | ✅ | ✅ | ✅; configurable context window | ✅ (low/high/max) |
+| Model / effort defaults and host overrides | ✅ | ✅ | ✅; configurable context window | Model-dependent; adjustable models support low/high/max |
 | Security posture | Approval policy + sandbox | Native permission mode | Native permission mode; no sandbox projection | Native permission mode; Kimi has no sandbox |
-| Fleet Skills | MCP `skill://` | Native `~/.claude/skills/` | Native `~/.grok/skills/` | Native `$KIMI_CODE_HOME/skills/` |
+| Fleet Skills | MCP `skill://` | MCP, or native `~/.claude/skills/` in fallback mode | Native `~/.grok/skills/` | Native `$KIMI_CODE_HOME/skills/` |
 | Fleet instructions | `AGENTS.md` | `CLAUDE.md` | `~/.grok/AGENTS.md` | `$KIMI_CODE_HOME/AGENTS.md` |
 | Automatic interactive reception | App Server queues | MCP Channels¹ | Native ACP receiver | Native hooks at turn boundaries⁴ |
 | Dashboard / Accounts usage | ChatGPT quota snapshots | Host-reported Claude usage | Server-polled subscription billing | Server-polled 5 h / weekly / monthly windows |
-| CLI quota reporting and enforcement | ✅ | ✅ | — | ✅ |
+| Wrapper quota display and enforcement | Both | Both | Subscription meter when available, no enforcement | Short and weekly enforcement, additional monthly display when available |
 | Named profiles | ✅ separate `<name>.config.toml` files | — | — | — |
 | Managed subagents, commands and output styles | — | ✅ | — | — |
 | Quota status line | — | `cxx claude-quota-statusline` | — | — |
@@ -366,8 +371,8 @@ bin/orchestrator setup
 
 That's it. The guided installer walks twelve steps: it generates every
 installation-owned secret, wires TLS (ACME, your own certificate, self-signed,
-or none behind your proxy), builds a four-platform `cxx` fleet trusted only by
-this installation, provisions the database schema, starts the stack, creates
+or none behind your proxy), builds installation-signed `cxx` binaries for Linux and macOS
+(amd64/arm64) and FreeBSD (amd64), provisions the database schema, starts the stack, creates
 your first owner, and verifies readiness. It prints `READY` and the console URL
 only after every critical check passes; anything short of that prints
 `INCOMPLETE` and exits non-zero.
@@ -411,22 +416,24 @@ options.
 
 Open the console and the setup wizard takes it from there — nine steps, the
 first two required and the rest skippable. Progress is saved, so leaving
-mid-way is fine; the dashboard offers to resume.
+mid-way is fine. The dashboard offers to resume. The setup API reports
+`setup_complete` once infrastructure checks pass and an owner exists. The
+wizard records completion separately when you finish the remaining steps.
 
 <details>
 <summary><b>The nine wizard steps</b></summary>
 
 1. **Infrastructure** — the six readiness checks, with the command that fixes
-   each one. Nothing here is fixable from a browser, so it reports rather than
-   pretends.
+   each one. After repairing a failure on the server, choose **Check again**
+   to fetch fresh results.
 2. **Owner** — the one-time claim, which also signs you in.
 3. **Engines** — Codex, Claude, Grok, Kimi: any combination, or none yet.
-4. **Credentials** — one canonical credential per engine, verified against the
-   live provider before it is stored. A bad value fails here, not on a host at
-   3 a.m.
-5. **Fleet defaults** — model and reasoning effort. This is also the write that
-   activates MCP for the fleet; skills, memory, projects and secrets stay dark
-   until it lands.
+4. **Credentials** — seed a provider account. The runner validates a candidate
+   before it can replace that account’s canonical credentials.
+5. **Fleet defaults** — save a model and reasoning effort. On a fresh install,
+   **Skip** also persists the Codex defaults. Without a saved client configuration,
+   the managed feature context reports `config_missing` before it evaluates
+   the individual module switches.
 6. **Agent policy** — the seeded fleet policy, plus a box for your house rules.
 7. **Modules** — Projects and Secrets, both off until you say otherwise.
 8. **Collaboration** — agent sessions (you ↔ agent) and agent messaging
@@ -444,12 +451,12 @@ curl --fail --output /tmp/cxx-install.sh 'https://your-server/install/<token>'
 bash /tmp/cxx-install.sh
 ```
 
-Codex hosts get `cdx`, Claude hosts get `clx`, Grok hosts get `cgx`, and
-multi-engine hosts get every enabled alias backed by one `cxx` install. Git Director, the project board, and File
+Codex hosts get `cdx`, Claude hosts get `clx`, Grok hosts get `cgx`, Kimi hosts
+get `ckx`, and multi-engine hosts get every enabled alias backed by one `cxx` install. Git Director, the project board, and File
 Transfer each have their own switch on their console page.
 
 **Secure vs insecure hosts.** Secure Codex and Claude hosts keep auth on disk
-and work offline (24h fresh window, 7-day fallback). Managed Grok sessions use
+and work offline (24h fresh window, 7-day fallback). Managed Grok and Kimi sessions use
 isolated homes with access-only tokens; the server keeps the refresh credential.
 On insecure hosts, session leases coordinate cleanup after the last managed
 process exits, while preserving explicit logout intent. The next retrieve
@@ -531,7 +538,7 @@ cdx --uninstall     # remove this engine; the last one decommissions the host
 
 The shared `cxx` binary adds host-wide commands: `cxx sync` converges every
 engine at once, `cxx cron run` pulls a pending engine upgrade now, and
-`cxx portal say|ask|resolve` lets an agent talk to you through Active Clients and Android.
+`cxx portal say|ask|resolve` lets an agent talk to you through **Agents → Chats** and Android.
 Use `cxx daemon status` to inspect remote-start readiness, `cxx watchdog status`
 to inspect current recovery protection, and `cxx housekeeping status` for local session
 retention. `cxx housekeeping run --dry-run` previews cleanup without removing files. See the [wrapper contract](docs/interface-cdx.md) for subcommands
@@ -570,15 +577,17 @@ per enabled feature, so agents learn the house rules without you writing them tw
 
 ## Compatible APIs
 
-The orchestrator exposes OpenAI-compatible REST APIs at `/v1/` and `/grok/v1/`,
-plus an Anthropic-compatible API at `/anthropic/v1/`. Clients can use the
-supported inference subset described below. Each API can
-run on Codex, Claude, Grok, or Kimi; the defaults match the API names. Change the
-backend in *Access → API Access* without changing client URLs or keys. The
-selected backend supplies the subscription, model catalog, and capabilities.
+The four endpoints can each route to Codex, Claude, Grok or Kimi. The endpoint
+determines the wire protocol and key namespace. The effective backend supplies
+the account, models and capabilities. List models with your actual key using
+`GET <base>/models`.
 
-1. **Create a key** in *Access → API Access*.
-2. **Point your client** at the orchestrator:
+1. In **Access & Settings → API keys**, choose **New key**, its API and the
+   backend that will answer it. The backend stays bound to that key.
+2. To change the endpoint default, choose **Configure**. This changes routing
+   for keys that inherit the default, including keys created via the API with
+   `backend_engine` omitted.
+3. Point your SDK at the chosen endpoint. These examples use the identity backend.
 
 <table>
 <tr><th>OpenAI SDK</th><th>Anthropic SDK</th><th>Grok via OpenAI SDK</th></tr>
@@ -635,34 +644,30 @@ response = client.chat.completions.create(
 </tr>
 </table>
 
-**OpenAI surface:** `/v1/chat/completions`, `/v1/responses`, `/v1/completions`,
-`/v1/models`, and `/v1/models/{model}`. Embeddings return an OpenAI-shaped
-`unsupported_endpoint` error. With a Codex or Claude backend, streaming
-(`stream: true`) on chat and legacy completions replays the finished answer
-as standard SSE chunks; the Responses endpoint does not stream.
+| Endpoint | Wire protocol | Key prefix | Default backend |
+| --- | --- | --- | --- |
+| `/v1` | OpenAI | `sk-cdx-` | Codex |
+| `/anthropic/v1` | Anthropic | `sk-ant-` | Claude |
+| `/grok/v1` | OpenAI | `sk-cgx-` | Grok Build |
+| `/kimi/v1` | OpenAI | `sk-ckx-` | Kimi Code, endpoint disabled until enabled by an operator |
 
-**Anthropic surface:** `/anthropic/v1/messages`, plus `count_tokens`, `models`, and
-the legacy `complete`, with its own `sk-ant-` keys. Keys are scoped to their
-surface and are not interchangeable.
+The OpenAI-shaped endpoints expose chat completions, legacy completions,
+Responses and model discovery. Embeddings are unsupported. The Anthropic
+endpoint exposes Messages, token counting, model discovery and legacy Complete.
+Its Responses extension returns an OpenAI-shaped success body.
 
-**Grok surface:** `/grok/v1/chat/completions`, `/grok/v1/responses`,
-`/grok/v1/completions`, and `/grok/v1/models[/{model}]`, using separate `sk-cgx-`
-keys from *Access → API Access*. Its default backend is the fleet's Grok Build
-subscription; it can be rerouted like the other APIs.
+**Streaming.** With Codex or Claude, Chat Completions replays the finished
+answer as deltas. Legacy OpenAI Completions sends one result followed by
+`[DONE]`. Anthropic Messages and legacy Complete replay Messages events.
+Generation finishes before any of these streams starts. Responses endpoints
+and the Grok and Kimi backends do not support generation streaming.
 
-**Grok backend limits apply on every surface:** text only; streaming, tools,
-sampling parameters, and images are rejected with an explicit 400. The CLI
-cannot enforce `max_tokens`: it is rejected on OpenAI-shaped requests and
-accepted only for Anthropic protocol compatibility, without being passed to
-Grok. Embeddings are unsupported. `/models` lists the selected backend's
-enabled catalog, and responses name the model that actually ran.
-
-**CLI transport limits also apply to Codex and Claude:** tools and sampling
-controls are not generally available through these gateways. Accepted
-`max_tokens` values do not impose a native output-token limit. Codex/Claude
-chat and legacy-completion streaming is replayed after generation, not live
-provider token streaming. Check the [API contract](docs/interface-api.md)
-before moving a client that depends on those features.
+**Model and input limits.** The Grok and Kimi adapters accept text. Tools and
+sampling controls depend on the route, and a client-side `max_tokens` value
+cannot enforce a native CLI output limit. The `model` in a response identifies
+the model resolved by the gateway for dispatch. See the
+[API contract](docs/interface-api.md) for route-specific validation and the
+telemetry each backend can supply.
 
 ---
 
@@ -679,23 +684,27 @@ facts, and fleet knowledge don't blur together:
 | **Project** | `project_memory_*` · `project://{slug}/memory/{key}` | Short durable facts for one workstream, discoverable by every host in that project. |
 | **Shared** | `shared_memory_*` · `shared://{slug}` | Fleet-wide reference documents: chunked, full-text indexed, and safe for concurrent append. |
 
-The **Memory Atlas** on the Memories page shows all three stores as an explicit
+Under **Library → Memories**, the **Map** view shows all three stores as an explicit
 relationship graph or an accessible list, with search and scope, host, project,
 tag, and engine filters. Its inspector supports create, read, edit, shared
 append, permanent delete, and retention-bound operational activity. Updates and
 deletes use ETags, so a stale edit fails with a conflict instead of silently
 overwriting newer state. Only owner/admin accounts can mutate memories.
 
-### Skills, delivered natively
+<a id="skills-delivered-natively"></a>
 
-Skills are stored centrally and delivered in each engine's native form — no
-manual copying between machines.
+### How agents read fleet Skills
 
-- **Engine-native delivery** — Codex reads `skill://{slug}` through MCP; Claude receives managed `~/.claude/skills/<slug>/` directories Grok managed `~/.grok/skills/<slug>/` directories and Kimi managed `~/.kimi-code/skills/<slug>/` directories during bootstrap. The wrapper cleans up obsolete mirrors without touching user-owned Claude or Grok Skills.
+Codex and MCP-enabled Claude read fleet Skills through `skill://`. When Claude
+is configured without usable orchestrator MCP, the wrapper syncs managed
+directories under `~/.claude/skills`. A transient outage does not change that
+configuration. Grok and Kimi receive native Skill files in their respective
+engine homes.
+
 - **Admin authoring** — create, edit, and delete skills from the Skills page. Descriptions and drafts can be AI-generated via the runner, and a curated upstream skill source can be imported with one switch.
-- **Managed skills** — project workflow (`#coco`), operator relay (`#afk`), rooms (`#conference`), schedules (`#wake-cron`), bounded recovery (`#watchdog`) and `skill-manager` appear as their modules are enabled. Operator relay uses Active Clients and the Android companion.
+- **Managed skills** — project workflow (`#coco`), operator relay (`#afk`), rooms (`#conference`), schedules (`#wake-cron`), bounded recovery (`#watchdog`) and `skill-manager` appear as their modules are enabled. Operator relay uses Agents and the Android companion.
 - **Integrity tracking** — every skill carries a SHA-256 hash, so the sync pipeline knows when content has actually changed.
-- **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance uses `skill_list` first for fleet-Skill requests and routes management requests to `skill://skill-manager`. Claude and Grok keep using their native synced Skill directories.
+- **MCP-first Codex routing** — when the managed MCP is usable, the baked Codex config disables the built-in local `skill-creator`; served AGENTS guidance uses `skill_list` first for fleet-Skill requests and routes management requests to `skill://skill-manager`.
 
 <a id="dynamic-agentsmd-and-claudemd"></a>
 
@@ -703,16 +712,16 @@ manual copying between machines.
 
 The agent document is version-controlled on the server as canonical base
 Markdown and assembled for each engine and host at sync time.
-It lands as `AGENTS.md` for Codex, `CLAUDE.md` for Claude, and
-`~/.grok/AGENTS.md` for Grok.
+It lands as `AGENTS.md` for Codex, `CLAUDE.md` for Claude, `~/.grok/AGENTS.md`
+for Grok and `$KIMI_CODE_HOME/AGENTS.md` for Kimi.
 
 - **Versioned** — every save creates a new immutable version. Revert to any previous version, or lock serving to a specific one.
 - **Serve modes** — `latest` always serves the newest version; `locked` pins to a chosen version. Per-host overrides are supported.
-- **Policy profiles** — a graduated security posture (what an agent may do without asking) is chosen per host from named profiles, and the Fleet Instructions page previews the exact document any host will receive.
+- **Policy profiles** — a graduated security posture (what an agent may do without asking) is chosen per host from named profiles, and **Library → Agent rules** previews the exact document any host will receive.
 - **Dynamic feature guidance** — one block delimited by `<!-- cxx:managed-features:start -->` and `<!-- cxx:managed-features:end -->` adds only the hints that apply: MCP-first fleet-Skill discovery, memory routing, Projects/CoCo, Codex-only BrowserOS, the secrets workflow, Agent Messaging, Git Director, and File Transfer. Canonical inventories are never embedded in the document.
 - **Change detection** — the wrapper sends its local SHA-256; the server answers `unchanged` (skip write) or `updated` (atomic file replace). Three hashes are tracked: base document, managed sections, and final combined.
 - **Seeded on boot** — if the database is empty, the server seeds from the repo's `AGENTS.md` on first start.
-- **Admin dashboard** — edit the canonical base, browse version history, and control serve mode from the Fleet Instructions page; host-specific hints are appended only when the document is served.
+- **Admin dashboard** — edit the canonical base, browse version history, and control serve mode from **Library → Agent rules**; host-specific hints are appended only when the document is served.
 
 ### Under the hood
 
@@ -726,7 +735,8 @@ media.
 - **Request admission** — there is no general HTTP traffic limiter. Individual features enforce their own limits, including publication rates, remote work slots, upload sizes and retention.
 - **Session-gated admin** — `/admin/*` is protected by the admin session cookie, with passkey (WebAuthn) login. Six roles sit behind a default-deny capability matrix; content-revealing reads (secrets, credentials, transcripts, transfer downloads) carry their own capability.
 - **IP binding** — each host's API key locks to its IP on first use, with optional roaming.
-- **Container boundaries** — the API, quota worker and media worker use read-only root filesystems, dropped capabilities and `no-new-privileges`. The media worker runs without network access. Database and runner services have their own storage and execution requirements; see [`docker-compose.yml`](docker-compose.yml).
+- **Control-plane ownership** — one API owner holds the database and storage locks and hydrates state before readiness. A suspendable session connected during a hard outage gets one 24-hour recovery window on restart. Later restarts preserve that deadline. Idle connections need no durable heartbeat. See the [owner contract](docs/control-plane-owner.md).
+- **Container boundaries** — the API, media worker and Slop review worker use read-only root filesystems, dropped capabilities and `no-new-privileges`. Both workers run without network access. Database and runner services have their own storage and execution requirements; see [`docker-compose.yml`](docker-compose.yml).
 
 ---
 
@@ -736,7 +746,7 @@ Start with the [documentation index](docs/README.md) for current guides, contrac
 
 | Doc | What's inside |
 |-----|---------------|
-| [`INSTALL.md`](docs/INSTALL.md) | Install wizard, Docker services, TLS, backups |
+| [`INSTALL.md`](docs/INSTALL.md) | Install wizard, Docker services, TLS and instance updates |
 | [`USAGE.md`](docs/USAGE.md) | Host user and operator workflows |
 | [`OVERVIEW.md`](docs/OVERVIEW.md) | Architecture, auth flow, sync pipeline, code map |
 | [`SECURITY.md`](docs/SECURITY.md) | Threat model, encryption, roles, insecure-host rules |
@@ -761,21 +771,21 @@ Start with the [documentation index](docs/README.md) for current guides, contrac
 
 The console also ships its own operator manual under **Manual**.
 
-**About the screenshots:** refreshed on 2026-10-11 from this checkout's real
-console, using a fictional three-engine fleet. Hostnames, identities, account
-usage and conversations are demo fixtures. These illustrate the UI, not a
-live fleet's health or a provider-version compatibility guarantee.
+**About the screenshots.** The November 22, 2026 captures show this console
+running in Chromium with a fictional four-engine fleet. Account usage, chat
+messages and connection events come from local fixtures. The terminal cards
+use the Go wrapper renderer and sample inputs.
 
 With frontend dependencies and Playwright Chromium installed, regenerate the
 images with `cd frontend && npm run shots:readme`. The
 [capture script](frontend/scripts/readme-shots/capture.ts) starts a local Vite
-server when needed, mocks the API and event feeds, and reports missing mocks
+server for that run, supplies the demo API and event feeds, and reports missing fixtures
 or page errors. No running orchestrator or database is required.
 
 After changing the wrapper's terminal UI, first run
 `python3 frontend/scripts/readme-shots/terminals.py` from the repository root
 (requires Go and Python), then rerun the image capture. This refreshes all
-three ANSI fixtures through the actual terminal renderer and checks their
+four ANSI fixtures through the actual terminal renderer and checks their
 88-column layout.
 
 ## License

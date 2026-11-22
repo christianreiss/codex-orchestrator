@@ -8,6 +8,7 @@
  * fixture cannot silently produce an empty product screenshot.
  */
 
+import { readFileSync } from "node:fs";
 import { CAPABILITIES } from "../../src/lib/auth/capabilities.ts";
 
 const NOW = Date.now();
@@ -16,11 +17,19 @@ const ahead = (seconds: number) => new Date(NOW + seconds * 1000).toISOString();
 
 const user = { id: 1, username: "ada", name: "Ada Operator", access_level: "owner", roles: ["owner"] };
 
-const CODEX = "0.158.0";
-const CLAUDE = "2.1.184";
-const GROK = "1.0.46";
-const KIMI = "2.5.3";
-const WRAPPER = "0.9.57";
+// Example hosts run the native versions pinned in the runner image.
+const runner = readFileSync(new URL("../../../runner/Dockerfile", import.meta.url), "utf8");
+const makefile = readFileSync(new URL("../../../wrappers/Makefile", import.meta.url), "utf8");
+function pinned(source: string, pattern: RegExp): string {
+  const value = source.match(pattern)?.[1];
+  if (!value) throw new Error(`Missing documentation version for ${pattern}`);
+  return value;
+}
+const CODEX = pinned(runner, /^ARG CODEX_VERSION=(\S+)$/m);
+const CLAUDE = pinned(runner, /^ARG CLAUDE_CODE_VERSION=(\S+)$/m);
+const GROK = pinned(runner, /^ARG GROK_VERSION=(\S+)$/m);
+const KIMI = pinned(runner, /^ARG KIMI_VERSION=(\S+)$/m);
+const WRAPPER = pinned(makefile, /^VERSION \?= (\S+)$/m);
 
 interface DemoHost {
   id: number;
@@ -54,7 +63,10 @@ function hostRow(h: DemoHost) {
   return {
     id: h.id,
     fqdn: h.fqdn,
-    status: h.seen < 3600 ? "online" : "active",
+    status: "active",
+    presence: h.seen < 3600 ? "online" : "offline",
+    presence_source: h.seen < 3600 ? "connection" : null,
+    last_contact_at: ago(h.seen),
     last_refresh: ago(h.seen),
     claude_last_refresh: hasClaude ? ago(h.seen + 30) : null,
     grok_last_refresh: hasGrok ? ago(h.seen + 15) : null,
@@ -146,6 +158,33 @@ function session(s: (typeof SESSIONS)[number]) {
       worktree_path: s.cwd,
       address: s.work.address_alias ? `zt-${s.id.slice(0, 6)}` : null,
     },
+  };
+}
+
+function topology() {
+  const agents = SESSIONS.map((item) => {
+    const row = session(item);
+    return {
+      ...row, kind: "agent", name: row.launch_name, address: `agent:${row.id}`,
+      address_alias: item.work.address_alias, heartbeat_age_s: 5, binding_generation: 1,
+      daemon: row.id === REMOTE_SESSION.sessionId ? { session_id: REMOTE_SESSION.id, status: REMOTE_SESSION.status } : null,
+      association: { state: "attributed", basis: "session_traffic", parent_id: `conn-${item.host_id}`, last_seen_at: ago(5), age_s: 5, also_seen_on: [] },
+      actions: { request_close: { allowed: true, reason: null }, stop_process: { allowed: false, reason: "No native control reported" }, end_record: { allowed: true, reason: null } },
+    };
+  });
+  const communicators = HOSTS.filter((host) => agents.some((agent) => agent.host_id === host.id)).map((host) => {
+    const children = agents.filter((agent) => agent.host_id === host.id);
+    return {
+      kind: "communicator", id: `conn-${host.id}`, label: host.fqdn, host_id: host.id, host: host.fqdn, username: children[0].username,
+      version: WRAPPER, connected_at: ago(9600), last_frame_at: ago(5), last_heartbeat_at: ago(5), health: "live", idle_s: 5,
+      leases_reported: children.length, requests: 48, synced_at: ago(90), sync_scopes: 1, sync_errors: 0, remote_address: host.ip4,
+      daemon_attached: host.id === 4, agent_ids: children.map((agent) => agent.id), process: null, can_terminate: false,
+    };
+  });
+  return {
+    generated_at: ago(0), server: { id: "server", label: "orchestrator.example.net", started_at: ago(86400), uptime_s: 86400, communicator_enabled: true, portal_enabled: true, scope: "api_process" },
+    communicators, agents, recent_disconnects: [],
+    counts: { communicators: communicators.length, agents: agents.length, attributed: agents.length, stale: 0, unattributed: 0 },
   };
 }
 
@@ -403,7 +442,7 @@ const ACCOUNTS = [
   { id: 2, engine: "claude", label: "Claude · Engineering", short: 34, weekly: 47, hosts: [1, 5] },
   { id: 3, engine: "grok", label: "Grok · Reviews", short: null, weekly: null, hosts: [4] },
   { id: 4, engine: "kimi", label: "Kimi Code · Coding", short: 24, weekly: 31, hosts: [1, 2] },
-  { id: 4, engine: "codex", label: "ChatGPT · Build pool", short: 9, weekly: 23, hosts: [] },
+  { id: 5, engine: "codex", label: "ChatGPT · Build pool", short: 9, weekly: 23, hosts: [] },
 ].map((account) => ({
   id: account.id, engine: account.engine, label: account.label, state: "enabled",
   verification_state: "verified", verification_reason: null, verification_checked_at: ago(900), generation: 4, refresh_state: "idle",
@@ -431,9 +470,27 @@ const REMOTE_SESSION = {
 
 export function adminFixture(pathname: string, search: URLSearchParams): unknown {
   if (/^\/admin\/hosts\/\d+\/detail$/.test(pathname)) return undefined;
+  const policy = /^\/admin\/model-policy\/(codex|claude|grok|kimi)$/.exec(pathname);
+  if (policy) {
+    const models = { codex: "gpt-6-astra", claude: "claude-sonnet-5", grok: "grok-4.7", kimi: "k3.1-pro" };
+    const engine = policy[1] as keyof typeof models;
+    return { engine, latest_only: false, latest_models: [models[engine]], replacements: {} };
+  }
   const schedule = SCHEDULES.find((row) => pathname === `/admin/schedules/${row.id}`);
   if (schedule) return { schedule, runs: [{ id: "run-1", due_at: ago(3600), status: "completed", task_result_status: "succeeded", recovery_count: 0, last_error: null, next_attempt_at: ago(3600) }] };
   switch (pathname) {
+    case "/admin/address-form":
+      return { form: "informal" };
+    case "/admin/agent-messaging/chats":
+      return { enabled: true, rooms: [], has_more: false };
+    case "/admin/agent-messaging/scopes/state":
+      return { enabled: true };
+    case "/admin/agent-messaging/scopes":
+      return { enabled: true, observed_at: ago(0), rooms: [], claims: [] };
+    case "/admin/topology":
+      return topology();
+    case `/admin/agent-sessions/${REMOTE_SESSION.sessionId}/events`:
+      return { events: [{ cursor: 1, session_id: REMOTE_SESSION.sessionId, type: "assistant_message", source: "engine", payload: { text: REMOTE_SESSION.operations[0].result.reply }, created_at: ago(180) }], next_cursor: 1 };
     case "/admin/chatty/status":
       return { visible: true, ready: true, enabled: true, knowledge_version: "demo", engines: ["codex", "claude", "grok", "kimi"].map((engine) => ({ engine, ready: true, reason: null, default_model: null, models: [] })) };
     case "/admin/response-verbosity":
@@ -452,6 +509,10 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
         health: { state: "green", reasons: [], heartbeat_at: new Date().toISOString(), evaluated_at: new Date().toISOString(), used_slots: 1, max_slots: 4 }, sessions: [REMOTE_SESSION] }] };
     case `/admin/daemon-sessions/${REMOTE_SESSION.id}`:
       return REMOTE_SESSION;
+    case "/admin/feedback/summary":
+      return { open: 2, in_progress: 1, blocked: 0 };
+    case "/admin/engines/active":
+      return { engines: ["codex", "claude", "grok", "kimi"].map((engine) => ({ engine, label: { codex: "Codex", claude: "Claude", grok: "Grok Build", kimi: "Kimi Code" }[engine], enabled: true })) };
     case "/admin/engines/state":
       return { engines: ["codex", "claude", "grok", "kimi"].map((engine) => ({ engine, label: engine === "kimi" ? "Kimi Code" : engine[0].toUpperCase() + engine.slice(1), enabled: true, updated_at: ago(86400), updated_by: "ada", assigned_hosts: HOSTS.filter((h) => h.engines.includes(engine)).length })) };
     case "/admin/api/surfaces":
@@ -468,11 +529,11 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
     case "/admin/grok/models":
       return { models: [{ id: "grok-4.7", enabled: true, ownedBy: "xai" }] };
     case "/admin/kimi/models":
-      return { models: [{ id: "k3", enabled: true, ownedBy: "xai" }] };
+      return { models: [{ id: "k3", enabled: true, ownedBy: "moonshot" }] };
     case "/admin/grok/keys":
-      return [{ id: 5, name: "Contract review helper", key_prefix: "sk-cgx-DEMO", is_active: true, use_count: 218, last_used_at: ago(480), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) }];
+      return [{ id: 5, name: "Contract review helper", backend_engine: "grok", key_prefix: "sk-cgx-DEMO", is_active: true, use_count: 218, last_used_at: ago(480), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) }];
     case "/admin/kimi/keys":
-      return [{ id: 5, name: "Contract review helper", key_prefix: "sk-ckx-DEMO", is_active: true, use_count: 218, last_used_at: ago(480), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) }];
+      return [{ id: 6, name: "Coding assistant", backend_engine: "kimi", key_prefix: "sk-ckx-DEMO", is_active: true, use_count: 218, last_used_at: ago(480), expires_at: ahead(86400 * 45), created_at: ago(86400 * 20) }];
     case "/admin/git-director/commit-settings":
       return { message_style: "long", ai_attribution: true };
     case "/admin/auth/status":
@@ -480,25 +541,25 @@ export function adminFixture(pathname: string, search: URLSearchParams): unknown
     case "/admin/setup/status":
       return setupStatus(true);
     case "/admin/ws/info":
-      return { enabled: true, url: "ws://127.0.0.1:4173/admin/ws", heartbeat_seconds: 30 };
+      return { enabled: true, url: "/admin/ws", heartbeat_seconds: 30 };
     case "/admin/theme":
       return { theme: "auto" };
     case "/admin/overview":
       return {
         totals: { hosts: HOSTS.length },
         last_refresh: ago(40),
-        versions: { cdx_version_available: CODEX, claude_version_available: CLAUDE, grok_version_available: GROK, cdx_version_checked_at: ago(720), claude_version_checked_at: ago(720), grok_version_checked_at: ago(720) },
+        versions: { cdx_version_available: CODEX, claude_version_available: CLAUDE, grok_version_available: GROK, kimi_version_available: KIMI, kimi_version_checked_at: ago(720), cdx_version_checked_at: ago(720), claude_version_checked_at: ago(720), grok_version_checked_at: ago(720) },
         version_distribution: {
           codex: [{ version: CODEX, count: 5 }, { version: "0.156.0", count: 1 }],
           claude: [{ version: CLAUDE, count: 5 }, { version: "2.1.170", count: 1 }],
           grok: [{ version: GROK, count: 3 }],
-          kimi: [{ version: KIMI, count: 3 }],
+          kimi: [{ version: KIMI, count: 2 }],
           engine_counts: { codex: 6, claude: 6, grok: 3, kimi: 2 },
           install: { both: 4, codex_only: 2, claude_only: 2, neither: 0 },
         },
       };
     case "/admin/runner":
-      return { runner: { configured: true, ready: true, detail: "All three verification engines are ready.", engines: {
+      return { runner: { configured: true, ready: true, detail: "All four verification engines are ready.", engines: {
         codex: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "not_applicable", expires_at: null, days_remaining: null } },
         claude: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "ok", expires_at: ahead(86400 * 24), days_remaining: 24 } },
         grok: { state: "ok", last_check: ago(900), last_ok: ago(900), login_expiry: { state: "ok", expires_at: ahead(86400 * 24), days_remaining: 24 } },

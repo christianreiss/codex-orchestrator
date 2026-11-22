@@ -4,27 +4,26 @@
  *   npm run shots:readme                 # every shot
  *   npm run shots:readme -- hosts active-clients  # only the named shots
  *
- * The console runs from its Vite dev server (started
- * here unless already listening on 4173) against the demo fleet in
+ * The console runs from a dedicated local Vite server against the demo fleet in
  * fixtures.ts, so no orchestrator, database or real data is involved. Each
  * page is captured, then composited into a window frame.
  *
- * The terminal shots render cdx.ansi / clx.ansi / cgx.ansi: the real
+ * The terminal shots render the four persona ANSI fixtures: the real
  * terminalui.PrintBootScreen output for a demo ScreenInput, captured under a
  * truecolor PTY. Regenerate those when the wrapper's boot screen changes:
  *   python3 scripts/readme-shots/terminals.py
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { createServer, type ViteDevServer } from "vite";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page } from "@playwright/test";
+import { ownerStream } from "../../e2e/owner-stream.ts";
 import { adminFixture } from "./fixtures.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FRONTEND = resolve(HERE, "../..");
 const OUT = resolve(FRONTEND, "../docs/img");
-const ADMIN = "http://127.0.0.1:4173";
 const SCALE = 1.5;
 
 type Scheme = "light" | "dark";
@@ -43,7 +42,7 @@ interface Shot {
 
 /** Fit the selected project's relationships into the visible map. */
 async function focusAtlas(page: Page) {
-  await page.getByText("Relationship map").scrollIntoViewIfNeeded();
+  await page.getByRole("region", { name: "Relationship map" }).scrollIntoViewIfNeeded();
   await page.locator(".svelte-flow__controls-fitview").click();
   await page.waitForTimeout(600);
 }
@@ -56,56 +55,24 @@ const SHOTS: Shot[] = [
   { name: "cgx-launch", title: "~ — cgx", terminal: "cgx" },
   { name: "ckx-launch", title: "~ — ckx", terminal: "ckx" },
   { name: "hosts", title: "Hosts", path: "/hosts" },
-  { name: "active-clients", title: "Active Clients", path: "/clients?session=33333333-3333-4333-8333-333333333333", viewport: { width: 1440, height: 1050 } },
+  { name: "active-clients", title: "Agents", path: "/agents?session=33333333-3333-4333-8333-333333333333", viewport: { width: 1440, height: 1050 } },
+  { name: "agent-graph", title: "Agents · Connections", path: "/agents?view=graph", viewport: { width: 1440, height: 1050 } },
   { name: "accounts", title: "Accounts", path: "/accounts", viewport: { width: 1440, height: 1080 } },
-  { name: "wake-cron", title: "Wake / Cron", path: "/schedules" },
-  { name: "remote-sessions", title: "Remote sessions", path: "/clients", prepare: async (page) => {
-    await page.getByText("Remote sessions", { exact: true }).click();
-    await page.getByRole("button", { name: "Refund contract checks · grok · idle" }).click();
-  } },
-  { name: "memory-atlas", title: "Memories · Checkout v2", path: "/memories?project=checkout-v2&layers=tags", scheme: "dark", viewport: { width: 1440, height: 1160 }, prepare: focusAtlas },
+  { name: "wake-cron", title: "Wake-ups", path: "/schedules" },
+  { name: "remote-sessions", title: "Remote sessions", path: "/agents?remote=bbbbbbb1-1111-4111-8111-111111111111" },
+  { name: "memory-atlas", title: "Memories · Checkout v2", path: "/library?type=memories&view=map&project=checkout-v2&layers=tags", scheme: "dark", viewport: { width: 1440, height: 1160 }, prepare: focusAtlas },
   { name: "project-board", title: "Projects / checkout-v2", path: "/projects/checkout-v2/board", viewport: { width: 1680, height: 900 } },
-  { name: "git-director", title: "Git Director · Activity", path: "/git-director?tab=activity" },
-  { name: "git-director-merges", title: "Git Director · Merge requests", path: "/git-director?tab=merges", prepare: async (page) => {
+  { name: "git-director", title: "Git merges · Worktrees", path: "/git-director?view=worktrees" },
+  { name: "git-director-merges", title: "Git Director · Merge requests", path: "/git-director?view=merges", prepare: async (page) => {
     await page.getByRole("button", { name: /wait main Both touch/ }).click();
   } },
-  { name: "fleet-instructions", title: "Fleet Instructions", path: "/instructions" },
-  { name: "api-access", title: "API Access", path: "/api-keys" },
+  { name: "fleet-instructions", title: "Agent rules", path: "/library/agent-rules" },
+  { name: "api-access", title: "API keys", path: "/api-keys" },
 ];
-
-/* ---------- dev servers ---------- */
-
-async function reachable(url: string): Promise<boolean> {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
-    return res.status < 500;
-  } catch {
-    return false;
-  }
-}
-
-function stopServer(child: ChildProcess | null) {
-  if (!child?.pid) return;
-  try { process.kill(-child.pid); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
-}
-
-async function ensureServer(url: string, args: string[]): Promise<ChildProcess | null> {
-  if (await reachable(url)) return null;
-  const child = spawn("npx", args, { cwd: FRONTEND, stdio: "ignore", detached: true });
-  for (let i = 0; i < 120; i++) {
-    if (await reachable(url)) return child;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  stopServer(child);
-  throw new Error(`dev server did not come up at ${url}`);
-}
 
 /* ---------- API stubs ---------- */
 
-const unmocked = new Set<string>();
-
-async function stub(page: Page) {
+async function stub(page: Page, unmocked: Set<string>) {
   // Keep the synthetic event feed open like the real SSE endpoint; a finite
   // route.fulfill stream would immediately display a reconnection warning.
   await page.addInitScript(() => {
@@ -131,31 +98,32 @@ async function stub(page: Page) {
     return route.fulfill({ contentType: "application/json", body: JSON.stringify(body ?? { status: "ok" }) });
   });
 
-  await page.routeWebSocket("**/*ws*", () => {});
+  await page.routeWebSocket("**/admin/ws", ownerStream);
 }
 
 /* ---------- capture ---------- */
 
-async function capturePage(browser: Browser, shot: Shot): Promise<Buffer> {
+async function capturePage(browser: Browser, shot: Shot, origin: string): Promise<Buffer> {
   const viewport = shot.viewport ?? { width: 1440, height: 900 };
   const context = await browser.newContext({ viewport, deviceScaleFactor: SCALE, colorScheme: shot.scheme ?? "light", reducedMotion: "reduce", locale: "en-GB", timezoneId: "Europe/Berlin" });
   const page = await context.newPage();
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await stub(page);
-  const url = `${ADMIN}/admin${shot.path}`;
+  const unmocked = new Set<string>();
+  await stub(page, unmocked);
+  const url = `${origin}/admin${shot.path}`;
   await page.goto(url);
   await page.waitForLoadState("networkidle").catch(() => {});
   await page.locator("h1, h2").first().waitFor({ timeout: 15_000 });
   await page.waitForTimeout(1500);
   await shot.prepare?.(page);
-  if (unmocked.size) throw new Error(`Unmocked API calls:\n  ${[...unmocked].sort().join("\n  ")}`);
-  await page.evaluate(() => {
+  if (unmocked.size) throw new Error(`Unmocked API calls: ${[...unmocked].join(", ")}`);
+  await page.evaluate((localOrigin) => {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      node.textContent = node.textContent!.replaceAll("http://127.0.0.1:4173", "https://orchestrator.example.net");
+      node.textContent = node.textContent!.replaceAll(localOrigin, "https://orchestrator.example.net");
     }
-  });
+  }, origin);
   // Toasts and the dev-server overlay are noise in a product shot.
   await page.addStyleTag({ content: "[data-sonner-toaster], vite-error-overlay { display: none !important; }" });
   const png = await page.screenshot();
@@ -293,16 +261,23 @@ const unknown = [...only].filter((name) => !SHOTS.some((shot) => shot.name === n
 if (unknown.length) throw new Error(`Unknown screenshots: ${unknown.join(", ")}`);
 const needsAdmin = selected.some((s) => s.path);
 
-const servers: (ChildProcess | null)[] = [];
+let server: ViteDevServer | undefined;
+let origin = "";
 let browser: Browser | null = null;
 try {
-  if (needsAdmin) servers.push(await ensureServer(`${ADMIN}/admin/dashboard`, ["vite", "dev", "--host", "127.0.0.1", "--port", "4173"]));
+  if (needsAdmin) {
+    server = await createServer({ root: FRONTEND, logLevel: "error", server: { host: "127.0.0.1", port: 0 } });
+    await server.listen();
+    const address = server.httpServer?.address();
+    if (!address || typeof address === "string") throw new Error("Local console has no TCP port");
+    origin = `http://127.0.0.1:${address.port}`;
+  }
   browser = await chromium.launch();
   for (const shot of selected) {
-    const raw = shot.terminal ? null : await capturePage(browser, shot);
+    const raw = shot.terminal ? null : await capturePage(browser, shot, origin);
     await compose(browser, shot, raw);
   }
 } finally {
   await browser?.close();
-  for (const child of servers) stopServer(child);
+  await server?.close();
 }

@@ -5,11 +5,12 @@ recorded request against the host-api app built on the db-fake (no MySQL
 needed) via `inject()`, and asserts:
 
 - HTTP status code matches.
-- For JSON responses, the top-level *shape* matches (same keys, same JS
-  types). Scalar values are deliberately not compared so id/timestamp drift
-  between runs doesn't false-positive.
-- The recorded body conforms to the expected envelope shape
-  (`standard` / `openai` / `anthropic`).
+- The replayed JSON body satisfies the fixture’s envelope rules, including the
+  `raw` host response format.
+- Object keys and value types match recursively. When a recorded array has a
+  sample item, each returned item is checked against its shape. Scalar values
+  can vary between runs.
+- The replayed body passes the fixture’s published JSON Schema.
 
 Fixtures are hand-authored and checked in alongside the API change that
 introduces or changes the endpoint they cover. There is no automated
@@ -32,23 +33,9 @@ fixture request therefore only needs `Authorization: Bearer sk-contract-fixture`
 
 ## Fixture format
 
-```jsonc
-{
-  "name": "label for readability",
-  "expectShape": "standard", // optional; inferred from URL prefix when absent
-  "request": {
-    "method": "POST",
-    "url": "/auth",
-    "headers": { "content-type": "application/json" },
-    "body": { "command": "retrieve", "engine": "codex" }
-  },
-  "response": {
-    "status": 200,
-    "headers": { "content-type": "application/json; charset=utf-8" },
-    "body": { "status": "ok", "data": { /* recorded body */ } }
-  }
-}
-```
+See the [auth retrieve fixture](fixtures/auth/retrieve.json) for a complete
+request, the test credential, the `expectShape` setting and both copies of the
+response fields. The fixture records the full key set at each nesting level.
 
 The host-facing routes replace the standard envelope's `status: "ok"` marker
 with a domain status (`valid`, `outdated`, `updated`, `update`), so their

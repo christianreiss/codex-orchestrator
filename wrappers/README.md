@@ -1,7 +1,7 @@
 # Wrapper bakery v2
 
 One static Go binary (`cxx`) serves Codex, Claude, Grok, and Kimi. Enabled hosts install relative
-`cdx -> cxx`, `clx -> cxx`, and/or `cgx -> cxx` aliases; explicit invocation is also available
+aliases for their assigned engines (`cdx`, `clx`, `cgx` and `ckx` all point to `cxx`); explicit invocation is also available
 as `cxx codex ...`, `cxx claude ...`, `cxx grok ...`, and `cxx kimi ...`. Engine configs, auth, locks, and native
 CLI state remain separate.
 
@@ -38,7 +38,9 @@ cxx claude-quota-statusline   # Claude Code statusLine command that relays quota
 cxx grok-auth                # internal native token accessor; requires a live private broker
 ```
 
-Grok uses the official Grok Build CLI, pinned to the verified stable baseline `1.0.50`. `cgx update`
+The managed host installer has a Grok Build compatibility floor of `1.0.50`.
+The host’s effective version target can be higher. The auth runner pins its own
+CLI independently in the [runner Dockerfile](../runner/Dockerfile). `cgx update`
 downloads the exact npm platform package for Linux/macOS on amd64/arm64, verifies
 its SHA-512 integrity, decodes the sole `package/bin/grok.br` member, and checks the
 native version before publishing `~/.cgx/state/grok-bin`. The private copies live
