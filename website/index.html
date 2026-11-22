@@ -4,15 +4,19 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Codex Orchestrator · Deine Coding-Agenten in einer Flotte</title>
 <meta name="description" content="Betreibe Codex, Claude Code, Grok Build und Kimi Code mit gemeinsamen Skills, Projektwissen und Host-Verwaltung auf deinem eigenen Server.">
-<link rel="canonical" href="https://cxx.uggs.io/"><meta name="theme-color" content="#0b1626">
+<link rel="canonical" href="https://cxx.uggs.io/?lang=de"><meta name="theme-color" content="#0b1626">
 <link rel="stylesheet" href="site.css"><link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="de" href="https://cxx.uggs.io/?lang=de">
+<link rel="alternate" hreflang="en" href="https://cxx.uggs.io/en.html">
+<link rel="alternate" hreflang="x-default" href="https://cxx.uggs.io/">
+<script src="language.js" integrity="sha256-Afg5TKBDV+6ZeHaEfO4yHoeJsKm2IHkzHTXMsoMCGZQ=" defer></script>
 </head>
 <body><a class="skip" href="#inhalt">Zum Inhalt</a>
-<header><div class="wrap bar"><a class="brand" href="./"><img src="assets/mark.svg" width="36" height="36" alt="">Codex Orchestrator</a>
-<nav aria-label="Hauptnavigation"><a href="#vergleich">Vergleich</a><a href="#installation">Installation</a><a href="https://github.com/christianreiss/codex-orchestrator">GitHub ↗</a></nav></div></header>
+<header><div class="wrap bar"><a class="brand" href="./?lang=de"><img src="assets/mark.svg" width="36" height="36" alt="">Codex Orchestrator</a>
+<nav aria-label="Hauptnavigation"><a href="#vergleich">Vergleich</a><a href="#installation">Installation</a><a href="https://github.com/christianreiss/codex-orchestrator">GitHub ↗</a><span class="languages"><a data-language lang="de" hreflang="de" aria-current="true" href="./?lang=de">Deutsch</a><a data-language lang="en" hreflang="en" href="en.html?lang=en">English</a></span></nav></div></header>
 <main id="inhalt">
 <section class="hero"><div class="wrap hero-grid"><div>
-<p class="eyebrow"><span class="rule"></span> Self-hosted Fleet Management</p>
+<p class="eyebrow"><span class="rule"></span> Selbst gehostete Agentenverwaltung</p>
 <h1>Dein Terminal.<br>Deine Agenten.<br><em>Eine Flotte.</em></h1>
 <p class="intro">Codex auf dem Laptop, Claude auf dem Build-Server. Mit Codex Orchestrator teilen deine Agenten Projektwissen, stimmen ihre Arbeit ab und starten mit den Regeln, die du vorgibst.</p>
 <div class="actions"><a class="button" href="#installation">Orchestrator installieren <span>↓</span></a><a class="textlink" href="#vergleich">Vorteile ansehen</a></div></div>
@@ -31,10 +35,10 @@
 <div class="legend"><i></i> Gemeinsame Verwaltung auf deinem Server</div></figure></div></section>
 <section class="wrap section" id="vergleich"><p class="eyebrow">Im täglichen Betrieb</p><h2>Was gewinnst du gegenüber<br>der nativen CLI?</h2>
 <table><thead><tr><th scope="col">Aufgabe</th><th scope="col">Native CLIs einzeln</th><th scope="col">Mit Orchestrator</th></tr></thead><tbody>
-<tr><th scope="row">Host einrichten</th><td>Konten, Versionen und Einstellungen auf jeder Maschine pflegen.</td><td>Host registrieren, Engines zuweisen und signierte Konfiguration beim Start beziehen.</td></tr>
-<tr><th scope="row">Wissen übergeben</th><td>Entscheidungen aus der letzten Sitzung zusammensuchen und weitergeben.</td><td>Agenten lesen dieselben Projektentscheidungen und können einander direkt fragen.</td></tr>
-<tr><th scope="row">Parallel entwickeln</th><td>Selbst abstimmen, wer welche Dateien bearbeitet und zuerst integriert.</td><td>Ressourcen reservieren und gemeinsame Branches über den Git Director zusammenführen.</td></tr>
-<tr><th scope="row">Arbeit verfolgen</th><td>Terminals auf mehreren Hosts öffnen und nach dem Stand schauen.</td><td>Laufende Sitzungen, Aufgaben und Rückfragen in einer Konsole sehen und beantworten.</td></tr>
+<tr><th scope="row">Host einrichten</th><td data-label="Native CLIs einzeln">Konten, Versionen und Einstellungen auf jeder Maschine pflegen.</td><td data-label="Mit Orchestrator">Host registrieren, Engines zuweisen und signierte Konfiguration beim Start beziehen.</td></tr>
+<tr><th scope="row">Wissen übergeben</th><td data-label="Native CLIs einzeln">Entscheidungen aus der letzten Sitzung zusammensuchen und weitergeben.</td><td data-label="Mit Orchestrator">Agenten lesen dieselben Projektentscheidungen und können einander direkt fragen.</td></tr>
+<tr><th scope="row">Parallel entwickeln</th><td data-label="Native CLIs einzeln">Selbst abstimmen, wer welche Dateien bearbeitet und zuerst integriert.</td><td data-label="Mit Orchestrator">Ressourcen reservieren und gemeinsame Branches über den Git Director zusammenführen.</td></tr>
+<tr><th scope="row">Arbeit verfolgen</th><td data-label="Native CLIs einzeln">Terminals auf mehreren Hosts öffnen und nach dem Stand schauen.</td><td data-label="Mit Orchestrator">Laufende Sitzungen, Aufgaben und Rückfragen in einer Konsole sehen und beantworten.</td></tr>
 </tbody></table></section>
 <section class="tour"><div class="wrap spread"><div><p class="eyebrow">Die Flottenkonsole</p><h2>Wer arbeitet<br>woran?</h2><p>Öffne eine Sitzung direkt aus der Host-Übersicht der aktiven Clients. Du siehst ihren Auftrag und kannst im Gespräch eine Entscheidung treffen, während der Agent auf seinem Host weiterarbeitet.</p><a class="textlink" href="https://github.com/christianreiss/codex-orchestrator#the-tour">Zur Produkttour ↗</a></div>
 <figure class="shot"><a href="assets/sessions.webp" aria-label="Beispielansicht der aktiven Sitzungen in voller Größe öffnen"><img src="assets/sessions.webp" alt="Konsole mit Agentenliste links und Gesprächsverlauf der ausgewählten Sitzung rechts" loading="lazy"></a><figcaption>Active Clients · Beispielansicht öffnen ↗</figcaption></figure></div></section>

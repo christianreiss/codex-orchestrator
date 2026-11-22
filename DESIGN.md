@@ -268,7 +268,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 
 ## 8. Baseline inventory and migration debt
 
-The standalone public product and installation page lives in `website/index.html`. It uses the console typography and signal palette, a fleet diagram, a native CLI comparison and a link to the guided installer. The selling surface has no authenticated shell.
+The standalone public product and installation page lives in `website/index.html`. Both language editions are static HTML. On every neutral entry the root checks the ordered browser languages (German and English, including regional variants), and defaults to German. Direct language links also work without JavaScript. When changing website/language.js, update its integrity digest in both documents and the script hash in the Weby vhost CSP. It uses the console typography and signal palette, a fleet diagram, a native CLI comparison and a link to the guided installer. The selling surface has no authenticated shell.
 
 This is a source audit, not a live visual acceptance report. All 43 `+page.svelte` entrypoints are represented below (rechecked 2026-11-10), including redirects and the legacy catch-all. The five workflow routes were added on 2026-10-20 with automated interaction and responsive coverage; manual screen-reader and independent usability acceptance remain separate. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
 

@@ -1,5 +1,7 @@
 # 2026-11-22
 
+- The public product website now offers German and English, follows the browser language order on each visit to the landing URL and provides direct links to both languages.
+
 - Wrapper 0.9.201 builds with Go 1.26.11, which fixes reachable standard-library issues in HTTP and certificate verification (GO-2026-6859 and GO-2026-6809).
 
 - Added the public Codex Orchestrator product website with an engine comparison and self-hosted installation guide.
