@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codex Orchestrator · Your coding agents in one fleet</title>
+<meta name="description" content="Run Codex, Claude Code, Grok Build and Kimi Code on your own infrastructure with shared skills, project knowledge and host management.">
+<link rel="canonical" href="https://cxx.uggs.io/en.html"><meta name="theme-color" content="#0b1626">
+<link rel="stylesheet" href="site.css"><link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="de" href="https://cxx.uggs.io/?lang=de">
+<link rel="alternate" hreflang="en" href="https://cxx.uggs.io/en.html">
+<link rel="alternate" hreflang="x-default" href="https://cxx.uggs.io/">
+<script src="language.js" integrity="sha256-Afg5TKBDV+6ZeHaEfO4yHoeJsKm2IHkzHTXMsoMCGZQ=" defer></script>
+</head>
+<body><a class="skip" href="#inhalt">Skip to content</a>
+<header><div class="wrap bar"><a class="brand" href="en.html"><img src="assets/mark.svg" width="36" height="36" alt="">Codex Orchestrator</a>
+<nav aria-label="Main navigation"><a href="#vergleich">Compare</a><a href="#installation">Installation</a><a href="https://github.com/christianreiss/codex-orchestrator">GitHub ↗</a><span class="languages"><a data-language lang="de" hreflang="de" href="./?lang=de">Deutsch</a><a data-language lang="en" hreflang="en" aria-current="true" href="en.html?lang=en">English</a></span></nav></div></header>
+<main id="inhalt">
+<section class="hero"><div class="wrap hero-grid"><div>
+<p class="eyebrow"><span class="rule"></span> Self-hosted fleet management</p>
+<h1>Your terminal.<br>Your agents.<br><em>One fleet.</em></h1>
+<p class="intro">Codex on your laptop, Claude on the build server. With Codex Orchestrator, your agents share project knowledge, coordinate their work and start each session with the rules you set.</p>
+<div class="actions"><a class="button" href="#installation">Install Orchestrator <span>↓</span></a><a class="textlink" href="#vergleich">Compare workflows</a></div></div>
+<figure class="diagram"><figcaption><b>System diagram</b><span>Engine connections</span></figcaption>
+<svg viewBox="0 0 480 330" role="img" aria-labelledby="plan-title" xmlns="http://www.w3.org/2000/svg"><title id="plan-title">The cdx, clx, cgx and ckx wrappers connect the four native engines to a shared cxx control plane.</title>
+<defs><pattern id="dots" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#34516c"/></pattern></defs>
+<rect width="480" height="330" fill="url(#dots)"/>
+<g fill="none" stroke="#539cbf" stroke-width="2"><path d="M106 68h40l40 55h56v26M106 258h40l40-55h56v-26M374 68h-40l-40 55h-32v26M374 258h-40l-40-55h-32v-26"/></g>
+<g fill="#14283b" stroke="#57819f"><rect x="166" y="120" width="148" height="90" rx="9"/><rect x="176" y="130" width="128" height="70" rx="5"/></g>
+<g font-family="monospace" text-anchor="middle" fill="#a8e9fc"><text x="240" y="177" font-size="42" font-weight="bold">cxx</text></g>
+<g class="nodes">
+<g transform="translate(22 45)"><rect width="106" height="64" rx="5"/><text x="53" y="27">Codex</text><text class="alias" x="53" y="48">cdx</text></g>
+<g transform="translate(352 45)"><rect width="106" height="64" rx="5"/><text x="53" y="27">Claude Code</text><text class="alias" x="53" y="48">clx</text></g>
+<g transform="translate(22 221)"><rect width="106" height="64" rx="5"/><text x="53" y="27">Grok Build</text><text class="alias" x="53" y="48">cgx</text></g>
+<g transform="translate(352 221)"><rect width="106" height="64" rx="5"/><text x="53" y="27">Kimi Code</text><text class="alias" x="53" y="48">ckx</text></g></g></svg>
+<div class="legend"><i></i> Shared control plane on your server</div></figure></div></section>
+<section class="wrap section" id="vergleich"><p class="eyebrow">Day-to-day operations</p><h2>What changes when you<br>manage CLIs together?</h2>
+<table><thead><tr><th scope="col">Task</th><th scope="col">Standalone CLIs</th><th scope="col">With Orchestrator</th></tr></thead><tbody>
+<tr><th scope="row">Set up a host</th><td data-label="Standalone CLIs">Manage accounts, versions and settings on each machine.</td><td data-label="With Orchestrator">Register a host, assign its engines and fetch signed configuration at launch.</td></tr>
+<tr><th scope="row">Hand off context</th><td data-label="Standalone CLIs">Find the decisions from your last session and pass them along.</td><td data-label="With Orchestrator">Agents read the same project decisions and can ask each other questions directly.</td></tr>
+<tr><th scope="row">Develop in parallel</th><td data-label="Standalone CLIs">Agree on who edits each file and whose changes merge first.</td><td data-label="With Orchestrator">Reserve resources and coordinate merges into shared branches through Git Director.</td></tr>
+<tr><th scope="row">Follow the work</th><td data-label="Standalone CLIs">Open terminals on several hosts to check progress.</td><td data-label="With Orchestrator">See active sessions and tasks in one console and answer questions there.</td></tr>
+</tbody></table></section>
+<section class="tour"><div class="wrap spread"><div><p class="eyebrow">The fleet console</p><h2>Who’s working<br>on what?</h2><p>Open a session from the Active Clients view. Read its assignment and answer a question in the conversation while the agent continues working on its host.</p><a class="textlink" href="https://github.com/christianreiss/codex-orchestrator#the-tour">Take the product tour ↗</a></div>
+<figure class="shot"><a href="assets/sessions.webp" aria-label="Open the example session view at full size"><img src="assets/sessions.webp" alt="Console showing agents on the left and the selected session’s conversation on the right" loading="lazy"></a><figcaption>Active Clients · Open example view ↗</figcaption></figure></div></section>
+<section class="wrap section spread" id="installation"><div><p class="eyebrow">Installation</p><h2>Start your<br>own fleet.</h2><p>You’ll need a server with Git, Docker Compose v2, curl and OpenSSL. The installer sets up the services and prints your console URL once its checks pass.</p><a class="textlink" href="https://github.com/christianreiss/codex-orchestrator/blob/main/docs/INSTALL.md">Installation guide ↗</a></div>
+<div class="terminal"><div class="term-head">Terminal <span>bash</span></div><pre><code>git clone https://github.com/christianreiss/codex-orchestrator.git
+cd codex-orchestrator
+bin/orchestrator setup</code></pre><p>Next, register your first host and assign it an engine.</p></div></section></main>
+<footer><div class="wrap bar"><b>Codex Orchestrator</b><a href="https://github.com/christianreiss/codex-orchestrator">Source on GitHub ↗</a></div></footer></body></html>
