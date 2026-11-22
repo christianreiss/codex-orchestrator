@@ -431,6 +431,9 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/projects/:slug/files': cap('projects.read'),
   'GET /admin/projects/:slug/files/:id': cap('projects.read'),
   'GET /admin/projects/:slug/notes': cap('projects.read'),
+  'GET /admin/project-changelog': cap('projects.read'),
+  'GET /admin/project-changelog/state': cap('projects.read'),
+  'GET /admin/projects/:slug/changelog': cap('projects.read'),
   'POST /admin/projects': cap('projects.manage'),
   'POST /admin/projects/state': cap('projects.manage'),
   'DELETE /admin/projects/:slug': cap('projects.manage'),
@@ -445,6 +448,10 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/projects/:slug/notes': cap('projects.manage'),
   'POST /admin/projects/:slug/notes/:id': cap('projects.manage'),
   'DELETE /admin/projects/:slug/notes/:id': cap('projects.manage'),
+  'POST /admin/project-changelog/state': cap('projects.manage'),
+  'POST /admin/projects/:slug/changelog': cap('projects.manage'),
+  'POST /admin/projects/:slug/changelog/:id': cap('projects.manage'),
+  'DELETE /admin/projects/:slug/changelog/:id': cap('projects.manage'),
   'POST /admin/projects/:slug/roster': cap('projects.manage'),
 
   // ── Fleet secrets ────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { slopJobsService } from '../../services/slop-jobs.js';
+import { ProjectChangelogService } from '../../services/project-changelog.js';
 import {addOwnerResponseProof} from '../../control-plane/state/runtime.js';
 import { requireOwnerRuntime } from '../../control-plane/state/runtime.js';
 import { ownedBridge,ownedEngineState } from '../../control-plane/state/messaging.js';
@@ -152,6 +153,7 @@ export async function registerMcpRoutes(app: FastifyInstance, ctx: RouteContext)
     roles,
     workflows,
     slopJobs: slopJobsService(ctx),
+    changelog: new ProjectChangelogService(ctx.db),
   });
   const server = new McpServer(tools, resources);
 

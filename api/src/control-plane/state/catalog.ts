@@ -55,6 +55,7 @@ export const TABLE_POLICY = {
   coordProjectFiles: 'owned',
   coordProjectFeedback: 'owned',
   coordProjectMemories: 'owned',
+  coordProjectChangelog: 'owned',
   coordProjectEvents: 'cold',
   coordProjectBoards: 'owned',
   coordProjectBoardColumns: 'owned',
@@ -200,7 +201,7 @@ export type StateRow<K extends OwnedTableName> = Omit<Row<K>, Extract<keyof Row<
             ? { eventCursor: number }
             : K extends 'coordProjects'
               ? { recentEvents: ProjectEventMetadata[] }
-              : K extends 'coordProjectNotes'
+              : K extends 'coordProjectNotes' | 'coordProjectChangelog'
                 ? { bodyPreview: string; bodyLength: number }
                 : K extends 'coordProjectMemories'
                   ? { contentPreview: string; contentLength: number }

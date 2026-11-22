@@ -635,6 +635,13 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/projects/{slug}/notes` — admin session, `projects.manage`: create a project note
 - `POST /admin/projects/{slug}/notes/{id}` — admin session, `projects.manage`: update a project note
 - `DELETE /admin/projects/{slug}/notes/{id}` — admin session, `projects.manage`: delete a project note
+- `GET /admin/project-changelog` — admin session, `projects.read`: cross-project changelog timeline ([spec](interface-api.md#project-changelog))
+- `GET /admin/project-changelog/state` — admin session, `projects.read`: read the fleet project-changelog switch ([spec](interface-api.md#project-changelog))
+- `POST /admin/project-changelog/state` — admin session, `projects.manage`: set the fleet project-changelog switch ([spec](interface-api.md#project-changelog))
+- `GET /admin/projects/{slug}/changelog` — admin session, `projects.read`: list or search one project's changelog ([spec](interface-api.md#project-changelog))
+- `POST /admin/projects/{slug}/changelog` — admin session, `projects.manage`: append an operator changelog entry ([spec](interface-api.md#project-changelog))
+- `POST /admin/projects/{slug}/changelog/{id}` — admin session, `projects.manage`: edit any changelog entry ([spec](interface-api.md#project-changelog))
+- `DELETE /admin/projects/{slug}/changelog/{id}` — admin session, `projects.manage`: delete any changelog entry ([spec](interface-api.md#project-changelog))
 - `GET /admin/projects/{slug}/files` — admin session, `projects.read`: list project files
 - `POST /admin/projects/{slug}/files` — admin session, `projects.manage`: upload a project file
 - `DELETE /admin/projects/{slug}/files/{id}` — admin session, `projects.manage`: delete one project file

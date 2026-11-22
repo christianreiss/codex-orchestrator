@@ -3,7 +3,8 @@
    * Module settings behind the gear on the Projects page. The coordination
    * switch lives in the page header; this holds the board switch, which grants
    * agents something coordination alone does not: claiming a card so every
-   * other agent sees it held, and the slop-jobs switch for agent UI/UX reviews.
+   * other agent sees it held, the slop-jobs switch for agent UI/UX reviews, and the
+   * changelog switch for agents' "what changed and why" entries.
    */
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
@@ -11,7 +12,15 @@
   import { Button } from "$lib/components/ui/button";
   import { Switch } from "$lib/components/ui/switch";
   import { ApiError } from "$lib/api/client";
-  import { fetchBoardState, fetchSlopState, projectKeys, setBoardEnabled, setSlopEnabled } from "$lib/api/projects";
+  import {
+    fetchBoardState,
+    fetchChangelogState,
+    fetchSlopState,
+    projectKeys,
+    setBoardEnabled,
+    setChangelogEnabled,
+    setSlopEnabled,
+  } from "$lib/api/projects";
 
   let { open = $bindable() }: { open: boolean } = $props();
 
@@ -55,6 +64,26 @@
     onSettled: () => void qc.invalidateQueries({ queryKey: projectKeys.slopState }),
   });
   const slopEnabled = $derived(($slopState.data?.enabled ?? false) === true);
+
+  const changelogState = createQuery({ queryKey: projectKeys.changelogState, queryFn: fetchChangelogState });
+  const changelogMutation = createMutation({
+    mutationFn: (enabled: boolean) => setChangelogEnabled(enabled),
+    onMutate: async (enabled) => {
+      await qc.cancelQueries({ queryKey: projectKeys.changelogState });
+      const previous = qc.getQueryData(projectKeys.changelogState);
+      qc.setQueryData(projectKeys.changelogState, (prev: unknown) =>
+        prev && typeof prev === "object" ? { ...(prev as object), enabled } : { enabled },
+      );
+      return { previous };
+    },
+    onError: (err, _v, context) => {
+      if (context?.previous !== undefined) qc.setQueryData(projectKeys.changelogState, context.previous);
+      toast.error(err instanceof ApiError ? err.message : "Could not update the changelog");
+    },
+    onSuccess: () => toast.success("Module state updated"),
+    onSettled: () => void qc.invalidateQueries({ queryKey: projectKeys.changelogState }),
+  });
+  const changelogEnabled = $derived(($changelogState.data?.enabled ?? false) === true);
   const slopJobs = $derived($slopState.data?.jobs ?? 0);
 
   const enabled = $derived(($boardState.data?.enabled ?? false) === true);
@@ -109,5 +138,23 @@
     </div>
     {#if $slopState.isError}<p role="alert" class="text-body-sm text-destructive">{$slopState.error.message}</p><Button size="sm" variant="outline" onclick={() => $slopState.refetch()}>Retry slop state</Button>{/if}
     {#if $slopMutation.isError}<p role="alert" class="text-body-sm text-destructive">{$slopMutation.error.message}</p>{/if}
+    <div class="mt-6 flex items-start justify-between gap-4">
+      <div class="min-w-0">
+        <label for="project-changelog-enabled" class="text-body font-medium">Changelog</label>
+        <p class="mt-0.5 text-body-sm text-muted-foreground">
+          {!$changelogState.data || $changelogState.isError ? "Changelog module state unavailable. Retry before changing it." : changelogEnabled
+            ? "Enabled. Agents read and append what changed and why with the project_changelog_* tools, and are told to in their instructions."
+            : "Disabled. The project_changelog_* tools and their instructions are withheld from agents. Existing entries stay readable and editable here."}
+        </p>
+      </div>
+      <Switch
+        id="project-changelog-enabled"
+        checked={changelogEnabled}
+        disabled={!$changelogState.data || $changelogState.isError || $changelogState.isLoading || $changelogMutation.isPending}
+        onCheckedChange={(next) => $changelogMutation.mutate(next)}
+      />
+    </div>
+    {#if $changelogState.isError}<p role="alert" class="text-body-sm text-destructive">{$changelogState.error.message}</p><Button size="sm" variant="outline" onclick={() => $changelogState.refetch()}>Retry changelog state</Button>{/if}
+    {#if $changelogMutation.isError}<p role="alert" class="text-body-sm text-destructive">{$changelogMutation.error.message}</p>{/if}
   </Sheet.Content>
 </Sheet.Root>

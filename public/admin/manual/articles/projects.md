@@ -38,7 +38,7 @@ Host-facing surface: agents reach projects only through MCP (`project_*` tools a
 
 The `/projects/[slug]` pages share a header fed by a lean project summary. The header shows the project `title` (from `about.title`) with the description (or the slug when it differs) as a subtitle, an **Archived** badge when applicable, and the actions **Projects** (back), **About**, and **More** (**Archive project** / **Reopen project**, **Delete project** with a confirm dialog).
 
-A tab nav (`ProjectTabsNav`) routes to **Board**, **Documents**, **Reports**, **Design review** (agents' slop review jobs, `/projects/{slug}/slop`) and **Activity**; badges carry the open-card count (`counts.open_todos`), the notes plus files count, and the open reports count. The project root URL opens the board. The older `/projects/{slug}/todos`, `/notes`, `/files`, and `/feedback` URLs redirect to the board, the Documents tab (`?kind=notes` or `?kind=files`), and the Reports tab.
+A tab nav (`ProjectTabsNav`) routes to **Board**, **Documents**, **Reports**, **Changelog** (`/projects/{slug}/changelog`), **Design review** (agents' slop review jobs, `/projects/{slug}/slop`) and **Activity**; badges carry the open-card count (`counts.open_todos`), the notes plus files count, and the open reports count. The project root URL opens the board. The older `/projects/{slug}/todos`, `/notes`, `/files`, and `/feedback` URLs redirect to the board, the Documents tab (`?kind=notes` or `?kind=files`), and the Reports tab.
 
 ## Identity: about and roster
 
@@ -121,6 +121,16 @@ Durable facts bound to the project rather than to a host (`coord_project_memorie
 The contrast with host-scoped `mcp_memories` is the reason this exists: project memories are visible fleet-wide, can be enumerated without knowing a key (`project_memory_list`), hard-delete rather than soft-delete, and record every mutation in the activity log with `source_host_id` attribution. Host memories can do none of those. Project memories are not the only fleet-visible store any more, though: `shared_memory_*` holds documents up to 1 MiB that belong to no project at all. Use project memories for short facts about *this* workstream and shared memories for reference material that outlives it. See [MCP server and tools](/admin/manual/mcp) for the three-way comparison and the validation rules.
 
 `project_memory_upsert` is idempotent: an identical re-store reports `unchanged`, writes nothing, and deliberately records **no** event, so a no-op cannot bump `latest_event_seq` and force other hosts to re-sync.
+
+## Changelog
+
+A curated record of *what changed and why* (`coord_project_changelog`), written by agents after meaningful work and readable by the next agent on any host. It is not the Activity feed: Activity records every mutation automatically, the changelog holds only the entries someone chose to write. An entry has a title, a kind (`feature`, `fix`, `change`, `decision`, `ops`, `note`), a markdown body up to 16 KiB, tags and optionally the board card it belongs to.
+
+Agents use `project_changelog_append`, `_update`, `_delete`, `_list` and `_search`; `project_changelog_search` without a slug searches every project. A host may edit or delete only entries its own host wrote and is told to append a new entry otherwise. `project_card_get` returns the card's five newest entries.
+
+The **Changelog** tab lists one project's entries newest first, with full-text search and a kind filter; expand a row for the body, author and tags. Operators can add entries and edit or delete any entry. Every change, including a delete, is kept in full in the Activity feed. The card sheet on the board shows the entries for that card, and **Changelog** on the Projects page opens one timeline across all projects (`/project-changelog`).
+
+The fleet switch sits in **Project settings** (default on). Off withholds the tools and the one-line hint in agents' instructions; existing entries stay readable and editable in the console.
 
 ## Activity
 

@@ -79,6 +79,10 @@ export async function hydrateOwnerState(
       columns.bodyPreview = sql<string>`LEFT(${schema.coordProjectNotes.body},280)`;
       columns.bodyLength = sql<number>`(OCTET_LENGTH(CONVERT(${schema.coordProjectNotes.body} USING utf16))/2)`;
     }
+    if (name === 'coordProjectChangelog') {
+      columns.bodyPreview = sql<string>`LEFT(${schema.coordProjectChangelog.body},280)`;
+      columns.bodyLength = sql<number>`(OCTET_LENGTH(CONVERT(${schema.coordProjectChangelog.body} USING utf16))/2)`;
+    }
     if (name === 'coordProjectMemories') {
       columns.contentPreview = sql<string>`LEFT(${schema.coordProjectMemories.content},280)`;
       columns.contentLength = sql<number>`(OCTET_LENGTH(CONVERT(${schema.coordProjectMemories.content} USING utf16))/2)`;

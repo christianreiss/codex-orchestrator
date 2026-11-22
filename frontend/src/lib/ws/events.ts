@@ -120,6 +120,9 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.note.created": [["projects"]],
   "project.note.updated": [["projects"]],
   "project.note.deleted": [["projects"]],
+  "project.changelog.created": [["projects"]],
+  "project.changelog.updated": [["projects"]],
+  "project.changelog.deleted": [["projects"]],
   "project.todo.created": [["projects"]],
   "project.todo.updated": [["projects"]],
   "project.todo.deleted": [["projects"]],
@@ -139,6 +142,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "project.card.deleted": [["projects"]],
   "project_board.module_toggled": [["projects"], ["projects", "board", "state"]],
   "slop_jobs.module_toggled": [["projects", "slop", "state"]],
+  "project_changelog.module_toggled": [["projects", "changelog-state"]],
   "project_board.claim_force_released": [["projects"]],
 
   // Authoring (the authoring pages query the bare ["agents"]/["skills"]/["memories"] keys)
@@ -214,7 +218,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "quota.policy.updated": [["settings", "quota-policy"], ["accounts"]],
   "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
   "host.spawn.state_changed": [["settings", "host-spawn"], ["hosts"]],
-  "settings.changed": [["settings", "speech-input"],["supervisor"], ["settings"], ["runner"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"], ["keys", "kimi", "state"]],
+  "settings.changed": [["settings", "speech-input"],["projects", "changelog-state"],["supervisor"], ["settings"], ["runner"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"], ["keys", "kimi", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the
   // exposed API surfaces; hosts, overview, accounts, setup, messaging and the
   // runner card all render per-engine state that the switch suspends.
@@ -325,6 +329,9 @@ const PROJECT_SCOPED_EVENTS = new Set<string>([
   "project.note.created",
   "project.note.updated",
   "project.note.deleted",
+  "project.changelog.created",
+  "project.changelog.updated",
+  "project.changelog.deleted",
   "project.todo.created",
   "project.todo.updated",
   "project.todo.deleted",
@@ -352,6 +359,7 @@ const PROJECT_SCOPED_EVENTS = new Set<string>([
 
 function projectDetailSubKey(eventType: string): string | null {
   if (eventType.startsWith("project.note")) return "notes";
+  if (eventType.startsWith("project.changelog")) return "changelog";
   if (eventType.startsWith("project.todo")) return "todos";
   if (eventType.startsWith("project.file")) return "files";
   if (eventType.startsWith("project.feedback")) return "feedback";

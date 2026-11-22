@@ -25,6 +25,7 @@ import {
   coordProjectFeedback,
   coordProjectFiles,
   coordProjectMemories,
+  coordProjectChangelog,
   coordProjectNotes,
   coordProjectTodos,
   coordProjectBoards,
@@ -319,8 +320,8 @@ export class ProjectsService {
   async deleteBySlug(rawSlug: string, _sourceHostId: number | null = null): Promise<{ deleted: string }> {
     const owner=ownerRuntimeFor(this.db);if(owner){const slug=normalizeSlug(rawSlug);await mutateOwnerState(owner,{kind:'project.delete',payload:{slug},prepare:ctx=>{
       const project=ctx.snapshot.table('coordProjects').by('slug',slug)[0];if(!project)throw new NotFoundError('Project not found','project_not_found');
-      for(const table of ['coordProjectCardDeps','coordProjectCards','coordProjectBoardColumns','coordProjectBoards','coordProjectNotes','coordProjectTodos','coordProjectFiles','coordProjectFeedback','coordProjectMemories'] as const)for(const row of ctx.draft.table(table).by('projectId',project.id)){ctx.draft.removeRow(table,row);}
-      ctx.write(async tx=>{await tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.projectId,project.id));await tx.delete(coordProjectCards).where(eq(coordProjectCards.projectId,project.id));await tx.delete(coordProjectBoardColumns).where(eq(coordProjectBoardColumns.projectId,project.id));await tx.delete(coordProjectBoards).where(eq(coordProjectBoards.projectId,project.id));await tx.delete(coordProjectNotes).where(eq(coordProjectNotes.projectId,project.id));await tx.delete(coordProjectTodos).where(eq(coordProjectTodos.projectId,project.id));await tx.delete(coordProjectFiles).where(eq(coordProjectFiles.projectId,project.id));await tx.delete(coordProjectFeedback).where(eq(coordProjectFeedback.projectId,project.id));await tx.delete(coordProjectMemories).where(eq(coordProjectMemories.projectId,project.id));await tx.delete(coordProjectEvents).where(eq(coordProjectEvents.projectId,project.id));});stageDelete(ctx,'coordProjects',project.id);adminAudit(ctx,'project.deleted',{slug,project_id:project.id});return null;
+      for(const table of ['coordProjectCardDeps','coordProjectCards','coordProjectBoardColumns','coordProjectBoards','coordProjectNotes','coordProjectTodos','coordProjectFiles','coordProjectFeedback','coordProjectMemories','coordProjectChangelog'] as const)for(const row of ctx.draft.table(table).by('projectId',project.id)){ctx.draft.removeRow(table,row);}
+      ctx.write(async tx=>{await tx.delete(coordProjectCardDeps).where(eq(coordProjectCardDeps.projectId,project.id));await tx.delete(coordProjectCards).where(eq(coordProjectCards.projectId,project.id));await tx.delete(coordProjectBoardColumns).where(eq(coordProjectBoardColumns.projectId,project.id));await tx.delete(coordProjectBoards).where(eq(coordProjectBoards.projectId,project.id));await tx.delete(coordProjectNotes).where(eq(coordProjectNotes.projectId,project.id));await tx.delete(coordProjectTodos).where(eq(coordProjectTodos.projectId,project.id));await tx.delete(coordProjectFiles).where(eq(coordProjectFiles.projectId,project.id));await tx.delete(coordProjectFeedback).where(eq(coordProjectFeedback.projectId,project.id));await tx.delete(coordProjectMemories).where(eq(coordProjectMemories.projectId,project.id));await tx.delete(coordProjectChangelog).where(eq(coordProjectChangelog.projectId,project.id));await tx.delete(coordProjectEvents).where(eq(coordProjectEvents.projectId,project.id));});stageDelete(ctx,'coordProjects',project.id);adminAudit(ctx,'project.deleted',{slug,project_id:project.id});return null;
     }});wsPublisher.publish('project.deleted',{slug});wsPublisher.publish('project.changed',{slug});return {deleted:slug};}
     const project = await this.requireProject(rawSlug);
     // Cascades: notes, todos, files, feedback, memories, events are FK-attached;
@@ -339,6 +340,7 @@ export class ProjectsService {
       await tx.delete(coordProjectFiles).where(eq(coordProjectFiles.projectId, project.id));
       await tx.delete(coordProjectFeedback).where(eq(coordProjectFeedback.projectId, project.id));
       await tx.delete(coordProjectMemories).where(eq(coordProjectMemories.projectId, project.id));
+      await tx.delete(coordProjectChangelog).where(eq(coordProjectChangelog.projectId, project.id));
       await tx.delete(coordProjectEvents).where(eq(coordProjectEvents.projectId, project.id));
       await tx.delete(coordProjects).where(eq(coordProjects.id, project.id));
     });

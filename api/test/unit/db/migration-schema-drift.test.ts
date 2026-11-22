@@ -289,6 +289,7 @@ describe('migrations against the test baseline', () => {
       'connector_records',
       'kimi_auth_refresh_state',
       'kimi_usage_snapshots',
+      'coord_project_changelog',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',

@@ -12,6 +12,7 @@ export const CORE_CONTENT_FIELDS: Partial<Record<OwnedTableName, readonly string
   sharedMemories: ['content'],
   mcpMemories: ['content'],
   coordProjectNotes: ['body'],
+  coordProjectChangelog: ['body'],
   coordProjectMemories: ['content'],
   coordProjectFiles: ['content'],
   claudeArtifacts: ['body'],

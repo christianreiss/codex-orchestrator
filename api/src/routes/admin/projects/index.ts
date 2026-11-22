@@ -17,6 +17,13 @@ import { ProviderAccountsService } from '../../../services/provider-accounts.js'
  *   GET    /admin/projects/:slug/slop-jobs/:id
  *   GET    /admin/slop-jobs/state
  *   POST   /admin/slop-jobs/state
+ *   GET    /admin/project-changelog            (cross-project timeline)
+ *   GET    /admin/project-changelog/state
+ *   POST   /admin/project-changelog/state
+ *   GET    /admin/projects/:slug/changelog
+ *   POST   /admin/projects/:slug/changelog
+ *   POST   /admin/projects/:slug/changelog/:id
+ *   DELETE /admin/projects/:slug/changelog/:id
  *   GET    /admin/projects/:slug/notes
  *   POST   /admin/projects/:slug/notes
  *   POST   /admin/projects/:slug/notes/:id
@@ -33,6 +40,7 @@ import { AdminEventsService } from '../../../services/admin-events.js';
 import type { RouteContext } from '../../index.js';
 import { slopJobsService } from '../../../services/slop-jobs.js';
 import { ProjectContentService } from '../../../services/project-content.js';
+import { ProjectChangelogService } from '../../../services/project-changelog.js';
 import { ProjectDraftsService } from '../../../services/project-drafts.js';
 import { ProjectsService } from '../../../services/projects.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
@@ -64,6 +72,7 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
   const adminSpa = adminSpaHtmlPreHandler(ctx);
   const projects = new ProjectsService(ctx.db);
   const content = new ProjectContentService(ctx.db, projects);
+  const changelog = new ProjectChangelogService(ctx.db, projects);
   // AI-assisted draft helper. Wire the runner integration only when it is
   // actually configured (AUTH_RUNNER_URL set); otherwise leave the runner deps
   // off so /assist returns the actionable `runner_unavailable` prompt.
@@ -219,6 +228,99 @@ export async function registerAdminProjectsRoutes(app: FastifyInstance, ctx: Rou
     });
     return state;
   });
+
+  // ── changelog (operator: no owner restriction) ──────────────────────────
+
+  type ChangelogQuery = {
+    project?: string;
+    card_id?: string;
+    kind?: string;
+    tag?: string;
+    q?: string;
+    limit?: string;
+    before_id?: string;
+    payloads?: string;
+  };
+  const changelogOptions = (q: ChangelogQuery) => ({
+    cardId: q.card_id || null,
+    kind: q.kind || null,
+    tag: q.tag || null,
+    limit: parseInteger(q.limit),
+    beforeId: parseInteger(q.before_id),
+  });
+
+  app.get('/admin/project-changelog/state', { preHandler: app.requireAdmin }, async () => changelog.adminState());
+  app.post('/admin/project-changelog/state', { preHandler: app.requireAdmin }, async (req) => {
+    const raw = (req.body as { enabled?: unknown } | undefined)?.enabled;
+    if (![true, false, 0, 1, '0', '1', 'true', 'false'].includes(raw as never))
+      throw new ValidationError('enabled must be a boolean', { param: 'enabled' });
+    const enabled = raw === true || raw === 1 || raw === '1' || raw === 'true';
+    const state = await changelog.setEnabled(enabled);
+    await new AdminEventsService(ctx.db).record({
+      type: 'project_changelog.module_toggled',
+      payload: { enabled, admin_user_id: req.admin?.user?.id ?? null },
+    });
+    return state;
+  });
+
+  app.get<{ Querystring: ChangelogQuery }>(
+    '/admin/project-changelog',
+    { preHandler: [adminSpa, app.requireAdmin] },
+    async (req) =>
+      changelog.listFleet({
+        ...changelogOptions(req.query),
+        slug: req.query.project || null,
+        query: req.query.q || null,
+        preview: req.query.payloads !== 'full',
+      }),
+  );
+
+  app.get<{ Params: { slug: string }; Querystring: ChangelogQuery }>(
+    '/admin/projects/:slug/changelog',
+    { preHandler: [adminSpa, app.requireAdmin] },
+    async (req) => {
+      const slug = decodeURIComponent(req.params.slug);
+      if (req.query.q) {
+        const found = await changelog.search({
+          ...changelogOptions(req.query),
+          slug,
+          query: req.query.q,
+          preview: req.query.payloads === 'preview',
+        });
+        return { project: found.project, entries: found.entries, next_before_id: null, ...(found.degraded ? { degraded: true } : {}) };
+      }
+      return changelog.list(slug, { ...changelogOptions(req.query), preview: req.query.payloads === 'preview' });
+    },
+  );
+
+  app.post<{ Params: { slug: string }; Body: Record<string, unknown> }>(
+    '/admin/projects/:slug/changelog',
+    { preHandler: app.requireAdmin },
+    async (req) =>
+      changelog.append(decodeURIComponent(req.params.slug), asRecord(req.body), { hostId: null, operator: true }),
+  );
+
+  app.post<{ Params: { slug: string; id: string }; Body: Record<string, unknown> }>(
+    '/admin/projects/:slug/changelog/:id',
+    { preHandler: app.requireAdmin },
+    async (req) =>
+      changelog.update(
+        decodeURIComponent(req.params.slug),
+        positiveId(req.params.id, 'changelog entry id'),
+        asRecord(req.body),
+        { hostId: null, operator: true },
+      ),
+  );
+
+  app.delete<{ Params: { slug: string; id: string } }>(
+    '/admin/projects/:slug/changelog/:id',
+    { preHandler: app.requireAdmin },
+    async (req) =>
+      changelog.delete(decodeURIComponent(req.params.slug), positiveId(req.params.id, 'changelog entry id'), {
+        hostId: null,
+        operator: true,
+      }),
+  );
 
   // ── notes ────────────────────────────────────────────────────────────────
 

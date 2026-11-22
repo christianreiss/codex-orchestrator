@@ -117,7 +117,7 @@ export class EntityView<K extends OwnedTableName> {
     if (name === 'authPayloads') columns.add('canonicalBodyProof');
     if (name === 'agentRoleVersions') columns.add('roleLabel');
     if (name === 'adminUsers') columns.add('credentialDigest');
-    if (name === 'coordProjectNotes') {
+    if (name === 'coordProjectNotes' || name === 'coordProjectChangelog') {
       columns.add('bodyPreview');
       columns.add('bodyLength');
     }
@@ -175,7 +175,7 @@ export class EntityView<K extends OwnedTableName> {
         projected.roomHead ??= { eventCount: 0, lastAt: null, actorCounts: {} };
       if (name === 'agentRoomReads') projected.unreadCount = Number(projected.unreadCount ?? 0);
       if (name === 'coordProjects') projected.recentEvents ??= [];
-      if (name === 'coordProjectNotes') {
+      if (name === 'coordProjectNotes' || name === 'coordProjectChangelog') {
         if (typeof record.body === 'string') {
           projected.bodyPreview = record.body.slice(0, 280);
           projected.bodyLength = record.body.length;

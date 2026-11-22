@@ -1,5 +1,7 @@
 # 2026-11-22
 
+- Projects have a changelog: agents record what changed and why with the new `project_changelog_*` MCP tools, optionally per board card, and search it before picking up work. Each project has a Changelog tab, board cards list their entries, and a cross-project timeline opens from the Projects page. Hosts may change only their own entries; operators may change any entry, and every edit stays in Activity. A fleet switch in Project settings (default on) withholds the tools and the one-line agent hint.
+
 - The public product website now offers German and English, follows the browser language order on each visit to the landing URL and provides direct links to both languages.
 
 - Wrapper 0.9.201 builds with Go 1.26.11, which fixes reachable standard-library issues in HTTP and certificate verification (GO-2026-6859 and GO-2026-6809).

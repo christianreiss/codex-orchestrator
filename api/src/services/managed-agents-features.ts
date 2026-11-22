@@ -54,6 +54,8 @@ export interface ManagedAgentFeatureContext {
   projects: ManagedFeatureState;
   /** Slop jobs fleet switch; its guidance rides in the Projects section. Absent counts as on. */
   slopJobs?: ManagedFeatureState;
+  /** Project changelog fleet switch; its guidance rides in the Projects section. Absent counts as on. */
+  projectChangelog?: ManagedFeatureState;
   browseros: ManagedFeatureState;
   secrets: ManagedFeatureState;
   apiKeysInChat: ManagedFeatureState;
@@ -332,6 +334,10 @@ DESIGN.md, screenshots) → \`slop_job_describe\` → \`slop_job_run\` (\`quick\
 Fleet Advisor) → \`slop_job_result\`. Fix, re-upload, re-run, compare with \`slop_job_diff\`; report open
 findings as incomplete. \`slop_job_close\` when done.`;
 
+const CHANGELOG_GUIDANCE = `
+Log meaningful work with \`project_changelog_append\` (why, +\`card_id\`); read
+\`project_changelog_search\` before project work; edit only your own.`;
+
 function projectsSection(context: ManagedAgentFeatureContext): RenderedSection | null {
   if (!context.projects.enabled) return null;
   return present(
@@ -341,7 +347,7 @@ function projectsSection(context: ManagedAgentFeatureContext): RenderedSection |
 Use \`#coco\` for managed workflows; \`project_*\` for shared state, handoffs and workstream memory.
 Read \`project_summary\` for the active project first, then relevant memories and files
 (\`project_files\`: metadata; \`project_file_read\`: bodies). Correct facts with
-\`project_memory_upsert\` on the same key, never a near-duplicate.${context.slopJobs?.enabled === false ? '' : SLOP_GUIDANCE}`,
+\`project_memory_upsert\` on the same key, never a near-duplicate.${context.projectChangelog?.enabled === false ? '' : CHANGELOG_GUIDANCE}${context.slopJobs?.enabled === false ? '' : SLOP_GUIDANCE}`,
   );
 }
 

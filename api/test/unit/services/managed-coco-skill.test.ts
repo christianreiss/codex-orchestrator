@@ -19,6 +19,7 @@ import {
 } from '../../../src/services/managed-coco-skill.js';
 import { McpResourcesService } from '../../../src/services/mcp-resources.js';
 import { McpToolsRegistry } from '../../../src/services/mcp-tools.js';
+import type { ProjectChangelogService } from '../../../src/services/project-changelog.js';
 import { createDbFake, type DbFake } from '../../helpers/db-fake.js';
 import type { HostProjectsService } from '../../../src/services/host-projects.js';
 import type { HostSkillsService } from '../../../src/services/host-skills.js';
@@ -45,6 +46,8 @@ const registry = new McpToolsRegistry({
   // The skill tells agents to call the board first, so the board surface has to
   // be present for that instruction to be checkable at all.
   board: {} as unknown as ProjectBoardService,
+  // #coco names the changelog tools (conditionally), so they must be checkable.
+  changelog: {} as unknown as ProjectChangelogService,
 });
 
 /** Host capability: that is who reads #coco and calls its tools. */

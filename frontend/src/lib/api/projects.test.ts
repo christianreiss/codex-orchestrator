@@ -284,6 +284,63 @@ const BUILDER_CASES: BuilderCase[] = [
     slugged: false,
   },
   {
+    name: "fetchChangelogState",
+    call: () => projects.fetchChangelogState(),
+    // Outside /admin/projects/… on purpose: `changelog` there would be a slug.
+    method: "GET",
+    path: "/admin/project-changelog/state",
+    body: undefined,
+    slugged: false,
+  },
+  {
+    name: "setChangelogEnabled",
+    call: () => projects.setChangelogEnabled(false),
+    method: "POST",
+    path: "/admin/project-changelog/state",
+    body: { enabled: false },
+    slugged: false,
+  },
+  {
+    name: "fetchFleetChangelog",
+    call: () => projects.fetchFleetChangelog({ q: "auth tokens", kind: "fix", project: "" }),
+    method: "GET",
+    path: "/admin/project-changelog?q=auth+tokens&kind=fix",
+    body: undefined,
+    slugged: false,
+  },
+  {
+    name: "fetchChangelog",
+    call: () => projects.fetchChangelog(SLUG, { limit: 50, before_id: 9 }),
+    method: "GET",
+    path: `/admin/projects/${ENCODED}/changelog?limit=50&before_id=9`,
+    body: undefined,
+    slugged: true,
+  },
+  {
+    name: "createChangelogEntry",
+    call: () => projects.createChangelogEntry(SLUG, { title: "t" }),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/changelog`,
+    body: { title: "t" },
+    slugged: true,
+  },
+  {
+    name: "updateChangelogEntry",
+    call: () => projects.updateChangelogEntry(SLUG, 4, { title: "t" }),
+    method: "POST",
+    path: `/admin/projects/${ENCODED}/changelog/4`,
+    body: { title: "t" },
+    slugged: true,
+  },
+  {
+    name: "deleteChangelogEntry",
+    call: () => projects.deleteChangelogEntry(SLUG, 4),
+    method: "DELETE",
+    path: `/admin/projects/${ENCODED}/changelog/4`,
+    body: undefined,
+    slugged: true,
+  },
+  {
     name: "createCard",
     call: () => projects.createCard(SLUG, { title: "t" }),
     method: "POST",
@@ -438,7 +495,7 @@ describe("slug encoding", () => {
   const SLUGGED_CASES = BUILDER_CASES.filter((builderCase) => builderCase.slugged);
 
   it("covers every builder that takes a slug", () => {
-    assert.equal(SLUGGED_CASES.length, 28);
+    assert.equal(SLUGGED_CASES.length, 32);
   });
 
   for (const builderCase of SLUGGED_CASES) {
@@ -541,9 +598,12 @@ describe("module surface", () => {
     "updateFeedback",
     "fetchBoard",
     "fetchBoardState",
+    "fetchChangelog",
+    "fetchChangelogState",
     "fetchChanges",
     "fetchFeedback",
     "fetchFiles",
+    "fetchFleetChangelog",
     "fetchNotes",
     "fetchProject",
     "fetchProjects",
@@ -552,11 +612,16 @@ describe("module surface", () => {
     "fetchSlopJobs",
     "fetchSlopState",
     "moveCard",
+    "CHANGELOG_KINDS",
+    "createChangelogEntry",
+    "deleteChangelogEntry",
     "projectKeys",
     "releaseCard",
     "setBoardEnabled",
+    "setChangelogEnabled",
     "setSlopEnabled",
     "updateCard",
+    "updateChangelogEntry",
     "updateAbout",
     "updateNote",
     "updateProjectsState",

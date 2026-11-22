@@ -416,9 +416,10 @@ describe('served document byte invariance', () => {
     // 2026-11-20: scope rooms use the shared room-chat store; agent_room_send leaves the served guidance and
     //             agent_room_read no longer carries the shared-chat workaround.
     // 2026-11-21: fresh-start requires an authenticated operator or admin action.
-    expect(out.features_sha256).toBe('6d924de2c52b245b6f7ed1384e9e50dd49ade44ca59069275c97868891b286e6');
-    expect(out.managed_sha256).toBe('4626aa05839395d4bcaedd1ccd3f1911c68abb8e6582b50120199c48d91c0f50');
-    expect(sha256(out.body)).toBe('39f98b92c4decd33c1f281416c3cf1f840ea58a22e326452975f6648b977de2d');
+    // 2026-11-22: one-line project changelog hint in the Projects section.
+    expect(out.features_sha256).toBe('036513f8786d3f6fd3ba4d89667807e8b924a5a3ed610d030f165406dcca58aa');
+    expect(out.managed_sha256).toBe('e145bcde5428d5a8319a0aaa0b8664f59f286dbfad425604632a736324479d25');
+    expect(sha256(out.body)).toBe('be110f794cc1edabafee77340045f753f94b236d930fcde36fb7c9fdc7859522');
   });
 });
 

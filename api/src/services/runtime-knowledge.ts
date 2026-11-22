@@ -15,6 +15,8 @@ const terms = (text: string) =>
     .replace(/\p{M}/gu, '')
     .toLowerCase()
     .match(/[\p{L}\p{N}_]+/gu) ?? [];
+/** Shared tokenizer for owner-view scoring (project changelog search). */
+export const searchTerms = terms;
 
 /** Derived solely from the current immutable owner view. No timer or resync. */
 export function searchOwnedKnowledge(snapshot: OwnerStateSnapshot, query: string, tags: string[]): Hit[] {

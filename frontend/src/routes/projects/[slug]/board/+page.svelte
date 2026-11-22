@@ -25,6 +25,16 @@
 
   let formTitle = $state("");
   let editing = $state<BoardCard | null>(null);
+  // Deep link from the changelog: ?card=<uuid> opens that card once the board has loaded.
+  let deepLinked = $state<string | null>(null);
+  $effect(() => {
+    const wanted = page.url.searchParams.get("card");
+    if (!wanted || wanted === deepLinked || !$boardQuery.data) return;
+    const found = $boardQuery.data.columns.flatMap((c) => c.cards ?? []).find((c) => c.id === wanted);
+    deepLinked = wanted;
+    if (found) editing = found;
+    else toast.warning("That card is no longer on the board");
+  });
 
   const columns = $derived($boardQuery.data?.columns ?? []);
   const reclaimed = $derived($boardQuery.data?.reclaimed_recently ?? []);

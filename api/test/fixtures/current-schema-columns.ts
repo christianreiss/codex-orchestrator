@@ -144,5 +144,14 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   if(!connectorCreate)throw new Error('Migration 0129 must create connector_records');
   tables.set('connector_records',new Set([...connectorCreate.matchAll(/^\s+([a-z_]+)\s+(?:varchar|mediumtext)\b/gim)].map(m=>m[1]!)));
   tables.get('agent_bus_messages')!.add('connector_grant_id');
+  // Migration 0149 adds the per-project changelog.
+  const changelog = splitSqlStatements(
+    readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0149_add_coord_project_changelog.sql'), 'utf8'),
+  ).find((s) => /^CREATE TABLE IF NOT EXISTS coord_project_changelog/i.test(s.trim()));
+  if (!changelog) throw new Error('Migration 0149 must create coord_project_changelog');
+  tables.set(
+    'coord_project_changelog',
+    new Set([...changelog.matchAll(/^\s+([a-z_]+)\s+(?:BIGINT|VARCHAR|MEDIUMTEXT|JSON|TEXT)\b/gm)].map((m) => m[1]!)),
+  );
   return tables;
 }

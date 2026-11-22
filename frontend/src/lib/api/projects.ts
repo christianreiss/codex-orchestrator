@@ -138,6 +138,88 @@ export const fetchSlopState = (): Promise<SlopModuleState> => api.get("/admin/sl
 export const setSlopEnabled = (enabled: boolean): Promise<SlopModuleState> =>
   api.post("/admin/slop-jobs/state", { enabled });
 
+/** Fleet switch for the project changelog (default on); outside /admin/projects/… because `changelog` there would be a slug. */
+export interface ChangelogModuleState {
+  enabled: boolean;
+  updated_at: string | null;
+}
+
+export const CHANGELOG_KINDS = ["feature", "fix", "change", "decision", "ops", "note"] as const;
+export type ChangelogKind = (typeof CHANGELOG_KINDS)[number];
+
+/** One agent- or operator-written changelog entry (docs/interface-api.md#project-changelog). */
+export interface ChangelogEntry {
+  id: number;
+  project: string;
+  card_id: string | null;
+  kind: ChangelogKind | string;
+  title: string;
+  body: string;
+  body_truncated?: boolean;
+  tags: string[];
+  author_host_id: number | null;
+  created_at: string;
+  updated_at: string;
+  score?: number;
+}
+
+export interface ChangelogListResponse {
+  project?: string | null;
+  entries: ChangelogEntry[];
+  next_before_id: number | null;
+  degraded?: boolean;
+}
+
+export interface ChangelogFilters {
+  project?: string;
+  card_id?: string;
+  kind?: string;
+  tag?: string;
+  q?: string;
+  limit?: number;
+  before_id?: number;
+  payloads?: "full" | "preview";
+}
+
+export interface ChangelogPayload {
+  title?: string;
+  body?: string;
+  kind?: string;
+  card_id?: string | null;
+  tags?: string[];
+}
+
+const changelogQuery = (filters: ChangelogFilters): string => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, String(value));
+  }
+  const text = params.toString();
+  return text ? `?${text}` : "";
+};
+
+export const fetchChangelogState = (): Promise<ChangelogModuleState> => api.get("/admin/project-changelog/state");
+
+export const setChangelogEnabled = (enabled: boolean): Promise<ChangelogModuleState> =>
+  api.post("/admin/project-changelog/state", { enabled });
+
+/** Cross-project timeline; bodies are previews unless `payloads: "full"`. */
+export const fetchFleetChangelog = (filters: ChangelogFilters = {}): Promise<ChangelogListResponse> =>
+  api.get(`/admin/project-changelog${changelogQuery(filters)}`);
+
+export const fetchChangelog = (slug: string, filters: Omit<ChangelogFilters, "project"> = {}): Promise<ChangelogListResponse> =>
+  api.get(`${BASE}/${encodeSlug(slug)}/changelog${changelogQuery(filters)}`);
+
+export const createChangelogEntry = (slug: string, payload: ChangelogPayload) =>
+  api.post<{ project: string; entry: ChangelogEntry }>(`${BASE}/${encodeSlug(slug)}/changelog`, payload);
+
+export const updateChangelogEntry = (slug: string, id: number, payload: ChangelogPayload) =>
+  api.post<{ project: string; entry: ChangelogEntry }>(`${BASE}/${encodeSlug(slug)}/changelog/${id}`, payload);
+
+export const deleteChangelogEntry = (slug: string, id: number) =>
+  api.delete<{ project: string; deleted: number }>(`${BASE}/${encodeSlug(slug)}/changelog/${id}`);
+
 export interface CardPayload {
   title: string;
   detail?: string;
@@ -327,6 +409,12 @@ export const projectKeys = {
   board: (slug: string) => ["project", slug, "board"] as const,
   boardState: ["projects", "board", "state"] as const,
   slopState: ["projects", "slop", "state"] as const,
+  // Matches the "settings.changed" / "project_changelog.module_toggled" entries in ws/events.ts.
+  changelogState: ["projects", "changelog-state"] as const,
+  // Under ["projects"], which every project.changelog.* event invalidates.
+  fleetChangelog: (filters: ChangelogFilters) => ["projects", "changelog", filters] as const,
+  // Matches `projectDetailSubKey` for project.changelog.* websocket events.
+  changelog: (slug: string, filters: object = {}) => ["project", slug, "changelog", filters] as const,
   files: (slug: string) => ["project", slug, "files"] as const,
   feedback: (slug: string) => ["project", slug, "feedback"] as const,
   changes: (slug: string) => ["project", slug, "changes"] as const,

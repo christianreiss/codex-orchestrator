@@ -10,6 +10,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import FolderKanban from "@lucide/svelte/icons/folder-kanban";
   import { PageShell, Toolbar, DataTable } from "$lib/components/page";
+  import ScrollText from "@lucide/svelte/icons/scroll-text";
   import { Button } from "$lib/components/ui/button";
   import { Checkbox } from "$lib/components/ui/checkbox";
   import { Badge } from "$lib/components/ui/badge";
@@ -107,6 +108,7 @@
   }}
 >
   {#snippet actions()}
+    <Button variant="outline" href={`${base}/project-changelog`}><ScrollText class="h-4 w-4" /> Changelog</Button>
     <Button variant="outline" size="icon" aria-label="Project settings" onclick={() => (settingsOpen = true)}><Settings class="h-4 w-4" /></Button>
     <Button onclick={() => (dialogOpen = true)} disabled={!enabled || $stateQuery.isError || !$stateQuery.data}><Plus class="h-4 w-4" /> New project</Button>
   {/snippet}

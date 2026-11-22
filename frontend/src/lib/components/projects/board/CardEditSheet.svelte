@@ -1,5 +1,6 @@
 <script lang="ts">
   /** Edit a board card's title, detail, due date and dependencies. Never moves it or touches its claim. */
+  import ChangelogTimeline from "$lib/components/projects/changelog/ChangelogTimeline.svelte";
   import { createMutation, useQueryClient } from "@tanstack/svelte-query";
   import { toast } from "svelte-sonner";
   import * as Sheet from "$lib/components/ui/sheet";
@@ -111,5 +112,10 @@
         <Button type="submit" disabled={$mutation.isPending}>{$mutation.isPending ? "Saving…" : "Save card"}</Button>
       </div>
     </form>
+    {#if card}
+      <section class="mt-8 space-y-2" aria-label="Card changelog">
+        {#key card.id}<ChangelogTimeline {slug} cardId={card.id} />{/key}
+      </section>
+    {/if}
   </Sheet.Content>
 </Sheet.Root>

@@ -1,3 +1,8 @@
+import {
+  CHANGELOG_KINDS,
+  PROJECT_CHANGELOG_TOOL_PREFIX,
+  type ProjectChangelogService,
+} from './project-changelog.js';
 import { normalizeFileEncoding } from './project-file-encoding.js';
 import type { SlopJobsService } from './slop-jobs.js';
 import { ApiError, ValidationError } from '../http/errors.js';
@@ -104,6 +109,12 @@ export interface ToolDeps {
   workflows?: WorkflowsService;
   /** Slop jobs. Optional: when omitted the slop_job_* tools are neither listed nor callable. */
   slopJobs?: SlopJobsService;
+  /**
+   * Project changelog. Optional: when omitted the project_changelog_* tools are
+   * neither listed nor callable; when present they are listed only while the
+   * `project_changelog_enabled` switch is on, and handlers re-check it.
+   */
+  changelog?: ProjectChangelogService;
 }
 
 export type ToolResult =
@@ -130,11 +141,13 @@ export class McpToolsRegistry {
     const enabled = await this.deps.feedback?.getEnabled().catch(() => false) ?? false;
     const roles = await this.deps.roles?.isEnabled().catch(() => false) ?? false;
     const slop = await this.deps.slopJobs?.getEnabled().catch(() => false) ?? false;
+    const changelog = await this.deps.changelog?.getEnabled().catch(() => false) ?? false;
     return this.list(capability).filter(
       (entry) =>
         (enabled || !entry.name.startsWith('feedback_')) &&
         (roles || entry.name !== 'role_list') &&
-        (slop || !entry.name.startsWith('slop_job_')),
+        (slop || !entry.name.startsWith('slop_job_')) &&
+        (changelog || !entry.name.startsWith(PROJECT_CHANGELOG_TOOL_PREFIX)),
     );
   }
 
@@ -335,6 +348,13 @@ function normalizeArgs(toolName: string, args: unknown): Record<string, unknown>
     case 'project_unarchive':
     case 'project_update':
       return { slug: scalar };
+    case 'project_changelog_append':
+    case 'project_changelog_list':
+      return { slug: scalar };
+    case 'project_changelog_search':
+      // slug is optional here (omitted searches every project), so a bare
+      // string is the query — "what did we decide about X".
+      return { query: scalar };
     case 'project_memory_search':
       // Unlike memory_search, the scalar is the slug, not the query: query is
       // optional here, so `project_memory_search("myproject")` usefully lists
@@ -1437,6 +1457,153 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     },
     handler: async (args, host) => deps.projects.searchMemories(String(args['slug'] ?? ''), args, host),
   });
+
+  // Project changelog -- agent-written "what changed and why" entries
+  // (docs/interface-api.md). Optional like `slopJobs`.
+  if (deps.changelog) {
+    const changelog = deps.changelog;
+    const kind = {
+      type: 'string',
+      enum: [...CHANGELOG_KINDS],
+      description: 'feature | fix | change | decision | ops | note (default change).',
+    };
+    const cardId = {
+      type: ['string', 'null'],
+      description: 'Optional board card id (UUID, the `id` from project_card_get) this entry belongs to.',
+    };
+    const tags = { type: 'array', items: { type: 'string' } };
+    const num = (v: unknown) => (v === undefined || v === null || v === '' ? null : Number(v));
+    inputs.push({
+      definition: {
+        name: 'project_changelog_append',
+        description:
+          "Append an entry to a project's changelog after meaningful work: what changed and WHY (a feature, fix, decision or ops action). Keep it short, one entry per change; pass card_id when the work belongs to a board card. Returns the entry with its id.",
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            title: { type: 'string', description: 'One-line summary (max 300 characters).' },
+            body: { type: 'string', description: 'What changed and why; markdown (max 16 KiB).' },
+            kind,
+            card_id: cardId,
+            tags,
+          },
+          additionalProperties: false,
+          required: ['slug', 'title'],
+        },
+      },
+      handler: async (args, host) => {
+        await changelog.assertEnabled();
+        return await changelog.append(String(args['slug'] ?? ''), args, { hostId: host.id });
+      },
+    });
+    inputs.push({
+      definition: {
+        name: 'project_changelog_update',
+        description:
+          'Correct a changelog entry your own host wrote (title, body, kind, card_id or tags). Entries written by other hosts are refused with not_owner: append a new entry instead. Every edit stays in project_changes.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            id: { type: 'integer' },
+            title: { type: 'string' },
+            body: { type: 'string' },
+            kind,
+            card_id: cardId,
+            tags,
+          },
+          additionalProperties: false,
+          required: ['slug', 'id'],
+        },
+      },
+      handler: async (args, host) => {
+        await changelog.assertEnabled();
+        return await changelog.update(String(args['slug'] ?? ''), Number(args['id']), args, { hostId: host.id });
+      },
+    });
+    inputs.push({
+      definition: {
+        name: 'project_changelog_delete',
+        description:
+          'Delete a changelog entry your own host wrote. The removed content stays in project_changes. Prefer project_changelog_update to correct an entry.',
+        inputSchema: {
+          type: 'object',
+          properties: { slug: { type: 'string' }, id: { type: 'integer' } },
+          additionalProperties: false,
+          required: ['slug', 'id'],
+        },
+      },
+      handler: async (args, host) => {
+        await changelog.assertEnabled();
+        return await changelog.delete(String(args['slug'] ?? ''), Number(args['id']), { hostId: host.id });
+      },
+    });
+    inputs.push({
+      definition: {
+        name: 'project_changelog_list',
+        description:
+          "List a project's changelog, newest first, optionally narrowed to one card, kind or tag. Page with before_id = next_before_id. payloads \"preview\" trims bodies to 280 characters.",
+        inputSchema: {
+          type: 'object',
+          properties: {
+            slug: { type: 'string' },
+            card_id: cardId,
+            kind,
+            tag: { type: 'string' },
+            limit: { type: 'integer', description: 'Default 50, max 200.' },
+            before_id: { type: 'integer' },
+            payloads: { type: 'string', enum: ['full', 'preview'] },
+          },
+          additionalProperties: false,
+          required: ['slug'],
+        },
+      },
+      handler: async (args) => {
+        await changelog.assertEnabled();
+        return await changelog.list(String(args['slug'] ?? ''), {
+          cardId: (args['card_id'] as string | null | undefined) ?? null,
+          kind: (args['kind'] as string | undefined) ?? null,
+          tag: (args['tag'] as string | undefined) ?? null,
+          limit: num(args['limit']),
+          beforeId: num(args['before_id']),
+          preview: args['payloads'] === 'preview',
+        });
+      },
+    });
+    inputs.push({
+      definition: {
+        name: 'project_changelog_search',
+        description:
+          'Full-text search over changelog entries (title, body, tags), best match first. Omit slug to search every project; omit query for the most recent entries. Bodies are previews unless payloads is "full".',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            slug: { type: 'string' },
+            card_id: cardId,
+            kind,
+            tag: { type: 'string' },
+            limit: { type: 'integer', description: 'Default 20, max 200.' },
+            payloads: { type: 'string', enum: ['full', 'preview'] },
+          },
+          additionalProperties: false,
+        },
+      },
+      handler: async (args) => {
+        await changelog.assertEnabled();
+        return await changelog.search({
+          query: (args['query'] as string | undefined) ?? null,
+          slug: (args['slug'] as string | undefined) || null,
+          cardId: (args['card_id'] as string | null | undefined) ?? null,
+          kind: (args['kind'] as string | undefined) ?? null,
+          tag: (args['tag'] as string | undefined) ?? null,
+          limit: num(args['limit']),
+          preview: args['payloads'] !== 'full',
+        });
+      },
+    });
+  }
   inputs.push({
     definition: {
       name: 'skill_list',
@@ -1823,7 +1990,18 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       },
       handler: async (args, host, engine) => {
         await requireBoard();
-        return await board.getCard({ ...args, engine: engine ?? args['engine'] }, host);
+        const out = await board.getCard({ ...args, engine: engine ?? args['engine'] }, host);
+        // The card's newest changelog entries, while the changelog is on.
+        const cardId = (out['card'] as { id?: unknown } | undefined)?.id;
+        if (deps.changelog && typeof cardId === 'string' && (await deps.changelog.getEnabled().catch(() => false))) {
+          const found = await deps.changelog.list(String(out['project'] ?? args['slug']), {
+            cardId,
+            limit: 5,
+            preview: true,
+          });
+          out['changelog'] = found.entries;
+        }
+        return out;
       },
     });
   }

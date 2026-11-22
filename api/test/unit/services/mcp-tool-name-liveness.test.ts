@@ -42,6 +42,7 @@ const ALL_DEPS = {
   gitDirector: {},
   transfers: {},
   slopJobs: {},
+  changelog: {},
   board: {},
   schedules: {},
   taskMessaging: {},
@@ -107,6 +108,7 @@ const NON_TOOL_TOKENS: Record<string, string> = {
   due_at: 'the card scheduling argument of project_card_create/_update, not a tool',
   depends_on: 'the card ordering argument of project_card_create/_update, not a tool',
   waiting_on: 'the unfinished dependencies a card render carries back, not a tool',
+  card_id: 'the card argument of the project_changelog_* tools, not a tool',
   board_template: 'the lane set project_create provisions the board with, not a tool',
   receiver_unavailable:
     'the status agent_listen returns when the native receiver is down, so a model does not yield on a dead line, not a tool',

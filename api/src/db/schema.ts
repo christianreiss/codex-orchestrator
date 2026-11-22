@@ -792,6 +792,36 @@ export const coordProjectMemories = mysqlTable(
   }),
 );
 
+/**
+ * Per-project changelog: agent-written "what changed and why" entries,
+ * optionally tied to a board card (`card_id`, not enforced: a deleted card
+ * leaves a dangling id the UI renders as "card removed"). Every mutation also
+ * writes a `coord_project_events` row with the full entry state, which is the
+ * edit history. The FULLTEXT index `idx_coord_project_changelog_search (title,
+ * body, tags_text)` and the project FK live in
+ * `migrations/0149_add_coord_project_changelog.sql`.
+ */
+export const coordProjectChangelog = mysqlTable(
+  'coord_project_changelog',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    projectId: bigint('project_id', { mode: 'number', unsigned: true }).notNull(),
+    cardId: varchar('card_id', { length: 64 }),
+    kind: varchar('kind', { length: 32 }).notNull().default('change'),
+    title: varchar('title', { length: 300 }).notNull(),
+    body: mediumtext('body').notNull(),
+    tags: json('tags'),
+    tagsText: text('tags_text'),
+    sourceHostId: bigint('source_host_id', { mode: 'number', unsigned: true }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    projectIdx: index('idx_coord_project_changelog_project').on(t.projectId, t.createdAt),
+    cardIdx: index('idx_coord_project_changelog_card').on(t.cardId),
+  }),
+);
+
 export const coordProjectEvents = mysqlTable(
   'coord_project_events',
   {
