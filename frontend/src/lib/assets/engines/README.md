@@ -1,4 +1,4 @@
-Local engine logo assets used by Active Clients. They are bundled with the WebUI; displaying a logo makes no external request.
+The console bundles these engine marks locally. Agent conversations, the topology list and the node details panel use them through `EngineAvatar`.
 
 - `codex.svg`: OpenAI mark, Simple Icons 14.0.0 (`icons/openai.svg`, CC0).
 - `claude.svg`: Claude mark, Simple Icons (`icons/claude.svg`, CC0), retrieved 2026-10-09.

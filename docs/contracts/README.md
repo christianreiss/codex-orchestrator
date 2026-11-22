@@ -1,7 +1,8 @@
 # Interface Contracts
 
-Machine-readable JSON schemas for host-facing API responses consumed by `cdx`
-and `clx`.
+Machine-readable JSON schemas for the shared host API used by `cdx`, `clx`,
+`cgx` and `ckx`. The fixture suite below seeds a Codex/Claude host. Each
+engine’s interface contract describes its auth and configuration differences.
 
 Current schemas:
 - `auth-retrieve.schema.json` - `POST /auth` retrieve (`command=retrieve` or omitted): `data.status` = `valid|upload_required|outdated|missing`; a failed canonical is `outdated` without an `auth` blob

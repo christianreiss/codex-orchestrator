@@ -1,5 +1,7 @@
 # 2026-11-22
 
+- The README tour now shows all four terminal launch cards, the agent connection graph and current console screens. The operating guides explain gateway key routing and streaming, Claude Skill delivery and offline database migrations.
+
 - Auth Runner, Media Worker and design review images now install their runtime code with explicit permissions so a private source checkout can build working non-root services.
 
 # 2026-11-21

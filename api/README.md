@@ -31,9 +31,12 @@ acknowledging results; ownership loss fences the process. Read
 
 ```sh
 cd api
-npm install
+npm ci
+npm ci --ignore-scripts --prefix ../slop-worker/vendor/slop-detector
 node --env-file=../.env --import tsx --watch src/server.ts
-npm run test
+
+# In a separate shell, from api/
+npm test
 npm run typecheck
 npm run build    # esbuild -> dist/server.js
 ```
@@ -44,7 +47,8 @@ npm run build    # esbuild -> dist/server.js
 skip unless `TEST_USE_DB=1` is set. CI runs typecheck, lint, this fast tier and
 the build, then enforces coverage in a separate MySQL 8.4 job.
 
-The suite needs only `api/` dependencies. Some tests read or import frontend
+The API tests import the vendored Slop scanner. Install its locked dependencies
+with the second `npm ci` command above, as CI does. Some tests read or import frontend
 sources, but none require `frontend/node_modules` or a generated
 `frontend/.svelte-kit/`: `vitest.config.ts` passes esbuild a fixed
 `tsconfigRaw` (the esbuild-relevant fields of `api/tsconfig.json`), so Vite

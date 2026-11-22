@@ -106,11 +106,10 @@ allowlist. A new baked key nobody taught Go about fails there, and so does a new
 
 ## Kimi (`ckx`)
 
-Signed `host-kimi.json` / `.sig` fixtures are owned by the API baker. Add the
-Kimi case in `api/test/unit/contract/wrapper-config-golden.test.ts` and regenerate
-with the `UPDATE_GOLDEN=1` command above; never copy/edit a Grok signed fixture.
-The wrapper-core tests use synthetic in-memory Kimi configs where a signed baker
-fixture is unnecessary. The native option snapshot is separate:
-`cxx/internal/nativeargs/testdata/kimi-help.json` records Kimi Code 2.5.3 root and
+The four signed fixtures above cover Codex, Claude and Grok. Kimi wrapper tests
+use synthetic configs. To extend signed round-trip coverage to Kimi, add a baker
+case and corresponding Go consumer assertions, then regenerate with the
+`UPDATE_GOLDEN=1` command above. The native option snapshot is separate:
+`cxx/internal/nativeargs/testdata/kimi-help.json` records Kimi Code 2.7.2 root and
 subcommand `--help`, captured with a throwaway `KIMI_CODE_HOME`, telemetry and
 self-updates disabled. Keep that snapshot and `kimi_context.go` in lock-step.

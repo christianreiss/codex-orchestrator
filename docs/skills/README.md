@@ -8,9 +8,8 @@ and `cgx`/`ckx` sync them to
 `~/.grok/skills/<slug>/SKILL.md` on Grok hosts and `~/.kimi-code/skills/<slug>/SKILL.md` on Kimi hosts. **The database is the runtime source of truth** — nothing reads this
 directory, and a file here does not ship anything.
 
-Manifests are kept here only when they need review in git before being stored, the
-same way `api/src/db/migrations/*.sql` holds DDL that no runner applies automatically.
-Both are deploy artifacts: apply them by hand, in order.
+Keep a manifest here when it needs review in Git. To publish an approved draft,
+store it through the Skills workspace, admin API or MCP Skill tools.
 
 If you change a skill through the authoring UI (`/authoring/skills/<slug>`), the
 admin API, or the MCP Skill tools, the copy here goes stale. Treat the DB as

@@ -15,16 +15,21 @@ Automatic, in two places:
   so a slow `ALTER` cannot eat the container healthcheck window, then re-checks
   with `--check` once the stack is up.
 
-By hand:
+Read migration status while the API is running:
 
 ```sh
-# In a checkout (DB_* come from ../.env):
-cd api && npm run migrate            # apply
-npm run migrate:check                # exit 1 if anything is pending
-
-# Against a running stack:
 docker compose exec -T api node migrate.js --list
-docker compose run --rm -T api node migrate.js
+docker compose exec -T api node migrate.js --check    # exit 1 for pending migrations
+```
+
+Use the [deployment cutover](../../../docs/owner-cutover.md) to apply production migrations.
+The mutating CLI acquires exclusive ownership of the database. For a local
+checkout, stop the test API owner and export the `DB_*` variables for your
+isolated database in the same shell:
+
+```sh
+cd api
+npm run migrate
 ```
 
 Useful flags: `--check`, `--list`, `--dry-run`, `--json`, `--baseline VERSION`,
@@ -35,8 +40,8 @@ Useful flags: `--check`, `--list`, `--dry-run`, `--json`, `--baseline VERSION`,
 `schema_migrations` (created by the runner, mirrored in `schema.ts`, never
 written through Drizzle) holds one row per applied version with the file's
 sha256, statement count, duration, and who applied it. A MySQL advisory lock
-(`GET_LOCK`) serialises concurrent runners, so several API instances booting at
-once is safe. Lock names are server-global, so the runner scopes its name to
+(`GET_LOCK`) serialises migration runners. A separate owner lock admits one
+serving API instance. Lock names are server-global, so the runner scopes its name to
 the database (`codex_orchestrator_schema_migrations.<sha256(DATABASE())[:16]>`):
 boot and the deploy CLI against the same database still serialise, while test
 or staging databases on the same MySQL server no longer block each other.
@@ -68,28 +73,27 @@ which is why the next property matters.
 Don't, if `NNNN+1` will do. The ledger stores a checksum, so an edited file shows
 up as `drifted` in `--list` and warns on every boot — the edit is **not** applied
 automatically, because a checksum flips on a comment change too and some
-migrations are destructive. Apply it explicitly:
+migrations are destructive. A reviewed reapplication requires the API owner
+to be stopped and MySQL to remain available throughout the operation:
 
 ```sh
-docker compose exec -T api node migrate.js --reapply 0003
+docker compose run --rm --no-deps -T api node migrate.js --reapply 0003
 ```
 
 ### Adopting the runner on a database migrated by hand
 
 `--baseline VERSION` writes ledger rows for everything up to `VERSION` without
-executing it, so only the genuinely new files run:
+executing them. Verify which historical migrations were applied before choosing
+the version. With MySQL available and the API owner stopped, for example:
 
 ```sh
-docker compose run --rm -T api node migrate.js --baseline 0006
+docker compose run --rm --no-deps -T api node migrate.js --baseline 0006
 ```
 
-**Do this once per existing deployment, before the first boot of the commit that
-introduced the runner.** Any database that was migrated by hand has no ledger, so
-the runner sees every historical file as pending and replays it. That is safe —
-every file is idempotent, and the tables 0001 drops are long gone — but replaying
-a `DROP TABLE` and three FULLTEXT rebuilds against a populated production
-database is not a good surprise. `crane` had 0001–0006 applied by hand as of
-2026-07-27, so `--baseline 0006` is its correct starting point.
+This adoption step applies to a pre-ledger installation whose previous
+migration history is known. Starting with a version that was never applied
+would skip its SQL. Fresh installations use `--init-schema`; installations with
+an existing ledger continue from their recorded versions.
 
 ## The baseline
 
@@ -147,7 +151,9 @@ resolving its own path, so the two can never read different files:
 
 ```sh
 cd api
-npm run test:db:setup   # apply the baseline to TEST_DATABASE_URL / DB_*
+# Export DB_* for a disposable MySQL database. If TEST_DATABASE_URL is set,
+# point it at that same database. The migration CLI reads DB_*.
+npm run test:db:setup
 npm run migrate         # then evolve it like any other database
 npm run test:db
 ```
@@ -195,7 +201,6 @@ not a migration and does not rename constraints on an existing deployment.
   supplies that starting point, outside the migration sequence.
 - `--init-schema` provisions; it never repairs. A database that is populated but
   wrong is an operator problem, not something the installer will overwrite.
-- Do not use `drizzle-kit push` against a real database. It reconciles the whole
-  hand-maintained mirror instead of applying `migrations/`, and can express
-  neither FULLTEXT indexes nor foreign keys — which is exactly why 0003 and 0006
-  carry backstops that add both after the fact.
+- Do not use `drizzle-kit push` against a real database. It reconciles the mirror
+  without the migration ledger or the historical FULLTEXT and foreign-key
+  backstops in migrations 0003 and 0006.
