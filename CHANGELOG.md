@@ -1,5 +1,7 @@
 # 2026-11-22
 
+- Wrapper 0.9.201 builds with Go 1.26.11, which fixes reachable standard-library issues in HTTP and certificate verification (GO-2026-6859 and GO-2026-6809).
+
 - Added the public Codex Orchestrator product website with an engine comparison and self-hosted installation guide.
 
 - The README tour now shows all four terminal launch cards, the agent connection graph and current console screens. The operating guides explain gateway key routing and streaming, Claude Skill delivery and offline database migrations.

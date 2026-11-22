@@ -143,7 +143,7 @@ with `-ldflags -X main.Version=...`. Bumping it is the whole release step:
 `scripts/deploy.sh` builds, verifies and publishes any `VERSION` the server does
 not serve yet, then recreates the api so hosts update.
 
-Builds require Go 1.26.9 or newer; CI and the bakery container pin Go 1.26.9.
+Builds require Go 1.26.11 or newer. CI and the bakery container pin Go 1.26.11.
 Vulnerability checks cover both the default artifact and `cxx_otel`.
 
 Build:

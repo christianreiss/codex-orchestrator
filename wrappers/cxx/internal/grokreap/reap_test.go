@@ -10,7 +10,8 @@ import (
 	"time"
 )
 
-const uid = 1000
+// The simulated processes and real temporary files have the same owner.
+var uid = uint32(os.Geteuid())
 
 var epoch = time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
 
@@ -353,7 +354,7 @@ func TestOnlyManagedLeadersOfThisUserAreConsidered(t *testing.T) {
 	f.proc.procs[510] = Process{PID: 510, PPID: 2029, UID: uid, Start: epoch.Add(-9 * 24 * time.Hour), Exe: "/opt/grok/grok", Argv: []string{"/opt/grok/grok", "agent", "leader"}}
 	// Managed binary, another user.
 	other := f.proc.procs[500]
-	other.PID, other.UID = 511, 1001
+	other.PID, other.UID = 511, uid+1
 	f.proc.procs[511] = other
 	// Managed binary, not a leader.
 	tui := f.proc.procs[500]

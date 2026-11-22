@@ -229,4 +229,11 @@ The fast API gate passed 9,006 tests and skipped 1,354. API typecheck, lint and 
 
 Frontend `check` passed all 1,020 tests. All 559 Chromium fixture cases passed. The first cross-browser run stopped at browser launch because the workstation lacked the locked revisions. Repeating the suite in the official Playwright 1.62.1 Noble image passed all 262 Firefox and WebKit cases. Both successful browser runs used zero retries.
 
-An independent static review verified the SDK path, relay assertions and the source of both frontend version hashes. The local checks cover the newer source. A hosted run of that revision requires it to be present on GitHub.
+An independent static review verified the SDK path, relay assertions and the source of both frontend version hashes.
+
+GitHub subsequently ran the five workflows on `161313561`. Android completed the SDK and Gradle steps. The wrapper passed formatting and reached a different failure in the Grok cleanup tests. [Hosted Android job](https://github.com/christianreiss/codex-orchestrator/actions/runs/45001686448) · [Hosted wrapper test log](https://github.com/christianreiss/codex-orchestrator/actions/runs/45001686407/job/137144401738)
+
+| Finding | Fix and verification |
+| --- | --- |
+| CI-GH-004 · Grok reaper fixture owner | The fixture gave synthetic processes UID 1000 and created real files as the user running the tests. Running under UID 1001 reproduced the hosted failure. The fixture now uses the effective UID and assigns a distinct UID to the foreign-process case. The suite passed under both UIDs with the real ownership checks enabled. |
+| CI-GH-005 · Wrapper build toolchain | With the exact CI compiler, Go 1.26.9, both normal and traced vulnerability scans reported reachable issues in `net/http` and `crypto/x509`. Wrapper 0.9.201 requires Go 1.26.11 and pins that patch in CI and the bakery image. Both scans on 1.26.11 reported zero reachable vulnerabilities. [GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859) · [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809) |
