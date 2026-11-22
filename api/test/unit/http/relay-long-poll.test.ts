@@ -129,20 +129,26 @@ describe('shared idle checks across waiters of one relay credential', () => {
   it('gives every new request its own first poll, then one shared check per grid point', async () => {
     vi.useFakeTimers();
     const k = key();
-    const check = vi.fn(io(true));
+    const checkMs = 10;
+    const first = relayGridDelay(k, Date.now());
+    // Put the deadline halfway through the fifth shared check, regardless of the clock's initial phase.
+    const deadline = Date.now() + first + 4 * relayLongPollConfig.gridMs + checkMs / 2;
+    const check = vi.fn(io(true, checkMs));
     const poll = vi.fn(async () => null);
     const waiters = Array.from({ length: 8 }, () =>
-      relayLongPoll(poll, Date.now() + 9000, () => false, undefined, { key: k, check }),
+      relayLongPoll(poll, deadline, () => false, undefined, { key: k, check }),
     );
     await vi.advanceTimersByTimeAsync(0);
     expect(poll).toHaveBeenCalledTimes(8);
     expect(check).not.toHaveBeenCalled();
-    const first = relayGridDelay(k, Date.now());
     await vi.advanceTimersByTimeAsync(first);
     expect(check).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(9000 - first);
+    await vi.advanceTimersByTimeAsync(deadline - Date.now());
+    expect(check).toHaveBeenCalledTimes(5);
+    // The in-flight database read still needs its remaining five milliseconds.
+    await vi.advanceTimersByTimeAsync(checkMs / 2);
     expect(await Promise.all(waiters)).toEqual(Array(8).fill(null));
-    expect(check).toHaveBeenCalledTimes(Math.ceil((9000 - first) / 2000));
+    expect(check).toHaveBeenCalledTimes(5);
     expect(poll).toHaveBeenCalledTimes(8);
     expect(vi.getTimerCount()).toBe(0);
   });
