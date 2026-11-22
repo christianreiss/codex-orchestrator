@@ -1,0 +1,65 @@
+name: website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'scripts/test-website-language.mjs'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/.npmrc'
+      - '.github/workflows/website.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - 'scripts/test-website-language.mjs'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'frontend/.npmrc'
+      - '.github/workflows/website.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  language:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install test dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx --no-install playwright install --only-shell chromium
+      - name: Test language selection at the domain root and project path
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep the parent of the project path empty so root-relative links fail here.
+          pages_root=$(mktemp -d "$RUNNER_TEMP/website-pages.XXXXXX")
+          ln -s "$PWD/website" "$pages_root/codex-orchestrator"
+          test_site() (
+            port=$1
+            directory=$2
+            base="http://127.0.0.1:$port/$3"
+            python3 -m http.server "$port" --bind 127.0.0.1 --directory "$directory" &
+            server_pid=$!
+            trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+            curl --fail --silent --show-error --retry 10 --retry-delay 1 --retry-connrefused "${base}index.html" | cmp - website/index.html
+            kill -0 "$server_pid"
+            node scripts/test-website-language.mjs "$base"
+          )
+          test_site 18735 website ''
+          test_site 18736 "$pages_root" 'codex-orchestrator/'
