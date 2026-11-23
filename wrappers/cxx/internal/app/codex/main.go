@@ -27,6 +27,7 @@ import (
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchupdate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/log"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
@@ -552,7 +553,14 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		return cmdAuthUploadAuto(ctx, cfg, stdout, stderr)
 	}
 	_, sessionCommand := sessionCommandArgs(sub, nil, nil)
-	if sessionCommand || sub == "exec" || sub == "resume" || sub == "execute" || sub == "profile" || (isProfileShorthand(sub) && codex.HasProfile(sub)) {
+	profileLaunch := sub == "profile" || (isProfileShorthand(sub) && codex.HasProfile(sub))
+	utility := sub == "run" && !conversationArgs(append(append([]string{}, subArgs...), passthrough...))
+	if handoffSession == nil && ((sessionCommand && !utility) || sub == "exec" || sub == "resume" || sub == "execute" || profileLaunch) {
+		var retry func()
+		ctx, retry = launchupdate.Prepare(ctx, cfg, codex.GuardFQDN, stderr)
+		defer retry()
+	}
+	if sessionCommand || sub == "exec" || sub == "resume" || sub == "execute" || profileLaunch {
 		if exit := ensureCLIForLaunch(ctx, cfg, f, logger, stderr); exit != 0 {
 			return exit
 		}
@@ -610,7 +618,6 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		}()
 		// A native utility under `run` (`codex mcp add …`) launches no session, so
 		// it must not start the detached cron sync into its CODEX_HOME either.
-		utility := sub == "run" && !conversationArgs(append(append([]string{}, subArgs...), passthrough...))
 		if (sessionCommand && !utility) || sub == "exec" || sub == "resume" || sub == "execute" || sub == "profile" {
 			if err := maintenance.Request(config.EngineCodex, f.configPath); err != nil {
 				logger.Debug("background maintenance request deferred", "err", err)

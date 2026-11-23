@@ -91,7 +91,7 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 		communicator.SetAPIHeader(req.Header)
 	}
 	req.Header.Set("User-Agent", "cxx-update/"+targetVersion)
-	client, err := HTTPClient(cfg)
+	client, err := DirectHTTPClient(cfg)
 	if err != nil {
 		return "", err
 	}
@@ -206,7 +206,7 @@ func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, t
 		communicator.SetAPIHeader(req.Header)
 	}
 	req.Header.Set("User-Agent", "cxx-update/"+targetVersion)
-	client, err := HTTPClient(cfg)
+	client, err := DirectHTTPClient(cfg)
 	if err != nil {
 		return "", err
 	}
@@ -472,6 +472,17 @@ var runVersionCheck = func(ctx context.Context, path string) error {
 // HTTPClient returns the wrapper's common orchestrator client, including the
 // configured private CA and explicit insecure-mode policy.
 func HTTPClient(cfg *config.Config) (*http.Client, error) {
+	client, err := DirectHTTPClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+	client.Transport = communicator.Wrap(client.Transport)
+	return client, nil
+}
+
+// DirectHTTPClient uses the configured TLS policy without the local owner.
+// Use it for the signed config and verified binary that can repair that owner.
+func DirectHTTPClient(cfg *config.Config) (*http.Client, error) {
 	tlsConfig := &tls.Config{InsecureSkipVerify: cfg.Orchestrator.AllowInsecure}
 	if cfg.Orchestrator.CABundlePath != nil && strings.TrimSpace(*cfg.Orchestrator.CABundlePath) != "" {
 		pem, err := os.ReadFile(*cfg.Orchestrator.CABundlePath)
@@ -487,7 +498,7 @@ func HTTPClient(cfg *config.Config) (*http.Client, error) {
 		}
 		tlsConfig.RootCAs = pool
 	}
-	return &http.Client{Timeout: downloadTimeout, CheckRedirect: httpguard.Redirect, Transport: communicator.Wrap(&http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig})}, nil
+	return &http.Client{Timeout: downloadTimeout, CheckRedirect: httpguard.Redirect, Transport: &http.Transport{DialContext: ipv4.PreferDialContext(), TLSClientConfig: tlsConfig}}, nil
 }
 
 func sameHost(rawURL, baseURL string) bool {

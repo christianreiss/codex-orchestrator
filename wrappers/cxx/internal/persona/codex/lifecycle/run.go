@@ -13,6 +13,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchcard"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchupdate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"io"
@@ -537,7 +538,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 
 	if communicator.StrictCache(cfg) && !opts.SyncOnly {
 		if err := errors.Join(authErr, agentsSync.Err, configSync.Err, skillsSync.Err); err != nil {
-			return 1, fmt.Errorf("fresh cache confirmation failed: %w", err)
+			return 1, launchupdate.CacheFailure(ctx, err)
 		}
 		if concurrent || authResp == nil || strings.EqualFold(dec.Status, "offline") {
 			return 1, errors.New("new launch requires fresh server confirmation; cached credentials cannot authorize it")

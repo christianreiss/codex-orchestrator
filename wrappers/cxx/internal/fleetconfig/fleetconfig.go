@@ -44,14 +44,24 @@ type Fetched struct {
 }
 
 func Fetch(ctx context.Context, seed *config.Config, engine string) (*Fetched, error) {
+	return fetchSigned(ctx, seed, engine, false)
+}
+
+// FetchDirect bypasses the local communicator when the signed config is
+// needed to recover an installation or discover a wrapper update.
+func FetchDirect(ctx context.Context, seed *config.Config, engine string) (*Fetched, error) {
+	return fetchSigned(ctx, seed, engine, true)
+}
+
+func fetchSigned(ctx context.Context, seed *config.Config, engine string, direct bool) (*Fetched, error) {
 	pubkey, err := signing.PublicKey()
 	if err != nil {
 		return nil, fmt.Errorf("load config signing key: %w", err)
 	}
-	return fetchWithKey(ctx, seed, engine, pubkey)
+	return fetchWithKey(ctx, seed, engine, pubkey, direct)
 }
 
-func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubkey ed25519.PublicKey) (*Fetched, error) {
+func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubkey ed25519.PublicKey, direct bool) (*Fetched, error) {
 	if seed == nil {
 		return nil, errors.New("nil seed config")
 	}
@@ -70,10 +80,15 @@ func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubke
 	req.Header.Set("X-API-Key", seed.Orchestrator.APIKey)
 	communicator.SetAPIHeader(req.Header)
 	req.Header.Set("X-Wrapper-Platform", runtime.GOOS+"-"+runtime.GOARCH)
-	client, err := coreupdate.HTTPClient(seed)
+	newClient := coreupdate.HTTPClient
+	if direct {
+		newClient = coreupdate.DirectHTTPClient
+	}
+	client, err := newClient(seed)
 	if err != nil {
 		return nil, err
 	}
+	defer client.CloseIdleConnections()
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -145,7 +160,7 @@ func LoadOrRecover(ctx context.Context, path string, pubkey ed25519.PublicKey, e
 	if !errors.As(err, &expired) || expired.Config == nil {
 		return nil, false, err
 	}
-	fetched, fetchErr := fetchWithKey(ctx, expired.Config, engine, pubkey)
+	fetched, fetchErr := fetchWithKey(ctx, expired.Config, engine, pubkey, true)
 	if fetchErr != nil {
 		return nil, false, expiredRecoveryError(expired, path, fetchErr)
 	}

@@ -69,10 +69,7 @@ func Begin(ctx context.Context, due bool) (*Run, error) {
 }
 
 func beginAt(dir string, due bool, now time.Time) (*Run, error) {
-	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(dir, "maintenance.lock"))
-	if errors.Is(err, ipc.ErrHeld) {
-		return nil, ErrBusy
-	}
+	lock, err := lockAt(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +90,24 @@ func beginAt(dir string, due bool, now time.Time) (*Run, error) {
 		return nil, err
 	}
 	return &Run{lock: lock, dir: dir, state: s}, nil
+}
+
+// LockForLaunch coordinates a foreground wrapper replacement with cron and
+// explicit update without reporting a full maintenance run or moving its due time.
+func LockForLaunch() (*ipc.Lock, error) {
+	dir, err := stateDir()
+	if err != nil {
+		return nil, err
+	}
+	return lockAt(dir)
+}
+
+func lockAt(dir string) (*ipc.Lock, error) {
+	lock, err := ipc.TryAcquireExclusivePath(filepath.Join(dir, "maintenance.lock"))
+	if errors.Is(err, ipc.ErrHeld) {
+		return nil, ErrBusy
+	}
+	return lock, err
 }
 
 func (r *Run) Finish(runErr error) error {

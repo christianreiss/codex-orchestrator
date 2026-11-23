@@ -877,6 +877,14 @@ channel turned every nightly update into a local 503 (2026-10-24 to 2026-11-04, 
 insecure hosts on cxx 0.9.123); wrappers before this release keep that behaviour, so the
 server must keep the transport open for every wrapper version in the fleet.
 
+From cxx 0.9.203, startup recovery fetches the signed config and verified wrapper
+download directly from the HTTPS origin, even if a local owner is running.
+Expired config renewal and maintenance assignment discovery use the same direct
+config route. The foreground recovery probe goes directly to `/cron/check`
+with `probe: true`. This keeps the update channel independent of the owner and
+surfaces its underlying TLS error when unavailable. See
+[startup update recovery](interface-cdx.md#startup-update-recovery).
+
 When the server refuses the WebSocket upgrade, the owner asks once more outside the
 WebSocket library and records the server's own verdict in `last_error` (for example
 `communicator handshake rejected: HTTP 401 ip_mismatch (API key not allowed from this

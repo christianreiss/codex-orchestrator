@@ -40,7 +40,7 @@ func TestFetchWithKeyVerifiesExactSignedPayload(t *testing.T) {
 	defer srv.Close()
 	seed := validConfig(config.EngineCodex, "https://example.invalid/cxx")
 	seed.Orchestrator.BaseURL = srv.URL
-	fetched, err := fetchWithKey(context.Background(), seed, config.EngineClaude, pub)
+	fetched, err := fetchWithKey(context.Background(), seed, config.EngineClaude, pub, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestFetchWithKeyRejectsAnotherInstallationsSignature(t *testing.T) {
 	defer srv.Close()
 	seed := validConfig(config.EngineCodex, "https://example.invalid/cxx")
 	seed.Orchestrator.BaseURL = srv.URL
-	if _, err := fetchWithKey(context.Background(), seed, config.EngineCodex, trusted); err == nil || !strings.Contains(err.Error(), "signature invalid") {
+	if _, err := fetchWithKey(context.Background(), seed, config.EngineCodex, trusted, false); err == nil || !strings.Contains(err.Error(), "signature invalid") {
 		t.Fatalf("error=%v, want signature invalid", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestFetchRequiresExplicitEngineDisabledCode(t *testing.T) {
 			defer srv.Close()
 			seed := validConfig(config.EngineCodex, "https://example.invalid/cxx")
 			seed.Orchestrator.BaseURL = srv.URL
-			_, err := fetchWithKey(context.Background(), seed, config.EngineClaude, pub)
+			_, err := fetchWithKey(context.Background(), seed, config.EngineClaude, pub, false)
 			if errors.Is(err, ErrEngineDisabled) != tt.want {
 				t.Fatalf("error=%v want disabled=%v", err, tt.want)
 			}
@@ -135,7 +135,7 @@ func TestFetchRefusesRedirectWithoutForwardingAPIKey(t *testing.T) {
 	defer source.Close()
 	seed := validConfig(config.EngineCodex, "https://example.invalid/cxx")
 	seed.Orchestrator.BaseURL = source.URL
-	if _, err := fetchWithKey(context.Background(), seed, config.EngineClaude, pub); err == nil || !strings.Contains(err.Error(), "HTTP 307") {
+	if _, err := fetchWithKey(context.Background(), seed, config.EngineClaude, pub, false); err == nil || !strings.Contains(err.Error(), "HTTP 307") {
 		t.Fatalf("redirect accepted: %v", err)
 	}
 	if redirected {
@@ -228,7 +228,7 @@ func TestFetchWithKeyAcceptsAConfigThatLooksExpiredToASkewedClock(t *testing.T) 
 
 	seed := validConfig(config.EngineCodex, "https://example.invalid/cxx")
 	seed.Orchestrator.BaseURL = srv.URL
-	if _, err := fetchWithKey(context.Background(), seed, config.EngineCodex, pub); err != nil {
+	if _, err := fetchWithKey(context.Background(), seed, config.EngineCodex, pub, false); err != nil {
 		t.Fatalf("freshly signed config rejected on arrival: %v", err)
 	}
 }

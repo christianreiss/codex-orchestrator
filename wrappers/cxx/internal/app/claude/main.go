@@ -27,6 +27,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	hostcron "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/cron"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchupdate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/log"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
@@ -457,6 +458,9 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		return cmdSessionAuthSync(ctx, cfg, logger, stderr)
 	}
 	if sub == "run" || sub == "resume" || sub == "execute" || sub == "exec" {
+		var retry func()
+		ctx, retry = launchupdate.Prepare(ctx, cfg, claude.GuardFQDN, stderr)
+		defer retry()
 		if exit := ensureCLIForLaunch(ctx, cfg, f, logger, stderr); exit != 0 {
 			return exit
 		}

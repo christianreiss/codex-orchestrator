@@ -1029,11 +1029,33 @@ An engine switched off fleet-wide (Admin → Engines → Engine master switches;
 
 ## Background maintenance
 
-From cxx 0.8.2, normal `cdx`/`clx` launches use the installed engine and only queue
-a detached `cxx cron run --due --minimal`. No installer, peer upgrade, or wrapper
-re-exec runs inline before or after a session. Auth and managed-content sync
-remain part of launch. Missing native executables fail promptly with a repair
-command. Explicit `--update` remains an operator-requested foreground action.
+Normal launches use the installed engine and queue a detached
+`cxx cron run --due --minimal`. Auth and managed-content sync remain part of
+launch. An explicit `--update` also updates native packages in the foreground.
+
+### Startup update recovery
+
+From cxx 0.9.203, `cdx`, `clx`, `cgx`, `ckx` and the equivalent `cxx` entry
+points share one recovery check. When auto-update is enabled, a launch checks
+before admission if its signed config is at least a day old or names a newer
+wrapper. A launch with a current config also checks when the communicator
+reports `communicator_unavailable` or `communicator_outcome_unknown` during
+fresh cache admission.
+
+The wrapper fetches the signed host config, sends `POST /cron/check` with
+`probe: true` and downloads the artifact over direct HTTPS. Config and probe
+must agree on the newer version and digest. The wrapper verifies and installs
+the download atomically under the shared maintenance lock. cxx then restarts
+the original command once with its original arguments. Routine native package
+updates and peer provisioning run in maintenance.
+
+Every released client needs a reachable update origin, verifiable TLS and a
+valid host key to get its next release. For a private CA rotation, distribute the
+new root through host provisioning before changing the chain served at the
+existing origin. This also covers hosts running releases that predate foreground
+recovery. Host approval and engine suspension are enforced during launch.
+
+### Schedule and cooldowns
 
 One nonblocking per-user lease serializes the full coordinator, including child
 re-execs. From cxx 0.9.82 the shared schedule (`# cxx-managed-cron`,

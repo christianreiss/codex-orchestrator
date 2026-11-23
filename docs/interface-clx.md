@@ -481,7 +481,8 @@ managed replacement. Failed staging leaves the current executable selected.
 No unattended prerequisite package-manager or global npm mutation runs.
 
 See [shared background maintenance](interface-cdx.md#background-maintenance)
-for cadence, cooldowns, logs, and recovery commands.
+for cadence, cooldowns and logs, and [startup update recovery](interface-cdx.md#startup-update-recovery)
+for the signed update check before a Claude launch.
 
 ### Emergency mode (cxx 0.9.141)
 

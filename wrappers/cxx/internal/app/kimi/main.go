@@ -34,6 +34,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	native "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchcard"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launchupdate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	hostmaintenance "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/memoryrouting"
@@ -301,6 +302,11 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 		terminalui.Failure(stderr, "ckx", o.command, err)
 		return 1
 	}
+	if o.command == "run" || o.command == "execute" {
+		var retry func()
+		ctx, retry = launchupdate.Prepare(ctx, cfg, native.GuardFQDN, stderr)
+		defer retry()
+	}
 	ctx = communicator.WithSyncConfig(ctx, cfg)
 	if cfg.EngineOptions.KimiModelOverride != nil {
 		cfg.EngineOptions.ModelOverride = cfg.EngineOptions.KimiModelOverride
@@ -399,7 +405,7 @@ func load(ctx context.Context, path string) (*config.Config, error) {
 	cfg, err := config.LoadForEngine(path, key, false, config.EngineKimi)
 	var expired *config.ExpiredError
 	if errors.As(err, &expired) && expired.Config != nil {
-		fetched, fetchErr := fleetconfig.Fetch(ctx, expired.Config, config.EngineKimi)
+		fetched, fetchErr := fleetconfig.FetchDirect(ctx, expired.Config, config.EngineKimi)
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
@@ -688,7 +694,7 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	}
 	if syncErr != nil {
 		if communicator.StrictCache(cfg) {
-			return 1, fmt.Errorf("fresh cache confirmation failed: %w", syncErr)
+			return 1, launchupdate.CacheFailure(ctx, syncErr)
 		}
 		if !errors.Is(syncErr, ipc.ErrHeld) {
 			if refusal := launchRefusal(cfg, syncErr); refusal != nil {

@@ -69,7 +69,7 @@ type userCrontabChange struct {
 type userCrontabRollback func() error
 
 var (
-	fetchAuthoritative     = fleetconfig.Fetch
+	fetchAuthoritative     = fleetconfig.FetchDirect
 	persistAuthoritative   = fleetconfig.Persist
 	removeEngineConfig     = fleetconfig.Remove
 	runEngineTick          = defaultRunEngineTick
