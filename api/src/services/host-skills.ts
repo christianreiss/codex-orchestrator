@@ -26,6 +26,8 @@ import {
 import { isManagedRolesSlug, rolesSkillDisabledView } from './managed-roles-skill.js';
 import {
   allowsImplicitSkillInvocation,
+  compareUtf8Bytewise,
+  computeSkillBundleDigest,
   effectiveSkillDigest,
   inspectStoredSkillBundle,
   isSourceOwnedSkill,
@@ -35,6 +37,25 @@ import {
 const SLUG_RE = /^[A-Za-z0-9._-]+$/;
 const SHA_RE = /^[a-f0-9]{64}$/i;
 const CANONICAL_URI_PREFIX = 'skill://';
+const CODEX_MENTION_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+// Codex's composer binds only ASCII letters, digits, underscores and hyphens.
+// Reserve literal names first so a dotted slug cannot take another Skill's
+// existing mention. Keep aliases unique on case-insensitive filesystems too.
+function codexMentionName(slug: string, taken: Set<string>): string {
+  if (CODEX_MENTION_RE.test(slug)) return slug;
+  const stem = slug.replace(/\./g, '-');
+  let name = stem;
+  if (stem.length > 64 || taken.has(stem.toLowerCase())) {
+    const suffix = createHash('sha256').update(slug).digest('hex').slice(0, 12);
+    name = `${stem.slice(0, 48)}-${suffix}`;
+    for (let attempt = 2; taken.has(name.toLowerCase()); attempt++) {
+      name = `${stem.slice(0, 40)}-${suffix}-${attempt}`;
+    }
+  }
+  taken.add(name.toLowerCase());
+  return name;
+}
 
 function skillUri(slug: string): string {
   return `${CANONICAL_URI_PREFIX}${encodeURIComponent(slug)}`;
@@ -272,6 +293,47 @@ export class HostSkillsService {
     const decorated = rows.filter((r) => !managedSlugs.has(r.slug)).map((r) => this.decorate(r));
     for (const m of managed) decorated.push(this.decorateManaged(m));
     return { engine, skills: decorated };
+  }
+
+  /** Native Codex menu entries whose instructions are resolved live over MCP. */
+  async codexEntries(host: Host, digests: Record<string, string>): Promise<SkillEnvelope[]> {
+    const { skills: catalog } = await this.listSkills(host, ENGINE_CODEX);
+    const taken = new Set(catalog.map((skill) => String(skill.slug))
+      .filter((slug) => CODEX_MENTION_RE.test(slug)).map((slug) => slug.toLowerCase()));
+    return catalog.sort((a, b) => compareUtf8Bytewise(String(a.slug), String(b.slug))).map((skill) => {
+      const slug = String(skill.slug);
+      const name = codexMentionName(slug, taken);
+      const uri = skillUri(slug);
+      const description = typeof skill.description === 'string' && skill.description.trim()
+        ? Array.from(skill.description.trim().replace(/\s+/g, ' ')).slice(0, 1024).join('')
+        : `Use the ${slug} Fleet Skill.`;
+      const content = [
+        '---',
+        `name: ${JSON.stringify(name)}`,
+        `description: ${JSON.stringify(description)}`,
+        '---',
+        '',
+        `Look up the Fleet Skill ${slug} with the orchestrator MCP tool skill_list, then read ${uri} with resource_read. Follow its current instructions with the arguments from this invocation. Use resource_read on ${uri}/<path> for any required support files. If the Skill is unavailable, report the retrieval failure.`,
+        '',
+      ].join('\n');
+      const metadata = [
+        'interface:',
+        `  display_name: ${JSON.stringify(skill.display_name || slug)}`,
+        'policy:',
+        `  allow_implicit_invocation: ${skill.allow_implicit_invocation !== false}`,
+        '',
+      ].join('\n');
+      const manifest_sha256 = createHash('sha256').update(content).digest('hex');
+      const file = {
+        path: 'agents/openai.yaml',
+        sha256: createHash('sha256').update(metadata).digest('hex'),
+        content: metadata,
+      };
+      const sha256 = computeSkillBundleDigest([{ path: 'SKILL.md', sha256: manifest_sha256 }, file]);
+      return sha256 === digests[name]
+        ? { slug: name, sha256, status: 'unchanged' }
+        : { slug: name, sha256, status: 'updated', content, manifest_sha256, files: [file] };
+    });
   }
 
   /** Metadata-only listing for support files attached to one live skill. */

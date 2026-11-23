@@ -318,6 +318,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		agentsSync    summary.ResourceSync
 		configSync    summary.ResourceSync
 		skillsSync    summary.ResourceSync
+		skillEntries  summary.ResourceSync
 		fleetSessions *orchestrator.FleetSessions
 		dec           orchestrator.AuthDecision
 	)
@@ -338,7 +339,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		bundleRounds++
 		progress := startProgress(ctx, opts, logger, ui.TopicSync, "syncing with orchestrator")
 		defer progress.Clear()
-		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrapWithProgress(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange, progress, opts.ExtraArgs)
+		authResp, authErr, authSynced, agentsSync, configSync, fleetSessions = bootstrapWithProgress(ctx, client, logger, concurrent, authPath, !opts.SkipCredentialExchange, progress, opts.ExtraArgs, &skillEntries)
 	}
 
 	// Overlap the read-only probes the boot card needs with the first bundle
@@ -507,10 +508,8 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 			reconcileEngineDrift(cfg, authResp, logger)
 		}
 
-		// Skills are MCP-served in v2; we still ping /skills to detect
-		// fingerprint changes (lights the boot-screen "skills" dot) and
-		// purge bash-era on-disk caches once per wrapper version so they
-		// don't shadow MCP resolution. Both are best-effort.
+		// The fingerprint tracks changes to canonical MCP content, including
+		// changes that leave the local menu entries identical.
 		if !concurrent {
 			// A failed prefetch raced only the first bundle round; once a later
 			// round has run (approval, upload, login) the host state may have
@@ -526,6 +525,12 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 				skillsSync = skillsJoin()
 			} else {
 				skillsSync = syncSkillsListed(ctx, client, logger, listed)
+			}
+			if skillEntries.Checked {
+				skillsSync = combineResourceSync(skillEntries, skillsSync)
+			}
+			if len(skillsSync.Warnings) > 0 {
+				ui.Say(updateprogress.Output(ctx, os.Stderr), "cdx", ui.ToneWarn, "skills", strings.Join(skillsSync.Warnings, "; "))
 			}
 		}
 	}
@@ -610,7 +615,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, runErr error) {
 		if !concurrent {
 			switch dec.Status {
 			case "disabled", "invalid", "insecure-denied":
-				if err := stripMemoryRouting(authPath); err != nil {
+				if err := stripManagedContext(authPath); err != nil {
 					return 1, fmt.Errorf("managed cleanup incomplete after launch refusal: %w", err)
 				}
 			}
@@ -847,7 +852,7 @@ func bootstrap(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
 	concurrent bool, authPath string, includeAuth bool,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
-	return bootstrapWithProgress(ctx, client, logger, concurrent, authPath, includeAuth, nil)
+	return bootstrapWithProgress(ctx, client, logger, concurrent, authPath, includeAuth, nil, nil, nil)
 }
 
 // bootstrapWithProgress is bootstrap with an in-flight progress line that is
@@ -855,22 +860,24 @@ func bootstrap(
 // print its own notice.
 func bootstrapWithProgress(
 	ctx context.Context, client *orchestrator.Client, logger *slog.Logger,
-	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress, launchArgs ...[]string,
+	concurrent bool, authPath string, includeAuth bool, progress *ui.Progress, launchArgs []string, skillEntries *summary.ResourceSync,
 ) (*orchestrator.AuthRetrieveResponse, error, bool, summary.ResourceSync, summary.ResourceSync, *orchestrator.FleetSessions) {
+	if skillEntries != nil {
+		*skillEntries = summary.ResourceSync{}
+	}
 	if communicator.SyncManaged(client.BaseURL) {
-		var args []string
-		if len(launchArgs) > 0 {
-			args = launchArgs[0]
-		}
 		// A primed owner already holds current content (pushed invalidations
 		// keep it so): the launch fetches only what it needs before exec.
 		cached := includeAuth && communicator.Primed(ctx, client.BaseURL, "codex", authPath)
 		var out communicator.SyncResult
 		var err error
 		if cached {
-			out, err = sharedAuthOnly(ctx, client, authPath, args)
+			out, err = sharedAuthOnly(ctx, client, authPath, launchArgs)
 		} else {
-			out, err = sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, args)
+			out, err = sharedSync(ctx, client, authPath, "bootstrap", includeAuth, false, launchArgs)
+		}
+		if skillEntries != nil {
+			*skillEntries = resourceFromWire(out.Resources["skills"])
 		}
 		var auth *orchestrator.AuthRetrieveResponse
 		var refusal *orchestrator.HTTPError
@@ -1000,17 +1007,26 @@ func bootstrapWithProgress(
 	if skipContent {
 		includeContent = new(bool)
 	}
+	var skillDigests map[string]string
+	installEntries := !concurrent && !skipContent
+	if installEntries {
+		if store, err := codex.SkillEntries(); err == nil {
+			skillDigests = store.Digests()
+		}
+	}
 	resp, berr := client.SyncBootstrap(bctx, orchestrator.BundleRequest{
-		VersionProbe:   codex.Version,
-		IncludeContent: includeContent,
-		Engine:         "codex",
-		IncludeAuth:    includeAuth,
-		AuthDigest:     digest,
-		AuthCandidate:  candidate,
-		Agents:         agentsDigest,
-		Config:         configDigest,
-		Home:           home,
-		Username:       username,
+		VersionProbe:      codex.Version,
+		IncludeContent:    includeContent,
+		Engine:            "codex",
+		IncludeAuth:       includeAuth,
+		AuthDigest:        digest,
+		AuthCandidate:     candidate,
+		Agents:            agentsDigest,
+		Config:            configDigest,
+		Home:              home,
+		Username:          username,
+		CodexSkillEntries: installEntries,
+		Skills:            skillDigests,
 	})
 	progress.Clear()
 	if berr != nil {
@@ -1040,8 +1056,8 @@ func bootstrapWithProgress(
 		var refusal *orchestrator.HTTPError
 		scope, removed := orchestrator.EngineDisabledScope(berr)
 		if !concurrent && ((errors.As(berr, &refusal) && memoryrouting.TrustLost(refusal.Code)) || (removed && scope == config.EngineDisabledScopeHost)) {
-			if err := stripMemoryRouting(authPath); err != nil {
-				return nil, errors.Join(berr, fmt.Errorf("managed memory cleanup incomplete: %w", err)), false, summary.ResourceSync{}, summary.ResourceSync{Checked: true, Err: err}, nil
+			if err := stripManagedContext(authPath); err != nil {
+				return nil, errors.Join(berr, fmt.Errorf("managed context cleanup incomplete: %w", err)), false, summary.ResourceSync{}, summary.ResourceSync{Checked: true, Err: err}, nil
 			}
 		}
 		// Insecure-approval gate (423 pending / 403 denied) is not an outage:
@@ -1151,18 +1167,19 @@ func bootstrapWithProgress(
 		}
 
 		if resp.MemoryRouting != nil {
-			var args []string
-			if len(launchArgs) > 0 {
-				args = launchArgs[0]
-			}
-			updated, err := memoryrouting.ApplyWithWarnings("codex", filepath.Dir(authPath), resp.MemoryRouting, args, func(err error) {
+			updated, err := memoryrouting.ApplyWithWarnings("codex", filepath.Dir(authPath), resp.MemoryRouting, launchArgs, func(err error) {
 				logger.Warn("memory routing reminder left unchanged", "err", err)
 			})
 			configSync.Checked = true
 			configSync.Updated = configSync.Updated || updated
 			configSync.Err = errors.Join(configSync.Err, err)
 		}
-
+		if resp.CodexSkills != nil {
+			result := applySkillEntries(resp.CodexSkills)
+			if skillEntries != nil {
+				*skillEntries = result
+			}
+		}
 	}
 	if applyErr != nil {
 		applyErr = &authMaterializationError{err: applyErr}
@@ -1196,6 +1213,7 @@ func combineResourceSync(states ...summary.ResourceSync) summary.ResourceSync {
 		combined.Checked = combined.Checked && state.Checked
 		combined.Updated = combined.Updated || state.Updated
 		combined.Err = errors.Join(combined.Err, state.Err)
+		combined.Warnings = append(combined.Warnings, state.Warnings...)
 	}
 	return combined
 }
@@ -1935,8 +1953,8 @@ func buildSessionCounts(fs *orchestrator.FleetSessions) *summary.SessionCounts {
 	}
 }
 
-// Explicit trust loss removes only our reminders; outages preserve cached context.
-func stripMemoryRouting(authPath string) error {
+// Explicit trust loss removes fleet-owned context. Outages preserve it.
+func stripManagedContext(authPath string) error {
 	_, err := memoryrouting.Apply("codex", filepath.Dir(authPath), &memoryrouting.Bundle{Enabled: false}, nil)
-	return err
+	return errors.Join(err, codex.StripSkillEntries())
 }

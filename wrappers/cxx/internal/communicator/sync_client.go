@@ -32,9 +32,10 @@ type SyncError struct {
 func (e *SyncError) Error() string { return e.Message }
 
 type ResourceResult struct {
-	Checked bool   `json:"checked"`
-	Updated bool   `json:"updated"`
-	Error   string `json:"error,omitempty"`
+	Checked  bool     `json:"checked"`
+	Updated  bool     `json:"updated"`
+	Error    string   `json:"error,omitempty"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (r ResourceResult) Err() error {

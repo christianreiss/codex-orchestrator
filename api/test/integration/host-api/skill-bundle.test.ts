@@ -184,6 +184,82 @@ async function bootstrapClaudeSkills(
 }
 
 describe('fresh Codex Skill bootstrap', () => {
+  it('syncs native menu entries while serving the current instructions over MCP', async () => {
+    const key = 'sk-codex-native-entries';
+    const db = baseTables(key, 'codex');
+    const settings = { orchestrator_mcp_enabled: true, mcp_servers: [] };
+    const config = { id: 1, engine: 'codex', body: '{}', sha256: 'native-entries', settings };
+    db.tables.set(clientConfigDocuments, [config]);
+    const row = skillRow({
+      id: 1, slug: 'native.example', description: 'Find fixture instructions.',
+      manifest: '---\nname: native.example\ndescription: Fixture\ndisable-model-invocation: true\n---\n\nFirst instruction.\n',
+    });
+    db.tables.set(skillsTable, [
+      row,
+      skillRow({ id: 2, slug: 'claude-only', engine: 'claude' }),
+      skillRow({ id: 3, slug: 'same.name' }),
+      skillRow({ id: 4, slug: 'same-name' }),
+    ]);
+    const capability = { codex_skill_entries: true };
+    const keyring = makeKeyring();
+    const app = await buildHostApiTestApp({ db: db as never, env, keyring });
+    await registerMcpRoutes(app, { db: db as never, env, keyring });
+    const request = async (payload: Record<string, unknown>) => {
+      const response = await app.inject({
+        method: 'POST', url: '/sync/bootstrap', headers: { authorization: `Bearer ${key}` },
+        payload: { engine: 'codex', include_auth: false, ...payload },
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json();
+    };
+    try {
+      expect((await request({})).codex_skills).toBeUndefined();
+      expect((await request({ ...capability, include_content: false })).codex_skills).toBeUndefined();
+      const { codex_skills: items } = await request(capability);
+      const nativeName = 'native-example';
+      const entry = items.find((item: { slug: string }) => item.slug === nativeName);
+      expect(items).not.toContainEqual(expect.objectContaining({ slug: 'claude-only' }));
+      expect(items).toContainEqual(expect.objectContaining({
+        slug: 'same-name', content: expect.stringContaining('skill://same-name'),
+      }));
+      expect(items).toContainEqual(expect.objectContaining({
+        slug: expect.stringMatching(/^same-name-[a-f0-9]{12}$/),
+        content: expect.stringContaining('skill://same.name'),
+      }));
+      expect(entry.content).toContain('name: "native-example"');
+      expect(entry.content).toContain('skill://native.example');
+      expect(entry.content).not.toContain('First instruction');
+      expect(entry.files).toEqual([expect.objectContaining({
+        path: 'agents/openai.yaml', content: expect.stringContaining('allow_implicit_invocation: false'),
+      })]);
+      expect(entry.sha256).toBe(computeSkillBundleDigest([
+        { path: 'SKILL.md', sha256: createHash('sha256').update(entry.content).digest('hex') },
+        { path: 'agents/openai.yaml', sha256: createHash('sha256').update(entry.files[0].content).digest('hex') },
+      ]));
+      const digestRequest = { ...capability, skills: { [nativeName]: entry.sha256 } };
+      expect((await request(digestRequest)).codex_skills).toContainEqual({
+        slug: nativeName, sha256: entry.sha256, status: 'unchanged',
+      });
+      expect(await readSkillResource(app, key, 'codex', 'native.example')).toContain('First instruction');
+      row.manifest = String(row.manifest).replace('First instruction', 'Current instruction');
+      row.sha256 = createHash('sha256').update(String(row.manifest)).digest('hex');
+      expect(await readSkillResource(app, key, 'codex', 'native.example')).toContain('Current instruction');
+      expect((await request(digestRequest)).codex_skills).toContainEqual({
+        slug: nativeName, sha256: entry.sha256, status: 'unchanged',
+      });
+      row.description = 'Changed menu description.';
+      expect((await request(digestRequest)).codex_skills).toContainEqual(expect.objectContaining({
+        slug: nativeName, status: 'updated', content: expect.stringContaining('Changed menu description.'),
+      }));
+      row.deletedAt = '2026-11-23T00:00:00Z';
+      expect((await request(capability)).codex_skills).not.toContainEqual(expect.objectContaining({ slug: nativeName }));
+      settings.orchestrator_mcp_enabled = false;
+      expect((await request(capability)).codex_skills).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('routes zero-knowledge agents to authoritative MCP Skill management first', async () => {
     const apiKey = 'sk-codex-mcp-first';
     const agentsBody = '# Fleet rules\n';

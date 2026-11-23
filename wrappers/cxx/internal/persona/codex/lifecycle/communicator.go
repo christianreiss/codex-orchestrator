@@ -50,10 +50,12 @@ func syncErrorFromWire(wire *communicator.SyncError) error {
 	return err
 }
 func resourceToWire(r summary.ResourceSync) communicator.ResourceResult {
-	return communicator.Resource(r.Checked, r.Updated, r.Err)
+	out := communicator.Resource(r.Checked, r.Updated, r.Err)
+	out.Warnings = r.Warnings
+	return out
 }
 func resourceFromWire(r communicator.ResourceResult) summary.ResourceSync {
-	return summary.ResourceSync{Checked: r.Checked, Updated: r.Updated, Err: r.Err()}
+	return summary.ResourceSync{Checked: r.Checked, Updated: r.Updated, Err: r.Err(), Warnings: r.Warnings}
 }
 
 func sharedSync(ctx context.Context, client *orchestrator.Client, authPath, operation string, includeAuth, concurrent bool, args []string) (communicator.SyncResult, error) {
@@ -148,7 +150,8 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		_ = contentnotice.PublishChanges("codex", instructions, before, contentSnapshot())
 	case "bootstrap", "content":
 		before := contentSnapshot()
-		auth, err, synced, agents, settings, sessions := bootstrapWithProgress(ctx, client, logger, false, path, req.IncludeAuth, nil, req.Args)
+		var entries summary.ResourceSync
+		auth, err, synced, agents, settings, sessions := bootstrapWithProgress(ctx, client, logger, false, path, req.IncludeAuth, nil, req.Args, &entries)
 		out.Auth, _ = json.Marshal(auth)
 		out.AuthSynced = synced
 		out.Sessions, _ = json.Marshal(sessions)
@@ -160,7 +163,13 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		}
 		out.Resources = map[string]communicator.ResourceResult{"agents": resourceToWire(agents), "config": resourceToWire(settings)}
 		if req.Operation == "content" {
-			out.Resources["skills"] = resourceToWire(syncSkills(ctx, client, logger))
+			fingerprint := syncSkills(ctx, client, logger)
+			if entries.Checked {
+				fingerprint = combineResourceSync(entries, fingerprint)
+			}
+			out.Resources["skills"] = resourceToWire(fingerprint)
+		} else if entries.Checked {
+			out.Resources["skills"] = resourceToWire(entries)
 		}
 		// Running sessions loaded the previous content at startup. A launching
 		// session primes itself after this pass, so only its peers are told.
@@ -263,9 +272,10 @@ func reconcileUnknownAuth(ctx context.Context, client *orchestrator.Client, path
 func contentSnapshot() contentnotice.Snapshot {
 	instructions, _ := agentsPath()
 	settings, _ := configTomlPath()
+	entries, _ := codex.SkillEntries()
 	return contentnotice.Capture(map[string][]string{
 		contentnotice.KindInstructions: {instructions},
-		contentnotice.KindSkills:       {skillsDigestPath()},
+		contentnotice.KindSkills:       {skillsDigestPath(), entries.ManifestPath},
 		contentnotice.KindConfig:       {settings},
 	})
 }

@@ -60,6 +60,33 @@
           },
           "additionalProperties": false
         },
+        "codex_skills": {
+          "description": "Complete Codex menu entry set when requested with codex_skill_entries: true. Empty reconciles all managed entries, omitted leaves them in place.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["slug", "sha256", "status"],
+            "properties": {
+              "slug": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "status": { "enum": ["updated", "unchanged"] },
+              "content": { "type": "string" },
+              "manifest_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["path", "sha256", "content"],
+                  "properties": {
+                    "path": { "const": "agents/openai.yaml" },
+                    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                    "content": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
         "engine": {
           "enum": [
             "codex",

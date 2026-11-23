@@ -49,9 +49,10 @@ type Inputs struct {
 // ResourceSync is the per-run outcome for one boot-screen resource marker.
 // Err is advisory: resource sync remains best-effort and never blocks launch.
 type ResourceSync struct {
-	Checked bool
-	Updated bool
-	Err     error
+	Checked  bool
+	Updated  bool
+	Err      error
+	Warnings []string
 }
 
 // SessionCounts is the historical internal name for the activity block.

@@ -698,6 +698,12 @@ if (engine === ENGINE_KIMI) {
       home: typeof payload.home === 'string' ? payload.home : null,
       username: typeof payload.username === 'string' ? payload.username : null,
     });
+    const managedMcpEnabled = (out.memory_routing as { enabled?: boolean } | undefined)?.enabled === true;
+    if (engine === ENGINE_CODEX && payload.codex_skill_entries === true) {
+      out.codex_skills = managedMcpEnabled
+        ? await skillsService.codexEntries(enforced, readSkillDigests(payload))
+        : [];
+    }
 
     // Claude-native collections (subagents / commands / output-styles). Only
     // ever bundled for Claude hosts; the wrapper sends per-item digests under
@@ -718,7 +724,6 @@ if (engine === ENGINE_KIMI) {
       // returned even without an agents document. Reuse it so Skill guidance and
       // delivery cannot disagree. An explicit empty set retires only previously
       // fleet-owned native copies; omitted/disabled MCP keeps the native fallback.
-      const managedMcpEnabled = (out.memory_routing as { enabled?: boolean } | undefined)?.enabled === true;
       out.claude_skills = managedMcpEnabled
         ? []
         : await skillsService.bundle(enforced, engine, readSkillDigests(payload));

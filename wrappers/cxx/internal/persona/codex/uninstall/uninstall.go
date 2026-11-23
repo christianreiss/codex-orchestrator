@@ -156,6 +156,9 @@ func Run(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (run
 	}
 	authTargets := requiredAuthStateTargets(codexHome)
 	requiredCleanupErr := removeRequiredAuthState(stdout, stderr, authTargets)
+	if err := codex.StripSkillEntries(); err != nil {
+		requiredCleanupErr = errors.Join(requiredCleanupErr, fmt.Errorf("remove Codex Fleet Skill entries: %w", err))
+	}
 	targets := []string{
 		filepath.Join(codexHome, ".cdx-auth.lock"),
 		filepath.Join(codexHome, "AGENTS.md"),

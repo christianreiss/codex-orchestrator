@@ -1,3 +1,7 @@
+# 2026-11-23
+
+- Managed Codex now shows Fleet Skills in its native `$` and `/skills` pickers. The wrapper syncs the menu entries while Codex loads current instructions through MCP. Existing local skills keep their directories.
+
 # 2026-11-22
 
 - Projects have a changelog: agents record what changed and why with the new `project_changelog_*` MCP tools, optionally per board card, and search it before picking up work. Each project has a Changelog tab, board cards list their entries, and a cross-project timeline opens from the Projects page. Hosts may change only their own entries; operators may change any entry, and every edit stays in Activity. A fleet switch in Project settings (default on) withholds the tools and the one-line agent hint.

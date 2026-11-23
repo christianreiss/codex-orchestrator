@@ -2,6 +2,9 @@ package lifecycle
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,7 +16,100 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
 )
+
+func TestBootstrapReconcilesCodexSkillEntries(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", "")
+	skillsRoot := filepath.Join(home, ".agents", "skills")
+	local := filepath.Join(skillsRoot, "local", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("user-owned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const manifest = "---\nname: fleet-example\ndescription: Fixture\n---\nRead skill://fleet.example.\n"
+	const policy = "policy:\n  allow_implicit_invocation: false\n"
+	manifestDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(manifest)))
+	policyDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(policy)))
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte("SKILL.md\x00"+manifestDigest+"\nagents/openai.yaml\x00"+policyDigest+"\n")))
+	step := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var payload orchestrator.BundleRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil || !payload.CodexSkillEntries || payload.IncludeAuth {
+			t.Errorf("bootstrap payload = %+v, decode error = %v", payload, err)
+		}
+		response := map[string]any{"status": "ok"}
+		switch <-step {
+		case "first", "repair":
+			wanted := []map[string]any{{
+				"slug": "fleet-example", "status": "updated", "sha256": digest, "content": manifest, "manifest_sha256": manifestDigest,
+				"files": []map[string]string{{"path": "agents/openai.yaml", "content": policy, "sha256": policyDigest}},
+			}, {"slug": "local", "status": "updated"}}
+			if _, sent := payload.Skills["fleet-example"]; sent {
+				t.Error("advertised a missing or damaged entry")
+			}
+			response["codex_skills"] = wanted
+		case "unchanged":
+			if payload.Skills["fleet-example"] != digest {
+				t.Errorf("installed entry digest = %q, want %q", payload.Skills["fleet-example"], digest)
+			}
+			response["codex_skills"] = []map[string]string{{"slug": "fleet-example", "status": "unchanged", "sha256": digest}}
+		case "disabled":
+			response["codex_skills"] = []any{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{"status": "ok", "data": response}); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client, err := orchestrator.New(orchestrator.Options{BaseURL: server.URL, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyPath := filepath.Join(skillsRoot, "fleet-example", "agents", "openai.yaml")
+	authPath := filepath.Join(home, ".codex", "auth.json")
+	for _, stage := range []struct {
+		name                      string
+		checked, updated, warning bool
+	}{
+		{"first", true, true, true},
+		{"unchanged", true, false, false},
+		{"omitted", false, false, false},
+		{"repair", true, true, true},
+		{"disabled", true, true, false},
+	} {
+		t.Run(stage.name, func(t *testing.T) {
+			if stage.name == "repair" {
+				if err := os.Remove(policyPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			step <- stage.name
+			var got summary.ResourceSync
+			_, err, _, _, _, _ := bootstrapWithProgress(context.Background(), client, logger, false, authPath, false, nil, nil, &got)
+			if err != nil || got.Err != nil || got.Checked != stage.checked || got.Updated != stage.updated || (len(got.Warnings) > 0) != stage.warning {
+				t.Fatalf("bootstrap = %+v, %v", got, err)
+			}
+			if raw, err := os.ReadFile(local); err != nil || string(raw) != "user-owned" {
+				t.Fatalf("local entry changed: %q, %v", raw, err)
+			}
+			raw, err := os.ReadFile(policyPath)
+			if stage.name == "disabled" {
+				if !os.IsNotExist(err) {
+					t.Fatalf("fleet entry was not removed: %v", err)
+				}
+			} else if err != nil || string(raw) != policy {
+				t.Fatalf("fleet entry policy = %q, %v", raw, err)
+			}
+		})
+	}
+}
 
 func TestSyncSkillsReportsListFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

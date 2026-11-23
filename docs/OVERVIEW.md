@@ -650,7 +650,7 @@ visible with a choice to load the latest values or discard the draft.
   local updates, best-effort resource failures, and deliberately skipped
   checks. The updated caret is reserved for a proven write; resource failures
   warn and skipped/concurrent checks are dim instead of being painted green.
-  Claude-native `claude_skills` fallback writes and MCP-mode cleanup feed the skills marker (not config); that marker measures local sync, not a live MCP call.
+  Claude-native `claude_skills` fallback writes and MCP-mode cleanup feed the skills marker. Codex requests `codex_skills` menu entries in the same bootstrap and installs them under `~/.agents/skills/` for the native `$` and `/skills` picker. Selecting an entry reads current Skill instructions through MCP.
   Failed writes/prunes preserve the last-good manifest; trust-loss cleanup
   retains ownership sidecars for anything it could not remove so later runs
   retry the residue.

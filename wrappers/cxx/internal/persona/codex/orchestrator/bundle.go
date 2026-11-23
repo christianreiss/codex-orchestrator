@@ -39,9 +39,10 @@ type BundleRequest struct {
 	Config        string                       `json:"config,omitempty"`
 	Home          string                       `json:"home,omitempty"`
 	Username      string                       `json:"username,omitempty"`
-	// Skills carries per-slug digests of the native on-disk skill store (Grok)
+	// Skills carries per-slug digests of the native on-disk skill store
 	// so the server can omit unchanged bundles.
-	Skills map[string]string `json:"skills,omitempty"`
+	Skills            map[string]string `json:"skills,omitempty"`
+	CodexSkillEntries bool              `json:"codex_skill_entries,omitempty"`
 	// IncludeContent false asks for the auth/host/version blocks only: a
 	// warm-cache launch takes content from the communicator's primed scope.
 	IncludeContent *bool `json:"include_content,omitempty"`
@@ -66,8 +67,9 @@ type BundleResponse struct {
 	// body. Nil means the server sent none.
 	ConfigProfiles []ConfigProfile `json:"-"`
 	// Grok's TOML partial owns named paths while retaining user-authored settings.
-	ConfigOwnedPaths []string       `json:"-"`
-	Sessions         *FleetSessions `json:"sessions,omitempty"`
+	ConfigOwnedPaths []string          `json:"-"`
+	Sessions         *FleetSessions    `json:"sessions,omitempty"`
+	CodexSkills      []skillstore.Item `json:"codex_skills,omitempty"`
 	// GrokSkills is the complete live skill set for Grok's native
 	// ~/.grok/skills store. Nil means the server sent none (older server).
 	KimiSkills []skillstore.Item `json:"kimi_skills"`

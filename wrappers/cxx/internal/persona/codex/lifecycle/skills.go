@@ -1,7 +1,8 @@
 // Package lifecycle — skills.go drives the orchestrator-side skills sync.
 //
-// v2 skills are read live via MCP (`resource_read skill://<slug>`) so the
-// wrapper never persists the manifest bodies to disk. What it does is:
+// Fleet Skill instructions are read live via MCP (`resource_read skill://<slug>`).
+// Bootstrap delivers small native menu entries. Separately, this file tracks
+// changes to the full fleet content:
 //
 //  1. Probe `GET /skills?engine=codex` once per run, hash the (slug, sha256)
 //     fingerprint of the list, and compare against the cached digest under
@@ -28,7 +29,22 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/observability/tracing"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/summary"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/skillstore"
 )
+
+func applySkillEntries(items []skillstore.Item) (state summary.ResourceSync) {
+	state.Checked = true
+	store, err := codex.SkillEntries()
+	if err != nil {
+		state.Err = err
+		return state
+	}
+	store.OnConflict = func(err error) {
+		state.Warnings = append(state.Warnings, err.Error())
+	}
+	state.Updated, state.Err = store.Apply(items)
+	return state
+}
 
 func skillsDigestPath() string {
 	home, err := os.UserHomeDir()

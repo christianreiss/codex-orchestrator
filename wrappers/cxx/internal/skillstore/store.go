@@ -58,6 +58,9 @@ type Store struct {
 	Root         string // e.g. ~/.grok/skills
 	ManifestPath string // e.g. ~/.cgx/state/skills.json
 	Label        string // engine name used in errors, e.g. "Grok"
+	// OnConflict reports an unmanaged directory while allowing other entries
+	// to sync. With no handler, a conflict is part of the returned error.
+	OnConflict func(error)
 }
 
 // Apply reconciles the directory with the complete live set. A nil slice means
@@ -100,7 +103,12 @@ func (s Store) Apply(items []Item) (updated bool, resultErr error) {
 		dir := filepath.Join(s.Root, name)
 		if !recorded && exists(dir) {
 			// Unowned directories belong to the user or another tool.
-			resultErr = errors.Join(resultErr, fmt.Errorf("%s skill %q conflicts with an unmanaged local directory", s.Label, it.Slug))
+			err := fmt.Errorf("%s skill %q conflicts with an unmanaged local directory", s.Label, it.Slug)
+			if s.OnConflict != nil {
+				s.OnConflict(err)
+			} else {
+				resultErr = errors.Join(resultErr, err)
+			}
 			continue
 		}
 		if recorded && prev.SHA256 == it.SHA256 && bundlePresent(dir, prev) {
