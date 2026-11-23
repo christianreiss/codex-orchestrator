@@ -1,5 +1,7 @@
 # 2026-11-23
 
+- cxx 0.9.204 shows an actionable cause when the wrapper cannot start, sync, or update. A failed TLS handshake during cache admission identifies the certificate problem even if the Communicator reports an unconfirmed request. The same diagnostics are used by all four engine aliases.
+
 - cxx 0.9.203 checks for a signed wrapper update on the first launch with a day-old configuration and after a recoverable communicator admission failure. Codex, Claude, Grok and Kimi can install the fleet-approved wrapper over direct HTTPS and continue the original invocation.
 
 - Managed Codex now shows Fleet Skills in its native `$` and `/skills` pickers. The wrapper syncs the menu entries while Codex loads current instructions through MCP. Existing local skills keep their directories.

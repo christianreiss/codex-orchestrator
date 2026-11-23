@@ -309,7 +309,8 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err == nil && selected && res.StatusCode < 400 {
 		if res.Header.Get("X-Cxx-Cache-Protocol") != strconv.Itoa(cacheProtocol) {
 			res.Body.Close()
-			return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody([]byte(`{"code":"communicator_outcome_unknown","message":"Communicator cache protocol 2 confirmation missing; replace the old owner before starting"}`)), Request: req}, nil
+			body := unavailableBody("communicator_outcome_unknown", "Communicator cache confirmation missing", "cache_confirmation_missing")
+			return &http.Response{StatusCode: 409, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: responseBody(body), Request: req}, nil
 		}
 	}
 	return res, err
@@ -621,6 +622,10 @@ func writeUnavailable(w http.ResponseWriter, unknown bool) {
 // wrapper that prints the body shows the server's refusal (an IP binding, a
 // revoked key, a disabled capability) instead of a code that only repeats itself.
 func writeUnavailableCause(w http.ResponseWriter, unknown bool, cause string) {
+	writeUnavailableDetails(w, unknown, cause, "")
+}
+
+func writeUnavailableDetails(w http.ResponseWriter, unknown bool, cause, diagnostic string) {
 	w.Header().Set("Content-Type", "application/json")
 	code := "communicator_unavailable"
 	message := code
@@ -632,7 +637,16 @@ func writeUnavailableCause(w http.ResponseWriter, unknown bool, cause string) {
 		message = code + ": " + cause
 	}
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
+	_, _ = w.Write(unavailableBody(code, message, diagnostic))
+}
+
+func unavailableBody(code, message, cause string) []byte {
+	fields := map[string]string{"code": code, "message": message}
+	if cause != "" {
+		fields["cause"] = cause
+	}
+	raw, _ := json.Marshal(map[string]any{"error": fields})
+	return raw
 }
 
 func (s *server) writeUnavailable(w http.ResponseWriter, unknown bool) {

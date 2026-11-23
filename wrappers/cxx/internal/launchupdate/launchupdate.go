@@ -24,6 +24,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
 	claudeorchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
 )
 
@@ -97,7 +98,7 @@ func attemptRepair(ctx context.Context, cfg *config.Config, stderr io.Writer) {
 		err = syscall.Exec(installed, argv, append(env, restartedEnv+"="+strconv.Itoa(os.Getpid())))
 	}
 	if err != nil && !errors.Is(err, maintenance.ErrBusy) && !errors.Is(err, context.Canceled) {
-		fmt.Fprintln(stderr, "cxx startup update:", err)
+		terminalui.Failure(stderr, "cxx", "startup update", err)
 	}
 }
 

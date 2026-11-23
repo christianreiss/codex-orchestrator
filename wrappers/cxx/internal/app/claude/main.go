@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authreconcile"
@@ -1012,7 +1013,7 @@ func ensureCLIForLaunch(ctx context.Context, cfg *config.Config, f flags, logger
 	details := []string{"run `clx cron run` to install or repair it, or set CLX_CLAUDE_BIN to an existing executable"}
 	switch {
 	case installErr != nil:
-		details = append([]string{"automatic install failed: " + installErr.Error()}, details...)
+		terminalui.Failure(stderr, "clx", "update", operatorerror.InStep("Automatic Claude installation", installErr))
 	case res.CodexAction == "disable":
 		details = append([]string{"automatic CLI installs are disabled by the orchestrator"}, details...)
 	}
@@ -1035,7 +1036,7 @@ func ensureEngineForSync(ctx context.Context, cfg *config.Config, minimal bool, 
 		if _, disabled := orchestrator.EngineDisabledScope(err); disabled {
 			return 1
 		}
-		printBoundedPlain(stderr, "clx sync: Claude engine update failed: "+err.Error(), minimal)
+		terminalui.PrintFailure(stderr, commandCaps(ui.DetectCapsFor(stderr, ""), minimal), "clx", "sync", operatorerror.InStep("Claude engine update", err))
 		return 1
 	}
 	if res.CodexAction == "updated" {
@@ -1053,7 +1054,7 @@ func printLifecycleError(w io.Writer, prefix string, err error) {
 		return
 	}
 	engine, topic, _ := strings.Cut(prefix, " ")
-	ui.Say(w, engine, ui.ToneFail, topic, err.Error())
+	terminalui.Failure(w, engine, topic, err)
 }
 
 // commandCaps applies explicit --minimal after terminal detection. Keeping the
@@ -1068,6 +1069,10 @@ func commandCaps(caps ui.Caps, minimal bool) ui.Caps {
 
 func configLoadFailure(sub, engine, path, wrapperVersion string, loadErr error, stdout, stderr io.Writer, minimal bool) int {
 	detail := boundedPlain(loadErrString(loadErr), 240)
+	reason, advice := operatorerror.Describe(loadErr, engine)
+	if reason != "" {
+		detail = reason
+	}
 	configPath := boundedPlain(path, 160)
 	if configPath == "" {
 		configPath = "the configured path"
@@ -1099,16 +1104,14 @@ func configLoadFailure(sub, engine, path, wrapperVersion string, loadErr error, 
 			Rows: []ui.DoctorRow{
 				{Label: "Config", Tone: ui.ToneFail, Value: "signed wrapper configuration unavailable: " + detail},
 			},
-			Hints: []string{
-				fmt.Sprintf("Repair %s and its .sig file, then run `%s doctor` again.", configPath, engine),
-			},
+			Hints:  append(advice, fmt.Sprintf("Run `%s doctor` again after fixing the reported cause.", engine)),
 			Result: ui.DoctorRow{Label: "Result", Tone: ui.ToneFail, Value: "diagnostics blocked until the wrapper configuration is repaired"},
 		}
 		caps := commandCaps(ui.DetectCapsFor(stdout, ""), minimal)
 		ui.PrintDoctor(stdout, caps, report)
 		return 1
 	default:
-		printBoundedPlain(stderr, engine+": config unavailable: "+detail, minimal)
+		terminalui.PrintFailure(stderr, commandCaps(ui.DetectCapsFor(stderr, ""), minimal), engine, "config", loadErr)
 		return 2
 	}
 }
@@ -1470,7 +1473,7 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		AllowInsecure: cfg.Orchestrator.AllowInsecure,
 	})
 	if err != nil {
-		ui.Say(stderr, "clx", ui.ToneFail, "status", fmt.Sprint(err))
+		terminalui.Failure(stderr, "clx", "status", err)
 		return 1
 	}
 	requestGeneration := claude.AuthGeneration{}

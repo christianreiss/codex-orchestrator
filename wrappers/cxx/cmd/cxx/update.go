@@ -27,6 +27,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grok"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/kimi"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	claudelifecycle "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/lifecycle"
 	codexlifecycle "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/lifecycle"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
@@ -89,7 +90,7 @@ func runHostUpdate(args []string, stdout, stderr io.Writer) int {
 	ctx = libcselect.Force(ctx)
 	lease, err := maintenance.Begin(ctx, false)
 	if err != nil {
-		fmt.Fprintln(stderr, "cxx update:", err)
+		ui.Failure(stderr, "cxx", "update", err)
 		return 1
 	}
 	var runErr error
@@ -163,12 +164,13 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 			err = errors.New("no assigned engine config found")
 		}
 		if err != nil {
-			status := "engine assignment refresh failed: " + err.Error()
+			status := "engine assignment refresh failed: " + operatorerror.Summary(err, "cxx")
 			if wrapperRow != nil {
 				wrapperRow.Finish(ui.ToneFail, Version, status)
 			} else {
 				fmt.Fprintln(w, "cxx update:", status)
 			}
+			printUpdateGuidance(w, caps, "Engine assignment refresh", err)
 			return 1
 		}
 		engines = nil
@@ -234,11 +236,13 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 						err = protectHostUpdate(wrapperCtx, engines, deps)
 					}
 					if err != nil {
-						status := "update failed: " + err.Error()
+						reason := operatorerror.Summary(err, "cxx")
+						status := "update failed: " + reason
 						if exe != "" {
-							status = "installed; restart deferred: " + err.Error()
+							status = "installed; restart deferred: " + reason
 						}
 						row.Finish(ui.ToneFail, Version, status)
+						printUpdateGuidance(w, caps, "Wrapper update", err)
 						// Do not sync away unconfirmed native credentials or run
 						// installers with old code after a failed wrapper handoff.
 						skipUpdateEngines(w, caps, engines, "wrapper update failed")
@@ -274,6 +278,12 @@ func updateHost(ctx context.Context, args []string, w io.Writer, caps ui.Caps, d
 		}
 	}
 	return worst
+}
+
+func printUpdateGuidance(w io.Writer, caps ui.Caps, step string, err error) {
+	if _, details := operatorerror.Describe(err, "cxx"); len(details) != 0 {
+		ui.PrintFailure(w, caps, "cxx", "update", operatorerror.InStep(step, err))
+	}
 }
 
 func skipUpdateEngines(w io.Writer, caps ui.Caps, engines []engineUpdate, reason string) {

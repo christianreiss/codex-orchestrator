@@ -37,6 +37,34 @@ func (e *ExpiredError) Error() string {
 
 func (e *ExpiredError) Unwrap() error { return ErrExpired }
 
+func (e *ExpiredError) Diagnostic() (string, []string) {
+	return "The signed wrapper configuration has expired", []string{
+		"Path: " + e.Path,
+		"Check this host's date and time and its connection to the Orchestrator. If renewal still fails, use a current installer for this host.",
+	}
+}
+
+type loadError struct {
+	path, summary, advice string
+	err                   error
+}
+
+func (e *loadError) Error() string { return e.err.Error() }
+func (e *loadError) Unwrap() error { return e.err }
+func (e *loadError) Diagnostic() (string, []string) {
+	return e.summary, []string{"Path: " + e.path, e.advice}
+}
+
+func configFileError(path string, err error) error {
+	if errors.Is(err, os.ErrPermission) {
+		return &loadError{path, "Cannot read the signed wrapper configuration", "Check the permissions and run as the user who installed this wrapper.", err}
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return &loadError{path, "A signed wrapper configuration file is missing", "Run the installer registered for this host and engine to restore the configuration and signature.", err}
+	}
+	return err
+}
+
 // Load reads a config from configPath, verifies the detached Ed25519 signature
 // in configPath+".sig" against pubkey, then validates schema invariants.
 // Set allowUnsignedForTests=true ONLY in unit tests with a nil pubkey.
@@ -50,31 +78,31 @@ func Load(configPath string, pubkey ed25519.PublicKey, allowUnsignedForTests boo
 func LoadForEngine(configPath string, pubkey ed25519.PublicKey, allowUnsignedForTests bool, expectedEngine string) (*Config, error) {
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
+		return nil, configFileError(configPath, fmt.Errorf("read config: %w", err))
 	}
 
 	signatureVerified := false
 	if !allowUnsignedForTests {
 		if pubkey == nil {
-			return nil, errors.New("no signing public key available; refusing to load unsigned config")
+			return nil, &loadError{configPath, "The wrapper has no configuration signing key", "Install a wrapper built for this Orchestrator using the installer registered for this host.", errors.New("no signing public key available; refusing to load unsigned config")}
 		}
 		sigPath := configPath + ".sig"
 		sigRaw, err := os.ReadFile(sigPath)
 		if err != nil {
-			return nil, fmt.Errorf("read signature: %w", err)
+			return nil, configFileError(sigPath, fmt.Errorf("read signature: %w", err))
 		}
 		if err := VerifyDetached(raw, sigRaw, pubkey); err != nil {
-			return nil, fmt.Errorf("config signature invalid: %w", err)
+			return nil, &loadError{configPath, "The wrapper configuration signature is invalid", "Restore the matching configuration and signature from the installer registered for this host.", fmt.Errorf("config signature invalid: %w", err)}
 		}
 		signatureVerified = true
 	}
 
 	cfg := &Config{}
 	if err := json.Unmarshal(raw, cfg); err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
+		return nil, &loadError{configPath, "The wrapper configuration is not valid JSON", "Restore the signed configuration using a current installer for this host.", fmt.Errorf("parse config: %w", err)}
 	}
 	if err := cfg.ValidateForEngine(expectedEngine); err != nil {
-		return nil, fmt.Errorf("validate config: %w", err)
+		return nil, &loadError{configPath, "This wrapper cannot use the signed configuration", "Check that the configuration belongs to this engine. If it does, update the wrapper or use the current installer for this host.", fmt.Errorf("validate config: %w", err)}
 	}
 	cfg.sourcePath = configPath
 	if absolute, absErr := filepath.Abs(configPath); absErr == nil {

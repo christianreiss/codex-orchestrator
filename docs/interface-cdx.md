@@ -1055,6 +1055,21 @@ new root through host provisioning before changing the chain served at the
 existing origin. This also covers hosts running releases that predate foreground
 recovery. Host approval and engine suspension are enforced during launch.
 
+### Wrapper error messages
+
+From cxx 0.9.204, `cxx`, `cdx`, `clx`, `cgx` and `ckx` show a plain-language
+cause and the next action for common failures during launch, sync, update and
+maintenance. The diagnostics cover TLS trust and certificate validity, DNS and
+timeouts, host credentials and approval, disabled engines, provider account
+availability, signed configuration, and local install failures.
+
+If a host lacks the Orchestrator's root CA, the message says “TLS certificate
+is not trusted on this host” and points to the verified CA or the server
+certificate chain. An unconfirmed request with an unknown cause points to
+`cxx communicator status` and asks the operator to verify any change before
+repeating it. A diagnostic for the affected engine is available through
+`cdx doctor`, `clx doctor`, `cgx doctor` or `ckx doctor`.
+
 ### Schedule and cooldowns
 
 One nonblocking per-user lease serializes the full coordinator, including child

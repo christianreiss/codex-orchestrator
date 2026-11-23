@@ -11,6 +11,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/codex"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
 )
@@ -208,7 +209,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	}
 
 	if in.AuthErr != nil {
-		result = fmt.Sprintf("Sync failed: %s.", in.AuthErr.Error())
+		result = fmt.Sprintf("Sync failed: %s.", operatorerror.Summary(in.AuthErr, "cdx"))
 		resultTone = ui.ToneFail
 	} else if insecure {
 		if in.AuthSynced {

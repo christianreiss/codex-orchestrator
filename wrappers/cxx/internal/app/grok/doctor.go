@@ -18,6 +18,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/grokreap"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launcherdoctor"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/pelletier/go-toml"
 )
@@ -106,8 +107,13 @@ func doctorReport(in doctorInput) terminalui.DoctorReport {
 			hints = append(hints, refusal.Error()+" Launches and maintenance are paused until it is switched back on; nothing on this host needs repair.")
 		}
 	case in.AuthErr != nil:
-		authTone, authValue = terminalui.ToneFail, in.AuthErr.Error()
-		hints = append(hints, "Run `cgx login` if the subscription login must be renewed.")
+		authTone = terminalui.ToneFail
+		if summary, advice := operatorerror.Describe(in.AuthErr, "cgx"); summary != "" {
+			authValue = summary
+			hints = append(hints, advice...)
+		} else {
+			authValue = in.AuthErr.Error()
+		}
 	case in.Auth == nil || in.Auth.VerificationState != "verified":
 		if in.Auth != nil && in.Auth.PoolVerifiedAccounts > 0 {
 			authValue = fmt.Sprintf("%d leasable pool account(s); no account-less login", in.Auth.PoolVerifiedAccounts)

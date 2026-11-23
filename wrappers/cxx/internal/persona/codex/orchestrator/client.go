@@ -25,6 +25,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 )
 
 const (
@@ -209,6 +210,10 @@ func (e *HTTPError) Error() string {
 
 // HTTPStatus lets packages that cannot import this one branch on the status.
 func (e *HTTPError) HTTPStatus() int { return e.StatusCode }
+
+func (e *HTTPError) OperatorHTTPResponse() operatorerror.HTTPResponse {
+	return operatorerror.HTTPResponse{Status: e.StatusCode, Code: e.Code, Scope: e.Scope, Body: e.Body}
+}
 
 // parseErrorCode pulls the machine code out of the orchestrator's error
 // envelopes. Host sync routes normally use the standard top-level `code`

@@ -885,6 +885,12 @@ with `probe: true`. This keeps the update channel independent of the owner and
 surfaces its underlying TLS error when unavailable. See
 [startup update recovery](interface-cdx.md#startup-update-recovery).
 
+From cxx 0.9.204, an error generated during strict cache admission may carry
+an optional `error.cause` with a fixed connectivity category, such as
+`tls_unknown_authority`. The wrapper uses it for the terminal diagnostic.
+The HTTP status and `error.code` still control retry and admission, including
+`409 communicator_outcome_unknown` for unconfirmed requests.
+
 When the server refuses the WebSocket upgrade, the owner asks once more outside the
 WebSocket library and records the server's own verdict in `last_error` (for example
 `communicator handshake rejected: HTTP 401 ip_mismatch (API key not allowed from this

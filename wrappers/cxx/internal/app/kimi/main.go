@@ -317,7 +317,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 	o.skipBoot = o.skipBoot || cfg.EngineOptions.Silent
 	client, err := newClient(cfg, o.ipv4)
 	if err != nil {
-		fmt.Fprintln(stderr, "ckx: orchestrator connection unavailable")
+		terminalui.Failure(stderr, "ckx", o.command, err)
 		return 1
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -354,7 +354,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 	default:
 		code, runErr := run(ctx, cfg, client, o, stdout, stderr)
 		if runErr != nil {
-			fmt.Fprintln(stderr, "ckx:", runErr)
+			terminalui.Failure(stderr, "ckx", o.command, runErr)
 		}
 		return code
 	}
@@ -402,18 +402,7 @@ func load(ctx context.Context, path string) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.LoadForEngine(path, key, false, config.EngineKimi)
-	var expired *config.ExpiredError
-	if errors.As(err, &expired) && expired.Config != nil {
-		fetched, fetchErr := fleetconfig.FetchDirect(ctx, expired.Config, config.EngineKimi)
-		if fetchErr != nil {
-			return nil, fetchErr
-		}
-		if err := fleetconfig.PersistTo(ctx, path, fetched); err != nil {
-			return nil, err
-		}
-		return config.LoadForEngine(path, key, false, config.EngineKimi)
-	}
+	cfg, _, err := fleetconfig.LoadOrRecover(ctx, path, key, config.EngineKimi)
 	return cfg, err
 }
 func newClient(cfg *config.Config, forceIPv4 ...bool) (*orchestrator.Client, error) {
@@ -734,10 +723,6 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if err != nil {
 		if refusal := launchRefusal(cfg, err); refusal != nil {
 			return 1, refusal
-		}
-		var httpErr *orchestrator.HTTPError
-		if errors.As(err, &httpErr) {
-			return 1, fmt.Errorf("Kimi subscription auth unavailable (%s); run ckx login", httpErr.Code)
 		}
 		return 1, err
 	}

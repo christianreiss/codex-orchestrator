@@ -21,6 +21,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
@@ -686,7 +687,11 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if cacheErr != nil {
 			// Never turn an unconfirmed read into an offline-credential launch.
 			// A bootstrap/session admission may already have committed.
-			s.writeUnavailable(w, unknown)
+			if cause := operatorerror.ConnectionCause(cacheErr); cause != "" {
+				writeUnavailableDetails(w, unknown, "", cause)
+			} else {
+				s.writeUnavailable(w, unknown)
+			}
 			return
 		}
 		for key, value := range result.Headers {

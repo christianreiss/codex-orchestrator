@@ -22,6 +22,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	coreupdate "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
 )
@@ -109,7 +110,7 @@ func fetchWithKey(ctx context.Context, seed *config.Config, engine string, pubke
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("fetch %s config: HTTP %d: %s", engine, resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("fetch %s config: %w", engine, operatorerror.ParseHTTPResponse(resp.StatusCode, body))
 	}
 	var envelope struct {
 		Payload   json.RawMessage `json:"payload"`
@@ -210,8 +211,28 @@ func persistedIsFetched(path string, fetched *Fetched) bool {
 // cause: the rendered failure is truncated to a couple of hundred characters,
 // and a verbose transport error must not be what survives.
 func expiredRecoveryError(expired *config.ExpiredError, path string, cause error) error {
-	return fmt.Errorf("%w: re-run the host installer to reseed %s; automatic refresh failed: %v",
-		expired, path, cause)
+	return operatorerror.InStep("Signed configuration renewal", &renewalError{expired, path, cause})
+}
+
+type renewalError struct {
+	expired *config.ExpiredError
+	path    string
+	cause   error
+}
+
+func (e *renewalError) Error() string {
+	return fmt.Sprintf("%v: re-run the host installer to reseed %s; automatic refresh failed: %v", e.expired, e.path, e.cause)
+}
+func (e *renewalError) Unwrap() error { return e.cause }
+func (e *renewalError) Is(target error) bool {
+	return errors.Is(e.expired, target)
+}
+func (e *renewalError) As(target any) bool {
+	expired, ok := target.(**config.ExpiredError)
+	if ok {
+		*expired = e.expired
+	}
+	return ok
 }
 
 func responseCode(body []byte) string {

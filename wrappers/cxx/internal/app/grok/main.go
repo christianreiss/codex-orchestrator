@@ -335,7 +335,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 	o.skipBoot = o.skipBoot || cfg.EngineOptions.Silent
 	client, err := newClient(cfg, o.ipv4)
 	if err != nil {
-		fmt.Fprintln(stderr, "cgx: orchestrator connection unavailable")
+		terminalui.Failure(stderr, "cgx", o.command, err)
 		return 1
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
@@ -372,7 +372,7 @@ func runOptions(o options, stdout, stderr io.Writer) int {
 	default:
 		code, runErr := run(ctx, cfg, client, o, stdout, stderr)
 		if runErr != nil {
-			fmt.Fprintln(stderr, "cgx:", runErr)
+			terminalui.Failure(stderr, "cgx", o.command, runErr)
 		}
 		return code
 	}
@@ -420,18 +420,7 @@ func load(ctx context.Context, path string) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.LoadForEngine(path, key, false, config.EngineGrok)
-	var expired *config.ExpiredError
-	if errors.As(err, &expired) && expired.Config != nil {
-		fetched, fetchErr := fleetconfig.FetchDirect(ctx, expired.Config, config.EngineGrok)
-		if fetchErr != nil {
-			return nil, fetchErr
-		}
-		if err := fleetconfig.PersistTo(ctx, path, fetched); err != nil {
-			return nil, err
-		}
-		return config.LoadForEngine(path, key, false, config.EngineGrok)
-	}
+	cfg, _, err := fleetconfig.LoadOrRecover(ctx, path, key, config.EngineGrok)
 	return cfg, err
 }
 func newClient(cfg *config.Config, forceIPv4 ...bool) (*orchestrator.Client, error) {
@@ -738,10 +727,6 @@ func run(ctx context.Context, cfg *config.Config, client *orchestrator.Client, o
 	if err != nil {
 		if refusal := launchRefusal(cfg, err); refusal != nil {
 			return 1, refusal
-		}
-		var httpErr *orchestrator.HTTPError
-		if errors.As(err, &httpErr) {
-			return 1, fmt.Errorf("Grok subscription auth unavailable (%s); run cgx login", httpErr.Code)
 		}
 		return 1, err
 	}

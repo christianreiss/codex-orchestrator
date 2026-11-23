@@ -384,7 +384,7 @@ and reject controls requiring exact telemetry instead of inventing values.
 
 | Command | Behavior |
 |---|---|
-| `run` (default) | Sync and launch Kimi with its leased access-only private runtime after the shared [startup update recovery](interface-cdx.md#startup-update-recovery) check. |
+| `run` (default) | Sync and launch Kimi with its leased access-only private runtime after the shared [startup update recovery](interface-cdx.md#startup-update-recovery) check. See [wrapper error messages](interface-cdx.md#wrapper-error-messages) for recovery guidance. |
 | `resume` | Resume the native `session_<UUID>` with `-S`. |
 | `sync` / `auth-sync` | Sync signed config, instructions and native Skills. |
 | `status` | Report installation, API and auth readiness. |

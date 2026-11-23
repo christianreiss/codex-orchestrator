@@ -132,7 +132,14 @@ func AdoptInheritedPath(fd uintptr, path string) (*Lock, error) {
 
 // Acquire takes an exclusive non-blocking flock on a per-user lock file. If
 // another instance holds it, returns ErrHeld.
-var ErrHeld = errors.New("another wrapper instance is running")
+var ErrHeld error = &lockHeld{}
+
+type lockHeld struct{}
+
+func (*lockHeld) Error() string { return "another wrapper instance is running" }
+func (*lockHeld) Diagnostic() (string, []string) {
+	return "Another wrapper operation is using these files", []string{"Wait for the active session or maintenance command to finish, then retry."}
+}
 
 func Acquire(name string) (*Lock, error) {
 	return acquire(name, syscall.LOCK_EX|syscall.LOCK_NB, true)

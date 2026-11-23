@@ -39,6 +39,22 @@ func TestFailureReportsIndependentJoinedCauses(t *testing.T) {
 	}
 }
 
+func TestFailureExplainsSharedTLSCauseWithoutPrintingHTTPBodies(t *testing.T) {
+	a := errors.New(`POST /sync/bootstrap -> 409: {"error":{"code":"communicator_outcome_unknown","cause":"tls_unknown_authority","message":"secret fixture"}}`)
+	b := errors.New(`GET /skills -> 409: {"error":{"code":"communicator_outcome_unknown","cause":"tls_unknown_authority","message":"another secret"}}`)
+	for _, alias := range []string{"cxx", "cdx", "clx", "cgx", "ckx"} {
+		var out bytes.Buffer
+		PrintFailure(&out, Caps{IsTTY: true, Dumb: true, Columns: 39}, alias, "run", fmt.Errorf("cache admission: %w", errors.Join(a, b)))
+		text := strings.Join(strings.Fields(out.String()), " ")
+		if strings.Count(text, "TLS certificate is not trusted on this host") != 1 || !strings.Contains(text, "verified root CA") || strings.Contains(text, "secret") {
+			t.Fatalf("%s: %s", alias, out.String())
+		}
+		if alias != "cxx" && !strings.Contains(text, alias+" doctor") {
+			t.Fatalf("missing engine-specific guidance for %s: %s", alias, out.String())
+		}
+	}
+}
+
 func TestFailureSanitizesTerminalControlsAndKeepsFullUnknownCause(t *testing.T) {
 	var out bytes.Buffer
 	cause := strings.Repeat("important detail ", 50) + "FINAL-RECOVERY-INSTRUCTION"

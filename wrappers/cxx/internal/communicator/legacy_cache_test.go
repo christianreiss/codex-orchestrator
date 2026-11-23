@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 )
 
 func legacyCacheEndpoint(t *testing.T, remote string, protocol int, requests *atomic.Int32) *endpoint {
@@ -66,6 +67,53 @@ func TestLegacyOwnerLostAdmissionProofIsNotReplayed(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != 409 || admissions.Load() != 1 || oldRequests.Load() != 0 {
 		t.Fatalf("status=%d admissions=%d legacy=%d", res.StatusCode, admissions.Load(), oldRequests.Load())
+	}
+}
+
+func TestCacheAdmissionReportsTLSFailureWithoutChanging409(t *testing.T) {
+	var requests atomic.Int32
+	remote := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+	}))
+	defer remote.Close()
+	legacy := legacyCacheEndpoint(t, remote.URL, 0, &requests)
+	owner := &server{cfg: legacy.anchor}
+
+	for _, test := range []struct {
+		name string
+		run  func() (int, []byte, error)
+	}{
+		{"legacy owner", func() (int, []byte, error) {
+			req := httptest.NewRequest("POST", remote.URL+"/sync/bootstrap", strings.NewReader(`{"engine":"codex"}`))
+			res, err := (&Transport{Direct: http.DefaultTransport}).RoundTrip(req)
+			if err != nil {
+				return 0, nil, err
+			}
+			defer res.Body.Close()
+			body, err := io.ReadAll(res.Body)
+			return res.StatusCode, body, err
+		}},
+		{"current owner", func() (int, []byte, error) {
+			req := httptest.NewRequest("POST", "/sync/bootstrap", strings.NewReader(`{"engine":"codex"}`))
+			req.Header.Set("X-Cxx-Cache-Protocol", "2")
+			rec := httptest.NewRecorder()
+			owner.ServeHTTP(rec, req)
+			return rec.Code, rec.Body.Bytes(), nil
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			status, body, err := test.run()
+			if err != nil || status != 409 || upstreamErrorCode(body) != "communicator_outcome_unknown" || requests.Load() != 0 {
+				t.Fatalf("status=%d body=%s err=%v requests=%d", status, body, err, requests.Load())
+			}
+			reason, advice := operatorerror.Describe(operatorerror.ParseHTTPResponse(status, body), "cdx")
+			if reason != "TLS certificate is not trusted on this host" || !strings.Contains(strings.Join(advice, " "), "verified root CA") {
+				t.Fatalf("reason=%q advice=%q, body=%s", reason, advice, body)
+			}
+			if strings.Contains(string(body), remote.URL) || strings.Contains(string(body), "host-key") {
+				t.Fatalf("internal response leaked connection details: %s", body)
+			}
+		})
 	}
 }
 

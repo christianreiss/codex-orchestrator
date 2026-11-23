@@ -1,6 +1,10 @@
 package terminalui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
+)
 
 // UpdateProgress renders the start of a wrapper or engine update. It follows
 // the same TTY, TERM, and NO_COLOR rules as the rest of the wrapper UI.
@@ -32,6 +36,11 @@ func UpdateFailure(caps Caps, engine, component, version string, err error) stri
 	caps = updateCaps(caps, engine)
 	status := "update skipped"
 	if err != nil {
+		if summary, details := operatorerror.Describe(err, engine); summary != "" {
+			return strings.TrimSuffix(FormatNotice(caps, Notice{
+				Prefix: engine, Topic: TopicUpdate, Tone: ToneFail, Message: summary, Details: details,
+			}), "\n")
+		}
 		status += ": " + err.Error()
 	}
 	return formatUpdate(caps, caps.Palette.Red+caps.Palette.Bold, updateGlyph(caps, "✗", "FAIL"), engine, component, normalizedVersion(version), status)

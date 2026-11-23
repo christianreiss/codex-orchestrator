@@ -240,7 +240,7 @@ credential values.
 
 | Subcommand | Purpose |
 |---|---|
-| `run` (default) | One Grok session after the shared [startup update recovery](interface-cdx.md#startup-update-recovery) check: managed sync, `/auth` (with the insecure-host approval box when interactive), a leased subscription account, an isolated private runtime and leader. A held sync lock pauses content sync for this launch instead of refusing it. A missing native CLI is installed in the foreground first. |
+| `run` (default) | One Grok session after the shared [startup update recovery](interface-cdx.md#startup-update-recovery) check: managed sync, `/auth` (with the insecure-host approval box when interactive), a leased subscription account, an isolated private runtime and leader. A held sync lock pauses content sync for this launch instead of refusing it. A missing native CLI is installed in the foreground first. See [wrapper error messages](interface-cdx.md#wrapper-error-messages) for recovery guidance. |
 | `resume [UUID or title]` | `run --resume …`; native history lives in the shared sessions root. |
 | `sync` / `auth-sync` | Converge `~/.grok/AGENTS.md`, owned `config.toml` paths, native skills under `~/.grok/skills`, host users and peer engine configs without launching. Exit 1 on a failed managed write or an unreachable server. |
 | `status` / `--status` | Installation, version, API and subscription-auth health. Exit 1 when the result is red. An answered auth error (for example `grok_login_required`) keeps `api=ok`. |

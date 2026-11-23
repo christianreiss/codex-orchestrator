@@ -11,6 +11,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	ui "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 )
@@ -22,6 +23,7 @@ type engineUpdateJob struct {
 	before, version, target, status string
 	tone                            ui.Tone
 	err                             error
+	diagnostics                     []error
 	syncAllowed, done               bool
 	code                            int
 }
@@ -64,7 +66,27 @@ func updateEngines(ctx context.Context, w io.Writer, caps ui.Caps, engines []eng
 			worst = 1
 		}
 	}
+	display.Close()
+	ui.PrintFailure(w, caps, "cxx", "update", updateDiagnostics(jobs))
 	return worst
+}
+
+func updateDiagnostics(jobs []*engineUpdateJob) error {
+	var failures []error
+	for _, j := range jobs {
+		failures = append(failures, j.diagnostics...)
+	}
+	return errors.Join(failures...)
+}
+
+func (j *engineUpdateJob) failure(stage string, err error) string {
+	if summary, details := operatorerror.Describe(err, "cxx"); summary != "" {
+		if len(details) != 0 {
+			j.diagnostics = append(j.diagnostics, operatorerror.InStep(config.EngineLabel(j.e.name)+" "+stage, err))
+		}
+		return summary
+	}
+	return err.Error()
 }
 
 // fleetEngines drops engines switched off fleet-wide: they are not part of
@@ -107,7 +129,7 @@ func (j *engineUpdateJob) prepare(deps hostUpdateDeps) {
 		return
 	}
 	if j.e.loadErr != nil {
-		j.finish(1, ui.ToneFail, "config failed: "+j.e.loadErr.Error())
+		j.finish(1, ui.ToneFail, "config failed: "+j.failure("configuration", j.e.loadErr))
 		return
 	}
 	j.before = deps.version(j.ctx, j.e.name)
@@ -177,7 +199,7 @@ func (j *engineUpdateJob) install(deps hostUpdateDeps) {
 		return
 	}
 	if j.err != nil && !j.syncAllowed {
-		j.finish(1, ui.ToneFail, "update failed: "+j.err.Error()+" · sync skipped")
+		j.finish(1, ui.ToneFail, "update failed: "+j.failure("update", j.err)+" · sync skipped")
 		return
 	}
 	if detail := libcselect.Description(j.e.name); detail != "" {
@@ -196,7 +218,7 @@ func (j *engineUpdateJob) complete(deps hostUpdateDeps) {
 		return
 	}
 	if j.err != nil {
-		j.status, j.tone, j.code = "update failed: "+j.err.Error(), ui.ToneFail, 1
+		j.status, j.tone, j.code = "update failed: "+j.failure("update", j.err), ui.ToneFail, 1
 	}
 	j.row.Observe(updateprogress.Event{Phase: "syncing"})
 	syncErr := deps.sync(j.ctx, j.e.cfg)
@@ -214,11 +236,11 @@ func (j *engineUpdateJob) complete(deps hostUpdateDeps) {
 		}
 		j.code = 1
 	} else {
-		j.status += " · sync failed: " + syncErr.Error()
+		j.status += " · sync failed: " + j.failure("sync", syncErr)
 		j.tone, j.code = ui.ToneFail, 1
 	}
 	if reportErr != nil {
-		j.status += " · version report failed: " + reportErr.Error()
+		j.status += " · version report failed: " + j.failure("version report", reportErr)
 		j.tone, j.code = ui.ToneFail, 1
 	}
 	j.finish(j.code, j.tone, j.status)

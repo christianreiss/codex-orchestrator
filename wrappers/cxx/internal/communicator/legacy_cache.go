@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 )
 
 // Match the existing proof response bound, above the native MCP input limit.
@@ -116,6 +117,6 @@ func cacheBridgeFailure(req *http.Request, unknown bool, cause error) *http.Resp
 		status, code = http.StatusConflict, "communicator_outcome_unknown"
 		message = code
 	}
-	body, _ := json.Marshal(map[string]any{"error": map[string]string{"code": code, "message": message}})
+	body := unavailableBody(code, message, operatorerror.ConnectionCause(cause))
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}, "Cache-Control": []string{"no-store"}}, Body: responseBody(body), ContentLength: int64(len(body)), Request: req}
 }

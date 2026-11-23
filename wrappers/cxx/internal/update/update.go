@@ -30,6 +30,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipv4"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 )
 
 const (
@@ -103,7 +104,7 @@ func Install(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, ta
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return "", fmt.Errorf("download binary: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return "", fmt.Errorf("download binary: %w", operatorerror.ParseHTTPResponse(resp.StatusCode, body))
 	}
 
 	stageDirs := updateStageDirs(dest)
@@ -217,7 +218,8 @@ func Prefetch(ctx context.Context, cfg *config.Config, binaryURL, expectedSHA, t
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("download binary: HTTP %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return "", fmt.Errorf("download binary: %w", operatorerror.ParseHTTPResponse(resp.StatusCode, body))
 	}
 	if err := installspace.Ensure(ctx, "cxx prefetch", nil, installspace.Need{Path: dir, Bytes: installspace.Size(resp.ContentLength, installspace.Wrapper), Inodes: 128}); err != nil {
 		return "", err
@@ -283,9 +285,21 @@ func VerifyChecksum(path, expected string) error {
 	}
 	got := hex.EncodeToString(h.Sum(nil))
 	if !strings.EqualFold(got, strings.TrimSpace(expected)) {
-		return fmt.Errorf("sha256 mismatch: got %s, expected %s", got, expected)
+		return &checksumError{got, expected}
 	}
 	return nil
+}
+
+type checksumError struct{ got, expected string }
+
+func (e *checksumError) Error() string {
+	return fmt.Sprintf("sha256 mismatch: got %s, expected %s", e.got, e.expected)
+}
+
+func (e *checksumError) Diagnostic() (string, []string) {
+	return "The downloaded update did not pass its integrity check", []string{
+		"Retry the download. If it fails again, ask the administrator to check the published binary against the signed release.",
+	}
 }
 
 func validateExpectedSHA(expected string) error {

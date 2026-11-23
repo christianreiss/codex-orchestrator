@@ -70,6 +70,8 @@ identity, auth leases and process supervision. See [native entrypoints](interfac
 
 All four engines can recover a stale wrapper on launch over the direct signed
 update channel. See [startup update recovery](interface-cdx.md#startup-update-recovery).
+Common failures include plain-language recovery instructions in the terminal.
+See [wrapper error messages](interface-cdx.md#wrapper-error-messages).
 
 During an Orchestrator outage, run `cdx emergency`, `clx emergency`, `cgx emergency`
 or `ckx emergency` to start the native engine on a host with a signed secure

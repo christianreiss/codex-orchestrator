@@ -261,7 +261,7 @@ func TestPrintLifecycleErrorIsPortable(t *testing.T) {
 	var out bytes.Buffer
 	printLifecycleError(&out, "cdx run", fmt.Errorf("denied Ω\n\x1b[31mforged"))
 	assertPortableOutput(t, out.String())
-	if strings.Count(out.String(), "\n") != 1 {
+	if strings.Count(out.String(), "\n") != 3 || !strings.Contains(out.String(), "denied ? forged") {
 		t.Fatalf("dynamic error forged extra rows: %q", out.String())
 	}
 }
@@ -800,16 +800,12 @@ func TestUnreadableConfigCommandsAreStructuredActionableAndSanitized(t *testing.
 		if code != 2 {
 			t.Fatalf("run exit = %d, want 2; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
-		if stdout.Len() != 0 || !strings.HasPrefix(stderr.String(), "cdx: config unavailable: ") {
-			t.Fatalf("unexpected config failure: stdout=%q stderr=%q", stdout.String(), stderr.String())
+		out := stderr.String()
+		if stdout.Len() != 0 || !strings.HasPrefix(out, "cdx config:") ||
+			!strings.Contains(out, ui.PlainInline(missing)) || !strings.Contains(out, "installer registered for this host") {
+			t.Fatalf("unexpected config failure: stdout=%q stderr=%q", stdout.String(), out)
 		}
-		assertPortableOutput(t, stderr.String())
-		if strings.Count(stderr.String(), "\n") != 1 {
-			t.Fatalf("config failure was not concise: %q", stderr.String())
-		}
-		if width := ui.VisibleWidth(strings.TrimSuffix(stderr.String(), "\n")); width > 39 {
-			t.Fatalf("config failure width = %d, want <= 39: %q", width, stderr.String())
-		}
+		assertPortableOutput(t, out)
 	})
 }
 

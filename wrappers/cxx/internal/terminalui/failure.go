@@ -2,12 +2,12 @@ package terminalui
 
 import (
 	"errors"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"io"
 	"strings"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 )
 
-type operatorDiagnostic interface{ Diagnostic() (string, []string) }
 type operationStep interface {
 	OperationStep() string
 	Unwrap() error
@@ -20,6 +20,10 @@ func Failure(w io.Writer, prefix, topic string, err error) {
 	PrintFailure(w, DetectCapsFor(w, ""), prefix, topic, err)
 }
 func PrintFailure(w io.Writer, caps Caps, prefix, topic string, err error) {
+	printFailure(w, caps, prefix, topic, err, make(map[string]struct{}))
+}
+
+func printFailure(w io.Writer, caps Caps, prefix, topic string, err error, seen map[string]struct{}) {
 	if err == nil {
 		return
 	}
@@ -32,7 +36,7 @@ func PrintFailure(w io.Writer, caps Caps, prefix, topic string, err error) {
 				if stepName != "" {
 					branch = operatorerror.InStep(stepName, branch)
 				}
-				PrintFailure(w, caps, prefix, topic, branch)
+				printFailure(w, caps, prefix, topic, branch, seen)
 			}
 			return
 		}
@@ -59,10 +63,8 @@ func PrintFailure(w io.Writer, caps Caps, prefix, topic string, err error) {
 		message = step.OperationStep() + " failed"
 		cause = step.Unwrap()
 	}
-	var diagnostic operatorDiagnostic
 	var details []string
-	if errors.As(err, &diagnostic) {
-		summary, explanation := diagnostic.Diagnostic()
+	if summary, explanation := operatorerror.Describe(err, prefix); summary != "" {
 		if step == nil {
 			message = summary
 		} else {
@@ -70,8 +72,12 @@ func PrintFailure(w io.Writer, caps Caps, prefix, topic string, err error) {
 		}
 		details = append(details, explanation...)
 	} else {
-		details = strings.Split(cause.Error(), "\n")
-		details = append(details, retry)
+		details = []string{cause.Error(), retry}
 	}
+	key := message + "\n" + strings.Join(details, "\n")
+	if _, duplicate := seen[key]; duplicate {
+		return
+	}
+	seen[key] = struct{}{}
 	PrintNotice(w, caps, Notice{Prefix: prefix, Topic: topic, Tone: ToneFail, Message: message, Details: details})
 }

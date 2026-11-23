@@ -212,7 +212,8 @@ func TestManagedFailuresUseTheOperatorFailureNotice(t *testing.T) {
 		t.Fatalf("missing config exit=%d: %s", code, errout.String())
 	}
 	text := errout.String()
-	if strings.HasPrefix(text, "ckx: ") || !strings.Contains(text, "Operation could not finish") || !strings.Contains(text, "ckx") {
+	if !strings.HasPrefix(text, "ckx status: A signed wrapper configuration file is missing") ||
+		!strings.Contains(text, "installer registered for this host") {
 		t.Fatalf("failure not rendered as an operator notice: %q", text)
 	}
 }
