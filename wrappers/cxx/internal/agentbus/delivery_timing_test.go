@@ -393,6 +393,10 @@ func TestBusyReceiverClaimsOnlyImmediateAndPreservesWork(t *testing.T) {
 			if len(params) == 0 {
 				return nativeAnswer{err: map[string]any{"code": -32602}}
 			}
+			wire, _ := json.Marshal(params)
+			if !strings.Contains(string(wire), "resource_claim_status") {
+				t.Error("the active turn did not receive the claim response guidance")
+			}
 			steers.Add(1)
 			admitted <- struct{}{}
 			return nativeAnswer{result: map[string]any{"turnId": "existing-turn"}}
@@ -423,7 +427,7 @@ func TestBusyReceiverClaimsOnlyImmediateAndPreservesWork(t *testing.T) {
 			if request["immediate_only"] != true || request["informational_only"] != true {
 				t.Errorf("busy claim widened: %v", request)
 			}
-			body = `{"delivery":{"message_id":"immediate","kind":"message","content":"information","delivery_timing":"immediate"}}`
+			body = `{"delivery":{"message_id":"immediate","kind":"presence_notice","content":"CLAIM/1 conflict","delivery_class":"coordination","delivery_timing":"immediate"}}`
 		case strings.HasSuffix(req.URL.Path, "/ack"):
 			body = `{"message":{"status":"accepted"}}`
 		}

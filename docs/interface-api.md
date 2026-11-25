@@ -621,7 +621,7 @@ Suspending an engine keeps everything; *destroy* removes it from every host.
   - `POST /v1/responses` — minimal OpenAI-compatible Responses API compatibility adapter for non-streaming clients. Accepts `input` as a string, a bare content-part array, or a message-style array plus optional `instructions`, maps the request onto the backend chat flow, and returns a `response` object with `output[0].content[0].type="output_text"`. Text parts plus `image_url` / `input_image` parts are supported, including base64 `data:` URLs. `stream:true` is currently rejected on this endpoint. `model` uses the same strict allowlist and default-resolution behavior as chat completions. `stream:true` is rejected with `400 unsupported_stream`.
   - `POST /v1/completions` — legacy text completions endpoint. `model` uses the same strict allowlist and default-resolution behavior as chat completions.
   - `POST /v1/embeddings` — placeholder endpoint; returns `501` / `not_implemented` against the current backend.
-  - Forced function selection in Chat Completions and Responses returns `400 tools_not_supported` for text-only backends. Codex Chat Completions reports `finish_reason: null` when the runner supplies no stop reason.
+  - Forced function selection in Chat Completions and Responses returns `400 tools_not_supported` for text-only backends. Codex Chat Completions reports `finish_reason: "stop"` when the runner observes a successful native turn with an agent reply. Missing stop evidence remains `null`.
   - `GET /v1/models` — lists the supported Codex model ids from the shared config/model allowlist used by the OpenAI-compatible API.
   - `GET /v1/models/{model}` — retrieves a single model object. Legacy aliases resolve to their current id; an empty or unknown id returns `404 model_not_found`.
   - `OPTIONS /v1/*` — CORS preflight for every OpenAI-compatible route; returns 204.
@@ -2569,7 +2569,7 @@ On the Responses wire (including `/anthropic/v1/responses`), missing native
 usage is `null`. Claude and Grok totals include fresh input, cache reads, cache
 creation and output; `input_tokens_details.cached_tokens` reports cache reads.
 Reasoning tokens are part of output and appear as a detail only when measured.
-Real zero counts remain zero. Codex plain-text runner replies supply no counts.
+Real zero counts remain zero. Codex gateway replies currently supply no usage counts.
 OpenAI-compatible streams with `include_usage` preserve the same nullable usage
 and native details in the final empty-choices chunk.
 Kimi stream-json reports neither token usage nor a stop reason: OpenAI usage

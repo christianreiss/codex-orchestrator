@@ -1,3 +1,17 @@
+# 2026-11-25
+
+- cxx 0.9.205 resolves RTK from the current session's PATH, identifies safe retries when read-only fleet content calls hit a temporary gateway error, and accepts a writable `--journal-dir` for resumable uploads from a read-only release directory.
+
+- Claim conflicts reach supported Codex, Claude and Grok receivers during the current turn. Receivers without the new capability get a regular queued notice. The task supervisor rejects attempts to reopen a completed task key.
+
+- The Responses gateway explicitly rejects forced function selection on text-only backends. Codex Chat Completions reports `stop` when a native turn completes with an agent reply. Completed workflow tasks expose their knowledge checks and attempt history again.
+
+- Native children can register a linked worktree with live claims on its path and branch while their parent keeps its checkout binding.
+
+- Project memory supports exact, digest-checked text replacements. Conference discovery shows the eight-seat limit including the chair, and feedback tool discovery advertises text limits.
+
+- Slop recognizes focus rings declared alongside outline removal in a class literal or Tailwind `@apply`. Full Advisor runs can review Godot keyboard routing using captured native traces. The managed Slop instructions explain the review path for workspaces without a CoCo project.
+
 # 2026-11-23
 
 - cxx 0.9.204 shows an actionable cause when the wrapper cannot start, sync, or update. A failed TLS handshake during cache admission identifies the certificate problem even if the Communicator reports an unconfirmed request. The same diagnostics are used by all four engine aliases.
