@@ -11,7 +11,8 @@ import type { AnyMySqlTable, AnyMySqlColumn } from 'drizzle-orm/mysql-core';
 import { mutateOwnerState, ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
 import type { OwnerStateSnapshot } from '../control-plane/state/store.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
-import { nativeClaimAttachment } from '../control-plane/state/resource-claims.js';
+import { claimContinuouslyHeld, nativeClaimAttachment } from '../control-plane/state/resource-claims.js';
+import type { Resource } from './agent-coordination/model.js';
 import { holderAttached, holderReleasable } from '../control-plane/state/owner-liveness.js';
 import { activeHostEngines } from './host-engine-policy.js';
 import { ownedMessagingHost, ownedEngineState, ownedBridge } from '../control-plane/state/messaging.js';
@@ -77,7 +78,7 @@ export const GIT_DIRECTOR_ENABLED_FLAG = 'git_director_enabled';
 
 function nativeRegistrationRequired(message: string, workspaceMismatch = false, mismatchFields: string[] = []) {
   const recovery = workspaceMismatch
-    ? ' Bind the actual absolute checkout and common directory with agent_context_update before registering a linked worktree or a checkout outside your bound one. A separate repository nested inside your bound checkout (e.g. a submodule) registers directly when you pass its own clone_dir (`git rev-parse --path-format=absolute --git-common-dir` run inside it).'
+    ? ' For a same-clone linked worktree, pass the actual clone_dir and task branch and hold live claims on the exact worktree path and that branch. Otherwise bind the actual checkout with agent_context_update. A separate repository nested inside your bound checkout (e.g. a submodule) registers directly when you pass its own clone_dir (`git rev-parse --path-format=absolute --git-common-dir` run inside it).'
     : ' Run cxx communicator status; use the original managed native process and its private MCP broker, then retry. A Claude Desktop Code-tab / Agent SDK session connected only to the content MCP has no native agent binding: agent_self, agent_session_name and quota_get are intentionally unavailable there. Start the task through cxx native claude (or clx) in a terminal for supported session-bound coordination. Content MCP access, agent_self or naming alone does not establish connection proof.';
   return new ConflictError(message + recovery, 'git_director_owner_required',
     mismatchFields.length ? { mismatch_fields: mismatchFields } : undefined);
@@ -139,6 +140,14 @@ const MAX_TASK_LENGTH = 2000;
 const MAX_PATH_LENGTH = 1024;
 
 export type GitDirectorDb = Pick<Database, 'insert' | 'update' | 'select' | 'delete'>;
+
+interface RegistrationAddress {
+  id: string;
+  username: string;
+  sessionId: string;
+  generation: number;
+  linkedRoot?: string;
+}
 
 export type Verdict = 'allow' | 'wait' | 'deny';
 export type DecidedBy = 'policy' | 'llm' | 'operator';
@@ -1115,11 +1124,19 @@ export class GitDirectorService {
         if (dirs.length > 1) throw new ConflictError('Multiple clone mappings exist; pass the absolute clone_dir from git rev-parse --git-common-dir', 'git_director_worktree_ambiguous');
         if (dirs[0]) cloneDir = dirs[0];
       }
+      const address: RegistrationAddress | null = provenance
+        ? remoteAddress((await remoteGitOwner(tx, provenance, this.snapshot(tx))).session)
+        : await this.resolveAddress(tx, host, requestedUsername, engine, worktreePath, now, {
+            cloneDir: args.clone_dir === undefined ? null : cloneDir,
+            branch,
+          });
+      const linkedRoot = address?.linkedRoot;
       const { clone, unarchived } = await this.upsertCloneLocked(tx, {
         host,
         cloneKey: sha256(cloneDir),
         cloneDir,
-        repoRoot,
+        repoRoot: linkedRoot ?? repoRoot,
+        preserveRepoRoot: Boolean(linkedRoot),
         remoteUrl,
         remoteKey: remoteKey ? sha256(remoteKey) : null,
         now,
@@ -1154,9 +1171,6 @@ export class GitDirectorService {
         await this.notify(tx, { kind: 'registration_superseded', clone: previousClone, worktree: row, audience: 'branch', includeActor: true, detail: { withdrawn_requests: pending.map(r => r.id) } });
       }
 
-      const address = provenance
-        ? remoteAddress((await remoteGitOwner(tx, provenance, this.snapshot(tx))).session)
-        : await this.resolveAddress(tx, host, requestedUsername, engine, worktreePath, now, args.clone_dir === undefined ? null : cloneDir);
       const username = requestedUsername ?? address?.username ?? 'unknown';
       const owner = ownerRuntimeFor(tx), state = this.snapshot(tx);
       const session = address ? state?.sessions.get(address.sessionId) : undefined;
@@ -2198,6 +2212,7 @@ export class GitDirectorService {
       cloneKey: string;
       cloneDir: string;
       repoRoot: string;
+      preserveRepoRoot: boolean;
       remoteUrl: string | null;
       remoteKey: string | null;
       now: string;
@@ -2231,8 +2246,9 @@ export class GitDirectorService {
             { recorded_remote_url: existing.remoteUrl, remote_url: input.remoteUrl, live_registrations: live.length },
           );
       }
+      const repoRoot = input.preserveRepoRoot ? existing.repoRoot : input.repoRoot;
       await this.updateRows(tx, 'gitClones', [existing.id], {
-          repoRoot: input.repoRoot,
+          repoRoot,
           remoteUrl: input.remoteUrl ?? existing.remoteUrl,
           remoteKey: input.remoteKey ?? existing.remoteKey,
           lastSeenAt: input.now,
@@ -2245,7 +2261,7 @@ export class GitDirectorService {
       return {
         clone: {
           ...existing,
-          repoRoot: input.repoRoot,
+          repoRoot,
           remoteUrl: input.remoteUrl ?? existing.remoteUrl,
           remoteKey: input.remoteKey ?? existing.remoteKey,
           lastSeenAt: input.now,
@@ -2286,8 +2302,8 @@ export class GitDirectorService {
     engine: string | null,
     worktreePath: string,
     now: string,
-    explicitCloneDir: string | null = null,
-  ): Promise<{ id: string; username: string; sessionId: string; generation: number } | null> {
+    registration: { cloneDir: string | null; branch: string | null },
+  ): Promise<RegistrationAddress | null> {
     if (!engine) return null;
     const cwdHash = sha256(worktreePath);
     const snapshot = this.snapshot(tx), owner = ownerRuntimeFor(tx);
@@ -2295,6 +2311,27 @@ export class GitDirectorService {
       const principal=currentNativePrincipal();if(!principal)throw nativeRegistrationRequired('Authenticated native session required for registration');
       const {session}=ownedBridge(snapshot,principal.sessionId,principal.bridgeToken),workspace=readWorkspace(session.workspace);
       const root=workspace?.git_root??workspace?.cwd??session.cwd;
+      const { cloneDir: explicitCloneDir, branch } = registration;
+      const attachment = nativeClaimAttachment(owner, session);
+      const nativeInstanceId = attachment?.scope.native_instance_id;
+      // The same-clone exception authorizes an additional registration, never a
+      // session rebind or a merge. An exact path and named branch claim bind it
+      // to the task and original native instance.
+      const claimedLinkedWorktree = (current: OwnerStateSnapshot) => {
+        const bound = readWorkspace(current.sessions.get(session.id)?.workspace);
+        if (!nativeInstanceId || !bound?.git_root || !bound.git_common_dir || !explicitCloneDir ||
+            normalizePath(bound.git_common_dir) !== explicitCloneDir || bound.git_root === worktreePath ||
+            !branch || branch === bound.branch) return false;
+        const resources = current.claims.by('sessionId', session.id)
+          .filter(claim => claim.state === 'active' && claim.generation === session.bindingGeneration &&
+            claim.nativeInstanceId === nativeInstanceId && claimContinuouslyHeld(owner, current, claim))
+          .flatMap(claim => claim.resources as Resource[]);
+        return resources.some(resource => resource.kind === 'path' &&
+            resource.host_id === session.hostId && resource.path === worktreePath) &&
+          resources.some(resource => resource.kind === 'git' && resource.host_id === session.hostId &&
+            resource.common_dir === explicitCloneDir && resource.branch === branch);
+      };
+      const linked = root !== worktreePath && claimedLinkedWorktree(snapshot);
       // A separate repository nested inside the bound checkout (a submodule or
       // vendored clone) may be registered without moving the session: the path
       // lies inside the workspace this session proved, and its explicit
@@ -2313,7 +2350,7 @@ export class GitDirectorService {
       const mismatchFields = [
         ...(session.hostId !== host.id ? ['host_id'] : []),
         ...(session.engine !== engine ? ['engine'] : []),
-        ...(root !== worktreePath && !nested ? ['worktree_path'] : []),
+        ...(root !== worktreePath && !nested && !linked ? ['worktree_path'] : []),
       ];
       if (mismatchFields.length) {
         throw nativeRegistrationRequired(
@@ -2322,10 +2359,17 @@ export class GitDirectorService {
           mismatchFields,
         );
       }
-      const attachment=nativeClaimAttachment(owner,session),address=session.agentBusAddressId?snapshot.addresses.get(session.agentBusAddressId):undefined;
+      const address=session.agentBusAddressId?snapshot.addresses.get(session.agentBusAddressId):undefined;
       if((!attachment&&!legacyDrainFor(owner)?.session(session.id,session.bindingGeneration))||address?.currentSessionId!==session.id||address.bindingGeneration!==session.bindingGeneration)return null;
-      this.ownedContext.getStore()?.checks.push(current=>{const checked=ownedBridge(current,principal.sessionId,principal.bridgeToken).session;if(checked.bindingGeneration!==session.bindingGeneration)throw new ConflictError('Native binding changed','git_director_owner_uncertain');});
-      return {id:address.id,username:session.username,sessionId:session.id,generation:session.bindingGeneration};
+      this.ownedContext.getStore()?.checks.push(current => {
+        const checked = ownedBridge(current, principal.sessionId, principal.bridgeToken).session;
+        if (checked.bindingGeneration !== session.bindingGeneration)
+          throw new ConflictError('Native binding changed', 'git_director_owner_uncertain');
+        if (linked && !claimedLinkedWorktree(current))
+          throw new ConflictError('Same-clone worktree path and branch claims changed before registration', 'resource_claim_required');
+      });
+      return { id: address.id, username: session.username, sessionId: session.id, generation: session.bindingGeneration,
+        ...(linked ? { linkedRoot: root } : {}) };
     }
 
     try {

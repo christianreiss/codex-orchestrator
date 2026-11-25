@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { AUTHENTICATED_PEER_GUIDANCE } from './agent-messaging-guidance.js';
 import type { ManagedSkillManifest } from './managed-skills.js';
+import { AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS } from './agent-messaging/constants.js';
 
 export const MANAGED_CONFERENCE_SKILL_SLUG = 'conference';
 
@@ -60,6 +61,9 @@ Phrase a dispatch accordingly. A headless member gets one self-contained task an
 returns one report. Do not ask it to check in.
 
 ## \`#conference chair [topic]\`
+
+Plan for up to ${AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS} people, including the chair.
+Set \`max_members\` from 2 to ${AGENT_MESSAGING_CONFERENCE_MAX_MEMBERS} when opening a smaller room.
 
 0. \`agent_conf_list\` first. If an invitation for the same work is already waiting, join that
    room instead of opening a parallel one. You may chair one room and sit in others.

@@ -1262,6 +1262,7 @@ export const CURATION_TOOLS = [
   'shared_memory_replace',
   'shared_memory_delete',
   'project_memory_upsert',
+  'project_memory_replace',
   'project_memory_delete',
   // Same asymmetry again, on the project lifecycle. Reading a project was
   // already allowed; the calls that let an agent finish one were not. A prompt

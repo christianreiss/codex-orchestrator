@@ -10,6 +10,7 @@ import type { SharedMemoriesService } from '../../../src/services/shared-memorie
 import type { SecretsService } from '../../../src/services/secrets.js';
 import type { AgentTransfersService } from '../../../src/services/agent-transfers.js';
 import type { GitDirectorService } from '../../../src/services/git-director.js';
+import type { FeedbackService } from '../../../src/services/feedback.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const stubMemories = {
@@ -106,6 +107,9 @@ const stubProjects = {
     status: 'created',
     id: payload['key'],
     memory: null,
+  }),
+  replaceMemory: async (slug: string, args: Record<string, unknown>) => ({
+    project: slug, id: args['key'], status: 'updated', replacements: 1, sha256: 'a'.repeat(64),
   }),
   deleteMemory: async (slug: string, key: string) => ({ project: slug, status: 'deleted', id: key }),
   searchMemories: async (slug: string, payload: Record<string, unknown>) => {
@@ -221,6 +225,18 @@ describe('Git Director caller engine', () => {
     await registry.dispatch('git_register', { worktree_path: '/repo', engine: 'wrong-engine' }, host, 'host', engine);
     expect(calls).toEqual([{ worktree_path: '/repo', engine }, { worktree_path: '/repo', engine }]);
   });
+});
+
+it('advertises the feedback update text limits before a caller submits evidence', () => {
+  const registry = new McpToolsRegistry({
+    memories: stubMemories, projects: stubProjects, skills: stubSkills, feedback: {} as FeedbackService,
+  });
+  const schema = registry.list().find((tool) => tool.name === 'feedback_update')?.inputSchema;
+  expect(schema).toMatchObject({ properties: {
+    title: { maxLength: 255 }, component: { maxLength: 100 },
+    reason: { maxLength: 1000 }, fix_ref: { maxLength: 1000 }, deployment_ref: { maxLength: 1000 },
+    note: { maxLength: 32000 }, resolution: { maxLength: 32000 }, verification: { maxLength: 32000 },
+  } });
 });
 
 describe('McpToolsRegistry', () => {
@@ -430,6 +446,18 @@ describe('McpToolsRegistry', () => {
   it('requires key and content on project_memory_upsert', async () => {
     const res = await registry.dispatch('project_memory_upsert', { slug: 'demo' }, host);
     expect(res).toMatchObject({ isError: true });
+  });
+
+  it('accepts empty replacement text and returns a compact project memory receipt', async () => {
+    const out = await registry.dispatch('project_memory_replace', {
+      slug: 'demo', key: 'release', old_text: 'obsolete', new_text: '', expected_sha256: '0'.repeat(64),
+    }, host, 'host');
+    expect(out.isError).toBe(false);
+    expect(Array.isArray(out.content)).toBe(true);
+    const [receipt] = out.content as Array<{ text: string }>;
+    expect(JSON.parse(receipt!.text)).toEqual({
+      project: 'demo', id: 'release', status: 'updated', replacements: 1, sha256: 'a'.repeat(64),
+    });
   });
 
   it('advertises all accepted project feedback types', () => {

@@ -660,7 +660,7 @@ Host resource sync (`/skills`, `/sync/bootstrap`) and cron routes resolve the sa
   - Todos: `project_todo_create`, `project_todo_update`, `project_todo_done`, `project_todo_undone`. Create/update require `title`; todo payloads include boolean `done` and optional `done_at`.
   - Files: `project_files` (metadata listing), `project_file_read`, `project_file_upsert`, `project_file_delete`. Upsert requires `stored_name` (or `name`) plus `content`; optional `description` and `mime_type`. Returned file payloads include `content`, `content_sha256`, `size_bytes`, `created_at`, and `updated_at`.
   - Feedback: `project_feedback_create`, `project_feedback_list`, `project_feedback_update`. Create requires `type` (`bug|feature|note|issue|test`), `title`, and `body`; new entries start with `status:"open"`. Update patches only the fields it is given — `status` (`open|acknowledged|resolved|dismissed`), `type`, `title`, `body` — and rejects an empty patch.
-  - Memories: `project_memory_upsert`, `project_memory_get`, `project_memory_list`, `project_memory_search`, `project_memory_delete`. Project-scoped and visible from every host, unlike `memory_*` below. Upsert requires a string `key` (`^[A-Za-z0-9._:-]+$`, ≤128 chars, never auto-generated) plus string `content` (≤32k; numbers are not coerced); optional `metadata` object and `tags` (an array of ≤32 strings, ≤64 chars each), validated exactly like `memory_store` and the admin console. Status: `created` | `updated` | `unchanged` — an `unchanged` re-store writes nothing and records no event. The listing returns previews (`preview`, `content_length`) unless `include_content=true`; `limit` caps at 500. Search accepts an optional `query` (omit for a recency listing), optional `tags` (AND-filtered), and `limit` (≤100, default 20); the response carries `degraded:true` when the full-text index is missing and it fell back to a substring scan. Deletes are hard; `source_host_id` attributes each write, and every mutation appends to the project event log. No `coco*` reservation applies here — that reservation exists to redirect callers to this surface.
+  - Memories: `project_memory_upsert`, `project_memory_get`, `project_memory_replace`, `project_memory_list`, `project_memory_search`, `project_memory_delete`. Project-scoped and visible from every host, unlike `memory_*` below. Upsert requires a string `key` (`^[A-Za-z0-9._:-]+$`, ≤128 chars, never auto-generated) plus string `content` (≤32k; numbers are not coerced); optional `metadata` object and `tags` (an array of ≤32 strings, ≤64 chars each), validated exactly like `memory_store` and the admin console. Status: `created` | `updated` | `unchanged` — an `unchanged` re-store writes nothing and records no event. Get returns `memory.sha256`. Replace takes `slug`, `key`, `old_text`, `new_text` (empty to remove the selected text), and `expected_sha256` from Get. It updates exactly one occurrence under a digest check, preserves tags and metadata, and returns `{project,id,status,replacements,sha256}` without the body. A changed digest returns `409 project_memory_conflict`; zero or overlapping/repeated matches return validation errors. A no-op returns `unchanged` with zero writes. The listing returns previews (`preview`, `content_length`) unless `include_content=true`; `limit` caps at 500. Search accepts an optional `query` (omit for a recency listing), optional `tags` (AND-filtered), and `limit` (≤100, default 20); the response carries `degraded:true` when the full-text index is missing and it fell back to a substring scan. Deletes are hard; `source_host_id` attributes each write, and every mutation appends to the project event log. No `coco*` reservation applies here — that reservation exists to redirect callers to this surface.
   - Changelog: `project_changelog_append`, `project_changelog_update`, `project_changelog_delete`, `project_changelog_list`, `project_changelog_search`, listed only while the fleet switch is on — see [Project changelog](#project-changelog).
 - Host memory (`memory_*` tools; host API key auth, or short-lived insecure-host MCP bearer auth) remains host-scoped and is not valid for CoCo cross-server handoffs — use the project memories above for coordination state tied to a workstream, or the shared memories below for fleet-wide reference documents:
   - `memory_store` — `content` (required string, ≤32k chars; a non-string is rejected, not coerced), optional `id`/`memory_id`/`key` (slug/UUID; generated when omitted), optional `metadata` (object), optional `tags` (up to 32 strings, ≤64 chars each). Status: `created` | `updated` | `unchanged`; echoes `memory` (`id`, `content`, `metadata`, `tags`, nullable `summary`, `created_at`, `updated_at`). The API never generates `summary`: a write keeps whatever summary the row already holds, and a new row starts with `null`. Served agent documents never enumerate these rows or summaries. Keys matching `^coco(?:$|[._:-])` are reserved and rejected so CoCo shared handoffs must go through Projects.
@@ -1051,15 +1051,15 @@ All four engine config GET/store routes share the revision contract: `revision` 
   registration, `username` means the authenticated OS account, not the agent's
   launch/display name. A supplied mismatch is refused with
   `409 git_director_username_mismatch`; omit it to use the authenticated account.
-  This does not change workspace or native ownership proof requirements. The address must also
-  match the worktree directory (session `workspace.git_root`/`cwd`), so an agent
-  that launched in the original checkout binds a linked worktree only after
-  `agent_context_update` moves its scope there. One exception keeps a parent
-  binding: a separate repository nested inside the session's
-  `workspace.git_root` (a submodule or vendored clone) registers directly when
-  `clone_dir` is passed explicitly and names neither the parent's
-  `workspace.git_common_dir` nor the nested toplevel itself; a linked worktree
-  of the parent, or any path outside it, still needs `agent_context_update`
+  The address normally matches the worktree directory (session
+  `workspace.git_root`/`cwd`). A native session or a child that shares its
+  binding can register a linked worktree of the same clone alongside the parent.
+  Pass the bound clone's explicit `clone_dir` and the linked worktree's task
+  branch. The original native instance must hold live claims for the exact
+  linked worktree path and that branch. Registration leaves the parent binding
+  and registration intact. A separate repository nested inside the bound
+  checkout (a submodule or vendored clone) registers directly with its own
+  explicit `clone_dir`. For other workspaces, use `agent_context_update`
   (`git_director_owner_required`). Native registration refusals identify the
   differing `host_id`, `engine` or `worktree_path` in `mismatch_fields`; an already
   matching checked-in workspace requires no additional context update. Field names
@@ -2028,7 +2028,7 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/open` — open a conference
   (`ttl_seconds` 300..21600 default 3600, `max_members` 2..8 default 8), mint a
   room PIN valid to the room's deadline, and return the caller's address as
-  `self`. One open conference per owner; re-opening returns it with `reused`.
+  `self`. `max_members` counts the chair. One open conference per owner; re-opening returns it with `reused`.
   Optional `join_existing: true` (default false; requires `topic`, else a
   validation error) makes the call an atomic **open-or-join** for agents that
   were given the same prompt and cannot see each other's rooms. In one

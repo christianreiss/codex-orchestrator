@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   CHANGELOG_KINDS,
   PROJECT_CHANGELOG_TOOL_PREFIX,
@@ -10,7 +11,7 @@ import type { HostSpawnService } from './host-spawn.js';
 import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
 import type { FeedbackService } from './feedback.js';
-import { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_PRIORITIES, FEEDBACK_DEPLOYMENTS } from './feedback-contract.js';
+import { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_PRIORITIES, feedbackUpdateSchema } from './feedback-contract.js';
 import { versionStates, reviewStates, deliveryStates } from './feedback/contract.js';
 import type { AgentMessagingService } from './agent-messaging.js';
 /**
@@ -25,6 +26,7 @@ import type { AgentMessagingService } from './agent-messaging.js';
 import type { SchedulesService } from './schedules.js';
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
+import { MEMORY_MAX_CONTENT } from './memory-validation.js';
 import type { SharedMemoriesService } from './shared-memories.js';
 import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
@@ -447,7 +449,7 @@ function validateAgainstSchema(
     if (typeof key !== 'string') continue;
     const value = args[key];
     // An explicit `minLength: 0` marks a required string that may be empty
-    // (shared_memory_replace.new_text deletes text by replacing it with '').
+    // (for example, new_text can delete the selected memory text).
     const mayBeEmpty = value === '' && (properties[key]?.minLength === 0 || key === emptyStringField);
     if (value === undefined || value === null || (value === '' && !mayBeEmpty)) {
       return "'" + key + "' is required";
@@ -511,6 +513,8 @@ interface RegistrationInput {
 function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   const inputs: RegistrationInput[] = [];
   if (deps.feedback) {
+    const feedbackUpdateInputSchema = z.toJSONSchema(feedbackUpdateSchema, { io: 'input' });
+    delete feedbackUpdateInputSchema.$schema;
     const service = deps.feedback;
     const string = { type: 'string' };
     const id = { type: 'string', format: 'uuid' };
@@ -584,13 +588,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'feedback_update',
         description: 'Append evidence or triage a report using expected_version from feedback_get. A live claim_token is required to finish work. resolved requires resolution, fix_ref and verification; blocked/dismissed require reason; duplicate requires duplicate_of. Deployment is separate and deployed requires deployment_ref. A version conflict requires rereading, never blind retry.',
-        inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'expected_version'], properties: {
-          id, expected_version: { type: 'integer', minimum: 1 }, claim_token: id,
-          type: filters.type, title: string, component: string, priority: filters.priority,
-          status: { type: 'string', enum: ['open', 'blocked', 'resolved', 'dismissed', 'duplicate'] },
-          note: string, reason: string, resolution: string, fix_ref: string, verification: string, duplicate_of: id,
-          deployment: { type: 'string', enum: [...FEEDBACK_DEPLOYMENTS] }, deployment_ref: string,
-        } },
+        inputSchema: feedbackUpdateInputSchema,
       },
       handler: (args, host, engine) => service.update(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
     });
@@ -1378,7 +1376,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_memory_get',
-      description: 'Read one project memory by key (returns full content, tags, and metadata)',
+      description: 'Read one project memory by key (returns full content, tags, metadata, and memory.sha256 for an exact replacement)',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1396,7 +1394,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'project_memory_upsert',
       description:
-        'Create or update a durable project memory by key (add + update). Upserting an existing key is how you correct a fact whose reality has moved — prefer that over inventing a near-duplicate key beside it. Idempotent: returns status created, updated, or unchanged.',
+        'Create or update a durable project memory by key (add + update). Use project_memory_replace for an exact single-text correction on the same key. Idempotent: returns status created, updated, or unchanged.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1417,9 +1415,28 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   });
   inputs.push({
     definition: {
+      name: 'project_memory_replace',
+      description: 'Correct one fact within an existing project memory. Replaces exactly one occurrence of old_text with new_text (may be empty). Pass expected_sha256 from project_memory_get; a changed body is a conflict, so re-read before retrying. Tags and metadata are preserved. Returns the new digest and status without the memory body.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          key: { type: 'string' },
+          old_text: { type: 'string', minLength: 1, maxLength: MEMORY_MAX_CONTENT },
+          new_text: { type: 'string', minLength: 0, maxLength: MEMORY_MAX_CONTENT },
+          expected_sha256: { type: 'string', pattern: '^[0-9a-fA-F]{64}$' },
+        },
+        additionalProperties: false,
+        required: ['slug', 'key', 'old_text', 'new_text', 'expected_sha256'],
+      },
+    },
+    handler: async (args, host) => deps.projects.replaceMemory(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_memory_delete',
       description:
-        'Retire a project memory whose fact is superseded or was proven wrong. Deleting is part of curating a workstream: a stale fact the next agent cannot identify as stale is worse than a missing one. To correct a fact that still belongs, use project_memory_upsert on the same key instead.',
+        'Retire a project memory whose fact is superseded or was proven wrong. Deleting is part of curating a workstream: a stale fact the next agent cannot identify as stale is worse than a missing one. To correct a fact that still belongs, use project_memory_replace on the same key.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -2031,7 +2048,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'git_register',
         description:
-          'Announce that you are working in a git worktree, BEFORE you start changing files. Gather the facts with `git rev-parse --path-format=absolute --show-toplevel --git-common-dir`, `git branch --show-current` and `git rev-parse HEAD` and `git remote get-url origin`, then pass them here. Every linked worktree of one clone registers against the same clone, so this is how you find out who else is already in your checkout — the reply lists them. Idempotent: calling it again refreshes your registration and its TTL, and re-registering the same path under a different user is allowed and reported as rebound. Registrations expire, so a long stretch without calling any git_* tool lets the Director assume you are gone and reclaim your worktree; every call that names your worktree_path counts as proof you are still there. The Director never reads your worktree: the branch and head_sha you pass are stored as a reported snapshot (listed with head_observed_at), so refresh them with git_list(worktree_path, head_sha, branch) after you commit or switch. worktree_path must be the checkout your session is bound to (agent_context_update moves it), except that a separate repository nested inside that checkout, such as a submodule, registers directly with its own clone_dir. A remote_url naming a different repository than the one recorded for a clone that has live registrations is refused (git_director_remote_mismatch), so a typo cannot re-home the clone.',
+          'Announce that you are working in a git worktree, BEFORE you start changing files. Gather the facts with `git rev-parse --path-format=absolute --show-toplevel --git-common-dir`, `git branch --show-current` and `git rev-parse HEAD` and `git remote get-url origin`, then pass them here. Every linked worktree of one clone registers against the same clone, so this is how you find out who else is already in your checkout — the reply lists them. Call again from the owning session to refresh its registration. A live registration held by another session keeps exclusion. Native registrations follow the authenticated connection. The Director never reads your worktree: the branch and head_sha you pass are stored as a reported snapshot (listed with head_observed_at), so refresh them with git_list(worktree_path, head_sha, branch) after you commit or switch. For a linked worktree of the bound clone, pass its actual clone_dir and task branch and first claim the exact worktree path and that branch. Registration leaves the parent binding in place. A separate repository nested inside the bound checkout, such as a submodule, registers directly with its own clone_dir. For any other checkout, use agent_context_update first. A remote_url naming a different repository than the one recorded for a clone that has live registrations is refused (git_director_remote_mismatch), so a typo cannot re-home the clone.',
         inputSchema: {
           type: 'object',
           properties: {
