@@ -131,6 +131,9 @@ func TestSessionRecallLeaseAndInstructions(t *testing.T) {
 	if !strings.Contains(s.Args[1], "Keep my rules") || !strings.Contains(s.Args[1], "rtk recall") {
 		t.Fatal("instruction content lost")
 	}
+	if strings.Contains(s.Args[1], s.Dir) || !strings.Contains(s.Args[1], "PATH") {
+		t.Fatalf("retained instructions depend on a temporary shim: %s", s.Args[1])
+	}
 	if envValue(s.Env, "RTK_TELEMETRY_DISABLED") != "1" || envValue(s.Env, "RTK_RECALL_DB") != filepath.Join(s.Dir, "recall.db") {
 		t.Fatal("session storage/privacy not projected")
 	}
@@ -148,6 +151,20 @@ func TestSessionRecallLeaseAndInstructions(t *testing.T) {
 	s.Close()
 	if _, e = os.Stat(dir); !os.IsNotExist(e) {
 		t.Fatal("session not cleaned")
+	}
+	next, e := Prepare(context.Background(), cfg, []string{"exec", "prompt"}, []string{"PATH=/usr/bin"}, home, io.Discard)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer next.Close()
+	if next.Dir == dir || next.Args[1] != s.Args[1] {
+		t.Fatalf("replacement launch changed retained instructions: %q", next.Args[1])
+	}
+	lookup := exec.Command("sh", "-c", "command -v rtk")
+	lookup.Env = next.Env
+	resolved, e := lookup.Output()
+	if e != nil || strings.TrimSpace(string(resolved)) != filepath.Join(next.Dir, "bin", "rtk") {
+		t.Fatalf("replacement shim lookup = %q, %v", resolved, e)
 	}
 }
 func fakeSession(t *testing.T, script string) (string, string) {

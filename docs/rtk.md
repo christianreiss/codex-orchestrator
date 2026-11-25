@@ -10,7 +10,10 @@ After a host sync receives the signed policy, it applies to new launches. Existi
 
 ## Engine integration
 
-All four engines use session-scoped instructions to invoke RTK explicitly.
+All four engines use session-scoped instructions to invoke RTK explicitly from
+the current PATH. The wrapper prepends a private shim for each launch. The
+instructions use the command name so they still apply when a resumed
+conversation gets a new shim.
 Filtering depends on the agent following that guidance, rather than guaranteed
 transparent interception. The upstream rewrite helper uses Claude permission
 rules; rewriting Grok commands could change which native command restrictions
