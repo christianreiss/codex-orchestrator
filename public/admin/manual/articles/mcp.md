@@ -73,7 +73,7 @@ Defined in `api/src/services/mcp-tools.ts`. What you get at runtime depends on c
 - `project_feedback_create`, `project_feedback_list`, `project_feedback_update`
 - `project_files` — file metadata only
 - `project_file_read`, `project_file_upsert`, `project_file_delete`
-- `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_delete`, `project_memory_search` — project-scoped memory (see *Project memory tools* below)
+- `project_memory_list`, `project_memory_get`, `project_memory_upsert`, `project_memory_replace`, `project_memory_delete`, `project_memory_search` — project-scoped memory (see *Project memory tools* below)
 
 `project_bootstrap` and `project_detail` return every file body and every note body. On a project that carries real artifacts that is a very large response — measured at 62 KB and 597 KB against live projects — so an agent following the bootstrap doctrine could exhaust its context before doing any work. They keep that shape because the admin console reads `content` out of them. `project_summary`, `project_files` and `project_notes` are the lean equivalents, and `project_file_read` accepts `offset`/`limit` to window a single body, returning `next_offset` and `truncated` exactly as `shared_memory_read` does. `project_changes` accepts `payloads: "preview"` to trim note and card bodies, and `since_seq` as an alias for `since`.
 
@@ -170,6 +170,8 @@ Validation matches `memory_*` (key charset and 128-char cap, 32,000-char content
 - **`query` is optional on `project_memory_search`**, degrading to a recency-ordered listing rather than an error.
 
 `project_memory_upsert` is idempotent and reports `created`, `updated`, or `unchanged`. An `unchanged` re-store writes nothing and records **no** event — otherwise a no-op would bump `latest_event_seq` and make every other host re-sync for nothing. `project_memory_list` returns 280-character previews plus `content_length` by default (pass `include_content: true` for full rows), and `project_bootstrap` surfaces at most 8 previews under `recent_memories` plus a `counts.memories` total.
+
+Use `project_memory_replace` to correct an exact, unique substring. Pass the current `memory.sha256` from `project_memory_get` as `expected_sha256`. The tool returns the new digest and preserves tags and metadata. If the digest changed, read the memory again before retrying.
 
 Search is a project-scoped `MATCH() AGAINST() IN NATURAL LANGUAGE MODE` over `content`/`tags_text` with tag filters applied in application code. If the full-text index is missing — it ships in `api/src/db/migrations/0003_add_coord_project_memories.sql`, and nothing applies migrations automatically — search falls back to a substring scan and sets `degraded: true` in the response rather than failing.
 

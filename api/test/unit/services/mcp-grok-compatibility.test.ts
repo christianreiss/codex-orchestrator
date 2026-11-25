@@ -26,7 +26,7 @@ function harness(fail = false) {
 }
 
 type Schema = { type?: string | string[]; properties?: Record<string, Schema>;
-  required?: string[]; enum?: unknown[]; minimum?: number; format?: string; items?: Schema };
+  required?: string[]; enum?: unknown[]; minimum?: number; format?: string; pattern?: string; items?: Schema };
 function sample(schema: Schema): unknown {
   if (schema.enum) return schema.enum[0];
   const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
@@ -35,6 +35,7 @@ function sample(schema: Schema): unknown {
   if (type === 'integer' || type === 'number') return schema.minimum ?? 1;
   if (type === 'boolean') return true;
   if (schema.format === 'uuid') return '11111111-1111-4111-8111-111111111111';
+  if (schema.pattern === '^[0-9a-fA-F]{64}$') return 'a'.repeat(64);
   return 'fixture';
 }
 const all = harness().registry.list('operator');
@@ -47,8 +48,8 @@ describe.each(['codex', 'claude', 'grok', 'kimi'] as const)('%s MCP full server 
   it('exposes the fresh-start grant and filesystem helpers only to the operator', async () => {
     const { registry, server, calls } = harness();
     const hostTools = new Set(registry.list('host').map(tool => tool.name));
-    expect(hostTools.size).toBe(90);
-    expect(all).toHaveLength(97);
+    expect(hostTools.size).toBe(91);
+    expect(all).toHaveLength(98);
     expect(all.map(tool => tool.name).filter(name => !hostTools.has(name)).sort()).toEqual([
       'agent_fresh_start_approve', 'fs_file_exists', 'fs_list_dir', 'fs_read_file',
       'fs_search_in_files', 'fs_stat', 'fs_write_file',
