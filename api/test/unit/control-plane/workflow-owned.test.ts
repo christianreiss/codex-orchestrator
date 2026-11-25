@@ -44,6 +44,7 @@ import { HostDaemonService } from '../../../src/services/host-daemon/service.js'
 import { daemonSettingsSchema } from '../../../src/services/host-daemon/policy.js';
 import { NativeStopService } from '../../../src/services/native-stop.js';
 import { daemonSweepObligations } from '../../../src/control-plane/streams/daemon-deadlines.js';
+import { protectOwnerReadHandle, scopedDatabase } from '../../../src/db/fresh-read.js';
 
 const queues: DeadlineQueue[] = [];
 afterEach(() => {
@@ -132,6 +133,34 @@ function harness(extra: Record<string, Record<string, unknown>[]> = {}) {
 }
 
 describe('connection-owned workflow state', () => {
+  it('reads completed task details and attempts through the protected Owner database handle', async () => {
+    const runId = randomUUID(), versionId = randomUUID(), address = randomUUID();
+    const attemptId = randomUUID();
+    const h = harness({
+      workflowRuns: [{ id: runId, status: 'completed', workflowVersionId: versionId, coordinatorAddressId: address }],
+      workflowVersions: [{ id: versionId, document: {
+        tasks: [{ id: 'done', knowledge_ids: ['handbook'] }],
+        knowledge: [{ id: 'handbook', title: 'Handbook', required_check: { applicability: 'Release work' } }],
+      } }],
+      workflowRunTasks: [{ id: randomUUID(), runId, taskId: 'done', status: 'succeeded', version: 3, attemptNo: 1 }],
+      workflowRunMembers: [{ id: randomUUID(), runId, agentAddressId: address, status: 'active', actor: {} }],
+      workflowTaskAttempts: [{ id: attemptId, runId, taskId: 'done', attemptNo: 1, status: 'succeeded' }],
+      versions: [{ name: 'workflows_enabled', version: '1' }],
+    });
+    const db = scopedDatabase(h.ctx.db);
+    bindOwnerRuntime(db, h.runtime);
+    protectOwnerReadHandle(db);
+    const service = new WorkflowsService({ db, settings: new SettingsService(db), keyring: h.ctx.keyring });
+    await expect(service.runGet(runId, { section: 'tasks', task_id: 'done' })).resolves.toMatchObject({
+      task: { task_id: 'done', status: 'succeeded' },
+      knowledge: {
+        role: 'coordinator', subject: { address_id: address },
+        checks: [{ knowledge_id: 'handbook', blocker: 'missing_receipt' }],
+      },
+      attempts: [{ id: attemptId, status: 'succeeded' }],
+    });
+  });
+
   it('queues web confirmation once, retains the receipt on replay, and rolls back failed notification', async () => {
     const id = randomUUID(), address = randomUUID();
     const h = harness({agentSessions: [{id, hostId:1, username:'user', engine:'codex', agentBusAddressId:address, bindingGeneration:1, endedAt:null, adapterCapabilities:{workflow_protocol_version:2}}],

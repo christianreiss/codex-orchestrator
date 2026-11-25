@@ -82,6 +82,7 @@ export function createDbFake(initial: Map<unknown, Row[]> = new Map()): DbFake {
             const inner: any = Promise.resolve(filtered);
             inner.limit = (_n: number) => {
               const limited: any = Promise.resolve(filtered.slice(0, _n));
+              limited.offset = (start: number) => Promise.resolve(filtered.slice(start, start + _n));
               limited.for = (_strength?: unknown) => {
                 fake.locks.push({ table, where: _w, strength: _strength });
                 return limited;

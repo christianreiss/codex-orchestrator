@@ -4102,6 +4102,8 @@ Agent `run-note`, `task-claim` and `task-update` mutation replies use compact
 acknowledgements by default: run/task revisions, status, lease/claim fields,
 preparation revision metadata and report URL. Full preparation instructions stay
 available through `workflow_run_get`; admin and control responses remain complete.
+Request `section: "tasks"` with a `task_id` for one task's knowledge checks
+and paginated attempts, including on a completed run.
 
 See [Workflows](workflows.md) for state transitions, recovery and delivery. All admin endpoints require an authenticated session. Reads require `workflows.read`; definition mutations and state changes require `workflows.manage`; run mutations require `workflows.run`, enforced in both compatible and strict modes. Report access does not grant chat-body access. JSON API namespaces deliberately differ from the SPA route `/admin/workflows`.
 

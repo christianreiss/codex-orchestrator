@@ -631,16 +631,22 @@ export class WorkflowsService {
     const subject = address ? state?state.table('workflowRunMembers').by('runId',runId).find(m=>m.agentAddressId===address&&m.status==='active'):(await this.deps.db.select().from(workflowRunMembers).where(and(
       eq(workflowRunMembers.runId, runId), eq(workflowRunMembers.agentAddressId, address), eq(workflowRunMembers.status, 'active'),
     )))[0] : undefined;
-    const knowledge = version && subject ? {
-      subject: { ...subject.actor, address_id: subject.agentAddressId, session_id: subject.sessionId, binding_generation: subject.bindingGeneration },
+    const document = version?.document as WorkflowDocument | undefined;
+    const subjectView = subject ? {
+      ...subject.actor,
+      address_id: subject.agentAddressId, session_id: subject.sessionId, binding_generation: subject.bindingGeneration,
+    } : undefined;
+    const actor = subjectView ? { ...subjectView, kind: 'agent' as const, id: subjectView.address_id } : undefined;
+    const knowledge = document && subjectView && actor ? {
+      subject: subjectView,
       role: t.claimOwnerAddressId ? 'claim_owner' : 'coordinator',
-      checks: await (state&&run.status!=='completed'?withWorkflowRead(this.deps.db,()=>knowledgeChecks({tx:this.deps.db as unknown as WorkflowTx,now,actor:{...subject.actor,kind:'agent',id:subject.agentAddressId,address_id:subject.agentAddressId,session_id:subject.sessionId,binding_generation:subject.bindingGeneration}},run,version.document as WorkflowDocument,taskId)):this.deps.db.transaction((tx) => knowledgeChecks({ tx, now, actor: {
-        ...subject.actor, kind: 'agent', id: subject.agentAddressId,
-        address_id: subject.agentAddressId, session_id: subject.sessionId, binding_generation: subject.bindingGeneration,
-      } }, run, version.document as WorkflowDocument, taskId))),
-    } : version ? {
+      checks: await (state
+        ? withWorkflowRead(this.deps.db, () =>
+            knowledgeChecks({ tx: this.deps.db as unknown as WorkflowTx, now, actor }, run, document, taskId))
+        : this.deps.db.transaction((tx) => knowledgeChecks({ tx, now, actor }, run, document, taskId))),
+    } : document ? {
       subject: null, role: null,
-      checks: requiredKnowledge(version.document as WorkflowDocument, taskId).map((knowledge) => ({
+      checks: requiredKnowledge(document, taskId).map((knowledge) => ({
         knowledge_id: knowledge.id, title: knowledge.title, uri: knowledgeUri(run, knowledge),
         applicability: knowledge.required_check!.applicability, blocker: 'missing_receipt', receipt: null,
       })),
