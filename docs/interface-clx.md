@@ -2644,9 +2644,10 @@ lifecycle, such as `status` and auth helpers, therefore also use the communicato
 From cxx 0.9.74, managed MCP errors preserve the original request ID and bounded
 `code`, `http_status` and `outcome_unknown` data. Unknown or invalid replies require
 result verification before retrying with the original work identifiers. The stdio
-adapter never replays a call. From cxx 0.9.91 the data also carries `retryable`, true
-only for a local `503 communicator_unavailable` (the request provably never reached the
-orchestrator, e.g. while the control connection redials), so the caller may simply retry.
+adapter never replays a call. A local `503 communicator_unavailable` supplies
+`retryable: true` when the request provably never reached the control channel.
+For approved idempotent content reads, the adapter also supplies a retry hint
+after a gateway failure. Retry an individual read if it was part of a batch.
 
 Pending release: every request carries `X-Cxx-Api` (the binary's integer protocol level,
 independent of the release number). When the server declares `api_version` (S) and
@@ -2728,6 +2729,8 @@ changes and direct provider binaries outside managed entrypoints are unchanged.
 The shared `cxx transfer put FILE` / `get ID --output FILE` commands use this
 engine via its alias or `--engine`. Bytes stream through the orchestrator with
 `--resume`, SHA-256 verification and optional limits defaulting to unlimited.
+For a read-only source directory, use `put --journal-dir DIR` with a writable
+directory and pass the same directory when resuming.
 See [file-transfers.md](file-transfers.md) for CLI, HTTP, journal and rollout contracts.
 
 Managed portal shutdown closes the local broker, then sends the terminal report

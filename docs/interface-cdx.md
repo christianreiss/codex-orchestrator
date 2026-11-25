@@ -587,6 +587,10 @@ every upload carries a required `ttl_seconds`, nobody is notified of an upload,
 and a received file is untrusted input. Both are byte-identical across engines
 and are rendered last, in that order.
 
+For uploads from a read-only source directory, pass `cxx transfer put FILE
+--journal-dir DIR` with a writable directory, then use the same directory
+if the upload needs to resume. See [file transfers](file-transfers.md).
+
 
 **Subagent Model Selection.** The independent fleet switch `subagent_model_selection_enabled` (default off; `GET`/`POST /admin/subagent-model-selection`, Settings → Agents) adds guidance to managed documents for all four engines. It asks agents to assess each permitted delegation and choose a capable stronger or lighter model, prioritize quality, and review and verify the result. The same-engine tier list contains latest enabled models of active host engines; actual launcher support and higher-level instructions govern availability and delegation. When also using the Model Class Check, a task two or more tiers above the parent may be delegated to a fitting model if permitted; otherwise the existing stop applies. Changes take effect on the next sync. This is guidance, not runtime enforcement.
 
@@ -2797,9 +2801,10 @@ lifecycle, such as `status` and auth helpers, therefore also use the communicato
 From cxx 0.9.74, managed MCP errors preserve the original request ID and bounded
 `code`, `http_status` and `outcome_unknown` data. Unknown or invalid replies require
 result verification before retrying with the original work identifiers. The stdio
-adapter never replays a call. From cxx 0.9.91 the data also carries `retryable`, true
-only for a local `503 communicator_unavailable` (the request provably never reached the
-orchestrator, e.g. while the control connection redials), so the caller may simply retry.
+adapter never replays a call. A local `503 communicator_unavailable` supplies
+`retryable: true` when the request provably never reached the control channel.
+For approved idempotent content reads, the adapter also supplies a retry hint
+after a gateway failure. Retry an individual read if it was part of a batch.
 
 Pending release: every request carries `X-Cxx-Api` (the binary's integer protocol level,
 independent of the release number). When the server declares `api_version` (S) and

@@ -30,7 +30,7 @@ import (
 
 const sessionEnv = "CXX_RTK_SESSION"
 const binaryEnv = "CXX_RTK_BINARY"
-const awareness = "Command output filtering is enabled for this session. Prefer `rtk <command>` for supported external development commands (git, go test, npm, search). Leave shell builtins, scripts, pipelines, redirections and command substitutions unchanged. Never prefix a command twice. Filtering may omit evidence: use `rtk recall <hash>` when a recall hint is printed, or `rtk bypass <command>` for raw output. Do not rerun a mutating command to recover its output. RTK does not grant permission or change task authorization."
+const awareness = "Command output filtering is enabled for this session. Prefer `rtk <command>` from the current PATH for supported external development commands (git, go test, npm, search). Leave shell builtins, scripts, pipelines, redirections and command substitutions unchanged. Never prefix a command twice. Filtering may omit evidence: use `rtk recall <hash>` when a recall hint is printed, or `rtk bypass <command>` for raw output. Do not rerun a mutating command to recover its output. RTK does not grant permission or change task authorization."
 
 type Session struct {
 	Dir    string
@@ -134,24 +134,23 @@ func Prepare(ctx context.Context, cfg *config.Config, args, env []string, home s
 	for k, v := range map[string]string{sessionEnv: dir, binaryEnv: bin, "RTK_RECALL_DB": filepath.Join(dir, "recall.db"), "RTK_TEE_DIR": filepath.Join(dir, "tee"), "RTK_DB_PATH": filepath.Join(dir, "tracking.db"), "RTK_TELEMETRY_DISABLED": "1", "RTK_SUPPRESS_HOOK_WARNING": "1", "PATH": shim + string(os.PathListSeparator) + envValue(env, "PATH")} {
 		s.Env = setEnv(s.Env, k, v)
 	}
-	instruction := awareness + " Use " + quote(filepath.Join(shim, "rtk")) + " in place of rtk in this session."
 	switch cfg.Engine {
 	case "codex":
-		s.Args, err = codexInstructions(home, s.Args, instruction)
+		s.Args, err = codexInstructions(home, s.Args, awareness)
 		if err != nil {
 			return s, err
 		}
 	case "claude":
-		s.Args = appendInstructionFlag(s.Args, "--append-system-prompt", instruction)
+		s.Args = appendInstructionFlag(s.Args, "--append-system-prompt", awareness)
 	case "grok":
-		s.Args = appendInstructionFlag(s.Args, "--rules", instruction)
+		s.Args = appendInstructionFlag(s.Args, "--rules", awareness)
 	case "kimi":
 		path := filepath.Join(home, "AGENTS.md")
 		body, e := os.ReadFile(path)
 		if e != nil && !os.IsNotExist(e) {
 			return s, e
 		}
-		body = append(body, []byte("\n\n"+instruction+"\n")...)
+		body = append(body, []byte("\n\n"+awareness+"\n")...)
 		if err = os.WriteFile(path, body, 0600); err != nil {
 			return s, err
 		}

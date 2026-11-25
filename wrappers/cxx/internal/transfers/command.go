@@ -17,12 +17,12 @@ import (
 )
 
 type options struct {
-	action, operand, output, engine string
-	ttl                             int64
-	resume, overwrite, json         bool
+	action, operand, output, engine, journalDir string
+	ttl                                         int64
+	resume, overwrite, json                     bool
 }
 
-const usage = "cxx transfer put FILE [--ttl-seconds 3600] [--resume] [--engine ENGINE] [--json]\ncxx transfer get ID --output FILE [--resume] [--overwrite] [--engine ENGINE] [--json]"
+const usage = "cxx transfer put FILE [--ttl-seconds 3600] [--journal-dir DIR] [--resume] [--engine ENGINE] [--json]\ncxx transfer get ID --output FILE [--resume] [--overwrite] [--engine ENGINE] [--json]"
 
 func parse(args []string, selected string) (options, error) {
 	o := options{engine: selected, ttl: 3600}
@@ -41,7 +41,7 @@ func parse(args []string, selected string) (options, error) {
 			o.overwrite = true
 		case "--json":
 			o.json = true
-		case "--output", "--engine", "--ttl-seconds":
+		case "--output", "--engine", "--ttl-seconds", "--journal-dir":
 			flag := args[i]
 			i++
 			if i >= len(args) {
@@ -52,6 +52,11 @@ func parse(args []string, selected string) (options, error) {
 				o.output = args[i]
 			case "--engine":
 				o.engine = args[i]
+			case "--journal-dir":
+				if args[i] == "" {
+					return o, fmt.Errorf("--journal-dir requires a directory")
+				}
+				o.journalDir = args[i]
 			case "--ttl-seconds":
 				n, e := strconv.ParseInt(args[i], 10, 64)
 				if e != nil || n < 0 || n > 0xffffffff {
@@ -80,6 +85,9 @@ func parse(args []string, selected string) (options, error) {
 	}
 	if o.action == "put" && (o.output != "" || o.overwrite) {
 		return o, fmt.Errorf("--output and --overwrite apply to downloads")
+	}
+	if o.action == "get" && o.journalDir != "" {
+		return o, fmt.Errorf("--journal-dir applies to uploads")
 	}
 	return o, nil
 }
@@ -121,6 +129,7 @@ func Command(args []string, selected string, stdout, stderr io.Writer) int {
 	}
 	var result Transfer
 	if o.action == "put" {
+		client.UploadJournalDir = o.journalDir
 		result, err = client.Put(ctx, o.operand, o.ttl, o.resume)
 	} else {
 		result, err = client.Get(ctx, o.operand, o.output, o.resume, o.overwrite)

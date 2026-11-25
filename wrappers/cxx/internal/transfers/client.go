@@ -39,6 +39,7 @@ type Client struct {
 	HTTP                    *http.Client
 	BaseURL, APIKey, Engine string
 	Progress                io.Writer
+	UploadJournalDir        string
 	// Owner reads the local communicator owner that relays these requests; nil
 	// (direct HTTPS, tests) skips the owner preflight.
 	Owner func(ctx context.Context, base string) (communicator.Owner, bool)

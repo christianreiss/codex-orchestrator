@@ -19,6 +19,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const uploadJournalSuffix = ".cxx-upload.json"
+
 type upload struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -96,7 +98,11 @@ func (e *PutError) Unwrap() error { return e.Err }
 
 // ResumeCommand is the exact command that continues this upload.
 func (e *PutError) ResumeCommand() string {
-	return "cxx transfer put " + shellQuote(e.Path) + " --resume --engine " + e.Engine
+	command := "cxx transfer put " + shellQuote(e.Path) + " --resume --engine " + e.Engine
+	if e.Journal != e.Path+uploadJournalSuffix {
+		command += " --journal-dir " + shellQuote(filepath.Dir(e.Journal))
+	}
+	return command
 }
 
 // Guidance is the human recovery text printed after the error.
@@ -104,7 +110,7 @@ func (e *PutError) Guidance() string {
 	return fmt.Sprintf("transfer %s may already exist on the server; its outcome is not confirmed.\n"+
 		"  resume:  %s\n"+
 		"  abandon: delete transfer %s (MCP transfer_delete), then remove %s\n"+
-		"An abandoned upload otherwise expires with its TTL; a new plain put of this file is refused while the journal exists.",
+		"An abandoned upload otherwise expires with its TTL; a new plain put of this file is refused while its journal exists.",
 		e.ID, e.ResumeCommand(), e.ID, shellQuote(e.Journal))
 }
 
@@ -180,7 +186,16 @@ func (c *Client) Put(ctx context.Context, path string, ttl int64, resume bool) (
 		return Transfer{}, err
 	}
 	j := journal{Version: 1, Server: c.BaseURL, Engine: c.Engine, Path: absolute, Upload: upload{ID: uuid.NewString(), Name: filepath.Base(path), Size: info.Size(), SHA256: hash, TTL: ttl}}
-	statePath := absolute + ".cxx-upload.json"
+	statePath := absolute + uploadJournalSuffix
+	if c.UploadJournalDir != "" {
+		dir, err := filepath.Abs(c.UploadJournalDir)
+		if err != nil {
+			return Transfer{}, err
+		}
+		// Keep files with identical names in different release directories distinct.
+		sourceKey := sha256.Sum256([]byte(absolute))
+		statePath = filepath.Join(dir, hex.EncodeToString(sourceKey[:])+uploadJournalSuffix)
+	}
 	if resume {
 		old, e := readJournal(statePath)
 		if e != nil {
