@@ -10,6 +10,7 @@ import type { SharedMemoriesService } from '../../../src/services/shared-memorie
 import type { SecretsService } from '../../../src/services/secrets.js';
 import type { AgentTransfersService } from '../../../src/services/agent-transfers.js';
 import type { GitDirectorService } from '../../../src/services/git-director.js';
+import type { FeedbackService } from '../../../src/services/feedback.js';
 import type { Host } from '../../../src/db/schema.js';
 
 const stubMemories = {
@@ -221,6 +222,18 @@ describe('Git Director caller engine', () => {
     await registry.dispatch('git_register', { worktree_path: '/repo', engine: 'wrong-engine' }, host, 'host', engine);
     expect(calls).toEqual([{ worktree_path: '/repo', engine }, { worktree_path: '/repo', engine }]);
   });
+});
+
+it('advertises the feedback update text limits before a caller submits evidence', () => {
+  const registry = new McpToolsRegistry({
+    memories: stubMemories, projects: stubProjects, skills: stubSkills, feedback: {} as FeedbackService,
+  });
+  const schema = registry.list().find((tool) => tool.name === 'feedback_update')?.inputSchema;
+  expect(schema).toMatchObject({ properties: {
+    title: { maxLength: 255 }, component: { maxLength: 100 },
+    reason: { maxLength: 1000 }, fix_ref: { maxLength: 1000 }, deployment_ref: { maxLength: 1000 },
+    note: { maxLength: 32000 }, resolution: { maxLength: 32000 }, verification: { maxLength: 32000 },
+  } });
 });
 
 describe('McpToolsRegistry', () => {

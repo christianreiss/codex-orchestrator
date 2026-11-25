@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   CHANGELOG_KINDS,
   PROJECT_CHANGELOG_TOOL_PREFIX,
@@ -10,7 +11,7 @@ import type { HostSpawnService } from './host-spawn.js';
 import type { WorkflowsService } from './workflows.js';
 import type { RolesService } from './roles.js';
 import type { FeedbackService } from './feedback.js';
-import { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_PRIORITIES, FEEDBACK_DEPLOYMENTS } from './feedback-contract.js';
+import { FEEDBACK_TYPES, FEEDBACK_STATUSES, FEEDBACK_PRIORITIES, feedbackUpdateSchema } from './feedback-contract.js';
 import { versionStates, reviewStates, deliveryStates } from './feedback/contract.js';
 import type { AgentMessagingService } from './agent-messaging.js';
 /**
@@ -511,6 +512,8 @@ interface RegistrationInput {
 function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   const inputs: RegistrationInput[] = [];
   if (deps.feedback) {
+    const feedbackUpdateInputSchema = z.toJSONSchema(feedbackUpdateSchema, { io: 'input' });
+    delete feedbackUpdateInputSchema.$schema;
     const service = deps.feedback;
     const string = { type: 'string' };
     const id = { type: 'string', format: 'uuid' };
@@ -584,13 +587,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'feedback_update',
         description: 'Append evidence or triage a report using expected_version from feedback_get. A live claim_token is required to finish work. resolved requires resolution, fix_ref and verification; blocked/dismissed require reason; duplicate requires duplicate_of. Deployment is separate and deployed requires deployment_ref. A version conflict requires rereading, never blind retry.',
-        inputSchema: { type: 'object', additionalProperties: false, required: ['id', 'expected_version'], properties: {
-          id, expected_version: { type: 'integer', minimum: 1 }, claim_token: id,
-          type: filters.type, title: string, component: string, priority: filters.priority,
-          status: { type: 'string', enum: ['open', 'blocked', 'resolved', 'dismissed', 'duplicate'] },
-          note: string, reason: string, resolution: string, fix_ref: string, verification: string, duplicate_of: id,
-          deployment: { type: 'string', enum: [...FEEDBACK_DEPLOYMENTS] }, deployment_ref: string,
-        } },
+        inputSchema: feedbackUpdateInputSchema,
       },
       handler: (args, host, engine) => service.update(args, { host_id: host.id, engine: engine ?? ENGINE_CODEX }),
     });
