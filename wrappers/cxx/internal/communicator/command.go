@@ -189,7 +189,7 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 			reply([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"Parse error"}}`))
 			continue
 		}
-		ids, batch, ok := mcpRequestIDs(raw)
+		requests, batch, ok := mcpRequests(raw)
 		if !ok {
 			reply([]byte(`{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid Request"}}`))
 			continue
@@ -198,7 +198,7 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 		go func() {
 			defer work.Done()
 			status, body, err := forward(raw)
-			if len(ids) == 0 {
+			if len(requests) == 0 {
 				// Nothing awaits a reply, but the API still answers invalid
 				// members and malformed objects with id null. Pass only
 				// those through; never synthesize one for a notification.
@@ -217,48 +217,49 @@ func mcp(ctx context.Context, engine string, in io.Reader, out io.Writer) error 
 			}
 			if !batch {
 				if err != nil {
-					body = mcpFailure(ids[0], status, body)
-				} else if !mcpResponseValid(ids[0], body) {
-					body = mcpFailure(ids[0], status, nil)
+					body = mcpFailure(requests[0], status, body)
+				} else if !mcpResponseValid(requests[0].id, body) {
+					body = mcpFailure(requests[0], status, nil)
 				}
 				write(body)
 				return
 			}
 			if err != nil {
-				failures := make([]json.RawMessage, 0, len(ids))
-				for _, id := range ids {
-					failures = append(failures, mcpFailure(id, status, body))
+				failures := make([]json.RawMessage, 0, len(requests))
+				for _, request := range requests {
+					failures = append(failures, mcpFailure(request, status, body))
 				}
 				body, _ = json.Marshal(failures)
 			} else {
-				body, _ = json.Marshal(mcpBatchReplies(ids, status, body))
+				body, _ = json.Marshal(mcpBatchReplies(requests, status, body))
 			}
 			write(body)
 		}()
 	}
 }
 
-// mcpRequestIDs returns the IDs that expect a reply. A batch (JSON-RPC 2.0,
+type mcpRequest struct {
+	id, raw json.RawMessage
+}
+
+// mcpRequests returns the objects that expect a reply. A batch (JSON-RPC 2.0,
 // MCP 2025-03-26) is forwarded whole. Like the API dispatcher, a missing or
 // null id is a notification: it gets no reply, and an all-notification batch
 // is answered with 202. ok is false for input that is neither an object nor a non-empty array.
-func mcpRequestIDs(raw []byte) (ids []json.RawMessage, batch, ok bool) {
-	idOf := func(item json.RawMessage) (json.RawMessage, bool) {
+func mcpRequests(raw []byte) (requests []mcpRequest, batch, ok bool) {
+	add := func(item json.RawMessage) bool {
 		var request map[string]json.RawMessage
 		if json.Unmarshal(item, &request) != nil || request == nil {
-			return nil, false
+			return false
 		}
-		return request["id"], true
+		if id := request["id"]; len(id) > 0 && string(id) != "null" {
+			requests = append(requests, mcpRequest{id: id, raw: item})
+		}
+		return true
 	}
 	if raw[0] != '[' {
-		id, ok := idOf(raw)
-		if !ok {
-			return nil, false, false
-		}
-		if len(id) > 0 && string(id) != "null" {
-			ids = append(ids, id)
-		}
-		return ids, false, true
+		ok := add(raw)
+		return requests, false, ok
 	}
 	var items []json.RawMessage
 	if json.Unmarshal(raw, &items) != nil || len(items) == 0 {
@@ -266,22 +267,20 @@ func mcpRequestIDs(raw []byte) (ids []json.RawMessage, batch, ok bool) {
 	}
 	for _, item := range items {
 		// Invalid members still go upstream; the server answers each with id null.
-		if id, ok := idOf(item); ok && len(id) > 0 && string(id) != "null" {
-			ids = append(ids, id)
-		}
+		add(item)
 	}
-	return ids, true, true
+	return requests, true, true
 }
 
 // mcpBatchReplies keeps each valid reply that answers a request once, and the
 // server's id null Invalid Request answers. Any request left unanswered by a
 // lost, malformed or partial reply gets its own unknown-outcome error; nothing
 // is ever resent.
-func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []json.RawMessage {
+func mcpBatchReplies(requests []mcpRequest, status int, body []byte) []json.RawMessage {
 	var replies []json.RawMessage
 	_ = json.Unmarshal(body, &replies)
-	answered := make([]bool, len(ids))
-	kept := make([]json.RawMessage, 0, len(ids))
+	answered := make([]bool, len(requests))
+	kept := make([]json.RawMessage, 0, len(requests))
 	for _, reply := range replies {
 		var envelope struct {
 			ID json.RawMessage `json:"id"`
@@ -295,17 +294,17 @@ func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []json.RawM
 			}
 			continue
 		}
-		for i, id := range ids {
-			if !answered[i] && mcpResponseValid(id, reply) {
+		for i, request := range requests {
+			if !answered[i] && mcpResponseValid(request.id, reply) {
 				answered[i] = true
 				kept = append(kept, reply)
 				break
 			}
 		}
 	}
-	for i, id := range ids {
+	for i, request := range requests {
 		if !answered[i] {
-			kept = append(kept, mcpFailure(id, status, nil))
+			kept = append(kept, mcpFailure(request, status, nil))
 		}
 	}
 	return kept
@@ -314,7 +313,7 @@ func mcpBatchReplies(ids []json.RawMessage, status int, body []byte) []json.RawM
 // Preserve an ambiguous write's meaning at the model-facing boundary. A generic
 // tool failure invites a fresh retry even when the server already committed it.
 // Forward only a bounded machine code, never an upstream body or credentials.
-func mcpFailure(id json.RawMessage, status int, body []byte) []byte {
+func mcpFailure(request mcpRequest, status int, body []byte) []byte {
 	code := upstreamErrorCode(body)
 	if status < 400 {
 		code = "communicator_outcome_unknown"
@@ -328,15 +327,21 @@ func mcpFailure(id json.RawMessage, status int, body []byte) []byte {
 	// The owner answers 503 communicator_unavailable only for a request that
 	// provably never reached the control channel (the connection was down or
 	// ended before the frame was written), so any tool may be called again.
-	retryable := !unknown && status == 503 && code == "communicator_unavailable"
+	notSent := status == http.StatusServiceUnavailable && code == "communicator_unavailable"
+	gatewayFailure := status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+	// Use the existing MCP content-read allowlist. In a mixed batch the
+	// retry hint applies only to this read, never to the entire batch.
+	retryRead := !unknown && gatewayFailure && cacheCandidate(frame{Method: http.MethodPost, Path: "/mcp", Body: request.raw})
 	if unknown {
 		message = "Request outcome unknown; it may already have completed. Verify its result before retrying and retain the original idempotency or claim identifiers."
-	} else if retryable {
+	} else if notSent {
 		message = "CoCo communicator is reconnecting to the orchestrator; the request was not sent and may be retried shortly."
+	} else if retryRead {
+		message = "CoCo gateway unavailable; retry this read individually shortly."
 	}
-	raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{
+	raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": request.id, "error": map[string]any{
 		"code": -32000, "message": message,
-		"data": map[string]any{"code": code, "http_status": status, "outcome_unknown": unknown, "retryable": retryable},
+		"data": map[string]any{"code": code, "http_status": status, "outcome_unknown": unknown, "retryable": notSent || retryRead},
 	}})
 	return raw
 }

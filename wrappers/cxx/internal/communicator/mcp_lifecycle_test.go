@@ -32,14 +32,15 @@ import (
 // array of per-item replies with notifications omitted, and an empty result
 // is a 202 without a body. Methods script malformed or slow upstream replies.
 type mcpFixture struct {
-	t          *testing.T
-	binary     string
-	env        []string
-	socket     string
-	release    chan struct{}
-	unblock    func()
-	dispatched atomic.Int32
-	stderr     []*bytes.Buffer
+	t              *testing.T
+	binary         string
+	env            []string
+	socket         string
+	release        chan struct{}
+	unblock        func()
+	dispatched     atomic.Int32
+	gatewayFailure atomic.Bool
+	stderr         []*bytes.Buffer
 }
 
 func newMCPFixture(t *testing.T) *mcpFixture {
@@ -137,6 +138,9 @@ func newMCPFixture(t *testing.T) *mcpFixture {
 
 func (f *mcpFixture) dispatch(body []byte) (int, []byte) {
 	f.dispatched.Add(1)
+	if f.gatewayFailure.Swap(false) {
+		return http.StatusBadGateway, []byte("temporary gateway failure")
+	}
 	trimmed := bytes.TrimSpace(body)
 	if len(trimmed) > 0 && trimmed[0] == '[' {
 		var items []json.RawMessage
@@ -725,5 +729,55 @@ func TestMCPAdapterRejectsMalformedErrorWithoutReplay(t *testing.T) {
 				t.Fatal("malformed response replayed the operation")
 			}
 		}
+	}
+}
+
+func TestMCPAdapterHintsRetryForKnownReadsOnGatewayFailure(t *testing.T) {
+	f := newMCPFixture(t)
+	c := f.start("codex")
+	read := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"skill_list"}}`
+	mixed := `[{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"skill_retrieve"}},{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"skill://sample"}},{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"resource_read","arguments":{"uri":"skill://sample"}}},{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"skill_store"}}]`
+	for _, tt := range []struct {
+		request string
+		retry   map[int]bool
+	}{
+		{read, map[int]bool{1: true}},
+		{mixed, map[int]bool{2: true, 3: true, 4: true, 5: false}},
+	} {
+		before := f.dispatched.Load()
+		f.gatewayFailure.Store(true)
+		c.send(tt.request)
+		reply, ok := c.next(t, 25*time.Second)
+		if !ok || f.dispatched.Load() != before+1 {
+			t.Fatalf("gateway response lost or automatically replayed: %q", reply)
+		}
+		if !strings.HasPrefix(reply, "[") {
+			reply = "[" + strings.TrimSpace(reply) + "]"
+		}
+		var responses []struct {
+			ID    int
+			Error struct {
+				Data struct {
+					Status    int  `json:"http_status"`
+					Unknown   bool `json:"outcome_unknown"`
+					Retryable bool
+				}
+			}
+		}
+		if err := json.Unmarshal([]byte(reply), &responses); err != nil || len(responses) != len(tt.retry) {
+			t.Fatalf("unexpected gateway reply: %s (%v)", reply, err)
+		}
+		for _, response := range responses {
+			data := response.Error.Data
+			if retry, exists := tt.retry[response.ID]; !exists || data.Status != http.StatusBadGateway || data.Unknown || data.Retryable != retry {
+				t.Fatalf("incorrect retry hint for request %d: %s", response.ID, reply)
+			}
+			delete(tt.retry, response.ID)
+		}
+	}
+	// A caller can retry the read once the gateway recovers.
+	c.send(read)
+	if reply, ok := c.next(t, 25*time.Second); !ok || !strings.Contains(reply, `"result"`) {
+		t.Fatalf("retry did not recover: %s", reply)
 	}
 }

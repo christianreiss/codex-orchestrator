@@ -940,12 +940,15 @@ error data (`code`, `http_status`, `outcome_unknown`) and keeps the original req
 ID. Unknown outcomes instruct the caller to verify the result before retrying with
 the original idempotency or claim identifiers. Incomplete or miscorrelated replies
 also return a correlated unknown-outcome error. From cxx 0.9.91 the data also carries
-`retryable`: true only for a local `503 communicator_unavailable`, which the owner
-returns solely for a request that never reached the control channel (the connection
-was down or redialling), with a message saying it was not sent. Every tool, including
-`secret_*`, takes the same `POST /mcp` path, so a short redial window can fail one call
-while neighbouring calls succeed; the caller retries, the adapter still does not. Error conversion never forwards
-upstream bodies or credentials, and the adapter never replays a failed call.
+`retryable`. A local `503 communicator_unavailable` sets it to true for a request
+that never reached the control channel and says the request was not sent.
+A gateway failure (HTTP 502, 503 or 504) also sets it for the existing MCP
+content-read allowlist, including `skill_list`, `skill_retrieve` and `skill://`
+resource reads. For a mixed batch, this hint applies to the individual read.
+Every tool takes the same `POST /mcp` path, so a short redial window can fail one
+call while neighbouring calls succeed. The caller decides whether to retry.
+Error conversion omits upstream bodies and credentials. The adapter performs no
+automatic replay.
 An oversized reply rejected after dispatch also carries `outcome_unknown: true`:
 the route may already have committed its effects before the frame limit was
 checked. The bounded `communicator_response_too_large` code remains available

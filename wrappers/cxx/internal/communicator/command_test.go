@@ -59,7 +59,7 @@ func TestMCPFailuresPreserveUnknownWriteOutcomes(t *testing.T) {
 		{"untrusted message", 403, `{"code":"secret upstream body"}`, "communicator_request_failed", false, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			raw := mcpFailure(json.RawMessage(`"original-request"`), test.status, []byte(test.body))
+			raw := mcpFailure(mcpRequest{id: json.RawMessage(`"original-request"`)}, test.status, []byte(test.body))
 			var result struct {
 				ID    string
 				Error struct {
