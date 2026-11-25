@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 const vendor = new URL('../../../../slop-worker/vendor/slop-detector/src/', import.meta.url).pathname;
 const { validateEvidence } = await import(vendor + 'validate.ts');
-const { blank, finding } = await import(vendor + 'core.ts');
+const { blank, finding, scan } = await import(vendor + 'core.ts');
 const worker = new URL('../../../../slop-worker/worker.mjs', import.meta.url).pathname;
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 
@@ -31,6 +31,25 @@ describe('Slop worker evidence handoff', () => {
       expect(report.sources).toEqual({});
       report.findings[0].location = 'terminal.txt:99';
       expect((await validateEvidence(root, [], report))[0]).toContain('Line out of range');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('accepts Godot source and native input trace citations in a full report', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'slop-godot-'));
+    try {
+      await writeFile(join(root, 'reader.gd'), 'extends Control\nfunc _unhandled_input(event):\n    if event.is_action_pressed("ui_left"):\n        previous_page()\n');
+      await writeFile(join(root, 'reader.tscn'), '[gd_scene format=3]\n[node name="NextPage" type="Button"]\n');
+      await writeFile(join(root, 'godot-input.txt'), 'Godot 4 export on Linux\nkey=Left focus_before=NextPage focus_after=NextPage expected=previous-page observed=unchanged\n');
+      const report = await scan(root, ['reader.gd', 'reader.tscn', 'godot-input.txt']);
+      expect(report.coverage).toContain('Skipped: 3 unsupported extension.');
+      report.findings = [
+        finding('focus', 'reader.gd:3', 'Navigation handles ui_left after Control input.', 'focus', 'fix', 'check'),
+        finding('focus', 'godot-input.txt:2', 'Left left the page unchanged with NextPage focused.', 'focus', 'fix', 'check'),
+      ];
+      expect(await validateEvidence(root, [], report)).toEqual([]);
+      expect(report.sources).toEqual({});
+      report.findings[1]!.location = 'godot-input.txt:99';
+      expect(await validateEvidence(root, [], report)).toEqual(expect.arrayContaining([expect.stringContaining('Line out of range')]));
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
