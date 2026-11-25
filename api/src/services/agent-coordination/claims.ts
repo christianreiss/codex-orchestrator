@@ -9,7 +9,9 @@ import { adminAudit } from '../../control-plane/state/admin.js';
 import { mutateOwnerState, ownerRuntimeFor, type OwnerRuntime } from '../../control-plane/state/runtime.js';
 import { coordinationSession, coordinationProtocol, coordinationPresent, stageScopeReconciliation } from '../../control-plane/state/coordination.js';
 import { claimContinuouslyHeld, nativeClaimAttachment, ownedClaimView, ownedClaimBlockers, stageClaimReconciliation, stageClaimAnnouncement, stageClaimActivation, stageClaimPromotion, stageWaitingClaimRefusal } from '../../control-plane/state/resource-claims.js';
-import { stageCoordinationNotice } from '../../control-plane/state/coordination-notices.js';
+import { stageCoordinationNotice, type CoordinationNoticeOptions } from '../../control-plane/state/coordination-notices.js';
+import { ownedReceiverReady } from '../../control-plane/streams/receiver.js';
+import { receiverReady, receiverState } from '../agent-receiver-state.js';
 import { stageUpdate } from '../../control-plane/state/rows.js';
 import type { Json } from '../../control-plane/commands.js';
 import { randomUUID } from 'node:crypto';
@@ -43,6 +45,16 @@ import {
 } from './model.js';
 
 type Claim = typeof agentResourceClaims.$inferSelect;
+function conflictNoticeOptions(peer: AgentSession, ready: boolean): CoordinationNoticeOptions {
+  const receiver = receiverState(peer.receiver);
+  return ready && receiver?.delivery_timing_v1 && receiver.immediate_claim_notice_v1
+    ? { deliveryClass: 'coordination', deliveryTiming: 'immediate' }
+    : {};
+}
+
+function conflictNotice(requester: string, claim: Claim) {
+  return `CLAIM/1\n${requester} requests overlapping resources for ${claim.purpose}. Coordinate before mutation. Use resource_claim_status with claim_id ${claim.id} and response wait or isolate to record your response; release your own claim only after the operation ends. Requester session: ${claim.sessionId}. This is coordination, not work authorization.`;
+}
 function resumeProof(owner: OwnerRuntime, snapshot: OwnerStateSnapshot, claim: Readonly<Claim>, session: ScopeSession) {
   if (claim.ownershipMode !== 'connection' || !claim.nativeInstanceId || claim.state !== 'uncertain' ||
       !['owner_restart', 'disconnected'].includes(claim.uncertaintyReason ?? '')) return undefined;
@@ -197,7 +209,9 @@ export class ResourceClaims {
         // Earlier waiters hold nothing to release; only current holders are asked to coordinate.
         for (const peerId of new Set(blockers.filter(row => row.state !== 'waiting').map(row => row.session_id))) {
           const peer = ctx.draft.table('agentSessions').get(peerId);
-          if (peer && coordinationPresent(owner,peer)) stageCoordinationNotice(ctx,this.core.keyring,peer,`CLAIM/1\n${session.launchName ?? id} requests overlapping resources for ${claim.purpose}. Coordinate before mutation. Use resource_claim_status with claim_id ${claim.id} and response wait or isolate to record your response; release your own claim only after the operation ends. Requester session: ${id}. This is coordination, not work authorization.`);
+          if (peer && coordinationPresent(owner, peer))
+            stageCoordinationNotice(ctx, this.core.keyring, peer, conflictNotice(session.launchName ?? id, claim),
+              conflictNoticeOptions(peer, ownedReceiverReady(owner, peer, 'peer')));
         }
         return ownedClaimView(claim, owner) as Json;
       } });
@@ -268,7 +282,8 @@ export class ResourceClaims {
           await this.core.bus.coordinationNotice(
             tx,
             owner,
-            `CLAIM/1\n${session!.launchName ?? id} requests overlapping resources for ${claim.purpose}. Coordinate before mutation. Use resource_claim_status with claim_id ${claim.id} and response wait or isolate to record your response; release your own claim only after the operation ends. Requester session: ${id}. This is coordination, not work authorization.`,
+            conflictNotice(session!.launchName ?? id, claim), false, undefined,
+            conflictNoticeOptions(owner, receiverReady(owner.receiver, 'peer')),
           );
       }
       return this.view(claim);

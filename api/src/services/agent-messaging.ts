@@ -15,7 +15,7 @@ import { claimOwnedDelivery } from './agent-messaging/owned-claim.js';
 import { replyOwnedMessage, TASK_RESULT_CLAIM_REQUIRED, TASK_RESULT_NOT_WORK } from './agent-messaging/owned-reply.js';
 import { getOwnedMessage, peekOwnedMailbox, waitOwnedMessages } from './agent-messaging/owned-read.js';
 import { maintainOwnedMessaging } from './agent-messaging/owned-maintenance.js';
-import { stageCoordinationNotice } from '../control-plane/state/coordination-notices.js';
+import { stageCoordinationNotice, type CoordinationNoticeOptions } from '../control-plane/state/coordination-notices.js';
 import type { OwnerMutationContext } from '../control-plane/state/runtime.js';
 import type { StateRow } from '../control-plane/state/catalog.js';
 import { isEngine } from '../util/engine.js';
@@ -862,7 +862,8 @@ export class AgentMessagingService {
     }
     normalizeUuid(claimId, 'claim_id');
     if (await idleSessionPoll(this.db, sessionId, this.env, { bridgeToken, receiverGeneration })) return null;
-    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver), immediateOnly, receiverState(authenticated.session.receiver)?.delivery_timing_v1 === true);
+    const receiver = receiverState(authenticated.session.receiver);
+    return await this.claimDelivery([addressId], `session:${sessionId}`, claimId, null, false, receiverGeneration, informationalOnly, smartQueueAllowed(this.env, authenticated.host.id, authenticated.session.receiver), peerBatchAllowed(this.env, authenticated.session.receiver), immediateOnly, receiver?.delivery_timing_v1 === true, receiver?.immediate_claim_notice_v1 === true);
   }
 
   /**
@@ -1545,6 +1546,7 @@ export class AgentMessagingService {
     peerBatch = false,
     immediateOnly = false,
     deliveryTimingEnabled = false,
+    immediateClaimNotice = false,
   ): Promise<MessageDelivery | null> {
     informationalOnly ||= immediateOnly;
     if (immediateOnly && !deliveryTimingEnabled) throw new ConflictError('Receiver does not support immediate delivery', 'delivery_timing_unsupported');
@@ -1599,7 +1601,8 @@ export class AgentMessagingService {
         .limit(1)
         .for('update');
       if (replayRows[0]) {
-        if (immediateOnly && !isImmediateInformation(replayRows[0])) return null;
+        if (immediateOnly && !isImmediateInformation(replayRows[0],
+          immediateClaimNotice && replayRows[0].targetSessionId === claimingSessionId)) return null;
         if (replayRows[0].deliveryTiming === 'immediate' && !deliveryTimingEnabled) return null;
         if (informationalOnly && (replayRows[0].workKind || ['request', 'task', 'schedule'].includes(replayRows[0].kind))) return null;
         const target = await this.requireAddressLocked(tx, replayRows[0].targetAddressId);
@@ -1656,7 +1659,11 @@ export class AgentMessagingService {
             WHERE active_immediate.target_address_id = ${agentBusMessages.targetAddressId}
               AND active_immediate.id <> ${agentBusMessages.id}
               AND active_immediate.delivery_timing = 'immediate'
-              AND active_immediate.work_kind IS NULL AND active_immediate.kind IN ('message','reply','publication')
+              AND active_immediate.work_kind IS NULL
+              AND (active_immediate.kind IN ('message','reply','publication') OR
+                   (${immediateClaimNotice ? 1 : 0} = 1 AND active_immediate.kind = 'presence_notice'
+                    AND active_immediate.delivery_class = 'coordination'
+                    AND active_immediate.target_session_id = ${claimingSessionId}))
               AND (active_immediate.status IN ('leased','accepted','reboot_hold') OR
                 (active_immediate.status = 'queued' AND active_immediate.expires_at > ${now}
                   AND ${smartQueue ? sql`(
@@ -1684,7 +1691,15 @@ export class AgentMessagingService {
                )
           )` : strictFifoDeliveryReady(now, deliveryTimingEnabled),
           ...(deliveryTimingEnabled ? [] : [eq(agentBusMessages.deliveryTiming, 'after_turn')]),
-          ...(immediateOnly ? [eq(agentBusMessages.deliveryTiming, 'immediate'), isNull(agentBusMessages.workKind), inArray(agentBusMessages.kind, ['message','reply','publication']), sql`(${agentBusMessages.relatedWorkId} IS NULL OR EXISTS (SELECT 1 FROM agent_bus_messages related_work WHERE related_work.id = ${agentBusMessages.relatedWorkId} AND related_work.accepted_at IS NOT NULL))`] : []),
+          ...(immediateOnly ? [
+            eq(agentBusMessages.deliveryTiming, 'immediate'), isNull(agentBusMessages.workKind),
+            or(inArray(agentBusMessages.kind, ['message', 'reply', 'publication']),
+              immediateClaimNotice && claimingSessionId ? and(
+                eq(agentBusMessages.kind, 'presence_notice'), eq(agentBusMessages.deliveryClass, 'coordination'),
+                eq(agentBusMessages.targetSessionId, claimingSessionId),
+              ) : undefined),
+            sql`(${agentBusMessages.relatedWorkId} IS NULL OR EXISTS (SELECT 1 FROM agent_bus_messages related_work WHERE related_work.id = ${agentBusMessages.relatedWorkId} AND related_work.accepted_at IS NOT NULL))`,
+          ] : []),
           ...(!smartQueue ? [sql`${agentBusMessages.kind} <> 'digest'`] : []),
           ...(informationalOnly ? [sql`${agentBusMessages.workKind} IS NULL AND ${agentBusMessages.kind} NOT IN ('request','task','schedule')`] : []),
         ))
@@ -2455,11 +2470,11 @@ export class AgentMessagingService {
     return { address, session };
   }
 
-  coordinationNoticeOwned(ctx: OwnerMutationContext, session: StateRow<'agentSessions'>, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number; expiresAt?: string } = {}): string | undefined {
+  coordinationNoticeOwned(ctx: OwnerMutationContext, session: StateRow<'agentSessions'>, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: Omit<CoordinationNoticeOptions, 'roomQuestion' | 'clientMessageId'> = {}): string | undefined {
     return stageCoordinationNotice(ctx, this.keyring, session, content, { roomQuestion, clientMessageId, ...noticeOptions });
   }
 
-  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: { deliveryClass?: 'notice' | 'coordination'; ttlSeconds?: number; expiresAt?: string } = {}): Promise<string | undefined> {
+  async coordinationNotice(tx: AgentMessagingDb, session: AgentSession, content: string, roomQuestion = false, clientMessageId?: string, noticeOptions: Omit<CoordinationNoticeOptions, 'roomQuestion' | 'clientMessageId'> = {}): Promise<string | undefined> {
     assertHeadlessPrompt(session.engine, content);
     if (!session.agentBusAddressId || session.endedAt) return;
     const target = await this.requireAddressLocked(tx, session.agentBusAddressId);
@@ -2472,6 +2487,7 @@ export class AgentMessagingService {
     await tx.insert(agentBusMessages).values({
       ...newQueuedMessage({ id: messageId, conversationId, sequence: 1, sender, senderSessionId: null, target,
         kind: roomQuestion ? 'message' : 'presence_notice', deliveryClass: roomQuestion ? 'coordination' : noticeOptions.deliveryClass ?? 'notice', content, contentEnc: encrypt(content, this.keyring),
+        deliveryTiming: noticeOptions.deliveryTiming,
         clientMessageId: clientMessageId ?? randomUUID(), expiresAt: noticeOptions.expiresAt ?? new Date(Date.now() + (noticeOptions.ttlSeconds ?? 86400) * 1000).toISOString(), now }),
       targetSessionId: session.id,
       targetBindingGeneration: target.bindingGeneration,

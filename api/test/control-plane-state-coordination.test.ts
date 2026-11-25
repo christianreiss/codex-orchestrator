@@ -210,15 +210,30 @@ function setup(beforeCommit: () => Promise<void> = async () => {}, peerCount = 0
   return { owner, state, select, fake, db, service, sessionId, token, instance, presence, attach, live, peers };
 }
 describe('connection-owned coordination claims', () => {
-  it('reserves shared lab VMs across unrelated workspaces and identifies the conflicting owner', async () => {
+  it.each([
+    { capability: true, attached: true, timing: 'immediate' },
+    { capability: false, attached: true, timing: 'after_turn' },
+    { capability: true, attached: false, timing: 'after_turn' },
+  ])('notifies a conflicting lab VM owner with $timing (capability $capability, attached $attached)', async ({ capability, attached, timing }) => {
     const h = setup(undefined, 1), peer = h.peers[0]!;
     await h.service.update(h.sessionId, h.token, {
       workspace: { cwd: '/repo/audit', git_status: 'repository', git_root: '/repo/audit', git_common_dir: '/repo/audit/.git' },
     });
     // This peer has no workspace metadata and cannot match the audit project.
     const draft = h.state.begin(), revision = h.state.revision();
-    draft.upsert('agentSessions', { ...draft.table('agentSessions').get(peer.id)!, cwd: '/tmp/foreign-worktree', workspace: null });
+    const generation = randomUUID();
+    draft.upsert('agentSessions', {
+      ...draft.table('agentSessions').get(peer.id)!, cwd: '/tmp/foreign-worktree', workspace: null,
+      receiver: {
+        generation, heartbeat_at: '2025-01-01T00:00:00.000Z', probes: { peer: {} },
+        delivery_timing_v1: true, immediate_claim_notice_v1: capability,
+      },
+    });
     h.state.publish(draft.seal({ ...revision, sequence: revision.sequence + 1n }));
+    if (attached) h.presence.attach({
+      connectionId: randomUUID(), hostId: 1, username: 'root',
+      scope: { topic: 'receiver', session_id: peer.id, binding_generation: 1, receiver_generation: generation },
+    });
     const resources = [{ kind: 'remote', fqdn: 'LAB.EXAMPLE.ORG.', service: 'vm:cm-debian12' }];
     const owned = await h.service.claims.acquire(peer.id, peer.token, {
       client_request_id: randomUUID(), purpose: 'VM acceptance tests', resources,
@@ -233,12 +248,14 @@ describe('connection-owned coordination claims', () => {
       { id: owned.id, owner_address: `agent:${peer.addressId}`, owner_name: peer.name },
     ] });
     const notices = h.fake.inserts.filter((row) => row.table === schema.agentBusMessages)
-      .map((row) => row.values as { targetSessionId: string; contentEnc: string })
-      .filter((row) => row.targetSessionId === peer.id)
-      .map((row) => decrypt(row.contentEnc, testKeyring()));
-    expect(notices.filter((content) => content.startsWith('CLAIM/1\n'))).toEqual([
-      expect.stringContaining(waiting.id),
-    ]);
+      .map((row) => row.values as schema.AgentBusMessage)
+      .filter((row) => row.targetSessionId === peer.id &&
+        decrypt(row.contentEnc, testKeyring()).startsWith('CLAIM/1\n'));
+    expect(notices).toMatchObject([{
+      kind: 'presence_notice', deliveryClass: timing === 'immediate' ? 'coordination' : 'notice',
+      deliveryTiming: timing,
+    }]);
+    expect(decrypt(notices[0]!.contentEnc, testKeyring())).toContain(waiting.id);
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 121_000);
     try {
       expect(await h.service.claims.status(h.sessionId, h.token, { claim_id: waiting.id }))

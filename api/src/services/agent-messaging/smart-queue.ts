@@ -440,8 +440,13 @@ export async function presentDigest(tx: AgentMessagingDb, root: AgentBusMessage,
 }
 
 /** Immediate delivery cannot admit work or presentation aggregates in parallel. */
-export function isImmediateInformation(row: Pick<AgentBusMessage, 'kind' | 'workKind' | 'deliveryTiming'>): boolean {
-  return row.deliveryTiming === 'immediate' && !row.workKind && ['message', 'reply', 'publication'].includes(row.kind);
+export function isImmediateInformation(
+  row: Pick<AgentBusMessage, 'kind' | 'workKind' | 'deliveryTiming' | 'deliveryClass'>,
+  immediateClaimNotice = false,
+): boolean {
+  return row.deliveryTiming === 'immediate' && !row.workKind &&
+    (['message', 'reply', 'publication'].includes(row.kind) ||
+      (immediateClaimNotice && row.kind === 'presence_notice' && row.deliveryClass === 'coordination'));
 }
 
 /** Effective timing is current eligibility policy, never proof of native acceptance. */

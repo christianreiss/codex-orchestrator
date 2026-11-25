@@ -1,6 +1,6 @@
 /** Full-content presentation, never semantic coalescing or work acceptance. */
 import { randomUUID } from 'node:crypto';
-import { and, asc, count, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, gt, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { agentBusConversations, agentBusMessages, type AgentBusAddress, type AgentBusMessage } from '../../db/schema.js';
 import { decrypt, encrypt } from '../../security/secret-box.js';
 import { nowIso } from '../../util/timestamp.js';
@@ -15,12 +15,13 @@ export const PEER_BATCH_STALE_MS = 60_000;
 /** Only an ordinary negotiated drain may present old immediate information in
  * a batch. Fresh/causal immediate delivery keeps its independent active lane. */
 export function peerBatchTimingEligible(
-  row: Pick<AgentBusMessage, 'deliveryTiming' | 'createdAt' | 'relatedWorkId'>,
+  row: Pick<AgentBusMessage, 'kind' | 'deliveryTiming' | 'createdAt' | 'relatedWorkId'>,
   includeStaleImmediate = false,
   now = Date.now(),
 ): boolean {
   return (row.deliveryTiming ?? 'after_turn') === 'after_turn' ||
-    (includeStaleImmediate && row.deliveryTiming === 'immediate' && !row.relatedWorkId &&
+    (includeStaleImmediate && row.kind !== 'presence_notice' &&
+      row.deliveryTiming === 'immediate' && !row.relatedWorkId &&
       Date.parse(row.createdAt) <= now - PEER_BATCH_STALE_MS);
 }
 
@@ -55,7 +56,7 @@ export async function preparePeerBatch(tx: AgentMessagingDb, target: AgentBusAdd
     eq(agentBusMessages.status, 'queued'),
     or(eq(agentBusMessages.deliveryTiming, 'after_turn'), includeStaleImmediate ? and(
       eq(agentBusMessages.deliveryTiming, 'immediate'), oldEnough,
-      isNull(agentBusMessages.relatedWorkId),
+      isNull(agentBusMessages.relatedWorkId), ne(agentBusMessages.kind, 'presence_notice'),
     ) : undefined),
     eq(agentBusMessages.attempts, 0),
     isNull(agentBusMessages.workKind),

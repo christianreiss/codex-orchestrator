@@ -120,8 +120,10 @@ still fan out (to active members except its sender, with a current member snapsh
 and cursors for omitted history/members); the dispatcher drains such leftovers and
 nothing new. Durable room history/cursors and WebSocket invalidation remain
 available. Delivery remains at-least-once; use event UUIDs/cursors to deduplicate.
-Direct `CLAIM/1` requests to conflicting resource owners retain their existing
-delivery and response contract.
+Direct `CLAIM/1` requests to conflicting resource owners can arrive during a turn
+when the receiver advertises `immediate_claim_notice_v1` and is ready for immediate
+peer delivery. Other receivers get the notice after the turn. Answer using
+`resource_claim_status`.
 
 Before presenting queued mail, bounded scans retire only provably routine,
 never-attempted server notices. This includes complete presence/claim-only scope

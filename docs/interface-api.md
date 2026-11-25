@@ -3827,6 +3827,10 @@ Waiting claims queue in arrival order: earlier overlapping waiters appear in
 reconciliation grant waiters server-side in that order. The claimant receives one
 non-waking `CLAIM/1` notice when its waiting claim becomes active, or when an
 operator releases it while it is still waiting.
+Conflict notices to the current owner use immediate delivery with a ready peer
+receiver advertising `immediate_claim_notice_v1`. Other receivers get them
+after the turn. Conflicts are bound to the recipient session and answered with
+`resource_claim_status`.
 
 Native engine children may share this authenticated launch binding; distinct child
 transcripts/worktrees do not provide independent identity. Parent coordination owns

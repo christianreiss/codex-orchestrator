@@ -60,6 +60,10 @@ export function ownedClaimCandidates(
   now = new Date().toISOString(),
 ): OwnedMessage[] {
   const sessionId = options.relayGeneration === null ? options.leaseOwner.slice(8) : null;
+  const claimNotice = sessionId !== null &&
+    receiverState(snapshot.sessions.get(sessionId)?.receiver)?.immediate_claim_notice_v1 === true;
+  const immediate = (row: OwnedMessage) =>
+    isImmediateInformation(row, claimNotice && row.targetSessionId === sessionId);
   const relevant = options.targetAddressIds.flatMap((id) => snapshot.messages.by('targetAddressId', id)).filter(row=>row.status!=='queued' || connectorMessageAllowed(snapshot,row.id,row.connectorGrantId));
   const live = relevant.filter((row) => (row.status !== 'queued' || row.deliveryTiming !== 'immediate' || options.deliveryTimingEnabled === true) && (
     ['accepted', 'reboot_hold'].includes(row.status) ||
@@ -76,7 +80,7 @@ export function ownedClaimCandidates(
       if (options.explicitMessageId && (row.id !== options.explicitMessageId ||
           !['request', 'task'].includes(row.kind) || row.cancelRequestedAt)) return false;
       if ((row.deliveryTiming === 'immediate' && options.deliveryTimingEnabled !== true) ||
-          (options.immediateOnly && !isImmediateInformation(row))) return false;
+          (options.immediateOnly && !immediate(row))) return false;
       if ((!options.smartQueue && row.kind === 'digest') || (options.informationalOnly && isWork(row)))
         return false;
       if (
@@ -92,7 +96,7 @@ export function ownedClaimCandidates(
       if (options.immediateOnly && row.relatedWorkId &&
           !snapshot.messages.get(row.relatedWorkId)?.acceptedAt) return false;
       if (options.immediateOnly) return !peers.some(other => {
-        if (!isImmediateInformation(other)) return false;
+        if (!immediate(other)) return false;
         if (inFlight(other)) return true;
         if (!options.smartQueue) return other.dispatchOrder < row.dispatchOrder;
         return row.deliveryClass === 'coordination'
@@ -282,7 +286,10 @@ export async function claimOwnedDelivery(
         if (options.explicitMessageId && (existing.id !== options.explicitMessageId ||
             !['request', 'task'].includes(existing.kind) || existing.cancelRequestedAt))
           throw new ConflictError('Claim belongs to another message', 'agent_messaging_lease_lost');
-        if (options.immediateOnly && !isImmediateInformation(existing)) return null;
+        if (options.immediateOnly && !isImmediateInformation(existing,
+          existing.targetSessionId === options.leaseOwner.slice(8) &&
+          receiverState(snapshot.sessions.get(existing.targetSessionId)?.receiver)?.immediate_claim_notice_v1 === true))
+          return null;
         if (options.informationalOnly && isWork(existing)) return null;
         assertOwnedDelivery(snapshot, existing, options.claimId, options.leaseOwner, options.relayGeneration);
         deliveryAttachment(runtime, snapshot, options.leaseOwner, existing.ownerInstanceId);

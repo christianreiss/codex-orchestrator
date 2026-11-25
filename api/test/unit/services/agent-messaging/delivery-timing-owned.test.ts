@@ -160,6 +160,7 @@ function fixture(engine: string, count = 2) {
   const claim = (claimId = randomUUID(), overrides: Partial<OwnedClaimOptions> = {}) =>
     claimOwnedDelivery(db as never, runtime, keyring, { ...options, ...overrides, claimId });
   return {
+    sessionId,
     state,
     runtime,
     db,
@@ -275,8 +276,38 @@ describe.each(['codex', 'claude', 'grok', 'kimi'])('%s explicit work acceptance'
 
 it.each([59_999, 60_000, 60_001])('uses the exact stale threshold at %i milliseconds', age => {
   const now = Date.parse('2026-11-02T13:00:00Z');
-  expect(peerBatchTimingEligible({ deliveryTiming: 'immediate', relatedWorkId: null,
+  expect(peerBatchTimingEligible({ kind: 'message', deliveryTiming: 'immediate', relatedWorkId: null,
     createdAt: new Date(now - age).toISOString() }, true, now)).toBe(age >= 60_000);
+});
+
+it.each([
+  { capable: true, sameSession: true },
+  { capable: false, sameSession: true },
+  { capable: true, sameSession: false },
+])('requires the specific cap and target session for immediate claim notices (%j)', async ({ capable, sameSession }) => {
+  const f = fixture('claude', 1);
+  try {
+    const draft = f.state.begin();
+    const session = draft.table('agentSessions').get(f.sessionId)!;
+    const notice = {
+      ...draft.table('agentBusMessages').get(f.messages[0]!.id)!,
+      kind: 'presence_notice' as const, deliveryClass: 'coordination' as const,
+      targetSessionId: sameSession ? f.sessionId : randomUUID(),
+      targetBindingGeneration: 1, createdAt: '2025-01-01T00:00:00.000Z',
+    };
+    draft.upsert('agentSessions', {
+      ...session, receiver: { ...session.receiver as object, immediate_claim_notice_v1: capable },
+    });
+    draft.upsert('agentBusMessages', notice);
+    f.state.publish(draft.seal({ ...f.state.revision(), sequence: f.state.revision().sequence + 1n }));
+    expect(peerBatchTimingEligible(notice, true)).toBe(false);
+    const result = await f.claim();
+    if (capable && sameSession) {
+      expect(result).toMatchObject({ message_id: notice.id, kind: 'presence_notice', delivery_timing: 'immediate' });
+    } else {
+      expect(result).toBeNull();
+    }
+  } finally { await f.close(); }
 });
 
 it('lets a Claude turn the owner still sees as busy take immediate information through an ordinary claim', async () => {

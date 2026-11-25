@@ -766,6 +766,26 @@ func TestNativePresenceNoticeFinishesWithoutReply(t *testing.T) {
 	}
 }
 
+func TestNativeClaimConflictNoticeUsesImmediateDelivery(t *testing.T) {
+	delivery := map[string]any{
+		"message_id": "claim-conflict", "kind": "presence_notice", "content": "CLAIM/1\nConflict",
+		"delivery_class": "coordination", "delivery_timing": "immediate",
+	}
+	if !immediateInformation(delivery) {
+		t.Fatal("the conflict notice must be admitted as immediate information")
+	}
+	prompt := nativePeerPrompt(delivery)
+	for _, required := range []string{"resource_claim_status", "Do not send a peer reply", "natural turn boundary"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("claim conflict notice missing %q: %s", required, prompt)
+		}
+	}
+	delivery["delivery_class"] = "notice"
+	if immediateInformation(delivery) {
+		t.Fatal("ordinary presence notices must keep their turn-boundary delivery")
+	}
+}
+
 func TestPortalStatusIsExplicitOwnedIdempotentAndDoesNotReleaseDelivery(t *testing.T) {
 	for _, engine := range []string{"codex", "claude", "grok", "kimi"} {
 		t.Run(engine, func(t *testing.T) {

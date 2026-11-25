@@ -25,12 +25,16 @@ export interface ReceiverState {
   activity_v1?: boolean;
   queue_delivery_v1?: boolean;
   delivery_timing_v1?: boolean;
+  immediate_claim_notice_v1?: boolean;
   peer_batch_v1?: boolean;
   claim_gate_v1?: boolean;
   claim_gate?: ReceiverClaimGate & { observed_at: string };
   probes: Partial<Record<ReceiverSource, ReceiverSourceState>>;
 }
 export const RECEIVER_FRESH_MS = 45_000;
+
+export type ReceiverDeliveryCapabilities = Pick<ReceiverState,
+  'delivery_timing_v1' | 'immediate_claim_notice_v1' | 'queue_delivery_v1' | 'peer_batch_v1' | 'claim_gate_v1'>;
 
 export function receiverState(raw: unknown): ReceiverState | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -79,6 +83,7 @@ export function receiverView(raw: unknown, now = Date.now()) {
     failure: s.failure,
     queue_delivery_v1: s.queue_delivery_v1 === true,
     delivery_timing_v1: s.delivery_timing_v1 === true,
+    immediate_claim_notice_v1: s.immediate_claim_notice_v1 === true,
     peer_batch_v1: s.peer_batch_v1 === true,
     claim_gate_v1: s.claim_gate_v1 === true,
     ...(showGate ? {

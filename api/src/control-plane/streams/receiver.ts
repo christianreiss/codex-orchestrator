@@ -10,6 +10,7 @@ import {
   type ReceiverSource,
   type ReceiverState,
   type ReceiverClaimGate,
+  type ReceiverDeliveryCapabilities,
 } from '../../services/agent-receiver-state.js';
 import { smartQueueAllowed, peerBatchAllowed } from '../../services/agent-messaging/smart-queue.js';
 import { activeHostEngines } from '../../services/host-engine-policy.js';
@@ -178,6 +179,7 @@ function response(runtime: OwnerRuntime, id: string) {
       queue_delivery_v1: state.queue_delivery_v1 === true,
       peer_batch_v1: state.peer_batch_v1 === true,
       delivery_timing_v1: state.delivery_timing_v1 === true, claim_gate_v1: state.claim_gate_v1 === true,
+      immediate_claim_notice_v1: state.immediate_claim_notice_v1 === true,
     },
     binding_generation: session.bindingGeneration,
     identity,
@@ -192,7 +194,7 @@ export async function registerOwnedReceiver(
     generation: string;
     protocol: ReceiverState['protocol'];
     native_session_id: string;
-    capabilities?: { delivery_timing_v1?: boolean; queue_delivery_v1?: boolean; peer_batch_v1?: boolean; claim_gate_v1?: boolean };
+    capabilities?: ReceiverDeliveryCapabilities;
   },
 ) {
   const drain = legacyDrainFor(runtime),
@@ -263,6 +265,7 @@ export async function registerOwnedReceiver(
         queue_delivery_v1: smartQueueAllowed(env, session.hostId, input.capabilities),
         claim_gate_v1: input.capabilities?.claim_gate_v1 === true,
         delivery_timing_v1: input.capabilities?.delivery_timing_v1 === true,
+        immediate_claim_notice_v1: input.capabilities?.immediate_claim_notice_v1 === true,
         heartbeat_at: now,
         failure: null,
         probes: Object.fromEntries(sources.map((source) => [source, {}])),

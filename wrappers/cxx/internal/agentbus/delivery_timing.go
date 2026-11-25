@@ -55,6 +55,8 @@ func immediateInformation(d map[string]any) bool {
 	switch stringArg(d, "kind") {
 	case "message", "reply", "publication":
 		return true
+	case "presence_notice":
+		return stringArg(d, "delivery_class") == "coordination"
 	}
 	return false
 }

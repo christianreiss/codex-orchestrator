@@ -24,6 +24,7 @@ import {
   type ReceiverSource,
   type ReceiverState,
   type ReceiverClaimGate,
+  type ReceiverDeliveryCapabilities,
 } from './agent-receiver-state.js';
 
 /** One connection owns reception across both queues; its health never survives a reconnect. */
@@ -69,7 +70,7 @@ export class AgentReceiverService {
   async register(
     id: string,
     token: string,
-    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: { delivery_timing_v1?: boolean; queue_delivery_v1?: boolean; peer_batch_v1?: boolean; claim_gate_v1?: boolean } },
+    input: { generation: string; protocol: ReceiverState['protocol']; native_session_id: string; capabilities?: ReceiverDeliveryCapabilities },
   ) {
     const owner=ownerRuntimeFor(this.db);if(owner){const result=await registerOwnedReceiver(owner,this.env,id,token,input);this.changed(id);return result;}
     const auth = await this.authenticate(id, token);
@@ -102,6 +103,7 @@ export class AgentReceiverService {
         queue_delivery_v1: smartQueueAllowed(this.env, auth.hostId, input.capabilities),
         claim_gate_v1: input.capabilities?.claim_gate_v1 === true,
         delivery_timing_v1: input.capabilities?.delivery_timing_v1 === true,
+        immediate_claim_notice_v1: input.capabilities?.immediate_claim_notice_v1 === true,
         heartbeat_at: now,
         failure: null,
         probes: Object.fromEntries(sources.map((source) => [source, {}])),
@@ -144,7 +146,7 @@ export class AgentReceiverService {
       binding_generation: bound.bindingGeneration,
     } : null;
     return { receiver: receiverView(state), sources: Object.keys(state.probes) as ReceiverSource[],
-      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true, peer_batch_v1: state.peer_batch_v1 === true, delivery_timing_v1: state.delivery_timing_v1 === true, claim_gate_v1: state.claim_gate_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
+      capabilities: { activity_v1: state.activity_v1 === true, queue_policy_v1: true, queue_delivery_v1: state.queue_delivery_v1 === true, peer_batch_v1: state.peer_batch_v1 === true, delivery_timing_v1: state.delivery_timing_v1 === true, immediate_claim_notice_v1: state.immediate_claim_notice_v1 === true, claim_gate_v1: state.claim_gate_v1 === true }, binding_generation: bound?.bindingGeneration ?? 0, identity };
   }
 
   async update(

@@ -10,19 +10,22 @@ import type { OwnerMutationContext } from './runtime.js';
 import { ownedAddress } from './messaging.js';
 import { stageQueuedMessage, stageServerAddress } from './messages.js';
 
+export interface CoordinationNoticeOptions {
+  roomQuestion?: boolean;
+  expiresAt?: string;
+  clientMessageId?: string;
+  deliveryClass?: 'notice' | 'coordination';
+  deliveryTiming?: 'immediate' | 'after_turn';
+  ttlSeconds?: number;
+}
+
 /** Stage the exact notice and its delivery binding with the caller's mutation. */
 export function stageCoordinationNotice(
   ctx: OwnerMutationContext,
   keyring: Keyring,
   session: StateRow<'agentSessions'>,
   content: string,
-  options: {
-    roomQuestion?: boolean;
-    expiresAt?: string;
-    clientMessageId?: string;
-    deliveryClass?: 'notice' | 'coordination';
-    ttlSeconds?: number;
-  } = {},
+  options: CoordinationNoticeOptions = {},
 ): string | undefined {
   assertHeadlessPrompt(session.engine, content);
   if (!session.agentBusAddressId || session.endedAt) return;
@@ -69,6 +72,7 @@ export function stageCoordinationNotice(
       target,
       kind: options.roomQuestion ? 'message' : 'presence_notice',
       deliveryClass: options.roomQuestion ? 'coordination' : (options.deliveryClass ?? 'notice'),
+      deliveryTiming: options.deliveryTiming,
       content,
       contentEnc: encrypt(content, keyring),
       clientMessageId: options.clientMessageId ?? randomUUID(),

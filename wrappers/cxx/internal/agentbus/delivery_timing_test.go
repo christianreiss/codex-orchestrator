@@ -412,6 +412,9 @@ func TestBusyReceiverClaimsOnlyImmediateAndPreservesWork(t *testing.T) {
 			if caps["delivery_timing_v1"] != true {
 				t.Error("native proven capability not advertised")
 			}
+			if caps["immediate_claim_notice_v1"] != true {
+				t.Error("immediate claim notice capability not advertised")
+			}
 			body = `{"sources":["peer"],"capabilities":{"delivery_timing_v1":true,"queue_delivery_v1":true}}`
 		case strings.HasSuffix(req.URL.Path, "/receiver/claim"):
 			claims.Add(1)
